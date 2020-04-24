@@ -12,6 +12,8 @@ project:
 
 - [Promote seccomp to GA][1]
 - [Add ConfigMap support for seccomp custom profiles][2]
+- [Add KEP to create seccomp built-in profiles and add complain mode][3]
 
 [1]: https://github.com/kubernetes/enhancements/pull/1148
 [2]: https://github.com/kubernetes/enhancements/pull/1269
+[3]: https://github.com/kubernetes/enhancements/pull/1257
