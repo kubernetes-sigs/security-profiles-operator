@@ -43,7 +43,7 @@ const (
 
 // SeccompProfileAnnotation is the annotation on a ConfigMap that specifies its
 // intention to be treated as a seccomp profile.
-const SeccompProfileAnnotation = "seccomp.security.alpha.kubernetes.io/profile"
+const SeccompProfileAnnotation = "seccomp.security.kubernetes.io/profile"
 
 // isProfile checks if a ConfigMap has been designated as a seccomp profile.
 func isProfile(obj runtime.Object) bool {

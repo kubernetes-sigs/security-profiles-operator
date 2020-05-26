@@ -20,7 +20,6 @@ import (
 	"os"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -29,7 +28,6 @@ import (
 
 var (
 	sync     = time.Second * 30
-	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 )
 
