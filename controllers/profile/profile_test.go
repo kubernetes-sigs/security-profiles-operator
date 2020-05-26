@@ -20,8 +20,8 @@ import (
 	"testing"
 
 	"github.com/crossplane/crossplane-runtime/pkg/test"
-	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,9 +56,7 @@ func TestIsProfile(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := isProfile(tc.obj)
-			if got != tc.want {
-				t.Errorf("isProfile(...): got %v, want %v", got, tc.want)
-			}
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -115,14 +113,10 @@ func TestReconcile(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			gotResult, gotErr := tc.rec.Reconcile(tc.req)
-
-			if diff := cmp.Diff(tc.wantErr, gotErr, test.EquateErrors()); diff != "" {
-				t.Errorf("tc.rec.Reconcile(...): want error != got error:\n%s", diff)
+			if tc.wantErr != nil {
+				require.EqualError(t, gotErr, tc.wantErr.Error())
 			}
-
-			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
-				t.Errorf("tc.rec.Reconcile(...): -want, +got:\n%s", diff)
-			}
+			require.Equal(t, tc.wantResult, gotResult)
 		})
 	}
 }
@@ -149,9 +143,7 @@ func TestIgnoreNotFound(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := ignoreNotFound(tc.err)
-			if got != tc.want {
-				t.Errorf("ignoreNotFound(...): got %v, want %v", got, tc.want)
-			}
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
