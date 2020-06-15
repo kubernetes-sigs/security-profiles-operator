@@ -1,0 +1,1292 @@
+{
+  "formatVersion": 3,
+  "id": "root",
+  "ideas": {
+    "1": {
+      "title": "SECCOMP GA",
+      "id": 1,
+      "attr": {
+        "position": [
+          -703,
+          -1055,
+          1
+        ],
+        "style": {
+          "width": 126,
+          "backgroundColor": "#3366FF",
+          "text": {
+            "color": "#FFFFFF"
+          }
+        }
+      },
+      "ideas": {
+        "1": {
+          "title": "built-in profiles",
+          "id": 5,
+          "attr": {
+            "position": [
+              199,
+              -5,
+              55
+            ],
+            "style": {
+              "backgroundColor": "#008000",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          },
+          "ideas": {
+            "1": {
+              "title": "sandbox/pause container",
+              "id": 3,
+              "attr": {
+                "position": [
+                  418,
+                  -327,
+                  7
+                ],
+                "style": {
+                  "backgroundColor": "#FF0000",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                }
+              },
+              "ideas": {
+                "1": {
+                  "title": "fix issue w/ pod/container profiles or just document it?",
+                  "id": 42,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "ideas": {}
+                },
+                "2": {
+                  "title": "use localhost profiles behind the scene?",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "id": 64
+                }
+              }
+            },
+            "2": {
+              "title": "app-specific profiles (native)",
+              "id": 34,
+              "attr": {
+                "position": [
+                  165,
+                  -107,
+                  8
+                ],
+                "style": {
+                  "backgroundColor": "#FFFF99"
+                }
+              },
+              "ideas": {
+                "1": {
+                  "title": "potentially hard to get this agreed to be built-in. easier to move into operator",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "id": 69
+                },
+                "2": {
+                  "title": "debug/trace",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFF99"
+                    }
+                  },
+                  "ideas": {},
+                  "id": 70
+                },
+                "3": {
+                  "title": "web api container",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFF99"
+                    }
+                  },
+                  "ideas": {},
+                  "id": 73
+                },
+                "4": {
+                  "title": "node maintainer (can restart nodes)",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFF99"
+                    }
+                  },
+                  "ideas": {},
+                  "id": 87
+                }
+              }
+            },
+            "3": {
+              "title": "runtime/default",
+              "id": 41,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#008000",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                },
+                "position": [
+                  151,
+                  50,
+                  3
+                ]
+              },
+              "ideas": {}
+            },
+            "4": {
+              "title": "complain mode",
+              "id": 47,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FF0000",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                },
+                "position": [
+                  137,
+                  173,
+                  9
+                ]
+              },
+              "ideas": {
+                "1": {
+                  "title": "runtime/complain-default?",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "ideas": {},
+                  "id": 76
+                },
+                "2": {
+                  "title": "downstream awareness - to ignore when not supported",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "ideas": {},
+                  "id": 123
+                }
+              }
+            }
+          }
+        },
+        "2": {
+          "title": "profiles types",
+          "id": 6,
+          "attr": {
+            "style": {
+              "backgroundColor": "#008000",
+              "text": {
+                "color": "#FFFFFF"
+              },
+              "width": 159
+            },
+            "position": [
+              573,
+              295,
+              50
+            ]
+          },
+          "ideas": {
+            "1": {
+              "title": "ConfigMap",
+              "id": 7,
+              "attr": {
+                "position": [
+                  194,
+                  -150,
+                  6
+                ],
+                "style": {
+                  "backgroundColor": "#FF0000",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                }
+              },
+              "ideas": {
+                "3": {
+                  "title": "Move into operator instead?",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "id": 67,
+                  "ideas": {}
+                },
+                "4": {
+                  "title": "use localhost profiles behind the scene?",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "id": 68
+                }
+              }
+            },
+            "2": {
+              "title": "CRD",
+              "id": 8,
+              "attr": {
+                "style": {
+                  "width": 113,
+                  "backgroundColor": "#FF0000",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                },
+                "position": [
+                  203,
+                  0,
+                  7
+                ]
+              },
+              "ideas": {
+                "1": {
+                  "title": "ConfigMap to CRD for GA?",
+                  "id": 48,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "ideas": {}
+                }
+              }
+            },
+            "4": {
+              "title": "localhost",
+              "id": 32,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#008000",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                },
+                "position": [
+                  174,
+                  115,
+                  5
+                ]
+              },
+              "ideas": {
+                "1": {
+                  "title": "Check error when malformed profiles",
+                  "id": 62,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "5": {
+              "title": "runtime",
+              "attr": {
+                "style": {
+                  "backgroundColor": "#008000",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                }
+              },
+              "ideas": {
+                "1": {
+                  "title": "Potentially keep as it is",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "id": 109
+                }
+              },
+              "id": 108
+            }
+          }
+        },
+        "-17": {
+          "title": "profile to workload mapping",
+          "id": 19,
+          "ideas": {
+            "1": {
+              "title": "namespace level",
+              "id": 25,
+              "attr": {
+                "position": [
+                  131,
+                  -149,
+                  1
+                ],
+                "style": {
+                  "backgroundColor": "#FFFF99"
+                }
+              },
+              "ideas": {
+                "1": {
+                  "title": "Is it worth this becoming a seccomp feature? Easier to have as part of operator?",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "id": 63
+                }
+              }
+            },
+            "2": {
+              "title": "container level",
+              "id": 26,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#008000",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                }
+              },
+              "ideas": {
+                "1": {
+                  "title": "deprecate annotation",
+                  "id": 49,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#3366FF",
+                      "text": {
+                        "color": "#FFFFFF"
+                      }
+                    }
+                  },
+                  "ideas": {}
+                },
+                "2": {
+                  "title": "add API field",
+                  "id": 50,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#3366FF",
+                      "text": {
+                        "color": "#FFFFFF"
+                      }
+                    }
+                  },
+                  "ideas": {}
+                }
+              }
+            },
+            "3": {
+              "title": "pod level",
+              "id": 27,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#008000",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                }
+              },
+              "ideas": {
+                "1": {
+                  "title": "add API field",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#3366FF",
+                      "text": {
+                        "color": "#FFFFFF"
+                      }
+                    }
+                  },
+                  "id": 51
+                },
+                "2": {
+                  "title": "deprecate annotation",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#3366FF",
+                      "text": {
+                        "color": "#FFFFFF"
+                      }
+                    }
+                  },
+                  "id": 52,
+                  "ideas": {}
+                }
+              }
+            }
+          },
+          "attr": {
+            "position": [
+              454,
+              -296,
+              62
+            ],
+            "style": {
+              "backgroundColor": "#008000",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          }
+        },
+        "-27": {
+          "title": "profile transmission from Kubelet to CRI",
+          "id": 10,
+          "ideas": {
+            "1": {
+              "title": "file-based",
+              "id": 30,
+              "attr": {
+                "style": {
+                  "width": 59,
+                  "text": {
+                    "color": "#FFFFFF"
+                  },
+                  "backgroundColor": "#008000"
+                }
+              },
+              "ideas": {
+                "1": {
+                  "title": "relying on localhost implementation",
+                  "id": 36,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "ideas": {}
+                },
+                "2": {
+                  "title": "tamper-resistance",
+                  "id": 37,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFF99"
+                    }
+                  }
+                }
+              }
+            },
+            "2": {
+              "title": "CRI-based",
+              "id": 31,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFF99"
+                }
+              }
+            }
+          },
+          "attr": {
+            "position": [
+              279,
+              -10,
+              59
+            ],
+            "style": {
+              "backgroundColor": "#008000",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          }
+        },
+        "-32": {
+          "title": "Seccomp Enabled by default",
+          "id": 44,
+          "attr": {
+            "style": {
+              "backgroundColor": "#FFFF99",
+              "text": {
+                "color": "#808080"
+              }
+            },
+            "position": [
+              474,
+              156,
+              63
+            ]
+          },
+          "ideas": {
+            "1": {
+              "title": "set \"built-in sandbox profile\" to podsanbox containers",
+              "id": 45,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFFFF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                }
+              }
+            },
+            "2": {
+              "title": "Change default profile to \"runtime/complain-default\"",
+              "id": 46,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFFFF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                }
+              },
+              "ideas": {
+                "1": {
+                  "title": "Workout scenarios. (i.e. golang seccomp lib does not support action type)",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  },
+                  "id": 79
+                }
+              }
+            },
+            "3": {
+              "title": "Move to operator?",
+              "id": 85,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFFFF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "0.5": {
+          "title": "PodSecurityPolicy",
+          "attr": {
+            "style": {
+              "backgroundColor": "#008000",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            },
+            "position": [
+              145,
+              -409,
+              49
+            ]
+          },
+          "id": 104,
+          "ideas": {
+            "2": {
+              "title": "add support to new seccomp fields",
+              "attr": {
+                "style": {
+                  "backgroundColor": "#3366FF",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                }
+              },
+              "ideas": {},
+              "id": 106
+            },
+            "3": {
+              "title": "deprecate annotation",
+              "attr": {
+                "style": {
+                  "backgroundColor": "#3366FF",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                }
+              },
+              "ideas": {},
+              "id": 107
+            }
+          }
+        },
+        "-42": {
+          "title": "documentation",
+          "id": 65,
+          "attr": {
+            "position": [
+              253,
+              293,
+              64
+            ],
+            "style": {
+              "backgroundColor": "#008000",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          },
+          "ideas": {
+            "1": {
+              "title": "review documentation based on changes",
+              "attr": {
+                "style": {
+                  "backgroundColor": "#3366FF",
+                  "text": {
+                    "color": "#FFFFFF"
+                  }
+                },
+                "position": [
+                  212,
+                  43,
+                  1
+                ]
+              },
+              "id": 66
+            }
+          }
+        }
+      }
+    },
+    "2": {
+      "title": "OTHER/FUTURE",
+      "id": 60,
+      "ideas": {
+        "2": {
+          "title": "Windows-Support",
+          "id": 55,
+          "ideas": {
+            "1": {
+              "title": "SetProcessMitigationPolicy could be used for achieving similar outcome",
+              "id": 57,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFFFF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                },
+                "position": [
+                  89,
+                  -126,
+                  2
+                ]
+              },
+              "ideas": {
+                "1": {
+                  "title": "Container Runtimes would need to support this first",
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    },
+                    "position": [
+                      134,
+                      102,
+                      1
+                    ]
+                  },
+                  "id": 75,
+                  "ideas": {}
+                }
+              }
+            },
+            "2": {
+              "title": "Would this be handled under SECCOMP or would be an altogether new feature?",
+              "id": 58,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FF00FF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                },
+                "position": [
+                  84,
+                  76,
+                  1
+                ]
+              },
+              "ideas": {}
+            }
+          },
+          "attr": {
+            "style": {
+              "backgroundColor": "#FF0000",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          }
+        },
+        "12": {
+          "title": "Better way to release Seccomp Profiles (package)",
+          "id": 77,
+          "attr": {
+            "style": {
+              "backgroundColor": "#FF0000",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            },
+            "position": [
+              151,
+              170,
+              1
+            ]
+          },
+          "ideas": {
+            "1": {
+              "title": "System components (kubedns, dashboard, etc)",
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFFFF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                }
+              },
+              "id": 78,
+              "ideas": {}
+            },
+            "2": {
+              "title": "Safe roll-outs (not overwrite existing profiles)",
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFFFF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                }
+              },
+              "id": 111,
+              "ideas": {}
+            },
+            "3": {
+              "title": "Safe roll-outs (not overwrite existing profiles)",
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFFFF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                }
+              },
+              "id": 112
+            }
+          }
+        }
+      },
+      "attr": {
+        "position": [
+          -302,
+          -49,
+          1
+        ]
+      }
+    },
+    "3": {
+      "title": "seccomp-operator",
+      "id": 12,
+      "ideas": {
+        "2": {
+          "title": "metrics",
+          "id": 15,
+          "attr": {
+            "position": [
+              215,
+              -336,
+              51
+            ],
+            "style": {
+              "backgroundColor": "#FFCC00",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          },
+          "ideas": {
+            "1": {
+              "title": "#pods/container created (or running?) per profile type",
+              "ideas": {},
+              "id": 128
+            },
+            "2": {
+              "title": "#pods/container created (or running?)  without seccomp",
+              "ideas": {},
+              "id": 131,
+              "attr": {}
+            },
+            "3": {
+              "title": "errors consolidating seccomp profiles",
+              "id": 144
+            },
+            "4": {
+              "title": "scraping end points",
+              "id": 146,
+              "ideas": {
+                "1": {
+                  "title": "prometheus \"default\" graphs",
+                  "id": 147
+                },
+                "2": {
+                  "title": "How to collect the data?",
+                  "id": 148,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "3": {
+          "title": "test driving profiles",
+          "id": 17,
+          "ideas": {
+            "1": {
+              "title": "apply/rollout changes",
+              "id": 40,
+              "attr": {}
+            }
+          },
+          "attr": {
+            "position": [
+              234,
+              -9,
+              46
+            ],
+            "style": {
+              "backgroundColor": "#3366FF",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          }
+        },
+        "25": {
+          "title": "policies",
+          "id": 117,
+          "ideas": {
+            "1": {
+              "title": "integrate with OPA constraints?",
+              "id": 118,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFFFF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                }
+              }
+            },
+            "2": {
+              "title": "whitelists",
+              "id": 22,
+              "ideas": {
+                "1": {
+                  "title": "syscalls",
+                  "id": 23
+                },
+                "2": {
+                  "title": "profiles",
+                  "id": 24
+                }
+              },
+              "attr": {}
+            },
+            "3": {
+              "title": "blacklists",
+              "id": 18,
+              "ideas": {
+                "1": {
+                  "title": "syscalls",
+                  "id": 20
+                },
+                "2": {
+                  "title": "profiles",
+                  "id": 21
+                },
+                "3": {
+                  "title": "block specific syscalls across scope (namespace, pod?)",
+                  "id": 84,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF",
+                      "text": {
+                        "color": "#000000"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "attr": {
+            "position": [
+              221,
+              220,
+              47
+            ],
+            "style": {
+              "backgroundColor": "#3366FF",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          }
+        },
+        "26": {
+          "title": "Profile Management",
+          "id": 134,
+          "ideas": {
+            "1": {
+              "title": "Templates",
+              "id": 135
+            },
+            "2": {
+              "title": "Merging Profiles\n",
+              "id": 136
+            }
+          },
+          "attr": {
+            "style": {
+              "backgroundColor": "#3366FF",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          }
+        },
+        "-1": {
+          "title": "seccomp feature aware",
+          "id": 81,
+          "attr": {
+            "style": {
+              "backgroundColor": "#FFCC00",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            },
+            "position": [
+              229,
+              -232,
+              29
+            ]
+          },
+          "ideas": {
+            "1": {
+              "title": "Is SECCOMP_RET_LOG supported?",
+              "id": 82
+            },
+            "2": {
+              "title": "complain-mode",
+              "id": 29
+            },
+            "0.5": {
+              "title": "Is seccomp enabled/supported?",
+              "id": 83
+            },
+            "0.25": {
+              "title": "Enable \"block workload if profile not applied\"",
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FFFFFF",
+                  "text": {
+                    "color": "#000000"
+                  }
+                }
+              },
+              "ideas": {},
+              "id": 116
+            }
+          }
+        },
+        "-11": {
+          "title": "replicate localhost profiles across nodes",
+          "id": 33,
+          "ideas": {
+            "1": {
+              "title": "tamper-resistance",
+              "id": 38,
+              "ideas": {},
+              "attr": {
+                "position": [
+                  46,
+                  -124,
+                  1
+                ]
+              }
+            },
+            "2": {
+              "title": "version tracking across nodes",
+              "id": 39
+            },
+            "3": {
+              "title": "sync files across nodes",
+              "id": 137,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FF9900"
+                }
+              },
+              "ideas": {
+                "1": {
+                  "title": "consolidation of changes: create/delete",
+                  "id": 139,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF"
+                    }
+                  },
+                  "ideas": {
+                    "1": {
+                      "title": "Race Conditions?",
+                      "id": 143
+                    }
+                  }
+                }
+              }
+            },
+            "4": {
+              "title": "ConfigMap to Disk",
+              "id": 138,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FF9900"
+                }
+              },
+              "ideas": {
+                "2": {
+                  "title": "which ones to use as seccomp? annotations? namespace-specific?",
+                  "id": 141,
+                  "attr": {
+                    "style": {
+                      "backgroundColor": "#FFFFFF"
+                    }
+                  }
+                },
+                "3": {
+                  "title": "Save profiles on all nodes",
+                  "id": 142
+                }
+              }
+            },
+            "5": {
+              "title": "CRD",
+              "id": 140
+            },
+            "6": {
+              "title": "Check of seccomp profiles across all nodes - is it the same content?",
+              "id": 145,
+              "attr": {
+                "style": {
+                  "backgroundColor": "#FF9900"
+                }
+              }
+            }
+          },
+          "attr": {
+            "style": {
+              "backgroundColor": "#FF9900",
+              "text": {
+                "color": "#FFFFFF"
+              },
+              "width": 147
+            },
+            "position": [
+              429,
+              -9,
+              49
+            ]
+          }
+        },
+        "-12": {
+          "title": "profile to scope mapping",
+          "attr": {
+            "style": {
+              "backgroundColor": "#3366FF",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            },
+            "position": [
+              146,
+              335,
+              52
+            ]
+          },
+          "ideas": {
+            "1": {
+              "title": "profile to container?",
+              "id": 91,
+              "attr": {},
+              "ideas": {}
+            },
+            "2": {
+              "title": "profile to label?",
+              "id": 92,
+              "attr": {},
+              "ideas": {}
+            },
+            "3": {
+              "title": "profile to pod?",
+              "id": 93,
+              "attr": {},
+              "ideas": {}
+            },
+            "4": {
+              "title": "profile to namespace?",
+              "id": 94,
+              "attr": {}
+            },
+            "5": {
+              "title": "mapping priority",
+              "id": 113,
+              "ideas": {
+                "1": {
+                  "title": "most specific over broader mappings (container map wins over pod)",
+                  "id": 114
+                }
+              }
+            }
+          },
+          "id": 88
+        },
+        "-0.5": {
+          "title": "profiling",
+          "id": 13,
+          "attr": {
+            "position": [
+              93,
+              -354,
+              50
+            ],
+            "style": {
+              "backgroundColor": "#3366FF",
+              "text": {
+                "color": "#FFFFFF"
+              }
+            }
+          },
+          "ideas": {
+            "3": {
+              "title": "brute-force",
+              "id": 119,
+              "ideas": {
+                "1": {
+                  "title": "start-up",
+                  "id": 120
+                },
+                "2": {
+                  "title": "running",
+                  "id": 121
+                }
+              }
+            },
+            "4": {
+              "title": "behaviour driven",
+              "id": 132,
+              "ideas": {}
+            },
+            "5": {
+              "title": "complain mode",
+              "id": 133,
+              "attr": {}
+            }
+          }
+        }
+      },
+      "attr": {
+        "position": [
+          -1075,
+          -69,
+          1
+        ],
+        "style": {
+          "backgroundColor": "#3366FF",
+          "text": {
+            "color": "#FFFFFF"
+          }
+        }
+      }
+    }
+  },
+  "title": "SECCOMP GA",
+  "links": [
+    {
+      "ideaIdFrom": 29,
+      "ideaIdTo": 82,
+      "attr": {
+        "style": {
+          "color": "#707070",
+          "lineStyle": "solid",
+          "arrow": "to"
+        }
+      }
+    }
+  ],
+  "attr": {
+    "theme": "default",
+    "themeOverrides": {
+      "canvas": {}
+    }
+  }
+}
