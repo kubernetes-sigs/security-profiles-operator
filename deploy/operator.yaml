@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security-operators
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: seccomp-operator
+  namespace: security-operators
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: seccomp-operator
+  namespace: security-operators
+spec:
+  selector:
+    matchLabels:
+      name: seccomp-operator
+  template:
+    metadata:
+      labels:
+        name: seccomp-operator
+    spec:
+      serviceAccountName: seccomp-operator
+      containers:
+        - name: seccomp-operator
+          image: "securityoperators/seccomp-operator:latest"
+          imagePullPolicy: Always
+          volumeMounts:
+          - mountPath: /var/lib/kubelet/seccomp
+            name: seccomp-root-path
+      volumes:
+      - name: seccomp-root-path
+        hostPath:
+          path: /var/lib/kubelet/seccomp
+          type: Directory
