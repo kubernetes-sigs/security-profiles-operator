@@ -42,14 +42,13 @@ const (
 
 	longWait = 1 * time.Minute
 
-	errGetProfile                = "cannot get profile"
-	errConfigMapNil              = "config map cannot be nil"
-	errConfigMapWithoutNamespace = "config map must have a namespace"
-	errConfigMapWithoutName      = "config map must have a name"
-	errSavingProfile             = "cannot save profile"
-	errCreatingOperatorDir       = "cannot create operator directory"
+	errGetProfile           = "cannot get profile"
+	errConfigMapNil         = "config map cannot be nil"
+	errConfigMapWithoutName = "config map must have a name"
+	errSavingProfile        = "cannot save profile"
+	errCreatingOperatorDir  = "cannot create operator directory"
 
-	seccompOperatorSuffix string      = "operator"
+	seccompOperatorSuffix string      = "seccomp/operator"
 	filePermissionMode    os.FileMode = 0o600
 
 	// MkdirAll won't create a directory if it does not have the execute bit.
@@ -58,7 +57,7 @@ const (
 )
 
 var (
-	kubeletSeccompRootPath string = "/var/lib/kubelet/seccomp"
+	kubeletSeccompRootPath string = "/var/lib/kubelet"
 )
 
 // SeccompProfileAnnotation is the annotation on a ConfigMap that specifies its
@@ -151,14 +150,12 @@ func getProfilePath(profileName string, cfg *corev1.ConfigMap) (string, error) {
 	if cfg.ObjectMeta.Name == "" {
 		return "", errors.New(errConfigMapWithoutName)
 	}
-	if cfg.ObjectMeta.Namespace == "" {
-		return "", errors.New(errConfigMapWithoutNamespace)
-	}
 
-	filePath := path.Join(kubeletSeccompRootPath,
-		filepath.Base(cfg.ObjectMeta.Namespace),
+	targetPath := dirTargetPath()
+	filePath := path.Join(targetPath,
 		filepath.Base(cfg.ObjectMeta.Name),
 		filepath.Base(profileName))
+
 	return filePath, nil
 }
 
