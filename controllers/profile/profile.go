@@ -18,6 +18,10 @@ package profile
 
 import (
 	"context"
+	"io/ioutil"
+	"os"
+	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
@@ -38,7 +42,23 @@ const (
 
 	longWait = 1 * time.Minute
 
-	errGetProfile = "cannot get profile"
+	errGetProfile                = "cannot get profile"
+	errConfigMapNil              = "config map cannot be nil"
+	errConfigMapWithoutNamespace = "config map must have a namespace"
+	errConfigMapWithoutName      = "config map must have a name"
+	errSavingProfile             = "cannot save profile"
+	errCreatingOperatorDir       = "cannot create operator directory"
+
+	seccompOperatorSuffix string      = "operator"
+	filePermissionMode    os.FileMode = 0o600
+
+	// MkdirAll won't create a directory if it does not have the execute bit.
+	// https://github.com/golang/go/issues/22323#issuecomment-340568811
+	dirPermissionMode os.FileMode = 0o700
+)
+
+var (
+	kubeletSeccompRootPath string = "/var/lib/kubelet/seccomp"
 )
 
 // SeccompProfileAnnotation is the annotation on a ConfigMap that specifies its
@@ -88,8 +108,62 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 		return reconcile.Result{}, errors.Wrap(ignoreNotFound(err), errGetProfile)
 	}
 
+	for name, contents := range profile.Data {
+		profilePath, err := getProfilePath(name, profile)
+		if err != nil {
+			logger.Error(err, "cannot get profile path")
+			return reconcile.Result{}, err
+		}
+
+		if err = saveProfileOnDisk(profilePath, contents); err != nil {
+			logger.Error(err, "cannot save profile into disk")
+			return reconcile.Result{}, err
+		}
+	}
+
 	logger.Info("Reconciled profile", "resource version", profile.GetResourceVersion())
 	return reconcile.Result{RequeueAfter: longWait}, nil
+}
+
+func saveProfileOnDisk(fileName, contents string) error {
+	dirPath := path.Dir(fileName)
+	if _, err := os.Stat(dirPath); err != nil {
+		if os.IsPermission(err) {
+			return errors.Wrap(err, errCreatingOperatorDir)
+		}
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(dirPath, dirPermissionMode); err != nil {
+				return errors.Wrap(err, errSavingProfile)
+			}
+		}
+	}
+
+	if err := ioutil.WriteFile(fileName, []byte(contents), filePermissionMode); err != nil {
+		return errors.Wrap(err, errSavingProfile)
+	}
+	return nil
+}
+
+func getProfilePath(profileName string, cfg *corev1.ConfigMap) (string, error) {
+	if cfg == nil {
+		return "", errors.New(errConfigMapNil)
+	}
+	if cfg.ObjectMeta.Name == "" {
+		return "", errors.New(errConfigMapWithoutName)
+	}
+	if cfg.ObjectMeta.Namespace == "" {
+		return "", errors.New(errConfigMapWithoutNamespace)
+	}
+
+	filePath := path.Join(kubeletSeccompRootPath,
+		filepath.Base(cfg.ObjectMeta.Namespace),
+		filepath.Base(cfg.ObjectMeta.Name),
+		filepath.Base(profileName))
+	return filePath, nil
+}
+
+func dirTargetPath() string {
+	return path.Join(kubeletSeccompRootPath, seccompOperatorSuffix)
 }
 
 func ignoreNotFound(err error) error {
