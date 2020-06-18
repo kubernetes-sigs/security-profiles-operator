@@ -17,6 +17,9 @@ limitations under the License.
 package profile
 
 import (
+	"io/ioutil"
+	"os"
+	"path"
 	"testing"
 
 	"github.com/crossplane/crossplane-runtime/pkg/test"
@@ -117,6 +120,182 @@ func TestReconcile(t *testing.T) {
 				require.EqualError(t, gotErr, tc.wantErr.Error())
 			}
 			require.Equal(t, tc.wantResult, gotResult)
+		})
+	}
+}
+
+// Expected perms on file
+func TestSaveProfileOnDisk(t *testing.T) {
+	dir, err := ioutil.TempDir("", "seccomp-operator")
+	if err != nil {
+		t.Error(errors.Wrap(err, "error creating temp file for tests"))
+	}
+	oldPath := kubeletSeccompRootPath
+	kubeletSeccompRootPath = dir
+
+	defer func() {
+		kubeletSeccompRootPath = oldPath
+		os.RemoveAll(dir)
+	}()
+
+	cases := map[string]struct {
+		setup       func()
+		fileName    string
+		contents    string
+		wantErr     string
+		fileCreated bool
+	}{
+		"CreateDirsAndWriteFile": {
+			fileName:    path.Join(dir, "/seccomp/operator/namespace/configmap/filename.json"),
+			contents:    "some content",
+			fileCreated: true,
+		},
+		"NoPermissionToWriteFile": {
+			setup: func() {
+				targetDir := path.Join(dir, "/test/nopermissions")
+				if err := os.MkdirAll(targetDir, dirPermissionMode); err != nil {
+					panic(err)
+				}
+				if err := os.Chmod(targetDir, 0); err != nil {
+					panic(err)
+				}
+			},
+			fileName:    path.Join(dir, "/test/nopermissions/filename.json"),
+			contents:    "some content",
+			fileCreated: false,
+			wantErr:     "cannot save profile: open " + dir + "/test/nopermissions/filename.json: permission denied",
+		},
+		"NoPermissionToWriteDir": {
+			setup: func() {
+				targetDir := path.Join(dir, "/nopermissions")
+				if err := os.MkdirAll(targetDir, dirPermissionMode); err != nil {
+					panic(err)
+				}
+				if err := os.Chmod(targetDir, 0); err != nil {
+					panic(err)
+				}
+			},
+			fileName:    path.Join(dir, "/nopermissions/test/filename.json"),
+			contents:    "some content",
+			fileCreated: false,
+			wantErr:     "cannot create operator directory: stat " + dir + "/nopermissions/test: permission denied",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if tc.setup != nil {
+				tc.setup()
+			}
+
+			gotErr := saveProfileOnDisk(tc.fileName, tc.contents)
+			file, _ := os.Stat(tc.fileName)
+			gotFileCreated := file != nil
+
+			if tc.wantErr == "" {
+				require.NoError(t, gotErr)
+			} else {
+				require.Equal(t, tc.wantErr, gotErr.Error())
+			}
+			require.Equal(t, tc.fileCreated, gotFileCreated, "was file created?")
+		})
+	}
+}
+
+func TestDirTargetPath(t *testing.T) {
+	cases := map[string]struct {
+		want string
+	}{
+		"DefaultSeccompPath": {
+			want: "/var/lib/kubelet/seccomp/operator",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := dirTargetPath()
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestGetProfilePath(t *testing.T) {
+	cases := map[string]struct {
+		want        string
+		wantErr     string
+		profileName string
+		config      *corev1.ConfigMap
+	}{
+		"AppendNamespaceConfigNameAndProfile": {
+			want:        path.Join(kubeletSeccompRootPath, "config-namespace", "config-name", "file.js"),
+			profileName: "file.js",
+			config: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "config-name",
+					Namespace: "config-namespace",
+				},
+			},
+		},
+		"BlockTraversalAtProfileName": {
+			want:        path.Join(kubeletSeccompRootPath, "ns", "cfg", "file.js"),
+			profileName: "../../../../../file.js",
+			config: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cfg",
+					Namespace: "ns",
+				},
+			},
+		},
+		"BlockTraversalAtConfigName": {
+			want:        path.Join(kubeletSeccompRootPath, "ns", "cfg", "file.js"),
+			profileName: "file.js",
+			config: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "../../../../../cfg",
+					Namespace: "ns",
+				},
+			},
+		},
+		"BlockTraversalAtConfigNamespace": {
+			want:        path.Join(kubeletSeccompRootPath, "ns", "cfg", "file.js"),
+			profileName: "file.js",
+			config: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cfg",
+					Namespace: "../../../../../ns",
+				},
+			},
+		},
+		"ConfigMapWithoutName": {
+			wantErr: errConfigMapWithoutName,
+			config: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "config-namespace",
+				},
+			},
+		},
+		"ConfigMapWithoutNamespace": {
+			wantErr: errConfigMapWithoutNamespace,
+			config: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "config-name",
+				},
+			},
+		},
+		"ConfigMapCannotBeNil": {
+			wantErr: errConfigMapNil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, gotErr := getProfilePath(tc.profileName, tc.config)
+			if tc.wantErr == "" {
+				require.NoError(t, gotErr)
+			} else {
+				require.Equal(t, tc.wantErr, gotErr.Error())
+			}
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
