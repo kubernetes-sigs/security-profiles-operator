@@ -9,6 +9,30 @@ metadata:
   name: seccomp-operator
   namespace: security-operators
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: config-map-reader
+  namespace: security-operators
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: config-map-reader-binding
+  namespace: security-operators
+subjects:
+- kind: ServiceAccount
+  name: seccomp-operator
+  namespace: security-operators
+roleRef:
+  kind: Role
+  name: config-map-reader
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -28,11 +52,18 @@ spec:
         - name: seccomp-operator
           image: "securityoperators/seccomp-operator:latest"
           imagePullPolicy: Always
+          env:
+            - name: NAMESPACE_TO_WATCH
+              value: security-operators
           volumeMounts:
-          - mountPath: /var/lib/kubelet/seccomp
-            name: seccomp-root-path
+          - mountPath: /var/lib/kubelet
+            name: kubelet-root-path
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
       volumes:
-      - name: seccomp-root-path
+      - name: kubelet-root-path
         hostPath:
-          path: /var/lib/kubelet/seccomp
+          path: /var/lib/kubelet
           type: Directory
