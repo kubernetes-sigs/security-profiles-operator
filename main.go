@@ -26,6 +26,10 @@ import (
 	"github.com/saschagrunert/seccomp-operator/controllers/profile"
 )
 
+const (
+	namespaceToWatchDefault string = "security-operators"
+)
+
 var (
 	sync     = time.Second * 30
 	setupLog = ctrl.Log.WithName("setup")
@@ -34,14 +38,20 @@ var (
 func main() {
 	ctrl.SetLogger(klogr.New())
 
+	setupLog.Info("starting seccomp-operator")
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		setupLog.Error(err, "cannot get config")
 		os.Exit(1)
 	}
 
+	namespaceToWatch := namespaceToWatchDefault
+	if os.Getenv("NAMESPACE_TO_WATCH") != "" {
+		namespaceToWatch = os.Getenv("NAMESPACE_TO_WATCH")
+	}
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		SyncPeriod: &sync,
+		Namespace:  namespaceToWatch,
 	})
 	if err != nil {
 		setupLog.Error(err, "cannot create manager")
