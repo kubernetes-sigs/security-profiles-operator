@@ -49,11 +49,11 @@ const (
 	errCreatingOperatorDir  = "cannot create operator directory"
 
 	seccompOperatorSuffix string      = "seccomp/operator"
-	filePermissionMode    os.FileMode = 0o600
+	filePermissionMode    os.FileMode = 0o644
 
 	// MkdirAll won't create a directory if it does not have the execute bit.
 	// https://github.com/golang/go/issues/22323#issuecomment-340568811
-	dirPermissionMode os.FileMode = 0o700
+	dirPermissionMode os.FileMode = 0o744
 )
 
 var (
