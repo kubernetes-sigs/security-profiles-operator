@@ -12,7 +12,7 @@ $(BUILD_PATH):
 	mkdir -p $(BUILD_PATH)
 
 $(BUILD_DIR)/$(PROJECT): $(BUILD_PATH)
-	$(GO) build $(LDFLAGS) -o $@
+	$(GO) build $(LDFLAGS) -o $@ ./cmd/seccomp-operator
 
 .PHONY: clean
 clean:
