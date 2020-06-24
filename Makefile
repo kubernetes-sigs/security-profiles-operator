@@ -4,7 +4,8 @@ PROJECT := seccomp-operator
 BUILD_DIR := build
 BUILD_PATH := $(shell pwd)/$(BUILD_DIR)
 
-LDFLAGS := -ldflags '-s -w $(EXTRA_LDFLAGS)'
+BUILDTAGS := netgo
+LDFLAGS := -s -w -linkmode external -extldflags "-static"
 
 all: $(BUILD_DIR)/$(PROJECT)
 
@@ -12,7 +13,7 @@ $(BUILD_PATH):
 	mkdir -p $(BUILD_PATH)
 
 $(BUILD_DIR)/$(PROJECT): $(BUILD_PATH)
-	$(GO) build $(LDFLAGS) -o $@
+	$(GO) build -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@
 
 .PHONY: clean
 clean:
