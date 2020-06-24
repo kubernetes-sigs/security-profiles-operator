@@ -47,3 +47,7 @@ $(BUILD_PATH)/verify_boilerplate.py: $(BUILD_PATH)
 	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/v0.0.6/hack/verify_boilerplate.py \
 		-o $(BUILD_PATH)/verify_boilerplate.py
 	chmod +x $(BUILD_PATH)/verify_boilerplate.py
+
+.PHONY: verify-go-mod
+verify-go-mod: go-mod
+	hack/tree-status
