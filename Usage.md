@@ -15,14 +15,14 @@ $ kubectl apply -f https://raw.githubusercontent.com/saschagrunert/seccomp-opera
 
 ### 2. Create Profile
 
-ConfigMaps with profiles must exist within the `security-operators` namespace and be 
+ConfigMaps with profiles must exist within the `seccomp-operator` namespace and be 
 annotated with `seccomp.security.kubernetes.io/profile: "true"`. As per below:
 
 ```yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  namespace: security-operators
+  namespace: seccomp-operator
   name: cfg-map-name
   annotations:
     seccomp.security.kubernetes.io/profile: "true"
@@ -59,7 +59,7 @@ spec:
 
 Confirm that the profile is being reconciled:
 ```sh
-$ kubectl logs -n security-operators seccomp-operator-v6p2h
+$ kubectl logs -n seccomp-operator seccomp-operator-v6p2h
 
 I0618 16:06:55.242567       1 main.go:38] setup "msg"="starting seccomp-operator"
 I0618 16:06:55.497098       1 listener.go:44] controller-runtime/metrics "msg"="metrics server is starting to listen"  "addr"=":8080"
@@ -68,13 +68,41 @@ I0618 16:06:55.498089       1 internal.go:393] controller-runtime/manager "msg"=
 I0618 16:06:55.498392       1 controller.go:164] controller-runtime/controller "msg"="Starting EventSource"  "controller"="profile" "source"={"Type":{"metadata":{"creationTimestamp":null}}}
 I0618 16:06:55.598778       1 controller.go:171] controller-runtime/controller "msg"="Starting Controller"  "controller"="profile"
 I0618 16:06:55.598873       1 controller.go:190] controller-runtime/controller "msg"="Starting workers"  "controller"="profile" "worker count"=1
-I0618 16:08:43.507538       1 profile.go:125] profile "msg"="Reconciled profile" "namespace"="security-operators" "profile"="test-profile" "resource version"="2912"
+I0618 16:08:43.507538       1 profile.go:125] profile "msg"="Reconciled profile" "namespace"="seccomp-operator" "profile"="test-profile" "resource version"="2912"
 ```
 
 
 Confirm that the seccomp profiles are saved into the correct path:
 ```sh
-$ kubectl exec -t -n security-operators seccomp-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/test-profile
+$ kubectl exec -t -n seccomp-operator seccomp-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/test-profile
 profile-block.json
 profile-complain.json
 ```
+
+
+
+## Running the operator without root user
+
+It is possible to run the security operator without using root containers if the nodes comply with the following requirements:
+- Folder `/var/lib/kubelet/seccomp/operator` is already created.
+- User running the main container has `rw` access to the folder `/var/lib/kubelet/seccomp/operator`.
+
+Example:
+
+```sh
+/bin/mkdir -p /var/lib/kubelet/seccomp/operator
+chmod 0744 /var/lib/kubelet/seccomp/operator
+/bin/chown -R 2000:2000 /var/lib/kubelet/seccomp/operator
+```
+
+If that is not the case, the use of the root user can be dropped on the main container by using init containers. An alternative `.yaml` file is available that does that:
+
+```sh
+$ kubectl apply -f https://raw.githubusercontent.com/saschagrunert/seccomp-operator/master/deploy/operator-non-root.yaml
+```
+
+Please note corrupted seccomp profiles can disrupt your workloads. Therefore, ensure that the user used cannot be abused by:
+
+- Not creating that user on the actual node.
+- Restricting the user ID to only seccomp-operator (i.e. using PSP).
+- Not allowing other workloads to map any part of the path `/var/lib/kubelet/seccomp/operator`. 

@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	namespaceToWatchDefault string = "security-operators"
+	namespaceToWatchDefault string = "seccomp-operator"
 )
 
 var (

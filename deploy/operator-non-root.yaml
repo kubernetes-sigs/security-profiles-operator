@@ -50,6 +50,28 @@ spec:
         name: seccomp-operator
     spec:
       serviceAccountName: seccomp-operator
+      initContainers:
+        - name: non-root-enabler
+          image: busybox 
+          # Creates folder /var/lib/kubelet/seccomp/operator and sets 2000:2000 as its owner.
+          # This is required to allow the main container to run as non-root.
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              if [ ! -d "/var/lib/kubelet/seccomp/operator" ]; then 
+                /bin/mkdir -p /var/lib/kubelet/seccomp/operator && 
+                chmod 0744 /var/lib/kubelet/seccomp/operator && 
+                /bin/chown -R 2000:2000 /var/lib/kubelet/seccomp; 
+              fi
+          volumeMounts:
+          - mountPath: /var/lib/kubelet
+            name: kubelet-path
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN"]
       containers:
         - name: seccomp-operator
           image: securityoperators/seccomp-operator:latest
@@ -59,14 +81,16 @@ spec:
               value: seccomp-operator
           volumeMounts:
           - mountPath: /var/lib/kubelet
-            name: kubelet-root-path
+            name: kubelet-path
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            runAsUser: 2000
+            runAsGroup: 2000
             capabilities:
               drop: ["ALL"]
       volumes:
-      - name: kubelet-root-path
+      - name: kubelet-path
         hostPath:
           path: /var/lib/kubelet
           type: Directory
