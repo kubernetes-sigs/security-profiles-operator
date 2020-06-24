@@ -20,6 +20,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/pkg/errors"
 	"k8s.io/klog/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -28,6 +29,7 @@ import (
 
 const (
 	namespaceToWatchDefault string = "seccomp-operator"
+	namespaceToWatchKey     string = "NAMESPACE_TO_WATCH"
 )
 
 var (
@@ -38,34 +40,41 @@ var (
 func main() {
 	ctrl.SetLogger(klogr.New())
 
+	if err := run(); err != nil {
+		setupLog.Error(err, "running seccomp-operator")
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	setupLog.Info("starting seccomp-operator")
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
-		setupLog.Error(err, "cannot get config")
-		os.Exit(1)
+		return errors.Wrap(err, "cannot get config")
 	}
 
 	namespaceToWatch := namespaceToWatchDefault
-	if os.Getenv("NAMESPACE_TO_WATCH") != "" {
-		namespaceToWatch = os.Getenv("NAMESPACE_TO_WATCH")
+	if os.Getenv(namespaceToWatchKey) != "" {
+		namespaceToWatch = os.Getenv(namespaceToWatchKey)
 	}
+
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		SyncPeriod: &sync,
 		Namespace:  namespaceToWatch,
 	})
+
 	if err != nil {
-		setupLog.Error(err, "cannot create manager")
-		os.Exit(1)
+		return errors.Wrap(err, "cannot create manager")
 	}
 
 	if err := profile.Setup(mgr, ctrl.Log.WithName("profile")); err != nil {
-		setupLog.Error(err, "cannot setup profile controller")
-		os.Exit(1)
+		return errors.Wrap(err, "cannot setup profile controller")
 	}
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "controller manager error")
-		os.Exit(1)
+		return errors.Wrap(err, "controller manager error")
 	}
+
+	return nil
 }
