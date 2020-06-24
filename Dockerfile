@@ -19,9 +19,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 ADD . /go/src/saschagrunert/seccomp-operator
-RUN go build -ldflags '-s -w' -o /seccomp-operator
-
-
+RUN make
 
 FROM alpine
 LABEL name="Seccomp Operator" \
@@ -31,6 +29,6 @@ LABEL name="Seccomp Operator" \
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /etc/passwd /etc/passwd
 COPY --from=build /etc/group /etc/group
-COPY --from=build /seccomp-operator /
+COPY --from=build /build/seccomp-operator /
 
 ENTRYPOINT /seccomp-operator
