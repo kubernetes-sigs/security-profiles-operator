@@ -13,7 +13,7 @@
 # limitations under the License.
 
 FROM golang:1.14-alpine AS build
-WORKDIR /go/src/saschagrunert/seccomp-operator
+WORKDIR /work
 RUN apk --no-cache add build-base git gcc
 
 ENV USER=secuser
@@ -32,7 +32,7 @@ RUN adduser \
 COPY go.mod go.sum ./
 RUN go mod download
 
-ADD . /go/src/saschagrunert/seccomp-operator
+ADD . /work
 RUN make
 
 FROM alpine
@@ -43,6 +43,6 @@ LABEL name="Seccomp Operator" \
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /etc/passwd /etc/passwd
 COPY --from=build /etc/group /etc/group
-COPY --from=build /build/seccomp-operator /
+COPY --from=build /work/build/seccomp-operator /
 
 ENTRYPOINT /seccomp-operator
