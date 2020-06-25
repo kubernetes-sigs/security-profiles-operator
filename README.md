@@ -37,3 +37,21 @@ operator and seccomp support in Kubernetes in general:
 ![mind-map](.github/mindmap.svg)
 
 [7]: https://app.mindmup.com
+
+## Community, discussion, contribution, and support
+
+Learn how to engage with the Kubernetes community on the [community
+page](http://kubernetes.io/community/).
+
+You can reach the maintainers of this project at:
+
+- [Slack #seccomp-operator](https://app.slack.com/client/T09NY5SBT/C013FQNB0A2)
+- [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-dev)
+
+### Code of conduct
+
+Participation in the Kubernetes community is governed by the [Kubernetes Code of
+Conduct](code-of-conduct.md).
+
+[owners]: https://git.k8s.io/community/contributors/guide/owners.md
+[creative commons 4.0]: https://git.k8s.io/website/LICENSE
