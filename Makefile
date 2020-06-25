@@ -52,3 +52,7 @@ $(BUILD_PATH)/verify_boilerplate.py: $(BUILD_PATH)
 .PHONY: verify-go-mod
 verify-go-mod: go-mod
 	hack/tree-status
+
+.PHONY: test-e2e
+test-e2e:
+	$(GO) test ./test/... -v
