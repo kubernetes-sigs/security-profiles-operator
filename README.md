@@ -45,7 +45,7 @@ page](http://kubernetes.io/community/).
 
 You can reach the maintainers of this project at:
 
-- [Slack](http://slack.k8s.io/)
+- [Slack #seccomp-operator](https://app.slack.com/client/T09NY5SBT/C013FQNB0A2)
 - [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-dev)
 
 ### Code of conduct
