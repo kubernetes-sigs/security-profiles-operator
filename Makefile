@@ -51,3 +51,8 @@ $(BUILD_PATH)/verify_boilerplate.py: $(BUILD_PATH)
 .PHONY: verify-go-mod
 verify-go-mod: go-mod
 	hack/tree-status
+
+.PHONY: test-unit
+test-unit: $(BUILD_PATH)
+	$(GO) test -v -test.coverprofile=$(BUILD_PATH)/coverage.out ./...
+	$(GO) tool cover -html $(BUILD_PATH)/coverage.out -o $(BUILD_PATH)/coverage.html

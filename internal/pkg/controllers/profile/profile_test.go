@@ -44,6 +44,10 @@ func TestIsProfile(t *testing.T) {
 			obj:  &corev1.ConfigMap{},
 			want: false,
 		},
+		"NotAConfigMap": {
+			obj:  &corev1.Secret{},
+			want: false,
+		},
 		"IsProfile": {
 			obj: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
