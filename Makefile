@@ -20,13 +20,14 @@ BUILD_PATH := $(shell pwd)/$(BUILD_DIR)
 
 BUILDTAGS := netgo
 LDFLAGS := -s -w -linkmode external -extldflags "-static"
+BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
 
 all: $(BUILD_DIR)/$(PROJECT)
 
 $(BUILD_PATH):
 	mkdir -p $(BUILD_PATH)
 
-$(BUILD_DIR)/$(PROJECT): $(BUILD_PATH)
+$(BUILD_DIR)/$(PROJECT): $(BUILD_PATH) $(BUILD_FILES)
 	$(GO) build -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/seccomp-operator
 
 .PHONY: clean
