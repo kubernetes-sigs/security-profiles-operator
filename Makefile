@@ -16,51 +16,66 @@ GO ?= go
 
 PROJECT := seccomp-operator
 BUILD_DIR := build
-BUILD_PATH := $(shell pwd)/$(BUILD_DIR)
 
 BUILDTAGS := netgo
 LDFLAGS := -s -w -linkmode external -extldflags "-static"
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
 
-all: $(BUILD_DIR)/$(PROJECT)
+# Utility targets
 
-$(BUILD_PATH):
-	mkdir -p $(BUILD_PATH)
+all: $(BUILD_DIR)/$(PROJECT) ## Build the seccomp-operator binary
 
-$(BUILD_DIR)/$(PROJECT): $(BUILD_PATH) $(BUILD_FILES)
+.PHONY: help
+help:  ## Display this help
+	@awk \
+		-v "col=${COLOR}" -v "nocol=${NOCOLOR}" \
+		' \
+			BEGIN { \
+				FS = ":.*##" ; \
+				printf "Available targets:\n"; \
+			} \
+			/^[a-zA-Z0-9_-]+:.*?##/ { \
+				printf "  %s%-20s%s %s\n", col, $$1, nocol, $$2 \
+			} \
+			/^##@/ { \
+				printf "\n%s%s%s\n", col, substr($$0, 5), nocol \
+			} \
+		' $(MAKEFILE_LIST)
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
 	$(GO) build -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/seccomp-operator
 
 .PHONY: clean
-clean:
-	rm -rf $(BUILD_PATH)
+clean: ## Clean the build directory
+	rm -rf $(BUILD_DIR)
 
 .PHONY: go-mod
-go-mod:
+go-mod: ## Cleanup and verify go modules
 	export GO111MODULE=on \
 		$(GO) mod tidy && \
 		$(GO) mod verify
 
-.PHONY: verify-boilerplate
-verify-boilerplate: $(BUILD_PATH)/verify_boilerplate.py
-	$(BUILD_PATH)/verify_boilerplate.py --boilerplate-dir hack/boilerplate
+# Verification targets
 
-$(BUILD_PATH)/verify_boilerplate.py: $(BUILD_PATH)
+.PHONY: verify-boilerplate
+verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
+	$(BUILD_DIR)/verify_boilerplate.py --boilerplate-dir hack/boilerplate
+
+$(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
 	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/v0.0.6/hack/verify_boilerplate.py \
-		-o $(BUILD_PATH)/verify_boilerplate.py
-	chmod +x $(BUILD_PATH)/verify_boilerplate.py
+		-o $(BUILD_DIR)/verify_boilerplate.py
+	chmod +x $(BUILD_DIR)/verify_boilerplate.py
 
 .PHONY: verify-go-mod
-verify-go-mod: go-mod
+verify-go-mod: go-mod ## Verify the go modules
 	hack/tree-status
 
-.PHONY: test-unit
-test-unit: $(BUILD_PATH)
-	$(GO) test -v -test.coverprofile=$(BUILD_PATH)/coverage.out ./...
-	$(GO) tool cover -html $(BUILD_PATH)/coverage.out -o $(BUILD_PATH)/coverage.html
-
-.PHONY: test-e2e
-test-e2e:
-	$(GO) test ./test/... -v
+.PHONY: verify-go-lint
+verify-go-lint: $(BUILD_DIR)/golangci-lint ## Verify the golang code by linting
+	$(BUILD_DIR)/golangci-lint run
 
 $(BUILD_DIR)/golangci-lint:
 	export \
@@ -71,6 +86,13 @@ $(BUILD_DIR)/golangci-lint:
 	$(BUILD_DIR)/golangci-lint version
 	$(BUILD_DIR)/golangci-lint linters
 
-.PHONY: verify-go-lint
-verify-go-lint: $(BUILD_DIR)/golangci-lint
-	$(BUILD_DIR)/golangci-lint run
+# Test targets
+
+.PHONY: test-unit
+test-unit: $(BUILD_DIR) ## Run the unit tests
+	$(GO) test -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./...
+	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
+
+.PHONY: test-e2e
+test-e2e: ## Run the end-to-end tests
+	$(GO) test ./test/... -v
