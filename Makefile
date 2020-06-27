@@ -20,13 +20,14 @@ BUILD_PATH := $(shell pwd)/$(BUILD_DIR)
 
 BUILDTAGS := netgo
 LDFLAGS := -s -w -linkmode external -extldflags "-static"
+BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
 
 all: $(BUILD_DIR)/$(PROJECT)
 
 $(BUILD_PATH):
 	mkdir -p $(BUILD_PATH)
 
-$(BUILD_DIR)/$(PROJECT): $(BUILD_PATH)
+$(BUILD_DIR)/$(PROJECT): $(BUILD_PATH) $(BUILD_FILES)
 	$(GO) build -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/seccomp-operator
 
 .PHONY: clean
@@ -56,3 +57,20 @@ verify-go-mod: go-mod
 test-unit: $(BUILD_PATH)
 	$(GO) test -v -test.coverprofile=$(BUILD_PATH)/coverage.out ./...
 	$(GO) tool cover -html $(BUILD_PATH)/coverage.out -o $(BUILD_PATH)/coverage.html
+
+.PHONY: test-e2e
+test-e2e:
+	$(GO) test ./test/... -v
+
+$(BUILD_DIR)/golangci-lint:
+	export \
+		VERSION=v1.27.0 \
+		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
+		BINDIR=$(BUILD_DIR) && \
+	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
+	$(BUILD_DIR)/golangci-lint version
+	$(BUILD_DIR)/golangci-lint linters
+
+.PHONY: verify-go-lint
+verify-go-lint: $(BUILD_DIR)/golangci-lint
+	$(BUILD_DIR)/golangci-lint run

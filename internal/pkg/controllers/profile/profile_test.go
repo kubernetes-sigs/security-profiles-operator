@@ -193,7 +193,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 			}
 
 			gotErr := saveProfileOnDisk(tc.fileName, tc.contents)
-			file, _ := os.Stat(tc.fileName)
+			file, _ := os.Stat(tc.fileName) // nolint: errcheck
 			gotFileCreated := file != nil
 
 			if tc.wantErr == "" {
