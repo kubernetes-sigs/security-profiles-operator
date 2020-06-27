@@ -56,3 +56,16 @@ verify-go-mod: go-mod
 .PHONY: test-e2e
 test-e2e:
 	$(GO) test ./test/... -v
+
+$(BUILD_DIR)/golangci-lint:
+	export \
+		VERSION=v1.27.0 \
+		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
+		BINDIR=$(BUILD_DIR) && \
+	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
+	$(BUILD_DIR)/golangci-lint version
+	$(BUILD_DIR)/golangci-lint linters
+
+.PHONY: verify-go-lint
+verify-go-lint: $(BUILD_DIR)/golangci-lint
+	$(BUILD_DIR)/golangci-lint run
