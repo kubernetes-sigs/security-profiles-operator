@@ -53,6 +53,10 @@ $(BUILD_PATH)/verify_boilerplate.py: $(BUILD_PATH)
 verify-go-mod: go-mod
 	hack/tree-status
 
+.PHONY: test-e2e
+test-e2e:
+	$(GO) test ./test/... -v
+
 $(BUILD_DIR)/golangci-lint:
 	export \
 		VERSION=v1.27.0 \
