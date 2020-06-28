@@ -134,13 +134,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 	if err != nil {
 		t.Error(errors.Wrap(err, "error creating temp file for tests"))
 	}
-	oldPath := kubeletSeccompRootPath
-	kubeletSeccompRootPath = dir
-
-	defer func() {
-		kubeletSeccompRootPath = oldPath
-		os.RemoveAll(dir)
-	}()
+	defer os.RemoveAll(dir)
 
 	cases := map[string]struct {
 		setup       func()
