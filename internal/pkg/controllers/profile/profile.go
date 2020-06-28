@@ -54,10 +54,8 @@ const (
 	// MkdirAll won't create a directory if it does not have the execute bit.
 	// https://github.com/golang/go/issues/22323#issuecomment-340568811
 	dirPermissionMode os.FileMode = 0o744
-)
 
-var (
-	kubeletSeccompRootPath string = "/var/lib/kubelet"
+	kubeletSeccompRootPath = "/var/lib/kubelet"
 )
 
 // SeccompProfileAnnotation is the annotation on a ConfigMap that specifies its
