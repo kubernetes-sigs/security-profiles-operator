@@ -95,4 +95,4 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	$(GO) test ./test/... -v
+	$(GO) test -tags e2e ./test/... -v
