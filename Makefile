@@ -44,6 +44,9 @@ LDVARS := \
 	-X $(GO_PROJECT)/internal/pkg/version.gitVersion=$(GIT_VERSION)
 LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
 
+CONTAINER_RUNTIME ?= docker
+IMAGE ?= securityoperators/$(PROJECT):latest
+
 # Utility targets
 
 all: $(BUILD_DIR)/$(PROJECT) ## Build the seccomp-operator binary
@@ -80,6 +83,10 @@ go-mod: ## Cleanup and verify go modules
 	export GO111MODULE=on \
 		$(GO) mod tidy && \
 		$(GO) mod verify
+
+.PHONY: image
+image: ## Build the container image
+	$(CONTAINER_RUNTIME) build -t $(IMAGE) .
 
 # Verification targets
 
@@ -118,4 +125,4 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	$(GO) test -tags e2e ./test/... -v
+	$(GO) test -tags e2e -count=1 ./test/... -v
