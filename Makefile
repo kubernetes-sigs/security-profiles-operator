@@ -17,9 +17,32 @@ GO ?= go
 PROJECT := seccomp-operator
 BUILD_DIR := build
 
+DATE_FMT = +'%Y-%m-%dT%H:%M:%SZ'
+ifdef SOURCE_DATE_EPOCH
+    BUILD_DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u "$(DATE_FMT)")
+else
+    BUILD_DATE ?= $(shell date -u "$(DATE_FMT)")
+endif
+
+ifeq ($(shell bash -c '[[ `command -v git` && `git rev-parse --git-dir 2>/dev/null` ]] && echo true'), true)
+	GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null || echo unknown)
+	GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
+	GIT_VERSION := $(shell git describe --abbrev=0 2>/dev/null || echo 0.0.0)
+else
+	GIT_COMMIT := unknown
+	GIT_TREE_STATE := unknown
+	GIT_VERSION := unknown
+endif
+
 BUILDTAGS := netgo
-LDFLAGS := -s -w -linkmode external -extldflags "-static"
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
+GO_PROJECT := github.com/saschagrunert/$(PROJECT)
+LDVARS := \
+	-X $(GO_PROJECT)/internal/pkg/version.buildDate=$(BUILD_DATE) \
+	-X $(GO_PROJECT)/internal/pkg/version.gitCommit=$(GIT_COMMIT) \
+	-X $(GO_PROJECT)/internal/pkg/version.gitTreeState=$(GIT_TREE_STATE) \
+	-X $(GO_PROJECT)/internal/pkg/version.gitVersion=$(GIT_VERSION)
+LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
 
 # Utility targets
 
@@ -90,7 +113,7 @@ $(BUILD_DIR)/golangci-lint:
 
 .PHONY: test-unit
 test-unit: $(BUILD_DIR) ## Run the unit tests
-	$(GO) test -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./...
+	$(GO) test -ldflags '$(LDVARS)' -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./...
 	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 
 .PHONY: test-e2e

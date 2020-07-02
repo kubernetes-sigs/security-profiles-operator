@@ -21,15 +21,19 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/urfave/cli/v2"
 	"k8s.io/klog/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/saschagrunert/seccomp-operator/internal/pkg/controllers/profile"
+	"github.com/saschagrunert/seccomp-operator/internal/pkg/version"
 )
 
 const (
-	namespaceToWatchDefault string = "seccomp-operator"
+	appName                 string = "seccomp-operator"
+	namespaceToWatchDefault string = appName
 	namespaceToWatchKey     string = "NAMESPACE_TO_WATCH"
+	jsonFlag                string = "json"
 )
 
 var (
@@ -40,14 +44,59 @@ var (
 func main() {
 	ctrl.SetLogger(klogr.New())
 
-	if err := run(); err != nil {
+	app := cli.NewApp()
+	app.Name = appName
+	app.Usage = "Kubernetes Seccomp Operator"
+	app.Description = "The Seccomp Operator makes it easier for cluster admins to manage their seccomp profiles and apply them to Kubernetes' workloads."
+	app.Version = version.Get().GitVersion
+	app.Action = run
+	app.Commands = cli.Commands{
+		&cli.Command{
+			Name:    "version",
+			Aliases: []string{"v"},
+			Usage:   "display detailed version information",
+			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:    jsonFlag,
+					Aliases: []string{"j"},
+					Usage:   "print JSON instead of text",
+				},
+			},
+			Action: func(c *cli.Context) error {
+				v := version.Get()
+				res := v.String()
+				if c.Bool(jsonFlag) {
+					j, err := v.JSONString()
+					if err != nil {
+						return errors.Wrap(err, "unable to generate JSON from version info")
+					}
+					res = j
+
+				}
+				print(res)
+				return nil
+			},
+		},
+	}
+
+	if err := app.Run(os.Args); err != nil {
 		setupLog.Error(err, "running seccomp-operator")
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	setupLog.Info("starting seccomp-operator")
+func run(*cli.Context) error {
+	v := version.Get()
+	setupLog.Info(
+		"starting seccomp-operator",
+		"gitVersion", v.GitVersion,
+		"gitCommit", v.GitCommit,
+		"gitTreeState", v.GitTreeState,
+		"buildDate", v.BuildDate,
+		"goVersion", v.GoVersion,
+		"compiler", v.Compiler,
+		"platform", v.Platform,
+	)
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "cannot get config")
