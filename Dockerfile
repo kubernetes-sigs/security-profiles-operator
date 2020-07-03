@@ -35,7 +35,7 @@ RUN go mod download
 ADD . /work
 RUN make
 
-FROM alpine
+FROM scratch
 LABEL name="Seccomp Operator" \
       version="v0.0.1" \
       description="The Seccomp Operator makes it easier for cluster admins to manage their seccomp profiles and apply them to Kubernetes' workloads."
@@ -45,4 +45,4 @@ COPY --from=build /etc/passwd /etc/passwd
 COPY --from=build /etc/group /etc/group
 COPY --from=build /work/build/seccomp-operator /
 
-ENTRYPOINT /seccomp-operator
+ENTRYPOINT ["/seccomp-operator"]
