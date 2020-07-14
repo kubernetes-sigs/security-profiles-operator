@@ -90,6 +90,9 @@ image: ## Build the container image
 
 # Verification targets
 
+.PHONY: verify
+verify: verify-boilerplate verify-go-mod verify-go-lint ## Run all verification targets
+
 .PHONY: verify-boilerplate
 verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
 	$(BUILD_DIR)/verify_boilerplate.py --boilerplate-dir hack/boilerplate
@@ -109,7 +112,7 @@ verify-go-lint: $(BUILD_DIR)/golangci-lint ## Verify the golang code by linting
 
 $(BUILD_DIR)/golangci-lint:
 	export \
-		VERSION=v1.27.0 \
+		VERSION=v1.28.3 \
 		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
 		BINDIR=$(BUILD_DIR) && \
 	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION

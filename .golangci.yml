@@ -14,24 +14,35 @@ linters:
     - dogsled
     - dupl
     - errcheck
+    - exhaustive
+    - exportloopref
     - gochecknoinits
+    - gocognit
     - goconst
     - gocritic
     - gocyclo
+    - godox
     - gofmt
+    - goheader
     - goimports
     - golint
+    - gomnd
+    - gomodguard
     - goprintffuncname
+    - gosec
     - gosimple
     - govet
     - ineffassign
     - interfacer
+    - lll
     - maligned
     - misspell
     - nakedret
+    - noctx
     - nolintlint
     - prealloc
     - rowserrcheck
+    - sqlclosecheck
     - staticcheck
     - structcheck
     - stylecheck
@@ -41,17 +52,11 @@ linters:
     - unused
     - varcheck
     - whitespace
-    - gocognit
-    - godox
-    - gomnd
-    - gomodguard
-    - gosec
-    - lll
-    - nestif
     # - funlen
     # - gochecknoglobals
     # - godot
     # - goerr113
+    # - gofumpt
     # - scopelint
     # - testpackage
     # - wsl
@@ -59,6 +64,11 @@ linters-settings:
   errcheck:
     check-type-assertions: true
     check-blank: true
+  godox:
+    keywords:
+      - BUG
+      - FIXME
+      - HACK
   gocritic:
     enabled-checks:
       # Diagnostic
