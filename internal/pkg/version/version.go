@@ -53,7 +53,7 @@ func Get() *Info {
 	}
 }
 
-// String returns the string representation of the version info
+// String returns the string representation of the version info.
 func (i *Info) String() string {
 	b := strings.Builder{}
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
@@ -70,7 +70,7 @@ func (i *Info) String() string {
 	return b.String()
 }
 
-// JSONString returns the JSON representation of the version info
+// JSONString returns the JSON representation of the version info.
 func (i *Info) JSONString() (string, error) {
 	b, err := json.MarshalIndent(i, "", "  ")
 	if err != nil {

@@ -111,7 +111,6 @@ func run(*cli.Context) error {
 		SyncPeriod: &sync,
 		Namespace:  namespaceToWatch,
 	})
-
 	if err != nil {
 		return errors.Wrap(err, "cannot create manager")
 	}
