@@ -130,6 +130,10 @@ func TestReconcile(t *testing.T) {
 
 // Expected perms on file
 func TestSaveProfileOnDisk(t *testing.T) {
+	// TODO: fix root user execution for this test
+	if os.Getuid() == 0 {
+		t.Skip("Test does not work as root user")
+	}
 	dir, err := ioutil.TempDir("", "seccomp-operator")
 	if err != nil {
 		t.Error(errors.Wrap(err, "error creating temp file for tests"))
