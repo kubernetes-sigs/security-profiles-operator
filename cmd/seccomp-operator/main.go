@@ -25,8 +25,8 @@ import (
 	"k8s.io/klog/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/saschagrunert/seccomp-operator/internal/pkg/controllers/profile"
-	"github.com/saschagrunert/seccomp-operator/internal/pkg/version"
+	"github.com/kubernetes-sigs/seccomp-operator/internal/pkg/controllers/profile"
+	"github.com/kubernetes-sigs/seccomp-operator/internal/pkg/version"
 )
 
 const (
