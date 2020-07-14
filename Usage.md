@@ -10,7 +10,7 @@
 
 ### 1. Install operator
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/saschagrunert/seccomp-operator/master/deploy/operator.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/seccomp-operator/master/deploy/operator.yaml
 ```
 
 ### 2. Create Profile
@@ -98,7 +98,7 @@ chmod 0744 /var/lib/kubelet/seccomp/operator
 If that is not the case, the use of the root user can be dropped on the main container by using init containers. An alternative `.yaml` file is available that does that:
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/saschagrunert/seccomp-operator/master/deploy/operator-non-root.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/seccomp-operator/master/deploy/operator-non-root.yaml
 ```
 
 Please note corrupted seccomp profiles can disrupt your workloads. Therefore, ensure that the user used cannot be abused by:

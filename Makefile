@@ -36,7 +36,7 @@ endif
 
 BUILDTAGS := netgo
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
-GO_PROJECT := github.com/saschagrunert/$(PROJECT)
+GO_PROJECT := github.com/kubernetes-sigs/$(PROJECT)
 LDVARS := \
 	-X $(GO_PROJECT)/internal/pkg/version.buildDate=$(BUILD_DATE) \
 	-X $(GO_PROJECT)/internal/pkg/version.gitCommit=$(GIT_COMMIT) \
