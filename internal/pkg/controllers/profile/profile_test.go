@@ -128,7 +128,7 @@ func TestReconcile(t *testing.T) {
 	}
 }
 
-// Expected perms on file
+// Expected perms on file.
 func TestSaveProfileOnDisk(t *testing.T) {
 	// TODO: fix root user execution for this test
 	if os.Getuid() == 0 {
