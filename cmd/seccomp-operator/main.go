@@ -47,7 +47,8 @@ func main() {
 	app := cli.NewApp()
 	app.Name = appName
 	app.Usage = "Kubernetes Seccomp Operator"
-	app.Description = "The Seccomp Operator makes it easier for cluster admins to manage their seccomp profiles and apply them to Kubernetes' workloads."
+	app.Description = "The Seccomp Operator makes it easier for cluster admins " +
+		"to manage their seccomp profiles and apply them to Kubernetes' workloads."
 	app.Version = version.Get().GitVersion
 	app.Action = run
 	app.Commands = cli.Commands{
@@ -71,7 +72,6 @@ func main() {
 						return errors.Wrap(err, "unable to generate JSON from version info")
 					}
 					res = j
-
 				}
 				print(res)
 				return nil
