@@ -21,8 +21,11 @@ linters:
     - goconst
     - gocritic
     - gocyclo
+    - godot
     - godox
+    - goerr113
     - gofmt
+    - gofumpt
     - goheader
     - goimports
     - golint
@@ -38,6 +41,7 @@ linters:
     - maligned
     - misspell
     - nakedret
+    - nestif
     - noctx
     - nolintlint
     - prealloc
@@ -54,9 +58,6 @@ linters:
     - whitespace
     # - funlen
     # - gochecknoglobals
-    # - godot
-    # - goerr113
-    # - gofumpt
     # - scopelint
     # - testpackage
     # - wsl
