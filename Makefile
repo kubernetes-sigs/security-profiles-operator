@@ -86,7 +86,7 @@ go-mod: ## Cleanup and verify go modules
 
 .PHONY: image
 image: ## Build the container image
-	$(CONTAINER_RUNTIME) build -t $(IMAGE) .
+	$(CONTAINER_RUNTIME) build --build-arg version=$(GIT_VERSION) -t $(IMAGE) .
 
 # Verification targets
 
