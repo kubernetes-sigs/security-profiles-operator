@@ -36,8 +36,10 @@ ADD . /work
 RUN make
 
 FROM scratch
+ARG version
+
 LABEL name="Seccomp Operator" \
-      version="v0.0.1" \
+      version=$version \
       description="The Seccomp Operator makes it easier for cluster admins to manage their seccomp profiles and apply them to Kubernetes' workloads."
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
