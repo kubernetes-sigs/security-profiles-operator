@@ -24,15 +24,9 @@ else
     BUILD_DATE ?= $(shell date -u "$(DATE_FMT)")
 endif
 
-ifeq ($(shell bash -c '[[ `command -v git` && `git rev-parse --git-dir 2>/dev/null` ]] && echo true'), true)
-	GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null || echo unknown)
-	GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
-	GIT_VERSION := $(shell git describe --abbrev=0 2>/dev/null || echo 0.0.0)
-else
-	GIT_COMMIT := unknown
-	GIT_TREE_STATE := unknown
-	GIT_VERSION := unknown
-endif
+GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null || echo unknown)
+GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
+GIT_VERSION := $(shell git describe --abbrev=0 2>/dev/null || echo 0.0.0)
 
 BUILDTAGS := netgo
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
