@@ -5,17 +5,17 @@
 - Enables use of `ConfigMap` to store seccomp profiles.
 - Synchronises seccomp profiles across all nodes.
 
-
 ## How To
 
 ### 1. Install operator
+
 ```sh
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/seccomp-operator/master/deploy/operator.yaml
 ```
 
 ### 2. Create Profile
 
-ConfigMaps with profiles must exist within the `seccomp-operator` namespace and be 
+ConfigMaps with profiles must exist within the `seccomp-operator` namespace and be
 annotated with `seccomp.security.kubernetes.io/profile: "true"`. As per below:
 
 ```yaml
@@ -47,17 +47,17 @@ kind: Pod
 metadata:
   name: test-pod
   annotations:
-    seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/cfg-map-name/profile1.json'
+    seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/cfg-map-name/profile1.json"
 spec:
   containers:
-  - name: test-container
-    image: nginx
+    - name: test-container
+      image: nginx
 ```
-
 
 ## Troubleshooting
 
 Confirm that the profile is being reconciled:
+
 ```sh
 $ kubectl logs -n seccomp-operator seccomp-operator-v6p2h
 
@@ -71,38 +71,16 @@ I0618 16:06:55.598873       1 controller.go:190] controller-runtime/controller "
 I0618 16:08:43.507538       1 profile.go:125] profile "msg"="Reconciled profile" "namespace"="seccomp-operator" "profile"="test-profile" "resource version"="2912"
 ```
 
-
 Confirm that the seccomp profiles are saved into the correct path:
+
 ```sh
 $ kubectl exec -t -n seccomp-operator seccomp-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/test-profile
 profile-block.json
 profile-complain.json
 ```
 
-
-
-## Running the operator without root user
-
-It is possible to run the security operator without using root containers if the nodes comply with the following requirements:
-- Folder `/var/lib/kubelet/seccomp/operator` is already created.
-- User running the main container has `rw` access to the folder `/var/lib/kubelet/seccomp/operator`.
-
-Example:
-
-```sh
-/bin/mkdir -p /var/lib/kubelet/seccomp/operator
-chmod 0744 /var/lib/kubelet/seccomp/operator
-/bin/chown -R 2000:2000 /var/lib/kubelet/seccomp/operator
-```
-
-If that is not the case, the use of the root user can be dropped on the main container by using init containers. An alternative `.yaml` file is available that does that:
-
-```sh
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/seccomp-operator/master/deploy/operator-non-root.yaml
-```
-
 Please note corrupted seccomp profiles can disrupt your workloads. Therefore, ensure that the user used cannot be abused by:
 
 - Not creating that user on the actual node.
 - Restricting the user ID to only seccomp-operator (i.e. using PSP).
-- Not allowing other workloads to map any part of the path `/var/lib/kubelet/seccomp/operator`. 
+- Not allowing other workloads to map any part of the path `/var/lib/kubelet/seccomp/operator`.
