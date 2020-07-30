@@ -4,6 +4,10 @@ This project is the starting point for the _Seccomp Operator_, an out-of-tree
 Kubernetes enhancement which aims to make managing and applying seccomp profiles
 more easy and straight forward in Kubernetes.
 
+- [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-seccomp-operator)
+
+## About
+
 The motivation behind the project can be found in the corresponding [RFC][0].
 
 [0]: RFC.md
