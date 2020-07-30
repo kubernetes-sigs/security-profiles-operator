@@ -1,7 +1,7 @@
 ---
 name: Bug Report
 about: Report a bug encountered while using Kubernetes release engineering tooling
-labels: kind/bug, sig/release, area/release-eng
+labels: kind/bug
 
 ---
 
