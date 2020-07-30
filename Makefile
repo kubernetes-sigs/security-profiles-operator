@@ -106,7 +106,7 @@ verify-go-lint: $(BUILD_DIR)/golangci-lint ## Verify the golang code by linting
 
 $(BUILD_DIR)/golangci-lint:
 	export \
-		VERSION=v1.28.3 \
+		VERSION=v1.29.0 \
 		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
 		BINDIR=$(BUILD_DIR) && \
 	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
