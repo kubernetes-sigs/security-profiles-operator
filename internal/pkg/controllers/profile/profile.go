@@ -74,7 +74,7 @@ func isProfile(obj runtime.Object) bool {
 
 // Setup adds a controller that reconciles seccomp profiles.
 func Setup(mgr ctrl.Manager, l logr.Logger) error {
-	name := "profile"
+	const name = "profile"
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
