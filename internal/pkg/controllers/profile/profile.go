@@ -150,6 +150,7 @@ func getProfilePath(profileName string, cfg *corev1.ConfigMap) (string, error) {
 
 	targetPath := DirTargetPath()
 	filePath := path.Join(targetPath,
+		filepath.Base(cfg.ObjectMeta.Namespace),
 		filepath.Base(cfg.ObjectMeta.Name),
 		filepath.Base(profileName))
 
