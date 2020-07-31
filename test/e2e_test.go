@@ -19,7 +19,7 @@ limitations under the License.
 package e2e_test
 
 func (e *e2e) TestSeccompOperator() {
-	const manifest = "deploy/operator-non-root.yaml"
+	const manifest = "deploy/operator.yaml"
 
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
