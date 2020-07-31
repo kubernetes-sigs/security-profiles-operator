@@ -72,6 +72,15 @@ spec:
             capabilities:
               drop: ["ALL"]
               add: ["CHOWN"]
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "100m"
+              ephemeral-storage: "10Mi"
+            limits:
+              memory: "64Mi"
+              cpu: "250m"
+              ephemeral-storage: "50Mi"
       containers:
         - name: seccomp-operator
           image: securityoperators/seccomp-operator:latest
@@ -89,6 +98,15 @@ spec:
             runAsGroup: 2000
             capabilities:
               drop: ["ALL"]
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+              ephemeral-storage: "50Mi"
+            limits:
+              memory: "128Mi"
+              cpu: "300m"
+              ephemeral-storage: "200Mi"
       volumes:
       - name: kubelet-path
         hostPath:
