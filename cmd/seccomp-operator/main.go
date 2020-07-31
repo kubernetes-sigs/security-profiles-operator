@@ -30,10 +30,9 @@ import (
 )
 
 const (
-	appName                 string = "seccomp-operator"
-	namespaceToWatchDefault string = appName
-	namespaceToWatchKey     string = "NAMESPACE_TO_WATCH"
-	jsonFlag                string = "json"
+	appName             string = "seccomp-operator"
+	namespaceToWatchKey string = "NAMESPACE_TO_WATCH"
+	jsonFlag            string = "json"
 )
 
 var (
@@ -102,15 +101,14 @@ func run(*cli.Context) error {
 		return errors.Wrap(err, "cannot get config")
 	}
 
-	namespaceToWatch := namespaceToWatchDefault
+	opts := ctrl.Options{
+		SyncPeriod: &sync,
+	}
 	if os.Getenv(namespaceToWatchKey) != "" {
-		namespaceToWatch = os.Getenv(namespaceToWatchKey)
+		opts.Namespace = os.Getenv(namespaceToWatchKey)
 	}
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		SyncPeriod: &sync,
-		Namespace:  namespaceToWatch,
-	})
+	mgr, err := ctrl.NewManager(cfg, opts)
 	if err != nil {
 		return errors.Wrap(err, "cannot create manager")
 	}
