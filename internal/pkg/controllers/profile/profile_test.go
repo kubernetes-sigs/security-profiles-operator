@@ -268,14 +268,6 @@ func TestGetProfilePath(t *testing.T) {
 				},
 			},
 		},
-		"ConfigMapWithoutName": {
-			wantErr: errConfigMapWithoutName,
-			config: &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "config-namespace",
-				},
-			},
-		},
 		"ConfigMapCannotBeNil": {
 			wantErr: errConfigMapNil,
 		},
