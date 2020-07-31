@@ -33,7 +33,7 @@ import (
 
 const (
 	kindVersion = "v0.8.1"
-	kindSHA512  = "ff71adddbe043df84c4dee82f034c6856bfc51c931bb7839d9c09d02fca93bfe961a9c05d7c657371963cc81febee175133598bba50fb1481a9faa06b42abdc3"
+	kindSHA512  = "ff71adddbe043df84c4dee82f034c6856bfc51c931bb7839d9c09d02fca93bfe961a9c05d7c657371963cc81febee175133598bba50fb1481a9faa06b42abdc3" // nolint: lll
 	kindImage   = "kindest/node:v1.18.2"
 
 	testImage = "securityoperators/seccomp-operator:latest"
@@ -50,14 +50,14 @@ func TestSuite(t *testing.T) {
 	suite.Run(t, &e2e{})
 }
 
-// SetupSuite downloads kind and searches for kubectl in $PATH
+// SetupSuite downloads kind and searches for kubectl in $PATH.
 func (e *e2e) SetupSuite() {
 	cwd, err := os.Getwd()
 	e.Nil(err)
 
-	parent_cwd := filepath.Dir(cwd)
-	os.Chdir(parent_cwd)
-	buildDir := filepath.Join(parent_cwd, "build")
+	parentCwd := filepath.Dir(cwd)
+	e.Nil(os.Chdir(parentCwd))
+	buildDir := filepath.Join(parentCwd, "build")
 	e.Nil(os.MkdirAll(buildDir, 0o755))
 
 	e.kindPath = filepath.Join(buildDir, "kind")
@@ -75,12 +75,12 @@ func (e *e2e) SetupSuite() {
 	e.Nil(err)
 }
 
-// SetupTest starts a fresh kind cluster for each test
+// SetupTest starts a fresh kind cluster for each test.
 func (e *e2e) SetupTest() {
 	// Deploy the cluster
 	e.clusterName = fmt.Sprintf("so-e2e-%d", time.Now().Unix())
 
-	cmd := exec.Command(
+	cmd := exec.Command( // nolint: gosec
 		e.kindPath, "create", "cluster",
 		"--name="+e.clusterName,
 		"--image="+kindImage,
@@ -101,7 +101,7 @@ func (e *e2e) SetupTest() {
 	)
 }
 
-// TearDownTest stops the kind cluster
+// TearDownTest stops the kind cluster.
 func (e *e2e) TearDownTest() {
 	e.run(
 		e.kindPath, "delete", "cluster",
@@ -114,7 +114,7 @@ func (e *e2e) run(cmd string, args ...string) {
 	e.Nil(command.Execute(cmd, args...))
 }
 
-func (e *e2e) verifySHA256(binaryPath string, sha256 string) {
+func (e *e2e) verifySHA256(binaryPath, sha256 string) {
 	e.Nil(command.New("sha512sum", binaryPath).
 		Pipe("grep", sha256).
 		RunSilentSuccess(),
