@@ -2,6 +2,7 @@
 run:
   build-tags:
     - netgo
+    - e2e
   concurrency: 6
   deadline: 5m
 linters:
