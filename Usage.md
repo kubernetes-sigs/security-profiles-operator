@@ -3,7 +3,7 @@
 ## Features
 
 - Enables use of `ConfigMap` to store seccomp profiles.
-- Synchronises seccomp profiles across all nodes.
+- Synchronizes seccomp profiles across all nodes.
 
 ## How To
 
@@ -15,14 +15,14 @@ $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/seccomp-ope
 
 ### 2. Create Profile
 
-ConfigMaps with profiles must exist within the `seccomp-operator` namespace and be
+ConfigMaps with profiles will be separated by their target namespace and must be
 annotated with `seccomp.security.kubernetes.io/profile: "true"`. As per below:
 
 ```yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  namespace: seccomp-operator
+  namespace: my-namespace
   name: cfg-map-name
   annotations:
     seccomp.security.kubernetes.io/profile: "true"
@@ -35,7 +35,7 @@ data:
 
 The operator will get that ConfigMap and save all its profiles into the folder:
 
-`/var/lib/kubelet/seccomp/operator/cfg-map-name/`.
+`/var/lib/kubelet/seccomp/operator/my-namespace/cfg-map-name/`.
 
 ### 3. Apply profile to pod
 
@@ -47,7 +47,7 @@ kind: Pod
 metadata:
   name: test-pod
   annotations:
-    seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/cfg-map-name/profile1.json"
+    seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/my-namespace/cfg-map-name/profile1.json"
 spec:
   containers:
     - name: test-container
@@ -68,13 +68,13 @@ I0618 16:06:55.498089       1 internal.go:393] controller-runtime/manager "msg"=
 I0618 16:06:55.498392       1 controller.go:164] controller-runtime/controller "msg"="Starting EventSource"  "controller"="profile" "source"={"Type":{"metadata":{"creationTimestamp":null}}}
 I0618 16:06:55.598778       1 controller.go:171] controller-runtime/controller "msg"="Starting Controller"  "controller"="profile"
 I0618 16:06:55.598873       1 controller.go:190] controller-runtime/controller "msg"="Starting workers"  "controller"="profile" "worker count"=1
-I0618 16:08:43.507538       1 profile.go:125] profile "msg"="Reconciled profile" "namespace"="seccomp-operator" "profile"="test-profile" "resource version"="2912"
+I0618 16:08:43.507538       1 profile.go:125] profile "msg"="Reconciled profile" "namespace"="my-namespace" "profile"="test-profile" "resource version"="2912"
 ```
 
 Confirm that the seccomp profiles are saved into the correct path:
 
 ```sh
-$ kubectl exec -t -n seccomp-operator seccomp-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/test-profile
+$ kubectl exec -t -n seccomp-operator seccomp-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/my-namespace/test-profile
 profile-block.json
 profile-complain.json
 ```
