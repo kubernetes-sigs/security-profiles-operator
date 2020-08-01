@@ -30,9 +30,8 @@ import (
 )
 
 const (
-	appName             string = "seccomp-operator"
-	namespaceToWatchKey string = "NAMESPACE_TO_WATCH"
-	jsonFlag            string = "json"
+	appName  string = "seccomp-operator"
+	jsonFlag string = "json"
 )
 
 var (
@@ -98,23 +97,18 @@ func run(*cli.Context) error {
 	)
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
-		return errors.Wrap(err, "cannot get config")
+		return errors.Wrap(err, "get config")
 	}
 
-	opts := ctrl.Options{
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		SyncPeriod: &sync,
-	}
-	if os.Getenv(namespaceToWatchKey) != "" {
-		opts.Namespace = os.Getenv(namespaceToWatchKey)
-	}
-
-	mgr, err := ctrl.NewManager(cfg, opts)
+	})
 	if err != nil {
-		return errors.Wrap(err, "cannot create manager")
+		return errors.Wrap(err, "create manager")
 	}
 
 	if err := profile.Setup(mgr, ctrl.Log.WithName("profile")); err != nil {
-		return errors.Wrap(err, "cannot setup profile controller")
+		return errors.Wrap(err, "setup profile controller")
 	}
 
 	setupLog.Info("starting manager")
