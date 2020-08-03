@@ -28,11 +28,12 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
+	"github.com/kubernetes-sigs/seccomp-operator/internal/pkg/controllers/profile"
 )
 
 const (
 	deploymentYAML = "deploy/operator.yaml"
-	configMapName  = "default-profiles"
 	profilesDir    = "profiles"
 )
 
@@ -70,7 +71,7 @@ func main() {
 		}
 
 		// look for the right config map
-		if match.foundConfigMapType && line == "  name: "+configMapName {
+		if match.foundConfigMapType && line == "  name: "+profile.DefaultProfilesConfigMapName {
 			match.foundConfigMapName = true
 		}
 

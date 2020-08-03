@@ -58,10 +58,12 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - >
-              if [ ! -d "/var/lib/kubelet/seccomp/operator" ]; then
-                /bin/mkdir -p /var/lib/kubelet/seccomp/operator &&
-                chmod 0744 /var/lib/kubelet/seccomp/operator &&
-                /bin/chown -R 2000:2000 /var/lib/kubelet/seccomp/operator;
+              KUBELET_DIR=/var/lib/kubelet &&
+              OPERATOR_DIR=$KUBELET_DIR/seccomp/operator &&
+              chmod +x $KUBELET_DIR &&
+              if [ ! -d $OPERATOR_DIR ]; then
+                /bin/mkdir -m 0744 -p $OPERATOR_DIR &&
+                /bin/chown -R 2000:2000 $OPERATOR_DIR;
               fi
           volumeMounts:
           - mountPath: /var/lib/kubelet
