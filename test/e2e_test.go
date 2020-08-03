@@ -47,7 +47,7 @@ func (e *e2e) TestSeccompOperator() {
 	e.logf("Waiting for operator to be ready")
 	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "--all")
 
-	// Verify that the default profiles are
+	// Verify that the default profiles are on all worker nodes
 	e.logf("Verifying default profiles on all worker nodes")
 	nodes := e.kubectl(
 		"get", "nodes",
