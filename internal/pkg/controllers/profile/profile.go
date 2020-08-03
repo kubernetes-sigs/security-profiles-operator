@@ -56,6 +56,13 @@ const (
 	dirPermissionMode os.FileMode = 0o744
 
 	kubeletSeccompRootPath = "/var/lib/kubelet"
+
+	// DefaultProfilesConfigMapName is the configMap name for the default
+	// profiles.
+	DefaultProfilesConfigMapName = "default-profiles"
+
+	// DefaultNamespace is the default namespace for the operator deployment.
+	DefaultNamespace = "seccomp-operator"
 )
 
 // SeccompProfileAnnotation is the annotation on a ConfigMap that specifies its
@@ -123,16 +130,8 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 }
 
 func saveProfileOnDisk(fileName, contents string) error {
-	dirPath := path.Dir(fileName)
-	if _, err := os.Stat(dirPath); err != nil {
-		if os.IsPermission(err) {
-			return errors.Wrap(err, errCreatingOperatorDir)
-		}
-		if os.IsNotExist(err) {
-			if err := os.MkdirAll(dirPath, dirPermissionMode); err != nil {
-				return errors.Wrap(err, errSavingProfile)
-			}
-		}
+	if err := os.MkdirAll(path.Dir(fileName), dirPermissionMode); err != nil {
+		return errors.Wrap(err, errCreatingOperatorDir)
 	}
 
 	if err := ioutil.WriteFile(fileName, []byte(contents), filePermissionMode); err != nil {
@@ -149,7 +148,7 @@ func getProfilePath(profileName string, cfg *corev1.ConfigMap) (string, error) {
 		return "", errors.New(errConfigMapWithoutName)
 	}
 
-	targetPath := dirTargetPath()
+	targetPath := DirTargetPath()
 	filePath := path.Join(targetPath,
 		filepath.Base(cfg.ObjectMeta.Name),
 		filepath.Base(profileName))
@@ -157,7 +156,8 @@ func getProfilePath(profileName string, cfg *corev1.ConfigMap) (string, error) {
 	return filePath, nil
 }
 
-func dirTargetPath() string {
+// DirTargetPath returns the default local operator profile root path.
+func DirTargetPath() string {
 	return path.Join(kubeletSeccompRootPath, seccompOperatorSuffix)
 }
 

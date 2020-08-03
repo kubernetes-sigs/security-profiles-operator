@@ -215,7 +215,7 @@ func TestDirTargetPath(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := dirTargetPath()
+			got := DirTargetPath()
 			require.Equal(t, tc.want, got)
 		})
 	}
