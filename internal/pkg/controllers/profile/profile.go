@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -90,6 +91,7 @@ func Setup(mgr ctrl.Manager, l logr.Logger) error {
 		Complete(&Reconciler{
 			client: mgr.GetClient(),
 			log:    l,
+			record: event.NewAPIRecorder(mgr.GetEventRecorderFor("profile")),
 		})
 }
 
@@ -97,6 +99,7 @@ func Setup(mgr ctrl.Manager, l logr.Logger) error {
 type Reconciler struct {
 	client client.Client
 	log    logr.Logger
+	record event.Recorder
 }
 
 // Reconcile reconciles a ConfigMap representing a seccomp profile.
@@ -116,11 +119,13 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 		profilePath, err := getProfilePath(name, profile)
 		if err != nil {
 			logger.Error(err, "cannot get profile path")
+			r.record.Event(profile, event.Warning(event.Reason("cannot get profile path"), err))
 			return reconcile.Result{}, err
 		}
 
 		if err = saveProfileOnDisk(profilePath, contents); err != nil {
 			logger.Error(err, "cannot save profile into disk")
+			r.record.Event(profile, event.Warning(event.Reason("cannot save profile into disk"), err))
 			return reconcile.Result{}, err
 		}
 	}
