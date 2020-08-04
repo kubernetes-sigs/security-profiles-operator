@@ -78,7 +78,7 @@ func (e *e2e) TestSeccompOperator() {
 		for name, content := range defaultProfiles.Data {
 			catOutput := e.run(
 				"docker", "exec", node, "cat",
-				filepath.Join(profile.DirTargetPath(), profile.DefaultProfilesConfigMapName, name),
+				filepath.Join(profile.DirTargetPath(), defaultProfiles.Namespace, profile.DefaultProfilesConfigMapName, name),
 			)
 			e.Contains(catOutput, content)
 		}
