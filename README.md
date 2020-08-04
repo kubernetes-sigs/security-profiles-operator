@@ -5,7 +5,7 @@ Kubernetes enhancement which aims to make managing and applying seccomp profiles
 more easy and straight forward in Kubernetes.
 
 - [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-seccomp-operator)
-- [Installation and Usage](Usage.md)
+- [Installation and Usage](installation-usage.md)
 
 ## About
 

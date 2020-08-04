@@ -1,9 +1,11 @@
-# Usage
+# Installation and Usage
 
 ## Features
 
-- Enables use of `ConfigMap` to store seccomp profiles.
-- Synchronizes seccomp profiles across all nodes.
+The feature scope of the seccomp-operator is right now limited to:
+
+- Enabling `ConfigMap`s to store seccomp profiles.
+- Synchronizing seccomp profiles across all worker nodes.
 
 ## How To
 
@@ -33,9 +35,15 @@ data:
     { "defaultAction": "SCMP_ACT_LOG" }
 ```
 
-The operator will get that ConfigMap and save all its profiles into the folder:
+The operator will get that ConfigMap and save all its profiles into the
+directory:
 
 `/var/lib/kubelet/seccomp/operator/my-namespace/cfg-map-name/`.
+
+An init container will setup the root directory of the operator to be able to
+run it without root G/UID. This will be done by creating a symlink from the
+rootless profile storage `/var/lib/seccomp-operator` to the default seccomp root
+path inside of the kubelet root `/var/lib/kubelet/seccomp/operator`.
 
 ### 3. Apply profile to pod
 
