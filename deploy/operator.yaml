@@ -65,7 +65,9 @@ spec:
                 /bin/mkdir -m 0744 -p $SECCOMP_DIR
               fi;
               /bin/chmod 0744 $OPERATOR_DIR &&
-              /bin/ln -s -f $OPERATOR_DIR $OPERATOR_SYMLINK &&             
+              if [ ! -L $OPERATOR_SYMLINK ]; then
+                /bin/ln -s $OPERATOR_DIR $OPERATOR_SYMLINK
+              fi;
               /bin/chown -R 2000:2000 $OPERATOR_DIR
           volumeMounts:
           - name: host-varlib-vol
