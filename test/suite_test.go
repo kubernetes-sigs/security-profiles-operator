@@ -150,3 +150,7 @@ func (e *e2e) kubectlOperatorNS(args ...string) string {
 func (e *e2e) logf(format string, a ...interface{}) {
 	e.logger.Info(fmt.Sprintf(format, a...))
 }
+
+func (e *e2e) execNode(node string, args ...string) string {
+	return e.run("docker", append([]string{"exec", node}, args...)...)
+}
