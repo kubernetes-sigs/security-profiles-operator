@@ -47,6 +47,23 @@ func (e *e2e) TestSeccompOperator() {
 	e.logf("Waiting for operator to be ready")
 	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "--all")
 
+	// Deploy the example profile
+	const (
+		exampleProfilePath = "examples/profile.yaml"
+		exampleProfileName = "test-profile"
+	)
+	e.logf("Deploying example profile: %s", exampleProfilePath)
+	e.kubectl("create", "-f", exampleProfilePath)
+
+	e.logf("Retrieving deployed example profile")
+	exampleProfileData := e.kubectl(
+		"get", "configmap", exampleProfileName, "-o", "json",
+	)
+
+	exampleProfiles := &v1.ConfigMap{}
+	e.logf("Unmarshalling example profiles JSON: %s", exampleProfileName)
+	e.Nil(json.Unmarshal([]byte(exampleProfileData), exampleProfiles))
+
 	// Verify that the default profiles are on all worker nodes
 	e.logf("Verifying default profiles on all worker nodes")
 	nodes := e.kubectl(
@@ -61,26 +78,33 @@ func (e *e2e) TestSeccompOperator() {
 	defaultProfilesData := e.kubectlOperatorNS(
 		"get", "configmap", profile.DefaultProfilesConfigMapName, "-o", "json",
 	)
-	var defaultProfiles v1.ConfigMap
+	defaultProfiles := &v1.ConfigMap{}
 	e.logf("Unmarshalling default profiles JSON: %s", defaultProfilesData)
-	e.Nil(json.Unmarshal([]byte(defaultProfilesData), &defaultProfiles))
+	e.Nil(json.Unmarshal([]byte(defaultProfilesData), defaultProfiles))
 
+	// Content verification
 	for _, node := range strings.Fields(nodes) {
 		// General path verification
 		e.logf("Verifying seccomp operator directory on node: %s", node)
-		statOutput := e.run(
-			"docker", "exec", node, "stat", "-c", `%a,%u,%g`, profile.DirTargetPath(),
+		statOutput := e.execNode(
+			node, "stat", "-c", `%a,%u,%g`, profile.DirTargetPath(),
 		)
 		e.Contains(statOutput, "744,2000,2000")
 
 		// Default profile verification
-		e.logf("Verifying default profiles on node: %s", node)
-		for name, content := range defaultProfiles.Data {
-			catOutput := e.run(
-				"docker", "exec", node, "cat",
-				filepath.Join(profile.DirTargetPath(), defaultProfiles.Namespace, profile.DefaultProfilesConfigMapName, name),
-			)
-			e.Contains(catOutput, content)
-		}
+		e.verifyProfilesContent(node, defaultProfiles)
+
+		// Example profile verification
+		e.verifyProfilesContent(node, exampleProfiles)
+	}
+}
+
+func (e *e2e) verifyProfilesContent(node string, cm *v1.ConfigMap) {
+	e.logf("Verifying %s profile on node %s", cm.Name, node)
+	for name, content := range cm.Data {
+		catOutput := e.execNode(node, "cat", filepath.Join(
+			profile.DirTargetPath(), cm.Namespace, cm.Name, name,
+		))
+		e.Contains(catOutput, content)
 	}
 }
