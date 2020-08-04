@@ -29,23 +29,11 @@ import (
 
 func (e *e2e) TestSeccompOperator() {
 	const manifest = "deploy/operator.yaml"
-
-	// Ensure that we do not accidentally pull the image and use the pre-loaded
-	// ones from the nodes
-	e.logf("Setting imagePullPolicy to 'Never' in manifest: %s", manifest)
-	e.run(
-		"sed", "-i", "s;imagePullPolicy: Always;imagePullPolicy: Never;g",
-		manifest,
-	)
+	defer e.cleanupOperator(manifest)
 	defer e.run("git", "checkout", manifest)
 
 	// Deploy the operator
-	e.logf("Deploying operator")
-	e.kubectl("create", "-f", manifest)
-
-	// Wait for the operator to be ready
-	e.logf("Waiting for operator to be ready")
-	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "--all")
+	e.deployOperator(manifest)
 
 	// Deploy the example profile
 	const (
@@ -117,7 +105,38 @@ func (e *e2e) TestSeccompOperator() {
 		"rmdir: failed to remove '/home': Operation not permitted",
 	)
 
+	e.logf("Cleaning up and re-deploying the operator")
+	// Clean up the operator
+	e.cleanupOperator(manifest)
+
+	// Deploy the operator again
+	e.deployOperator(manifest)
+
 	e.logf("Tests succeeded")
+}
+
+func (e *e2e) deployOperator(manifest string) {
+	// Ensure that we do not accidentally pull the image and use the pre-loaded
+	// ones from the nodes
+	e.logf("Setting imagePullPolicy to 'Never' in manifest: %s", manifest)
+	e.run(
+		"sed", "-i", "s;imagePullPolicy: Always;imagePullPolicy: Never;g",
+		manifest,
+	)
+
+	// Deploy the operator
+	e.logf("Deploying operator")
+	e.kubectl("create", "-f", manifest)
+
+	// Wait for the operator to be ready
+	e.logf("Waiting for operator to be ready")
+	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "--all")
+}
+
+func (e *e2e) cleanupOperator(manifest string) {
+	// Clean up the operator
+	e.logf("Cleaning up operator")
+	e.kubectl("delete", "-f", manifest)
 }
 
 func (e *e2e) verifyProfilesContent(node string, cm *v1.ConfigMap) {
