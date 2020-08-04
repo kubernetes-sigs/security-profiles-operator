@@ -53,27 +53,29 @@ spec:
       initContainers:
         - name: non-root-enabler
           image: busybox
-          # Creates folder /var/lib/kubelet/seccomp/operator and sets 2000:2000 as its owner.
+          # Creates folder /var/lib/seccomp-operator, sets 2000:2000 as its owner and symlink it to /var/lib/kubelet/seccomp/operator.
           # This is required to allow the main container to run as non-root.
           command: ["/bin/sh", "-c"]
           args:
             - >
-              KUBELET_DIR=/var/lib/kubelet &&
-              OPERATOR_DIR=$KUBELET_DIR/seccomp/operator &&
-              chmod +x $KUBELET_DIR &&
-              if [ ! -d $OPERATOR_DIR ]; then
-                /bin/mkdir -m 0744 -p $OPERATOR_DIR &&
-                /bin/chown -R 2000:2000 $OPERATOR_DIR;
-              fi
+              SECCOMP_DIR=/var/lib/kubelet/seccomp &&
+              OPERATOR_SYMLINK=$SECCOMP_DIR/operator &&
+              OPERATOR_DIR=/var/lib/seccomp-operator &&
+              if [ ! -d $SECCOMP_DIR ]; then
+                /bin/mkdir -m 0744 -p $SECCOMP_DIR
+              fi;
+              /bin/chmod 0744 $OPERATOR_DIR &&
+              /bin/ln -s -f $OPERATOR_DIR $OPERATOR_SYMLINK &&             
+              /bin/chown -R 2000:2000 $OPERATOR_DIR
           volumeMounts:
-          - mountPath: /var/lib/kubelet
-            name: kubelet-path
+          - name: host-varlib-vol
+            mountPath: /var/lib
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-              add: ["CHOWN"]
+              add: ["CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"]
           resources:
             requests:
               memory: "32Mi"
@@ -88,8 +90,8 @@ spec:
           image: securityoperators/seccomp-operator:latest
           imagePullPolicy: Always
           volumeMounts:
-          - mountPath: /var/lib/kubelet
-            name: kubelet-path
+          - name: host-operator-vol
+            mountPath: /var/lib/kubelet/seccomp/operator
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -107,10 +109,15 @@ spec:
               cpu: "300m"
               ephemeral-storage: "200Mi"
       volumes:
-      - name: kubelet-path
+      # /var/lib is used as symlinks cannot be created across different volumes
+      - name: host-varlib-vol
         hostPath:
-          path: /var/lib/kubelet
+          path: /var/lib
           type: Directory
+      - name: host-operator-vol
+        hostPath:
+          path: /var/lib/seccomp-operator
+          type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: ConfigMap
