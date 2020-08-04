@@ -87,7 +87,7 @@ func (e *e2e) TestSeccompOperator() {
 		// General path verification
 		e.logf("Verifying seccomp operator directory on node: %s", node)
 		statOutput := e.execNode(
-			node, "stat", "-c", `%a,%u,%g`, profile.DirTargetPath(),
+			node, "stat", "-L", "-c", `%a,%u,%g`, profile.DirTargetPath(),
 		)
 		e.Contains(statOutput, "744,2000,2000")
 
