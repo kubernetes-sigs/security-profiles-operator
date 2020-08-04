@@ -97,6 +97,27 @@ func (e *e2e) TestSeccompOperator() {
 		// Example profile verification
 		e.verifyProfilesContent(node, exampleProfiles)
 	}
+
+	// Run the test pod
+	const (
+		examplePodPath = "examples/pod.yaml"
+		examplePodName = "test-pod"
+	)
+	e.logf("Creating the test pod: %s", examplePodPath)
+	e.kubectl("create", "-f", examplePodPath)
+
+	e.logf("Waiting for test pod to be ready")
+	e.kubectl("wait", "--for", "condition=ready", "pod", "--all")
+
+	e.logf("Testing that `rmdir` is not possible inside the pod")
+	failureOutput := e.kubectlFailure(
+		"exec", examplePodName, "--", "rmdir", "/home",
+	)
+	e.Contains(failureOutput,
+		"rmdir: failed to remove '/home': Operation not permitted",
+	)
+
+	e.logf("Tests succeeded")
 }
 
 func (e *e2e) verifyProfilesContent(node string, cm *v1.ConfigMap) {
