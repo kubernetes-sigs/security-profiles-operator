@@ -42,11 +42,10 @@ const (
 
 	longWait = 1 * time.Minute
 
-	errGetProfile           = "cannot get profile"
-	errConfigMapNil         = "config map cannot be nil"
-	errConfigMapWithoutName = "config map must have a name"
-	errSavingProfile        = "cannot save profile"
-	errCreatingOperatorDir  = "cannot create operator directory"
+	errGetProfile          = "cannot get profile"
+	errConfigMapNil        = "config map cannot be nil"
+	errSavingProfile       = "cannot save profile"
+	errCreatingOperatorDir = "cannot create operator directory"
 
 	seccompOperatorSuffix string      = "seccomp/operator"
 	filePermissionMode    os.FileMode = 0o644
@@ -144,12 +143,10 @@ func getProfilePath(profileName string, cfg *corev1.ConfigMap) (string, error) {
 	if cfg == nil {
 		return "", errors.New(errConfigMapNil)
 	}
-	if cfg.ObjectMeta.Name == "" {
-		return "", errors.New(errConfigMapWithoutName)
-	}
 
 	targetPath := DirTargetPath()
 	filePath := path.Join(targetPath,
+		filepath.Base(cfg.ObjectMeta.Namespace),
 		filepath.Base(cfg.ObjectMeta.Name),
 		filepath.Base(profileName))
 

@@ -229,7 +229,7 @@ func TestGetProfilePath(t *testing.T) {
 		config      *corev1.ConfigMap
 	}{
 		"AppendNamespaceConfigNameAndProfile": {
-			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "config-name", "file.js"),
+			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "config-namespace", "config-name", "file.js"),
 			profileName: "file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -239,7 +239,7 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtProfileName": {
-			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "cfg", "file.js"),
+			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "ns", "cfg", "file.js"),
 			profileName: "../../../../../file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -249,7 +249,7 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtConfigName": {
-			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "cfg", "file.js"),
+			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "ns", "cfg", "file.js"),
 			profileName: "file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -259,20 +259,12 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtConfigNamespace": {
-			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "cfg", "file.js"),
+			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "ns", "cfg", "file.js"),
 			profileName: "file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cfg",
 					Namespace: "../../../../../ns",
-				},
-			},
-		},
-		"ConfigMapWithoutName": {
-			wantErr: errConfigMapWithoutName,
-			config: &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "config-namespace",
 				},
 			},
 		},
