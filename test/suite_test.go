@@ -121,6 +121,13 @@ func (e *e2e) run(cmd string, args ...string) string {
 	return output.OutputTrimNL()
 }
 
+func (e *e2e) runFailure(cmd string, args ...string) string {
+	output, err := command.New(cmd, args...).Run()
+	e.Nil(err)
+	e.False(output.Success())
+	return output.Error()
+}
+
 func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
 	if !util.Exists(binaryPath) {
 		e.logf("Downloading %s", binaryPath)
@@ -139,6 +146,10 @@ func (e *e2e) verifySHA512(binaryPath, sha512 string) {
 
 func (e *e2e) kubectl(args ...string) string {
 	return e.run(e.kubectlPath, args...)
+}
+
+func (e *e2e) kubectlFailure(args ...string) string {
+	return e.runFailure(e.kubectlPath, args...)
 }
 
 func (e *e2e) kubectlOperatorNS(args ...string) string {
