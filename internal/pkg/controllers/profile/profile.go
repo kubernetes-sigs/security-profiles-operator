@@ -18,6 +18,7 @@ package profile
 
 import (
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"os"
 	"path"
@@ -35,10 +36,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	stypes "github.com/kubernetes-sigs/seccomp-operator/internal/pkg/types"
 )
 
 const (
-	// default reconcile timeout
+	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
 
 	longWait = 1 * time.Minute
@@ -116,6 +119,13 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	}
 
 	for profileName, profileContent := range configMap.Data {
+		if err := validateProfile(profileContent); err != nil {
+			reason := "cannot validate profile " + profileName
+			logger.Error(err, reason)
+			r.record.Event(configMap, event.Warning(event.Reason(reason), err))
+			return reconcile.Result{}, errors.Wrap(err, reason)
+		}
+
 		profilePath, err := GetProfilePath(profileName, configMap)
 		if err != nil {
 			logger.Error(err, "cannot get profile path")
@@ -164,4 +174,16 @@ func ignoreNotFound(err error) error {
 		return nil
 	}
 	return err
+}
+
+// validateProfile does a basic validation for the provided seccomp profile
+// string.
+func validateProfile(content string) error {
+	profile := &stypes.Seccomp{}
+	if err := json.Unmarshal([]byte(content), &profile); err != nil {
+		return errors.Wrap(err, "decoding seccomp profile")
+	}
+
+	// TODO: consider further validation steps
+	return nil
 }
