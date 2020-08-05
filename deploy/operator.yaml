@@ -89,7 +89,7 @@ spec:
               ephemeral-storage: "50Mi"
       containers:
         - name: seccomp-operator
-          image: securityoperators/seccomp-operator:latest
+          image: gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest
           imagePullPolicy: Always
           volumeMounts:
           - name: host-operator-vol
