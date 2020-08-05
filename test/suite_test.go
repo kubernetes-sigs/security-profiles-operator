@@ -38,7 +38,7 @@ const (
 	kindVersion = "v0.8.1"
 	kindSHA512  = "ff71adddbe043df84c4dee82f034c6856bfc51c931bb7839d9c09d02fca93bfe961a9c05d7c657371963cc81febee175133598bba50fb1481a9faa06b42abdc3" // nolint: lll
 	kindImage   = "kindest/node:v1.18.2"
-	testImage   = "securityoperators/seccomp-operator:latest"
+	testImage   = "seccomp-operator:latest"
 )
 
 type e2e struct {

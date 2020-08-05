@@ -39,7 +39,7 @@ LDVARS := \
 LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
 
 CONTAINER_RUNTIME ?= docker
-IMAGE ?= securityoperators/$(PROJECT):latest
+IMAGE ?= $(PROJECT):latest
 
 # Utility targets
 

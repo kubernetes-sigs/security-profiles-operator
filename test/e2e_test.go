@@ -20,6 +20,7 @@ package e2e_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -121,6 +122,12 @@ func (e *e2e) deployOperator(manifest string) {
 	e.logf("Setting imagePullPolicy to 'Never' in manifest: %s", manifest)
 	e.run(
 		"sed", "-i", "s;imagePullPolicy: Always;imagePullPolicy: Never;g",
+		manifest,
+	)
+
+	// Update the image name to match the test image
+	e.run(
+		"sed", "-i", fmt.Sprintf("s;image: gcr.io/.*;image: %s;g", testImage),
 		manifest,
 	)
 
