@@ -108,28 +108,28 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 
-	profile := &corev1.ConfigMap{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: req.Name, Namespace: req.Namespace}, profile); err != nil {
+	configMap := &corev1.ConfigMap{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: req.Name, Namespace: req.Namespace}, configMap); err != nil {
 		// Returning an error means we will be requeued implicitly.
 		return reconcile.Result{}, errors.Wrap(ignoreNotFound(err), errGetProfile)
 	}
 
-	for name, contents := range profile.Data {
-		profilePath, err := getProfilePath(name, profile)
+	for profileName, profileContent := range configMap.Data {
+		profilePath, err := getProfilePath(profileName, configMap)
 		if err != nil {
 			logger.Error(err, "cannot get profile path")
-			r.record.Event(profile, event.Warning(event.Reason("cannot get profile path"), err))
+			r.record.Event(configMap, event.Warning(event.Reason("cannot get profile path"), err))
 			return reconcile.Result{}, err
 		}
 
-		if err = saveProfileOnDisk(profilePath, contents); err != nil {
+		if err = saveProfileOnDisk(profilePath, profileContent); err != nil {
 			logger.Error(err, "cannot save profile into disk")
-			r.record.Event(profile, event.Warning(event.Reason("cannot save profile into disk"), err))
+			r.record.Event(configMap, event.Warning(event.Reason("cannot save profile into disk"), err))
 			return reconcile.Result{}, err
 		}
 	}
 
-	logger.Info("Reconciled profile", "resource version", profile.GetResourceVersion())
+	logger.Info("Reconciled profile", "resource version", configMap.GetResourceVersion())
 	return reconcile.Result{RequeueAfter: longWait}, nil
 }
 
