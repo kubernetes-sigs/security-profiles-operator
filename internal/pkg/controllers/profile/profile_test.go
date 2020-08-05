@@ -155,12 +155,8 @@ func TestSaveProfileOnDisk(t *testing.T) {
 		"NoPermissionToWriteFile": {
 			setup: func() {
 				targetDir := path.Join(dir, "/test/nopermissions")
-				if err := os.MkdirAll(targetDir, dirPermissionMode); err != nil {
-					panic(err)
-				}
-				if err := os.Chmod(targetDir, 0); err != nil {
-					panic(err)
-				}
+				require.Nil(t, os.MkdirAll(targetDir, dirPermissionMode))
+				require.Nil(t, os.Chmod(targetDir, 0))
 			},
 			fileName:    path.Join(dir, "/test/nopermissions/filename.json"),
 			contents:    "some content",
@@ -170,17 +166,13 @@ func TestSaveProfileOnDisk(t *testing.T) {
 		"NoPermissionToWriteDir": {
 			setup: func() {
 				targetDir := path.Join(dir, "/nopermissions")
-				if err := os.MkdirAll(targetDir, dirPermissionMode); err != nil {
-					panic(err)
-				}
-				if err := os.Chmod(targetDir, 0); err != nil {
-					panic(err)
-				}
+				require.Nil(t, os.MkdirAll(targetDir, dirPermissionMode))
+				require.Nil(t, os.Chmod(targetDir, 0))
 			},
 			fileName:    path.Join(dir, "/nopermissions/test/filename.json"),
 			contents:    "some content",
 			fileCreated: false,
-			wantErr:     "cannot create operator directory: stat " + dir + "/nopermissions/test: permission denied",
+			wantErr:     "cannot create operator directory: mkdir " + dir + "/nopermissions/test: permission denied",
 		},
 	}
 
