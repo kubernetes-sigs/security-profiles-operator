@@ -130,4 +130,4 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	$(GO) test -tags e2e -count=1 ./test/... -v
+	$(GO) test -timeout 20m -tags e2e -count=1 ./test/... -v
