@@ -204,23 +204,6 @@ func TestSaveProfileOnDisk(t *testing.T) {
 	}
 }
 
-func TestDirTargetPath(t *testing.T) {
-	cases := map[string]struct {
-		want string
-	}{
-		"DefaultSeccompPath": {
-			want: "/var/lib/kubelet/seccomp/operator",
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := DirTargetPath()
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func TestGetProfilePath(t *testing.T) {
 	cases := map[string]struct {
 		want        string
@@ -229,7 +212,7 @@ func TestGetProfilePath(t *testing.T) {
 		config      *corev1.ConfigMap
 	}{
 		"AppendNamespaceConfigNameAndProfile": {
-			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "config-namespace", "config-name", "file.js"),
+			want:        path.Join(ProfileRootPath, "config-namespace", "config-name", "file.js"),
 			profileName: "file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -239,7 +222,7 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtProfileName": {
-			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "ns", "cfg", "file.js"),
+			want:        path.Join(ProfileRootPath, "ns", "cfg", "file.js"),
 			profileName: "../../../../../file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -249,7 +232,7 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtConfigName": {
-			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "ns", "cfg", "file.js"),
+			want:        path.Join(ProfileRootPath, "ns", "cfg", "file.js"),
 			profileName: "file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -259,7 +242,7 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtConfigNamespace": {
-			want:        path.Join(kubeletSeccompRootPath, "seccomp/operator", "ns", "cfg", "file.js"),
+			want:        path.Join(ProfileRootPath, "ns", "cfg", "file.js"),
 			profileName: "file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -275,7 +258,7 @@ func TestGetProfilePath(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, gotErr := getProfilePath(tc.profileName, tc.config)
+			got, gotErr := GetProfilePath(tc.profileName, tc.config)
 			if tc.wantErr == "" {
 				require.NoError(t, gotErr)
 			} else {
