@@ -48,14 +48,15 @@ const (
 	errSavingProfile       = "cannot save profile"
 	errCreatingOperatorDir = "cannot create operator directory"
 
-	seccompOperatorSuffix string      = "seccomp/operator"
-	filePermissionMode    os.FileMode = 0o644
+	filePermissionMode os.FileMode = 0o644
 
 	// MkdirAll won't create a directory if it does not have the execute bit.
 	// https://github.com/golang/go/issues/22323#issuecomment-340568811
 	dirPermissionMode os.FileMode = 0o744
 
-	kubeletSeccompRootPath = "/var/lib/kubelet"
+	// ProfileRootPath specifies the path where the operator populates the
+	// profiles.
+	ProfileRootPath = "/var/lib/kubelet/seccomp/operator"
 
 	// DefaultProfilesConfigMapName is the configMap name for the default
 	// profiles.
@@ -115,7 +116,7 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	}
 
 	for profileName, profileContent := range configMap.Data {
-		profilePath, err := getProfilePath(profileName, configMap)
+		profilePath, err := GetProfilePath(profileName, configMap)
 		if err != nil {
 			logger.Error(err, "cannot get profile path")
 			r.record.Event(configMap, event.Warning(event.Reason("cannot get profile path"), err))
@@ -144,23 +145,18 @@ func saveProfileOnDisk(fileName, contents string) error {
 	return nil
 }
 
-func getProfilePath(profileName string, cfg *corev1.ConfigMap) (string, error) {
+// GetProfilePath returns the full path for the provided profile name and config.
+func GetProfilePath(profileName string, cfg *corev1.ConfigMap) (string, error) {
 	if cfg == nil {
 		return "", errors.New(errConfigMapNil)
 	}
 
-	targetPath := DirTargetPath()
-	filePath := path.Join(targetPath,
+	return path.Join(
+		ProfileRootPath,
 		filepath.Base(cfg.ObjectMeta.Namespace),
 		filepath.Base(cfg.ObjectMeta.Name),
-		filepath.Base(profileName))
-
-	return filePath, nil
-}
-
-// DirTargetPath returns the default local operator profile root path.
-func DirTargetPath() string {
-	return path.Join(kubeletSeccompRootPath, seccompOperatorSuffix)
+		filepath.Base(profileName),
+	), nil
 }
 
 func ignoreNotFound(err error) error {
