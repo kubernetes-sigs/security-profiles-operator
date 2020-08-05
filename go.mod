@@ -1,4 +1,4 @@
-module github.com/kubernetes-sigs/seccomp-operator
+module sigs.k8s.io/seccomp-operator
 
 go 1.14
 
