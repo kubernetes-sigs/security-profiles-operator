@@ -27,11 +27,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/kubernetes-sigs/seccomp-operator/internal/pkg/controllers/profile"
 	"github.com/stretchr/testify/suite"
 	"k8s.io/klog/klogr"
 	"k8s.io/release/pkg/command"
 	"k8s.io/release/pkg/util"
+
+	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
 )
 
 const (

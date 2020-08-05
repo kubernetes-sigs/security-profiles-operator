@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	stypes "github.com/kubernetes-sigs/seccomp-operator/internal/pkg/types"
+	stypes "sigs.k8s.io/seccomp-operator/internal/pkg/types"
 )
 
 const (

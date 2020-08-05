@@ -23,8 +23,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kubernetes-sigs/seccomp-operator/internal/pkg/controllers/profile"
 	v1 "k8s.io/api/core/v1"
+
+	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
 )
 
 func (e *e2e) TestSeccompOperator() {
