@@ -6,6 +6,7 @@ more easy and straight forward in Kubernetes.
 
 - [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-seccomp-operator)
 - [Installation and Usage](installation-usage.md)
+- [Container Images](https://console.cloud.google.com/gcr/images/k8s-staging-seccomp-operator/GLOBAL/seccomp-operator)
 
 ## About
 
