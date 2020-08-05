@@ -21,7 +21,6 @@ package e2e_test
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/kubernetes-sigs/seccomp-operator/internal/pkg/controllers/profile"
@@ -76,7 +75,7 @@ func (e *e2e) TestSeccompOperator() {
 		// General path verification
 		e.logf("Verifying seccomp operator directory on node: %s", node)
 		statOutput := e.execNode(
-			node, "stat", "-L", "-c", `%a,%u,%g`, profile.DirTargetPath(),
+			node, "stat", "-L", "-c", `%a,%u,%g`, profile.ProfileRootPath,
 		)
 		e.Contains(statOutput, "744,2000,2000")
 
@@ -149,9 +148,9 @@ func (e *e2e) cleanupOperator(manifest string) {
 func (e *e2e) verifyProfilesContent(node string, cm *v1.ConfigMap) {
 	e.logf("Verifying %s profile on node %s", cm.Name, node)
 	for name, content := range cm.Data {
-		catOutput := e.execNode(node, "cat", filepath.Join(
-			profile.DirTargetPath(), cm.Namespace, cm.Name, name,
-		))
+		profilePath, err := profile.GetProfilePath(name, cm)
+		e.Nil(err)
+		catOutput := e.execNode(node, "cat", profilePath)
 		e.Contains(catOutput, content)
 	}
 }
