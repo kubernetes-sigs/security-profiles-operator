@@ -21,6 +21,7 @@ package e2e_test
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"strings"
 
 	"github.com/kubernetes-sigs/seccomp-operator/internal/pkg/controllers/profile"
@@ -112,6 +113,8 @@ func (e *e2e) TestSeccompOperator() {
 	// Deploy the operator again
 	e.deployOperator(manifest)
 
+	e.deployInvalidProfile()
+
 	e.logf("Tests succeeded")
 }
 
@@ -152,5 +155,37 @@ func (e *e2e) verifyProfilesContent(node string, cm *v1.ConfigMap) {
 		e.Nil(err)
 		catOutput := e.execNode(node, "cat", profilePath)
 		e.Contains(catOutput, content)
+	}
+}
+
+func (e *e2e) deployInvalidProfile() {
+	const invalidProfileContent = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: invalid-profile
+  annotations:
+    seccomp.security.kubernetes.io/profile: "true"
+data:
+  profile-invalid.json: |-
+    { "defaultAction": true }
+`
+	e.logf("Deploying an invalid profile")
+	invalidProfile, err := ioutil.TempFile("", "invalid-profile-")
+	e.Nil(err)
+	_, err = invalidProfile.WriteString(invalidProfileContent)
+	e.Nil(err)
+	e.kubectl("create", "-f", invalidProfile.Name())
+
+	// Verify the event
+	eventsOutput := e.kubectl("get", "events")
+	for _, s := range []string{
+		"Warning",
+		"cannot validate profile profile-invalid.json",
+		"configmap/invalid-profile",
+		"decoding seccomp profile: json: cannot unmarshal bool into " +
+			"Go struct field Seccomp.defaultAction of type types.Action",
+	} {
+		e.Contains(eventsOutput, s)
 	}
 }
