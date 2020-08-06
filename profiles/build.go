@@ -29,7 +29,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
 )
 
 const (
@@ -71,7 +71,7 @@ func main() {
 		}
 
 		// look for the right config map
-		if match.foundConfigMapType && line == "  name: "+profile.DefaultProfilesConfigMapName {
+		if match.foundConfigMapType && line == "  name: "+config.DefaultProfilesConfigMapName {
 			match.foundConfigMapName = true
 		}
 

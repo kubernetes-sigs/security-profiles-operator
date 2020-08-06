@@ -18,6 +18,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/pkg/errors"
@@ -25,14 +26,13 @@ import (
 	"k8s.io/klog/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/seccomp-operator/internal/pkg/initialize"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/version"
 )
 
-const (
-	appName  string = "seccomp-operator"
-	jsonFlag string = "json"
-)
+const jsonFlag string = "json"
 
 var (
 	sync     = time.Second * 30
@@ -43,7 +43,7 @@ func main() {
 	ctrl.SetLogger(klogr.New())
 
 	app := cli.NewApp()
-	app.Name = appName
+	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Seccomp Operator"
 	app.Description = "The Seccomp Operator makes it easier for cluster admins " +
 		"to manage their seccomp profiles and apply them to Kubernetes' workloads."
@@ -73,6 +73,19 @@ func main() {
 				}
 				print(res)
 				return nil
+			},
+		},
+		&cli.Command{
+			Name:    "initialize",
+			Aliases: []string{"init", "i"},
+			Usage:   "initialize the operator directories and set the right permissions",
+			Action: func(c *cli.Context) error {
+				return errors.Wrap(initialize.SetupRootless(
+					config.KubeletSeccompRootPath,
+					filepath.Join("/var/lib", config.OperatorName),
+					config.ProfilesRootPath,
+					2000,
+				), "initialize rootless deployment")
 			},
 		},
 	}
