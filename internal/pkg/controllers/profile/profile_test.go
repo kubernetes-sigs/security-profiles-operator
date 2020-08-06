@@ -33,6 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
 )
 
 func TestIsProfile(t *testing.T) {
@@ -52,7 +54,7 @@ func TestIsProfile(t *testing.T) {
 			obj: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						SeccompProfileAnnotation: "true",
+						seccompProfileAnnotation: "true",
 					},
 				},
 			},
@@ -134,7 +136,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("Test does not work as root user")
 	}
-	dir, err := ioutil.TempDir("", "seccomp-operator")
+	dir, err := ioutil.TempDir("", config.OperatorName)
 	if err != nil {
 		t.Error(errors.Wrap(err, "error creating temp file for tests"))
 	}
@@ -204,7 +206,7 @@ func TestGetProfilePath(t *testing.T) {
 		config      *corev1.ConfigMap
 	}{
 		"AppendNamespaceConfigNameAndProfile": {
-			want:        path.Join(ProfileRootPath, "config-namespace", "config-name", "file.js"),
+			want:        path.Join(config.ProfilesRootPath, "config-namespace", "config-name", "file.js"),
 			profileName: "file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -214,7 +216,7 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtProfileName": {
-			want:        path.Join(ProfileRootPath, "ns", "cfg", "file.js"),
+			want:        path.Join(config.ProfilesRootPath, "ns", "cfg", "file.js"),
 			profileName: "../../../../../file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -224,7 +226,7 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtConfigName": {
-			want:        path.Join(ProfileRootPath, "ns", "cfg", "file.js"),
+			want:        path.Join(config.ProfilesRootPath, "ns", "cfg", "file.js"),
 			profileName: "file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -234,7 +236,7 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtConfigNamespace": {
-			want:        path.Join(ProfileRootPath, "ns", "cfg", "file.js"),
+			want:        path.Join(config.ProfilesRootPath, "ns", "cfg", "file.js"),
 			profileName: "file.js",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
