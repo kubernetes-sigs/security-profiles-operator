@@ -41,6 +41,9 @@ LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
 CONTAINER_RUNTIME ?= docker
 IMAGE ?= $(PROJECT):latest
 
+GOLANGCI_LINT_VERSION = v1.30.0
+REPO_INFRA_VERSION = v0.0.10
+
 # Utility targets
 
 all: $(BUILD_DIR)/$(PROJECT) ## Build the seccomp-operator binary
@@ -96,7 +99,7 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 	$(BUILD_DIR)/verify_boilerplate.py --boilerplate-dir hack/boilerplate
 
 $(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
-	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/v0.0.6/hack/verify_boilerplate.py \
+	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/$(REPO_INFRA_VERSION)/hack/verify_boilerplate.py \
 		-o $(BUILD_DIR)/verify_boilerplate.py
 	chmod +x $(BUILD_DIR)/verify_boilerplate.py
 
@@ -114,7 +117,7 @@ verify-go-lint: $(BUILD_DIR)/golangci-lint ## Verify the golang code by linting
 
 $(BUILD_DIR)/golangci-lint:
 	export \
-		VERSION=v1.29.0 \
+		VERSION=$(GOLANGCI_LINT_VERSION) \
 		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
 		BINDIR=$(BUILD_DIR) && \
 	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
