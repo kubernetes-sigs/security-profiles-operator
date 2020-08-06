@@ -45,6 +45,7 @@ type Arch string
 // Additional architectures permitted to be used for system calls
 // By default only the native architecture of the kernel is permitted.
 const (
+	ArchNative      Arch = "SCMP_ARCH_NATIVE"
 	ArchX86         Arch = "SCMP_ARCH_X86"
 	ArchX86_64      Arch = "SCMP_ARCH_X86_64"
 	ArchX32         Arch = "SCMP_ARCH_X32"
@@ -61,6 +62,9 @@ const (
 	ArchPPC64LE     Arch = "SCMP_ARCH_PPC64LE"
 	ArchS390        Arch = "SCMP_ARCH_S390"
 	ArchS390X       Arch = "SCMP_ARCH_S390X"
+	ArchPARISC      Arch = "SCMP_ARCH_PARISC"
+	ArchPARISC64    Arch = "SCMP_ARCH_PARISC64"
+	ArchRISCV64     Arch = "SCMP_ARCH_RISCV64"
 )
 
 // Action taken upon Seccomp rule match.
