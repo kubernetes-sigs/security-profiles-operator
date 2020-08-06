@@ -77,6 +77,7 @@ const (
 	ActErrno Action = "SCMP_ACT_ERRNO"
 	ActTrace Action = "SCMP_ACT_TRACE"
 	ActAllow Action = "SCMP_ACT_ALLOW"
+	ActLog   Action = "SCMP_ACT_LOG"
 )
 
 // Operator used to match syscall arguments in Seccomp.
