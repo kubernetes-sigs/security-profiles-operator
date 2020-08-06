@@ -55,23 +55,9 @@ spec:
       serviceAccountName: seccomp-operator
       initContainers:
         - name: non-root-enabler
-          image: busybox
-          # Creates folder /var/lib/seccomp-operator, sets 2000:2000 as its owner and symlink it to /var/lib/kubelet/seccomp/operator.
-          # This is required to allow the main container to run as non-root.
-          command: ["/bin/sh", "-c"]
-          args:
-            - >
-              SECCOMP_DIR=/var/lib/kubelet/seccomp &&
-              OPERATOR_SYMLINK=$SECCOMP_DIR/operator &&
-              OPERATOR_DIR=/var/lib/seccomp-operator &&
-              if [ ! -d $SECCOMP_DIR ]; then
-                /bin/mkdir -m 0744 -p $SECCOMP_DIR
-              fi;
-              /bin/chmod 0744 $OPERATOR_DIR &&
-              if [ ! -L $OPERATOR_SYMLINK ]; then
-                /bin/ln -s $OPERATOR_DIR $OPERATOR_SYMLINK
-              fi;
-              /bin/chown -R 2000:2000 $OPERATOR_DIR
+          image: gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest
+          imagePullPolicy: Always
+          args: ["init"]
           volumeMounts:
           - name: host-varlib-vol
             mountPath: /var/lib

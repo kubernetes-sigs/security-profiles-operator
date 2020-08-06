@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
 	stypes "sigs.k8s.io/seccomp-operator/internal/pkg/types"
 )
 
@@ -57,21 +58,10 @@ const (
 	// https://github.com/golang/go/issues/22323#issuecomment-340568811
 	dirPermissionMode os.FileMode = 0o744
 
-	// ProfileRootPath specifies the path where the operator populates the
-	// profiles.
-	ProfileRootPath = "/var/lib/kubelet/seccomp/operator"
-
-	// DefaultProfilesConfigMapName is the configMap name for the default
-	// profiles.
-	DefaultProfilesConfigMapName = "default-profiles"
-
-	// DefaultNamespace is the default namespace for the operator deployment.
-	DefaultNamespace = "seccomp-operator"
+	// seccompProfileAnnotation is the annotation on a ConfigMap that specifies
+	// its intention to be treated as a seccomp profile.
+	seccompProfileAnnotation = "seccomp.security.kubernetes.io/profile"
 )
-
-// SeccompProfileAnnotation is the annotation on a ConfigMap that specifies its
-// intention to be treated as a seccomp profile.
-const SeccompProfileAnnotation = "seccomp.security.kubernetes.io/profile"
 
 // isProfile checks if a ConfigMap has been designated as a seccomp profile.
 func isProfile(obj runtime.Object) bool {
@@ -80,7 +70,7 @@ func isProfile(obj runtime.Object) bool {
 		return false
 	}
 
-	return r.Annotations[SeccompProfileAnnotation] == "true"
+	return r.Annotations[seccompProfileAnnotation] == "true"
 }
 
 // Setup adds a controller that reconciles seccomp profiles.
@@ -162,7 +152,7 @@ func GetProfilePath(profileName string, cfg *corev1.ConfigMap) (string, error) {
 	}
 
 	return path.Join(
-		ProfileRootPath,
+		config.ProfilesRootPath,
 		filepath.Base(cfg.ObjectMeta.Namespace),
 		filepath.Base(cfg.ObjectMeta.Name),
 		filepath.Base(profileName),

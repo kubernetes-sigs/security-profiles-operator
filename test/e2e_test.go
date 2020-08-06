@@ -26,6 +26,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
 )
 
@@ -64,9 +65,9 @@ func (e *e2e) TestSeccompOperator() {
 	e.logf("Got worker nodes: %v", nodes)
 
 	// Get the default profiles
-	e.logf("Retrieving default profiles from configmap: %s", profile.DefaultProfilesConfigMapName)
+	e.logf("Retrieving default profiles from configmap: %s", config.DefaultProfilesConfigMapName)
 	defaultProfilesData := e.kubectlOperatorNS(
-		"get", "configmap", profile.DefaultProfilesConfigMapName, "-o", "json",
+		"get", "configmap", config.DefaultProfilesConfigMapName, "-o", "json",
 	)
 	defaultProfiles := &v1.ConfigMap{}
 	e.logf("Unmarshalling default profiles JSON: %s", defaultProfilesData)
@@ -77,7 +78,7 @@ func (e *e2e) TestSeccompOperator() {
 		// General path verification
 		e.logf("Verifying seccomp operator directory on node: %s", node)
 		statOutput := e.execNode(
-			node, "stat", "-L", "-c", `%a,%u,%g`, profile.ProfileRootPath,
+			node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath,
 		)
 		e.Contains(statOutput, "744,2000,2000")
 
