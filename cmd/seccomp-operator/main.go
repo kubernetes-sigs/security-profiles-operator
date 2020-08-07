@@ -18,7 +18,6 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/pkg/errors"
@@ -28,7 +27,6 @@ import (
 
 	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
-	"sigs.k8s.io/seccomp-operator/internal/pkg/initialize"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/version"
 )
 
@@ -73,19 +71,6 @@ func main() {
 				}
 				print(res)
 				return nil
-			},
-		},
-		&cli.Command{
-			Name:    "initialize",
-			Aliases: []string{"init", "i"},
-			Usage:   "initialize the operator directories and set the right permissions",
-			Action: func(c *cli.Context) error {
-				return errors.Wrap(initialize.SetupRootless(
-					config.KubeletSeccompRootPath,
-					filepath.Join("/var/lib", config.OperatorName),
-					config.ProfilesRootPath,
-					2000,
-				), "initialize rootless deployment")
 			},
 		},
 	}
