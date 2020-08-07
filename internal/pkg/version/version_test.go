@@ -28,7 +28,7 @@ func TestVersionText(t *testing.T) {
 	require.NotEmpty(t, sut.Compiler)
 	require.NotEmpty(t, sut.GitCommit)
 	require.NotEmpty(t, sut.GitTreeState)
-	require.NotEmpty(t, sut.GitVersion)
+	require.NotEmpty(t, sut.Version)
 	require.NotEmpty(t, sut.GoVersion)
 	require.NotEmpty(t, sut.Platform)
 	require.NotEmpty(t, sut.String())

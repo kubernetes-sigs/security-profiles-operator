@@ -24,15 +24,17 @@ import (
 	"text/tabwriter"
 )
 
+// version is the current version of the operator.
+const version = "0.0.0"
+
 var (
 	buildDate    string // build date in ISO8601 format, output of $(date -u +'%Y-%m-%dT%H:%M:%SZ')
 	gitCommit    string // sha1 from git, output of $(git rev-parse HEAD)
 	gitTreeState string // state of git tree, either "clean" or "dirty"
-	gitVersion   string // semantic version, derived by build scripts
 )
 
 type Info struct {
-	GitVersion   string `json:"gitVersion,omitempty"`
+	Version      string `json:"version,omitempty"`
 	GitCommit    string `json:"gitCommit,omitempty"`
 	GitTreeState string `json:"gitTreeState,omitempty"`
 	BuildDate    string `json:"buildDate,omitempty"`
@@ -43,7 +45,7 @@ type Info struct {
 
 func Get() *Info {
 	return &Info{
-		GitVersion:   gitVersion,
+		Version:      version,
 		GitCommit:    gitCommit,
 		GitTreeState: gitTreeState,
 		BuildDate:    buildDate,
@@ -58,7 +60,7 @@ func (i *Info) String() string {
 	b := strings.Builder{}
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 
-	fmt.Fprintf(w, "GitVersion:\t%s\n", i.GitVersion)
+	fmt.Fprintf(w, "Version:\t%s\n", i.Version)
 	fmt.Fprintf(w, "GitCommit:\t%s\n", i.GitCommit)
 	fmt.Fprintf(w, "GitTreeState:\t%s\n", i.GitTreeState)
 	fmt.Fprintf(w, "BuildDate:\t%s\n", i.BuildDate)
