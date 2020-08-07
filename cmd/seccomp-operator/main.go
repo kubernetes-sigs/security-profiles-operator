@@ -47,7 +47,7 @@ func main() {
 	app.Usage = "Kubernetes Seccomp Operator"
 	app.Description = "The Seccomp Operator makes it easier for cluster admins " +
 		"to manage their seccomp profiles and apply them to Kubernetes' workloads."
-	app.Version = version.Get().GitVersion
+	app.Version = version.Get().Version
 	app.Action = run
 	app.Commands = cli.Commands{
 		&cli.Command{
@@ -100,7 +100,7 @@ func run(*cli.Context) error {
 	v := version.Get()
 	setupLog.Info(
 		"starting seccomp-operator",
-		"gitVersion", v.GitVersion,
+		"version", v.Version,
 		"gitCommit", v.GitCommit,
 		"gitTreeState", v.GitTreeState,
 		"buildDate", v.BuildDate,
