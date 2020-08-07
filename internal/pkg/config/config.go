@@ -20,13 +20,13 @@ const (
 	// OperatorName is the name when referring to the operator.
 	OperatorName = "seccomp-operator"
 
-	// KubeletSeccompRootPath specifies the path where all kubelet seccomp
+	// kubeletSeccompRootPath specifies the path where all kubelet seccomp
 	// profiles are stored.
-	KubeletSeccompRootPath = "/var/lib/kubelet/seccomp"
+	kubeletSeccompRootPath = "/var/lib/kubelet/seccomp"
 
 	// ProfilesRootPath specifies the path where the operator stores seccomp
 	// profiles.
-	ProfilesRootPath = KubeletSeccompRootPath + "/operator"
+	ProfilesRootPath = kubeletSeccompRootPath + "/operator"
 
 	// DefaultProfilesConfigMapName is the configMap name for the default
 	// profiles.

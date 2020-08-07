@@ -55,9 +55,34 @@ spec:
       serviceAccountName: seccomp-operator
       initContainers:
         - name: non-root-enabler
-          image: gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest
-          imagePullPolicy: Always
-          args: ["init"]
+          image: bash:5.0
+          # Creates folder /var/lib/seccomp-operator, sets 2000:2000 as its
+          # owner and symlink it to /var/lib/kubelet/seccomp/operator. This is
+          # required to allow the main container to run as non-root.
+          command: [bash, -c]
+          args:
+            - |+
+              set -euo pipefail
+
+              if [ ! -d $KUBELET_SECCOMP_ROOT ]; then
+                /bin/mkdir -m 0744 -p $KUBELET_SECCOMP_ROOT
+              fi
+
+              /bin/mkdir -p $OPERATOR_ROOT
+              /bin/chmod 0744 $OPERATOR_ROOT
+
+              if [ ! -L $OPERATOR_SYMLINK ]; then
+                /bin/ln -s $OPERATOR_ROOT $OPERATOR_SYMLINK
+              fi
+
+              /bin/chown -R 2000:2000 $OPERATOR_ROOT
+          env:
+            - name: KUBELET_SECCOMP_ROOT
+              value: /var/lib/kubelet/seccomp
+            - name: OPERATOR_SYMLINK
+              value: $(KUBELET_SECCOMP_ROOT)/operator
+            - name: OPERATOR_ROOT
+              value: /var/lib/seccomp-operator
           volumeMounts:
           - name: host-varlib-vol
             mountPath: /var/lib
