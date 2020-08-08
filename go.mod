@@ -9,6 +9,7 @@ require (
 	github.com/seccomp/containers-golang v0.6.0 // can be built with the `seccomp` build tag to support more features
 	github.com/stretchr/testify v1.6.1
 	github.com/urfave/cli/v2 v2.2.0
+	golang.org/x/sys v0.0.0-20200806125547-5acd03effb82
 	k8s.io/api v0.18.6
 	k8s.io/apimachinery v0.18.6
 	k8s.io/klog/v2 v2.3.0

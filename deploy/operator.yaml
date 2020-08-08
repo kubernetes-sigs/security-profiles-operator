@@ -124,6 +124,11 @@ spec:
               memory: "128Mi"
               cpu: "300m"
               ephemeral-storage: "200Mi"
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
       volumes:
       # /var/lib is used as symlinks cannot be created across different volumes
       - name: host-varlib-vol

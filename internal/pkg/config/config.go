@@ -31,4 +31,8 @@ const (
 	// DefaultProfilesConfigMapName is the configMap name for the default
 	// profiles.
 	DefaultProfilesConfigMapName = "default-profiles"
+
+	// NodeNameEnvKey is the default environment variable key for retrieving
+	// the name of the current node.
+	NodeNameEnvKey = "NODE_NAME"
 )
