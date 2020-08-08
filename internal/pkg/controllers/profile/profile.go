@@ -19,6 +19,7 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
@@ -39,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
+	nodeSeccomp "sigs.k8s.io/seccomp-operator/internal/pkg/node/seccomp"
 )
 
 const (
@@ -108,10 +110,26 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 		return reconcile.Result{}, errors.Wrap(ignoreNotFound(err), errGetProfile)
 	}
 
+	// Pre-check if the node supports seccomp
+	if !nodeSeccomp.New().IsSupported(logger) {
+		err := errors.New("profile not added")
+		reason := fmt.Sprintf(
+			"node %q does not support seccomp",
+			os.Getenv(config.NodeNameEnvKey),
+		)
+		logger.Error(err, "reason", reason)
+		r.record.Event(configMap, event.Warning(event.Reason(reason), err))
+
+		// Do not requeue (will be requeued if a change to the object is
+		// observed, or after the usually very long reconcile timeout
+		// configured for the controller manager)
+		return reconcile.Result{}, nil
+	}
+
 	for profileName, profileContent := range configMap.Data {
 		if err := validateProfile(profileContent); err != nil {
 			reason := "cannot validate profile " + profileName
-			logger.Error(err, reason)
+			logger.Error(err, "reason", reason)
 			r.record.Event(configMap, event.Warning(event.Reason(reason), err))
 			// do not reconcile again until further change
 			return reconcile.Result{}, nil
@@ -119,13 +137,13 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 
 		profilePath, err := GetProfilePath(profileName, configMap)
 		if err != nil {
-			logger.Error(err, "cannot get profile path")
+			logger.Error(err, "reason", "cannot get profile path")
 			r.record.Event(configMap, event.Warning(event.Reason("cannot get profile path"), err))
 			return reconcile.Result{}, err
 		}
 
 		if err = saveProfileOnDisk(profilePath, profileContent); err != nil {
-			logger.Error(err, "cannot save profile into disk")
+			logger.Error(err, "reason", "cannot save profile into disk")
 			r.record.Event(configMap, event.Warning(event.Reason("cannot save profile into disk"), err))
 			return reconcile.Result{}, err
 		}
