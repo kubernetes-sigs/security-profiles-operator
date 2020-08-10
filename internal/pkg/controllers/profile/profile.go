@@ -29,6 +29,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	seccomp "github.com/seccomp/containers-golang"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -38,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
-	stypes "sigs.k8s.io/seccomp-operator/internal/pkg/types"
 )
 
 const (
@@ -169,7 +169,7 @@ func ignoreNotFound(err error) error {
 // validateProfile does a basic validation for the provided seccomp profile
 // string.
 func validateProfile(content string) error {
-	profile := &stypes.Seccomp{}
+	profile := &seccomp.Seccomp{}
 	if err := json.Unmarshal([]byte(content), &profile); err != nil {
 		return errors.Wrap(err, "decoding seccomp profile")
 	}

@@ -186,7 +186,7 @@ data:
 		"cannot validate profile profile-invalid.json",
 		"configmap/invalid-profile",
 		"decoding seccomp profile: json: cannot unmarshal bool into " +
-			"Go struct field Seccomp.defaultAction of type types.Action",
+			"Go struct field Seccomp.defaultAction of type seccomp.Action",
 	} {
 		e.Contains(eventsOutput, s)
 	}
