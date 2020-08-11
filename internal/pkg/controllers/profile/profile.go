@@ -113,7 +113,8 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 			reason := "cannot validate profile " + profileName
 			logger.Error(err, reason)
 			r.record.Event(configMap, event.Warning(event.Reason(reason), err))
-			return reconcile.Result{}, errors.Wrap(err, reason)
+			// do not reconcile again until further change
+			return reconcile.Result{}, nil
 		}
 
 		profilePath, err := GetProfilePath(profileName, configMap)
