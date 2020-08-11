@@ -19,8 +19,11 @@ limitations under the License.
 package e2e_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
+
+	v1 "k8s.io/api/core/v1"
 )
 
 const manifest = "deploy/operator.yaml"
@@ -96,4 +99,13 @@ func (e *e2e) getWorkerNodes() []string {
 	e.logf("Got worker nodes: %v", nodes)
 
 	return nodes
+}
+
+func (e *e2e) getConfigMap(name, namespace string) *v1.ConfigMap {
+	configMapJSON := e.kubectl(
+		"-n", namespace, "get", "configmap", name, "-o", "json",
+	)
+	configMap := &v1.ConfigMap{}
+	e.Nil(json.Unmarshal([]byte(configMapJSON), configMap))
+	return configMap
 }

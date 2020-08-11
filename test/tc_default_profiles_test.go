@@ -19,8 +19,6 @@ limitations under the License.
 package e2e_test
 
 import (
-	"encoding/json"
-
 	v1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
@@ -36,22 +34,13 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 	defer e.kubectl("delete", "-f", exampleProfilePath)
 
 	e.logf("Retrieving deployed example profile")
-	exampleProfileData := e.kubectl(
-		"get", "configmap", exampleProfileName, "-o", "json",
-	)
-
-	exampleProfiles := &v1.ConfigMap{}
-	e.logf("Unmarshalling example profiles JSON: %s", exampleProfileName)
-	e.Nil(json.Unmarshal([]byte(exampleProfileData), exampleProfiles))
+	exampleProfiles := e.getConfigMap(exampleProfileName, "default")
 
 	// Get the default profiles
 	e.logf("Retrieving default profiles from configmap: %s", config.DefaultProfilesConfigMapName)
-	defaultProfilesData := e.kubectlOperatorNS(
-		"get", "configmap", config.DefaultProfilesConfigMapName, "-o", "json",
+	defaultProfiles := e.getConfigMap(
+		config.DefaultProfilesConfigMapName, config.OperatorName,
 	)
-	defaultProfiles := &v1.ConfigMap{}
-	e.logf("Unmarshalling default profiles JSON: %s", defaultProfilesData)
-	e.Nil(json.Unmarshal([]byte(defaultProfilesData), defaultProfiles))
 
 	// Content verification
 	for _, node := range nodes {

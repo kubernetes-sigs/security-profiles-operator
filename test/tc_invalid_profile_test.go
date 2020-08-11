@@ -19,27 +19,36 @@ limitations under the License.
 package e2e_test
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
+
+	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
 )
 
-func (e *e2e) testCaseDeployInvalidProfile([]string) {
-	const invalidProfileContent = `
+func (e *e2e) testCaseDeployInvalidProfile(nodes []string) {
+	const (
+		configMapName = "invalid-profile"
+		profileName   = "profile-invalid.json"
+	)
+	invalidProfileContent := fmt.Sprintf(`
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: invalid-profile
+  name: %s
   annotations:
     seccomp.security.kubernetes.io/profile: "true"
 data:
-  profile-invalid.json: |-
+  %s: |-
     { "defaultAction": true }
-`
-	invalidProfile, err := ioutil.TempFile("", "invalid-profile-")
+`, configMapName, profileName)
+
+	invalidProfile, err := ioutil.TempFile("", configMapName)
 	e.Nil(err)
 
 	_, err = invalidProfile.WriteString(invalidProfileContent)
 	e.Nil(err)
+	e.logf("Deploying invalid configmap")
 	e.kubectl("create", "-f", invalidProfile.Name())
 	defer func() {
 		e.kubectl("delete", "-f", invalidProfile.Name())
@@ -47,14 +56,24 @@ data:
 	}()
 
 	// Verify the event
+	e.logf("Verifying events")
 	eventsOutput := e.kubectl("get", "events")
 	for _, s := range []string{
 		"Warning",
-		"cannot validate profile profile-invalid.json",
-		"configmap/invalid-profile",
+		"cannot validate profile " + profileName,
+		"configmap/" + configMapName,
 		"decoding seccomp profile: json: cannot unmarshal bool into " +
 			"Go struct field Seccomp.defaultAction of type seccomp.Action",
 	} {
 		e.Contains(eventsOutput, s)
+	}
+
+	// Check that the profile is not reconciled to the node
+	e.logf("Verifying node content")
+	configMap := e.getConfigMap(configMapName, "default")
+	profilePath, err := profile.GetProfilePath(profileName, configMap)
+	e.Nil(err)
+	for _, node := range nodes {
+		e.execNode(node, "bash", "-c", fmt.Sprintf("[ ! -f %s ]", profilePath))
 	}
 }
