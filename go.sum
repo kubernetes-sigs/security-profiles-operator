@@ -878,6 +878,8 @@ k8s.io/kube-openapi v0.0.0-20200410145947-61e04a5be9a6/go.mod h1:GRQhZsXIAJ1xR0C
 k8s.io/release v0.3.2-0.20200513161026-05b87eb96960/go.mod h1:fcMNfhJFSHSBFv4BSrzJV2mesdz3yJeEqsqKs8cxjGU=
 k8s.io/release v0.3.4 h1:2xJMXe10GRiyA4hSFCUmUhw94frGJ2u7pt6VKoXu9XI=
 k8s.io/release v0.3.4/go.mod h1:1F0YT93mvq2mNUFk2tw4mCdHMhWzOlzZ8Z78WfqOg2s=
+k8s.io/release v0.4.0 h1:jNPnFbG8zbw5Pyux3yO2CXDuAMprJDAVmX6WltQL5Dw=
+k8s.io/release v0.4.0/go.mod h1:tO06ZHe7wrnqALxHzVJ1fV2lli4V7CeURZcqRmtrPCk=
 k8s.io/utils v0.0.0-20190801114015-581e00157fb1/go.mod h1:sZAwmy6armz5eXlNoLmJcl4F1QuKu7sr+mFQ0byX7Ew=
 k8s.io/utils v0.0.0-20200229041039-0a110f9eb7ab/go.mod h1:sZAwmy6armz5eXlNoLmJcl4F1QuKu7sr+mFQ0byX7Ew=
 k8s.io/utils v0.0.0-20200324210504-a9aa75ae1b89 h1:d4vVOjXm687F1iLSP2q3lyPPuyvTUt3aVoBpi2DqRsU=
