@@ -57,6 +57,7 @@ func TestSuite(t *testing.T) {
 // SetupSuite downloads kind and searches for kubectl in $PATH.
 func (e *e2e) SetupSuite() {
 	e.logf("Setting up suite")
+	command.SetGlobalVerbose(true)
 	cwd, err := os.Getwd()
 	e.Nil(err)
 
