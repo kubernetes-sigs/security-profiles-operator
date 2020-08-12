@@ -30,7 +30,10 @@ import (
 	"sigs.k8s.io/seccomp-operator/internal/pkg/version"
 )
 
-const jsonFlag string = "json"
+const (
+	jsonFlag      string = "json"
+	restrictNSKey string = "RESTRICT_TO_NAMESPACE"
+)
 
 var (
 	sync     = time.Second * 30
@@ -98,9 +101,15 @@ func run(*cli.Context) error {
 		return errors.Wrap(err, "get config")
 	}
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	ctrlOpts := ctrl.Options{
 		SyncPeriod: &sync,
-	})
+	}
+
+	if os.Getenv(restrictNSKey) != "" {
+		ctrlOpts.Namespace = os.Getenv(restrictNSKey)
+	}
+
+	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
 		return errors.Wrap(err, "create manager")
 	}
