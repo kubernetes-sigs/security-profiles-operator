@@ -12,4 +12,9 @@ metadata:
 spec:
   containers:
   - name: test-container
+    # Use the seccomp field for Kubernetes versions > v1.19.0
+    # securityContext:
+      # seccompProfile:
+        # type: Localhost
+        # localhostProfile: operator/seccomp-operator/default-profiles/nginx-1.19.1.json
     image: nginx:1.19.1
