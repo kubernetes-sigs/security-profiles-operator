@@ -31,7 +31,9 @@ func (e *e2e) testCaseDeployInvalidProfile(nodes []string) {
 		configMapName = "invalid-profile"
 		profileName   = "profile-invalid.json"
 	)
-	invalidProfileContent := fmt.Sprintf(`
+
+	newProfile := func(content string) string {
+		configMapString := fmt.Sprintf(`---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -40,19 +42,21 @@ metadata:
     seccomp.security.kubernetes.io/profile: "true"
 data:
   %s: |-
-    { "defaultAction": true }
-`, configMapName, profileName)
+    %s
+`, configMapName, profileName, content)
+		configMapFile, err := ioutil.TempFile("", configMapName)
+		e.Nil(err)
+		_, err = configMapFile.WriteString(configMapString)
+		e.Nil(err)
+		return configMapFile.Name()
+	}
 
-	invalidProfile, err := ioutil.TempFile("", configMapName)
-	e.Nil(err)
-
-	_, err = invalidProfile.WriteString(invalidProfileContent)
-	e.Nil(err)
-	e.logf("Deploying invalid configmap")
-	e.kubectl("create", "-f", invalidProfile.Name())
+	e.logf("Deploying invalid configMap")
+	invalidProfile := newProfile(`{ "defaultAction": true }`)
+	e.kubectl("create", "-f", invalidProfile)
 	defer func() {
-		e.kubectl("delete", "-f", invalidProfile.Name())
-		e.Nil(os.RemoveAll(invalidProfile.Name()))
+		e.kubectl("delete", "-f", invalidProfile)
+		e.Nil(os.RemoveAll(invalidProfile))
 	}()
 
 	// Verify the event
@@ -75,5 +79,14 @@ data:
 	e.Nil(err)
 	for _, node := range nodes {
 		e.execNode(node, "bash", "-c", fmt.Sprintf("[ ! -f %s ]", profilePath))
+	}
+
+	// Make the profile valid
+	e.logf("Patching invalid configMap to be valid again")
+	validProfile := newProfile(`{ "defaultAction": "SCMP_ACT_ALLOW" }`)
+	e.kubectl("apply", "-f", validProfile)
+	defer e.Nil(os.RemoveAll(validProfile))
+	for _, node := range nodes {
+		e.execNode(node, "bash", "-c", fmt.Sprintf("[ -f %s ]", profilePath))
 	}
 }
