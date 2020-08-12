@@ -110,29 +110,34 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 
 	for profileName, profileContent := range configMap.Data {
 		if err := validateProfile(profileContent); err != nil {
-			reason := "cannot validate profile " + profileName
-			logger.Error(err, reason)
-			r.record.Event(configMap, event.Warning(event.Reason(reason), err))
+			r.pushEventForConfigMap(logger, configMap, "cannot validate profile", err)
 			// do not reconcile again until further change
 			return reconcile.Result{}, nil
 		}
 
 		profilePath, err := GetProfilePath(profileName, configMap)
 		if err != nil {
-			logger.Error(err, "cannot get profile path")
-			r.record.Event(configMap, event.Warning(event.Reason("cannot get profile path"), err))
+			r.pushEventForConfigMap(logger, configMap, "cannot get profile path", err)
 			return reconcile.Result{}, err
 		}
 
 		if err = saveProfileOnDisk(profilePath, profileContent); err != nil {
-			logger.Error(err, "cannot save profile into disk")
-			r.record.Event(configMap, event.Warning(event.Reason("cannot save profile into disk"), err))
+			r.pushEventForConfigMap(logger, configMap, "cannot save profile into disk", err)
 			return reconcile.Result{}, err
 		}
 	}
 
 	logger.Info("Reconciled profile", "resource version", configMap.GetResourceVersion())
 	return reconcile.Result{RequeueAfter: longWait}, nil
+}
+
+// pushEventForConfigMap cna be used to create a new warning event for the
+// provided configMap.
+func (r *Reconciler) pushEventForConfigMap(
+	logger logr.Logger, configMap *corev1.ConfigMap, reason string, err error,
+) {
+	logger.Error(err, "reason", reason)
+	r.record.Event(configMap, event.Warning(event.Reason(reason), err))
 }
 
 func saveProfileOnDisk(fileName, contents string) error {
