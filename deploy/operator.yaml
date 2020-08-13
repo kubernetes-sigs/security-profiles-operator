@@ -36,6 +36,85 @@ roleRef:
   name: config-map-reader
   apiGroup: rbac.authorization.k8s.io
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seccomp-operator-profile
+  namespace: seccomp-operator
+data:
+  seccomp-operator.json: |-
+    {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "architectures": [
+          "SCMP_ARCH_X86_64",
+          "SCMP_ARCH_X86",
+          "SCMP_ARCH_X32"
+      ],
+      "syscalls": [
+          {
+              "names": [
+                "accept4",
+                "arch_prctl",
+                "bind",
+                "brk",
+                "clone",
+                "close",
+                "connect",
+                "epoll_create1",
+                "epoll_ctl",
+                "epoll_pwait",
+                "execve",
+                "exit",
+                "exit_group",
+                "fcntl",
+                "fstat",
+                "futex",
+                "getcwd",
+                "getgid",
+                "getpeername",
+                "getpgrp",
+                "getpid",
+                "getppid",
+                "getrandom",
+                "getsockname",
+                "getsockopt",
+                "gettid",
+                "getuid",
+                "listen",
+                "madvise",
+                "membarrier",
+                "mkdirat",
+                "mlock",
+                "mmap",
+                "mprotect",
+                "nanosleep",
+                "newfstatat",
+                "open",
+                "openat",
+                "pipe2",
+                "pread64",
+                "read",
+                "readlinkat",
+                "rt_sigaction",
+                "rt_sigprocmask",
+                "rt_sigreturn",
+                "sched_getaffinity",
+                "sched_yield",
+                "setgid",
+                "setsockopt",
+                "set_tid_address",
+                "setuid",
+                "sigaltstack",
+                "socket",
+                "tgkill",
+                "uname",
+                "write"
+              ],
+              "action": "SCMP_ACT_ALLOW"
+          }
+      ]
+    }
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -49,6 +128,7 @@ spec:
     metadata:
       annotations:
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
+        container.seccomp.security.alpha.kubernetes.io/seccomp-operator: localhost/seccomp-operator.json
       labels:
         name: seccomp-operator
     spec:
@@ -76,6 +156,7 @@ spec:
               fi
 
               /bin/chown -R 2000:2000 $OPERATOR_ROOT
+              cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
           env:
             - name: KUBELET_SECCOMP_ROOT
               value: /var/lib/kubelet/seccomp
@@ -84,8 +165,11 @@ spec:
             - name: OPERATOR_ROOT
               value: /var/lib/seccomp-operator
           volumeMounts:
-          - name: host-varlib-vol
-            mountPath: /var/lib
+            - name: host-varlib-volume
+              mountPath: /var/lib
+            - name: profile-configmap-volume
+              mountPath: /opt/seccomp-profiles
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -106,7 +190,7 @@ spec:
           image: gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest
           imagePullPolicy: Always
           volumeMounts:
-          - name: host-operator-vol
+          - name: host-operator-volume
             mountPath: /var/lib/kubelet/seccomp/operator
           securityContext:
             allowPrivilegeEscalation: false
@@ -126,14 +210,17 @@ spec:
               ephemeral-storage: "200Mi"
       volumes:
       # /var/lib is used as symlinks cannot be created across different volumes
-      - name: host-varlib-vol
+      - name: host-varlib-volume
         hostPath:
           path: /var/lib
           type: Directory
-      - name: host-operator-vol
+      - name: host-operator-volume
         hostPath:
           path: /var/lib/seccomp-operator
           type: DirectoryOrCreate
+      - name: profile-configmap-volume
+        configMap:
+          name: seccomp-operator-profile
       tolerations:
         - effect: NoSchedule
           key: node-role.kubernetes.io/master
