@@ -125,7 +125,9 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 			os.Getenv(config.NodeNameEnvKey),
 		)
 		logger.Error(err, "reason", reason)
-		r.record.Event(configMap, event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey), "node does not support seccomp"))
+		r.record.Event(configMap,
+			event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey),
+				"node does not support seccomp"))
 
 		// Do not requeue (will be requeued if a change to the object is
 		// observed, or after the usually very long reconcile timeout
