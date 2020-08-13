@@ -18,7 +18,7 @@ RUN apk --no-cache add build-base git gcc
 
 ENV USER=secuser
 ENV UID=2000
-# See https://stackoverflow.com/a/55757473/12429735RUN
+# See https://stackoverflow.com/a/55757473/12429735
 RUN adduser \
     --disabled-password \
     --gecos "" \
@@ -36,9 +36,10 @@ ADD . /work
 RUN make
 
 FROM scratch
+ARG version
 
 LABEL name="Seccomp Operator" \
-      version="0.0.0" \
+      version=$version \
       description="The Seccomp Operator makes it easier for cluster admins to manage their seccomp profiles and apply them to Kubernetes' workloads."
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
