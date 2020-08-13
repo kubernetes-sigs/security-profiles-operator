@@ -22,6 +22,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/test"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
@@ -108,13 +109,20 @@ func TestReconcile(t *testing.T) {
 			rec: &Reconciler{
 				client: &test.MockClient{
 					MockGet: test.NewMockGetFn(nil, func(obj runtime.Object) error {
+						obj = &corev1.ConfigMap{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      name,
+								Namespace: namespace,
+							},
+						}
 						return nil
 					}),
 				},
-				log: log.Log,
+				log:    log.Log,
+				record: event.NewNopRecorder(),
 			},
 			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
-			wantResult: reconcile.Result{RequeueAfter: wait},
+			wantResult: reconcile.Result{},
 			wantErr:    nil,
 		},
 	}
