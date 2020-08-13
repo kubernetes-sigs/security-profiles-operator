@@ -114,7 +114,7 @@ func TestReconcile(t *testing.T) {
 				log: log.Log,
 			},
 			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
-			wantResult: reconcile.Result{RequeueAfter: longWait},
+			wantResult: reconcile.Result{RequeueAfter: wait},
 			wantErr:    nil,
 		},
 	}

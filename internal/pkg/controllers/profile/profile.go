@@ -47,7 +47,7 @@ const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
 
-	longWait = 1 * time.Minute
+	wait = 1 * time.Minute
 
 	errGetProfile          = "cannot get profile"
 	errConfigMapNil        = "config map cannot be nil"
@@ -139,18 +139,18 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 		if err != nil {
 			logger.Error(err, "reason", "cannot get profile path")
 			r.record.Event(configMap, event.Warning(event.Reason("cannot get profile path"), err))
-			return reconcile.Result{}, err
+			return reconcile.Result{RequeueAfter: wait}, nil
 		}
 
 		if err = saveProfileOnDisk(profilePath, profileContent); err != nil {
 			logger.Error(err, "reason", "cannot save profile into disk")
 			r.record.Event(configMap, event.Warning(event.Reason("cannot save profile into disk"), err))
-			return reconcile.Result{}, err
+			return reconcile.Result{RequeueAfter: wait}, nil
 		}
 	}
 
 	logger.Info("Reconciled profile", "resource version", configMap.GetResourceVersion())
-	return reconcile.Result{RequeueAfter: longWait}, nil
+	return reconcile.Result{RequeueAfter: wait}, nil
 }
 
 func saveProfileOnDisk(fileName, contents string) error {
