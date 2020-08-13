@@ -47,7 +47,7 @@ const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
 
-	wait = 1 * time.Minute
+	wait = 30 * time.Second
 
 	errGetProfile          = "cannot get profile"
 	errConfigMapNil        = "config map cannot be nil"
