@@ -134,6 +134,12 @@ spec:
         hostPath:
           path: /var/lib/seccomp-operator
           type: DirectoryOrCreate
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
 ---
 apiVersion: v1
 kind: ConfigMap
