@@ -1,6 +1,6 @@
 module sigs.k8s.io/seccomp-operator
 
-go 1.14
+go 1.15
 
 require (
 	github.com/crossplane/crossplane-runtime v0.9.0
