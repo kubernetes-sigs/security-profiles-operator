@@ -144,13 +144,14 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 
 		if err = saveProfileOnDisk(profilePath, profileContent); err != nil {
 			logger.Error(err, "reason", "cannot save profile into disk")
-			r.record.Event(configMap, event.Warning(event.Reason("cannot save profile into disk"), err))
+			r.record.Event(configMap, event.Warning(event.Reason("cannot save profile to disk"), err))
 			return reconcile.Result{RequeueAfter: wait}, nil
 		}
 	}
 
 	logger.Info("Reconciled profile", "resource version", configMap.GetResourceVersion())
-	return reconcile.Result{RequeueAfter: wait}, nil
+	r.record.Event(configMap, event.Normal(event.Reason("save profile to disk"), "Successfully saved profile to disk."))
+	return reconcile.Result{}, nil
 }
 
 func saveProfileOnDisk(fileName, contents string) error {
