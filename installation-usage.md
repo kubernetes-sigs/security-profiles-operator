@@ -4,8 +4,10 @@
 
 The feature scope of the seccomp-operator is right now limited to:
 
-- Enabling `ConfigMap`s to store seccomp profiles.
-- Synchronizing seccomp profiles across all worker nodes.
+- Enable `ConfigMap`s to store seccomp profiles.
+- Synchronize seccomp profiles across all worker nodes.
+- Validate if a node supports seccomp and do not synchronize if not.
+- Validate if a profile is syntactically correct and do not synchronize if not.
 
 ## How To
 
