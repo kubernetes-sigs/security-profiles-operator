@@ -140,6 +140,8 @@ spec:
         - effect: NoExecute
           key: node.kubernetes.io/not-ready
           operator: Exists
+      nodeSelector:
+        kubernetes.io/os: linux
 ---
 apiVersion: v1
 kind: ConfigMap
