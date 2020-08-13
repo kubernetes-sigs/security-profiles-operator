@@ -64,7 +64,7 @@ data:
 	eventsOutput := e.kubectl("get", "events")
 	for _, s := range []string{
 		"Warning",
-		"cannot validate profile " + profileName,
+		"InvalidSeccompProfile",
 		"configmap/" + configMapName,
 		"decoding seccomp profile: json: cannot unmarshal bool into " +
 			"Go struct field Seccomp.defaultAction of type seccomp.Action",
