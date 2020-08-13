@@ -26,6 +26,7 @@ endif
 
 GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null || echo unknown)
 GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
+VERSION := $(shell cat VERSION)
 
 BUILDTAGS := netgo
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
@@ -33,7 +34,8 @@ GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
 	-X $(GO_PROJECT)/internal/pkg/version.buildDate=$(BUILD_DATE) \
 	-X $(GO_PROJECT)/internal/pkg/version.gitCommit=$(GIT_COMMIT) \
-	-X $(GO_PROJECT)/internal/pkg/version.gitTreeState=$(GIT_TREE_STATE)
+	-X $(GO_PROJECT)/internal/pkg/version.gitTreeState=$(GIT_TREE_STATE) \
+	-X $(GO_PROJECT)/internal/pkg/version.version=$(VERSION)
 LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
 
 CONTAINER_RUNTIME ?= docker
@@ -85,7 +87,7 @@ default-profiles: ## Generate the default profiles
 
 .PHONY: image
 image: ## Build the container image
-	$(CONTAINER_RUNTIME) build -t $(IMAGE) .
+	$(CONTAINER_RUNTIME) build --build-arg version=$(VERSION) -t $(IMAGE) .
 
 # Verification targets
 

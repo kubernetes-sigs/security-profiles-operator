@@ -24,13 +24,11 @@ import (
 	"text/tabwriter"
 )
 
-// version is the current version of the operator.
-const version = "0.0.0"
-
 var (
 	buildDate    string // build date in ISO8601 format, output of $(date -u +'%Y-%m-%dT%H:%M:%SZ')
 	gitCommit    string // sha1 from git, output of $(git rev-parse HEAD)
 	gitTreeState string // state of git tree, either "clean" or "dirty"
+	version      string // the current version of the operator
 )
 
 type Info struct {
