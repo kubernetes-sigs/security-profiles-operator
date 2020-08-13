@@ -108,15 +108,7 @@ func TestReconcile(t *testing.T) {
 		"GotProfile": {
 			rec: &Reconciler{
 				client: &test.MockClient{
-					MockGet: test.NewMockGetFn(nil, func(obj runtime.Object) error {
-						obj = &corev1.ConfigMap{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:      name,
-								Namespace: namespace,
-							},
-						}
-						return nil
-					}),
+					MockGet: test.NewMockGetFn(nil),
 				},
 				log:    log.Log,
 				record: event.NewNopRecorder(),
