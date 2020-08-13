@@ -64,6 +64,20 @@ spec:
       image: nginx
 ```
 
+## Restricting to a Single Namespace
+
+The seccomp-operator can optionally be run to watch ConfigMaps in a single
+namespace. This is advantageous because it allows for tightening the RBAC
+permissions required by the operator's ServiceAccount. To modify the operator
+deployment to run in a single namespace, use the `namespace-operator.yaml`
+manifest with your namespace of choice:
+
+```sh
+NAMESPACE=<your-namespace>
+
+curl https://raw.githubusercontent.com/kubernetes-sigs/seccomp-operator/master/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
+```
+
 ## Troubleshooting
 
 Confirm that the profile is being reconciled:
