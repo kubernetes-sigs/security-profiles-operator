@@ -63,6 +63,13 @@ const (
 	// seccompProfileAnnotation is the annotation on a ConfigMap that specifies
 	// its intention to be treated as a seccomp profile.
 	seccompProfileAnnotation = "seccomp.security.kubernetes.io/profile"
+
+	reasonSeccompNotSupported   event.Reason = "SeccompNotSupportedOnNode"
+	reasonInvalidSeccompProfile event.Reason = "InvalidSeccompProfile"
+	reasonCannotGetProfilePath  event.Reason = "CannotGetSeccompProfilePath"
+	reasonCannotSaveProfile     event.Reason = "CannotSaveSeccompProfile"
+
+	reasonSavedProfile event.Reason = "SavedSeccompProfile"
 )
 
 // isProfile checks if a ConfigMap has been designated as a seccomp profile.
@@ -118,7 +125,7 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 			os.Getenv(config.NodeNameEnvKey),
 		)
 		logger.Error(err, "reason", reason)
-		r.record.Event(configMap, event.Warning(event.Reason(reason), err))
+		r.record.Event(configMap, event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey), "node does not support seccomp"))
 
 		// Do not requeue (will be requeued if a change to the object is
 		// observed, or after the usually very long reconcile timeout
@@ -130,7 +137,7 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 		if err := validateProfile(profileContent); err != nil {
 			reason := "cannot validate profile " + profileName
 			logger.Error(err, "reason", reason)
-			r.record.Event(configMap, event.Warning(event.Reason(reason), err))
+			r.record.Event(configMap, event.Warning(reasonInvalidSeccompProfile, err))
 			// do not reconcile again until further change
 			return reconcile.Result{}, nil
 		}
@@ -138,19 +145,19 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 		profilePath, err := GetProfilePath(profileName, configMap)
 		if err != nil {
 			logger.Error(err, "reason", "cannot get profile path")
-			r.record.Event(configMap, event.Warning(event.Reason("cannot get profile path"), err))
+			r.record.Event(configMap, event.Warning(reasonCannotGetProfilePath, err))
 			return reconcile.Result{RequeueAfter: wait}, nil
 		}
 
 		if err = saveProfileOnDisk(profilePath, profileContent); err != nil {
 			logger.Error(err, "reason", "cannot save profile into disk")
-			r.record.Event(configMap, event.Warning(event.Reason("cannot save profile to disk"), err))
+			r.record.Event(configMap, event.Warning(reasonCannotSaveProfile, err))
 			return reconcile.Result{RequeueAfter: wait}, nil
 		}
 	}
 
 	logger.Info("Reconciled profile", "resource version", configMap.GetResourceVersion())
-	r.record.Event(configMap, event.Normal(event.Reason("save profile to disk"), "Successfully saved profile to disk."))
+	r.record.Event(configMap, event.Normal(reasonSavedProfile, "Successfully saved profile to disk"))
 	return reconcile.Result{}, nil
 }
 
