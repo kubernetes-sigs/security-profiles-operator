@@ -187,7 +187,7 @@ spec:
               ephemeral-storage: "50Mi"
       containers:
         - name: seccomp-operator
-          image: k8s.gcr.io/seccomp-operator/seccomp-operator:v0.1.0
+          image: k8s.gcr.io/seccomp-operator/seccomp-operator:0.1.0
           imagePullPolicy: Always
           volumeMounts:
           - name: host-operator-volume
