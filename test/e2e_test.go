@@ -75,7 +75,7 @@ func (e *e2e) deployOperator(manifest string) {
 
 	// Update the image name to match the test image
 	e.run(
-		"sed", "-i", fmt.Sprintf("s;image: gcr.io/.*;image: %s;g", testImage),
+		"sed", "-i", fmt.Sprintf("s;image: .*gcr.io/.*;image: %s;g", testImage),
 		manifest,
 	)
 
