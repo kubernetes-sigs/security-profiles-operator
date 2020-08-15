@@ -9,6 +9,12 @@ The feature scope of the seccomp-operator is right now limited to:
 - Validate if a node supports seccomp and do not synchronize if not.
 - Validate if a profile is syntactically correct and do not synchronize if not.
 
+
+## Tutorials and Demos
+
+- [Introduction to Seccomp and the Kubernetes Seccomp Operator](https://youtu.be/exg_zrg16SI)
+  ([@saschagrunert](https://github.com/saschagrunert) and [@hasheddan](https://github.com/hasheddan))
+
 ## How To
 
 ### 1. Install operator
