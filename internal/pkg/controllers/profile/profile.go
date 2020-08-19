@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
-	nodeSeccomp "sigs.k8s.io/seccomp-operator/internal/pkg/node/seccomp"
 )
 
 const (
@@ -118,7 +117,7 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	}
 
 	// Pre-check if the node supports seccomp
-	if !nodeSeccomp.New().IsSupported(logger) {
+	if !seccomp.IsSupported() {
 		err := errors.New("profile not added")
 		reason := fmt.Sprintf(
 			"node %q does not support seccomp",

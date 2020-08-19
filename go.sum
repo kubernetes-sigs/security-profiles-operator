@@ -475,6 +475,8 @@ github.com/sclevine/spec v1.2.0/go.mod h1:W4J29eT/Kzv7/b9IWLB055Z+qvVC9vt0Arko24
 github.com/sclevine/spec v1.4.0/go.mod h1:LvpgJaFyvQzRvc1kaDs0bulYwzC70PbiYjC4QnFHkOM=
 github.com/seccomp/containers-golang v0.6.0 h1:VWPMMIDr8pAtNjCX0WvLEEK9EQi5lAm4HtJbDtAtFvQ=
 github.com/seccomp/containers-golang v0.6.0/go.mod h1:Dd9mONHvW4YdbSzdm23yf2CFw0iqvqLhO0mEFvPIvm4=
+github.com/seccomp/containers-golang v0.6.1-0.20200818144553-cee6af5ada81 h1:U0/CY7gjsL+rarGnNKORbV/51GJIwCBRoktitlCjiSU=
+github.com/seccomp/containers-golang v0.6.1-0.20200818144553-cee6af5ada81/go.mod h1:3cO4AFnR4nRg8CeN2/R7GqE8GHxtJ3J9pgErZbYEXBI=
 github.com/seccomp/libseccomp-golang v0.9.1/go.mod h1:GbW5+tmTXfcxTToHLXlScSlAvWlF4P2Ca7zGrPiEpWo=
 github.com/securego/gosec v0.0.0-20200103095621-79fbf3af8d83/go.mod h1:vvbZ2Ae7AzSq3/kywjUDxSNq2SJ27RxCz2un0H3ePqE=
 github.com/sendgrid/rest v2.4.1+incompatible/go.mod h1:kXX7q3jZtJXK5c5qK83bSGMdV6tsOE70KbHoqJls4lE=
