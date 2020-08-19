@@ -46,6 +46,12 @@ operator and seccomp support in Kubernetes in general:
 
 ## Community, discussion, contribution, and support
 
+We schedule a monthly meeting every last Thursday of a month.
+
+- [Meeting Notes][8]
+
+[8]: https://docs.google.com/document/d/1FQHYdyd7PTCi7_Vd8erPS4nztp0blvivK87HhXqz4uc/edit?usp=sharing
+
 Learn how to engage with the Kubernetes community on the [community
 page](http://kubernetes.io/community/).
 
