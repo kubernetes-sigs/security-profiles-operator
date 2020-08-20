@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# assume a Debian based golang image, like: golang:1.14
+# assume a Debian based golang image, like: golang:1.15
 apt-get update
 apt-get install -y python3
+
+# install kustomize
+pushd /usr/bin
+curl -s https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
+popd
 
 make verify

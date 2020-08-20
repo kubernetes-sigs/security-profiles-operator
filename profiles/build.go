@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	deploymentYAML = "deploy/operator.yaml"
+	deploymentYAML = "deploy/base/operator.yaml"
 	profilesDir    = "profiles"
 )
 

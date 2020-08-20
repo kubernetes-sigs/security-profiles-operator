@@ -1,249 +1,273 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  labels:
+    app: seccomp-operator
   name: seccomp-operator
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  labels:
+    app: seccomp-operator
   name: seccomp-operator
   namespace: seccomp-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  labels:
+    app: seccomp-operator
   name: config-map-reader
   namespace: NS_REPLACE
 rules:
-- apiGroups: [""]
-  resources: ["configmaps"]
-  verbs: ["get", "watch", "list"]
-- apiGroups: [""]
-  resources: ["events"]
-  verbs: ["create", "patch"]
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - watch
+  - list
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  labels:
+    app: seccomp-operator
   name: config-map-reader-binding
   namespace: NS_REPLACE
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: config-map-reader
 subjects:
 - kind: ServiceAccount
   name: seccomp-operator
   namespace: seccomp-operator
-roleRef:
-  kind: Role
-  name: config-map-reader
-  apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: seccomp-operator-profile
-  namespace: seccomp-operator
 data:
   seccomp-operator.json: |-
     {
       "defaultAction": "SCMP_ACT_ERRNO",
-      "architectures": [
-          "SCMP_ARCH_X86_64",
-          "SCMP_ARCH_X86",
-          "SCMP_ARCH_X32"
-      ],
+      "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32"],
       "syscalls": [
-          {
-              "names": [
-                "accept4",
-                "arch_prctl",
-                "bind",
-                "brk",
-                "clone",
-                "close",
-                "connect",
-                "epoll_create1",
-                "epoll_ctl",
-                "epoll_pwait",
-                "execve",
-                "exit",
-                "exit_group",
-                "fcntl",
-                "fstat",
-                "futex",
-                "getcwd",
-                "getgid",
-                "getpeername",
-                "getpgrp",
-                "getpid",
-                "getppid",
-                "getrandom",
-                "getsockname",
-                "getsockopt",
-                "gettid",
-                "getuid",
-                "listen",
-                "madvise",
-                "membarrier",
-                "mkdirat",
-                "mlock",
-                "mmap",
-                "mprotect",
-                "nanosleep",
-                "newfstatat",
-                "open",
-                "openat",
-                "pipe2",
-                "pread64",
-                "read",
-                "readlinkat",
-                "rt_sigaction",
-                "rt_sigprocmask",
-                "rt_sigreturn",
-                "sched_getaffinity",
-                "sched_yield",
-                "setgid",
-                "setsockopt",
-                "set_tid_address",
-                "setuid",
-                "sigaltstack",
-                "socket",
-                "tgkill",
-                "uname",
-                "write"
-              ],
-              "action": "SCMP_ACT_ALLOW"
-          }
+        {
+          "names": [
+            "accept4",
+            "arch_prctl",
+            "bind",
+            "brk",
+            "clone",
+            "close",
+            "connect",
+            "epoll_create1",
+            "epoll_ctl",
+            "epoll_pwait",
+            "execve",
+            "exit",
+            "exit_group",
+            "fcntl",
+            "fstat",
+            "futex",
+            "getcwd",
+            "getgid",
+            "getpeername",
+            "getpgrp",
+            "getpid",
+            "getppid",
+            "getrandom",
+            "getsockname",
+            "getsockopt",
+            "gettid",
+            "getuid",
+            "listen",
+            "madvise",
+            "membarrier",
+            "mkdirat",
+            "mlock",
+            "mmap",
+            "mprotect",
+            "nanosleep",
+            "newfstatat",
+            "open",
+            "openat",
+            "pipe2",
+            "pread64",
+            "read",
+            "readlinkat",
+            "rt_sigaction",
+            "rt_sigprocmask",
+            "rt_sigreturn",
+            "sched_getaffinity",
+            "sched_yield",
+            "setgid",
+            "setsockopt",
+            "set_tid_address",
+            "setuid",
+            "sigaltstack",
+            "socket",
+            "tgkill",
+            "uname",
+            "write"
+          ],
+          "action": "SCMP_ACT_ALLOW"
+        }
       ]
     }
+kind: ConfigMap
+metadata:
+  labels:
+    app: seccomp-operator
+  name: seccomp-operator-profile
+  namespace: seccomp-operator
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
+  labels:
+    app: seccomp-operator
   name: seccomp-operator
   namespace: seccomp-operator
 spec:
   selector:
     matchLabels:
+      app: seccomp-operator
       name: seccomp-operator
   template:
     metadata:
       annotations:
-        seccomp.security.alpha.kubernetes.io/pod: runtime/default
         container.seccomp.security.alpha.kubernetes.io/seccomp-operator: localhost/seccomp-operator.json
+        seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
+        app: seccomp-operator
         name: seccomp-operator
     spec:
-      serviceAccountName: seccomp-operator
-      initContainers:
-        - name: non-root-enabler
-          image: bash:5.0
-          # Creates folder /var/lib/seccomp-operator, sets 2000:2000 as its
-          # owner and symlink it to /var/lib/kubelet/seccomp/operator. This is
-          # required to allow the main container to run as non-root.
-          command: [bash, -c]
-          args:
-            - |+
-              set -euo pipefail
-
-              if [ ! -d $KUBELET_SECCOMP_ROOT ]; then
-                /bin/mkdir -m 0744 -p $KUBELET_SECCOMP_ROOT
-              fi
-
-              /bin/mkdir -p $OPERATOR_ROOT
-              /bin/chmod 0744 $OPERATOR_ROOT
-
-              if [ ! -L $OPERATOR_SYMLINK ]; then
-                /bin/ln -s $OPERATOR_ROOT $OPERATOR_SYMLINK
-              fi
-
-              /bin/chown -R 2000:2000 $OPERATOR_ROOT
-              cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
-          env:
-            - name: KUBELET_SECCOMP_ROOT
-              value: /var/lib/kubelet/seccomp
-            - name: OPERATOR_SYMLINK
-              value: $(KUBELET_SECCOMP_ROOT)/operator
-            - name: OPERATOR_ROOT
-              value: /var/lib/seccomp-operator
-          volumeMounts:
-            - name: host-varlib-volume
-              mountPath: /var/lib
-            - name: profile-configmap-volume
-              mountPath: /opt/seccomp-profiles
-              readOnly: true
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-              add: ["CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"]
-          resources:
-            requests:
-              memory: "32Mi"
-              cpu: "100m"
-              ephemeral-storage: "10Mi"
-            limits:
-              memory: "64Mi"
-              cpu: "250m"
-              ephemeral-storage: "50Mi"
       containers:
-        - name: seccomp-operator
-          image: gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest
-          imagePullPolicy: Always
-          volumeMounts:
-          - name: host-operator-volume
-            mountPath: /var/lib/kubelet/seccomp/operator
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            runAsUser: 2000
-            runAsGroup: 2000
-            capabilities:
-              drop: ["ALL"]
-          resources:
-            requests:
-              memory: "64Mi"
-              cpu: "100m"
-              ephemeral-storage: "50Mi"
-            limits:
-              memory: "128Mi"
-              cpu: "300m"
-              ephemeral-storage: "200Mi"
-          env:
-            - name: RESTRICT_TO_NAMESPACE
-              value: NS_REPLACE
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-      volumes:
-      # /var/lib is used as symlinks cannot be created across different volumes
-      - name: host-varlib-volume
-        hostPath:
-          path: /var/lib
-          type: Directory
-      - name: host-operator-volume
-        hostPath:
-          path: /var/lib/seccomp-operator
-          type: DirectoryOrCreate
-      - name: profile-configmap-volume
-        configMap:
-          name: seccomp-operator-profile
-      tolerations:
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/master
-        - effect: NoExecute
-          key: node.kubernetes.io/not-ready
-          operator: Exists
+      - env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: RESTRICT_TO_NAMESPACE
+          value: NS_REPLACE
+        image: gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest
+        imagePullPolicy: Always
+        name: seccomp-operator
+        resources:
+          limits:
+            cpu: 300m
+            ephemeral-storage: 200Mi
+            memory: 128Mi
+          requests:
+            cpu: 100m
+            ephemeral-storage: 50Mi
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 2000
+          runAsUser: 2000
+        volumeMounts:
+        - mountPath: /var/lib/kubelet/seccomp/operator
+          name: host-operator-volume
+      initContainers:
+      - args:
+        - |
+          set -euo pipefail
+
+          if [ ! -d $KUBELET_SECCOMP_ROOT ]; then
+            /bin/mkdir -m 0744 -p $KUBELET_SECCOMP_ROOT
+          fi
+
+          /bin/mkdir -p $OPERATOR_ROOT
+          /bin/chmod 0744 $OPERATOR_ROOT
+
+          if [ ! -L $OPERATOR_SYMLINK ]; then
+            /bin/ln -s $OPERATOR_ROOT $OPERATOR_SYMLINK
+          fi
+
+          /bin/chown -R 2000:2000 $OPERATOR_ROOT
+          cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
+        command:
+        - bash
+        - -c
+        env:
+        - name: KUBELET_SECCOMP_ROOT
+          value: /var/lib/kubelet/seccomp
+        - name: OPERATOR_SYMLINK
+          value: $(KUBELET_SECCOMP_ROOT)/operator
+        - name: OPERATOR_ROOT
+          value: /var/lib/seccomp-operator
+        image: bash:5.0
+        name: non-root-enabler
+        resources:
+          limits:
+            cpu: 250m
+            ephemeral-storage: 50Mi
+            memory: 64Mi
+          requests:
+            cpu: 100m
+            ephemeral-storage: 10Mi
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            add:
+            - CHOWN
+            - FOWNER
+            - FSETID
+            - DAC_OVERRIDE
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /var/lib
+          name: host-varlib-volume
+        - mountPath: /opt/seccomp-profiles
+          name: profile-configmap-volume
+          readOnly: true
       nodeSelector:
         kubernetes.io/os: linux
+      serviceAccountName: seccomp-operator
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      - effect: NoExecute
+        key: node.kubernetes.io/not-ready
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /var/lib
+          type: Directory
+        name: host-varlib-volume
+      - hostPath:
+          path: /var/lib/seccomp-operator
+          type: DirectoryOrCreate
+        name: host-operator-volume
+      - configMap:
+          name: seccomp-operator-profile
+        name: profile-configmap-volume
 ---
 apiVersion: v1
+data:
+  nginx-1.19.1.json: '{"defaultAction":"SCMP_ACT_ERRNO","architectures":["SCMP_ARCH_X86_64","SCMP_ARCH_X86","SCMP_ARCH_X32"],"syscalls":[{"names":["accept4","access","arch_prctl","bind","brk","capget","capset","chdir","chown","clone","close","connect","dup2","epoll_create","epoll_ctl","epoll_pwait","epoll_wait","eventfd2","execve","exit","exit_group","faccessat","fadvise64","fchdir","fchown","fcntl","fgetxattr","fsetxattr","fstat","fstatfs","futex","getcwd","getdents","getdents64","getegid","geteuid","getgid","getpid","getppid","getrlimit","getuid","ioctl","io_setup","listen","lseek","mkdir","mmap","mprotect","munmap","nanosleep","newfstatat","open","openat","pipe","prctl","pread64","prlimit64","pwrite64","read","recvfrom","recvmsg","rename","rt_sigaction","rt_sigprocmask","rt_sigreturn","rt_sigsuspend","sched_getaffinity","seccomp","sendfile","sendmsg","setgid","setgroups","setitimer","set_robust_list","setsockopt","set_tid_address","setuid","sigaltstack","socket","socketpair","stat","statfs","sysinfo","umask","uname","unlink","utimensat","wait4","write","writev"],"action":"SCMP_ACT_ALLOW","args":[],"comment":"","includes":{},"excludes":{}}]}'
 kind: ConfigMap
 metadata:
-  namespace: NS_REPLACE
-  name: default-profiles
   annotations:
     seccomp.security.kubernetes.io/profile: "true"
-data:
-  nginx-1.19.1.json: |-
-    {"defaultAction":"SCMP_ACT_ERRNO","architectures":["SCMP_ARCH_X86_64","SCMP_ARCH_X86","SCMP_ARCH_X32"],"syscalls":[{"names":["accept4","access","arch_prctl","bind","brk","capget","capset","chdir","chown","clone","close","connect","dup2","epoll_create","epoll_ctl","epoll_pwait","epoll_wait","eventfd2","execve","exit","exit_group","faccessat","fadvise64","fchdir","fchown","fcntl","fgetxattr","fsetxattr","fstat","fstatfs","futex","getcwd","getdents","getdents64","getegid","geteuid","getgid","getpid","getppid","getrlimit","getuid","ioctl","io_setup","listen","lseek","mkdir","mmap","mprotect","munmap","nanosleep","newfstatat","open","openat","pipe","prctl","pread64","prlimit64","pwrite64","read","recvfrom","recvmsg","rename","rt_sigaction","rt_sigprocmask","rt_sigreturn","rt_sigsuspend","sched_getaffinity","seccomp","sendfile","sendmsg","setgid","setgroups","setitimer","set_robust_list","setsockopt","set_tid_address","setuid","sigaltstack","socket","socketpair","stat","statfs","sysinfo","umask","uname","unlink","utimensat","wait4","write","writev"],"action":"SCMP_ACT_ALLOW","args":[],"comment":"","includes":{},"excludes":{}}]}
+  labels:
+    app: seccomp-operator
+  name: default-profiles
+  namespace: NS_REPLACE
