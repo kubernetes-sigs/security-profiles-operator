@@ -81,13 +81,9 @@ go-mod: ## Cleanup and verify go modules
 		$(GO) mod tidy && \
 		$(GO) mod verify
 
-.PHONY: default-profiles
-default-profiles: ## Generate the default profiles
-	$(GO) run ./profiles
-
 .PHONY: deployments
 deployments: ## Generate the deployment files with kustomize
-	kustomize build --reorder=none deploy/base -o deploy/operator.yaml
+	kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
 
 .PHONY: image
@@ -97,7 +93,7 @@ image: ## Build the container image
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-default-profiles verify-deployments ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments ## Run all verification targets
 
 .PHONY: verify-boilerplate
 verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
@@ -110,10 +106,6 @@ $(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
 
 .PHONY: verify-go-mod
 verify-go-mod: go-mod ## Verify the go modules
-	hack/tree-status
-
-.PHONY: verify-default-profiles
-verify-default-profiles: default-profiles ## Verify the generated default profiles
 	hack/tree-status
 
 .PHONY: verify-deployments

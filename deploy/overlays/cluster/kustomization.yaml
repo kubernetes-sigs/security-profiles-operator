@@ -1,0 +1,20 @@
+# This is the cluster wide seccomp-operator deployment, which listens for
+# configMaps on all namespaces
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+bases:
+  - ../../base
+
+patchesJson6902:
+  - target:
+      version: v1
+      kind: ConfigMap
+      name: default-profiles
+    path: default-profiles.yaml
+
+  - target:
+      version: v1
+      kind: ConfigMap
+      name: seccomp-operator-profile
+    path: operator-profile.yaml

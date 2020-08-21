@@ -53,83 +53,6 @@ subjects:
   name: seccomp-operator
   namespace: seccomp-operator
 ---
-apiVersion: v1
-data:
-  seccomp-operator.json: |-
-    {
-      "defaultAction": "SCMP_ACT_ERRNO",
-      "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32"],
-      "syscalls": [
-        {
-          "names": [
-            "accept4",
-            "arch_prctl",
-            "bind",
-            "brk",
-            "clone",
-            "close",
-            "connect",
-            "epoll_create1",
-            "epoll_ctl",
-            "epoll_pwait",
-            "execve",
-            "exit",
-            "exit_group",
-            "fcntl",
-            "fstat",
-            "futex",
-            "getcwd",
-            "getgid",
-            "getpeername",
-            "getpgrp",
-            "getpid",
-            "getppid",
-            "getrandom",
-            "getsockname",
-            "getsockopt",
-            "gettid",
-            "getuid",
-            "listen",
-            "madvise",
-            "membarrier",
-            "mkdirat",
-            "mlock",
-            "mmap",
-            "mprotect",
-            "nanosleep",
-            "newfstatat",
-            "open",
-            "openat",
-            "pipe2",
-            "pread64",
-            "read",
-            "readlinkat",
-            "rt_sigaction",
-            "rt_sigprocmask",
-            "rt_sigreturn",
-            "sched_getaffinity",
-            "sched_yield",
-            "setgid",
-            "setsockopt",
-            "set_tid_address",
-            "setuid",
-            "sigaltstack",
-            "socket",
-            "tgkill",
-            "uname",
-            "write"
-          ],
-          "action": "SCMP_ACT_ALLOW"
-        }
-      ]
-    }
-kind: ConfigMap
-metadata:
-  labels:
-    app: seccomp-operator
-  name: seccomp-operator-profile
-  namespace: seccomp-operator
----
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -260,7 +183,193 @@ spec:
 ---
 apiVersion: v1
 data:
-  nginx-1.19.1.json: '{"defaultAction":"SCMP_ACT_ERRNO","architectures":["SCMP_ARCH_X86_64","SCMP_ARCH_X86","SCMP_ARCH_X32"],"syscalls":[{"names":["accept4","access","arch_prctl","bind","brk","capget","capset","chdir","chown","clone","close","connect","dup2","epoll_create","epoll_ctl","epoll_pwait","epoll_wait","eventfd2","execve","exit","exit_group","faccessat","fadvise64","fchdir","fchown","fcntl","fgetxattr","fsetxattr","fstat","fstatfs","futex","getcwd","getdents","getdents64","getegid","geteuid","getgid","getpid","getppid","getrlimit","getuid","ioctl","io_setup","listen","lseek","mkdir","mmap","mprotect","munmap","nanosleep","newfstatat","open","openat","pipe","prctl","pread64","prlimit64","pwrite64","read","recvfrom","recvmsg","rename","rt_sigaction","rt_sigprocmask","rt_sigreturn","rt_sigsuspend","sched_getaffinity","seccomp","sendfile","sendmsg","setgid","setgroups","setitimer","set_robust_list","setsockopt","set_tid_address","setuid","sigaltstack","socket","socketpair","stat","statfs","sysinfo","umask","uname","unlink","utimensat","wait4","write","writev"],"action":"SCMP_ACT_ALLOW","args":[],"comment":"","includes":{},"excludes":{}}]}'
+  seccomp-operator.json: |
+    {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32"],
+      "syscalls": [
+        {
+          "names": [
+            "accept4",
+            "arch_prctl",
+            "bind",
+            "brk",
+            "clone",
+            "close",
+            "connect",
+            "epoll_create1",
+            "epoll_ctl",
+            "epoll_pwait",
+            "execve",
+            "exit",
+            "exit_group",
+            "fcntl",
+            "fstat",
+            "futex",
+            "getcwd",
+            "getgid",
+            "getpeername",
+            "getpgrp",
+            "getpid",
+            "getppid",
+            "getrandom",
+            "getsockname",
+            "getsockopt",
+            "gettid",
+            "getuid",
+            "listen",
+            "madvise",
+            "membarrier",
+            "mkdirat",
+            "mlock",
+            "mmap",
+            "mprotect",
+            "nanosleep",
+            "newfstatat",
+            "open",
+            "openat",
+            "pipe2",
+            "pread64",
+            "read",
+            "readlinkat",
+            "rt_sigaction",
+            "rt_sigprocmask",
+            "rt_sigreturn",
+            "sched_getaffinity",
+            "sched_yield",
+            "setgid",
+            "setsockopt",
+            "set_tid_address",
+            "setuid",
+            "sigaltstack",
+            "socket",
+            "tgkill",
+            "uname",
+            "write"
+          ],
+          "action": "SCMP_ACT_ALLOW"
+        }
+      ]
+    }
+kind: ConfigMap
+metadata:
+  labels:
+    app: seccomp-operator
+  name: seccomp-operator-profile
+  namespace: seccomp-operator
+---
+apiVersion: v1
+data:
+  nginx-1.19.1.json: |-
+    {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "architectures":[
+          "SCMP_ARCH_X86_64",
+          "SCMP_ARCH_X86",
+          "SCMP_ARCH_X32"
+      ],
+      "syscalls": [
+        {
+          "names": [
+            "accept4",
+            "access",
+            "arch_prctl",
+            "bind",
+            "brk",
+            "capget",
+            "capset",
+            "chdir",
+            "chown",
+            "clone",
+            "close",
+            "connect",
+            "dup2",
+            "epoll_create",
+            "epoll_ctl",
+            "epoll_pwait",
+            "epoll_wait",
+            "eventfd2",
+            "execve",
+            "exit",
+            "exit_group",
+            "faccessat",
+            "fadvise64",
+            "fchdir",
+            "fchown",
+            "fcntl",
+            "fgetxattr",
+            "fsetxattr",
+            "fstat",
+            "fstatfs",
+            "futex",
+            "getcwd",
+            "getdents",
+            "getdents64",
+            "getegid",
+            "geteuid",
+            "getgid",
+            "getpid",
+            "getppid",
+            "getrlimit",
+            "getuid",
+            "ioctl",
+            "io_setup",
+            "listen",
+            "lseek",
+            "mkdir",
+            "mmap",
+            "mprotect",
+            "munmap",
+            "nanosleep",
+            "newfstatat",
+            "open",
+            "openat",
+            "pipe",
+            "prctl",
+            "pread64",
+            "prlimit64",
+            "pwrite64",
+            "read",
+            "recvfrom",
+            "recvmsg",
+            "rename",
+            "rt_sigaction",
+            "rt_sigprocmask",
+            "rt_sigreturn",
+            "rt_sigsuspend",
+            "sched_getaffinity",
+            "seccomp",
+            "sendfile",
+            "sendmsg",
+            "setgid",
+            "setgroups",
+            "setitimer",
+            "set_robust_list",
+            "setsockopt",
+            "set_tid_address",
+            "setuid",
+            "sigaltstack",
+            "socket",
+            "socketpair",
+            "stat",
+            "statfs",
+            "sysinfo",
+            "umask",
+            "uname",
+            "unlink",
+            "utimensat",
+            "wait4",
+            "write",
+            "writev"
+          ],
+          "action": "SCMP_ACT_ALLOW",
+          "args": [],
+          "comment": "",
+          "includes": {},
+          "excludes": {}
+        }
+      ]
+    }
 kind: ConfigMap
 metadata:
   annotations:
