@@ -19,7 +19,7 @@ spec:
       serviceAccountName: seccomp-operator
       initContainers:
         - name: non-root-enabler
-          image: bash:5.0
+          image: bash
           # Creates folder /var/lib/seccomp-operator, sets 2000:2000 as its
           # owner and symlink it to /var/lib/kubelet/seccomp/operator. This is
           # required to allow the main container to run as non-root.
@@ -71,7 +71,7 @@ spec:
               ephemeral-storage: "50Mi"
       containers:
         - name: seccomp-operator
-          image: gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest
+          image: seccomp-operator
           imagePullPolicy: Always
           volumeMounts:
           - name: host-operator-volume

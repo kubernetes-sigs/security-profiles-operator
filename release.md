@@ -8,9 +8,14 @@ of the repository [owners](./OWNERS) at hand to be able to merge the PRs.
 The first PR targets this repository and:
 
 - bumps the [`VERSION`](VERSION) file to the target version
-- and changes the `image` names in all files of [./deploy](deploy) from
-  `gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest` to
-  `k8s.gcr.io/seccomp-operator/seccomp-operator:v[VERSION]`
+- changes the `images` `newName`/`newTag` fields of
+  [./deploy/base/kustomization.yaml](deploy/base/kustomization.yaml) from
+  `gcr.io/k8s-staging-seccomp-operator/seccomp-operator` to
+  `k8s.gcr.io/seccomp-operator/seccomp-operator` (`newName`) and the
+  corresponding tag (`newTag`). After that the make target `make deployments`
+  has to be run and the changes have to be committed. This requires
+  [kustomize](https://github.com/kubernetes-sigs/kustomize) to be available on
+  the host system.
 
 After this PR has been merged, we have to watch out the successful build of the
 container image via the automatically triggered
@@ -46,9 +51,11 @@ tool](https://github.com/kubernetes/release/tree/master/cmd/release-notes).
 After that, another PR against this repository has to be created, which:
 
 - bumps the [`VERSION`](VERSION) file to the next minor version, but now including the
-  suffix `-dev`
-- changes the `image` names in all files of [./deploy](deploy) from back to
-  `gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest`
+  suffix `-dev`, for example `1.0.0-dev`.
+- changes the `images` `newName`/`newTag` fields in
+  [./deploy/base/kustomization.yaml](deploy/base/kustomization.yaml) back to
+  `gcr.io/k8s-staging-seccomp-operator/seccomp-operator` (`newName`) and `latest`
+  (`newTag`).
 
 The last step about the release creation is to send a release announcement to
 the [#seccomp-operator Slack channel](https://kubernetes.slack.com/messages/seccomp-operator).
