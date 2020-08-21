@@ -6,4 +6,17 @@ commonLabels:
   app: seccomp-operator
 
 resources:
+  - rbac.yaml
   - operator.yaml
+
+configMapGenerator:
+  - name: seccomp-operator-profile
+    files:
+      - profiles/seccomp-operator.json
+
+  - name: default-profiles
+    files:
+      - profiles/nginx-1.19.1.json
+
+generatorOptions:
+  disableNameSuffixHash: true
