@@ -139,8 +139,10 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 			reason := "cannot validate profile " + profileName
 			logger.Error(err, "reason", reason)
 			r.record.Event(configMap, event.Warning(reasonInvalidSeccompProfile, err))
-			// do not reconcile again until further change
-			return reconcile.Result{}, nil
+
+			// it might be possible that other profiles in the configMap are
+			// valid
+			continue
 		}
 
 		profilePath, err := GetProfilePath(profileName, configMap)
