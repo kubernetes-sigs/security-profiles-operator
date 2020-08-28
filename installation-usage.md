@@ -55,7 +55,25 @@ path inside of the kubelet root `/var/lib/kubelet/seccomp/operator`.
 
 ### 3. Apply profile to pod
 
-Create a pod using one of the created profiles:
+Create a pod using one of the created profiles. On Kubernetes >= 1.19, the
+profile can be specified as part of the pod's security context:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+spec:
+  securityContext:
+    seccompProfile:
+      type: Localhost
+      localhostProfile: operator/my-namespace/cfg-map-name/profile1.json
+  containers:
+    - name: test-container
+      image: nginx
+```
+
+Prior to Kubernetes 1.19, the seccomp profile is controlled by an annotation:
 
 ```yaml
 apiVersion: v1
