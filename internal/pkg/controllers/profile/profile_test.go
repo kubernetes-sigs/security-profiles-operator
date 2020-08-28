@@ -289,25 +289,3 @@ func TestIgnoreNotFound(t *testing.T) {
 		})
 	}
 }
-
-func TestValidateProfile(t *testing.T) {
-	for _, tc := range []struct {
-		profile       string
-		shouldSucceed bool
-	}{
-		{"wrong", false},
-		{`{"defaultAction": true}`, false},
-		{`{"syscalls": "wrong"}`, false},
-		{`{}`, true},
-		{`{"defaultAction": "SCMP_ACT_ALLOW"}`, true},
-		{`{"syscalls": []}`, true},
-	} {
-		msg := "Profile content: " + tc.profile
-		err := validateProfile(tc.profile)
-		if tc.shouldSucceed {
-			require.Nil(t, err, msg)
-		} else {
-			require.NotNil(t, err, msg)
-		}
-	}
-}

@@ -86,6 +86,7 @@ github.com/containers/libtrust v0.0.0-20190913040956-14b96171aa3b/go.mod h1:9rfv
 github.com/containers/ocicrypt v1.0.2/go.mod h1:nsOhbP19flrX6rE7ieGFvBlr7modwmNjsqWarIUce4M=
 github.com/containers/storage v1.20.2/go.mod h1:oOB9Ie8OVPojvoaKWEGSEtHbXUAs+tSyr7RO7ZGteMc=
 github.com/containers/storage v1.23.2/go.mod h1:AyTMMiE5ANvZJiqvatQgSZ85wAl5yHucY3NDN/kemr4=
+github.com/containers/storage v1.23.4/go.mod h1:KzpVgmUucelPYHq2YsseUTiTuucdVh3xfpPNmxmPZRU=
 github.com/coreos/bbolt v1.3.1-coreos.6/go.mod h1:iRUV2dpdMOn7Bo10OQBFzIJO9kkE559Wcmn+qkEiiKk=
 github.com/coreos/bbolt v1.3.2/go.mod h1:iRUV2dpdMOn7Bo10OQBFzIJO9kkE559Wcmn+qkEiiKk=
 github.com/coreos/etcd v3.3.10+incompatible/go.mod h1:uF7uidLiAD3TWHmW31ZFd/JWoc32PjwdhPthX9715RE=
@@ -374,6 +375,7 @@ github.com/klauspost/compress v1.10.11/go.mod h1:aoV0uJVorq1K+umq18yTdKaF57EivdY
 github.com/klauspost/cpuid v0.0.0-20180405133222-e7e905edc00e/go.mod h1:Pj4uuM528wm8OyEC2QMXAi2YiTZ96dNQPGgoMS4s3ek=
 github.com/klauspost/cpuid v1.2.0/go.mod h1:Pj4uuM528wm8OyEC2QMXAi2YiTZ96dNQPGgoMS4s3ek=
 github.com/klauspost/pgzip v1.2.4/go.mod h1:Ch1tH69qFZu15pkjo5kYi6mth2Zzwzt50oCQKQE9RUs=
+github.com/klauspost/pgzip v1.2.5/go.mod h1:Ch1tH69qFZu15pkjo5kYi6mth2Zzwzt50oCQKQE9RUs=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
 github.com/konsorten/go-windows-terminal-sequences v1.0.3 h1:CE8S1cTafDpPvMhIxNJKvHsGVBgn1xWYf1NbHQhywc8=
 github.com/konsorten/go-windows-terminal-sequences v1.0.3/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
@@ -539,6 +541,8 @@ github.com/russross/blackfriday/v2 v2.0.1 h1:lPqVAte+HuHNfhJ/0LC98ESWRz8afy9tM/0
 github.com/russross/blackfriday/v2 v2.0.1/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/ryancurrah/gomodguard v1.0.2/go.mod h1:9T/Cfuxs5StfsocWr4WzDL36HqnX0fVb9d5fSEaLhoE=
 github.com/saschagrunert/ccli v1.0.2-0.20200423111659-b68f755cc0f5/go.mod h1:nF6F8YjOZIYqRQ2GVOi43O13vaN2W1OQq1LcxUGdAfw=
+github.com/saschagrunert/common v0.20.3-0.20200908080721-143cdae3b077 h1:AWDV7Zhebd6Jc1LKy0qatAJp1nrqwgEFHhs49aZjCvw=
+github.com/saschagrunert/common v0.20.3-0.20200908080721-143cdae3b077/go.mod h1:bLba5IGhwoT3ZoD8LRGjp6Jimnyk7qXvnwroY364j2Y=
 github.com/saschagrunert/go-modiff v1.2.0/go.mod h1:YHrztU7folCi4YSHksLOYTX5KFGdHNr9O9DVKjpINMs=
 github.com/sclevine/spec v1.2.0/go.mod h1:W4J29eT/Kzv7/b9IWLB055Z+qvVC9vt0Arko24q7p+U=
 github.com/sclevine/spec v1.4.0/go.mod h1:LvpgJaFyvQzRvc1kaDs0bulYwzC70PbiYjC4QnFHkOM=

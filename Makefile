@@ -28,7 +28,7 @@ GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null || echo unknown)
 GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
 VERSION := $(shell cat VERSION)
 
-BUILDTAGS := netgo
+BUILDTAGS := netgo seccomp
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
@@ -129,9 +129,9 @@ $(BUILD_DIR)/golangci-lint:
 
 .PHONY: test-unit
 test-unit: $(BUILD_DIR) ## Run the unit tests
-	$(GO) test -ldflags '$(LDVARS)' -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./...
+	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./...
 	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	$(GO) test -timeout 20m -tags e2e -count=1 ./test/... -v
+	$(GO) test -timeout 20m -tags 'e2e $(BUILDTAGS)' -count=1 ./test/... -v

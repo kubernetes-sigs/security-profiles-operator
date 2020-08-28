@@ -18,7 +18,6 @@ package profile
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -131,7 +130,7 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	}
 
 	for profileName, profileContent := range configMap.Data {
-		if err := validateProfile(profileContent); err != nil {
+		if err := seccomp.ValidateProfile(profileContent); err != nil {
 			logger.Error(err, "cannot validate profile "+profileName)
 			r.record.Event(configMap,
 				event.Warning(reasonInvalidSeccompProfile, err,
@@ -211,16 +210,4 @@ func ignoreNotFound(err error) error {
 		return nil
 	}
 	return err
-}
-
-// validateProfile does a basic validation for the provided seccomp profile
-// string.
-func validateProfile(content string) error {
-	profile := &seccomp.Seccomp{}
-	if err := json.Unmarshal([]byte(content), &profile); err != nil {
-		return errors.Wrap(err, "decoding seccomp profile")
-	}
-
-	// TODO: consider further validation steps
-	return nil
 }
