@@ -119,11 +119,7 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	// Pre-check if the node supports seccomp
 	if !seccomp.IsSupported() {
 		err := errors.New("profile not added")
-		reason := fmt.Sprintf(
-			"node %q does not support seccomp",
-			os.Getenv(config.NodeNameEnvKey),
-		)
-		logger.Error(err, "reason", reason)
+		logger.Error(err, fmt.Sprintf("node %q does not support seccomp", os.Getenv(config.NodeNameEnvKey)))
 		r.record.Event(configMap,
 			event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey),
 				"node does not support seccomp"))
@@ -136,8 +132,7 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 
 	for profileName, profileContent := range configMap.Data {
 		if err := validateProfile(profileContent); err != nil {
-			reason := "cannot validate profile " + profileName
-			logger.Error(err, "reason", reason)
+			logger.Error(err, "cannot validate profile "+profileName)
 			r.record.Event(configMap, event.Warning(reasonInvalidSeccompProfile, err))
 
 			// it might be possible that other profiles in the configMap are
@@ -147,13 +142,13 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 
 		profilePath, err := GetProfilePath(profileName, configMap)
 		if err != nil {
-			logger.Error(err, "reason", "cannot get profile path")
+			logger.Error(err, "cannot get profile path")
 			r.record.Event(configMap, event.Warning(reasonCannotGetProfilePath, err))
 			return reconcile.Result{RequeueAfter: wait}, nil
 		}
 
 		if err = saveProfileOnDisk(profilePath, profileContent); err != nil {
-			logger.Error(err, "reason", "cannot save profile into disk")
+			logger.Error(err, "cannot save profile into disk")
 			r.record.Event(configMap, event.Warning(reasonCannotSaveProfile, err))
 			return reconcile.Result{RequeueAfter: wait}, nil
 		}
