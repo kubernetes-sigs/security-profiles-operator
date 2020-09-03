@@ -25,6 +25,7 @@ import (
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	seccompoperatorv1alpha1 "sigs.k8s.io/seccomp-operator/api/v1alpha1"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/version"
@@ -112,6 +113,10 @@ func run(*cli.Context) error {
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
 		return errors.Wrap(err, "create manager")
+	}
+
+	if err := seccompoperatorv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add core seccomp APIs to scheme")
 	}
 
 	if err := profile.Setup(mgr, ctrl.Log.WithName("profile")); err != nil {

@@ -24,6 +24,8 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+
+	seccompoperatorv1alpha1 "sigs.k8s.io/seccomp-operator/api/v1alpha1"
 )
 
 const manifest = "deploy/operator.yaml"
@@ -57,6 +59,10 @@ func (e *e2e) TestSeccompOperator() {
 		{
 			"Deploy invalid profile",
 			e.testCaseDeployInvalidProfile,
+		},
+		{
+			"Verify example CRD profiles",
+			e.testCaseCRDExampleProfiles,
 		},
 	} {
 		e.logf("> Running testcase: %s", testCase.description)
@@ -108,4 +114,13 @@ func (e *e2e) getConfigMap(name, namespace string) *v1.ConfigMap {
 	configMap := &v1.ConfigMap{}
 	e.Nil(json.Unmarshal([]byte(configMapJSON), configMap))
 	return configMap
+}
+
+func (e *e2e) getSeccompProfile(name, namespace string) *seccompoperatorv1alpha1.SeccompProfile {
+	seccompProfileJSON := e.kubectl(
+		"-n", namespace, "get", "seccompprofile", name, "-o", "json",
+	)
+	seccompProfile := &seccompoperatorv1alpha1.SeccompProfile{}
+	e.Nil(json.Unmarshal([]byte(seccompProfileJSON), seccompProfile))
+	return seccompProfile
 }

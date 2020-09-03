@@ -75,7 +75,7 @@ data:
 	// Check that the profile is not reconciled to the node
 	e.logf("Verifying node content")
 	configMap := e.getConfigMap(configMapName, "default")
-	profilePath, err := profile.GetProfilePath(profileName, configMap)
+	profilePath, err := profile.GetProfilePath(profileName, configMap.ObjectMeta.Namespace, configMap.ObjectMeta.Name)
 	e.Nil(err)
 	for _, node := range nodes {
 		e.execNode(node, "bash", "-c", fmt.Sprintf("[ ! -f %s ]", profilePath))
