@@ -1,0 +1,21 @@
+---
+apiVersion: seccomp-operator.x-k8s.io/v1alpha1
+kind: SeccompProfile
+metadata:
+  name: profile-block
+spec:
+  defaultAction: "SCMP_ACT_ERRNO"
+---
+apiVersion: seccomp-operator.x-k8s.io/v1alpha1
+kind: SeccompProfile
+metadata:
+  name: profile-complain
+spec:
+  defaultAction: "SCMP_ACT_LOG"
+---
+apiVersion: seccomp-operator.x-k8s.io/v1alpha1
+kind: SeccompProfile
+metadata:
+  name: profile-allow
+spec:
+  defaultAction: "SCMP_ACT_ALLOW"

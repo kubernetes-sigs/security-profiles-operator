@@ -19,28 +19,20 @@ limitations under the License.
 package e2e_test
 
 import (
-	v1 "k8s.io/api/core/v1"
+	"encoding/json"
 
+	seccompoperatorv1alpha1 "sigs.k8s.io/seccomp-operator/api/v1alpha1"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
 	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
 )
 
-func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
-	const (
-		exampleProfilePath = "examples/profile.yaml"
-		exampleProfileName = "test-profile"
-	)
+func (e *e2e) testCaseCRDExampleProfiles(nodes []string) {
+	const exampleProfilePath = "examples/seccompprofile.yaml"
+	exampleProfileNames := [3]string{"profile-allow", "profile-complain", "profile-block"}
 	e.kubectl("create", "-f", exampleProfilePath)
 	defer e.kubectl("delete", "-f", exampleProfilePath)
 
 	e.logf("Retrieving deployed example profile")
-	exampleProfiles := e.getConfigMap(exampleProfileName, "default")
-
-	// Get the default profiles
-	e.logf("Retrieving default profiles from configmap: %s", config.DefaultProfilesConfigMapName)
-	defaultProfiles := e.getConfigMap(
-		config.DefaultProfilesConfigMapName, config.OperatorName,
-	)
 
 	// Content verification
 	for _, node := range nodes {
@@ -51,20 +43,21 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		)
 		e.Contains(statOutput, "744,2000,2000")
 
-		// Default profile verification
-		e.verifyProfilesContent(node, defaultProfiles)
-
 		// Example profile verification
-		e.verifyProfilesContent(node, exampleProfiles)
+		for _, name := range exampleProfileNames {
+			sp := e.getSeccompProfile(name, "default")
+			e.verifyCRDProfileContent(node, sp)
+		}
 	}
 }
 
-func (e *e2e) verifyProfilesContent(node string, cm *v1.ConfigMap) {
-	e.logf("Verifying %s profile on node %s", cm.Name, node)
-	for name, content := range cm.Data {
-		profilePath, err := profile.GetProfilePath(name, cm.ObjectMeta.Namespace, cm.ObjectMeta.Name)
-		e.Nil(err)
-		catOutput := e.execNode(node, "cat", profilePath)
-		e.Contains(catOutput, content)
-	}
+func (e *e2e) verifyCRDProfileContent(node string, sp *seccompoperatorv1alpha1.SeccompProfile) {
+	e.logf("Verifying %s profile on node %s", sp.Name, node)
+	name := sp.Name
+	expected, err := json.Marshal(sp.Spec)
+	e.Nil(err)
+	profilePath, err := profile.GetProfilePath(name, sp.ObjectMeta.Namespace, "custom-profiles")
+	e.Nil(err)
+	catOutput := e.execNode(node, "cat", profilePath)
+	e.Contains(catOutput, string(expected))
 }
