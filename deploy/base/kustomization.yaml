@@ -19,6 +19,7 @@ commonLabels:
 resources:
   - rbac.yaml
   - operator.yaml
+  - crd.yaml
 
 configMapGenerator:
   - name: seccomp-operator-profile

@@ -41,6 +41,8 @@ LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
 CONTAINER_RUNTIME ?= docker
 IMAGE ?= $(PROJECT):latest
 
+CRD_OPTIONS ?= "crd:crdVersions=v1"
+
 GOLANGCI_LINT_VERSION = v1.31.0
 REPO_INFRA_VERSION = v0.1.1
 
@@ -82,7 +84,7 @@ go-mod: ## Cleanup and verify go modules
 		$(GO) mod verify
 
 .PHONY: deployments
-deployments: ## Generate the deployment files with kustomize
+deployments: manifests ## Generate the deployment files with kustomize
 	kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
 
@@ -135,3 +137,11 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
 	$(GO) test -timeout 20m -tags e2e -count=1 ./test/... -v
+
+# Generate CRD manifest
+manifests:
+	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/..." output:crd:stdout > deploy/base/crd.yaml
+
+# Generate deepcopy code
+generate:
+	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./..."
