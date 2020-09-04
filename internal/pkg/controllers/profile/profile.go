@@ -133,7 +133,11 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	for profileName, profileContent := range configMap.Data {
 		if err := validateProfile(profileContent); err != nil {
 			logger.Error(err, "cannot validate profile "+profileName)
-			r.record.Event(configMap, event.Warning(reasonInvalidSeccompProfile, err))
+			r.record.Event(configMap,
+				event.Warning(reasonInvalidSeccompProfile, err,
+					"name", profileName,
+				),
+			)
 
 			// it might be possible that other profiles in the configMap are
 			// valid
@@ -143,19 +147,37 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 		profilePath, err := GetProfilePath(profileName, configMap)
 		if err != nil {
 			logger.Error(err, "cannot get profile path")
-			r.record.Event(configMap, event.Warning(reasonCannotGetProfilePath, err))
+			r.record.Event(configMap,
+				event.Warning(reasonCannotGetProfilePath, err,
+					"name", profileName,
+				),
+			)
 			return reconcile.Result{RequeueAfter: wait}, nil
 		}
 
 		if err = saveProfileOnDisk(profilePath, profileContent); err != nil {
 			logger.Error(err, "cannot save profile into disk")
-			r.record.Event(configMap, event.Warning(reasonCannotSaveProfile, err))
+			r.record.Event(configMap,
+				event.Warning(reasonCannotSaveProfile, err,
+					"name", profileName,
+				),
+			)
 			return reconcile.Result{RequeueAfter: wait}, nil
 		}
+
+		r.record.Event(configMap,
+			event.Normal(reasonSavedProfile,
+				"Successfully saved profile to disk",
+				"name", profileName,
+			),
+		)
 	}
 
-	logger.Info("Reconciled profile", "resource version", configMap.GetResourceVersion())
-	r.record.Event(configMap, event.Normal(reasonSavedProfile, "Successfully saved profile to disk"))
+	logger.Info(
+		"Reconciled profile",
+		"resource version", configMap.GetResourceVersion(),
+		"name", configMap.GetName(),
+	)
 	return reconcile.Result{}, nil
 }
 
