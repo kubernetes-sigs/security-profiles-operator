@@ -41,8 +41,8 @@ LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
 CONTAINER_RUNTIME ?= docker
 IMAGE ?= $(PROJECT):latest
 
-GOLANGCI_LINT_VERSION = v1.30.0
-REPO_INFRA_VERSION = v0.0.10
+GOLANGCI_LINT_VERSION = v1.31.0
+REPO_INFRA_VERSION = v0.1.1
 
 # Utility targets
 
@@ -77,7 +77,7 @@ clean: ## Clean the build directory
 
 .PHONY: go-mod
 go-mod: ## Cleanup and verify go modules
-	export GO111MODULE=on \
+	export GO111MODULE=on && \
 		$(GO) mod tidy && \
 		$(GO) mod verify
 
