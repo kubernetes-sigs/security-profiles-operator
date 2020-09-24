@@ -36,14 +36,19 @@ the Kubernetes world:
 [5]: https://github.com/openshift/machine-config-operator/tree/master/docs
 [6]: https://github.com/UKHomeOffice/seccomp-config
 
+
+## Roadmap
+
 The project tries to not overlap with those existing implementations to provide
-valuable additions in a more secure Kubernetes context. We created a [MindMup
-Mind-Map][7] to get a better feeling about the current situation around the
-operator and seccomp support in Kubernetes in general:
+valuable additions in a more secure Kubernetes context. We created a mind map to 
+get a better feeling about all features we want to implement to better support 
+some security areas within Kubernetes:
 
-![mind-map](.github/mindmap.svg)
+![mind-map](.github/roadmap.svg)
 
-[7]: https://app.mindmup.com
+Going forwards, the operator will extend its purpose to assist Kubernetes users 
+to create, distribute and apply security profiles for seccomp, AppArmor, SeLinux, 
+PodSecurityPolicies and RBAC permissions.
 
 ## Community, discussion, contribution, and support
 
