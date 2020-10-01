@@ -1,7 +1,0 @@
-- op: replace
-  path: /metadata/namespace
-  value: security-profiles-operator
-- op: add
-  path: /metadata/annotations
-  value:
-    seccomp.security.kubernetes.io/profile: "true"

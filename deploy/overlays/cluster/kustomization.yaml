@@ -10,11 +10,5 @@ patchesJson6902:
   - target:
       version: v1
       kind: ConfigMap
-      name: default-profiles
-    path: default-profiles.yaml
-
-  - target:
-      version: v1
-      kind: ConfigMap
       name: security-profiles-operator-profile
     path: operator-profile.yaml
