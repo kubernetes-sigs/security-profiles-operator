@@ -19,16 +19,12 @@ commonLabels:
 resources:
   - rbac.yaml
   - operator.yaml
-  - crd.yaml
+  - profiles/nginx-1.19.1.yaml
 
 configMapGenerator:
   - name: security-profiles-operator-profile
     files:
       - profiles/security-profiles-operator.json
-
-  - name: default-profiles
-    files:
-      - profiles/nginx-1.19.1.json
 
 generatorOptions:
   disableNameSuffixHash: true

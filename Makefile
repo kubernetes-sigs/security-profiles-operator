@@ -140,7 +140,7 @@ test-e2e: ## Run the end-to-end tests
 
 # Generate CRD manifest
 manifests:
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/..." output:crd:stdout > deploy/base/crd.yaml
+	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/..." output:crd:stdout > deploy/crd.yaml
 
 # Generate deepcopy code
 generate:

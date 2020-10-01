@@ -23,12 +23,13 @@ import (
 	"fmt"
 	"strings"
 
-	v1 "k8s.io/api/core/v1"
-
 	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
 )
 
-const manifest = "deploy/operator.yaml"
+const (
+	crd      = "deploy/crd.yaml"
+	manifest = "deploy/operator.yaml"
+)
 
 func (e *e2e) TestSeccompOperator() {
 	// Deploy the operator
@@ -56,14 +57,6 @@ func (e *e2e) TestSeccompOperator() {
 			"Re-deploy the operator",
 			e.testCaseReDeployOperator,
 		},
-		{
-			"Deploy invalid profile",
-			e.testCaseDeployInvalidProfile,
-		},
-		{
-			"Verify example CRD profiles",
-			e.testCaseCRDExampleProfiles,
-		},
 	} {
 		e.logf("> Running testcase: %s", testCase.description)
 		testCase.fn(nodes)
@@ -85,6 +78,10 @@ func (e *e2e) deployOperator(manifest string) {
 		manifest,
 	)
 
+	// Deploy the CRD
+	e.logf("Deploying CRD")
+	e.kubectl("create", "-f", crd)
+
 	// Deploy the operator
 	e.logf("Deploying operator")
 	e.kubectl("create", "-f", manifest)
@@ -105,15 +102,6 @@ func (e *e2e) getWorkerNodes() []string {
 	e.logf("Got worker nodes: %v", nodes)
 
 	return nodes
-}
-
-func (e *e2e) getConfigMap(name, namespace string) *v1.ConfigMap {
-	configMapJSON := e.kubectl(
-		"-n", namespace, "get", "configmap", name, "-o", "json",
-	)
-	configMap := &v1.ConfigMap{}
-	e.Nil(json.Unmarshal([]byte(configMapJSON), configMap))
-	return configMap
 }
 
 func (e *e2e) getSeccompProfile(name, namespace string) *v1alpha1.SeccompProfile {

@@ -4,14 +4,9 @@
 
 The feature scope of the security-profiles-operator is right now limited to:
 
-- Enable `ConfigMap`s to store seccomp profiles.
+- Adds a `SeccompProfile` CRD (alpha) to store seccomp profiles.
 - Synchronize seccomp profiles across all worker nodes.
 - Validate if a node supports seccomp and do not synchronize if not.
-- Validate if a profile is syntactically correct and do not synchronize if not.
-
-There is now also a `SeccompProfile` Custom Resource Definition available to
-validate and store seccomp profiles. This custom resource is in Alpha status and
-may change at any time.
 
 ## Tutorials and Demos
 
@@ -23,44 +18,13 @@ may change at any time.
 ### 1. Install operator
 
 ```sh
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/crd.yaml
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
 ```
 
 ### 2. Create Profile
 
-#### ConfigMap
-
-ConfigMaps with profiles will be separated by their target namespace and must be
-annotated with `seccomp.security.kubernetes.io/profile: "true"`. As per below:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  namespace: my-namespace
-  name: cfg-map-name
-  annotations:
-    seccomp.security.kubernetes.io/profile: "true"
-data:
-  profile1.json: |-
-    { "defaultAction": "SCMP_ACT_ERRNO" }
-  profile2.json: |-
-    { "defaultAction": "SCMP_ACT_LOG" }
-```
-
-The operator will get that ConfigMap and save all its profiles into the
-directory:
-
-`/var/lib/kubelet/seccomp/operator/my-namespace/cfg-map-name/`.
-
-An init container will setup the root directory of the operator to be able to
-run it without root G/UID. This will be done by creating a symlink from the
-rootless profile storage `/var/lib/security-profiles-operator` to the default seccomp root
-path inside of the kubelet root `/var/lib/kubelet/seccomp/operator`.
-
-#### SeccompProfile
-
-A `SeccompProfile` can also be used to create profiles. Example:
+Use the `SeccompProfile` kind to create profiles. Example:
 
 ```yaml
 apiVersion: v1alpha1
@@ -70,11 +34,17 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_LOG
+  targetWorkload: custom-profiles
 ```
 
 This seccomp profile will be saved at the path:
 
 `/var/lib/kubelet/seccomp/operator/my-namespace/custom-profiles/profile1.json`.
+
+An init container will set up the root directory of the operator to be able to
+run it without root G/UID. This will be done by creating a symlink from the
+rootless profile storage `/var/lib/security-profiles-operator` to the default seccomp root
+path inside of the kubelet root `/var/lib/kubelet/seccomp/operator`.
 
 ### 3. Apply profile to pod
 
@@ -90,9 +60,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/my-namespace/cfg-map-name/profile1.json
-      # if using SeccompProfile:
-      # localhostProfile: operator/my-namespace/custom-profiles/profile1.json
+      localhostProfile: operator/my-namespace/custom-profiles/profile1.json
   containers:
     - name: test-container
       image: nginx
@@ -106,9 +74,7 @@ kind: Pod
 metadata:
   name: test-pod
   annotations:
-    seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/my-namespace/cfg-map-name/profile1.json"
-    # if using SeccompProfile:
-    # seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/my-namespace/custom-profiles/profile1.json"
+    seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/my-namespace/custom-profiles/profile1.json"
 spec:
   containers:
     - name: test-container
@@ -117,11 +83,11 @@ spec:
 
 ## Restricting to a Single Namespace
 
-The security-profiles-operator can optionally be run to watch ConfigMaps in a single
-namespace. This is advantageous because it allows for tightening the RBAC
-permissions required by the operator's ServiceAccount. To modify the operator
-deployment to run in a single namespace, use the `namespace-operator.yaml`
-manifest with your namespace of choice:
+The security-profiles-operator can optionally be run to watch SeccompProfiles in
+a single namespace. This is advantageous because it allows for tightening the
+RBAC permissions required by the operator's ServiceAccount. To modify the
+operator deployment to run in a single namespace, use the
+`namespace-operator.yaml` manifest with your namespace of choice:
 
 ```sh
 NAMESPACE=<your-namespace>
@@ -134,26 +100,22 @@ curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operato
 Confirm that the profile is being reconciled:
 
 ```sh
-$ kubectl logs -n security-profiles-operator security-profiles-operator-v6p2h
-
-I1009 21:47:54.491462       1 main.go:90] setup "msg"="starting security-profiles-operator"  "buildDate"="2020-09-30T14:37:39Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.15.2" "platform"="linux/amd64" "version"="0.2.0-dev"
-I1009 21:47:54.900650       1 listener.go:44] controller-runtime/metrics "msg"="metrics server is starting to listen"  "addr"=":8080"
-I1009 21:47:54.902267       1 main.go:126] setup "msg"="starting manager"
-I1009 21:47:54.902854       1 internal.go:391] controller-runtime/manager "msg"="starting metrics server"  "path"="/metrics"
-I1009 21:47:54.903193       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="" "reconcilerKind"="ConfigMap" "source"={"Type":{"metadata":{"creationTimestamp":null}}}
-I1009 21:47:54.903342       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "source"={"Type":{"metadata":{"creationTimestamp":null},"spec":{"defaultAction":""}}}
-I1009 21:47:55.003608       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="" "reconcilerKind"="ConfigMap"
-I1009 21:47:55.003765       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile"
-I1009 21:47:55.003915       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "worker count"=1
-I1009 21:47:55.003923       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="" "reconcilerKind"="ConfigMap" "worker count"=1
-E1009 21:47:55.004175       1 profile.go:133] profile "msg"="unable to fetch SeccompProfile" "error"="SeccompProfile.security-profiles-operator.x-k8s.io \"default-profiles\" not found" "namespace"="security-profiles-operator" "profile"="default-profiles"
-I1009 21:47:55.005805       1 profile.go:232] profile "msg"="Reconciled profile from ConfigMap" "namespace"="security-profiles-operator" "profile"="default-profiles" "name"="default-profiles" "resource version"="9907"
+$ kubectl -n security-profiles-operator logs security-profiles-operator-mzw9t
+I1019 19:34:14.942464       1 main.go:90] setup "msg"="starting security-profiles-operator"  "buildDate"="2020-10-19T19:31:24Z" "compiler"="gc" "gitCommit"="a3ef0e1ea6405092268c18f240b62015c247dd9d" "gitTreeState"="dirty" "goVersion"="go1.15.1" "platform"="linux/amd64" "version"="0.2.0-dev"
+I1019 19:34:15.348389       1 listener.go:44] controller-runtime/metrics "msg"="metrics server is starting to listen"  "addr"=":8080"
+I1019 19:34:15.349076       1 main.go:126] setup "msg"="starting manager"
+I1019 19:34:15.349449       1 internal.go:391] controller-runtime/manager "msg"="starting metrics server"  "path"="/metrics"
+I1019 19:34:15.350201       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "source"={"Type":{"metadata":{"creationTimestamp":null},"spec":{"targetWorkload":"","defaultAction":""}}}
+I1019 19:34:15.450674       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile"
+I1019 19:34:15.450757       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "worker count"=1
+I1019 19:34:15.453102       1 profile.go:148] profile "msg"="Reconciled profile from SeccompProfile" "namespace"="security-profiles-operator" "profile"="nginx-1.19.1" "name"="nginx-1.19.1" "resource version"="728"
+I1019 19:34:15.453618       1 profile.go:148] profile "msg"="Reconciled profile from SeccompProfile" "namespace"="security-profiles-operator" "profile"="security-profiles-operator" "name"="security-profiles-operator" "resource version"="729"
 ```
 
 Confirm that the seccomp profiles are saved into the correct path:
 
 ```sh
-$ kubectl exec -t -n security-profiles-operator security-profiles-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/my-namespace/test-profile
+$ kubectl exec -t -n security-profiles-operator security-profiles-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/my-namespace/my-workload
 profile-block.json
 profile-complain.json
 ```

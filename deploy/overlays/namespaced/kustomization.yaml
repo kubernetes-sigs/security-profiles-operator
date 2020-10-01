@@ -25,8 +25,9 @@ patchesJson6902:
     path: clusterrolebinding.yaml
 
   - target:
-      version: v1
-      kind: ConfigMap
-      name: default-profiles
+      group: security-profiles-operator.x-k8s.io
+      version: v1alpha1
+      kind: SeccompProfile
+      name: nginx-1.19.1
       namespace: security-profiles-operator
-    path: configmap.yaml
+    path: seccompprofile.yaml
