@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -110,7 +111,7 @@ func run(*cli.Context) error {
 		ctrlOpts.Namespace = os.Getenv(restrictNSKey)
 	}
 
-	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
+	mgr, err := ctrl.NewManager(context.Background(), cfg, ctrlOpts)
 	if err != nil {
 		return errors.Wrap(err, "create manager")
 	}

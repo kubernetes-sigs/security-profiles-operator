@@ -121,7 +121,7 @@ type Reconciler struct {
 }
 
 // Reconcile reconciles a SeccompProfile or a ConfigMap representing a seccomp profile.
-func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) {
+func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
