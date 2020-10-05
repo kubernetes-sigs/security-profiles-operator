@@ -246,8 +246,8 @@ func TestGetProfilePath(t *testing.T) {
 		config      *corev1.ConfigMap
 	}{
 		"AppendNamespaceConfigNameAndProfile": {
-			want:        path.Join(config.ProfilesRootPath, "config-namespace", "config-name", "file.js"),
-			profileName: "file.js",
+			want:        path.Join(config.ProfilesRootPath, "config-namespace", "config-name", "file.json"),
+			profileName: "file.json",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "config-name",
@@ -256,8 +256,8 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtProfileName": {
-			want:        path.Join(config.ProfilesRootPath, "ns", "cfg", "file.js"),
-			profileName: "../../../../../file.js",
+			want:        path.Join(config.ProfilesRootPath, "ns", "cfg", "file.json"),
+			profileName: "../../../../../file.json",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cfg",
@@ -266,8 +266,8 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtConfigName": {
-			want:        path.Join(config.ProfilesRootPath, "ns", "cfg", "file.js"),
-			profileName: "file.js",
+			want:        path.Join(config.ProfilesRootPath, "ns", "cfg", "file.json"),
+			profileName: "file.json",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "../../../../../cfg",
@@ -276,8 +276,8 @@ func TestGetProfilePath(t *testing.T) {
 			},
 		},
 		"BlockTraversalAtConfigNamespace": {
-			want:        path.Join(config.ProfilesRootPath, "ns", "cfg", "file.js"),
-			profileName: "file.js",
+			want:        path.Join(config.ProfilesRootPath, "ns", "cfg", "file.json"),
+			profileName: "file.json",
 			config: &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cfg",
