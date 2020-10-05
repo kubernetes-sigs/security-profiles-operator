@@ -71,6 +71,8 @@ const (
 	reasonCannotSaveProfile     event.Reason = "CannotSaveSeccompProfile"
 
 	reasonSavedProfile event.Reason = "SavedSeccompProfile"
+
+	extJSON = ".json"
 )
 
 // isProfile checks if a ConfigMap has been designated as a seccomp profile.
@@ -256,8 +258,8 @@ func saveProfileOnDisk(fileName string, contents []byte) error {
 
 // GetProfilePath returns the full path for the provided profile name and config.
 func GetProfilePath(profileName, namespace, subdir string) (string, error) {
-	if filepath.Ext(profileName) == "" {
-		profileName += ".json"
+	if filepath.Ext(profileName) != extJSON {
+		profileName += extJSON
 	}
 	return path.Join(
 		config.ProfilesRootPath,
