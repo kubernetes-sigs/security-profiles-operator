@@ -38,13 +38,13 @@ RUN make
 FROM scratch
 ARG version
 
-LABEL name="Seccomp Operator" \
+LABEL name="Security Profiles Operator" \
       version=$version \
-      description="The Seccomp Operator makes it easier for cluster admins to manage their seccomp profiles and apply them to Kubernetes' workloads."
+      description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /etc/passwd /etc/passwd
 COPY --from=build /etc/group /etc/group
-COPY --from=build /work/build/seccomp-operator /
+COPY --from=build /work/build/security-profiles-operator /
 
-ENTRYPOINT ["/seccomp-operator"]
+ENTRYPOINT ["/security-profiles-operator"]

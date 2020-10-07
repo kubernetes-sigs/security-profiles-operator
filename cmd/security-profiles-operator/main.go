@@ -25,10 +25,10 @@ import (
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	seccompoperatorv1alpha1 "sigs.k8s.io/seccomp-operator/api/v1alpha1"
-	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
-	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
-	"sigs.k8s.io/seccomp-operator/internal/pkg/version"
+	operator_v1alpha1 "sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 )
 
 const (
@@ -46,9 +46,9 @@ func main() {
 
 	app := cli.NewApp()
 	app.Name = config.OperatorName
-	app.Usage = "Kubernetes Seccomp Operator"
-	app.Description = "The Seccomp Operator makes it easier for cluster admins " +
-		"to manage their seccomp profiles and apply them to Kubernetes' workloads."
+	app.Usage = "Kubernetes Security Profiles Operator"
+	app.Description = "The Security Profiles Operator makes it easier for cluster admins " +
+		"to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
 	app.Version = version.Get().Version
 	app.Action = run
 	app.Commands = cli.Commands{
@@ -80,7 +80,7 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		setupLog.Error(err, "running seccomp-operator")
+		setupLog.Error(err, "running security-profiles-operator")
 		os.Exit(1)
 	}
 }
@@ -88,7 +88,7 @@ func main() {
 func run(*cli.Context) error {
 	v := version.Get()
 	setupLog.Info(
-		"starting seccomp-operator",
+		"starting security-profiles-operator",
 		"version", v.Version,
 		"gitCommit", v.GitCommit,
 		"gitTreeState", v.GitTreeState,
@@ -115,8 +115,8 @@ func run(*cli.Context) error {
 		return errors.Wrap(err, "create manager")
 	}
 
-	if err := seccompoperatorv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add core seccomp APIs to scheme")
+	if err := operator_v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add core operator APIs to scheme")
 	}
 
 	if err := profile.Setup(mgr, ctrl.Log.WithName("profile")); err != nil {

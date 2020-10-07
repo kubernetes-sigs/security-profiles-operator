@@ -14,7 +14,7 @@
 
 GO ?= go
 
-PROJECT := seccomp-operator
+PROJECT := security-profiles-operator
 BUILD_DIR := build
 
 DATE_FMT = +'%Y-%m-%dT%H:%M:%SZ'
@@ -48,7 +48,7 @@ REPO_INFRA_VERSION = v0.1.1
 
 # Utility targets
 
-all: $(BUILD_DIR)/$(PROJECT) ## Build the seccomp-operator binary
+all: $(BUILD_DIR)/$(PROJECT) ## Build the security-profiles-operator binary
 
 .PHONY: help
 help:  ## Display this help
@@ -71,7 +71,7 @@ $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 $(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
-	$(GO) build -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/seccomp-operator
+	$(GO) build -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/security-profiles-operator
 
 .PHONY: clean
 clean: ## Clean the build directory
@@ -136,7 +136,7 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	$(GO) test -timeout 20m -tags e2e -count=1 ./test/... -v
+	$(GO) test -timeout 40m -tags e2e -count=1 ./test/... -v
 
 # Generate CRD manifest
 manifests:

@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: seccomp-operator
-  namespace: seccomp-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
 spec:
   template:
     spec:
       containers:
-        - name: seccomp-operator
+        - name: security-profiles-operator
           env:
             - name: RESTRICT_TO_NAMESPACE
               value: NS_REPLACE

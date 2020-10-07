@@ -39,8 +39,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	seccompoperatorv1alpha1 "sigs.k8s.io/seccomp-operator/api/v1alpha1"
-	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
+	seccompoperatorv1alpha1 "sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 const (

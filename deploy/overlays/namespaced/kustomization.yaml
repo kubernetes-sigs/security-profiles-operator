@@ -28,5 +28,5 @@ patchesJson6902:
       version: v1
       kind: ConfigMap
       name: default-profiles
-      namespace: seccomp-operator
+      namespace: security-profiles-operator
     path: configmap.yaml

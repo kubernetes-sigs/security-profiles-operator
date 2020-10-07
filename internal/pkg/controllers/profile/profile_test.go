@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 func TestIsProfile(t *testing.T) {

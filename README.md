@@ -1,12 +1,12 @@
-# Kubernetes Seccomp Operator
+# Kubernetes Security Profiles Operator
 
-This project is the starting point for the _Seccomp Operator_, an out-of-tree
-Kubernetes enhancement which aims to make managing and applying seccomp profiles
-more easy and straight forward in Kubernetes.
+This project is the starting point for the _Security Profiles Operator_, an
+out-of-tree Kubernetes enhancement which aims to make managing and applying
+seccomp and AppArmor profiles more easy and straight forward in Kubernetes.
 
-- [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-seccomp-operator)
+- [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
 - [Installation and Usage](installation-usage.md)
-- [Container Images](https://console.cloud.google.com/gcr/images/k8s-staging-seccomp-operator/GLOBAL/seccomp-operator)
+- [Container Images](https://console.cloud.google.com/gcr/images/k8s-staging-security-profiles-operator/GLOBAL/security-profiles-operator)
 - [Release Process](./release.md)
 
 ## About
@@ -36,18 +36,17 @@ the Kubernetes world:
 [5]: https://github.com/openshift/machine-config-operator/tree/master/docs
 [6]: https://github.com/UKHomeOffice/seccomp-config
 
-
 ## Roadmap
 
 The project tries to not overlap with those existing implementations to provide
-valuable additions in a more secure Kubernetes context. We created a mind map to 
-get a better feeling about all features we want to implement to better support 
+valuable additions in a more secure Kubernetes context. We created a mind map to
+get a better feeling about all features we want to implement to better support
 some security areas within Kubernetes:
 
 ![mind-map](.github/roadmap.svg)
 
-Going forwards, the operator will extend its purpose to assist Kubernetes users 
-to create, distribute and apply security profiles for seccomp, AppArmor, SeLinux, 
+Going forwards, the operator will extend its purpose to assist Kubernetes users
+to create, distribute and apply security profiles for seccomp, AppArmor, SeLinux,
 PodSecurityPolicies and RBAC permissions.
 
 ## Community, discussion, contribution, and support
@@ -63,7 +62,7 @@ page](http://kubernetes.io/community/).
 
 You can reach the maintainers of this project at:
 
-- [Slack #seccomp-operator](https://kubernetes.slack.com/messages/seccomp-operator)
+- [Slack #security-profiles-operator](https://kubernetes.slack.com/messages/security-profiles-operator)
 - [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-dev)
 
 ### Code of conduct
