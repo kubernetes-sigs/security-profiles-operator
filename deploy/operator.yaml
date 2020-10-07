@@ -2,24 +2,24 @@ apiVersion: v1
 kind: Namespace
 metadata:
   labels:
-    app: seccomp-operator
-  name: seccomp-operator
+    app: security-profiles-operator
+  name: security-profiles-operator
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    app: seccomp-operator
-  name: seccomp-operator
-  namespace: seccomp-operator
+    app: security-profiles-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
-    app: seccomp-operator
+    app: security-profiles-operator
   name: config-map-reader
-  namespace: seccomp-operator
+  namespace: security-profiles-operator
 rules:
 - apiGroups:
   - ""
@@ -37,7 +37,7 @@ rules:
   - create
   - patch
 - apiGroups:
-  - seccomp-operator.x-k8s.io
+  - security-profiles-operator.x-k8s.io
   resources:
   - seccompprofiles
   verbs:
@@ -49,38 +49,38 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
-    app: seccomp-operator
+    app: security-profiles-operator
   name: config-map-reader-binding
-  namespace: seccomp-operator
+  namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: config-map-reader
 subjects:
 - kind: ServiceAccount
-  name: seccomp-operator
-  namespace: seccomp-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   labels:
-    app: seccomp-operator
-  name: seccomp-operator
-  namespace: seccomp-operator
+    app: security-profiles-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
 spec:
   selector:
     matchLabels:
-      app: seccomp-operator
-      name: seccomp-operator
+      app: security-profiles-operator
+      name: security-profiles-operator
   template:
     metadata:
       annotations:
-        container.seccomp.security.alpha.kubernetes.io/seccomp-operator: localhost/seccomp-operator.json
+        container.seccomp.security.alpha.kubernetes.io/security-profiles-operator: localhost/security-profiles-operator.json
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
-        app: seccomp-operator
-        name: seccomp-operator
+        app: security-profiles-operator
+        name: security-profiles-operator
     spec:
       containers:
       - env:
@@ -88,9 +88,9 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        image: gcr.io/k8s-staging-seccomp-operator/seccomp-operator:latest
+        image: gcr.io/k8s-staging-security-profiles-operator/security-profiles-operator:latest
         imagePullPolicy: Always
-        name: seccomp-operator
+        name: security-profiles-operator
         resources:
           limits:
             cpu: 300m
@@ -138,7 +138,7 @@ spec:
         - name: OPERATOR_SYMLINK
           value: $(KUBELET_SECCOMP_ROOT)/operator
         - name: OPERATOR_ROOT
-          value: /var/lib/seccomp-operator
+          value: /var/lib/security-profiles-operator
         image: bash:5.0
         name: non-root-enabler
         resources:
@@ -169,7 +169,7 @@ spec:
           readOnly: true
       nodeSelector:
         kubernetes.io/os: linux
-      serviceAccountName: seccomp-operator
+      serviceAccountName: security-profiles-operator
       tolerations:
       - effect: NoSchedule
         key: node-role.kubernetes.io/master
@@ -182,11 +182,11 @@ spec:
           type: Directory
         name: host-varlib-volume
       - hostPath:
-          path: /var/lib/seccomp-operator
+          path: /var/lib/security-profiles-operator
           type: DirectoryOrCreate
         name: host-operator-volume
       - configMap:
-          name: seccomp-operator-profile
+          name: security-profiles-operator-profile
         name: profile-configmap-volume
 ---
 apiVersion: apiextensions.k8s.io/v1
@@ -196,10 +196,10 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.2.4
   creationTimestamp: null
   labels:
-    app: seccomp-operator
-  name: seccompprofiles.seccomp-operator.x-k8s.io
+    app: security-profiles-operator
+  name: seccompprofiles.security-profiles-operator.x-k8s.io
 spec:
-  group: seccomp-operator.x-k8s.io
+  group: security-profiles-operator.x-k8s.io
   names:
     kind: SeccompProfile
     listKind: SeccompProfileList
@@ -352,7 +352,7 @@ status:
 ---
 apiVersion: v1
 data:
-  seccomp-operator.json: |
+  security-profiles-operator.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
       "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32"],
@@ -423,9 +423,9 @@ data:
 kind: ConfigMap
 metadata:
   labels:
-    app: seccomp-operator
-  name: seccomp-operator-profile
-  namespace: seccomp-operator
+    app: security-profiles-operator
+  name: security-profiles-operator-profile
+  namespace: security-profiles-operator
 ---
 apiVersion: v1
 data:
@@ -544,6 +544,6 @@ metadata:
   annotations:
     seccomp.security.kubernetes.io/profile: "true"
   labels:
-    app: seccomp-operator
+    app: security-profiles-operator
   name: default-profiles
-  namespace: seccomp-operator
+  namespace: security-profiles-operator

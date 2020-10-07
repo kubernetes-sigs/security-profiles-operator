@@ -32,7 +32,7 @@ import (
 	"k8s.io/release/pkg/command"
 	"k8s.io/release/pkg/util"
 
-	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 const (

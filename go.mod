@@ -1,4 +1,4 @@
-module sigs.k8s.io/seccomp-operator
+module sigs.k8s.io/security-profiles-operator
 
 go 1.15
 

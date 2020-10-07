@@ -21,8 +21,8 @@ package e2e_test
 import (
 	v1 "k8s.io/api/core/v1"
 
-	"sigs.k8s.io/seccomp-operator/internal/pkg/config"
-	"sigs.k8s.io/seccomp-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
 )
 
 func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
@@ -45,7 +45,7 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 	// Content verification
 	for _, node := range nodes {
 		// General path verification
-		e.logf("Verifying seccomp operator directory on node: %s", node)
+		e.logf("Verifying security profiles operator directory on node: %s", node)
 		statOutput := e.execNode(
 			node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath,
 		)

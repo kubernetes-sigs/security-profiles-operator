@@ -6,9 +6,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.2.4
   creationTimestamp: null
-  name: seccompprofiles.seccomp-operator.x-k8s.io
+  name: seccompprofiles.security-profiles-operator.x-k8s.io
 spec:
-  group: seccomp-operator.x-k8s.io
+  group: security-profiles-operator.x-k8s.io
   names:
     kind: SeccompProfile
     listKind: SeccompProfileList

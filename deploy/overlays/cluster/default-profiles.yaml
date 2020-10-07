@@ -1,6 +1,6 @@
 - op: replace
   path: /metadata/namespace
-  value: seccomp-operator
+  value: security-profiles-operator
 - op: add
   path: /metadata/annotations
   value:

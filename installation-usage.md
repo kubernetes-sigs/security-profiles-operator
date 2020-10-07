@@ -2,7 +2,7 @@
 
 ## Features
 
-The feature scope of the seccomp-operator is right now limited to:
+The feature scope of the security-profiles-operator is right now limited to:
 
 - Enable `ConfigMap`s to store seccomp profiles.
 - Synchronize seccomp profiles across all worker nodes.
@@ -23,7 +23,7 @@ may change at any time.
 ### 1. Install operator
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/seccomp-operator/master/deploy/operator.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
 ```
 
 ### 2. Create Profile
@@ -55,7 +55,7 @@ directory:
 
 An init container will setup the root directory of the operator to be able to
 run it without root G/UID. This will be done by creating a symlink from the
-rootless profile storage `/var/lib/seccomp-operator` to the default seccomp root
+rootless profile storage `/var/lib/security-profiles-operator` to the default seccomp root
 path inside of the kubelet root `/var/lib/kubelet/seccomp/operator`.
 
 #### SeccompProfile
@@ -70,7 +70,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_LOG
-  ```
+```
 
 This seccomp profile will be saved at the path:
 
@@ -117,7 +117,7 @@ spec:
 
 ## Restricting to a Single Namespace
 
-The seccomp-operator can optionally be run to watch ConfigMaps in a single
+The security-profiles-operator can optionally be run to watch ConfigMaps in a single
 namespace. This is advantageous because it allows for tightening the RBAC
 permissions required by the operator's ServiceAccount. To modify the operator
 deployment to run in a single namespace, use the `namespace-operator.yaml`
@@ -126,7 +126,7 @@ manifest with your namespace of choice:
 ```sh
 NAMESPACE=<your-namespace>
 
-curl https://raw.githubusercontent.com/kubernetes-sigs/seccomp-operator/master/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
+curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
 ```
 
 ## Troubleshooting
@@ -134,26 +134,26 @@ curl https://raw.githubusercontent.com/kubernetes-sigs/seccomp-operator/master/d
 Confirm that the profile is being reconciled:
 
 ```sh
-$ kubectl logs -n seccomp-operator seccomp-operator-v6p2h
+$ kubectl logs -n security-profiles-operator security-profiles-operator-v6p2h
 
-I1009 21:47:54.491462       1 main.go:90] setup "msg"="starting seccomp-operator"  "buildDate"="2020-09-30T14:37:39Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.15.2" "platform"="linux/amd64" "version"="0.2.0-dev"
+I1009 21:47:54.491462       1 main.go:90] setup "msg"="starting security-profiles-operator"  "buildDate"="2020-09-30T14:37:39Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.15.2" "platform"="linux/amd64" "version"="0.2.0-dev"
 I1009 21:47:54.900650       1 listener.go:44] controller-runtime/metrics "msg"="metrics server is starting to listen"  "addr"=":8080"
 I1009 21:47:54.902267       1 main.go:126] setup "msg"="starting manager"
 I1009 21:47:54.902854       1 internal.go:391] controller-runtime/manager "msg"="starting metrics server"  "path"="/metrics"
 I1009 21:47:54.903193       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="" "reconcilerKind"="ConfigMap" "source"={"Type":{"metadata":{"creationTimestamp":null}}}
-I1009 21:47:54.903342       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="seccomp-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "source"={"Type":{"metadata":{"creationTimestamp":null},"spec":{"defaultAction":""}}}
+I1009 21:47:54.903342       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "source"={"Type":{"metadata":{"creationTimestamp":null},"spec":{"defaultAction":""}}}
 I1009 21:47:55.003608       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="" "reconcilerKind"="ConfigMap"
-I1009 21:47:55.003765       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="seccomp-operator.x-k8s.io" "reconcilerKind"="SeccompProfile"
-I1009 21:47:55.003915       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="seccomp-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "worker count"=1
+I1009 21:47:55.003765       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile"
+I1009 21:47:55.003915       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "worker count"=1
 I1009 21:47:55.003923       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="" "reconcilerKind"="ConfigMap" "worker count"=1
-E1009 21:47:55.004175       1 profile.go:133] profile "msg"="unable to fetch SeccompProfile" "error"="SeccompProfile.seccomp-operator.x-k8s.io \"default-profiles\" not found" "namespace"="seccomp-operator" "profile"="default-profiles"
-I1009 21:47:55.005805       1 profile.go:232] profile "msg"="Reconciled profile from ConfigMap" "namespace"="seccomp-operator" "profile"="default-profiles" "name"="default-profiles" "resource version"="9907"
+E1009 21:47:55.004175       1 profile.go:133] profile "msg"="unable to fetch SeccompProfile" "error"="SeccompProfile.security-profiles-operator.x-k8s.io \"default-profiles\" not found" "namespace"="security-profiles-operator" "profile"="default-profiles"
+I1009 21:47:55.005805       1 profile.go:232] profile "msg"="Reconciled profile from ConfigMap" "namespace"="security-profiles-operator" "profile"="default-profiles" "name"="default-profiles" "resource version"="9907"
 ```
 
 Confirm that the seccomp profiles are saved into the correct path:
 
 ```sh
-$ kubectl exec -t -n seccomp-operator seccomp-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/my-namespace/test-profile
+$ kubectl exec -t -n security-profiles-operator security-profiles-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/my-namespace/test-profile
 profile-block.json
 profile-complain.json
 ```
@@ -161,5 +161,5 @@ profile-complain.json
 Please note corrupted seccomp profiles can disrupt your workloads. Therefore, ensure that the user used cannot be abused by:
 
 - Not creating that user on the actual node.
-- Restricting the user ID to only seccomp-operator (i.e. using PSP).
+- Restricting the user ID to only security-profiles-operator (i.e. using PSP).
 - Not allowing other workloads to map any part of the path `/var/lib/kubelet/seccomp/operator`.
