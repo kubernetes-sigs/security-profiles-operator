@@ -18,7 +18,7 @@ package config
 
 const (
 	// OperatorName is the name when referring to the operator.
-	OperatorName = "seccomp-operator"
+	OperatorName = "security-profiles-operator"
 
 	// kubeletSeccompRootPath specifies the path where all kubelet seccomp
 	// profiles are stored.

@@ -2,25 +2,25 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: seccomp-operator
-  namespace: seccomp-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
 spec:
   selector:
     matchLabels:
-      name: seccomp-operator
+      name: security-profiles-operator
   template:
     metadata:
       annotations:
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
-        container.seccomp.security.alpha.kubernetes.io/seccomp-operator: localhost/seccomp-operator.json
+        container.seccomp.security.alpha.kubernetes.io/security-profiles-operator: localhost/security-profiles-operator.json
       labels:
-        name: seccomp-operator
+        name: security-profiles-operator
     spec:
-      serviceAccountName: seccomp-operator
+      serviceAccountName: security-profiles-operator
       initContainers:
         - name: non-root-enabler
           image: bash
-          # Creates folder /var/lib/seccomp-operator, sets 2000:2000 as its
+          # Creates folder /var/lib/security-profiles-operator, sets 2000:2000 as its
           # owner and symlink it to /var/lib/kubelet/seccomp/operator. This is
           # required to allow the main container to run as non-root.
           command: [bash, -c]
@@ -47,7 +47,7 @@ spec:
             - name: OPERATOR_SYMLINK
               value: $(KUBELET_SECCOMP_ROOT)/operator
             - name: OPERATOR_ROOT
-              value: /var/lib/seccomp-operator
+              value: /var/lib/security-profiles-operator
           volumeMounts:
             - name: host-varlib-volume
               mountPath: /var/lib
@@ -70,8 +70,8 @@ spec:
               cpu: "250m"
               ephemeral-storage: "50Mi"
       containers:
-        - name: seccomp-operator
-          image: seccomp-operator
+        - name: security-profiles-operator
+          image: security-profiles-operator
           imagePullPolicy: Always
           volumeMounts:
           - name: host-operator-volume
@@ -105,11 +105,11 @@ spec:
           type: Directory
       - name: host-operator-volume
         hostPath:
-          path: /var/lib/seccomp-operator
+          path: /var/lib/security-profiles-operator
           type: DirectoryOrCreate
       - name: profile-configmap-volume
         configMap:
-          name: seccomp-operator-profile
+          name: security-profiles-operator-profile
       tolerations:
         - effect: NoSchedule
           key: node-role.kubernetes.io/master

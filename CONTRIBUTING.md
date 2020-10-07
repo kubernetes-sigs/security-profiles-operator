@@ -42,4 +42,4 @@ add custom content here.
 
 ## Contact Information
 
-- [Slack channel](https://kubernetes.slack.com/messages/seccomp-operator)
+- [Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator)

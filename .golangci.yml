@@ -66,7 +66,7 @@ linters:
     # - wsl
 linters-settings:
   gci:
-    local-prefixes: sigs.k8s.io/seccomp-operator
+    local-prefixes: sigs.k8s.io/security-profiles-operator
   errcheck:
     check-type-assertions: true
     check-blank: true
