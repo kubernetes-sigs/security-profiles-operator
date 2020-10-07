@@ -214,6 +214,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - nodes
   - pods
   verbs:
   - get
@@ -234,6 +235,7 @@ rules:
   - get
   - watch
   - list
+  - create
   - update
   - patch
 - apiGroups:
@@ -311,6 +313,8 @@ spec:
         volumeMounts:
         - mountPath: /var/lib/kubelet/seccomp/operator
           name: host-operator-volume
+        - mountPath: /var/lib/seccomp-hook-output
+          name: host-seccomp-hook-output-volume
       initContainers:
       - args:
         - |
@@ -385,6 +389,10 @@ spec:
           path: /var/lib/security-profiles-operator
           type: DirectoryOrCreate
         name: host-operator-volume
+      - hostPath:
+          path: /var/lib/seccomp-hook-output
+          type: DirectoryOrCreate
+        name: host-seccomp-hook-output-volume
       - configMap:
           name: security-profiles-operator-profile
         name: profile-configmap-volume

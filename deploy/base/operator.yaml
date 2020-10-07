@@ -76,6 +76,8 @@ spec:
           volumeMounts:
           - name: host-operator-volume
             mountPath: /var/lib/kubelet/seccomp/operator
+          - name: host-seccomp-hook-output-volume
+            mountPath: /var/lib/seccomp-hook-output
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -106,6 +108,10 @@ spec:
       - name: host-operator-volume
         hostPath:
           path: /var/lib/security-profiles-operator
+          type: DirectoryOrCreate
+      - name: host-seccomp-hook-output-volume
+        hostPath:
+          path: /var/lib/seccomp-hook-output
           type: DirectoryOrCreate
       - name: profile-configmap-volume
         configMap:
