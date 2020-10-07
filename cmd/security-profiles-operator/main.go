@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profilerecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 )
 
@@ -121,6 +122,10 @@ func run(ctx *cli.Context) error {
 
 	if err := profile.Setup(ctx.Context, mgr, ctrl.Log.WithName("profile")); err != nil {
 		return errors.Wrap(err, "setup profile controller")
+	}
+
+	if err := profilerecorder.Setup(mgr, ctrl.Log.WithName("recorder")); err != nil {
+		return errors.Wrap(err, "setup profilerecorder controller")
 	}
 
 	setupLog.Info("starting manager")

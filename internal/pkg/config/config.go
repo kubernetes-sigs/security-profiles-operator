@@ -24,6 +24,8 @@ const (
 	// profiles are stored.
 	kubeletSeccompRootPath = "/var/lib/kubelet/seccomp"
 
+	SeccompHookOutputPath = "/var/lib/seccomp-hook-output"
+
 	// ProfilesRootPath specifies the path where the operator stores seccomp
 	// profiles.
 	ProfilesRootPath = kubeletSeccompRootPath + "/operator"
