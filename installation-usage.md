@@ -9,6 +9,9 @@ The feature scope of the seccomp-operator is right now limited to:
 - Validate if a node supports seccomp and do not synchronize if not.
 - Validate if a profile is syntactically correct and do not synchronize if not.
 
+There is now also a `SeccompProfile` Custom Resource Definition available to
+validate and store seccomp profiles. This custom resource is in Alpha status and
+may change at any time.
 
 ## Tutorials and Demos
 
@@ -24,6 +27,8 @@ $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/seccomp-ope
 ```
 
 ### 2. Create Profile
+
+#### ConfigMap
 
 ConfigMaps with profiles will be separated by their target namespace and must be
 annotated with `seccomp.security.kubernetes.io/profile: "true"`. As per below:
@@ -53,6 +58,24 @@ run it without root G/UID. This will be done by creating a symlink from the
 rootless profile storage `/var/lib/seccomp-operator` to the default seccomp root
 path inside of the kubelet root `/var/lib/kubelet/seccomp/operator`.
 
+#### SeccompProfile
+
+A `SeccompProfile` can also be used to create profiles. Example:
+
+```yaml
+apiVersion: v1alpha1
+kind: SeccompProfile
+metadata:
+  namespace: my-namespace
+  name: profile1
+spec:
+  defaultAction: SCMP_ACT_LOG
+  ```
+
+This seccomp profile will be saved at the path:
+
+`/var/lib/kubelet/seccomp/operator/my-namespace/custom-profiles/profile1.json`.
+
 ### 3. Apply profile to pod
 
 Create a pod using one of the created profiles. On Kubernetes >= 1.19, the
@@ -68,6 +91,8 @@ spec:
     seccompProfile:
       type: Localhost
       localhostProfile: operator/my-namespace/cfg-map-name/profile1.json
+      # if using SeccompProfile:
+      # localhostProfile: operator/my-namespace/custom-profiles/profile1.json
   containers:
     - name: test-container
       image: nginx
@@ -82,6 +107,8 @@ metadata:
   name: test-pod
   annotations:
     seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/my-namespace/cfg-map-name/profile1.json"
+    # if using SeccompProfile:
+    # seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/my-namespace/custom-profiles/profile1.json"
 spec:
   containers:
     - name: test-container
@@ -109,14 +136,18 @@ Confirm that the profile is being reconciled:
 ```sh
 $ kubectl logs -n seccomp-operator seccomp-operator-v6p2h
 
-I0618 16:06:55.242567       1 main.go:38] setup "msg"="starting seccomp-operator"
-I0618 16:06:55.497098       1 listener.go:44] controller-runtime/metrics "msg"="metrics server is starting to listen"  "addr"=":8080"
-I0618 16:06:55.497293       1 main.go:59] setup "msg"="starting manager"
-I0618 16:06:55.498089       1 internal.go:393] controller-runtime/manager "msg"="starting metrics server"  "path"="/metrics"
-I0618 16:06:55.498392       1 controller.go:164] controller-runtime/controller "msg"="Starting EventSource"  "controller"="profile" "source"={"Type":{"metadata":{"creationTimestamp":null}}}
-I0618 16:06:55.598778       1 controller.go:171] controller-runtime/controller "msg"="Starting Controller"  "controller"="profile"
-I0618 16:06:55.598873       1 controller.go:190] controller-runtime/controller "msg"="Starting workers"  "controller"="profile" "worker count"=1
-I0618 16:08:43.507538       1 profile.go:125] profile "msg"="Reconciled profile" "namespace"="my-namespace" "profile"="test-profile" "resource version"="2912"
+I1009 21:47:54.491462       1 main.go:90] setup "msg"="starting seccomp-operator"  "buildDate"="2020-09-30T14:37:39Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.15.2" "platform"="linux/amd64" "version"="0.2.0-dev"
+I1009 21:47:54.900650       1 listener.go:44] controller-runtime/metrics "msg"="metrics server is starting to listen"  "addr"=":8080"
+I1009 21:47:54.902267       1 main.go:126] setup "msg"="starting manager"
+I1009 21:47:54.902854       1 internal.go:391] controller-runtime/manager "msg"="starting metrics server"  "path"="/metrics"
+I1009 21:47:54.903193       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="" "reconcilerKind"="ConfigMap" "source"={"Type":{"metadata":{"creationTimestamp":null}}}
+I1009 21:47:54.903342       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="seccomp-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "source"={"Type":{"metadata":{"creationTimestamp":null},"spec":{"defaultAction":""}}}
+I1009 21:47:55.003608       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="" "reconcilerKind"="ConfigMap"
+I1009 21:47:55.003765       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="seccomp-operator.x-k8s.io" "reconcilerKind"="SeccompProfile"
+I1009 21:47:55.003915       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="seccomp-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "worker count"=1
+I1009 21:47:55.003923       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="" "reconcilerKind"="ConfigMap" "worker count"=1
+E1009 21:47:55.004175       1 profile.go:133] profile "msg"="unable to fetch SeccompProfile" "error"="SeccompProfile.seccomp-operator.x-k8s.io \"default-profiles\" not found" "namespace"="seccomp-operator" "profile"="default-profiles"
+I1009 21:47:55.005805       1 profile.go:232] profile "msg"="Reconciled profile from ConfigMap" "namespace"="seccomp-operator" "profile"="default-profiles" "name"="default-profiles" "resource version"="9907"
 ```
 
 Confirm that the seccomp profiles are saved into the correct path:
