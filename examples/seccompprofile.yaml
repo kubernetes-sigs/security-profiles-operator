@@ -5,6 +5,7 @@ metadata:
   name: profile-block
 spec:
   defaultAction: "SCMP_ACT_ERRNO"
+  targetWorkload: "example-profiles"
 ---
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SeccompProfile
@@ -12,6 +13,7 @@ metadata:
   name: profile-complain
 spec:
   defaultAction: "SCMP_ACT_LOG"
+  targetWorkload: "example-profiles"
 ---
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SeccompProfile
@@ -19,3 +21,4 @@ metadata:
   name: profile-allow
 spec:
   defaultAction: "SCMP_ACT_ALLOW"
+  targetWorkload: "example-profiles"

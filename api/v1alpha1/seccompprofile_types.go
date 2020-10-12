@@ -23,6 +23,10 @@ import (
 
 // SeccompProfileSpec defines the desired state of SeccompProfile.
 type SeccompProfileSpec struct {
+	// the type of application workload for which the profile is targeted. Will be a subdirectory in the profile path on disk.
+	//nolint:lll
+	TargetWorkload string `json:"targetWorkload"`
+
 	// Properties from containers/common/pkg/seccomp.Seccomp type
 
 	// the default action for seccomp
