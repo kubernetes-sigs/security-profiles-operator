@@ -179,7 +179,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 
-	profilePath, err := GetProfilePath(profileName, sp.ObjectMeta.Namespace, config.CustomProfilesDirectoryName)
+	profilePath, err := GetProfilePath(profileName, sp.ObjectMeta.Namespace, sp.Spec.TargetWorkload)
 	if err != nil {
 		l.Error(err, "cannot get profile path")
 		r.record.Event(sp, event.Warning(reasonCannotGetProfilePath, err))

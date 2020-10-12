@@ -32,10 +32,6 @@ const (
 	// profiles.
 	DefaultProfilesConfigMapName = "default-profiles"
 
-	// CustomProfilesDirectoryName is the directory where profiles from the
-	// SeccompProfile CRD are stored.
-	CustomProfilesDirectoryName = "custom-profiles"
-
 	// NodeNameEnvKey is the default environment variable key for retrieving
 	// the name of the current node.
 	NodeNameEnvKey = "NODE_NAME"
