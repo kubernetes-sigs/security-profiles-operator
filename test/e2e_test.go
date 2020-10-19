@@ -25,7 +25,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	seccompoperatorv1alpha1 "sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
 )
 
 const manifest = "deploy/operator.yaml"
@@ -116,11 +116,11 @@ func (e *e2e) getConfigMap(name, namespace string) *v1.ConfigMap {
 	return configMap
 }
 
-func (e *e2e) getSeccompProfile(name, namespace string) *seccompoperatorv1alpha1.SeccompProfile {
+func (e *e2e) getSeccompProfile(name, namespace string) *v1alpha1.SeccompProfile {
 	seccompProfileJSON := e.kubectl(
 		"-n", namespace, "get", "seccompprofile", name, "-o", "json",
 	)
-	seccompProfile := &seccompoperatorv1alpha1.SeccompProfile{}
+	seccompProfile := &v1alpha1.SeccompProfile{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileJSON), seccompProfile))
 	return seccompProfile
 }

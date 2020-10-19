@@ -21,7 +21,7 @@ package e2e_test
 import (
 	"encoding/json"
 
-	operator_v1alpha1 "sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
 )
@@ -51,7 +51,7 @@ func (e *e2e) testCaseCRDExampleProfiles(nodes []string) {
 	}
 }
 
-func (e *e2e) verifyCRDProfileContent(node string, sp *operator_v1alpha1.SeccompProfile) {
+func (e *e2e) verifyCRDProfileContent(node string, sp *v1alpha1.SeccompProfile) {
 	e.logf("Verifying %s profile on node %s", sp.Name, node)
 	name := sp.Name
 	expected, err := json.Marshal(sp.Spec)
