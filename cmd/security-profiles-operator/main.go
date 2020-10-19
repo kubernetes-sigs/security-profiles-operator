@@ -25,7 +25,7 @@ import (
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	operator_v1alpha1 "sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
@@ -115,7 +115,7 @@ func run(*cli.Context) error {
 		return errors.Wrap(err, "create manager")
 	}
 
-	if err := operator_v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add core operator APIs to scheme")
 	}
 

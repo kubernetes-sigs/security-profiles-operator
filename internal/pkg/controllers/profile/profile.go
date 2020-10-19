@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	seccompoperatorv1alpha1 "sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -101,7 +101,7 @@ func Setup(mgr ctrl.Manager, l logr.Logger) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
-		For(&seccompoperatorv1alpha1.SeccompProfile{}).
+		For(&v1alpha1.SeccompProfile{}).
 		Complete(&Reconciler{
 			client: mgr.GetClient(),
 			log:    l,
@@ -128,7 +128,7 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	defer cancel()
 
 	// Look for the SeccompProfile Kind first
-	seccompProfile := &seccompoperatorv1alpha1.SeccompProfile{}
+	seccompProfile := &v1alpha1.SeccompProfile{}
 	if err := r.client.Get(ctx, req.NamespacedName, seccompProfile); err != nil {
 		logger.Error(err, "unable to fetch SeccompProfile")
 		seccompProfile = nil
@@ -164,7 +164,7 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 }
 
 func (r *Reconciler) reconcileSeccompProfile(
-	ctx context.Context, sp *seccompoperatorv1alpha1.SeccompProfile, l logr.Logger) (reconcile.Result, error) {
+	ctx context.Context, sp *v1alpha1.SeccompProfile, l logr.Logger) (reconcile.Result, error) {
 	if sp == nil {
 		return reconcile.Result{}, errors.New(errSeccompProfileNil)
 	}
