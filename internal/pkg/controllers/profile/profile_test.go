@@ -146,7 +146,8 @@ func TestReconcile(t *testing.T) {
 		"CRDGotProfile": {
 			rec: &Reconciler{
 				client: &test.MockClient{
-					MockGet: test.NewMockGetFn(nil),
+					MockGet:          test.NewMockGetFn(nil),
+					MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
 				},
 				log:    log.Log,
 				record: event.NewNopRecorder(),

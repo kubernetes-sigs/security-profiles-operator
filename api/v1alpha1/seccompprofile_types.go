@@ -83,16 +83,23 @@ type Arg struct {
 	Op seccomp.Operator `json:"op"`
 }
 
+// SeccompProfileStatus contains the host path of the deployed SeccompProfile.
+type SeccompProfileStatus struct {
+	Path string `json:"path,omitempty"`
+}
+
 // +kubebuilder:object:root=true
 
 // SeccompProfile is a cluster level specification for a seccomp profile.
 // See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
 // +kubebuilder:resource:shortName=sp
+// +kubebuilder:subresource:status
 type SeccompProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec SeccompProfileSpec `json:"spec,omitempty"`
+	Spec   SeccompProfileSpec   `json:"spec,omitempty"`
+	Status SeccompProfileStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
