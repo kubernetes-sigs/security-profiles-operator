@@ -342,9 +342,17 @@ spec:
             required:
             - defaultAction
             type: object
+          status:
+            description: SeccompProfileStatus contains the host path of the deployed SeccompProfile.
+            properties:
+              path:
+                type: string
+            type: object
         type: object
     served: true
     storage: true
+    subresources:
+      status: {}
 status:
   acceptedNames:
     kind: ""

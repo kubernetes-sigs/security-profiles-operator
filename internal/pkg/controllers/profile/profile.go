@@ -157,14 +157,14 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	}
 
 	if seccompProfile != nil {
-		return r.reconcileSeccompProfile(seccompProfile, logger)
+		return r.reconcileSeccompProfile(ctx, seccompProfile, logger)
 	}
 
 	return r.reconcileConfigMap(configMap, logger)
 }
 
 func (r *Reconciler) reconcileSeccompProfile(
-	sp *seccompoperatorv1alpha1.SeccompProfile, l logr.Logger) (reconcile.Result, error) {
+	ctx context.Context, sp *seccompoperatorv1alpha1.SeccompProfile, l logr.Logger) (reconcile.Result, error) {
 	if sp == nil {
 		return reconcile.Result{}, errors.New(errSeccompProfileNil)
 	}
@@ -186,6 +186,11 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if err = r.save(profilePath, profileContent); err != nil {
 		l.Error(err, "cannot save profile into disk")
 		r.record.Event(sp, event.Warning(reasonCannotSaveProfile, err))
+		return reconcile.Result{RequeueAfter: wait}, nil
+	}
+	sp.Status.Path = profilePath
+	if err = r.client.Status().Update(ctx, sp); err != nil {
+		l.Error(err, "cannot update SeccompProfile status")
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 	l.Info(
