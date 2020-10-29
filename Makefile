@@ -131,12 +131,12 @@ $(BUILD_DIR)/golangci-lint:
 
 .PHONY: test-unit
 test-unit: $(BUILD_DIR) ## Run the unit tests
-	$(GO) test -ldflags '$(LDVARS)' -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./...
+	$(GO) test -ldflags '$(LDVARS)' -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./internal/...
 	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	$(GO) test -timeout 40m -tags e2e -count=1 ./test/... -v
+	$(GO) test -timeout 40m -count=1 ./test/... -v
 
 # Generate CRD manifest
 manifests:
