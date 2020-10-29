@@ -22,6 +22,8 @@ import (
 	"runtime"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/pkg/errors"
 )
 
 var (
@@ -74,7 +76,7 @@ func (i *Info) String() string {
 func (i *Info) JSONString() (string, error) {
 	b, err := json.MarshalIndent(i, "", "  ")
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "marshal info as JSON")
 	}
 	return string(b), nil
 }
