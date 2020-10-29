@@ -44,7 +44,7 @@ IMAGE ?= $(PROJECT):latest
 CRD_OPTIONS ?= "crd:crdVersions=v1"
 
 GOLANGCI_LINT_VERSION = v1.32.0
-REPO_INFRA_VERSION = v0.1.1
+REPO_INFRA_VERSION = v0.1.2
 
 # Utility targets
 
