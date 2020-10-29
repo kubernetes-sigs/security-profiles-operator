@@ -25,6 +25,9 @@ rules:
 - apiGroups: ["security-profiles-operator.x-k8s.io"]
   resources: ["seccompprofiles"]
   verbs: ["get", "watch", "list"]
+- apiGroups: ["security-profiles-operator.x-k8s.io"]
+  resources: ["seccompprofiles/status"]
+  verbs: ["get", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
