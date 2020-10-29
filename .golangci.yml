@@ -15,6 +15,7 @@ linters:
     - dogsled
     - dupl
     - errcheck
+    - errorlint
     - exhaustive
     - exportloopref
     - gci
@@ -52,12 +53,15 @@ linters:
     - staticcheck
     - structcheck
     - stylecheck
+    - tparallel
     - typecheck
     - unconvert
     - unparam
     - unused
     - varcheck
     - whitespace
+    - wrapcheck
+    # - exhaustivestruct
     # - funlen
     # - gochecknoglobals
     # - nlreturn
