@@ -81,6 +81,13 @@ spec:
       image: nginx
 ```
 
+#### Base syscalls for a container runtime
+
+An example of the minimum required syscalls for a runtime such as runc (tested
+on version 1.0.0-rc92) to launch a container can be found in [the
+examples](./examples/baseprofile.yaml). Use this example as a starting point for
+creating custom profiles for your application.
+
 ## Restricting to a Single Namespace
 
 The security-profiles-operator can optionally be run to watch SeccompProfiles in
