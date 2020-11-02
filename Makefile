@@ -28,7 +28,7 @@ GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null || echo unknown)
 GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
 VERSION := $(shell cat VERSION)
 
-BUILDTAGS := netgo
+BUILDTAGS := netgo osusergo
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
