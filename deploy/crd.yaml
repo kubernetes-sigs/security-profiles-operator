@@ -59,6 +59,9 @@ spec:
                   - SCMP_ARCH_RISCV64
                   type: string
                 type: array
+              baseProfileName:
+                description: name of base profile (in the same namespace) what will be unioned into this profile
+                type: string
               defaultAction:
                 description: the default action for seccomp
                 enum:
