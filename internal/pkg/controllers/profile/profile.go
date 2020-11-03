@@ -31,6 +31,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -120,6 +121,65 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	return r.reconcileSeccompProfile(ctx, seccompProfile, logger)
 }
 
+// OutputProfile represents the on-disk form of the SeccompProfile.
+type OutputProfile struct {
+	DefaultAction seccomp.Action      `json:"defaultAction"`
+	Architectures []*v1alpha1.Arch    `json:"architectures,omitempty"`
+	Syscalls      []*v1alpha1.Syscall `json:"syscalls,omitempty"`
+	Flags         []*v1alpha1.Flag    `json:"flags,omitempty"`
+}
+
+func unionSyscalls(baseSyscalls, appliedSyscalls []*v1alpha1.Syscall) []*v1alpha1.Syscall {
+	allSyscalls := make(map[seccomp.Action]map[string]bool)
+	for _, b := range baseSyscalls {
+		allSyscalls[b.Action] = make(map[string]bool)
+		for _, n := range b.Names {
+			allSyscalls[b.Action][n] = true
+		}
+	}
+	for _, s := range appliedSyscalls {
+		if _, ok := allSyscalls[s.Action]; !ok {
+			allSyscalls[s.Action] = make(map[string]bool)
+		}
+		for _, n := range s.Names {
+			allSyscalls[s.Action][n] = true
+		}
+	}
+	finalSyscalls := make([]*v1alpha1.Syscall, 0, len(appliedSyscalls)+len(baseSyscalls))
+	for action, names := range allSyscalls {
+		syscall := v1alpha1.Syscall{Action: action}
+		for n := range names {
+			syscall.Names = append(syscall.Names, n)
+		}
+		finalSyscalls = append(finalSyscalls, &syscall)
+	}
+	return finalSyscalls
+}
+
+func (r *Reconciler) mergeBaseProfile(
+	ctx context.Context, sp *v1alpha1.SeccompProfile, l logr.Logger,
+) (OutputProfile, error) {
+	op := OutputProfile{
+		DefaultAction: sp.Spec.DefaultAction,
+		Architectures: sp.Spec.Architectures,
+		Flags:         sp.Spec.Flags,
+	}
+	baseProfileName := sp.Spec.BaseProfileName
+	if baseProfileName == "" {
+		op.Syscalls = sp.Spec.Syscalls
+		return op, nil
+	}
+	baseProfile := &v1alpha1.SeccompProfile{}
+	if err := r.client.Get(
+		ctx, types.NamespacedName{Namespace: sp.ObjectMeta.Namespace, Name: baseProfileName}, baseProfile); err != nil {
+		l.Error(err, "cannot retrieve base profile "+baseProfileName)
+		r.record.Event(sp, event.Warning(reasonInvalidSeccompProfile, err))
+		return op, errors.Wrap(err, "cannot retrieve base profile")
+	}
+	op.Syscalls = unionSyscalls(baseProfile.Spec.Syscalls, sp.Spec.Syscalls)
+	return op, nil
+}
+
 func (r *Reconciler) reconcileSeccompProfile(
 	ctx context.Context, sp *v1alpha1.SeccompProfile, l logr.Logger) (reconcile.Result, error) {
 	if sp == nil {
@@ -127,7 +187,11 @@ func (r *Reconciler) reconcileSeccompProfile(
 	}
 	profileName := sp.Name
 
-	profileContent, err := json.Marshal(sp.Spec)
+	outputProfile, err := r.mergeBaseProfile(ctx, sp, l)
+	if err != nil {
+		return reconcile.Result{RequeueAfter: wait}, nil
+	}
+	profileContent, err := json.Marshal(outputProfile)
 	if err != nil {
 		l.Error(err, "cannot validate profile "+profileName)
 		r.record.Event(sp, event.Warning(reasonInvalidSeccompProfile, err))
