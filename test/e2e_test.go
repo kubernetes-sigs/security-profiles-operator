@@ -52,6 +52,10 @@ func (e *e2e) TestSeccompOperator() {
 			e.testCaseRunPod,
 		},
 		{
+			"Verify base profile merge",
+			e.testCaseBaseProfile,
+		},
+		{
 			"Re-deploy the operator",
 			e.testCaseReDeployOperator,
 		},

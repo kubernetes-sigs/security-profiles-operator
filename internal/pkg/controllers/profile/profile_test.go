@@ -20,8 +20,10 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"sort"
 	"testing"
 
+	"github.com/containers/common/pkg/seccomp"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/test"
 	"github.com/pkg/errors"
@@ -269,6 +271,139 @@ func TestIgnoreNotFound(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := ignoreNotFound(tc.err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestUnionSyscalls(t *testing.T) {
+	cases := map[string]struct {
+		baseSyscalls    []*v1alpha1.Syscall
+		appliedSyscalls []*v1alpha1.Syscall
+		want            []*v1alpha1.Syscall
+	}{
+		"BothEmpty": {
+			baseSyscalls:    []*v1alpha1.Syscall{},
+			appliedSyscalls: []*v1alpha1.Syscall{},
+			want:            []*v1alpha1.Syscall{},
+		},
+		"BaseEmpty": {
+			baseSyscalls: []*v1alpha1.Syscall{},
+			appliedSyscalls: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+			want: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+		},
+		"AppliedEmpty": {
+			baseSyscalls: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+			appliedSyscalls: []*v1alpha1.Syscall{},
+			want: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+		},
+		"UniqueActions": {
+			baseSyscalls: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+			appliedSyscalls: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("bar"),
+				},
+			},
+			want: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("bar"),
+				},
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+		},
+		"OverlappingActionsWithUniqueNames": {
+			baseSyscalls: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+			appliedSyscalls: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"d", "e", "f"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+			want: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c", "d", "e", "f"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+		},
+		"OverlappingActionsWithOverlappingNames": {
+			baseSyscalls: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+				{
+					Names:  []string{"x", "y", "z"},
+					Action: seccomp.Action("bar"),
+				},
+			},
+			appliedSyscalls: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"b", "c", "d"},
+					Action: seccomp.Action("foo"),
+				},
+				{
+					Names:  []string{"x", "y", "z"},
+					Action: seccomp.Action("bar"),
+				},
+			},
+			want: []*v1alpha1.Syscall{
+				{
+					Names:  []string{"x", "y", "z"},
+					Action: seccomp.Action("bar"),
+				},
+				{
+					Names:  []string{"a", "b", "c", "d"},
+					Action: seccomp.Action("foo"),
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := unionSyscalls(tc.baseSyscalls, tc.appliedSyscalls)
+			for i := range got {
+				sort.Strings(got[i].Names)
+			}
+			sort.Slice(got, func(i, j int) bool {
+				return got[i].Action < got[j].Action
+			})
 			require.Equal(t, tc.want, got)
 		})
 	}

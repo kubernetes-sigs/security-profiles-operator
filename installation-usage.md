@@ -85,8 +85,27 @@ spec:
 
 An example of the minimum required syscalls for a runtime such as runc (tested
 on version 1.0.0-rc92) to launch a container can be found in [the
-examples](./examples/baseprofile.yaml). Use this example as a starting point for
-creating custom profiles for your application.
+examples](./examples/baseprofile.yaml). You can use this example as a starting
+point for creating custom profiles for your application. You can also
+programmatically combine it with your custom profiles in order to build
+application-specific profiles that only specify syscalls that are required on
+top of the base calls needed for the container runtime. For example:
+
+```yaml
+apiVersion: v1
+kind: SeccompProfile
+metadata:
+  namespace: my-namespace
+  name: profile1
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  targetWorkload: custom-profiles
+  baseProfileName: runc-v1.0.0-rc92
+  syscalls:
+  - action: SCMP_ACT_ALLOW
+    names:
+    - exit_group
+```
 
 ## Restricting to a Single Namespace
 
