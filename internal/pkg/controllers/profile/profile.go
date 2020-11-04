@@ -209,10 +209,13 @@ func (r *Reconciler) reconcileSeccompProfile(
 		r.record.Event(sp, event.Warning(reasonCannotSaveProfile, err))
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
-	sp.Status.Path = profilePath
-	if err = r.client.Status().Update(ctx, sp); err != nil {
-		l.Error(err, "cannot update SeccompProfile status")
-		return reconcile.Result{RequeueAfter: wait}, nil
+	if sp.Status.Path == "" {
+		sp.Status.Path = profilePath
+		if err = r.client.Status().Update(ctx, sp); err != nil {
+			l.Error(err, "cannot update SeccompProfile status")
+			r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
+			return reconcile.Result{}, err
+		}
 	}
 	l.Info(
 		"Reconciled profile from SeccompProfile",
