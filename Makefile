@@ -86,7 +86,9 @@ go-mod: ## Cleanup and verify go modules
 .PHONY: deployments
 deployments: manifests ## Generate the deployment files with kustomize
 	kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
+	kustomize build --reorder=none deploy/profiles/base -o deploy/profiles/default-profiles.yaml
 	kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
+	kustomize build --reorder=none deploy/profiles/overlays/namespaced -o deploy/profiles/namespace-default-profiles.yaml
 
 .PHONY: image
 image: ## Build the container image
@@ -140,7 +142,7 @@ test-e2e: ## Run the end-to-end tests
 
 # Generate CRD manifest
 manifests:
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/..." output:crd:stdout > deploy/crd.yaml
+	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/..." output:crd:stdout > deploy/base/crd.yaml
 
 # Generate deepcopy code
 generate:
