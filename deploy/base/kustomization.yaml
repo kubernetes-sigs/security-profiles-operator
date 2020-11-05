@@ -17,9 +17,9 @@ commonLabels:
   app: security-profiles-operator
 
 resources:
+  - crd.yaml
   - rbac.yaml
   - operator.yaml
-  - profiles/nginx-1.19.1.yaml
 
 configMapGenerator:
   - name: security-profiles-operator-profile
