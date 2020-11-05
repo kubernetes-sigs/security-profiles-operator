@@ -27,6 +27,6 @@ func (e *e2e) testCaseReDeployOperator([]string) {
 func (e *e2e) cleanupOperator(manifest string) {
 	// Clean up the operator
 	e.logf("Cleaning up operator")
+	e.kubectl("delete", "-f", defaultProfiles)
 	e.kubectl("delete", "-f", manifest)
-	e.kubectl("delete", "-f", crd)
 }

@@ -59,6 +59,7 @@
         "socket",
         "tgkill",
         "uname",
+        "unlinkat",
         "write"
       ],
       "action": "SCMP_ACT_ALLOW"

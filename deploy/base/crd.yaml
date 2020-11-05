@@ -18,7 +18,14 @@ spec:
     singular: seccompprofile
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: SeccompProfile is a cluster level specification for a seccomp profile. See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
@@ -59,6 +66,9 @@ spec:
                   - SCMP_ARCH_RISCV64
                   type: string
                 type: array
+              baseProfileName:
+                description: name of base profile (in the same namespace) what will be unioned into this profile
+                type: string
               defaultAction:
                 description: the default action for seccomp
                 enum:
@@ -154,9 +164,15 @@ spec:
             - targetWorkload
             type: object
           status:
-            description: SeccompProfileStatus contains the host path of the deployed SeccompProfile.
+            description: SeccompProfileStatus contains status of the deployed SeccompProfile.
             properties:
+              activeWorkloads:
+                items:
+                  type: string
+                type: array
               path:
+                type: string
+              status:
                 type: string
             type: object
         type: object

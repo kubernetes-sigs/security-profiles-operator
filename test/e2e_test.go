@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	crd      = "deploy/crd.yaml"
-	manifest = "deploy/operator.yaml"
+	manifest        = "deploy/operator.yaml"
+	defaultProfiles = "deploy/profiles/default-profiles.yaml"
 )
 
 func (e *e2e) TestSeccompOperator() {
@@ -56,6 +56,10 @@ func (e *e2e) TestSeccompOperator() {
 			e.testCaseBaseProfile,
 		},
 		{
+			"Delete profiles",
+			e.testCaseDeleteProfiles,
+		},
+		{
 			"Re-deploy the operator",
 			e.testCaseReDeployOperator,
 		},
@@ -80,13 +84,13 @@ func (e *e2e) deployOperator(manifest string) {
 		manifest,
 	)
 
-	// Deploy the CRD
-	e.logf("Deploying CRD")
-	e.kubectl("create", "-f", crd)
-
 	// Deploy the operator
 	e.logf("Deploying operator")
 	e.kubectl("create", "-f", manifest)
+
+	// Deploy the default profiles
+	e.logf("Deploying default profiles")
+	e.kubectl("create", "-f", defaultProfiles)
 
 	// Wait for the operator to be ready
 	e.logf("Waiting for operator to be ready")

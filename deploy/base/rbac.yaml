@@ -17,14 +17,14 @@ metadata:
   namespace: security-profiles-operator
 rules:
 - apiGroups: [""]
-  resources: ["configmaps"]
+  resources: ["configmaps", "pods"]
   verbs: ["get", "watch", "list"]
 - apiGroups: [""]
   resources: ["events"]
   verbs: ["create", "patch"]
 - apiGroups: ["security-profiles-operator.x-k8s.io"]
   resources: ["seccompprofiles"]
-  verbs: ["get", "watch", "list"]
+  verbs: ["get", "watch", "list", "update", "patch"]
 - apiGroups: ["security-profiles-operator.x-k8s.io"]
   resources: ["seccompprofiles/status"]
   verbs: ["get", "update", "patch"]

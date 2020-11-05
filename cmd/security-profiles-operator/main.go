@@ -85,7 +85,7 @@ func main() {
 	}
 }
 
-func run(*cli.Context) error {
+func run(ctx *cli.Context) error {
 	v := version.Get()
 	setupLog.Info(
 		"starting security-profiles-operator",
@@ -119,7 +119,7 @@ func run(*cli.Context) error {
 		return errors.Wrap(err, "add core operator APIs to scheme")
 	}
 
-	if err := profile.Setup(mgr, ctrl.Log.WithName("profile")); err != nil {
+	if err := profile.Setup(ctx.Context, mgr, ctrl.Log.WithName("profile")); err != nil {
 		return errors.Wrap(err, "setup profile controller")
 	}
 

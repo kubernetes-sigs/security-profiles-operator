@@ -28,6 +28,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/test"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -77,6 +78,7 @@ func TestReconcile(t *testing.T) {
 			rec: &Reconciler{
 				client: &test.MockClient{
 					MockGet:          test.NewMockGetFn(nil),
+					MockUpdate:       test.NewMockUpdateFn(nil),
 					MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
 				},
 				log:    log.Log,
@@ -405,6 +407,152 @@ func TestUnionSyscalls(t *testing.T) {
 				return got[i].Action < got[j].Action
 			})
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestGetSeccompProfilesFromPod(t *testing.T) {
+	profilePath := "operator/default/example-profiles/test.json"
+	profilePath2 := "operator/default/example-profiles/test2.json"
+	cases := map[string]struct {
+		pod  corev1.Pod
+		want []string
+	}{
+		"SeccompProfileForPod": {
+			pod: corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
+					SecurityContext: &corev1.PodSecurityContext{
+						SeccompProfile: &corev1.SeccompProfile{
+							Type:             "Localhost",
+							LocalhostProfile: &profilePath,
+						},
+					},
+				},
+			},
+			want: []string{profilePath},
+		},
+		"SeccompProfileForOneContainer": {
+			pod: corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "container1",
+						Image: "testimage",
+						SecurityContext: &corev1.SecurityContext{
+							SeccompProfile: &corev1.SeccompProfile{
+								Type:             "Localhost",
+								LocalhostProfile: &profilePath,
+							},
+						},
+					}},
+				},
+			},
+			want: []string{profilePath},
+		},
+		"SeccompProfileForMultipleContainers": {
+			pod: corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "container1",
+							Image: "testimage",
+							SecurityContext: &corev1.SecurityContext{
+								SeccompProfile: &corev1.SeccompProfile{
+									Type:             "Localhost",
+									LocalhostProfile: &profilePath,
+								},
+							},
+						},
+						{
+							Name:  "container2",
+							Image: "testimage2",
+							SecurityContext: &corev1.SecurityContext{
+								SeccompProfile: &corev1.SeccompProfile{
+									Type:             "Localhost",
+									LocalhostProfile: &profilePath2,
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []string{profilePath, profilePath2},
+		},
+		"SeccompProfileInAnnotation": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/" + profilePath},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
+				},
+			},
+			want: []string{profilePath},
+		},
+		"SeccompProfileInPodAndContainerAndAnnotation": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/" + profilePath},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "container1",
+							Image: "testimage",
+							SecurityContext: &corev1.SecurityContext{
+								SeccompProfile: &corev1.SeccompProfile{
+									Type:             "Localhost",
+									LocalhostProfile: &profilePath2,
+								},
+							},
+						},
+						{
+							Name:  "container2",
+							Image: "testimage2",
+						},
+					},
+					SecurityContext: &corev1.PodSecurityContext{
+						SeccompProfile: &corev1.SeccompProfile{
+							Type:             "Localhost",
+							LocalhostProfile: &profilePath,
+						},
+					},
+				},
+			},
+			want: []string{profilePath, profilePath2},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := getSeccompProfilesFromPod(&tc.pod)
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	badPod := corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
+			SecurityContext: &corev1.PodSecurityContext{
+				SeccompProfile: &corev1.SeccompProfile{
+					Type:             "Localhost",
+					LocalhostProfile: nil,
+				},
+			},
+		},
+	}
+	badCases := map[string]string{
+		"NoSuffix":         "operator/default/example-profiles/test",
+		"BadSuffix":        "operator/default/example-profiles/test.js",
+		"WrongPath":        "foo/bar/baz",
+		"NotLocalhostPath": "runtime/default",
+	}
+	for name, c := range badCases {
+		lhp := c
+		badPod.Spec.SecurityContext.SeccompProfile.LocalhostProfile = &lhp
+		t.Run(name, func(t *testing.T) {
+			got := getSeccompProfilesFromPod(&badPod)
+			require.Equal(t, []string{}, got)
 		})
 	}
 }

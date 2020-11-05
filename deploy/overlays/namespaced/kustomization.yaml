@@ -23,11 +23,3 @@ patchesJson6902:
       kind: ClusterRoleBinding
       name: config-map-reader-binding
     path: clusterrolebinding.yaml
-
-  - target:
-      group: security-profiles-operator.x-k8s.io
-      version: v1alpha1
-      kind: SeccompProfile
-      name: nginx-1.19.1
-      namespace: security-profiles-operator
-    path: seccompprofile.yaml
