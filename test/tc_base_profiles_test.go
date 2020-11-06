@@ -68,6 +68,7 @@ spec:
 	err = helloProfileFile.Close()
 	e.Nil(err)
 	e.kubectl("create", "-f", helloProfileFile.Name())
+	defer e.kubectl("delete", "-f", helloProfileFile.Name())
 
 	e.logf("Creating hello-world pod")
 	helloPodFile, err := ioutil.TempFile(os.TempDir(), "hello-pod*.yaml")
