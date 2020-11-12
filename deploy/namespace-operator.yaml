@@ -98,7 +98,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        image: k8s.gcr.io/security-profiles-operator/security-profiles-operator:v0.2.0
+        image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
         imagePullPolicy: Always
         name: security-profiles-operator
         resources:
