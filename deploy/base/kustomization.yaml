@@ -4,10 +4,10 @@ kind: Kustomization
 
 images:
   - name: security-profiles-operator
-    newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
-    newTag: latest
+    newName: k8s.gcr.io/sp-operator/security-profiles-operator
+    newTag: v0.2.0
     # For images to be released:
-    # newName: k8s.gcr.io/security-profiles-operator/security-profiles-operator
+    # newName: k8s.gcr.io/sp-operator/security-profiles-operator
     # newTag: v0.2.0
 
   - name: bash
