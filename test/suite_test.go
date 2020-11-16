@@ -79,7 +79,7 @@ func (e *e2e) SetupSuite() {
 func (e *e2e) SetupTest() {
 	// Deploy the cluster
 	e.logf("Deploying the cluster")
-	e.clusterName = fmt.Sprintf("so-e2e-%d", time.Now().Unix())
+	e.clusterName = fmt.Sprintf("spo-e2e-%d", time.Now().Unix())
 
 	cmd := exec.Command( // nolint: gosec
 		e.kindPath, "create", "cluster",
