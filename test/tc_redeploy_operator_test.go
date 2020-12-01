@@ -18,15 +18,16 @@ package e2e_test
 
 func (e *e2e) testCaseReDeployOperator([]string) {
 	// Clean up the operator
-	e.cleanupOperator(manifest)
+	e.cleanupOperator(manifest, defaultProfiles)
 
 	// Deploy the operator again
-	e.deployOperator(manifest)
+	e.deployOperator(manifest, defaultProfiles)
 }
 
-func (e *e2e) cleanupOperator(manifest string) {
+func (e *e2e) testCaseReDeployNamespaceOperator([]string) {
 	// Clean up the operator
-	e.logf("Cleaning up operator")
-	e.kubectl("delete", "-f", defaultProfiles)
-	e.kubectl("delete", "-f", manifest)
+	e.cleanupOperator(namespaceManifest, namespaceDefaultProfiles)
+
+	// Deploy the operator again
+	e.deployOperator(namespaceManifest, namespaceDefaultProfiles)
 }
