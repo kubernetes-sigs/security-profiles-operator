@@ -17,6 +17,7 @@ limitations under the License.
 package e2e_test
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -53,7 +54,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/default/hello/hello.json
+      localhostProfile: operator/%s/hello/hello.json
   restartPolicy: Never
 `
 	e.kubectl("create", "-f", baseProfilePath)
@@ -74,7 +75,9 @@ spec:
 	helloPodFile, err := ioutil.TempFile(os.TempDir(), "hello-pod*.yaml")
 	e.Nil(err)
 	defer os.Remove(helloPodFile.Name())
-	_, err = helloPodFile.Write([]byte(helloPod))
+
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
+	_, err = helloPodFile.Write([]byte(fmt.Sprintf(helloPod, namespace)))
 	e.Nil(err)
 	err = helloPodFile.Close()
 	e.Nil(err)

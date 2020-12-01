@@ -16,11 +16,22 @@ limitations under the License.
 
 package e2e_test
 
+import "fmt"
+
 func (e *e2e) testCaseRunPod([]string) {
 	const (
 		examplePodPath = "examples/pod.yaml"
 		examplePodName = "test-pod"
 	)
+
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
+	if namespace != defaultNamespace {
+		e.run(
+			"sed", "-i", fmt.Sprintf("s/security-profiles-operator/%s/g", namespace),
+			examplePodPath,
+		)
+		defer e.run("git", "checkout", examplePodPath)
+	}
 
 	e.logf("Creating the test pod: %s", examplePodPath)
 	e.kubectl("create", "-f", examplePodPath)

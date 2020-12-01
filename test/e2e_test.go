@@ -25,13 +25,17 @@ import (
 )
 
 const (
-	manifest        = "deploy/operator.yaml"
-	defaultProfiles = "deploy/profiles/default-profiles.yaml"
+	manifest                 = "deploy/operator.yaml"
+	namespaceManifest        = "deploy/namespace-operator.yaml"
+	defaultProfiles          = "deploy/profiles/default-profiles.yaml"
+	namespaceDefaultProfiles = "deploy/profiles/namespace-default-profiles.yaml"
+	testNamespace            = "test-ns"
+	defaultNamespace         = "default"
 )
 
 func (e *e2e) TestSeccompOperator() {
 	// Deploy the operator
-	e.deployOperator(manifest)
+	e.deployOperator(manifest, defaultProfiles)
 	defer e.run("git", "checkout", manifest)
 
 	// Retrieve the inputs for the test cases
@@ -39,7 +43,8 @@ func (e *e2e) TestSeccompOperator() {
 
 	// Execute the test cases. Each test case should cleanup on its own and
 	// leave a working operator behind.
-	for _, testCase := range []struct {
+	e.logf("testing cluster-wide operator")
+	testCases := []struct {
 		description string
 		fn          func(nodes []string)
 	}{
@@ -63,13 +68,43 @@ func (e *e2e) TestSeccompOperator() {
 			"Re-deploy the operator",
 			e.testCaseReDeployOperator,
 		},
-	} {
+	}
+	for _, testCase := range testCases {
+		e.logf("> Running testcase: %s", testCase.description)
+		testCase.fn(nodes)
+	}
+
+	// Clean up cluster-wide deployment to prepare for namespace deployment
+	e.cleanupOperator(manifest, defaultProfiles)
+
+	e.logf("testing namespace operator")
+
+	// Use namespace manifests for redeploy test
+	testCases[4].fn = e.testCaseReDeployNamespaceOperator
+
+	// Deploy the namespace operator
+	e.kubectl("create", "namespace", testNamespace)
+	e.run(
+		"sed", "-i", fmt.Sprintf("s/NS_REPLACE/%s/", testNamespace),
+		namespaceManifest,
+	)
+	e.run(
+		"sed", "-i", fmt.Sprintf("s/NS_REPLACE/%s/", testNamespace),
+		namespaceDefaultProfiles,
+	)
+	defer e.run("git", "checkout", namespaceManifest)
+	defer e.run("git", "checkout", namespaceDefaultProfiles)
+	// All following operations such as create pod will be in the test namespace
+	e.kubectl("config", "set-context", "--current", "--namespace", testNamespace)
+	e.deployOperator(namespaceManifest, namespaceDefaultProfiles)
+
+	for _, testCase := range testCases {
 		e.logf("> Running testcase: %s", testCase.description)
 		testCase.fn(nodes)
 	}
 }
 
-func (e *e2e) deployOperator(manifest string) {
+func (e *e2e) deployOperator(manifest, profiles string) {
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to 'Never' in manifest: %s", manifest)
@@ -90,11 +125,18 @@ func (e *e2e) deployOperator(manifest string) {
 
 	// Deploy the default profiles
 	e.logf("Deploying default profiles")
-	e.kubectl("create", "-f", defaultProfiles)
+	e.kubectl("create", "-f", profiles)
 
 	// Wait for the operator to be ready
 	e.logf("Waiting for operator to be ready")
 	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "--all")
+}
+
+func (e *e2e) cleanupOperator(manifest, profiles string) {
+	// Clean up the operator
+	e.logf("Cleaning up operator")
+	e.kubectl("delete", "-f", profiles)
+	e.kubectl("delete", "-f", manifest)
 }
 
 func (e *e2e) getWorkerNodes() []string {
@@ -117,4 +159,12 @@ func (e *e2e) getSeccompProfile(name, namespace string) *v1alpha1.SeccompProfile
 	seccompProfile := &v1alpha1.SeccompProfile{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileJSON), seccompProfile))
 	return seccompProfile
+}
+
+func (e *e2e) getCurrentContextNamespace(alt string) string {
+	ctxns := e.kubectl("config", "view", "--minify", "-o", "jsonpath={..namespace}")
+	if ctxns == "" {
+		ctxns = alt
+	}
+	return ctxns
 }
