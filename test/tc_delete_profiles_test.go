@@ -17,6 +17,7 @@ limitations under the License.
 package e2e_test
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"time"
@@ -48,7 +49,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/default/example-profiles/delete-me.json
+      localhostProfile: operator/%s/example-profiles/delete-me.json
 `
 		deletePodSecurityContextInContainer = `
 apiVersion: v1
@@ -62,7 +63,7 @@ spec:
     securityContext:
       seccompProfile:
         type: Localhost
-        localhostProfile: operator/default/example-profiles/delete-me.json
+        localhostProfile: operator/%s/example-profiles/delete-me.json
 `
 		deletePodSecurityContextInInitContainer = `
 apiVersion: v1
@@ -76,7 +77,7 @@ spec:
     securityContext:
       seccompProfile:
         type: Localhost
-        localhostProfile: operator/default/example-profiles/delete-me.json
+        localhostProfile: operator/%s/example-profiles/delete-me.json
   containers:
   - name: test-container
     image: nginx:1.19.1
@@ -87,7 +88,7 @@ kind: Pod
 metadata:
   name: test-pod
   annotations:
-    seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/default/example-profiles/delete-me.json'
+    seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/%s/example-profiles/delete-me.json'
 spec:
   containers:
   - name: test-container
@@ -99,7 +100,8 @@ spec:
 	profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 	defer profileCleanup()
 
-	sp := e.getSeccompProfile(deleteProfileName, "default")
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
+	sp := e.getSeccompProfile(deleteProfileName, namespace)
 	path, err := profile.GetProfilePath(deleteProfileName, sp.ObjectMeta.Namespace, sp.Spec.TargetWorkload)
 	e.Nil(err)
 
@@ -140,7 +142,7 @@ spec:
 		e.logf("> > Running test case for deleted profiles and pods: %s", testCase.description)
 		profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 		defer profileCleanup()
-		podCleanup := e.writeAndCreate(testCase.podManifest, "delete-pod*.yaml")
+		podCleanup := e.writeAndCreate(fmt.Sprintf(testCase.podManifest, namespace), "delete-pod*.yaml")
 		defer podCleanup()
 		e.kubectl("wait", "--for", "condition=ready", "pod", deletePodName)
 		e.logf("Ensuring profile cannot be deleted while pod is active")
