@@ -96,6 +96,9 @@ type SeccompProfileStatus struct {
 	Path            string   `json:"path,omitempty"`
 	Status          string   `json:"status,omitempty"`
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
+	// The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
+	// field of a Pod or container spec
+	LocalhostProfile string `json:"localhostProfile,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -106,6 +109,7 @@ type SeccompProfileStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:printcolumn:name="LocalhostProfile",type=string,priority=10,JSONPath=`.status.localhostProfile`
 type SeccompProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

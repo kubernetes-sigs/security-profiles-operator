@@ -81,6 +81,36 @@ spec:
       image: nginx
 ```
 
+You can find the profile path of the seccomp profile by checking the
+`seccompProfile.localhostProfile` attribute:
+
+```sh
+$ kubectl --namespace my-namespace get seccompprofile profile1 --output wide
+NAME       STATUS   AGE   SECCOMPPROFILE.LOCALHOSTPROFILE
+profile1   Active   14s   operator/my-namespace/custom-profiles/profile1.json
+```
+
+You can apply the profile to an existing application, such as a Deployment or
+Daemonset:
+
+```sh
+kubectl --namespace my-namespace patch deployment myapp --patch '{"spec": {"template": {"spec": {"securityContext": {"seccompProfile": {"type": "Localhost", "localhostProfile": "'$(kubectl --namespace my-namespace get seccompprofile profile1 --output=jsonpath='{.status.seccompProfile\.localhostProfile}')'}}}}}}'
+deployment.apps/myapp patched
+```
+
+The pods in the Deployment will be automatically restarted. Check that the
+profile was applied correctly:
+
+```sh
+$ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spec.template.spec.securityContext}' | jq .
+{
+  "seccompProfile": {
+    "localhostProfile": "operator/my-namespace/custom-profiles/profile1.json",
+    "type": "Localhost"
+  }
+}
+```
+
 #### Base syscalls for a container runtime
 
 An example of the minimum required syscalls for a runtime such as runc (tested

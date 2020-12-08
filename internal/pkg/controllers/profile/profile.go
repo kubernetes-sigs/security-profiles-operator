@@ -310,6 +310,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	status := sp.Status
 	status.Path = profilePath
 	status.Status = "Active"
+	status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath+"/")
 	if err = r.setStatus(ctx, sp, &status); err != nil {
 		l.Error(err, "cannot update SeccompProfile status")
 		r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
@@ -328,7 +329,9 @@ func (r *Reconciler) reconcileSeccompProfile(
 // SeccompProfileStatus and updates the SeccompProfile if not.
 func (r *Reconciler) setStatus(
 	ctx context.Context, sp *v1alpha1.SeccompProfile, status *v1alpha1.SeccompProfileStatus) error {
-	if sp.Status.Status == status.Status && sp.Status.Path == status.Path {
+	if sp.Status.Status == status.Status &&
+		sp.Status.Path == status.Path &&
+		sp.Status.LocalhostProfile == status.LocalhostProfile {
 		return nil
 	}
 	sp.Status = *status
