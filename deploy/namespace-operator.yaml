@@ -187,6 +187,77 @@ status:
   conditions: []
   storedVersions: []
 ---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.2.4
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: selinuxpolicies.security-profiles-operator.x-k8s.io
+spec:
+  group: security-profiles-operator.x-k8s.io
+  names:
+    kind: SelinuxPolicy
+    listKind: SelinuxPolicyList
+    plural: selinuxpolicies
+    singular: selinuxpolicy
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.usage
+      name: Usage
+      type: string
+    - jsonPath: .spec.apply
+      name: Apply
+      type: boolean
+    - jsonPath: .status.state
+      name: State
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: SelinuxPolicy is the Schema for the selinuxpolicies API.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SelinuxPolicySpec defines the desired state of SelinuxPolicy.
+            properties:
+              apply:
+                type: boolean
+              policy:
+                type: string
+            type: object
+          status:
+            description: SelinuxPolicyStatus defines the observed state of SelinuxPolicy.
+            properties:
+              state:
+                description: 'Represents the state that the policy is in. Can be: PENDING, IN-PROGRESS, INSTALLED or ERROR'
+                type: string
+              usage:
+                description: Represents the string that the SelinuxPolicy object can be referenced as in a pod seLinuxOptions section.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -215,6 +286,7 @@ rules:
   resources:
   - configmaps
   - pods
+  - nodes
   verbs:
   - get
   - watch
@@ -230,6 +302,7 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - seccompprofiles
+  - selinuxpolicies
   verbs:
   - get
   - watch
@@ -240,6 +313,7 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - seccompprofiles/status
+  - selinuxpolicies/status
   verbs:
   - get
   - update
@@ -261,6 +335,95 @@ subjects:
   name: security-profiles-operator
   namespace: security-profiles-operator
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - services
+  - services/finalizers
+  - endpoints
+  - persistentvolumeclaims
+  - events
+  - configmaps
+  - configmaps/finalizers
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - daemonsets
+  - replicasets
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resourceNames:
+  - selinux-operator
+  resources:
+  - deployments/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+- apiGroups:
+  - apps
+  resources:
+  - replicasets
+  - deployments
+  verbs:
+  - get
+- apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - privileged
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: selinux-operator
+  namespace: security-profiles-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: security-profiles-operator
+subjects:
+- kind: ServiceAccount
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -277,6 +440,7 @@ spec:
     metadata:
       annotations:
         container.seccomp.security.alpha.kubernetes.io/security-profiles-operator: localhost/security-profiles-operator.json
+        openshift.io/scc: privileged
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
         app: security-profiles-operator
@@ -363,6 +527,9 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
+          runAsUser: 0
+          seLinuxOptions:
+            type: spc_t
         volumeMounts:
         - mountPath: /var/lib
           name: host-varlib-volume

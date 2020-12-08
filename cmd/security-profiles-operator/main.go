@@ -24,10 +24,12 @@ import (
 	"github.com/urfave/cli/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 )
 
@@ -102,31 +104,76 @@ func run(ctx *cli.Context) error {
 		return errors.Wrap(err, "get config")
 	}
 
-	ctrlOpts := ctrl.Options{
-		SyncPeriod: &sync,
-	}
+	fatalErrors := make(chan error)
+	done := make(chan bool)
+	sigHandler := ctrl.SetupSignalHandler()
 
-	if os.Getenv(restrictNSKey) != "" {
-		ctrlOpts.Namespace = os.Getenv(restrictNSKey)
-	}
+	// Daemonset managers
+	go func() {
+		ctrlOpts := ctrl.Options{
+			SyncPeriod: &sync,
+		}
 
-	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
-	if err != nil {
-		return errors.Wrap(err, "create manager")
-	}
+		if os.Getenv(restrictNSKey) != "" {
+			ctrlOpts.Namespace = os.Getenv(restrictNSKey)
+		}
 
-	if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add core operator APIs to scheme")
-	}
+		mgr, err := ctrl.NewManager(cfg, ctrlOpts)
+		if err != nil {
+			fatalErrors <- errors.Wrap(err, "create manager")
+		}
 
-	if err := profile.Setup(ctx.Context, mgr, ctrl.Log.WithName("profile")); err != nil {
-		return errors.Wrap(err, "setup profile controller")
-	}
+		if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+			fatalErrors <- errors.Wrap(err, "add core operator APIs to scheme")
+		}
 
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		return errors.Wrap(err, "controller manager error")
-	}
+		if err := profile.Setup(ctx.Context, mgr, ctrl.Log.WithName("profile")); err != nil {
+			fatalErrors <- errors.Wrap(err, "setup profile controller")
+		}
 
+		setupLog.Info("starting manager")
+		if err := mgr.Start(sigHandler); err != nil {
+			fatalErrors <- errors.Wrap(err, "controller manager error")
+		}
+		close(done)
+	}()
+
+	// cluster managers (need leader election)
+	go func() {
+		ctrlOpts := manager.Options{
+			SyncPeriod:       &sync,
+			LeaderElection:   true,
+			LeaderElectionID: "selinux-operator-lock",
+			// NOTE(jaosorior): Metrics are disabled because
+			// we have two managers.
+			MetricsBindAddress: "0",
+		}
+
+		mgr, err := ctrl.NewManager(cfg, ctrlOpts)
+		if err != nil {
+			fatalErrors <- errors.Wrap(err, "create cluster manager")
+		}
+
+		if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+			fatalErrors <- errors.Wrap(err, "add core operator APIs to scheme")
+		}
+
+		if err := selinuxpolicy.Setup(ctx.Context, mgr, ctrl.Log.WithName("selinuxpolicy")); err != nil {
+			fatalErrors <- errors.Wrap(err, "setup profile controller")
+		}
+
+		setupLog.Info("starting manager")
+		if err := mgr.Start(sigHandler); err != nil {
+			fatalErrors <- errors.Wrap(err, "controller manager error")
+		}
+		close(done)
+	}()
+
+	select {
+	case err := <-fatalErrors:
+		return err
+	case <-done:
+		setupLog.Info("ending manager")
+	}
 	return nil
 }

@@ -17,16 +17,16 @@ metadata:
   namespace: security-profiles-operator
 rules:
 - apiGroups: [""]
-  resources: ["configmaps", "pods"]
+  resources: ["configmaps", "pods", "nodes"]
   verbs: ["get", "watch", "list"]
 - apiGroups: [""]
   resources: ["events"]
   verbs: ["create", "patch"]
 - apiGroups: ["security-profiles-operator.x-k8s.io"]
-  resources: ["seccompprofiles"]
+  resources: ["seccompprofiles", "selinuxpolicies"]
   verbs: ["get", "watch", "list", "update", "patch"]
 - apiGroups: ["security-profiles-operator.x-k8s.io"]
-  resources: ["seccompprofiles/status"]
+  resources: ["seccompprofiles/status", "selinuxpolicies/status"]
   verbs: ["get", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -41,4 +41,92 @@ subjects:
 roleRef:
   kind: ClusterRole
   name: config-map-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - services
+  - services/finalizers
+  - endpoints
+  - persistentvolumeclaims
+  - events
+  - configmaps
+  - configmaps/finalizers
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - daemonsets
+  - replicasets
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resourceNames:
+  - selinux-operator
+  resources:
+  - deployments/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+- apiGroups:
+  - apps
+  resources:
+  - replicasets
+  - deployments
+  verbs:
+  - get
+- apiGroups:                  # Needed for using privileged containers
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  resourceNames:
+  - privileged
+  verbs:
+  - use
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: selinux-operator
+  namespace: security-profiles-operator
+subjects:
+- kind: ServiceAccount
+  name: security-profiles-operator
+roleRef:
+  kind: Role
+  name: security-profiles-operator
   apiGroup: rbac.authorization.k8s.io
