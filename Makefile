@@ -36,7 +36,12 @@ LDVARS := \
 	-X $(GO_PROJECT)/internal/pkg/version.gitCommit=$(GIT_COMMIT) \
 	-X $(GO_PROJECT)/internal/pkg/version.gitTreeState=$(GIT_TREE_STATE) \
 	-X $(GO_PROJECT)/internal/pkg/version.version=$(VERSION)
-LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
+LINKMODE_EXTERNAL ?= yes
+ifeq ($(LINKMODE_EXTERNAL), yes)
+  LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
+else
+  LDFLAGS := -s -w -extldflags "-static" $(LDVARS)
+endif
 
 CONTAINER_RUNTIME ?= docker
 IMAGE ?= $(PROJECT):latest
