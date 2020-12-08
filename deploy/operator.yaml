@@ -25,6 +25,10 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - jsonPath: .status.localhostProfile
+      name: LocalhostProfile
+      priority: 10
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -170,6 +174,9 @@ spec:
                 items:
                   type: string
                 type: array
+              localhostProfile:
+                description: The path that should be provided to the `securityContext.seccompProfile.localhostProfile` field of a Pod or container spec
+                type: string
               path:
                 type: string
               status:

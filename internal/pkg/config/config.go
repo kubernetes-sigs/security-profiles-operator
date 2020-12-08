@@ -20,13 +20,13 @@ const (
 	// OperatorName is the name when referring to the operator.
 	OperatorName = "security-profiles-operator"
 
-	// kubeletSeccompRootPath specifies the path where all kubelet seccomp
+	// KubeletSeccompRootPath specifies the path where all kubelet seccomp
 	// profiles are stored.
-	kubeletSeccompRootPath = "/var/lib/kubelet/seccomp"
+	KubeletSeccompRootPath = "/var/lib/kubelet/seccomp"
 
 	// ProfilesRootPath specifies the path where the operator stores seccomp
 	// profiles.
-	ProfilesRootPath = kubeletSeccompRootPath + "/operator"
+	ProfilesRootPath = KubeletSeccompRootPath + "/operator"
 
 	// NodeNameEnvKey is the default environment variable key for retrieving
 	// the name of the current node.
