@@ -1,0 +1,10 @@
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileBinding
+metadata:
+  name: profile-binding
+spec:
+  profileRef:
+    kind: SeccompProfile
+    name: profile-allow
+  image: nginx:1.19.1

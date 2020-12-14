@@ -27,6 +27,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -34,12 +35,14 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
+	webhook "sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
 )
 
 const (
 	jsonFlag               string = "json"
 	operatorImageKey       string = "RELATED_IMAGE_OPERATOR"
 	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
+	defaultPort            int    = 9443
 )
 
 var (
@@ -86,7 +89,15 @@ func main() {
 			Name:    "manager",
 			Aliases: []string{"m"},
 			Usage:   "run the security-profiles-operator manager",
-			Action:  runManager,
+			Flags: []cli.Flag{
+				&cli.IntFlag{
+					Name:    "port",
+					Aliases: []string{"p"},
+					Value:   defaultPort,
+					Usage:   "the port on which to expose the webhook service (default 9443)",
+				},
+			},
+			Action: runManager,
 		},
 		&cli.Command{
 			Name:    "daemon",
@@ -125,11 +136,12 @@ func runManager(ctx *cli.Context) error {
 
 	sigHandler := ctrl.SetupSignalHandler()
 
-	// cluster managers (need leader election)
+	port := ctx.Int("port")
 	ctrlOpts := manager.Options{
 		SyncPeriod:       &sync,
 		LeaderElection:   true,
-		LeaderElectionID: "selinux-operator-lock",
+		LeaderElectionID: "security-profiles-operator-lock",
+		Port:             port,
 	}
 
 	dt, err := getTunables()
@@ -149,6 +161,12 @@ func runManager(ctx *cli.Context) error {
 	if err := selinuxpolicyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add core operator APIs to scheme")
 	}
+	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add profilebinding API to scheme")
+	}
+	if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add seccompprofile API to scheme")
+	}
 
 	if err := selinuxpolicy.Setup(ctx.Context, mgr, ctrl.Log.WithName("selinuxpolicy")); err != nil {
 		return errors.Wrap(err, "setup profile controller")
@@ -157,6 +175,10 @@ func runManager(ctx *cli.Context) error {
 	if err := spod.Setup(ctx.Context, mgr, dt, ctrl.Log.WithName("spod-config")); err != nil {
 		return errors.Wrap(err, "setup profile controller")
 	}
+
+	setupLog.Info("registering webhook")
+	hookserver := mgr.GetWebhookServer()
+	webhook.RegisterWebhook(hookserver, mgr.GetClient())
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(sigHandler); err != nil {

@@ -64,7 +64,7 @@ rules:
   resources:
   - "seccompprofiles/status"
   - "selinuxpolicies/status"
-  verbs: 
+  verbs:
   - "get"
   - "update"
   - "patch"
@@ -169,4 +169,57 @@ subjects:
 roleRef:
   kind: Role
   name: security-profiles-operator
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: profilebindings-manager
+rules:
+- apiGroups: ["security-profiles-operator.x-k8s.io"]
+  resources: ["profilebindings"]
+  verbs: ["get", "list", "patch", "update", "watch"]
+- apiGroups: ["security-profiles-operator.x-k8s.io"]
+  resources: ["profilebindings/status"]
+  verbs: ["get", "patch", "update"]
+- apiGroups: ["security-profiles-operator.x-k8s.io"]
+  resources: ["seccompprofiles"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: profilebindings-manager-binding
+  namespace: security-profiles-operator
+subjects:
+- kind: ServiceAccount
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+roleRef:
+  kind: ClusterRole
+  name: profilebindings-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: leader-elector
+  namespace: security-profiles-operator
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create", "get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: leader-elector-binding
+  namespace: security-profiles-operator
+subjects:
+- kind: ServiceAccount
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+roleRef:
+  kind: Role
+  name: leader-elector
   apiGroup: rbac.authorization.k8s.io

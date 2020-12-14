@@ -28,6 +28,7 @@ import (
 )
 
 const (
+	certmanager              = "https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml"
 	manifest                 = "deploy/operator.yaml"
 	namespaceManifest        = "deploy/namespace-operator.yaml"
 	defaultProfiles          = "deploy/profiles/default-profiles.yaml"
@@ -75,6 +76,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		{
 			"Seccomp: Re-deploy the operator",
 			e.testCaseReDeployOperator,
+		},
+		{
+			"Seccomp: Verify profile binding",
+			e.testCaseProfileBinding,
 		},
 		{
 			"SELinux: sanity check",
@@ -142,6 +147,15 @@ func (e *e2e) deployOperator(manifest, profiles string) {
 	e.run(
 		"sed", "-i", fmt.Sprintf("s;value: .*gcr.io/.*;value: %s;g", e.testImage),
 		manifest,
+	)
+
+	// Deploy prerequisites
+	e.logf("Deploying cert-manager")
+	e.kubectl("apply", "-f", certmanager)
+	e.kubectl(
+		"--namespace", "cert-manager",
+		"wait", "--for", "condition=ready",
+		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
 	)
 
 	// Deploy the operator

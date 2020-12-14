@@ -31,6 +31,19 @@ spec:
               value: security-profiles-operator
             - name: RELATED_IMAGE_NON_ROOT_ENABLER
               value: non-root-enabler
+          volumeMounts:
+          - name: cert
+            mountPath: /tmp/k8s-webhook-server/serving-certs
+            readOnly: true
+          ports:
+          - containerPort: 9443
+            name: webhook
+            protocol: TCP
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: webhook-server-cert
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:
