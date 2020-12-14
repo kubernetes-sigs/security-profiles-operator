@@ -25,6 +25,7 @@ configMapGenerator:
   - name: security-profiles-operator-profile
     files:
       - profiles/security-profiles-operator.json
+      - profiles/security-profiles-operator.apparmor
 
 generatorOptions:
   disableNameSuffixHash: true

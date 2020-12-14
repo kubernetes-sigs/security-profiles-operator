@@ -6,6 +6,77 @@ metadata:
   creationTimestamp: null
   labels:
     app: security-profiles-operator
+  name: selinuxpolicies.security-profiles-operator.x-k8s.io
+spec:
+  group: security-profiles-operator.x-k8s.io
+  names:
+    kind: SelinuxPolicy
+    listKind: SelinuxPolicyList
+    plural: selinuxpolicies
+    singular: selinuxpolicy
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.usage
+      name: Usage
+      type: string
+    - jsonPath: .spec.apply
+      name: Apply
+      type: boolean
+    - jsonPath: .status.state
+      name: State
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: SelinuxPolicy is the Schema for the selinuxpolicies API.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SelinuxPolicySpec defines the desired state of SelinuxPolicy.
+            properties:
+              apply:
+                type: boolean
+              policy:
+                type: string
+            type: object
+          status:
+            description: SelinuxPolicyStatus defines the observed state of SelinuxPolicy.
+            properties:
+              state:
+                description: 'Represents the state that the policy is in. Can be: PENDING, IN-PROGRESS, INSTALLED or ERROR'
+                type: string
+              usage:
+                description: Represents the string that the SelinuxPolicy object can be referenced as in a pod seLinuxOptions section.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.2.4
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
   name: seccompprofiles.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
@@ -180,77 +251,6 @@ spec:
               path:
                 type: string
               status:
-                type: string
-            type: object
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
----
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.2.4
-  creationTimestamp: null
-  labels:
-    app: security-profiles-operator
-  name: selinuxpolicies.security-profiles-operator.x-k8s.io
-spec:
-  group: security-profiles-operator.x-k8s.io
-  names:
-    kind: SelinuxPolicy
-    listKind: SelinuxPolicyList
-    plural: selinuxpolicies
-    singular: selinuxpolicy
-  scope: Namespaced
-  versions:
-  - additionalPrinterColumns:
-    - jsonPath: .status.usage
-      name: Usage
-      type: string
-    - jsonPath: .spec.apply
-      name: Apply
-      type: boolean
-    - jsonPath: .status.state
-      name: State
-      type: string
-    name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        description: SelinuxPolicy is the Schema for the selinuxpolicies API.
-        properties:
-          apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-            type: string
-          kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: SelinuxPolicySpec defines the desired state of SelinuxPolicy.
-            properties:
-              apply:
-                type: boolean
-              policy:
-                type: string
-            type: object
-          status:
-            description: SelinuxPolicyStatus defines the observed state of SelinuxPolicy.
-            properties:
-              state:
-                description: 'Represents the state that the policy is in. Can be: PENDING, IN-PROGRESS, INSTALLED or ERROR'
-                type: string
-              usage:
-                description: Represents the string that the SelinuxPolicy object can be referenced as in a pod seLinuxOptions section.
                 type: string
             type: object
         type: object
@@ -446,6 +446,7 @@ spec:
   template:
     metadata:
       annotations:
+        container.apparmor.security.beta.kubernetes.io/security-profiles-operator: localhost/k8s-security-profiles-operator
         container.seccomp.security.alpha.kubernetes.io/security-profiles-operator: localhost/security-profiles-operator.json
         openshift.io/scc: privileged
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
@@ -499,7 +500,12 @@ spec:
           fi
 
           /bin/chown -R 2000:2000 $OPERATOR_ROOT
-          cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
+          cp -f -v /opt/operator-profiles/* $KUBELET_SECCOMP_ROOT
+
+          # TODO: decide on a good way to run apparmor_parser
+          command -v apparmor_parser >/dev/null 2>&1 && \
+            apparmor_parser -r /opt/operator-profiles/security-profiles-operator.apparmor || \
+            echo "failed to execute apparmor_parser, profile won't be loaded onto node"
         command:
         - bash
         - -c
@@ -538,7 +544,7 @@ spec:
         volumeMounts:
         - mountPath: /var/lib
           name: host-varlib-volume
-        - mountPath: /opt/seccomp-profiles
+        - mountPath: /opt/operator-profiles
           name: profile-configmap-volume
           readOnly: true
       nodeSelector:
@@ -565,6 +571,63 @@ spec:
 ---
 apiVersion: v1
 data:
+  security-profiles-operator.apparmor: |
+    #include <tunables/global>
+
+    profile k8s-security-profiles-operator /security-profiles-operator flags=(complain) {
+        #include <abstractions/base>
+
+        deny capability net_raw,
+
+        network inet stream,
+        network inet6 stream,
+
+        deny network inet udp,
+        deny network inet icmp,
+        deny network raw,
+        deny network netlink raw,
+        deny network packet,
+
+        file,
+
+        /security-profiles-operator ix,
+
+        /proc/sys/net/core/somaxconn r,
+        /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+
+        # Read service account token
+        /var/run/secrets/kubernetes.io/serviceaccount/** r,
+
+        # Read and write profiles
+        /var/lib/kubelet/seccomp/** rw,
+        /var/lib/security-profiles-operator/** rw,
+
+        # TODO:
+        # deny sensitive files within kubelet folder
+
+        deny /bin/** wl,
+        deny /boot/** wl,
+        deny /dev/** wl,
+        deny /etc/** wl,
+        deny /home/** wl,
+        deny /lib/** wl,
+        deny /lib64/** wl,
+        deny /media/** wl,
+        deny /mnt/** wl,
+        deny /opt/** wl,
+        deny /proc/** wl,
+        deny /root/** wl,
+        deny /sbin/** wl,
+        deny /srv/** wl,
+        deny /tmp/** wl,
+        deny /sys/** wl,
+        deny /usr/** wl,
+
+        deny /bin/bash mrwklx,
+        deny /bin/sh mrwklx,
+
+        deny mount,
+    }
   security-profiles-operator.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",

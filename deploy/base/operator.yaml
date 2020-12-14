@@ -14,11 +14,13 @@ spec:
         openshift.io/scc: privileged
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
         container.seccomp.security.alpha.kubernetes.io/security-profiles-operator: localhost/security-profiles-operator.json
+        container.apparmor.security.beta.kubernetes.io/security-profiles-operator: localhost/k8s-security-profiles-operator
       labels:
         name: security-profiles-operator
     spec:
       serviceAccountName: security-profiles-operator
       initContainers:
+        # TODO: review security mode for non-root-enabler
         - name: non-root-enabler
           image: bash
           # Creates folder /var/lib/security-profiles-operator, sets 2000:2000 as its
@@ -41,7 +43,12 @@ spec:
               fi
 
               /bin/chown -R 2000:2000 $OPERATOR_ROOT
-              cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
+              cp -f -v /opt/operator-profiles/* $KUBELET_SECCOMP_ROOT
+
+              # TODO: decide on a good way to run apparmor_parser
+              command -v apparmor_parser >/dev/null 2>&1 && \
+                apparmor_parser -r /opt/operator-profiles/security-profiles-operator.apparmor || \
+                echo "failed to execute apparmor_parser, profile won't be loaded onto node"
           env:
             - name: KUBELET_SECCOMP_ROOT
               value: /var/lib/kubelet/seccomp
@@ -53,7 +60,7 @@ spec:
             - name: host-varlib-volume
               mountPath: /var/lib
             - name: profile-configmap-volume
-              mountPath: /opt/seccomp-profiles
+              mountPath: /opt/operator-profiles
               readOnly: true
           securityContext:
             allowPrivilegeEscalation: false

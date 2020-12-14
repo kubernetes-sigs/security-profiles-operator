@@ -1,0 +1,56 @@
+#include <tunables/global>
+
+profile k8s-security-profiles-operator /security-profiles-operator flags=(complain) {
+    #include <abstractions/base>
+
+    deny capability net_raw,
+
+    network inet stream,
+    network inet6 stream,
+
+    deny network inet udp,
+    deny network inet icmp,
+    deny network raw,
+    deny network netlink raw,
+    deny network packet,
+
+    file,
+
+    /security-profiles-operator ix,
+
+    /proc/sys/net/core/somaxconn r,
+    /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+
+    # Read service account token
+    /var/run/secrets/kubernetes.io/serviceaccount/** r,
+
+    # Read and write profiles
+    /var/lib/kubelet/seccomp/** rw,
+    /var/lib/security-profiles-operator/** rw,
+
+    # TODO:
+    # deny sensitive files within kubelet folder
+
+    deny /bin/** wl,
+    deny /boot/** wl,
+    deny /dev/** wl,
+    deny /etc/** wl,
+    deny /home/** wl,
+    deny /lib/** wl,
+    deny /lib64/** wl,
+    deny /media/** wl,
+    deny /mnt/** wl,
+    deny /opt/** wl,
+    deny /proc/** wl,
+    deny /root/** wl,
+    deny /sbin/** wl,
+    deny /srv/** wl,
+    deny /tmp/** wl,
+    deny /sys/** wl,
+    deny /usr/** wl,
+
+    deny /bin/bash mrwklx,
+    deny /bin/sh mrwklx,
+
+    deny mount,
+}
