@@ -269,7 +269,9 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if !sp.GetDeletionTimestamp().IsZero() { // object is being deleted
 		status := sp.Status
 		status.Status = "Terminating"
-		if err = r.setStatus(ctx, sp, &status); err != nil {
+		if err = retry(func() error {
+			return r.setStatus(ctx, sp, &status)
+		}, kerrors.IsConflict); err != nil {
 			l.Error(err, "cannot update SeccompProfile status")
 			r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
 			return reconcile.Result{}, errors.Wrap(err, "updating status for deleted SeccompProfile")
@@ -311,7 +313,9 @@ func (r *Reconciler) reconcileSeccompProfile(
 	status.Path = profilePath
 	status.Status = "Active"
 	status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath+"/")
-	if err = r.setStatus(ctx, sp, &status); err != nil {
+	if err = retry(func() error {
+		return r.setStatus(ctx, sp, &status)
+	}, kerrors.IsConflict); err != nil {
 		l.Error(err, "cannot update SeccompProfile status")
 		r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
 		return reconcile.Result{}, errors.Wrap(err, "updating status in SeccompProfile reconciler")
@@ -401,7 +405,9 @@ func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *v1alpha1.Se
 		podList[i] = pod.ObjectMeta.Namespace + "/" + pod.ObjectMeta.Name
 	}
 	sp.Status.ActiveWorkloads = podList
-	if err := r.client.Status().Update(ctx, sp); err != nil {
+	if err := retry(func() error {
+		return r.client.Status().Update(ctx, sp)
+	}, kerrors.IsConflict); err != nil {
 		return errors.Wrap(err, "updating SeccompProfile status")
 	}
 	hasActivePodsFinalizerString := "in-use-by-active-pods"
