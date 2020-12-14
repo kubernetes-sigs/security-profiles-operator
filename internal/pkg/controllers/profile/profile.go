@@ -235,7 +235,7 @@ func (r *Reconciler) mergeBaseProfile(
 		ctx, namespacedName(baseProfileName, sp.GetNamespace()), baseProfile); err != nil {
 		l.Error(err, "cannot retrieve base profile "+baseProfileName)
 		r.record.Event(sp, event.Warning(reasonInvalidSeccompProfile, err))
-		return op, errors.Wrap(err, "cannot retrieve base profile")
+		return op, errors.Wrap(err, "merging base profile")
 	}
 	op.Syscalls = unionSyscalls(baseProfile.Spec.Syscalls, sp.Spec.Syscalls)
 	return op, nil
@@ -272,7 +272,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		if err = r.setStatus(ctx, sp, &status); err != nil {
 			l.Error(err, "cannot update SeccompProfile status")
 			r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
-			return reconcile.Result{}, errors.Wrap(err, "updating status")
+			return reconcile.Result{}, errors.Wrap(err, "updating status for deleted SeccompProfile")
 		}
 		if !controllerutil.ContainsFinalizer(sp, nodeFinalizerString) {
 			return ctrl.Result{}, nil
@@ -280,14 +280,14 @@ func (r *Reconciler) reconcileSeccompProfile(
 		if err := handleDeletion(sp, l); err != nil {
 			l.Error(err, "cannot delete profile")
 			r.record.Event(sp, event.Warning(reasonCannotRemoveProfile, err))
-			return ctrl.Result{}, errors.Wrap(err, "deleting profile")
+			return ctrl.Result{}, errors.Wrap(err, "handling file deletion for deleted SeccompProfile")
 		}
 		if err := retry(func() error {
 			return removeFinalizer(ctx, r.client, sp, nodeFinalizerString)
 		}, kerrors.IsConflict); err != nil {
 			l.Error(err, "cannot remove finalizer from seccomp profile")
 			r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
-			return ctrl.Result{}, errors.Wrap(err, "deleting finalizer")
+			return ctrl.Result{}, errors.Wrap(err, "deleting finalizer for deleted SeccompProfile")
 		}
 		return ctrl.Result{}, nil
 	}
@@ -296,7 +296,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	}, kerrors.IsConflict); err != nil {
 		l.Error(err, "cannot update SeccompProfile finalizers")
 		r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
-		return reconcile.Result{}, errors.Wrap(err, "adding finalizer")
+		return reconcile.Result{}, errors.Wrap(err, "adding finalizer for SeccompProfile")
 	}
 	if err = r.save(profilePath, profileContent); err != nil {
 		l.Error(err, "cannot save profile into disk")
@@ -314,7 +314,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if err = r.setStatus(ctx, sp, &status); err != nil {
 		l.Error(err, "cannot update SeccompProfile status")
 		r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
-		return reconcile.Result{}, errors.Wrap(err, "updating status")
+		return reconcile.Result{}, errors.Wrap(err, "updating status in SeccompProfile reconciler")
 	}
 	l.Info(
 		"Reconciled profile from SeccompProfile",
@@ -336,7 +336,7 @@ func (r *Reconciler) setStatus(
 	}
 	sp.Status = *status
 	if err := r.client.Status().Update(ctx, sp); err != nil {
-		return errors.Wrap(err, "setting status")
+		return errors.Wrap(err, "setting SeccompProfile status")
 	}
 	return nil
 }
@@ -354,16 +354,16 @@ func (r *PodReconciler) Reconcile(req reconcile.Request) (reconcile.Result, erro
 	var err error
 	if err = r.client.Get(ctx, req.NamespacedName, pod); ignoreNotFound(err) != nil {
 		logger.Error(err, "could not get pod")
-		return reconcile.Result{}, errors.Wrap(err, "looking up pod")
+		return reconcile.Result{}, errors.Wrap(err, "looking up pod in pod reconciler")
 	}
 	if kerrors.IsNotFound(err) { // this is a pod deletion, so update all seccomp profiles that were using it
 		seccompProfiles := &v1alpha1.SeccompProfileList{}
 		if err = r.client.List(ctx, seccompProfiles, client.MatchingFields{linkedPodsKey: podID}); err != nil {
-			return reconcile.Result{}, errors.Wrap(err, "listing SeccompProfiles")
+			return reconcile.Result{}, errors.Wrap(err, "listing SeccompProfiles for deleted pod")
 		}
 		for i := range seccompProfiles.Items {
 			if err = r.updatePodReferences(ctx, &seccompProfiles.Items[i]); err != nil {
-				return reconcile.Result{}, errors.Wrap(err, "updating SeccompProfile")
+				return reconcile.Result{}, errors.Wrap(err, "updating SeccompProfile for deleted pod")
 			}
 		}
 		return reconcile.Result{}, nil
@@ -376,11 +376,11 @@ func (r *PodReconciler) Reconcile(req reconcile.Request) (reconcile.Result, erro
 		seccompProfile := &v1alpha1.SeccompProfile{}
 		if err := r.client.Get(ctx, namespacedName(profileName, profileNamespace), seccompProfile); err != nil {
 			logger.Error(err, "could not get seccomp profile for pod")
-			return reconcile.Result{}, errors.Wrap(err, "looking up SeccompProfile")
+			return reconcile.Result{}, errors.Wrap(err, "looking up SeccompProfile for new or updated pod")
 		}
 		if err := r.updatePodReferences(ctx, seccompProfile); err != nil {
 			logger.Error(err, "could not update seccomp profile for pod")
-			return reconcile.Result{}, errors.Wrap(err, "updating SeccompProfile")
+			return reconcile.Result{}, errors.Wrap(err, "updating SeccompProfile pod references for new or updated pod")
 		}
 	}
 	return reconcile.Result{}, nil
@@ -393,7 +393,7 @@ func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *v1alpha1.Se
 	profileReference := fmt.Sprintf("operator/%s/%s/%s.json", sp.GetNamespace(), sp.Spec.TargetWorkload, sp.GetName())
 	err := r.client.List(ctx, linkedPods, client.MatchingFields{spOwnerKey: profileReference})
 	if ignoreNotFound(err) != nil {
-		return errors.Wrap(err, "listing pods")
+		return errors.Wrap(err, "listing pods to update seccompProfile")
 	}
 	podList := make([]string, len(linkedPods.Items))
 	for i := range linkedPods.Items {
@@ -402,7 +402,7 @@ func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *v1alpha1.Se
 	}
 	sp.Status.ActiveWorkloads = podList
 	if err := r.client.Status().Update(ctx, sp); err != nil {
-		return errors.Wrap(err, "updating SeccompProfile")
+		return errors.Wrap(err, "updating SeccompProfile status")
 	}
 	hasActivePodsFinalizerString := "in-use-by-active-pods"
 	if len(linkedPods.Items) > 0 {
@@ -497,7 +497,7 @@ func retry(fn func() error, retryCondition func(error) bool) error {
 func addFinalizer(ctx context.Context, c client.Client, sp *v1alpha1.SeccompProfile, finalizer string) error {
 	// Refresh object
 	if err := c.Get(ctx, namespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
-		return errors.Wrap(err, "retrieving sp")
+		return errors.Wrap(err, errGetProfile)
 	}
 	if controllerutil.ContainsFinalizer(sp, finalizer) {
 		return nil
@@ -510,7 +510,7 @@ func addFinalizer(ctx context.Context, c client.Client, sp *v1alpha1.SeccompProf
 func removeFinalizer(ctx context.Context, c client.Client, sp *v1alpha1.SeccompProfile, finalizer string) error {
 	// Refresh object
 	if err := c.Get(ctx, namespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
-		return errors.Wrap(err, "retrieving sp")
+		return errors.Wrap(err, errGetProfile)
 	}
 	if !controllerutil.ContainsFinalizer(sp, finalizer) {
 		return nil
@@ -529,7 +529,7 @@ func handleDeletion(sp *v1alpha1.SeccompProfile, l logr.Logger) error {
 		return nil
 	}
 	if err != nil {
-		return errors.Wrap(err, "deleting profile from host")
+		return errors.Wrap(err, "removing profile from host")
 	}
 	l.Info(fmt.Sprintf("removed profile %s", profilePath))
 	return nil
