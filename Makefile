@@ -43,13 +43,15 @@ else
   LDFLAGS := -s -w -extldflags "-static" $(LDVARS)
 endif
 
-CONTAINER_RUNTIME ?= docker
+export CONTAINER_RUNTIME ?= docker
 IMAGE ?= $(PROJECT):latest
 
 CRD_OPTIONS ?= "crd:crdVersions=v1"
 
 GOLANGCI_LINT_VERSION = v1.32.0
 REPO_INFRA_VERSION = v0.1.2
+
+export E2E_CLUSTER_TYPE ?= kind
 
 # Utility targets
 

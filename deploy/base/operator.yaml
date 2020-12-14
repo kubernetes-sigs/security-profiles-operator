@@ -88,6 +88,9 @@ spec:
             runAsGroup: 2000
             capabilities:
               drop: ["ALL"]
+            seLinuxOptions:
+              # FIXME(jaosorior): Use a more restricted selinux type
+              type: spc_t
           resources:
             requests:
               memory: "64Mi"
