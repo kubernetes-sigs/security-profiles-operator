@@ -5,6 +5,7 @@
 The feature scope of the security-profiles-operator is right now limited to:
 
 - Adds a `SeccompProfile` CRD (alpha) to store seccomp profiles.
+- Adds a `ProfileBinding` CRD (alpha) to bind security profiles to pods
 - Synchronize seccomp profiles across all worker nodes.
 - Validate if a node supports seccomp and do not synchronize if not.
 
@@ -18,6 +19,7 @@ The feature scope of the security-profiles-operator is right now limited to:
 ### 1. Install operator
 
 ```sh
+$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/profiles/default-profiles.yaml
 ```
@@ -27,7 +29,7 @@ $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-pr
 Use the `SeccompProfile` kind to create profiles. Example:
 
 ```yaml
-apiVersion: v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SeccompProfile
 metadata:
   namespace: my-namespace
@@ -122,7 +124,7 @@ application-specific profiles that only specify syscalls that are required on
 top of the base calls needed for the container runtime. For example:
 
 ```yaml
-apiVersion: v1
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SeccompProfile
 metadata:
   namespace: my-namespace
@@ -135,6 +137,39 @@ spec:
   - action: SCMP_ACT_ALLOW
     names:
     - exit_group
+```
+
+#### Bind workloads to profiles with ProfileBindings
+
+If you do not want to directly modify the SecurityContext of a Pod, for instance
+if you are deploying a public application, you can use the ProfileBinding
+resource to bind a security profile to a container's securityContext. Currently,
+the ProfileBinding resource can only refer to a SeccompProfile.
+
+For example, to bind a Pod that uses an 'nginx:1.19.1' image to the
+'profile-complain' example seccomp profile, create a ProfileBinding in the same
+namespace as both the Pod and the SeccompProfile:
+
+```
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileBinding
+metadata:
+  name: nginx-binding
+spec:
+  profileRef:
+    kind: SeccompProfile
+    name: profile-complain
+  image: nginx:1.19.1
+```
+
+If the Pod is already running, it will need to be restarted in order to pick up
+the profile binding. Once the binding is created and the Pod is created or
+recreated, the SeccompProfile should be applied to the container whose image
+name matches the binding:
+
+```sh
+$ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.seccompProfile}'
+{"localhostProfile":"operator/default/example-profiles/profile-complain.json","type":"Localhost"}
 ```
 
 ## Restricting to a Single Namespace
