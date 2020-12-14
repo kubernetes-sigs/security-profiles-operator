@@ -481,6 +481,8 @@ spec:
           readOnlyRootFilesystem: true
           runAsGroup: 2000
           runAsUser: 2000
+          seLinuxOptions:
+            type: spc_t
         volumeMounts:
         - mountPath: /var/lib/kubelet/seccomp/operator
           name: host-operator-volume

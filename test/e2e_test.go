@@ -109,13 +109,14 @@ func (e *e2e) deployOperator(manifest, profiles string) {
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to 'Never' in manifest: %s", manifest)
 	e.run(
-		"sed", "-i", "s;imagePullPolicy: Always;imagePullPolicy: Never;g",
+		"sed", "-i",
+		fmt.Sprintf("s;imagePullPolicy: Always;imagePullPolicy: %s;g", e.pullPolicy),
 		manifest,
 	)
 
 	// Update the image name to match the test image
 	e.run(
-		"sed", "-i", fmt.Sprintf("s;image: .*gcr.io/.*;image: %s;g", testImage),
+		"sed", "-i", fmt.Sprintf("s;image: .*gcr.io/.*;image: %s;g", e.testImage),
 		manifest,
 	)
 

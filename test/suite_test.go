@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,25 +38,64 @@ const (
 	kindVersion = "v0.9.0"
 	kindSHA512  = "e7152acf5fd7a4a56af825bda64b1b8343a1f91588f9b3ddd5420ae5c5a95577d87431f2e417a7e03dd23914e1da9bed855ec19d0c4602729b311baccb30bd7f" // nolint: lll
 	kindImage   = "kindest/node:v1.19.1"
-	testImage   = config.OperatorName + ":latest"
+)
+
+var (
+	clusterType      = os.Getenv("E2E_CLUSTER_TYPE")
+	containerRuntime = os.Getenv("CONTAINER_RUNTIME")
 )
 
 type e2e struct {
 	suite.Suite
-	kindPath    string
 	kubectlPath string
-	clusterName string
+	testImage   string
+	pullPolicy  string
 	logger      logr.Logger
+	execNode    func(node string, args ...string) string
+}
+
+type kinde2e struct {
+	e2e
+	kindPath    string
+	clusterName string
+}
+
+type openShifte2e struct {
+	e2e
 }
 
 func TestSuite(t *testing.T) {
-	suite.Run(t, &e2e{logger: klogr.New()})
+	fmt.Printf("cluster-type: %s\n", clusterType)
+	switch {
+	case clusterType == "" || strings.EqualFold(clusterType, "kind"):
+		suite.Run(t, &kinde2e{
+			e2e{
+				logger:     klogr.New(),
+				testImage:  config.OperatorName + ":latest",
+				pullPolicy: "Never",
+			},
+			"", "",
+		})
+	case strings.EqualFold(clusterType, "openshift"):
+		suite.Run(t, &openShifte2e{
+			e2e{
+				logger: klogr.New(),
+				// Need to pull the image as it'll be uploaded to the cluster OCP
+				// image registry and not on the nodes.
+				pullPolicy: "Always",
+			},
+		})
+	default:
+		t.Fatalf("Unknown cluster type.")
+	}
 }
 
 // SetupSuite downloads kind and searches for kubectl in $PATH.
-func (e *e2e) SetupSuite() {
+func (e *kinde2e) SetupSuite() {
 	e.logf("Setting up suite")
 	command.SetGlobalVerbose(true)
+	// Override execNode function
+	e.e2e.execNode = e.execNodeKind
 	cwd, err := os.Getwd()
 	e.Nil(err)
 
@@ -76,7 +116,7 @@ func (e *e2e) SetupSuite() {
 }
 
 // SetupTest starts a fresh kind cluster for each test.
-func (e *e2e) SetupTest() {
+func (e *kinde2e) SetupTest() {
 	// Deploy the cluster
 	e.logf("Deploying the cluster")
 	e.clusterName = fmt.Sprintf("spo-e2e-%d", time.Now().Unix())
@@ -98,20 +138,107 @@ func (e *e2e) SetupTest() {
 
 	// Build and load the test image
 	e.logf("Building operator container image")
-	e.run("make", "image", "IMAGE="+testImage)
+	e.run("make", "image", "IMAGE="+e.testImage)
 	e.logf("Loading container image into nodes")
 	e.run(
-		e.kindPath, "load", "docker-image", "--name="+e.clusterName, testImage,
+		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.testImage,
 	)
 }
 
 // TearDownTest stops the kind cluster.
-func (e *e2e) TearDownTest() {
+func (e *kinde2e) TearDownTest() {
 	e.logf("Destroying cluster")
 	e.run(
 		e.kindPath, "delete", "cluster",
 		"--name="+e.clusterName,
 		"-v=3",
+	)
+}
+
+func (e *kinde2e) execNodeKind(node string, args ...string) string {
+	return e.run(containerRuntime, append([]string{"exec", node}, args...)...)
+}
+
+func (e *openShifte2e) SetupSuite() {
+	e.logf("Setting up suite")
+	command.SetGlobalVerbose(true)
+	// Override execNode function
+	e.e2e.execNode = e.execNodeOCP
+	cwd, err := os.Getwd()
+	e.Nil(err)
+
+	parentCwd := filepath.Dir(cwd)
+	e.Nil(os.Chdir(parentCwd))
+	buildDir := filepath.Join(parentCwd, "build")
+	e.Nil(os.MkdirAll(buildDir, 0o755))
+
+	e.kubectlPath, err = exec.LookPath("oc")
+	e.Nil(err)
+
+	e.logf("Using deployed OpenShift cluster")
+
+	e.logf("Waiting for cluster to be ready")
+	e.kubectl("wait", "--for", "condition=ready", "nodes", "--all")
+
+	e.logf("Exposing registry")
+	e.kubectl("patch", "configs.imageregistry.operator.openshift.io/cluster",
+		"--patch", "{\"spec\":{\"defaultRoute\":true}}", "--type=merge")
+	defer e.kubectl("patch", "configs.imageregistry.operator.openshift.io/cluster",
+		"--patch", "{\"spec\":{\"defaultRoute\":false}}", "--type=merge")
+
+	testImageRef := config.OperatorName + ":latest"
+
+	// Build and load the test image
+	e.logf("Building operator container image")
+	e.run("make", "image", "IMAGE="+testImageRef)
+	e.logf("Loading container image into nodes")
+
+	// Get credentials
+	user := e.kubectl("whoami")
+	token := e.kubectl("whoami", "-t")
+	registry := e.kubectl(
+		"get", "route", "default-route", "-n", "openshift-image-registry",
+		"--template={{ .spec.host }}",
+	)
+
+	e.run(
+		containerRuntime, "login", "--tls-verify=false", "-u", user, "-p", token, registry,
+	)
+
+	registryTarget := fmt.Sprintf("%s/openshift/%s", registry, testImageRef)
+	e.run(
+		containerRuntime, "push", "--tls-verify=false", testImageRef, registryTarget,
+	)
+	// Enable "local" lookup without full path
+	e.kubectl("patch", "imagestream", "-n", "openshift", config.OperatorName,
+		"--patch", "{\"spec\":{\"lookupPolicy\":{\"local\":true}}}", "--type=merge")
+
+	e.testImage = e.kubectl(
+		"get", "imagestreamtag", "-n", "openshift", testImageRef, "-o", "jsonpath={.image.dockerImageReference}",
+	)
+}
+
+func (e *openShifte2e) TearDownSuite() {
+	testImageRef := config.OperatorName + ":latest"
+	e.kubectl(
+		"delete", "imagestream", "-n", "openshift", testImageRef,
+	)
+}
+
+func (e *openShifte2e) SetupTest() {
+	e.logf("Setting up test")
+}
+
+// TearDownTest stops the kind cluster.
+func (e *openShifte2e) TearDownTest() {
+	e.logf("Tearing down test")
+}
+
+func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
+	return e.kubectl(
+		"debug", "-q", fmt.Sprintf("node/%s", node), "--",
+		"chroot", "/host", "/bin/bash", "-c",
+		strings.Join(args, " "),
 	)
 }
 
@@ -160,8 +287,4 @@ func (e *e2e) kubectlOperatorNS(args ...string) string {
 
 func (e *e2e) logf(format string, a ...interface{}) {
 	e.logger.Info(fmt.Sprintf(format, a...))
-}
-
-func (e *e2e) execNode(node string, args ...string) string {
-	return e.run("docker", append([]string{"exec", node}, args...)...)
 }
