@@ -143,7 +143,7 @@ func (e *kinde2e) SetupTest() {
 
 	// Wait for the nodes to  be ready
 	e.logf("Waiting for cluster to be ready")
-	e.kubectl("wait", "--for", "condition=ready", "nodes", "--all")
+	e.kubectl("wait", "--for", "condition=ready", "nodes", "--all", "--timeout=120s")
 
 	// Build and load the test image
 	e.logf("Building operator container image")

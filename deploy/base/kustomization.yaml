@@ -36,6 +36,9 @@ resources:
   - rbac.yaml
   - operator.yaml
   - config.yaml
+  - certificate.yaml
+  - webhookconfig.yaml
+  - service.yaml
 
 configMapGenerator:
   - name: security-profiles-operator-profile
