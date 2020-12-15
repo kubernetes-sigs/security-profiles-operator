@@ -53,6 +53,8 @@ REPO_INFRA_VERSION = v0.1.2
 
 export E2E_CLUSTER_TYPE ?= kind
 
+DOCKERFILE ?= Dockerfile
+
 # Utility targets
 
 all: $(BUILD_DIR)/$(PROJECT) ## Build the security-profiles-operator binary
@@ -99,7 +101,7 @@ deployments: manifests ## Generate the deployment files with kustomize
 
 .PHONY: image
 image: ## Build the container image
-	$(CONTAINER_RUNTIME) build --build-arg version=$(VERSION) -t $(IMAGE) .
+	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) --build-arg version=$(VERSION) -t $(IMAGE) .
 
 # Verification targets
 
