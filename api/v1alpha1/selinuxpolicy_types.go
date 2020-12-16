@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -42,6 +43,7 @@ const (
 
 // SelinuxPolicyStatus defines the observed state of SelinuxPolicy.
 type SelinuxPolicyStatus struct {
+	rcommonv1.ConditionedStatus `json:",inline"`
 	// Represents the string that the SelinuxPolicy object can be
 	// referenced as in a pod seLinuxOptions section.
 	Usage string `json:"usage,omitempty"`

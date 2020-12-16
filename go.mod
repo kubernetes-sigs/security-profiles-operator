@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/containers/common v0.29.0
-	github.com/crossplane/crossplane-runtime v0.11.0
+	github.com/crossplane/crossplane-runtime v0.12.0
 	github.com/go-logr/logr v0.3.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.6.1

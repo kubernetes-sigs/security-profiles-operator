@@ -22,6 +22,7 @@ import (
 	"strings"
 	"text/template"
 
+	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -71,9 +72,10 @@ func (r *ReconcileSP) Reconcile(request reconcile.Request) (reconcile.Result, er
 	}
 
 	// Set up an initial state
-	policyCopy := instance.DeepCopy()
-	if policyCopy.Status.State == "" {
+	if instance.Status.State == "" {
+		policyCopy := instance.DeepCopy()
 		policyCopy.Status.State = spov1alpha1.PolicyStatePending
+		policyCopy.Status.SetConditions(rcommonv1.Creating())
 		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
 			return reconcile.Result{}, errors.Wrap(err, "Updating SelinuxPolicy status to PENDING")
 		}
@@ -85,6 +87,7 @@ func (r *ReconcileSP) Reconcile(request reconcile.Request) (reconcile.Result, er
 	if !instance.Spec.Apply {
 		policyCopy := instance.DeepCopy()
 		policyCopy.Status.State = spov1alpha1.PolicyStatePending
+		policyCopy.Status.SetConditions(rcommonv1.Unavailable())
 		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
 			return reconcile.Result{}, errors.Wrap(err, "Updating SelinuxPolicy status to PENDING")
 		}
@@ -106,6 +109,17 @@ func (r *ReconcileSP) Reconcile(request reconcile.Request) (reconcile.Result, er
 	}
 
 	// The object is being deleted
+
+	// Set appropriate condition if needed.
+	if !instance.Status.GetCondition(rcommonv1.TypeReady).Equal(rcommonv1.Deleting()) {
+		policyCopy := instance.DeepCopy()
+		policyCopy.Status.SetConditions(rcommonv1.Deleting())
+		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
+			return reconcile.Result{}, errors.Wrap(err, "Updating SelinuxPolicy status condition to indicate deletion")
+		}
+		return reconcile.Result{}, nil
+	}
+
 	if SliceContainsString(instance.ObjectMeta.Finalizers, selinuxFinalizerName) {
 		if err := r.deleteConfigMap(instance, reqLogger); err != nil {
 			return reconcile.Result{}, err

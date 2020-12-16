@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -77,6 +78,7 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 
 	if policyCopy.Status.State == "" || policyCopy.Status.State == spov1alpha1.PolicyStatePending {
 		policyCopy.Status.State = spov1alpha1.PolicyStateInProgress
+		policyCopy.Status.SetConditions(rcommonv1.Creating())
 		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
 			return reconcile.Result{}, errors.Wrap(err, "Updating policy without status")
 		}
@@ -119,6 +121,7 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 		if exitCode != 0 {
 			reqLogger.Info("Pod failed", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name, "exit-code", exitCode)
 			policyCopy.Status.State = spov1alpha1.PolicyStateError
+			policyCopy.Status.SetConditions(rcommonv1.Unavailable())
 			if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
 				return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with install error")
 			}
@@ -126,6 +129,7 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 		}
 	}
 	policyCopy.Status.State = spov1alpha1.PolicyStateInstalled
+	policyCopy.Status.SetConditions(rcommonv1.Available())
 	if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation success")
 	}
