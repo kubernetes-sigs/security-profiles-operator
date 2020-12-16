@@ -1,0 +1,54 @@
+# Copyright 2020 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+FROM registry.access.redhat.com/ubi8/go-toolset:latest AS build
+USER root
+WORKDIR /work
+
+# Speed up build by leveraging docker layer caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+ADD . /work
+RUN mkdir -p build
+
+ENV LINKMODE_EXTERNAL=no
+RUN make
+
+FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
+ARG version
+USER root
+
+LABEL name="Security Profiles Operator" \
+      version=$version \
+      description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, SELinux or AppArmor profiles and apply them to Kubernetes' workloads."
+
+RUN microdnf install -y shadow-utils
+
+ENV USER=secuser
+ENV UID=2000
+# See https://stackoverflow.com/a/55757473/12429735
+RUN adduser \
+    -c "" \
+    --home "/nonexistent" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
+    "${USER}"
+
+COPY --from=build /work/build/security-profiles-operator /usr/bin/
+
+ENTRYPOINT ["/usr/bin/security-profiles-operator"]
+
+USER ${UID}
