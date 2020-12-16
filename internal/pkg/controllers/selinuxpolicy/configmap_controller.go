@@ -23,6 +23,7 @@ import (
 
 	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -74,9 +75,9 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 	if err := r.client.Get(context.TODO(), policyObjKey, policy); err != nil {
 		return reconcile.Result{}, IgnoreNotFound(err)
 	}
-	policyCopy := policy.DeepCopy()
 
-	if policyCopy.Status.State == "" || policyCopy.Status.State == spov1alpha1.PolicyStatePending {
+	if policy.Status.State == "" || policy.Status.State == spov1alpha1.PolicyStatePending {
+		policyCopy := policy.DeepCopy()
 		policyCopy.Status.State = spov1alpha1.PolicyStateInProgress
 		policyCopy.Status.SetConditions(rcommonv1.Creating())
 		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
@@ -85,7 +86,13 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 		return reconcile.Result{Requeue: true}, nil
 	}
 
-	reqLogger.Info("Reconciling pods for policy")
+	return r.reconcileInstallerPods(policy, cminstance, reqLogger)
+}
+
+func (r *ReconcileConfigMap) reconcileInstallerPods(policy *spov1alpha1.SelinuxPolicy, cm *corev1.ConfigMap,
+	logger logr.Logger) (reconcile.Result, error) {
+	var done bool
+	logger.Info("Reconciling pods for policy")
 
 	nodesList := &corev1.NodeList{}
 	if err := r.client.List(context.TODO(), nodesList); err != nil {
@@ -93,8 +100,8 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 	}
 	for nodeidx := range nodesList.Items {
 		// Define a new Pod object
-		pod := newPodForPolicy(policyName, policyNamespace, &nodesList.Items[nodeidx])
-		if err := controllerutil.SetControllerReference(cminstance, pod, r.scheme); err != nil {
+		pod := newPodForPolicy(policy.GetName(), policy.GetNamespace(), &nodesList.Items[nodeidx])
+		if err := controllerutil.SetControllerReference(cm, pod, r.scheme); err != nil {
 			log.Error(err, "Failed to set pod ownership", "pod", pod)
 			return reconcile.Result{}, errors.Wrap(err, "Setting controller reference for SELinux installer pod")
 		}
@@ -103,10 +110,12 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 		found := &corev1.Pod{}
 		err := r.client.Get(context.TODO(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, found)
 		if err != nil && kerrors.IsNotFound(err) {
-			reqLogger.Info("Creating a new Pod", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
+			logger.Info("Creating a new Pod", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
 			if err = r.client.Create(context.TODO(), pod); err != nil {
 				return reconcile.Result{}, IgnoreAlreadyExists(err)
 			}
+			// NOTE(jaosorior): We expedite the creation of all
+			// these pods...
 			continue
 		} else if err != nil {
 			return reconcile.Result{}, errors.Wrap(err, "Gettting selinux installer Pod")
@@ -115,11 +124,12 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 		exitCode, gotCode := r.getInstallerContainerExitCode(found)
 		// Pod is still running - requeue
 		if !gotCode {
-			reqLogger.Info("Pod still running", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
+			logger.Info("Pod still running", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
 			return reconcile.Result{Requeue: true, RequeueAfter: defaultRequeueTime}, nil
 		}
 		if exitCode != 0 {
-			reqLogger.Info("Pod failed", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name, "exit-code", exitCode)
+			logger.Info("Pod failed", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name, "exit-code", exitCode)
+			policyCopy := policy.DeepCopy()
 			policyCopy.Status.State = spov1alpha1.PolicyStateError
 			policyCopy.Status.SetConditions(rcommonv1.Unavailable())
 			if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
@@ -127,11 +137,16 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 			}
 			return reconcile.Result{}, nil
 		}
+		done = true
 	}
-	policyCopy.Status.State = spov1alpha1.PolicyStateInstalled
-	policyCopy.Status.SetConditions(rcommonv1.Available())
-	if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation success")
+
+	if done {
+		policyCopy := policy.DeepCopy()
+		policyCopy.Status.State = spov1alpha1.PolicyStateInstalled
+		policyCopy.Status.SetConditions(rcommonv1.Available())
+		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
+			return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation success")
+		}
 	}
 	return reconcile.Result{}, nil
 }
