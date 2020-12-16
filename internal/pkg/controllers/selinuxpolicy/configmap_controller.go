@@ -172,13 +172,6 @@ func newPodForPolicy(name, ns string, node *corev1.Node) *corev1.Pod {
 					Image:   "quay.io/jaosorior/udica",
 					Command: []string{"/bin/sh"},
 					Args:    []string{"-c", "semodule -vi /tmp/policy/*.cil /usr/share/udica/templates/*cil;"},
-					Lifecycle: &corev1.Lifecycle{
-						PreStop: &corev1.Handler{
-							Exec: &corev1.ExecAction{
-								Command: []string{"/bin/sh", "-c", fmt.Sprintf("semodule -vr '%s'", GetPolicyName(name, ns))},
-							},
-						},
-					},
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: &trueVal,
 					},
@@ -208,7 +201,7 @@ func newPodForPolicy(name, ns string, node *corev1.Node) *corev1.Pod {
 					// more formal registry
 					Image:   "quay.io/jaosorior/udica",
 					Command: []string{"/bin/sh"},
-					Args:    []string{"-c", "while true; do sleep 30; done;"},
+					Args:    []string{"-c", "trap 'exit 0' SIGINT SIGTERM; while true; do sleep infinity; done;"},
 					Lifecycle: &corev1.Lifecycle{
 						PreStop: &corev1.Handler{
 							Exec: &corev1.ExecAction{
