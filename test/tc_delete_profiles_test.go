@@ -18,8 +18,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"io/ioutil"
-	"os"
 	"time"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
@@ -152,16 +150,4 @@ spec:
 		e.kubectl("delete", "pod", deletePodName)
 		e.kubectlFailure("get", "seccompprofile", deleteProfileName)
 	}
-}
-
-func (e *e2e) writeAndCreate(manifest, filePattern string) func() {
-	file, err := ioutil.TempFile(os.TempDir(), filePattern)
-	fileName := file.Name()
-	e.Nil(err)
-	_, err = file.Write([]byte(manifest))
-	e.Nil(err)
-	err = file.Close()
-	e.Nil(err)
-	e.kubectl("create", "-f", fileName)
-	return func() { os.Remove(fileName) }
 }

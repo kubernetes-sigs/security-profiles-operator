@@ -219,9 +219,8 @@ func (e *openShifte2e) SetupSuite() {
 }
 
 func (e *openShifte2e) TearDownSuite() {
-	testImageRef := config.OperatorName + ":latest"
 	e.kubectl(
-		"delete", "imagestream", "-n", "openshift", testImageRef,
+		"delete", "imagestream", "-n", "openshift", config.OperatorName,
 	)
 }
 
@@ -287,4 +286,12 @@ func (e *e2e) kubectlOperatorNS(args ...string) string {
 
 func (e *e2e) logf(format string, a ...interface{}) {
 	e.logger.Info(fmt.Sprintf(format, a...))
+}
+
+func (e *e2e) selinuxtOnlyTestCase() {
+	// TODO(jaosorior): Come up with better way to assert if a cluster
+	// supports SELinux or not.
+	if !strings.EqualFold(clusterType, "openshift") {
+		e.T().Skip("Skipping SELinux-related test from non-OpenShift cluster")
+	}
 }
