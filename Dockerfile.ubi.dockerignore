@@ -1,0 +1,10 @@
+# Exclude test files
+*_test.go
+test/
+.git/
+build/
+_output
+examples/
+hack/
+*.md
+Dockerfile.*
