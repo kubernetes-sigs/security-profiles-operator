@@ -11,7 +11,7 @@ type AppArmorProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec AppArmorProfileSpec `json:"spec"`
+	Spec   AppArmorProfileSpec   `json:"spec"`
 	Status AppArmorProfileStatus `json:"status"`
 }
 
@@ -32,5 +32,3 @@ type AppArmorProfileStatus struct {
 func init() { //nolint:gochecknoinits
 	SchemeBuilder.Register(&AppArmorProfile{}, &AppArmorProfileList{})
 }
-
-

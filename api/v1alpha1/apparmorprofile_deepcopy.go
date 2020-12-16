@@ -13,7 +13,7 @@ func (in *AppArmorProfile) DeepCopyInto(out *AppArmorProfile) {
 	}
 }
 
-// DeepCopyObject returns a generically typed copy of an object
+// DeepCopyObject returns a generically typed copy of an object.
 func (in *AppArmorProfile) DeepCopyObject() runtime.Object {
 	out := AppArmorProfile{}
 	in.DeepCopyInto(&out)
@@ -21,7 +21,7 @@ func (in *AppArmorProfile) DeepCopyObject() runtime.Object {
 	return &out
 }
 
-// DeepCopyObject returns a generically typed copy of an object
+// DeepCopyObject returns a generically typed copy of an object.
 func (in *AppArmorProfileList) DeepCopyObject() runtime.Object {
 	out := AppArmorProfileList{}
 	out.TypeMeta = in.TypeMeta
