@@ -2,7 +2,6 @@ apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SelinuxPolicy
 metadata:
   name: errorlogger
-  namespace: default
 spec:
   apply: true
   policy: |
