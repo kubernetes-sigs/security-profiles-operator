@@ -86,7 +86,11 @@ func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Res
 		return reconcile.Result{Requeue: true}, nil
 	}
 
-	return r.reconcileInstallerPods(policy, cminstance, reqLogger)
+	// object is not being deleted
+	if cminstance.ObjectMeta.DeletionTimestamp.IsZero() {
+		return r.reconcileInstallerPods(policy, cminstance, reqLogger)
+	}
+	return reconcile.Result{}, nil
 }
 
 func (r *ReconcileConfigMap) reconcileInstallerPods(policy *spov1alpha1.SelinuxPolicy, cm *corev1.ConfigMap,
