@@ -19,6 +19,8 @@ package e2e_test
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"strings"
 
 	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
@@ -31,9 +33,13 @@ const (
 	namespaceDefaultProfiles = "deploy/profiles/namespace-default-profiles.yaml"
 	testNamespace            = "test-ns"
 	defaultNamespace         = "default"
+	// NOTE(jaosorior): We should be able to decrease this once we
+	// migrate to a single daemonset-based implementation for the
+	// SELinux pieces.
+	defaultSelinuxOpTimeout = "180s"
 )
 
-func (e *e2e) TestSeccompOperator() {
+func (e *e2e) TestSecurityProfilesOperator() {
 	// Deploy the operator
 	e.deployOperator(manifest, defaultProfiles)
 	defer e.run("git", "checkout", manifest)
@@ -49,24 +55,32 @@ func (e *e2e) TestSeccompOperator() {
 		fn          func(nodes []string)
 	}{
 		{
-			"Verify default and example profiles",
+			"Seccomp: Verify default and example profiles",
 			e.testCaseDefaultAndExampleProfiles,
 		},
 		{
-			"Run a test pod",
+			"Seccomp: Run a test pod",
 			e.testCaseRunPod,
 		},
 		{
-			"Verify base profile merge",
+			"Seccomp: Verify base profile merge",
 			e.testCaseBaseProfile,
 		},
 		{
-			"Delete profiles",
+			"Seccomp: Delete profiles",
 			e.testCaseDeleteProfiles,
 		},
 		{
-			"Re-deploy the operator",
+			"Seccomp: Re-deploy the operator",
 			e.testCaseReDeployOperator,
+		},
+		{
+			"SELinux: sanity check",
+			e.testCaseSelinuxSanityCheck,
+		},
+		{
+			"SELinux: base case (install policy, run pod and delete)",
+			e.testCaseSelinuxBaseUsage,
 		},
 	}
 	for _, testCase := range testCases {
@@ -107,7 +121,7 @@ func (e *e2e) TestSeccompOperator() {
 func (e *e2e) deployOperator(manifest, profiles string) {
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
-	e.logf("Setting imagePullPolicy to 'Never' in manifest: %s", manifest)
+	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
 	e.run(
 		"sed", "-i",
 		fmt.Sprintf("s;imagePullPolicy: Always;imagePullPolicy: %s;g", e.pullPolicy),
@@ -168,4 +182,31 @@ func (e *e2e) getCurrentContextNamespace(alt string) string {
 		ctxns = alt
 	}
 	return ctxns
+}
+
+func (e *e2e) writeAndCreate(manifest, filePattern string) func() {
+	file, err := ioutil.TempFile(os.TempDir(), filePattern)
+	fileName := file.Name()
+	e.Nil(err)
+	_, err = file.Write([]byte(manifest))
+	e.Nil(err)
+	err = file.Close()
+	e.Nil(err)
+	e.kubectl("create", "-f", fileName)
+	return func() { os.Remove(fileName) }
+}
+
+func (e *e2e) getSELinuxPolicyName(policy string) string {
+	usageStr := e.getSELinuxPolicyUsage(policy)
+	// Udica (the library that helps out generate SELinux policies),
+	// adds .process in the end of the usage. So we need to remove it
+	// to get the module name
+	return strings.TrimSuffix(usageStr, ".process")
+}
+
+func (e *e2e) getSELinuxPolicyUsage(policy string) string {
+	ns := e.getCurrentContextNamespace(defaultNamespace)
+	// This describes the usage string, which is not necessarily
+	// the name of the policy in the node
+	return e.kubectl("get", "selinuxpolicy", "-n", ns, policy, "-o", "jsonpath={.status.usage}")
 }
