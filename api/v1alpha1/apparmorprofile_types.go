@@ -11,8 +11,8 @@ type AppArmorProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AppArmorProfileSpec   `json:"spec"`
-	Status AppArmorProfileStatus `json:"status"`
+	Spec   AppArmorProfileSpec   `json:"spec,omitempty"`
+	Status AppArmorProfileStatus `json:"status,omitempty"`
 }
 
 type AppArmorProfileList struct {
