@@ -121,10 +121,12 @@ func (r *ReconcileSP) Reconcile(request reconcile.Request) (reconcile.Result, er
 	}
 
 	if SliceContainsString(instance.ObjectMeta.Finalizers, selinuxFinalizerName) {
-		if err := r.deleteConfigMap(instance, reqLogger); err != nil {
-			return reconcile.Result{}, err
+		res, err := r.reconcileDeleteConfigMap(instance, reqLogger)
+		if res.Requeue || err != nil {
+			return res, err
 		}
 
+		// We only remove the finalizer once the ConfigMap is deleted
 		return r.removeFinalizer(instance)
 	}
 
@@ -179,11 +181,19 @@ func (r *ReconcileSP) reconcileConfigMap(sp *spov1alpha1.SelinuxPolicy, l logr.L
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSP) deleteConfigMap(instance *spov1alpha1.SelinuxPolicy, logger logr.Logger) error {
+func (r *ReconcileSP) reconcileDeleteConfigMap(sp *spov1alpha1.SelinuxPolicy, l logr.Logger) (reconcile.Result, error) {
 	// Define a new ConfigMap object
-	cm := r.newConfigMapForPolicy(instance)
-	logger.Info("Deleting ConfigMap", "ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
-	return IgnoreNotFound(r.client.Delete(context.TODO(), cm))
+	cm := r.newConfigMapForPolicy(sp)
+	key := types.NamespacedName{Name: cm.Name, Namespace: cm.Namespace}
+	l.Info("Deleting ConfigMap", "ConfigMap.Namespace", cm.Namespace, "ConfigMap.Name", cm.Name)
+	if getErr := r.client.Get(context.TODO(), key, cm); getErr != nil {
+		if kerrors.IsNotFound(getErr) {
+			// this is good. Nothing to do.
+			return reconcile.Result{}, nil
+		}
+	}
+	// We still need to delete this
+	return reconcile.Result{Requeue: true}, IgnoreNotFound(r.client.Delete(context.TODO(), cm))
 }
 
 func (r *ReconcileSP) newConfigMapForPolicy(cr *spov1alpha1.SelinuxPolicy) *corev1.ConfigMap {
@@ -199,6 +209,9 @@ func (r *ReconcileSP) newConfigMapForPolicy(cr *spov1alpha1.SelinuxPolicy) *core
 			Name:      GetPolicyConfigMapName(cr.Name, cr.Namespace),
 			Namespace: GetOperatorNamespace(),
 			Labels:    labels,
+			Finalizers: []string{
+				metav1.FinalizerDeleteDependents,
+			},
 		},
 		Data: map[string]string{
 			GetPolicyName(cr.Name, cr.Namespace) + ".cil": r.wrapPolicy(cr),
