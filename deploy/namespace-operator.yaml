@@ -32,13 +32,18 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SeccompProfile is a cluster level specification for a seccomp profile. See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
+        description: SeccompProfile is a cluster level specification for a seccomp
+          profile. See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -72,7 +77,8 @@ spec:
                   type: string
                 type: array
               baseProfileName:
-                description: name of base profile (in the same namespace) what will be unioned into this profile
+                description: name of base profile (in the same namespace) what will
+                  be unioned into this profile
                 type: string
               defaultAction:
                 description: the default action for seccomp
@@ -96,7 +102,11 @@ spec:
                   type: string
                 type: array
               syscalls:
-                description: match a syscall in seccomp. While this property is OPTIONAL, some values of defaultAction are not useful without syscalls entries. For example, if defaultAction is SCMP_ACT_KILL and syscalls is empty or unset, the kernel will kill the container process on its first syscall
+                description: match a syscall in seccomp. While this property is OPTIONAL,
+                  some values of defaultAction are not useful without syscalls entries.
+                  For example, if defaultAction is SCMP_ACT_KILL and syscalls is empty
+                  or unset, the kernel will kill the container process on its first
+                  syscall
                 items:
                   description: Syscall defines a syscall in seccomp.
                   properties:
@@ -149,7 +159,9 @@ spec:
                       maxItems: 6
                       type: array
                     errnoRet:
-                      description: the errno return code to use. Some actions like SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno code to return
+                      description: the errno return code to use. Some actions like
+                        SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
+                        code to return
                       type: string
                     names:
                       description: the names of the syscalls
@@ -162,7 +174,8 @@ spec:
                   type: object
                 type: array
               targetWorkload:
-                description: the type of application workload for which the profile is targeted. Will be a subdirectory in the profile path on disk.
+                description: the type of application workload for which the profile
+                  is targeted. Will be a subdirectory in the profile path on disk.
                 type: string
             required:
             - defaultAction
@@ -176,7 +189,8 @@ spec:
                   type: string
                 type: array
               localhostProfile:
-                description: The path that should be provided to the `securityContext.seccompProfile.localhostProfile` field of a Pod or container spec
+                description: The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
+                  field of a Pod or container spec
                 type: string
               path:
                 type: string
@@ -218,10 +232,14 @@ spec:
       openAPIV3Schema:
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -291,10 +309,14 @@ spec:
         description: SelinuxPolicy is the Schema for the selinuxpolicies API.
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -338,10 +360,12 @@ spec:
                   type: object
                 type: array
               state:
-                description: 'Represents the state that the policy is in. Can be: PENDING, IN-PROGRESS, INSTALLED or ERROR'
+                description: 'Represents the state that the policy is in. Can be:
+                  PENDING, IN-PROGRESS, INSTALLED or ERROR'
                 type: string
               usage:
-                description: Represents the string that the SelinuxPolicy object can be referenced as in a pod seLinuxOptions section.
+                description: Represents the string that the SelinuxPolicy object can
+                  be referenced as in a pod seLinuxOptions section.
                 type: string
             type: object
         type: object
