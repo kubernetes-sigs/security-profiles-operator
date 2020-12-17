@@ -41,7 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 

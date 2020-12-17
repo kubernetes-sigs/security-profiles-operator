@@ -29,7 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 )
 
 var log = logf.Log.WithName("selinuxpolicy")

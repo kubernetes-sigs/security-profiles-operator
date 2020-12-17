@@ -23,7 +23,7 @@ import (
 	"os"
 	"strings"
 
-	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 )
 
 const (
