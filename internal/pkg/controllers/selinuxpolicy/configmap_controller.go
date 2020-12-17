@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 )
 
 // blank assignment to verify that ReconcileConfigMap implements `reconcile.Reconciler`.

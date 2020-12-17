@@ -26,7 +26,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
@@ -123,7 +124,7 @@ func run(ctx *cli.Context) error {
 			fatalErrors <- errors.Wrap(err, "create manager")
 		}
 
-		if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 			fatalErrors <- errors.Wrap(err, "add core operator APIs to scheme")
 		}
 
@@ -154,7 +155,7 @@ func run(ctx *cli.Context) error {
 			fatalErrors <- errors.Wrap(err, "create cluster manager")
 		}
 
-		if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		if err := selinuxpolicyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 			fatalErrors <- errors.Wrap(err, "add core operator APIs to scheme")
 		}
 

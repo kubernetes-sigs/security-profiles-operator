@@ -22,7 +22,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	v1alpha1 "sigs.k8s.io/security-profiles-operator/api/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
 )

@@ -149,9 +149,10 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 test-e2e: ## Run the end-to-end tests
 	$(GO) test -timeout 40m -count=1 ./test/... -v
 
-# Generate CRD manifest
+# Generate CRD manifests
 manifests:
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/..." output:crd:stdout > deploy/base/crd.yaml
+	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crd.yaml
+	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/selinuxpolicy/..." output:crd:stdout >> deploy/base/crd.yaml
 
 # Generate deepcopy code
 generate:
