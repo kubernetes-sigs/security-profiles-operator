@@ -22,6 +22,7 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"time"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 )
@@ -37,6 +38,7 @@ const (
 	// migrate to a single daemonset-based implementation for the
 	// SELinux pieces.
 	defaultSelinuxOpTimeout = "180s"
+	defaultWaitTime         = 5 * time.Second
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {
@@ -127,10 +129,18 @@ func (e *e2e) deployOperator(manifest, profiles string) {
 		fmt.Sprintf("s;imagePullPolicy: Always;imagePullPolicy: %s;g", e.pullPolicy),
 		manifest,
 	)
+	e.run(
+		"sed", "-i", fmt.Sprintf("s;SPOdImagePullPolicy: Always;SPOdImagePullPolicy: %s;g", e.pullPolicy),
+		manifest,
+	)
 
 	// Update the image name to match the test image
 	e.run(
 		"sed", "-i", fmt.Sprintf("s;image: .*gcr.io/.*;image: %s;g", e.testImage),
+		manifest,
+	)
+	e.run(
+		"sed", "-i", fmt.Sprintf("s;value: .*gcr.io/.*;value: %s;g", e.testImage),
 		manifest,
 	)
 
@@ -144,7 +154,13 @@ func (e *e2e) deployOperator(manifest, profiles string) {
 
 	// Wait for the operator to be ready
 	e.logf("Waiting for operator to be ready")
-	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "--all")
+	// Wait for deployment
+	e.kubectlOperatorNS("wait", "--for", "condition=available", "deployment", "-l", "app=security-profiles-operator")
+	// Wait for all pods in deployment
+	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "-l", "app=security-profiles-operator")
+	// Wait for all pods in DaemonSet
+	time.Sleep(defaultWaitTime)
+	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "-l", "app=spod")
 }
 
 func (e *e2e) cleanupOperator(manifest, profiles string) {

@@ -74,19 +74,6 @@ func GetPolicyConfigMapName(name, ns string) string {
 	return namePrefix + "-" + GetPolicyK8sName(name, ns)
 }
 
-// GetOperatorNamespace gets the namespace that the operator is currently running on.
-func GetOperatorNamespace() string {
-	// TODO(jaosorior): Get a method to return the current operator
-	// namespace.
-	//
-	// operatorNs, err := k8sutil.GetOperatorNamespace()
-	// if err != nil {
-	// 	return "security-profiles-operator"
-	// }
-	// return operatorNs
-	return "security-profiles-operator"
-}
-
 // SliceContainsString helper function to check if a string is in a slice of strings.
 func SliceContainsString(slice []string, s string) bool {
 	for _, item := range slice {

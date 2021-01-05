@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 // The underscore is not a valid character in a pod, so we can
@@ -207,7 +208,7 @@ func (r *ReconcileSP) newConfigMapForPolicy(cr *spov1alpha1.SelinuxPolicy) *core
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      GetPolicyConfigMapName(cr.Name, cr.Namespace),
-			Namespace: GetOperatorNamespace(),
+			Namespace: config.GetOperatorNamespace(),
 			Labels:    labels,
 			Finalizers: []string{
 				metav1.FinalizerDeleteDependents,

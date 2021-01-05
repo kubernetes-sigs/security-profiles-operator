@@ -32,3 +32,16 @@ const (
 	// the name of the current node.
 	NodeNameEnvKey = "NODE_NAME"
 )
+
+// GetOperatorNamespace gets the namespace that the operator is currently running on.
+func GetOperatorNamespace() string {
+	// TODO(jaosorior): Get a method to return the current operator
+	// namespace.
+	//
+	// operatorNs, err := k8sutil.GetOperatorNamespace()
+	// if err != nil {
+	// 	return "security-profiles-operator"
+	// }
+	// return operatorNs
+	return "security-profiles-operator"
+}

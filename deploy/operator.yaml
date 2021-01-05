@@ -334,6 +334,21 @@ rules:
   - create
   - patch
 - apiGroups:
+  - apps
+  resources:
+  - deployments
+  - daemonsets
+  - replicasets
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - seccompprofiles
@@ -460,138 +475,59 @@ subjects:
   namespace: security-profiles-operator
 ---
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator
   namespace: security-profiles-operator
 spec:
+  replicas: 3
   selector:
     matchLabels:
       app: security-profiles-operator
       name: security-profiles-operator
   template:
     metadata:
-      annotations:
-        container.seccomp.security.alpha.kubernetes.io/security-profiles-operator: localhost/security-profiles-operator.json
-        openshift.io/scc: privileged
-        seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
         app: security-profiles-operator
         name: security-profiles-operator
     spec:
       containers:
-      - env:
-        - name: NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
+      - args:
+        - manager
+        env:
+        - name: RELATED_IMAGE_OPERATOR
+          value: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
+        - name: RELATED_IMAGE_NON_ROOT_ENABLER
+          value: bash:5.0
         image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
         imagePullPolicy: Always
         name: security-profiles-operator
-        resources:
-          limits:
-            cpu: 300m
-            ephemeral-storage: 200Mi
-            memory: 128Mi
-          requests:
-            cpu: 100m
-            ephemeral-storage: 50Mi
-            memory: 64Mi
         securityContext:
           allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
           readOnlyRootFilesystem: true
-          runAsGroup: 2000
-          runAsUser: 2000
-          seLinuxOptions:
-            type: spc_t
-        volumeMounts:
-        - mountPath: /var/lib/kubelet/seccomp/operator
-          name: host-operator-volume
-      initContainers:
-      - args:
-        - |
-          set -euo pipefail
-
-          if [ ! -d $KUBELET_SECCOMP_ROOT ]; then
-            /bin/mkdir -m 0744 -p $KUBELET_SECCOMP_ROOT
-          fi
-
-          /bin/mkdir -p $OPERATOR_ROOT
-          /bin/chmod 0744 $OPERATOR_ROOT
-
-          if [ ! -L $OPERATOR_SYMLINK ]; then
-            /bin/ln -s $OPERATOR_ROOT $OPERATOR_SYMLINK
-          fi
-
-          /bin/chown -R 2000:2000 $OPERATOR_ROOT
-          cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
-        command:
-        - bash
-        - -c
-        env:
-        - name: KUBELET_SECCOMP_ROOT
-          value: /var/lib/kubelet/seccomp
-        - name: OPERATOR_SYMLINK
-          value: $(KUBELET_SECCOMP_ROOT)/operator
-        - name: OPERATOR_ROOT
-          value: /var/lib/security-profiles-operator
-        image: bash:5.0
-        name: non-root-enabler
-        resources:
-          limits:
-            cpu: 250m
-            ephemeral-storage: 50Mi
-            memory: 64Mi
-          requests:
-            cpu: 100m
-            ephemeral-storage: 10Mi
-            memory: 32Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            add:
-            - CHOWN
-            - FOWNER
-            - FSETID
-            - DAC_OVERRIDE
-            drop:
-            - ALL
-          readOnlyRootFilesystem: true
-          runAsUser: 0
-          seLinuxOptions:
-            type: spc_t
-        volumeMounts:
-        - mountPath: /var/lib
-          name: host-varlib-volume
-        - mountPath: /opt/seccomp-profiles
-          name: profile-configmap-volume
-          readOnly: true
       nodeSelector:
-        kubernetes.io/os: linux
+        node-role.kubernetes.io/master: ""
       serviceAccountName: security-profiles-operator
       tolerations:
       - effect: NoSchedule
         key: node-role.kubernetes.io/master
+        operator: Exists
       - effect: NoExecute
         key: node.kubernetes.io/not-ready
         operator: Exists
-      volumes:
-      - hostPath:
-          path: /var/lib
-          type: Directory
-        name: host-varlib-volume
-      - hostPath:
-          path: /var/lib/security-profiles-operator
-          type: DirectoryOrCreate
-        name: host-operator-volume
-      - configMap:
-          name: security-profiles-operator-profile
-        name: profile-configmap-volume
+---
+apiVersion: v1
+data:
+  SPOdImagePullPolicy: Always
+kind: ConfigMap
+metadata:
+  labels:
+    app: security-profiles-operator
+    security-profiles-operator/config: ""
+  name: config
+  namespace: security-profiles-operator
 ---
 apiVersion: v1
 data:
