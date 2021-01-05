@@ -7,7 +7,7 @@ bases:
   - ../cluster
 
 patchesStrategicMerge:
-  - daemonset.yaml
+  - deployment.yaml
 
 patchesJson6902:
   - target:

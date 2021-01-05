@@ -1,128 +1,40 @@
 ---
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
   name: security-profiles-operator
   namespace: security-profiles-operator
 spec:
+  replicas: 3
   selector:
     matchLabels:
       name: security-profiles-operator
   template:
     metadata:
-      annotations:
-        openshift.io/scc: privileged
-        seccomp.security.alpha.kubernetes.io/pod: runtime/default
-        container.seccomp.security.alpha.kubernetes.io/security-profiles-operator: localhost/security-profiles-operator.json
       labels:
         name: security-profiles-operator
     spec:
       serviceAccountName: security-profiles-operator
-      initContainers:
-        - name: non-root-enabler
-          image: bash
-          # Creates folder /var/lib/security-profiles-operator, sets 2000:2000 as its
-          # owner and symlink it to /var/lib/kubelet/seccomp/operator. This is
-          # required to allow the main container to run as non-root.
-          command: [bash, -c]
-          args:
-            - |+
-              set -euo pipefail
-
-              if [ ! -d $KUBELET_SECCOMP_ROOT ]; then
-                /bin/mkdir -m 0744 -p $KUBELET_SECCOMP_ROOT
-              fi
-
-              /bin/mkdir -p $OPERATOR_ROOT
-              /bin/chmod 0744 $OPERATOR_ROOT
-
-              if [ ! -L $OPERATOR_SYMLINK ]; then
-                /bin/ln -s $OPERATOR_ROOT $OPERATOR_SYMLINK
-              fi
-
-              /bin/chown -R 2000:2000 $OPERATOR_ROOT
-              cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
-          env:
-            - name: KUBELET_SECCOMP_ROOT
-              value: /var/lib/kubelet/seccomp
-            - name: OPERATOR_SYMLINK
-              value: $(KUBELET_SECCOMP_ROOT)/operator
-            - name: OPERATOR_ROOT
-              value: /var/lib/security-profiles-operator
-          volumeMounts:
-            - name: host-varlib-volume
-              mountPath: /var/lib
-            - name: profile-configmap-volume
-              mountPath: /opt/seccomp-profiles
-              readOnly: true
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-              add: ["CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"]
-            runAsUser: 0
-            seLinuxOptions:
-              # FIXME(jaosorior): Use a more restricted selinux type
-              type: spc_t
-          resources:
-            requests:
-              memory: "32Mi"
-              cpu: "100m"
-              ephemeral-storage: "10Mi"
-            limits:
-              memory: "64Mi"
-              cpu: "250m"
-              ephemeral-storage: "50Mi"
       containers:
         - name: security-profiles-operator
           image: security-profiles-operator
+          args:
+          - manager
           imagePullPolicy: Always
-          volumeMounts:
-          - name: host-operator-volume
-            mountPath: /var/lib/kubelet/seccomp/operator
           securityContext:
-            allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
-            runAsUser: 2000
-            runAsGroup: 2000
-            capabilities:
-              drop: ["ALL"]
-            seLinuxOptions:
-              # FIXME(jaosorior): Use a more restricted selinux type
-              type: spc_t
-          resources:
-            requests:
-              memory: "64Mi"
-              cpu: "100m"
-              ephemeral-storage: "50Mi"
-            limits:
-              memory: "128Mi"
-              cpu: "300m"
-              ephemeral-storage: "200Mi"
+            allowPrivilegeEscalation: false
           env:
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-      volumes:
-      # /var/lib is used as symlinks cannot be created across different volumes
-      - name: host-varlib-volume
-        hostPath:
-          path: /var/lib
-          type: Directory
-      - name: host-operator-volume
-        hostPath:
-          path: /var/lib/security-profiles-operator
-          type: DirectoryOrCreate
-      - name: profile-configmap-volume
-        configMap:
-          name: security-profiles-operator-profile
-      tolerations:
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/master
-        - effect: NoExecute
-          key: node.kubernetes.io/not-ready
-          operator: Exists
+            - name: RELATED_IMAGE_OPERATOR
+              value: security-profiles-operator
+            - name: RELATED_IMAGE_NON_ROOT_ENABLER
+              value: non-root-enabler
       nodeSelector:
-        kubernetes.io/os: linux
+        node-role.kubernetes.io/master: ""
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoExecute"

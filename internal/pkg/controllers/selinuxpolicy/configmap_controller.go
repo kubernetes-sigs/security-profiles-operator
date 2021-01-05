@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 // blank assignment to verify that ReconcileConfigMap implements `reconcile.Reconciler`.
@@ -179,7 +180,7 @@ func newPodForPolicy(name, ns string, node *corev1.Node) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      GetInstallerPodName(name, ns, node),
-			Namespace: GetOperatorNamespace(),
+			Namespace: config.GetOperatorNamespace(),
 			Labels:    labels,
 		},
 		Spec: corev1.PodSpec{
