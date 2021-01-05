@@ -30,6 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 var log = logf.Log.WithName("selinuxpolicy")
@@ -75,7 +76,7 @@ func hasSELinuxLabel(obj runtime.Object) bool {
 		return false
 	}
 	// we only care about this namespace
-	if cm.GetNamespace() != GetOperatorNamespace() {
+	if cm.GetNamespace() != config.GetOperatorNamespace() {
 		return false
 	}
 	labels := cm.GetLabels()

@@ -16,18 +16,58 @@ metadata:
   name: config-map-reader
   namespace: security-profiles-operator
 rules:
-- apiGroups: [""]
-  resources: ["configmaps", "pods", "nodes"]
-  verbs: ["get", "watch", "list"]
-- apiGroups: [""]
-  resources: ["events"]
-  verbs: ["create", "patch"]
-- apiGroups: ["security-profiles-operator.x-k8s.io"]
-  resources: ["seccompprofiles", "selinuxpolicies"]
-  verbs: ["get", "watch", "list", "update", "patch"]
-- apiGroups: ["security-profiles-operator.x-k8s.io"]
-  resources: ["seccompprofiles/status", "selinuxpolicies/status"]
-  verbs: ["get", "update", "patch"]
+- apiGroups:
+  - ""
+  resources:
+  - "configmaps"
+  - "pods"
+  - "nodes"
+  verbs:
+  - "get"
+  - "watch"
+  - "list"
+- apiGroups:
+  - ""
+  resources:
+  - "events"
+  verbs:
+  - "create"
+  - "patch"
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - daemonsets
+  - replicasets
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - "security-profiles-operator.x-k8s.io"
+  resources:
+  - "seccompprofiles"
+  - "selinuxpolicies"
+  verbs:
+  - "get"
+  - "watch"
+  - "list"
+  - "update"
+  - "patch"
+- apiGroups:
+  - "security-profiles-operator.x-k8s.io"
+  resources:
+  - "seccompprofiles/status"
+  - "selinuxpolicies/status"
+  verbs: 
+  - "get"
+  - "update"
+  - "patch"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

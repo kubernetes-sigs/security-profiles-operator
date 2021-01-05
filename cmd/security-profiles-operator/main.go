@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -31,12 +32,15 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 )
 
 const (
-	jsonFlag      string = "json"
-	restrictNSKey string = "RESTRICT_TO_NAMESPACE"
+	jsonFlag               string = "json"
+	restrictNSKey          string = "RESTRICT_TO_NAMESPACE"
+	operatorImageKey       string = "RELATED_IMAGE_OPERATOR"
+	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
 )
 
 var (
@@ -53,7 +57,6 @@ func main() {
 	app.Description = "The Security Profiles Operator makes it easier for cluster admins " +
 		"to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
 	app.Version = version.Get().Version
-	app.Action = run
 	app.Commands = cli.Commands{
 		&cli.Command{
 			Name:    "version",
@@ -80,6 +83,18 @@ func main() {
 				return nil
 			},
 		},
+		&cli.Command{
+			Name:    "manager",
+			Aliases: []string{"m"},
+			Usage:   "run the security-profiles-operator manager",
+			Action:  runManager,
+		},
+		&cli.Command{
+			Name:    "daemon",
+			Aliases: []string{"d"},
+			Usage:   "run the security-profiles-operator daemon",
+			Action:  runDaemon,
+		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -88,10 +103,10 @@ func main() {
 	}
 }
 
-func run(ctx *cli.Context) error {
+func printInfo(component string) {
 	v := version.Get()
 	setupLog.Info(
-		"starting security-profiles-operator",
+		fmt.Sprintf("starting component: %s", component),
 		"version", v.Version,
 		"gitCommit", v.GitCommit,
 		"gitTreeState", v.GitTreeState,
@@ -100,81 +115,113 @@ func run(ctx *cli.Context) error {
 		"compiler", v.Compiler,
 		"platform", v.Platform,
 	)
+}
+
+func runManager(ctx *cli.Context) error {
+	printInfo("security-profiles-operator")
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "get config")
 	}
 
-	fatalErrors := make(chan error)
-	done := make(chan bool)
 	sigHandler := ctrl.SetupSignalHandler()
 
-	// Daemonset managers
-	go func() {
-		ctrlOpts := ctrl.Options{
-			SyncPeriod: &sync,
-		}
-
-		if os.Getenv(restrictNSKey) != "" {
-			ctrlOpts.Namespace = os.Getenv(restrictNSKey)
-		}
-
-		mgr, err := ctrl.NewManager(cfg, ctrlOpts)
-		if err != nil {
-			fatalErrors <- errors.Wrap(err, "create manager")
-		}
-
-		if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-			fatalErrors <- errors.Wrap(err, "add core operator APIs to scheme")
-		}
-
-		if err := profile.Setup(ctx.Context, mgr, ctrl.Log.WithName("profile")); err != nil {
-			fatalErrors <- errors.Wrap(err, "setup profile controller")
-		}
-
-		setupLog.Info("starting manager")
-		if err := mgr.Start(sigHandler); err != nil {
-			fatalErrors <- errors.Wrap(err, "controller manager error")
-		}
-		close(done)
-	}()
-
 	// cluster managers (need leader election)
-	go func() {
-		ctrlOpts := manager.Options{
-			SyncPeriod:       &sync,
-			LeaderElection:   true,
-			LeaderElectionID: "selinux-operator-lock",
-			// NOTE(jaosorior): Metrics are disabled because
-			// we have two managers.
-			MetricsBindAddress: "0",
-		}
-
-		mgr, err := ctrl.NewManager(cfg, ctrlOpts)
-		if err != nil {
-			fatalErrors <- errors.Wrap(err, "create cluster manager")
-		}
-
-		if err := selinuxpolicyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-			fatalErrors <- errors.Wrap(err, "add core operator APIs to scheme")
-		}
-
-		if err := selinuxpolicy.Setup(ctx.Context, mgr, ctrl.Log.WithName("selinuxpolicy")); err != nil {
-			fatalErrors <- errors.Wrap(err, "setup profile controller")
-		}
-
-		setupLog.Info("starting manager")
-		if err := mgr.Start(sigHandler); err != nil {
-			fatalErrors <- errors.Wrap(err, "controller manager error")
-		}
-		close(done)
-	}()
-
-	select {
-	case err := <-fatalErrors:
-		return err
-	case <-done:
-		setupLog.Info("ending manager")
+	ctrlOpts := manager.Options{
+		SyncPeriod:       &sync,
+		LeaderElection:   true,
+		LeaderElectionID: "selinux-operator-lock",
 	}
+
+	dt, err := getTunables()
+	if err != nil {
+		return err
+	}
+
+	if dt.WatchNamespace != "" {
+		ctrlOpts.Namespace = dt.WatchNamespace
+	}
+
+	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
+	if err != nil {
+		return errors.Wrap(err, "create cluster manager")
+	}
+
+	if err := selinuxpolicyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add core operator APIs to scheme")
+	}
+
+	if err := selinuxpolicy.Setup(ctx.Context, mgr, ctrl.Log.WithName("selinuxpolicy")); err != nil {
+		return errors.Wrap(err, "setup profile controller")
+	}
+
+	if err := spod.Setup(ctx.Context, mgr, dt, ctrl.Log.WithName("spod-config")); err != nil {
+		return errors.Wrap(err, "setup profile controller")
+	}
+
+	setupLog.Info("starting manager")
+	if err := mgr.Start(sigHandler); err != nil {
+		return errors.Wrap(err, "controller manager error")
+	}
+
+	setupLog.Info("ending manager")
+	return nil
+}
+
+func getTunables() (spod.DaemonTunables, error) {
+	var dt spod.DaemonTunables
+	restrictNS := os.Getenv(restrictNSKey)
+	operatorImage := os.Getenv(operatorImageKey)
+	if operatorImage == "" {
+		return dt, errors.New("invalid operator image")
+	}
+	nonRootEnableImage := os.Getenv(nonRootEnablerImageKey)
+	if operatorImage == "" {
+		return dt, errors.New("invalid operator image")
+	}
+
+	dt.DaemonImage = operatorImage
+	dt.NonRootEnablerImage = nonRootEnableImage
+	dt.WatchNamespace = restrictNS
+	return dt, nil
+}
+
+func runDaemon(ctx *cli.Context) error {
+	// security-profiles-operator-daemon
+	printInfo("spod")
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return errors.Wrap(err, "get config")
+	}
+
+	sigHandler := ctrl.SetupSignalHandler()
+
+	ctrlOpts := ctrl.Options{
+		SyncPeriod: &sync,
+	}
+
+	if os.Getenv(restrictNSKey) != "" {
+		ctrlOpts.Namespace = os.Getenv(restrictNSKey)
+	}
+
+	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
+	if err != nil {
+		return errors.Wrap(err, "create manager")
+	}
+
+	if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add core operator APIs to scheme")
+	}
+
+	if err := profile.Setup(ctx.Context, mgr, ctrl.Log.WithName("profile")); err != nil {
+		return errors.Wrap(err, "setup profile controller")
+	}
+
+	setupLog.Info("starting daemon")
+	if err := mgr.Start(sigHandler); err != nil {
+		return errors.Wrap(err, "SPOd error")
+	}
+
+	setupLog.Info("ending daemon")
 	return nil
 }
