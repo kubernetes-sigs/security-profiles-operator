@@ -34,7 +34,12 @@ var (
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
 )
 
-const operatorRoot = "/var/lib/security-profiles-operator"
+const (
+	operatorRoot         = "/var/lib/security-profiles-operator"
+	SelinuxDropDirectory = "/etc/selinux.d"
+	SelinuxdSocketDir    = "/var/run/selinuxd"
+	SelinuxdSocketPath   = SelinuxdSocketDir + "/selinuxd.sock"
+)
 
 var Manifest = &appsv1.DaemonSet{
 	ObjectMeta: metav1.ObjectMeta{
@@ -58,14 +63,15 @@ var Manifest = &appsv1.DaemonSet{
 			},
 			Spec: v1.PodSpec{
 				ServiceAccountName: config.OperatorName,
-				InitContainers: []v1.Container{{
-					Name: "non-root-enabler",
-					// Creates directory /var/lib/security-profiles-operator,
-					// sets 2000:2000 as its owner and symlink it to
-					// /var/lib/kubelet/seccomp/operator. This is required
-					// to allow the main container to run as non-root.
-					Command: []string{"bash", "-c"},
-					Args: []string{`
+				InitContainers: []v1.Container{
+					{
+						Name: "non-root-enabler",
+						// Creates directory /var/lib/security-profiles-operator,
+						// sets 2000:2000 as its owner and symlink it to
+						// /var/lib/kubelet/seccomp/operator. This is required
+						// to allow the main container to run as non-root.
+						Command: []string{"bash", "-c"},
+						Args: []string{`
 						set -euo pipefail
 
 						if [ ! -d ` + config.KubeletSeccompRootPath + ` ]; then
@@ -82,89 +88,216 @@ var Manifest = &appsv1.DaemonSet{
 						/bin/chown -R 2000:2000 ` + operatorRoot + `
 						cp -f -v /opt/seccomp-profiles/* ` + config.KubeletSeccompRootPath + `
 					`},
-					VolumeMounts: []v1.VolumeMount{
-						{
-							Name:      "host-varlib-volume",
-							MountPath: "/var/lib",
+						VolumeMounts: []v1.VolumeMount{
+							{
+								Name:      "host-varlib-volume",
+								MountPath: "/var/lib",
+							},
+							{
+								Name:      "profile-configmap-volume",
+								MountPath: "/opt/seccomp-profiles",
+								ReadOnly:  true,
+							},
 						},
-						{
-							Name:      "profile-configmap-volume",
-							MountPath: "/opt/seccomp-profiles",
-							ReadOnly:  true,
+						SecurityContext: &v1.SecurityContext{
+							AllowPrivilegeEscalation: &falsely,
+							ReadOnlyRootFilesystem:   &truly,
+							Capabilities: &v1.Capabilities{
+								Drop: []v1.Capability{"ALL"},
+								Add:  []v1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
+							},
+							RunAsUser: &userRoot,
+							SELinuxOptions: &v1.SELinuxOptions{
+								// TODO(jaosorior): Use a more restricted selinux type
+								Type: "spc_t",
+							},
 						},
-					},
-					SecurityContext: &v1.SecurityContext{
-						AllowPrivilegeEscalation: &falsely,
-						ReadOnlyRootFilesystem:   &truly,
-						Capabilities: &v1.Capabilities{
-							Drop: []v1.Capability{"ALL"},
-							Add:  []v1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
-						},
-						RunAsUser: &userRoot,
-						SELinuxOptions: &v1.SELinuxOptions{
-							// TODO(jaosorior): Use a more restricted selinux type
-							Type: "spc_t",
-						},
-					},
-					Resources: v1.ResourceRequirements{
-						Requests: v1.ResourceList{
-							v1.ResourceMemory:           resource.MustParse("32Mi"),
-							v1.ResourceCPU:              resource.MustParse("100m"),
-							v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
-						},
-						Limits: v1.ResourceList{
-							v1.ResourceMemory:           resource.MustParse("64Mi"),
-							v1.ResourceCPU:              resource.MustParse("250m"),
-							v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
-						},
-					},
-				}},
-				Containers: []v1.Container{{
-					Name:            config.OperatorName,
-					Args:            []string{"daemon"},
-					ImagePullPolicy: v1.PullAlways,
-					VolumeMounts: []v1.VolumeMount{
-						{
-							Name:      "host-operator-volume",
-							MountPath: config.ProfilesRootPath,
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("32Mi"),
+								v1.ResourceCPU:              resource.MustParse("100m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+							},
+							Limits: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("64Mi"),
+								v1.ResourceCPU:              resource.MustParse("250m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+							},
 						},
 					},
-					SecurityContext: &v1.SecurityContext{
-						AllowPrivilegeEscalation: &falsely,
-						ReadOnlyRootFilesystem:   &truly,
-						Capabilities: &v1.Capabilities{
-							Drop: []v1.Capability{"ALL"},
+					{
+						Name:  "selinux-shared-policies-copier",
+						Image: "quay.io/jaosorior/selinuxd",
+						// Primes the volume mount under /etc/selinux.d with the
+						// shared policies shipped by selinuxd and makes sure the volume mount
+						// is writable by 2000 in order for the controller to be able to
+						// write the policy files. In the future, the policy files should
+						// be shipped by selinuxd directly.
+						//
+						// The directory is writable by 2000 (the operator writes to this dir) and
+						// readable by root (selinuxd reads the policies and runs as root).
+						// Explicitly allowing root makes sure no dac_override audit messages
+						// are logged even in absence of CAP_DAC_OVERRIDE.
+						//
+						// If, in the future we wanted to make the DS more compact, we could move
+						// the chown+chmod to the previous init container and move the copying of
+						// the files into a lifecycle handler of selinuxd.
+						Command: []string{"bash", "-c"},
+						Args: []string{`
+						set -x
+
+						chown 2000:0 /etc/selinux.d
+						chmod 750 /etc/selinux.d
+						cp /usr/share/udica/templates/* /etc/selinux.d
+					`},
+						VolumeMounts: []v1.VolumeMount{
+							{
+								Name:      "selinux-drop-dir",
+								MountPath: SelinuxDropDirectory,
+							},
 						},
-						RunAsUser:  &userRootless,
-						RunAsGroup: &userRootless,
-						SELinuxOptions: &v1.SELinuxOptions{
-							// TODO(jaosorior): Use a more restricted selinux type
-							Type: "spc_t",
+						SecurityContext: &v1.SecurityContext{
+							AllowPrivilegeEscalation: &falsely,
+							ReadOnlyRootFilesystem:   &truly,
+							Capabilities: &v1.Capabilities{
+								Drop: []v1.Capability{"ALL"},
+								Add:  []v1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
+							},
+							RunAsUser: &userRoot,
+							SELinuxOptions: &v1.SELinuxOptions{
+								// TODO(jaosorior): Use a more restricted selinux type
+								Type: "spc_t",
+							},
+						},
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("32Mi"),
+								v1.ResourceCPU:              resource.MustParse("100m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+							},
+							Limits: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("64Mi"),
+								v1.ResourceCPU:              resource.MustParse("250m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+							},
 						},
 					},
-					Resources: v1.ResourceRequirements{
-						Requests: v1.ResourceList{
-							v1.ResourceMemory:           resource.MustParse("64Mi"),
-							v1.ResourceCPU:              resource.MustParse("100m"),
-							v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+				},
+				Containers: []v1.Container{
+					{
+						Name:            config.OperatorName,
+						Args:            []string{"daemon"},
+						ImagePullPolicy: v1.PullAlways,
+						VolumeMounts: []v1.VolumeMount{
+							{
+								Name:      "host-operator-volume",
+								MountPath: config.ProfilesRootPath,
+							},
+							{
+								Name:      "selinux-drop-dir",
+								MountPath: SelinuxDropDirectory,
+							},
+							{
+								Name:      "selinuxd-socket-volume",
+								MountPath: SelinuxdSocketDir,
+							},
 						},
-						Limits: v1.ResourceList{
-							v1.ResourceMemory:           resource.MustParse("128Mi"),
-							v1.ResourceCPU:              resource.MustParse("300m"),
-							v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
+						SecurityContext: &v1.SecurityContext{
+							AllowPrivilegeEscalation: &falsely,
+							ReadOnlyRootFilesystem:   &truly,
+							Capabilities: &v1.Capabilities{
+								Drop: []v1.Capability{"ALL"},
+							},
+							RunAsUser:  &userRootless,
+							RunAsGroup: &userRootless,
+							SELinuxOptions: &v1.SELinuxOptions{
+								// TODO(jaosorior): Use a more restricted selinux type
+								Type: "spc_t",
+							},
 						},
-					},
-					Env: []v1.EnvVar{
-						{
-							Name: config.NodeNameEnvKey,
-							ValueFrom: &v1.EnvVarSource{
-								FieldRef: &v1.ObjectFieldSelector{
-									FieldPath: "spec.nodeName",
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("64Mi"),
+								v1.ResourceCPU:              resource.MustParse("100m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+							},
+							Limits: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("128Mi"),
+								v1.ResourceCPU:              resource.MustParse("300m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
+							},
+						},
+						Env: []v1.EnvVar{
+							{
+								Name: config.NodeNameEnvKey,
+								ValueFrom: &v1.EnvVarSource{
+									FieldRef: &v1.ObjectFieldSelector{
+										FieldPath: "spec.nodeName",
+									},
 								},
 							},
 						},
 					},
-				}},
+					{
+						Name:  "selinuxd",
+						Image: "quay.io/jaosorior/selinuxd",
+						Args: []string{
+							"daemon",
+							"--socket-path", SelinuxdSocketPath,
+							"--socket-uid", "0",
+							"--socket-gid", "2000",
+						},
+						ImagePullPolicy: v1.PullAlways,
+						VolumeMounts: []v1.VolumeMount{
+							{
+								Name:      "selinux-drop-dir",
+								MountPath: SelinuxDropDirectory,
+							},
+							{
+								Name:      "selinuxd-socket-volume",
+								MountPath: SelinuxdSocketDir,
+							},
+							{
+								Name:      "host-fsselinux-volume",
+								MountPath: "/sys/fs/selinux",
+							},
+							{
+								Name:      "host-etcselinux-volume",
+								MountPath: "/etc/selinux",
+							},
+							{
+								Name:      "host-varlibselinux-volume",
+								MountPath: "/var/lib/selinux",
+							},
+						},
+						SecurityContext: &v1.SecurityContext{
+							// TODO(jhrozek): If we wanted RO fs, we would need to mount
+							// the selinuxd db elsewhere than /var/run/selinuxd.db
+							// ReadOnlyRootFilesystem:   &truly,
+							RunAsUser:  &userRoot,
+							RunAsGroup: &userRoot,
+							SELinuxOptions: &v1.SELinuxOptions{
+								// TODO(jaosorior): Use a more restricted selinux type
+								Type: "spc_t",
+							},
+							/* TODO(jhrozek) is this really needed? */
+							Privileged: &truly,
+						},
+						// selinuxd seems to be resource hungry, set later
+						// Resources: v1.ResourceRequirements{
+						//	Requests: v1.ResourceList{
+						//		v1.ResourceMemory:           resource.MustParse("128Mi"),
+						//		v1.ResourceCPU:              resource.MustParse("300m"),
+						//		v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
+						//	},
+						//	Limits: v1.ResourceList{
+						//		v1.ResourceMemory:           resource.MustParse("256Mi"),
+						//		v1.ResourceCPU:              resource.MustParse("600m"),
+						//		v1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
+						//	},
+						// },
+					},
+				},
 				Volumes: []v1.Volume{
 					// /var/lib is used as symlinks cannot be created across
 					// different volumes
@@ -193,6 +326,52 @@ var Manifest = &appsv1.DaemonSet{
 								LocalObjectReference: v1.LocalObjectReference{
 									Name: "security-profiles-operator-profile",
 								},
+							},
+						},
+					},
+					// Ephemeral emptyDirs for the selinuxd socket and the policies.
+					// As the policies are loaded based on API objects and contents of
+					// the init container and loaded on selinuxd start, we don't need
+					// to persist them
+					{
+						Name: "selinux-drop-dir",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{},
+						},
+					},
+					{
+						Name: "selinuxd-socket-volume",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{},
+						},
+					},
+					// The following host mounts only make sense on a SELinux enabled
+					// system. But if SELinux is not configured, then they wouldn't be
+					// used by any container, so it's OK to define them unconditionally
+					{
+						Name: "host-fsselinux-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/sys/fs/selinux",
+								Type: &hostPathDirectory,
+							},
+						},
+					},
+					{
+						Name: "host-etcselinux-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/etc/selinux",
+								Type: &hostPathDirectory,
+							},
+						},
+					},
+					{
+						Name: "host-varlibselinux-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/var/lib/selinux",
+								Type: &hostPathDirectory,
 							},
 						},
 					},

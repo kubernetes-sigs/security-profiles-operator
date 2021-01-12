@@ -39,11 +39,12 @@ const cmIsSPOdConfig = "security-profiles-operator/config"
 type DaemonTunables struct {
 	DaemonImage         string
 	NonRootEnablerImage string
+	SelinuxdImage       string
 	WatchNamespace      string
 }
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
-func Setup(ctx context.Context, mgr ctrl.Manager, dt DaemonTunables, l logr.Logger) error {
+func Setup(ctx context.Context, mgr ctrl.Manager, dt *DaemonTunables, l logr.Logger) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("spod-config").
 		For(&corev1.ConfigMap{}).
@@ -58,20 +59,25 @@ func Setup(ctx context.Context, mgr ctrl.Manager, dt DaemonTunables, l logr.Logg
 		})
 }
 
-func getEffectiveSPOd(dt DaemonTunables) *appsv1.DaemonSet {
+func getEffectiveSPOd(dt *DaemonTunables) *appsv1.DaemonSet {
 	refSPOd := bindata.Manifest.DeepCopy()
-	cnt := &refSPOd.Spec.Template.Spec.Containers[0]
-	cnt.Image = dt.DaemonImage
 
+	daemon := &refSPOd.Spec.Template.Spec.Containers[0]
+	daemon.Image = dt.DaemonImage
 	if dt.WatchNamespace != "" {
-		cnt.Env = append(cnt.Env, corev1.EnvVar{
+		daemon.Env = append(daemon.Env, corev1.EnvVar{
 			Name:  config.RestrictNamespaceEnvKey,
 			Value: dt.WatchNamespace,
 		})
 	}
 
+	selinuxd := &refSPOd.Spec.Template.Spec.Containers[1]
+	selinuxd.Image = dt.SelinuxdImage
+
 	initcnt := &refSPOd.Spec.Template.Spec.InitContainers[0]
 	initcnt.Image = dt.NonRootEnablerImage
+	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
+	sepolImage.Image = dt.SelinuxdImage // selinuxd ships the policies as well
 	return refSPOd
 }
 
