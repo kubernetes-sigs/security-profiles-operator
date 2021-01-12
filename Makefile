@@ -30,6 +30,7 @@ VERSION := $(shell cat VERSION)
 
 BUILDTAGS := netgo osusergo
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
+export GOFLAGS?=-mod=mod
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
 	-X $(GO_PROJECT)/internal/pkg/version.buildDate=$(BUILD_DATE) \
