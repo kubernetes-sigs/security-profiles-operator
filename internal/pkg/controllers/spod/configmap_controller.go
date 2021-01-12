@@ -19,6 +19,7 @@ package spod
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
@@ -96,10 +97,26 @@ func (r *ReconcileSPOd) handleCreate(ctx context.Context, cfg *corev1.ConfigMap)
 func (r *ReconcileSPOd) getConfiguredSPOd(cfg *corev1.ConfigMap) *appsv1.DaemonSet {
 	newSPOd := r.baseSPOd.DeepCopy()
 
-	imagePullPolicyStr, found := cfg.Data["SPOdImagePullPolicy"]
+	newSPOd.Spec.Template.Spec.Containers = []corev1.Container{r.baseSPOd.Spec.Template.Spec.Containers[0]}
+
+	enableSelinux, err := strconv.ParseBool(cfg.Data[config.SPOcEnableSelinux])
+	if err == nil && enableSelinux {
+		newSPOd.Spec.Template.Spec.Containers = append(
+			newSPOd.Spec.Template.Spec.Containers,
+			r.baseSPOd.Spec.Template.Spec.Containers[1])
+
+		newSPOd.Spec.Template.Spec.Containers[0].Args = append(
+			newSPOd.Spec.Template.Spec.Containers[0].Args,
+			"--with-selinux=true")
+	}
+
+	imagePullPolicyStr, found := cfg.Data[config.SPOdImagePullPolicy]
 	if found {
 		pullPolicy := corev1.PullPolicy(imagePullPolicyStr)
-		newSPOd.Spec.Template.Spec.Containers[0].ImagePullPolicy = pullPolicy
+		for i := range newSPOd.Spec.Template.Spec.Containers {
+			newSPOd.Spec.Template.Spec.Containers[i].ImagePullPolicy = pullPolicy
+		}
 	}
+
 	return newSPOd
 }

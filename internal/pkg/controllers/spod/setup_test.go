@@ -34,13 +34,13 @@ func Test_getEffectiveSPOd(t *testing.T) {
 	}{
 		{
 			"Should correctly set the image",
-			DaemonTunables{"foo:bar", "bar:baz", ""},
+			DaemonTunables{"foo:bar", "bar:baz", "brot:wurst", ""},
 			false,
 			false,
 		},
 		{
 			"Should correctly set the namespace",
-			DaemonTunables{"foo:bar", "bar:baz", "my-ns"},
+			DaemonTunables{"foo:bar", "bar:baz", "brot:wurst", "my-ns"},
 			true,
 			false,
 		},
@@ -49,8 +49,9 @@ func Test_getEffectiveSPOd(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := getEffectiveSPOd(tt.dt)
+			got := getEffectiveSPOd(&tt.dt)
 			require.Equal(t, tt.dt.DaemonImage, got.Spec.Template.Spec.Containers[0].Image)
+			require.Equal(t, tt.dt.SelinuxdImage, got.Spec.Template.Spec.Containers[1].Image)
 			require.Equal(t, tt.dt.NonRootEnablerImage, got.Spec.Template.Spec.InitContainers[0].Image)
 			var found bool
 			for _, env := range got.Spec.Template.Spec.Containers[0].Env {

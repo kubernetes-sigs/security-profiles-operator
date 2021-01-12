@@ -31,6 +31,8 @@ spec:
               value: security-profiles-operator
             - name: RELATED_IMAGE_NON_ROOT_ENABLER
               value: non-root-enabler
+            - name: RELATED_IMAGE_SELINUXD
+              value: quay.io/jaosorior/selinuxd
           volumeMounts:
           - name: cert
             mountPath: /tmp/k8s-webhook-server/serving-certs

@@ -158,6 +158,13 @@ func (e *e2e) deployOperator(manifest, profiles string) {
 		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
 	)
 
+	if e.platformSupportsSelinux() {
+		e.run(
+			"sed", "-i", "s/EnableSelinux: \"false\"/EnableSelinux: \"true\"/",
+			manifest,
+		)
+	}
+
 	// Deploy the operator
 	e.logf("Deploying operator")
 	e.kubectl("create", "-f", manifest)

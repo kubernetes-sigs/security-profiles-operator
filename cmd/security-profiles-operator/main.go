@@ -17,15 +17,18 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
@@ -40,8 +43,10 @@ import (
 
 const (
 	jsonFlag               string = "json"
+	selinuxFlag            string = "with-selinux"
 	operatorImageKey       string = "RELATED_IMAGE_OPERATOR"
 	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
+	selinuxdImageKey       string = "RELATED_IMAGE_SELINUXD"
 	defaultPort            int    = 9443
 )
 
@@ -104,6 +109,13 @@ func main() {
 			Aliases: []string{"d"},
 			Usage:   "run the security-profiles-operator daemon",
 			Action:  runDaemon,
+			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:  selinuxFlag,
+					Usage: "Listen for SELinux API resources",
+					Value: false,
+				},
+			},
 		},
 	}
 
@@ -158,9 +170,6 @@ func runManager(ctx *cli.Context) error {
 		return errors.Wrap(err, "create cluster manager")
 	}
 
-	if err := selinuxpolicyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add core operator APIs to scheme")
-	}
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add profilebinding API to scheme")
 	}
@@ -168,11 +177,7 @@ func runManager(ctx *cli.Context) error {
 		return errors.Wrap(err, "add seccompprofile API to scheme")
 	}
 
-	if err := selinuxpolicy.Setup(ctx.Context, mgr, ctrl.Log.WithName("selinuxpolicy")); err != nil {
-		return errors.Wrap(err, "setup profile controller")
-	}
-
-	if err := spod.Setup(ctx.Context, mgr, dt, ctrl.Log.WithName("spod-config")); err != nil {
+	if err := spod.Setup(ctx.Context, mgr, &dt, ctrl.Log.WithName("spod-config")); err != nil {
 		return errors.Wrap(err, "setup profile controller")
 	}
 
@@ -204,12 +209,54 @@ func getTunables() (dt spod.DaemonTunables, err error) {
 	}
 	dt.NonRootEnablerImage = nonRootEnableImage
 
+	selinuxdImage := os.Getenv(selinuxdImageKey)
+	if selinuxdImage == "" {
+		return dt, errors.New("invalid selinuxd image")
+	}
+	dt.SelinuxdImage = selinuxdImage
+
 	return dt, nil
+}
+
+// TODO(jhrozek): the type seems out of place here, maybe we should move it to a file under internal/pkg/controllers
+// that would just define the type and nothing else.
+type daemonSetupFunc func(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error
+
+type controllerSettings struct {
+	name          string
+	setupFn       daemonSetupFunc
+	schemaBuilder *scheme.Builder
+}
+
+func getEnabledControllers(ctx *cli.Context) []*controllerSettings {
+	enabledSettings := make([]*controllerSettings, 0, 2)
+
+	enabledSettings = append(enabledSettings, &controllerSettings{
+		name:          "seccomp-spod",
+		setupFn:       profile.Setup,
+		schemaBuilder: seccompprofilev1alpha1.SchemeBuilder,
+	})
+
+	if ctx.Bool(selinuxFlag) {
+		enabledSettings = append(enabledSettings, &controllerSettings{
+			name:          "selinux-spod",
+			setupFn:       selinuxpolicy.Setup,
+			schemaBuilder: selinuxpolicyv1alpha1.SchemeBuilder,
+		})
+	}
+
+	return enabledSettings
 }
 
 func runDaemon(ctx *cli.Context) error {
 	// security-profiles-operator-daemon
 	printInfo("spod")
+
+	enabledControllers := getEnabledControllers(ctx)
+	if len(enabledControllers) == 0 {
+		return errors.New("no controllers enabled")
+	}
+
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "get config")
@@ -230,12 +277,9 @@ func runDaemon(ctx *cli.Context) error {
 		return errors.Wrap(err, "create manager")
 	}
 
-	if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add core operator APIs to scheme")
-	}
-
-	if err := profile.Setup(ctx.Context, mgr, ctrl.Log.WithName("profile")); err != nil {
-		return errors.Wrap(err, "setup profile controller")
+	err = setupEnabledControllers(ctx.Context, enabledControllers, mgr)
+	if err != nil {
+		return errors.Wrap(err, "enable controllers")
 	}
 
 	setupLog.Info("starting daemon")
@@ -244,5 +288,19 @@ func runDaemon(ctx *cli.Context) error {
 	}
 
 	setupLog.Info("ending daemon")
+	return nil
+}
+
+func setupEnabledControllers(ctx context.Context, enabledControllers []*controllerSettings, mgr ctrl.Manager) error {
+	for _, enableCtrl := range enabledControllers {
+		if err := enableCtrl.schemaBuilder.AddToScheme(mgr.GetScheme()); err != nil {
+			return errors.Wrap(err, "add core operator APIs to scheme")
+		}
+
+		if err := enableCtrl.setupFn(ctx, mgr, ctrl.Log.WithName(enableCtrl.name)); err != nil {
+			return errors.Wrapf(err, "setup %s controller", enableCtrl.name)
+		}
+	}
+
 	return nil
 }
