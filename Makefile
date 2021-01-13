@@ -45,6 +45,13 @@ else
 endif
 
 export CONTAINER_RUNTIME ?= docker
+
+ifeq ($(CONTAINER_RUNTIME), podman)
+    LOGIN_PUSH_OPTS="--tls-verify=false"
+else ifeq ($(CONTAINER_RUNTIME), docker)
+    LOGIN_PUSH_OPTS=
+endif
+
 IMAGE ?= $(PROJECT):latest
 
 CRD_OPTIONS ?= "crd:crdVersions=v1"
@@ -158,3 +165,42 @@ manifests:
 # Generate deepcopy code
 generate:
 	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./..."
+
+## OpenShift-only
+## These targets are meant to make development in OpenShift easier.
+
+.PHONY: openshift-user
+openshift-user:
+ifeq ($(shell oc whoami 2> /dev/null),kube:admin)
+	$(eval OPENSHIFT_USER = kubeadmin)
+else
+	$(eval OPENSHIFT_USER = $(shell oc whoami))
+endif
+
+.PHONY: set-openshift-image-params
+set-openshift-image-params:
+	$(eval DOCKERFILE = Dockerfile.ubi)
+
+.PHONY: push-openshift-dev
+push-openshift-dev: set-openshift-image-params openshift-user image
+	@echo "Exposing the default route to the image registry"
+	@oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"defaultRoute":true}}' --type=merge
+	@echo "Pushing image $(IMAGE) to the image registry"
+	@IMAGE_REGISTRY_HOST=$$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}'); \
+		$(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) -p $(shell oc whoami -t) $${IMAGE_REGISTRY_HOST}; \
+		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) localhost/$(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
+
+.PHONY: do-deploy-openshift-dev
+do-deploy-openshift-dev: 
+	@echo "Building custom operator.yaml"
+	kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/operator.yaml
+	@echo "Deploying"
+	oc apply -f deploy/operator.yaml
+	@echo "Setting triggers to track image"
+	oc set triggers -n security-profiles-operator deployment/security-profiles-operator --from-image openshift/security-profiles-operator:latest -c security-profiles-operator
+	@echo "Resetting operator.yaml"
+	git checkout deploy/operator.yaml
+
+# Deploy for development into OpenShift
+.PHONY: dev-deploy-openshift
+deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev
