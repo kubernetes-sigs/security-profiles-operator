@@ -46,6 +46,14 @@ func TestReconcile(t *testing.T) {
 
 	errOops := errors.New("oops")
 
+	// return error only if seccomp is enabled
+	getErrorIfSeccompEnabled := func(e error) error {
+		if seccomp.IsEnabled() {
+			return e
+		}
+		return nil
+	}
+
 	cases := map[string]struct {
 		rec        *Reconciler
 		req        reconcile.Request
@@ -63,16 +71,17 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{},
 			wantErr:    nil,
 		},
-		"ErrGetProfile": {
+		"ErrGetProfileIfSeccompEnabled": {
 			rec: &Reconciler{
 				client: &test.MockClient{
 					MockGet: test.NewMockGetFn(errOops),
 				},
-				log: log.Log,
+				record: event.NewNopRecorder(),
+				log:    log.Log,
 			},
 			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
 			wantResult: reconcile.Result{},
-			wantErr:    errors.Wrap(errOops, errGetProfile),
+			wantErr:    errors.Wrap(getErrorIfSeccompEnabled(errOops), errGetProfile),
 		},
 		"GotProfile": {
 			rec: &Reconciler{
