@@ -301,6 +301,11 @@ func newPodForPolicy(name, ns string, node *corev1.Node) *corev1.Pod {
 					Operator: "Exists",
 					Effect:   "NoSchedule",
 				},
+				{
+					Key:      "node-role.kubernetes.io/control-plane",
+					Operator: "Exists",
+					Effect:   "NoSchedule",
+				},
 			},
 		},
 	}
