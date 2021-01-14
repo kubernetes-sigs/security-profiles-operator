@@ -163,9 +163,11 @@ func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) 
 	if !seccomp.IsSupported() {
 		err := errors.New("profile not added")
 		logger.Error(err, fmt.Sprintf("node %q does not support seccomp", os.Getenv(config.NodeNameEnvKey)))
-		r.record.Event(&v1alpha1.SeccompProfile{},
-			event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey),
-				"node does not support seccomp"))
+		if r.record != nil {
+			r.record.Event(&v1alpha1.SeccompProfile{},
+				event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey),
+					"node does not support seccomp"))
+		}
 
 		// Do not requeue (will be requeued if a change to the object is
 		// observed, or after the usually very long reconcile timeout
