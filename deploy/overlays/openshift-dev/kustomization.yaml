@@ -6,6 +6,10 @@ kind: Kustomization
 bases:
   - ../../base
 
+resources:
+  - service.yaml
+  - webhook.yaml
+
 patchesJson6902:
   - target:
       version: v1
@@ -25,11 +29,24 @@ patchesStrategicMerge:
   metadata:
     name: security-profiles-operator
     namespace: security-profiles-operator
+    annotations:
+      service.alpha.openshift.io/serving-cert-secret-name: spo-webhook-tls
   spec:
     template:
       spec:
         containers:
           - name: security-profiles-operator
+            args:
+            - manager
+            - '--enable-webhook'
             env:
               - name: RELATED_IMAGE_OPERATOR
                 value: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest
+            volumeMounts:
+              - name: webhook-tls
+                mountPath: /webhook-server/serving-certs
+                readOnly: true
+        volumes:
+          - name: webhook-tls
+            secret:
+              secretName: spo-webhook-tls

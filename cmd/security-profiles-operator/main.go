@@ -34,10 +34,12 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
+	slns "sigs.k8s.io/security-profiles-operator/internal/pkg/webhook/namespace"
 )
 
 const (
 	jsonFlag               string = "json"
+	enableWebhookFlag      string = "enable-webhook"
 	restrictNSKey          string = "RESTRICT_TO_NAMESPACE"
 	operatorImageKey       string = "RELATED_IMAGE_OPERATOR"
 	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
@@ -88,6 +90,12 @@ func main() {
 			Aliases: []string{"m"},
 			Usage:   "run the security-profiles-operator manager",
 			Action:  runManager,
+			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:  enableWebhookFlag,
+					Usage: "enableWebhook",
+				},
+			},
 		},
 		&cli.Command{
 			Name:    "daemon",
@@ -157,6 +165,18 @@ func runManager(ctx *cli.Context) error {
 
 	if err := spod.Setup(ctx.Context, mgr, dt, ctrl.Log.WithName("spod-config")); err != nil {
 		return errors.Wrap(err, "setup profile controller")
+	}
+
+	enableWHRaw := ctx.Value(enableWebhookFlag)
+	enableWebhook, ok := enableWHRaw.(bool)
+	if !ok {
+		return errors.New("couldn't parse --enable-webhook flag")
+	}
+	if enableWebhook {
+		setupLog.Info("enabling webhooks")
+		if err := slns.Setup(mgr); err != nil {
+			return errors.Wrap(err, "setup selinux namespace webhook")
+		}
 	}
 
 	setupLog.Info("starting manager")
