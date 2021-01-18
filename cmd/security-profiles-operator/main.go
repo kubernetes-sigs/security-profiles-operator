@@ -175,9 +175,10 @@ func getTunables() (spod.DaemonTunables, error) {
 	if operatorImage == "" {
 		return dt, errors.New("invalid operator image")
 	}
+
 	nonRootEnableImage := os.Getenv(nonRootEnablerImageKey)
-	if operatorImage == "" {
-		return dt, errors.New("invalid operator image")
+	if nonRootEnableImage == "" {
+		return dt, errors.New("invalid non-root enabler image")
 	}
 
 	dt.DaemonImage = operatorImage
