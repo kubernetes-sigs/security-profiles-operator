@@ -28,7 +28,6 @@ type SeccompProfileSpec struct {
 	TargetWorkload string `json:"targetWorkload"`
 
 	// name of base profile (in the same namespace) what will be unioned into this profile
-	//nolint:lll
 	BaseProfileName string `json:"baseProfileName,omitempty"`
 
 	// Properties from containers/common/pkg/seccomp.Seccomp type
