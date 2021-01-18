@@ -35,14 +35,14 @@ BUILDTAGS := netgo osusergo
 endif
 
 ifneq ($(shell uname -s), Darwin)
-LINT_BUILDTAGS := e2e,netgo,osusergo,seccomp
+LINT_BUILDTAGS := e2e,netgo,osusergo,seccomp,-tools
 else
-LINT_BUILDTAGS := e2e,netgo,osusergo
+LINT_BUILDTAGS := e2e,netgo,osusergo,-tools
 endif
 
 
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
-export GOFLAGS?=-mod=mod
+export GOFLAGS?=-mod=vendor
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
 	-X $(GO_PROJECT)/internal/pkg/version.buildDate=$(BUILD_DATE) \
@@ -102,6 +102,10 @@ $(BUILD_DIR):
 $(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
 	$(GO) build -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/security-profiles-operator
 
+CONTROLLER_GEN := $(BUILD_DIR)/controller-gen
+$(CONTROLLER_GEN): ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
+	go build -o "$@" ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
+
 .PHONY: clean
 clean: ## Clean the build directory
 	rm -rf $(BUILD_DIR)
@@ -159,6 +163,7 @@ $(BUILD_DIR)/golangci-lint:
 	$(BUILD_DIR)/golangci-lint version
 	$(BUILD_DIR)/golangci-lint linters
 
+
 # Test targets
 
 .PHONY: test-unit
@@ -174,7 +179,7 @@ test-e2e: ## Run the end-to-end tests
 	$(GO) test -race -timeout 40m -count=1 ./test/... -v
 
 # Generate CRD manifests
-manifests:
+manifests: $(CONTROLLER_GEN)
 	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crd.yaml
 	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/selinuxpolicy/..." output:crd:stdout >> deploy/base/crd.yaml
 	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/profilebinding/..." output:crd:stdout > deploy/base/webhook/crd.yaml
