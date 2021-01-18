@@ -11,6 +11,8 @@ spec:
       name: security-profiles-operator
   template:
     metadata:
+      annotations:
+        seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
         name: security-profiles-operator
     spec:
