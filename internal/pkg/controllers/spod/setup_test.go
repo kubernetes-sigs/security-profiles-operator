@@ -44,11 +44,7 @@ func Test_getEffectiveSPOd(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := getEffectiveSPOd(tt.dt)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("getEffectiveSPOd() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
+			got := getEffectiveSPOd(tt.dt)
 			require.Equal(t, tt.dt.DaemonImage, got.Spec.Template.Spec.Containers[0].Image)
 			require.Equal(t, tt.dt.NonRootEnablerImage, got.Spec.Template.Spec.InitContainers[0].Image)
 			var found bool

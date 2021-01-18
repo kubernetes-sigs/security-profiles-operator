@@ -17,157 +17,219 @@ limitations under the License.
 package bindata
 
 import (
-	"fmt"
-
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
-// NOTE(jaosorior): We should switch this for a proper bindata solution.
-// nolint: lll
-const spodManifest = `---
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: security-profiles-operator
-  namespace: security-profiles-operator
-spec:
-  selector:
-    matchLabels:
-      app: spod
-  template:
-    metadata:
-      annotations:
-        openshift.io/scc: privileged
-        seccomp.security.alpha.kubernetes.io/pod: runtime/default
-        container.seccomp.security.alpha.kubernetes.io/security-profiles-operator: localhost/security-profiles-operator.json
-      labels:
-        app: spod
-    spec:
-      serviceAccountName: security-profiles-operator
-      initContainers:
-        - name: non-root-enabler
-          image: bash
-          # Creates folder /var/lib/security-profiles-operator, sets 2000:2000 as its
-          # owner and symlink it to /var/lib/kubelet/seccomp/operator. This is
-          # required to allow the main container to run as non-root.
-          command: [bash, -c]
-          args:
-            - |+
-              set -euo pipefail
+var (
+	falsely                         = false
+	truly                           = true
+	userRoot                  int64 = 0
+	userRootless              int64 = 2000
+	hostPathDirectory               = v1.HostPathDirectory
+	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
+)
 
-              if [ ! -d $KUBELET_SECCOMP_ROOT ]; then
-                /bin/mkdir -m 0744 -p $KUBELET_SECCOMP_ROOT
-              fi
+var Manifest = &appsv1.DaemonSet{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      config.OperatorName,
+		Namespace: config.OperatorName,
+	},
+	Spec: appsv1.DaemonSetSpec{
+		Selector: &metav1.LabelSelector{
+			MatchLabels: map[string]string{"app": "spod"},
+		},
+		Template: v1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					"openshift.io/scc":                         "privileged",
+					"seccomp.security.alpha.kubernetes.io/pod": "runtime/default",
+					"container.seccomp.security.alpha.kubernetes.io/security-profiles-operator": "localhost/security-profiles-operator.json", // nolint: lll
+				},
+				Labels: map[string]string{
+					"app": "spod",
+				},
+			},
+			Spec: v1.PodSpec{
+				ServiceAccountName: config.OperatorName,
+				InitContainers: []v1.Container{{
+					Name:  "non-root-enabler",
+					Image: "bash:5.0",
+					// Creates directory /var/lib/security-profiles-operator,
+					// sets 2000:2000 as its owner and symlink it to
+					// /var/lib/kubelet/seccomp/operator. This is required
+					// to allow the main container to run as non-root.
+					Command: []string{"bash", "-c"},
+					Args: []string{`
+						set -euo pipefail
 
-              /bin/mkdir -p $OPERATOR_ROOT
-              /bin/chmod 0744 $OPERATOR_ROOT
+						if [ ! -d $KUBELET_SECCOMP_ROOT ]; then
+							/bin/mkdir -m 0744 -p $KUBELET_SECCOMP_ROOT
+						fi
 
-              if [ ! -L $OPERATOR_SYMLINK ]; then
-                /bin/ln -s $OPERATOR_ROOT $OPERATOR_SYMLINK
-              fi
+						/bin/mkdir -p $OPERATOR_ROOT
+						/bin/chmod 0744 $OPERATOR_ROOT
 
-              /bin/chown -R 2000:2000 $OPERATOR_ROOT
-              cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
-          env:
-            - name: KUBELET_SECCOMP_ROOT
-              value: /var/lib/kubelet/seccomp
-            - name: OPERATOR_SYMLINK
-              value: $(KUBELET_SECCOMP_ROOT)/operator
-            - name: OPERATOR_ROOT
-              value: /var/lib/security-profiles-operator
-          volumeMounts:
-            - name: host-varlib-volume
-              mountPath: /var/lib
-            - name: profile-configmap-volume
-              mountPath: /opt/seccomp-profiles
-              readOnly: true
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-              add: ["CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"]
-            runAsUser: 0
-            seLinuxOptions:
-              # FIXME(jaosorior): Use a more restricted selinux type
-              type: spc_t
-          resources:
-            requests:
-              memory: "32Mi"
-              cpu: "100m"
-              ephemeral-storage: "10Mi"
-            limits:
-              memory: "64Mi"
-              cpu: "250m"
-              ephemeral-storage: "50Mi"
-      containers:
-        - name: security-profiles-operator
-          image: security-profiles-operator
-          args:
-          - daemon
-          imagePullPolicy: Always
-          volumeMounts:
-          - name: host-operator-volume
-            mountPath: /var/lib/kubelet/seccomp/operator
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            runAsUser: 2000
-            runAsGroup: 2000
-            capabilities:
-              drop: ["ALL"]
-            seLinuxOptions:
-              # FIXME(jaosorior): Use a more restricted selinux type
-              type: spc_t
-          resources:
-            requests:
-              memory: "64Mi"
-              cpu: "100m"
-              ephemeral-storage: "50Mi"
-            limits:
-              memory: "128Mi"
-              cpu: "300m"
-              ephemeral-storage: "200Mi"
-          env:
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-      volumes:
-      # /var/lib is used as symlinks cannot be created across different volumes
-      - name: host-varlib-volume
-        hostPath:
-          path: /var/lib
-          type: Directory
-      - name: host-operator-volume
-        hostPath:
-          path: /var/lib/security-profiles-operator
-          type: DirectoryOrCreate
-      - name: profile-configmap-volume
-        configMap:
-          name: security-profiles-operator-profile
-      tolerations:
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/master
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/control-plane
-        - effect: NoExecute
-          key: node.kubernetes.io/not-ready
-          operator: Exists
-      nodeSelector:
-        kubernetes.io/os: linux
-`
+						if [ ! -L $OPERATOR_SYMLINK ]; then
+							/bin/ln -s $OPERATOR_ROOT $OPERATOR_SYMLINK
+						fi
 
-func GetReferenceSPOd() (*appsv1.DaemonSet, error) {
-	rawDS, err := rawObjectToUnstructured(spodManifest)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing DS manifest: %w", err)
-	}
-	spod := &appsv1.DaemonSet{}
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(rawDS.Object, spod)
-	if err != nil {
-		return nil, fmt.Errorf("error converting unstructured DS to implementation object: %w", err)
-	}
-	return spod, nil
+						/bin/chown -R 2000:2000 $OPERATOR_ROOT
+						cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
+					`},
+					Env: []v1.EnvVar{
+						{
+							Name:  "KUBELET_SECCOMP_ROOT",
+							Value: config.KubeletSeccompRootPath,
+						},
+						{
+							Name:  "OPERATOR_SYMLINK",
+							Value: "$(KUBELET_SECCOMP_ROOT)/operator",
+						},
+						{
+							Name:  "OPERATOR_ROOT",
+							Value: "/var/lib/security-profiles-operator",
+						},
+					},
+					VolumeMounts: []v1.VolumeMount{
+						{
+							Name:      "host-varlib-volume",
+							MountPath: "/var/lib",
+						},
+						{
+							Name:      "profile-configmap-volume",
+							MountPath: "/opt/seccomp-profiles",
+							ReadOnly:  true,
+						},
+					},
+					SecurityContext: &v1.SecurityContext{
+						AllowPrivilegeEscalation: &falsely,
+						ReadOnlyRootFilesystem:   &truly,
+						Capabilities: &v1.Capabilities{
+							Drop: []v1.Capability{"ALL"},
+							Add:  []v1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
+						},
+						RunAsUser: &userRoot,
+						SELinuxOptions: &v1.SELinuxOptions{
+							// TODO(jaosorior): Use a more restricted selinux type
+							Type: "spc_t",
+						},
+					},
+					Resources: v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceMemory:           resource.MustParse("32Mi"),
+							v1.ResourceCPU:              resource.MustParse("100m"),
+							v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+						},
+						Limits: v1.ResourceList{
+							v1.ResourceMemory:           resource.MustParse("64Mi"),
+							v1.ResourceCPU:              resource.MustParse("250m"),
+							v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+						},
+					},
+				}},
+				Containers: []v1.Container{{
+					Name:            config.OperatorName,
+					Image:           config.OperatorName,
+					Args:            []string{"daemon"},
+					ImagePullPolicy: v1.PullAlways,
+					VolumeMounts: []v1.VolumeMount{
+						{
+							Name:      "host-operator-volume",
+							MountPath: config.ProfilesRootPath,
+						},
+					},
+					SecurityContext: &v1.SecurityContext{
+						AllowPrivilegeEscalation: &falsely,
+						ReadOnlyRootFilesystem:   &truly,
+						Capabilities: &v1.Capabilities{
+							Drop: []v1.Capability{"ALL"},
+						},
+						RunAsUser:  &userRootless,
+						RunAsGroup: &userRootless,
+						SELinuxOptions: &v1.SELinuxOptions{
+							// TODO(jaosorior): Use a more restricted selinux type
+							Type: "spc_t",
+						},
+					},
+					Resources: v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceMemory:           resource.MustParse("64Mi"),
+							v1.ResourceCPU:              resource.MustParse("100m"),
+							v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+						},
+						Limits: v1.ResourceList{
+							v1.ResourceMemory:           resource.MustParse("128Mi"),
+							v1.ResourceCPU:              resource.MustParse("300m"),
+							v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
+						},
+					},
+					Env: []v1.EnvVar{
+						{
+							Name: config.NodeNameEnvKey,
+							ValueFrom: &v1.EnvVarSource{
+								FieldRef: &v1.ObjectFieldSelector{
+									FieldPath: "spec.nodeName",
+								},
+							},
+						},
+					},
+				}},
+				Volumes: []v1.Volume{
+					// /var/lib is used as symlinks cannot be created across
+					// different volumes
+					{
+						Name: "host-varlib-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/var/lib",
+								Type: &hostPathDirectory,
+							},
+						},
+					},
+					{
+						Name: "host-operator-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/var/lib/security-profiles-operator",
+								Type: &hostPathDirectoryOrCreate,
+							},
+						},
+					},
+					{
+						Name: "profile-configmap-volume",
+						VolumeSource: v1.VolumeSource{
+							ConfigMap: &v1.ConfigMapVolumeSource{
+								LocalObjectReference: v1.LocalObjectReference{
+									Name: "security-profiles-operator-profile",
+								},
+							},
+						},
+					},
+				},
+				Tolerations: []v1.Toleration{
+					{
+						Effect: v1.TaintEffectNoSchedule,
+						Key:    "node-role.kubernetes.io/master",
+					},
+					{
+						Effect: v1.TaintEffectNoSchedule,
+						Key:    "node-role.kubernetes.io/control-plane",
+					},
+					{
+						Effect:   v1.TaintEffectNoExecute,
+						Key:      "node.kubernetes.io/not-ready",
+						Operator: v1.TolerationOpExists,
+					},
+				},
+				NodeSelector: map[string]string{
+					"kubernetes.io/os": "linux",
+				},
+			},
+		},
+	},
 }
