@@ -28,10 +28,6 @@ RUN adduser \
     --uid "${UID}" \
     "${USER}"
 
-# Speed up build by leveraging docker layer caching
-COPY go.mod go.sum ./
-RUN go mod download
-
 ADD . /work
 RUN make
 
