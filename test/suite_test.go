@@ -37,7 +37,7 @@ import (
 const (
 	kindVersion = "v0.9.0"
 	kindSHA512  = "e7152acf5fd7a4a56af825bda64b1b8343a1f91588f9b3ddd5420ae5c5a95577d87431f2e417a7e03dd23914e1da9bed855ec19d0c4602729b311baccb30bd7f" // nolint: lll
-	kindImage   = "kindest/node:v1.19.1"
+	kindImage   = "kindest/node:v1.20.0"
 )
 
 var (
