@@ -18,7 +18,6 @@ package spod
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
@@ -45,17 +44,13 @@ type DaemonTunables struct {
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
 func Setup(ctx context.Context, mgr ctrl.Manager, dt DaemonTunables, l logr.Logger) error {
-	refSPOd, err := getEffectiveSPOd(dt)
-	if err != nil {
-		return err
-	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("spod-config").
 		For(&corev1.ConfigMap{}).
 		WithEventFilter(resource.NewPredicates(isSPOdConfig)).
 		Owns(&appsv1.DaemonSet{}).
 		Complete(&ReconcileSPOd{
-			baseSPOd: refSPOd,
+			baseSPOd: getEffectiveSPOd(dt),
 			client:   mgr.GetClient(),
 			log:      l,
 			record:   event.NewAPIRecorder(mgr.GetEventRecorderFor("spod-config")),
@@ -63,11 +58,8 @@ func Setup(ctx context.Context, mgr ctrl.Manager, dt DaemonTunables, l logr.Logg
 		})
 }
 
-func getEffectiveSPOd(dt DaemonTunables) (*appsv1.DaemonSet, error) {
-	refSPOd, err := bindata.GetReferenceSPOd()
-	if err != nil {
-		return nil, fmt.Errorf("couldn't get reference SPO DaemonSet: %w", err)
-	}
+func getEffectiveSPOd(dt DaemonTunables) *appsv1.DaemonSet {
+	refSPOd := bindata.Manifest.DeepCopy()
 	cnt := &refSPOd.Spec.Template.Spec.Containers[0]
 	cnt.Image = dt.DaemonImage
 	if dt.WatchNamespace != "" {
@@ -79,7 +71,7 @@ func getEffectiveSPOd(dt DaemonTunables) (*appsv1.DaemonSet, error) {
 
 	initcnt := &refSPOd.Spec.Template.Spec.InitContainers[0]
 	initcnt.Image = dt.NonRootEnablerImage
-	return refSPOd, nil
+	return refSPOd
 }
 
 func isSPOdConfig(obj runtime.Object) bool {
