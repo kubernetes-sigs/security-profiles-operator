@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM registry.access.redhat.com/ubi8/go-toolset:latest AS build
+FROM registry.fedoraproject.org/fedora-minimal:latest AS build
 USER root
 WORKDIR /work
+
+RUN microdnf install -y make golang-bin libseccomp-static glibc-static
 
 # Speed up build by leveraging docker layer caching
 COPY go.mod go.sum ./
@@ -23,7 +25,6 @@ RUN go mod download
 ADD . /work
 RUN mkdir -p build
 
-ENV LINKMODE_EXTERNAL=no
 RUN make
 
 FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
