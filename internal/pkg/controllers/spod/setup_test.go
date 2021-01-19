@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 func Test_getEffectiveSPOd(t *testing.T) {
@@ -49,14 +51,14 @@ func Test_getEffectiveSPOd(t *testing.T) {
 			require.Equal(t, tt.dt.NonRootEnablerImage, got.Spec.Template.Spec.InitContainers[0].Image)
 			var found bool
 			for _, env := range got.Spec.Template.Spec.Containers[0].Env {
-				if env.Name == "RESTRICT_TO_NAMESPACE" {
+				if env.Name == config.RestrictNamespaceEnvKey {
 					require.Equal(t, tt.dt.WatchNamespace, env.Value)
 					found = true
 					break
 				}
 			}
 			if tt.nsIsSet && !found {
-				t.Errorf("RESTRICT_TO_NAMESPACE env variable wasn't set")
+				t.Errorf("%s env variable wasn't set", config.RestrictNamespaceEnvKey)
 			}
 		})
 	}

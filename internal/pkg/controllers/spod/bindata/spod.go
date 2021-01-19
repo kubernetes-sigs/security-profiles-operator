@@ -34,6 +34,8 @@ var (
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
 )
 
+const operatorRoot = "/var/lib/security-profiles-operator"
+
 var Manifest = &appsv1.DaemonSet{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:      config.OperatorName,
@@ -46,9 +48,9 @@ var Manifest = &appsv1.DaemonSet{
 		Template: v1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"openshift.io/scc":                         "privileged",
-					"seccomp.security.alpha.kubernetes.io/pod": "runtime/default",
-					"container.seccomp.security.alpha.kubernetes.io/security-profiles-operator": "localhost/security-profiles-operator.json", // nolint: lll
+					"openshift.io/scc":         "privileged",
+					v1.SeccompPodAnnotationKey: v1.SeccompProfileRuntimeDefault,
+					v1.SeccompContainerAnnotationKeyPrefix + config.OperatorName: "localhost/security-profiles-operator.json",
 				},
 				Labels: map[string]string{
 					"app": "spod",
@@ -57,8 +59,7 @@ var Manifest = &appsv1.DaemonSet{
 			Spec: v1.PodSpec{
 				ServiceAccountName: config.OperatorName,
 				InitContainers: []v1.Container{{
-					Name:  "non-root-enabler",
-					Image: "bash:5.0",
+					Name: "non-root-enabler",
 					// Creates directory /var/lib/security-profiles-operator,
 					// sets 2000:2000 as its owner and symlink it to
 					// /var/lib/kubelet/seccomp/operator. This is required
@@ -67,34 +68,20 @@ var Manifest = &appsv1.DaemonSet{
 					Args: []string{`
 						set -euo pipefail
 
-						if [ ! -d $KUBELET_SECCOMP_ROOT ]; then
-							/bin/mkdir -m 0744 -p $KUBELET_SECCOMP_ROOT
+						if [ ! -d ` + config.KubeletSeccompRootPath + ` ]; then
+							/bin/mkdir -m 0744 -p ` + config.KubeletSeccompRootPath + `
 						fi
 
-						/bin/mkdir -p $OPERATOR_ROOT
-						/bin/chmod 0744 $OPERATOR_ROOT
+						/bin/mkdir -p ` + operatorRoot + `
+						/bin/chmod 0744 ` + operatorRoot + `
 
-						if [ ! -L $OPERATOR_SYMLINK ]; then
-							/bin/ln -s $OPERATOR_ROOT $OPERATOR_SYMLINK
+						if [ ! -L ` + config.ProfilesRootPath + ` ]; then
+							/bin/ln -s ` + operatorRoot + ` ` + config.ProfilesRootPath + `
 						fi
 
-						/bin/chown -R 2000:2000 $OPERATOR_ROOT
-						cp -f -v /opt/seccomp-profiles/* $KUBELET_SECCOMP_ROOT
+						/bin/chown -R 2000:2000 ` + operatorRoot + `
+						cp -f -v /opt/seccomp-profiles/* ` + config.KubeletSeccompRootPath + `
 					`},
-					Env: []v1.EnvVar{
-						{
-							Name:  "KUBELET_SECCOMP_ROOT",
-							Value: config.KubeletSeccompRootPath,
-						},
-						{
-							Name:  "OPERATOR_SYMLINK",
-							Value: "$(KUBELET_SECCOMP_ROOT)/operator",
-						},
-						{
-							Name:  "OPERATOR_ROOT",
-							Value: "/var/lib/security-profiles-operator",
-						},
-					},
 					VolumeMounts: []v1.VolumeMount{
 						{
 							Name:      "host-varlib-volume",
@@ -134,7 +121,6 @@ var Manifest = &appsv1.DaemonSet{
 				}},
 				Containers: []v1.Container{{
 					Name:            config.OperatorName,
-					Image:           config.OperatorName,
 					Args:            []string{"daemon"},
 					ImagePullPolicy: v1.PullAlways,
 					VolumeMounts: []v1.VolumeMount{
