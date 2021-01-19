@@ -38,7 +38,6 @@ import (
 
 const (
 	jsonFlag               string = "json"
-	restrictNSKey          string = "RESTRICT_TO_NAMESPACE"
 	operatorImageKey       string = "RELATED_IMAGE_OPERATOR"
 	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
 )
@@ -168,22 +167,21 @@ func runManager(ctx *cli.Context) error {
 	return nil
 }
 
-func getTunables() (spod.DaemonTunables, error) {
-	var dt spod.DaemonTunables
-	restrictNS := os.Getenv(restrictNSKey)
+func getTunables() (dt spod.DaemonTunables, err error) {
+	dt.WatchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
+
 	operatorImage := os.Getenv(operatorImageKey)
 	if operatorImage == "" {
 		return dt, errors.New("invalid operator image")
 	}
+	dt.DaemonImage = operatorImage
 
 	nonRootEnableImage := os.Getenv(nonRootEnablerImageKey)
 	if nonRootEnableImage == "" {
 		return dt, errors.New("invalid non-root enabler image")
 	}
-
-	dt.DaemonImage = operatorImage
 	dt.NonRootEnablerImage = nonRootEnableImage
-	dt.WatchNamespace = restrictNS
+
 	return dt, nil
 }
 
@@ -201,8 +199,8 @@ func runDaemon(ctx *cli.Context) error {
 		SyncPeriod: &sync,
 	}
 
-	if os.Getenv(restrictNSKey) != "" {
-		ctrlOpts.Namespace = os.Getenv(restrictNSKey)
+	if os.Getenv(config.RestrictNamespaceEnvKey) != "" {
+		ctrlOpts.Namespace = os.Getenv(config.RestrictNamespaceEnvKey)
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
