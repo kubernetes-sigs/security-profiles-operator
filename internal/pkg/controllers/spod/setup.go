@@ -62,9 +62,10 @@ func getEffectiveSPOd(dt DaemonTunables) *appsv1.DaemonSet {
 	refSPOd := bindata.Manifest.DeepCopy()
 	cnt := &refSPOd.Spec.Template.Spec.Containers[0]
 	cnt.Image = dt.DaemonImage
+
 	if dt.WatchNamespace != "" {
 		cnt.Env = append(cnt.Env, corev1.EnvVar{
-			Name:  "RESTRICT_TO_NAMESPACE",
+			Name:  config.RestrictNamespaceEnvKey,
 			Value: dt.WatchNamespace,
 		})
 	}

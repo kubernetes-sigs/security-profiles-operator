@@ -31,6 +31,10 @@ const (
 	// NodeNameEnvKey is the default environment variable key for retrieving
 	// the name of the current node.
 	NodeNameEnvKey = "NODE_NAME"
+
+	// RestrictNamespaceEnvKey is the environment variable key for restricting
+	// the operator to work on only a single Kubernetes namespace.
+	RestrictNamespaceEnvKey = "RESTRICT_TO_NAMESPACE"
 )
 
 // GetOperatorNamespace gets the namespace that the operator is currently running on.
