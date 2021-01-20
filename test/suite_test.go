@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,8 +42,9 @@ const (
 )
 
 var (
-	clusterType      = os.Getenv("E2E_CLUSTER_TYPE")
-	containerRuntime = os.Getenv("CONTAINER_RUNTIME")
+	clusterType        = os.Getenv("E2E_CLUSTER_TYPE")
+	envSkipBuildImages = os.Getenv("E2E_SKIP_BUILD_IMAGES")
+	containerRuntime   = os.Getenv("CONTAINER_RUNTIME")
 )
 
 type e2e struct {
@@ -62,6 +64,7 @@ type kinde2e struct {
 
 type openShifte2e struct {
 	e2e
+	skipBuildImages bool
 }
 
 func TestSuite(t *testing.T) {
@@ -79,6 +82,11 @@ func TestSuite(t *testing.T) {
 			"", "",
 		})
 	case strings.EqualFold(clusterType, "openshift"):
+		skipBuildImages, err := strconv.ParseBool(envSkipBuildImages)
+		if err != nil {
+			skipBuildImages = false
+		}
+
 		suite.Run(t, &openShifte2e{
 			e2e{
 				logger: klogr.New(),
@@ -86,6 +94,7 @@ func TestSuite(t *testing.T) {
 				// image registry and not on the nodes.
 				pullPolicy: "Always",
 			},
+			skipBuildImages,
 		})
 	default:
 		t.Fatalf("Unknown cluster type.")
@@ -199,8 +208,10 @@ func (e *openShifte2e) SetupSuite() {
 	testImageRef := config.OperatorName + ":latest"
 
 	// Build and load the test image
-	e.logf("Building operator container image")
-	e.run("make", "image", "IMAGE="+testImageRef)
+	if !e.skipBuildImages {
+		e.logf("Building operator container image")
+		e.run("make", "image", "IMAGE="+testImageRef)
+	}
 	e.logf("Loading container image into nodes")
 
 	// Get credentials
@@ -298,10 +309,14 @@ func (e *e2e) logf(format string, a ...interface{}) {
 	e.logger.Info(fmt.Sprintf(format, a...))
 }
 
-func (e *e2e) selinuxtOnlyTestCase() {
+func (e *e2e) platformSupportsSelinux() bool {
 	// TODO(jaosorior): Come up with better way to assert if a cluster
 	// supports SELinux or not.
-	if !strings.EqualFold(clusterType, "openshift") {
+	return strings.EqualFold(clusterType, "openshift")
+}
+
+func (e *e2e) selinuxtOnlyTestCase() {
+	if !e.platformSupportsSelinux() {
 		e.T().Skip("Skipping SELinux-related test from non-OpenShift cluster")
 	}
 }
