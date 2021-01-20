@@ -19,10 +19,14 @@ package e2e_test
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 func (e *e2e) testCaseSelinuxBaseUsage(nodes []string) {
 	e.selinuxtOnlyTestCase()
+
+	const maxNodeIterations = 3
+	const sleepBetweenIterations = 5 * time.Second
 
 	// nolint:lll
 	const podWithPolicyFmt = `
@@ -76,17 +80,27 @@ spec:
 	rawPolicyName := e.getSELinuxPolicyName("errorlogger")
 
 	e.logf("assert policy is installed")
-	for _, node := range nodes {
-		var found bool
-		policiesRaw := e.execNode(node, "semodule", "-l")
-		for _, policy := range strings.Split(policiesRaw, "\n") {
-			if policy == rawPolicyName {
-				found = true
+
+	for i := 0; i < maxNodeIterations; i++ {
+		var missingPolName string
+
+		for _, node := range nodes {
+			policiesRaw := e.execNode(node, "semodule", "-l")
+			if !e.sliceContainsString(strings.Split(policiesRaw, "\n"), rawPolicyName) {
+				missingPolName = node
 				break
 			}
 		}
-		e.Truef(found, "The SelinuxPolicy errorlogger wasn't found in the %s node with the name %s",
-			node, rawPolicyName)
+
+		if missingPolName != "" {
+			if i == maxNodeIterations-1 {
+				e.Failf("The SelinuxPolicy errorlogger wasn't found in the %s node with the name %s",
+					missingPolName, rawPolicyName)
+			} else {
+				e.logf("the policy was stil present, trying again")
+				time.Sleep(sleepBetweenIterations)
+			}
+		}
 	}
 
 	e.logf("creating workload")
@@ -112,15 +126,24 @@ spec:
 	e.kubectl("delete", "selinuxpolicy", "errorlogger")
 
 	e.logf("assert policy was removed")
-	for _, node := range nodes {
-		var found bool
-		policiesRaw := e.execNode(node, "semodule", "-l")
-		for _, policy := range strings.Split(policiesRaw, "\n") {
-			if policy == rawPolicyName {
-				found = true
+	for i := 0; i < maxNodeIterations; i++ {
+		var nodeHasPolName string
+
+		for _, node := range nodes {
+			policiesRaw := e.execNode(node, "semodule", "-l")
+			if e.sliceContainsString(strings.Split(policiesRaw, "\n"), rawPolicyName) {
+				nodeHasPolName = node
 				break
 			}
 		}
-		e.Falsef(found, "The SelinuxPolicy errorlogger should have been removed from %s node", node)
+
+		if nodeHasPolName != "" {
+			if i == maxNodeIterations-1 {
+				e.Failf("The SelinuxPolicy errorlogger should have been removed from %s node", nodeHasPolName)
+			} else {
+				e.logf("the policy was stil present, trying again")
+				time.Sleep(sleepBetweenIterations)
+			}
+		}
 	}
 }
