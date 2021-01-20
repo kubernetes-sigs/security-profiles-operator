@@ -29,6 +29,38 @@ general k8s resources
   Sheet](https://git.k8s.io/community/contributors/guide/contributor-cheatsheet)
   - Common resources for existing developers
 
+## Prerequisites
+
+- [go](https://golang.org/dl/) version v1.15+.
+- [docker](https://docs.docker.com/install/) version 17.03+.
+- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) version v1.19+.
+- [kustomize](https://sigs.k8s.io/kustomize/docs/INSTALL.md) v3.1.0+
+- Access to a Kubernetes v1.19+ cluster.
+
+## Contributing steps
+
+1. Submit an issue describing your proposed change to the repo in question.
+1. The [repo owners](OWNERS) will respond to your issue promptly.
+1. If your proposed change is accepted, and you haven't already done so, sign a Contributor License Agreement (see details above).
+1. Fork the desired repo, develop and test your code changes.
+1. Submit a pull request.
+
+## What to do before submitting a pull request
+
+Following the targets that can be used to test your changes locally.
+
+| Command             | Description                          | Is called in the CI? |
+| ------------------- | ------------------------------------ | -------------------- |
+| make test-unit      | Runs go tests                        | yes                  |
+| make test-e2e       | Runs the CI e2e tests locally        | yes                  |
+| make verify-go-lint | Run [golangci][golangci] lint checks | yes                  |
+| make verify         | Run all verification checks          | yes                  |
+
+## Where the CI Tests are configured
+
+1. See the [action files](.github/workflows) to check its tests, and the scripts used on it.
+1. Note that the prow tests used in the CI are configured in [kubernetes-sigs/seccomp-operator/seccomp-operator-presubmits.yaml](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes-sigs/seccomp-operator/seccomp-operator-presubmits.yaml).
+
 ## Mentorship
 
 - [Mentoring Initiatives](https://git.k8s.io/community/mentoring) - We have a
