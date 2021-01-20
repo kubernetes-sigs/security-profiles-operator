@@ -59,6 +59,15 @@ type ReconcileSP struct {
 	record         event.Recorder
 }
 
+// Security Profiles Operator RBAC permissions to manage SelinuxPolicy
+// nolint:lll
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/finalizers,verbs=delete;get;update;patch
+
+// Namespace scoped
+// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps,verbs=get;list;watch;
+
 // Reconcile reads that state of the cluster for a SelinuxPolicy object and makes changes based on the state read
 // and what is in the `SelinuxPolicy.Spec`.
 func (r *ReconcileSP) Reconcile(request reconcile.Request) (reconcile.Result, error) {

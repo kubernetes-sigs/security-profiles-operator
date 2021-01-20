@@ -16,7 +16,7 @@ spec:
       labels:
         name: security-profiles-operator
     spec:
-      serviceAccountName: security-profiles-operator
+      serviceAccountName: spo-manager
       containers:
         - name: security-profiles-operator
           image: security-profiles-operator

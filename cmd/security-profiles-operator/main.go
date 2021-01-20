@@ -30,9 +30,9 @@ import (
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/selinuxpolicy"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 )
 

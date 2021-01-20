@@ -305,173 +305,218 @@ kind: ServiceAccount
 metadata:
   labels:
     app: security-profiles-operator
-  name: security-profiles-operator
+  name: spo-manager
+  namespace: security-profiles-operator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spod
   namespace: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  creationTimestamp: null
   labels:
     app: security-profiles-operator
-  name: config-map-reader
+  name: spo-object-manager
   namespace: NS_REPLACE
 rules:
 - apiGroups:
-  - ""
+  - security-profiles-operator.x-k8s.io
   resources:
-  - configmaps
-  - pods
-  - nodes
-  verbs:
-  - get
-  - watch
-  - list
-- apiGroups:
-  - ""
-  resources:
-  - events
+  - selinuxpolicies
   verbs:
   - create
-  - patch
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  - daemonsets
-  - replicasets
-  - statefulsets
-  verbs:
-  - create
-  - delete
   - get
   - list
   - patch
   - update
   - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxpolicies/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: spo-manager
+  namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/status
+  verbs:
+  - get
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: spod-object-manager
+  namespace: NS_REPLACE
+rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - seccompprofiles
-  - selinuxpolicies
   verbs:
+  - create
   - get
-  - watch
   - list
-  - update
   - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - seccompprofiles/status
-  - selinuxpolicies/status
   verbs:
   - get
-  - update
   - patch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: config-map-reader-binding
-  namespace: NS_REPLACE
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: config-map-reader
-subjects:
-- kind: ServiceAccount
-  name: security-profiles-operator
-  namespace: security-profiles-operator
+  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  creationTimestamp: null
   labels:
     app: security-profiles-operator
-  name: security-profiles-operator
+  name: spod
   namespace: security-profiles-operator
 rules:
 - apiGroups:
   - ""
   resources:
   - pods
-  - services
-  - services/finalizers
-  - endpoints
-  - persistentvolumeclaims
-  - events
-  - configmaps
-  - configmaps/finalizers
-  - secrets
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  - daemonsets
-  - replicasets
-  - statefulsets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - apps
-  resourceNames:
-  - selinux-operator
-  resources:
-  - deployments/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - get
-- apiGroups:
-  - apps
-  resources:
-  - replicasets
-  - deployments
-  verbs:
-  - get
-- apiGroups:
-  - security.openshift.io
-  resourceNames:
-  - privileged
-  resources:
-  - securitycontextconstraints
-  verbs:
-  - use
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
     app: security-profiles-operator
-  name: selinux-operator
+  name: spo-object-manager
+  namespace: NS_REPLACE
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spo-manager
+subjects:
+- kind: ServiceAccount
+  name: spo-manager
+  namespace: security-profiles-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-manager
   namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: security-profiles-operator
+  name: spo-manager
 subjects:
 - kind: ServiceAccount
-  name: security-profiles-operator
+  name: spo-manager
+  namespace: security-profiles-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spod-object-manager
+  namespace: NS_REPLACE
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spod
+subjects:
+- kind: ServiceAccount
+  name: spod
+  namespace: security-profiles-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spod
+  namespace: security-profiles-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spod
+subjects:
+- kind: ServiceAccount
+  name: spod
   namespace: security-profiles-operator
 ---
 apiVersion: apps/v1
@@ -513,7 +558,7 @@ spec:
           readOnlyRootFilesystem: true
       nodeSelector:
         node-role.kubernetes.io/master: ""
-      serviceAccountName: security-profiles-operator
+      serviceAccountName: spo-manager
       tolerations:
       - effect: NoSchedule
         key: node-role.kubernetes.io/master

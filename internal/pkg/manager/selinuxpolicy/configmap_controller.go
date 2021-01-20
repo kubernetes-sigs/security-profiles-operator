@@ -52,6 +52,13 @@ type ReconcileConfigMap struct {
 	record event.Recorder
 }
 
+// Security Profiles Operator RBAC permissions to manage SelinuxPolicy ConfigMaps
+// Namespace scoped
+// nolint:lll
+// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps,verbs=get;list;watch;
+// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=pods,verbs=get;list;watch;create;update;
+// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=pods/status,verbs=get;watch;
+
 // Reconcile reads that state of the cluster for a ConfigMap object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
 func (r *ReconcileConfigMap) Reconcile(request reconcile.Request) (reconcile.Result, error) {

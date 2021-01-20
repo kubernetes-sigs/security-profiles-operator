@@ -152,6 +152,12 @@ type PodReconciler struct {
 	record event.Recorder
 }
 
+// Security Profiles Operator RBAC permissions to manage SeccompProfile
+// nolint:lll
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=delete;get;update;patch
+
 // Reconcile reconciles a SeccompProfile.
 func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
@@ -344,6 +350,9 @@ func (r *Reconciler) setStatus(
 	}
 	return nil
 }
+
+// Namespace scoped
+// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=pods,verbs=get;list;watch;
 
 // Reconcile reacts to pod events and updates SeccompProfiles if in use or no longer in use by a pod.
 func (r *PodReconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) {

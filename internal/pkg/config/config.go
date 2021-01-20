@@ -20,6 +20,8 @@ const (
 	// OperatorName is the name when referring to the operator.
 	OperatorName = "security-profiles-operator"
 
+	SPOdServiceAccount = "spod"
+
 	// KubeletSeccompRootPath specifies the path where all kubelet seccomp
 	// profiles are stored.
 	KubeletSeccompRootPath = "/var/lib/kubelet/seccomp"

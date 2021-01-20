@@ -2,6 +2,9 @@
   path: /kind
   value: RoleBinding
 - op: replace
+  path: /metadata/name
+  value: spo-object-manager
+- op: replace
   path: /metadata/namespace
   value: NS_REPLACE
 - op: replace

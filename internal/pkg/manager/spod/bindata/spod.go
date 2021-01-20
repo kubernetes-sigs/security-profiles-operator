@@ -57,7 +57,7 @@ var Manifest = &appsv1.DaemonSet{
 				},
 			},
 			Spec: v1.PodSpec{
-				ServiceAccountName: config.OperatorName,
+				ServiceAccountName: config.SPOdServiceAccount,
 				InitContainers: []v1.Container{{
 					Name: "non-root-enabler",
 					// Creates directory /var/lib/security-profiles-operator,

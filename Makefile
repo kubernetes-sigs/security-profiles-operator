@@ -63,6 +63,8 @@ export E2E_CLUSTER_TYPE ?= kind
 
 DOCKERFILE ?= Dockerfile
 
+CONTROLLER_GEN := $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
+
 # Utility targets
 
 all: $(BUILD_DIR)/$(PROJECT) ## Build the security-profiles-operator binary
@@ -159,12 +161,14 @@ test-e2e: ## Run the end-to-end tests
 
 # Generate CRD manifests
 manifests:
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crd.yaml
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/selinuxpolicy/..." output:crd:stdout >> deploy/base/crd.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crd.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./api/selinuxpolicy/..." output:crd:stdout >> deploy/base/crd.yaml
 
 # Generate deepcopy code
 generate:
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./..."
+	$(CONTROLLER_GEN) rbac:roleName=spo-manager paths="./internal/pkg/manager/..." output:rbac:stdout > deploy/base/role.yaml
+	$(CONTROLLER_GEN) rbac:roleName=spod paths="./internal/pkg/daemon/..." output:rbac:stdout >> deploy/base/role.yaml
 
 ## OpenShift-only
 ## These targets are meant to make development in OpenShift easier.

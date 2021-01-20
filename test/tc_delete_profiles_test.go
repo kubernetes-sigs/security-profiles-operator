@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profile"
 )
 
 func (e *e2e) testCaseDeleteProfiles(nodes []string) {

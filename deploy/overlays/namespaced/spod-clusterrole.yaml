@@ -1,0 +1,9 @@
+- op: replace
+  path: /kind
+  value: Role
+- op: replace
+  path: /metadata/name
+  value: spod-object-manager
+- op: replace
+  path: /metadata/namespace
+  value: NS_REPLACE

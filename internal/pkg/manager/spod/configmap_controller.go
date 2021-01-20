@@ -48,6 +48,11 @@ type ReconcileSPOd struct {
 	log      logr.Logger
 }
 
+// Security Profiles Operator RBAC permissions to manage its own configuration
+// nolint:lll
+// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps,verbs=get;list;watch;
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets,verbs=get;list;watch;create;update
+
 // Reconcile reads that state of the cluster for a ConfigMap object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
 func (r *ReconcileSPOd) Reconcile(request reconcile.Request) (reconcile.Result, error) {

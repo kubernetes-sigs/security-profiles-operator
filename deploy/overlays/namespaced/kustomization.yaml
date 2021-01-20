@@ -14,12 +14,26 @@ patchesJson6902:
       group: rbac.authorization.k8s.io
       version: v1
       kind: ClusterRole
-      name: config-map-reader
-    path: clusterrole.yaml
+      name: spo-manager
+    path: spo-manager-clusterrole.yaml
+
+  - target:
+      group: rbac.authorization.k8s.io
+      version: v1
+      kind: ClusterRole
+      name: spod
+    path: spod-clusterrole.yaml
 
   - target:
       group: rbac.authorization.k8s.io
       version: v1
       kind: ClusterRoleBinding
-      name: config-map-reader-binding
-    path: clusterrolebinding.yaml
+      name: spo-manager
+    path: spo-manager-clusterrolebinding.yaml
+
+  - target:
+      group: rbac.authorization.k8s.io
+      version: v1
+      kind: ClusterRoleBinding
+      name: spod
+    path: spod-clusterrolebinding.yaml
