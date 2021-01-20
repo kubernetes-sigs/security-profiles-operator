@@ -240,3 +240,12 @@ func (e *e2e) getSELinuxPolicyUsage(policy string) string {
 	// the name of the policy in the node
 	return e.kubectl("get", "selinuxpolicy", "-n", ns, policy, "-o", "jsonpath={.status.usage}")
 }
+
+func (e *e2e) sliceContainsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
