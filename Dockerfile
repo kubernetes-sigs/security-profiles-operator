@@ -14,7 +14,7 @@
 
 FROM golang:1.15-alpine AS build
 WORKDIR /work
-RUN apk --no-cache add build-base git gcc libseccomp-dev
+RUN apk --no-cache add build-base git gcc libseccomp-dev libseccomp-static
 
 ENV USER=secuser
 ENV UID=2000
