@@ -38,7 +38,7 @@ const (
 	// NOTE(jaosorior): We should be able to decrease this once we
 	// migrate to a single daemonset-based implementation for the
 	// SELinux pieces.
-	defaultSelinuxOpTimeout = "180s"
+	defaultSelinuxOpTimeout = "360s"
 	defaultWaitTime         = 5 * time.Second
 )
 
