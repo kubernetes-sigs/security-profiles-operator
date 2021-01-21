@@ -1,4 +1,4 @@
-name: build
+name: macosbuild
 on: [push, pull_request]
 jobs:
   validate:
