@@ -154,6 +154,9 @@ $(BUILD_DIR)/golangci-lint:
 
 .PHONY: test-unit
 test-unit: $(BUILD_DIR) ## Run the unit tests
+	# remove all coverage files if exists
+	rm -rf *.out
+	# run the go tests and gen the file coverage-all used to do the integration with coverrals.io
 	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -race -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./internal/...
 	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 

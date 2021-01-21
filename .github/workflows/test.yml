@@ -1,0 +1,28 @@
+# Inlcuding the tests with ubuntu to get actual test coverage. The OSX builds skip seccomp tests.
+name: test-coverage
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+jobs:
+  validate:
+    name: Validate 
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: '1.15'
+      - name: Install libseccomp-dev
+        run: |
+          sudo apt update
+          sudo apt install -y libseccomp-dev
+      - name: unit test
+        run: make test-unit
+      - uses: codecov/codecov-action@v1
+        with:
+          files: build/coverage.out
+          flags: unittests 
+          verbose: true 
