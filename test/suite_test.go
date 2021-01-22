@@ -158,9 +158,15 @@ func (e *kinde2e) SetupTest() {
 	// Build and load the test image
 	e.logf("Building operator container image")
 	e.run("make", "image", "IMAGE="+e.testImage)
-	e.logf("Loading container image into nodes")
+	e.logf("Loading container images into nodes")
 	e.run(
 		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.testImage,
+	)
+	e.run(
+		"docker", "pull", "quay.io/jaosorior/selinuxd",
+	)
+	e.run(
+		e.kindPath, "load", "docker-image", "--name="+e.clusterName, "quay.io/jaosorior/selinuxd",
 	)
 }
 
