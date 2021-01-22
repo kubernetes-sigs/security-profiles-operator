@@ -25,6 +25,7 @@ import (
 )
 
 func Test_getEffectiveSPOd(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		dt      DaemonTunables
@@ -45,7 +46,9 @@ func Test_getEffectiveSPOd(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := getEffectiveSPOd(tt.dt)
 			require.Equal(t, tt.dt.DaemonImage, got.Spec.Template.Spec.Containers[0].Image)
 			require.Equal(t, tt.dt.NonRootEnablerImage, got.Spec.Template.Spec.InitContainers[0].Image)

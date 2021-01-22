@@ -24,15 +24,20 @@ import (
 )
 
 func TestNewContainerMap(t *testing.T) {
-	cases := map[string]struct {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
 		podSpec *corev1.PodSpec
 		want    containerMap
 	}{
-		"NoContainers": {
+		{
+			name:    "NoContainers",
 			podSpec: &corev1.PodSpec{},
 			want:    map[string][]*corev1.Container{},
 		},
-		"OnlyContainers": {
+		{
+			name: "OnlyContainers",
 			podSpec: &corev1.PodSpec{
 				Containers: []corev1.Container{
 					{
@@ -60,7 +65,8 @@ func TestNewContainerMap(t *testing.T) {
 				},
 			},
 		},
-		"OnlyInitContainers": {
+		{
+			name: "OnlyInitContainers",
 			podSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{
 					{
@@ -88,7 +94,8 @@ func TestNewContainerMap(t *testing.T) {
 				},
 			},
 		},
-		"ContainersAndInitContainers": {
+		{
+			name: "ContainersAndInitContainers",
 			podSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{{
 					Name:  "init",
@@ -114,7 +121,8 @@ func TestNewContainerMap(t *testing.T) {
 				},
 			},
 		},
-		"DuplicateImages": {
+		{
+			name: "DuplicateImages",
 			podSpec: &corev1.PodSpec{
 				InitContainers: []corev1.Container{{
 					Name:  "init",
@@ -140,8 +148,11 @@ func TestNewContainerMap(t *testing.T) {
 		},
 	}
 
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			result := newContainerMap(tc.podSpec)
 			for k, v := range result {
 				require.Equal(t, tc.want[k], v)

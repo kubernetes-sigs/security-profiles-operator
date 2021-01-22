@@ -3,7 +3,7 @@ set -euo pipefail
 
 # assume a Debian based golang image, like: golang:1.15
 apt-get update
-apt-get install -y python3
+apt-get install -y libseccomp-dev python3
 
 # install kustomize
 pushd /usr/bin
