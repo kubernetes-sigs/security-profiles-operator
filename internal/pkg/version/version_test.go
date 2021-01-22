@@ -23,6 +23,8 @@ import (
 )
 
 func TestVersionText(t *testing.T) {
+	t.Parallel()
+
 	sut := Get()
 	require.NotEmpty(t, sut.BuildDate)
 	require.NotEmpty(t, sut.Compiler)
@@ -35,6 +37,8 @@ func TestVersionText(t *testing.T) {
 }
 
 func TestVersionJSON(t *testing.T) {
+	t.Parallel()
+
 	sut, err := Get().JSONString()
 	require.Nil(t, err)
 	require.NotEmpty(t, sut)
