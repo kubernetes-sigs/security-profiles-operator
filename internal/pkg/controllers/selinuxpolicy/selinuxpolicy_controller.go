@@ -51,8 +51,12 @@ const policyWrapper = `(block {{.Name}}_{{.Namespace}}
 const selinuxFinalizerName = "selinuxpolicy.finalizers.selinuxpolicy.k8s.io"
 
 const (
-	selinuxdPoliciesBaseURL = "http://unix/policies/"
+	selinuxdSockAddr        = "http://unix"
+	selinuxdPoliciesBaseURL = selinuxdSockAddr + "/policies/"
+	selinuxdReadyURL        = selinuxdSockAddr + "/ready"
 	selinuxdSocketTimeout   = 5 * time.Second
+
+	selinuxdReadyKey = "ready"
 )
 
 type sePolStatusType string
@@ -183,13 +187,22 @@ func (r *ReconcileSP) removeFinalizer(sp *spov1alpha1.SelinuxPolicy) (reconcile.
 }
 
 func (r *ReconcileSP) reconcilePolicy(sp *spov1alpha1.SelinuxPolicy, l logr.Logger) (reconcile.Result, error) {
-	err := r.reconcilePolicyFile(sp, l)
+	selinuxdReady, err := isSelinuxdReady()
+	if err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "contacting selinuxd")
+	}
+	if !selinuxdReady {
+		l.Info("selinuxd not yet up, requeue")
+		return reconcile.Result{Requeue: true}, nil
+	}
+
+	err = r.reconcilePolicyFile(sp, l)
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "Creating policy file")
 	}
 
 	l.Info("Checking if policy is installed", "policyName", sp.Name)
-	polStatus, err := r.getPolicyStatus(sp)
+	polStatus, err := getPolicyStatus(sp)
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "Looking up policy status")
 	}
@@ -229,7 +242,7 @@ func (r *ReconcileSP) reconcilePolicyFile(sp *spov1alpha1.SelinuxPolicy, l logr.
 	policyContent := []byte(r.wrapPolicy(sp))
 
 	l.Info("Writing to policy file", "policyPath", policyPath)
-	err := ioutil.WriteFile(policyPath, policyContent, 0600)
+	err := writeFileIfDiffers(policyPath, policyContent)
 	if err != nil {
 		return errors.Wrap(err, "Writing policy file")
 	}
@@ -237,14 +250,51 @@ func (r *ReconcileSP) reconcilePolicyFile(sp *spov1alpha1.SelinuxPolicy, l logr.
 	return nil
 }
 
+// writeFileIfDiffers checks if the content of file at filePath are the same as the byte array
+// contents, if not, overwrites the file at filePath.
+//
+// Reopening the same file may seem wasteful and even look like a TOCTOU issue, but the policy
+// drop dir is private to this pod, but mostly just calling a single write is much easier codepath
+// than mucking around with seeks and truncates to account for all the corner cases.
+func writeFileIfDiffers(filePath string, contents []byte) error {
+	file, err := os.OpenFile(filePath, os.O_RDONLY, 0600)
+	if os.IsNotExist(err) {
+		file.Close()
+		return ioutil.WriteFile(filePath, contents, 0600)
+	} else if err != nil {
+		return errors.Wrap(err, "could not open for reading"+filePath)
+	}
+	defer file.Close()
+
+	existing, err := ioutil.ReadAll(file)
+	if err != nil {
+		return errors.Wrap(err, "reading file "+filePath)
+	}
+
+	if bytes.Equal(existing, contents) {
+		return nil
+	}
+
+	return ioutil.WriteFile(filePath, contents, 0600)
+}
+
 func (r *ReconcileSP) reconcileDeletePolicy(sp *spov1alpha1.SelinuxPolicy, l logr.Logger) (reconcile.Result, error) {
+	selinuxdReady, err := isSelinuxdReady()
+	if err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "contacting selinuxd")
+	}
+	if !selinuxdReady {
+		l.Info("selinuxd not yet up, requeue")
+		return reconcile.Result{Requeue: true}, nil
+	}
+
 	res, err := r.reconcileDeletePolicyFile(sp, l)
 	if res.Requeue || err != nil {
 		return res, err
 	}
 
 	l.Info("Checking if policy is removed", "policyName", sp.Name)
-	polStatus, err := r.getPolicyStatus(sp)
+	polStatus, err := getPolicyStatus(sp)
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "Looking up policy status")
 	}
@@ -315,7 +365,7 @@ func (r *ReconcileSP) wrapPolicy(cr *spov1alpha1.SelinuxPolicy) string {
 	return result.String()
 }
 
-func (r *ReconcileSP) getPolicyStatus(sp *spov1alpha1.SelinuxPolicy) (*sePolStatus, error) {
+func selinuxdGetRequest(url string) (*http.Response, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), selinuxdSocketTimeout)
 	defer cancel()
 
@@ -327,13 +377,33 @@ func (r *ReconcileSP) getPolicyStatus(sp *spov1alpha1.SelinuxPolicy) (*sePolStat
 		},
 	}
 
-	polURL := selinuxdPoliciesBaseURL + GetPolicyName(sp.Name, sp.Namespace)
-	req, err := http.NewRequestWithContext(ctx, "GET", polURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create a request to selinuxd")
 	}
 
-	response, err := httpc.Do(req)
+	return httpc.Do(req)
+}
+
+func isSelinuxdReady() (bool, error) {
+	response, err := selinuxdGetRequest(selinuxdReadyURL)
+	if err != nil {
+		return false, errors.Wrap(err, "failed to send a request to selinuxd")
+	}
+	defer response.Body.Close()
+
+	var status map[string]bool
+	err = json.NewDecoder(response.Body).Decode(&status)
+	if err != nil {
+		return false, errors.Wrap(err, "failed to decode response from selinuxd")
+	}
+
+	return status[selinuxdReadyKey], nil
+}
+
+func getPolicyStatus(sp *spov1alpha1.SelinuxPolicy) (*sePolStatus, error) {
+	polURL := selinuxdPoliciesBaseURL + GetPolicyName(sp.Name, sp.Namespace)
+	response, err := selinuxdGetRequest(polURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to send a request to selinuxd")
 	}
