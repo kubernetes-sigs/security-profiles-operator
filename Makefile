@@ -31,7 +31,7 @@ VERSION := $(shell cat VERSION)
 ifneq ($(shell uname -s), Darwin)
 BUILDTAGS := netgo osusergo seccomp
 else
-BUILDTAGS := netgo osusergo 
+BUILDTAGS := netgo osusergo
 endif
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
 export GOFLAGS?=-mod=mod
@@ -60,7 +60,7 @@ IMAGE ?= $(PROJECT):latest
 
 CRD_OPTIONS ?= "crd:crdVersions=v1"
 
-GOLANGCI_LINT_VERSION = v1.32.0
+GOLANGCI_LINT_VERSION = v1.35.2
 REPO_INFRA_VERSION = v0.1.2
 
 export E2E_CLUSTER_TYPE ?= kind
@@ -154,12 +154,12 @@ $(BUILD_DIR)/golangci-lint:
 
 .PHONY: test-unit
 test-unit: $(BUILD_DIR) ## Run the unit tests
-	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./internal/...
+	$(GO) test -ldflags '$(LDVARS)' -tags '$(BUILDTAGS)' -race -v -test.coverprofile=$(BUILD_DIR)/coverage.out ./internal/...
 	$(GO) tool cover -html $(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	$(GO) test -timeout 40m -count=1 ./test/... -v
+	$(GO) test -race -timeout 40m -count=1 ./test/... -v
 
 # Generate CRD manifests
 manifests:
@@ -196,7 +196,7 @@ push-openshift-dev: set-openshift-image-params openshift-user image
 		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) localhost/$(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
 
 .PHONY: do-deploy-openshift-dev
-do-deploy-openshift-dev: 
+do-deploy-openshift-dev:
 	@echo "Building custom operator.yaml"
 	kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/operator.yaml
 	@echo "Deploying"

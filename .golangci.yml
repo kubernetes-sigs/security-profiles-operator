@@ -1,8 +1,10 @@
 ---
 run:
   build-tags:
-    - netgo
     - e2e
+    - netgo
+    - osusergo
+    - seccomp
   concurrency: 6
   deadline: 5m
 linters:
@@ -41,18 +43,23 @@ linters:
     - ineffassign
     - interfacer
     - lll
+    - makezero
     - maligned
     - misspell
     - nakedret
     - nestif
     - noctx
     - nolintlint
+    - paralleltest
     - prealloc
+    - predeclared
     - rowserrcheck
+    - scopelint
     - sqlclosecheck
     - staticcheck
     - structcheck
     - stylecheck
+    - thelper
     - tparallel
     - typecheck
     - unconvert
@@ -62,10 +69,10 @@ linters:
     - whitespace
     - wrapcheck
     # - exhaustivestruct
+    # - forbidigo
     # - funlen
     # - gochecknoglobals
     # - nlreturn
-    # - scopelint
     # - testpackage
     # - wsl
 linters-settings:

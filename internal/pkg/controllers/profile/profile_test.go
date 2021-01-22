@@ -41,6 +41,8 @@ import (
 )
 
 func TestReconcile(t *testing.T) {
+	t.Parallel()
+
 	name := "cool-profile"
 	namespace := "cool-namespace"
 
@@ -54,13 +56,15 @@ func TestReconcile(t *testing.T) {
 		return nil
 	}
 
-	cases := map[string]struct {
+	cases := []struct {
+		name       string
 		rec        *Reconciler
 		req        reconcile.Request
 		wantResult reconcile.Result
 		wantErr    error
 	}{
-		"ProfileNotFound": {
+		{
+			name: "ProfileNotFound",
 			rec: &Reconciler{
 				client: &test.MockClient{
 					MockGet: test.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
@@ -71,7 +75,8 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{},
 			wantErr:    nil,
 		},
-		"ErrGetProfileIfSeccompEnabled": {
+		{
+			name: "ErrGetProfileIfSeccompEnabled",
 			rec: &Reconciler{
 				client: &test.MockClient{
 					MockGet: test.NewMockGetFn(errOops),
@@ -83,7 +88,8 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{},
 			wantErr:    errors.Wrap(getErrorIfSeccompEnabled(errOops), errGetProfile),
 		},
-		"GotProfile": {
+		{
+			name: "GotProfile",
 			rec: &Reconciler{
 				client: &test.MockClient{
 					MockGet:          test.NewMockGetFn(nil),
@@ -100,8 +106,11 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			gotResult, gotErr := tc.rec.Reconcile(tc.req)
 			if tc.wantErr != nil {
 				require.EqualError(t, gotErr, tc.wantErr.Error())
@@ -113,6 +122,8 @@ func TestReconcile(t *testing.T) {
 
 // Expected perms on file.
 func TestSaveProfileOnDisk(t *testing.T) {
+	t.Parallel()
+
 	// TODO: fix root user execution for this test
 	if os.Getuid() == 0 {
 		t.Skip("Test does not work as root user")
@@ -121,21 +132,24 @@ func TestSaveProfileOnDisk(t *testing.T) {
 	if err != nil {
 		t.Error(errors.Wrap(err, "error creating temp file for tests"))
 	}
-	defer os.RemoveAll(dir)
+	t.Cleanup(func() { os.RemoveAll(dir) })
 
-	cases := map[string]struct {
+	cases := []struct {
+		name        string
 		setup       func()
 		fileName    string
 		contents    string
 		wantErr     string
 		fileCreated bool
 	}{
-		"CreateDirsAndWriteFile": {
+		{
+			name:        "CreateDirsAndWriteFile",
 			fileName:    path.Join(dir, "/seccomp/operator/namespace/sp/filename.json"),
 			contents:    "some content",
 			fileCreated: true,
 		},
-		"NoPermissionToWriteFile": {
+		{
+			name: "NoPermissionToWriteFile",
 			setup: func() {
 				targetDir := path.Join(dir, "/test/nopermissions")
 				require.Nil(t, os.MkdirAll(targetDir, dirPermissionMode))
@@ -146,7 +160,8 @@ func TestSaveProfileOnDisk(t *testing.T) {
 			fileCreated: false,
 			wantErr:     "cannot save profile: open " + dir + "/test/nopermissions/filename.json: permission denied",
 		},
-		"NoPermissionToWriteDir": {
+		{
+			name: "NoPermissionToWriteDir",
 			setup: func() {
 				targetDir := path.Join(dir, "/nopermissions")
 				require.Nil(t, os.MkdirAll(targetDir, dirPermissionMode))
@@ -159,8 +174,11 @@ func TestSaveProfileOnDisk(t *testing.T) {
 		},
 	}
 
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			if tc.setup != nil {
 				tc.setup()
 			}
@@ -180,12 +198,16 @@ func TestSaveProfileOnDisk(t *testing.T) {
 }
 
 func TestGetProfilePath(t *testing.T) {
-	cases := map[string]struct {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
 		want    string
 		wantErr string
 		sp      *v1alpha1.SeccompProfile
 	}{
-		"AppendNamespaceAndProfile": {
+		{
+			name: "AppendNamespaceAndProfile",
 			want: path.Join(config.ProfilesRootPath, "config-namespace", "config-target", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
@@ -197,7 +219,8 @@ func TestGetProfilePath(t *testing.T) {
 				},
 			},
 		},
-		"BlockTraversalAtProfileName": {
+		{
+			name: "BlockTraversalAtProfileName",
 			want: path.Join(config.ProfilesRootPath, "ns", "config-target", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
@@ -209,7 +232,8 @@ func TestGetProfilePath(t *testing.T) {
 				},
 			},
 		},
-		"BlockTraversalAtTargetName": {
+		{
+			name: "BlockTraversalAtTargetName",
 			want: path.Join(config.ProfilesRootPath, "ns", "config-target", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
@@ -221,7 +245,8 @@ func TestGetProfilePath(t *testing.T) {
 				},
 			},
 		},
-		"BlockTraversalAtSPNamespace": {
+		{
+			name: "BlockTraversalAtSPNamespace",
 			want: path.Join(config.ProfilesRootPath, "ns", "config-target", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
@@ -233,7 +258,8 @@ func TestGetProfilePath(t *testing.T) {
 				},
 			},
 		},
-		"AppendExtension": {
+		{
+			name: "AppendExtension",
 			want: path.Join(config.ProfilesRootPath, "config-namespace", "config-target", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
@@ -247,8 +273,11 @@ func TestGetProfilePath(t *testing.T) {
 		},
 	}
 
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, gotErr := GetProfilePath(tc.sp.ObjectMeta.Name, tc.sp.ObjectMeta.Namespace, tc.sp.Spec.TargetWorkload)
 			if tc.wantErr == "" {
 				require.NoError(t, gotErr)
@@ -261,26 +290,33 @@ func TestGetProfilePath(t *testing.T) {
 }
 
 func TestIgnoreNotFound(t *testing.T) {
-	name := "cool-profile"
+	t.Parallel()
 
+	profileName := "cool-profile"
 	errOops := errors.New("oops")
 
-	cases := map[string]struct {
+	cases := []struct {
+		name string
 		err  error
 		want error
 	}{
-		"IsErrorNotFound": {
-			err:  kerrors.NewNotFound(schema.GroupResource{}, name),
+		{
+			name: "IsErrorNotFound",
+			err:  kerrors.NewNotFound(schema.GroupResource{}, profileName),
 			want: nil,
 		},
-		"OtherError": {
+		{
+			name: "OtherError",
 			err:  errOops,
 			want: errOops,
 		},
 	}
 
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := ignoreNotFound(tc.err)
 			require.Equal(t, tc.want, got)
 		})
@@ -288,17 +324,22 @@ func TestIgnoreNotFound(t *testing.T) {
 }
 
 func TestUnionSyscalls(t *testing.T) {
-	cases := map[string]struct {
+	t.Parallel()
+
+	cases := []struct {
+		name            string
 		baseSyscalls    []*v1alpha1.Syscall
 		appliedSyscalls []*v1alpha1.Syscall
 		want            []*v1alpha1.Syscall
 	}{
-		"BothEmpty": {
+		{
+			name:            "BothEmpty",
 			baseSyscalls:    []*v1alpha1.Syscall{},
 			appliedSyscalls: []*v1alpha1.Syscall{},
 			want:            []*v1alpha1.Syscall{},
 		},
-		"BaseEmpty": {
+		{
+			name:         "BaseEmpty",
 			baseSyscalls: []*v1alpha1.Syscall{},
 			appliedSyscalls: []*v1alpha1.Syscall{
 				{
@@ -313,7 +354,8 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 		},
-		"AppliedEmpty": {
+		{
+			name: "AppliedEmpty",
 			baseSyscalls: []*v1alpha1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
@@ -328,7 +370,8 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 		},
-		"UniqueActions": {
+		{
+			name: "UniqueActions",
 			baseSyscalls: []*v1alpha1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
@@ -352,7 +395,8 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 		},
-		"OverlappingActionsWithUniqueNames": {
+		{
+			name: "OverlappingActionsWithUniqueNames",
 			baseSyscalls: []*v1alpha1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
@@ -372,7 +416,8 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 		},
-		"OverlappingActionsWithOverlappingNames": {
+		{
+			name: "OverlappingActionsWithOverlappingNames",
 			baseSyscalls: []*v1alpha1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
@@ -406,8 +451,11 @@ func TestUnionSyscalls(t *testing.T) {
 		},
 	}
 
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := unionSyscalls(tc.baseSyscalls, tc.appliedSyscalls)
 			for i := range got {
 				sort.Strings(got[i].Names)
@@ -421,13 +469,17 @@ func TestUnionSyscalls(t *testing.T) {
 }
 
 func TestGetSeccompProfilesFromPod(t *testing.T) {
+	t.Parallel()
+
 	profilePath := "operator/default/example-profiles/test.json"
 	profilePath2 := "operator/default/example-profiles/test2.json"
-	cases := map[string]struct {
+	cases := []struct {
+		name string
 		pod  corev1.Pod
 		want []string
 	}{
-		"SeccompProfileForPod": {
+		{
+			name: "SeccompProfileForPod",
 			pod: corev1.Pod{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
@@ -441,7 +493,8 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			},
 			want: []string{profilePath},
 		},
-		"SeccompProfileForOneContainer": {
+		{
+			name: "SeccompProfileForOneContainer",
 			pod: corev1.Pod{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
@@ -458,7 +511,8 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			},
 			want: []string{profilePath},
 		},
-		"SeccompProfileForMultipleContainers": {
+		{
+			name: "SeccompProfileForMultipleContainers",
 			pod: corev1.Pod{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -487,7 +541,8 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			},
 			want: []string{profilePath, profilePath2},
 		},
-		"SeccompProfileInAnnotation": {
+		{
+			name: "SeccompProfileInAnnotation",
 			pod: corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/" + profilePath},
@@ -498,7 +553,8 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			},
 			want: []string{profilePath},
 		},
-		"SeccompProfileInPodAndContainerAndAnnotation": {
+		{
+			name: "SeccompProfileInPodAndContainerAndAnnotation",
 			pod: corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/" + profilePath},
@@ -532,8 +588,11 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 		},
 	}
 
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := getSeccompProfilesFromPod(&tc.pod)
 			require.Equal(t, tc.want, got)
 		})
@@ -550,16 +609,33 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			},
 		},
 	}
-	badCases := map[string]string{
-		"NoSuffix":         "operator/default/example-profiles/test",
-		"BadSuffix":        "operator/default/example-profiles/test.js",
-		"WrongPath":        "foo/bar/baz",
-		"NotLocalhostPath": "runtime/default",
+	badCases := []struct {
+		name    string
+		profile string
+	}{
+		{
+			name:    "NoSuffix",
+			profile: "operator/default/example-profiles/test",
+		},
+		{
+			name:    "BadSuffix",
+			profile: "operator/default/example-profiles/test.js",
+		},
+		{
+			name:    "WrongPath",
+			profile: "foo/bar/baz",
+		},
+		{
+			name:    "NotLocalhostPath",
+			profile: "runtime/default",
+		},
 	}
-	for name, c := range badCases {
-		lhp := c
-		badPod.Spec.SecurityContext.SeccompProfile.LocalhostProfile = &lhp
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range badCases {
+		tc := tc
+		badPod.Spec.SecurityContext.SeccompProfile.LocalhostProfile = &tc.profile
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := getSeccompProfilesFromPod(&badPod)
 			require.Equal(t, []string{}, got)
 		})

@@ -65,6 +65,7 @@ type openShifte2e struct {
 }
 
 func TestSuite(t *testing.T) {
+	t.Parallel()
 	fmt.Printf("cluster-type: %s\n", clusterType)
 
 	switch {
