@@ -172,6 +172,13 @@ func (e *kinde2e) SetupTest() {
 
 // TearDownTest stops the kind cluster.
 func (e *kinde2e) TearDownTest() {
+	e.logf("#### Snapshot of cert-manager namespace ####")
+	e.kubectl("--namespace", "cert-manager", "describe", "all")
+	e.logf("########")
+	e.logf("#### Snapshot of security-profiles-operator namespace ####")
+	e.kubectl("--namespace", "security-profiles-operator", "describe", "all")
+	e.logf("########")
+
 	e.logf("Destroying cluster")
 	e.run(
 		e.kindPath, "delete", "cluster",
