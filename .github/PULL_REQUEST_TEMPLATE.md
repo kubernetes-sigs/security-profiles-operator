@@ -40,6 +40,12 @@ or
 None
 -->
 
+#### Does this PR have test?
+
+<!--
+If tests aren't applicable just write N/A.
+-->
+
 #### Special notes for your reviewer:
 
 #### Does this PR introduce a user-facing change?
