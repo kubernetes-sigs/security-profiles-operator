@@ -38,3 +38,7 @@ patchesStrategicMerge:
             env:
               - name: RELATED_IMAGE_OPERATOR
                 value: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest
+              - name: MY_POD_NAMESPACE
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace

@@ -33,6 +33,10 @@ spec:
               value: non-root-enabler
             - name: RELATED_IMAGE_SELINUXD
               value: quay.io/jaosorior/selinuxd
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:

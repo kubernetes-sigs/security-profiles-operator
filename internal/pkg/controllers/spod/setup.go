@@ -18,10 +18,12 @@ package spod
 
 import (
 	"context"
+	"sync"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -43,8 +45,19 @@ type DaemonTunables struct {
 	WatchNamespace      string
 }
 
+var (
+	operatorNamespace string
+	mutex             = &sync.Mutex{}
+)
+
 // Setup adds a controller that reconciles the SPOd DaemonSet.
-func Setup(ctx context.Context, mgr ctrl.Manager, dt *DaemonTunables, l logr.Logger) error {
+func Setup(ctx context.Context, mgr ctrl.Manager, dt *DaemonTunables, l logr.Logger) (err error) {
+	mutex.Lock()
+	if operatorNamespace, err = config.GetOperatorNamespace(); err != nil {
+		return errors.Wrap(err, "getting operator namespace")
+	}
+	mutex.Unlock()
+
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("spod-config").
 		For(&corev1.ConfigMap{}).
@@ -86,10 +99,12 @@ func isSPOdConfig(obj runtime.Object) bool {
 	if !ok {
 		return false
 	}
-	// we only care about this namespace
-	if cm.GetNamespace() != config.GetOperatorNamespace() {
+	// we only care about this operatorNamespace
+	mutex.Lock()
+	if cm.GetNamespace() != operatorNamespace {
 		return false
 	}
+	mutex.Unlock()
 	if cm.GetName() != "config" {
 		return false
 	}

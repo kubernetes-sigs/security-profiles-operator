@@ -16,6 +16,13 @@ limitations under the License.
 
 package config
 
+import (
+	"errors"
+	"os"
+
+	"k8s.io/release/pkg/util"
+)
+
 const (
 	// OperatorName is the name when referring to the operator.
 	OperatorName = "security-profiles-operator"
@@ -47,15 +54,25 @@ const (
 	SPOdImagePullPolicy = "SPOdImagePullPolicy"
 )
 
+var ErrPodNamespaceEnvNotFound = errors.New("the env variable MY_POD_NAMESPACE hasn't been set")
+
 // GetOperatorNamespace gets the namespace that the operator is currently running on.
-func GetOperatorNamespace() string {
-	// TODO(jaosorior): Get a method to return the current operator
-	// namespace.
-	//
-	// operatorNs, err := k8sutil.GetOperatorNamespace()
-	// if err != nil {
-	// 	return "security-profiles-operator"
-	// }
-	// return operatorNs
-	return "security-profiles-operator"
+func GetOperatorNamespace() (string, error) {
+	// This is MY_POD_NAMESPACE should have been set by the downward API to identify
+	// the namespace which this controller is running from
+	MyPodNamespace := util.EnvDefault("MY_POD_NAMESPACE", "")
+	if MyPodNamespace == "" {
+		return "", ErrPodNamespaceEnvNotFound
+	}
+	return MyPodNamespace, nil
+}
+
+// GetEnvDefault returns the value of the given environment variable or a
+// default value if the given environment variable is not set.
+func GetEnvDefault(variable, defaultVal string) string {
+	envVar, exists := os.LookupEnv(variable)
+	if !exists {
+		return defaultVal
+	}
+	return envVar
 }

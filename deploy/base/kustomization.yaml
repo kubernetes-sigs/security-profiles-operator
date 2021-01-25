@@ -29,6 +29,10 @@ patchesStrategicMerge:
                 value: bash:5.0
               - name: RELATED_IMAGE_SELINUXD
                 value: quay.io/jaosorior/selinuxd
+              - name: MY_POD_NAMESPACE
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
 
 commonLabels:
   app: security-profiles-operator

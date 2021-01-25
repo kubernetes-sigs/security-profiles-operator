@@ -23,6 +23,7 @@ import (
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -61,9 +62,15 @@ func (r *ReconcileSPOd) Reconcile(request reconcile.Request) (reconcile.Result, 
 		}
 		return reconcile.Result{}, fmt.Errorf("error getting spod configuration: %w", err)
 	}
+
+	namespace, err := config.GetOperatorNamespace()
+	if err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "getting operator namespace")
+	}
+
 	spodKey := types.NamespacedName{
 		Name:      r.baseSPOd.GetName(),
-		Namespace: config.GetOperatorNamespace(),
+		Namespace: namespace,
 	}
 	foundSPOd := &appsv1.DaemonSet{}
 	if getErr := r.client.Get(ctx, spodKey, foundSPOd); getErr != nil {
