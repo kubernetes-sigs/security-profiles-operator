@@ -207,5 +207,5 @@ do-deploy-openshift-dev:
 	git checkout deploy/operator.yaml
 
 # Deploy for development into OpenShift
-.PHONY: dev-deploy-openshift
+.PHONY: deploy-openshift-dev
 deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev
