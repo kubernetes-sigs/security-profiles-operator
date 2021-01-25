@@ -37,8 +37,10 @@ import (
 )
 
 const (
-	kindVersion = "v0.9.0"
-	kindImage   = "kindest/node:v1.19.1"
+	kindVersion      = "v0.10.0"
+	kindImage        = "kindest/node:v1.20.2"
+	kindDarwinSHA512 = "f2da2d9695ef6d26ff7183f764506223b605bc4638f04742184622ab41599988d0489a54d92ccbad90a5420e47e0868350654d3f8851e0c9afb0fe3539557e00" // nolint: lll
+	kindLinuxSHA512  = "1d2ef9f377ed513850dfd5028c80f3fefd7e3f28e3fc6050593c8a3894b74a40b9761f401ccf44d5aa199e9c753bbb9c1ffb51319f4864a1a2ba184d1574d242" // nolint: lll
 )
 
 var (
@@ -120,10 +122,10 @@ func (e *kinde2e) SetupSuite() {
 	kindOS := ""
 	switch runtime.GOOS {
 	case "darwin":
-		SHA512 = "1b716be0c6371f831718bb9f7e502533eb993d3648f26cf97ab47c2fa18f55c7442330bba62ba822ec11edb84071ab616696470cbdbc41895f2ae9319a7e3a99" // nolint: lll
+		SHA512 = kindDarwinSHA512
 		kindOS = "kind-darwin-amd64"
 	case "linux":
-		SHA512 = "e7152acf5fd7a4a56af825bda64b1b8343a1f91588f9b3ddd5420ae5c5a95577d87431f2e417a7e03dd23914e1da9bed855ec19d0c4602729b311baccb30bd7f" // nolint: lll
+		SHA512 = kindLinuxSHA512
 		kindOS = "kind-linux-amd64"
 	}
 
