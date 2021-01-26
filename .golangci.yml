@@ -1,10 +1,5 @@
 ---
 run:
-  build-tags:
-    - e2e
-    - netgo
-    - osusergo
-    - seccomp
   concurrency: 6
   deadline: 5m
 linters:

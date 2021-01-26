@@ -33,6 +33,14 @@ BUILDTAGS := netgo osusergo seccomp
 else
 BUILDTAGS := netgo osusergo
 endif
+
+ifneq ($(shell uname -s), Darwin)
+LINT_BUILDTAGS := e2e,netgo,osusergo,seccomp
+else
+LINT_BUILDTAGS := e2e,netgo,osusergo
+endif
+
+
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
 export GOFLAGS?=-mod=mod
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
@@ -139,7 +147,7 @@ verify-deployments: deployments ## Verify the generated deployments
 
 .PHONY: verify-go-lint
 verify-go-lint: $(BUILD_DIR)/golangci-lint ## Verify the golang code by linting
-	$(BUILD_DIR)/golangci-lint run
+	$(BUILD_DIR)/golangci-lint run --build-tags $(LINT_BUILDTAGS)
 
 $(BUILD_DIR)/golangci-lint:
 	export \
