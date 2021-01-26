@@ -1,0 +1,25 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+images:
+  - name: security-profiles-operator
+    newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
+    newTag: latest
+    # For images to be released:
+    # newName: k8s.gcr.io/security-profiles-operator/security-profiles-operator
+    # newTag: v0.3.0
+
+commonLabels:
+  app: security-profiles-operator
+
+resources:
+  - crd.yaml
+  - rbac.yaml
+  - deployment.yaml
+  - config.yaml
+  - certificate.yaml
+  - service.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true

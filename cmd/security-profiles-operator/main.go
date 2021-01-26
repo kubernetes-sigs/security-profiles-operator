@@ -94,15 +94,7 @@ func main() {
 			Name:    "manager",
 			Aliases: []string{"m"},
 			Usage:   "run the security-profiles-operator manager",
-			Flags: []cli.Flag{
-				&cli.IntFlag{
-					Name:    "port",
-					Aliases: []string{"p"},
-					Value:   defaultPort,
-					Usage:   "the port on which to expose the webhook service (default 9443)",
-				},
-			},
-			Action: runManager,
+			Action:  runManager,
 		},
 		&cli.Command{
 			Name:    "daemon",
@@ -114,6 +106,20 @@ func main() {
 					Name:  selinuxFlag,
 					Usage: "Listen for SELinux API resources",
 					Value: false,
+				},
+			},
+		},
+		&cli.Command{
+			Name:    "webhook",
+			Aliases: []string{"w"},
+			Usage:   "run the security-profiles-operator webhook",
+			Action:  runWebhook,
+			Flags: []cli.Flag{
+				&cli.IntFlag{
+					Name:    "port",
+					Aliases: []string{"p"},
+					Value:   defaultPort,
+					Usage:   "the port on which to expose the webhook service (default 9443)",
 				},
 			},
 		},
@@ -148,12 +154,10 @@ func runManager(ctx *cli.Context) error {
 
 	sigHandler := ctrl.SetupSignalHandler()
 
-	port := ctx.Int("port")
 	ctrlOpts := manager.Options{
 		SyncPeriod:       &sync,
 		LeaderElection:   true,
 		LeaderElectionID: "security-profiles-operator-lock",
-		Port:             port,
 	}
 
 	dt, err := getTunables()
@@ -180,10 +184,6 @@ func runManager(ctx *cli.Context) error {
 	if err := spod.Setup(ctx.Context, mgr, &dt, ctrl.Log.WithName("spod-config")); err != nil {
 		return errors.Wrap(err, "setup profile controller")
 	}
-
-	setupLog.Info("registering webhook")
-	hookserver := mgr.GetWebhookServer()
-	webhook.RegisterWebhook(hookserver, mgr.GetClient())
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(sigHandler); err != nil {
@@ -288,6 +288,45 @@ func runDaemon(ctx *cli.Context) error {
 	}
 
 	setupLog.Info("ending daemon")
+	return nil
+}
+
+func runWebhook(ctx *cli.Context) error {
+	printInfo("security-profiles-operator-webhook")
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return errors.Wrap(err, "get config")
+	}
+
+	port := ctx.Int("port")
+	ctrlOpts := manager.Options{
+		SyncPeriod:       &sync,
+		LeaderElection:   true,
+		LeaderElectionID: "security-profiles-operator-webhook-lock",
+		Port:             port,
+	}
+
+	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
+	if err != nil {
+		return errors.Wrap(err, "create cluster webhook")
+	}
+
+	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add profilebinding API to scheme")
+	}
+	if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add seccompprofile API to scheme")
+	}
+
+	setupLog.Info("registering webhook")
+	hookserver := mgr.GetWebhookServer()
+	webhook.RegisterWebhook(hookserver, mgr.GetClient())
+
+	sigHandler := ctrl.SetupSignalHandler()
+	setupLog.Info("starting webhook")
+	if err := mgr.Start(sigHandler); err != nil {
+		return errors.Wrap(err, "controller manager error")
+	}
 	return nil
 }
 

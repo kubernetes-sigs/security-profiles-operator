@@ -19,7 +19,6 @@ The feature scope of the security-profiles-operator is right now limited to:
 ### 1. Install operator
 
 ```sh
-$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/profiles/default-profiles.yaml
 ```
@@ -146,9 +145,16 @@ if you are deploying a public application, you can use the ProfileBinding
 resource to bind a security profile to a container's securityContext. Currently,
 the ProfileBinding resource can only refer to a SeccompProfile.
 
-For example, to bind a Pod that uses an 'nginx:1.19.1' image to the
-'profile-complain' example seccomp profile, create a ProfileBinding in the same
-namespace as both the Pod and the SeccompProfile:
+To enable ProfileBindings, install cert-manager and the webhook:
+
+```sh
+$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/webhook.yaml
+```
+
+To bind a Pod that uses an 'nginx:1.19.1' image to the 'profile-complain'
+example seccomp profile, create a ProfileBinding in the same namespace as both
+the Pod and the SeccompProfile:
 
 ```
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1

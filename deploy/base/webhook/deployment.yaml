@@ -2,37 +2,43 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: security-profiles-operator
+  name: security-profiles-operator-webhook
   namespace: security-profiles-operator
 spec:
   replicas: 3
   selector:
     matchLabels:
-      name: security-profiles-operator
+      name: security-profiles-operator-webhook
   template:
     metadata:
       annotations:
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
-        name: security-profiles-operator
+        name: security-profiles-operator-webhook
     spec:
       serviceAccountName: security-profiles-operator
       containers:
         - name: security-profiles-operator
           image: security-profiles-operator
           args:
-          - manager
+          - webhook
           imagePullPolicy: Always
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
-          env:
-            - name: RELATED_IMAGE_OPERATOR
-              value: security-profiles-operator
-            - name: RELATED_IMAGE_NON_ROOT_ENABLER
-              value: non-root-enabler
-            - name: RELATED_IMAGE_SELINUXD
-              value: quay.io/jaosorior/selinuxd
+          volumeMounts:
+          - name: cert
+            mountPath: /tmp/k8s-webhook-server/serving-certs
+            readOnly: true
+          ports:
+          - containerPort: 9443
+            name: webhook
+            protocol: TCP
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: webhook-server-cert
       nodeSelector:
         node-role.kubernetes.io/master: ""
       tolerations:

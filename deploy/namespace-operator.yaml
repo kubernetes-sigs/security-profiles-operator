@@ -293,82 +293,6 @@ status:
   conditions: []
   storedVersions: []
 ---
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.2.4
-  creationTimestamp: null
-  labels:
-    app: security-profiles-operator
-  name: profilebindings.security-profiles-operator.x-k8s.io
-spec:
-  group: security-profiles-operator.x-k8s.io
-  names:
-    kind: ProfileBinding
-    listKind: ProfileBindingList
-    plural: profilebindings
-    singular: profilebinding
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        description: ProfileBinding is the Schema for the profilebindings API.
-        properties:
-          apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-            type: string
-          kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: ProfileBindingSpec defines the desired state of ProfileBinding.
-            properties:
-              image:
-                description: the image name within pod containers to match to the profile
-                type: string
-              profileRef:
-                description: ProfileRef references a SeccompProfile or other profile type in the current namespace
-                properties:
-                  kind:
-                    description: 'the kind of object to be bound, valid values are: SeccompProfile TODO(cmurphy) add SelinuxPolicy'
-                    enum:
-                    - SeccompProfile
-                    type: string
-                  name:
-                    description: the name of the profile within the current namespace to which to bind the selected pods
-                    type: string
-                required:
-                - kind
-                - name
-                type: object
-            required:
-            - image
-            - profileRef
-            type: object
-          status:
-            description: ProfileBindingStatus contains status of the Profilebinding.
-            properties:
-              activeWorkloads:
-                items:
-                  type: string
-                type: array
-            type: object
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
----
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -550,89 +474,6 @@ subjects:
   name: security-profiles-operator
   namespace: security-profiles-operator
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: profilebindings-manager
-rules:
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilebindings
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilebindings/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - seccompprofiles
-  verbs:
-  - get
-  - list
-  - watch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: profilebindings-manager-binding
-  namespace: security-profiles-operator
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: profilebindings-manager
-subjects:
-- kind: ServiceAccount
-  name: security-profiles-operator
-  namespace: security-profiles-operator
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: leader-elector
-  namespace: security-profiles-operator
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  verbs:
-  - create
-  - get
-  - update
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: leader-elector-binding
-  namespace: security-profiles-operator
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: leader-elector
-subjects:
-- kind: ServiceAccount
-  name: security-profiles-operator
-  namespace: security-profiles-operator
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -669,17 +510,9 @@ spec:
         image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
         imagePullPolicy: Always
         name: security-profiles-operator
-        ports:
-        - containerPort: 9443
-          name: webhook
-          protocol: TCP
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
-        volumeMounts:
-        - mountPath: /tmp/k8s-webhook-server/serving-certs
-          name: cert
-          readOnly: true
       nodeSelector:
         node-role.kubernetes.io/master: ""
       serviceAccountName: security-profiles-operator
@@ -693,11 +526,6 @@ spec:
       - effect: NoExecute
         key: node.kubernetes.io/not-ready
         operator: Exists
-      volumes:
-      - name: cert
-        secret:
-          defaultMode: 420
-          secretName: webhook-server-cert
 ---
 apiVersion: v1
 data:
@@ -710,85 +538,6 @@ metadata:
     security-profiles-operator/config: ""
   name: config
   namespace: security-profiles-operator
----
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: selfsigned-issuer
-  namespace: security-profiles-operator
-spec:
-  selfSigned: {}
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: webhook-cert
-  namespace: security-profiles-operator
-spec:
-  dnsNames:
-  - profilebinding-webhook-service.security-profiles-operator.svc
-  - profilebinding-webhook-service.security-profiles-operator.svc.cluster.local
-  issuerRef:
-    kind: Issuer
-    name: selfsigned-issuer
-  secretName: webhook-server-cert
----
-apiVersion: admissionregistration.k8s.io/v1
-kind: MutatingWebhookConfiguration
-metadata:
-  annotations:
-    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
-  labels:
-    app: security-profiles-operator
-  name: spo-mutating-webhook-configuration
-webhooks:
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
-    caBundle: Cg==
-    service:
-      name: profilebinding-webhook-service
-      namespace: security-profiles-operator
-      path: /mutate-v1-pod
-  failurePolicy: Fail
-  name: mpod.kb.io
-  objectSelector:
-    matchExpressions:
-    - key: name
-      operator: NotIn
-      values:
-      - security-profiles-operator
-  rules:
-  - apiGroups:
-    - ""
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    - UPDATE
-    - DELETE
-    resources:
-    - pods
-  sideEffects: None
----
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: profilebinding-webhook-service
-  namespace: security-profiles-operator
-spec:
-  ports:
-  - port: 443
-    targetPort: 9443
-  selector:
-    app: security-profiles-operator
-    name: security-profiles-operator
 ---
 apiVersion: v1
 data:
