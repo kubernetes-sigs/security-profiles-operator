@@ -118,6 +118,7 @@ deployments: manifests ## Generate the deployment files with kustomize
 	kustomize build --reorder=none deploy/profiles/base -o deploy/profiles/default-profiles.yaml
 	kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
 	kustomize build --reorder=none deploy/profiles/overlays/namespaced -o deploy/profiles/namespace-default-profiles.yaml
+	kustomize build --reorder=none deploy/base/webhook -o deploy/webhook.yaml
 
 .PHONY: image
 image: ## Build the container image
@@ -176,7 +177,7 @@ test-e2e: ## Run the end-to-end tests
 manifests:
 	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crd.yaml
 	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/selinuxpolicy/..." output:crd:stdout >> deploy/base/crd.yaml
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/profilebinding/..." output:crd:stdout >> deploy/base/crd.yaml
+	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/profilebinding/..." output:crd:stdout > deploy/base/webhook/crd.yaml
 
 # Generate deepcopy code
 generate:

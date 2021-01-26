@@ -149,15 +149,6 @@ func (e *e2e) deployOperator(manifest, profiles string) {
 		manifest,
 	)
 
-	// Deploy prerequisites
-	e.logf("Deploying cert-manager")
-	e.kubectl("apply", "-f", certmanager)
-	e.kubectl(
-		"--namespace", "cert-manager",
-		"wait", "--for", "condition=ready",
-		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
-	)
-
 	if e.platformSupportsSelinux() {
 		e.run(
 			"sed", "-i", "s/EnableSelinux: \"false\"/EnableSelinux: \"true\"/",

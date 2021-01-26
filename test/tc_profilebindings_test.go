@@ -24,6 +24,9 @@ import (
 )
 
 func (e *e2e) testCaseProfileBinding([]string) {
+	if !e.runExperimental {
+		e.T().Skip("skipping experimental test")
+	}
 	const exampleProfilePath = "examples/seccompprofile.yaml"
 	const testBinding = `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
@@ -48,6 +51,12 @@ spec:
     resources: {}
   restartPolicy: Never
 `
+	const manifest = "deploy/webhook.yaml"
+
+	e.deployWebhook(manifest)
+	defer e.run("git", "checkout", manifest)
+	defer e.cleanupWebhook(manifest)
+
 	e.kubectl("create", "-f", exampleProfilePath)
 	defer e.kubectl("delete", "-f", exampleProfilePath)
 
@@ -110,4 +119,33 @@ spec:
 	e.Equal(fmt.Sprintf("%s/hello", namespace), output)
 	output = e.kubectl("get", "seccompprofile", "profile-allow", "--output", "jsonpath={.metadata.finalizers}")
 	e.Contains(output, "in-use-by-active-pods")
+}
+
+func (e *e2e) deployWebhook(manifest string) {
+	// Deploy prerequisites
+	e.logf("Deploying cert-manager")
+	e.kubectl("apply", "-f", certmanager)
+	e.kubectl(
+		"--namespace", "cert-manager",
+		"wait", "--for", "condition=ready",
+		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
+	)
+	e.run(
+		"sed", "-i", fmt.Sprintf("s;image: .*gcr.io/.*;image: %s;g", e.testImage),
+		manifest,
+	)
+	e.run(
+		"sed", "-i",
+		fmt.Sprintf("s;imagePullPolicy: Always;imagePullPolicy: %s;g", e.pullPolicy),
+		manifest,
+	)
+	e.logf("Deploying webhook")
+	e.kubectl("create", "-f", manifest)
+	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "-l", "name=security-profiles-operator-webhook")
+}
+
+func (e *e2e) cleanupWebhook(manifest string) {
+	e.logf("Cleaning up webhook")
+	e.kubectl("delete", "-f", manifest)
+	e.kubectl("delete", "-f", certmanager)
 }
