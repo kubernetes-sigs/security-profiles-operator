@@ -9,4 +9,4 @@ spec:
     - port: 443
       targetPort: 9443
   selector:
-    name: security-profiles-operator
+    name: security-profiles-operator-webhook
