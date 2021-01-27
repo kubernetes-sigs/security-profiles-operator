@@ -24,9 +24,6 @@ import (
 )
 
 func (e *e2e) testCaseProfileBinding([]string) {
-	if !e.runExperimental {
-		e.T().Skip("skipping experimental test")
-	}
 	const exampleProfilePath = "examples/seccompprofile.yaml"
 	const testBinding = `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
@@ -142,6 +139,7 @@ func (e *e2e) deployWebhook(manifest string) {
 	e.logf("Deploying webhook")
 	e.kubectl("create", "-f", manifest)
 	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "-l", "name=security-profiles-operator-webhook")
+	e.kubectlOperatorNS("wait", "--for", "condition=ready", "certificate", "webhook-cert")
 }
 
 func (e *e2e) cleanupWebhook(manifest string) {
