@@ -47,17 +47,15 @@ var (
 	clusterType        = os.Getenv("E2E_CLUSTER_TYPE")
 	envSkipBuildImages = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	containerRuntime   = os.Getenv("CONTAINER_RUNTIME")
-	runExperimental    = os.Getenv("E2E_RUN_EXPERIMENTAL")
 )
 
 type e2e struct {
 	suite.Suite
-	kubectlPath     string
-	testImage       string
-	pullPolicy      string
-	logger          logr.Logger
-	execNode        func(node string, args ...string) string
-	runExperimental bool
+	kubectlPath string
+	testImage   string
+	pullPolicy  string
+	logger      logr.Logger
+	execNode    func(node string, args ...string) string
 }
 
 type kinde2e struct {
@@ -79,10 +77,9 @@ func TestSuite(t *testing.T) {
 	case clusterType == "" || strings.EqualFold(clusterType, "kind"):
 		suite.Run(t, &kinde2e{
 			e2e{
-				logger:          klogr.New(),
-				testImage:       config.OperatorName + ":latest",
-				pullPolicy:      "Never",
-				runExperimental: runExperimental != "",
+				logger:     klogr.New(),
+				testImage:  config.OperatorName + ":latest",
+				pullPolicy: "Never",
 			},
 			"", "",
 		})
@@ -97,8 +94,7 @@ func TestSuite(t *testing.T) {
 				logger: klogr.New(),
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
-				pullPolicy:      "Always",
-				runExperimental: runExperimental != "",
+				pullPolicy: "Always",
 			},
 			skipBuildImages,
 		})
