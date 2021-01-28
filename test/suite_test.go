@@ -69,8 +69,11 @@ type openShifte2e struct {
 	skipBuildImages bool
 }
 
+// We're unable to use parallel tests because of our usage of testify/suite.
+// See https://github.com/stretchr/testify/issues/187
+//
+// nolint:paralleltest
 func TestSuite(t *testing.T) {
-	t.Parallel()
 	fmt.Printf("cluster-type: %s\n", clusterType)
 	fmt.Printf("container-runtime: %s\n", containerRuntime)
 
