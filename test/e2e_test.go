@@ -91,8 +91,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		},
 	}
 	for _, testCase := range testCases {
-		e.logf("> Running testcase: %s", testCase.description)
-		testCase.fn(nodes)
+		tc := testCase
+		e.Run("cluster-wide: "+tc.description, func() {
+			tc.fn(nodes)
+		})
 	}
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
@@ -120,8 +122,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.deployOperator(namespaceManifest, namespaceDefaultProfiles)
 
 	for _, testCase := range testCases {
-		e.logf("> Running testcase: %s", testCase.description)
-		testCase.fn(nodes)
+		tc := testCase
+		e.Run("namespaced: "+tc.description, func() {
+			tc.fn(nodes)
+		})
 	}
 }
 
