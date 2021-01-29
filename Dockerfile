@@ -28,7 +28,9 @@ RUN adduser \
     --uid "${UID}" \
     "${USER}"
 
-ADD . /work
+COPY . /work
+
+FROM build as make
 RUN make
 
 FROM scratch
@@ -41,6 +43,6 @@ LABEL name="Security Profiles Operator" \
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /etc/passwd /etc/passwd
 COPY --from=build /etc/group /etc/group
-COPY --from=build /work/build/security-profiles-operator /
+COPY --from=make /work/build/security-profiles-operator /
 
 ENTRYPOINT ["/security-profiles-operator"]
