@@ -1,1 +1,12 @@
-build
+# Ignore everything
+*
+
+# Allow files and directories
+!/go.mod
+!/go.sum
+!/Makefile
+!/tools.go
+!/api/**
+!/cmd/**
+!/internal/**
+!/vendor/** 
