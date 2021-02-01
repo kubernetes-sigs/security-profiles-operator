@@ -340,8 +340,13 @@ func guessType(scanner *sc.Scanner, raw string, allowSlice bool) *Argument {
 		}
 	}
 
+	// then, integers...
 	if !probablyString {
-		if nextTok := subScanner.Scan(); nextTok == sc.Int {
+		nextTok := subScanner.Scan()
+		if nextTok == '-' {
+			nextTok = subScanner.Scan()
+		}
+		if nextTok == sc.Int {
 			return &Argument{Type: IntType}
 		}
 	}
@@ -481,11 +486,21 @@ func (a *Argument) parse(scanner *sc.Scanner, raw string, out reflect.Value, inS
 		for tok := scanner.Scan(); tok != sc.EOF; tok = scanner.Scan() {
 		}
 	case IntType:
+		nextChar := scanner.Peek()
+		isNegative := false
+		if nextChar == '-' {
+			isNegative = true
+			scanner.Scan() // eat the '-'
+		}
 		if !expect(scanner, sc.Int, "integer") {
 			return
 		}
 		// TODO(directxman12): respect the size when parsing
-		val, err := strconv.Atoi(scanner.TokenText())
+		text := scanner.TokenText()
+		if isNegative {
+			text = "-" + text
+		}
+		val, err := strconv.Atoi(text)
 		if err != nil {
 			scanner.Error(scanner, fmt.Sprintf("unable to parse integer: %v", err))
 			return
@@ -588,7 +603,7 @@ func ArgumentFromType(rawType reflect.Type) (Argument, error) {
 		arg.Type = SliceType
 		itemType, err := ArgumentFromType(rawType.Elem())
 		if err != nil {
-			return Argument{}, fmt.Errorf("bad slice item type: %v", err)
+			return Argument{}, fmt.Errorf("bad slice item type: %w", err)
 		}
 		arg.ItemType = &itemType
 	case reflect.Map:
@@ -598,7 +613,7 @@ func ArgumentFromType(rawType reflect.Type) (Argument, error) {
 		}
 		itemType, err := ArgumentFromType(rawType.Elem())
 		if err != nil {
-			return Argument{}, fmt.Errorf("bad slice item type: %v", err)
+			return Argument{}, fmt.Errorf("bad slice item type: %w", err)
 		}
 		arg.ItemType = &itemType
 	default:
@@ -720,7 +735,7 @@ func (d *Definition) loadFields() error {
 
 		argType, err := ArgumentFromType(field.Type)
 		if err != nil {
-			return fmt.Errorf("unable to extract type information for field %q: %v", field.Name, err)
+			return fmt.Errorf("unable to extract type information for field %q: %w", field.Name, err)
 		}
 
 		if argType.Type == RawType {
