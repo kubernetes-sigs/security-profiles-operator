@@ -2,13 +2,13 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: profilebindings-manager
+  name: profile-manager
 rules:
 - apiGroups: ["security-profiles-operator.x-k8s.io"]
-  resources: ["profilebindings"]
+  resources: ["profilebindings", "profilerecordings"]
   verbs: ["get", "list", "patch", "update", "watch"]
 - apiGroups: ["security-profiles-operator.x-k8s.io"]
-  resources: ["profilebindings/status"]
+  resources: ["profilebindings/status", "profilerecordings/status"]
   verbs: ["get", "patch", "update"]
 - apiGroups: ["security-profiles-operator.x-k8s.io"]
   resources: ["seccompprofiles"]
@@ -17,7 +17,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: profilebindings-manager-binding
+  name: profile-manager-binding
   namespace: security-profiles-operator
 subjects:
 - kind: ServiceAccount
@@ -25,7 +25,7 @@ subjects:
   namespace: security-profiles-operator
 roleRef:
   kind: ClusterRole
-  name: profilebindings-manager
+  name: profile-manager
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: rbac.authorization.k8s.io/v1

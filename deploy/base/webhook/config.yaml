@@ -9,11 +9,11 @@ webhooks:
 - clientConfig:
     caBundle: Cg==
     service:
-      name: profilebinding-webhook-service
+      name: webhook-service
       namespace: security-profiles-operator
-      path: /mutate-v1-pod
+      path: /mutate-v1-pod-binding
   failurePolicy: Fail
-  name: mpod.kb.io
+  name: binding.spo.io
   objectSelector:
     matchExpressions:
     - key: name
@@ -35,4 +35,32 @@ webhooks:
   sideEffects: None
   admissionReviewVersions:
   - v1beta1
-
+- clientConfig:
+    caBundle: Cg==
+    service:
+      name: webhook-service
+      namespace: security-profiles-operator
+      path: /mutate-v1-pod-recording
+  failurePolicy: Fail
+  name: recording.spo.io
+  objectSelector:
+    matchExpressions:
+    - key: name
+      operator: NotIn
+      values:
+      - security-profiles-operator
+      - security-profiles-operator-webhook
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - pods
+  sideEffects: None
+  admissionReviewVersions:
+  - v1beta1
