@@ -13,8 +13,8 @@ metadata:
   namespace: security-profiles-operator
 spec:
   dnsNames:
-  - profilebinding-webhook-service.security-profiles-operator.svc
-  - profilebinding-webhook-service.security-profiles-operator.svc.cluster.local
+  - webhook-service.security-profiles-operator.svc
+  - webhook-service.security-profiles-operator.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer

@@ -16,6 +16,11 @@ limitations under the License.
 
 package config
 
+import (
+	"os"
+	"path/filepath"
+)
+
 const (
 	// OperatorName is the name when referring to the operator.
 	OperatorName = "security-profiles-operator"
@@ -35,7 +40,17 @@ const (
 	// RestrictNamespaceEnvKey is the environment variable key for restricting
 	// the operator to work on only a single Kubernetes namespace.
 	RestrictNamespaceEnvKey = "RESTRICT_TO_NAMESPACE"
+
+	// SeccompProfileRecordAnnotationKey is the annotation on a Pod that
+	// triggers the oci-seccomp-bpf-hook to trace the syscalls of a Pod and
+	// created a seccomp profile.
+	SeccompProfileRecordAnnotationKey = "io.containers.trace-syscall"
 )
+
+// SeccompProfileRecordOutputPath is the path where the OCI seccomp BPF
+// hook saves the profiles. Those profiles are going to be reconciled into
+// the seccomp profile CRD and have a limited lifetime.
+var SeccompProfileRecordOutputPath = filepath.Join(os.TempDir(), "seccomp-profile-recordings")
 
 // Controller configMap keys.
 const (
