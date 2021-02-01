@@ -149,6 +149,7 @@ To enable ProfileBindings, install cert-manager and the webhook:
 
 ```sh
 $ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
+$ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/webhook.yaml
 ```
 
