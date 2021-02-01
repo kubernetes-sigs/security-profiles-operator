@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: profilebinding-webhook-service
+  name: webhook-service
   namespace: security-profiles-operator
 spec:
   ports:

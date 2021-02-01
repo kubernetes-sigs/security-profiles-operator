@@ -14,7 +14,8 @@ commonLabels:
   app: security-profiles-operator
 
 resources:
-  - crd.yaml
+  - crd-binding.yaml
+  - crd-recording.yaml
   - rbac.yaml
   - deployment.yaml
   - config.yaml

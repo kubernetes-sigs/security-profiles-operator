@@ -354,6 +354,7 @@ rules:
   - seccompprofiles
   - selinuxpolicies
   verbs:
+  - create
   - get
   - watch
   - list

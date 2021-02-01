@@ -31,14 +31,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
+	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profilerecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
-	webhook "sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording"
 )
 
 const (
@@ -47,7 +50,7 @@ const (
 	operatorImageKey       string = "RELATED_IMAGE_OPERATOR"
 	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
 	selinuxdImageKey       string = "RELATED_IMAGE_SELINUXD"
-	defaultPort            int    = 9443
+	defaultWebhookPort     int    = 9443
 )
 
 var (
@@ -118,7 +121,7 @@ func main() {
 				&cli.IntFlag{
 					Name:    "port",
 					Aliases: []string{"p"},
-					Value:   defaultPort,
+					Value:   defaultWebhookPort,
 					Usage:   "the port on which to expose the webhook service (default 9443)",
 				},
 			},
@@ -231,11 +234,18 @@ type controllerSettings struct {
 func getEnabledControllers(ctx *cli.Context) []*controllerSettings {
 	enabledSettings := make([]*controllerSettings, 0, 2)
 
-	enabledSettings = append(enabledSettings, &controllerSettings{
-		name:          "seccomp-spod",
-		setupFn:       profile.Setup,
-		schemaBuilder: seccompprofilev1alpha1.SchemeBuilder,
-	})
+	enabledSettings = append(enabledSettings,
+		&controllerSettings{
+			name:          "seccomp-spod",
+			setupFn:       profile.Setup,
+			schemaBuilder: seccompprofilev1alpha1.SchemeBuilder,
+		},
+		&controllerSettings{
+			name:          "seccomp-recorder-spod",
+			setupFn:       profilerecorder.Setup,
+			schemaBuilder: seccompprofilev1alpha1.SchemeBuilder,
+		},
+	)
 
 	if ctx.Bool(selinuxFlag) {
 		enabledSettings = append(enabledSettings, &controllerSettings{
@@ -317,10 +327,14 @@ func runWebhook(ctx *cli.Context) error {
 	if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add seccompprofile API to scheme")
 	}
+	if err := profilerecording1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add profilerecording API to scheme")
+	}
 
-	setupLog.Info("registering webhook")
+	setupLog.Info("registering webhooks")
 	hookserver := mgr.GetWebhookServer()
-	webhook.RegisterWebhook(hookserver, mgr.GetClient())
+	binding.RegisterWebhook(hookserver, mgr.GetClient())
+	recording.RegisterWebhook(hookserver, mgr.GetClient())
 
 	sigHandler := ctrl.SetupSignalHandler()
 	setupLog.Info("starting webhook")

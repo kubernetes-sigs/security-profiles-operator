@@ -48,7 +48,7 @@ type podSeccompBinder struct {
 }
 
 func RegisterWebhook(server *webhook.Server, c client.Client) {
-	server.Register("/mutate-v1-pod", &webhook.Admission{Handler: &podSeccompBinder{client: c}})
+	server.Register("/mutate-v1-pod-binding", &webhook.Admission{Handler: &podSeccompBinder{client: c}})
 }
 
 type containerMap map[string][]*corev1.Container

@@ -201,6 +201,10 @@ var Manifest = &appsv1.DaemonSet{
 								Name:      "selinuxd-socket-volume",
 								MountPath: SelinuxdSocketDir,
 							},
+							{
+								Name:      "host-seccomp-hook-output-volume",
+								MountPath: config.SeccompProfileRecordOutputPath,
+							},
 						},
 						SecurityContext: &v1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
@@ -372,6 +376,15 @@ var Manifest = &appsv1.DaemonSet{
 							HostPath: &v1.HostPathVolumeSource{
 								Path: "/var/lib/selinux",
 								Type: &hostPathDirectory,
+							},
+						},
+					},
+					{
+						Name: "host-seccomp-hook-output-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: config.SeccompProfileRecordOutputPath,
+								Type: &hostPathDirectoryOrCreate,
 							},
 						},
 					},

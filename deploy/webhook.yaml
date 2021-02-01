@@ -74,17 +74,105 @@ status:
   conditions: []
   storedVersions: []
 ---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.4.1
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: profilerecordings.security-profiles-operator.x-k8s.io
+spec:
+  group: security-profiles-operator.x-k8s.io
+  names:
+    kind: ProfileRecording
+    listKind: ProfileRecordingList
+    plural: profilerecordings
+    singular: profilerecording
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ProfileRecording is the Schema for the profilerecordings API.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ProfileRecordingSpec defines the desired state of ProfileRecording.
+            properties:
+              podSelector:
+                description: PodSelector selects the pods to record. This field follows standard label selector semantics. An empty podSelector matches all pods in this namespace.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements. The requirements are ANDed.
+                    items:
+                      description: A label selector requirement is a selector that contains values, a key, and an operator that relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies to.
+                          type: string
+                        operator:
+                          description: operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+            required:
+            - podSelector
+            type: object
+          status:
+            description: ProfileRecordingStatus contains status of the ProfileRecording.
+            properties:
+              activeWorkloads:
+                items:
+                  type: string
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
     app: security-profiles-operator
-  name: profilebindings-manager
+  name: profile-manager
 rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - profilebindings
+  - profilerecordings
   verbs:
   - get
   - list
@@ -95,6 +183,7 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - profilebindings/status
+  - profilerecordings/status
   verbs:
   - get
   - patch
@@ -113,12 +202,12 @@ kind: ClusterRoleBinding
 metadata:
   labels:
     app: security-profiles-operator
-  name: profilebindings-manager-binding
+  name: profile-manager-binding
   namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: profilebindings-manager
+  name: profile-manager
 subjects:
 - kind: ServiceAccount
   name: security-profiles-operator
@@ -228,11 +317,40 @@ webhooks:
   clientConfig:
     caBundle: Cg==
     service:
-      name: profilebinding-webhook-service
+      name: webhook-service
       namespace: security-profiles-operator
-      path: /mutate-v1-pod
+      path: /mutate-v1-pod-binding
   failurePolicy: Fail
-  name: mpod.kb.io
+  name: binding.spo.io
+  objectSelector:
+    matchExpressions:
+    - key: name
+      operator: NotIn
+      values:
+      - security-profiles-operator
+      - security-profiles-operator-webhook
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - pods
+  sideEffects: None
+- admissionReviewVersions:
+  - v1beta1
+  clientConfig:
+    caBundle: Cg==
+    service:
+      name: webhook-service
+      namespace: security-profiles-operator
+      path: /mutate-v1-pod-recording
+  failurePolicy: Fail
+  name: recording.spo.io
   objectSelector:
     matchExpressions:
     - key: name
@@ -272,8 +390,8 @@ metadata:
   namespace: security-profiles-operator
 spec:
   dnsNames:
-  - profilebinding-webhook-service.security-profiles-operator.svc
-  - profilebinding-webhook-service.security-profiles-operator.svc.cluster.local
+  - webhook-service.security-profiles-operator.svc
+  - webhook-service.security-profiles-operator.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer
@@ -284,7 +402,7 @@ kind: Service
 metadata:
   labels:
     app: security-profiles-operator
-  name: profilebinding-webhook-service
+  name: webhook-service
   namespace: security-profiles-operator
 spec:
   ports:
