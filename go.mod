@@ -14,5 +14,5 @@ require (
 	k8s.io/klog/v2 v2.5.0
 	k8s.io/release v0.4.1
 	sigs.k8s.io/controller-runtime v0.6.4
-	sigs.k8s.io/controller-tools v0.2.4
+	sigs.k8s.io/controller-tools v0.4.1
 )
