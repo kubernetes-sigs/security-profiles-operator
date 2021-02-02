@@ -47,10 +47,10 @@ const (
 	SeccompProfileRecordAnnotationKey = "io.containers.trace-syscall"
 )
 
-// SeccompProfileRecordOutputPath is the path where the OCI seccomp BPF
-// hook saves the profiles. Those profiles are going to be reconciled into
-// the seccomp profile CRD and have a limited lifetime.
-var SeccompProfileRecordOutputPath = filepath.Join(os.TempDir(), "seccomp-profile-recordings")
+// ProfileRecordingOutputPath is the path where the recorded profiles will be
+// stored. Those profiles are going to be reconciled into native CRDs and
+// therefore have a limited lifetime.
+var ProfileRecordingOutputPath = filepath.Join(os.TempDir(), "security-profiles-operator-recordings")
 
 // Controller configMap keys.
 const (
