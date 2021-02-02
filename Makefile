@@ -56,7 +56,7 @@ else
   LDFLAGS := -s -w -extldflags "-static" $(LDVARS)
 endif
 
-export CONTAINER_RUNTIME ?= docker
+export CONTAINER_RUNTIME ?= $(if $(shell which podman),podman,docker)
 
 ifeq ($(CONTAINER_RUNTIME), podman)
     LOGIN_PUSH_OPTS="--tls-verify=false"
