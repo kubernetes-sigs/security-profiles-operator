@@ -397,15 +397,15 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - pods
-  - services
-  - services/finalizers
-  - endpoints
-  - persistentvolumeclaims
-  - events
   - configmaps
   - configmaps/finalizers
+  - endpoints
+  - events
+  - persistentvolumeclaims
+  - pods
   - secrets
+  - services
+  - services/finalizers
   verbs:
   - create
   - delete
@@ -446,8 +446,8 @@ rules:
 - apiGroups:
   - apps
   resources:
-  - replicasets
   - deployments
+  - replicasets
   verbs:
   - get
 - apiGroups:

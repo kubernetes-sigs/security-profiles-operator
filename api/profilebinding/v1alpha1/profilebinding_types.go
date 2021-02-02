@@ -22,19 +22,18 @@ import (
 
 // ProfileBindingSpec defines the desired state of ProfileBinding.
 type ProfileBindingSpec struct {
-	// ProfileRef references a SeccompProfile or other profile type in the current namespace
+	// ProfileRef references a SeccompProfile or other profile type in the current namespace.
 	ProfileRef ProfileRef `json:"profileRef"`
-	// the image name within pod containers to match to the profile
+	// Image name within pod containers to match to the profile.
 	Image string `json:"image"`
 }
 
 // ProfileRef contains information that points to the profile being used.
 type ProfileRef struct {
-	// the kind of object to be bound, valid values are: SeccompProfile
-	// TODO(cmurphy) add SelinuxPolicy
+	// Kind of object to be bound.
 	// +kubebuilder:validation:Enum=SeccompProfile
-	Kind string `json:"kind"`
-	// the name of the profile within the current namespace to which to bind the selected pods
+	Kind string `json:"kind"` // TODO(cmurphy) add SelinuxPolicy
+	// Name of the profile within the current namespace to which to bind the selected pods.
 	Name string `json:"name"`
 }
 
