@@ -33,18 +33,18 @@ spec:
             description: ProfileBindingSpec defines the desired state of ProfileBinding.
             properties:
               image:
-                description: the image name within pod containers to match to the profile
+                description: Image name within pod containers to match to the profile.
                 type: string
               profileRef:
-                description: ProfileRef references a SeccompProfile or other profile type in the current namespace
+                description: ProfileRef references a SeccompProfile or other profile type in the current namespace.
                 properties:
                   kind:
-                    description: 'the kind of object to be bound, valid values are: SeccompProfile TODO(cmurphy) add SelinuxPolicy'
+                    description: Kind of object to be bound.
                     enum:
                     - SeccompProfile
                     type: string
                   name:
-                    description: the name of the profile within the current namespace to which to bind the selected pods
+                    description: Name of the profile within the current namespace to which to bind the selected pods.
                     type: string
                 required:
                 - kind

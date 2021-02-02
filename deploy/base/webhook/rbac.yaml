@@ -4,15 +4,34 @@ kind: ClusterRole
 metadata:
   name: profile-manager
 rules:
-- apiGroups: ["security-profiles-operator.x-k8s.io"]
-  resources: ["profilebindings", "profilerecordings"]
-  verbs: ["get", "list", "patch", "update", "watch"]
-- apiGroups: ["security-profiles-operator.x-k8s.io"]
-  resources: ["profilebindings/status", "profilerecordings/status"]
-  verbs: ["get", "patch", "update"]
-- apiGroups: ["security-profiles-operator.x-k8s.io"]
-  resources: ["seccompprofiles"]
-  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilebindings
+  - profilerecordings
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilebindings/status
+  - profilerecordings/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles
+  verbs:
+  - get
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -34,9 +53,14 @@ metadata:
   name: leader-elector
   namespace: security-profiles-operator
 rules:
-- apiGroups: [""]
-  resources: ["configmaps"]
-  verbs: ["create", "get", "update"]
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - get
+  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

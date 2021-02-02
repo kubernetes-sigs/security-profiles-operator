@@ -19,20 +19,20 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - "configmaps"
-  - "pods"
-  - "nodes"
+  - configmaps
+  - pods
+  - nodes
   verbs:
-  - "get"
-  - "watch"
-  - "list"
+  - get
+  - watch
+  - list
 - apiGroups:
   - ""
   resources:
-  - "events"
+  - events
   verbs:
-  - "create"
-  - "patch"
+  - create
+  - patch
 - apiGroups:
   - apps
   resources:
@@ -49,26 +49,26 @@ rules:
   - update
   - watch
 - apiGroups:
-  - "security-profiles-operator.x-k8s.io"
+  - security-profiles-operator.x-k8s.io
   resources:
-  - "seccompprofiles"
-  - "selinuxpolicies"
+  - seccompprofiles
+  - selinuxpolicies
   verbs:
-  - "create"
-  - "get"
-  - "watch"
-  - "list"
-  - "update"
-  - "patch"
+  - create
+  - get
+  - watch
+  - list
+  - update
+  - patch
 - apiGroups:
-  - "security-profiles-operator.x-k8s.io"
+  - security-profiles-operator.x-k8s.io
   resources:
-  - "seccompprofiles/status"
-  - "selinuxpolicies/status"
+  - seccompprofiles/status
+  - selinuxpolicies/status
   verbs:
-  - "get"
-  - "update"
-  - "patch"
+  - get
+  - update
+  - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -95,15 +95,15 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - pods
-  - services
-  - services/finalizers
-  - endpoints
-  - persistentvolumeclaims
-  - events
   - configmaps
   - configmaps/finalizers
+  - endpoints
+  - events
+  - persistentvolumeclaims
+  - pods
   - secrets
+  - services
+  - services/finalizers
   verbs:
   - create
   - delete
@@ -144,8 +144,8 @@ rules:
 - apiGroups:
   - apps
   resources:
-  - replicasets
   - deployments
+  - replicasets
   verbs:
   - get
 - apiGroups:                  # Needed for using privileged containers
