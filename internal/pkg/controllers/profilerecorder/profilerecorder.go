@@ -172,7 +172,7 @@ func (r *RecorderReconciler) Reconcile(req reconcile.Request) (reconcile.Result,
 			r.record.Event(pod, event.Warning(reasonAnnotationParsing, err))
 			return reconcile.Result{}, nil
 		}
-		if !strings.HasPrefix(outputFile, config.SeccompProfileRecordOutputPath) {
+		if !strings.HasPrefix(outputFile, config.ProfileRecordingOutputPath) {
 			logger.Info("Ignoring Profile outside standard output path")
 		}
 

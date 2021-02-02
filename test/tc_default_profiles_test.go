@@ -24,7 +24,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/seccompprofile"
 )
 
 func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
@@ -86,13 +86,13 @@ func (e *e2e) verifyBaseProfileContent(node string, cm *v1.ConfigMap) {
 func (e *e2e) verifyCRDProfileContent(node string, sp *v1alpha1.SeccompProfile) {
 	e.logf("Verifying %s profile on node %s", sp.Name, node)
 	name := sp.Name
-	profilePath, err := profile.GetProfilePath(name, sp.ObjectMeta.Namespace, sp.Spec.TargetWorkload)
+	profilePath, err := seccompprofile.GetProfilePath(name, sp.ObjectMeta.Namespace, sp.Spec.TargetWorkload)
 	e.Nil(err)
 	catOutput := e.execNode(node, "cat", profilePath)
-	output := profile.OutputProfile{}
+	output := seccompprofile.OutputProfile{}
 	err = json.Unmarshal([]byte(catOutput), &output)
 	e.Nil(err)
-	expected := profile.OutputProfile{}
+	expected := seccompprofile.OutputProfile{}
 	spec, err := json.Marshal(sp.Spec)
 	e.Nil(err)
 	err = json.Unmarshal(spec, &expected)

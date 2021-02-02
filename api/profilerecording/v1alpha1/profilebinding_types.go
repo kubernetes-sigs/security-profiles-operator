@@ -22,6 +22,10 @@ import (
 
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
 type ProfileRecordingSpec struct {
+	// Kind of object to be recorded.
+	// +kubebuilder:validation:Enum=SeccompProfile
+	Kind string `json:"kind"`
+
 	// PodSelector selects the pods to record. This field follows standard
 	// label selector semantics. An empty podSelector matches all pods in this
 	// namespace.

@@ -108,6 +108,11 @@ spec:
           spec:
             description: ProfileRecordingSpec defines the desired state of ProfileRecording.
             properties:
+              kind:
+                description: Kind of object to be recorded.
+                enum:
+                - SeccompProfile
+                type: string
               podSelector:
                 description: PodSelector selects the pods to record. This field follows standard label selector semantics. An empty podSelector matches all pods in this namespace.
                 properties:
@@ -139,6 +144,7 @@ spec:
                     type: object
                 type: object
             required:
+            - kind
             - podSelector
             type: object
           status:
