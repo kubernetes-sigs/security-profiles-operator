@@ -5,9 +5,10 @@
 The feature scope of the security-profiles-operator is right now limited to:
 
 - Adds a `SeccompProfile` CRD (alpha) to store seccomp profiles.
-- Adds a `ProfileBinding` CRD (alpha) to bind security profiles to pods
+- Adds a `ProfileBinding` CRD (alpha) to bind security profiles to pods.
+- Adds a `ProfileRecording` CRD (alpha) to record security profiles from workloads.
 - Synchronize seccomp profiles across all worker nodes.
-- Validate if a node supports seccomp and do not synchronize if not.
+- Validates if a node supports seccomp and do not synchronize if not.
 
 ## Tutorials and Demos
 
@@ -133,9 +134,9 @@ spec:
   targetWorkload: custom-profiles
   baseProfileName: runc-v1.0.0-rc92
   syscalls:
-  - action: SCMP_ACT_ALLOW
-    names:
-    - exit_group
+    - action: SCMP_ACT_ALLOW
+      names:
+        - exit_group
 ```
 
 #### Bind workloads to profiles with ProfileBindings
@@ -147,7 +148,7 @@ the ProfileBinding resource can only refer to a SeccompProfile.
 
 To enable ProfileBindings, install cert-manager and the webhook:
 
-```sh
+```
 $ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/webhook.yaml
@@ -157,7 +158,7 @@ To bind a Pod that uses an 'nginx:1.19.1' image to the 'profile-complain'
 example seccomp profile, create a ProfileBinding in the same namespace as both
 the Pod and the SeccompProfile:
 
-```
+```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: ProfileBinding
 metadata:
@@ -178,6 +179,119 @@ name matches the binding:
 $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.seccompProfile}'
 {"localhostProfile":"operator/default/example-profiles/profile-complain.json","type":"Localhost"}
 ```
+
+#### Record profiles from workloads with ProfileRecordings
+
+The operator is capable of recording seccomp profiles by the usage of the
+[oci-seccomp-bpf-hook][bpf-hook]. [OCI hooks][hooks] are part of the OCI
+runtime-spec, which allow to hook into the container creation process. The
+Kubernetes container runtime [CRI-O][cri-o] supports those hooks out of the box,
+but has to be configured to listen on the hooks directory where the
+[oci-seccomp-bpf-hook.json][hook-json] located. This can be done via a drop-in
+configuration file, for example:
+
+```
+$ cat /etc/crio/crio.conf.d/03-hooks.conf
+[crio.runtime]
+hooks_dir = [
+    "/path/to/seccomp/hook",
+]
+```
+
+The hook references a [path][path] to the actual binary which gets executed on
+`prestart`. Please note that at least CRI-O v1.20.0 is required to let the hook
+and CRI-O work nicely together.
+
+[bpf-hook]: https://github.com/containers/oci-seccomp-bpf-hook
+[hooks]: https://github.com/opencontainers/runtime-spec/blob/fd895fb/config.md#posix-platform-hooks
+[cri-o]: https://cri-o.io
+[hook-json]: https://github.com/containers/oci-seccomp-bpf-hook/blob/50e711/oci-seccomp-bpf-hook.json
+[path]: https://github.com/containers/oci-seccomp-bpf-hook/blob/50e711/oci-seccomp-bpf-hook.json#L4
+
+Once everything is setup, the operator webhook can be deployed to allow the
+usage of the `ProfileRecording` custom resource:
+
+```
+$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
+$ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/webhook.yaml
+```
+
+We now can create a new `ProfileRecording` to indicate to the operator that a
+specific workload should be recorded:
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileRecording
+metadata:
+  name: test-recording
+spec:
+  kind: SeccompProfile
+  podSelector:
+    matchLabels:
+      app: alpine
+```
+
+This means that every workload which contains the label `app=alpine` will from
+now on be recorded into the `SeccompProfile` CRD with the name `test-recording`.
+Please be aware that the resource will be overwritten if recordings are executed
+multiple times.
+
+Now we can start the recording by running a workload which contains the label:
+
+```
+$ kubectl run --rm -it alpine --image=alpine --labels app=alpine -- sh
+/ # mkdir test
+```
+
+If we exit the workload, then it automatically will be removed because of the
+`--rm` CLI flag. Once the workload is removed, the operator will create the CRD
+for us:
+
+```
+$ kubectl describe seccompprofile test-recording
+Name:         test-recording
+Namespace:    security-profiles-operator
+…
+Spec:
+  Architectures:
+    SCMP_ARCH_X86_64
+  Default Action:  SCMP_ACT_ERRNO
+  Syscalls:
+    Action:  SCMP_ACT_ALLOW
+    Names:
+      …[other syscalls]…
+      mkdir
+      …[other syscalls]…
+  Target Workload:
+Status:
+  Localhost Profile:  operator/security-profiles-operator/test-recording.json
+  Path:               /var/lib/kubelet/seccomp/operator/security-profiles-operator/test-recording.json
+  Status:             Active
+Events:
+  Type    Reason                 Age                From             Message
+  ----    ------                 ----               ----             -------
+  Normal  SeccompProfileCreated  32s                profilerecorder  seccomp profile created
+  Normal  SavedSeccompProfile    30s (x3 over 32s)  profile          Successfully saved profile to disk
+```
+
+We can see that the created profile also contains the executed `mkdir` command
+as well as got reconciled to every node.
+
+The events of the operator will give more insights about the overall process or
+if anything goes wrong:
+
+```
+> kubectl get events | grep -i record
+3m45s       Normal    SeccompProfileRecording        pod/alpine                                                Recording seccomp profile
+3m29s       Normal    SeccompProfileCreated          seccompprofile/test-recording                             seccomp profile created
+11s         Normal    SavedSeccompProfile            seccompprofile/test-recording                             Successfully saved profile to disk
+```
+
+Please note that we encourage you to only use this recording approach for
+development purposes. It is not recommended to use the OCI hook in production
+clusters because it runs as highly privileged process to trace the container
+workload via a BPF module.
 
 ## Restricting to a Single Namespace
 
