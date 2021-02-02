@@ -202,8 +202,8 @@ var Manifest = &appsv1.DaemonSet{
 								MountPath: SelinuxdSocketDir,
 							},
 							{
-								Name:      "host-seccomp-hook-output-volume",
-								MountPath: config.SeccompProfileRecordOutputPath,
+								Name:      "profile-recording-output-volume",
+								MountPath: config.ProfileRecordingOutputPath,
 							},
 						},
 						SecurityContext: &v1.SecurityContext{
@@ -380,10 +380,10 @@ var Manifest = &appsv1.DaemonSet{
 						},
 					},
 					{
-						Name: "host-seccomp-hook-output-volume",
+						Name: "profile-recording-output-volume",
 						VolumeSource: v1.VolumeSource{
 							HostPath: &v1.HostPathVolumeSource{
-								Path: config.SeccompProfileRecordOutputPath,
+								Path: config.ProfileRecordingOutputPath,
 								Type: &hostPathDirectoryOrCreate,
 							},
 						},

@@ -35,8 +35,8 @@ import (
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profilerecorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/seccompprofile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
@@ -237,11 +237,11 @@ func getEnabledControllers(ctx *cli.Context) []*controllerSettings {
 	enabledSettings = append(enabledSettings,
 		&controllerSettings{
 			name:          "seccomp-spod",
-			setupFn:       profile.Setup,
+			setupFn:       seccompprofile.Setup,
 			schemaBuilder: seccompprofilev1alpha1.SchemeBuilder,
 		},
 		&controllerSettings{
-			name:          "seccomp-recorder-spod",
+			name:          "recorder-spod",
 			setupFn:       profilerecorder.Setup,
 			schemaBuilder: seccompprofilev1alpha1.SchemeBuilder,
 		},

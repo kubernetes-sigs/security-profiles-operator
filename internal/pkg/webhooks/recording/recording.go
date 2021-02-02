@@ -83,6 +83,13 @@ func (p *podSeccompRecorder) Handle(
 	items := profileRecordings.Items
 
 	for i := range items {
+		if items[i].Spec.Kind != "SeccompProfile" {
+			log.Info(fmt.Sprintf(
+				"recording kind %s not supported", items[i].Spec.Kind,
+			))
+			continue
+		}
+
 		selector, err := metav1.LabelSelectorAsSelector(
 			&items[i].Spec.PodSelector,
 		)
@@ -132,7 +139,7 @@ func (p *podSeccompRecorder) addAnnotation(
 
 	targetValue := fmt.Sprintf(
 		"of:%s/%s-%d.json",
-		config.SeccompProfileRecordOutputPath,
+		config.ProfileRecordingOutputPath,
 		profileRecording.GetName(),
 		time.Now().Unix(),
 	)

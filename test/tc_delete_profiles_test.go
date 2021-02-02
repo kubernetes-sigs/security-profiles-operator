@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/profile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/seccompprofile"
 )
 
 func (e *e2e) testCaseDeleteProfiles(nodes []string) {
@@ -100,7 +100,7 @@ spec:
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	sp := e.getSeccompProfile(deleteProfileName, namespace)
-	path, err := profile.GetProfilePath(deleteProfileName, sp.ObjectMeta.Namespace, sp.Spec.TargetWorkload)
+	path, err := seccompprofile.GetProfilePath(deleteProfileName, sp.ObjectMeta.Namespace, sp.Spec.TargetWorkload)
 	e.Nil(err)
 
 	e.logf("Verifying profile exists")
