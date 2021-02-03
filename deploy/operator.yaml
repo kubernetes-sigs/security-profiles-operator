@@ -376,7 +376,6 @@ metadata:
   labels:
     app: security-profiles-operator
   name: config-map-reader-binding
-  namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
