@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -27,6 +28,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
@@ -169,7 +171,16 @@ func runManager(ctx *cli.Context) error {
 	}
 
 	if dt.WatchNamespace != "" {
-		ctrlOpts.Namespace = dt.WatchNamespace
+		// TODO(jaosorior): Handle multiple namespaces coming from the tunables
+		namespaces := []string{
+			dt.WatchNamespace,
+			// We add the operator's namespace so this also is able to
+			// listen to the configuration might not be in the namespace
+			// folks will be deploying policies to.
+			config.GetOperatorNamespace(),
+		}
+		setupLog.Info(fmt.Sprintf("Listening on namespace(s): %s", strings.Join(namespaces, ", ")))
+		ctrlOpts.NewCache = cache.MultiNamespacedCacheBuilder(namespaces)
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
