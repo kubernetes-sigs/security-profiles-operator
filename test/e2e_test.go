@@ -77,12 +77,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"Seccomp: Re-deploy the operator",
 			e.testCaseReDeployOperator,
 		},
-		// TODO(jaosorior): Re-introduce this once we
-		// fix the issue with the certs.
-		//{
-		//	"Seccomp: Verify profile binding",
-		//	e.testCaseProfileBinding,
-		//},
 		{
 			"SELinux: sanity check",
 			e.testCaseSelinuxSanityCheck,
@@ -98,6 +92,12 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			tc.fn(nodes)
 		})
 	}
+
+	// TODO(jaosorior): Re-introduce this to the namespaced tests once we
+	// fix the issue with the certs.
+	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
+		e.testCaseProfileBinding(nodes)
+	})
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(manifest, defaultProfiles)
