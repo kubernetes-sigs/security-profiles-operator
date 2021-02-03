@@ -37,7 +37,6 @@ const cmIsSPOdConfig = "security-profiles-operator/config"
 // SPOdTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type DaemonTunables struct {
-	DaemonImage         string
 	NonRootEnablerImage string
 	SelinuxdImage       string
 	WatchNamespace      string
@@ -63,7 +62,6 @@ func getEffectiveSPOd(dt *DaemonTunables) *appsv1.DaemonSet {
 	refSPOd := bindata.Manifest.DeepCopy()
 
 	daemon := &refSPOd.Spec.Template.Spec.Containers[0]
-	daemon.Image = dt.DaemonImage
 	if dt.WatchNamespace != "" {
 		daemon.Env = append(daemon.Env, corev1.EnvVar{
 			Name:  config.RestrictNamespaceEnvKey,

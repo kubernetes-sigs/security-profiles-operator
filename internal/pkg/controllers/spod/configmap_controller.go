@@ -18,6 +18,7 @@ package spod
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
@@ -61,6 +62,22 @@ func (r *ReconcileSPOd) Reconcile(request reconcile.Request) (reconcile.Result, 
 		}
 		return reconcile.Result{}, errors.Wrap(err, "getting spod configuration")
 	}
+
+	deploymentKey := types.NamespacedName{
+		Name:      config.OperatorName,
+		Namespace: config.GetOperatorNamespace(),
+	}
+	foundDeployment := &appsv1.Deployment{}
+	if err := r.client.Get(ctx, deploymentKey, foundDeployment); err != nil {
+		if kerrors.IsNotFound(err) {
+			return reconcile.Result{}, nil
+		}
+		return reconcile.Result{}, fmt.Errorf("error getting operator deployment: %w", err)
+	}
+	// We use the same target image for the deamonset as which we have right
+	// now running.
+	targetImage := foundDeployment.Spec.Template.Spec.Containers[0].Image
+
 	spodKey := types.NamespacedName{
 		Name:      r.baseSPOd.GetName(),
 		Namespace: config.GetOperatorNamespace(),
@@ -68,7 +85,7 @@ func (r *ReconcileSPOd) Reconcile(request reconcile.Request) (reconcile.Result, 
 	foundSPOd := &appsv1.DaemonSet{}
 	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
 		if kerrors.IsNotFound(err) {
-			return r.handleCreate(ctx, cminstance)
+			return r.handleCreate(ctx, cminstance, targetImage)
 		}
 		return reconcile.Result{}, errors.Wrap(err, "getting spod DaemonSet")
 	}
@@ -77,9 +94,13 @@ func (r *ReconcileSPOd) Reconcile(request reconcile.Request) (reconcile.Result, 
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSPOd) handleCreate(ctx context.Context, cfg *corev1.ConfigMap) (reconcile.Result, error) {
+func (r *ReconcileSPOd) handleCreate(
+	ctx context.Context,
+	cfg *corev1.ConfigMap,
+	image string,
+) (reconcile.Result, error) {
 	r.log.Info("Creating SPOd")
-	newSPOd := r.getConfiguredSPOd(cfg)
+	newSPOd := r.getConfiguredSPOd(cfg, image)
 
 	if err := controllerutil.SetControllerReference(cfg, newSPOd, r.scheme); err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "setting spod controller reference")
@@ -94,27 +115,29 @@ func (r *ReconcileSPOd) handleCreate(ctx context.Context, cfg *corev1.ConfigMap)
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSPOd) getConfiguredSPOd(cfg *corev1.ConfigMap) *appsv1.DaemonSet {
+func (r *ReconcileSPOd) getConfiguredSPOd(cfg *corev1.ConfigMap, image string) *appsv1.DaemonSet {
 	newSPOd := r.baseSPOd.DeepCopy()
+	templateSpec := &newSPOd.Spec.Template.Spec
 
-	newSPOd.Spec.Template.Spec.Containers = []corev1.Container{r.baseSPOd.Spec.Template.Spec.Containers[0]}
+	templateSpec.Containers = []corev1.Container{r.baseSPOd.Spec.Template.Spec.Containers[0]}
+	templateSpec.Containers[0].Image = image
 
 	enableSelinux, err := strconv.ParseBool(cfg.Data[config.SPOcEnableSelinux])
 	if err == nil && enableSelinux {
-		newSPOd.Spec.Template.Spec.Containers = append(
-			newSPOd.Spec.Template.Spec.Containers,
+		templateSpec.Containers = append(
+			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[1])
 
-		newSPOd.Spec.Template.Spec.Containers[0].Args = append(
-			newSPOd.Spec.Template.Spec.Containers[0].Args,
+		templateSpec.Containers[0].Args = append(
+			templateSpec.Containers[0].Args,
 			"--with-selinux=true")
 	}
 
 	imagePullPolicyStr, found := cfg.Data[config.SPOdImagePullPolicy]
 	if found {
 		pullPolicy := corev1.PullPolicy(imagePullPolicyStr)
-		for i := range newSPOd.Spec.Template.Spec.Containers {
-			newSPOd.Spec.Template.Spec.Containers[i].ImagePullPolicy = pullPolicy
+		for i := range templateSpec.Containers {
+			templateSpec.Containers[i].ImagePullPolicy = pullPolicy
 		}
 	}
 
