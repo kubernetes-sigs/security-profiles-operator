@@ -33,7 +33,7 @@ metadata:
 spec:
   profileRef:
     kind: SeccompProfile
-    name: profile-allow
+    name: profile-allow-unsafe
   image: hello-world
 `
 	const testPod = `
@@ -103,7 +103,7 @@ spec:
 		"get", "pod", "hello",
 		"--output", "jsonpath={.spec.containers[0].securityContext.seccompProfile.localhostProfile}",
 	)
-	e.Equal(fmt.Sprintf("operator/%s/example-profiles/profile-allow.json", namespace), output)
+	e.Equal(fmt.Sprintf("operator/%s/generic/profile-allow-unsafe.json", namespace), output)
 
 	e.logf("Testing that profile binding has pod reference")
 	output = e.kubectl("get", "profilebinding", "hello-binding", "--output", "jsonpath={.status.activeWorkloads[0]}")
@@ -112,9 +112,13 @@ spec:
 	e.Equal("active-workload-lock", output)
 
 	e.logf("Testing that profile has pod reference")
-	output = e.kubectl("get", "seccompprofile", "profile-allow", "--output", "jsonpath={.status.activeWorkloads[0]}")
+	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
+		"--output", "jsonpath={.status.activeWorkloads[0]}")
+
 	e.Equal(fmt.Sprintf("%s/hello", namespace), output)
-	output = e.kubectl("get", "seccompprofile", "profile-allow", "--output", "jsonpath={.metadata.finalizers}")
+	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
+		"--output", "jsonpath={.metadata.finalizers}")
+
 	e.Contains(output, "in-use-by-active-pods")
 }
 
