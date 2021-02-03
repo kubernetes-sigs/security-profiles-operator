@@ -46,6 +46,7 @@ const (
 var (
 	clusterType        = os.Getenv("E2E_CLUSTER_TYPE")
 	envSkipBuildImages = os.Getenv("E2E_SKIP_BUILD_IMAGES")
+	envTestImage       = os.Getenv("E2E_SPO_IMAGE")
 	containerRuntime   = os.Getenv("CONTAINER_RUNTIME")
 )
 
@@ -67,6 +68,7 @@ type kinde2e struct {
 type openShifte2e struct {
 	e2e
 	skipBuildImages bool
+	skipPushImages  bool
 }
 
 // We're unable to use parallel tests because of our usage of testify/suite.
@@ -77,13 +79,17 @@ func TestSuite(t *testing.T) {
 	fmt.Printf("cluster-type: %s\n", clusterType)
 	fmt.Printf("container-runtime: %s\n", containerRuntime)
 
+	testImage := envTestImage
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, "kind"):
+		if testImage == "" {
+			testImage = config.OperatorName + ":latest"
+		}
 		suite.Run(t, &kinde2e{
 			e2e{
 				logger:     klogr.New(),
-				testImage:  config.OperatorName + ":latest",
 				pullPolicy: "Never",
+				testImage:  testImage,
 			},
 			"", "",
 		})
@@ -92,6 +98,9 @@ func TestSuite(t *testing.T) {
 		if err != nil {
 			skipBuildImages = false
 		}
+		// we can skip pushing the image to the registry if
+		// an image was given through the environment variable
+		skipPushImages := testImage != ""
 
 		suite.Run(t, &openShifte2e{
 			e2e{
@@ -99,8 +108,10 @@ func TestSuite(t *testing.T) {
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
 				pullPolicy: "Always",
+				testImage:  testImage,
 			},
 			skipBuildImages,
+			skipPushImages,
 		})
 	default:
 		t.Fatalf("Unknown cluster type.")
@@ -218,6 +229,30 @@ func (e *openShifte2e) SetupSuite() {
 	e.logf("Waiting for cluster to be ready")
 	e.kubectl("wait", "--for", "condition=ready", "nodes", "--all")
 
+	if !e.skipPushImages {
+		e.logf("pushing SPO image to openshift registry")
+		e.pushImageToRegistry()
+	}
+}
+
+func (e *openShifte2e) TearDownSuite() {
+	if !e.skipPushImages {
+		e.kubectl(
+			"delete", "imagestream", "-n", "openshift", config.OperatorName,
+		)
+	}
+}
+
+func (e *openShifte2e) SetupTest() {
+	e.logf("Setting up test")
+}
+
+// TearDownTest stops the kind cluster.
+func (e *openShifte2e) TearDownTest() {
+	e.logf("Tearing down test")
+}
+
+func (e *openShifte2e) pushImageToRegistry() {
 	e.logf("Exposing registry")
 	e.kubectl("patch", "configs.imageregistry.operator.openshift.io/cluster",
 		"--patch", "{\"spec\":{\"defaultRoute\":true}}", "--type=merge")
@@ -256,21 +291,6 @@ func (e *openShifte2e) SetupSuite() {
 	e.testImage = e.kubectl(
 		"get", "imagestreamtag", "-n", "openshift", testImageRef, "-o", "jsonpath={.image.dockerImageReference}",
 	)
-}
-
-func (e *openShifte2e) TearDownSuite() {
-	e.kubectl(
-		"delete", "imagestream", "-n", "openshift", config.OperatorName,
-	)
-}
-
-func (e *openShifte2e) SetupTest() {
-	e.logf("Setting up test")
-}
-
-// TearDownTest stops the kind cluster.
-func (e *openShifte2e) TearDownTest() {
-	e.logf("Tearing down test")
 }
 
 func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
