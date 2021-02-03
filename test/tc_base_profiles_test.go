@@ -48,7 +48,7 @@ metadata:
   name: hello
 spec:
   containers:
-  - image: hello-world
+  - image: hello-world:linux
     name: hello
     resources: {}
   securityContext:
