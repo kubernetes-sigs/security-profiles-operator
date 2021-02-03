@@ -34,7 +34,7 @@ spec:
   profileRef:
     kind: SeccompProfile
     name: profile-allow-unsafe
-  image: hello-world
+  image: hello-world:linux
 `
 	const testPod = `
 apiVersion: v1
@@ -43,7 +43,7 @@ metadata:
   name: hello
 spec:
   containers:
-  - image: hello-world
+  - image: hello-world:linux
     name: hello
     resources: {}
   restartPolicy: Never
