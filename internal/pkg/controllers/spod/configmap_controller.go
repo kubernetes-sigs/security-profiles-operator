@@ -18,11 +18,11 @@ package spod
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -59,18 +59,18 @@ func (r *ReconcileSPOd) Reconcile(request reconcile.Request) (reconcile.Result, 
 		if kerrors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
-		return reconcile.Result{}, fmt.Errorf("error getting spod configuration: %w", err)
+		return reconcile.Result{}, errors.Wrap(err, "getting spod configuration")
 	}
 	spodKey := types.NamespacedName{
 		Name:      r.baseSPOd.GetName(),
 		Namespace: config.GetOperatorNamespace(),
 	}
 	foundSPOd := &appsv1.DaemonSet{}
-	if getErr := r.client.Get(ctx, spodKey, foundSPOd); getErr != nil {
-		if kerrors.IsNotFound(getErr) {
+	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
+		if kerrors.IsNotFound(err) {
 			return r.handleCreate(ctx, cminstance)
 		}
-		return reconcile.Result{}, fmt.Errorf("error getting spod DaemonSet: %w", getErr)
+		return reconcile.Result{}, errors.Wrap(err, "getting spod DaemonSet")
 	}
 
 	// NOTE(jaosorior): We gotta handle updates
@@ -82,14 +82,14 @@ func (r *ReconcileSPOd) handleCreate(ctx context.Context, cfg *corev1.ConfigMap)
 	newSPOd := r.getConfiguredSPOd(cfg)
 
 	if err := controllerutil.SetControllerReference(cfg, newSPOd, r.scheme); err != nil {
-		return reconcile.Result{}, fmt.Errorf("error setting spod controller reference: %w", err)
+		return reconcile.Result{}, errors.Wrap(err, "setting spod controller reference")
 	}
 
-	if createErr := r.client.Create(ctx, newSPOd); createErr != nil {
-		if kerrors.IsAlreadyExists(createErr) {
+	if err := r.client.Create(ctx, newSPOd); err != nil {
+		if kerrors.IsAlreadyExists(err) {
 			return reconcile.Result{}, nil
 		}
-		return reconcile.Result{}, fmt.Errorf("error creating spod DaemonSet: %w", createErr)
+		return reconcile.Result{}, errors.Wrap(err, "error creating spod DaemonSet")
 	}
 	return reconcile.Result{}, nil
 }
