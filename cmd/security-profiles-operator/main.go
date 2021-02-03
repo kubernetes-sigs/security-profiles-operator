@@ -49,7 +49,6 @@ import (
 const (
 	jsonFlag               string = "json"
 	selinuxFlag            string = "with-selinux"
-	operatorImageKey       string = "RELATED_IMAGE_OPERATOR"
 	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
 	selinuxdImageKey       string = "RELATED_IMAGE_SELINUXD"
 	defaultWebhookPort     int    = 9443
@@ -210,12 +209,6 @@ func runManager(ctx *cli.Context) error {
 
 func getTunables() (dt spod.DaemonTunables, err error) {
 	dt.WatchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
-
-	operatorImage := os.Getenv(operatorImageKey)
-	if operatorImage == "" {
-		return dt, errors.New("invalid operator image")
-	}
-	dt.DaemonImage = operatorImage
 
 	nonRootEnableImage := os.Getenv(nonRootEnablerImageKey)
 	if nonRootEnableImage == "" {

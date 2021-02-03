@@ -502,8 +502,6 @@ spec:
         env:
         - name: RESTRICT_TO_NAMESPACE
           value: NS_REPLACE
-        - name: RELATED_IMAGE_OPERATOR
-          value: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
         - name: RELATED_IMAGE_NON_ROOT_ENABLER
           value: bash:5.0
         - name: RELATED_IMAGE_SELINUXD
