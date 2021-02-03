@@ -29,7 +29,7 @@ import (
 
 func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 	const exampleProfilePath = "examples/seccompprofile.yaml"
-	exampleProfileNames := [3]string{"profile-allow", "profile-complain", "profile-block"}
+	exampleProfileNames := [3]string{"profile-allow-unsafe", "profile-complain-unsafe", "profile-block-all"}
 	defaultProfileNames := [1]string{"nginx-1.19.1"}
 	e.kubectl("create", "-f", exampleProfilePath)
 	defer e.kubectl("delete", "-f", exampleProfilePath)

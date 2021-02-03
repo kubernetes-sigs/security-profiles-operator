@@ -177,7 +177,7 @@ name matches the binding:
 
 ```sh
 $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.seccompProfile}'
-{"localhostProfile":"operator/default/example-profiles/profile-complain.json","type":"Localhost"}
+{"localhostProfile":"operator/default/generic/profile-complain-unsafe.json","type":"Localhost"}
 ```
 
 #### Record profiles from workloads with ProfileRecordings

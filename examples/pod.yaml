@@ -8,7 +8,7 @@ metadata:
     # Or one example within this directory
     # Please note the syntax:
     # `localhost/operator/{namespace}/{configmap-name}/{profile-name}`
-    # seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/default/example-profiles/profile-allow.json'
+    # seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/default/generic/profile-allow-unsafe.json'
 spec:
   containers:
   - name: test-container
