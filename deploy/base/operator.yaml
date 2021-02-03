@@ -27,8 +27,6 @@ spec:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
           env:
-            - name: RELATED_IMAGE_OPERATOR
-              value: security-profiles-operator
             - name: RELATED_IMAGE_NON_ROOT_ENABLER
               value: non-root-enabler
             - name: RELATED_IMAGE_SELINUXD

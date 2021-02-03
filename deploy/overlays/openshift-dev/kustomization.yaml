@@ -22,19 +22,3 @@ images:
   - name: gcr.io/k8s-staging-sp-operator/security-profiles-operator
     newName: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator
     newTag: latest
-
-patchesStrategicMerge:
-- |-
-  apiVersion: apps/v1
-  kind: Deployment
-  metadata:
-    name: security-profiles-operator
-    namespace: security-profiles-operator
-  spec:
-    template:
-      spec:
-        containers:
-          - name: security-profiles-operator
-            env:
-              - name: RELATED_IMAGE_OPERATOR
-                value: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest
