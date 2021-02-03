@@ -511,8 +511,6 @@ spec:
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
-      nodeSelector:
-        node-role.kubernetes.io/master: ""
       serviceAccountName: security-profiles-operator
       tolerations:
       - effect: NoSchedule
