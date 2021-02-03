@@ -2,11 +2,9 @@
 *
 
 # Allow files and directories
-!/.git
 !/go.mod
 !/go.sum
 !/Makefile
-!/VERSION
 !/tools.go
 !/api/**
 !/cmd/**
