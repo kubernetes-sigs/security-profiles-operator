@@ -33,8 +33,6 @@ spec:
               value: non-root-enabler
             - name: RELATED_IMAGE_SELINUXD
               value: quay.io/jaosorior/selinuxd
-      nodeSelector:
-        node-role.kubernetes.io/master: ""
       tolerations:
         - key: "node-role.kubernetes.io/master"
           operator: "Exists"
