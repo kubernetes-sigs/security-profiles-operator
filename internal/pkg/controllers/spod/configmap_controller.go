@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod/bindata"
 )
 
 // blank assignment to verify that ReconcileConfigMap implements `reconcile.Reconciler`.
@@ -43,11 +44,12 @@ var _ reconcile.Reconciler = &ReconcileSPOd{}
 type ReconcileSPOd struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client   client.Client
-	scheme   *runtime.Scheme
-	baseSPOd *appsv1.DaemonSet
-	record   event.Recorder
-	log      logr.Logger
+	client         client.Client
+	scheme         *runtime.Scheme
+	baseSPOd       *appsv1.DaemonSet
+	record         event.Recorder
+	log            logr.Logger
+	watchNamespace string
 }
 
 // Reconcile reads that state of the cluster for a ConfigMap object and makes changes based on the state read
@@ -98,21 +100,40 @@ func (r *ReconcileSPOd) handleCreate(
 	ctx context.Context,
 	cfg *corev1.ConfigMap,
 	image string,
-) (reconcile.Result, error) {
-	r.log.Info("Creating SPOd")
+) (res reconcile.Result, err error) {
+	r.log.Info("Creating operator resources")
 	newSPOd := r.getConfiguredSPOd(cfg, image)
 
 	if err := controllerutil.SetControllerReference(cfg, newSPOd, r.scheme); err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "setting spod controller reference")
+		return res, errors.Wrap(err, "setting spod controller reference")
 	}
 
+	r.log.Info("Deploying operator daemonset")
 	if err := r.client.Create(ctx, newSPOd); err != nil {
 		if kerrors.IsAlreadyExists(err) {
-			return reconcile.Result{}, nil
+			return res, nil
 		}
-		return reconcile.Result{}, errors.Wrap(err, "error creating spod DaemonSet")
+		return res, errors.Wrap(err, "creating operator DaemonSet")
 	}
-	return reconcile.Result{}, nil
+
+	r.log.Info("Deploying operator default profiles")
+	for _, profile := range bindata.DefaultProfiles() {
+		// Adapt the namespace if we watch only a single one
+		if r.watchNamespace != "" {
+			profile.Namespace = r.watchNamespace
+		}
+
+		if err := r.client.Create(ctx, profile); err != nil {
+			if kerrors.IsAlreadyExists(err) {
+				return res, nil
+			}
+			return res, errors.Wrapf(
+				err, "creating operator default profile %s", profile.Name,
+			)
+		}
+	}
+
+	return res, nil
 }
 
 func (r *ReconcileSPOd) getConfiguredSPOd(cfg *corev1.ConfigMap, image string) *appsv1.DaemonSet {

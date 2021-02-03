@@ -18,16 +18,16 @@ package e2e_test
 
 func (e *e2e) testCaseReDeployOperator([]string) {
 	// Clean up the operator
-	e.cleanupOperator(manifest, defaultProfiles)
+	e.cleanupOperator(manifest)
 
 	// Deploy the operator again
-	e.deployOperator(manifest, defaultProfiles)
+	e.deployOperator(manifest)
 }
 
 func (e *e2e) testCaseReDeployNamespaceOperator([]string) {
 	// Clean up the operator
-	e.cleanupOperator(namespaceManifest, namespaceDefaultProfiles)
+	e.cleanupOperator(namespaceManifest)
 
 	// Deploy the operator again
-	e.deployOperator(namespaceManifest, namespaceDefaultProfiles)
+	e.deployOperator(namespaceManifest)
 }
