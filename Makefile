@@ -119,9 +119,7 @@ go-mod: ## Cleanup and verify go modules
 .PHONY: deployments
 deployments: manifests ## Generate the deployment files with kustomize
 	kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
-	kustomize build --reorder=none deploy/profiles/base -o deploy/profiles/default-profiles.yaml
 	kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
-	kustomize build --reorder=none deploy/profiles/overlays/namespaced -o deploy/profiles/namespace-default-profiles.yaml
 	kustomize build --reorder=none deploy/base/webhook -o deploy/webhook.yaml
 
 .PHONY: image

@@ -21,7 +21,6 @@ The feature scope of the security-profiles-operator is right now limited to:
 
 ```sh
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/profiles/default-profiles.yaml
 ```
 
 ### 2. Create Profile
@@ -305,7 +304,6 @@ operator deployment to run in a single namespace, use the
 NAMESPACE=<your-namespace>
 
 curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
-curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/profiles/namespace-default-profiles.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
 ```
 
 ## Troubleshooting
@@ -344,6 +342,6 @@ Please note corrupted seccomp profiles can disrupt your workloads. Therefore, en
 To uninstall, remove the profiles before removing the rest of the operator:
 
 ```sh
-$ kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/profiles/default-profiles.yaml
+$ kubectl delete seccompprofiles --all --all-namespaces
 $ kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
 ```

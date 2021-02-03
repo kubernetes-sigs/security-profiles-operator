@@ -50,11 +50,12 @@ func Setup(ctx context.Context, mgr ctrl.Manager, dt *DaemonTunables, l logr.Log
 		WithEventFilter(resource.NewPredicates(isSPOdConfig)).
 		Owns(&appsv1.DaemonSet{}).
 		Complete(&ReconcileSPOd{
-			baseSPOd: getEffectiveSPOd(dt),
-			client:   mgr.GetClient(),
-			log:      l,
-			record:   event.NewAPIRecorder(mgr.GetEventRecorderFor("spod-config")),
-			scheme:   mgr.GetScheme(),
+			baseSPOd:       getEffectiveSPOd(dt),
+			client:         mgr.GetClient(),
+			log:            l,
+			record:         event.NewAPIRecorder(mgr.GetEventRecorderFor("spod-config")),
+			scheme:         mgr.GetScheme(),
+			watchNamespace: dt.WatchNamespace,
 		})
 }
 
