@@ -176,7 +176,7 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	$(GO) test -race -timeout 40m -count=1 ./test/... -v
+	$(GO) test -parallel 1 -timeout 40m -count=1 ./test/... -v
 
 # Generate CRD manifests
 manifests: $(CONTROLLER_GEN)
