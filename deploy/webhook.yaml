@@ -209,7 +209,6 @@ metadata:
   labels:
     app: security-profiles-operator
   name: profile-manager-binding
-  namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
