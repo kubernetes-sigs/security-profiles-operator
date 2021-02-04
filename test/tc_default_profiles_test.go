@@ -41,7 +41,7 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		statOutput := e.execNode(
 			node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath,
 		)
-		e.Contains(statOutput, "744,2000,2000")
+		e.Contains(statOutput, "744,65535,65535")
 
 		// security-profiles-operator.json init verification
 		cm := e.getConfigMap(
