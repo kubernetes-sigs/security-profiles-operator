@@ -92,7 +92,12 @@ spec:
     singular: profilerecording
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.podSelector
+      name: PodSelector
+      priority: 10
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ProfileRecording is the Schema for the profilerecordings API.

@@ -34,7 +34,7 @@ import (
 // TODO(jaosorior): Use better method than a label constant.
 const cmIsSPOdConfig = "security-profiles-operator/config"
 
-// SPOdTunables defines the parameters to tune/modify for the
+// DaemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type DaemonTunables struct {
 	NonRootEnablerImage string
