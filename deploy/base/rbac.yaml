@@ -170,3 +170,31 @@ roleRef:
   kind: Role
   name: security-profiles-operator
   apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: security-profiles-operator-log-enricher
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: security-profiles-operator-log-enricher
+subjects:
+- kind: ServiceAccount
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+roleRef:
+  kind: ClusterRole
+  name: security-profiles-operator-log-enricher
+  apiGroup: rbac.authorization.k8s.io

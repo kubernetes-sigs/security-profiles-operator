@@ -160,6 +160,17 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-selinux=true")
 	}
 
+	enableLogEnricher, err := strconv.ParseBool(cfg.Data[config.SPOcEnableLogEnricher])
+	if err == nil && enableLogEnricher {
+		newSPOd.Spec.Template.Spec.Containers = append(
+			newSPOd.Spec.Template.Spec.Containers,
+			r.baseSPOd.Spec.Template.Spec.Containers[2])
+
+		// HostPID is only required for the log-enricher
+		// and is used to access cgroup files to map Process IDs to Pod IDs
+		newSPOd.Spec.Template.Spec.HostPID = true
+	}
+
 	for i := range templateSpec.Containers {
 		templateSpec.Containers[i].ImagePullPolicy = pullPolicy
 	}
