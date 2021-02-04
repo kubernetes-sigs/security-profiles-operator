@@ -57,11 +57,6 @@ const (
 	SPOcEnableSelinux = "EnableSelinux"
 )
 
-// DaemonSet configMap keys.
-const (
-	SPOdImagePullPolicy = "SPOdImagePullPolicy"
-)
-
 // GetOperatorNamespace gets the namespace that the operator is currently running on.
 func GetOperatorNamespace() string {
 	// TODO(jaosorior): Get a method to return the current operator
