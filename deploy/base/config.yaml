@@ -7,5 +7,4 @@ metadata:
   labels:
     security-profiles-operator/config: ""
 data:
-  SPOdImagePullPolicy: Always
   EnableSelinux: "false"
