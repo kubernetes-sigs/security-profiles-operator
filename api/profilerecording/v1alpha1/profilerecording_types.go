@@ -41,6 +41,7 @@ type ProfileRecordingStatus struct {
 
 // ProfileRecording is the Schema for the profilerecordings API.
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="PodSelector",type=string,priority=10,JSONPath=`.spec.podSelector`
 type ProfileRecording struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
