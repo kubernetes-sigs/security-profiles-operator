@@ -133,10 +133,6 @@ func (e *e2e) deployOperator(manifest string) {
 		fmt.Sprintf("s;imagePullPolicy: Always;imagePullPolicy: %s;g", e.pullPolicy),
 		manifest,
 	)
-	e.run(
-		"sed", "-i", fmt.Sprintf("s;SPOdImagePullPolicy: Always;SPOdImagePullPolicy: %s;g", e.pullPolicy),
-		manifest,
-	)
 
 	// Update the image name to match the test image
 	e.run(

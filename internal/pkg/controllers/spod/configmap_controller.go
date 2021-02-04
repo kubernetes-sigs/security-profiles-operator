@@ -78,7 +78,8 @@ func (r *ReconcileSPOd) Reconcile(request reconcile.Request) (reconcile.Result, 
 	}
 	// We use the same target image for the deamonset as which we have right
 	// now running.
-	targetImage := foundDeployment.Spec.Template.Spec.Containers[0].Image
+	image := foundDeployment.Spec.Template.Spec.Containers[0].Image
+	pullPolicy := foundDeployment.Spec.Template.Spec.Containers[0].ImagePullPolicy
 
 	spodKey := types.NamespacedName{
 		Name:      r.baseSPOd.GetName(),
@@ -87,7 +88,7 @@ func (r *ReconcileSPOd) Reconcile(request reconcile.Request) (reconcile.Result, 
 	foundSPOd := &appsv1.DaemonSet{}
 	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
 		if kerrors.IsNotFound(err) {
-			return r.handleCreate(ctx, cminstance, targetImage)
+			return r.handleCreate(ctx, cminstance, image, pullPolicy)
 		}
 		return reconcile.Result{}, errors.Wrap(err, "getting spod DaemonSet")
 	}
@@ -100,9 +101,10 @@ func (r *ReconcileSPOd) handleCreate(
 	ctx context.Context,
 	cfg *corev1.ConfigMap,
 	image string,
+	pullPolicy corev1.PullPolicy,
 ) (res reconcile.Result, err error) {
 	r.log.Info("Creating operator resources")
-	newSPOd := r.getConfiguredSPOd(cfg, image)
+	newSPOd := r.getConfiguredSPOd(cfg, image, pullPolicy)
 
 	if err := controllerutil.SetControllerReference(cfg, newSPOd, r.scheme); err != nil {
 		return res, errors.Wrap(err, "setting spod controller reference")
@@ -136,7 +138,11 @@ func (r *ReconcileSPOd) handleCreate(
 	return res, nil
 }
 
-func (r *ReconcileSPOd) getConfiguredSPOd(cfg *corev1.ConfigMap, image string) *appsv1.DaemonSet {
+func (r *ReconcileSPOd) getConfiguredSPOd(
+	cfg *corev1.ConfigMap,
+	image string,
+	pullPolicy corev1.PullPolicy,
+) *appsv1.DaemonSet {
 	newSPOd := r.baseSPOd.DeepCopy()
 	templateSpec := &newSPOd.Spec.Template.Spec
 
@@ -154,12 +160,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(cfg *corev1.ConfigMap, image string) *
 			"--with-selinux=true")
 	}
 
-	imagePullPolicyStr, found := cfg.Data[config.SPOdImagePullPolicy]
-	if found {
-		pullPolicy := corev1.PullPolicy(imagePullPolicyStr)
-		for i := range templateSpec.Containers {
-			templateSpec.Containers[i].ImagePullPolicy = pullPolicy
-		}
+	for i := range templateSpec.Containers {
+		templateSpec.Containers[i].ImagePullPolicy = pullPolicy
 	}
 
 	return newSPOd

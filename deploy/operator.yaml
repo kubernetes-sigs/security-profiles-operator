@@ -524,7 +524,6 @@ spec:
 apiVersion: v1
 data:
   EnableSelinux: "false"
-  SPOdImagePullPolicy: Always
 kind: ConfigMap
 metadata:
   labels:
