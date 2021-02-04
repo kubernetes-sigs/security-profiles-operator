@@ -39,6 +39,7 @@ const cmIsSPOdConfig = "security-profiles-operator/config"
 type DaemonTunables struct {
 	NonRootEnablerImage string
 	SelinuxdImage       string
+	LogEnricherImage    string
 	WatchNamespace      string
 }
 
@@ -72,6 +73,9 @@ func getEffectiveSPOd(dt *DaemonTunables) *appsv1.DaemonSet {
 
 	selinuxd := &refSPOd.Spec.Template.Spec.Containers[1]
 	selinuxd.Image = dt.SelinuxdImage
+
+	logEnricher := &refSPOd.Spec.Template.Spec.Containers[2]
+	logEnricher.Image = dt.LogEnricherImage
 
 	initcnt := &refSPOd.Spec.Template.Spec.InitContainers[0]
 	initcnt.Image = dt.NonRootEnablerImage

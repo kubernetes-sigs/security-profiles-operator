@@ -51,6 +51,7 @@ const (
 	selinuxFlag            string = "with-selinux"
 	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
 	selinuxdImageKey       string = "RELATED_IMAGE_SELINUXD"
+	logEnricherImageKey    string = "RELATED_IMAGE_LOG_ENRICHER"
 	defaultWebhookPort     int    = 9443
 )
 
@@ -221,6 +222,12 @@ func getTunables() (dt spod.DaemonTunables, err error) {
 		return dt, errors.New("invalid selinuxd image")
 	}
 	dt.SelinuxdImage = selinuxdImage
+
+	logEnricherImage := os.Getenv(logEnricherImageKey)
+	if logEnricherImage == "" {
+		return dt, errors.New("invalid log enricher image")
+	}
+	dt.LogEnricherImage = logEnricherImage
 
 	return dt, nil
 }
