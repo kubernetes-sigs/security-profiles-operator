@@ -54,7 +54,8 @@ var ProfileRecordingOutputPath = filepath.Join(os.TempDir(), "security-profiles-
 
 // Controller configMap keys.
 const (
-	SPOcEnableSelinux = "EnableSelinux"
+	SPOcEnableSelinux     = "EnableSelinux"
+	SPOcEnableLogEnricher = "EnableLogEnricher"
 )
 
 // GetOperatorNamespace gets the namespace that the operator is currently running on.

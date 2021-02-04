@@ -30,6 +30,7 @@ var (
 	truly                           = true
 	userRoot                  int64 = 0
 	userRootless              int64 = 2000
+	hostCharDev                     = v1.HostPathCharDev
 	hostPathDirectory               = v1.HostPathDirectory
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
 )
@@ -39,6 +40,7 @@ const (
 	SelinuxDropDirectory = "/etc/selinux.d"
 	SelinuxdSocketDir    = "/var/run/selinuxd"
 	SelinuxdSocketPath   = SelinuxdSocketDir + "/selinuxd.sock"
+	kmsgPath             = "/dev/kmsg"
 )
 
 var Manifest = &appsv1.DaemonSet{
@@ -301,6 +303,52 @@ var Manifest = &appsv1.DaemonSet{
 						//	},
 						// },
 					},
+					{
+						Name:            "log-enricher",
+						Image:           "paulinhu/kube-audit-log-enricher",
+						ImagePullPolicy: v1.PullAlways,
+						VolumeMounts: []v1.VolumeMount{
+							{
+								Name:      "host-devkmsg-volume",
+								MountPath: kmsgPath,
+								ReadOnly:  true,
+							},
+						},
+						SecurityContext: &v1.SecurityContext{
+							// /dev/kmsg is being used as kernel messages source in order to
+							// support the widest range of distros. However, access to
+							// devices requires the container to run as privileged.
+							Privileged:             &truly,
+							ReadOnlyRootFilesystem: &truly,
+							SELinuxOptions: &v1.SELinuxOptions{
+								// TODO(pjbgf): Use a more restricted selinux type
+								Type: "spc_t",
+							},
+						},
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("64Mi"),
+								v1.ResourceCPU:              resource.MustParse("50m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+							},
+							Limits: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("128Mi"),
+								v1.ResourceCPU:              resource.MustParse("150m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
+							},
+						},
+						Env: []v1.EnvVar{
+							{
+								Name: "NODE_NAME",
+								ValueFrom: &v1.EnvVarSource{
+									FieldRef: &v1.ObjectFieldSelector{
+										APIVersion: "v1",
+										FieldPath:  "spec.nodeName",
+									},
+								},
+							},
+						},
+					},
 				},
 				Volumes: []v1.Volume{
 					// /var/lib is used as symlinks cannot be created across
@@ -385,6 +433,15 @@ var Manifest = &appsv1.DaemonSet{
 							HostPath: &v1.HostPathVolumeSource{
 								Path: config.ProfileRecordingOutputPath,
 								Type: &hostPathDirectoryOrCreate,
+							},
+						},
+					},
+					{
+						Name: "host-devkmsg-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: kmsgPath,
+								Type: &hostCharDev,
 							},
 						},
 					},
