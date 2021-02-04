@@ -33,19 +33,8 @@ LABEL name="Security Profiles Operator" \
 
 RUN microdnf install -y shadow-utils
 
-ENV USER=secuser
-ENV UID=2000
-# See https://stackoverflow.com/a/55757473/12429735
-RUN adduser \
-    -c "" \
-    --home "/nonexistent" \
-    --shell "/sbin/nologin" \
-    --no-create-home \
-    --uid "${UID}" \
-    "${USER}"
-
 COPY --from=build /work/build/security-profiles-operator /usr/bin/
 
 ENTRYPOINT ["/usr/bin/security-profiles-operator"]
 
-USER ${UID}
+USER 65535:65535

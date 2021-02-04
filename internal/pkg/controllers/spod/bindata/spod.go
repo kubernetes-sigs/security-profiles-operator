@@ -29,7 +29,7 @@ var (
 	falsely                         = false
 	truly                           = true
 	userRoot                  int64 = 0
-	userRootless              int64 = 2000
+	userRootless              int64 = 65535
 	hostCharDev                     = v1.HostPathCharDev
 	hostPathDirectory               = v1.HostPathDirectory
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
@@ -69,7 +69,7 @@ var Manifest = &appsv1.DaemonSet{
 					{
 						Name: "non-root-enabler",
 						// Creates directory /var/lib/security-profiles-operator,
-						// sets 2000:2000 as its owner and symlink it to
+						// sets 65535:65535 as its owner and symlink it to
 						// /var/lib/kubelet/seccomp/operator. This is required
 						// to allow the main container to run as non-root.
 						Command: []string{"bash", "-c"},
@@ -87,7 +87,7 @@ var Manifest = &appsv1.DaemonSet{
 							/bin/ln -s ` + operatorRoot + ` ` + config.ProfilesRootPath + `
 						fi
 
-						/bin/chown -R 2000:2000 ` + operatorRoot + `
+						/bin/chown -R 65535:65535 ` + operatorRoot + `
 						cp -f -v /opt/seccomp-profiles/* ` + config.KubeletSeccompRootPath + `
 					`},
 						VolumeMounts: []v1.VolumeMount{
@@ -132,11 +132,11 @@ var Manifest = &appsv1.DaemonSet{
 						Image: "quay.io/jaosorior/selinuxd",
 						// Primes the volume mount under /etc/selinux.d with the
 						// shared policies shipped by selinuxd and makes sure the volume mount
-						// is writable by 2000 in order for the controller to be able to
+						// is writable by 65535 in order for the controller to be able to
 						// write the policy files. In the future, the policy files should
 						// be shipped by selinuxd directly.
 						//
-						// The directory is writable by 2000 (the operator writes to this dir) and
+						// The directory is writable by 65535 (the operator writes to this dir) and
 						// readable by root (selinuxd reads the policies and runs as root).
 						// Explicitly allowing root makes sure no dac_override audit messages
 						// are logged even in absence of CAP_DAC_OVERRIDE.
@@ -148,7 +148,7 @@ var Manifest = &appsv1.DaemonSet{
 						Args: []string{`
 						set -x
 
-						chown 2000:0 /etc/selinux.d
+						chown 65535:0 /etc/selinux.d
 						chmod 750 /etc/selinux.d
 						cp /usr/share/udica/templates/* /etc/selinux.d
 					`},
@@ -251,7 +251,7 @@ var Manifest = &appsv1.DaemonSet{
 							"daemon",
 							"--socket-path", SelinuxdSocketPath,
 							"--socket-uid", "0",
-							"--socket-gid", "2000",
+							"--socket-gid", "65535",
 						},
 						ImagePullPolicy: v1.PullAlways,
 						VolumeMounts: []v1.VolumeMount{
