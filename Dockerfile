@@ -16,18 +16,6 @@ FROM golang:1.15.7-alpine AS build
 WORKDIR /work
 RUN apk --no-cache add build-base git gcc libseccomp-dev libseccomp-static
 
-ENV USER=secuser
-ENV UID=2000
-# See https://stackoverflow.com/a/55757473/12429735
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/nonexistent" \
-    --shell "/sbin/nologin" \
-    --no-create-home \
-    --uid "${UID}" \
-    "${USER}"
-
 COPY . /work
 
 FROM build as make
@@ -41,8 +29,8 @@ LABEL name="Security Profiles Operator" \
       description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=build /etc/passwd /etc/passwd
-COPY --from=build /etc/group /etc/group
 COPY --from=make /work/build/security-profiles-operator /
+
+USER 65535:65535
 
 ENTRYPOINT ["/security-profiles-operator"]
