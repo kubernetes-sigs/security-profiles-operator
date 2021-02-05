@@ -36,6 +36,16 @@ the Kubernetes world:
 [5]: https://github.com/openshift/machine-config-operator/tree/master/docs
 [6]: https://github.com/UKHomeOffice/seccomp-config
 
+## Personas & User Stories
+
+As any other piece of software, this operator is meant to help people. Thus,
+the target personas have been reflected in [a document in this repo](doc/personas.md).
+
+The functionality that this operator is meant to enable is captured
+[as user stories](doc/user-stories.md). If you feel that a user story is not captured
+properly, feel free to submit a Pull Request. The team will be more than happy
+to review and help you reflect the requirement.
+
 ## Roadmap
 
 The project tries to not overlap with those existing implementations to provide
