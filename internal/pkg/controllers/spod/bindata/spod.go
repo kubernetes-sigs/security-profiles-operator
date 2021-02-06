@@ -305,7 +305,7 @@ var Manifest = &appsv1.DaemonSet{
 					},
 					{
 						Name:            "log-enricher",
-						Image:           "paulinhu/kube-audit-log-enricher",
+						Args:            []string{"log-enricher"},
 						ImagePullPolicy: v1.PullAlways,
 						VolumeMounts: []v1.VolumeMount{
 							{
