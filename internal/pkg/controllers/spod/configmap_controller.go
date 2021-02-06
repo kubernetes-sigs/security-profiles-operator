@@ -162,6 +162,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	enableLogEnricher, err := strconv.ParseBool(cfg.Data[config.SPOcEnableLogEnricher])
 	if err == nil && enableLogEnricher {
+		r.baseSPOd.Spec.Template.Spec.Containers[2].Image = image
 		newSPOd.Spec.Template.Spec.Containers = append(
 			newSPOd.Spec.Template.Spec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[2])

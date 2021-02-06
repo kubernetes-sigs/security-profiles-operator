@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/seccompprofile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording"
@@ -51,7 +52,6 @@ const (
 	selinuxFlag            string = "with-selinux"
 	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
 	selinuxdImageKey       string = "RELATED_IMAGE_SELINUXD"
-	logEnricherImageKey    string = "RELATED_IMAGE_LOG_ENRICHER"
 	defaultWebhookPort     int    = 9443
 )
 
@@ -127,6 +127,12 @@ func main() {
 					Usage:   "the port on which to expose the webhook service (default 9443)",
 				},
 			},
+		},
+		&cli.Command{
+			Name:    "log-enricher",
+			Aliases: []string{"l"},
+			Usage:   "run the audit's log enricher",
+			Action:  runLogEnricher,
 		},
 	}
 
@@ -223,12 +229,6 @@ func getTunables() (dt spod.DaemonTunables, err error) {
 	}
 	dt.SelinuxdImage = selinuxdImage
 
-	logEnricherImage := os.Getenv(logEnricherImageKey)
-	if logEnricherImage == "" {
-		return dt, errors.New("invalid log enricher image")
-	}
-	dt.LogEnricherImage = logEnricherImage
-
 	return dt, nil
 }
 
@@ -309,6 +309,12 @@ func runDaemon(ctx *cli.Context) error {
 	}
 
 	setupLog.Info("ending daemon")
+	return nil
+}
+
+func runLogEnricher(ctx *cli.Context) error {
+	printInfo("log-enricher")
+	enricher.Run(ctrl.Log.WithName("log-enricher"))
 	return nil
 }
 

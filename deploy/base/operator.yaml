@@ -31,8 +31,6 @@ spec:
               value: non-root-enabler
             - name: RELATED_IMAGE_SELINUXD
               value: quay.io/jaosorior/selinuxd
-            - name: RELATED_IMAGE_LOG_ENRICHER
-              value: paulinhu/kube-audit-log-enricher
       tolerations:
         - key: "node-role.kubernetes.io/master"
           operator: "Exists"
