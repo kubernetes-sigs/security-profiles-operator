@@ -1,4 +1,6 @@
 *.orig
 *.swp
-build
 .idea
+.vagrant
+Vagrantfile
+build
