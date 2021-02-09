@@ -1,0 +1,21 @@
+name: e2e
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+jobs:
+  test:
+    runs-on: macos-10.15
+    timeout-minutes: 30
+    env:
+      RUN: ./hack/ci/run.sh
+    steps:
+      - uses: actions/checkout@v2
+      - name: Boot Virtual Machine
+        run: |
+          ln -sf hack/ci/Vagrantfile .
+          vagrant up
+      - name: Show environment information
+        run: |
+          $RUN kubectl get nodes -o wide
