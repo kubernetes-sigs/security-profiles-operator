@@ -144,7 +144,7 @@ func (e *e2e) deployOperator(manifest string) {
 		manifest,
 	)
 
-	if e.platformSupportsSelinux() {
+	if e.selinuxEnabled {
 		e.run(
 			"sed", "-i", "s/EnableSelinux: \"false\"/EnableSelinux: \"true\"/",
 			manifest,
