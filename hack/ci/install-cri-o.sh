@@ -47,14 +47,6 @@ chcon -R -u system_u -r object_r -t var_lib_t /var/lib/kubelet
 
 mkdir -p /etc/crio/crio.conf.d
 
-cat <<EOT >>/etc/crio/crio.conf.d/20-crun.conf
-[crio.runtime]
-default_runtime = "crun"
-
-[crio.runtime.runtimes.crun]
-runtime_path = "/usr/local/bin/crun"
-EOT
-
 cat <<EOT >>/etc/crio/crio.conf.d/30-cgroup-manager.conf
 [crio.runtime]
 conmon_cgroup = "pod"
