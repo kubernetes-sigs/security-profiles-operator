@@ -40,6 +40,7 @@ else
 LINT_BUILDTAGS := e2e,netgo,osusergo,-tools
 endif
 
+export CGO_ENABLED=1
 
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
 export GOFLAGS?=-mod=vendor
@@ -56,7 +57,7 @@ else
   LDFLAGS := -s -w -extldflags "-static" $(LDVARS)
 endif
 
-export CONTAINER_RUNTIME ?= $(if $(shell which podman),podman,docker)
+export CONTAINER_RUNTIME ?= $(if $(shell which podman 2>/dev/null),podman,docker)
 
 ifeq ($(CONTAINER_RUNTIME), podman)
     LOGIN_PUSH_OPTS="--tls-verify=false"
@@ -125,6 +126,19 @@ deployments: manifests ## Generate the deployment files with kustomize
 .PHONY: image
 image: ## Build the container image
 	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) --build-arg version=$(VERSION) -t $(IMAGE) .
+
+.PHONY: nix
+nix: ## Build the binary via nix for the current system
+	nix-build nix
+
+.PHONY: nix-arm64
+nix-arm64: ## Build the binary via nix for arm64
+	nix-build nix/default-arm64.nix
+
+.PHONY: update-nixpkgs
+update-nixpkgs: ## Update the pinned nixpkgs to the latest master
+	@nix run -f channel:nixpkgs-unstable nix-prefetch-git -c nix-prefetch-git \
+		--no-deepClone https://github.com/nixos/nixpkgs > nix/nixpkgs.json
 
 # Verification targets
 
