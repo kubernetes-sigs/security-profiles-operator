@@ -142,8 +142,10 @@ func (e *e2e) deployWebhook(manifest string) {
 	)
 	e.logf("Deploying webhook")
 	e.kubectl("create", "-f", manifest)
-	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "-l", "name=security-profiles-operator-webhook")
-	e.kubectlOperatorNS("wait", "--for", "condition=ready", "certificate", "webhook-cert")
+	e.kubectlOperatorNS("wait", "--timeout", defaultWaitTimeout,
+		"--for", "condition=ready", "pod", "-l", "name=security-profiles-operator-webhook")
+	e.kubectlOperatorNS("wait", "--timeout", defaultWaitTimeout,
+		"--for", "condition=ready", "certificate", "webhook-cert")
 }
 
 func (e *e2e) cleanupWebhook(manifest string) {
