@@ -47,16 +47,18 @@ var (
 	clusterType        = os.Getenv("E2E_CLUSTER_TYPE")
 	envSkipBuildImages = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	envTestImage       = os.Getenv("E2E_SPO_IMAGE")
+	envSelinuxEnabled  = os.Getenv("E2E_ENABLE_SELINUX")
 	containerRuntime   = os.Getenv("CONTAINER_RUNTIME")
 )
 
 type e2e struct {
 	suite.Suite
-	kubectlPath string
-	testImage   string
-	pullPolicy  string
-	logger      logr.Logger
-	execNode    func(node string, args ...string) string
+	kubectlPath    string
+	testImage      string
+	pullPolicy     string
+	selinuxEnabled bool
+	logger         logr.Logger
+	execNode       func(node string, args ...string) string
 }
 
 type kinde2e struct {
@@ -80,6 +82,10 @@ func TestSuite(t *testing.T) {
 	fmt.Printf("container-runtime: %s\n", containerRuntime)
 
 	testImage := envTestImage
+	selinuxEnabled, err := strconv.ParseBool(envSelinuxEnabled)
+	if err != nil {
+		selinuxEnabled = false
+	}
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, "kind"):
 		if testImage == "" {
@@ -87,9 +93,10 @@ func TestSuite(t *testing.T) {
 		}
 		suite.Run(t, &kinde2e{
 			e2e{
-				logger:     klogr.New(),
-				pullPolicy: "Never",
-				testImage:  testImage,
+				logger:         klogr.New(),
+				pullPolicy:     "Never",
+				testImage:      testImage,
+				selinuxEnabled: selinuxEnabled,
 			},
 			"", "",
 		})
@@ -107,8 +114,9 @@ func TestSuite(t *testing.T) {
 				logger: klogr.New(),
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
-				pullPolicy: "Always",
-				testImage:  testImage,
+				pullPolicy:     "Always",
+				testImage:      testImage,
+				selinuxEnabled: selinuxEnabled,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -348,14 +356,8 @@ func (e *e2e) logf(format string, a ...interface{}) {
 	e.logger.Info(fmt.Sprintf(format, a...))
 }
 
-func (e *e2e) platformSupportsSelinux() bool {
-	// TODO(jaosorior): Come up with better way to assert if a cluster
-	// supports SELinux or not.
-	return strings.EqualFold(clusterType, "openshift")
-}
-
 func (e *e2e) selinuxtOnlyTestCase() {
-	if !e.platformSupportsSelinux() {
+	if !e.selinuxEnabled {
 		e.T().Skip("Skipping SELinux-related test from non-OpenShift cluster")
 	}
 }
