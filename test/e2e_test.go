@@ -37,6 +37,7 @@ const (
 	// migrate to a single daemonset-based implementation for the
 	// SELinux pieces.
 	defaultSelinuxOpTimeout = "360s"
+	defaultWaitTimeout      = "60s"
 	defaultWaitTime         = 5 * time.Second
 )
 
