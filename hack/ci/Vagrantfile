@@ -27,7 +27,9 @@ Vagrant.configure("2") do |config|
         golang-go \
         iptables \
         make \
-        openssl
+        oci-seccomp-bpf-hook \
+        openssl \
+        podman
     SHELL
   end
 

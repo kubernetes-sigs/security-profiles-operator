@@ -73,6 +73,10 @@ type openShifte2e struct {
 	skipPushImages  bool
 }
 
+type vanilla struct {
+	e2e
+}
+
 // We're unable to use parallel tests because of our usage of testify/suite.
 // See https://github.com/stretchr/testify/issues/187
 //
@@ -121,6 +125,18 @@ func TestSuite(t *testing.T) {
 			skipBuildImages,
 			skipPushImages,
 		})
+	case strings.EqualFold(clusterType, "vanilla"):
+		if testImage == "" {
+			testImage = "localhost/" + config.OperatorName + ":latest"
+		}
+		suite.Run(t, &vanilla{
+			e2e{
+				logger:         klogr.New(),
+				pullPolicy:     "Never",
+				testImage:      testImage,
+				selinuxEnabled: selinuxEnabled,
+			},
+		})
 	default:
 		t.Fatalf("Unknown cluster type.")
 	}
@@ -132,11 +148,7 @@ func (e *kinde2e) SetupSuite() {
 	command.SetGlobalVerbose(true)
 	// Override execNode function
 	e.e2e.execNode = e.execNodeKind
-	cwd, err := os.Getwd()
-	e.Nil(err)
-
-	parentCwd := filepath.Dir(cwd)
-	e.Nil(os.Chdir(parentCwd))
+	parentCwd := e.setWorkDir()
 	buildDir := filepath.Join(parentCwd, "build")
 	e.Nil(os.MkdirAll(buildDir, 0o755))
 
@@ -155,6 +167,7 @@ func (e *kinde2e) SetupSuite() {
 	e.downloadAndVerify(fmt.Sprintf("https://github.com/kubernetes-sigs/kind/releases/download/%s/%s",
 		kindVersion, kindOS), e.kindPath, SHA512)
 
+	var err error
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.Nil(err)
 }
@@ -217,17 +230,12 @@ func (e *kinde2e) execNodeKind(node string, args ...string) string {
 }
 
 func (e *openShifte2e) SetupSuite() {
+	var err error
 	e.logf("Setting up suite")
 	command.SetGlobalVerbose(true)
 	// Override execNode function
 	e.e2e.execNode = e.execNodeOCP
-	cwd, err := os.Getwd()
-	e.Nil(err)
-
-	parentCwd := filepath.Dir(cwd)
-	e.Nil(os.Chdir(parentCwd))
-	buildDir := filepath.Join(parentCwd, "build")
-	e.Nil(os.MkdirAll(buildDir, 0o755))
+	e.setWorkDir()
 
 	e.kubectlPath, err = exec.LookPath("oc")
 	e.Nil(err)
@@ -307,6 +315,41 @@ func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
 		"chroot", "/host", "/bin/bash", "-c",
 		strings.Join(args, " "),
 	)
+}
+
+func (e *vanilla) SetupSuite() {
+	var err error
+	e.logf("Setting up suite")
+	e.setWorkDir()
+
+	e.e2e.execNode = e.execNodeVanilla
+	e.kubectlPath, err = exec.LookPath("kubectl")
+	e.Nil(err)
+}
+
+func (e *vanilla) SetupTest() {
+	// Build and load the test image
+	e.logf("Building operator container image")
+	e.run("make", "image", "IMAGE="+e.testImage)
+	e.run(
+		containerRuntime, "pull", "quay.io/jaosorior/selinuxd",
+	)
+}
+
+func (e *vanilla) TearDownTest() {
+}
+
+func (e *vanilla) execNodeVanilla(node string, args ...string) string {
+	return e.run(args[0], args[1:]...)
+}
+
+func (e *e2e) setWorkDir() string {
+	cwd, err := os.Getwd()
+	e.Nil(err)
+
+	parentCwd := filepath.Dir(cwd)
+	e.Nil(os.Chdir(parentCwd))
+	return parentCwd
 }
 
 func (e *e2e) run(cmd string, args ...string) string {
