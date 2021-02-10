@@ -15,4 +15,7 @@
 
 set -euo pipefail
 
-exec vagrant ssh -- sudo "bash -c 'cd /vagrant && . hack/ci/env.sh && $*'"
+export E2E_CLUSTER_TYPE=vanilla
+#export E2E_ENABLE_SELINUX=true
+
+make test-e2e
