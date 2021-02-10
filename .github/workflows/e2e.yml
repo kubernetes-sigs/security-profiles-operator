@@ -17,5 +17,6 @@ jobs:
           ln -sf hack/ci/Vagrantfile .
           vagrant up
       - name: Show environment information
-        run: |
-          $RUN kubectl get nodes -o wide
+        run: $RUN kubectl get nodes -o wide
+      - name: Deploy the operator
+        run: $RUN hack/ci/deploy-operator.sh
