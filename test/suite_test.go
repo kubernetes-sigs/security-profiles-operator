@@ -243,7 +243,7 @@ func (e *openShifte2e) SetupSuite() {
 	e.logf("Using deployed OpenShift cluster")
 
 	e.logf("Waiting for cluster to be ready")
-	e.kubectl("wait", "--for", "condition=ready", "nodes", "--all")
+	e.waitFor("condition=ready", "nodes", "--all")
 
 	if !e.skipPushImages {
 		e.logf("pushing SPO image to openshift registry")
@@ -392,6 +392,18 @@ func (e *e2e) kubectlFailure(args ...string) string {
 func (e *e2e) kubectlOperatorNS(args ...string) {
 	e.kubectl(
 		append([]string{"-n", config.OperatorName}, args...)...,
+	)
+}
+
+func (e *e2e) waitFor(args ...string) {
+	e.kubectl(
+		append([]string{"wait", "--timeout", defaultWaitTimeout, "--for"}, args...)...,
+	)
+}
+
+func (e *e2e) waitInOperatorNSFor(args ...string) {
+	e.kubectlOperatorNS(
+		append([]string{"wait", "--timeout", defaultWaitTimeout, "--for"}, args...)...,
 	)
 }
 

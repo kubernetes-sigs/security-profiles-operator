@@ -81,7 +81,7 @@ spec:
 	defer e.kubectl("delete", "pod", "hello")
 
 	e.logf("Waiting for test pod to be initialized")
-	e.kubectl("wait", "--for", "condition=initialized", "pod", "hello")
+	e.waitFor("condition=initialized", "pod", "hello")
 
 	output := e.kubectl("get", "pod", "hello")
 	for strings.Contains(output, "ContainerCreating") {
@@ -126,9 +126,9 @@ func (e *e2e) deployWebhook(manifest string) {
 	// Deploy prerequisites
 	e.logf("Deploying cert-manager")
 	e.kubectl("apply", "-f", certmanager)
-	e.kubectl(
+	e.waitFor(
+		"condition=ready",
 		"--namespace", "cert-manager",
-		"wait", "--for", "condition=ready",
 		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
 	)
 	e.run(
@@ -142,10 +142,8 @@ func (e *e2e) deployWebhook(manifest string) {
 	)
 	e.logf("Deploying webhook")
 	e.kubectl("create", "-f", manifest)
-	e.kubectlOperatorNS("wait", "--timeout", defaultWaitTimeout,
-		"--for", "condition=ready", "pod", "-l", "name=security-profiles-operator-webhook")
-	e.kubectlOperatorNS("wait", "--timeout", defaultWaitTimeout,
-		"--for", "condition=ready", "certificate", "webhook-cert")
+	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=security-profiles-operator-webhook")
+	e.waitInOperatorNSFor("condition=ready", "certificate", "webhook-cert")
 }
 
 func (e *e2e) cleanupWebhook(manifest string) {

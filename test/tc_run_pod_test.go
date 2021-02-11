@@ -38,7 +38,7 @@ func (e *e2e) testCaseRunPod([]string) {
 	defer e.kubectl("delete", "-f", examplePodPath)
 
 	e.logf("Waiting for test pod to be ready")
-	e.kubectl("wait", "--for", "condition=ready", "pod", "--all")
+	e.waitFor("condition=ready", "pod", "--all")
 
 	e.logf("Testing that `rmdir` is not possible inside the pod")
 	failureOutput := e.kubectlFailure(
