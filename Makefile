@@ -127,6 +127,17 @@ deployments: manifests ## Generate the deployment files with kustomize
 image: ## Build the container image
 	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) --build-arg version=$(VERSION) -t $(IMAGE) .
 
+.PHONY: image-arm64
+image-arm64: ## Build the container image for arm64
+	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) \
+		--build-arg version=$(VERSION) \
+		--build-arg target=nix/default-arm64.nix \
+		-t $(IMAGE) .
+
+.PHONY: image-cross
+image-cross: ## Build and push the container image manifest
+	hack/image-cross.sh
+
 .PHONY: nix
 nix: ## Build the binary via nix for the current system
 	nix-build nix
