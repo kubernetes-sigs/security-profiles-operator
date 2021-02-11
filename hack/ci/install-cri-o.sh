@@ -53,6 +53,14 @@ conmon_cgroup = "pod"
 cgroup_manager = "cgroupfs"
 EOT
 
+cat <<EOT >>/etc/crio/crio.conf.d/20-crun.conf
+[crio.runtime]
+default_runtime = "crun"
+
+[crio.runtime.runtimes.crun]
+runtime_path = "/usr/local/bin/crun"
+EOT
+
 chcon -R -u system_u -r object_r -t container_config_t \
     /etc/crio \
     /etc/crio/crio.conf \
