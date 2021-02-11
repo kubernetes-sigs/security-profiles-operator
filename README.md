@@ -6,7 +6,7 @@ seccomp and AppArmor profiles more easy and straight forward in Kubernetes.
 
 - [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
 - [Installation and Usage](installation-usage.md)
-- [Container Images](https://console.cloud.google.com/gcr/images/k8s-staging-security-profiles-operator/GLOBAL/security-profiles-operator)
+- [Container Images](https://console.cloud.google.com/gcr/images/k8s-staging-sp-operator/GLOBAL/security-profiles-operator)
 - [Release Process](./release.md)
 
 ## About
