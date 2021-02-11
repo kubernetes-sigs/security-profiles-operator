@@ -142,7 +142,7 @@ spec:
 		defer profileCleanup()
 		podCleanup := e.writeAndCreate(fmt.Sprintf(testCase.podManifest, namespace), "delete-pod*.yaml")
 		defer podCleanup()
-		e.kubectl("wait", "--for", "condition=ready", "pod", deletePodName)
+		e.waitFor("condition=ready", "pod", deletePodName)
 		e.logf("Ensuring profile cannot be deleted while pod is active")
 		e.kubectl("delete", "seccompprofile", deleteProfileName, "--wait=0")
 		output := e.kubectl("get", "seccompprofile", deleteProfileName)

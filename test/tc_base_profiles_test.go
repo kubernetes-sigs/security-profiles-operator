@@ -85,7 +85,7 @@ spec:
 	defer e.kubectl("delete", "pod", "hello")
 
 	e.logf("Waiting for test pod to be initialized")
-	e.kubectl("wait", "--for", "condition=initialized", "pod", "hello")
+	e.waitFor("condition=initialized", "pod", "hello")
 
 	output := e.kubectl("get", "pod", "hello")
 	for strings.Contains(output, "ContainerCreating") {

@@ -108,7 +108,7 @@ spec:
 	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage("errorlogger"))
 	e.writeAndCreate(podWithPolicy, "pod-w-policy.yml")
 
-	e.kubectl("wait", "--for", "condition=ready", "pod", "errorlogger")
+	e.waitFor("condition=ready", "pod", "errorlogger")
 
 	e.logf("the workload should be running")
 	podWithPolicyPhase := e.kubectl(

@@ -48,7 +48,7 @@ spec:
 	e.logf("creating workload")
 	e.writeAndCreate(podWithoutPolicy, "pod-wo-policy.yml")
 
-	e.kubectl("wait", "--for", "condition=ready", "pod", "el-no-policy")
+	e.waitFor("condition=ready", "pod", "el-no-policy")
 
 	e.logf("the workload should have errored")
 	expectedLog := "/bin/bash: /var/log/test.log: Permission denied"
