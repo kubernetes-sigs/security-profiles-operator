@@ -19,6 +19,10 @@ The feature scope of the security-profiles-operator is right now limited to:
 
 ### 1. Install operator
 
+The operator container image consists of an image manifest which supports the
+architectures `amd64` and `arm64` for now. To deploy the operator, just apply
+this manifest via `kubectl`:
+
 ```sh
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
 ```

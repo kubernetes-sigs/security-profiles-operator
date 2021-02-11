@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM golang:1.15.7-alpine AS build
+FROM docker.io/nixos/nix:2.3.6 AS build
 WORKDIR /work
-RUN apk --no-cache add build-base git gcc libseccomp-dev libseccomp-static
 
 COPY . /work
 
 FROM build as make
-RUN make
+ARG target=nix
+RUN nix-build $target
 
 FROM scratch
 ARG version
@@ -29,7 +29,7 @@ LABEL name="Security Profiles Operator" \
       description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=make /work/build/security-profiles-operator /
+COPY --from=make /work/result/security-profiles-operator /
 
 USER 65535:65535
 

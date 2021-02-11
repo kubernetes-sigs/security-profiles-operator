@@ -3,4 +3,4 @@ set -euo pipefail
 
 unset IMAGE
 
-make image
+make image image-arm64
