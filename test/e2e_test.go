@@ -159,12 +159,12 @@ func (e *e2e) deployOperator(manifest string) {
 	// Wait for the operator to be ready
 	e.logf("Waiting for operator to be ready")
 	// Wait for deployment
-	e.kubectlOperatorNS("wait", "--for", "condition=available", "deployment", "-l", "app=security-profiles-operator")
+	e.waitInOperatorNSFor("condition=available", "deployment", "-l", "app=security-profiles-operator")
 	// Wait for all pods in deployment
-	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "-l", "app=security-profiles-operator")
+	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=security-profiles-operator")
 	// Wait for all pods in DaemonSet
 	time.Sleep(defaultWaitTime)
-	e.kubectlOperatorNS("wait", "--for", "condition=ready", "pod", "-l", "app=spod")
+	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=spod")
 }
 
 func (e *e2e) cleanupOperator(manifest string) {
