@@ -24,9 +24,15 @@ import (
 )
 
 func (e *e2e) testCaseBaseProfile([]string) {
-	e.seccompOnlyTestCase()
-	const baseProfilePath = "examples/baseprofile-runc.yaml"
-	const helloProfile = `
+	baseProfilePath := "examples/baseprofile-runc.yaml"
+	baseProfileName := "runc-v1.0.0-rc92"
+
+	if clusterType == clusterTypeVanilla {
+		baseProfilePath = "examples/baseprofile-crun.yaml"
+		baseProfileName = "crun-v0.17"
+	}
+
+	helloProfile := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SeccompProfile
 metadata:
@@ -34,14 +40,15 @@ metadata:
 spec:
   defaultAction: SCMP_ACT_ERRNO
   targetWorkload: hello
-  baseProfileName: runc-v1.0.0-rc92
+  baseProfileName: %s
   syscalls:
   - action: SCMP_ACT_ALLOW
     names:
     - arch_prctl
     - set_tid_address
     - exit_group
-`
+`, baseProfileName)
+
 	const helloPod = `
 apiVersion: v1
 kind: Pod

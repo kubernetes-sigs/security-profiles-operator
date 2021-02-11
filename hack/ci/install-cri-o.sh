@@ -29,6 +29,13 @@ mv crio-* crio
 
 make -C crio
 
+# Use the latest crun release
+CRUN=0.17
+curl -sfL --retry 5 --retry-delay 3 --show-error \
+    https://github.com/containers/crun/releases/download/$CRUN/crun-$CRUN-linux-amd64 \
+    -o /usr/local/bin/crun
+chmod +x /usr/local/bin/crun
+
 chcon -u system_u -r object_r -t container_runtime_exec_t \
     /usr/local/bin/crio \
     /usr/local/bin/crio-status \

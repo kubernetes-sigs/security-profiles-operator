@@ -53,6 +53,12 @@ var (
 	containerRuntime              = os.Getenv("CONTAINER_RUNTIME")
 )
 
+const (
+	clusterTypeKind      = "kind"
+	clusterTypeVanilla   = "vanilla"
+	clusterTypeOpenShift = "openshift"
+)
+
 type e2e struct {
 	suite.Suite
 	kubectlPath        string
@@ -103,7 +109,7 @@ func TestSuite(t *testing.T) {
 		testProfileBinding = true
 	}
 	switch {
-	case clusterType == "" || strings.EqualFold(clusterType, "kind"):
+	case clusterType == "" || strings.EqualFold(clusterType, clusterTypeKind):
 		if testImage == "" {
 			testImage = config.OperatorName + ":latest"
 		}
@@ -118,7 +124,7 @@ func TestSuite(t *testing.T) {
 			},
 			"", "",
 		})
-	case strings.EqualFold(clusterType, "openshift"):
+	case strings.EqualFold(clusterType, clusterTypeOpenShift):
 		skipBuildImages, err := strconv.ParseBool(envSkipBuildImages)
 		if err != nil {
 			skipBuildImages = false
@@ -141,7 +147,7 @@ func TestSuite(t *testing.T) {
 			skipBuildImages,
 			skipPushImages,
 		})
-	case strings.EqualFold(clusterType, "vanilla"):
+	case strings.EqualFold(clusterType, clusterTypeVanilla):
 		if testImage == "" {
 			testImage = "localhost/" + config.OperatorName + ":latest"
 		}
