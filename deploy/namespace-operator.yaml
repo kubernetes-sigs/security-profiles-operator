@@ -310,12 +310,12 @@ metadata:
   namespace: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   labels:
     app: security-profiles-operator
   name: config-map-reader
-  namespace: NS_REPLACE
+  namespace: security-profiles-operator
 rules:
 - apiGroups:
   - ""
@@ -372,15 +372,14 @@ rules:
   - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   labels:
     app: security-profiles-operator
   name: config-map-reader-binding
-  namespace: NS_REPLACE
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
+  kind: ClusterRole
   name: config-map-reader
 subjects:
 - kind: ServiceAccount
