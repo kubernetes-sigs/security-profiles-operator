@@ -57,6 +57,7 @@ type e2e struct {
 	suite.Suite
 	kubectlPath        string
 	testImage          string
+	selinuxdImage      string
 	pullPolicy         string
 	selinuxEnabled     bool
 	testSeccomp        bool
@@ -102,6 +103,7 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		testProfileBinding = true
 	}
+	selinuxdImage := "quay.io/jaosorior/selinuxd"
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, "kind"):
 		if testImage == "" {
@@ -115,6 +117,7 @@ func TestSuite(t *testing.T) {
 				selinuxEnabled:     selinuxEnabled,
 				testSeccomp:        testSeccomp,
 				testProfileBinding: testProfileBinding,
+				selinuxdImage:      selinuxdImage,
 			},
 			"", "",
 		})
@@ -137,6 +140,7 @@ func TestSuite(t *testing.T) {
 				selinuxEnabled:     selinuxEnabled,
 				testSeccomp:        testSeccomp,
 				testProfileBinding: testProfileBinding,
+				selinuxdImage:      selinuxdImage,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -145,6 +149,7 @@ func TestSuite(t *testing.T) {
 		if testImage == "" {
 			testImage = "localhost/" + config.OperatorName + ":latest"
 		}
+		selinuxdImage = "quay.io/jaosorior/selinuxd-fedora"
 		suite.Run(t, &vanilla{
 			e2e{
 				logger:             klogr.New(),
@@ -153,6 +158,7 @@ func TestSuite(t *testing.T) {
 				selinuxEnabled:     selinuxEnabled,
 				testSeccomp:        testSeccomp,
 				testProfileBinding: testProfileBinding,
+				selinuxdImage:      selinuxdImage,
 			},
 		})
 	default:
@@ -219,7 +225,7 @@ func (e *kinde2e) SetupTest() {
 		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.testImage,
 	)
 	e.run(
-		"docker", "pull", "quay.io/jaosorior/selinuxd",
+		containerRuntime, "pull", e.selinuxdImage,
 	)
 	e.run(
 		e.kindPath, "load", "docker-image", "--name="+e.clusterName, "quay.io/jaosorior/selinuxd",
@@ -350,7 +356,7 @@ func (e *vanilla) SetupTest() {
 	e.logf("Building operator container image")
 	e.run("make", "image", "IMAGE="+e.testImage)
 	e.run(
-		containerRuntime, "pull", "quay.io/jaosorior/selinuxd",
+		containerRuntime, "pull", e.selinuxdImage,
 	)
 }
 

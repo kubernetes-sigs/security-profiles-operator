@@ -144,6 +144,10 @@ func (e *e2e) deployOperator(manifest string) {
 		"sed", "-i", fmt.Sprintf("s;value: .*gcr.io/.*;value: %s;g", e.testImage),
 		manifest,
 	)
+	e.run(
+		"sed", "-i", fmt.Sprintf("s;value: .*quay.io/.*/selinuxd.*;value: %s;g", e.selinuxdImage),
+		manifest,
+	)
 
 	if e.selinuxEnabled {
 		e.run(
