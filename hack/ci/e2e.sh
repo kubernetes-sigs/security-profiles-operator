@@ -16,7 +16,7 @@
 set -euo pipefail
 
 export E2E_CLUSTER_TYPE=vanilla
-#export E2E_TEST_SELINUX=true
+export E2E_TEST_SELINUX=true
 
 # These are already tested in the standard e2e test.
 # No need to test them here.

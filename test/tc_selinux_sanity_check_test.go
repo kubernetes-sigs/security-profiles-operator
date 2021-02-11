@@ -53,7 +53,7 @@ spec:
 	e.logf("the workload should have errored")
 	expectedLog := "/bin/bash: /var/log/test.log: Permission denied"
 	log := e.kubectl("logs", "el-no-policy", "-c", "errorlogger")
-	e.Equalf(log, expectedLog, "container should have returned a 'Permissions Denied' error")
+	e.Equalf(expectedLog, log, "container should have returned a 'Permissions Denied' error")
 
 	e.kubectl("delete", "pod", "el-no-policy")
 }
