@@ -25,7 +25,7 @@ import (
 
 func (e *e2e) testCaseBaseProfile([]string) {
 	e.seccompOnlyTestCase()
-	const baseProfilePath = "examples/baseprofile.yaml"
+	const baseProfilePath = "examples/baseprofile-runc.yaml"
 	const helloProfile = `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SeccompProfile

@@ -114,10 +114,11 @@ $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spe
 
 #### Base syscalls for a container runtime
 
-An example of the minimum required syscalls for a runtime such as runc (tested
-on version 1.0.0-rc92) to launch a container can be found in [the
-examples](./examples/baseprofile.yaml). You can use this example as a starting
-point for creating custom profiles for your application. You can also
+An example of the minimum required syscalls for a runtime such as
+[runc](https://github.com/opencontainers/runc) (tested on version 1.0.0-rc92) to
+launch a container can be found in [the
+examples](./examples/baseprofile-runc.yaml). You can use this example as a
+starting point for creating custom profiles for your application. You can also
 programmatically combine it with your custom profiles in order to build
 application-specific profiles that only specify syscalls that are required on
 top of the base calls needed for the container runtime. For example:
@@ -137,6 +138,11 @@ spec:
       names:
         - exit_group
 ```
+
+If you're not using runc but the alternative
+[crun](https://github.com/containers/crun), then you can do the same by using
+the [corresponding example profile](./examples/baseprofile-crun.yaml) (tested
+with version 0.17).
 
 #### Bind workloads to profiles with ProfileBindings
 
