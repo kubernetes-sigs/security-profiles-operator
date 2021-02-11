@@ -47,6 +47,11 @@ chcon -R -u system_u -r object_r -t var_lib_t /var/lib/kubelet
 
 mkdir -p /etc/crio/crio.conf.d
 
+cat <<EOT >>/etc/crio/crio.conf.d/30-selinux.conf
+[crio.runtime]
+selinux = true
+EOT
+
 cat <<EOT >>/etc/crio/crio.conf.d/30-cgroup-manager.conf
 [crio.runtime]
 conmon_cgroup = "pod"
