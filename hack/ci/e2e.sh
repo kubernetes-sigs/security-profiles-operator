@@ -16,6 +16,11 @@
 set -euo pipefail
 
 export E2E_CLUSTER_TYPE=vanilla
-#export E2E_ENABLE_SELINUX=true
+#export E2E_TEST_SELINUX=true
+
+# These are already tested in the standard e2e test.
+# No need to test them here.
+export E2E_TEST_SECCOMP=false
+export E2E_TEST_PROFILE_BINDING=false
 
 make test-e2e

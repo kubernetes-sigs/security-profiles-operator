@@ -19,6 +19,7 @@ package e2e_test
 import "fmt"
 
 func (e *e2e) testCaseRunPod([]string) {
+	e.seccompOnlyTestCase()
 	const (
 		examplePodPath = "examples/pod.yaml"
 		examplePodName = "test-pod"
