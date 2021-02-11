@@ -44,21 +44,25 @@ const (
 )
 
 var (
-	clusterType        = os.Getenv("E2E_CLUSTER_TYPE")
-	envSkipBuildImages = os.Getenv("E2E_SKIP_BUILD_IMAGES")
-	envTestImage       = os.Getenv("E2E_SPO_IMAGE")
-	envSelinuxEnabled  = os.Getenv("E2E_ENABLE_SELINUX")
-	containerRuntime   = os.Getenv("CONTAINER_RUNTIME")
+	clusterType                   = os.Getenv("E2E_CLUSTER_TYPE")
+	envSkipBuildImages            = os.Getenv("E2E_SKIP_BUILD_IMAGES")
+	envTestImage                  = os.Getenv("E2E_SPO_IMAGE")
+	envSelinuxTestsEnabled        = os.Getenv("E2E_TEST_SELINUX")
+	envSeccompTestsEnabled        = os.Getenv("E2E_TEST_SECCOMP")
+	envProfileBindingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_BINDING")
+	containerRuntime              = os.Getenv("CONTAINER_RUNTIME")
 )
 
 type e2e struct {
 	suite.Suite
-	kubectlPath    string
-	testImage      string
-	pullPolicy     string
-	selinuxEnabled bool
-	logger         logr.Logger
-	execNode       func(node string, args ...string) string
+	kubectlPath        string
+	testImage          string
+	pullPolicy         string
+	selinuxEnabled     bool
+	testSeccomp        bool
+	testProfileBinding bool
+	logger             logr.Logger
+	execNode           func(node string, args ...string) string
 }
 
 type kinde2e struct {
@@ -86,9 +90,17 @@ func TestSuite(t *testing.T) {
 	fmt.Printf("container-runtime: %s\n", containerRuntime)
 
 	testImage := envTestImage
-	selinuxEnabled, err := strconv.ParseBool(envSelinuxEnabled)
+	selinuxEnabled, err := strconv.ParseBool(envSelinuxTestsEnabled)
 	if err != nil {
 		selinuxEnabled = false
+	}
+	testSeccomp, err := strconv.ParseBool(envSeccompTestsEnabled)
+	if err != nil {
+		testSeccomp = true
+	}
+	testProfileBinding, err := strconv.ParseBool(envProfileBindingTestsEnabled)
+	if err != nil {
+		testProfileBinding = true
 	}
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, "kind"):
@@ -97,10 +109,12 @@ func TestSuite(t *testing.T) {
 		}
 		suite.Run(t, &kinde2e{
 			e2e{
-				logger:         klogr.New(),
-				pullPolicy:     "Never",
-				testImage:      testImage,
-				selinuxEnabled: selinuxEnabled,
+				logger:             klogr.New(),
+				pullPolicy:         "Never",
+				testImage:          testImage,
+				selinuxEnabled:     selinuxEnabled,
+				testSeccomp:        testSeccomp,
+				testProfileBinding: testProfileBinding,
 			},
 			"", "",
 		})
@@ -118,9 +132,11 @@ func TestSuite(t *testing.T) {
 				logger: klogr.New(),
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
-				pullPolicy:     "Always",
-				testImage:      testImage,
-				selinuxEnabled: selinuxEnabled,
+				pullPolicy:         "Always",
+				testImage:          testImage,
+				selinuxEnabled:     selinuxEnabled,
+				testSeccomp:        testSeccomp,
+				testProfileBinding: testProfileBinding,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -131,10 +147,12 @@ func TestSuite(t *testing.T) {
 		}
 		suite.Run(t, &vanilla{
 			e2e{
-				logger:         klogr.New(),
-				pullPolicy:     "Never",
-				testImage:      testImage,
-				selinuxEnabled: selinuxEnabled,
+				logger:             klogr.New(),
+				pullPolicy:         "Never",
+				testImage:          testImage,
+				selinuxEnabled:     selinuxEnabled,
+				testSeccomp:        testSeccomp,
+				testProfileBinding: testProfileBinding,
 			},
 		})
 	default:
@@ -413,6 +431,18 @@ func (e *e2e) logf(format string, a ...interface{}) {
 
 func (e *e2e) selinuxtOnlyTestCase() {
 	if !e.selinuxEnabled {
-		e.T().Skip("Skipping SELinux-related test from non-OpenShift cluster")
+		e.T().Skip("Skipping SELinux-related test")
+	}
+}
+
+func (e *e2e) seccompOnlyTestCase() {
+	if !e.testSeccomp {
+		e.T().Skip("Skipping Seccomp-related test")
+	}
+}
+
+func (e *e2e) profileBindingTestCase() {
+	if !e.testProfileBinding {
+		e.T().Skip("Skipping Profile-Binding-related test")
 	}
 }

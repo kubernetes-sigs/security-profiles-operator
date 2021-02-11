@@ -24,6 +24,7 @@ import (
 )
 
 func (e *e2e) testCaseDeleteProfiles(nodes []string) {
+	e.seccompOnlyTestCase()
 	const (
 		deleteProfile = `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
