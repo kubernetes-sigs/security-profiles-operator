@@ -44,13 +44,14 @@ const (
 )
 
 var (
-	clusterType                   = os.Getenv("E2E_CLUSTER_TYPE")
-	envSkipBuildImages            = os.Getenv("E2E_SKIP_BUILD_IMAGES")
-	envTestImage                  = os.Getenv("E2E_SPO_IMAGE")
-	envSelinuxTestsEnabled        = os.Getenv("E2E_TEST_SELINUX")
-	envSeccompTestsEnabled        = os.Getenv("E2E_TEST_SECCOMP")
-	envProfileBindingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_BINDING")
-	containerRuntime              = os.Getenv("CONTAINER_RUNTIME")
+	clusterType                     = os.Getenv("E2E_CLUSTER_TYPE")
+	envSkipBuildImages              = os.Getenv("E2E_SKIP_BUILD_IMAGES")
+	envTestImage                    = os.Getenv("E2E_SPO_IMAGE")
+	envSelinuxTestsEnabled          = os.Getenv("E2E_TEST_SELINUX")
+	envSeccompTestsEnabled          = os.Getenv("E2E_TEST_SECCOMP")
+	envProfileBindingTestsEnabled   = os.Getenv("E2E_TEST_PROFILE_BINDING")
+	envProfileRecordingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_RECORDING")
+	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
 )
 
 const (
@@ -61,15 +62,16 @@ const (
 
 type e2e struct {
 	suite.Suite
-	kubectlPath        string
-	testImage          string
-	selinuxdImage      string
-	pullPolicy         string
-	selinuxEnabled     bool
-	testSeccomp        bool
-	testProfileBinding bool
-	logger             logr.Logger
-	execNode           func(node string, args ...string) string
+	kubectlPath          string
+	testImage            string
+	selinuxdImage        string
+	pullPolicy           string
+	selinuxEnabled       bool
+	testSeccomp          bool
+	testProfileBinding   bool
+	testProfileRecording bool
+	logger               logr.Logger
+	execNode             func(node string, args ...string) string
 }
 
 type kinde2e struct {
@@ -109,6 +111,10 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		testProfileBinding = true
 	}
+	testProfileRecording, err := strconv.ParseBool(envProfileRecordingTestsEnabled)
+	if err != nil {
+		testProfileRecording = false
+	}
 	selinuxdImage := "quay.io/jaosorior/selinuxd"
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, clusterTypeKind):
@@ -117,13 +123,14 @@ func TestSuite(t *testing.T) {
 		}
 		suite.Run(t, &kinde2e{
 			e2e{
-				logger:             klogr.New(),
-				pullPolicy:         "Never",
-				testImage:          testImage,
-				selinuxEnabled:     selinuxEnabled,
-				testSeccomp:        testSeccomp,
-				testProfileBinding: testProfileBinding,
-				selinuxdImage:      selinuxdImage,
+				logger:               klogr.New(),
+				pullPolicy:           "Never",
+				testImage:            testImage,
+				selinuxEnabled:       selinuxEnabled,
+				testSeccomp:          testSeccomp,
+				testProfileBinding:   testProfileBinding,
+				testProfileRecording: testProfileRecording,
+				selinuxdImage:        selinuxdImage,
 			},
 			"", "",
 		})
@@ -141,12 +148,13 @@ func TestSuite(t *testing.T) {
 				logger: klogr.New(),
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
-				pullPolicy:         "Always",
-				testImage:          testImage,
-				selinuxEnabled:     selinuxEnabled,
-				testSeccomp:        testSeccomp,
-				testProfileBinding: testProfileBinding,
-				selinuxdImage:      selinuxdImage,
+				pullPolicy:           "Always",
+				testImage:            testImage,
+				selinuxEnabled:       selinuxEnabled,
+				testSeccomp:          testSeccomp,
+				testProfileBinding:   testProfileBinding,
+				testProfileRecording: testProfileRecording,
+				selinuxdImage:        selinuxdImage,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -158,13 +166,14 @@ func TestSuite(t *testing.T) {
 		selinuxdImage = "quay.io/jaosorior/selinuxd-fedora"
 		suite.Run(t, &vanilla{
 			e2e{
-				logger:             klogr.New(),
-				pullPolicy:         "Never",
-				testImage:          testImage,
-				selinuxEnabled:     selinuxEnabled,
-				testSeccomp:        testSeccomp,
-				testProfileBinding: testProfileBinding,
-				selinuxdImage:      selinuxdImage,
+				logger:               klogr.New(),
+				pullPolicy:           "Never",
+				testImage:            testImage,
+				selinuxEnabled:       selinuxEnabled,
+				testSeccomp:          testSeccomp,
+				testProfileBinding:   testProfileBinding,
+				testProfileRecording: testProfileRecording,
+				selinuxdImage:        selinuxdImage,
 			},
 		})
 	default:
@@ -451,5 +460,11 @@ func (e *e2e) seccompOnlyTestCase() {
 func (e *e2e) profileBindingTestCase() {
 	if !e.testProfileBinding {
 		e.T().Skip("Skipping Profile-Binding-related test")
+	}
+}
+
+func (e *e2e) profileRecordingTestCase() {
+	if !e.testProfileRecording {
+		e.T().Skip("Skipping Profile-Recording-related test")
 	}
 }

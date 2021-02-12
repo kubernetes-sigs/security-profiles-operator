@@ -31,6 +31,7 @@ const (
 	certmanager       = "https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml"
 	manifest          = "deploy/operator.yaml"
 	namespaceManifest = "deploy/namespace-operator.yaml"
+	webhookManifest   = "deploy/webhook.yaml"
 	testNamespace     = "test-ns"
 	defaultNamespace  = "default"
 	// NOTE(jaosorior): We should be able to decrease this once we
@@ -92,11 +93,22 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		})
 	}
 
+	if e.testProfileBinding || e.testProfileRecording {
+		e.deployWebhook(webhookManifest)
+		defer e.run("git", "checkout", webhookManifest)
+	}
+
 	// TODO(jaosorior): Re-introduce this to the namespaced tests once we
 	// fix the issue with the certs.
 	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
 		e.testCaseProfileBinding(nodes)
 	})
+
+	e.Run("cluster-wide: Seccomp: Verify profile recording", func() {
+		e.testCaseProfileRecording(nodes)
+	})
+
+	e.cleanupWebhook(webhookManifest)
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(manifest)
@@ -176,6 +188,36 @@ func (e *e2e) cleanupOperator(manifest string) {
 	e.logf("Cleaning up operator")
 	e.kubectl("delete", "seccompprofiles", "--all", "--all-namespaces")
 	e.kubectl("delete", "-f", manifest)
+}
+
+func (e *e2e) deployWebhook(manifest string) {
+	// Deploy prerequisites
+	e.logf("Deploying cert-manager")
+	e.kubectl("apply", "-f", certmanager)
+	e.waitFor(
+		"condition=ready",
+		"--namespace", "cert-manager",
+		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
+	)
+	e.run(
+		"sed", "-i", fmt.Sprintf("s;image: .*gcr.io/.*;image: %s;g", e.testImage),
+		manifest,
+	)
+	e.run(
+		"sed", "-i",
+		fmt.Sprintf("s;imagePullPolicy: Always;imagePullPolicy: %s;g", e.pullPolicy),
+		manifest,
+	)
+	e.logf("Deploying webhook")
+	e.kubectl("create", "-f", manifest)
+	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=security-profiles-operator-webhook")
+	e.waitInOperatorNSFor("condition=ready", "certificate", "webhook-cert")
+}
+
+func (e *e2e) cleanupWebhook(manifest string) {
+	e.logf("Cleaning up webhook")
+	e.kubectl("delete", "-f", manifest)
+	e.kubectl("delete", "-f", certmanager)
 }
 
 func (e *e2e) getWorkerNodes() []string {

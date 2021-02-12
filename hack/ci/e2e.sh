@@ -22,5 +22,6 @@ export E2E_TEST_SELINUX=true
 # No need to test them here.
 export E2E_TEST_SECCOMP=false
 export E2E_TEST_PROFILE_BINDING=false
+export E2E_TEST_PROFILE_RECORDING=true
 
 make test-e2e
