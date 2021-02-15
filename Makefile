@@ -105,7 +105,7 @@ $(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
 
 CONTROLLER_GEN := $(BUILD_DIR)/controller-gen
 $(CONTROLLER_GEN): ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
-	go build -o "$@" ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
+	$(GO) build -o "$@" ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
 
 .PHONY: clean
 clean: ## Clean the build directory
