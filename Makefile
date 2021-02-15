@@ -78,7 +78,7 @@ DOCKERFILE ?= Dockerfile
 
 # Utility targets
 
-all: $(BUILD_DIR)/$(PROJECT) ## Build the security-profiles-operator binary
+all: $(BUILD_DIR)/$(PROJECT) $(BUILD_DIR)/non-root-enabler ## Build the security-profiles-operator binaries
 
 .PHONY: help
 help:  ## Display this help
@@ -102,6 +102,9 @@ $(BUILD_DIR):
 
 $(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
 	$(GO) build -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/security-profiles-operator
+
+$(BUILD_DIR)/non-root-enabler: $(BUILD_DIR) $(BUILD_FILES)
+	$(GO) build -ldflags '-s -w -extldflags "-static"' -tags '$(BUILDTAGS)' -o $@ ./cmd/non-root-enabler
 
 CONTROLLER_GEN := $(BUILD_DIR)/controller-gen
 $(CONTROLLER_GEN): ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
@@ -132,7 +135,13 @@ deployments: $(BUILD_DIR)/kustomize manifests ## Generate the deployment files w
 
 .PHONY: image
 image: ## Build the container image
-	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) --build-arg version=$(VERSION) -t $(IMAGE) .
+	$(CONTAINER_RUNTIME) build -f Dockerfile.base -t $(PROJECT)-build .
+	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) \
+		--build-arg version=$(VERSION) \
+		-t $(IMAGE) .
+	$(CONTAINER_RUNTIME) build -f Dockerfile.non-root-enabler \
+		--build-arg version=$(VERSION) \
+		-t non-root-enabler .
 
 .PHONY: image-arm64
 image-arm64: ## Build the container image for arm64

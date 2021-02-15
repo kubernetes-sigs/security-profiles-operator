@@ -19,6 +19,6 @@ with pkgs; buildGoModule rec {
     make
   '';
   installPhase = ''
-    install -Dm755 -t $out build/security-profiles-operator
+    install -Dm755 -t $out build/*
   '';
 }

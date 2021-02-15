@@ -6,7 +6,7 @@ images:
   - name: security-profiles-operator
     newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
     newTag: latest
-    # For images to be released:
+    # For images to be released, use the `k8s.gcr.io` registry:
     # newName: k8s.gcr.io/security-profiles-operator/security-profiles-operator
     # newTag: v0.3.0
 
@@ -24,7 +24,9 @@ patchesStrategicMerge:
           - name: security-profiles-operator
             env:
               - name: RELATED_IMAGE_NON_ROOT_ENABLER
-                value: docker.io/bash:5.0
+                # For images to be released, use the `k8s.gcr.io` registry:
+                # value: k8s.gcr.io/security-profiles-operator/non-root-enabler:v0.3.0
+                value: gcr.io/k8s-staging-sp-operator/non-root-enabler:latest
               - name: RELATED_IMAGE_SELINUXD
                 value: quay.io/jaosorior/selinuxd
 

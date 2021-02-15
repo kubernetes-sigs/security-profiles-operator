@@ -231,6 +231,9 @@ func (e *kinde2e) SetupTest() {
 		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.testImage,
 	)
 	e.run(
+		e.kindPath, "load", "docker-image", "--name="+e.clusterName, "non-root-enabler",
+	)
+	e.run(
 		containerRuntime, "pull", e.selinuxdImage,
 	)
 	e.run(

@@ -1,4 +1,4 @@
-# Copyright 2020 The Kubernetes Authors.
+# Copyright 2021 The Kubernetes Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,13 +15,12 @@
 FROM scratch
 
 ARG version
-LABEL name="Security Profiles Operator" \
+LABEL name="Security Profiles Operator non root enabler" \
       version=$version \
-      description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
+      description="Helper image to allow running the operator as non root"
 
-COPY --from=security-profiles-operator-build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=security-profiles-operator-build /work/result/security-profiles-operator /
+COPY --from=security-profiles-operator-build /work/result/non-root-enabler /
 
-USER 65535:65535
+ENTRYPOINT ["/non-root-enabler"]
 
-ENTRYPOINT ["/security-profiles-operator"]
+# vim:set ft=dockerfile:
