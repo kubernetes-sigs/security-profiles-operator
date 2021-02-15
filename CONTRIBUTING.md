@@ -34,7 +34,6 @@ general k8s resources
 - [go](https://golang.org/dl/) version v1.15+.
 - [docker](https://docs.docker.com/install/) version 17.03+.
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) version v1.19+.
-- [kustomize](https://sigs.k8s.io/kustomize/docs/INSTALL.md) v3.1.0+
 - Access to a Kubernetes v1.19+ cluster.
 
 ## Contributing steps
