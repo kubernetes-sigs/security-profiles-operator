@@ -1,19 +1,27 @@
-name: macosbuild
-on: [push, pull_request]
+name: build
+on:
+  push:
+    branches:
+      - master
+  pull_request:
 jobs:
-  validate:
-    name: Validate 
+  macos:
     runs-on: macos-latest
-    # Pull requests from the same repository won't trigger this checks as they were already triggered by the push
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     steps:
-      - name: Clone the code
-        uses: actions/checkout@v2
-      - name: Setup Go
-        uses: actions/setup-go@v2
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
         with:
-          go-version: '^1.15'
-      - name: unit test
-        run: make test-unit
-      - name: verify
-        run: make verify-go-lint
+          go-version: '1.15'
+      - run: make test-unit
+      - run: make verify-go-lint
+
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v12
+      - uses: cachix/cachix-action@v8
+        with:
+          name: security-profiles-operator
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+      - run: make nix nix-arm64
