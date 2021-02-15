@@ -11,7 +11,7 @@ The first PR targets this repository and:
 - changes the `images` `newName`/`newTag` fields of
   [./deploy/base/kustomization.yaml](deploy/base/kustomization.yaml) from
   `gcr.io/k8s-staging-sp-operator/security-profiles-operator` to
-  `k8s.gcr.io/sp-operator/security-profiles-operator` (`newName`) and the
+  `k8s.gcr.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
   corresponding tag (`newTag`). After that the make target `make deployments`
   has to be run and the changes have to be committed.
 
