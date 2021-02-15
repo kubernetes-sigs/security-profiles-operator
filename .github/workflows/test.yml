@@ -1,28 +1,50 @@
-# Inlcuding the tests with ubuntu to get actual test coverage. The OSX builds skip seccomp tests.
-name: test-coverage
+name: test
 on:
   push:
     branches:
       - master
   pull_request:
 jobs:
-  validate:
-    name: Validate 
+  analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Setup Go
-        uses: actions/setup-go@v2
+      - uses: github/codeql-action/init@v1
+        with:
+          languages: go
+      - uses: github/codeql-action/autobuild@v1
+      - uses: github/codeql-action/analyze@v1
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
         with:
           go-version: '1.15'
       - name: Install libseccomp-dev
         run: |
           sudo apt update
           sudo apt install -y libseccomp-dev
-      - name: unit test
-        run: make test-unit
+      - run: make test-unit
       - uses: codecov/codecov-action@v1
         with:
           files: build/coverage.out
-          flags: unittests 
-          verbose: true 
+          flags: unittests
+          verbose: true
+
+  e2e:
+    runs-on: macos-10.15
+    timeout-minutes: 40
+    env:
+      RUN: ./hack/ci/run.sh
+    steps:
+      - uses: actions/checkout@v2
+      - name: Boot Virtual Machine
+        run: |
+          ln -sf hack/ci/Vagrantfile .
+          vagrant up
+      - name: Show environment information
+        run: $RUN kubectl get nodes -o wide
+      - name: Run E2E tests
+        run: $RUN hack/ci/e2e.sh
