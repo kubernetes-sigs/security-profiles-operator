@@ -159,7 +159,7 @@ func (r *RecorderReconciler) Reconcile(req reconcile.Request) (reconcile.Result,
 		}
 	}
 
-	if pod.Status.Phase == corev1.PodRunning {
+	if pod.Status.Phase == corev1.PodPending {
 		if r.podsToWatch[req.NamespacedName.String()] != "" {
 			// We're tracking this pod already
 			return reconcile.Result{}, nil
@@ -168,14 +168,16 @@ func (r *RecorderReconciler) Reconcile(req reconcile.Request) (reconcile.Result,
 		if err != nil {
 			// Malformed annotations could be set by users directly, which is
 			// why we are ignoring them.
-			logger.Info("Unable to parse annotation. Ignoring", "error", err)
+			logger.Info("Ignoring because unable to parse annotation", "error", err)
 			r.record.Event(pod, event.Warning(reasonAnnotationParsing, err))
 			return reconcile.Result{}, nil
 		}
 		if !strings.HasPrefix(outputFile, config.ProfileRecordingOutputPath) {
-			logger.Info("Ignoring Profile outside standard output path")
+			logger.Info("Ignoring profile outside standard output path")
+			return reconcile.Result{}, nil
 		}
 
+		logger.Info("Recording seccomp profile", "path", outputFile, "pod", pod.Name)
 		r.podsToWatch[req.NamespacedName.String()] = outputFile
 		r.record.Event(pod, event.Normal(reasonProfileRecording, "Recording seccomp profile"))
 	}
@@ -193,11 +195,11 @@ func (r *RecorderReconciler) collectProfile(ctx context.Context, name types.Name
 	profilePath := r.podsToWatch[name.String()]
 	if profilePath == "" {
 		// ignoring this error for now
-		r.log.Info("Cannot collect seccomp profile. Profile path empty")
 		return nil
 	}
 
-	r.log.Info("Collecting profile", "profile path", r.podsToWatch[name.String()])
+	r.log.Info("Collecting profile", "path", r.podsToWatch[name.String()])
+	defer delete(r.podsToWatch, name.String())
 	data, err := ioutil.ReadFile(profilePath)
 	if err != nil {
 		r.log.Error(err, "Failed to read profile")
@@ -227,9 +229,8 @@ func (r *RecorderReconciler) collectProfile(ctx context.Context, name types.Name
 		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
 		return errors.Wrap(err, "create seccompProfile resource")
 	}
-	r.log.Info("Create or Update", "result", res)
+	r.log.Info("Created/updated profile", "action", res, "name", profileName)
 	r.record.Event(profile, event.Normal(reasonProfileCreated, "seccomp profile created"))
-	delete(r.podsToWatch, name.String())
 	return nil
 }
 
