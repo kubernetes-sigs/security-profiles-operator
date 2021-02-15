@@ -18,6 +18,10 @@ WORKDIR /work
 COPY . /work
 
 FROM build as make
+
+RUN nix-env -iA cachix -f https://cachix.org/api/v1/install
+RUN cachix use security-profiles-operator
+
 ARG target=nix
 RUN nix-build $target
 
