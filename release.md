@@ -13,9 +13,7 @@ The first PR targets this repository and:
   `gcr.io/k8s-staging-sp-operator/security-profiles-operator` to
   `k8s.gcr.io/sp-operator/security-profiles-operator` (`newName`) and the
   corresponding tag (`newTag`). After that the make target `make deployments`
-  has to be run and the changes have to be committed. This requires
-  [kustomize](https://github.com/kubernetes-sigs/kustomize) to be available on
-  the host system.
+  has to be run and the changes have to be committed.
 
 After this PR has been merged, we have to watch out the successful build of the
 container image via the automatically triggered

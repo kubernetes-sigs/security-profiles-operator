@@ -5,9 +5,4 @@ set -euo pipefail
 apt-get update
 apt-get install -y libseccomp-dev python3
 
-# install kustomize
-pushd /usr/bin
-curl -s https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
-popd
-
 make verify
