@@ -117,11 +117,18 @@ go-mod: ## Cleanup and verify go modules
 		$(GO) mod tidy && \
 		$(GO) mod verify
 
+$(BUILD_DIR)/kustomize: $(BUILD_DIR)
+	export \
+		VERSION=4.0.1 \
+		URL=https://raw.githubusercontent.com/kubernetes-sigs/kustomize && \
+	curl -sfL $$URL/master/hack/install_kustomize.sh \
+		| bash -s $$VERSION $(PWD)/$(BUILD_DIR)
+
 .PHONY: deployments
-deployments: manifests ## Generate the deployment files with kustomize
-	kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
-	kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
-	kustomize build --reorder=none deploy/base/webhook -o deploy/webhook.yaml
+deployments: $(BUILD_DIR)/kustomize manifests ## Generate the deployment files with kustomize
+	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
+	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
+	$(BUILD_DIR)/kustomize build --reorder=none deploy/base/webhook -o deploy/webhook.yaml
 
 .PHONY: image
 image: ## Build the container image
@@ -237,12 +244,12 @@ push-openshift-dev: set-openshift-image-params openshift-user image
 		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) localhost/$(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
 
 .PHONY: do-deploy-openshift-dev
-do-deploy-openshift-dev:
+do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 	@echo "Deploying cert-manager"
 	oc apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
 	oc wait --for=condition=Ready pod -lapp.kubernetes.io/instance=cert-manager -ncert-manager
 	@echo "Building custom operator.yaml"
-	kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/operator.yaml
+	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/operator.yaml
 	@echo "Deploying"
 	oc apply -f deploy/operator.yaml
 	@echo "Setting triggers to track image"
