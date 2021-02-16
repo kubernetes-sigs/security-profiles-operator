@@ -149,6 +149,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	templateSpec.Containers = []corev1.Container{r.baseSPOd.Spec.Template.Spec.Containers[0]}
 	templateSpec.Containers[0].Image = image
 
+	// The non root enabler
+	templateSpec.InitContainers[0].Image = image
+	templateSpec.InitContainers[0].ImagePullPolicy = pullPolicy
+
 	enableSelinux, err := strconv.ParseBool(cfg.Data[config.SPOcEnableSelinux])
 	if err == nil && enableSelinux {
 		templateSpec.Containers = append(

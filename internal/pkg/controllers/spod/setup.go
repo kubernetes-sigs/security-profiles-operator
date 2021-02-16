@@ -37,10 +37,9 @@ const cmIsSPOdConfig = "security-profiles-operator/config"
 // DaemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type DaemonTunables struct {
-	NonRootEnablerImage string
-	SelinuxdImage       string
-	LogEnricherImage    string
-	WatchNamespace      string
+	SelinuxdImage    string
+	LogEnricherImage string
+	WatchNamespace   string
 }
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -77,8 +76,6 @@ func getEffectiveSPOd(dt *DaemonTunables) *appsv1.DaemonSet {
 	logEnricher := &refSPOd.Spec.Template.Spec.Containers[2]
 	logEnricher.Image = dt.LogEnricherImage
 
-	initcnt := &refSPOd.Spec.Template.Spec.InitContainers[0]
-	initcnt.Image = dt.NonRootEnablerImage
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.SelinuxdImage // selinuxd ships the policies as well
 	return refSPOd
