@@ -358,12 +358,7 @@ func (e *vanilla) SetupSuite() {
 }
 
 func (e *vanilla) SetupTest() {
-	// Build and load the test image
-	e.logf("Building operator container image")
-	e.run("make", "image", "IMAGE="+e.testImage)
-	e.run(
-		containerRuntime, "pull", e.selinuxdImage,
-	)
+	e.run(containerRuntime, "pull", e.selinuxdImage)
 }
 
 func (e *vanilla) TearDownTest() {

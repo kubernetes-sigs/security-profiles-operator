@@ -33,17 +33,31 @@ jobs:
           flags: unittests
           verbose: true
 
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: make image
+      - run: podman save -o image.tar security-profiles-operator
+      - uses: actions/upload-artifact@v2
+        with:
+          name: image
+          path: image.tar
+
   e2e:
+    needs: image
     runs-on: macos-10.15
     timeout-minutes: 40
     env:
       RUN: ./hack/ci/run.sh
     steps:
       - uses: actions/checkout@v2
+      - uses: actions/download-artifact@v2
+        with:
+          name: image
+          path: .
       - name: Boot Virtual Machine
-        run: |
-          ln -sf hack/ci/Vagrantfile .
-          vagrant up
+        run: make vagrant-up
       - name: Show environment information
         run: $RUN kubectl get nodes -o wide
       - name: Run E2E tests
