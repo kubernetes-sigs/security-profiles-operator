@@ -23,8 +23,6 @@ patchesStrategicMerge:
         containers:
           - name: security-profiles-operator
             env:
-              - name: RELATED_IMAGE_NON_ROOT_ENABLER
-                value: docker.io/bash:5.0
               - name: RELATED_IMAGE_SELINUXD
                 value: quay.io/jaosorior/selinuxd
 

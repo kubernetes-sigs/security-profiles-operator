@@ -29,14 +29,13 @@ var (
 	falsely                         = false
 	truly                           = true
 	userRoot                  int64 = 0
-	userRootless              int64 = 65535
+	userRootless                    = int64(config.UserRootless)
 	hostCharDev                     = v1.HostPathCharDev
 	hostPathDirectory               = v1.HostPathDirectory
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
 )
 
 const (
-	operatorRoot         = "/var/lib/security-profiles-operator"
 	SelinuxDropDirectory = "/etc/selinux.d"
 	SelinuxdSocketDir    = "/var/run/selinuxd"
 	SelinuxdSocketPath   = SelinuxdSocketDir + "/selinuxd.sock"
@@ -67,36 +66,16 @@ var Manifest = &appsv1.DaemonSet{
 				ServiceAccountName: config.OperatorName,
 				InitContainers: []v1.Container{
 					{
-						Name: "non-root-enabler",
-						// Creates directory /var/lib/security-profiles-operator,
-						// sets 65535:65535 as its owner and symlink it to
-						// /var/lib/kubelet/seccomp/operator. This is required
-						// to allow the main container to run as non-root.
-						Command: []string{"bash", "-c"},
-						Args: []string{`
-						set -euo pipefail
-
-						if [ ! -d ` + config.KubeletSeccompRootPath + ` ]; then
-							/bin/mkdir -m 0744 -p ` + config.KubeletSeccompRootPath + `
-						fi
-
-						/bin/mkdir -p ` + operatorRoot + `
-						/bin/chmod 0744 ` + operatorRoot + `
-
-						if [ ! -L ` + config.ProfilesRootPath + ` ]; then
-							/bin/ln -s ` + operatorRoot + ` ` + config.ProfilesRootPath + `
-						fi
-
-						/bin/chown -R 65535:65535 ` + operatorRoot + `
-						cp -f -v /opt/seccomp-profiles/* ` + config.KubeletSeccompRootPath + `
-					`},
+						Name:            "non-root-enabler",
+						Args:            []string{"non-root-enabler"},
+						ImagePullPolicy: v1.PullAlways,
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      "host-varlib-volume",
 								MountPath: "/var/lib",
 							},
 							{
-								Name:      "profile-configmap-volume",
+								Name:      "operator-seccomp-profile-volume",
 								MountPath: "/opt/seccomp-profiles",
 								ReadOnly:  true,
 							},
@@ -372,7 +351,7 @@ var Manifest = &appsv1.DaemonSet{
 						},
 					},
 					{
-						Name: "profile-configmap-volume",
+						Name: "operator-seccomp-profile-volume",
 						VolumeSource: v1.VolumeSource{
 							ConfigMap: &v1.ConfigMapVolumeSource{
 								LocalObjectReference: v1.LocalObjectReference{

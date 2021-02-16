@@ -34,13 +34,13 @@ func Test_getEffectiveSPOd(t *testing.T) {
 	}{
 		{
 			"Should correctly set the image",
-			DaemonTunables{"foo:bar", "bar:baz", "brot:wurst", "fuss:ball"},
+			DaemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
 			false,
 			false,
 		},
 		{
 			"Should correctly set the namespace",
-			DaemonTunables{"foo:bar", "bar:baz", "brot:wurst", "fuss:ball"},
+			DaemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
 			true,
 			false,
 		},
@@ -52,7 +52,6 @@ func Test_getEffectiveSPOd(t *testing.T) {
 			got := getEffectiveSPOd(&tt.dt)
 			require.Equal(t, tt.dt.SelinuxdImage, got.Spec.Template.Spec.Containers[1].Image)
 			require.Equal(t, tt.dt.LogEnricherImage, got.Spec.Template.Spec.Containers[2].Image)
-			require.Equal(t, tt.dt.NonRootEnablerImage, got.Spec.Template.Spec.InitContainers[0].Image)
 			var found bool
 			for _, env := range got.Spec.Template.Spec.Containers[0].Env {
 				if env.Name == config.RestrictNamespaceEnvKey {

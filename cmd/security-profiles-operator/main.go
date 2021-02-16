@@ -42,17 +42,17 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/selinuxpolicy"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/enricher"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording"
 )
 
 const (
-	jsonFlag               string = "json"
-	selinuxFlag            string = "with-selinux"
-	nonRootEnablerImageKey string = "RELATED_IMAGE_NON_ROOT_ENABLER"
-	selinuxdImageKey       string = "RELATED_IMAGE_SELINUXD"
-	defaultWebhookPort     int    = 9443
+	jsonFlag           string = "json"
+	selinuxFlag        string = "with-selinux"
+	selinuxdImageKey   string = "RELATED_IMAGE_SELINUXD"
+	defaultWebhookPort int    = 9443
 )
 
 var (
@@ -98,13 +98,13 @@ func main() {
 		&cli.Command{
 			Name:    "manager",
 			Aliases: []string{"m"},
-			Usage:   "run the security-profiles-operator manager",
+			Usage:   "run the manager",
 			Action:  runManager,
 		},
 		&cli.Command{
 			Name:    "daemon",
 			Aliases: []string{"d"},
-			Usage:   "run the security-profiles-operator daemon",
+			Usage:   "run the daemon",
 			Action:  runDaemon,
 			Flags: []cli.Flag{
 				&cli.BoolFlag{
@@ -117,7 +117,7 @@ func main() {
 		&cli.Command{
 			Name:    "webhook",
 			Aliases: []string{"w"},
-			Usage:   "run the security-profiles-operator webhook",
+			Usage:   "run the webhook",
 			Action:  runWebhook,
 			Flags: []cli.Flag{
 				&cli.IntFlag{
@@ -126,6 +126,13 @@ func main() {
 					Value:   defaultWebhookPort,
 					Usage:   "the port on which to expose the webhook service (default 9443)",
 				},
+			},
+		},
+		&cli.Command{
+			Name:  "non-root-enabler",
+			Usage: "run the non root enabler",
+			Action: func(*cli.Context) error {
+				return nonrootenabler.New().Run()
 			},
 		},
 		&cli.Command{
@@ -216,12 +223,6 @@ func runManager(ctx *cli.Context) error {
 
 func getTunables() (dt spod.DaemonTunables, err error) {
 	dt.WatchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
-
-	nonRootEnableImage := os.Getenv(nonRootEnablerImageKey)
-	if nonRootEnableImage == "" {
-		return dt, errors.New("invalid non-root enabler image")
-	}
-	dt.NonRootEnablerImage = nonRootEnableImage
 
 	selinuxdImage := os.Getenv(selinuxdImageKey)
 	if selinuxdImage == "" {
