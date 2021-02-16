@@ -111,12 +111,6 @@ $(CONTROLLER_GEN): ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
 clean: ## Clean the build directory
 	rm -rf $(BUILD_DIR)
 
-.PHONY: go-mod
-go-mod: ## Cleanup and verify go modules
-	export GO111MODULE=on && \
-		$(GO) mod tidy && \
-		$(GO) mod verify
-
 $(BUILD_DIR)/kustomize: $(BUILD_DIR)
 	export \
 		VERSION=4.0.1 \
@@ -158,6 +152,13 @@ update-nixpkgs: ## Update the pinned nixpkgs to the latest master
 	@nix run -f channel:nixpkgs-unstable nix-prefetch-git -c nix-prefetch-git \
 		--no-deepClone https://github.com/nixos/nixpkgs > nix/nixpkgs.json
 
+.PHONY: update-go-mod
+update-go-mod: ## Cleanup, vendor and verify go modules
+	export GO111MODULE=on && \
+		$(GO) mod tidy && \
+		$(GO) mod vendor && \
+		$(GO) mod verify
+
 # Verification targets
 
 .PHONY: verify
@@ -173,7 +174,7 @@ $(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
 	chmod +x $(BUILD_DIR)/verify_boilerplate.py
 
 .PHONY: verify-go-mod
-verify-go-mod: go-mod ## Verify the go modules
+verify-go-mod: update-go-mod ## Verify the go modules
 	hack/tree-status
 
 .PHONY: verify-deployments
