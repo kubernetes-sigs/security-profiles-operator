@@ -159,6 +159,16 @@ update-go-mod: ## Cleanup, vendor and verify go modules
 		$(GO) mod vendor && \
 		$(GO) mod verify
 
+.PHONY: update-mocks
+update-mocks: ## Update all generated mocks
+	go generate ./...
+	for f in $(shell find . -path ./vendor -prune -false -o -name fake_*.go); do \
+		cp hack/boilerplate/boilerplate.go.txt tmp ;\
+		sed -i.bak -e 's/YEAR/'$(shell date +"%Y")'/g' -- tmp && rm -- tmp.bak ;\
+		cat $$f >> tmp ;\
+		mv tmp $$f ;\
+	done
+
 # Verification targets
 
 .PHONY: verify

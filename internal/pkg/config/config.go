@@ -25,6 +25,12 @@ const (
 	// OperatorName is the name when referring to the operator.
 	OperatorName = "security-profiles-operator"
 
+	// OperatorRoot is the root directory of the operator.
+	OperatorRoot = "/var/lib/security-profiles-operator"
+
+	// UserRootless is the user which runs the operator.
+	UserRootless = 65535
+
 	// KubeletSeccompRootPath specifies the path where all kubelet seccomp
 	// profiles are stored.
 	KubeletSeccompRootPath = "/var/lib/kubelet/seccomp"
