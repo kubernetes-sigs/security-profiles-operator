@@ -169,6 +169,15 @@ update-mocks: ## Update all generated mocks
 		mv tmp $$f ;\
 	done
 
+.PHONY: vagrant-up
+vagrant-up: ## Boot the vagrant based test VM
+	if [ ! -f image.tar ]; then \
+		make image IMAGE=$(IMAGE) && \
+		$(CONTAINER_RUNTIME) save -o image.tar $(IMAGE); \
+	fi
+	ln -sf hack/ci/Vagrantfile .
+	vagrant up
+
 # Verification targets
 
 .PHONY: verify
