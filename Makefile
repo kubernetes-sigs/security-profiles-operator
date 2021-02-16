@@ -117,12 +117,15 @@ go-mod: ## Cleanup and verify go modules
 		$(GO) mod tidy && \
 		$(GO) mod verify
 
+.PHONY: $(BUILD_DIR)/kustomize
 $(BUILD_DIR)/kustomize: $(BUILD_DIR)
-	export \
-		VERSION=4.0.1 \
-		URL=https://raw.githubusercontent.com/kubernetes-sigs/kustomize && \
-	curl -sfL $$URL/master/hack/install_kustomize.sh \
-		| bash -s $$VERSION $(PWD)/$(BUILD_DIR)
+	if [ ! -f $(BUILD_DIR)/kustomize ]; then \
+		export \
+			VERSION=4.0.1 \
+			URL=https://raw.githubusercontent.com/kubernetes-sigs/kustomize && \
+		curl -sfL $$URL/master/hack/install_kustomize.sh \
+			| bash -s $$VERSION $(PWD)/$(BUILD_DIR); \
+	fi
 
 .PHONY: deployments
 deployments: $(BUILD_DIR)/kustomize manifests ## Generate the deployment files with kustomize
