@@ -21,10 +21,13 @@ import (
 	"os"
 )
 
-func (e *e2e) testCaseProfileRecording([]string) {
-	e.profileRecordingTestCase()
+const (
+	exampleRecordingPath = "examples/profilerecording.yaml"
+	recordingName        = "test-recording"
+)
 
-	const exampleRecordingPath = "examples/profilerecording.yaml"
+func (e *e2e) testCaseProfileRecordingStaticPod() {
+	e.profileRecordingTestCase()
 
 	e.logf("Creating recording")
 	e.kubectl("create", "-f", exampleRecordingPath)
@@ -58,6 +61,26 @@ spec:
 	e.waitFor("condition=ready", "pod", "recording")
 	e.kubectl("delete", "pod", "recording")
 
-	profile := e.kubectl("get", "sp", "test-recording", "-o", "yaml")
+	profile := e.kubectl("get", "sp", recordingName, "-o", "yaml")
+	defer e.kubectl("delete", "sp", recordingName)
 	e.Contains(profile, "mkdir")
+}
+
+func (e *e2e) testCaseProfileRecordingKubectlRun() {
+	e.profileRecordingTestCase()
+
+	e.logf("Creating recording")
+	e.kubectl("create", "-f", exampleRecordingPath)
+	defer e.kubectl("delete", "-f", exampleRecordingPath)
+
+	e.logf("Creating test pod")
+	e.kubectl(
+		"run", "--rm", "-it", "--restart=Never", "--labels=app=alpine",
+		"--image=registry.fedoraproject.org/fedora-minimal:latest",
+		"test", "--", "echo", "test",
+	)
+
+	profile := e.kubectl("get", "sp", recordingName, "-o", "yaml")
+	e.Contains(profile, "prctl")
+	e.NotContains(profile, "mkdir")
 }
