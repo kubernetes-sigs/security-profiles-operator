@@ -25,3 +25,22 @@ jobs:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       - run: make nix nix-arm64
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: redhat-actions/buildah-build@v2
+        id: build-image
+        with:
+          image: build
+          oci: true
+          dockerfiles: |
+            hack/build-image/Dockerfile
+      - if: github.ref == 'refs/heads/master'
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ steps.build-image.outputs.image }}
+          registry: quay.io/security-profiles-operator
+          username: security-profiles-operator+github
+          password: ${{ secrets.QUAY_TOKEN }}
