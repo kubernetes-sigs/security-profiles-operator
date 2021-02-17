@@ -105,7 +105,8 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	})
 
 	e.Run("cluster-wide: Seccomp: Verify profile recording", func() {
-		e.testCaseProfileRecording(nodes)
+		e.testCaseProfileRecordingStaticPod()
+		e.testCaseProfileRecordingKubectlRun()
 	})
 
 	e.cleanupWebhook(webhookManifest)
