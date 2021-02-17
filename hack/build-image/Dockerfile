@@ -36,9 +36,9 @@ ENV ENV=/etc/profile \
     NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     NIX_PATH=/nix/var/nix/profiles/per-user/root/channels
 
+RUN nix-env -iA cachix -f https://cachix.org/api/v1/install && \
+    cachix use security-profiles-operator
+
 RUN nix-collect-garbage --delete-old -d && \
     nix-store --optimise && \
     nix-store --verify --check-contents
-
-RUN nix-env -iA cachix -f https://cachix.org/api/v1/install && \
-    cachix use security-profiles-operator
