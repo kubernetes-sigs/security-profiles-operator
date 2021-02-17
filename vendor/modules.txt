@@ -149,8 +149,7 @@ golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
-# golang.org/x/time v0.0.0-20201208040808-7e3f01d25324
-## explicit
+# golang.org/x/time v0.0.0-20200630173020-3af7569d3a1e
 golang.org/x/time/rate
 # golang.org/x/tools v0.0.0-20201224043029-2b0845dc783e
 golang.org/x/tools/go/ast/astutil
@@ -404,8 +403,7 @@ k8s.io/kube-openapi/pkg/util/proto
 ## explicit
 k8s.io/release/pkg/command
 k8s.io/release/pkg/util
-# k8s.io/utils v0.0.0-20210111153108-fddb29f9d009
-## explicit
+# k8s.io/utils v0.0.0-20201110183641-67b214c5f920
 k8s.io/utils/buffer
 k8s.io/utils/integer
 k8s.io/utils/pointer
