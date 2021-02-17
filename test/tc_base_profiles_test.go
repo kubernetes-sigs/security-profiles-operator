@@ -56,7 +56,7 @@ metadata:
   name: hello
 spec:
   containers:
-  - image: hello-world:linux
+  - image: quay.io/security-profiles-operator/test-hello-world:latest
     name: hello
     resources: {}
   securityContext:

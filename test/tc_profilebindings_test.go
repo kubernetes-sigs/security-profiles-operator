@@ -35,7 +35,7 @@ spec:
   profileRef:
     kind: SeccompProfile
     name: profile-allow-unsafe
-  image: hello-world:linux
+  image: quay.io/security-profiles-operator/test-hello-world:latest
 `
 	const testPod = `
 apiVersion: v1
@@ -44,7 +44,7 @@ metadata:
   name: hello
 spec:
   containers:
-  - image: hello-world:linux
+  - image: quay.io/security-profiles-operator/test-hello-world:latest
     name: hello
     resources: {}
   restartPolicy: Never
