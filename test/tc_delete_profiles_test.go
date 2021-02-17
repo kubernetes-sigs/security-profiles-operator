@@ -72,7 +72,7 @@ metadata:
 spec:
   initContainers:
   - name: init-container
-    image: busybox:latest
+    image: registry.fedoraproject.org/fedora-minimal:latest
     securityContext:
       seccompProfile:
         type: Localhost
