@@ -31,7 +31,10 @@ commonLabels:
 
 resources:
   - crd.yaml
-  - rbac.yaml
+  - ns.yaml
+  - service_account.yaml
+  - role.yaml
+  - role_binding.yaml
   - operator.yaml
   - config.yaml
 

@@ -16,7 +16,9 @@ commonLabels:
 resources:
   - crd-binding.yaml
   - crd-recording.yaml
-  - rbac.yaml
+  - service_account.yaml
+  - role.yaml
+  - role_binding.yaml
   - deployment.yaml
   - config.yaml
   - certificate.yaml

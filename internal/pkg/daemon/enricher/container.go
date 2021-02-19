@@ -31,6 +31,11 @@ const (
 	crioPrefix = "cri-o://"
 )
 
+// NOTE(jaosorior): Should this actually be namespace-scoped?
+//
+// Cluster scoped
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;
+
 func getNodeContainers(nodeName string) (map[string]containerInfo, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {

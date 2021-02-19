@@ -25,6 +25,9 @@ const (
 	// OperatorName is the name when referring to the operator.
 	OperatorName = "security-profiles-operator"
 
+	// Service Account for the security-profiles-operator daemon.
+	SPOdServiceAccount = "spod"
+
 	// OperatorRoot is the root directory of the operator.
 	OperatorRoot = "/var/lib/security-profiles-operator"
 

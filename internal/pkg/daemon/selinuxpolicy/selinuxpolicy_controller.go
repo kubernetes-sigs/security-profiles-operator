@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
 // The underscore is not a valid character in a pod, so we can
@@ -83,6 +83,12 @@ type ReconcileSP struct {
 	policyTemplate *template.Template
 	record         event.Recorder
 }
+
+// Security Profiles Operator RBAC permissions to manage SelinuxPolicy
+// nolint:lll
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/finalizers,verbs=delete;get;update;patch
 
 // Reconcile reads that state of the cluster for a SelinuxPolicy object and makes changes based on the state read
 // and what is in the `SelinuxPolicy.Spec`.

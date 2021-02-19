@@ -1,0 +1,29 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spo-webhook
+  namespace: security-profiles-operator
+subjects:
+- kind: ServiceAccount
+  name: spo-webhook
+  namespace: security-profiles-operator
+roleRef:
+  kind: ClusterRole
+  name: spo-webhook
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-webhook
+  namespace: security-profiles-operator
+subjects:
+- kind: ServiceAccount
+  name: spo-webhook
+roleRef:
+  kind: Role
+  name: spo-webhook
+  apiGroup: rbac.authorization.k8s.io
