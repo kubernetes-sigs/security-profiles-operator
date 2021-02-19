@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
 // blank assignment to verify that ReconcileConfigMap implements `reconcile.Reconciler`.
@@ -51,6 +51,22 @@ type ReconcileSPOd struct {
 	log            logr.Logger
 	watchNamespace string
 }
+
+// Security Profiles Operator RBAC permissions to manage its own configuration
+// nolint:lll
+// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps;events,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=deployments,verbs=get;list;watch;
+
+// Needed for default profiles
+// nolint:lll
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
+
+// OpenShift ... This is ignored in other distros
+// nolint:lll
+// +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 
 // Reconcile reads that state of the cluster for a ConfigMap object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.

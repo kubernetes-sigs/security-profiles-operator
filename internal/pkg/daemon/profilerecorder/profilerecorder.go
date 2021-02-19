@@ -67,6 +67,8 @@ type RecorderReconciler struct {
 	podsToWatch   map[string]string
 }
 
+// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
+
 func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
 	const name = "profilerecorder"
 	c, err := client.New(mgr.GetConfig(), client.Options{})
