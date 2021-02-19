@@ -14,6 +14,8 @@
 
 GO ?= go
 
+CONTROLLER_GEN_CMD := $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
+
 PROJECT := security-profiles-operator
 BUILD_DIR := build
 
@@ -230,14 +232,17 @@ test-e2e: ## Run the end-to-end tests
 
 # Generate CRD manifests
 manifests: $(CONTROLLER_GEN)
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crd.yaml
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/selinuxpolicy/..." output:crd:stdout >> deploy/base/crd.yaml
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/profilebinding/..." output:crd:stdout > deploy/base/webhook/crd-binding.yaml
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen $(CRD_OPTIONS) paths="./api/profilerecording/..." output:crd:stdout > deploy/base/webhook/crd-recording.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crd.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/selinuxpolicy/..." output:crd:stdout >> deploy/base/crd.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/profilebinding/..." output:crd:stdout > deploy/base/webhook/crd-binding.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/profilerecording/..." output:crd:stdout > deploy/base/webhook/crd-recording.yaml
 
 # Generate deepcopy code
 generate:
-	$(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./..."
+	$(CONTROLLER_GEN_CMD) object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./..."
+	$(CONTROLLER_GEN_CMD) rbac:roleName=security-profiles-operator paths="./internal/pkg/manager/..." output:rbac:stdout > deploy/base/role.yaml
+	$(CONTROLLER_GEN_CMD) rbac:roleName=spod paths="./internal/pkg/daemon/..." output:rbac:stdout >> deploy/base/role.yaml
+	$(CONTROLLER_GEN_CMD) rbac:roleName=spo-webhook paths="./internal/pkg/webhooks/..." output:rbac:stdout > deploy/base/webhook/role.yaml
 
 ## OpenShift-only
 ## These targets are meant to make development in OpenShift easier.

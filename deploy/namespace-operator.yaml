@@ -309,162 +309,224 @@ metadata:
   name: security-profiles-operator
   namespace: security-profiles-operator
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+apiVersion: v1
+kind: ServiceAccount
 metadata:
   labels:
     app: security-profiles-operator
-  name: config-map-reader
+  name: spod
   namespace: security-profiles-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: security-profiles-operator
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  - pods
-  - nodes
-  verbs:
-  - get
-  - watch
-  - list
-- apiGroups:
-  - ""
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  - daemonsets
-  - replicasets
-  - statefulsets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - seccompprofiles
-  - selinuxpolicies
   verbs:
   - create
   - get
-  - watch
   - list
-  - update
   - patch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - seccompprofiles/status
-  - selinuxpolicies/status
-  verbs:
-  - get
   - update
-  - patch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: config-map-reader-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: config-map-reader
-subjects:
-- kind: ServiceAccount
-  name: security-profiles-operator
-  namespace: security-profiles-operator
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  creationTimestamp: null
   labels:
     app: security-profiles-operator
   name: security-profiles-operator
   namespace: security-profiles-operator
 rules:
 - apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - ""
   resources:
   - configmaps
-  - configmaps/finalizers
-  - endpoints
   - events
-  - persistentvolumeclaims
-  - pods
-  - secrets
-  - services
-  - services/finalizers
   verbs:
   - create
-  - delete
   - get
   - list
   - patch
   - update
   - watch
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  - daemonsets
-  - replicasets
-  - statefulsets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - apps
-  resourceNames:
-  - selinux-operator
-  resources:
-  - deployments/finalizers
-  verbs:
-  - update
 - apiGroups:
   - ""
   resources:
-  - pods
+  - configmaps/finalizers
   verbs:
+  - delete
   - get
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  - replicasets
-  verbs:
-  - get
+  - patch
+  - update
 - apiGroups:
   - security.openshift.io
-  resourceNames:
-  - privileged
   resources:
   - securitycontextconstraints
   verbs:
   - use
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: spod
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxpolicies
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxpolicies/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: spod
+  namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: security-profiles-operator
+subjects:
+- kind: ServiceAccount
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
     app: security-profiles-operator
-  name: selinux-operator
+  name: security-profiles-operator
   namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -475,34 +537,35 @@ subjects:
   name: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: security-profiles-operator-log-enricher
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - get
-  - list
----
-apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
     app: security-profiles-operator
-  name: security-profiles-operator-log-enricher
+  name: spod
+  namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: security-profiles-operator-log-enricher
+  name: spod
 subjects:
 - kind: ServiceAccount
-  name: security-profiles-operator
+  name: spod
   namespace: security-profiles-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spod
+  namespace: security-profiles-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spod
+subjects:
+- kind: ServiceAccount
+  name: spod
 ---
 apiVersion: apps/v1
 kind: Deployment

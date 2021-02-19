@@ -172,19 +172,36 @@ status:
   conditions: []
   storedVersions: []
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+apiVersion: v1
+kind: ServiceAccount
 metadata:
   labels:
     app: security-profiles-operator
-  name: profile-manager
+  name: spo-webhook
+  namespace: security-profiles-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: spo-webhook
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - profilebindings
-  - profilerecordings
   verbs:
+  - create
   - get
   - list
   - patch
@@ -193,7 +210,43 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - profilebindings/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
   - profilebindings/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilerecordings
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilerecordings/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
   - profilerecordings/status
   verbs:
   - get
@@ -209,52 +262,57 @@ rules:
   - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: profile-manager-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: profile-manager
-subjects:
-- kind: ServiceAccount
-  name: security-profiles-operator
-  namespace: security-profiles-operator
----
-apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  creationTimestamp: null
   labels:
     app: security-profiles-operator
-  name: leader-elector
+  name: spo-webhook
   namespace: security-profiles-operator
 rules:
 - apiGroups:
   - ""
   resources:
   - configmaps
+  - events
   verbs:
   - create
   - get
+  - list
+  - patch
   - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-webhook
+  namespace: security-profiles-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spo-webhook
+subjects:
+- kind: ServiceAccount
+  name: spo-webhook
+  namespace: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
     app: security-profiles-operator
-  name: leader-elector-binding
+  name: spo-webhook
   namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: leader-elector
+  name: spo-webhook
 subjects:
 - kind: ServiceAccount
-  name: security-profiles-operator
-  namespace: security-profiles-operator
+  name: spo-webhook
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -294,7 +352,7 @@ spec:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: cert
           readOnly: true
-      serviceAccountName: security-profiles-operator
+      serviceAccountName: spo-webhook
       tolerations:
       - effect: NoSchedule
         key: node-role.kubernetes.io/master

@@ -70,6 +70,18 @@ func newContainerMap(spec *corev1.PodSpec) containerMap {
 	return res
 }
 
+// Security Profiles Operator Webhook RBAC permissions
+// nolint:lll
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+
+// Leader election
+// nolint:lll
+// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps;events,verbs=get;list;watch;create;update;patch
+
 func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) admission.Response { //nolint:gocritic
 	profileBindings := &profilebindingv1alpha1.ProfileBindingList{}
 	err := p.client.List(ctx, profileBindings, client.InNamespace(req.Namespace))

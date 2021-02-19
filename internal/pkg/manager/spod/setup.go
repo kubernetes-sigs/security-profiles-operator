@@ -28,7 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/controllers/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
 // TODO(jaosorior): Use better method than a label constant.
