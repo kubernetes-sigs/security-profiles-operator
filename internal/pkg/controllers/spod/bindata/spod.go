@@ -37,8 +37,9 @@ var (
 
 const (
 	SelinuxDropDirectory = "/etc/selinux.d"
-	SelinuxdSocketDir    = "/var/run/selinuxd"
-	SelinuxdSocketPath   = SelinuxdSocketDir + "/selinuxd.sock"
+	SelinuxdPrivateDir   = "/var/run/selinuxd"
+	SelinuxdSocketPath   = SelinuxdPrivateDir + "/selinuxd.sock"
+	SelinuxdDBPath       = SelinuxdPrivateDir + "/selinuxd.db"
 	kmsgPath             = "/dev/kmsg"
 )
 
@@ -179,8 +180,8 @@ var Manifest = &appsv1.DaemonSet{
 								MountPath: SelinuxDropDirectory,
 							},
 							{
-								Name:      "selinuxd-socket-volume",
-								MountPath: SelinuxdSocketDir,
+								Name:      "selinuxd-private-volume",
+								MountPath: SelinuxdPrivateDir,
 							},
 							{
 								Name:      "profile-recording-output-volume",
@@ -228,6 +229,7 @@ var Manifest = &appsv1.DaemonSet{
 						Image: "quay.io/jaosorior/selinuxd",
 						Args: []string{
 							"daemon",
+							"--datastore-path", SelinuxdDbPath,
 							"--socket-path", SelinuxdSocketPath,
 							"--socket-uid", "0",
 							"--socket-gid", "65535",
@@ -239,8 +241,8 @@ var Manifest = &appsv1.DaemonSet{
 								MountPath: SelinuxDropDirectory,
 							},
 							{
-								Name:      "selinuxd-socket-volume",
-								MountPath: SelinuxdSocketDir,
+								Name:      "selinuxd-private-volume",
+								MountPath: SelinuxdPrivateDir,
 							},
 							{
 								Name:      "host-fsselinux-volume",
@@ -256,9 +258,7 @@ var Manifest = &appsv1.DaemonSet{
 							},
 						},
 						SecurityContext: &v1.SecurityContext{
-							// TODO(jhrozek): If we wanted RO fs, we would need to mount
-							// the selinuxd db elsewhere than /var/run/selinuxd.db
-							// ReadOnlyRootFilesystem:   &truly,
+							ReadOnlyRootFilesystem:   &truly,
 							RunAsUser:  &userRoot,
 							RunAsGroup: &userRoot,
 							SELinuxOptions: &v1.SELinuxOptions{
@@ -371,7 +371,7 @@ var Manifest = &appsv1.DaemonSet{
 						},
 					},
 					{
-						Name: "selinuxd-socket-volume",
+						Name: "selinuxd-private-volume",
 						VolumeSource: v1.VolumeSource{
 							EmptyDir: &v1.EmptyDirVolumeSource{},
 						},
