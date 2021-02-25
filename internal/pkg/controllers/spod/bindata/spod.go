@@ -229,7 +229,7 @@ var Manifest = &appsv1.DaemonSet{
 						Image: "quay.io/jaosorior/selinuxd",
 						Args: []string{
 							"daemon",
-							"--datastore-path", SelinuxdDbPath,
+							"--datastore-path", SelinuxdDBPath,
 							"--socket-path", SelinuxdSocketPath,
 							"--socket-uid", "0",
 							"--socket-gid", "65535",
@@ -258,9 +258,9 @@ var Manifest = &appsv1.DaemonSet{
 							},
 						},
 						SecurityContext: &v1.SecurityContext{
-							ReadOnlyRootFilesystem:   &truly,
-							RunAsUser:  &userRoot,
-							RunAsGroup: &userRoot,
+							ReadOnlyRootFilesystem: &truly,
+							RunAsUser:              &userRoot,
+							RunAsGroup:             &userRoot,
 							SELinuxOptions: &v1.SELinuxOptions{
 								// TODO(jaosorior): Use a more restricted selinux type
 								Type: "spc_t",
@@ -268,19 +268,18 @@ var Manifest = &appsv1.DaemonSet{
 							/* TODO(jhrozek) is this really needed? */
 							Privileged: &truly,
 						},
-						// selinuxd seems to be resource hungry, set later
-						// Resources: v1.ResourceRequirements{
-						//	Requests: v1.ResourceList{
-						//		v1.ResourceMemory:           resource.MustParse("128Mi"),
-						//		v1.ResourceCPU:              resource.MustParse("300m"),
-						//		v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
-						//	},
-						//	Limits: v1.ResourceList{
-						//		v1.ResourceMemory:           resource.MustParse("256Mi"),
-						//		v1.ResourceCPU:              resource.MustParse("600m"),
-						//		v1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
-						//	},
-						// },
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("512Mi"),
+								v1.ResourceCPU:              resource.MustParse("1000m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
+							},
+							Limits: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("1024Mi"),
+								v1.ResourceCPU:              resource.MustParse("2000m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
+							},
+						},
 					},
 					{
 						Name:            "log-enricher",
