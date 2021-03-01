@@ -239,6 +239,7 @@ var Manifest = &appsv1.DaemonSet{
 							{
 								Name:      "selinux-drop-dir",
 								MountPath: SelinuxDropDirectory,
+								ReadOnly:  true,
 							},
 							{
 								Name:      "selinuxd-private-volume",
