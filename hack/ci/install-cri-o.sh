@@ -17,24 +17,15 @@ set -euo pipefail
 
 cd "$(mktemp -d)"
 
-VERSION=v1.20.0
-URL=https://storage.googleapis.com/k8s-conform-cri-o/artifacts/crio-$VERSION.tar.gz
+VERSION=f47aeb6bf10cc62b4b5af2283fa507ddc5242191
+URL=https://storage.googleapis.com/k8s-conform-cri-o/artifacts/cri-o.amd64.$VERSION.tar.gz
 
 curl -sfL --retry 5 --retry-delay 3 --show-error \
     -o crio.tar.gz \
     $URL
 
 tar xfvz crio.tar.gz
-mv crio-* crio
-
-make -C crio
-
-# Use the latest crun release
-CRUN=0.17
-curl -sfL --retry 5 --retry-delay 3 --show-error \
-    https://github.com/containers/crun/releases/download/$CRUN/crun-$CRUN-linux-amd64 \
-    -o /usr/local/bin/crun
-chmod +x /usr/local/bin/crun
+make -C cri-o
 
 chcon -u system_u -r object_r -t container_runtime_exec_t \
     /usr/local/bin/crio \
@@ -68,9 +59,11 @@ EOT
 cat <<EOT >>/etc/crio/crio.conf.d/20-crun.conf
 [crio.runtime]
 default_runtime = "crun"
-
 [crio.runtime.runtimes.crun]
 runtime_path = "/usr/local/bin/crun"
+allowed_annotations = [
+    "io.containers.trace-syscall",
+]
 EOT
 
 chcon -R -u system_u -r object_r -t container_config_t \
