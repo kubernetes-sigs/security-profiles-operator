@@ -142,7 +142,7 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 	return p.Annotations[config.SeccompProfileRecordAnnotationKey] != ""
 }
 
-func (r *RecorderReconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) {
+func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("recorder", req.Name, "namespace", req.Namespace)
 
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)

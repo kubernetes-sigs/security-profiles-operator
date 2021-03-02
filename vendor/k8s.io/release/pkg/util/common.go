@@ -17,15 +17,14 @@ limitations under the License.
 package util
 
 import (
-	"archive/tar"
 	"bufio"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 
@@ -38,6 +37,13 @@ import (
 
 const (
 	TagPrefix = "v"
+)
+
+var (
+	regexpCRLF       *regexp.Regexp = regexp.MustCompile(`\015$`)
+	regexpCtrlChar   *regexp.Regexp = regexp.MustCompile(`\x1B[\[(]([0-9]{1,2}(;[0-9]{1,2})?)?[mKB]`)
+	regexpOauthToken *regexp.Regexp = regexp.MustCompile(`[a-f0-9]{40}:x-oauth-basic`)
+	regexpGitToken   *regexp.Regexp = regexp.MustCompile(`git:[a-f0-9]{35,40}@github.com`)
 )
 
 // UserInputError a custom error to handle more user input info
@@ -334,67 +340,6 @@ func Ask(question, expectedResponse string, retries int) (answer string, success
 	return answer, false, NewUserInputError("expected response was not input. Retries exceeded", false)
 }
 
-// FakeGOPATH creates a temp directory, links the base directory into it and
-// sets the GOPATH environment variable to it.
-func FakeGOPATH(srcDir string) (string, error) {
-	logrus.Debug("Linking repository into temp dir")
-	baseDir, err := ioutil.TempDir("", "ff-")
-	if err != nil {
-		return "", err
-	}
-
-	logrus.Infof("New working directory is %q", baseDir)
-
-	os.Setenv("GOPATH", baseDir)
-	logrus.Debugf("GOPATH: %s", os.Getenv("GOPATH"))
-
-	gitRoot := fmt.Sprintf("%s/src/k8s.io", baseDir)
-	if err := os.MkdirAll(gitRoot, os.FileMode(0755)); err != nil {
-		return "", err
-	}
-	gitRoot = filepath.Join(gitRoot, "kubernetes")
-
-	// link the repo into the working directory
-	logrus.Debugf("Creating symlink from %q to %q", srcDir, gitRoot)
-	if err := os.Symlink(srcDir, gitRoot); err != nil {
-		return "", err
-	}
-
-	logrus.Infof("Changing working directory to %s", gitRoot)
-	if err := os.Chdir(gitRoot); err != nil {
-		return "", err
-	}
-
-	return gitRoot, nil
-}
-
-// ReadFileFromGzippedTar opens a tarball and reads contents of a file inside.
-func ReadFileFromGzippedTar(tarPath, filePath string) (io.Reader, error) {
-	file, err := os.Open(tarPath)
-	if err != nil {
-		return nil, err
-	}
-
-	archive, err := gzip.NewReader(file)
-	if err != nil {
-		return nil, err
-	}
-	tr := tar.NewReader(archive)
-
-	for {
-		h, err := tr.Next()
-		if err == io.EOF {
-			break // End of archive
-		}
-
-		if h.Name == filePath {
-			return tr, nil
-		}
-	}
-
-	return nil, errors.New("unable to find file in tarball")
-}
-
 // MoreRecent determines if file at path a was modified more recently than file
 // at path b. If one file does not exist, the other will be treated as most
 // recent. If both files do not exist or an error occurs, an error is returned.
@@ -442,45 +387,58 @@ func SemverToTagString(tag semver.Version) string {
 
 // CopyFileLocal copies a local file from one local location to another.
 func CopyFileLocal(src, dst string, required bool) error {
+	logrus.Infof("Trying to copy file %s to %s (required: %v)", src, dst, required)
 	srcStat, err := os.Stat(src)
 	if err != nil && required {
-		return err
+		return errors.Wrapf(
+			err, "source %s is required but does not exist", src,
+		)
 	}
 	if os.IsNotExist(err) && !required {
+		logrus.Infof(
+			"File %s does not exist but is also not required",
+			filepath.Base(src),
+		)
 		return nil
 	}
 
 	if !srcStat.Mode().IsRegular() {
-		return errors.New("cannot copy non-regular file: IsRegular reports whether m describes a regular file. That is, it tests that no mode type bits are set")
+		return errors.New("cannot copy non-regular file: IsRegular reports " +
+			"whether m describes a regular file. That is, it tests that no " +
+			"mode type bits are set")
 	}
 
 	source, err := os.Open(src)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "open source file %s", src)
 	}
 	defer source.Close()
 
 	destination, err := os.Create(dst)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "create destination file %s", dst)
 	}
 	defer destination.Close()
-	_, err = io.Copy(destination, source)
-	return err
+	if _, err := io.Copy(destination, source); err != nil {
+		return errors.Wrapf(err, "copy source %s to destination %s", src, dst)
+	}
+	logrus.Infof("Copied %s", filepath.Base(dst))
+	return nil
 }
 
 // CopyDirContentsLocal copies local directory contents from one local location
 // to another.
 func CopyDirContentsLocal(src, dst string) error {
+	logrus.Infof("Trying to copy dir %s to %s", src, dst)
 	// If initial destination does not exist create it.
 	if _, err := os.Stat(dst); err != nil {
-		if err := os.MkdirAll(dst, os.FileMode(0755)); err != nil {
-			return errors.Wrapf(err, "Unable to create directory at path %s", dst)
+		if err := os.MkdirAll(dst, os.FileMode(0o755)); err != nil {
+			return errors.Wrapf(err, "create destination directory %s", dst)
 		}
 	}
 	files, err := ioutil.ReadDir(src)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "reading source dir %s", src)
 	}
 	for _, file := range files {
 		srcPath := filepath.Join(src, file.Name())
@@ -488,22 +446,22 @@ func CopyDirContentsLocal(src, dst string) error {
 
 		fileInfo, err := os.Stat(srcPath)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "stat source path %s", srcPath)
 		}
 
 		switch fileInfo.Mode() & os.ModeType {
 		case os.ModeDir:
 			if !Exists(dstPath) {
-				if err := os.MkdirAll(dstPath, os.FileMode(0755)); err != nil {
-					return err
+				if err := os.MkdirAll(dstPath, os.FileMode(0o755)); err != nil {
+					return errors.Wrapf(err, "creating destination dir %s", dstPath)
 				}
 			}
 			if err := CopyDirContentsLocal(srcPath, dstPath); err != nil {
-				return err
+				return errors.Wrapf(err, "copy %s to %s", srcPath, dstPath)
 			}
 		default:
 			if err := CopyFileLocal(srcPath, dstPath, false); err != nil {
-				return err
+				return errors.Wrapf(err, "copy %s to %s", srcPath, dstPath)
 			}
 		}
 	}
@@ -512,11 +470,13 @@ func CopyDirContentsLocal(src, dst string) error {
 
 // RemoveAndReplaceDir removes a directory and its contents then recreates it.
 func RemoveAndReplaceDir(path string) error {
+	logrus.Infof("Removing %s", path)
 	if err := os.RemoveAll(path); err != nil {
-		return err
+		return errors.Wrapf(err, "remove %s", path)
 	}
-	if err := os.MkdirAll(path, os.FileMode(0755)); err != nil {
-		return err
+	logrus.Infof("Creating %s", path)
+	if err := os.MkdirAll(path, os.FileMode(0o755)); err != nil {
+		return errors.Wrapf(err, "create %s", path)
 	}
 	return nil
 }
@@ -546,4 +506,65 @@ func WrapText(originalText string, lineSize int) (wrappedText string) {
 	}
 
 	return wrappedText
+}
+
+// StripControlCharacters takes a slice of bytes and removes control
+// characters and bare line feeds (ported from the original bash anago)
+func StripControlCharacters(logData []byte) []byte {
+	return regexpCRLF.ReplaceAllLiteral(
+		regexpCtrlChar.ReplaceAllLiteral(logData, []byte{}), []byte{},
+	)
+}
+
+// StripSensitiveData removes data deemed sensitive or non public
+// from a byte slice (ported from the original bash anago)
+func StripSensitiveData(logData []byte) []byte {
+	// Remove OAuth tokens
+	logData = regexpOauthToken.ReplaceAllLiteral(logData, []byte("__SANITIZED__:x-oauth-basic"))
+	// Remove GitHub tokens
+	logData = regexpGitToken.ReplaceAllLiteral(logData, []byte("//git:__SANITIZED__:@github.com"))
+	return logData
+}
+
+// CleanLogFile cleans control characters and sensitive data from a file
+func CleanLogFile(logPath string) (err error) {
+	logrus.Debugf("Sanitizing logfile %s", logPath)
+
+	// Open a tempfile to write sanitized log
+	tempFile, err := ioutil.TempFile(os.TempDir(), "temp-release-log-")
+	if err != nil {
+		return errors.Wrap(err, "creating temp file for sanitizing log")
+	}
+	defer func() {
+		err = tempFile.Close()
+		os.Remove(tempFile.Name())
+	}()
+
+	// Open the new logfile for reading
+	logFile, err := os.Open(logPath)
+	if err != nil {
+		return errors.Wrapf(err, "while opening %s ", logPath)
+	}
+	// Scan the log and pass it through the cleaning funcs
+	scanner := bufio.NewScanner(logFile)
+	for scanner.Scan() {
+		chunk := scanner.Bytes()
+		chunk = StripControlCharacters(
+			StripSensitiveData(chunk),
+		)
+		chunk = append(chunk, []byte{10}...)
+		_, err := tempFile.Write(chunk)
+		if err != nil {
+			return errors.Wrap(err, "while writing buffer to file")
+		}
+	}
+	if err := logFile.Close(); err != nil {
+		return errors.Wrap(err, "closing log file")
+	}
+
+	if err := CopyFileLocal(tempFile.Name(), logPath, true); err != nil {
+		return errors.Wrap(err, "writing clean logfile")
+	}
+
+	return err
 }

@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	admissionv1beta1 "k8s.io/api/admission/v1beta1"
+	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -83,7 +83,7 @@ func (p *podSeccompRecorder) Handle(
 	podID := req.Namespace + "/" + req.Name
 	pod := &corev1.Pod{}
 
-	if req.Operation != admissionv1beta1.Delete {
+	if req.Operation != admissionv1.Delete {
 		err := p.decoder.Decode(req, pod)
 		if err != nil {
 			log.Error(err, "Failed to decode pod")
@@ -112,7 +112,7 @@ func (p *podSeccompRecorder) Handle(
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
 
-		if req.Operation == admissionv1beta1.Delete {
+		if req.Operation == admissionv1.Delete {
 			if err := p.removePod(ctx, podID, &items[i]); err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
