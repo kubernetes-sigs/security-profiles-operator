@@ -121,7 +121,7 @@ func NewAPIPatchingApplicator(c client.Client) *APIPatchingApplicator {
 // Apply changes to the supplied object. The object will be created if it does
 // not exist, or patched if it does. If the object does it exist it will always
 // be patched, regardless of resource version.
-func (a *APIPatchingApplicator) Apply(ctx context.Context, o runtime.Object, ao ...ApplyOption) error {
+func (a *APIPatchingApplicator) Apply(ctx context.Context, o client.Object, ao ...ApplyOption) error {
 	m, ok := o.(metav1.Object)
 	if !ok {
 		return errors.New("cannot access object metadata")
@@ -171,7 +171,7 @@ func NewAPIUpdatingApplicator(c client.Client) *APIUpdatingApplicator {
 
 // Apply changes to the supplied object. The object will be created if it does
 // not exist, or updated if it does.
-func (a *APIUpdatingApplicator) Apply(ctx context.Context, o runtime.Object, ao ...ApplyOption) error {
+func (a *APIUpdatingApplicator) Apply(ctx context.Context, o client.Object, ao ...ApplyOption) error {
 	m, ok := o.(Object)
 	if !ok {
 		return errors.New("cannot access object metadata")
@@ -181,7 +181,7 @@ func (a *APIUpdatingApplicator) Apply(ctx context.Context, o runtime.Object, ao 
 		return errors.Wrap(a.client.Create(ctx, o), "cannot create object")
 	}
 
-	current := o.DeepCopyObject()
+	current := o.DeepCopyObject().(client.Object)
 
 	err := a.client.Get(ctx, types.NamespacedName{Name: m.GetName(), Namespace: m.GetNamespace()}, current)
 	if kerrors.IsNotFound(err) {
