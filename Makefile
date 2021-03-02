@@ -105,10 +105,6 @@ $(BUILD_DIR):
 $(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
 	$(GO) build -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/security-profiles-operator
 
-CONTROLLER_GEN := $(BUILD_DIR)/controller-gen
-$(CONTROLLER_GEN): ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
-	$(GO) build -o "$@" ./vendor/sigs.k8s.io/controller-tools/cmd/controller-gen
-
 .PHONY: clean
 clean: ## Clean the build directory
 	rm -rf $(BUILD_DIR)
@@ -121,7 +117,7 @@ $(BUILD_DIR)/kustomize: $(BUILD_DIR)
 		| bash -s $$VERSION $(PWD)/$(BUILD_DIR)
 
 .PHONY: deployments
-deployments: $(BUILD_DIR)/kustomize manifests ## Generate the deployment files with kustomize
+deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deployment files with kustomize
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/base/webhook -o deploy/webhook.yaml
@@ -231,7 +227,7 @@ test-e2e: ## Run the end-to-end tests
 	$(GO) test -parallel 1 -timeout 80m -count=1 ./test/... -v
 
 # Generate CRD manifests
-manifests: $(CONTROLLER_GEN)
+manifests:
 	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crd.yaml
 	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/selinuxpolicy/..." output:crd:stdout >> deploy/base/crd.yaml
 	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/profilebinding/..." output:crd:stdout > deploy/base/webhook/crd-binding.yaml
