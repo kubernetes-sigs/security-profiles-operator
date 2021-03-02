@@ -17,6 +17,7 @@ limitations under the License.
 package seccompprofile
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"path"
@@ -111,7 +112,7 @@ func TestReconcile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotResult, gotErr := tc.rec.Reconcile(tc.req)
+			gotResult, gotErr := tc.rec.Reconcile(context.Background(), tc.req)
 			if tc.wantErr != nil {
 				require.EqualError(t, gotErr, tc.wantErr.Error())
 			}

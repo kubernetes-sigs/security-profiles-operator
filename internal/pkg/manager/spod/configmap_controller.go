@@ -59,6 +59,7 @@ type ReconcileSPOd struct {
 // +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=deployments,verbs=get;list;watch;
+// +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update;
 
 // Needed for default profiles
 // nolint:lll
@@ -70,7 +71,7 @@ type ReconcileSPOd struct {
 
 // Reconcile reads that state of the cluster for a ConfigMap object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
-func (r *ReconcileSPOd) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+func (r *ReconcileSPOd) Reconcile(_ context.Context, request reconcile.Request) (reconcile.Result, error) {
 	ctx := context.Background()
 	// Fetch the ConfigMap instance
 	cminstance := &corev1.ConfigMap{}

@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 )
@@ -154,7 +155,7 @@ type Managed interface {
 
 // A ManagedList is a list of managed resources.
 type ManagedList interface {
-	runtime.Object
+	client.ObjectList
 
 	// GetItems returns the list of managed resources.
 	GetItems() []Managed
@@ -178,7 +179,7 @@ type ProviderConfigUsage interface {
 
 // A ProviderConfigUsageList is a list of provider config usages.
 type ProviderConfigUsageList interface {
-	runtime.Object
+	client.ObjectList
 
 	// GetItems returns the list of provider config usages.
 	GetItems() []ProviderConfigUsage

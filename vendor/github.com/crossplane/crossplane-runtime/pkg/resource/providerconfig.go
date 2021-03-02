@@ -18,10 +18,14 @@ package resource
 
 import (
 	"context"
+	"os"
 
 	"github.com/pkg/errors"
+	"github.com/spf13/afero"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
@@ -29,8 +33,13 @@ import (
 )
 
 const (
-	errMissingPCRef = "managed resource does not reference a ProviderConfig"
-	errApplyPCU     = "cannot apply ProviderConfigUsage"
+	errExtractEnv            = "cannot extract from environment variable when none specified"
+	errExtractFs             = "cannot extract from filesystem when no path specified"
+	errExtractSecretKey      = "cannot extract from secret key when none specified"
+	errGetCredentialsSecret  = "cannot get credentials secret"
+	errNoHandlerForSourceFmt = "no extraction handler registered for source: %s"
+	errMissingPCRef          = "managed resource does not reference a ProviderConfig"
+	errApplyPCU              = "cannot apply ProviderConfigUsage"
 )
 
 type errMissingRef struct{ error }
@@ -44,6 +53,52 @@ func IsMissingReference(err error) bool {
 		MissingReference() bool
 	})
 	return ok
+}
+
+// EnvLookupFn looks up an environment variable.
+type EnvLookupFn func(string) string
+
+// ExtractEnv extracts credentials from an environment variable.
+func ExtractEnv(ctx context.Context, e EnvLookupFn, s xpv1.CommonCredentialSelectors) ([]byte, error) {
+	if s.Env == nil {
+		return nil, errors.New(errExtractEnv)
+	}
+	return []byte(e(s.Env.Name)), nil
+}
+
+// ExtractFs extracts credentials from the filesystem.
+func ExtractFs(ctx context.Context, fs afero.Fs, s xpv1.CommonCredentialSelectors) ([]byte, error) {
+	if s.Fs == nil {
+		return nil, errors.New(errExtractFs)
+	}
+	return afero.ReadFile(fs, s.Fs.Path)
+}
+
+// ExtractSecret extracts credentials from a Kubernetes secret.
+func ExtractSecret(ctx context.Context, client client.Client, s xpv1.CommonCredentialSelectors) ([]byte, error) {
+	if s.SecretRef == nil {
+		return nil, errors.New(errExtractSecretKey)
+	}
+	secret := &corev1.Secret{}
+	if err := client.Get(ctx, types.NamespacedName{Namespace: s.SecretRef.Namespace, Name: s.SecretRef.Name}, secret); err != nil {
+		return nil, errors.Wrap(err, errGetCredentialsSecret)
+	}
+	return secret.Data[s.SecretRef.Key], nil
+}
+
+// CommonCredentialExtractor extracts credentials from common sources.
+func CommonCredentialExtractor(ctx context.Context, source xpv1.CredentialsSource, client client.Client, selector xpv1.CommonCredentialSelectors) ([]byte, error) {
+	switch source { // nolint:exhaustive
+	case xpv1.CredentialsSourceEnvironment:
+		return ExtractEnv(ctx, os.Getenv, selector)
+	case xpv1.CredentialsSourceFilesystem:
+		return ExtractFs(ctx, afero.NewOsFs(), selector)
+	case xpv1.CredentialsSourceSecret:
+		return ExtractSecret(ctx, client, selector)
+	case xpv1.CredentialsSourceNone:
+		return nil, nil
+	}
+	return nil, errors.Errorf(errNoHandlerForSourceFmt, source)
 }
 
 // A Tracker tracks managed resources.

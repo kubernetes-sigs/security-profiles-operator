@@ -92,7 +92,7 @@ type ReconcileSP struct {
 
 // Reconcile reads that state of the cluster for a SelinuxPolicy object and makes changes based on the state read
 // and what is in the `SelinuxPolicy.Spec`.
-func (r *ReconcileSP) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling SelinuxPolicy")
 
