@@ -89,7 +89,7 @@ func hasSeccompProfile(obj runtime.Object) bool {
 // Setup adds a controller that reconciles seccomp profiles.
 func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
 	// Index Pods using seccomp profiles
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, spOwnerKey, func(rawObj runtime.Object) []string {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, spOwnerKey, func(rawObj client.Object) []string {
 		pod, ok := rawObj.(*corev1.Pod)
 		if !ok {
 			return []string{}
@@ -101,7 +101,7 @@ func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
 
 	// Index SeccompProfiles with active pods
 	if err := mgr.GetFieldIndexer().IndexField(
-		ctx, &v1alpha1.SeccompProfile{}, linkedPodsKey, func(rawObj runtime.Object) []string {
+		ctx, &v1alpha1.SeccompProfile{}, linkedPodsKey, func(rawObj client.Object) []string {
 			sp, ok := rawObj.(*v1alpha1.SeccompProfile)
 			if !ok {
 				return []string{}
@@ -165,7 +165,7 @@ type PodReconciler struct {
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 
 // Reconcile reconciles a SeccompProfile.
-func (r *Reconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) {
+func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
@@ -363,7 +363,7 @@ func (r *Reconciler) setStatus(
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile reacts to pod events and updates SeccompProfiles if in use or no longer in use by a pod.
-func (r *PodReconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) {
+func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("pod", req.Name, "namespace", req.Namespace)
 
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
