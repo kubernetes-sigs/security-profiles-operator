@@ -20,19 +20,15 @@ import (
 	"context"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
-
-// TODO(jaosorior): Use better method than a label constant.
-const cmIsSPOdConfig = "security-profiles-operator/config"
 
 // DaemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
@@ -46,8 +42,7 @@ type DaemonTunables struct {
 func Setup(ctx context.Context, mgr ctrl.Manager, dt *DaemonTunables, l logr.Logger) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("spod-config").
-		For(&corev1.ConfigMap{}).
-		WithEventFilter(resource.NewPredicates(isSPOdConfig)).
+		For(&spodv1alpha1.SecurityProfilesOperatorDaemon{}).
 		Owns(&appsv1.DaemonSet{}).
 		Complete(&ReconcileSPOd{
 			baseSPOd:       getEffectiveSPOd(dt),
@@ -79,24 +74,4 @@ func getEffectiveSPOd(dt *DaemonTunables) *appsv1.DaemonSet {
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.SelinuxdImage // selinuxd ships the policies as well
 	return refSPOd
-}
-
-func isSPOdConfig(obj runtime.Object) bool {
-	cm, ok := obj.(*corev1.ConfigMap)
-	if !ok {
-		return false
-	}
-	// we only care about this namespace
-	if cm.GetNamespace() != config.GetOperatorNamespace() {
-		return false
-	}
-	if cm.GetName() != "config" {
-		return false
-	}
-	labels := cm.GetLabels()
-	if labels == nil {
-		return false
-	}
-	_, ok = labels[cmIsSPOdConfig]
-	return ok
 }
