@@ -34,6 +34,7 @@ import (
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder"
@@ -191,6 +192,9 @@ func runManager(ctx *cli.Context) error {
 		return errors.Wrap(err, "create cluster manager")
 	}
 
+	if err := spodv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add profilebinding API to scheme")
+	}
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add profilebinding API to scheme")
 	}

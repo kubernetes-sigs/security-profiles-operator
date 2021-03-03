@@ -164,7 +164,7 @@ func (e *e2e) deployOperator(manifest string) {
 
 	if e.selinuxEnabled {
 		e.run(
-			"sed", "-i", "s/EnableSelinux: \"false\"/EnableSelinux: \"true\"/",
+			"sed", "-i", "s/enableSelinux: false/enableSelinux: true/",
 			manifest,
 		)
 	}
