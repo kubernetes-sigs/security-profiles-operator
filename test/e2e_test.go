@@ -188,7 +188,7 @@ func (e *e2e) cleanupOperator(manifest string) {
 	// Clean up the operator
 	e.logf("Cleaning up operator")
 	e.kubectl("delete", "seccompprofiles", "--all", "--all-namespaces")
-	e.kubectl("delete", "-f", manifest)
+	e.kubectl("delete", "--ignore-not-found", "-f", manifest)
 }
 
 func (e *e2e) deployWebhook(manifest string) {
@@ -217,8 +217,8 @@ func (e *e2e) deployWebhook(manifest string) {
 
 func (e *e2e) cleanupWebhook(manifest string) {
 	e.logf("Cleaning up webhook")
-	e.kubectl("delete", "-f", manifest)
-	e.kubectl("delete", "-f", certmanager)
+	e.kubectl("delete", "--ignore-not-found", "-f", manifest)
+	e.kubectl("delete", "--ignore-not-found", "-f", certmanager)
 }
 
 func (e *e2e) getWorkerNodes() []string {
