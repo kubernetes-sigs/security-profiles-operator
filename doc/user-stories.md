@@ -30,6 +30,16 @@ in a certain profile. E.g. for SELinux a missing parenthesis or something of the
 sort… This is considered for SELinux in
 [an issue](https://github.com/kubernetes-sigs/security-profiles-operator/issues/223)
 
+### As an application developer, Ming would like to be able to automatically generate initial security profiles that are specific to the application.
+
+Details:
+
+* For improved profiles, users could define a process to be triggered during the profiling process (i.e. execution of E2E tests).
+* Avoid potential knowledge short falls by priming essential requirements 
+(e.g. blocked essential syscalls may cause 
+[issues](https://github.com/kubernetes/kubernetes/issues/85191) in seccomp)
+* The initial profile will need to be "manually" refined over time.
+
 ### As an application SRE, Rajesh needs to be able to see the state of the installed profile(s) and verify that it has indeed been installed on the system.
 
 ### As an application SRE, Rajesh needs to be able to do long runs of a security profile in “complain-mode” to easily identify the impact of a profile being enforced without impacting the application.
