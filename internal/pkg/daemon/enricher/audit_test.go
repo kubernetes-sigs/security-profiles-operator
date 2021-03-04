@@ -30,9 +30,15 @@ func Test_isAuditLine(t *testing.T) {
 		want    bool
 	}{
 		{
-			"Should identify seccomp log lines",
+			"Should identify type=1326 log lines",
 			//nolint:lll
 			`audit: type=1326 audit(1611996299.149:466250): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=615549 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=1 compat=0 ip=0x7f61a81c5923 code=0x7ffc0000`,
+			true,
+		},
+		{
+			"Should identify type=SECCOMP log lines",
+			//nolint:lll
+			`type=SECCOMP msg=audit(1613596317.899:6461): auid=4294967295 uid=0 gid=0 ses=4294967295 subj=system_u:system_r:spc_t:s0:c284,c594 pid=2039886 comm="ls" exe="/bin/ls" sig=0 arch=c000003e syscall=3 compat=0 ip=0x7f62dce3d4c7 code=0x7ffc0000AUID="unset" UID="root" GID="root" ARCH=x86_64 SYSCALL=close`,
 			true,
 		},
 		{
@@ -45,6 +51,12 @@ func Test_isAuditLine(t *testing.T) {
 			"Should ignore unsupported log lines",
 			`type=1326 syscall=1`,
 			false,
+		},
+		{
+			"Should identify SELinux log lines",
+			//nolint:lll
+			`type=AVC msg=audit(1613173578.156:2945): avc:  denied  { read } for  pid=75593 comm="security-profil" name="token" dev="tmpfs" ino=612459 scontext=system_u:system_r:container_t:s0:c4,c808 tcontext=system_u:object_r:var_lib_t:s0 tclass=lnk_file permissive=0`,
+			true,
 		},
 	}
 	for _, tt := range tests {
@@ -75,6 +87,32 @@ func Test_extractAuditLine(t *testing.T) {
 				SystemCallID: 0,
 				ProcessID:    3109464,
 				Executable:   "/bin/busybox",
+			},
+			nil,
+		},
+		{
+			"Should extract seccomp log lines",
+			//nolint:lll
+			`type=SECCOMP msg=audit(1613596317.899:6461): auid=4294967295 uid=0 gid=0 ses=4294967295 subj=system_u:system_r:spc_t:s0:c284,c594 pid=2039886 comm="ls" exe="/bin/ls" sig=0 arch=c000003e syscall=3 compat=0 ip=0x7f62dce3d4c7 code=0x7ffc0000AUID="unset" UID="root" GID="root" ARCH=x86_64 SYSCALL=close`,
+			&auditLine{
+				Type:         "seccomp",
+				TimestampID:  "1613596317.899:6461",
+				SystemCallID: 3,
+				ProcessID:    2039886,
+				Executable:   "/bin/ls",
+			},
+			nil,
+		},
+		{
+			"Should extract selinux log lines",
+			//nolint:lll
+			`type=AVC msg=audit(1613173578.156:2945): avc:  denied  { read } for  pid=75593 comm="security-profil" name="token" dev="tmpfs" ino=612459 scontext=system_u:system_r:container_t:s0:c4,c808 tcontext=system_u:object_r:var_lib_t:s0 tclass=lnk_file permissive=0`,
+			&auditLine{
+				Type:         "selinux",
+				TimestampID:  "1613173578.156:2945",
+				SystemCallID: 0,
+				ProcessID:    75593,
+				Executable:   "",
 			},
 			nil,
 		},

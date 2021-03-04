@@ -23,37 +23,74 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Initially only seccomp logs  are supported
 // type IDs are defined at https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/audit.h
-var auditRegex = regexp.MustCompile(`audit:.+type=1326.+audit\((.+)\).+pid=(\b\d+\b).+exe="(.+)".+syscall=(\b\d+\b).*`)
+var (
+	//nolint:lll
+	seccompLineRegex = regexp.MustCompile(`(type=SECCOMP|audit:.+type=1326).+audit\((.+)\).+pid=(\b\d+\b).+exe="(.+)".+syscall=(\b\d+\b).*`)
+	selinuxLineRegex = regexp.MustCompile(`type=AVC.+audit\((.+)\).+pid=(\b\d+\b).*`)
+)
 
-// minimum numbers of captures expected on a supported log line.
-var minCapturesExpected = 5
+var (
+	minSeccompCapturesExpected = 5
+	minSelinuxCapturesExpected = 3
+)
 
 // isAuditLine checks whether logLine is a supported audit line.
 func isAuditLine(logLine string) bool {
-	captures := auditRegex.FindStringSubmatch(logLine)
+	captures := seccompLineRegex.FindStringSubmatch(logLine)
+	if len(captures) >= minSeccompCapturesExpected {
+		return true
+	}
 
-	return len(captures) > 1
+	captures = selinuxLineRegex.FindStringSubmatch(logLine)
+	return len(captures) >= minSelinuxCapturesExpected
 }
 
 // extractAuditLine extracts an auditline from logLine.
 func extractAuditLine(logLine string) (*auditLine, error) {
-	captures := auditRegex.FindStringSubmatch(logLine)
-	if len(captures) < minCapturesExpected {
-		return nil, errors.Wrap(errUnsupportedLogLine, logLine)
+	if seccomp := extractSeccompLine(logLine); seccomp != nil {
+		return seccomp, nil
+	}
+
+	if selinux := extractSelinuxLine(logLine); selinux != nil {
+		return selinux, nil
+	}
+
+	return nil, errors.Wrap(errUnsupportedLogLine, logLine)
+}
+
+func extractSeccompLine(logLine string) *auditLine {
+	captures := seccompLineRegex.FindStringSubmatch(logLine)
+	if len(captures) < minSeccompCapturesExpected {
+		return nil
 	}
 
 	line := auditLine{}
 	line.Type = "seccomp"
-	line.TimestampID = captures[1]
-	line.Executable = captures[3]
-	if v, err := strconv.Atoi(captures[2]); err == nil {
+	line.TimestampID = captures[2]
+	line.Executable = captures[4]
+	if v, err := strconv.Atoi(captures[3]); err == nil {
 		line.ProcessID = v
 	}
-	if v, err := strconv.Atoi(captures[4]); err == nil {
+	if v, err := strconv.Atoi(captures[5]); err == nil {
 		line.SystemCallID = v
 	}
 
-	return &line, nil
+	return &line
+}
+
+func extractSelinuxLine(logLine string) *auditLine {
+	captures := selinuxLineRegex.FindStringSubmatch(logLine)
+	if len(captures) < minSelinuxCapturesExpected {
+		return nil
+	}
+
+	line := auditLine{}
+	line.Type = "selinux"
+	line.TimestampID = captures[1]
+	if v, err := strconv.Atoi(captures[2]); err == nil {
+		line.ProcessID = v
+	}
+
+	return &line
 }

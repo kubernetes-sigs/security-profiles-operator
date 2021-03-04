@@ -30,7 +30,7 @@ var (
 	truly                           = true
 	userRoot                  int64 = 0
 	userRootless                    = int64(config.UserRootless)
-	hostCharDev                     = v1.HostPathCharDev
+	hostPathFile                    = v1.HostPathFile
 	hostPathDirectory               = v1.HostPathDirectory
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
 )
@@ -40,7 +40,7 @@ const (
 	SelinuxdPrivateDir   = "/var/run/selinuxd"
 	SelinuxdSocketPath   = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath       = SelinuxdPrivateDir + "/selinuxd.db"
-	kmsgPath             = "/dev/kmsg"
+	varLogSpoPath        = "/var/log/spo.log"
 )
 
 var Manifest = &appsv1.DaemonSet{
@@ -288,16 +288,13 @@ var Manifest = &appsv1.DaemonSet{
 						ImagePullPolicy: v1.PullAlways,
 						VolumeMounts: []v1.VolumeMount{
 							{
-								Name:      "host-devkmsg-volume",
-								MountPath: kmsgPath,
+								Name:      "host-varlogspo-volume",
+								MountPath: varLogSpoPath,
 								ReadOnly:  true,
 							},
 						},
 						SecurityContext: &v1.SecurityContext{
-							// /dev/kmsg is being used as kernel messages source in order to
-							// support the widest range of distros. However, access to
-							// devices requires the container to run as privileged.
-							Privileged:             &truly,
+							Privileged:             &falsely,
 							ReadOnlyRootFilesystem: &truly,
 							SELinuxOptions: &v1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
@@ -416,11 +413,11 @@ var Manifest = &appsv1.DaemonSet{
 						},
 					},
 					{
-						Name: "host-devkmsg-volume",
+						Name: "host-varlogspo-volume",
 						VolumeSource: v1.VolumeSource{
 							HostPath: &v1.HostPathVolumeSource{
-								Path: kmsgPath,
-								Type: &hostCharDev,
+								Path: varLogSpoPath,
+								Type: &hostPathFile,
 							},
 						},
 					},
