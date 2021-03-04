@@ -4,10 +4,6 @@ github.com/beorn7/perks/quantile
 github.com/blang/semver
 # github.com/cespare/xxhash/v2 v2.1.1
 github.com/cespare/xxhash/v2
-# github.com/cirocosta/dmesg_exporter v0.0.0-20190515130104-6e3e42fc8d7b
-## explicit
-github.com/cirocosta/dmesg_exporter/kmsg
-github.com/cirocosta/dmesg_exporter/reader
 # github.com/containers/common v0.35.2
 ## explicit
 github.com/containers/common/pkg/seccomp
