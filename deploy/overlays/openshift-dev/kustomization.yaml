@@ -12,11 +12,6 @@ patchesJson6902:
       kind: ConfigMap
       name: security-profiles-operator-profile
     path: operator-profile.yaml
-  - target:
-      version: security-profiles-operator.x-k8s.io/v1alpha1
-      kind: SecurityProfilesOperatorDaemon
-      name: spod
-    path: enable-selinux.yaml
 
 images:
   - name: gcr.io/k8s-staging-sp-operator/security-profiles-operator
