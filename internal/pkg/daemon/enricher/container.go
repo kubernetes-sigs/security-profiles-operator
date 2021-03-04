@@ -17,8 +17,12 @@ limitations under the License.
 package enricher
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -28,7 +32,8 @@ import (
 )
 
 const (
-	crioPrefix = "cri-o://"
+	crioCgroupRegex = `\/.+-([a-f0-9]+)`
+	crioPrefix      = "cri-o://"
 )
 
 // NOTE(jaosorior): Should this actually be namespace-scoped?
@@ -79,4 +84,39 @@ func containerIDRaw(containerID string) (string, error) {
 	}
 
 	return "", errors.Wrap(errUnsupportedContainerRuntime, containerID)
+}
+
+func getContainerID(processID int) string {
+	cgroupFile := fmt.Sprintf("/proc/%d/cgroup", processID)
+	file, err := os.Open(filepath.Clean(cgroupFile))
+	if err != nil {
+		logger.Error(nil, "could not open cgroup", "process-id", processID)
+		return ""
+	}
+	defer func() {
+		cerr := file.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Split(bufio.ScanLines)
+	for scanner.Scan() {
+		if containerID := extractID(scanner.Text()); containerID != "" {
+			return containerID
+		}
+	}
+
+	return ""
+}
+
+func extractID(cgroup string) string {
+	containerIDRegex := regexp.MustCompile(crioCgroupRegex)
+	capture := containerIDRegex.FindStringSubmatch(cgroup)
+	if len(capture) > 1 {
+		return capture[1]
+	}
+
+	return ""
 }
