@@ -272,6 +272,7 @@ do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 	oc wait --for=condition=Ready pod -lapp.kubernetes.io/instance=cert-manager -ncert-manager
 	@echo "Building custom operator.yaml"
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/operator.yaml
+	sed -i 's/enableSelinux: false/enableSelinux: true/' deploy/operator.yaml
 	@echo "Deploying"
 	oc apply -f deploy/operator.yaml
 	@echo "Setting triggers to track image"
