@@ -272,12 +272,12 @@ var Manifest = &appsv1.DaemonSet{
 						Resources: v1.ResourceRequirements{
 							Requests: v1.ResourceList{
 								v1.ResourceMemory:           resource.MustParse("512Mi"),
-								v1.ResourceCPU:              resource.MustParse("1000m"),
+								v1.ResourceCPU:              resource.MustParse("100m"),
 								v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
 							},
 							Limits: v1.ResourceList{
 								v1.ResourceMemory:           resource.MustParse("1024Mi"),
-								v1.ResourceCPU:              resource.MustParse("2000m"),
+								v1.ResourceCPU:              resource.MustParse("1000m"),
 								v1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
 							},
 						},
