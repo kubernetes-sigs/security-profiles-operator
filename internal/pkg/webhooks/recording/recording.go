@@ -122,7 +122,7 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if selector.Matches(podLabels) {
-			podChanged = p.addAnnotation(pod, &items[i])
+			podChanged = p.addAnnotations(pod, &items[i])
 		}
 
 		if podChanged {
@@ -145,41 +145,54 @@ func (p *podSeccompRecorder) Handle(
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
-func (p *podSeccompRecorder) addAnnotation(
+func (p *podSeccompRecorder) addAnnotations(
 	pod *corev1.Pod,
 	profileRecording *profilerecordingv1alpha1.ProfileRecording,
 ) (podChanged bool) {
-	value, ok := pod.GetAnnotations()[config.SeccompProfileRecordAnnotationKey]
+	ctrs := []corev1.Container{}
+	ctrs = append(ctrs, pod.Spec.InitContainers...)
+	ctrs = append(ctrs, pod.Spec.Containers...)
 
-	targetValue := fmt.Sprintf(
-		"of:%s/%s-%d.json",
-		config.ProfileRecordingOutputPath,
-		profileRecording.GetName(),
-		time.Now().Unix(),
-	)
+	for i := range ctrs {
+		ctr := &ctrs[i]
+		key := fmt.Sprintf("%s/%s", config.SeccompProfileRecordAnnotationKey, ctr.Name)
 
-	if !ok {
-		if pod.Annotations == nil {
-			pod.Annotations = make(map[string]string)
-		}
-		pod.Annotations[config.SeccompProfileRecordAnnotationKey] = targetValue
-		log.Info("adding seccomp recording annotation to pod", "Pod", pod.Name)
-		return true
-	}
-
-	if value != targetValue {
-		log.Error(
-			errors.New("existing annotation"),
-			fmt.Sprintf(
-				"Workload %s already has annotation %s (not mutating to %s).",
-				pod.Name,
-				value,
-				targetValue,
-			),
+		value := fmt.Sprintf(
+			"of:%s/%s-%s-%d.json",
+			config.ProfileRecordingOutputPath,
+			profileRecording.GetName(),
+			ctr.Name,
+			time.Now().Unix(),
 		)
+
+		existingValue, ok := pod.GetAnnotations()[key]
+		if !ok {
+			if pod.Annotations == nil {
+				pod.Annotations = make(map[string]string)
+			}
+			pod.Annotations[key] = value
+			log.Info(fmt.Sprintf(
+				"adding seccomp recording annotation %s=%s to pod %s",
+				key, value, pod.Name,
+			))
+			podChanged = true
+			continue
+		}
+
+		if existingValue != value {
+			log.Error(
+				errors.New("existing annotation"),
+				fmt.Sprintf(
+					"workload %s already has annotation %s (not mutating to %s).",
+					pod.Name,
+					existingValue,
+					value,
+				),
+			)
+		}
 	}
 
-	return false
+	return podChanged
 }
 
 func (p *podSeccompRecorder) addPod(

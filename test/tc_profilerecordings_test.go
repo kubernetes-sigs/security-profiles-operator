@@ -44,8 +44,7 @@ metadata:
 spec:
   containers:
   - image: quay.io/security-profiles-operator/test-nginx:1.19.1
-    name: recording
-    resources: {}
+    name: nginx
   restartPolicy: Never
 `
 	testPodFile, err := ioutil.TempFile(os.TempDir(), "recording-pod*.yaml")
@@ -61,8 +60,9 @@ spec:
 	e.waitFor("condition=ready", "pod", "recording")
 	e.kubectl("delete", "pod", "recording")
 
-	profile := e.kubectl("get", "sp", recordingName, "-o", "yaml")
-	defer e.kubectl("delete", "sp", recordingName)
+	resourceName := recordingName + "-nginx"
+	profile := e.kubectl("get", "sp", resourceName, "-o", "yaml")
+	defer e.kubectl("delete", "sp", resourceName)
 	e.Contains(profile, "mkdir")
 }
 
@@ -77,10 +77,55 @@ func (e *e2e) testCaseProfileRecordingKubectlRun() {
 	e.kubectl(
 		"run", "--rm", "-it", "--restart=Never", "--labels=app=alpine",
 		"--image=registry.fedoraproject.org/fedora-minimal:latest",
-		"test", "--", "echo", "test",
+		"fedora", "--", "echo", "test",
 	)
 
-	profile := e.kubectl("get", "sp", recordingName, "-o", "yaml")
+	resourceName := recordingName + "-fedora"
+	profile := e.kubectl("get", "sp", resourceName, "-o", "yaml")
+	defer e.kubectl("delete", "sp", resourceName)
 	e.Contains(profile, "prctl")
 	e.NotContains(profile, "mkdir")
+}
+
+func (e *e2e) testCaseProfileRecordingMultiContainer() {
+	e.profileRecordingTestCase()
+
+	e.logf("Creating recording")
+	e.kubectl("create", "-f", exampleRecordingPath)
+	defer e.kubectl("delete", "-f", exampleRecordingPath)
+
+	e.logf("Creating test pod")
+	const testPod = `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+  labels:
+    app: alpine
+spec:
+  containers:
+  - name: nginx
+    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+  - name: redis
+    image: quay.io/security-profiles-operator/redis:6.2.1
+  restartPolicy: Never
+`
+	testPodFile, err := ioutil.TempFile(os.TempDir(), "recording-pod*.yaml")
+	e.Nil(err)
+	defer os.Remove(testPodFile.Name())
+	_, err = testPodFile.Write([]byte(testPod))
+	e.Nil(err)
+	err = testPodFile.Close()
+	e.Nil(err)
+	e.kubectl("create", "-f", testPodFile.Name())
+
+	e.logf("Waiting for test pod to be initialized")
+	e.waitFor("condition=ready", "pod", "my-pod")
+	e.kubectl("delete", "pod", "my-pod")
+
+	profileRedis := e.kubectl("get", "sp", recordingName+"-redis", "-o", "yaml")
+	profileNginx := e.kubectl("get", "sp", recordingName+"-nginx", "-o", "yaml")
+	defer e.kubectl("delete", "sp", "--all")
+	e.Contains(profileNginx, "unlink")
+	e.Contains(profileRedis, "nanosleep")
 }
