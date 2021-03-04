@@ -85,6 +85,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"SELinux: base case (install policy, run pod and delete)",
 			e.testCaseSelinuxBaseUsage,
 		},
+		{
+			"SPOD: Update SELinux flag",
+			e.testCaseSPODUpdateSelinux,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase

@@ -423,8 +423,8 @@ func (e *e2e) kubectlFailure(args ...string) string {
 	return e.runFailure(e.kubectlPath, args...)
 }
 
-func (e *e2e) kubectlOperatorNS(args ...string) {
-	e.kubectl(
+func (e *e2e) kubectlOperatorNS(args ...string) string {
+	return e.kubectl(
 		append([]string{"-n", config.OperatorName}, args...)...,
 	)
 }
