@@ -39,13 +39,15 @@ type SPODSpec struct {
 type SPODState string
 
 const (
-	// The policy is pending installation.
+	// The SPOD instance is pending installation.
 	SPODStatePending SPODState = "PENDING"
-	// The policy is being installed.
+	// The SPOD instance is being created.
 	SPODStateCreating SPODState = "CREATING"
-	// The policy was installed successfully.
+	// The SPOD instance is being updated.
+	SPODStateUpdating SPODState = "UPDATING"
+	// The SPOD instance was installed successfully.
 	SPODStateRunning SPODState = "RUNNING"
-	// The policy couldn't be installed.
+	// The SPOD instance couldn't be installed.
 	SPODStateError SPODState = "ERROR"
 )
 
@@ -93,6 +95,16 @@ func (s *SPODStatus) StatePending() {
 func (s *SPODStatus) StateCreating() {
 	s.State = SPODStateCreating
 	s.ConditionedStatus.SetConditions(rcommonv1.Creating())
+}
+
+func (s *SPODStatus) StateUpdating() {
+	s.State = SPODStateUpdating
+	s.ConditionedStatus.SetConditions(rcommonv1.Condition{
+		Type:               rcommonv1.TypeReady,
+		Status:             corev1.ConditionFalse,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "Updating",
+	})
 }
 
 func (s *SPODStatus) StateRunning() {

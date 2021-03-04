@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	sccmpv1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
@@ -39,6 +41,7 @@ import (
 
 const (
 	reasonCannotCreateSPOD event.Reason = "CannotCreateSPOD"
+	reasonCannotUpdateSPOD event.Reason = "CannotUpdateSPOD"
 )
 
 // blank assignment to verify that ReconcileSPOd implements `reconcile.Reconciler`.
@@ -63,9 +66,9 @@ type ReconcileSPOd struct {
 // +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps;events,verbs=get;list;watch;create;update;patch
 //
 // Operand:
-// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets/finalizers,verbs=delete;get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/finalizers,verbs=delete;get;update;patch
 // Helpers:
@@ -112,14 +115,17 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	image := foundDeployment.Spec.Template.Spec.Containers[0].Image
 	pullPolicy := foundDeployment.Spec.Template.Spec.Containers[0].ImagePullPolicy
 
+	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy)
+
 	spodKey := types.NamespacedName{
 		Name:      spod.GetName(),
 		Namespace: config.GetOperatorNamespace(),
 	}
+
 	foundSPOd := &appsv1.DaemonSet{}
 	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
 		if kerrors.IsNotFound(err) {
-			createErr := r.handleCreate(ctx, spod, image, pullPolicy)
+			createErr := r.handleCreate(ctx, spod, configuredSPOd)
 			if createErr != nil {
 				r.record.Event(spod, event.Warning(reasonCannotCreateSPOD, createErr))
 				return reconcile.Result{}, createErr
@@ -129,10 +135,23 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 		return reconcile.Result{}, errors.Wrap(err, "getting spod DaemonSet")
 	}
 
-	// NOTE(jaosorior): We gotta handle updates
+	if spodNeedsUpdate(configuredSPOd, foundSPOd) {
+		updatedSPod := foundSPOd.DeepCopy()
+		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
+		updateErr := r.handleUpdate(ctx, updatedSPod)
+		if updateErr != nil {
+			r.record.Event(spod, event.Warning(reasonCannotUpdateSPOD, updateErr))
+			return reconcile.Result{}, updateErr
+		}
+		return r.handleUpdatingStatus(ctx, spod, logger)
+	}
 
 	if foundSPOd.Status.NumberReady == foundSPOd.Status.DesiredNumberScheduled {
-		return r.handleRunningStatus(ctx, spod, logger)
+		condready := spod.Status.GetCondition("Ready")
+		// Don't pollute the logs. Let's only update when needed.
+		if condready.Status != corev1.ConditionTrue {
+			return r.handleRunningStatus(ctx, spod, logger)
+		}
 	}
 	return reconcile.Result{}, nil
 }
@@ -167,6 +186,21 @@ func (r *ReconcileSPOd) handleCreatingStatus(
 	return reconcile.Result{}, nil
 }
 
+func (r *ReconcileSPOd) handleUpdatingStatus(
+	ctx context.Context,
+	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	l logr.Logger,
+) (res reconcile.Result, err error) {
+	l.Info("Adding 'Updating' status to the SPOD Instance")
+	sCopy := spod.DeepCopy()
+	sCopy.Status.StateUpdating()
+	updateErr := r.client.Status().Update(ctx, sCopy)
+	if updateErr != nil {
+		return reconcile.Result{}, errors.Wrap(updateErr, "updating spod status to 'updating'")
+	}
+	return reconcile.Result{}, nil
+}
+
 func (r *ReconcileSPOd) handleRunningStatus(
 	ctx context.Context,
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
@@ -185,11 +219,9 @@ func (r *ReconcileSPOd) handleRunningStatus(
 func (r *ReconcileSPOd) handleCreate(
 	ctx context.Context,
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
-	image string,
-	pullPolicy corev1.PullPolicy,
+	newSPOd *appsv1.DaemonSet,
 ) error {
 	r.log.Info("Creating operator resources")
-	newSPOd := r.getConfiguredSPOd(cfg, image, pullPolicy)
 
 	if err := controllerutil.SetControllerReference(cfg, newSPOd, r.scheme); err != nil {
 		return errors.Wrap(err, "setting spod controller reference")
@@ -212,7 +244,7 @@ func (r *ReconcileSPOd) handleCreate(
 
 		if err := r.client.Create(ctx, profile); err != nil {
 			if kerrors.IsAlreadyExists(err) {
-				return nil
+				continue
 			}
 			return errors.Wrapf(
 				err, "creating operator default profile %s", profile.Name,
@@ -223,13 +255,72 @@ func (r *ReconcileSPOd) handleCreate(
 	return nil
 }
 
+func (r *ReconcileSPOd) handleUpdate(
+	ctx context.Context,
+	spodInstance *appsv1.DaemonSet,
+) error {
+	r.log.Info("Updating operator daemonset")
+	if err := r.client.Patch(ctx, spodInstance, client.Merge); err != nil {
+		if kerrors.IsAlreadyExists(err) {
+			return nil
+		}
+		return errors.Wrap(err, "creating operator DaemonSet")
+	}
+
+	r.log.Info("Updating operator default profiles")
+	for _, profile := range bindata.DefaultProfiles() {
+		// Adapt the namespace if we watch only a single one
+		if r.watchNamespace != "" {
+			profile.Namespace = r.watchNamespace
+		}
+
+		pKey := types.NamespacedName{
+			Name:      profile.GetName(),
+			Namespace: profile.GetNamespace(),
+		}
+		foundProfile := &sccmpv1alpha1.SeccompProfile{}
+		var err error
+		if err = r.client.Get(ctx, pKey, foundProfile); err == nil {
+			if updateErr := r.client.Update(ctx, profile); updateErr != nil {
+				return errors.Wrapf(
+					updateErr, "updating operator default profile %s", profile.Name,
+				)
+			}
+			continue
+		}
+
+		if kerrors.IsNotFound(err) {
+			// Handle new default profile
+			if createErr := r.client.Create(ctx, profile); err != nil {
+				if kerrors.IsAlreadyExists(createErr) {
+					return nil
+				}
+				return errors.Wrapf(
+					createErr, "creating operator default profile %s", profile.Name,
+				)
+			}
+			continue
+		}
+
+		return errors.Wrapf(
+			err, "getting operator default profile %s", profile.Name,
+		)
+	}
+
+	return nil
+}
+
+// getConfiguredSPOd gets a fully configured SPOd instance from a desired
+// configuration and the reference base SPOd.
 func (r *ReconcileSPOd) getConfiguredSPOd(
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	image string,
 	pullPolicy corev1.PullPolicy,
 ) *appsv1.DaemonSet {
 	newSPOd := r.baseSPOd.DeepCopy()
+
 	newSPOd.SetName(cfg.GetName())
+	newSPOd.SetNamespace(config.GetOperatorNamespace())
 	templateSpec := &newSPOd.Spec.Template.Spec
 
 	// Set Images
@@ -253,14 +344,14 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	// Log enricher parameters
 	if cfg.Spec.EnableLogEnricher {
-		r.baseSPOd.Spec.Template.Spec.Containers[2].Image = image
-		newSPOd.Spec.Template.Spec.Containers = append(
-			newSPOd.Spec.Template.Spec.Containers,
+		templateSpec.Containers = append(
+			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[2])
+		templateSpec.Containers[2].Image = image
 
 		// HostPID is only required for the log-enricher
 		// and is used to access cgroup files to map Process IDs to Pod IDs
-		newSPOd.Spec.Template.Spec.HostPID = true
+		templateSpec.HostPID = true
 	}
 
 	// Set image pull policy
@@ -275,4 +366,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	templateSpec.Tolerations = cfg.Spec.Tolerations
 
 	return newSPOd
+}
+
+func spodNeedsUpdate(configured, found *appsv1.DaemonSet) bool {
+	// If the length of the containers don't match, we clearly need an update.
+	// This way we avoid the expensive DeepDerivative check.
+	return (len(configured.Spec.Template.Spec.InitContainers) != len(found.Spec.Template.Spec.InitContainers) ||
+		len(configured.Spec.Template.Spec.Containers) != len(found.Spec.Template.Spec.Containers) ||
+		!apiequality.Semantic.DeepDerivative(configured.Spec.Template, found.Spec.Template))
 }
