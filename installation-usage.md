@@ -208,7 +208,7 @@ hooks_dir = [
 ```
 
 The hook references a [path][path] to the actual binary which gets executed on
-`prestart`. Please note that at least CRI-O v1.20.0 is required to let the hook
+`prestart`. Please note that at least CRI-O v1.21.0 is required to let the hook
 and CRI-O work nicely together.
 
 [bpf-hook]: https://github.com/containers/oci-seccomp-bpf-hook
@@ -249,17 +249,17 @@ multiple times.
 Now we can start the recording by running a workload which contains the label:
 
 ```
-$ kubectl run --rm -it alpine --image=alpine --labels app=alpine -- sh
+$ kubectl run --rm -it my-pod --image=alpine --labels app=alpine -- sh
 / # mkdir test
 ```
 
 If we exit the workload, then it automatically will be removed because of the
 `--rm` CLI flag. Once the workload is removed, the operator will create the CRD
-for us:
+for us. The name of the CRD is suffixed with the pod name:
 
 ```
-$ kubectl describe seccompprofile test-recording
-Name:         test-recording
+$ kubectl describe seccompprofile test-recording-my-pod
+Name:         test-recording-my-pod
 Namespace:    security-profiles-operator
 …
 Spec:
@@ -272,10 +272,10 @@ Spec:
       …[other syscalls]…
       mkdir
       …[other syscalls]…
-  Target Workload:
+  Target Workload: my-pod
 Status:
-  Localhost Profile:  operator/security-profiles-operator/test-recording.json
-  Path:               /var/lib/kubelet/seccomp/operator/security-profiles-operator/test-recording.json
+  Localhost Profile:  operator/security-profiles-operator/my-pod/test-recording-my-pod.json
+  Path:               /var/lib/kubelet/seccomp/operator/security-profiles-operator/my-pod/test-recording-my-pod.json
   Status:             Active
 Events:
   Type    Reason                 Age                From             Message
@@ -295,6 +295,46 @@ if anything goes wrong:
 3m45s       Normal    SeccompProfileRecording        pod/alpine                                                Recording seccomp profile
 3m29s       Normal    SeccompProfileCreated          seccompprofile/test-recording                             seccomp profile created
 11s         Normal    SavedSeccompProfile            seccompprofile/test-recording                             Successfully saved profile to disk
+```
+
+It is also possible to record profiles from multiple containers, for example by
+using this recording and Pod manifest:
+
+```
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileRecording
+metadata:
+  name: recording
+spec:
+  kind: SeccompProfile
+  podSelector:
+    matchLabels:
+      app: my-app
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+  labels:
+    app: my-app
+spec:
+  containers:
+  - name: nginx
+    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+  - name: redis
+    image: quay.io/security-profiles-operator/redis:6.2.1
+  restartPolicy: Never
+```
+
+If the workload gets created and removed again, then the recorder will produce
+two seccomp profiles for each container:
+
+```
+> kubectl get sp -o wide
+NAME              STATUS   AGE   LOCALHOSTPROFILE
+recording-nginx   Active   32s   operator/default/my-pod/recording-nginx.json
+recording-redis   Active   32s   operator/default/my-pod/recording-redis.json
 ```
 
 Please note that we encourage you to only use this recording approach for
