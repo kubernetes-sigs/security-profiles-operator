@@ -29,6 +29,10 @@ spec:
           env:
             - name: RELATED_IMAGE_SELINUXD
               value: quay.io/jaosorior/selinuxd
+            - name: OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
       tolerations:
         - key: "node-role.kubernetes.io/master"
           operator: "Exists"

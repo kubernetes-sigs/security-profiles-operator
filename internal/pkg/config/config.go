@@ -17,8 +17,11 @@ limitations under the License.
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+
+	"k8s.io/release/pkg/util"
 )
 
 const (
@@ -61,15 +64,34 @@ const (
 // therefore have a limited lifetime.
 var ProfileRecordingOutputPath = filepath.Join(os.TempDir(), "security-profiles-operator-recordings")
 
+var ErrPodNamespaceEnvNotFound = errors.New("the env variable OPERATOR_NAMESPACE hasn't been set")
+
 // GetOperatorNamespace gets the namespace that the operator is currently running on.
+// Failure to get the namespace results in a panic.
 func GetOperatorNamespace() string {
-	// TODO(jaosorior): Get a method to return the current operator
-	// namespace.
-	//
-	// operatorNs, err := k8sutil.GetOperatorNamespace()
-	// if err != nil {
-	// 	return "security-profiles-operator"
-	// }
-	// return operatorNs
-	return "security-profiles-operator"
+	ns, err := TryToGetOperatorNamespace()
+	if err != nil {
+		panic(err)
+	}
+	return ns
+}
+
+func TryToGetOperatorNamespace() (string, error) {
+	// This is OPERATOR_NAMESPACE should have been set by the downward API to identify
+	// the namespace which this controller is running from
+	operatorNS := util.EnvDefault("OPERATOR_NAMESPACE", "")
+	if operatorNS == "" {
+		return "", ErrPodNamespaceEnvNotFound
+	}
+	return operatorNS, nil
+}
+
+// GetEnvDefault returns the value of the given environment variable or a
+// default value if the given environment variable is not set.
+func GetEnvDefault(variable, defaultVal string) string {
+	envVar, exists := os.LookupEnv(variable)
+	if !exists {
+		return defaultVal
+	}
+	return envVar
 }
