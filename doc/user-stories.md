@@ -113,6 +113,18 @@ Open Questions:
 
 * Does this only impact Profiles created through SPO (i.e. can a user just use `runtime/default`)?
 
+
+### As an infrastructure SRE, Kirsti wants to be able to easily correlate audit log entries related to security profiles to specific containers/pods.
+
+Details:
+
+* The different security mechanisms (i.e. AppArmor, Seccomp, SElinux) may be configured 
+  to generate audit logs in the host's system/audit logs. The logs do not provide any 
+  Kubernetes specific information, making it difficult to link back a log entry to 
+  specific containers.
+  The problem becomes even harder when considering short-lived containers and at scale.
+
+
 Terminology
 ===========
 
