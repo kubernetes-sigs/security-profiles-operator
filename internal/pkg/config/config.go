@@ -85,13 +85,3 @@ func TryToGetOperatorNamespace() (string, error) {
 	}
 	return operatorNS, nil
 }
-
-// GetEnvDefault returns the value of the given environment variable or a
-// default value if the given environment variable is not set.
-func GetEnvDefault(variable, defaultVal string) string {
-	envVar, exists := os.LookupEnv(variable)
-	if !exists {
-		return defaultVal
-	}
-	return envVar
-}
