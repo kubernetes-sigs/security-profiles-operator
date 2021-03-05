@@ -87,7 +87,7 @@ func (e *e2e) verifyBaseProfileContent(node string, cm *v1.ConfigMap) {
 func (e *e2e) verifyCRDProfileContent(node string, sp *v1alpha1.SeccompProfile) {
 	e.logf("Verifying %s profile on node %s", sp.Name, node)
 	name := sp.Name
-	profilePath, err := seccompprofile.GetProfilePath(name, sp.ObjectMeta.Namespace, sp.Spec.TargetWorkload)
+	profilePath, err := seccompprofile.GetProfilePath(name, sp.ObjectMeta.Namespace)
 	e.Nil(err)
 	catOutput := e.execNode(node, "cat", profilePath)
 	output := seccompprofile.OutputProfile{}

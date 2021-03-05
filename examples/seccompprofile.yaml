@@ -7,7 +7,6 @@ metadata:
     description: "Blocks all syscalls."
 spec:
   defaultAction: "SCMP_ACT_ERRNO"
-  targetWorkload: "generic"
 ---
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SeccompProfile
@@ -17,7 +16,6 @@ metadata:
     description: "UNSAFE: Allows all syscalls whilst logging their use. Similar to running as unconfined in terms of enforcement."
 spec:
   defaultAction: "SCMP_ACT_LOG"
-  targetWorkload: "generic"
 ---
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SeccompProfile
@@ -27,7 +25,6 @@ metadata:
     description: "UNSAFE: Allows all syscalls. Similar to running as unconfined as it provides no enforcement."
 spec:
   defaultAction: "SCMP_ACT_ALLOW"
-  targetWorkload: "generic"
 ---
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SeccompProfile
@@ -37,7 +34,6 @@ metadata:
     description: "Enables complain mode whilst blocking high-risk syscalls. Some essential syscalls are allowed to decrease log noise."
 spec:
   defaultAction: SCMP_ACT_LOG
-  targetWorkload: "generic"
   architectures:
   - SCMP_ARCH_X86_64
   syscalls:

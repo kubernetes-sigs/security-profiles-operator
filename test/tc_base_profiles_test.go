@@ -39,7 +39,6 @@ metadata:
   name: hello
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  targetWorkload: hello
   baseProfileName: %s
   syscalls:
   - action: SCMP_ACT_ALLOW
@@ -62,7 +61,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/%s/hello/hello.json
+      localhostProfile: operator/%s/hello.json
   restartPolicy: Never
 `
 	e.kubectl("create", "-f", baseProfilePath)
