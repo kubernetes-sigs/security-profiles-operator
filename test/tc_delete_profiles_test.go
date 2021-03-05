@@ -33,7 +33,6 @@ metadata:
   name: delete-me
 spec:
   defaultAction: "SCMP_ACT_ALLOW"
-  targetWorkload: "example-profiles"
 `
 		deleteProfileName = "delete-me"
 		deletePod         = `
@@ -48,7 +47,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/%s/example-profiles/delete-me.json
+      localhostProfile: operator/%s/delete-me.json
 `
 		deletePodSecurityContextInContainer = `
 apiVersion: v1
@@ -62,7 +61,7 @@ spec:
     securityContext:
       seccompProfile:
         type: Localhost
-        localhostProfile: operator/%s/example-profiles/delete-me.json
+        localhostProfile: operator/%s/delete-me.json
 `
 		deletePodSecurityContextInInitContainer = `
 apiVersion: v1
@@ -76,7 +75,7 @@ spec:
     securityContext:
       seccompProfile:
         type: Localhost
-        localhostProfile: operator/%s/example-profiles/delete-me.json
+        localhostProfile: operator/%s/delete-me.json
   containers:
   - name: test-container
     image: quay.io/security-profiles-operator/test-nginx:1.19.1
@@ -87,7 +86,7 @@ kind: Pod
 metadata:
   name: test-pod
   annotations:
-    seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/%s/example-profiles/delete-me.json'
+    seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/%s/delete-me.json'
 spec:
   containers:
   - name: test-container
@@ -101,7 +100,7 @@ spec:
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	sp := e.getSeccompProfile(deleteProfileName, namespace)
-	path, err := seccompprofile.GetProfilePath(deleteProfileName, sp.ObjectMeta.Namespace, sp.Spec.TargetWorkload)
+	path, err := seccompprofile.GetProfilePath(deleteProfileName, sp.ObjectMeta.Namespace)
 	e.Nil(err)
 
 	e.logf("Verifying profile exists")

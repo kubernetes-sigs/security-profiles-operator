@@ -99,7 +99,7 @@ spec:
 		"get", "pod", "hello",
 		"--output", "jsonpath={.spec.containers[0].securityContext.seccompProfile.localhostProfile}",
 	)
-	e.Equal(fmt.Sprintf("operator/%s/generic/profile-allow-unsafe.json", namespace), output)
+	e.Equal(fmt.Sprintf("operator/%s/profile-allow-unsafe.json", namespace), output)
 
 	e.logf("Testing that profile binding has pod reference")
 	output = e.kubectl("get", "profilebinding", "hello-binding", "--output", "jsonpath={.status.activeWorkloads[0]}")

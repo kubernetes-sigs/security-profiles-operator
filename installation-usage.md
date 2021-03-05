@@ -39,7 +39,6 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_LOG
-  targetWorkload: custom-profiles
 ```
 
 This seccomp profile will be saved at the path:
@@ -135,7 +134,6 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  targetWorkload: custom-profiles
   baseProfileName: runc-v1.0.0-rc92
   syscalls:
     - action: SCMP_ACT_ALLOW
@@ -272,10 +270,9 @@ Spec:
       …[other syscalls]…
       mkdir
       …[other syscalls]…
-  Target Workload: my-pod
 Status:
-  Localhost Profile:  operator/security-profiles-operator/my-pod/test-recording-my-pod.json
-  Path:               /var/lib/kubelet/seccomp/operator/security-profiles-operator/my-pod/test-recording-my-pod.json
+  Localhost Profile:  operator/security-profiles-operator/test-recording-my-pod.json
+  Path:               /var/lib/kubelet/seccomp/operator/security-profiles-operator/test-recording-my-pod.json
   Status:             Active
 Events:
   Type    Reason                 Age                From             Message
@@ -333,8 +330,8 @@ two seccomp profiles for each container:
 ```
 > kubectl get sp -o wide
 NAME              STATUS   AGE   LOCALHOSTPROFILE
-recording-nginx   Active   32s   operator/default/my-pod/recording-nginx.json
-recording-redis   Active   32s   operator/default/my-pod/recording-redis.json
+recording-nginx   Active   32s   operator/default/recording-nginx.json
+recording-redis   Active   32s   operator/default/recording-redis.json
 ```
 
 Please note that we encourage you to only use this recording approach for
@@ -366,7 +363,7 @@ I1019 19:34:14.942464       1 main.go:90] setup "msg"="starting security-profile
 I1019 19:34:15.348389       1 listener.go:44] controller-runtime/metrics "msg"="metrics server is starting to listen"  "addr"=":8080"
 I1019 19:34:15.349076       1 main.go:126] setup "msg"="starting manager"
 I1019 19:34:15.349449       1 internal.go:391] controller-runtime/manager "msg"="starting metrics server"  "path"="/metrics"
-I1019 19:34:15.350201       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "source"={"Type":{"metadata":{"creationTimestamp":null},"spec":{"targetWorkload":"","defaultAction":""}}}
+I1019 19:34:15.350201       1 controller.go:142] controller "msg"="Starting EventSource" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "source"={"Type":{"metadata":{"creationTimestamp":null},"spec":{"defaultAction":""}}}
 I1019 19:34:15.450674       1 controller.go:149] controller "msg"="Starting Controller" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile"
 I1019 19:34:15.450757       1 controller.go:176] controller "msg"="Starting workers" "controller"="profile" "reconcilerGroup"="security-profiles-operator.x-k8s.io" "reconcilerKind"="SeccompProfile" "worker count"=1
 I1019 19:34:15.453102       1 profile.go:148] profile "msg"="Reconciled profile from SeccompProfile" "namespace"="security-profiles-operator" "profile"="nginx-1.19.1" "name"="nginx-1.19.1" "resource version"="728"
