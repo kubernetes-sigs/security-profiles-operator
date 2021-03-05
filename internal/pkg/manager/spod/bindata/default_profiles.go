@@ -42,9 +42,8 @@ func DefaultProfiles() []*v1alpha1.SeccompProfile {
 				},
 			},
 			Spec: v1alpha1.SeccompProfileSpec{
-				TargetWorkload: "default-profiles",
-				DefaultAction:  seccomp.ActErrno,
-				Architectures:  []*v1alpha1.Arch{&archX8664, &archX86, &archX32},
+				DefaultAction: seccomp.ActErrno,
+				Architectures: []*v1alpha1.Arch{&archX8664, &archX86, &archX32},
 				Syscalls: []*v1alpha1.Syscall{
 					{
 						Action: seccomp.ActAllow,

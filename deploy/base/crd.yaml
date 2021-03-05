@@ -319,13 +319,8 @@ spec:
                   - names
                   type: object
                 type: array
-              targetWorkload:
-                description: the type of application workload for which the profile
-                  is targeted. Will be a subdirectory in the profile path on disk.
-                type: string
             required:
             - defaultAction
-            - targetWorkload
             type: object
           status:
             description: SeccompProfileStatus contains status of the deployed SeccompProfile.

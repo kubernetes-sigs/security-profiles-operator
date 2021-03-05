@@ -273,7 +273,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 
-	profilePath, err := GetProfilePath(profileName, sp.ObjectMeta.Namespace, sp.Spec.TargetWorkload)
+	profilePath, err := GetProfilePath(profileName, sp.ObjectMeta.Namespace)
 	if err != nil {
 		l.Error(err, "cannot get profile path")
 		r.record.Event(sp, event.Warning(reasonCannotGetProfilePath, err))
@@ -393,7 +393,7 @@ func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (rec
 	for _, profileIndex := range getSeccompProfilesFromPod(pod) {
 		profileElements := strings.Split(profileIndex, "/")
 		profileNamespace := profileElements[1]
-		profileName := strings.TrimSuffix(profileElements[3], ".json")
+		profileName := strings.TrimSuffix(profileElements[2], ".json")
 		seccompProfile := &v1alpha1.SeccompProfile{}
 		if err := r.client.Get(ctx, namespacedName(profileName, profileNamespace), seccompProfile); err != nil {
 			logger.Error(err, "could not get seccomp profile for pod")
@@ -411,7 +411,7 @@ func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (rec
 // it has a finalizer indicating it is in use to prevent it from being deleted.
 func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *v1alpha1.SeccompProfile) error {
 	linkedPods := &corev1.PodList{}
-	profileReference := fmt.Sprintf("operator/%s/%s/%s.json", sp.GetNamespace(), sp.Spec.TargetWorkload, sp.GetName())
+	profileReference := fmt.Sprintf("operator/%s/%s.json", sp.GetNamespace(), sp.GetName())
 	err := r.client.List(ctx, linkedPods, client.MatchingFields{spOwnerKey: profileReference})
 	if ignoreNotFound(err) != nil {
 		return errors.Wrap(err, "listing pods to update seccompProfile")
@@ -485,7 +485,7 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 
 // isOperatorSeccompProfile checks whether a corev1.SeccompProfile object belongs to the operator.
 // SeccompProfiles controlled by the operator are of type "Localhost" and have a path of the form
-// "operator/namespace/workload-group/profile-name.json".
+// "operator/namespace/profile-name.json".
 func isOperatorSeccompProfile(sp *corev1.SeccompProfile) bool {
 	if sp == nil || sp.Type != "Localhost" {
 		return false
@@ -496,7 +496,7 @@ func isOperatorSeccompProfile(sp *corev1.SeccompProfile) bool {
 	if !strings.HasSuffix(*sp.LocalhostProfile, ".json") {
 		return false
 	}
-	pathParts := 4
+	const pathParts = 3
 	return len(strings.Split(*sp.LocalhostProfile, "/")) == pathParts
 }
 
@@ -543,7 +543,7 @@ func removeFinalizer(ctx context.Context, c client.Client, sp *v1alpha1.SeccompP
 }
 
 func handleDeletion(sp *v1alpha1.SeccompProfile, l logr.Logger) error {
-	profilePath, err := GetProfilePath(sp.GetName(), sp.GetNamespace(), sp.Spec.TargetWorkload)
+	profilePath, err := GetProfilePath(sp.GetName(), sp.GetNamespace())
 	if err != nil {
 		return err
 	}
@@ -570,14 +570,13 @@ func saveProfileOnDisk(fileName string, contents []byte) error {
 }
 
 // GetProfilePath returns the full path for the provided profile name and config.
-func GetProfilePath(profileName, namespace, subdir string) (string, error) {
+func GetProfilePath(profileName, namespace string) (string, error) {
 	if filepath.Ext(profileName) != extJSON {
 		profileName += extJSON
 	}
 	return path.Join(
 		config.ProfilesRootPath,
 		filepath.Base(namespace),
-		filepath.Base(subdir),
 		filepath.Base(profileName),
 	), nil
 }

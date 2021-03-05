@@ -23,10 +23,6 @@ import (
 
 // SeccompProfileSpec defines the desired state of SeccompProfile.
 type SeccompProfileSpec struct {
-	// the type of application workload for which the profile is targeted. Will be a subdirectory in the profile path on disk.
-	//nolint:lll
-	TargetWorkload string `json:"targetWorkload"`
-
 	// name of base profile (in the same namespace) what will be unioned into this profile
 	BaseProfileName string `json:"baseProfileName,omitempty"`
 

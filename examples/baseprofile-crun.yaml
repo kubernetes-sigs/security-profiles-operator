@@ -5,7 +5,6 @@ metadata:
   name: crun-v0.17
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  targetWorkload: base
   architectures:
   - SCMP_ARCH_X86_64
   syscalls:

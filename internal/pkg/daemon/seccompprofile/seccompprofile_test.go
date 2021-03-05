@@ -145,7 +145,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 	}{
 		{
 			name:        "CreateDirsAndWriteFile",
-			fileName:    path.Join(dir, "/seccomp/operator/namespace/sp/filename.json"),
+			fileName:    path.Join(dir, "/seccomp/operator/namespace/filename.json"),
 			contents:    "some content",
 			fileCreated: true,
 		},
@@ -209,66 +209,51 @@ func TestGetProfilePath(t *testing.T) {
 	}{
 		{
 			name: "AppendNamespaceAndProfile",
-			want: path.Join(config.ProfilesRootPath, "config-namespace", "config-target", "file.json"),
+			want: path.Join(config.ProfilesRootPath, "config-namespace", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
 					Namespace: "config-namespace",
-				},
-				Spec: v1alpha1.SeccompProfileSpec{
-					TargetWorkload: "config-target",
 				},
 			},
 		},
 		{
 			name: "BlockTraversalAtProfileName",
-			want: path.Join(config.ProfilesRootPath, "ns", "config-target", "file.json"),
+			want: path.Join(config.ProfilesRootPath, "ns", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "../../../../../file.json",
 					Namespace: "ns",
 				},
-				Spec: v1alpha1.SeccompProfileSpec{
-					TargetWorkload: "config-target",
-				},
 			},
 		},
 		{
 			name: "BlockTraversalAtTargetName",
-			want: path.Join(config.ProfilesRootPath, "ns", "config-target", "file.json"),
+			want: path.Join(config.ProfilesRootPath, "ns", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
 					Namespace: "ns",
 				},
-				Spec: v1alpha1.SeccompProfileSpec{
-					TargetWorkload: "../../../../../config-target",
-				},
 			},
 		},
 		{
 			name: "BlockTraversalAtSPNamespace",
-			want: path.Join(config.ProfilesRootPath, "ns", "config-target", "file.json"),
+			want: path.Join(config.ProfilesRootPath, "ns", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
 					Namespace: "../../../../../ns",
 				},
-				Spec: v1alpha1.SeccompProfileSpec{
-					TargetWorkload: "config-target",
-				},
 			},
 		},
 		{
 			name: "AppendExtension",
-			want: path.Join(config.ProfilesRootPath, "config-namespace", "config-target", "file.json"),
+			want: path.Join(config.ProfilesRootPath, "config-namespace", "file.json"),
 			sp: &v1alpha1.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file",
 					Namespace: "config-namespace",
-				},
-				Spec: v1alpha1.SeccompProfileSpec{
-					TargetWorkload: "config-target",
 				},
 			},
 		},
@@ -279,7 +264,7 @@ func TestGetProfilePath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, gotErr := GetProfilePath(tc.sp.ObjectMeta.Name, tc.sp.ObjectMeta.Namespace, tc.sp.Spec.TargetWorkload)
+			got, gotErr := GetProfilePath(tc.sp.ObjectMeta.Name, tc.sp.ObjectMeta.Namespace)
 			if tc.wantErr == "" {
 				require.NoError(t, gotErr)
 			} else {
@@ -472,8 +457,8 @@ func TestUnionSyscalls(t *testing.T) {
 func TestGetSeccompProfilesFromPod(t *testing.T) {
 	t.Parallel()
 
-	profilePath := "operator/default/example-profiles/test.json"
-	profilePath2 := "operator/default/example-profiles/test2.json"
+	profilePath := "operator/default/test.json"
+	profilePath2 := "operator/default/test2.json"
 	cases := []struct {
 		name string
 		pod  corev1.Pod
@@ -616,11 +601,11 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 	}{
 		{
 			name:    "NoSuffix",
-			profile: "operator/default/example-profiles/test",
+			profile: "operator/default/test",
 		},
 		{
 			name:    "BadSuffix",
-			profile: "operator/default/example-profiles/test.js",
+			profile: "operator/default/test.js",
 		},
 		{
 			name:    "WrongPath",

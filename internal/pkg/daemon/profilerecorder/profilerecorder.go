@@ -224,9 +224,6 @@ func (r *RecorderReconciler) collectProfile(ctx context.Context, name types.Name
 				Name:      profileName,
 				Namespace: name.Namespace,
 			},
-			Spec: v1alpha1.SeccompProfileSpec{
-				TargetWorkload: name.Name,
-			},
 		}
 		res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
 			func() error {
