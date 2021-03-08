@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 )
 
 // SelinuxPolicySpec defines the desired state of SelinuxPolicy.
@@ -27,29 +29,14 @@ type SelinuxPolicySpec struct {
 	Policy string `json:"policy,omitempty"`
 }
 
-// PolicyState defines the state that the policy is in.
-type PolicyState string
-
-const (
-	// The policy is pending installation.
-	PolicyStatePending PolicyState = "PENDING"
-	// The policy is being installed.
-	PolicyStateInProgress PolicyState = "IN-PROGRESS"
-	// The policy was installed successfully.
-	PolicyStateInstalled PolicyState = "INSTALLED"
-	// The policy couldn't be installed.
-	PolicyStateError PolicyState = "ERROR"
-)
-
 // SelinuxPolicyStatus defines the observed state of SelinuxPolicy.
 type SelinuxPolicyStatus struct {
 	rcommonv1.ConditionedStatus `json:",inline"`
 	// Represents the string that the SelinuxPolicy object can be
 	// referenced as in a pod seLinuxOptions section.
 	Usage string `json:"usage,omitempty"`
-	// Represents the state that the policy is in. Can be:
-	// PENDING, IN-PROGRESS, INSTALLED or ERROR
-	State PolicyState `json:"state,omitempty"`
+	// Represents the state that the profile is in.
+	State secprofnodestatusv1alpha1.ProfileState `json:"state,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

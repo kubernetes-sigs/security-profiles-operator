@@ -123,6 +123,68 @@ metadata:
   creationTimestamp: null
   labels:
     app: security-profiles-operator
+  name: securityprofilenodestatuses.security-profiles-operator.x-k8s.io
+spec:
+  group: security-profiles-operator.x-k8s.io
+  names:
+    kind: SecurityProfileNodeStatus
+    listKind: SecurityProfileNodeStatusList
+    plural: securityprofilenodestatuses
+    shortNames:
+    - spns
+    singular: securityprofilenodestatus
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - jsonPath: .nodeName
+      name: Node
+      priority: 10
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: SecurityProfileNodeStatus is a per-node status of a security profile
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          nodeName:
+            type: string
+          status:
+            description: ProfileState defines the state that the profile is in. A profile in this context refers to a SeccompProfile or a SELinux profile, the states are shared between them as well as the management API.
+            type: string
+        required:
+        - nodeName
+        type: object
+    served: true
+    storage: true
+    subresources: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.5.0
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
   name: seccompprofiles.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
@@ -294,6 +356,7 @@ spec:
               path:
                 type: string
               status:
+                description: ProfileState defines the state that the profile is in. A profile in this context refers to a SeccompProfile or a SELinux profile, the states are shared between them as well as the management API.
                 type: string
             type: object
         type: object
@@ -389,7 +452,7 @@ spec:
                   type: object
                 type: array
               state:
-                description: 'Represents the state that the policy is in. Can be: PENDING, IN-PROGRESS, INSTALLED or ERROR'
+                description: Represents the state that the profile is in.
                 type: string
               usage:
                 description: Represents the string that the SelinuxPolicy object can be referenced as in a pod seLinuxOptions section.
@@ -600,6 +663,18 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilenodestatuses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

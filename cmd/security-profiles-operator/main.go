@@ -37,6 +37,7 @@ import (
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -334,6 +335,11 @@ func runDaemon(ctx *cli.Context) error {
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
 		return errors.Wrap(err, "create manager")
+	}
+
+	// This API provides status which is used by both seccomp and selinux
+	if err := secprofnodestatusv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add per-node Status API to scheme")
 	}
 
 	err = setupEnabledControllers(ctx.Context, enabledControllers, mgr)

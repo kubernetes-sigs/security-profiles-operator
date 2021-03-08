@@ -169,6 +169,18 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - securityprofilenodestatuses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
   - selinuxpolicies
   verbs:
   - create
