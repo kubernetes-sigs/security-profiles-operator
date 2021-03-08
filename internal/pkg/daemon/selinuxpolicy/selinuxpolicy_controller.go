@@ -34,12 +34,17 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
+	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // The underscore is not a valid character in a pod, so we can
@@ -47,8 +52,6 @@ import (
 const policyWrapper = `(block {{.Name}}_{{.Namespace}}
     {{.Policy}}
 )`
-
-const selinuxFinalizerName = "selinuxpolicy.finalizers.selinuxpolicy.k8s.io"
 
 const (
 	selinuxdSockAddr        = "http://unix"
@@ -89,6 +92,7 @@ type ReconcileSP struct {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile reads that state of the cluster for a SelinuxPolicy object and makes changes based on the state read
 // and what is in the `SelinuxPolicy.Spec`.
@@ -97,84 +101,126 @@ func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (r
 	reqLogger.Info("Reconciling SelinuxPolicy")
 
 	// Fetch the SelinuxPolicy instance
-	instance := &spov1alpha1.SelinuxPolicy{}
+	instance := &selinuxpolicyv1alpha1.SelinuxPolicy{}
 	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		return reconcile.Result{}, IgnoreNotFound(err)
 	}
 
-	// Set up an initial state
-	if instance.Status.State == "" {
-		policyCopy := instance.DeepCopy()
-		policyCopy.Status.State = spov1alpha1.PolicyStatePending
-		policyCopy.Status.SetConditions(rcommonv1.Creating())
-		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
-			return reconcile.Result{}, errors.Wrap(err, "Updating SelinuxPolicy status to PENDING")
-		}
-		return reconcile.Result{}, nil
-	}
-
-	// If "apply" is false, no need to do anything, let the deployer
-	// review it.
-	if !instance.Spec.Apply {
-		policyCopy := instance.DeepCopy()
-		policyCopy.Status.State = spov1alpha1.PolicyStatePending
-		policyCopy.Status.SetConditions(rcommonv1.Unavailable())
-		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
-			return reconcile.Result{}, errors.Wrap(err, "Updating SelinuxPolicy status to PENDING")
-		}
-		return reconcile.Result{}, nil
+	nodeStatus, err := nodestatus.NewForProfile(instance)
+	if err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "cannot create nodeStatus")
 	}
 
 	if instance.Status.Usage != GetPolicyUsage(instance.Name, instance.Namespace) {
 		if err := r.addUsageStatus(instance); err != nil {
 			return reconcile.Result{}, err
 		}
+		return reconcile.Result{Requeue: true}, nil
 	}
 
 	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
 		// The object is not being deleted
-		if !SliceContainsString(instance.ObjectMeta.Finalizers, selinuxFinalizerName) {
-			return r.addFinalizer(instance)
+		if err := r.ensureNodeStatus(context.TODO(), nodeStatus, instance); err != nil {
+			return reconcile.Result{}, errors.Wrap(err, "ensuring node status exists")
 		}
-		return r.reconcilePolicy(instance, reqLogger)
+
+		return r.reconcilePolicy(instance, nodeStatus, reqLogger)
 	}
 
 	// The object is being deleted
-
-	// Set appropriate condition if needed.
-	if !instance.Status.GetCondition(rcommonv1.TypeReady).Equal(rcommonv1.Deleting()) {
-		policyCopy := instance.DeepCopy()
-		policyCopy.Status.SetConditions(rcommonv1.Deleting())
-		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
-			return reconcile.Result{}, errors.Wrap(err, "Updating SelinuxPolicy status condition to indicate deletion")
-		}
-		return reconcile.Result{}, nil
+	statusCopy := instance.Status.DeepCopy()
+	statusCopy.SetConditions(rcommonv1.Deleting())
+	statusCopy.State = secprofnodestatusv1alpha1.ProfileStateTerminating
+	if err = util.Retry(func() error {
+		return r.setBothStatuses(context.TODO(), nodeStatus, instance, statusCopy)
+	}, kerrors.IsConflict); err != nil {
+		reqLogger.Error(err, "cannot update SELinux profile status")
+		return reconcile.Result{}, errors.Wrap(err, "updating status for deleted SELinux profile")
 	}
 
-	if SliceContainsString(instance.ObjectMeta.Finalizers, selinuxFinalizerName) {
-		res, err := r.reconcileDeletePolicy(instance, reqLogger)
-		if res.Requeue || err != nil {
-			return res, err
-		}
+	// since the nodeStatus API always removes both the node status and the node's finalizer in sync,
+	// this condition will only be true after both are gone and therefore when the profile is really
+	// gone from the node
+	hasStatus, err := nodeStatus.Exists(context.TODO(), r.client)
+	if err != nil || !hasStatus {
+		return reconcile.Result{}, errors.Wrap(err, "asserting if node status exists")
+	}
 
-		// We only remove the finalizer once the ConfigMap is deleted
-		return r.removeFinalizer(instance)
+	res, err := r.reconcileDeletePolicy(instance, nodeStatus, reqLogger)
+	if res.Requeue || err != nil {
+		return res, err
+	}
+
+	if err := nodeStatus.Remove(context.TODO(), r.client); err != nil {
+		reqLogger.Error(err, "cannot remove finalizer from SELinux profile")
+		return ctrl.Result{}, errors.Wrap(err, "deleting finalizer for deleted SELinux profile")
 	}
 
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSP) addFinalizer(sp *spov1alpha1.SelinuxPolicy) (reconcile.Result, error) {
-	spcopy := sp.DeepCopy()
-	spcopy.ObjectMeta.Finalizers = append(spcopy.ObjectMeta.Finalizers, selinuxFinalizerName)
-	if err := r.client.Update(context.Background(), spcopy); err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "Adding finalizer to SelinuxPolicy")
+func (r *ReconcileSP) ensureNodeStatus(
+	ctx context.Context, nodeStatus *nodestatus.StatusClient, sp *selinuxpolicyv1alpha1.SelinuxPolicy,
+) error {
+	if err := nodeStatus.Create(ctx, r.client); err != nil {
+		return errors.Wrap(err, "cannot ensure node status")
 	}
-	return reconcile.Result{}, nil
+
+	if sp.Status.State != "" && sp.Spec.Apply {
+		return nil
+	}
+
+	policyCopy := sp.DeepCopy()
+	if sp.Status.State == "" {
+		// Set up an initial state
+		policyCopy.Status.State = secprofnodestatusv1alpha1.ProfileStatePending
+		policyCopy.Status.SetConditions(rcommonv1.Creating())
+	} else if !sp.Spec.Apply {
+		// If "apply" is false, no need to do anything, let the deployer
+		// review it.
+		policyCopy.Status.State = secprofnodestatusv1alpha1.ProfileStatePending
+		policyCopy.Status.SetConditions(rcommonv1.Unavailable())
+	}
+
+	// Retry makes sense here as we're updating the shared state directly from multiple nodes
+	if err := util.Retry(func() error {
+		return r.client.Status().Update(context.TODO(), policyCopy)
+	}, kerrors.IsConflict); err != nil {
+		return errors.Wrap(err, "Updating SelinuxPolicy status to PENDING")
+	}
+
+	return nil
 }
 
-func (r *ReconcileSP) addUsageStatus(sp *spov1alpha1.SelinuxPolicy) error {
+// setBothStatuses checks if the node status of a SELinux profile is in sync with the supplied
+// SELinux profile and updates the node status if not. Additionally, the status of the
+// SELinux profile is set to the lowest common denominator as well.
+func (r *ReconcileSP) setBothStatuses(
+	ctx context.Context, ns *nodestatus.StatusClient,
+	sp *selinuxpolicyv1alpha1.SelinuxPolicy,
+	newStatus *selinuxpolicyv1alpha1.SelinuxPolicyStatus,
+) error {
+	policyState, err := ns.SetReturnGlobal(ctx, r.client, newStatus.State)
+	if err != nil {
+		return errors.Wrap(err, "setting per-node status")
+	}
+
+	if sp.Status.State == policyState {
+		// avoid needless writes
+		return nil
+	}
+
+	// this should already be a deep-copy and the only thing we're changing is a scalar..
+	sp.Status = *newStatus
+	if err := r.client.Status().Update(ctx, sp); err != nil {
+		return errors.Wrap(err, "setting SELinux profile status")
+	}
+
+	return nil
+}
+
+func (r *ReconcileSP) addUsageStatus(sp *selinuxpolicyv1alpha1.SelinuxPolicy) error {
 	spcopy := sp.DeepCopy()
 	spcopy.Status.Usage = GetPolicyUsage(spcopy.Name, spcopy.Namespace)
 	if err := r.client.Status().Update(context.Background(), spcopy); err != nil {
@@ -183,16 +229,9 @@ func (r *ReconcileSP) addUsageStatus(sp *spov1alpha1.SelinuxPolicy) error {
 	return nil
 }
 
-func (r *ReconcileSP) removeFinalizer(sp *spov1alpha1.SelinuxPolicy) (reconcile.Result, error) {
-	spcopy := sp.DeepCopy()
-	spcopy.ObjectMeta.Finalizers = RemoveStringFromSlice(spcopy.ObjectMeta.Finalizers, selinuxFinalizerName)
-	if err := r.client.Update(context.Background(), spcopy); err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "Removing SelinuxPolicy finalizer")
-	}
-	return reconcile.Result{}, nil
-}
-
-func (r *ReconcileSP) reconcilePolicy(sp *spov1alpha1.SelinuxPolicy, l logr.Logger) (reconcile.Result, error) {
+func (r *ReconcileSP) reconcilePolicy(
+	sp *selinuxpolicyv1alpha1.SelinuxPolicy, nodeStatus *nodestatus.StatusClient, l logr.Logger,
+) (reconcile.Result, error) {
 	selinuxdReady, err := isSelinuxdReady()
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "contacting selinuxd")
@@ -215,35 +254,35 @@ func (r *ReconcileSP) reconcilePolicy(sp *spov1alpha1.SelinuxPolicy, l logr.Logg
 
 	if polStatus == nil {
 		l.Info("Policy still missing, requeue")
-		policyCopy := sp.DeepCopy()
-		policyCopy.Status.State = spov1alpha1.PolicyStateInProgress
-		policyCopy.Status.SetConditions(rcommonv1.Creating())
-		if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
+		statusCopy := sp.Status.DeepCopy()
+		statusCopy.SetConditions(rcommonv1.Creating())
+		statusCopy.State = secprofnodestatusv1alpha1.ProfileStateInProgress
+		if err := r.setBothStatuses(context.TODO(), nodeStatus, sp, statusCopy); err != nil {
 			return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation in progress")
 		}
 		return reconcile.Result{Requeue: true}, nil
 	}
 
 	l.Info("Policy installed")
-	policyCopy := sp.DeepCopy()
+	statusCopy := sp.Status.DeepCopy()
 
 	switch polStatus.Status {
 	case installedStatus:
-		policyCopy.Status.State = spov1alpha1.PolicyStateInstalled
-		policyCopy.Status.SetConditions(rcommonv1.Available())
+		statusCopy.State = secprofnodestatusv1alpha1.ProfileStateInstalled
+		statusCopy.SetConditions(rcommonv1.Available())
 	case failedStatus:
-		policyCopy.Status.State = spov1alpha1.PolicyStateError
-		policyCopy.Status.SetConditions(rcommonv1.Unavailable())
+		statusCopy.State = secprofnodestatusv1alpha1.ProfileStateError
+		statusCopy.SetConditions(rcommonv1.Unavailable())
 	}
 
-	if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
+	if err := r.setBothStatuses(context.TODO(), nodeStatus, sp, statusCopy); err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation success")
 	}
 
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSP) reconcilePolicyFile(sp *spov1alpha1.SelinuxPolicy, l logr.Logger) error {
+func (r *ReconcileSP) reconcilePolicyFile(sp *selinuxpolicyv1alpha1.SelinuxPolicy, l logr.Logger) error {
 	policyPath := path.Join(bindata.SelinuxDropDirectory, GetPolicyName(sp.Name, sp.Namespace)+".cil")
 	policyContent := []byte(r.wrapPolicy(sp))
 
@@ -284,7 +323,9 @@ func writeFileIfDiffers(filePath string, contents []byte) error {
 	return ioutil.WriteFile(filePath, contents, 0600)
 }
 
-func (r *ReconcileSP) reconcileDeletePolicy(sp *spov1alpha1.SelinuxPolicy, l logr.Logger) (reconcile.Result, error) {
+func (r *ReconcileSP) reconcileDeletePolicy(
+	sp *selinuxpolicyv1alpha1.SelinuxPolicy, nodeStatus *nodestatus.StatusClient, l logr.Logger,
+) (reconcile.Result, error) {
 	selinuxdReady, err := isSelinuxdReady()
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "contacting selinuxd")
@@ -311,10 +352,10 @@ func (r *ReconcileSP) reconcileDeletePolicy(sp *spov1alpha1.SelinuxPolicy, l log
 			l.Info("Policy still installed, requeue")
 			return reconcile.Result{Requeue: true}, nil
 		case failedStatus:
-			policyCopy := sp.DeepCopy()
-			policyCopy.Status.State = spov1alpha1.PolicyStateError
-			policyCopy.Status.SetConditions(rcommonv1.Unavailable())
-			if err := r.client.Status().Update(context.TODO(), policyCopy); err != nil {
+			statusCopy := sp.Status.DeepCopy()
+			statusCopy.State = secprofnodestatusv1alpha1.ProfileStateError
+			statusCopy.SetConditions(rcommonv1.Unavailable())
+			if err := r.setBothStatuses(context.TODO(), nodeStatus, sp, statusCopy); err != nil {
 				return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation success")
 			}
 
@@ -326,7 +367,7 @@ func (r *ReconcileSP) reconcileDeletePolicy(sp *spov1alpha1.SelinuxPolicy, l log
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSP) reconcileDeletePolicyFile(sp *spov1alpha1.SelinuxPolicy,
+func (r *ReconcileSP) reconcileDeletePolicyFile(sp *selinuxpolicyv1alpha1.SelinuxPolicy,
 	l logr.Logger) (reconcile.Result, error) {
 	policyPath := path.Join(bindata.SelinuxDropDirectory, GetPolicyName(sp.Name, sp.Namespace)+".cil")
 
@@ -349,7 +390,7 @@ func (r *ReconcileSP) reconcileDeletePolicyFile(sp *spov1alpha1.SelinuxPolicy,
 	return reconcile.Result{Requeue: true}, errors.Wrap(err, "error removing policy file")
 }
 
-func (r *ReconcileSP) wrapPolicy(cr *spov1alpha1.SelinuxPolicy) string {
+func (r *ReconcileSP) wrapPolicy(cr *selinuxpolicyv1alpha1.SelinuxPolicy) string {
 	parsedpolicy := strings.TrimSpace(cr.Spec.Policy)
 	// ident
 	parsedpolicy = strings.ReplaceAll(parsedpolicy, "\n", "\n    ")
@@ -407,7 +448,7 @@ func isSelinuxdReady() (bool, error) {
 	return status[selinuxdReadyKey], nil
 }
 
-func getPolicyStatus(sp *spov1alpha1.SelinuxPolicy) (*sePolStatus, error) {
+func getPolicyStatus(sp *selinuxpolicyv1alpha1.SelinuxPolicy) (*sePolStatus, error) {
 	polURL := selinuxdPoliciesBaseURL + GetPolicyName(sp.Name, sp.Namespace)
 	response, err := selinuxdGetRequest(polURL)
 	if err != nil {
