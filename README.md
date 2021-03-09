@@ -1,5 +1,8 @@
 # Kubernetes Security Profiles Operator
 
+[![build](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/build.yml/badge.svg)](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/build.yml)
+[![test](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/test.yml/badge.svg)](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/test.yml)
+
 This project is the starting point for the _Security Profiles Operator_, an
 out-of-tree Kubernetes enhancement which aims to make managing and applying
 seccomp and AppArmor profiles more easy and straight forward in Kubernetes.
