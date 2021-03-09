@@ -193,7 +193,7 @@ func runManager(ctx *cli.Context) error {
 	}
 
 	if err := spodv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add profilebinding API to scheme")
+		return errors.Wrap(err, "add SPOD API to scheme")
 	}
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add profilebinding API to scheme")
