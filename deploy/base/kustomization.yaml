@@ -36,7 +36,6 @@ resources:
   - role.yaml
   - role_binding.yaml
   - operator.yaml
-  - config.yaml
 
 configMapGenerator:
   - name: security-profiles-operator-profile
