@@ -15,17 +15,7 @@
 
 set -euo pipefail
 
-cd "$(mktemp -d)"
-
-VERSION=f47aeb6bf10cc62b4b5af2283fa507ddc5242191
-URL=https://storage.googleapis.com/k8s-conform-cri-o/artifacts/cri-o.amd64.$VERSION.tar.gz
-
-curl -sfL --retry 5 --retry-delay 3 --show-error \
-    -o crio.tar.gz \
-    $URL
-
-tar xfvz crio.tar.gz
-make -C cri-o
+curl https://raw.githubusercontent.com/cri-o/cri-o/master/scripts/get | bash
 
 chcon -u system_u -r object_r -t container_runtime_exec_t \
     /usr/local/bin/crio \
@@ -54,16 +44,6 @@ cat <<EOT >>/etc/crio/crio.conf.d/30-cgroup-manager.conf
 [crio.runtime]
 conmon_cgroup = "pod"
 cgroup_manager = "cgroupfs"
-EOT
-
-cat <<EOT >>/etc/crio/crio.conf.d/20-crun.conf
-[crio.runtime]
-default_runtime = "crun"
-[crio.runtime.runtimes.crun]
-runtime_path = "/usr/local/bin/crun"
-allowed_annotations = [
-    "io.containers.trace-syscall",
-]
 EOT
 
 chcon -R -u system_u -r object_r -t container_config_t \
