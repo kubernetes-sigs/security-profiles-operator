@@ -25,8 +25,12 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
+	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
@@ -202,6 +206,10 @@ func runManager(ctx *cli.Context) error {
 		return errors.Wrap(err, "add seccompprofile API to scheme")
 	}
 
+	if err := createConfigIfNotExist(ctx.Context, mgr.GetClient()); err != nil {
+		return errors.Wrap(err, "ensure SPOD config")
+	}
+
 	if err := spod.Setup(ctx.Context, mgr, &dt, ctrl.Log.WithName("spod-config")); err != nil {
 		return errors.Wrap(err, "setup profile controller")
 	}
@@ -212,6 +220,41 @@ func runManager(ctx *cli.Context) error {
 	}
 
 	setupLog.Info("ending manager")
+	return nil
+}
+
+func createConfigIfNotExist(ctx context.Context, c client.Client) error {
+	obj := &spodv1alpha1.SecurityProfilesOperatorDaemon{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "spod",
+			Namespace: config.GetOperatorNamespace(),
+			Labels:    map[string]string{"app": config.OperatorName},
+		},
+		Spec: spodv1alpha1.SPODSpec{
+			EnableSelinux:     false,
+			EnableLogEnricher: false,
+			Tolerations: []corev1.Toleration{
+				{
+					Key:      "node-role.kubernetes.io/master",
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+				{
+					Key:      "node-role.kubernetes.io/control-plane",
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+				{
+					Key:      "node.kubernetes.io/not-ready",
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoExecute,
+				},
+			},
+		},
+	}
+	if err := c.Create(ctx, obj); !k8serrors.IsAlreadyExists(err) {
+		return errors.Wrap(err, "create SecurityProfilesOperatorDaemon object")
+	}
 	return nil
 }
 
