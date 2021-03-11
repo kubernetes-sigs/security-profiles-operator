@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
@@ -65,7 +66,7 @@ type RecorderReconciler struct {
 	log           logr.Logger
 	record        event.Recorder
 	nodeAddresses []string
-	podsToWatch   map[string][]string
+	podsToWatch   sync.Map
 }
 
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
@@ -104,7 +105,6 @@ func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
 		log:           l,
 		nodeAddresses: nodeAddresses,
 		record:        event.NewAPIRecorder(mgr.GetEventRecorderFor(name)),
-		podsToWatch:   map[string][]string{},
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
@@ -169,7 +169,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	}
 
 	if pod.Status.Phase == corev1.PodPending {
-		if len(r.podsToWatch[req.NamespacedName.String()]) > 0 {
+		if _, ok := r.podsToWatch.Load(req.NamespacedName.String()); ok {
 			// We're tracking this pod already
 			return reconcile.Result{}, nil
 		}
@@ -186,7 +186,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 		logger.Info(fmt.Sprintf(
 			"Recording seccomp profiles: %s", strings.Join(outputFiles, ", "),
 		))
-		r.podsToWatch[req.NamespacedName.String()] = outputFiles
+		r.podsToWatch.Store(req.NamespacedName.String(), outputFiles)
 		r.record.Event(pod, event.Normal(reasonProfileRecording, "Recording seccomp profiles"))
 	}
 
@@ -199,50 +199,52 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	return reconcile.Result{}, nil
 }
 
-func (r *RecorderReconciler) collectProfile(ctx context.Context, name types.NamespacedName) error {
-	defer delete(r.podsToWatch, name.String())
+func (r *RecorderReconciler) collectProfile(ctx context.Context, name types.NamespacedName) (res error) {
+	defer r.podsToWatch.Delete(name.String())
 
-	for _, profilePath := range r.podsToWatch[name.String()] {
-		r.log.Info("Collecting profile", "path", profilePath)
+	if value, ok := r.podsToWatch.Load(name.String()); ok {
+		for _, profilePath := range value.([]string) {
+			r.log.Info("Collecting profile", "path", profilePath)
 
-		data, err := ioutil.ReadFile(profilePath)
-		if err != nil {
-			r.log.Error(err, "Failed to read profile")
-			return errors.Wrap(err, "read profile")
-		}
+			data, err := ioutil.ReadFile(profilePath)
+			if err != nil {
+				r.log.Error(err, "Failed to read profile")
+				return errors.Wrap(err, "read profile")
+			}
 
-		// Remove the file extension and timestamp
-		base := filepath.Base(profilePath)
-		lastIndex := strings.LastIndex(base, "-")
-		if lastIndex == -1 {
-			return errors.Errorf("Malformed profile path: %s", profilePath)
-		}
-		profileName := base[:lastIndex]
+			// Remove the file extension and timestamp
+			base := filepath.Base(profilePath)
+			lastIndex := strings.LastIndex(base, "-")
+			if lastIndex == -1 {
+				return errors.Errorf("malformed profile path: %s", profilePath)
+			}
+			profileName := base[:lastIndex]
 
-		profile := &v1alpha1.SeccompProfile{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      profileName,
-				Namespace: name.Namespace,
-			},
+			profile := &v1alpha1.SeccompProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      profileName,
+					Namespace: name.Namespace,
+				},
+			}
+			res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
+				func() error {
+					return errors.Wrap(
+						json.Unmarshal(data, &profile.Spec),
+						"unmarshal profile spec JSON",
+					)
+				},
+			)
+			if err != nil {
+				r.log.Error(err, "Cannot create seccompprofile resource")
+				r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+				return errors.Wrap(err, "create seccompProfile resource")
+			}
+			r.log.Info("Created/updated profile", "action", res, "name", profileName)
+			r.record.Event(
+				profile,
+				event.Normal(reasonProfileCreated, "seccomp profile created"),
+			)
 		}
-		res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
-			func() error {
-				return errors.Wrap(
-					json.Unmarshal(data, &profile.Spec),
-					"unmarshal profile spec JSON",
-				)
-			},
-		)
-		if err != nil {
-			r.log.Error(err, "Cannot create seccompprofile resource")
-			r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
-			return errors.Wrap(err, "create seccompProfile resource")
-		}
-		r.log.Info("Created/updated profile", "action", res, "name", profileName)
-		r.record.Event(
-			profile,
-			event.Normal(reasonProfileCreated, "seccomp profile created"),
-		)
 	}
 
 	return nil
