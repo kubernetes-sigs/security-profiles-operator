@@ -19,6 +19,7 @@ package e2e_test
 import (
 	"io/ioutil"
 	"os"
+	"strings"
 )
 
 const (
@@ -29,7 +30,7 @@ const (
 func (e *e2e) testCaseProfileRecordingStaticPod() {
 	e.profileRecordingTestCase()
 
-	e.logf("Creating recording")
+	e.logf("Creating recording for static pod test")
 	e.kubectl("create", "-f", exampleRecordingPath)
 	defer e.kubectl("delete", "-f", exampleRecordingPath)
 
@@ -69,7 +70,7 @@ spec:
 func (e *e2e) testCaseProfileRecordingKubectlRun() {
 	e.profileRecordingTestCase()
 
-	e.logf("Creating recording")
+	e.logf("Creating recording for kubectl run test")
 	e.kubectl("create", "-f", exampleRecordingPath)
 	defer e.kubectl("delete", "-f", exampleRecordingPath)
 
@@ -90,7 +91,7 @@ func (e *e2e) testCaseProfileRecordingKubectlRun() {
 func (e *e2e) testCaseProfileRecordingMultiContainer() {
 	e.profileRecordingTestCase()
 
-	e.logf("Creating recording")
+	e.logf("Creating recording for multi container test")
 	e.kubectl("create", "-f", exampleRecordingPath)
 	defer e.kubectl("delete", "-f", exampleRecordingPath)
 
@@ -128,4 +129,59 @@ spec:
 	defer e.kubectl("delete", "sp", "--all")
 	e.Contains(profileNginx, "unlink")
 	e.Contains(profileRedis, "nanosleep")
+}
+
+func (e *e2e) testCaseProfileRecordingDeployment() {
+	e.profileRecordingTestCase()
+
+	e.logf("Creating recording for deployment test")
+	e.kubectl("create", "-f", exampleRecordingPath)
+	defer e.kubectl("delete", "-f", exampleRecordingPath)
+
+	e.logf("Creating test deployment")
+	const testDeployment = `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-deployment
+spec:
+  selector:
+    matchLabels:
+      app: alpine
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: alpine
+    spec:
+      containers:
+      - name: nginx
+        image: quay.io/security-profiles-operator/test-nginx:1.19.1
+`
+	testFile, err := ioutil.TempFile(os.TempDir(), "recording-deployment*.yaml")
+	e.Nil(err)
+	defer os.Remove(testFile.Name())
+	_, err = testFile.Write([]byte(testDeployment))
+	e.Nil(err)
+	err = testFile.Close()
+	e.Nil(err)
+	e.kubectl("create", "-f", testFile.Name())
+
+	e.logf("Waiting for pods to be initialized")
+	e.waitFor("condition=available", "deployment", "my-deployment")
+	e.kubectl("delete", "deploy", "my-deployment")
+
+	e.retry(func(i int) bool {
+		e.logf("Waiting for profiles to be available (%d)", i)
+		output := e.kubectl("get", "sp")
+		return strings.Contains(output, "nginx-0") && strings.Contains(output, "nginx-1")
+	})
+	e.logf("All profiles available")
+
+	profile0 := e.kubectl("get", "sp", recordingName+"-nginx-0", "-o", "yaml")
+	profile1 := e.kubectl("get", "sp", recordingName+"-nginx-1", "-o", "yaml")
+	e.Contains(profile0, "unlink")
+	e.Contains(profile1, "unlink")
+	defer e.kubectl("delete", "sp", recordingName+"-nginx-0")
+	defer e.kubectl("delete", "sp", recordingName+"-nginx-1")
 }

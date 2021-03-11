@@ -113,6 +113,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseProfileRecordingStaticPod()
 		e.testCaseProfileRecordingKubectlRun()
 		e.testCaseProfileRecordingMultiContainer()
+		e.testCaseProfileRecordingDeployment()
 	})
 
 	e.cleanupWebhook(webhookManifest)
@@ -219,6 +220,12 @@ func (e *e2e) deployWebhook(manifest string) {
 	e.kubectl("create", "-f", manifest)
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=security-profiles-operator-webhook")
 	e.waitInOperatorNSFor("condition=ready", "certificate", "webhook-cert")
+
+	e.retry(func(i int) bool {
+		e.logf("Waiting webhook to acquired lease (%d)", i)
+		output := e.kubectlOperatorNS("logs", "-l", "name=security-profiles-operator-webhook")
+		return strings.Contains(output, "successfully acquired lease")
+	})
 }
 
 func (e *e2e) cleanupWebhook(manifest string) {
@@ -304,4 +311,13 @@ func (e *e2e) sliceContainsString(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func (e *e2e) retry(f func(iteration int) (abort bool)) {
+	for i := 0; i < 20; i++ {
+		if f(i) {
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
 }
