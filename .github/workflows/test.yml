@@ -47,7 +47,7 @@ jobs:
   e2e:
     needs: image
     runs-on: macos-10.15
-    timeout-minutes: 80
+    timeout-minutes: 90
     env:
       RUN: ./hack/ci/run.sh
     steps:

@@ -334,6 +334,43 @@ recording-nginx   Active   32s   operator/default/recording-nginx.json
 recording-redis   Active   32s   operator/default/recording-redis.json
 ```
 
+On top of that, we're able to record distinguishable replicas, for example when
+working with Deployments like these:
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-deployment
+spec:
+  selector:
+    matchLabels:
+      app: my-app
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+      - name: nginx
+        image: quay.io/security-profiles-operator/test-nginx:1.19.1
+```
+
+If the deployment gets deleted, then the operator writes three seccomp profiles
+instead of just one:
+
+```
+> kubectl get sp -o wide
+NAME                STATUS   AGE   LOCALHOSTPROFILE
+recording-nginx-0   Active   51s   operator/default/recording-nginx-0.json
+recording-nginx-1   Active   51s   operator/default/recording-nginx-1.json
+recording-nginx-2   Active   55s   operator/default/recording-nginx-2.json
+```
+
+This may be helpful when testing in load balanced scenarios where the profiles
+have to be compared in an additional step.
+
 Please note that we encourage you to only use this recording approach for
 development purposes. It is not recommended to use the OCI hook in production
 clusters because it runs as highly privileged process to trace the container
