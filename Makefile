@@ -174,7 +174,9 @@ vagrant-up: ## Boot the vagrant based test VM
 		$(CONTAINER_RUNTIME) save -o image.tar $(IMAGE); \
 	fi
 	ln -sf hack/ci/Vagrantfile .
-	vagrant up
+	# Retry in case provisioning failed because of some temporarily unavailable
+	# remote resource (like the VM image)
+	vagrant up || vagrant up || vagrant up
 
 # Verification targets
 
