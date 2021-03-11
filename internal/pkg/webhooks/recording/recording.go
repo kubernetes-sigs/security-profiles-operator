@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -43,9 +45,10 @@ import (
 const finalizer = "active-seccomp-profile-recording-lock"
 
 type podSeccompRecorder struct {
-	client  client.Client
-	log     logr.Logger
-	decoder *admission.Decoder
+	client   client.Client
+	log      logr.Logger
+	decoder  *admission.Decoder
+	replicas sync.Map
 }
 
 func RegisterWebhook(server *webhook.Server, c client.Client) {
@@ -88,9 +91,7 @@ func (p *podSeccompRecorder) Handle(
 	}
 
 	podChanged := false
-	podID := req.Namespace + "/" + req.Name
 	pod := &corev1.Pod{}
-
 	if req.Operation != admissionv1.Delete {
 		err := p.decoder.Decode(req, pod)
 		if err != nil {
@@ -99,19 +100,25 @@ func (p *podSeccompRecorder) Handle(
 		}
 	}
 
+	podName := req.Name
+	if podName == "" {
+		podName = pod.GenerateName
+	}
+
 	podLabels := labels.Set(pod.GetLabels())
 	items := profileRecordings.Items
 
 	for i := range items {
-		if items[i].Spec.Kind != "SeccompProfile" {
+		item := items[i]
+		if item.Spec.Kind != "SeccompProfile" {
 			p.log.Info(fmt.Sprintf(
-				"recording kind %s not supported", items[i].Spec.Kind,
+				"recording kind %s not supported", item.Spec.Kind,
 			))
 			continue
 		}
 
 		selector, err := metav1.LabelSelectorAsSelector(
-			&items[i].Spec.PodSelector,
+			&item.Spec.PodSelector,
 		)
 		if err != nil {
 			p.log.Error(
@@ -121,18 +128,19 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if req.Operation == admissionv1.Delete {
-			if err := p.removePod(ctx, podID, &items[i]); err != nil {
+			p.cleanupReplicas(podName)
+			if err := p.removePod(ctx, podName, &item); err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 			continue
 		}
 
 		if selector.Matches(podLabels) {
-			podChanged = p.addAnnotations(pod, &items[i])
+			podChanged = p.addAnnotations(pod, &item)
 		}
 
 		if podChanged {
-			if err := p.addPod(ctx, podID, &items[i]); err != nil {
+			if err := p.addPod(ctx, podName, &item); err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 		}
@@ -159,15 +167,28 @@ func (p *podSeccompRecorder) addAnnotations(
 	ctrs = append(ctrs, pod.Spec.InitContainers...)
 	ctrs = append(ctrs, pod.Spec.Containers...)
 
+	// Handle replicas by tracking them
+	replica := ""
+	if pod.Name == "" && pod.GenerateName != "" {
+		v, _ := p.replicas.LoadOrStore(pod.GenerateName, uint(0))
+		replica = fmt.Sprintf("-%d", v)
+		p.replicas.Store(pod.GenerateName, v.(uint)+1)
+	}
+
 	for i := range ctrs {
 		ctr := &ctrs[i]
 		key := fmt.Sprintf("%s/%s", config.SeccompProfileRecordAnnotationKey, ctr.Name)
+
+		ctrName := ctr.Name
+		if replica != "" {
+			ctrName += replica
+		}
 
 		value := fmt.Sprintf(
 			"of:%s/%s-%s-%d.json",
 			config.ProfileRecordingOutputPath,
 			profileRecording.GetName(),
-			ctr.Name,
+			ctrName,
 			time.Now().Unix(),
 		)
 
@@ -201,13 +222,23 @@ func (p *podSeccompRecorder) addAnnotations(
 	return podChanged
 }
 
+func (p *podSeccompRecorder) cleanupReplicas(podName string) {
+	p.replicas.Range(func(key, _ interface{}) bool {
+		if strings.HasPrefix(podName, key.(string)) {
+			p.replicas.Delete(key)
+			return false
+		}
+		return true
+	})
+}
+
 func (p *podSeccompRecorder) addPod(
 	ctx context.Context,
-	podID string,
+	podName string,
 	profileRecording *profilerecordingv1alpha1.ProfileRecording,
 ) error {
 	profileRecording.Status.ActiveWorkloads = utils.AppendIfNotExists(
-		profileRecording.Status.ActiveWorkloads, podID,
+		profileRecording.Status.ActiveWorkloads, podName,
 	)
 
 	if err := utils.UpdateResource(
@@ -225,12 +256,16 @@ func (p *podSeccompRecorder) addPod(
 
 func (p *podSeccompRecorder) removePod(
 	ctx context.Context,
-	podID string,
+	podName string,
 	profileRecording *profilerecordingv1alpha1.ProfileRecording,
 ) error {
-	profileRecording.Status.ActiveWorkloads = utils.RemoveIfExists(
-		profileRecording.Status.ActiveWorkloads, podID,
-	)
+	newActiveWorkloads := []string{}
+	for _, activeWorkload := range profileRecording.Status.ActiveWorkloads {
+		if !strings.HasPrefix(podName, activeWorkload) {
+			newActiveWorkloads = append(newActiveWorkloads, activeWorkload)
+		}
+	}
+	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
 
 	if err := utils.UpdateResource(
 		ctx, p.log, p.client.Status(), profileRecording, "profilerecording status",
