@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"github.com/containers/common/pkg/seccomp"
+	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
@@ -90,9 +91,10 @@ type Arg struct {
 
 // SeccompProfileStatus contains status of the deployed SeccompProfile.
 type SeccompProfileStatus struct {
-	Path            string                                 `json:"path,omitempty"`
-	Status          secprofnodestatusv1alpha1.ProfileState `json:"status,omitempty"`
-	ActiveWorkloads []string                               `json:"activeWorkloads,omitempty"`
+	rcommonv1.ConditionedStatus `json:",inline"`
+	Path                        string                                 `json:"path,omitempty"`
+	Status                      secprofnodestatusv1alpha1.ProfileState `json:"status,omitempty"`
+	ActiveWorkloads             []string                               `json:"activeWorkloads,omitempty"`
 	// The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
 	// field of a Pod or container spec
 	LocalhostProfile string `json:"localhostProfile,omitempty"`
