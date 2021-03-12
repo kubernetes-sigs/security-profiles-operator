@@ -21,6 +21,7 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"time"
 )
 
 func (e *e2e) testCaseBaseProfile([]string) {
@@ -57,7 +58,6 @@ spec:
   containers:
   - image: quay.io/security-profiles-operator/test-hello-world:latest
     name: hello
-    resources: {}
   securityContext:
     seccompProfile:
       type: Localhost
@@ -78,6 +78,15 @@ spec:
 	e.kubectl("create", "-f", helloProfileFile.Name())
 	defer e.kubectl("delete", "-f", helloProfileFile.Name())
 
+	e.logf("Waiting for profile to be reconciled")
+	for i := 0; i < 20; i++ {
+		output := e.kubectl("get", "sp", "hello")
+		if strings.Contains(output, "hello") {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+
 	e.logf("Creating hello-world pod")
 	helloPodFile, err := ioutil.TempFile(os.TempDir(), "hello-pod*.yaml")
 	e.Nil(err)
@@ -94,16 +103,16 @@ spec:
 	e.logf("Waiting for test pod to be initialized")
 	e.waitFor("condition=initialized", "pod", "hello")
 
-	output := e.kubectl("get", "pod", "hello")
-	for strings.Contains(output, "ContainerCreating") {
-		output = e.kubectl("get", "pod", "hello")
+	e.logf("Waiting for pod to be completed")
+	for i := 0; i < 20; i++ {
+		output := e.kubectl("get", "pod", "hello")
+		if strings.Contains(output, "Completed") {
+			break
+		}
+		time.Sleep(time.Second)
 	}
 
-	e.logf("Testing that container is launched without runtime permission errors")
-	output = e.kubectl("describe", "pod", "hello")
-	e.NotContains(output, "Error: failed to start containerd task")
-
 	e.logf("Testing that container ran successfully")
-	output = e.kubectl("logs", "hello")
+	output := e.kubectl("logs", "hello")
 	e.Contains(output, "Hello from Docker!")
 }
