@@ -25,6 +25,8 @@ import (
 )
 
 func (e *e2e) testCaseBaseProfile([]string) {
+	e.seccompOnlyTestCase()
+
 	baseProfilePath := "examples/baseprofile-runc.yaml"
 	baseProfileName := "runc-v1.0.0-rc92"
 
