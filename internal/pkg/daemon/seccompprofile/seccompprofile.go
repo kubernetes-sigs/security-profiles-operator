@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/containers/common/pkg/seccomp"
+	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/go-logr/logr"
@@ -290,6 +291,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 	if !sp.GetDeletionTimestamp().IsZero() { // object is being deleted
 		status := sp.Status
+		status.SetConditions(rcommonv1.Deleting())
 		status.Status = secprofnodestatusv1alpha1.ProfileStateTerminating
 		if err = util.Retry(func() error {
 			return r.setBothStatuses(ctx, nodeStatus, sp, &status)
@@ -338,6 +340,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	// set node status as installed
 	status := sp.Status
 	status.Path = profilePath
+	status.SetConditions(rcommonv1.Available())
 	status.Status = secprofnodestatusv1alpha1.ProfileStateInstalled
 	status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath+"/")
 	if err = util.Retry(func() error {
