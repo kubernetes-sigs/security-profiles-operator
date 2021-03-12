@@ -449,6 +449,21 @@ func (e *e2e) selinuxtOnlyTestCase() {
 	if !e.selinuxEnabled {
 		e.T().Skip("Skipping SELinux-related test")
 	}
+
+	e.enableSelinuxInSpod()
+}
+
+func (e *e2e) enableSelinuxInSpod() {
+	selinuxEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
+	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
+		e.logf("Enable selinux in SPOD")
+		e.kubectl("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
+
+		time.Sleep(defaultWaitTime)
+		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultSelinuxOpTimeout)
+	}
 }
 
 func (e *e2e) seccompOnlyTestCase() {
