@@ -99,7 +99,7 @@ func TestReconcile(t *testing.T) {
 				},
 				log:    log.Log,
 				record: event.NewNopRecorder(),
-				save:   func(_ string, _ []byte) error { return nil },
+				save:   func(_ string, _ []byte) (bool, error) { return false, nil },
 			},
 			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
 			wantResult: reconcile.Result{},
@@ -184,7 +184,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 				tc.setup()
 			}
 
-			gotErr := saveProfileOnDisk(tc.fileName, []byte(tc.contents))
+			_, gotErr := saveProfileOnDisk(tc.fileName, []byte(tc.contents))
 			file, _ := os.Stat(tc.fileName) // nolint: errcheck
 			gotFileCreated := file != nil
 
