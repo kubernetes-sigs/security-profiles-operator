@@ -17,6 +17,7 @@ limitations under the License.
 package seccompprofile
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -135,7 +136,7 @@ func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
 		})
 }
 
-type saver func(string, []byte) error
+type saver func(string, []byte) (bool, error)
 
 // A Reconciler reconciles seccomp profiles.
 type Reconciler struct {
@@ -314,7 +315,8 @@ func (r *Reconciler) reconcileSeccompProfile(
 		r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
 		return reconcile.Result{}, errors.Wrap(err, "adding finalizer for SeccompProfile")
 	}
-	if err = r.save(profilePath, profileContent); err != nil {
+	updated, err := r.save(profilePath, profileContent)
+	if err != nil {
 		l.Error(err, "cannot save profile into disk")
 		r.record.Event(sp, event.Warning(reasonCannotSaveProfile, err))
 		return reconcile.Result{RequeueAfter: wait}, nil
@@ -339,7 +341,9 @@ func (r *Reconciler) reconcileSeccompProfile(
 		"resource version", sp.GetResourceVersion(),
 		"name", sp.GetName(),
 	)
-	r.record.Event(sp, event.Normal(reasonSavedProfile, "Successfully saved profile to disk"))
+	if updated {
+		r.record.Event(sp, event.Normal(reasonSavedProfile, "Successfully saved profile to disk"))
+	}
 	return reconcile.Result{}, nil
 }
 
@@ -558,15 +562,21 @@ func handleDeletion(sp *v1alpha1.SeccompProfile, l logr.Logger) error {
 	return nil
 }
 
-func saveProfileOnDisk(fileName string, contents []byte) error {
+func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error) {
 	if err := os.MkdirAll(path.Dir(fileName), dirPermissionMode); err != nil {
-		return errors.Wrap(err, errCreatingOperatorDir)
+		return false, errors.Wrap(err, errCreatingOperatorDir)
 	}
 
-	if err := ioutil.WriteFile(fileName, contents, filePermissionMode); err != nil {
-		return errors.Wrap(err, errSavingProfile)
+	existingContent, err := ioutil.ReadFile(fileName)
+	if err == nil && bytes.Equal(existingContent, content) {
+		return false, nil
 	}
-	return nil
+
+	if err := ioutil.WriteFile(fileName, content, filePermissionMode); err != nil {
+		return false, errors.Wrap(err, errSavingProfile)
+	}
+
+	return true, nil
 }
 
 // GetProfilePath returns the full path for the provided profile name and config.
