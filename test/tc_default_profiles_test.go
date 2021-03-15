@@ -23,6 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
 )
@@ -55,6 +56,9 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		for _, name := range defaultProfileNames {
 			sp := e.getSeccompProfile(name, namespace)
 			e.verifyCRDProfileContent(node, sp)
+
+			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
+			e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 		}
 
 		// Example profile verification
@@ -62,6 +66,9 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		for _, name := range exampleProfileNames {
 			sp := e.getSeccompProfile(name, namespace)
 			e.verifyCRDProfileContent(node, sp)
+
+			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
+			e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 		}
 	}
 }
