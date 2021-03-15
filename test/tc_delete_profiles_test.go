@@ -20,6 +20,9 @@ import (
 	"fmt"
 	"time"
 
+	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+
+	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
 )
 
@@ -103,6 +106,9 @@ spec:
 	path, err := seccompprofile.GetProfilePath(deleteProfileName, sp.ObjectMeta.Namespace)
 	e.Nil(err)
 
+	e.logf("Waiting for profile to be reconciled")
+	e.waitFor("condition=ready", "seccompprofile", deleteProfileName)
+
 	e.logf("Verifying profile exists")
 	time.Sleep(time.Second)
 	for _, node := range nodes {
@@ -140,14 +146,37 @@ spec:
 		e.logf("> > Running test case for deleted profiles and pods: %s", testCase.description)
 		profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 		defer profileCleanup()
+		e.waitFor("condition=ready", "seccompprofile", deleteProfileName)
 		podCleanup := e.writeAndCreate(fmt.Sprintf(testCase.podManifest, namespace), "delete-pod*.yaml")
 		defer podCleanup()
 		e.waitFor("condition=ready", "pod", deletePodName)
 		e.logf("Ensuring profile cannot be deleted while pod is active")
 		e.kubectl("delete", "seccompprofile", deleteProfileName, "--wait=0")
-		output := e.kubectl("get", "seccompprofile", deleteProfileName)
-		e.Contains(output, "Terminating")
+
+		e.logf("Waiting for profile to be marked as terminating but not deleted")
+		// TODO(jhrozek): deleting manifests as Ready=False, reason=Deleting, can we wait in a nicer way?
+		for i := 0; i < 10; i++ {
+			sp := e.getSeccompProfile(deleteProfileName, namespace)
+			conReady := sp.Status.GetCondition(v1.TypeReady)
+			if conReady.Reason == v1.ReasonDeleting {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+
+		// At this point it must be terminating or else we haven't matched the condition above
+		sp := e.getSeccompProfile(deleteProfileName, namespace)
+		e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
+
+		isDeleted := make(chan bool)
+		go func() {
+			e.waitFor("delete", "seccompprofile", deleteProfileName)
+			isDeleted <- true
+		}()
+
 		e.kubectl("delete", "pod", deletePodName)
-		e.kubectlFailure("get", "seccompprofile", deleteProfileName)
+
+		// Wait a bit for the seccompprofile to be actually deleted
+		<-isDeleted
 	}
 }
