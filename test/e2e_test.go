@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 )
 
 const (
@@ -246,6 +247,19 @@ func (e *e2e) getSeccompProfile(name, namespace string) *v1alpha1.SeccompProfile
 	seccompProfile := &v1alpha1.SeccompProfile{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileJSON), seccompProfile))
 	return seccompProfile
+}
+
+func (e *e2e) getSeccompProfileNodeStatus(
+	name, namespace, node string,
+) *secprofnodestatusv1alpha1.SecurityProfileNodeStatus {
+	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-name=%s", node, name)
+	seccompProfileNodeStatusJSON := e.kubectl(
+		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+	)
+	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
+	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
+	e.Equal(len(secpolNodeStatusList.Items), 1)
+	return &secpolNodeStatusList.Items[0]
 }
 
 func (e *e2e) getCurrentContextNamespace(alt string) string {
