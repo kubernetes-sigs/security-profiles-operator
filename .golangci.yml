@@ -11,10 +11,12 @@ linters:
     - depguard
     - dogsled
     - dupl
+    - durationcheck
     - errcheck
     - errorlint
     - exhaustive
     - exportloopref
+    - forcetypeassert
     - gci
     - gochecknoinits
     - gocognit
@@ -35,11 +37,11 @@ linters:
     - gosec
     - gosimple
     - govet
+    - ifshort
+    - importas
     - ineffassign
-    - interfacer
     - lll
     - makezero
-    - maligned
     - misspell
     - nakedret
     - nestif
@@ -61,13 +63,17 @@ linters:
     - unparam
     - unused
     - varcheck
+    - wastedassign
     - whitespace
     - wrapcheck
+    # - cyclop
     # - exhaustivestruct
     # - forbidigo
     # - funlen
     # - gochecknoglobals
+    # - nilerr
     # - nlreturn
+    # - revive
     # - testpackage
     # - wsl
 linters-settings:
