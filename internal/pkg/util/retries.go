@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,23 +17,45 @@ limitations under the License.
 package util
 
 import (
-	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
+
+const (
+	backoffDuration = 500 * time.Millisecond
+	backoffFactor   = 1.5
+	backoffSteps    = 5
+)
+
+func IsNotFoundOrConflict(err error) bool {
+	return kerrors.IsNotFound(err) || kerrors.IsConflict(err)
+}
 
 // retry attempts to execute fn up to 5 times if its failure meets retryCondition.
 func Retry(fn func() error, retryCondition func(error) bool) error {
-	const retries = 5
-	var err error
-	for i := 0; i < retries; i++ {
-		err = fn()
-		if err == nil {
-			return nil
-		}
-		if !retryCondition(err) {
-			return errors.Wrap(err, "failed retry")
-		}
+	backoff := wait.Backoff{
+		Duration: backoffDuration,
+		Factor:   backoffFactor,
+		Steps:    backoffSteps,
 	}
-	return errors.Wrap(err, fmt.Sprintf("exceeded %d retries", retries))
+
+	waitErr := wait.ExponentialBackoff(backoff, func() (bool, error) {
+		err := fn()
+		if err == nil {
+			return true, nil
+		} else if retryCondition(err) {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "failed retry")
+	})
+
+	if waitErr != nil {
+		return errors.Wrap(waitErr, "")
+	}
+
+	return nil
 }

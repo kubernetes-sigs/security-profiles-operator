@@ -73,7 +73,7 @@ func (nsf *StatusClient) Create(ctx context.Context, c client.Client) error {
 func (nsf *StatusClient) createFinalizer(ctx context.Context, c client.Client) error {
 	return util.Retry(func() error {
 		return util.AddFinalizer(ctx, c, nsf.pol, nsf.finalizerString)
-	}, kerrors.IsConflict)
+	}, util.IsNotFoundOrConflict)
 }
 
 func (nsf *StatusClient) statusObj(
@@ -121,7 +121,7 @@ func (nsf *StatusClient) Remove(ctx context.Context, c client.Client) error {
 func (nsf *StatusClient) removeFinalizer(ctx context.Context, c client.Client) error {
 	return util.Retry(func() error {
 		return util.RemoveFinalizer(ctx, c, nsf.pol, nsf.finalizerString)
-	}, kerrors.IsConflict)
+	}, util.IsNotFoundOrConflict)
 }
 
 func (nsf *StatusClient) removeNodeStatus(ctx context.Context, c client.Client) error {
