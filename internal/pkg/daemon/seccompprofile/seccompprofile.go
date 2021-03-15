@@ -290,12 +290,14 @@ func (r *Reconciler) reconcileSeccompProfile(
 	}
 
 	if !sp.GetDeletionTimestamp().IsZero() { // object is being deleted
-		status := sp.Status
-		status.SetConditions(rcommonv1.Deleting())
-		status.Status = secprofnodestatusv1alpha1.ProfileStateTerminating
-		if err = util.Retry(func() error {
-			return r.setBothStatuses(ctx, nodeStatus, sp, &status)
-		}, kerrors.IsConflict); err != nil {
+		setTerminatingStatus := func(sp *v1alpha1.SeccompProfile) *v1alpha1.SeccompProfileStatus {
+			status := sp.Status.DeepCopy()
+			status.SetConditions(rcommonv1.Deleting())
+			status.Status = secprofnodestatusv1alpha1.ProfileStateTerminating
+			return status
+		}
+
+		if err := r.setBothStatuses(ctx, nodeStatus, sp, setTerminatingStatus); err != nil {
 			l.Error(err, "cannot update SeccompProfile status")
 			r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
 			return reconcile.Result{}, errors.Wrap(err, "updating status for deleted SeccompProfile")
@@ -337,19 +339,21 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{}, errors.Wrap(ignoreNotFound(err), errGetProfile)
 	}
 
-	// set node status as installed
-	status := sp.Status
-	status.Path = profilePath
-	status.SetConditions(rcommonv1.Available())
-	status.Status = secprofnodestatusv1alpha1.ProfileStateInstalled
-	status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath+"/")
-	if err = util.Retry(func() error {
-		return r.setBothStatuses(ctx, nodeStatus, sp, &status)
-	}, kerrors.IsConflict); err != nil {
+	setInstalledStatus := func(sp *v1alpha1.SeccompProfile) *v1alpha1.SeccompProfileStatus {
+		status := sp.Status.DeepCopy()
+		status.Path = profilePath
+		status.SetConditions(rcommonv1.Available())
+		status.Status = secprofnodestatusv1alpha1.ProfileStateInstalled
+		status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath+"/")
+		return status
+	}
+
+	if err := r.setBothStatuses(ctx, nodeStatus, sp, setInstalledStatus); err != nil {
 		l.Error(err, "cannot update SeccompProfile status")
 		r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
 		return reconcile.Result{}, errors.Wrap(err, "updating status in SeccompProfile reconciler")
 	}
+
 	l.Info(
 		"Reconciled profile from SeccompProfile",
 		"resource version", sp.GetResourceVersion(),
@@ -366,15 +370,26 @@ func (r *Reconciler) reconcileSeccompProfile(
 // SeccompProfile is set to the lowest common denominator as well.
 func (r *Reconciler) setBothStatuses(
 	ctx context.Context, ns *nodestatus.StatusClient,
-	sp *v1alpha1.SeccompProfile, status *v1alpha1.SeccompProfileStatus,
+	sp *v1alpha1.SeccompProfile, setStatusFn func(sp *v1alpha1.SeccompProfile) *v1alpha1.SeccompProfileStatus,
 ) error {
-	profileStatus, err := ns.SetReturnGlobal(ctx, r.client, status.Status)
-	if err != nil {
-		return errors.Wrap(err, "setting per-node status")
+	if retryErr := util.Retry(func() error {
+		if err := r.client.Get(ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
+			return errors.Wrap(err, "retrieving profile")
+		}
+
+		status := setStatusFn(sp)
+
+		profileStatus, err := ns.SetReturnGlobal(ctx, r.client, status.Status)
+		if err != nil {
+			return errors.Wrap(err, "setting per-node status")
+		}
+		status.Status = profileStatus
+		return r.setStatus(ctx, sp, status)
+	}, kerrors.IsConflict); retryErr != nil {
+		return errors.Wrap(retryErr, "updating policy status")
 	}
 
-	status.Status = profileStatus
-	return r.setStatus(ctx, sp, status)
+	return nil
 }
 
 // setStatus checks if the Status of a SeccompProfile is in sync with the supplied
@@ -456,23 +471,31 @@ func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *v1alpha1.Se
 		pod := linkedPods.Items[i]
 		podList[i] = pod.ObjectMeta.Namespace + "/" + pod.ObjectMeta.Name
 	}
-	sp.Status.ActiveWorkloads = podList
 	if err := util.Retry(func() error {
-		return r.client.Status().Update(ctx, sp)
-	}, kerrors.IsConflict); err != nil {
+		sp.Status.ActiveWorkloads = podList
+
+		updateErr := r.client.Status().Update(ctx, sp)
+		if updateErr != nil {
+			if err := r.client.Get(ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
+				return errors.Wrap(err, "retrieving profile")
+			}
+		}
+
+		return errors.Wrap(updateErr, "updating profile")
+	}, util.IsNotFoundOrConflict); err != nil {
 		return errors.Wrap(err, "updating SeccompProfile status")
 	}
 	hasActivePodsFinalizerString := "in-use-by-active-pods"
 	if len(linkedPods.Items) > 0 {
 		if err := util.Retry(func() error {
 			return util.AddFinalizer(ctx, r.client, sp, hasActivePodsFinalizerString)
-		}, kerrors.IsConflict); err != nil {
+		}, util.IsNotFoundOrConflict); err != nil {
 			return errors.Wrap(err, "adding finalizer")
 		}
 	} else {
 		if err := util.Retry(func() error {
 			return util.RemoveFinalizer(ctx, r.client, sp, hasActivePodsFinalizerString)
-		}, kerrors.IsConflict); err != nil {
+		}, util.IsNotFoundOrConflict); err != nil {
 			return errors.Wrap(err, "removing finalizer")
 		}
 	}
