@@ -80,9 +80,9 @@ func (n *NonRootEnabler) Run() error {
 	}
 
 	if err := n.impl.CopyDirContentsLocal(
-		"/opt/seccomp-profiles", config.KubeletSeccompRootPath,
+		"/opt/spo-profiles", config.KubeletSeccompRootPath,
 	); err != nil {
-		return errors.Wrap(err, "copy local seccomp profiles")
+		return errors.Wrap(err, "copy local security profiles")
 	}
 
 	return nil

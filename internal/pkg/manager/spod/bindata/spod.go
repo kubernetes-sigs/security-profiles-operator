@@ -76,8 +76,8 @@ var Manifest = &appsv1.DaemonSet{
 								MountPath: "/var/lib",
 							},
 							{
-								Name:      "operator-seccomp-profile-volume",
-								MountPath: "/opt/seccomp-profiles",
+								Name:      "operator-profiles-volume",
+								MountPath: "/opt/spo-profiles",
 								ReadOnly:  true,
 							},
 						},
@@ -125,17 +125,35 @@ var Manifest = &appsv1.DaemonSet{
 						// the chown+chmod to the previous init container and move the copying of
 						// the files into a lifecycle handler of selinuxd.
 						Command: []string{"bash", "-c"},
-						Args: []string{`
-						set -x
-
-						chown 65535:0 /etc/selinux.d
-						chmod 750 /etc/selinux.d
-						cp /usr/share/udica/templates/* /etc/selinux.d
-					`},
+						Args: []string{
+							`set -x
+chown 65535:0 /etc/selinux.d
+chmod 750 /etc/selinux.d
+semodule -i /usr/share/selinuxd/templates/*.cil
+semodule -i /opt/spo-profiles/selinuxd.cil
+`,
+						},
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      "selinux-drop-dir",
 								MountPath: SelinuxDropDirectory,
+							},
+							{
+								Name:      "operator-profiles-volume",
+								MountPath: "/opt/spo-profiles",
+								ReadOnly:  true,
+							},
+							{
+								Name:      "host-fsselinux-volume",
+								MountPath: "/sys/fs/selinux",
+							},
+							{
+								Name:      "host-etcselinux-volume",
+								MountPath: "/etc/selinux",
+							},
+							{
+								Name:      "host-varlibselinux-volume",
+								MountPath: "/var/lib/selinux",
 							},
 						},
 						SecurityContext: &v1.SecurityContext{
@@ -158,7 +176,8 @@ var Manifest = &appsv1.DaemonSet{
 								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
 							},
 							Limits: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("64Mi"),
+								// libsemanage is very resource hungry...
+								v1.ResourceMemory:           resource.MustParse("1024Mi"),
 								v1.ResourceCPU:              resource.MustParse("250m"),
 								v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
 							},
@@ -262,12 +281,12 @@ var Manifest = &appsv1.DaemonSet{
 							ReadOnlyRootFilesystem: &truly,
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
-							SELinuxOptions: &v1.SELinuxOptions{
-								// TODO(jaosorior): Use a more restricted selinux type
-								Type: "spc_t",
+							Capabilities: &v1.Capabilities{
+								Add: []v1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
 							},
-							/* TODO(jhrozek) is this really needed? */
-							Privileged: &truly,
+							SELinuxOptions: &v1.SELinuxOptions{
+								Type: "selinuxd.process",
+							},
 						},
 						Resources: v1.ResourceRequirements{
 							Requests: v1.ResourceList{
@@ -348,7 +367,7 @@ var Manifest = &appsv1.DaemonSet{
 						},
 					},
 					{
-						Name: "operator-seccomp-profile-volume",
+						Name: "operator-profiles-volume",
 						VolumeSource: v1.VolumeSource{
 							ConfigMap: &v1.ConfigMapVolumeSource{
 								LocalObjectReference: v1.LocalObjectReference{
@@ -357,14 +376,13 @@ var Manifest = &appsv1.DaemonSet{
 							},
 						},
 					},
-					// Ephemeral emptyDirs for the selinuxd socket and the policies.
-					// As the policies are loaded based on API objects and contents of
-					// the init container and loaded on selinuxd start, we don't need
-					// to persist them
 					{
 						Name: "selinux-drop-dir",
 						VolumeSource: v1.VolumeSource{
-							EmptyDir: &v1.EmptyDirVolumeSource{},
+							HostPath: &v1.HostPathVolumeSource{
+								Path: SelinuxDropDirectory,
+								Type: &hostPathDirectoryOrCreate,
+							},
 						},
 					},
 					{
