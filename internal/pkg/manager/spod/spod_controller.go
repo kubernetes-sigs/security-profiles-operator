@@ -323,6 +323,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	newSPOd.SetNamespace(config.GetOperatorNamespace())
 	templateSpec := &newSPOd.Spec.Template.Spec
 
+	templateSpec.InitContainers = []corev1.Container{r.baseSPOd.Spec.Template.Spec.InitContainers[0]}
 	// Set Images
 	// - Base workload
 	templateSpec.Containers = []corev1.Container{r.baseSPOd.Spec.Template.Spec.Containers[0]}
@@ -333,6 +334,9 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	// SELinux parameters
 	if cfg.Spec.EnableSelinux {
+		templateSpec.InitContainers = append(
+			templateSpec.InitContainers,
+			r.baseSPOd.Spec.Template.Spec.InitContainers[1])
 		templateSpec.Containers = append(
 			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[1])

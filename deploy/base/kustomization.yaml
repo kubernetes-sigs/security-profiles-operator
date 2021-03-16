@@ -41,6 +41,7 @@ configMapGenerator:
   - name: security-profiles-operator-profile
     files:
       - profiles/security-profiles-operator.json
+      - profiles/selinuxd.cil
 
 generatorOptions:
   disableNameSuffixHash: true
