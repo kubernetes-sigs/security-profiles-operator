@@ -52,7 +52,8 @@ const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
 
-	wait = 30 * time.Second
+	shortWait = 2 * time.Second
+	wait      = 30 * time.Second
 
 	errGetProfile          = "cannot get profile"
 	errSeccompProfileNil   = "seccomp profile cannot be nil"
@@ -322,11 +323,18 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return ctrl.Result{}, nil
 	}
 
-	if err := nodeStatus.Create(ctx, r.client); err != nil {
+	hasNodeStatus, err := r.ensureNodeStatus(ctx, nodeStatus, sp)
+	if err != nil {
 		l.Error(err, "cannot create SeccompProfile status/finalizers")
 		r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
 		return reconcile.Result{}, errors.Wrap(err, "adding status/finalizer for SeccompProfile")
 	}
+
+	if !hasNodeStatus {
+		l.Info("profile node status created, reconciling")
+		return reconcile.Result{RequeueAfter: shortWait}, nil
+	}
+
 	updated, err := r.save(profilePath, profileContent)
 	if err != nil {
 		l.Error(err, "cannot save profile into disk")
@@ -385,11 +393,48 @@ func (r *Reconciler) setBothStatuses(
 		}
 		status.Status = profileStatus
 		return r.setStatus(ctx, sp, status)
-	}, kerrors.IsConflict); retryErr != nil {
-		return errors.Wrap(retryErr, "updating policy status")
+	}, util.IsNotFoundOrConflict); retryErr != nil {
+		return errors.Wrap(retryErr, "updating profile status")
 	}
 
 	return nil
+}
+
+func (r *Reconciler) ensureNodeStatus(
+	ctx context.Context, nodeStatus *nodestatus.StatusClient, sp *v1alpha1.SeccompProfile) (bool, error) {
+	nodeStatusExists, err := nodeStatus.Exists(ctx, r.client)
+	if err != nil {
+		return false, errors.Wrap(err, "Retrieving node status")
+	}
+
+	if !nodeStatusExists {
+		if err := nodeStatus.Create(ctx, r.client); err != nil {
+			return nodeStatusExists, errors.Wrap(err, "Creating node status")
+		}
+	}
+
+	if err := util.Retry(func() error {
+		if sp.Status.Status != "" {
+			return nil
+		}
+
+		profileCopy := sp.DeepCopy()
+		profileCopy.Status.Status = secprofnodestatusv1alpha1.ProfileStatePending
+		profileCopy.Status.SetConditions(rcommonv1.Creating())
+
+		updateErr := r.client.Status().Update(context.TODO(), profileCopy)
+		if updateErr != nil {
+			if err := r.client.Get(
+				ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
+				return errors.Wrap(err, "retrieving profile")
+			}
+		}
+		return errors.Wrap(updateErr, "updating to initial state")
+	}, util.IsNotFoundOrConflict); err != nil {
+		return nodeStatusExists, errors.Wrap(err, "Updating seccomp status to PENDING")
+	}
+
+	return nodeStatusExists, nil
 }
 
 // setStatus checks if the Status of a SeccompProfile is in sync with the supplied
