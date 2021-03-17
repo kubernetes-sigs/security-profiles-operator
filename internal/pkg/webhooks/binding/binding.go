@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,41 +35,46 @@ import (
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
-var log = logf.Log.WithName("pod-resource")
-
-const (
-	warnProfileAlreadySet = "cannot override existing seccomp profile for pod or container"
-	finalizer             = "active-workload-lock"
-)
+const finalizer = "active-workload-lock"
 
 type podSeccompBinder struct {
 	client  client.Client
+	log     logr.Logger
 	decoder *admission.Decoder
 }
 
 func RegisterWebhook(server *webhook.Server, c client.Client) {
-	server.Register("/mutate-v1-pod-binding", &webhook.Admission{Handler: &podSeccompBinder{client: c}})
+	server.Register(
+		"/mutate-v1-pod-binding",
+		&webhook.Admission{
+			Handler: &podSeccompBinder{
+				client: c,
+				log:    logf.Log.WithName("binding"),
+			},
+		},
+	)
 }
 
-type containerMap map[string][]*corev1.Container
+type containerList []*corev1.Container
 
-func newContainerMap(spec *corev1.PodSpec) containerMap {
-	res := make(containerMap)
+func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 	if spec.Containers != nil {
 		for i := range spec.Containers {
 			image := spec.Containers[i].Image
-			res[image] = append(res[image], &spec.Containers[i])
+			value, _ := m.LoadOrStore(image, containerList{})
+			m.Store(image, append(value.(containerList), &spec.Containers[i]))
 		}
 	}
 	if spec.InitContainers != nil {
 		for i := range spec.InitContainers {
 			image := spec.InitContainers[i].Image
-			res[image] = append(res[image], &spec.InitContainers[i])
+			value, _ := m.LoadOrStore(image, containerList{})
+			m.Store(image, append(value.(containerList), &spec.InitContainers[i]))
 		}
 	}
-	return res
 }
 
 // Security Profiles Operator Webhook RBAC permissions
@@ -84,30 +91,33 @@ func newContainerMap(spec *corev1.PodSpec) containerMap {
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update;
 
-func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) admission.Response { //nolint:gocritic
+// nolint: gocritic
+func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) admission.Response {
 	profileBindings := &profilebindingv1alpha1.ProfileBindingList{}
 	err := p.client.List(ctx, profileBindings, client.InNamespace(req.Namespace))
 	if err != nil {
-		log.Error(err, "could not list profile bindings")
+		p.log.Error(err, "could not list profile bindings")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 	profilebindings := profileBindings.Items
 	podChanged := false
 	podID := req.Namespace + "/" + req.Name
 	pod := &corev1.Pod{}
-	containers := containerMap{}
+
+	var containers sync.Map
 	if req.Operation != "DELETE" {
 		err := p.decoder.Decode(req, pod)
 		if err != nil {
-			log.Error(err, "failed to decode pod")
+			p.log.Error(err, "failed to decode pod")
 			return admission.Errored(http.StatusBadRequest, err)
 		}
-		containers = newContainerMap(&pod.Spec)
+		initContainerMap(&containers, &pod.Spec)
 	}
+
 	for i := range profilebindings {
 		// TODO(cmurphy): handle profiles kinds other than SeccompProfile
 		if profilebindings[i].Spec.ProfileRef.Kind != "SeccompProfile" {
-			log.Info(fmt.Sprintf("profile kind %s not yet supported", profilebindings[i].Spec.ProfileRef.Kind))
+			p.log.Info(fmt.Sprintf("profile kind %s not yet supported", profilebindings[i].Spec.ProfileRef.Kind))
 			continue
 		}
 		profileName := profilebindings[i].Spec.ProfileRef.Name
@@ -117,19 +127,24 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 			}
 			continue
 		}
-		c, ok := containers[profilebindings[i].Spec.Image]
+		value, ok := containers.Load(profilebindings[i].Spec.Image)
 		if !ok {
 			continue
 		}
+		containers, ok := value.(containerList)
+		if !ok {
+			continue
+		}
+
 		seccompProfile := &seccompprofilev1alpha1.SeccompProfile{}
 		namespacedName := types.NamespacedName{Namespace: req.Namespace, Name: profileName}
 		err = p.client.Get(ctx, namespacedName, seccompProfile)
 		if err != nil {
-			log.Error(err, fmt.Sprintf("failed to get SeccompProfile %#v", namespacedName))
+			p.log.Error(err, fmt.Sprintf("failed to get SeccompProfile %#v", namespacedName))
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
-		for j := range c {
-			podChanged = p.addSecurityContext(c[j], seccompProfile)
+		for j := range containers {
+			podChanged = p.addSecurityContext(containers[j], seccompProfile)
 		}
 		if podChanged {
 			if err := p.addPodToBinding(ctx, podID, &profilebindings[i]); err != nil {
@@ -142,7 +157,7 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 	}
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {
-		log.Error(err, "failed to encode pod")
+		p.log.Error(err, "failed to encode pod")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
@@ -161,7 +176,7 @@ func (p *podSeccompBinder) addSecurityContext(
 		c.SecurityContext = &corev1.SecurityContext{}
 	}
 	if c.SecurityContext.SeccompProfile != nil {
-		log.Info(warnProfileAlreadySet)
+		p.log.Info("cannot override existing seccomp profile for pod or container")
 	} else {
 		c.SecurityContext.SeccompProfile = &sp
 		podChanged = true
@@ -170,56 +185,34 @@ func (p *podSeccompBinder) addSecurityContext(
 }
 
 func (p *podSeccompBinder) addPodToBinding(
-	ctx context.Context, podID string, pb *profilebindingv1alpha1.ProfileBinding) error {
-	pb.Status.ActiveWorkloads = appendIfNotExists(pb.Status.ActiveWorkloads, podID)
-	if err := updateResource(ctx, p.client.Status(), pb, "profilebinding status"); err != nil {
-		return err
+	ctx context.Context,
+	podID string,
+	pb *profilebindingv1alpha1.ProfileBinding,
+) error {
+	pb.Status.ActiveWorkloads = utils.AppendIfNotExists(pb.Status.ActiveWorkloads, podID)
+	if err := utils.UpdateResource(ctx, p.log, p.client.Status(), pb, "profilebinding status"); err != nil {
+		return errors.Wrap(err, "add pod to binding")
 	}
 	if !controllerutil.ContainsFinalizer(pb, finalizer) {
 		controllerutil.AddFinalizer(pb, finalizer)
 	}
-	return updateResource(ctx, p.client, pb, "profilebinding")
+	return utils.UpdateResource(ctx, p.log, p.client, pb, "profilebinding")
 }
 
 func (p *podSeccompBinder) removePodFromBinding(
-	ctx context.Context, podID string, pb *profilebindingv1alpha1.ProfileBinding) error {
-	pb.Status.ActiveWorkloads = removeIfExists(pb.Status.ActiveWorkloads, podID)
-	if err := updateResource(ctx, p.client.Status(), pb, "profilebinding status"); err != nil {
-		return err
+	ctx context.Context,
+	podID string,
+	pb *profilebindingv1alpha1.ProfileBinding,
+) error {
+	pb.Status.ActiveWorkloads = utils.RemoveIfExists(pb.Status.ActiveWorkloads, podID)
+	if err := utils.UpdateResource(ctx, p.log, p.client.Status(), pb, "profilebinding status"); err != nil {
+		return errors.Wrap(err, "remove pod from binding")
 	}
 	if len(pb.Status.ActiveWorkloads) == 0 &&
 		controllerutil.ContainsFinalizer(pb, finalizer) {
 		controllerutil.RemoveFinalizer(pb, finalizer)
 	}
-	return updateResource(ctx, p.client, pb, "profilebinding")
-}
-
-func updateResource(
-	ctx context.Context, c client.StatusWriter, pb *profilebindingv1alpha1.ProfileBinding, resource string) error {
-	if err := c.Update(ctx, pb); err != nil {
-		msg := fmt.Sprintf("failed to update %s", resource)
-		log.Error(err, msg)
-		return errors.Wrap(err, msg)
-	}
-	return nil
-}
-
-func appendIfNotExists(list []string, item string) []string {
-	for _, s := range list {
-		if s == item {
-			return list
-		}
-	}
-	return append(list, item)
-}
-
-func removeIfExists(list []string, item string) []string {
-	for i := range list {
-		if list[i] == item {
-			return append(list[:i], list[i+1:]...)
-		}
-	}
-	return list
+	return utils.UpdateResource(ctx, p.log, p.client, pb, "profilebinding")
 }
 
 func (p *podSeccompBinder) InjectDecoder(d *admission.Decoder) error {

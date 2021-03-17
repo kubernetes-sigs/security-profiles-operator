@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -36,21 +37,26 @@ import (
 
 	profilerecordingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 const finalizer = "active-seccomp-profile-recording-lock"
 
-var log = logf.Log.WithName("pod-resource")
-
 type podSeccompRecorder struct {
 	client  client.Client
+	log     logr.Logger
 	decoder *admission.Decoder
 }
 
 func RegisterWebhook(server *webhook.Server, c client.Client) {
 	server.Register(
 		"/mutate-v1-pod-recording",
-		&webhook.Admission{Handler: &podSeccompRecorder{client: c}},
+		&webhook.Admission{
+			Handler: &podSeccompRecorder{
+				client: c,
+				log:    logf.Log.WithName("recording"),
+			},
+		},
 	)
 }
 
@@ -77,7 +83,7 @@ func (p *podSeccompRecorder) Handle(
 	if err := p.client.List(
 		ctx, profileRecordings, client.InNamespace(req.Namespace),
 	); err != nil {
-		log.Error(err, "Could not list profile recordings")
+		p.log.Error(err, "Could not list profile recordings")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
@@ -88,7 +94,7 @@ func (p *podSeccompRecorder) Handle(
 	if req.Operation != admissionv1.Delete {
 		err := p.decoder.Decode(req, pod)
 		if err != nil {
-			log.Error(err, "Failed to decode pod")
+			p.log.Error(err, "Failed to decode pod")
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 	}
@@ -98,7 +104,7 @@ func (p *podSeccompRecorder) Handle(
 
 	for i := range items {
 		if items[i].Spec.Kind != "SeccompProfile" {
-			log.Info(fmt.Sprintf(
+			p.log.Info(fmt.Sprintf(
 				"recording kind %s not supported", items[i].Spec.Kind,
 			))
 			continue
@@ -108,7 +114,7 @@ func (p *podSeccompRecorder) Handle(
 			&items[i].Spec.PodSelector,
 		)
 		if err != nil {
-			log.Error(
+			p.log.Error(
 				err, "Could not get label selector from profile recording",
 			)
 			return admission.Errored(http.StatusInternalServerError, err)
@@ -138,7 +144,7 @@ func (p *podSeccompRecorder) Handle(
 
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {
-		log.Error(err, "Failed to encode pod")
+		p.log.Error(err, "Failed to encode pod")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
@@ -171,7 +177,7 @@ func (p *podSeccompRecorder) addAnnotations(
 				pod.Annotations = make(map[string]string)
 			}
 			pod.Annotations[key] = value
-			log.Info(fmt.Sprintf(
+			p.log.Info(fmt.Sprintf(
 				"adding seccomp recording annotation %s=%s to pod %s",
 				key, value, pod.Name,
 			))
@@ -180,7 +186,7 @@ func (p *podSeccompRecorder) addAnnotations(
 		}
 
 		if existingValue != value {
-			log.Error(
+			p.log.Error(
 				errors.New("existing annotation"),
 				fmt.Sprintf(
 					"workload %s already has annotation %s (not mutating to %s).",
@@ -200,12 +206,12 @@ func (p *podSeccompRecorder) addPod(
 	podID string,
 	profileRecording *profilerecordingv1alpha1.ProfileRecording,
 ) error {
-	profileRecording.Status.ActiveWorkloads = appendIfNotExists(
+	profileRecording.Status.ActiveWorkloads = utils.AppendIfNotExists(
 		profileRecording.Status.ActiveWorkloads, podID,
 	)
 
-	if err := updateResource(
-		ctx, p.client.Status(), profileRecording, "profilerecording status",
+	if err := utils.UpdateResource(
+		ctx, p.log, p.client.Status(), profileRecording, "profilerecording status",
 	); err != nil {
 		return errors.Wrap(err, "update resource on adding pod")
 	}
@@ -214,7 +220,7 @@ func (p *podSeccompRecorder) addPod(
 		controllerutil.AddFinalizer(profileRecording, finalizer)
 	}
 
-	return updateResource(ctx, p.client, profileRecording, "profilerecording")
+	return utils.UpdateResource(ctx, p.log, p.client, profileRecording, "profilerecording")
 }
 
 func (p *podSeccompRecorder) removePod(
@@ -222,12 +228,12 @@ func (p *podSeccompRecorder) removePod(
 	podID string,
 	profileRecording *profilerecordingv1alpha1.ProfileRecording,
 ) error {
-	profileRecording.Status.ActiveWorkloads = removeIfExists(
+	profileRecording.Status.ActiveWorkloads = utils.RemoveIfExists(
 		profileRecording.Status.ActiveWorkloads, podID,
 	)
 
-	if err := updateResource(
-		ctx, p.client.Status(), profileRecording, "profilerecording status",
+	if err := utils.UpdateResource(
+		ctx, p.log, p.client.Status(), profileRecording, "profilerecording status",
 	); err != nil {
 		return errors.Wrap(err, "update resource on removing pod")
 	}
@@ -237,39 +243,7 @@ func (p *podSeccompRecorder) removePod(
 		controllerutil.RemoveFinalizer(profileRecording, finalizer)
 	}
 
-	return updateResource(ctx, p.client, profileRecording, "profilerecording")
-}
-
-func appendIfNotExists(list []string, item string) []string {
-	for _, s := range list {
-		if s == item {
-			return list
-		}
-	}
-	return append(list, item)
-}
-
-func removeIfExists(list []string, item string) []string {
-	for i := range list {
-		if list[i] == item {
-			return append(list[:i], list[i+1:]...)
-		}
-	}
-	return list
-}
-
-func updateResource(
-	ctx context.Context,
-	c client.StatusWriter,
-	profileRecording *profilerecordingv1alpha1.ProfileRecording,
-	resource string,
-) error {
-	if err := c.Update(ctx, profileRecording); err != nil {
-		msg := fmt.Sprintf("failed to update %s", resource)
-		log.Error(err, msg)
-		return errors.Wrap(err, msg)
-	}
-	return nil
+	return utils.UpdateResource(ctx, p.log, p.client, profileRecording, "profilerecording")
 }
 
 func (p *podSeccompRecorder) InjectDecoder(d *admission.Decoder) error {
