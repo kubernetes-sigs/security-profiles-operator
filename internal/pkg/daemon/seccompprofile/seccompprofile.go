@@ -368,7 +368,8 @@ func (r *Reconciler) reconcileSeccompProfile(
 		"name", sp.GetName(),
 	)
 	if updated {
-		r.record.Event(sp, event.Normal(reasonSavedProfile, "Successfully saved profile to disk"))
+		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
+		r.record.Event(sp, event.Normal(reasonSavedProfile, evstr))
 	}
 	return reconcile.Result{}, nil
 }
