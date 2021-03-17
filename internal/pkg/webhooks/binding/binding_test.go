@@ -17,6 +17,7 @@ limitations under the License.
 package binding
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,12 +30,12 @@ func TestNewContainerMap(t *testing.T) {
 	cases := []struct {
 		name    string
 		podSpec *corev1.PodSpec
-		want    containerMap
+		want    map[string]containerList
 	}{
 		{
 			name:    "NoContainers",
 			podSpec: &corev1.PodSpec{},
-			want:    map[string][]*corev1.Container{},
+			want:    map[string]containerList{},
 		},
 		{
 			name: "OnlyContainers",
@@ -50,7 +51,7 @@ func TestNewContainerMap(t *testing.T) {
 					},
 				},
 			},
-			want: map[string][]*corev1.Container{
+			want: map[string]containerList{
 				"nginx": {
 					{
 						Name:  "web",
@@ -79,7 +80,7 @@ func TestNewContainerMap(t *testing.T) {
 					},
 				},
 			},
-			want: map[string][]*corev1.Container{
+			want: map[string]containerList{
 				"busybox": {
 					{
 						Name:  "step1",
@@ -106,7 +107,7 @@ func TestNewContainerMap(t *testing.T) {
 					Image: "nginx",
 				}},
 			},
-			want: map[string][]*corev1.Container{
+			want: map[string]containerList{
 				"bash": {
 					{
 						Name:  "init",
@@ -133,7 +134,7 @@ func TestNewContainerMap(t *testing.T) {
 					Image: "bash",
 				}},
 			},
-			want: map[string][]*corev1.Container{
+			want: map[string]containerList{
 				"bash": {
 					{
 						Name:  "app",
@@ -153,10 +154,12 @@ func TestNewContainerMap(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			result := newContainerMap(tc.podSpec)
-			for k, v := range result {
-				require.Equal(t, tc.want[k], v)
-			}
+			var result sync.Map
+			initContainerMap(&result, tc.podSpec)
+			result.Range(func(k, v interface{}) bool {
+				require.Equal(t, tc.want[k.(string)], v.(containerList))
+				return true
+			})
 		})
 	}
 }
