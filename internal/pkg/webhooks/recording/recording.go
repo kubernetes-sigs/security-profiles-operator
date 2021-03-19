@@ -45,9 +45,8 @@ import (
 const finalizer = "active-seccomp-profile-recording-lock"
 
 type podSeccompRecorder struct {
-	client   client.Client
+	impl
 	log      logr.Logger
-	decoder  *admission.Decoder
 	replicas sync.Map
 }
 
@@ -56,8 +55,8 @@ func RegisterWebhook(server *webhook.Server, c client.Client) {
 		"/mutate-v1-pod-recording",
 		&webhook.Admission{
 			Handler: &podSeccompRecorder{
-				client: c,
-				log:    logf.Log.WithName("recording"),
+				impl: &defaultImpl{client: c},
+				log:  logf.Log.WithName("recording"),
 			},
 		},
 	)
@@ -82,10 +81,10 @@ func (p *podSeccompRecorder) Handle(
 	ctx context.Context,
 	req admission.Request,
 ) admission.Response {
-	profileRecordings := &profilerecordingv1alpha1.ProfileRecordingList{}
-	if err := p.client.List(
-		ctx, profileRecordings, client.InNamespace(req.Namespace),
-	); err != nil {
+	profileRecordings, err := p.impl.ListProfileRecordings(
+		ctx, client.InNamespace(req.Namespace),
+	)
+	if err != nil {
 		p.log.Error(err, "Could not list profile recordings")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
@@ -93,7 +92,7 @@ func (p *podSeccompRecorder) Handle(
 	podChanged := false
 	pod := &corev1.Pod{}
 	if req.Operation != admissionv1.Delete {
-		err := p.decoder.Decode(req, pod)
+		pod, err = p.impl.DecodePod(req)
 		if err != nil {
 			p.log.Error(err, "Failed to decode pod")
 			return admission.Errored(http.StatusBadRequest, err)
@@ -241,8 +240,8 @@ func (p *podSeccompRecorder) addPod(
 		profileRecording.Status.ActiveWorkloads, podName,
 	)
 
-	if err := utils.UpdateResource(
-		ctx, p.log, p.client.Status(), profileRecording, "profilerecording status",
+	if err := p.impl.UpdateResource(
+		ctx, p.log, profileRecording, "profilerecording status",
 	); err != nil {
 		return errors.Wrap(err, "update resource on adding pod")
 	}
@@ -251,7 +250,7 @@ func (p *podSeccompRecorder) addPod(
 		controllerutil.AddFinalizer(profileRecording, finalizer)
 	}
 
-	return utils.UpdateResource(ctx, p.log, p.client, profileRecording, "profilerecording")
+	return p.impl.UpdateResource(ctx, p.log, profileRecording, "profilerecording")
 }
 
 func (p *podSeccompRecorder) removePod(
@@ -267,8 +266,8 @@ func (p *podSeccompRecorder) removePod(
 	}
 	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
 
-	if err := utils.UpdateResource(
-		ctx, p.log, p.client.Status(), profileRecording, "profilerecording status",
+	if err := p.impl.UpdateResource(
+		ctx, p.log, profileRecording, "profilerecording status",
 	); err != nil {
 		return errors.Wrap(err, "update resource on removing pod")
 	}
@@ -278,10 +277,10 @@ func (p *podSeccompRecorder) removePod(
 		controllerutil.RemoveFinalizer(profileRecording, finalizer)
 	}
 
-	return utils.UpdateResource(ctx, p.log, p.client, profileRecording, "profilerecording")
+	return p.impl.UpdateResource(ctx, p.log, profileRecording, "profilerecording")
 }
 
-func (p *podSeccompRecorder) InjectDecoder(d *admission.Decoder) error {
-	p.decoder = d
+func (p *podSeccompRecorder) InjectDecoder(decoder *admission.Decoder) error {
+	p.impl.SetDecoder(decoder)
 	return nil
 }
