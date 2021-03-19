@@ -317,7 +317,7 @@ k8s.io/apimachinery/pkg/version
 k8s.io/apimachinery/pkg/watch
 k8s.io/apimachinery/third_party/forked/golang/json
 k8s.io/apimachinery/third_party/forked/golang/reflect
-# k8s.io/client-go v0.20.4
+# k8s.io/client-go v0.20.5
 ## explicit
 k8s.io/client-go/discovery
 k8s.io/client-go/dynamic
