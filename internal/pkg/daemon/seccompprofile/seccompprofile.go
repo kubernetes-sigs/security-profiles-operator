@@ -363,9 +363,8 @@ func (r *Reconciler) reconcileSeccompProfile(
 	}
 
 	l.Info(
-		"Reconciled profile from SeccompProfile",
+		"Reconciled SeccompProfile",
 		"resource version", sp.GetResourceVersion(),
-		"name", sp.GetName(),
 	)
 	if updated {
 		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))

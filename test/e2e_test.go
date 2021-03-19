@@ -189,6 +189,12 @@ func (e *e2e) deployOperator(manifest string) {
 	// Wait for all pods in DaemonSet
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=spod")
+
+	e.retry(func(i int) bool {
+		e.logf("Waiting for initial profiles to be reconciled (%d)", i)
+		output := e.kubectlOperatorNS("logs", "-l", "app=spod")
+		return strings.Contains(output, "Reconciled SeccompProfile")
+	})
 }
 
 func (e *e2e) cleanupOperator(manifest string) {
