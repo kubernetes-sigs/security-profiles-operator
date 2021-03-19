@@ -630,7 +630,7 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 		return false, nil
 	}
 
-	if err := ioutil.WriteFile(fileName, content, filePermissionMode); err != nil {
+	if err := util.WriteFileFlushed(fileName, content, filePermissionMode); err != nil {
 		return false, errors.Wrap(err, errSavingProfile)
 	}
 
