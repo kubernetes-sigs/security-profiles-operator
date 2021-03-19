@@ -80,15 +80,16 @@ spec:
 	e.kubectl("create", "-f", helloProfileFile.Name())
 	defer e.kubectl("delete", "-f", helloProfileFile.Name())
 
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
+
 	e.logf("Waiting for profile to be reconciled")
-	e.waitFor("condition=ready", "sp", "hello")
+	e.waitForProfileReady("sp", "hello", namespace)
 
 	e.logf("Creating hello-world pod")
 	helloPodFile, err := ioutil.TempFile(os.TempDir(), "hello-pod*.yaml")
 	e.Nil(err)
 	defer os.Remove(helloPodFile.Name())
 
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	_, err = helloPodFile.Write([]byte(fmt.Sprintf(helloPod, namespace)))
 	e.Nil(err)
 	err = helloPodFile.Close()

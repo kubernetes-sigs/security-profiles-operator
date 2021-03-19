@@ -107,7 +107,7 @@ spec:
 	e.Nil(err)
 
 	e.logf("Waiting for profile to be reconciled")
-	e.waitFor("condition=ready", "seccompprofile", deleteProfileName)
+	e.waitForProfileReady("seccompprofile", deleteProfileName, namespace)
 
 	e.logf("Verifying profile exists")
 	time.Sleep(time.Second)
