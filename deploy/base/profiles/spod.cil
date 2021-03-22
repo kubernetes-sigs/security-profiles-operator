@@ -1,0 +1,9 @@
+(block spod
+    (blockinherit restricted_net_container)
+
+    (allow process etc_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+    (allow process etc_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+    (allow process var_lib_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+    (allow process var_lib_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+    (allow process var_lib_t ( sock_file ( append getattr open read write )))
+)

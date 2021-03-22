@@ -129,8 +129,7 @@ var Manifest = &appsv1.DaemonSet{
 							`set -x
 chown 65535:0 /etc/selinux.d
 chmod 750 /etc/selinux.d
-semodule -i /usr/share/selinuxd/templates/*.cil
-semodule -i /opt/spo-profiles/selinuxd.cil
+semodule -i /usr/share/selinuxd/templates/*.cil /opt/spo-profiles/*.cil
 `,
 						},
 						VolumeMounts: []v1.VolumeMount{
@@ -216,8 +215,7 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							RunAsUser:  &userRootless,
 							RunAsGroup: &userRootless,
 							SELinuxOptions: &v1.SELinuxOptions{
-								// TODO(jaosorior): Use a more restricted selinux type
-								Type: "spc_t",
+								Type: "spod.process",
 							},
 						},
 						Resources: v1.ResourceRequirements{
