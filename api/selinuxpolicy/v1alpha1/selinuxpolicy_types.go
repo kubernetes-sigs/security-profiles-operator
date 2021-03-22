@@ -17,11 +17,13 @@ limitations under the License.
 package v1alpha1
 
 import (
-	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 )
+
+// Ensure SelinuxPolicy implements the StatusBaseUser interface.
+var _ profilebasev1alpha1.StatusBaseUser = &SelinuxPolicy{}
 
 // SelinuxPolicySpec defines the desired state of SelinuxPolicy.
 type SelinuxPolicySpec struct {
@@ -31,12 +33,10 @@ type SelinuxPolicySpec struct {
 
 // SelinuxPolicyStatus defines the observed state of SelinuxPolicy.
 type SelinuxPolicyStatus struct {
-	rcommonv1.ConditionedStatus `json:",inline"`
+	profilebasev1alpha1.StatusBase `json:",inline"`
 	// Represents the string that the SelinuxPolicy object can be
 	// referenced as in a pod seLinuxOptions section.
 	Usage string `json:"usage,omitempty"`
-	// Represents the state that the profile is in.
-	State secprofnodestatusv1alpha1.ProfileState `json:"state,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -46,13 +46,37 @@ type SelinuxPolicyStatus struct {
 // +kubebuilder:resource:path=selinuxpolicies,scope=Namespaced
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="Apply",type="boolean",JSONPath=`.spec.apply`
-// +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
 type SelinuxPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec   SelinuxPolicySpec   `json:"spec,omitempty"`
 	Status SelinuxPolicyStatus `json:"status,omitempty"`
+}
+
+func (sp *SelinuxPolicy) GetStatusBase() *profilebasev1alpha1.StatusBase {
+	return &sp.Status.StatusBase
+}
+
+func (sp *SelinuxPolicy) DeepCopyToStatusBaseIf() profilebasev1alpha1.StatusBaseUser {
+	return sp.DeepCopy()
+}
+
+func (sp *SelinuxPolicy) SetImplementationStatus() {
+	sp.Status.Usage = sp.GetPolicyUsage()
+}
+
+// GetPolicyName gets the policy module name in the format that
+// we're expecting for parsing.
+func (sp *SelinuxPolicy) GetPolicyName() string {
+	return sp.GetName() + "_" + sp.GetNamespace()
+}
+
+// GetPolicyUsage is the representation of how a pod will call this
+// SELinux module.
+func (sp *SelinuxPolicy) GetPolicyUsage() string {
+	return sp.GetPolicyName() + ".process"
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

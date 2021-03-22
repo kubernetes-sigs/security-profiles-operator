@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -30,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
@@ -45,7 +47,9 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/selinuxpolicy"
+	nodestatus "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
+	wa "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
@@ -187,10 +191,7 @@ func runManager(ctx *cli.Context) error {
 		return err
 	}
 
-	// Given that the operator manager only deploys the SPOd and currently
-	// doesn't hold any webhooks, we only listen on the operator's
-	// namespace.
-	ctrlOpts.Namespace = config.GetOperatorNamespace()
+	setControllerOptionsForNamespaces(&ctrlOpts)
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
@@ -206,6 +207,14 @@ func runManager(ctx *cli.Context) error {
 	if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add seccompprofile API to scheme")
 	}
+	if err := selinuxpolicyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add selinuxpolicy API to scheme")
+	}
+
+	// This API provides status which is used by both seccomp and selinux
+	if err := secprofnodestatusv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add per-node Status API to scheme")
+	}
 
 	if err := createConfigIfNotExist(ctx.Context, mgr.GetClient()); err != nil {
 		return errors.Wrap(err, "ensure SPOD config")
@@ -213,6 +222,14 @@ func runManager(ctx *cli.Context) error {
 
 	if err := spod.Setup(ctx.Context, mgr, &dt, ctrl.Log.WithName("spod-config")); err != nil {
 		return errors.Wrap(err, "setup profile controller")
+	}
+
+	if err := nodestatus.Setup(ctx.Context, mgr, ctrl.Log.WithName("nodestatus")); err != nil {
+		return errors.Wrap(err, "setup node status controller")
+	}
+
+	if err := wa.Setup(ctx.Context, mgr, ctrl.Log.WithName("workload-annotator")); err != nil {
+		return errors.Wrap(err, "setup workload annotator controller")
 	}
 
 	setupLog.Info("starting manager")
@@ -259,6 +276,34 @@ func createConfigIfNotExist(ctx context.Context, c client.Client) error {
 	return nil
 }
 
+func setControllerOptionsForNamespaces(opts *ctrl.Options) {
+	namespace := os.Getenv(config.RestrictNamespaceEnvKey)
+
+	// listen globally
+	if namespace == "" {
+		opts.Namespace = namespace
+		return
+	}
+
+	// ensure we listen to our own namespace
+	if !strings.Contains(namespace, config.GetOperatorNamespace()) {
+		namespace = namespace + "," + config.GetOperatorNamespace()
+	}
+
+	namespaceList := strings.Split(namespace, ",")
+	// Add support for MultiNamespace set in WATCH_NAMESPACE (e.g ns1,ns2)
+	// Note that this is not intended to be used for excluding namespaces, this is better done via a Predicate
+	// Also note that you may face performance issues when using this with a high number of namespaces.
+	// More Info: https://godoc.org/github.com/kubernetes-sigs/controller-runtime/pkg/cache#MultiNamespacedCacheBuilder
+	// Adding "" adds cluster namespaced resources
+	if strings.Contains(namespace, ",") {
+		opts.NewCache = cache.MultiNamespacedCacheBuilder(namespaceList)
+	} else {
+		// listen to a specific namespace only
+		opts.Namespace = namespace
+	}
+}
+
 func getTunables() (dt spod.DaemonTunables, err error) {
 	dt.WatchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
 
@@ -293,7 +338,7 @@ func getEnabledControllers(ctx *cli.Context) []*controllerSettings {
 		&controllerSettings{
 			name:          "recorder-spod",
 			setupFn:       profilerecorder.Setup,
-			schemaBuilder: seccompprofilev1alpha1.SchemeBuilder,
+			schemaBuilder: profilerecording1alpha1.SchemeBuilder,
 		},
 	)
 
@@ -328,9 +373,7 @@ func runDaemon(ctx *cli.Context) error {
 		SyncPeriod: &sync,
 	}
 
-	if os.Getenv(config.RestrictNamespaceEnvKey) != "" {
-		ctrlOpts.Namespace = os.Getenv(config.RestrictNamespaceEnvKey)
-	}
+	setControllerOptionsForNamespaces(&ctrlOpts)
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {

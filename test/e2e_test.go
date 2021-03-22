@@ -40,7 +40,7 @@ const (
 	// SELinux pieces.
 	defaultSelinuxOpTimeout = "360s"
 	defaultWaitTimeout      = "90s"
-	defaultWaitTime         = 5 * time.Second
+	defaultWaitTime         = 10 * time.Second
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {

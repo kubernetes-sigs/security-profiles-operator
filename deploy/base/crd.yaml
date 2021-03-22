@@ -479,7 +479,7 @@ spec:
     - jsonPath: .spec.apply
       name: Apply
       type: boolean
-    - jsonPath: .status.state
+    - jsonPath: .status.status
       name: State
       type: string
     name: v1alpha1
@@ -543,8 +543,11 @@ spec:
                   - type
                   type: object
                 type: array
-              state:
-                description: Represents the state that the profile is in.
+              status:
+                description: ProfileState defines the state that the profile is in.
+                  A profile in this context refers to a SeccompProfile or a SELinux
+                  profile, the states are shared between them as well as the management
+                  API.
                 type: string
               usage:
                 description: Represents the string that the SelinuxPolicy object can
