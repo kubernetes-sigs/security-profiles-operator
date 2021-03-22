@@ -22,6 +22,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -41,6 +43,7 @@ type impl interface {
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
 	SetDecoder(*admission.Decoder)
 	DecodePod(admission.Request) (*corev1.Pod, error)
+	LabelSelectorAsSelector(*metav1.LabelSelector) (labels.Selector, error)
 }
 
 func (d *defaultImpl) ListProfileRecordings(
@@ -69,4 +72,10 @@ func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
 	pod := &corev1.Pod{}
 	err := d.decoder.Decode(req, pod)
 	return pod, errors.Wrap(err, "decode pod")
+}
+
+func (*defaultImpl) LabelSelectorAsSelector(
+	ps *metav1.LabelSelector,
+) (labels.Selector, error) {
+	return metav1.LabelSelectorAsSelector(ps)
 }
