@@ -23,6 +23,8 @@ import (
 
 	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
+	v1a "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
@@ -40,6 +42,19 @@ type FakeImpl struct {
 	}
 	decodePodReturnsOnCall map[int]struct {
 		result1 *v1.Pod
+		result2 error
+	}
+	LabelSelectorAsSelectorStub        func(*v1a.LabelSelector) (labels.Selector, error)
+	labelSelectorAsSelectorMutex       sync.RWMutex
+	labelSelectorAsSelectorArgsForCall []struct {
+		arg1 *v1a.LabelSelector
+	}
+	labelSelectorAsSelectorReturns struct {
+		result1 labels.Selector
+		result2 error
+	}
+	labelSelectorAsSelectorReturnsOnCall map[int]struct {
+		result1 labels.Selector
 		result2 error
 	}
 	ListProfileRecordingsStub        func(context.Context, ...client.ListOption) (*v1alpha1.ProfileRecordingList, error)
@@ -139,6 +154,70 @@ func (fake *FakeImpl) DecodePodReturnsOnCall(i int, result1 *v1.Pod, result2 err
 	}
 	fake.decodePodReturnsOnCall[i] = struct {
 		result1 *v1.Pod
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) LabelSelectorAsSelector(arg1 *v1a.LabelSelector) (labels.Selector, error) {
+	fake.labelSelectorAsSelectorMutex.Lock()
+	ret, specificReturn := fake.labelSelectorAsSelectorReturnsOnCall[len(fake.labelSelectorAsSelectorArgsForCall)]
+	fake.labelSelectorAsSelectorArgsForCall = append(fake.labelSelectorAsSelectorArgsForCall, struct {
+		arg1 *v1a.LabelSelector
+	}{arg1})
+	stub := fake.LabelSelectorAsSelectorStub
+	fakeReturns := fake.labelSelectorAsSelectorReturns
+	fake.recordInvocation("LabelSelectorAsSelector", []interface{}{arg1})
+	fake.labelSelectorAsSelectorMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) LabelSelectorAsSelectorCallCount() int {
+	fake.labelSelectorAsSelectorMutex.RLock()
+	defer fake.labelSelectorAsSelectorMutex.RUnlock()
+	return len(fake.labelSelectorAsSelectorArgsForCall)
+}
+
+func (fake *FakeImpl) LabelSelectorAsSelectorCalls(stub func(*v1a.LabelSelector) (labels.Selector, error)) {
+	fake.labelSelectorAsSelectorMutex.Lock()
+	defer fake.labelSelectorAsSelectorMutex.Unlock()
+	fake.LabelSelectorAsSelectorStub = stub
+}
+
+func (fake *FakeImpl) LabelSelectorAsSelectorArgsForCall(i int) *v1a.LabelSelector {
+	fake.labelSelectorAsSelectorMutex.RLock()
+	defer fake.labelSelectorAsSelectorMutex.RUnlock()
+	argsForCall := fake.labelSelectorAsSelectorArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) LabelSelectorAsSelectorReturns(result1 labels.Selector, result2 error) {
+	fake.labelSelectorAsSelectorMutex.Lock()
+	defer fake.labelSelectorAsSelectorMutex.Unlock()
+	fake.LabelSelectorAsSelectorStub = nil
+	fake.labelSelectorAsSelectorReturns = struct {
+		result1 labels.Selector
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) LabelSelectorAsSelectorReturnsOnCall(i int, result1 labels.Selector, result2 error) {
+	fake.labelSelectorAsSelectorMutex.Lock()
+	defer fake.labelSelectorAsSelectorMutex.Unlock()
+	fake.LabelSelectorAsSelectorStub = nil
+	if fake.labelSelectorAsSelectorReturnsOnCall == nil {
+		fake.labelSelectorAsSelectorReturnsOnCall = make(map[int]struct {
+			result1 labels.Selector
+			result2 error
+		})
+	}
+	fake.labelSelectorAsSelectorReturnsOnCall[i] = struct {
+		result1 labels.Selector
 		result2 error
 	}{result1, result2}
 }
@@ -309,6 +388,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.invocationsMutex.RUnlock()
 	fake.decodePodMutex.RLock()
 	defer fake.decodePodMutex.RUnlock()
+	fake.labelSelectorAsSelectorMutex.RLock()
+	defer fake.labelSelectorAsSelectorMutex.RUnlock()
 	fake.listProfileRecordingsMutex.RLock()
 	defer fake.listProfileRecordingsMutex.RUnlock()
 	fake.setDecoderMutex.RLock()
