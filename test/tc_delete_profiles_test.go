@@ -23,7 +23,6 @@ import (
 	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
 )
 
 func (e *e2e) testCaseDeleteProfiles(nodes []string) {
@@ -103,8 +102,7 @@ spec:
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	sp := e.getSeccompProfile(deleteProfileName, namespace)
-	path, err := seccompprofile.GetProfilePath(deleteProfileName, sp.ObjectMeta.Namespace)
-	e.Nil(err)
+	path := sp.GetProfilePath()
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitFor("condition=ready", "seccompprofile", deleteProfileName)

@@ -17,11 +17,22 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"path"
+	"path/filepath"
+	"strings"
+
 	"github.com/containers/common/pkg/seccomp"
-	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+)
+
+// Ensure SeccompProfile implements the StatusBaseUser interface.
+var _ profilebasev1alpha1.StatusBaseUser = &SeccompProfile{}
+
+const (
+	extJSON = ".json"
 )
 
 // SeccompProfileSpec defines the desired state of SeccompProfile.
@@ -91,10 +102,9 @@ type Arg struct {
 
 // SeccompProfileStatus contains status of the deployed SeccompProfile.
 type SeccompProfileStatus struct {
-	rcommonv1.ConditionedStatus `json:",inline"`
-	Path                        string                                 `json:"path,omitempty"`
-	Status                      secprofnodestatusv1alpha1.ProfileState `json:"status,omitempty"`
-	ActiveWorkloads             []string                               `json:"activeWorkloads,omitempty"`
+	profilebasev1alpha1.StatusBase `json:",inline"`
+	Path                           string   `json:"path,omitempty"`
+	ActiveWorkloads                []string `json:"activeWorkloads,omitempty"`
 	// The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
 	// field of a Pod or container spec
 	LocalhostProfile string `json:"localhostProfile,omitempty"`
@@ -115,6 +125,31 @@ type SeccompProfile struct {
 
 	Spec   SeccompProfileSpec   `json:"spec,omitempty"`
 	Status SeccompProfileStatus `json:"status,omitempty"`
+}
+
+func (sp *SeccompProfile) GetStatusBase() *profilebasev1alpha1.StatusBase {
+	return &sp.Status.StatusBase
+}
+
+func (sp *SeccompProfile) DeepCopyToStatusBaseIf() profilebasev1alpha1.StatusBaseUser {
+	return sp.DeepCopy()
+}
+
+func (sp *SeccompProfile) SetImplementationStatus() {
+	profilePath := sp.GetProfilePath()
+	sp.Status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath+"/")
+}
+
+func (sp *SeccompProfile) GetProfilePath() string {
+	pfile := sp.GetName()
+	if !strings.HasSuffix(pfile, extJSON) {
+		pfile = sp.GetName() + extJSON
+	}
+	return path.Join(
+		config.ProfilesRootPath,
+		filepath.Base(sp.GetNamespace()),
+		filepath.Base(pfile),
+	)
 }
 
 // +kubebuilder:object:root=true

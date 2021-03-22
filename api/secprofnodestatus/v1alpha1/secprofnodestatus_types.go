@@ -51,16 +51,20 @@ const (
 	StatusKindLabel = "spo.x-k8s.io/profile-kind"
 )
 
+// LowestState defines the "lowest" state for the profiles to be at.
+// All of the statuses would need to reach this for us to get here.
+const LowestState ProfileState = ProfileStateInstalled
+
 // LowerOfTwoStates is used to figure out the "lowest common state" and is used to represent
 // the overall status of a profile. The idea is that if, e.g. one in three profiles is already
 // installed, but the two others are pending, the overall state should be pending.
 func LowerOfTwoStates(currentLowest, candidate ProfileState) ProfileState {
 	orderedStates := make(map[ProfileState]int)
-	orderedStates[ProfileStateError] = 0 // error must always have the lowest index
-	orderedStates[ProfileStatePending] = 1
-	orderedStates[ProfileStateInProgress] = 2
-	orderedStates[ProfileStateInstalled] = 3
-	orderedStates[ProfileStateTerminating] = 4
+	orderedStates[ProfileStateError] = 0       // error must always have the lowest index
+	orderedStates[ProfileStateTerminating] = 1 // If one is set as terminating; all the statuses will end here too
+	orderedStates[ProfileStatePending] = 2
+	orderedStates[ProfileStateInProgress] = 3
+	orderedStates[ProfileStateInstalled] = 4
 
 	if orderedStates[currentLowest] > orderedStates[candidate] {
 		return candidate

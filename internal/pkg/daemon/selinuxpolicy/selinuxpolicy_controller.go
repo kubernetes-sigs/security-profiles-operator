@@ -30,7 +30,6 @@ import (
 	"text/template"
 	"time"
 
-	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -39,11 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // The underscore is not a valid character in a pod, so we can
@@ -106,36 +104,30 @@ func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (r
 		return reconcile.Result{}, IgnoreNotFound(err)
 	}
 
-	nodeStatus, err := nodestatus.NewForProfile(instance)
+	nodeStatus, err := nodestatus.NewForProfile(instance, r.client)
 	if err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "cannot create nodeStatus")
-	}
-
-	if instance.Status.Usage != GetPolicyUsage(instance.Name, instance.Namespace) {
-		if err := r.addUsageStatus(instance); err != nil {
-			return reconcile.Result{}, err
-		}
-		return reconcile.Result{Requeue: true}, nil
+		return reconcile.Result{}, errors.Wrap(err, "cannot create nodeStatus instance")
 	}
 
 	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
+		ctx := context.Background()
 		// The object is not being deleted
-		if err := r.ensureNodeStatus(context.TODO(), nodeStatus, instance); err != nil {
-			return reconcile.Result{}, errors.Wrap(err, "ensuring node status exists")
+		exists, existErr := nodeStatus.Exists(ctx)
+
+		if existErr != nil {
+			return reconcile.Result{}, errors.Wrap(existErr, "checking if node status exists")
+		}
+
+		if !exists {
+			if err := nodeStatus.Create(ctx); err != nil {
+				return reconcile.Result{}, errors.Wrap(err, "cannot ensure node status")
+			}
 		}
 
 		return r.reconcilePolicy(instance, nodeStatus, reqLogger)
 	}
 
-	// The object is being deleted
-	setTerminatingStatus := func(sp *selinuxpolicyv1alpha1.SelinuxPolicy) *selinuxpolicyv1alpha1.SelinuxPolicyStatus {
-		statusCopy := instance.Status.DeepCopy()
-		statusCopy.SetConditions(rcommonv1.Deleting())
-		statusCopy.State = secprofnodestatusv1alpha1.ProfileStateTerminating
-		return statusCopy
-	}
-
-	if err := r.setBothStatuses(context.TODO(), nodeStatus, instance, setTerminatingStatus); err != nil {
+	if err := nodeStatus.SetNodeStatus(context.TODO(), statusv1alpha1.ProfileStateTerminating); err != nil {
 		reqLogger.Error(err, "cannot update SELinux profile status")
 		return reconcile.Result{}, errors.Wrap(err, "updating status for deleted SELinux profile")
 	}
@@ -143,7 +135,7 @@ func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (r
 	// since the nodeStatus API always removes both the node status and the node's finalizer in sync,
 	// this condition will only be true after both are gone and therefore when the profile is really
 	// gone from the node
-	hasStatus, err := nodeStatus.Exists(context.TODO(), r.client)
+	hasStatus, err := nodeStatus.Exists(context.TODO())
 	if err != nil || !hasStatus {
 		return reconcile.Result{}, errors.Wrap(err, "asserting if node status exists")
 	}
@@ -159,109 +151,6 @@ func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (r
 	}
 
 	return reconcile.Result{}, nil
-}
-
-func (r *ReconcileSP) ensureNodeStatus(
-	ctx context.Context, nodeStatus *nodestatus.StatusClient, sp *selinuxpolicyv1alpha1.SelinuxPolicy,
-) error {
-	if err := nodeStatus.Create(ctx, r.client); err != nil {
-		return errors.Wrap(err, "cannot ensure node status")
-	}
-
-	// Retry makes sense here as we're updating the shared state directly from multiple nodes
-	if err := util.Retry(func() error {
-		if sp.Status.State != "" && sp.Spec.Apply {
-			return nil
-		}
-
-		policyCopy := sp.DeepCopy()
-		if sp.Status.State == "" {
-			// Set up an initial state
-			policyCopy.Status.State = secprofnodestatusv1alpha1.ProfileStatePending
-			policyCopy.Status.SetConditions(rcommonv1.Creating())
-		} else if !sp.Spec.Apply {
-			// If "apply" is false, no need to do anything, let the deployer
-			// review it.
-			policyCopy.Status.State = secprofnodestatusv1alpha1.ProfileStatePending
-			policyCopy.Status.SetConditions(rcommonv1.Unavailable())
-		}
-
-		updateErr := r.client.Status().Update(context.TODO(), policyCopy)
-		if updateErr != nil {
-			if err := r.client.Get(
-				ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
-				return errors.Wrap(err, "retrieving profile")
-			}
-		}
-		return errors.Wrap(updateErr, "updating to initial state")
-	}, util.IsNotFoundOrConflict); err != nil {
-		return errors.Wrap(err, "Updating SelinuxPolicy status to PENDING")
-	}
-
-	return nil
-}
-
-// setBothStatuses checks if the node status of a SELinux profile is in sync with the supplied
-// SELinux profile and updates the node status if not. Additionally, the status of the
-// SELinux profile is set to the lowest common denominator as well.
-func (r *ReconcileSP) setBothStatuses(
-	ctx context.Context, ns *nodestatus.StatusClient,
-	sp *selinuxpolicyv1alpha1.SelinuxPolicy,
-	setStatusFn func(sp *selinuxpolicyv1alpha1.SelinuxPolicy) *selinuxpolicyv1alpha1.SelinuxPolicyStatus,
-) error {
-	if retryErr := util.Retry(func() error {
-		if err := r.client.Get(ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
-			return errors.Wrap(err, "retrieving profile")
-		}
-
-		status := setStatusFn(sp)
-
-		policyState, err := ns.SetReturnGlobal(ctx, r.client, status.State)
-		if err != nil {
-			return errors.Wrap(err, "setting per-node status")
-		}
-
-		if sp.Status.State == policyState {
-			// avoid needless writes
-			return nil
-		}
-
-		// this should already be a deep-copy and the only thing we're changing is a scalar..
-		sp.Status = *status
-		if err := r.client.Status().Update(ctx, sp); err != nil {
-			return errors.Wrap(err, "setting SELinux profile status")
-		}
-		return nil
-	}, util.IsNotFoundOrConflict); retryErr != nil {
-		return errors.Wrap(retryErr, "updating policy status")
-	}
-
-	return nil
-}
-
-func (r *ReconcileSP) reconcileInProgressPolicy(
-	nodeStatus *nodestatus.StatusClient, sp *selinuxpolicyv1alpha1.SelinuxPolicy,
-) error {
-	setInProgressStatus := func(sp *selinuxpolicyv1alpha1.SelinuxPolicy) *selinuxpolicyv1alpha1.SelinuxPolicyStatus {
-		statusCopy := sp.Status.DeepCopy()
-		statusCopy.SetConditions(rcommonv1.Creating())
-		statusCopy.State = secprofnodestatusv1alpha1.ProfileStateInProgress
-		return statusCopy
-	}
-
-	if err := r.setBothStatuses(context.TODO(), nodeStatus, sp, setInProgressStatus); err != nil {
-		return errors.Wrap(err, "setting both statuses to in progress")
-	}
-	return nil
-}
-
-func (r *ReconcileSP) addUsageStatus(sp *selinuxpolicyv1alpha1.SelinuxPolicy) error {
-	spcopy := sp.DeepCopy()
-	spcopy.Status.Usage = GetPolicyUsage(spcopy.Name, spcopy.Namespace)
-	if err := r.client.Status().Update(context.Background(), spcopy); err != nil {
-		return errors.Wrap(err, "Updating SelinuxPolicy usage status")
-	}
-	return nil
 }
 
 func (r *ReconcileSP) reconcilePolicy(
@@ -281,43 +170,39 @@ func (r *ReconcileSP) reconcilePolicy(
 		return reconcile.Result{}, errors.Wrap(err, "Creating policy file")
 	}
 
-	l.Info("Checking if policy is installed", "policyName", sp.Name)
+	l.Info("Checking if policy deployed", "policyName", sp.Name)
 	polStatus, err := getPolicyStatus(sp)
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "Looking up policy status")
 	}
 
 	if polStatus == nil {
-		if err := r.reconcileInProgressPolicy(nodeStatus, sp); err != nil {
-			return reconcile.Result{}, errors.Wrap(err, "updating in progress status")
+		if err := nodeStatus.SetNodeStatus(context.TODO(), statusv1alpha1.ProfileStateInProgress); err != nil {
+			return reconcile.Result{}, errors.Wrap(err, "setting node status to in progress")
 		}
 		return reconcile.Result{Requeue: true}, nil
 	}
 
-	l.Info("Policy installed")
-	setInstallationStatus := func(sp *selinuxpolicyv1alpha1.SelinuxPolicy) *selinuxpolicyv1alpha1.SelinuxPolicyStatus {
-		statusCopy := sp.Status.DeepCopy()
+	var polState statusv1alpha1.ProfileState
 
-		switch polStatus.Status {
-		case installedStatus:
-			statusCopy.State = secprofnodestatusv1alpha1.ProfileStateInstalled
-			statusCopy.SetConditions(rcommonv1.Available())
-		case failedStatus:
-			statusCopy.State = secprofnodestatusv1alpha1.ProfileStateError
-			statusCopy.SetConditions(rcommonv1.Unavailable())
-		}
-		return statusCopy
+	switch polStatus.Status {
+	case installedStatus:
+		polState = statusv1alpha1.ProfileStateInstalled
+	case failedStatus:
+		polState = statusv1alpha1.ProfileStateError
 	}
 
-	if err := r.setBothStatuses(context.TODO(), nodeStatus, sp, setInstallationStatus); err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation success")
+	l.Info("Policy deployed", "status", polState)
+
+	if err := nodeStatus.SetNodeStatus(context.TODO(), polState); err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "setting profile status")
 	}
 
 	return reconcile.Result{}, nil
 }
 
 func (r *ReconcileSP) reconcilePolicyFile(sp *selinuxpolicyv1alpha1.SelinuxPolicy, l logr.Logger) error {
-	policyPath := path.Join(bindata.SelinuxDropDirectory, GetPolicyName(sp.Name, sp.Namespace)+".cil")
+	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
 	policyContent := []byte(r.wrapPolicy(sp))
 
 	l.Info("Writing to policy file", "policyPath", policyPath)
@@ -386,13 +271,7 @@ func (r *ReconcileSP) reconcileDeletePolicy(
 			l.Info("Policy still installed, requeue")
 			return reconcile.Result{Requeue: true}, nil
 		case failedStatus:
-			setFailedStatus := func(sp *selinuxpolicyv1alpha1.SelinuxPolicy) *selinuxpolicyv1alpha1.SelinuxPolicyStatus {
-				statusCopy := sp.Status.DeepCopy()
-				statusCopy.State = secprofnodestatusv1alpha1.ProfileStateError
-				statusCopy.SetConditions(rcommonv1.Unavailable())
-				return statusCopy
-			}
-			if err := r.setBothStatuses(context.TODO(), nodeStatus, sp, setFailedStatus); err != nil {
+			if err := nodeStatus.SetNodeStatus(context.TODO(), statusv1alpha1.ProfileStateError); err != nil {
 				return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation success")
 			}
 
@@ -406,7 +285,7 @@ func (r *ReconcileSP) reconcileDeletePolicy(
 
 func (r *ReconcileSP) reconcileDeletePolicyFile(sp *selinuxpolicyv1alpha1.SelinuxPolicy,
 	l logr.Logger) (reconcile.Result, error) {
-	policyPath := path.Join(bindata.SelinuxDropDirectory, GetPolicyName(sp.Name, sp.Namespace)+".cil")
+	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
 
 	l.Info("Removing policy file", "policyPath", policyPath)
 	err := os.Remove(policyPath)
@@ -486,7 +365,7 @@ func isSelinuxdReady() (bool, error) {
 }
 
 func getPolicyStatus(sp *selinuxpolicyv1alpha1.SelinuxPolicy) (*sePolStatus, error) {
-	polURL := selinuxdPoliciesBaseURL + GetPolicyName(sp.Name, sp.Namespace)
+	polURL := selinuxdPoliciesBaseURL + sp.GetPolicyName()
 	response, err := selinuxdGetRequest(polURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to send a request to selinuxd")

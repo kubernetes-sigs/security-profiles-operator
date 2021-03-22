@@ -29,7 +29,6 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/test"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -202,10 +201,9 @@ func TestGetProfilePath(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name    string
-		want    string
-		wantErr string
-		sp      *v1alpha1.SeccompProfile
+		name string
+		want string
+		sp   *v1alpha1.SeccompProfile
 	}{
 		{
 			name: "AppendNamespaceAndProfile",
@@ -264,46 +262,7 @@ func TestGetProfilePath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, gotErr := GetProfilePath(tc.sp.ObjectMeta.Name, tc.sp.ObjectMeta.Namespace)
-			if tc.wantErr == "" {
-				require.NoError(t, gotErr)
-			} else {
-				require.Equal(t, tc.wantErr, gotErr.Error())
-			}
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
-func TestIgnoreNotFound(t *testing.T) {
-	t.Parallel()
-
-	profileName := "cool-profile"
-	errOops := errors.New("oops")
-
-	cases := []struct {
-		name string
-		err  error
-		want error
-	}{
-		{
-			name: "IsErrorNotFound",
-			err:  kerrors.NewNotFound(schema.GroupResource{}, profileName),
-			want: nil,
-		},
-		{
-			name: "OtherError",
-			err:  errOops,
-			want: errOops,
-		},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := ignoreNotFound(tc.err)
+			got := tc.sp.GetProfilePath()
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -450,180 +409,6 @@ func TestUnionSyscalls(t *testing.T) {
 				return got[i].Action < got[j].Action
 			})
 			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
-func TestGetSeccompProfilesFromPod(t *testing.T) {
-	t.Parallel()
-
-	profilePath := "operator/default/test.json"
-	profilePath2 := "operator/default/test2.json"
-	cases := []struct {
-		name string
-		pod  corev1.Pod
-		want []string
-	}{
-		{
-			name: "SeccompProfileForPod",
-			pod: corev1.Pod{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
-					SecurityContext: &corev1.PodSecurityContext{
-						SeccompProfile: &corev1.SeccompProfile{
-							Type:             "Localhost",
-							LocalhostProfile: &profilePath,
-						},
-					},
-				},
-			},
-			want: []string{profilePath},
-		},
-		{
-			name: "SeccompProfileForOneContainer",
-			pod: corev1.Pod{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Name:  "container1",
-						Image: "testimage",
-						SecurityContext: &corev1.SecurityContext{
-							SeccompProfile: &corev1.SeccompProfile{
-								Type:             "Localhost",
-								LocalhostProfile: &profilePath,
-							},
-						},
-					}},
-				},
-			},
-			want: []string{profilePath},
-		},
-		{
-			name: "SeccompProfileForMultipleContainers",
-			pod: corev1.Pod{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "container1",
-							Image: "testimage",
-							SecurityContext: &corev1.SecurityContext{
-								SeccompProfile: &corev1.SeccompProfile{
-									Type:             "Localhost",
-									LocalhostProfile: &profilePath,
-								},
-							},
-						},
-						{
-							Name:  "container2",
-							Image: "testimage2",
-							SecurityContext: &corev1.SecurityContext{
-								SeccompProfile: &corev1.SeccompProfile{
-									Type:             "Localhost",
-									LocalhostProfile: &profilePath2,
-								},
-							},
-						},
-					},
-				},
-			},
-			want: []string{profilePath, profilePath2},
-		},
-		{
-			name: "SeccompProfileInAnnotation",
-			pod: corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/" + profilePath},
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
-				},
-			},
-			want: []string{profilePath},
-		},
-		{
-			name: "SeccompProfileInPodAndContainerAndAnnotation",
-			pod: corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/" + profilePath},
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "container1",
-							Image: "testimage",
-							SecurityContext: &corev1.SecurityContext{
-								SeccompProfile: &corev1.SeccompProfile{
-									Type:             "Localhost",
-									LocalhostProfile: &profilePath2,
-								},
-							},
-						},
-						{
-							Name:  "container2",
-							Image: "testimage2",
-						},
-					},
-					SecurityContext: &corev1.PodSecurityContext{
-						SeccompProfile: &corev1.SeccompProfile{
-							Type:             "Localhost",
-							LocalhostProfile: &profilePath,
-						},
-					},
-				},
-			},
-			want: []string{profilePath, profilePath2},
-		},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := getSeccompProfilesFromPod(&tc.pod)
-			require.Equal(t, tc.want, got)
-		})
-	}
-
-	badPod := corev1.Pod{
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
-			SecurityContext: &corev1.PodSecurityContext{
-				SeccompProfile: &corev1.SeccompProfile{
-					Type:             "Localhost",
-					LocalhostProfile: nil,
-				},
-			},
-		},
-	}
-	badCases := []struct {
-		name    string
-		profile string
-	}{
-		{
-			name:    "NoSuffix",
-			profile: "operator/default/test",
-		},
-		{
-			name:    "BadSuffix",
-			profile: "operator/default/test.js",
-		},
-		{
-			name:    "WrongPath",
-			profile: "foo/bar/baz",
-		},
-		{
-			name:    "NotLocalhostPath",
-			profile: "runtime/default",
-		},
-	}
-	for _, tc := range badCases {
-		tc := tc
-		badPod.Spec.SecurityContext.SeccompProfile.LocalhostProfile = &tc.profile
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := getSeccompProfilesFromPod(&badPod)
-			require.Equal(t, []string{}, got)
 		})
 	}
 }

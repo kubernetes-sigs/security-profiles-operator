@@ -149,6 +149,7 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 	return false
 }
 
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("pod", req.Name, "namespace", req.Namespace)
 
