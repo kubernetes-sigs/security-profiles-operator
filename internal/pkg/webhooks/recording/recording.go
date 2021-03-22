@@ -29,7 +29,6 @@ import (
 	"github.com/pkg/errors"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -116,7 +115,7 @@ func (p *podSeccompRecorder) Handle(
 			continue
 		}
 
-		selector, err := metav1.LabelSelectorAsSelector(
+		selector, err := p.impl.LabelSelectorAsSelector(
 			&item.Spec.PodSelector,
 		)
 		if err != nil {
