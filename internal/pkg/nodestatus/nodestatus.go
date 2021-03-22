@@ -36,9 +36,10 @@ type StatusClient struct {
 	pol             client.Object
 	nodeName        string
 	finalizerString string
+	client          client.Client
 }
 
-func NewForProfile(pol client.Object) (*StatusClient, error) {
+func NewForProfile(pol client.Object, c client.Client) (*StatusClient, error) {
 	nodeName, ok := os.LookupEnv(config.NodeNameEnvKey)
 	if !ok {
 		return nil, errors.New("cannot determine node name")
@@ -47,6 +48,7 @@ func NewForProfile(pol client.Object) (*StatusClient, error) {
 		pol:             pol,
 		nodeName:        nodeName,
 		finalizerString: nodeName + "-delete",
+		client:          c,
 	}, nil
 }
 
@@ -58,21 +60,21 @@ func (nsf *StatusClient) perNodeStatusNamespacedName() types.NamespacedName {
 	return util.NamespacedName(nsf.perNodeStatusName(), nsf.pol.GetNamespace())
 }
 
-func (nsf *StatusClient) Create(ctx context.Context, c client.Client) error {
-	if err := nsf.createFinalizer(ctx, c); err != nil {
+func (nsf *StatusClient) Create(ctx context.Context) error {
+	if err := nsf.createFinalizer(ctx); err != nil {
 		return errors.Wrapf(err, "cannot create finalizer for %s", nsf.pol.GetName())
 	}
 
 	// if object does not exist, add it
-	if err := nsf.createNodeStatus(ctx, c); err != nil {
+	if err := nsf.createNodeStatus(ctx); err != nil {
 		return errors.Wrapf(err, "cannot create node status for %s", nsf.pol.GetName())
 	}
 	return nil
 }
 
-func (nsf *StatusClient) createFinalizer(ctx context.Context, c client.Client) error {
+func (nsf *StatusClient) createFinalizer(ctx context.Context) error {
 	return util.Retry(func() error {
-		return util.AddFinalizer(ctx, c, nsf.pol, nsf.finalizerString)
+		return util.AddFinalizer(ctx, nsf.client, nsf.pol, nsf.finalizerString)
 	}, util.IsNotFoundOrConflict)
 }
 
@@ -95,8 +97,12 @@ func (nsf *StatusClient) statusObj(
 	}
 }
 
-func (nsf *StatusClient) createNodeStatus(ctx context.Context, c client.Client) error {
-	err := c.Create(ctx, nsf.statusObj(secprofnodestatusv1alpha1.ProfileStatePending))
+func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
+	s := nsf.statusObj(secprofnodestatusv1alpha1.ProfileStatePending)
+	if setCtrlErr := controllerutil.SetControllerReference(nsf.pol, s, nsf.client.Scheme()); setCtrlErr != nil {
+		return errors.Wrapf(setCtrlErr, "cannot set node status owner reference: %s", nsf.pol.GetName())
+	}
+	err := nsf.client.Create(ctx, s)
 	if err != nil && !kerrors.IsAlreadyExists(err) {
 		return errors.Wrap(err, "creating node status")
 	}
@@ -105,22 +111,22 @@ func (nsf *StatusClient) createNodeStatus(ctx context.Context, c client.Client) 
 }
 
 func (nsf *StatusClient) Remove(ctx context.Context, c client.Client) error {
+	// if finalizer exists, remove it
+	if err := nsf.removeFinalizer(ctx); err != nil {
+		return errors.Wrapf(err, "cannot create finalizer for %s", nsf.pol.GetName())
+	}
+
 	// if object exists, remove it
 	if err := nsf.removeNodeStatus(ctx, c); err != nil {
 		return errors.Wrapf(err, "cannot create nodeStatus for %s", nsf.pol.GetName())
 	}
 
-	// if finalizer exists, remove it
-	if err := nsf.removeFinalizer(ctx, c); err != nil {
-		return errors.Wrapf(err, "cannot create finalizer for %s", nsf.pol.GetName())
-	}
-
 	return nil
 }
 
-func (nsf *StatusClient) removeFinalizer(ctx context.Context, c client.Client) error {
+func (nsf *StatusClient) removeFinalizer(ctx context.Context) error {
 	return util.Retry(func() error {
-		return util.RemoveFinalizer(ctx, c, nsf.pol, nsf.finalizerString)
+		return util.RemoveFinalizer(ctx, nsf.client, nsf.pol, nsf.finalizerString)
 	}, util.IsNotFoundOrConflict)
 }
 
@@ -134,9 +140,9 @@ func (nsf *StatusClient) removeNodeStatus(ctx context.Context, c client.Client) 
 	return nil
 }
 
-func (nsf *StatusClient) Exists(ctx context.Context, c client.Client) (bool, error) {
+func (nsf *StatusClient) Exists(ctx context.Context) (bool, error) {
 	f := nsf.finalizerExists()
-	s, err := nsf.nodeStatusExists(ctx, c)
+	s, err := nsf.nodeStatusExists(ctx)
 
 	return s || f, err
 }
@@ -145,9 +151,9 @@ func (nsf *StatusClient) finalizerExists() bool {
 	return controllerutil.ContainsFinalizer(nsf.pol, nsf.finalizerString)
 }
 
-func (nsf *StatusClient) nodeStatusExists(ctx context.Context, c client.Client) (bool, error) {
+func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
 	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
-	err := c.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
+	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
 	if kerrors.IsNotFound(err) {
 		return false, nil
 	} else if err != nil {
@@ -157,40 +163,11 @@ func (nsf *StatusClient) nodeStatusExists(ctx context.Context, c client.Client) 
 	return true, nil
 }
 
-func (nsf *StatusClient) SetReturnGlobal(
-	ctx context.Context, c client.Client, polState secprofnodestatusv1alpha1.ProfileState,
-) (secprofnodestatusv1alpha1.ProfileState, error) {
-	if err := nsf.setNodeStatus(ctx, c, polState); err != nil {
-		return secprofnodestatusv1alpha1.ProfileStateError, errors.Wrap(err, "setting node status")
-	}
-
-	// search all statuses
-	statusList := secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
-	allStatusesForProf := client.MatchingLabels{
-		secprofnodestatusv1alpha1.StatusToProfLabel: nsf.pol.GetName(),
-	}
-	if err := c.List(ctx, &statusList, allStatusesForProf); err != nil {
-		return secprofnodestatusv1alpha1.ProfileStateError, errors.Wrap(err, "listing statuses")
-	}
-
-	// figure out the 'lowest common one'
-	lowestCommonState := secprofnodestatusv1alpha1.ProfileStateTerminating
-	for i := range statusList.Items {
-		lowestCommonState = secprofnodestatusv1alpha1.LowerOfTwoStates(lowestCommonState, statusList.Items[i].Status)
-	}
-
-	// TODO(jhrozek): It would be nicer to come up with an interface the consumer would assign so that
-	// instead of returning a state we could just call that method to do the work..
-
-	// return the global status to the caller so that they can set it
-	return lowestCommonState, nil
-}
-
-func (nsf *StatusClient) setNodeStatus(
-	ctx context.Context, c client.Client, polState secprofnodestatusv1alpha1.ProfileState,
+func (nsf *StatusClient) SetNodeStatus(
+	ctx context.Context, polState secprofnodestatusv1alpha1.ProfileState,
 ) error {
 	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
-	err := c.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
+	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
 	if kerrors.IsNotFound(err) && polState == secprofnodestatusv1alpha1.ProfileStateTerminating {
 		// it's OK if we're about to terminate a profile but it was already gone
 		return nil
@@ -200,9 +177,23 @@ func (nsf *StatusClient) setNodeStatus(
 
 	status.Status = polState
 	status.Labels[secprofnodestatusv1alpha1.StatusStateLabel] = string(polState)
-	if err := c.Update(ctx, &status); err != nil {
+	if err := nsf.client.Update(ctx, &status); err != nil {
 		return errors.Wrap(err, "updating node status")
 	}
 
 	return nil
+}
+
+func (nsf *StatusClient) Matches(
+	ctx context.Context, polState secprofnodestatusv1alpha1.ProfileState,
+) (bool, error) {
+	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+		if kerrors.IsNotFound(err) && polState == secprofnodestatusv1alpha1.ProfileStateTerminating {
+			// it's OK if we're about to terminate a profile but it was already gone
+			return true, nil
+		}
+		return false, errors.Wrapf(err, "getting node status for matching")
+	}
+	return status.Status == polState, nil
 }

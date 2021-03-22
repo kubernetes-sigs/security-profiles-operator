@@ -93,12 +93,10 @@ func (e *e2e) verifyBaseProfileContent(node string, cm *v1.ConfigMap) {
 
 func (e *e2e) verifyCRDProfileContent(node string, sp *v1alpha1.SeccompProfile) {
 	e.logf("Verifying %s profile on node %s", sp.Name, node)
-	name := sp.Name
-	profilePath, err := seccompprofile.GetProfilePath(name, sp.ObjectMeta.Namespace)
-	e.Nil(err)
+	profilePath := sp.GetProfilePath()
 	catOutput := e.execNode(node, "cat", profilePath)
 	output := seccompprofile.OutputProfile{}
-	err = json.Unmarshal([]byte(catOutput), &output)
+	err := json.Unmarshal([]byte(catOutput), &output)
 	e.Nil(err)
 	expected := seccompprofile.OutputProfile{}
 	spec, err := json.Marshal(sp.Spec)

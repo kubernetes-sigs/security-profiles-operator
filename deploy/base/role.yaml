@@ -7,53 +7,6 @@ metadata:
   name: security-profiles-operator
 rules:
 - apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - seccompprofiles
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - securityprofilesoperatordaemons
-  verbs:
-  - create
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - securityprofilesoperatordaemons/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - securityprofilesoperatordaemons/status
-  verbs:
-  - get
-  - patch
-  - update
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  creationTimestamp: null
-  name: security-profiles-operator
-  namespace: security-profiles-operator
-rules:
-- apiGroups:
   - apps
   resources:
   - daemonsets
@@ -82,14 +35,6 @@ rules:
   - list
   - watch
 - apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-  - get
-  - update
-- apiGroups:
   - ""
   resources:
   - configmaps
@@ -101,6 +46,122 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilenodestatuses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilesoperatordaemons
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilesoperatordaemons/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilesoperatordaemons/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxpolicies
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxpolicies/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxpolicies/status
+  verbs:
+  - get
+  - patch
+  - update
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - get
+  - update
 - apiGroups:
   - security.openshift.io
   resources:
@@ -115,6 +176,14 @@ metadata:
   creationTimestamp: null
   name: spod
 rules:
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - ""
   resources:
@@ -215,6 +284,14 @@ metadata:
   name: spod
   namespace: security-profiles-operator
 rules:
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - security.openshift.io
   resources:
