@@ -24,15 +24,16 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/release/pkg/command"
+
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 )
 
 const (
-	certmanager       = "https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml"
+	certmanager       = "https://github.com/jetstack/cert-manager/releases/download/v1.2.0/cert-manager.yaml"
 	manifest          = "deploy/operator.yaml"
 	namespaceManifest = "deploy/namespace-operator.yaml"
-	webhookManifest   = "deploy/webhook.yaml"
 	testNamespace     = "test-ns"
 	defaultNamespace  = "default"
 	// NOTE(jaosorior): We should be able to decrease this once we
@@ -98,11 +99,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		})
 	}
 
-	if e.testProfileBinding || e.testProfileRecording {
-		e.deployWebhook(webhookManifest)
-		defer e.run("git", "checkout", webhookManifest)
-	}
-
 	// TODO(jaosorior): Re-introduce this to the namespaced tests once we
 	// fix the issue with the certs.
 	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
@@ -115,8 +111,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseProfileRecordingMultiContainer()
 		e.testCaseProfileRecordingDeployment()
 	})
-
-	e.cleanupWebhook(webhookManifest)
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(manifest)
@@ -146,6 +140,11 @@ func (e *e2e) TestSecurityProfilesOperator() {
 }
 
 func (e *e2e) deployOperator(manifest string) {
+	// Deploy prerequisites
+	e.logf("Deploying cert-manager")
+	e.kubectl("apply", "-f", certmanager)
+	e.verifyCertManager()
+
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
@@ -196,41 +195,6 @@ func (e *e2e) cleanupOperator(manifest string) {
 	// Clean up the operator
 	e.logf("Cleaning up operator")
 	e.kubectl("delete", "seccompprofiles", "--all", "--all-namespaces")
-	e.kubectl("delete", "--ignore-not-found", "-f", manifest)
-}
-
-func (e *e2e) deployWebhook(manifest string) {
-	// Deploy prerequisites
-	e.logf("Deploying cert-manager")
-	e.kubectl("apply", "-f", certmanager)
-	e.waitFor(
-		"condition=ready",
-		"--namespace", "cert-manager",
-		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
-	)
-	e.run(
-		"sed", "-i", fmt.Sprintf("s;image: .*gcr.io/.*;image: %s;g", e.testImage),
-		manifest,
-	)
-	e.run(
-		"sed", "-i",
-		fmt.Sprintf("s;imagePullPolicy: Always;imagePullPolicy: %s;g", e.pullPolicy),
-		manifest,
-	)
-	e.logf("Deploying webhook")
-	e.kubectl("create", "-f", manifest)
-	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=security-profiles-operator-webhook")
-	e.waitInOperatorNSFor("condition=ready", "certificate", "webhook-cert")
-
-	e.retry(func(i int) bool {
-		e.logf("Waiting webhook to acquired lease (%d)", i)
-		output := e.kubectlOperatorNS("logs", "-l", "name=security-profiles-operator-webhook")
-		return strings.Contains(output, "successfully acquired lease")
-	})
-}
-
-func (e *e2e) cleanupWebhook(manifest string) {
-	e.logf("Cleaning up webhook")
 	e.kubectl("delete", "--ignore-not-found", "-f", manifest)
 	e.kubectl("delete", "--ignore-not-found", "-f", certmanager)
 }
@@ -333,4 +297,60 @@ func (e *e2e) retry(f func(iteration int) (abort bool)) {
 		}
 		time.Sleep(3 * time.Second)
 	}
+}
+
+// https://cert-manager.io/docs/installation/kubernetes/#verifying-the-installation
+func (e *e2e) verifyCertManager() {
+	e.waitFor(
+		"condition=ready",
+		"--namespace", "cert-manager",
+		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
+	)
+
+	tries := 20
+	certManifest := `
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager-test
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: test-selfsigned
+  namespace: cert-manager-test
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: selfsigned-cert
+  namespace: cert-manager-test
+spec:
+  dnsNames:
+    - example.com
+  secretName: selfsigned-cert-tls
+  issuerRef:
+    name: test-selfsigned
+`
+
+	file, err := ioutil.TempFile(os.TempDir(), "test-resource*.yaml")
+	e.Nil(err)
+	_, err = file.Write([]byte(certManifest))
+	e.Nil(err)
+	defer os.Remove(file.Name())
+	for i := 0; i < tries; i++ {
+		output, err := command.New(e.kubectlPath, "apply", "-f", file.Name()).Run()
+		e.Nil(err)
+		if output.Success() {
+			break
+		}
+		time.Sleep(defaultWaitTime)
+	}
+	e.waitFor(
+		"condition=Ready",
+		"certificate", "selfsigned-cert",
+		"--namespace", "cert-manager-test",
+	)
 }

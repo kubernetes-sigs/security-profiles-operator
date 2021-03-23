@@ -49,7 +49,6 @@ var (
 	envTestImage                    = os.Getenv("E2E_SPO_IMAGE")
 	envSelinuxTestsEnabled          = os.Getenv("E2E_TEST_SELINUX")
 	envSeccompTestsEnabled          = os.Getenv("E2E_TEST_SECCOMP")
-	envProfileBindingTestsEnabled   = os.Getenv("E2E_TEST_PROFILE_BINDING")
 	envProfileRecordingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_RECORDING")
 	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
 )
@@ -68,7 +67,6 @@ type e2e struct {
 	pullPolicy           string
 	selinuxEnabled       bool
 	testSeccomp          bool
-	testProfileBinding   bool
 	testProfileRecording bool
 	logger               logr.Logger
 	execNode             func(node string, args ...string) string
@@ -107,14 +105,11 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		testSeccomp = true
 	}
-	testProfileBinding, err := strconv.ParseBool(envProfileBindingTestsEnabled)
-	if err != nil {
-		testProfileBinding = true
-	}
 	testProfileRecording, err := strconv.ParseBool(envProfileRecordingTestsEnabled)
 	if err != nil {
 		testProfileRecording = false
 	}
+
 	selinuxdImage := "quay.io/jaosorior/selinuxd"
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, clusterTypeKind):
@@ -128,7 +123,6 @@ func TestSuite(t *testing.T) {
 				testImage:            testImage,
 				selinuxEnabled:       selinuxEnabled,
 				testSeccomp:          testSeccomp,
-				testProfileBinding:   testProfileBinding,
 				testProfileRecording: testProfileRecording,
 				selinuxdImage:        selinuxdImage,
 			},
@@ -152,7 +146,6 @@ func TestSuite(t *testing.T) {
 				testImage:            testImage,
 				selinuxEnabled:       selinuxEnabled,
 				testSeccomp:          testSeccomp,
-				testProfileBinding:   testProfileBinding,
 				testProfileRecording: testProfileRecording,
 				selinuxdImage:        selinuxdImage,
 			},
@@ -171,7 +164,6 @@ func TestSuite(t *testing.T) {
 				testImage:            testImage,
 				selinuxEnabled:       selinuxEnabled,
 				testSeccomp:          testSeccomp,
-				testProfileBinding:   testProfileBinding,
 				testProfileRecording: testProfileRecording,
 				selinuxdImage:        selinuxdImage,
 			},
@@ -469,12 +461,6 @@ func (e *e2e) enableSelinuxInSpod() {
 func (e *e2e) seccompOnlyTestCase() {
 	if !e.testSeccomp {
 		e.T().Skip("Skipping Seccomp-related test")
-	}
-}
-
-func (e *e2e) profileBindingTestCase() {
-	if !e.testProfileBinding {
-		e.T().Skip("Skipping Profile-Binding-related test")
 	}
 }
 
