@@ -119,7 +119,6 @@ $(BUILD_DIR)/kustomize: $(BUILD_DIR)
 deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deployment files with kustomize
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/base/webhook -o deploy/webhook.yaml
 
 .PHONY: image
 image: ## Build the container image
@@ -228,19 +227,19 @@ test-e2e: ## Run the end-to-end tests
 
 # Generate CRD manifests
 manifests:
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/spod/..." output:crd:stdout > deploy/base/crd.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/secprofnodestatus/..." output:crd:stdout >> deploy/base/crd.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout >> deploy/base/crd.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/selinuxprofile/..." output:crd:stdout >> deploy/base/crd.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/profilebinding/..." output:crd:stdout > deploy/base/webhook/crd-binding.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/profilerecording/..." output:crd:stdout > deploy/base/webhook/crd-recording.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/spod/..." output:crd:stdout > deploy/base/crds/securityprofilesoperatordaemon.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/secprofnodestatus/..." output:crd:stdout > deploy/base/crds/securityprofilenodestatus.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crds/seccompprofile.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/selinuxprofile/..." output:crd:stdout > deploy/base/crds/selinuxpolicy.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/profilebinding/..." output:crd:stdout > deploy/base/crds/profilebinding.yaml
+	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/profilerecording/..." output:crd:stdout > deploy/base/crds/profilerecording.yaml
 
 # Generate deepcopy code
 generate:
 	$(CONTROLLER_GEN_CMD) object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./..."
 	$(CONTROLLER_GEN_CMD) rbac:roleName=security-profiles-operator paths="./internal/pkg/manager/..." output:rbac:stdout > deploy/base/role.yaml
 	$(CONTROLLER_GEN_CMD) rbac:roleName=spod paths="./internal/pkg/daemon/..." output:rbac:stdout >> deploy/base/role.yaml
-	$(CONTROLLER_GEN_CMD) rbac:roleName=spo-webhook paths="./internal/pkg/webhooks/..." output:rbac:stdout > deploy/base/webhook/role.yaml
+	$(CONTROLLER_GEN_CMD) rbac:roleName=spo-webhook paths="./internal/pkg/webhooks/..." output:rbac:stdout >> deploy/base/role.yaml
 
 ## OpenShift-only
 ## These targets are meant to make development in OpenShift easier.

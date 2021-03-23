@@ -20,8 +20,15 @@ The feature scope of the security-profiles-operator is right now limited to:
 ### 1. Install operator
 
 The operator container image consists of an image manifest which supports the
-architectures `amd64` and `arm64` for now. To deploy the operator, just apply
-this manifest via `kubectl`:
+architectures `amd64` and `arm64` for now. To deploy the operator, first install
+cert-manager via `kubectl`:
+
+```sh
+$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
+$ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
+```
+
+Then apply the operator manifest:
 
 ```sh
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
@@ -153,14 +160,6 @@ if you are deploying a public application, you can use the ProfileBinding
 resource to bind a security profile to a container's securityContext. Currently,
 the ProfileBinding resource can only refer to a SeccompProfile.
 
-To enable ProfileBindings, install cert-manager and the webhook:
-
-```
-$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
-$ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/webhook.yaml
-```
-
 To bind a Pod that uses an 'nginx:1.19.1' image to the 'profile-complain'
 example seccomp profile, create a ProfileBinding in the same namespace as both
 the Pod and the SeccompProfile:
@@ -215,16 +214,7 @@ and CRI-O work nicely together.
 [hook-json]: https://github.com/containers/oci-seccomp-bpf-hook/blob/50e711/oci-seccomp-bpf-hook.json
 [path]: https://github.com/containers/oci-seccomp-bpf-hook/blob/50e711/oci-seccomp-bpf-hook.json#L4
 
-Once everything is setup, the operator webhook can be deployed to allow the
-usage of the `ProfileRecording` custom resource:
-
-```
-$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.1.0/cert-manager.yaml
-$ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/webhook.yaml
-```
-
-We now can create a new `ProfileRecording` to indicate to the operator that a
+We can create a new `ProfileRecording` to indicate to the operator that a
 specific workload should be recorded:
 
 ```yaml
