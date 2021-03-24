@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,16 +18,16 @@ limitations under the License.
 package nonrootenablerfakes
 
 import (
-	"os"
+	"io/fs"
 	"sync"
 )
 
 type FakeImpl struct {
-	ChmodStub        func(string, os.FileMode) error
+	ChmodStub        func(string, fs.FileMode) error
 	chmodMutex       sync.RWMutex
 	chmodArgsForCall []struct {
 		arg1 string
-		arg2 os.FileMode
+		arg2 fs.FileMode
 	}
 	chmodReturns struct {
 		result1 error
@@ -60,11 +60,11 @@ type FakeImpl struct {
 	copyDirContentsLocalReturnsOnCall map[int]struct {
 		result1 error
 	}
-	MkdirAllStub        func(string, os.FileMode) error
+	MkdirAllStub        func(string, fs.FileMode) error
 	mkdirAllMutex       sync.RWMutex
 	mkdirAllArgsForCall []struct {
 		arg1 string
-		arg2 os.FileMode
+		arg2 fs.FileMode
 	}
 	mkdirAllReturns struct {
 		result1 error
@@ -72,17 +72,17 @@ type FakeImpl struct {
 	mkdirAllReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StatStub        func(string) (os.FileInfo, error)
+	StatStub        func(string) (fs.FileInfo, error)
 	statMutex       sync.RWMutex
 	statArgsForCall []struct {
 		arg1 string
 	}
 	statReturns struct {
-		result1 os.FileInfo
+		result1 fs.FileInfo
 		result2 error
 	}
 	statReturnsOnCall map[int]struct {
-		result1 os.FileInfo
+		result1 fs.FileInfo
 		result2 error
 	}
 	SymlinkStub        func(string, string) error
@@ -101,12 +101,12 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) Chmod(arg1 string, arg2 os.FileMode) error {
+func (fake *FakeImpl) Chmod(arg1 string, arg2 fs.FileMode) error {
 	fake.chmodMutex.Lock()
 	ret, specificReturn := fake.chmodReturnsOnCall[len(fake.chmodArgsForCall)]
 	fake.chmodArgsForCall = append(fake.chmodArgsForCall, struct {
 		arg1 string
-		arg2 os.FileMode
+		arg2 fs.FileMode
 	}{arg1, arg2})
 	stub := fake.ChmodStub
 	fakeReturns := fake.chmodReturns
@@ -127,13 +127,13 @@ func (fake *FakeImpl) ChmodCallCount() int {
 	return len(fake.chmodArgsForCall)
 }
 
-func (fake *FakeImpl) ChmodCalls(stub func(string, os.FileMode) error) {
+func (fake *FakeImpl) ChmodCalls(stub func(string, fs.FileMode) error) {
 	fake.chmodMutex.Lock()
 	defer fake.chmodMutex.Unlock()
 	fake.ChmodStub = stub
 }
 
-func (fake *FakeImpl) ChmodArgsForCall(i int) (string, os.FileMode) {
+func (fake *FakeImpl) ChmodArgsForCall(i int) (string, fs.FileMode) {
 	fake.chmodMutex.RLock()
 	defer fake.chmodMutex.RUnlock()
 	argsForCall := fake.chmodArgsForCall[i]
@@ -288,12 +288,12 @@ func (fake *FakeImpl) CopyDirContentsLocalReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) MkdirAll(arg1 string, arg2 os.FileMode) error {
+func (fake *FakeImpl) MkdirAll(arg1 string, arg2 fs.FileMode) error {
 	fake.mkdirAllMutex.Lock()
 	ret, specificReturn := fake.mkdirAllReturnsOnCall[len(fake.mkdirAllArgsForCall)]
 	fake.mkdirAllArgsForCall = append(fake.mkdirAllArgsForCall, struct {
 		arg1 string
-		arg2 os.FileMode
+		arg2 fs.FileMode
 	}{arg1, arg2})
 	stub := fake.MkdirAllStub
 	fakeReturns := fake.mkdirAllReturns
@@ -314,13 +314,13 @@ func (fake *FakeImpl) MkdirAllCallCount() int {
 	return len(fake.mkdirAllArgsForCall)
 }
 
-func (fake *FakeImpl) MkdirAllCalls(stub func(string, os.FileMode) error) {
+func (fake *FakeImpl) MkdirAllCalls(stub func(string, fs.FileMode) error) {
 	fake.mkdirAllMutex.Lock()
 	defer fake.mkdirAllMutex.Unlock()
 	fake.MkdirAllStub = stub
 }
 
-func (fake *FakeImpl) MkdirAllArgsForCall(i int) (string, os.FileMode) {
+func (fake *FakeImpl) MkdirAllArgsForCall(i int) (string, fs.FileMode) {
 	fake.mkdirAllMutex.RLock()
 	defer fake.mkdirAllMutex.RUnlock()
 	argsForCall := fake.mkdirAllArgsForCall[i]
@@ -350,7 +350,7 @@ func (fake *FakeImpl) MkdirAllReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) Stat(arg1 string) (os.FileInfo, error) {
+func (fake *FakeImpl) Stat(arg1 string) (fs.FileInfo, error) {
 	fake.statMutex.Lock()
 	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
 	fake.statArgsForCall = append(fake.statArgsForCall, struct {
@@ -375,7 +375,7 @@ func (fake *FakeImpl) StatCallCount() int {
 	return len(fake.statArgsForCall)
 }
 
-func (fake *FakeImpl) StatCalls(stub func(string) (os.FileInfo, error)) {
+func (fake *FakeImpl) StatCalls(stub func(string) (fs.FileInfo, error)) {
 	fake.statMutex.Lock()
 	defer fake.statMutex.Unlock()
 	fake.StatStub = stub
@@ -388,28 +388,28 @@ func (fake *FakeImpl) StatArgsForCall(i int) string {
 	return argsForCall.arg1
 }
 
-func (fake *FakeImpl) StatReturns(result1 os.FileInfo, result2 error) {
+func (fake *FakeImpl) StatReturns(result1 fs.FileInfo, result2 error) {
 	fake.statMutex.Lock()
 	defer fake.statMutex.Unlock()
 	fake.StatStub = nil
 	fake.statReturns = struct {
-		result1 os.FileInfo
+		result1 fs.FileInfo
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) StatReturnsOnCall(i int, result1 os.FileInfo, result2 error) {
+func (fake *FakeImpl) StatReturnsOnCall(i int, result1 fs.FileInfo, result2 error) {
 	fake.statMutex.Lock()
 	defer fake.statMutex.Unlock()
 	fake.StatStub = nil
 	if fake.statReturnsOnCall == nil {
 		fake.statReturnsOnCall = make(map[int]struct {
-			result1 os.FileInfo
+			result1 fs.FileInfo
 			result2 error
 		})
 	}
 	fake.statReturnsOnCall[i] = struct {
-		result1 os.FileInfo
+		result1 fs.FileInfo
 		result2 error
 	}{result1, result2}
 }

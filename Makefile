@@ -72,7 +72,7 @@ IMAGE ?= $(PROJECT):latest
 CRD_OPTIONS ?= "crd:crdVersions=v1"
 
 GOLANGCI_LINT_VERSION = v1.38.0
-REPO_INFRA_VERSION = v0.1.2
+REPO_INFRA_VERSION = v0.1.5
 
 export E2E_CLUSTER_TYPE ?= kind
 
@@ -161,8 +161,7 @@ update-go-mod: ## Cleanup, vendor and verify go modules
 update-mocks: ## Update all generated mocks
 	go generate ./...
 	for f in $(shell find . -path ./vendor -prune -false -o -name fake_*.go); do \
-		cp hack/boilerplate/boilerplate.go.txt tmp ;\
-		sed -i.bak -e 's/YEAR/'$(shell date +"%Y")'/g' -- tmp && rm -- tmp.bak ;\
+		cp hack/boilerplate/boilerplate.generatego.txt tmp ;\
 		cat $$f >> tmp ;\
 		mv tmp $$f ;\
 	done
