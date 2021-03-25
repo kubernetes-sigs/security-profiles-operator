@@ -17,6 +17,7 @@ limitations under the License.
 package spod
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -49,6 +50,7 @@ func Test_getEffectiveSPOd(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			os.Setenv("OPERATOR_NAMESPACE", "default")
 			got := getEffectiveSPOd(&tt.dt)
 			require.Equal(t, tt.dt.SelinuxdImage, got.Spec.Template.Spec.Containers[1].Image)
 			require.Equal(t, tt.dt.LogEnricherImage, got.Spec.Template.Spec.Containers[2].Image)
