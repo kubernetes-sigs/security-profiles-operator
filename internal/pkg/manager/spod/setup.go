@@ -56,6 +56,7 @@ func Setup(ctx context.Context, mgr ctrl.Manager, dt *DaemonTunables, l logr.Log
 
 func getEffectiveSPOd(dt *DaemonTunables) *appsv1.DaemonSet {
 	refSPOd := bindata.Manifest.DeepCopy()
+	refSPOd.SetNamespace(config.GetOperatorNamespace())
 
 	daemon := &refSPOd.Spec.Template.Spec.Containers[0]
 	if dt.WatchNamespace != "" {
