@@ -48,4 +48,7 @@ func (e *e2e) testCaseSPODUpdateSelinux(nodes []string) {
 	e.logf("assert selinux is enabled in the spod DS")
 	selinuxEnabledInSPODDS = e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	e.Contains(selinuxEnabledInSPODDS, "--with-selinux=true")
+
+	e.logf("waiting for final rollout")
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultSelinuxOpTimeout)
 }
