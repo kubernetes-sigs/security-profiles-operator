@@ -5,7 +5,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.5.0
   creationTimestamp: null
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: profilebindings.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
@@ -81,7 +81,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.5.0
   creationTimestamp: null
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: profilerecordings.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
@@ -176,7 +176,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: spo-webhook
   namespace: security-profiles-operator
 ---
@@ -185,7 +185,7 @@ kind: ClusterRole
 metadata:
   creationTimestamp: null
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: spo-webhook
 rules:
 - apiGroups:
@@ -277,7 +277,7 @@ kind: Role
 metadata:
   creationTimestamp: null
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: spo-webhook
   namespace: security-profiles-operator
 rules:
@@ -305,7 +305,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: spo-webhook
   namespace: security-profiles-operator
 roleRef:
@@ -321,7 +321,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: spo-webhook
   namespace: security-profiles-operator
 roleRef:
@@ -336,21 +336,21 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: security-profiles-operator-webhook
   namespace: security-profiles-operator
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: security-profiles-operator
+      app: security-profiles-operator-webhook
       name: security-profiles-operator-webhook
   template:
     metadata:
       annotations:
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
-        app: security-profiles-operator
+        app: security-profiles-operator-webhook
         name: security-profiles-operator-webhook
     spec:
       containers:
@@ -393,7 +393,7 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: spo-mutating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
@@ -459,7 +459,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: selfsigned-issuer
   namespace: security-profiles-operator
 spec:
@@ -469,7 +469,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: webhook-cert
   namespace: security-profiles-operator
 spec:
@@ -485,7 +485,7 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
   name: webhook-service
   namespace: security-profiles-operator
 spec:
@@ -493,5 +493,5 @@ spec:
   - port: 443
     targetPort: 9443
   selector:
-    app: security-profiles-operator
+    app: security-profiles-operator-webhook
     name: security-profiles-operator-webhook
