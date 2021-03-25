@@ -11,7 +11,7 @@ images:
     # newTag: v0.3.0
 
 commonLabels:
-  app: security-profiles-operator
+  app: security-profiles-operator-webhook
 
 resources:
   - crd-binding.yaml
