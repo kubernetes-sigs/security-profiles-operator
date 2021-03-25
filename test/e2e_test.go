@@ -39,7 +39,7 @@ const (
 	// migrate to a single daemonset-based implementation for the
 	// SELinux pieces.
 	defaultSelinuxOpTimeout = "360s"
-	defaultWaitTimeout      = "90s"
+	defaultWaitTimeout      = "120s"
 	defaultWaitTime         = 10 * time.Second
 )
 
@@ -188,6 +188,7 @@ func (e *e2e) deployOperator(manifest string) {
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=security-profiles-operator")
 	// Wait for all pods in DaemonSet
 	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "app=spod")
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=spod")
 }
 
