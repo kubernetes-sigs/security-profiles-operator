@@ -16,7 +16,7 @@ spec:
     shortNames:
     - spod
     singular: securityprofilesoperatordaemon
-  scope: Cluster
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.state

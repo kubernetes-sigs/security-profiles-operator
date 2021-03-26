@@ -63,7 +63,7 @@ type SPODStatus struct {
 
 // SecurityProfilesOperatorDaemon is the Schema to configure the spod deployment.
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=securityprofilesoperatordaemons,scope=Cluster,shortName=spod
+// +kubebuilder:resource:path=securityprofilesoperatordaemons,shortName=spod
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.state`
 type SecurityProfilesOperatorDaemon struct {
 	metav1.TypeMeta   `json:",inline"`
