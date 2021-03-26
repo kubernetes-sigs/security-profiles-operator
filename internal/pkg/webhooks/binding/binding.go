@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -35,10 +36,13 @@ import (
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 const finalizer = "active-workload-lock"
+
+var ErrProfWithoutStatus = errors.New("Profile hasn't been initialized with status")
 
 type podSeccompBinder struct {
 	client  client.Client
@@ -136,13 +140,13 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 			continue
 		}
 
-		seccompProfile := &seccompprofilev1alpha1.SeccompProfile{}
 		namespacedName := types.NamespacedName{Namespace: req.Namespace, Name: profileName}
-		err = p.client.Get(ctx, namespacedName, seccompProfile)
+		seccompProfile, err := p.getSeccompProfile(ctx, namespacedName)
 		if err != nil {
 			p.log.Error(err, fmt.Sprintf("failed to get SeccompProfile %#v", namespacedName))
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
+
 		for j := range containers {
 			podChanged = p.addSecurityContext(containers[j], seccompProfile)
 		}
@@ -162,6 +166,29 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 	}
 
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+}
+
+func (p *podSeccompBinder) getSeccompProfile(
+	ctx context.Context,
+	key types.NamespacedName,
+) (*seccompprofilev1alpha1.SeccompProfile, error) {
+	seccompProfile := &seccompprofilev1alpha1.SeccompProfile{}
+	err := util.Retry(
+		func() error {
+			getErr := p.client.Get(ctx, key, seccompProfile)
+			if getErr != nil {
+				return errors.Wrapf(getErr, "getting profile")
+			}
+			if seccompProfile.Status.Status == "" {
+				return errors.Wrapf(ErrProfWithoutStatus, "getting profile")
+			}
+			return nil
+		}, func(inErr error) bool {
+			return errors.Is(inErr, ErrProfWithoutStatus) || kerrors.IsNotFound(inErr)
+		})
+	// nolint:wrapcheck
+	// error is already wrapped
+	return seccompProfile, err
 }
 
 func (p *podSeccompBinder) addSecurityContext(
