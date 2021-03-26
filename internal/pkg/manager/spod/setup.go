@@ -20,9 +20,11 @@ import (
 	"context"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
+	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
@@ -44,6 +46,7 @@ func Setup(ctx context.Context, mgr ctrl.Manager, dt *DaemonTunables, l logr.Log
 		Named("spod-config").
 		For(&spodv1alpha1.SecurityProfilesOperatorDaemon{}).
 		Owns(&appsv1.DaemonSet{}).
+		WithEventFilter(resource.NewPredicates(isInOperatorNamespace)).
 		Complete(&ReconcileSPOd{
 			baseSPOd:       getEffectiveSPOd(dt),
 			client:         mgr.GetClient(),
@@ -75,4 +78,13 @@ func getEffectiveSPOd(dt *DaemonTunables) *appsv1.DaemonSet {
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.SelinuxdImage // selinuxd ships the policies as well
 	return refSPOd
+}
+
+func isInOperatorNamespace(obj runtime.Object) bool {
+	spod, ok := obj.(*spodv1alpha1.SecurityProfilesOperatorDaemon)
+	if !ok {
+		return false
+	}
+
+	return spod.GetNamespace() == config.GetOperatorNamespace()
 }

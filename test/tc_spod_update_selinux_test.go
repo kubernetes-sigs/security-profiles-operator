@@ -22,7 +22,7 @@ func (e *e2e) testCaseSPODUpdateSelinux(nodes []string) {
 	e.selinuxtOnlyTestCase()
 
 	e.logf("assert selinux is enabled in the spod object")
-	selinuxEnabledInSPODObj := e.kubectl("get", "spod", "spod", "-o", "jsonpath={.spec.enableSelinux}")
+	selinuxEnabledInSPODObj := e.kubectlOperatorNS("get", "spod", "spod", "-o", "jsonpath={.spec.enableSelinux}")
 	e.Equal(selinuxEnabledInSPODObj, "true")
 
 	e.logf("assert selinux is enabled in the spod DS")
@@ -30,7 +30,7 @@ func (e *e2e) testCaseSPODUpdateSelinux(nodes []string) {
 	e.Contains(selinuxEnabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Disable selinux from SPOD")
-	e.kubectl("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": false}}`, "--type=merge")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": false}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -40,7 +40,7 @@ func (e *e2e) testCaseSPODUpdateSelinux(nodes []string) {
 	e.NotContains(selinuxDisabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Re-enable selinux in SPOD")
-	e.kubectl("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
