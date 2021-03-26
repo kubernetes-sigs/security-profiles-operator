@@ -49,6 +49,10 @@ const (
 	// the name of the current node.
 	NodeNameEnvKey = "NODE_NAME"
 
+	// OperatorNamespaceEnvKey is the default environment variable key for retrieving
+	// the operator's namespace.
+	OperatorNamespaceEnvKey = "OPERATOR_NAMESPACE"
+
 	// RestrictNamespaceEnvKey is the environment variable key for restricting
 	// the operator to work on only a single Kubernetes namespace.
 	RestrictNamespaceEnvKey = "RESTRICT_TO_NAMESPACE"
@@ -79,7 +83,7 @@ func GetOperatorNamespace() string {
 func TryToGetOperatorNamespace() (string, error) {
 	// This is OPERATOR_NAMESPACE should have been set by the downward API to identify
 	// the namespace which this controller is running from
-	operatorNS := util.EnvDefault("OPERATOR_NAMESPACE", "")
+	operatorNS := util.EnvDefault(OperatorNamespaceEnvKey, "")
 	if operatorNS == "" {
 		return "", ErrPodNamespaceEnvNotFound
 	}

@@ -241,6 +241,14 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 									},
 								},
 							},
+							{
+								Name: "OPERATOR_NAMESPACE",
+								ValueFrom: &v1.EnvVarSource{
+									FieldRef: &v1.ObjectFieldSelector{
+										FieldPath: "metadata.namespace",
+									},
+								},
+							},
 						},
 					},
 					{
