@@ -54,6 +54,11 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		// Default profile verification
 		namespace := e.getCurrentContextNamespace("security-profiles-operator")
 		for _, name := range defaultProfileNames {
+			e.waitFor(
+				"condition=ready",
+				"--namespace", namespace,
+				"seccompprofile", name,
+			)
 			sp := e.getSeccompProfile(name, namespace)
 			e.verifyCRDProfileContent(node, sp)
 
@@ -64,6 +69,11 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		// Example profile verification
 		namespace = e.getCurrentContextNamespace(defaultNamespace)
 		for _, name := range exampleProfileNames {
+			e.waitFor(
+				"condition=ready",
+				"--namespace", namespace,
+				"seccompprofile", name,
+			)
 			sp := e.getSeccompProfile(name, namespace)
 			e.verifyCRDProfileContent(node, sp)
 
