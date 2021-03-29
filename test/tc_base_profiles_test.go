@@ -64,7 +64,7 @@ spec:
     seccompProfile:
       type: Localhost
       localhostProfile: operator/%s/hello.json
-  restartPolicy: Never
+  restartPolicy: OnFailure
 `
 	e.kubectl("create", "-f", baseProfilePath)
 	defer e.kubectl("delete", "-f", baseProfilePath)
