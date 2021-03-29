@@ -42,7 +42,7 @@ import (
 
 const finalizer = "active-workload-lock"
 
-var ErrProfWithoutStatus = errors.New("Profile hasn't been initialized with status")
+var ErrProfWithoutStatus = errors.New("profile hasn't been initialized with status")
 
 type podSeccompBinder struct {
 	client  client.Client
