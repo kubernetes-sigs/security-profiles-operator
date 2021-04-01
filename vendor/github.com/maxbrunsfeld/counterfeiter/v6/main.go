@@ -68,6 +68,9 @@ func run() error {
 	if args != nil {
 		generateMode = args.GenerateMode
 	}
+	if !generateMode && shouldPrintGenerateWarning() {
+		fmt.Printf("\nWARNING: Invoking counterfeiter multiple times from \"go generate\" is slow.\nConsider using counterfeiter:generate directives to speed things up.\nSee https://github.com/maxbrunsfeld/counterfeiter#step-2b---add-counterfeitergenerate-directives for more information.\nSet the \"COUNTERFEITER_NO_GENERATE_WARNING\" environment variable to suppress this message.\n\n")
+	}
 	invocations, err = command.Detect(cwd, os.Args, generateMode)
 	if err != nil {
 		return err
@@ -112,9 +115,19 @@ func disableCache() bool {
 	return os.Getenv("COUNTERFEITER_DISABLECACHE") != ""
 }
 
+func shouldPrintGenerateWarning() bool {
+	return invokedByGoGenerate() && os.Getenv("COUNTERFEITER_NO_GENERATE_WARNING") == ""
+}
+
+func invokedByGoGenerate() bool {
+	return os.Getenv("DOLLAR") == "$"
+}
+
 func generate(workingDir string, args *arguments.ParsedArguments, cache generator.Cacher, headerReader generator.FileReader) error {
-	if err := reportStarting(workingDir, args.OutputPath, args.FakeImplName); err != nil {
-		return err
+	if !args.Quiet {
+		if err := reportStarting(workingDir, args.OutputPath, args.FakeImplName); err != nil {
+			return err
+		}
 	}
 
 	b, err := doGenerate(workingDir, args, cache, headerReader)
@@ -125,7 +138,11 @@ func generate(workingDir string, args *arguments.ParsedArguments, cache generato
 	if err := printCode(b, args.OutputPath, args.PrintToStdOut); err != nil {
 		return err
 	}
-	fmt.Fprint(os.Stderr, "Done\n")
+
+	if !args.Quiet {
+		fmt.Fprint(os.Stderr, "Done\n")
+	}
+
 	return nil
 }
 
