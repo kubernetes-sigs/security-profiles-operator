@@ -6,7 +6,7 @@ require (
 	github.com/containers/common v0.35.2
 	github.com/crossplane/crossplane-runtime v0.13.0
 	github.com/go-logr/logr v0.4.0
-	github.com/maxbrunsfeld/counterfeiter/v6 v6.3.0
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.4.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.7.0
 	github.com/urfave/cli/v2 v2.3.0
