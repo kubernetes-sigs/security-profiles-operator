@@ -27,7 +27,7 @@ jobs:
       - run: make nix nix-arm64
 
   image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
     steps:
       - uses: actions/checkout@v2
       - uses: redhat-actions/buildah-build@v2
@@ -46,7 +46,7 @@ jobs:
           password: ${{ secrets.QUAY_TOKEN }}
 
   ubi-image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
     steps:
       - uses: actions/checkout@v2
       - uses: redhat-actions/buildah-build@v2
