@@ -20,10 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v12
-      - uses: cachix/cachix-action@v8
+      - uses: cachix/cachix-action@v10
         with:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          pushFilter: security-profiles-operator
       - run: make nix nix-arm64
 
   image:
