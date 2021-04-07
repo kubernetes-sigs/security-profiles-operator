@@ -93,7 +93,6 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 	instance := &statusv1alpha1.SecurityProfileNodeStatus{}
 	if err := r.client.Get(ctx, req.NamespacedName, instance); err != nil {
 		// Expected to find a node profile, return an error and requeue
-		// TODO(jhrozek): ignore not found?
 		return reconcile.Result{}, util.IgnoreNotFound(err)
 	}
 
