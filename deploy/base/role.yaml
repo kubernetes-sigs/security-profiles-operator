@@ -120,7 +120,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies
+  - selinuxprofiles
   verbs:
   - create
   - get
@@ -131,7 +131,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies/finalizers
+  - selinuxprofiles/finalizers
   verbs:
   - delete
   - get
@@ -140,7 +140,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies/status
+  - selinuxprofiles/status
   verbs:
   - get
   - patch
@@ -250,7 +250,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies
+  - selinuxprofiles
   verbs:
   - create
   - get
@@ -261,7 +261,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies/finalizers
+  - selinuxprofiles/finalizers
   verbs:
   - delete
   - get
@@ -270,7 +270,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies/status
+  - selinuxprofiles/status
   verbs:
   - get
   - patch

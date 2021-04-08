@@ -32,7 +32,7 @@ type ProfileBindingSpec struct {
 type ProfileRef struct {
 	// Kind of object to be bound.
 	// +kubebuilder:validation:Enum=SeccompProfile
-	Kind string `json:"kind"` // TODO(cmurphy) add SelinuxPolicy
+	Kind string `json:"kind"` // TODO(cmurphy) add SelinuxProfile
 	// Name of the profile within the current namespace to which to bind the selected pods.
 	Name string `json:"name"`
 }

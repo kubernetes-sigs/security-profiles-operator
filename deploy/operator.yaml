@@ -407,14 +407,14 @@ metadata:
   creationTimestamp: null
   labels:
     app: security-profiles-operator
-  name: selinuxpolicies.security-profiles-operator.x-k8s.io
+  name: selinuxprofiles.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
-    kind: SelinuxPolicy
-    listKind: SelinuxPolicyList
-    plural: selinuxpolicies
-    singular: selinuxpolicy
+    kind: SelinuxProfile
+    listKind: SelinuxProfileList
+    plural: selinuxprofiles
+    singular: selinuxprofile
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -430,7 +430,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SelinuxPolicy is the Schema for the selinuxpolicies API.
+        description: SelinuxProfile is the Schema for the selinuxprofiles API.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
@@ -441,7 +441,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: SelinuxPolicySpec defines the desired state of SelinuxPolicy.
+            description: SelinuxProfileSpec defines the desired state of SelinuxProfile.
             properties:
               apply:
                 type: boolean
@@ -449,7 +449,7 @@ spec:
                 type: string
             type: object
           status:
-            description: SelinuxPolicyStatus defines the observed state of SelinuxPolicy.
+            description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
             properties:
               conditions:
                 description: Conditions of the resource.
@@ -483,7 +483,7 @@ spec:
                 description: ProfileState defines the state that the profile is in. A profile in this context refers to a SeccompProfile or a SELinux profile, the states are shared between them as well as the management API.
                 type: string
               usage:
-                description: Represents the string that the SelinuxPolicy object can be referenced as in a pod seLinuxOptions section.
+                description: Represents the string that the SelinuxProfile object can be referenced as in a pod seLinuxOptions section.
                 type: string
             type: object
         type: object
@@ -643,7 +643,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies
+  - selinuxprofiles
   verbs:
   - create
   - get
@@ -654,7 +654,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies/finalizers
+  - selinuxprofiles/finalizers
   verbs:
   - delete
   - get
@@ -663,7 +663,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies/status
+  - selinuxprofiles/status
   verbs:
   - get
   - patch
@@ -775,7 +775,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies
+  - selinuxprofiles
   verbs:
   - create
   - get
@@ -786,7 +786,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies/finalizers
+  - selinuxprofiles/finalizers
   verbs:
   - delete
   - get
@@ -795,7 +795,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - selinuxpolicies/status
+  - selinuxprofiles/status
   verbs:
   - get
   - patch

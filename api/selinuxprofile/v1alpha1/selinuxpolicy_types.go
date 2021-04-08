@@ -22,72 +22,72 @@ import (
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 )
 
-// Ensure SelinuxPolicy implements the StatusBaseUser interface.
-var _ profilebasev1alpha1.StatusBaseUser = &SelinuxPolicy{}
+// Ensure SelinuxProfile implements the StatusBaseUser interface.
+var _ profilebasev1alpha1.StatusBaseUser = &SelinuxProfile{}
 
-// SelinuxPolicySpec defines the desired state of SelinuxPolicy.
-type SelinuxPolicySpec struct {
+// SelinuxProfileSpec defines the desired state of SelinuxProfile.
+type SelinuxProfileSpec struct {
 	Apply  bool   `json:"apply,omitempty"`
 	Policy string `json:"policy,omitempty"`
 }
 
-// SelinuxPolicyStatus defines the observed state of SelinuxPolicy.
-type SelinuxPolicyStatus struct {
+// SelinuxProfileStatus defines the observed state of SelinuxProfile.
+type SelinuxProfileStatus struct {
 	profilebasev1alpha1.StatusBase `json:",inline"`
-	// Represents the string that the SelinuxPolicy object can be
+	// Represents the string that the SelinuxProfile object can be
 	// referenced as in a pod seLinuxOptions section.
 	Usage string `json:"usage,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// SelinuxPolicy is the Schema for the selinuxpolicies API.
+// SelinuxProfile is the Schema for the selinuxprofiles API.
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=selinuxpolicies,scope=Namespaced
+// +kubebuilder:resource:path=selinuxprofiles,scope=Namespaced
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="Apply",type="boolean",JSONPath=`.spec.apply`
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
-type SelinuxPolicy struct {
+type SelinuxProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   SelinuxPolicySpec   `json:"spec,omitempty"`
-	Status SelinuxPolicyStatus `json:"status,omitempty"`
+	Spec   SelinuxProfileSpec   `json:"spec,omitempty"`
+	Status SelinuxProfileStatus `json:"status,omitempty"`
 }
 
-func (sp *SelinuxPolicy) GetStatusBase() *profilebasev1alpha1.StatusBase {
+func (sp *SelinuxProfile) GetStatusBase() *profilebasev1alpha1.StatusBase {
 	return &sp.Status.StatusBase
 }
 
-func (sp *SelinuxPolicy) DeepCopyToStatusBaseIf() profilebasev1alpha1.StatusBaseUser {
+func (sp *SelinuxProfile) DeepCopyToStatusBaseIf() profilebasev1alpha1.StatusBaseUser {
 	return sp.DeepCopy()
 }
 
-func (sp *SelinuxPolicy) SetImplementationStatus() {
+func (sp *SelinuxProfile) SetImplementationStatus() {
 	sp.Status.Usage = sp.GetPolicyUsage()
 }
 
 // GetPolicyName gets the policy module name in the format that
 // we're expecting for parsing.
-func (sp *SelinuxPolicy) GetPolicyName() string {
+func (sp *SelinuxProfile) GetPolicyName() string {
 	return sp.GetName() + "_" + sp.GetNamespace()
 }
 
 // GetPolicyUsage is the representation of how a pod will call this
 // SELinux module.
-func (sp *SelinuxPolicy) GetPolicyUsage() string {
+func (sp *SelinuxProfile) GetPolicyUsage() string {
 	return sp.GetPolicyName() + ".process"
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// SelinuxPolicyList contains a list of SelinuxPolicy.
-type SelinuxPolicyList struct {
+// SelinuxProfileList contains a list of SelinuxProfile.
+type SelinuxProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SelinuxPolicy `json:"items"`
+	Items           []SelinuxProfile `json:"items"`
 }
 
 func init() { //nolint:gochecknoinits
-	SchemeBuilder.Register(&SelinuxPolicy{}, &SelinuxPolicyList{})
+	SchemeBuilder.Register(&SelinuxProfile{}, &SelinuxProfileList{})
 }
