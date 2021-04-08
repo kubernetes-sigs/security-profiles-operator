@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package selinuxpolicy
+package selinuxprofile
 
 import (
 	"context"
@@ -26,26 +26,26 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
+	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 )
 
-var log = logf.Log.WithName("selinuxpolicy")
+var log = logf.Log.WithName("selinuxprofile")
 
 // Setup adds a controller that reconciles seccomp profiles.
 func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
 	// Create template to wrap policies
-	tmpl, err := template.New("policyWrapper").Parse(policyWrapper)
+	tmpl, err := template.New("profileWrapper").Parse(profileWrapper)
 	if err != nil {
-		return errors.Wrap(err, "creating policy wrapper template")
+		return errors.Wrap(err, "creating profile wrapper template")
 	}
-	// Register the regular reconciler to manage SelinuxPolicies
+	// Register the regular reconciler to manage SelinuxProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("profile").
-		For(&spov1alpha1.SelinuxPolicy{}).
+		For(&spov1alpha1.SelinuxProfile{}).
 		Complete(&ReconcileSP{
 			client:         mgr.GetClient(),
 			scheme:         mgr.GetScheme(),
 			policyTemplate: tmpl,
-			record:         event.NewAPIRecorder(mgr.GetEventRecorderFor("selinuxpolicy")),
+			record:         event.NewAPIRecorder(mgr.GetEventRecorderFor("selinuxprofile")),
 		})
 }

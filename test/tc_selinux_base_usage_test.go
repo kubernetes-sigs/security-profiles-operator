@@ -56,7 +56,7 @@ spec:
 
 	const errorloggerPolicy = `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
-kind: SelinuxPolicy
+kind: SelinuxProfile
 metadata:
   name: errorlogger
 spec:
@@ -75,7 +75,7 @@ spec:
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
-		"--for", "condition=ready", "selinuxpolicy", "errorlogger")
+		"--for", "condition=ready", "selinuxprofile", "errorlogger")
 
 	rawPolicyName := e.getSELinuxPolicyName("errorlogger")
 
@@ -94,7 +94,7 @@ spec:
 
 		if missingPolName != "" {
 			if i == maxNodeIterations-1 {
-				e.Failf("The SelinuxPolicy errorlogger wasn't found in the %s node with the name %s",
+				e.Failf("The SelinuxProfile errorlogger wasn't found in the %s node with the name %s",
 					missingPolName, rawPolicyName)
 			} else {
 				e.logf("the policy was stil present, trying again")
@@ -123,7 +123,7 @@ spec:
 	e.kubectl("delete", "pod", "errorlogger")
 
 	e.logf("removing policy")
-	e.kubectl("delete", "selinuxpolicy", "errorlogger")
+	e.kubectl("delete", "selinuxprofile", "errorlogger")
 
 	e.logf("assert policy was removed")
 	for i := 0; i < maxNodeIterations; i++ {
@@ -139,7 +139,7 @@ spec:
 
 		if nodeHasPolName != "" {
 			if i == maxNodeIterations-1 {
-				e.Failf("The SelinuxPolicy errorlogger should have been removed from %s node", nodeHasPolName)
+				e.Failf("The SelinuxProfile errorlogger should have been removed from %s node", nodeHasPolName)
 			} else {
 				e.logf("the policy was stil present, trying again")
 				time.Sleep(sleepBetweenIterations)

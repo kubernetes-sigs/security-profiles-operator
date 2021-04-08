@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package selinuxpolicy
+package selinuxprofile
 
 // NOTE(jaosorior): We can probably use a library for generating names instead
 // of using this.
@@ -30,8 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 )
 
-// GetPolicyK8sName gets the policy name in a format that's OK for k8s names.
-func GetPolicyK8sName(name, ns string) string {
+// GetProfileK8sName gets the policy name in a format that's OK for k8s names.
+func GetProfileK8sName(name, ns string) string {
 	return name + "-" + ns
 }
 
@@ -46,7 +46,7 @@ func parseNodeName(name string) string {
 func GetInstallerPodName(name, ns string, node *corev1.Node) string {
 	// policy-installer
 	parsedNodeName := parseNodeName(node.Name)
-	podname := GetPolicyK8sName(name, ns) + "-" + parsedNodeName
+	podname := GetProfileK8sName(name, ns) + "-" + parsedNodeName
 
 	hasher := hash.New()
 	if _, err := io.WriteString(hasher, podname); err != nil {
@@ -59,7 +59,7 @@ func GetInstallerPodName(name, ns string, node *corev1.Node) string {
 // GetPolicyConfigMapName Gets the configMap name for a given policy.
 func GetPolicyConfigMapName(name, ns string) string {
 	namePrefix := "policy-for"
-	return namePrefix + "-" + GetPolicyK8sName(name, ns)
+	return namePrefix + "-" + GetProfileK8sName(name, ns)
 }
 
 // SliceContainsString helper function to check if a string is in a slice of strings.

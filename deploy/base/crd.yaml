@@ -462,14 +462,14 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.5.0
   creationTimestamp: null
-  name: selinuxpolicies.security-profiles-operator.x-k8s.io
+  name: selinuxprofiles.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
   names:
-    kind: SelinuxPolicy
-    listKind: SelinuxPolicyList
-    plural: selinuxpolicies
-    singular: selinuxpolicy
+    kind: SelinuxProfile
+    listKind: SelinuxProfileList
+    plural: selinuxprofiles
+    singular: selinuxprofile
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -485,7 +485,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SelinuxPolicy is the Schema for the selinuxpolicies API.
+        description: SelinuxProfile is the Schema for the selinuxprofiles API.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -500,7 +500,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: SelinuxPolicySpec defines the desired state of SelinuxPolicy.
+            description: SelinuxProfileSpec defines the desired state of SelinuxProfile.
             properties:
               apply:
                 type: boolean
@@ -508,7 +508,7 @@ spec:
                 type: string
             type: object
           status:
-            description: SelinuxPolicyStatus defines the observed state of SelinuxPolicy.
+            description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
             properties:
               conditions:
                 description: Conditions of the resource.
@@ -550,8 +550,8 @@ spec:
                   API.
                 type: string
               usage:
-                description: Represents the string that the SelinuxPolicy object can
-                  be referenced as in a pod seLinuxOptions section.
+                description: Represents the string that the SelinuxProfile object
+                  can be referenced as in a pod seLinuxOptions section.
                 type: string
             type: object
         type: object
