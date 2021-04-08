@@ -35,7 +35,7 @@ import (
 	pbv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	seccompv1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	selinuxv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
+	selinuxv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -65,11 +65,11 @@ func NewStatusReconciler(cli client.Client, log logr.Logger, record event.Record
 	}
 }
 
-// Security Profiles Operator RBAC permissions to manage SelinuxPolicy
+// Security Profiles Operator RBAC permissions to manage SelinuxProfile
 // nolint:lll
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=delete;get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
 // nolint:lll
@@ -207,8 +207,8 @@ func (r *StatusReconciler) getProfileFromStatus(
 	switch ctrl.Kind {
 	case "SeccompProfile":
 		prof = &seccompv1alpha1.SeccompProfile{}
-	case "SelinuxPolicy":
-		prof = &selinuxv1alpha1.SelinuxPolicy{}
+	case "SelinuxProfile":
+		prof = &selinuxv1alpha1.SelinuxProfile{}
 	default:
 		return nil, errors.Wrapf(ErrUnkownOwnerKind, "getting owner profile")
 	}

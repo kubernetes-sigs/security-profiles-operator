@@ -302,7 +302,7 @@ func (e *e2e) getSELinuxPolicyUsage(policy string) string {
 	ns := e.getCurrentContextNamespace(defaultNamespace)
 	// This describes the usage string, which is not necessarily
 	// the name of the policy in the node
-	return e.kubectl("get", "selinuxpolicy", "-n", ns, policy, "-o", "jsonpath={.status.usage}")
+	return e.kubectl("get", "selinuxprofile", "-n", ns, policy, "-o", "jsonpath={.status.usage}")
 }
 
 func (e *e2e) sliceContainsString(slice []string, s string) bool {

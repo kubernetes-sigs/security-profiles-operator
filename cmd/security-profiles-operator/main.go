@@ -40,13 +40,13 @@ import (
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
+	selinuxprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/selinuxpolicy"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/selinuxprofile"
 	nodestatus "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	wa "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
@@ -207,8 +207,8 @@ func runManager(ctx *cli.Context) error {
 	if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add seccompprofile API to scheme")
 	}
-	if err := selinuxpolicyv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add selinuxpolicy API to scheme")
+	if err := selinuxprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add selinuxprofile API to scheme")
 	}
 
 	// This API provides status which is used by both seccomp and selinux
@@ -345,8 +345,8 @@ func getEnabledControllers(ctx *cli.Context) []*controllerSettings {
 	if ctx.Bool(selinuxFlag) {
 		enabledSettings = append(enabledSettings, &controllerSettings{
 			name:          "selinux-spod",
-			setupFn:       selinuxpolicy.Setup,
-			schemaBuilder: selinuxpolicyv1alpha1.SchemeBuilder,
+			setupFn:       selinuxprofile.Setup,
+			schemaBuilder: selinuxprofilev1alpha1.SchemeBuilder,
 		})
 	}
 

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package selinuxpolicy
+package selinuxprofile
 
 import (
 	"bytes"
@@ -39,14 +39,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	selinuxpolicyv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxpolicy/v1alpha1"
+	selinuxprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 )
 
 // The underscore is not a valid character in a pod, so we can
 // safely use it as a separator.
-const policyWrapper = `(block {{.Name}}_{{.Namespace}}
+const profileWrapper = `(block {{.Name}}_{{.Namespace}}
     {{.Policy}}
 )`
 
@@ -71,10 +71,10 @@ type sePolStatus struct {
 	Status sePolStatusType
 }
 
-// blank assignment to verify that ReconcileSelinuxPolicy implements `reconcile.Reconciler`.
+// blank assignment to verify that ReconcileSelinuxProfile implements `reconcile.Reconciler`.
 var _ reconcile.Reconciler = &ReconcileSP{}
 
-// ReconcileSP reconciles a SelinuxPolicy object.
+// ReconcileSP reconciles a SelinuxProfile object.
 type ReconcileSP struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver.
@@ -84,21 +84,21 @@ type ReconcileSP struct {
 	record         event.Recorder
 }
 
-// Security Profiles Operator RBAC permissions to manage SelinuxPolicy
+// Security Profiles Operator RBAC permissions to manage SelinuxProfile
 // nolint:lll
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxpolicies/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch;create;update;patch;delete
 
-// Reconcile reads that state of the cluster for a SelinuxPolicy object and makes changes based on the state read
-// and what is in the `SelinuxPolicy.Spec`.
+// Reconcile reads that state of the cluster for a SelinuxProfile object and makes changes based on the state read
+// and what is in the `SelinuxProfile.Spec`.
 func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
-	reqLogger.Info("Reconciling SelinuxPolicy")
+	reqLogger.Info("Reconciling SelinuxProfile")
 
-	// Fetch the SelinuxPolicy instance
-	instance := &selinuxpolicyv1alpha1.SelinuxPolicy{}
+	// Fetch the SelinuxProfile instance
+	instance := &selinuxprofilev1alpha1.SelinuxProfile{}
 	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		return reconcile.Result{}, IgnoreNotFound(err)
@@ -154,7 +154,7 @@ func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (r
 }
 
 func (r *ReconcileSP) reconcilePolicy(
-	sp *selinuxpolicyv1alpha1.SelinuxPolicy, nodeStatus *nodestatus.StatusClient, l logr.Logger,
+	sp *selinuxprofilev1alpha1.SelinuxProfile, nodeStatus *nodestatus.StatusClient, l logr.Logger,
 ) (reconcile.Result, error) {
 	selinuxdReady, err := isSelinuxdReady()
 	if err != nil {
@@ -201,7 +201,7 @@ func (r *ReconcileSP) reconcilePolicy(
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSP) reconcilePolicyFile(sp *selinuxpolicyv1alpha1.SelinuxPolicy, l logr.Logger) error {
+func (r *ReconcileSP) reconcilePolicyFile(sp *selinuxprofilev1alpha1.SelinuxProfile, l logr.Logger) error {
 	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
 	policyContent := []byte(r.wrapPolicy(sp))
 
@@ -243,7 +243,7 @@ func writeFileIfDiffers(filePath string, contents []byte) error {
 }
 
 func (r *ReconcileSP) reconcileDeletePolicy(
-	sp *selinuxpolicyv1alpha1.SelinuxPolicy, nodeStatus *nodestatus.StatusClient, l logr.Logger,
+	sp *selinuxprofilev1alpha1.SelinuxProfile, nodeStatus *nodestatus.StatusClient, l logr.Logger,
 ) (reconcile.Result, error) {
 	selinuxdReady, err := isSelinuxdReady()
 	if err != nil {
@@ -283,7 +283,7 @@ func (r *ReconcileSP) reconcileDeletePolicy(
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSP) reconcileDeletePolicyFile(sp *selinuxpolicyv1alpha1.SelinuxPolicy,
+func (r *ReconcileSP) reconcileDeletePolicyFile(sp *selinuxprofilev1alpha1.SelinuxProfile,
 	l logr.Logger) (reconcile.Result, error) {
 	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
 
@@ -306,7 +306,7 @@ func (r *ReconcileSP) reconcileDeletePolicyFile(sp *selinuxpolicyv1alpha1.Selinu
 	return reconcile.Result{Requeue: true}, errors.Wrap(err, "error removing policy file")
 }
 
-func (r *ReconcileSP) wrapPolicy(cr *selinuxpolicyv1alpha1.SelinuxPolicy) string {
+func (r *ReconcileSP) wrapPolicy(cr *selinuxprofilev1alpha1.SelinuxProfile) string {
 	parsedpolicy := strings.TrimSpace(cr.Spec.Policy)
 	// ident
 	parsedpolicy = strings.ReplaceAll(parsedpolicy, "\n", "\n    ")
@@ -323,7 +323,7 @@ func (r *ReconcileSP) wrapPolicy(cr *selinuxpolicyv1alpha1.SelinuxPolicy) string
 	}
 	var result bytes.Buffer
 	if err := r.policyTemplate.Execute(&result, data); err != nil {
-		log.Error(err, "Couldn't render policy", "SelinuxPolicy.Name", cr.GetName())
+		log.Error(err, "Couldn't render policy", "SelinuxProfile.Name", cr.GetName())
 	}
 	return result.String()
 }
@@ -364,7 +364,7 @@ func isSelinuxdReady() (bool, error) {
 	return status[selinuxdReadyKey], nil
 }
 
-func getPolicyStatus(sp *selinuxpolicyv1alpha1.SelinuxPolicy) (*sePolStatus, error) {
+func getPolicyStatus(sp *selinuxprofilev1alpha1.SelinuxProfile) (*sePolStatus, error) {
 	polURL := selinuxdPoliciesBaseURL + sp.GetPolicyName()
 	response, err := selinuxdGetRequest(polURL)
 	if err != nil {
