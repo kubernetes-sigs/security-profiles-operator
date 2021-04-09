@@ -45,9 +45,8 @@ const finalizer = "active-workload-lock"
 var ErrProfWithoutStatus = errors.New("profile hasn't been initialized with status")
 
 type podSeccompBinder struct {
-	client  client.Client
-	log     logr.Logger
-	decoder *admission.Decoder
+	impl
+	log logr.Logger
 }
 
 func RegisterWebhook(server *webhook.Server, c client.Client) {
@@ -55,8 +54,8 @@ func RegisterWebhook(server *webhook.Server, c client.Client) {
 		"/mutate-v1-pod-binding",
 		&webhook.Admission{
 			Handler: &podSeccompBinder{
-				client: c,
-				log:    logf.Log.WithName("binding"),
+				impl: &defaultImpl{client: c},
+				log:  logf.Log.WithName("binding"),
 			},
 		},
 	)
@@ -97,8 +96,7 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 
 // nolint: gocritic
 func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) admission.Response {
-	profileBindings := &profilebindingv1alpha1.ProfileBindingList{}
-	err := p.client.List(ctx, profileBindings, client.InNamespace(req.Namespace))
+	profileBindings, err := p.ListProfileBindings(ctx, client.InNamespace(req.Namespace))
 	if err != nil {
 		p.log.Error(err, "could not list profile bindings")
 		return admission.Errored(http.StatusInternalServerError, err)
@@ -110,7 +108,7 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 
 	var containers sync.Map
 	if req.Operation != "DELETE" {
-		err := p.decoder.Decode(req, pod)
+		pod, err = p.impl.DecodePod(req)
 		if err != nil {
 			p.log.Error(err, "failed to decode pod")
 			return admission.Errored(http.StatusBadRequest, err)
@@ -171,13 +169,12 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 func (p *podSeccompBinder) getSeccompProfile(
 	ctx context.Context,
 	key types.NamespacedName,
-) (*seccompprofilev1alpha1.SeccompProfile, error) {
-	seccompProfile := &seccompprofilev1alpha1.SeccompProfile{}
-	err := util.Retry(
-		func() error {
-			getErr := p.client.Get(ctx, key, seccompProfile)
-			if getErr != nil {
-				return errors.Wrapf(getErr, "getting profile")
+) (seccompProfile *seccompprofilev1alpha1.SeccompProfile, err error) {
+	err = util.Retry(
+		func() (retryErr error) {
+			seccompProfile, retryErr = p.GetSeccompProfile(ctx, key)
+			if err != nil {
+				return errors.Wrapf(retryErr, "getting profile")
 			}
 			if seccompProfile.Status.Status == "" {
 				return errors.Wrapf(ErrProfWithoutStatus, "getting profile")
@@ -217,13 +214,13 @@ func (p *podSeccompBinder) addPodToBinding(
 	pb *profilebindingv1alpha1.ProfileBinding,
 ) error {
 	pb.Status.ActiveWorkloads = utils.AppendIfNotExists(pb.Status.ActiveWorkloads, podID)
-	if err := utils.UpdateResource(ctx, p.log, p.client.Status(), pb, "profilebinding status"); err != nil {
+	if err := p.impl.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
 		return errors.Wrap(err, "add pod to binding")
 	}
 	if !controllerutil.ContainsFinalizer(pb, finalizer) {
 		controllerutil.AddFinalizer(pb, finalizer)
 	}
-	return utils.UpdateResource(ctx, p.log, p.client, pb, "profilebinding")
+	return p.impl.UpdateResource(ctx, p.log, pb, "profilebinding")
 }
 
 func (p *podSeccompBinder) removePodFromBinding(
@@ -232,17 +229,17 @@ func (p *podSeccompBinder) removePodFromBinding(
 	pb *profilebindingv1alpha1.ProfileBinding,
 ) error {
 	pb.Status.ActiveWorkloads = utils.RemoveIfExists(pb.Status.ActiveWorkloads, podID)
-	if err := utils.UpdateResource(ctx, p.log, p.client.Status(), pb, "profilebinding status"); err != nil {
+	if err := p.impl.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
 		return errors.Wrap(err, "remove pod from binding")
 	}
 	if len(pb.Status.ActiveWorkloads) == 0 &&
 		controllerutil.ContainsFinalizer(pb, finalizer) {
 		controllerutil.RemoveFinalizer(pb, finalizer)
 	}
-	return utils.UpdateResource(ctx, p.log, p.client, pb, "profilebinding")
+	return p.impl.UpdateResource(ctx, p.log, pb, "profilebinding")
 }
 
-func (p *podSeccompBinder) InjectDecoder(d *admission.Decoder) error {
-	p.decoder = d
+func (p *podSeccompBinder) InjectDecoder(decoder *admission.Decoder) error {
+	p.impl.SetDecoder(decoder)
 	return nil
 }
