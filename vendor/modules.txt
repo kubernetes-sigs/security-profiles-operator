@@ -4,7 +4,7 @@ github.com/beorn7/perks/quantile
 github.com/blang/semver
 # github.com/cespare/xxhash/v2 v2.1.1
 github.com/cespare/xxhash/v2
-# github.com/containers/common v0.35.4
+# github.com/containers/common v0.36.0
 ## explicit
 github.com/containers/common/pkg/seccomp
 # github.com/cpuguy83/go-md2man/v2 v2.0.0
