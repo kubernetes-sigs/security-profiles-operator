@@ -173,7 +173,7 @@ func (p *podSeccompBinder) getSeccompProfile(
 	err = util.Retry(
 		func() (retryErr error) {
 			seccompProfile, retryErr = p.GetSeccompProfile(ctx, key)
-			if err != nil {
+			if retryErr != nil {
 				return errors.Wrapf(retryErr, "getting profile")
 			}
 			if seccompProfile.Status.Status == "" {

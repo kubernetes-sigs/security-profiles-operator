@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -30,6 +31,19 @@ import (
 )
 
 type FakeImpl struct {
+	DecodePodStub        func(admission.Request) (*v1.Pod, error)
+	decodePodMutex       sync.RWMutex
+	decodePodArgsForCall []struct {
+		arg1 admission.Request
+	}
+	decodePodReturns struct {
+		result1 *v1.Pod
+		result2 error
+	}
+	decodePodReturnsOnCall map[int]struct {
+		result1 *v1.Pod
+		result2 error
+	}
 	GetSeccompProfileStub        func(context.Context, types.NamespacedName) (*v1alpha1.SeccompProfile, error)
 	getSeccompProfileMutex       sync.RWMutex
 	getSeccompProfileArgsForCall []struct {
@@ -77,8 +91,86 @@ type FakeImpl struct {
 	updateResourceReturnsOnCall map[int]struct {
 		result1 error
 	}
+	UpdateResourceStatusStub        func(context.Context, logr.Logger, client.Object, string) error
+	updateResourceStatusMutex       sync.RWMutex
+	updateResourceStatusArgsForCall []struct {
+		arg1 context.Context
+		arg2 logr.Logger
+		arg3 client.Object
+		arg4 string
+	}
+	updateResourceStatusReturns struct {
+		result1 error
+	}
+	updateResourceStatusReturnsOnCall map[int]struct {
+		result1 error
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeImpl) DecodePod(arg1 admission.Request) (*v1.Pod, error) {
+	fake.decodePodMutex.Lock()
+	ret, specificReturn := fake.decodePodReturnsOnCall[len(fake.decodePodArgsForCall)]
+	fake.decodePodArgsForCall = append(fake.decodePodArgsForCall, struct {
+		arg1 admission.Request
+	}{arg1})
+	stub := fake.DecodePodStub
+	fakeReturns := fake.decodePodReturns
+	fake.recordInvocation("DecodePod", []interface{}{arg1})
+	fake.decodePodMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) DecodePodCallCount() int {
+	fake.decodePodMutex.RLock()
+	defer fake.decodePodMutex.RUnlock()
+	return len(fake.decodePodArgsForCall)
+}
+
+func (fake *FakeImpl) DecodePodCalls(stub func(admission.Request) (*v1.Pod, error)) {
+	fake.decodePodMutex.Lock()
+	defer fake.decodePodMutex.Unlock()
+	fake.DecodePodStub = stub
+}
+
+func (fake *FakeImpl) DecodePodArgsForCall(i int) admission.Request {
+	fake.decodePodMutex.RLock()
+	defer fake.decodePodMutex.RUnlock()
+	argsForCall := fake.decodePodArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) DecodePodReturns(result1 *v1.Pod, result2 error) {
+	fake.decodePodMutex.Lock()
+	defer fake.decodePodMutex.Unlock()
+	fake.DecodePodStub = nil
+	fake.decodePodReturns = struct {
+		result1 *v1.Pod
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) DecodePodReturnsOnCall(i int, result1 *v1.Pod, result2 error) {
+	fake.decodePodMutex.Lock()
+	defer fake.decodePodMutex.Unlock()
+	fake.DecodePodStub = nil
+	if fake.decodePodReturnsOnCall == nil {
+		fake.decodePodReturnsOnCall = make(map[int]struct {
+			result1 *v1.Pod
+			result2 error
+		})
+	}
+	fake.decodePodReturnsOnCall[i] = struct {
+		result1 *v1.Pod
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) GetSeccompProfile(arg1 context.Context, arg2 types.NamespacedName) (*v1alpha1.SeccompProfile, error) {
@@ -307,9 +399,75 @@ func (fake *FakeImpl) UpdateResourceReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) UpdateResourceStatus(arg1 context.Context, arg2 logr.Logger, arg3 client.Object, arg4 string) error {
+	fake.updateResourceStatusMutex.Lock()
+	ret, specificReturn := fake.updateResourceStatusReturnsOnCall[len(fake.updateResourceStatusArgsForCall)]
+	fake.updateResourceStatusArgsForCall = append(fake.updateResourceStatusArgsForCall, struct {
+		arg1 context.Context
+		arg2 logr.Logger
+		arg3 client.Object
+		arg4 string
+	}{arg1, arg2, arg3, arg4})
+	stub := fake.UpdateResourceStatusStub
+	fakeReturns := fake.updateResourceStatusReturns
+	fake.recordInvocation("UpdateResourceStatus", []interface{}{arg1, arg2, arg3, arg4})
+	fake.updateResourceStatusMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3, arg4)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) UpdateResourceStatusCallCount() int {
+	fake.updateResourceStatusMutex.RLock()
+	defer fake.updateResourceStatusMutex.RUnlock()
+	return len(fake.updateResourceStatusArgsForCall)
+}
+
+func (fake *FakeImpl) UpdateResourceStatusCalls(stub func(context.Context, logr.Logger, client.Object, string) error) {
+	fake.updateResourceStatusMutex.Lock()
+	defer fake.updateResourceStatusMutex.Unlock()
+	fake.UpdateResourceStatusStub = stub
+}
+
+func (fake *FakeImpl) UpdateResourceStatusArgsForCall(i int) (context.Context, logr.Logger, client.Object, string) {
+	fake.updateResourceStatusMutex.RLock()
+	defer fake.updateResourceStatusMutex.RUnlock()
+	argsForCall := fake.updateResourceStatusArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
+}
+
+func (fake *FakeImpl) UpdateResourceStatusReturns(result1 error) {
+	fake.updateResourceStatusMutex.Lock()
+	defer fake.updateResourceStatusMutex.Unlock()
+	fake.UpdateResourceStatusStub = nil
+	fake.updateResourceStatusReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) UpdateResourceStatusReturnsOnCall(i int, result1 error) {
+	fake.updateResourceStatusMutex.Lock()
+	defer fake.updateResourceStatusMutex.Unlock()
+	fake.UpdateResourceStatusStub = nil
+	if fake.updateResourceStatusReturnsOnCall == nil {
+		fake.updateResourceStatusReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.updateResourceStatusReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
+	fake.decodePodMutex.RLock()
+	defer fake.decodePodMutex.RUnlock()
 	fake.getSeccompProfileMutex.RLock()
 	defer fake.getSeccompProfileMutex.RUnlock()
 	fake.listProfileBindingsMutex.RLock()
@@ -318,6 +476,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.setDecoderMutex.RUnlock()
 	fake.updateResourceMutex.RLock()
 	defer fake.updateResourceMutex.RUnlock()
+	fake.updateResourceStatusMutex.RLock()
+	defer fake.updateResourceStatusMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value
