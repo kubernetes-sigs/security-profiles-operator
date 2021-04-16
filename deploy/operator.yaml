@@ -25,13 +25,18 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SecurityProfilesOperatorDaemon is the Schema to configure the spod deployment.
+        description: SecurityProfilesOperatorDaemon is the Schema to configure the
+          spod deployment.
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -39,31 +44,50 @@ spec:
             description: SPODStatus defines the desired state of SPOD.
             properties:
               enableLogEnricher:
-                description: tells the operator whether or not to enable log enrichment support for this SPOD instance.
+                description: tells the operator whether or not to enable log enrichment
+                  support for this SPOD instance.
                 type: boolean
               enableSelinux:
-                description: tells the operator whether or not to enable SELinux support for this SPOD instance.
+                description: tells the operator whether or not to enable SELinux support
+                  for this SPOD instance.
                 type: boolean
               tolerations:
                 description: If specified, the SPOD's tolerations.
                 items:
-                  description: The pod this Toleration is attached to tolerates any taint that matches the triple <key,value,effect> using the matching operator <operator>.
+                  description: The pod this Toleration is attached to tolerates any
+                    taint that matches the triple <key,value,effect> using the matching
+                    operator <operator>.
                   properties:
                     effect:
-                      description: Effect indicates the taint effect to match. Empty means match all taint effects. When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                      description: Effect indicates the taint effect to match. Empty
+                        means match all taint effects. When specified, allowed values
+                        are NoSchedule, PreferNoSchedule and NoExecute.
                       type: string
                     key:
-                      description: Key is the taint key that the toleration applies to. Empty means match all taint keys. If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                      description: Key is the taint key that the toleration applies
+                        to. Empty means match all taint keys. If the key is empty,
+                        operator must be Exists; this combination means to match all
+                        values and all keys.
                       type: string
                     operator:
-                      description: Operator represents a key's relationship to the value. Valid operators are Exists and Equal. Defaults to Equal. Exists is equivalent to wildcard for value, so that a pod can tolerate all taints of a particular category.
+                      description: Operator represents a key's relationship to the
+                        value. Valid operators are Exists and Equal. Defaults to Equal.
+                        Exists is equivalent to wildcard for value, so that a pod
+                        can tolerate all taints of a particular category.
                       type: string
                     tolerationSeconds:
-                      description: TolerationSeconds represents the period of time the toleration (which must be of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default, it is not set, which means tolerate the taint forever (do not evict). Zero and negative values will be treated as 0 (evict immediately) by the system.
+                      description: TolerationSeconds represents the period of time
+                        the toleration (which must be of effect NoExecute, otherwise
+                        this field is ignored) tolerates the taint. By default, it
+                        is not set, which means tolerate the taint forever (do not
+                        evict). Zero and negative values will be treated as 0 (evict
+                        immediately) by the system.
                       format: int64
                       type: integer
                     value:
-                      description: Value is the taint value the toleration matches to. If the operator is Exists, the value should be empty, otherwise just a regular string.
+                      description: Value is the taint value the toleration matches
+                        to. If the operator is Exists, the value should be empty,
+                        otherwise just a regular string.
                       type: string
                   type: object
                 type: array
@@ -77,20 +101,25 @@ spec:
                   description: A Condition that may apply to a resource.
                   properties:
                     lastTransitionTime:
-                      description: LastTransitionTime is the last time this condition transitioned from one status to another.
+                      description: LastTransitionTime is the last time this condition
+                        transitioned from one status to another.
                       format: date-time
                       type: string
                     message:
-                      description: A Message containing details about this condition's last transition from one status to another, if any.
+                      description: A Message containing details about this condition's
+                        last transition from one status to another, if any.
                       type: string
                     reason:
-                      description: A Reason for this condition's last transition from one status to another.
+                      description: A Reason for this condition's last transition from
+                        one status to another.
                       type: string
                     status:
-                      description: Status of this condition; is it currently True, False, or Unknown?
+                      description: Status of this condition; is it currently True,
+                        False, or Unknown?
                       type: string
                     type:
-                      description: Type of this condition. At most one of each condition type may apply to a resource at any point in time.
+                      description: Type of this condition. At most one of each condition
+                        type may apply to a resource at any point in time.
                       type: string
                   required:
                   - lastTransitionTime
@@ -100,7 +129,8 @@ spec:
                   type: object
                 type: array
               state:
-                description: 'Represents the state that the policy is in. Can be: PENDING, IN-PROGRESS, RUNNING or ERROR'
+                description: 'Represents the state that the policy is in. Can be:
+                  PENDING, IN-PROGRESS, RUNNING or ERROR'
                 type: string
             type: object
         type: object
@@ -149,20 +179,27 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SecurityProfileNodeStatus is a per-node status of a security profile
+        description: SecurityProfileNodeStatus is a per-node status of a security
+          profile
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
           nodeName:
             type: string
           status:
-            description: ProfileState defines the state that the profile is in. A profile in this context refers to a SeccompProfile or a SELinux profile, the states are shared between them as well as the management API.
+            description: ProfileState defines the state that the profile is in. A
+              profile in this context refers to a SeccompProfile or a SELinux profile,
+              the states are shared between them as well as the management API.
             type: string
         required:
         - nodeName
@@ -211,13 +248,18 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SeccompProfile is a cluster level specification for a seccomp profile. See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
+        description: SeccompProfile is a cluster level specification for a seccomp
+          profile. See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -251,7 +293,8 @@ spec:
                   type: string
                 type: array
               baseProfileName:
-                description: name of base profile (in the same namespace) what will be unioned into this profile
+                description: name of base profile (in the same namespace) what will
+                  be unioned into this profile
                 type: string
               defaultAction:
                 description: the default action for seccomp
@@ -275,7 +318,11 @@ spec:
                   type: string
                 type: array
               syscalls:
-                description: match a syscall in seccomp. While this property is OPTIONAL, some values of defaultAction are not useful without syscalls entries. For example, if defaultAction is SCMP_ACT_KILL and syscalls is empty or unset, the kernel will kill the container process on its first syscall
+                description: match a syscall in seccomp. While this property is OPTIONAL,
+                  some values of defaultAction are not useful without syscalls entries.
+                  For example, if defaultAction is SCMP_ACT_KILL and syscalls is empty
+                  or unset, the kernel will kill the container process on its first
+                  syscall
                 items:
                   description: Syscall defines a syscall in seccomp.
                   properties:
@@ -328,7 +375,9 @@ spec:
                       maxItems: 6
                       type: array
                     errnoRet:
-                      description: the errno return code to use. Some actions like SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno code to return
+                      description: the errno return code to use. Some actions like
+                        SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
+                        code to return
                       type: string
                     names:
                       description: the names of the syscalls
@@ -356,20 +405,25 @@ spec:
                   description: A Condition that may apply to a resource.
                   properties:
                     lastTransitionTime:
-                      description: LastTransitionTime is the last time this condition transitioned from one status to another.
+                      description: LastTransitionTime is the last time this condition
+                        transitioned from one status to another.
                       format: date-time
                       type: string
                     message:
-                      description: A Message containing details about this condition's last transition from one status to another, if any.
+                      description: A Message containing details about this condition's
+                        last transition from one status to another, if any.
                       type: string
                     reason:
-                      description: A Reason for this condition's last transition from one status to another.
+                      description: A Reason for this condition's last transition from
+                        one status to another.
                       type: string
                     status:
-                      description: Status of this condition; is it currently True, False, or Unknown?
+                      description: Status of this condition; is it currently True,
+                        False, or Unknown?
                       type: string
                     type:
-                      description: Type of this condition. At most one of each condition type may apply to a resource at any point in time.
+                      description: Type of this condition. At most one of each condition
+                        type may apply to a resource at any point in time.
                       type: string
                   required:
                   - lastTransitionTime
@@ -379,12 +433,16 @@ spec:
                   type: object
                 type: array
               localhostProfile:
-                description: The path that should be provided to the `securityContext.seccompProfile.localhostProfile` field of a Pod or container spec
+                description: The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
+                  field of a Pod or container spec
                 type: string
               path:
                 type: string
               status:
-                description: ProfileState defines the state that the profile is in. A profile in this context refers to a SeccompProfile or a SELinux profile, the states are shared between them as well as the management API.
+                description: ProfileState defines the state that the profile is in.
+                  A profile in this context refers to a SeccompProfile or a SELinux
+                  profile, the states are shared between them as well as the management
+                  API.
                 type: string
             type: object
         type: object
@@ -433,10 +491,14 @@ spec:
         description: SelinuxProfile is the Schema for the selinuxprofiles API.
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -457,20 +519,25 @@ spec:
                   description: A Condition that may apply to a resource.
                   properties:
                     lastTransitionTime:
-                      description: LastTransitionTime is the last time this condition transitioned from one status to another.
+                      description: LastTransitionTime is the last time this condition
+                        transitioned from one status to another.
                       format: date-time
                       type: string
                     message:
-                      description: A Message containing details about this condition's last transition from one status to another, if any.
+                      description: A Message containing details about this condition's
+                        last transition from one status to another, if any.
                       type: string
                     reason:
-                      description: A Reason for this condition's last transition from one status to another.
+                      description: A Reason for this condition's last transition from
+                        one status to another.
                       type: string
                     status:
-                      description: Status of this condition; is it currently True, False, or Unknown?
+                      description: Status of this condition; is it currently True,
+                        False, or Unknown?
                       type: string
                     type:
-                      description: Type of this condition. At most one of each condition type may apply to a resource at any point in time.
+                      description: Type of this condition. At most one of each condition
+                        type may apply to a resource at any point in time.
                       type: string
                   required:
                   - lastTransitionTime
@@ -480,10 +547,14 @@ spec:
                   type: object
                 type: array
               status:
-                description: ProfileState defines the state that the profile is in. A profile in this context refers to a SeccompProfile or a SELinux profile, the states are shared between them as well as the management API.
+                description: ProfileState defines the state that the profile is in.
+                  A profile in this context refers to a SeccompProfile or a SELinux
+                  profile, the states are shared between them as well as the management
+                  API.
                 type: string
               usage:
-                description: Represents the string that the SelinuxProfile object can be referenced as in a pod seLinuxOptions section.
+                description: Represents the string that the SelinuxProfile object
+                  can be referenced as in a pod seLinuxOptions section.
                 type: string
             type: object
         type: object
@@ -1018,7 +1089,49 @@ data:
         }
       ]
     }
-  selinuxd.cil: "(block selinuxd\n    (blockinherit container)\n    (allow process process ( capability ( dac_override dac_read_search lease audit_write audit_control ))) \n\n    (allow process default_context_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))\n    (allow process default_context_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process default_context_t ( sock_file ( append getattr open read write )))\n    (allow process etc_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))\n    (allow process etc_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process etc_t ( sock_file ( append getattr open read write )))\n    (allow process file_context_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))\n    (allow process file_context_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process file_context_t ( sock_file ( append getattr open read write )))\n    (allow process security_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process security_t ( security ( load_policy )))\n    (allow process selinux_config_t ( dir ( add_name create getattr ioctl lock open read rename remove_name rmdir search setattr write )))\n    (allow process selinux_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process selinux_config_t ( sock_file ( append getattr open read write )))\n    (allow process selinux_login_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))\n    (allow process selinux_login_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process selinux_login_config_t ( sock_file ( append getattr open read write )))\n    (allow process semanage_read_lock_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))\n    (allow process semanage_read_lock_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process semanage_read_lock_t ( sock_file ( append getattr open read write )))\n    (allow process semanage_store_t ( dir ( add_name create getattr ioctl lock open read rename remove_name rmdir search setattr write )))\n    (allow process semanage_store_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process semanage_store_t ( sock_file ( append getattr open read write )))\n    (allow process semanage_trans_lock_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))\n    (allow process semanage_trans_lock_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process semanage_trans_lock_t ( sock_file ( append getattr open read write )))\n    (allow process sysfs_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))\n    (allow process sysfs_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process sysfs_t ( sock_file ( append getattr open read write )))\n)\n"
+  selinuxd.cil: "(block selinuxd\n    (blockinherit container)\n    (allow process
+    process ( capability ( dac_override dac_read_search lease audit_write audit_control
+    ))) \n\n    (allow process default_context_t ( dir ( add_name create getattr ioctl
+    lock open read remove_name rmdir search setattr write )))\n    (allow process
+    default_context_t ( file ( append create getattr ioctl lock map open read rename
+    setattr unlink write )))\n    (allow process default_context_t ( sock_file ( append
+    getattr open read write )))\n    (allow process etc_t ( dir ( add_name create
+    getattr ioctl lock open read remove_name rmdir search setattr write )))\n    (allow
+    process etc_t ( file ( append create getattr ioctl lock map open read rename setattr
+    unlink write )))\n    (allow process etc_t ( sock_file ( append getattr open read
+    write )))\n    (allow process file_context_t ( dir ( add_name create getattr ioctl
+    lock open read remove_name rmdir search setattr write )))\n    (allow process
+    file_context_t ( file ( append create getattr ioctl lock map open read rename
+    setattr unlink write )))\n    (allow process file_context_t ( sock_file ( append
+    getattr open read write )))\n    (allow process security_t ( file ( append create
+    getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process
+    security_t ( security ( load_policy )))\n    (allow process selinux_config_t (
+    dir ( add_name create getattr ioctl lock open read rename remove_name rmdir search
+    setattr write )))\n    (allow process selinux_config_t ( file ( append create
+    getattr ioctl lock map open read rename setattr unlink write )))\n    (allow process
+    selinux_config_t ( sock_file ( append getattr open read write )))\n    (allow
+    process selinux_login_config_t ( dir ( add_name create getattr ioctl lock open
+    read remove_name rmdir search setattr write )))\n    (allow process selinux_login_config_t
+    ( file ( append create getattr ioctl lock map open read rename setattr unlink
+    write )))\n    (allow process selinux_login_config_t ( sock_file ( append getattr
+    open read write )))\n    (allow process semanage_read_lock_t ( dir ( add_name
+    create getattr ioctl lock open read remove_name rmdir search setattr write )))\n
+    \   (allow process semanage_read_lock_t ( file ( append create getattr ioctl lock
+    map open read rename setattr unlink write )))\n    (allow process semanage_read_lock_t
+    ( sock_file ( append getattr open read write )))\n    (allow process semanage_store_t
+    ( dir ( add_name create getattr ioctl lock open read rename remove_name rmdir
+    search setattr write )))\n    (allow process semanage_store_t ( file ( append
+    create getattr ioctl lock map open read rename setattr unlink write )))\n    (allow
+    process semanage_store_t ( sock_file ( append getattr open read write )))\n    (allow
+    process semanage_trans_lock_t ( dir ( add_name create getattr ioctl lock open
+    read remove_name rmdir search setattr write )))\n    (allow process semanage_trans_lock_t
+    ( file ( append create getattr ioctl lock map open read rename setattr unlink
+    write )))\n    (allow process semanage_trans_lock_t ( sock_file ( append getattr
+    open read write )))\n    (allow process sysfs_t ( dir ( add_name create getattr
+    ioctl lock open read remove_name rmdir search setattr write )))\n    (allow process
+    sysfs_t ( file ( append create getattr ioctl lock map open read rename setattr
+    unlink write )))\n    (allow process sysfs_t ( sock_file ( append getattr open
+    read write )))\n)\n"
 kind: ConfigMap
 metadata:
   labels:
