@@ -14,6 +14,10 @@
 
 GO ?= go
 
+GOLANGCI_LINT_VERSION = v1.38.0
+REPO_INFRA_VERSION = v0.1.6
+KUSTOMIZE_VERSION = 4.1.2
+
 CONTROLLER_GEN_CMD := $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
 PROJECT := security-profiles-operator
@@ -71,9 +75,6 @@ IMAGE ?= $(PROJECT):latest
 
 CRD_OPTIONS ?= "crd:crdVersions=v1"
 
-GOLANGCI_LINT_VERSION = v1.38.0
-REPO_INFRA_VERSION = v0.1.5
-
 export E2E_CLUSTER_TYPE ?= kind
 
 DOCKERFILE ?= Dockerfile
@@ -110,11 +111,9 @@ clean: ## Clean the build directory
 	rm -rf $(BUILD_DIR)
 
 $(BUILD_DIR)/kustomize: $(BUILD_DIR)
-	export \
-		VERSION=4.0.1 \
-		URL=https://raw.githubusercontent.com/kubernetes-sigs/kustomize && \
+	export URL=https://raw.githubusercontent.com/kubernetes-sigs/kustomize && \
 	curl -sfL $$URL/master/hack/install_kustomize.sh \
-		| bash -s $$VERSION $(PWD)/$(BUILD_DIR)
+		| bash -s $(KUSTOMIZE_VERSION) $(PWD)/$(BUILD_DIR)
 
 .PHONY: deployments
 deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deployment files with kustomize
