@@ -270,6 +270,18 @@ func (e *e2e) getSeccompProfileNodeStatus(
 	return &secpolNodeStatusList.Items[0]
 }
 
+func (e *e2e) getAllSeccompProfileNodeStatuses(
+	name, namespace string,
+) *secprofnodestatusv1alpha1.SecurityProfileNodeStatusList {
+	selector := fmt.Sprintf("spo.x-k8s.io/profile-name=%s", name)
+	seccompProfileNodeStatusJSON := e.kubectl(
+		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+	)
+	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
+	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
+	return secpolNodeStatusList
+}
+
 func (e *e2e) getCurrentContextNamespace(alt string) string {
 	ctxns := e.kubectl("config", "view", "--minify", "-o", "jsonpath={..namespace}")
 	if ctxns == "" {

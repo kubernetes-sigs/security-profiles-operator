@@ -32,6 +32,7 @@ import (
 	"github.com/pkg/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
@@ -305,6 +306,11 @@ func (r *Reconciler) reconcileDeletion(
 			}
 			return reconcile.Result{Requeue: true, RequeueAfter: wait}, nil
 		}
+	}
+
+	if controllerutil.ContainsFinalizer(sp, util.HasActivePodsFinalizerString) {
+		r.log.Info("cannot delete profile in use by pod, requeuing")
+		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 
 	if err := handleDeletion(sp, r.log); err != nil {
