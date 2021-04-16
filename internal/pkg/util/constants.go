@@ -17,5 +17,6 @@ limitations under the License.
 package util
 
 const (
-	ErrGetProfile = "cannot get security profile"
+	ErrGetProfile                = "cannot get security profile"
+	HasActivePodsFinalizerString = "in-use-by-active-pods"
 )
