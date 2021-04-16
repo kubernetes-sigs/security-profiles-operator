@@ -166,6 +166,16 @@ spec:
 		sp := e.getSeccompProfile(deleteProfileName, namespace)
 		e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
 
+		// The node statuses should still be there, just terminating
+		nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName, namespace)
+		for i := range nodeStatuses.Items {
+			e.Equal(nodeStatuses.Items[i].Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
+			// On each node, there should still be the profile on the disk
+			nodeWithPodName := nodeStatuses.Items[i].NodeName
+			path := sp.GetProfilePath()
+			e.execNode(nodeWithPodName, "test", "-f", path)
+		}
+
 		isDeleted := make(chan bool)
 		go func() {
 			e.waitFor("delete", "seccompprofile", deleteProfileName)

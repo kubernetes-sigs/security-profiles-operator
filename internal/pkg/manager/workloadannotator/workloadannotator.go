@@ -123,16 +123,15 @@ func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *v1alpha1.Se
 	}, util.IsNotFoundOrConflict); err != nil {
 		return errors.Wrap(err, "updating SeccompProfile status")
 	}
-	hasActivePodsFinalizerString := "in-use-by-active-pods"
 	if len(linkedPods.Items) > 0 {
 		if err := util.Retry(func() error {
-			return util.AddFinalizer(ctx, r.client, sp, hasActivePodsFinalizerString)
+			return util.AddFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString)
 		}, util.IsNotFoundOrConflict); err != nil {
 			return errors.Wrap(err, "adding finalizer")
 		}
 	} else {
 		if err := util.Retry(func() error {
-			return util.RemoveFinalizer(ctx, r.client, sp, hasActivePodsFinalizerString)
+			return util.RemoveFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString)
 		}, util.IsNotFoundOrConflict); err != nil {
 			return errors.Wrap(err, "removing finalizer")
 		}
