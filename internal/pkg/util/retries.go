@@ -50,11 +50,11 @@ func Retry(fn func() error, retryCondition func(error) bool) error {
 			return false, nil
 		}
 
-		return false, errors.Wrap(err, "failed retry")
+		return false, errors.Wrap(err, "retry function")
 	})
 
 	if waitErr != nil {
-		return errors.Wrap(waitErr, "")
+		return errors.Wrap(waitErr, "wait on retry")
 	}
 
 	return nil
