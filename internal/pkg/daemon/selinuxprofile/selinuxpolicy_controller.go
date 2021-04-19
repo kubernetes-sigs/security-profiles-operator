@@ -40,6 +40,7 @@ import (
 
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selinuxprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 )
@@ -70,6 +71,17 @@ type sePolStatus struct {
 	Msg    string
 	Status sePolStatusType
 }
+
+const (
+	reasonCannotContactSelinuxd    event.Reason = "CannotContactSelinuxd"
+	reasonCannotRemovePolicy       event.Reason = "CannotRemoveSelinuxPolicy"
+	reasonCannotInstallPolicy      event.Reason = "CannotSaveSelinuxPolicy"
+	reasonCannotWritePolicyFile    event.Reason = "CannotWritePolicyFile"
+	reasonCannotGetPolicyStatus    event.Reason = "CannotGetPolicyStatus"
+	reasonCannotUpdatePolicyStatus event.Reason = "CannotUpdatePolicyStatus"
+
+	reasonInstalledPolicy event.Reason = "SavedSelinuxPolicy"
+)
 
 // blank assignment to verify that ReconcileSelinuxProfile implements `reconcile.Reconciler`.
 var _ reconcile.Reconciler = &ReconcileSP{}
@@ -129,6 +141,7 @@ func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (r
 
 	if err := nodeStatus.SetNodeStatus(context.TODO(), statusv1alpha1.ProfileStateTerminating); err != nil {
 		reqLogger.Error(err, "cannot update SELinux profile status")
+		r.record.Event(instance, event.Warning(reasonCannotUpdatePolicyStatus, err))
 		return reconcile.Result{}, errors.Wrap(err, "updating status for deleted SELinux profile")
 	}
 
@@ -142,11 +155,13 @@ func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (r
 
 	res, err := r.reconcileDeletePolicy(instance, nodeStatus, reqLogger)
 	if res.Requeue || err != nil {
+		r.record.Event(instance, event.Warning(reasonCannotRemovePolicy, err))
 		return res, err
 	}
 
 	if err := nodeStatus.Remove(context.TODO(), r.client); err != nil {
 		reqLogger.Error(err, "cannot remove finalizer from SELinux profile")
+		r.record.Event(instance, event.Warning(reasonCannotUpdatePolicyStatus, err))
 		return ctrl.Result{}, errors.Wrap(err, "deleting finalizer for deleted SELinux profile")
 	}
 
@@ -158,26 +173,31 @@ func (r *ReconcileSP) reconcilePolicy(
 ) (reconcile.Result, error) {
 	selinuxdReady, err := isSelinuxdReady()
 	if err != nil {
+		r.record.Event(sp, event.Warning(reasonCannotContactSelinuxd, err))
 		return reconcile.Result{}, errors.Wrap(err, "contacting selinuxd")
 	}
 	if !selinuxdReady {
 		l.Info("selinuxd not yet up, requeue")
+		r.record.Event(sp, event.Normal(reasonCannotContactSelinuxd, "selinuxd not yet up, requeue"))
 		return reconcile.Result{Requeue: true}, nil
 	}
 
 	err = r.reconcilePolicyFile(sp, l)
 	if err != nil {
+		r.record.Event(sp, event.Warning(reasonCannotWritePolicyFile, err))
 		return reconcile.Result{}, errors.Wrap(err, "Creating policy file")
 	}
 
 	l.Info("Checking if policy deployed", "policyName", sp.Name)
 	polStatus, err := getPolicyStatus(sp)
 	if err != nil {
+		r.record.Event(sp, event.Warning(reasonCannotGetPolicyStatus, err))
 		return reconcile.Result{}, errors.Wrap(err, "Looking up policy status")
 	}
 
 	if polStatus == nil {
 		if err := nodeStatus.SetNodeStatus(context.TODO(), statusv1alpha1.ProfileStateInProgress); err != nil {
+			r.record.Event(sp, event.Warning(reasonCannotUpdatePolicyStatus, err))
 			return reconcile.Result{}, errors.Wrap(err, "setting node status to in progress")
 		}
 		return reconcile.Result{Requeue: true}, nil
@@ -188,13 +208,18 @@ func (r *ReconcileSP) reconcilePolicy(
 	switch polStatus.Status {
 	case installedStatus:
 		polState = statusv1alpha1.ProfileStateInstalled
+		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
+		r.record.Event(sp, event.Normal(reasonInstalledPolicy, evstr))
 	case failedStatus:
 		polState = statusv1alpha1.ProfileStateError
+		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
+		r.record.Event(sp, event.Warning(reasonCannotInstallPolicy, errors.New(evstr)))
 	}
 
 	l.Info("Policy deployed", "status", polState)
 
 	if err := nodeStatus.SetNodeStatus(context.TODO(), polState); err != nil {
+		r.record.Event(sp, event.Warning(reasonCannotUpdatePolicyStatus, err))
 		return reconcile.Result{}, errors.Wrap(err, "setting profile status")
 	}
 
