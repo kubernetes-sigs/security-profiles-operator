@@ -679,9 +679,6 @@ spec:
     - jsonPath: .status.usage
       name: Usage
       type: string
-    - jsonPath: .spec.apply
-      name: Apply
-      type: boolean
     - jsonPath: .status.status
       name: State
       type: string
@@ -705,8 +702,6 @@ spec:
           spec:
             description: SelinuxProfileSpec defines the desired state of SelinuxProfile.
             properties:
-              apply:
-                type: boolean
               policy:
                 type: string
             type: object

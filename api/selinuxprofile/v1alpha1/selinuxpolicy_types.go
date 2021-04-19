@@ -27,7 +27,6 @@ var _ profilebasev1alpha1.StatusBaseUser = &SelinuxProfile{}
 
 // SelinuxProfileSpec defines the desired state of SelinuxProfile.
 type SelinuxProfileSpec struct {
-	Apply  bool   `json:"apply,omitempty"`
 	Policy string `json:"policy,omitempty"`
 }
 
@@ -45,7 +44,6 @@ type SelinuxProfileStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=selinuxprofiles,scope=Namespaced
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
-// +kubebuilder:printcolumn:name="Apply",type="boolean",JSONPath=`.spec.apply`
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
 type SelinuxProfile struct {
 	metav1.TypeMeta   `json:",inline"`
