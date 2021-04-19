@@ -60,7 +60,6 @@ kind: SelinuxProfile
 metadata:
   name: errorlogger
 spec:
-  apply: true
   policy: |
     (blockinherit container)
     (allow process var_log_t ( dir ( open read getattr lock search ioctl add_name remove_name write ))) 
