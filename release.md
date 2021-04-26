@@ -1,9 +1,13 @@
 # Releasing a new version of the security-profiles-operator
 
 A new security-profiles-operator release can be done by overall three Pull Requests (PRs).
-Please ensure that no other PRs got merged in between. The overall process
-should not take longer than a couple of minutes, but it is required to have one
-of the repository [owners](./OWNERS) at hand to be able to merge the PRs.
+Please ensure that no other PRs got merged in between. This can be achieved by
+opening a new `Release vx.y.z` issue and applying the `tide/merge-blocker` label
+if appropriate.
+
+The overall process should not take longer than a couple of minutes, but it is
+required to have one of the repository [owners](./OWNERS) at hand to be able to
+merge the PRs.
 
 The first PR targets this repository and:
 
@@ -23,22 +27,24 @@ directly](https://prow.k8s.io/?job=post-security-profiles-operator-push-image).
 
 If the image got built successfully, then we can create a second PR to [the
 k8s.io GitHub repository](https://github.com/kubernetes/k8s.io). This PR
-promotes the built container image by:
+promotes the built container images (the manifest as well as the builds for
+`amd64` and `arm`).
 
-- adding an entry to the `dmap` of the file
-  `k8s.gcr.io/images/k8s-staging-sp-operator/images.yaml`:
-  ```
-  "sha256:3c2fa3e061d27379536aae697bec20ef08637590bad7b19b00038c7788b08a7a": ["v1.0.0"]
-  ```
+We can use the tool
+[`cip-mm`](https://github.com/kubernetes/release/tree/master/cmd/cip-mm) to
+allow easier retrieval and modification of the necessary container image digests.
+To run the tool from `$GOPATH/src/k8s.io/release`, just execute:
 
-The version (`v1.0.0` in this example) has to match the changed version in the
-deployment manifest of the first PR. The `sha256` value can be retrieved by
-multiple tools, for example by using [skopeo](https://github.com/containers/skopeo):
-
+```bash
+> go run ./cmd/cip-mm/main.go \
+    --base_dir ../k8s.io/k8s.gcr.io \
+    --staging_repo gcr.io/k8s-staging-sp-operator \
+    --filter_tag v0.x.0  # change the tag accordingly
 ```
-> skopeo inspect docker://gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest | jq -r .Digest
-sha256:3c2fa3e061d27379536aae697bec20ef08637590bad7b19b00038c7788b08a7a
-```
+
+This will modify the file
+[`$GOPATH/src/k8s.io/k8s.io/k8s.gcr.io/images/k8s-staging-sp-operator/images.yaml`](https://github.com/kubernetes/k8s.io/blob/main/k8s.gcr.io/images/k8s-staging-sp-operator/images.yaml)
+which can be now proposed as a new PR.
 
 If this PR got merged, then we're finally ready to [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
