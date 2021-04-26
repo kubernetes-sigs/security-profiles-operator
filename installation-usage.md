@@ -50,7 +50,7 @@ spec:
 
 This seccomp profile will be saved at the path:
 
-`/var/lib/kubelet/seccomp/operator/my-namespace/custom-profiles/profile1.json`.
+`/var/lib/kubelet/seccomp/operator/my-namespace/profile1.json`.
 
 An init container will set up the root directory of the operator to be able to
 run it without root G/UID. This will be done by creating a symlink from the
@@ -71,7 +71,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/my-namespace/custom-profiles/profile1.json
+      localhostProfile: operator/my-namespace/profile1.json
   containers:
     - name: test-container
       image: nginx
@@ -85,7 +85,7 @@ kind: Pod
 metadata:
   name: test-pod
   annotations:
-    seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/my-namespace/custom-profiles/profile1.json"
+    seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/my-namespace/profile1.json"
 spec:
   containers:
     - name: test-container
@@ -98,7 +98,7 @@ You can find the profile path of the seccomp profile by checking the
 ```sh
 $ kubectl --namespace my-namespace get seccompprofile profile1 --output wide
 NAME       STATUS   AGE   SECCOMPPROFILE.LOCALHOSTPROFILE
-profile1   Active   14s   operator/my-namespace/custom-profiles/profile1.json
+profile1   Active   14s   operator/my-namespace/profile1.json
 ```
 
 You can apply the profile to an existing application, such as a Deployment or
@@ -116,7 +116,7 @@ profile was applied correctly:
 $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spec.template.spec.securityContext}' | jq .
 {
   "seccompProfile": {
-    "localhostProfile": "operator/my-namespace/custom-profiles/profile1.json",
+    "localhostProfile": "operator/my-namespace/profile1.json",
     "type": "Localhost"
   }
 }
