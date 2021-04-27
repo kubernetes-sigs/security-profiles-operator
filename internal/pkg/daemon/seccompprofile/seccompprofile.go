@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -70,16 +71,17 @@ const (
 )
 
 // Setup adds a controller that reconciles seccomp profiles.
-func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
+func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger, met *metrics.Metrics) error {
 	// Register the regular reconciler to manage SeccompProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("profile").
 		For(&v1alpha1.SeccompProfile{}).
 		Complete(&Reconciler{
-			client: mgr.GetClient(),
-			log:    l,
-			record: event.NewAPIRecorder(mgr.GetEventRecorderFor("profile")),
-			save:   saveProfileOnDisk,
+			client:  mgr.GetClient(),
+			log:     l,
+			record:  event.NewAPIRecorder(mgr.GetEventRecorderFor("profile")),
+			save:    saveProfileOnDisk,
+			metrics: met,
 		})
 }
 
@@ -87,10 +89,11 @@ type saver func(string, []byte) (bool, error)
 
 // A Reconciler reconciles seccomp profiles.
 type Reconciler struct {
-	client client.Client
-	log    logr.Logger
-	record event.Recorder
-	save   saver
+	client  client.Client
+	log     logr.Logger
+	record  event.Recorder
+	save    saver
+	metrics *metrics.Metrics
 }
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
@@ -274,6 +277,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	)
 	if updated {
 		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
+		r.metrics.IncSeccompProfileUpdate()
 		r.record.Event(sp, event.Normal(reasonSavedProfile, evstr))
 	}
 	return reconcile.Result{}, nil
@@ -313,7 +317,7 @@ func (r *Reconciler) reconcileDeletion(
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 
-	if err := handleDeletion(sp, r.log); err != nil {
+	if err := r.handleDeletion(sp); err != nil {
 		r.log.Error(err, "cannot delete profile")
 		r.record.Event(sp, event.Warning(reasonCannotRemoveProfile, err))
 		return ctrl.Result{}, errors.Wrap(err, "handling file deletion for deleted SeccompProfile")
@@ -327,7 +331,7 @@ func (r *Reconciler) reconcileDeletion(
 	return ctrl.Result{}, nil
 }
 
-func handleDeletion(sp *v1alpha1.SeccompProfile, l logr.Logger) error {
+func (r *Reconciler) handleDeletion(sp *v1alpha1.SeccompProfile) error {
 	profilePath := sp.GetProfilePath()
 	err := os.Remove(profilePath)
 	if os.IsNotExist(err) {
@@ -336,7 +340,8 @@ func handleDeletion(sp *v1alpha1.SeccompProfile, l logr.Logger) error {
 	if err != nil {
 		return errors.Wrap(err, "removing profile from host")
 	}
-	l.Info(fmt.Sprintf("removed profile %s", profilePath))
+	r.log.Info(fmt.Sprintf("removed profile %s", profilePath))
+	r.metrics.IncSeccompProfileDelete()
 	return nil
 }
 
