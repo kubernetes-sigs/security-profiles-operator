@@ -19,7 +19,7 @@ ENVFILE=$(dirname "${BASH_SOURCE[0]}")/env.sh
 . "$ENVFILE"
 
 K8SPATH="$GOPATH/src/k8s.io"
-VERSION=v1.20.2
+VERSION=v1.21.0
 
 download-kubernetes() {
     export KUBERNETES_RELEASE=$VERSION
