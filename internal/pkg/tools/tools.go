@@ -25,4 +25,5 @@ import (
 	_ "github.com/maxbrunsfeld/counterfeiter/v6"
 	// Need this for code generation
 	_ "sigs.k8s.io/controller-tools/cmd/controller-gen"
+	_ "sigs.k8s.io/zeitgeist"
 )
