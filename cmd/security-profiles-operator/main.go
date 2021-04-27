@@ -50,6 +50,7 @@ import (
 	nodestatus "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	wa "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
@@ -318,7 +319,7 @@ func getTunables() (dt spod.DaemonTunables, err error) {
 
 // TODO(jhrozek): the type seems out of place here, maybe we should move it to a file under internal/pkg/controllers
 // that would just define the type and nothing else.
-type daemonSetupFunc func(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error
+type daemonSetupFunc func(ctx context.Context, mgr ctrl.Manager, l logr.Logger, met *metrics.Metrics) error
 
 type controllerSettings struct {
 	name          string
@@ -357,6 +358,17 @@ func runDaemon(ctx *cli.Context) error {
 	// security-profiles-operator-daemon
 	printInfo("spod")
 
+	// Setup and serve the metrics endpoint
+	met := metrics.New()
+	if err := met.Register(); err != nil {
+		return errors.Wrap(err, "register metrics")
+	}
+	go func() {
+		if err := met.Serve(); err != nil {
+			setupLog.Error(err, "Unable to serve metrics")
+		}
+	}()
+
 	enabledControllers := getEnabledControllers(ctx)
 	if len(enabledControllers) == 0 {
 		return errors.New("no controllers enabled")
@@ -385,7 +397,7 @@ func runDaemon(ctx *cli.Context) error {
 		return errors.Wrap(err, "add per-node Status API to scheme")
 	}
 
-	err = setupEnabledControllers(ctx.Context, enabledControllers, mgr)
+	err = setupEnabledControllers(ctx.Context, enabledControllers, mgr, met)
 	if err != nil {
 		return errors.Wrap(err, "enable controllers")
 	}
@@ -448,13 +460,18 @@ func runWebhook(ctx *cli.Context) error {
 	return nil
 }
 
-func setupEnabledControllers(ctx context.Context, enabledControllers []*controllerSettings, mgr ctrl.Manager) error {
+func setupEnabledControllers(
+	ctx context.Context,
+	enabledControllers []*controllerSettings,
+	mgr ctrl.Manager,
+	met *metrics.Metrics,
+) error {
 	for _, enableCtrl := range enabledControllers {
 		if err := enableCtrl.schemaBuilder.AddToScheme(mgr.GetScheme()); err != nil {
 			return errors.Wrap(err, "add core operator APIs to scheme")
 		}
 
-		if err := enableCtrl.setupFn(ctx, mgr, ctrl.Log.WithName(enableCtrl.name)); err != nil {
+		if err := enableCtrl.setupFn(ctx, mgr, ctrl.Log.WithName(enableCtrl.name), met); err != nil {
 			return errors.Wrapf(err, "setup %s controller", enableCtrl.name)
 		}
 	}
