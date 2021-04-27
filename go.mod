@@ -17,4 +17,5 @@ require (
 	k8s.io/release v0.7.0
 	sigs.k8s.io/controller-runtime v0.8.3
 	sigs.k8s.io/controller-tools v0.5.0
+	sigs.k8s.io/zeitgeist v0.3.0
 )
