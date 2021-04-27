@@ -45,6 +45,9 @@ const (
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {
+	// Deploy prerequisites
+	e.deployCertManager()
+
 	// Deploy the operator
 	e.deployOperator(manifest)
 	defer e.run("git", "checkout", manifest)
@@ -139,12 +142,66 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	}
 }
 
-func (e *e2e) deployOperator(manifest string) {
-	// Deploy prerequisites
+func (e *e2e) deployCertManager() {
 	e.logf("Deploying cert-manager")
 	e.kubectl("apply", "-f", certmanager)
-	e.verifyCertManager()
 
+	// https://cert-manager.io/docs/installation/kubernetes/#verifying-the-installation
+	e.waitFor(
+		"condition=ready",
+		"--namespace", "cert-manager",
+		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
+	)
+
+	tries := 20
+	certManifest := `
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager-test
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: test-selfsigned
+  namespace: cert-manager-test
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: selfsigned-cert
+  namespace: cert-manager-test
+spec:
+  dnsNames:
+    - example.com
+  secretName: selfsigned-cert-tls
+  issuerRef:
+    name: test-selfsigned
+`
+
+	file, err := ioutil.TempFile(os.TempDir(), "test-resource*.yaml")
+	e.Nil(err)
+	_, err = file.Write([]byte(certManifest))
+	e.Nil(err)
+	defer os.Remove(file.Name())
+	for i := 0; i < tries; i++ {
+		output, err := command.New(e.kubectlPath, "apply", "-f", file.Name()).Run()
+		e.Nil(err)
+		if output.Success() {
+			break
+		}
+		time.Sleep(defaultWaitTime)
+	}
+	e.waitFor(
+		"condition=Ready",
+		"certificate", "selfsigned-cert",
+		"--namespace", "cert-manager-test",
+	)
+}
+
+func (e *e2e) deployOperator(manifest string) {
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
@@ -196,7 +253,6 @@ func (e *e2e) cleanupOperator(manifest string) {
 	e.logf("Cleaning up operator")
 	e.kubectl("delete", "seccompprofiles", "--all", "--all-namespaces")
 	e.kubectl("delete", "--ignore-not-found", "-f", manifest)
-	e.kubectl("delete", "--ignore-not-found", "-f", certmanager)
 }
 
 func (e *e2e) getWorkerNodes() []string {
@@ -297,60 +353,4 @@ func (e *e2e) retry(f func(iteration int) (abort bool)) {
 		}
 		time.Sleep(3 * time.Second)
 	}
-}
-
-// https://cert-manager.io/docs/installation/kubernetes/#verifying-the-installation
-func (e *e2e) verifyCertManager() {
-	e.waitFor(
-		"condition=ready",
-		"--namespace", "cert-manager",
-		"pod", "-l", "app.kubernetes.io/instance=cert-manager",
-	)
-
-	tries := 20
-	certManifest := `
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: cert-manager-test
----
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  name: test-selfsigned
-  namespace: cert-manager-test
-spec:
-  selfSigned: {}
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: selfsigned-cert
-  namespace: cert-manager-test
-spec:
-  dnsNames:
-    - example.com
-  secretName: selfsigned-cert-tls
-  issuerRef:
-    name: test-selfsigned
-`
-
-	file, err := ioutil.TempFile(os.TempDir(), "test-resource*.yaml")
-	e.Nil(err)
-	_, err = file.Write([]byte(certManifest))
-	e.Nil(err)
-	defer os.Remove(file.Name())
-	for i := 0; i < tries; i++ {
-		output, err := command.New(e.kubectlPath, "apply", "-f", file.Name()).Run()
-		e.Nil(err)
-		if output.Success() {
-			break
-		}
-		time.Sleep(defaultWaitTime)
-	}
-	e.waitFor(
-		"condition=Ready",
-		"certificate", "selfsigned-cert",
-		"--namespace", "cert-manager-test",
-	)
 }
