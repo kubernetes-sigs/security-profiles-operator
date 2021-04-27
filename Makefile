@@ -178,7 +178,7 @@ vagrant-up: ## Boot the vagrant based test VM
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies ## Run all verification targets
 
 .PHONY: verify-boilerplate
 verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
@@ -210,6 +210,13 @@ $(BUILD_DIR)/golangci-lint:
 	$(BUILD_DIR)/golangci-lint version
 	$(BUILD_DIR)/golangci-lint linters
 
+
+.PHONY: verify-dependencies
+verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
+	$(BUILD_DIR)/zeitgeist validate --local-only --base-path . --config dependencies.yaml
+
+$(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
+	$(GO) build -o $(BUILD_DIR)/zeitgeist ./vendor/sigs.k8s.io/zeitgeist
 
 # Test targets
 
