@@ -8,7 +8,7 @@ require (
 	github.com/go-logr/logr v0.4.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.4.1
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.7.1
+	github.com/prometheus/client_golang v1.10.0
 	github.com/prometheus/client_model v0.2.0
 	github.com/stretchr/testify v1.7.0
 	github.com/urfave/cli/v2 v2.3.0
