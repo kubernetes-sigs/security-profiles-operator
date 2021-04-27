@@ -27,12 +27,13 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	spov1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/metrics"
 )
 
 var log = logf.Log.WithName("selinuxprofile")
 
 // Setup adds a controller that reconciles seccomp profiles.
-func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
+func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger, met *metrics.Metrics) error {
 	// Create template to wrap policies
 	tmpl, err := template.New("profileWrapper").Parse(profileWrapper)
 	if err != nil {

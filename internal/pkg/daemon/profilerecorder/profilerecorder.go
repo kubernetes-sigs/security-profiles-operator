@@ -44,6 +44,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/metrics"
 )
 
 const (
@@ -71,7 +72,7 @@ type RecorderReconciler struct {
 
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 
-func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
+func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger, met *metrics.Metrics) error {
 	const name = "profilerecorder"
 	c, err := client.New(mgr.GetConfig(), client.Options{})
 	if err != nil {
