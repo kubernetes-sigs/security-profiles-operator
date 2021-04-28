@@ -27,6 +27,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+// Metrics proxy required permissions
+// +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews;subjectaccessreviews,verbs=create
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+
 const (
 	metricNamespace                      = "security_profiles_operator"
 	metricNameSeccompProfile             = "seccomp_profile"

@@ -358,12 +358,23 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.HostPID = true
 	}
 
+	// Metrics parameters
+	templateSpec.Containers = append(
+		templateSpec.Containers,
+		r.baseSPOd.Spec.Template.Spec.Containers[3],
+		r.baseSPOd.Spec.Template.Spec.Containers[4],
+	)
+
 	// Set image pull policy
 	for i := range templateSpec.InitContainers {
 		templateSpec.InitContainers[i].ImagePullPolicy = pullPolicy
 	}
 
 	for i := range templateSpec.Containers {
+		// The metrics image should be pulled always as IfNotPresent
+		if templateSpec.Containers[i].Image == bindata.MetricsImage {
+			continue
+		}
 		templateSpec.Containers[i].ImagePullPolicy = pullPolicy
 	}
 
