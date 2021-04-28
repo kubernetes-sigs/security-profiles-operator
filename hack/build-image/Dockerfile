@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM k8s.gcr.io/build-image/debian-base:buster-v1.4.0
+FROM k8s.gcr.io/build-image/debian-base:buster-v1.6.0
 WORKDIR /work
 
 RUN apt-get update && apt-get install -y wget xz-utils
