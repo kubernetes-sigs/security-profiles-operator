@@ -56,7 +56,7 @@ dependencies:
       match: config\.vm\.box = "fedora/(0|[1-9]\d*)-cloud-base"
 
   - name: debian-base
-    version: 1.4.0
+    version: 1.6.0
     refPaths:
     - path: hack/build-image/Dockerfile
       match: FROM k8s.gcr.io/build-image/debian-base:buster-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
