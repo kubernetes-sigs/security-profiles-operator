@@ -45,6 +45,7 @@ resources:
   - mutatingwebhookconfig.yaml
   - certificate.yaml
   - service.yaml
+  - metrics_client.yaml
 
 configMapGenerator:
   - name: security-profiles-operator-profile

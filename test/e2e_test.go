@@ -244,8 +244,8 @@ func (e *e2e) deployOperator(manifest string) {
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=security-profiles-operator")
 	// Wait for all pods in DaemonSet
 	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "app=spod")
-	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=spod")
+	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "name=spod")
+	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=spod")
 }
 
 func (e *e2e) cleanupOperator(manifest string) {

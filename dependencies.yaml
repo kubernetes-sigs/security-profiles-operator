@@ -66,3 +66,9 @@ dependencies:
     refPaths:
     - path: hack/build-image/Dockerfile
       match: ARG NIX_VERSION=(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
+
+  - name: kube-rbac-proxy
+    version: 0.9.0
+    refPaths:
+    - path: internal/pkg/manager/spod/bindata/spod.go
+      match: MetricsImage\s+= "quay.io/brancz/kube-rbac-proxy:v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?"
