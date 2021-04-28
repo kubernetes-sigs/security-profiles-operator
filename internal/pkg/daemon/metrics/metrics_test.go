@@ -24,7 +24,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/metrics/metricsfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics/metricsfakes"
 )
 
 var errTest = errors.New("")

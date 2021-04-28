@@ -41,6 +41,7 @@ const (
 	SelinuxdSocketPath   = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath       = SelinuxdPrivateDir + "/selinuxd.db"
 	varLogSpoPath        = "/var/log/spo.log"
+	MetricsImage         = "quay.io/brancz/kube-rbac-proxy:v0.9.0"
 )
 
 var Manifest = &appsv1.DaemonSet{
@@ -50,7 +51,10 @@ var Manifest = &appsv1.DaemonSet{
 	},
 	Spec: appsv1.DaemonSetSpec{
 		Selector: &metav1.LabelSelector{
-			MatchLabels: map[string]string{"app": "spod"},
+			MatchLabels: map[string]string{
+				"app":  config.OperatorName,
+				"name": "spod",
+			},
 		},
 		Template: v1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
@@ -60,7 +64,8 @@ var Manifest = &appsv1.DaemonSet{
 					v1.SeccompContainerAnnotationKeyPrefix + config.OperatorName: "localhost/security-profiles-operator.json",
 				},
 				Labels: map[string]string{
-					"app": "spod",
+					"app":  config.OperatorName,
+					"name": "spod",
 				},
 			},
 			Spec: v1.PodSpec{
@@ -350,6 +355,62 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 									},
 								},
 							},
+						},
+					},
+					{
+						Name:            "metrics-proxy-spod",
+						Image:           MetricsImage,
+						ImagePullPolicy: v1.PullIfNotPresent,
+						Args: []string{
+							"--secure-listen-address=0.0.0.0:8443",
+							"--upstream=http://127.0.0.1:8081/",
+							"--v=10",
+						},
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("32Mi"),
+								v1.ResourceCPU:              resource.MustParse("50m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+							},
+							Limits: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("128Mi"),
+								v1.ResourceCPU:              resource.MustParse("150m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
+							},
+						},
+						SecurityContext: &v1.SecurityContext{
+							AllowPrivilegeEscalation: &falsely,
+						},
+						Ports: []v1.ContainerPort{
+							{Name: "https", ContainerPort: 8443}, // nolint: gomnd
+						},
+					},
+					{
+						Name:            "metrics-controller-runtime",
+						Image:           MetricsImage,
+						ImagePullPolicy: v1.PullIfNotPresent,
+						Args: []string{
+							"--secure-listen-address=0.0.0.0:8442",
+							"--upstream=http://127.0.0.1:8080/",
+							"--v=10",
+						},
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("32Mi"),
+								v1.ResourceCPU:              resource.MustParse("50m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+							},
+							Limits: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("128Mi"),
+								v1.ResourceCPU:              resource.MustParse("150m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
+							},
+						},
+						SecurityContext: &v1.SecurityContext{
+							AllowPrivilegeEscalation: &falsely,
+						},
+						Ports: []v1.ContainerPort{
+							{Name: "https", ContainerPort: 8442}, // nolint: gomnd
 						},
 					},
 				},

@@ -984,6 +984,19 @@ rules:
   - list
   - watch
 - apiGroups:
+  - authentication.k8s.io
+  resources:
+  - subjectaccessreviews
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - ""
   resources:
   - events
@@ -1533,14 +1546,59 @@ kind: Service
 metadata:
   labels:
     app: security-profiles-operator
-  name: metrics
+  name: metrics-controller-runtime
   namespace: security-profiles-operator
 spec:
   ports:
-  - port: 80
-    targetPort: 8081
+  - name: https
+    port: 443
+    targetPort: 8442
   selector:
     app: security-profiles-operator
+    name: spod
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: metrics-spod
+  namespace: security-profiles-operator
+spec:
+  ports:
+  - name: https
+    port: 443
+    targetPort: 8443
+  selector:
+    app: security-profiles-operator
+    name: spod
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-metrics-client
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-metrics-client
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spo-metrics-client
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: security-profiles-operator
 ---
 apiVersion: v1
 data:
