@@ -50,7 +50,7 @@ dependencies:
       match: VERSION=v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
 
   - name: e2e-fedora
-    version: 33
+    version: 34
     refPaths:
     - path: hack/ci/Vagrantfile
       match: config\.vm\.box = "fedora/(0|[1-9]\d*)-cloud-base"
