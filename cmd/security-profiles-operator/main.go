@@ -358,17 +358,6 @@ func runDaemon(ctx *cli.Context) error {
 	// security-profiles-operator-daemon
 	printInfo("spod")
 
-	// Setup and serve the metrics endpoint
-	met := metrics.New()
-	if err := met.Register(); err != nil {
-		return errors.Wrap(err, "register metrics")
-	}
-	go func() {
-		if err := met.Serve(); err != nil {
-			setupLog.Error(err, "Unable to serve metrics")
-		}
-	}()
-
 	enabledControllers := getEnabledControllers(ctx)
 	if len(enabledControllers) == 0 {
 		return errors.New("no controllers enabled")
@@ -390,6 +379,16 @@ func runDaemon(ctx *cli.Context) error {
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
 		return errors.Wrap(err, "create manager")
+	}
+
+	// Setup metrics
+	met := metrics.New()
+	if err := met.Register(); err != nil {
+		return errors.Wrap(err, "register metrics")
+	}
+
+	if err := mgr.AddMetricsExtraHandler(metrics.HandlerPath, met.Handler()); err != nil {
+		return errors.Wrap(err, "add metrics extra handler")
 	}
 
 	// This API provides status which is used by both seccomp and selinux

@@ -37,6 +37,9 @@ const (
 	metricLabelValueSeccompProfileUpdate = "update"
 	metricLabelValueSeccompProfileDelete = "delete"
 	metricLabelOperation                 = "operation"
+
+	// HandlerPath is the default path for serving metrics.
+	HandlerPath = "/metrics-spod"
 )
 
 // Metrics is the main structure of this package.
@@ -75,18 +78,11 @@ func (m *Metrics) Register() error {
 	return nil
 }
 
-// Serve creates an HTTP endpoint "/metrics" and starts serving them.
-func (m *Metrics) Serve() error {
-	const (
-		addr = ":8081" // controller-runtime is already serving metrics on :8080
-		path = "/metrics"
-	)
-	m.log.Info(fmt.Sprintf("Serving metrics on %s%s", addr, path))
-
+// Handler creates an HTTP handler for the metrics.
+func (m *Metrics) Handler() http.Handler {
 	handler := &http.ServeMux{}
-	handler.Handle(path, promhttp.Handler())
-	err := m.impl.ListenAndServe(addr, handler)
-	return errors.Wrap(err, "serve metrics")
+	handler.Handle(HandlerPath, promhttp.Handler())
+	return handler
 }
 
 // IncSeccompProfileUpdate increments the seccomp profile update counter.

@@ -6,6 +6,7 @@ metadata:
 rules:
 - nonResourceURLs:
   - /metrics
+  - /metrics-spod
   verbs:
   - get
 ---
