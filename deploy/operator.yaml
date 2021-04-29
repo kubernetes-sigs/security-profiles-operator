@@ -1544,29 +1544,13 @@ kind: Service
 metadata:
   labels:
     app: security-profiles-operator
-  name: metrics-controller-runtime
+  name: metrics
   namespace: security-profiles-operator
 spec:
   ports:
   - name: https
     port: 443
-    targetPort: 8442
-  selector:
-    app: security-profiles-operator
-    name: spod
----
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: metrics-spod
-  namespace: security-profiles-operator
-spec:
-  ports:
-  - name: https
-    port: 443
-    targetPort: 8443
+    targetPort: 9443
   selector:
     app: security-profiles-operator
     name: spod
@@ -1580,6 +1564,7 @@ metadata:
 rules:
 - nonResourceURLs:
   - /metrics
+  - /metrics-spod
   verbs:
   - get
 ---
