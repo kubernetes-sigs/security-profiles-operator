@@ -421,6 +421,21 @@ func (e *e2e) kubectlOperatorNS(args ...string) string {
 	)
 }
 
+func (e *e2e) kubectlRun(args ...string) string {
+	return e.kubectl(
+		append([]string{
+			"run", "--rm", "-i", "--restart=Never",
+			"--image=registry.fedoraproject.org/fedora-minimal:latest",
+		}, args...)...,
+	)
+}
+
+func (e *e2e) kubectlRunOperatorNS(args ...string) string {
+	return e.kubectlRun(
+		append([]string{"-n", config.OperatorName}, args...)...,
+	)
+}
+
 func (e *e2e) waitFor(args ...string) {
 	e.kubectl(
 		append([]string{"wait", "--timeout", defaultWaitTimeout, "--for"}, args...)...,

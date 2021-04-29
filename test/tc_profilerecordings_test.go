@@ -76,11 +76,7 @@ func (e *e2e) testCaseProfileRecordingKubectlRun() {
 	defer e.kubectl("delete", "-f", exampleRecordingPath)
 
 	e.logf("Creating test pod")
-	e.kubectl(
-		"run", "--rm", "-it", "--restart=Never", "--labels=app=alpine",
-		"--image=registry.fedoraproject.org/fedora-minimal:latest",
-		"fedora", "--", "echo", "test",
-	)
+	e.kubectlRun("--labels=app=alpine", "fedora", "--", "echo", "test")
 
 	resourceName := recordingName + "-fedora"
 	profile := e.retryGetSeccompProfile(resourceName)
