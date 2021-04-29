@@ -21,7 +21,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"k8s.io/release/pkg/util"
+	"sigs.k8s.io/release-utils/env"
 )
 
 const (
@@ -83,7 +83,7 @@ func GetOperatorNamespace() string {
 func TryToGetOperatorNamespace() (string, error) {
 	// This is OPERATOR_NAMESPACE should have been set by the downward API to identify
 	// the namespace which this controller is running from
-	operatorNS := util.EnvDefault(OperatorNamespaceEnvKey, "")
+	operatorNS := env.Default(OperatorNamespaceEnvKey, "")
 	if operatorNS == "" {
 		return "", ErrPodNamespaceEnvNotFound
 	}
