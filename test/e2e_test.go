@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/release/pkg/command"
+	"sigs.k8s.io/release-utils/command"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
