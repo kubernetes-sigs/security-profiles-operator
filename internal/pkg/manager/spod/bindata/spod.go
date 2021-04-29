@@ -17,6 +17,8 @@ limitations under the License.
 package bindata
 
 import (
+	"fmt"
+
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -33,6 +35,7 @@ var (
 	hostPathFile                    = v1.HostPathFile
 	hostPathDirectory               = v1.HostPathDirectory
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
+	metricsPort               int32 = 9443
 )
 
 const (
@@ -358,12 +361,12 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						},
 					},
 					{
-						Name:            "metrics-proxy-spod",
+						Name:            "metrics",
 						Image:           MetricsImage,
 						ImagePullPolicy: v1.PullIfNotPresent,
 						Args: []string{
-							"--secure-listen-address=0.0.0.0:8443",
-							"--upstream=http://127.0.0.1:8081/",
+							fmt.Sprintf("--secure-listen-address=0.0.0.0:%d", metricsPort),
+							"--upstream=http://127.0.0.1:8080",
 							"--v=10",
 						},
 						Resources: v1.ResourceRequirements{
@@ -382,35 +385,7 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							AllowPrivilegeEscalation: &falsely,
 						},
 						Ports: []v1.ContainerPort{
-							{Name: "https", ContainerPort: 8443}, // nolint: gomnd
-						},
-					},
-					{
-						Name:            "metrics-controller-runtime",
-						Image:           MetricsImage,
-						ImagePullPolicy: v1.PullIfNotPresent,
-						Args: []string{
-							"--secure-listen-address=0.0.0.0:8442",
-							"--upstream=http://127.0.0.1:8080/",
-							"--v=10",
-						},
-						Resources: v1.ResourceRequirements{
-							Requests: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("32Mi"),
-								v1.ResourceCPU:              resource.MustParse("50m"),
-								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
-							},
-							Limits: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("128Mi"),
-								v1.ResourceCPU:              resource.MustParse("150m"),
-								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
-							},
-						},
-						SecurityContext: &v1.SecurityContext{
-							AllowPrivilegeEscalation: &falsely,
-						},
-						Ports: []v1.ContainerPort{
-							{Name: "https", ContainerPort: 8442}, // nolint: gomnd
+							{Name: "https", ContainerPort: metricsPort},
 						},
 					},
 				},

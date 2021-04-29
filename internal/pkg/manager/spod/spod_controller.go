@@ -362,7 +362,6 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	templateSpec.Containers = append(
 		templateSpec.Containers,
 		r.baseSPOd.Spec.Template.Spec.Containers[3],
-		r.baseSPOd.Spec.Template.Spec.Containers[4],
 	)
 
 	// Set image pull policy

@@ -61,38 +61,6 @@ func TestRegister(t *testing.T) {
 	}
 }
 
-func TestServe(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		prepare   func(*metricsfakes.FakeImpl)
-		shouldErr bool
-	}{
-		{ // success
-			prepare: func(*metricsfakes.FakeImpl) {},
-		},
-		{ // error ListenAndServe fails
-			prepare: func(mock *metricsfakes.FakeImpl) {
-				mock.ListenAndServeReturns(errTest)
-			},
-			shouldErr: true,
-		},
-	} {
-		mock := &metricsfakes.FakeImpl{}
-		tc.prepare(mock)
-
-		sut := New()
-		sut.impl = mock
-
-		err := sut.Serve()
-
-		if tc.shouldErr {
-			require.NotNil(t, err)
-		} else {
-			require.Nil(t, err)
-		}
-	}
-}
-
 func TestSeccompProfile(t *testing.T) {
 	t.Parallel()
 
