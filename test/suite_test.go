@@ -30,8 +30,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/suite"
 	"k8s.io/klog/v2/klogr"
-	"k8s.io/release/pkg/command"
-	"k8s.io/release/pkg/util"
+	"sigs.k8s.io/release-utils/command"
+	"sigs.k8s.io/release-utils/util"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )

@@ -20,7 +20,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"k8s.io/release/pkg/util"
+	"sigs.k8s.io/release-utils/util"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
