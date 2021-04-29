@@ -79,6 +79,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseDeleteProfiles,
 		},
 		{
+			"Seccomp: Metrics",
+			e.testCaseMetrics,
+		},
+		{
 			"Seccomp: Re-deploy the operator",
 			e.testCaseReDeployOperator,
 		},
@@ -121,7 +125,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.logf("testing namespace operator")
 
 	// Use namespace manifests for redeploy test
-	testCases[4].fn = e.testCaseReDeployNamespaceOperator
+	testCases[5].fn = e.testCaseReDeployNamespaceOperator
 
 	// Deploy the namespace operator
 	e.kubectl("create", "namespace", testNamespace)
