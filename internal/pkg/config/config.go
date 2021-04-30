@@ -61,6 +61,9 @@ const (
 	// triggers the oci-seccomp-bpf-hook to trace the syscalls of a Pod and
 	// created a seccomp profile.
 	SeccompProfileRecordAnnotationKey = "io.containers.trace-syscall"
+
+	// HealthProbePort is the port where the liveness probe will be served.
+	HealthProbePort = 8085
 )
 
 // ProfileRecordingOutputPath is the path where the recorded profiles will be

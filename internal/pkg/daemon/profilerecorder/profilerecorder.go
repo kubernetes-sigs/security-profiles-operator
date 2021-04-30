@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,6 +139,11 @@ func (r *RecorderReconciler) Setup(
 		)).
 		For(&corev1.Pod{}).
 		Complete(r)
+}
+
+// Healthz is the liveness probe endpoint of the controller.
+func (r *RecorderReconciler) Healthz(*http.Request) error {
+	return nil
 }
 
 func (r *RecorderReconciler) isPodOnLocalNode(obj runtime.Object) bool {
