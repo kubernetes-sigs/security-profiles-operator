@@ -41,9 +41,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
+	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
@@ -62,6 +65,11 @@ const (
 	reasonAnnotationParsing     event.Reason = "SeccompAnnotationParsing"
 )
 
+// NewController returns a new empty controller instance.
+func NewController() controller.Controller {
+	return &RecorderReconciler{}
+}
+
 type RecorderReconciler struct {
 	client        client.Client
 	log           logr.Logger
@@ -70,9 +78,25 @@ type RecorderReconciler struct {
 	podsToWatch   sync.Map
 }
 
+// Name returns the name of the controller.
+func (r *RecorderReconciler) Name() string {
+	return "recorder-spod"
+}
+
+// SchemeBuilder returns the API scheme of the controller.
+func (r *RecorderReconciler) SchemeBuilder() *scheme.Builder {
+	return profilerecording1alpha1.SchemeBuilder
+}
+
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 
-func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger, met *metrics.Metrics) error {
+// Setup is the initialization of the controller.
+func (r *RecorderReconciler) Setup(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	l logr.Logger,
+	met *metrics.Metrics,
+) error {
 	const name = "profilerecorder"
 	c, err := client.New(mgr.GetConfig(), client.Options{})
 	if err != nil {
@@ -101,21 +125,19 @@ func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger, met *metrics.Me
 		return errors.New("Unable to get node's internal Address")
 	}
 
-	reconciler := RecorderReconciler{
-		client:        mgr.GetClient(),
-		log:           l,
-		nodeAddresses: nodeAddresses,
-		record:        event.NewAPIRecorder(mgr.GetEventRecorderFor(name)),
-	}
+	r.client = mgr.GetClient()
+	r.log = l
+	r.nodeAddresses = nodeAddresses
+	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(name))
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
 		WithEventFilter(predicate.And(
-			resource.NewPredicates(reconciler.isPodWithTraceAnnotation),
-			resource.NewPredicates(reconciler.isPodOnLocalNode),
+			resource.NewPredicates(r.isPodWithTraceAnnotation),
+			resource.NewPredicates(r.isPodOnLocalNode),
 		)).
 		For(&corev1.Pod{}).
-		Complete(&reconciler)
+		Complete(r)
 }
 
 func (r *RecorderReconciler) isPodOnLocalNode(obj runtime.Object) bool {

@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -34,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
@@ -43,6 +41,7 @@ import (
 	selinuxprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder"
@@ -317,41 +316,19 @@ func getTunables() (dt spod.DaemonTunables, err error) {
 	return dt, nil
 }
 
-// TODO(jhrozek): the type seems out of place here, maybe we should move it to a file under internal/pkg/controllers
-// that would just define the type and nothing else.
-type daemonSetupFunc func(ctx context.Context, mgr ctrl.Manager, l logr.Logger, met *metrics.Metrics) error
+func getEnabledControllers(ctx *cli.Context) []controller.Controller {
+	controllers := make([]controller.Controller, 0, 2)
 
-type controllerSettings struct {
-	name          string
-	setupFn       daemonSetupFunc
-	schemaBuilder *scheme.Builder
-}
-
-func getEnabledControllers(ctx *cli.Context) []*controllerSettings {
-	enabledSettings := make([]*controllerSettings, 0, 2)
-
-	enabledSettings = append(enabledSettings,
-		&controllerSettings{
-			name:          "seccomp-spod",
-			setupFn:       seccompprofile.Setup,
-			schemaBuilder: seccompprofilev1alpha1.SchemeBuilder,
-		},
-		&controllerSettings{
-			name:          "recorder-spod",
-			setupFn:       profilerecorder.Setup,
-			schemaBuilder: profilerecording1alpha1.SchemeBuilder,
-		},
+	controllers = append(controllers,
+		seccompprofile.NewController(),
+		profilerecorder.NewController(),
 	)
 
 	if ctx.Bool(selinuxFlag) {
-		enabledSettings = append(enabledSettings, &controllerSettings{
-			name:          "selinux-spod",
-			setupFn:       selinuxprofile.Setup,
-			schemaBuilder: selinuxprofilev1alpha1.SchemeBuilder,
-		})
+		controllers = append(controllers, selinuxprofile.NewController())
 	}
 
-	return enabledSettings
+	return controllers
 }
 
 func runDaemon(ctx *cli.Context) error {
@@ -461,17 +438,17 @@ func runWebhook(ctx *cli.Context) error {
 
 func setupEnabledControllers(
 	ctx context.Context,
-	enabledControllers []*controllerSettings,
+	enabledControllers []controller.Controller,
 	mgr ctrl.Manager,
 	met *metrics.Metrics,
 ) error {
 	for _, enableCtrl := range enabledControllers {
-		if err := enableCtrl.schemaBuilder.AddToScheme(mgr.GetScheme()); err != nil {
+		if err := enableCtrl.SchemeBuilder().AddToScheme(mgr.GetScheme()); err != nil {
 			return errors.Wrap(err, "add core operator APIs to scheme")
 		}
 
-		if err := enableCtrl.setupFn(ctx, mgr, ctrl.Log.WithName(enableCtrl.name), met); err != nil {
-			return errors.Wrapf(err, "setup %s controller", enableCtrl.name)
+		if err := enableCtrl.Setup(ctx, mgr, ctrl.Log.WithName(enableCtrl.Name()), met); err != nil {
+			return errors.Wrapf(err, "setup %s controller", enableCtrl.Name())
 		}
 	}
 

@@ -34,10 +34,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -70,19 +72,9 @@ const (
 	reasonSavedProfile event.Reason = "SavedSeccompProfile"
 )
 
-// Setup adds a controller that reconciles seccomp profiles.
-func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger, met *metrics.Metrics) error {
-	// Register the regular reconciler to manage SeccompProfiles
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("profile").
-		For(&v1alpha1.SeccompProfile{}).
-		Complete(&Reconciler{
-			client:  mgr.GetClient(),
-			log:     l,
-			record:  event.NewAPIRecorder(mgr.GetEventRecorderFor("profile")),
-			save:    saveProfileOnDisk,
-			metrics: met,
-		})
+// NewController returns a new empty controller instance.
+func NewController() controller.Controller {
+	return &Reconciler{}
 }
 
 type saver func(string, []byte) (bool, error)
@@ -94,6 +86,36 @@ type Reconciler struct {
 	record  event.Recorder
 	save    saver
 	metrics *metrics.Metrics
+}
+
+// Name returns the name of the controller.
+func (r *Reconciler) Name() string {
+	return "seccomp-spod"
+}
+
+// SchemeBuilder returns the API scheme of the controller.
+func (r *Reconciler) SchemeBuilder() *scheme.Builder {
+	return v1alpha1.SchemeBuilder
+}
+
+// Setup adds a controller that reconciles seccomp profiles.
+func (r *Reconciler) Setup(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	l logr.Logger,
+	met *metrics.Metrics,
+) error {
+	r.client = mgr.GetClient()
+	r.log = l
+	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor("profile"))
+	r.save = saveProfileOnDisk
+	r.metrics = met
+
+	// Register the regular reconciler to manage SeccompProfiles
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("profile").
+		For(&v1alpha1.SeccompProfile{}).
+		Complete(r)
 }
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
