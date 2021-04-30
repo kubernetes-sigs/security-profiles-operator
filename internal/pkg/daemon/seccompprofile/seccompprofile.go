@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path"
 	"time"
@@ -38,6 +39,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/atomic"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -86,6 +88,7 @@ type Reconciler struct {
 	record  event.Recorder
 	save    saver
 	metrics *metrics.Metrics
+	ready   atomic.Bool
 }
 
 // Name returns the name of the controller.
@@ -118,6 +121,14 @@ func (r *Reconciler) Setup(
 		Complete(r)
 }
 
+// Healthz is the liveness probe endpoint of the controller.
+func (r *Reconciler) Healthz(*http.Request) error {
+	if !r.ready.Get() {
+		return errors.New("not ready")
+	}
+	return nil
+}
+
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
 // nolint:lll
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
@@ -135,6 +146,11 @@ func (r *Reconciler) Setup(
 
 // Reconcile reconciles a SeccompProfile.
 func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
+	// Mark the controller as ready if the first reconcile has been finished
+	if !r.ready.Get() {
+		defer func() { r.ready.Set(true) }()
+	}
+
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)

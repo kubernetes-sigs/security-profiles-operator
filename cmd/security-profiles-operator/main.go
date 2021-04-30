@@ -348,7 +348,8 @@ func runDaemon(ctx *cli.Context) error {
 	sigHandler := ctrl.SetupSignalHandler()
 
 	ctrlOpts := ctrl.Options{
-		SyncPeriod: &sync,
+		SyncPeriod:             &sync,
+		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
 	}
 
 	setControllerOptionsForNamespaces(&ctrlOpts)
@@ -449,6 +450,10 @@ func setupEnabledControllers(
 
 		if err := enableCtrl.Setup(ctx, mgr, ctrl.Log.WithName(enableCtrl.Name()), met); err != nil {
 			return errors.Wrapf(err, "setup %s controller", enableCtrl.Name())
+		}
+
+		if err := mgr.AddHealthzCheck(enableCtrl.Name(), enableCtrl.Healthz); err != nil {
+			return errors.Wrap(err, "add readiness check to controller")
 		}
 	}
 
