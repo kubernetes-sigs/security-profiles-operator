@@ -37,10 +37,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selinuxprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 )
@@ -86,6 +88,11 @@ const (
 // blank assignment to verify that ReconcileSelinuxProfile implements `reconcile.Reconciler`.
 var _ reconcile.Reconciler = &ReconcileSP{}
 
+// NewController returns a new empty controller instance.
+func NewController() controller.Controller {
+	return &ReconcileSP{}
+}
+
 // ReconcileSP reconciles a SelinuxProfile object.
 type ReconcileSP struct {
 	// This client, initialized using mgr.Client() above, is a split client
@@ -94,6 +101,16 @@ type ReconcileSP struct {
 	scheme         *runtime.Scheme
 	policyTemplate *template.Template
 	record         event.Recorder
+}
+
+// Name returns the name of the controller.
+func (r *ReconcileSP) Name() string {
+	return "selinux-spod"
+}
+
+// SchemeBuilder returns the API scheme of the controller.
+func (r *ReconcileSP) SchemeBuilder() *scheme.Builder {
+	return selinuxprofilev1alpha1.SchemeBuilder
 }
 
 // Security Profiles Operator RBAC permissions to manage SelinuxProfile
