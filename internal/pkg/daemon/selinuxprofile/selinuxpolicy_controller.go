@@ -113,6 +113,11 @@ func (r *ReconcileSP) SchemeBuilder() *scheme.Builder {
 	return selinuxprofilev1alpha1.SchemeBuilder
 }
 
+// Healthz is the liveness probe endpoint of the controller.
+func (r *ReconcileSP) Healthz(*http.Request) error {
+	return nil
+}
+
 // Security Profiles Operator RBAC permissions to manage SelinuxProfile
 // nolint:lll
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch

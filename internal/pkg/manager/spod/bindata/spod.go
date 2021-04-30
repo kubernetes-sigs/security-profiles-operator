@@ -23,6 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -36,6 +37,7 @@ var (
 	hostPathDirectory               = v1.HostPathDirectory
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
 	metricsPort               int32 = 9443
+	healthzPath                     = "/healthz"
 )
 
 const (
@@ -257,6 +259,35 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 									},
 								},
 							},
+						},
+						Ports: []v1.ContainerPort{
+							{
+								Name:          "liveness-port",
+								ContainerPort: config.HealthProbePort,
+								Protocol:      v1.ProtocolTCP,
+							},
+						},
+						StartupProbe: &v1.Probe{
+							Handler: v1.Handler{HTTPGet: &v1.HTTPGetAction{
+								Path:   healthzPath,
+								Port:   intstr.FromString("liveness-port"),
+								Scheme: v1.URISchemeHTTP,
+							}},
+							FailureThreshold: 10, // nolint: gomnd
+							PeriodSeconds:    3,  // nolint: gomnd
+							TimeoutSeconds:   1,
+							SuccessThreshold: 1,
+						},
+						LivenessProbe: &v1.Probe{
+							Handler: v1.Handler{HTTPGet: &v1.HTTPGetAction{
+								Path:   healthzPath,
+								Port:   intstr.FromString("liveness-port"),
+								Scheme: v1.URISchemeHTTP,
+							}},
+							FailureThreshold: 1,
+							PeriodSeconds:    10, // nolint: gomnd
+							TimeoutSeconds:   1,
+							SuccessThreshold: 1,
 						},
 					},
 					{
