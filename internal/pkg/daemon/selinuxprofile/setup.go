@@ -33,20 +33,26 @@ import (
 var log = logf.Log.WithName("selinuxprofile")
 
 // Setup adds a controller that reconciles seccomp profiles.
-func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger, met *metrics.Metrics) error {
+func (r *ReconcileSP) Setup(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	l logr.Logger,
+	met *metrics.Metrics,
+) error {
 	// Create template to wrap policies
 	tmpl, err := template.New("profileWrapper").Parse(profileWrapper)
 	if err != nil {
 		return errors.Wrap(err, "creating profile wrapper template")
 	}
+
+	r.client = mgr.GetClient()
+	r.scheme = mgr.GetScheme()
+	r.policyTemplate = tmpl
+	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor("selinuxprofile"))
+
 	// Register the regular reconciler to manage SelinuxProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("profile").
 		For(&spov1alpha1.SelinuxProfile{}).
-		Complete(&ReconcileSP{
-			client:         mgr.GetClient(),
-			scheme:         mgr.GetScheme(),
-			policyTemplate: tmpl,
-			record:         event.NewAPIRecorder(mgr.GetEventRecorderFor("selinuxprofile")),
-		})
+		Complete(r)
 }
