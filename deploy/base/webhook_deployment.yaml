@@ -12,6 +12,7 @@ spec:
   template:
     metadata:
       annotations:
+        openshift.io/scc: privileged
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
         name: security-profiles-operator-webhook

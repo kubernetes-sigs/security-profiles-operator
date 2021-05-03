@@ -1232,6 +1232,12 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -1393,6 +1399,7 @@ spec:
   template:
     metadata:
       annotations:
+        openshift.io/scc: privileged
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
         app: security-profiles-operator
