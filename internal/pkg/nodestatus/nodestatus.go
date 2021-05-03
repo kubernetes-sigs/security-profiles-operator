@@ -113,12 +113,12 @@ func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
 func (nsf *StatusClient) Remove(ctx context.Context, c client.Client) error {
 	// if finalizer exists, remove it
 	if err := nsf.removeFinalizer(ctx); err != nil {
-		return errors.Wrapf(err, "cannot create finalizer for %s", nsf.pol.GetName())
+		return errors.Wrapf(err, "cannot remove finalizer for %s", nsf.pol.GetName())
 	}
 
 	// if object exists, remove it
 	if err := nsf.removeNodeStatus(ctx, c); err != nil {
-		return errors.Wrapf(err, "cannot create nodeStatus for %s", nsf.pol.GetName())
+		return errors.Wrapf(err, "cannot remove nodeStatus for %s", nsf.pol.GetName())
 	}
 
 	return nil
