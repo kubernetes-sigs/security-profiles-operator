@@ -346,11 +346,19 @@ func (e *e2e) sliceContainsString(slice []string, s string) bool {
 	return false
 }
 
-func (e *e2e) retry(f func(iteration int) (abort bool)) {
+func (e *e2e) retryGet(args ...string) string {
 	for i := 0; i < 20; i++ {
-		if f(i) {
-			break
+		output, err := command.New(
+			e.kubectlPath, append([]string{"get"}, args...)...,
+		).RunSilent()
+		e.Nil(err)
+		if !strings.Contains(output.Error(), "not found") {
+			return output.OutputTrimNL()
 		}
+		e.logf("Waiting for resource to be available (%d)", i)
 		time.Sleep(3 * time.Second)
 	}
+
+	e.Fail("Timed out to wait for resource")
+	return ""
 }
