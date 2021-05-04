@@ -19,7 +19,6 @@ package e2e_test
 import (
 	"io/ioutil"
 	"os"
-	"strings"
 )
 
 const (
@@ -58,11 +57,13 @@ spec:
 	e.kubectl("create", "-f", testPodFile.Name())
 
 	e.logf("Waiting for test pod to be initialized")
-	e.waitFor("condition=ready", "pod", "recording")
-	e.kubectl("delete", "pod", "recording")
+	const podName = "recording"
+	e.retryGet("pod", podName)
+	e.waitFor("condition=ready", "pod", podName)
+	e.kubectl("delete", "pod", podName)
 
 	resourceName := recordingName + "-nginx"
-	profile := e.kubectl("get", "sp", resourceName, "-o", "yaml")
+	profile := e.retryGetSeccompProfile(resourceName)
 	defer e.kubectl("delete", "sp", resourceName)
 	e.Contains(profile, "mkdir")
 }
@@ -82,7 +83,7 @@ func (e *e2e) testCaseProfileRecordingKubectlRun() {
 	)
 
 	resourceName := recordingName + "-fedora"
-	profile := e.kubectl("get", "sp", resourceName, "-o", "yaml")
+	profile := e.retryGetSeccompProfile(resourceName)
 	defer e.kubectl("delete", "sp", resourceName)
 	e.Contains(profile, "prctl")
 	e.NotContains(profile, "mkdir")
@@ -121,11 +122,13 @@ spec:
 	e.kubectl("create", "-f", testPodFile.Name())
 
 	e.logf("Waiting for test pod to be initialized")
-	e.waitFor("condition=ready", "pod", "my-pod")
-	e.kubectl("delete", "pod", "my-pod")
+	const podName = "my-pod"
+	e.retryGet("pod", podName)
+	e.waitFor("condition=ready", "pod", podName)
+	e.kubectl("delete", "pod", podName)
 
-	profileRedis := e.kubectl("get", "sp", recordingName+"-redis", "-o", "yaml")
-	profileNginx := e.kubectl("get", "sp", recordingName+"-nginx", "-o", "yaml")
+	profileRedis := e.retryGetSeccompProfile(recordingName + "-redis")
+	profileNginx := e.retryGetSeccompProfile(recordingName + "-nginx")
 	defer e.kubectl("delete", "sp", "--all")
 	e.Contains(profileNginx, "unlink")
 	e.Contains(profileRedis, "nanosleep")
@@ -166,22 +169,19 @@ spec:
 	err = testFile.Close()
 	e.Nil(err)
 	e.kubectl("create", "-f", testFile.Name())
+	const deployName = "my-deployment"
+	e.retryGet("deploy", deployName)
+	e.waitFor("condition=available", "deploy", deployName)
+	e.kubectl("delete", "deploy", deployName)
 
-	e.logf("Waiting for pods to be initialized")
-	e.waitFor("condition=available", "deployment", "my-deployment")
-	e.kubectl("delete", "deploy", "my-deployment")
-
-	e.retry(func(i int) bool {
-		e.logf("Waiting for profiles to be available (%d)", i)
-		output := e.kubectl("get", "sp")
-		return strings.Contains(output, "nginx-0") && strings.Contains(output, "nginx-1")
-	})
-	e.logf("All profiles available")
-
-	profile0 := e.kubectl("get", "sp", recordingName+"-nginx-0", "-o", "yaml")
-	profile1 := e.kubectl("get", "sp", recordingName+"-nginx-1", "-o", "yaml")
+	profile0 := e.retryGetSeccompProfile(recordingName + "-nginx-0")
+	profile1 := e.retryGetSeccompProfile(recordingName + "-nginx-1")
 	e.Contains(profile0, "unlink")
 	e.Contains(profile1, "unlink")
 	defer e.kubectl("delete", "sp", recordingName+"-nginx-0")
 	defer e.kubectl("delete", "sp", recordingName+"-nginx-1")
+}
+
+func (e *e2e) retryGetSeccompProfile(args ...string) string {
+	return e.retryGet(append([]string{"sp", "-o", "yaml"}, args...)...)
 }
