@@ -161,7 +161,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	if err := r.client.Get(ctx, req.NamespacedName, pod); err != nil {
 		if kerrors.IsNotFound(err) {
 			if err := r.collectProfile(ctx, req.NamespacedName); err != nil {
-				return reconcile.Result{}, nil
+				return reconcile.Result{}, err
 			}
 		} else {
 			// Returning an error means we will be requeued implicitly.
@@ -194,7 +194,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 
 	if pod.Status.Phase == corev1.PodSucceeded {
 		if err := r.collectProfile(ctx, req.NamespacedName); err != nil {
-			return reconcile.Result{}, nil
+			return reconcile.Result{}, err
 		}
 	}
 
