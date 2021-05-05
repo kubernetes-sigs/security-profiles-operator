@@ -40,12 +40,6 @@ cat <<EOT >>/etc/crio/crio.conf.d/30-selinux.conf
 selinux = true
 EOT
 
-cat <<EOT >>/etc/crio/crio.conf.d/30-cgroup-manager.conf
-[crio.runtime]
-conmon_cgroup = "pod"
-cgroup_manager = "cgroupfs"
-EOT
-
 chcon -R -u system_u -r object_r -t container_config_t \
     /etc/crio \
     /etc/crio/crio.conf \
