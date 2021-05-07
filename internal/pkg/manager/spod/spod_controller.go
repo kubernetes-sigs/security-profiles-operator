@@ -281,6 +281,9 @@ func (r *ReconcileSPOd) handleUpdate(
 		foundProfile := &sccmpv1alpha1.SeccompProfile{}
 		var err error
 		if err = r.client.Get(ctx, pKey, foundProfile); err == nil {
+			// Set the resource version for an update, otherwise it would fail.
+			profile.SetResourceVersion(foundProfile.GetResourceVersion())
+
 			if updateErr := r.client.Update(ctx, profile); updateErr != nil {
 				return errors.Wrapf(
 					updateErr, "updating operator default profile %s", profile.Name,
