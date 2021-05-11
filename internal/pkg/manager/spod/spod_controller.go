@@ -19,6 +19,7 @@ package spod
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
@@ -32,10 +33,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	sccmpv1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
@@ -43,6 +46,11 @@ const (
 	reasonCannotCreateSPOD event.Reason = "CannotCreateSPOD"
 	reasonCannotUpdateSPOD event.Reason = "CannotUpdateSPOD"
 )
+
+// NewController returns a new empty controller instance.
+func NewController() controller.Controller {
+	return &ReconcileSPOd{}
+}
 
 // blank assignment to verify that ReconcileSPOd implements `reconcile.Reconciler`.
 var _ reconcile.Reconciler = &ReconcileSPOd{}
@@ -57,6 +65,21 @@ type ReconcileSPOd struct {
 	record         event.Recorder
 	log            logr.Logger
 	watchNamespace string
+}
+
+// Name returns the name of the controller.
+func (r *ReconcileSPOd) Name() string {
+	return "spod-config"
+}
+
+// SchemeBuilder returns the API scheme of the controller.
+func (r *ReconcileSPOd) SchemeBuilder() *scheme.Builder {
+	return spodv1alpha1.SchemeBuilder
+}
+
+// Healthz is the liveness probe endpoint of the controller.
+func (r *ReconcileSPOd) Healthz(*http.Request) error {
+	return nil
 }
 
 // Security Profiles Operator RBAC permissions to manage its own configuration

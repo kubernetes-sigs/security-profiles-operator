@@ -19,6 +19,7 @@ package workloadannotator
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -29,8 +30,10 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -40,11 +43,31 @@ const (
 	reconcileTimeout = 1 * time.Minute
 )
 
+// NewController returns a new empty controller instance.
+func NewController() controller.Controller {
+	return &PodReconciler{}
+}
+
 // A PodReconciler monitors pod changes and links them to SeccompProfiles.
 type PodReconciler struct {
 	client client.Client
 	log    logr.Logger
 	record event.Recorder
+}
+
+// Name returns the name of the controller.
+func (r *PodReconciler) Name() string {
+	return "workload-annotator"
+}
+
+// SchemeBuilder returns the API scheme of the controller.
+func (r *PodReconciler) SchemeBuilder() *scheme.Builder {
+	return nil
+}
+
+// Healthz is the liveness probe endpoint of the controller.
+func (r *PodReconciler) Healthz(*http.Request) error {
+	return nil
 }
 
 // Namespace scoped

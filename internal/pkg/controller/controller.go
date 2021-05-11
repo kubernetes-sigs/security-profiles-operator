@@ -20,7 +20,6 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
@@ -36,7 +35,7 @@ type Controller interface {
 	SchemeBuilder() *scheme.Builder
 
 	// Setup is the initialization of the controller.
-	Setup(context.Context, ctrl.Manager, logr.Logger, *metrics.Metrics) error
+	Setup(context.Context, ctrl.Manager, *metrics.Metrics) error
 
 	// Healthz is the liveness probe endpoint of the controller.
 	Healthz(*http.Request) error

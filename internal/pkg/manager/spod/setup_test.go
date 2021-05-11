@@ -29,19 +29,19 @@ func Test_getEffectiveSPOd(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		dt      DaemonTunables
+		dt      daemonTunables
 		nsIsSet bool
 		wantErr bool
 	}{
 		{
 			"Should correctly set the image",
-			DaemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
+			daemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
 			false,
 			false,
 		},
 		{
 			"Should correctly set the namespace",
-			DaemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
+			daemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
 			true,
 			false,
 		},
@@ -52,12 +52,12 @@ func Test_getEffectiveSPOd(t *testing.T) {
 			t.Parallel()
 			os.Setenv("OPERATOR_NAMESPACE", "default")
 			got := getEffectiveSPOd(&tt.dt)
-			require.Equal(t, tt.dt.SelinuxdImage, got.Spec.Template.Spec.Containers[1].Image)
-			require.Equal(t, tt.dt.LogEnricherImage, got.Spec.Template.Spec.Containers[2].Image)
+			require.Equal(t, tt.dt.selinuxdImage, got.Spec.Template.Spec.Containers[1].Image)
+			require.Equal(t, tt.dt.logEnricherImage, got.Spec.Template.Spec.Containers[2].Image)
 			var found bool
 			for _, env := range got.Spec.Template.Spec.Containers[0].Env {
 				if env.Name == config.RestrictNamespaceEnvKey {
-					require.Equal(t, tt.dt.WatchNamespace, env.Value)
+					require.Equal(t, tt.dt.watchNamespace, env.Value)
 					found = true
 					break
 				}
