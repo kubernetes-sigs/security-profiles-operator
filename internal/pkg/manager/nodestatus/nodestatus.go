@@ -18,6 +18,7 @@ package nodestatus
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
@@ -31,12 +32,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	pbv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	seccompv1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selinuxv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -50,11 +53,31 @@ var (
 	ErrUnkownOwnerKind = errors.New("the node status owner is of an unknown kind")
 )
 
+// NewController returns a new empty controller instance.
+func NewController() controller.Controller {
+	return &StatusReconciler{}
+}
+
 // A StatusReconciler monitors node changes and updates the profile status.
 type StatusReconciler struct {
 	client client.Client
 	log    logr.Logger
 	record event.Recorder
+}
+
+// Name returns the name of the controller.
+func (r *StatusReconciler) Name() string {
+	return "nodestatus"
+}
+
+// SchemeBuilder returns the API scheme of the controller.
+func (r *StatusReconciler) SchemeBuilder() *scheme.Builder {
+	return statusv1alpha1.SchemeBuilder
+}
+
+// Healthz is the liveness probe endpoint of the controller.
+func (r *StatusReconciler) Healthz(*http.Request) error {
+	return nil
 }
 
 func NewStatusReconciler(cli client.Client, log logr.Logger, record event.Recorder) *StatusReconciler {

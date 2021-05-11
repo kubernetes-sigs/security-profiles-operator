@@ -20,20 +20,25 @@ import (
 	"context"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/go-logr/logr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
-func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
+func (r *StatusReconciler) Setup(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	met *metrics.Metrics,
+) error {
+	r.client = mgr.GetClient()
+	r.log = ctrl.Log.WithName(r.Name())
+	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(r.Name()))
+
 	// Register a special reconciler for status events
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("nodestatus").
+		Named(r.Name()).
 		For(&secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}).
-		Complete(NewStatusReconciler(mgr.GetClient(),
-			l,
-			event.NewAPIRecorder(mgr.GetEventRecorderFor("nodestatus"))),
-		)
+		Complete(r)
 }

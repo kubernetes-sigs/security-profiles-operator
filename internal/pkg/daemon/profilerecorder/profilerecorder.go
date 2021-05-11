@@ -95,7 +95,6 @@ func (r *RecorderReconciler) SchemeBuilder() *scheme.Builder {
 func (r *RecorderReconciler) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,
-	l logr.Logger,
 	met *metrics.Metrics,
 ) error {
 	const name = "profilerecorder"
@@ -113,10 +112,11 @@ func (r *RecorderReconciler) Setup(
 		return errors.Wrap(err, errGetNode)
 	}
 
+	r.log = ctrl.Log.WithName(r.Name())
 	nodeAddresses := []string{}
 	for _, addr := range node.Status.Addresses {
 		if addr.Type == corev1.NodeInternalIP {
-			l.Info("Setting up profile recorder", "Node", addr.Address)
+			r.log.Info("Setting up profile recorder", "Node", addr.Address)
 			nodeAddresses = append(nodeAddresses, addr.Address)
 			break
 		}
@@ -127,7 +127,6 @@ func (r *RecorderReconciler) Setup(
 	}
 
 	r.client = mgr.GetClient()
-	r.log = l
 	r.nodeAddresses = nodeAddresses
 	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(name))
 

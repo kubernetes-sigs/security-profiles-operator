@@ -21,7 +21,6 @@ import (
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,10 +28,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
-func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
+func (r *PodReconciler) Setup(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	met *metrics.Metrics,
+) error {
+	const name = "pods"
+	r.client = mgr.GetClient()
+	r.log = ctrl.Log.WithName(r.Name())
+	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(name))
+
 	// Index Pods using seccomp profiles
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, spOwnerKey, func(rawObj client.Object) []string {
 		pod, ok := rawObj.(*corev1.Pod)
@@ -58,14 +67,10 @@ func Setup(ctx context.Context, mgr ctrl.Manager, l logr.Logger) error {
 
 	// Register a special reconciler for pod events
 	return ctrl.NewControllerManagedBy(mgr).
-		Named("pods").
+		Named(name).
 		For(&corev1.Pod{}).
 		WithEventFilter(resource.NewPredicates(hasSeccompProfile)).
-		Complete(&PodReconciler{
-			client: mgr.GetClient(),
-			log:    l,
-			record: event.NewAPIRecorder(mgr.GetEventRecorderFor("pods")),
-		})
+		Complete(r)
 }
 
 func hasSeccompProfile(obj runtime.Object) bool {
