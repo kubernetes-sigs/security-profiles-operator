@@ -105,11 +105,10 @@ func (r *Reconciler) SchemeBuilder() *scheme.Builder {
 func (r *Reconciler) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,
-	l logr.Logger,
 	met *metrics.Metrics,
 ) error {
 	r.client = mgr.GetClient()
-	r.log = l
+	r.log = ctrl.Log.WithName(r.Name())
 	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor("profile"))
 	r.save = saveProfileOnDisk
 	r.metrics = met

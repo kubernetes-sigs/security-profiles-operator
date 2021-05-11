@@ -21,7 +21,6 @@ import (
 	"text/template"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -36,7 +35,6 @@ var log = logf.Log.WithName("selinuxprofile")
 func (r *ReconcileSP) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,
-	l logr.Logger,
 	met *metrics.Metrics,
 ) error {
 	// Create template to wrap policies
