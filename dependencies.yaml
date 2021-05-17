@@ -3,72 +3,72 @@ dependencies:
     version: 1.40.1
     refPaths:
     - path: Makefile
-      match: GOLANGCI_LINT_VERSION = v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
+      match: GOLANGCI_LINT_VERSION
 
   - name: repo-infra
     version: 0.1.6
     refPaths:
     - path: Makefile
-      match: REPO_INFRA_VERSION = v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
+      match: REPO_INFRA_VERSION
 
   - name: kustomize
     version: 4.1.2
     refPaths:
     - path: Makefile
-      match: KUSTOMIZE_VERSION = (0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
+      match: KUSTOMIZE_VERSION
 
   - name: cert-manager
     version: 1.3.1
     refPaths:
     - path: test/e2e_test.go
-      match: .*"https://github.com/jetstack/cert-manager/releases/download/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?/cert-manager.yaml"
+      match: jetstack/cert-manager
     - path: installation-usage.md
-      match: .*https://github.com/jetstack/cert-manager/releases/download/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?/cert-manager.yaml
+      match: jetstack/cert-manager
 
   - name: kind
     version: 0.11.0
     refPaths:
     - path: test/suite_test.go
-      match: \s+kindVersion\s+= "v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?"
+      match: kindVersion
 
   - name: kind-image
     version: 1.21.1
     refPaths:
     - path: test/suite_test.go
-      match: \s+kindImage\s+= "kindest/node:v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?"
+      match: kindest/node
 
   - name: qemu
     version: 5.2.0-2
     refPaths:
     - path: hack/image-cross.sh
-      match: QEMUVERSION=((([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?)(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?)-\d+
+      match: QEMUVERSION
 
   - name: e2e-kubernetes
     version: 1.21.0
     refPaths:
     - path: hack/ci/install-kubernetes.sh
-      match: VERSION=v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
+      match: VERSION
 
   - name: e2e-fedora
     version: 33
     refPaths:
     - path: hack/ci/Vagrantfile
-      match: config\.vm\.box = "fedora/(0|[1-9]\d*)-cloud-base"
+      match: fedora
 
   - name: debian-base
     version: 1.6.0
     refPaths:
     - path: hack/build-image/Dockerfile
-      match: FROM k8s.gcr.io/build-image/debian-base:buster-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
+      match: k8s.gcr.io/build-image/debian-base
 
   - name: nix
     version: 2.3.10
     refPaths:
     - path: hack/build-image/Dockerfile
-      match: ARG NIX_VERSION=(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?
+      match: NIX_VERSION
 
   - name: kube-rbac-proxy
     version: 0.9.0
     refPaths:
     - path: internal/pkg/manager/spod/bindata/spod.go
-      match: MetricsImage\s+= "quay.io/brancz/kube-rbac-proxy:v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?"
+      match: quay.io/brancz/kube-rbac-proxy
