@@ -9,6 +9,7 @@ The feature scope of the security-profiles-operator is right now limited to:
 - Adds a `ProfileRecording` CRD (alpha) to record security profiles from workloads.
 - Synchronize seccomp profiles across all worker nodes.
 - Validates if a node supports seccomp and do not synchronize if not.
+- Providing metrics endpoints
 
 ## Tutorials and Demos
 
@@ -104,7 +105,7 @@ profile1   Active   14s   operator/my-namespace/profile1.json
 ```
 
 You can apply the profile to an existing application, such as a Deployment or
-Daemonset:
+DaemonSet:
 
 ```sh
 kubectl --namespace my-namespace patch deployment myapp --patch '{"spec": {"template": {"spec": {"securityContext": {"seccompProfile": {"type": "Localhost", "localhostProfile": "'$(kubectl --namespace my-namespace get seccompprofile profile1 --output=jsonpath='{.status.seccompProfile\.localhostProfile}')'}}}}}}'
@@ -381,6 +382,62 @@ NAMESPACE=<your-namespace>
 
 curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
 ```
+
+## Using metrics
+
+The security-profiles-operator provides two metrics endpoints, which are secured
+by a [kube-rbac-proxy](https://github.com/brancz/kube-rbac-proxy) sidecar
+container. All metrics are exposd via the `metrics` service within the
+`security-profiles-operator` namespace:
+
+```
+> kubectl get svc/metrics -n security-profiles-operator
+NAME      TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+metrics   ClusterIP   10.0.0.228   <none>        443/TCP   43s
+```
+
+The operator ships a cluster role and corresponding binding `spo-metrics-client`
+to retrieve the metrics from within the cluster. There are two metrics paths
+available:
+
+- `metrics.security-profiles-operator/metrics`: for controller runtime metrics
+- `metrics.security-profiles-operator/metrics-spod`: for the operator daemon metrics
+
+To retrieve the metrics, just query the service endpoint by using the default
+serviceaccount token in the `security-profiles-operator` namespace:
+
+```
+> kubectl run --rm -i --restart=Never --image=registry.fedoraproject.org/fedora-minimal:latest \
+    -n security-profiles-operator metrics-test -- bash -c \
+    'curl -ks -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" https://metrics.security-profiles-operator/metrics-spod'
+…
+# HELP security_profiles_operator_seccomp_profile_total Counter about seccomp profile operations.
+# TYPE security_profiles_operator_seccomp_profile_total counter
+security_profiles_operator_seccomp_profile_total{operation="delete"} 1
+security_profiles_operator_seccomp_profile_total{operation="update"} 2
+…
+```
+
+If the metrics have to be retrieved from a different namespace, just link the
+service account to the `spo-metrics-client` `ClusterRoleBinding` or create a new
+one:
+
+```
+> kubectl get clusterrolebinding spo-metrics-client -o wide
+NAME                 ROLE                             AGE   USERS   GROUPS   SERVICEACCOUNTS
+spo-metrics-client   ClusterRole/spo-metrics-client   35m                    security-profiles-operator/default
+```
+
+### Available metrics
+
+The controller-runtime (`/metrics`) as well as the DaemonSet endpoint
+(`/metrics-spod`) already provide a set of default metrics. Beside that, those
+additional metrics are provided by the daemon, which are always prefixed with
+`security_profiles_operator_`:
+
+| Metric Key              | Possible Labels             | Type    | Purpose                               |
+| ----------------------- | --------------------------- | ------- | ------------------------------------- |
+| `seccomp_profile_total` | `operation={delete,update}` | Counter | Amount of seccomp profile operations. |
 
 ## Troubleshooting
 
