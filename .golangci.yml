@@ -30,8 +30,8 @@ linters:
     - gofumpt
     - goheader
     - goimports
-    - golint
     - gomnd
+    - gomoddirectives
     - gomodguard
     - goprintffuncname
     - gosec
@@ -50,12 +50,13 @@ linters:
     - paralleltest
     - prealloc
     - predeclared
+    - promlinter
     - rowserrcheck
-    - scopelint
     - sqlclosecheck
     - staticcheck
     - structcheck
     - stylecheck
+    - tagliatelle
     - thelper
     - tparallel
     - typecheck
@@ -65,7 +66,7 @@ linters:
     - varcheck
     - wastedassign
     - whitespace
-    - wrapcheck
+    # - wrapcheck
     # - cyclop
     # - exhaustivestruct
     # - forbidigo

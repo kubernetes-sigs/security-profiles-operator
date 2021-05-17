@@ -32,8 +32,8 @@ func (e *e2e) testCaseMetrics(nodes []string) {
 		curlSpodCMD     = curlCMD + metricsURL + "metrics-spod"
 		curlCtrlCMD     = curlCMD + metricsURL + "metrics"
 		profileName     = "metrics-profile"
-		operationDelete = `security_profiles_operator_seccomp_profile{operation="delete"}`
-		operationUpdate = `security_profiles_operator_seccomp_profile{operation="update"}`
+		operationDelete = `security_profiles_operator_seccomp_profile_total{operation="delete"}`
+		operationUpdate = `security_profiles_operator_seccomp_profile_total{operation="update"}`
 	)
 
 	e.logf("Retrieving spo metrics for getting assertions")
