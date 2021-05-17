@@ -172,7 +172,8 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 		profiles = append(profiles, *sc.SeccompProfile.LocalhostProfile)
 	}
 	// try to get profile(s) from securityContext in pods
-	containers := append(pod.Spec.Containers, pod.Spec.InitContainers...)
+	containers := pod.Spec.Containers
+	containers = append(containers, pod.Spec.InitContainers...)
 	contains := func(a []string, b string) bool {
 		for _, s := range a {
 			if s == b {

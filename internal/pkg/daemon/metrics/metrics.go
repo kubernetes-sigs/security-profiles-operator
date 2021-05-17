@@ -33,7 +33,7 @@ import (
 
 const (
 	metricNamespace                      = "security_profiles_operator"
-	metricNameSeccompProfile             = "seccomp_profile"
+	metricNameSeccompProfile             = "seccomp_profile_total"
 	metricLabelValueSeccompProfileUpdate = "update"
 	metricLabelValueSeccompProfileDelete = "delete"
 	metricLabelOperation                 = "operation"
