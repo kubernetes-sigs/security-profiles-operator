@@ -14,6 +14,8 @@ The feature scope of the security-profiles-operator is right now limited to:
 
 - [Introduction to Seccomp and the Kubernetes Seccomp Operator](https://youtu.be/exg_zrg16SI)
   ([@saschagrunert](https://github.com/saschagrunert) and [@hasheddan](https://github.com/hasheddan))
+- [Enhancing Kubernetes with the Security Profiles Operator](https://youtu.be/xisAIB3kOJo)
+  ([@cmurphy](https://github.com/cmurphy) and [@saschagrunert](https://github.com/saschagrunert))
 
 ## How To
 
