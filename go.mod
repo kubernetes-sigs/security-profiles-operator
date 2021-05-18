@@ -3,7 +3,7 @@ module sigs.k8s.io/security-profiles-operator
 go 1.15
 
 require (
-	github.com/containers/common v0.38.1
+	github.com/containers/common v0.38.2
 	github.com/crossplane/crossplane-runtime v0.13.0
 	github.com/go-logr/logr v0.4.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.4.1
