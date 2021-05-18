@@ -428,6 +428,40 @@ NAME                 ROLE                             AGE   USERS   GROUPS   SER
 spo-metrics-client   ClusterRole/spo-metrics-client   35m                    security-profiles-operator/default
 ```
 
+Every metrics server pod from the DaemonSet runs with the same set of certificates
+(secret `metrics-server-cert`: `tls.crt` and `tls.key`) in the
+`security-profiles-operator` namespace. This means a pod like this can be used
+to omit the `--insecure/-k` flag:
+
+```yaml
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+spec:
+  containers:
+    - name: test-container
+      image: registry.fedoraproject.org/fedora-minimal:latest
+      command:
+        - bash
+        - -c
+        - |
+          curl -s --cacert /var/run/secrets/metrics/ca.crt \
+            -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" \
+            https://metrics.security-profiles-operator/metrics-spod
+      volumeMounts:
+        - mountPath: /var/run/secrets/metrics
+          name: metrics-cert-volume
+          readOnly: true
+  restartPolicy: Never
+  volumes:
+    - name: metrics-cert-volume
+      secret:
+        defaultMode: 420
+        secretName: metrics-server-cert
+```
+
 ### Available metrics
 
 The controller-runtime (`/metrics`) as well as the DaemonSet endpoint

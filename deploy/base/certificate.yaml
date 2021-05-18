@@ -20,3 +20,21 @@ spec:
     kind: Issuer
     name: selfsigned-issuer
   secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: metrics-cert
+  namespace: security-profiles-operator
+spec:
+  subject:
+    organizations:
+    - security-profiles-operator
+  dnsNames:
+  - metrics.security-profiles-operator
+  - metrics.security-profiles-operator.svc
+  - metrics.security-profiles-operator.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: metrics-server-cert

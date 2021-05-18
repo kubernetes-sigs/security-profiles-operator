@@ -18,6 +18,7 @@ package bindata
 
 import (
 	"fmt"
+	"path/filepath"
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -38,6 +39,7 @@ var (
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
 	metricsPort               int32 = 9443
 	healthzPath                     = "/healthz"
+	metricsCertPath                 = "/var/run/secrets/metrics"
 )
 
 const (
@@ -89,6 +91,10 @@ var Manifest = &appsv1.DaemonSet{
 								Name:      "operator-profiles-volume",
 								MountPath: "/opt/spo-profiles",
 								ReadOnly:  true,
+							},
+							{
+								Name:      "metrics-cert-volume",
+								MountPath: metricsCertPath,
 							},
 						},
 						SecurityContext: &v1.SecurityContext{
@@ -399,6 +405,8 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							fmt.Sprintf("--secure-listen-address=0.0.0.0:%d", metricsPort),
 							"--upstream=http://127.0.0.1:8080",
 							"--v=10",
+							fmt.Sprintf("--tls-cert-file=%s", filepath.Join(metricsCertPath, "tls.crt")),
+							fmt.Sprintf("--tls-private-key-file=%s", filepath.Join(metricsCertPath, "tls.key")),
 						},
 						Resources: v1.ResourceRequirements{
 							Requests: v1.ResourceList{
@@ -417,6 +425,13 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						},
 						Ports: []v1.ContainerPort{
 							{Name: "https", ContainerPort: metricsPort},
+						},
+						VolumeMounts: []v1.VolumeMount{
+							{
+								Name:      "metrics-cert-volume",
+								MountPath: metricsCertPath,
+								ReadOnly:  true,
+							},
 						},
 					},
 				},
@@ -511,6 +526,14 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							HostPath: &v1.HostPathVolumeSource{
 								Path: varLogSpoPath,
 								Type: &hostPathFile,
+							},
+						},
+					},
+					{
+						Name: "metrics-cert-volume",
+						VolumeSource: v1.VolumeSource{
+							Secret: &v1.SecretVolumeSource{
+								SecretName: "metrics-server-cert",
 							},
 						},
 					},
