@@ -16,6 +16,8 @@ kind: Service
 metadata:
   name: metrics
   namespace: security-profiles-operator
+  labels:
+    name: spod
 spec:
   ports:
   - name: https

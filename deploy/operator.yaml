@@ -1571,6 +1571,7 @@ kind: Service
 metadata:
   labels:
     app: security-profiles-operator
+    name: spod
   name: metrics
   namespace: security-profiles-operator
 spec:
