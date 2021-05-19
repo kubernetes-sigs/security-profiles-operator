@@ -1623,6 +1623,17 @@ subjects:
   namespace: security-profiles-operator
 ---
 apiVersion: v1
+kind: Secret
+metadata:
+  annotations:
+    kubernetes.io/service-account.name: default
+  labels:
+    app: security-profiles-operator
+  name: metrics-token
+  namespace: security-profiles-operator
+type: kubernetes.io/service-account-token
+---
+apiVersion: v1
 data:
   security-profiles-operator.json: |
     {
