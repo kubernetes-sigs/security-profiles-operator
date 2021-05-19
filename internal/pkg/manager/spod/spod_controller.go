@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -100,6 +101,9 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 //
 // Needed for default profiles:
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
+//
+// Needed for the ServiceMonitor
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=get;list;watch;create;update;patch
 //
 // OpenShift (This is ignored in other distros):
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
@@ -275,6 +279,20 @@ func (r *ReconcileSPOd) handleCreate(
 		}
 	}
 
+	r.log.Info("Deploying operator service monitor")
+	if err := r.client.Create(
+		ctx, bindata.ServiceMonitor(),
+	); err != nil {
+		// nolint: gocritic
+		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
+			r.log.Info("Service monitor resource does not seem to exist, ignoring")
+		} else if kerrors.IsAlreadyExists(err) {
+			r.log.Info("Service monitor already exist, skipping")
+		} else {
+			return errors.Wrap(err, "creating service monitor")
+		}
+	}
+
 	return nil
 }
 
@@ -330,6 +348,20 @@ func (r *ReconcileSPOd) handleUpdate(
 		return errors.Wrapf(
 			err, "getting operator default profile %s", profile.Name,
 		)
+	}
+
+	r.log.Info("Updating operator service monitor")
+	if err := r.client.Patch(
+		ctx, bindata.ServiceMonitor(), client.Merge,
+	); err != nil {
+		// nolint: gocritic
+		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
+			r.log.Info("Service monitor resource does not seem to exist, ignoring")
+		} else if kerrors.IsAlreadyExists(err) {
+			r.log.Info("Service monitor already exist, skipping")
+		} else {
+			return errors.Wrap(err, "updating service monitor")
+		}
 	}
 
 	return nil
