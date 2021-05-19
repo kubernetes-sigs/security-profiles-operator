@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/urfave/cli/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -195,6 +196,9 @@ func runManager(ctx *cli.Context) error {
 	}
 	if err := selinuxprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add selinuxprofile API to scheme")
+	}
+	if err := monitoringv1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add ServiceMonitor API to scheme")
 	}
 
 	if err := setupEnabledControllers(ctx.Context, []controller.Controller{
