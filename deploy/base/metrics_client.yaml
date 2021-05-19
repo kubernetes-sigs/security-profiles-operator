@@ -22,3 +22,12 @@ subjects:
 - kind: ServiceAccount
   name: default
   namespace: security-profiles-operator
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: metrics-token
+  namespace: security-profiles-operator
+  annotations:
+    kubernetes.io/service-account.name: default
+type: kubernetes.io/service-account-token
