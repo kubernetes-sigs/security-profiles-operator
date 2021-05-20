@@ -473,6 +473,58 @@ additional metrics are provided by the daemon, which are always prefixed with
 | ----------------------- | --------------------------- | ------- | ------------------------------------- |
 | `seccomp_profile_total` | `operation={delete,update}` | Counter | Amount of seccomp profile operations. |
 
+## Automatic ServiceMonitor deployment
+
+If the Kubernetes cluster has the [Prometheus
+Operator](https://github.com/prometheus-operator/prometheus-operator) deployed,
+then the Security Profiles Operator will automatically create a `ServiceMonitor`
+resource within its namespace. This monitor allows automatic metrics discovery
+within the cluster, which is pointing to the right service, TLS certificates as
+well as bearer token secret.
+
+When running on OpenShift, then the only configuration to be done is enabling
+user workloads by applying the following config map:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-monitoring-config
+  namespace: openshift-monitoring
+data:
+  config.yaml: |
+    enableUserWorkload: true
+```
+
+After that, the Security Profiles Operator can be deployed or updated, which
+will reconcile the `ServiceMonitor` into the cluster:
+
+```
+> kubectl -n security-profiles-operator logs security-profiles-operator-d7c8cfc86-47qh2 | grep monitor
+I0520 09:29:35.578165       1 spod_controller.go:282] spod-config "msg"="Deploying operator service monitor"
+```
+
+```
+> kubectl -n security-profiles-operator get servicemonitor
+NAME                                 AGE
+security-profiles-operator-monitor   35m
+```
+
+We can now verify in the Prometheus targets that all endpoints are serving the
+metrics:
+
+```
+> kubectl port-forward -n openshift-user-workload-monitoring pod/prometheus-user-workload-0 9090
+Forwarding from 127.0.0.1:9090 -> 9090
+Forwarding from [::1]:9090 -> 9090
+```
+
+![prometheus targets](doc/img/prometheus-targets.png)
+
+The OpenShift UI is now able to display the operator metrics, too:
+
+![prometheus targets](doc/img/openshift-metrics.png)
+
 ## Troubleshooting
 
 Confirm that the profile is being reconciled:
