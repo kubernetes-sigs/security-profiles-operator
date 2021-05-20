@@ -469,9 +469,10 @@ The controller-runtime (`/metrics`) as well as the DaemonSet endpoint
 additional metrics are provided by the daemon, which are always prefixed with
 `security_profiles_operator_`:
 
-| Metric Key              | Possible Labels             | Type    | Purpose                               |
-| ----------------------- | --------------------------- | ------- | ------------------------------------- |
-| `seccomp_profile_total` | `operation={delete,update}` | Counter | Amount of seccomp profile operations. |
+| Metric Key                    | Possible Labels                                                                                                                                                                                            | Type    | Purpose                               |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------- |
+| `seccomp_profile_total`       | `operation={delete,update}`                                                                                                                                                                                | Counter | Amount of seccomp profile operations. |
+| `seccomp_profile_error_total` | `reason={`<br>`SeccompNotSupportedOnNode,`<br>`InvalidSeccompProfile,`<br>`CannotSaveSeccompProfile,`<br>`CannotRemoveSeccompProfile,`<br>`CannotUpdateSeccompProfile,`<br>`CannotUpdateNodeStatus`<br>`}` | Counter | Amount of seccomp profile errors.     |
 
 ## Automatic ServiceMonitor deployment
 

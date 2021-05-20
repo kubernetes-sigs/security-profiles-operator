@@ -38,6 +38,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
 func TestReconcile(t *testing.T) {
@@ -69,7 +70,8 @@ func TestReconcile(t *testing.T) {
 				client: &test.MockClient{
 					MockGet: test.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
 				},
-				log: log.Log,
+				log:     log.Log,
+				metrics: metrics.New(),
 			},
 			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
 			wantResult: reconcile.Result{},
@@ -81,8 +83,9 @@ func TestReconcile(t *testing.T) {
 				client: &test.MockClient{
 					MockGet: test.NewMockGetFn(errOops),
 				},
-				record: event.NewNopRecorder(),
-				log:    log.Log,
+				record:  event.NewNopRecorder(),
+				log:     log.Log,
+				metrics: metrics.New(),
 			},
 			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
 			wantResult: reconcile.Result{},
@@ -96,9 +99,10 @@ func TestReconcile(t *testing.T) {
 					MockUpdate:       test.NewMockUpdateFn(nil),
 					MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
 				},
-				log:    log.Log,
-				record: event.NewNopRecorder(),
-				save:   func(_ string, _ []byte) (bool, error) { return false, nil },
+				log:     log.Log,
+				record:  event.NewNopRecorder(),
+				save:    func(_ string, _ []byte) (bool, error) { return false, nil },
+				metrics: metrics.New(),
 			},
 			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
 			wantResult: reconcile.Result{},
