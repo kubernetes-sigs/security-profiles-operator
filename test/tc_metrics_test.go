@@ -28,7 +28,7 @@ func (e *e2e) testCaseMetrics(nodes []string) {
 
 	const (
 		curlCMD         = "curl -ks -H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
-		metricsURL      = "https://metrics/"
+		metricsURL      = "https://metrics.security-profiles-operator/"
 		curlSpodCMD     = curlCMD + metricsURL + "metrics-spod"
 		curlCtrlCMD     = curlCMD + metricsURL + "metrics"
 		profileName     = "metrics-profile"
@@ -57,7 +57,7 @@ spec:
 	e.waitFor("condition=ready", "sp", profileName)
 
 	e.logf("Deleting test profile")
-	e.kubectl("delete", "sp", profileName, "--wait=0")
+	e.kubectl("delete", "sp", profileName)
 
 	e.logf("Retrieving controller runtime metrics")
 	outputCtrl := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlCtrlCMD)
