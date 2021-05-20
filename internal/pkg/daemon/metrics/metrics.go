@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -34,9 +35,11 @@ import (
 const (
 	metricNamespace                      = "security_profiles_operator"
 	metricNameSeccompProfile             = "seccomp_profile_total"
+	metricNameSeccompProfileError        = "seccomp_profile_error_total"
 	metricLabelValueSeccompProfileUpdate = "update"
 	metricLabelValueSeccompProfileDelete = "delete"
 	metricLabelOperation                 = "operation"
+	metricsLabelReason                   = "reason"
 
 	// HandlerPath is the default path for serving metrics.
 	HandlerPath = "/metrics-spod"
@@ -44,9 +47,10 @@ const (
 
 // Metrics is the main structure of this package.
 type Metrics struct {
-	impl                 impl
-	log                  logr.Logger
-	metricSeccompProfile *prometheus.CounterVec
+	impl                      impl
+	log                       logr.Logger
+	metricSeccompProfile      *prometheus.CounterVec
+	metricSeccompProfileError *prometheus.CounterVec
 }
 
 // New returns a new Metrics instance.
@@ -62,13 +66,22 @@ func New() *Metrics {
 			},
 			[]string{metricLabelOperation},
 		),
+		metricSeccompProfileError: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameSeccompProfileError,
+				Namespace: metricNamespace,
+				Help:      "Counter about seccomp profile errors.",
+			},
+			[]string{metricsLabelReason},
+		),
 	}
 }
 
 // Register iterates over all available metrics and registers them.
 func (m *Metrics) Register() error {
 	for name, collector := range map[string]prometheus.Collector{
-		metricNameSeccompProfile: m.metricSeccompProfile,
+		metricNameSeccompProfile:      m.metricSeccompProfile,
+		metricNameSeccompProfileError: m.metricSeccompProfileError,
 	} {
 		m.log.Info(fmt.Sprintf("Registering metric: %s", name))
 		if err := m.impl.Register(collector); err != nil {
@@ -95,4 +108,10 @@ func (m *Metrics) IncSeccompProfileUpdate() {
 func (m *Metrics) IncSeccompProfileDelete() {
 	m.metricSeccompProfile.
 		WithLabelValues(metricLabelValueSeccompProfileDelete).Inc()
+}
+
+// IncSeccompProfileError increments the seccomp profile error counter for the
+// provided reason.
+func (m *Metrics) IncSeccompProfileError(reason event.Reason) {
+	m.metricSeccompProfileError.WithLabelValues(string(reason)).Inc()
 }
