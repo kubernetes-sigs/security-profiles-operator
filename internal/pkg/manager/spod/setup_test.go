@@ -35,13 +35,13 @@ func Test_getEffectiveSPOd(t *testing.T) {
 	}{
 		{
 			"Should correctly set the image",
-			daemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
+			daemonTunables{"foo:bar", "bar:baz"},
 			false,
 			false,
 		},
 		{
 			"Should correctly set the namespace",
-			daemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
+			daemonTunables{"foo:bar", "bar:baz"},
 			true,
 			false,
 		},
@@ -53,7 +53,6 @@ func Test_getEffectiveSPOd(t *testing.T) {
 			os.Setenv("OPERATOR_NAMESPACE", "default")
 			got := getEffectiveSPOd(&tt.dt)
 			require.Equal(t, tt.dt.selinuxdImage, got.Spec.Template.Spec.Containers[1].Image)
-			require.Equal(t, tt.dt.logEnricherImage, got.Spec.Template.Spec.Containers[2].Image)
 			var found bool
 			for _, env := range got.Spec.Template.Spec.Containers[0].Env {
 				if env.Name == config.RestrictNamespaceEnvKey {

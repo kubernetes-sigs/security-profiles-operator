@@ -27,9 +27,6 @@ type SPODSpec struct {
 	// tells the operator whether or not to enable SELinux support for this
 	// SPOD instance.
 	EnableSelinux bool `json:"enableSelinux,omitempty"`
-	// tells the operator whether or not to enable log enrichment support for this
-	// SPOD instance.
-	EnableLogEnricher bool `json:"enableLogEnricher,omitempty"`
 	// If specified, the SPOD's tolerations.
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`

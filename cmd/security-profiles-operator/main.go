@@ -138,12 +138,6 @@ func main() {
 				return nonrootenabler.New().Run()
 			},
 		},
-		&cli.Command{
-			Name:    "log-enricher",
-			Aliases: []string{"l"},
-			Usage:   "run the audit's log enricher",
-			Action:  runLogEnricher,
-		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -299,6 +293,13 @@ func runDaemon(ctx *cli.Context) error {
 		return errors.Wrap(err, "add metrics extra handler")
 	}
 
+	// Start log enricher
+	go func() {
+		if err := enricher.Run(ctrl.Log.WithName("log-enricher")); err != nil {
+			setupLog.Error(err, "running log enricher")
+		}
+	}()
+
 	// This API provides status which is used by both seccomp and selinux
 	if err := secprofnodestatusv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add per-node Status API to scheme")
@@ -314,12 +315,6 @@ func runDaemon(ctx *cli.Context) error {
 	}
 
 	setupLog.Info("ending daemon")
-	return nil
-}
-
-func runLogEnricher(ctx *cli.Context) error {
-	printInfo("log-enricher")
-	enricher.Run(ctrl.Log.WithName("log-enricher"))
 	return nil
 }
 
