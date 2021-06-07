@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/selinuxprofile"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/server"
 	nodestatus "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
@@ -297,6 +298,11 @@ func runDaemon(ctx *cli.Context) error {
 
 	if err := mgr.AddMetricsExtraHandler(metrics.HandlerPath, met.Handler()); err != nil {
 		return errors.Wrap(err, "add metrics extra handler")
+	}
+
+	// Setup the GRPC server
+	if err := server.New(ctrl.Log.WithName("server")).Start(); err != nil {
+		return errors.Wrap(err, "start GRPC server")
 	}
 
 	// This API provides status which is used by both seccomp and selinux
