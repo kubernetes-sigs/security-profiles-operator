@@ -22,14 +22,24 @@ import (
 	"time"
 )
 
-func (e *e2e) testCaseSelinuxBaseUsage(nodes []string) {
-	e.selinuxtOnlyTestCase()
-
-	const maxNodeIterations = 3
-	const sleepBetweenIterations = 5 * time.Second
+const (
+	maxNodeIterations      = 3
+	sleepBetweenIterations = 5 * time.Second
+	errorloggerPolicy      = `
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: SelinuxProfile
+metadata:
+  name: errorlogger
+spec:
+  policy: |
+    (blockinherit container)
+    (allow process var_log_t ( dir ( open read getattr lock search ioctl add_name remove_name write )))
+    (allow process var_log_t ( file ( getattr read write append ioctl lock map open create  )))
+    (allow process var_log_t ( sock_file ( getattr read write append open  )))
+`
 
 	// nolint:lll
-	const podWithPolicyFmt = `
+	podWithPolicyFmt = `
 apiVersion: v1
 kind: Pod
 metadata:
@@ -53,19 +63,10 @@ spec:
       path: /var/log
       type: Directory
 `
+)
 
-	const errorloggerPolicy = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
-kind: SelinuxProfile
-metadata:
-  name: errorlogger
-spec:
-  policy: |
-    (blockinherit container)
-    (allow process var_log_t ( dir ( open read getattr lock search ioctl add_name remove_name write ))) 
-    (allow process var_log_t ( file ( getattr read write append ioctl lock map open create  ))) 
-    (allow process var_log_t ( sock_file ( getattr read write append open  ))) 
-`
+func (e *e2e) testCaseSelinuxBaseUsage(nodes []string) {
+	e.selinuxOnlyTestCase()
 
 	e.logf("The 'errorlogger' workload should be able to use SELinux policy")
 
@@ -79,28 +80,7 @@ spec:
 	rawPolicyName := e.getSELinuxPolicyName("errorlogger")
 
 	e.logf("assert policy is installed")
-
-	for i := 0; i < maxNodeIterations; i++ {
-		var missingPolName string
-
-		for _, node := range nodes {
-			policiesRaw := e.execNode(node, "semodule", "-l")
-			if !e.sliceContainsString(strings.Split(policiesRaw, "\n"), rawPolicyName) {
-				missingPolName = node
-				break
-			}
-		}
-
-		if missingPolName != "" {
-			if i == maxNodeIterations-1 {
-				e.Failf("The SelinuxProfile errorlogger wasn't found in the %s node with the name %s",
-					missingPolName, rawPolicyName)
-			} else {
-				e.logf("the policy was stil present, trying again")
-				time.Sleep(sleepBetweenIterations)
-			}
-		}
-	}
+	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
 
 	e.logf("creating workload")
 
@@ -125,23 +105,52 @@ spec:
 	e.kubectl("delete", "selinuxprofile", "errorlogger")
 
 	e.logf("assert policy was removed")
-	for i := 0; i < maxNodeIterations; i++ {
-		var nodeHasPolName string
+	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
+}
+
+func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, nodeIterations int, sleep time.Duration) {
+	for i := 0; i < nodeIterations; i++ {
+		var missingPolName string
 
 		for _, node := range nodes {
 			policiesRaw := e.execNode(node, "semodule", "-l")
-			if e.sliceContainsString(strings.Split(policiesRaw, "\n"), rawPolicyName) {
-				nodeHasPolName = node
+			if !e.sliceContainsString(strings.Split(policiesRaw, "\n"), policy) {
+				missingPolName = node
 				break
 			}
 		}
 
-		if nodeHasPolName != "" {
-			if i == maxNodeIterations-1 {
-				e.Failf("The SelinuxProfile errorlogger should have been removed from %s node", nodeHasPolName)
+		if missingPolName != "" {
+			if i == nodeIterations-1 {
+				e.Failf("The SelinuxProfile errorlogger wasn't found in the %s node with the name %s",
+					missingPolName, policy)
 			} else {
 				e.logf("the policy was stil present, trying again")
-				time.Sleep(sleepBetweenIterations)
+				time.Sleep(sleep)
+			}
+		}
+	}
+}
+
+func (e *e2e) assertSelinuxPolicyIsRemoved(nodes []string, policy string, nodeIterations int, sleep time.Duration) {
+	for i := 0; i < nodeIterations; i++ {
+		var missingPolName string
+
+		for _, node := range nodes {
+			policiesRaw := e.execNode(node, "semodule", "-l")
+			if e.sliceContainsString(strings.Split(policiesRaw, "\n"), policy) {
+				missingPolName = node
+				break
+			}
+		}
+
+		if missingPolName != "" {
+			if i == nodeIterations-1 {
+				e.Failf("The SelinuxProfile errorlogger was found in the %s node with the name %s",
+					missingPolName, policy)
+			} else {
+				e.logf("the policy was stil present, trying again")
+				time.Sleep(sleep)
 			}
 		}
 	}

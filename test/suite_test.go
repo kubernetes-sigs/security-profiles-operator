@@ -452,7 +452,7 @@ func (e *e2e) logf(format string, a ...interface{}) {
 	e.logger.Info(fmt.Sprintf(format, a...))
 }
 
-func (e *e2e) selinuxtOnlyTestCase() {
+func (e *e2e) selinuxOnlyTestCase() {
 	if !e.selinuxEnabled {
 		e.T().Skip("Skipping SELinux-related test")
 	}

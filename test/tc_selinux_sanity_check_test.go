@@ -17,7 +17,7 @@ limitations under the License.
 package e2e_test
 
 func (e *e2e) testCaseSelinuxSanityCheck([]string) {
-	e.selinuxtOnlyTestCase()
+	e.selinuxOnlyTestCase()
 
 	const podWithoutPolicy = `
 apiVersion: v1
