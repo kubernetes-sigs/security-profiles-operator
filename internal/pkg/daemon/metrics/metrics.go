@@ -33,13 +33,15 @@ import (
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
 const (
-	metricNamespace                      = "security_profiles_operator"
-	metricNameSeccompProfile             = "seccomp_profile_total"
-	metricNameSeccompProfileError        = "seccomp_profile_error_total"
-	metricLabelValueSeccompProfileUpdate = "update"
-	metricLabelValueSeccompProfileDelete = "delete"
-	metricLabelOperation                 = "operation"
-	metricsLabelReason                   = "reason"
+	metricNamespace               = "security_profiles_operator"
+	metricNameSeccompProfile      = "seccomp_profile_total"
+	metricNameSelinuxProfile      = "selinux_profile_total"
+	metricNameSeccompProfileError = "seccomp_profile_error_total"
+	metricNameSelinuxProfileError = "selinux_profile_error_total"
+	metricLabelValueProfileUpdate = "update"
+	metricLabelValueProfileDelete = "delete"
+	metricLabelOperation          = "operation"
+	metricsLabelReason            = "reason"
 
 	// HandlerPath is the default path for serving metrics.
 	HandlerPath = "/metrics-spod"
@@ -51,6 +53,8 @@ type Metrics struct {
 	log                       logr.Logger
 	metricSeccompProfile      *prometheus.CounterVec
 	metricSeccompProfileError *prometheus.CounterVec
+	metricSelinuxProfile      *prometheus.CounterVec
+	metricSelinuxProfileError *prometheus.CounterVec
 }
 
 // New returns a new Metrics instance.
@@ -74,6 +78,22 @@ func New() *Metrics {
 			},
 			[]string{metricsLabelReason},
 		),
+		metricSelinuxProfile: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameSelinuxProfile,
+				Namespace: metricNamespace,
+				Help:      "Counter about selinux profile operations.",
+			},
+			[]string{metricLabelOperation},
+		),
+		metricSelinuxProfileError: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameSelinuxProfileError,
+				Namespace: metricNamespace,
+				Help:      "Counter about selinux profile errors.",
+			},
+			[]string{metricsLabelReason},
+		),
 	}
 }
 
@@ -82,6 +102,8 @@ func (m *Metrics) Register() error {
 	for name, collector := range map[string]prometheus.Collector{
 		metricNameSeccompProfile:      m.metricSeccompProfile,
 		metricNameSeccompProfileError: m.metricSeccompProfileError,
+		metricNameSelinuxProfile:      m.metricSelinuxProfile,
+		metricNameSelinuxProfileError: m.metricSelinuxProfileError,
 	} {
 		m.log.Info(fmt.Sprintf("Registering metric: %s", name))
 		if err := m.impl.Register(collector); err != nil {
@@ -101,17 +123,35 @@ func (m *Metrics) Handler() http.Handler {
 // IncSeccompProfileUpdate increments the seccomp profile update counter.
 func (m *Metrics) IncSeccompProfileUpdate() {
 	m.metricSeccompProfile.
-		WithLabelValues(metricLabelValueSeccompProfileUpdate).Inc()
+		WithLabelValues(metricLabelValueProfileUpdate).Inc()
 }
 
 // IncSeccompProfileDelete increments the seccomp profile deletion counter.
 func (m *Metrics) IncSeccompProfileDelete() {
 	m.metricSeccompProfile.
-		WithLabelValues(metricLabelValueSeccompProfileDelete).Inc()
+		WithLabelValues(metricLabelValueProfileDelete).Inc()
 }
 
 // IncSeccompProfileError increments the seccomp profile error counter for the
 // provided reason.
 func (m *Metrics) IncSeccompProfileError(reason event.Reason) {
 	m.metricSeccompProfileError.WithLabelValues(string(reason)).Inc()
+}
+
+// IncSelinuxProfileUpdate increments the selinux profile update counter.
+func (m *Metrics) IncSelinuxProfileUpdate() {
+	m.metricSelinuxProfile.
+		WithLabelValues(metricLabelValueProfileUpdate).Inc()
+}
+
+// IncSelinuxProfileDelete increments the selinux profile deletion counter.
+func (m *Metrics) IncSelinuxProfileDelete() {
+	m.metricSelinuxProfile.
+		WithLabelValues(metricLabelValueProfileDelete).Inc()
+}
+
+// IncSelinuxProfileError increments the selinux profile error counter for the
+// provided reason.
+func (m *Metrics) IncSelinuxProfileError(reason event.Reason) {
+	m.metricSelinuxProfileError.WithLabelValues(string(reason)).Inc()
 }

@@ -23,15 +23,18 @@ import (
 	"strings"
 )
 
-func (e *e2e) testCaseMetrics(nodes []string) {
+const (
+	curlCMD     = "curl -ks -H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
+	metricsURL  = "https://metrics.security-profiles-operator/"
+	curlSpodCMD = curlCMD + metricsURL + "metrics-spod"
+	curlCtrlCMD = curlCMD + metricsURL + "metrics"
+	profileName = "metrics-profile"
+)
+
+func (e *e2e) testCaseSeccompMetrics(nodes []string) {
 	e.seccompOnlyTestCase()
 
 	const (
-		curlCMD         = "curl -ks -H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
-		metricsURL      = "https://metrics.security-profiles-operator/"
-		curlSpodCMD     = curlCMD + metricsURL + "metrics-spod"
-		curlCtrlCMD     = curlCMD + metricsURL + "metrics"
-		profileName     = "metrics-profile"
 		operationDelete = `security_profiles_operator_seccomp_profile_total{operation="delete"}`
 		operationUpdate = `security_profiles_operator_seccomp_profile_total{operation="update"}`
 	)
@@ -62,6 +65,46 @@ spec:
 	e.logf("Retrieving controller runtime metrics")
 	outputCtrl := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlCtrlCMD)
 	e.Contains(outputCtrl, "workqueue_work_duration_seconds_count")
+
+	e.logf("Retrieving spo metrics for validation")
+	outputSpod := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlSpodCMD)
+	e.Contains(outputSpod, "promhttp_metric_handler_requests_total")
+
+	e.logf("Asserting metrics values")
+	newMetricDeletions := e.parseMetric(outputSpod, operationDelete)
+	newMetricUpdates := e.parseMetric(outputSpod, operationUpdate)
+	e.GreaterOrEqual(newMetricDeletions, metricDeletions)
+	e.GreaterOrEqual(newMetricUpdates, metricUpdates)
+}
+
+func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
+	e.selinuxOnlyTestCase()
+
+	const (
+		operationDelete = `security_profiles_operator_selinux_profile_total{operation="delete"}`
+		operationUpdate = `security_profiles_operator_selinux_profile_total{operation="update"}`
+	)
+
+	e.logf("Retrieving spo metrics for getting assertions")
+	output := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlSpodCMD)
+	metricDeletions := e.parseMetric(output, operationDelete)
+	metricUpdates := e.parseMetric(output, operationUpdate)
+
+	e.logf("Creating test errorlogger policy")
+	cleanup := e.writeAndCreate(errorloggerPolicy, "errorlogger-policy.yml")
+	defer cleanup()
+	e.logf("Waiting for profile to be reconciled")
+	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+		"--for", "condition=ready", "selinuxprofile", "errorlogger")
+
+	rawPolicyName := e.getSELinuxPolicyName("errorlogger")
+	e.logf("assert errorlogger policy is installed")
+	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
+
+	e.logf("Deleting errorlogger profile")
+	e.kubectl("delete", "selinuxprofile", "errorlogger")
+	e.logf("assert errorlogger policy was removed")
+	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
 
 	e.logf("Retrieving spo metrics for validation")
 	outputSpod := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlSpodCMD)
