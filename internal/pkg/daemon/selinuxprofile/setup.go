@@ -47,6 +47,7 @@ func (r *ReconcileSP) Setup(
 	r.scheme = mgr.GetScheme()
 	r.policyTemplate = tmpl
 	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor("selinuxprofile"))
+	r.metrics = met
 
 	// Register the regular reconciler to manage SelinuxProfiles
 	return ctrl.NewControllerManagedBy(mgr).

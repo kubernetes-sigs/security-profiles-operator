@@ -19,7 +19,7 @@ package e2e_test
 import "time"
 
 func (e *e2e) testCaseSPODUpdateSelinux(nodes []string) {
-	e.selinuxtOnlyTestCase()
+	e.selinuxOnlyTestCase()
 
 	e.logf("assert selinux is enabled in the spod object")
 	selinuxEnabledInSPODObj := e.kubectlOperatorNS("get", "spod", "spod", "-o", "jsonpath={.spec.enableSelinux}")

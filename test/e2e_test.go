@@ -80,7 +80,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		},
 		{
 			"Seccomp: Metrics",
-			e.testCaseMetrics,
+			e.testCaseSeccompMetrics,
 		},
 		{
 			"Seccomp: Re-deploy the operator",
@@ -93,6 +93,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		{
 			"SELinux: base case (install policy, run pod and delete)",
 			e.testCaseSelinuxBaseUsage,
+		},
+		{
+			"SELinux: Metrics (update, delete)",
+			e.testCaseSelinuxMetrics,
 		},
 		{
 			"SPOD: Update SELinux flag",

@@ -82,7 +82,7 @@ func TestSeccompProfile(t *testing.T) {
 				m.IncSeccompProfileUpdate()
 			},
 			then: func(m *Metrics) {
-				ctr, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueSeccompProfileUpdate)
+				ctr, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
 				require.Nil(t, err)
 				require.Equal(t, 1, getMetricValue(ctr))
 			},
@@ -92,7 +92,7 @@ func TestSeccompProfile(t *testing.T) {
 				m.IncSeccompProfileDelete()
 			},
 			then: func(m *Metrics) {
-				ctr, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueSeccompProfileDelete)
+				ctr, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
 				require.Nil(t, err)
 				require.Equal(t, 1, getMetricValue(ctr))
 			},
@@ -106,11 +106,49 @@ func TestSeccompProfile(t *testing.T) {
 				m.IncSeccompProfileDelete()
 			},
 			then: func(m *Metrics) {
-				ctrUpdate, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueSeccompProfileUpdate)
+				ctrUpdate, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
 				require.Nil(t, err)
 				require.Equal(t, 3, getMetricValue(ctrUpdate))
 
-				ctrDelete, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueSeccompProfileDelete)
+				ctrDelete, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
+				require.Nil(t, err)
+				require.Equal(t, 2, getMetricValue(ctrDelete))
+			},
+		},
+		{ // Selinux single update
+			when: func(m *Metrics) {
+				m.IncSelinuxProfileUpdate()
+			},
+			then: func(m *Metrics) {
+				ctr, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
+				require.Nil(t, err)
+				require.Equal(t, 1, getMetricValue(ctr))
+			},
+		},
+		{ // Selinux single delete
+			when: func(m *Metrics) {
+				m.IncSelinuxProfileDelete()
+			},
+			then: func(m *Metrics) {
+				ctr, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
+				require.Nil(t, err)
+				require.Equal(t, 1, getMetricValue(ctr))
+			},
+		},
+		{ // Selinux multiple update and delete
+			when: func(m *Metrics) {
+				m.IncSelinuxProfileUpdate()
+				m.IncSelinuxProfileUpdate()
+				m.IncSelinuxProfileDelete()
+				m.IncSelinuxProfileUpdate()
+				m.IncSelinuxProfileDelete()
+			},
+			then: func(m *Metrics) {
+				ctrUpdate, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
+				require.Nil(t, err)
+				require.Equal(t, 3, getMetricValue(ctrUpdate))
+
+				ctrDelete, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
 				require.Nil(t, err)
 				require.Equal(t, 2, getMetricValue(ctrDelete))
 			},
