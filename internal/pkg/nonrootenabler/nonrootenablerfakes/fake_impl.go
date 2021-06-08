@@ -60,6 +60,19 @@ type FakeImpl struct {
 	copyDirContentsLocalReturnsOnCall map[int]struct {
 		result1 error
 	}
+	LchownStub        func(string, int, int) error
+	lchownMutex       sync.RWMutex
+	lchownArgsForCall []struct {
+		arg1 string
+		arg2 int
+		arg3 int
+	}
+	lchownReturns struct {
+		result1 error
+	}
+	lchownReturnsOnCall map[int]struct {
+		result1 error
+	}
 	MkdirAllStub        func(string, fs.FileMode) error
 	mkdirAllMutex       sync.RWMutex
 	mkdirAllArgsForCall []struct {
@@ -288,6 +301,69 @@ func (fake *FakeImpl) CopyDirContentsLocalReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) Lchown(arg1 string, arg2 int, arg3 int) error {
+	fake.lchownMutex.Lock()
+	ret, specificReturn := fake.lchownReturnsOnCall[len(fake.lchownArgsForCall)]
+	fake.lchownArgsForCall = append(fake.lchownArgsForCall, struct {
+		arg1 string
+		arg2 int
+		arg3 int
+	}{arg1, arg2, arg3})
+	stub := fake.LchownStub
+	fakeReturns := fake.lchownReturns
+	fake.recordInvocation("Lchown", []interface{}{arg1, arg2, arg3})
+	fake.lchownMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) LchownCallCount() int {
+	fake.lchownMutex.RLock()
+	defer fake.lchownMutex.RUnlock()
+	return len(fake.lchownArgsForCall)
+}
+
+func (fake *FakeImpl) LchownCalls(stub func(string, int, int) error) {
+	fake.lchownMutex.Lock()
+	defer fake.lchownMutex.Unlock()
+	fake.LchownStub = stub
+}
+
+func (fake *FakeImpl) LchownArgsForCall(i int) (string, int, int) {
+	fake.lchownMutex.RLock()
+	defer fake.lchownMutex.RUnlock()
+	argsForCall := fake.lchownArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) LchownReturns(result1 error) {
+	fake.lchownMutex.Lock()
+	defer fake.lchownMutex.Unlock()
+	fake.LchownStub = nil
+	fake.lchownReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) LchownReturnsOnCall(i int, result1 error) {
+	fake.lchownMutex.Lock()
+	defer fake.lchownMutex.Unlock()
+	fake.LchownStub = nil
+	if fake.lchownReturnsOnCall == nil {
+		fake.lchownReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.lchownReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) MkdirAll(arg1 string, arg2 fs.FileMode) error {
 	fake.mkdirAllMutex.Lock()
 	ret, specificReturn := fake.mkdirAllReturnsOnCall[len(fake.mkdirAllArgsForCall)]
@@ -485,6 +561,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.chownMutex.RUnlock()
 	fake.copyDirContentsLocalMutex.RLock()
 	defer fake.copyDirContentsLocalMutex.RUnlock()
+	fake.lchownMutex.RLock()
+	defer fake.lchownMutex.RUnlock()
 	fake.mkdirAllMutex.RLock()
 	defer fake.mkdirAllMutex.RUnlock()
 	fake.statMutex.RLock()

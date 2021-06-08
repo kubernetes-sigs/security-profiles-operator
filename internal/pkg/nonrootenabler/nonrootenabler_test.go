@@ -57,16 +57,41 @@ func TestRun(t *testing.T) {
 			},
 			shouldError: true,
 		},
-		{ // failure on Symlink
+		{ // failure on Chmod 0
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.StatReturns(nil, os.ErrNotExist)
+				mock.ChmodReturnsOnCall(0, errTest)
+			},
+			shouldError: true,
+		},
+		{ // failure on Chmod 1
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.ChmodReturnsOnCall(1, errTest)
+			},
+			shouldError: true,
+		},
+		{ // failure on Symlink 0
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.StatReturnsOnCall(0, nil, os.ErrNotExist)
 				mock.SymlinkReturns(errTest)
 			},
 			shouldError: true,
 		},
-		{ // failure on Chown
+		{ // failure on Symlink 1
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.ChownReturns(errTest)
+				mock.StatReturnsOnCall(1, nil, os.ErrNotExist)
+				mock.SymlinkReturns(errTest)
+			},
+			shouldError: true,
+		},
+		{ // failure on Chown 0
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.ChownReturnsOnCall(0, errTest)
+			},
+			shouldError: true,
+		},
+		{ // failure on Chown 1
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.ChownReturnsOnCall(1, errTest)
 			},
 			shouldError: true,
 		},
@@ -79,6 +104,18 @@ func TestRun(t *testing.T) {
 		{ // failure on MkdirAll with OperatorRoot
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
 				mock.MkdirAllReturnsOnCall(1, errTest)
+			},
+			shouldError: true,
+		},
+		{ // failure on MkdirAll with enricherLogPath
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.MkdirAllReturnsOnCall(2, errTest)
+			},
+			shouldError: true,
+		},
+		{ // failure on Lchown
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.LchownReturns(errTest)
 			},
 			shouldError: true,
 		},

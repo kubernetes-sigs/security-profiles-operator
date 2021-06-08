@@ -34,7 +34,7 @@ var (
 	truly                           = true
 	userRoot                  int64 = 0
 	userRootless                    = int64(config.UserRootless)
-	hostPathFile                    = v1.HostPathFile
+	hostPathCharDev                 = v1.HostPathCharDev
 	hostPathDirectory               = v1.HostPathDirectory
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
 	metricsPort               int32 = 9443
@@ -47,7 +47,6 @@ const (
 	SelinuxdPrivateDir   = "/var/run/selinuxd"
 	SelinuxdSocketPath   = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath       = SelinuxdPrivateDir + "/selinuxd.db"
-	varLogSpoPath        = "/var/log/spo.log"
 	MetricsImage         = "quay.io/brancz/kube-rbac-proxy:v0.9.0"
 )
 
@@ -88,6 +87,10 @@ var Manifest = &appsv1.DaemonSet{
 								MountPath: "/var/lib",
 							},
 							{
+								Name:      "host-varlog-volume",
+								MountPath: "/var/log",
+							},
+							{
 								Name:      "operator-profiles-volume",
 								MountPath: "/opt/spo-profiles",
 								ReadOnly:  true,
@@ -95,6 +98,11 @@ var Manifest = &appsv1.DaemonSet{
 							{
 								Name:      "metrics-cert-volume",
 								MountPath: metricsCertPath,
+							},
+							{
+								Name:      "dev-kmsg-volume",
+								MountPath: config.DevKmsgPath,
+								ReadOnly:  true,
 							},
 						},
 						SecurityContext: &v1.SecurityContext{
@@ -360,8 +368,13 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						ImagePullPolicy: v1.PullAlways,
 						VolumeMounts: []v1.VolumeMount{
 							{
-								Name:      "host-varlogspo-volume",
-								MountPath: varLogSpoPath,
+								Name:      "enricher-logfile-volume",
+								MountPath: filepath.Dir(config.EnricherLogFile),
+								ReadOnly:  true,
+							},
+							{
+								Name:      "dev-kmsg-volume",
+								MountPath: config.DevKmsgPath,
 								ReadOnly:  true,
 							},
 						},
@@ -387,11 +400,10 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						},
 						Env: []v1.EnvVar{
 							{
-								Name: "NODE_NAME",
+								Name: config.NodeNameEnvKey,
 								ValueFrom: &v1.EnvVarSource{
 									FieldRef: &v1.ObjectFieldSelector{
-										APIVersion: "v1",
-										FieldPath:  "spec.nodeName",
+										FieldPath: "spec.nodeName",
 									},
 								},
 							},
@@ -444,6 +456,17 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							HostPath: &v1.HostPathVolumeSource{
 								Path: "/var/lib",
 								Type: &hostPathDirectory,
+							},
+						},
+					},
+					// /var/log is used as symlinks cannot be created across
+					// different volumes
+					{
+						Name: "host-varlog-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/var/log",
+								Type: &hostPathDirectoryOrCreate,
 							},
 						},
 					},
@@ -521,11 +544,11 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						},
 					},
 					{
-						Name: "host-varlogspo-volume",
+						Name: "enricher-logfile-volume",
 						VolumeSource: v1.VolumeSource{
 							HostPath: &v1.HostPathVolumeSource{
-								Path: varLogSpoPath,
-								Type: &hostPathFile,
+								Path: filepath.Dir(config.EnricherLogFile),
+								Type: &hostPathDirectoryOrCreate,
 							},
 						},
 					},
@@ -534,6 +557,15 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						VolumeSource: v1.VolumeSource{
 							Secret: &v1.SecretVolumeSource{
 								SecretName: "metrics-server-cert",
+							},
+						},
+					},
+					{
+						Name: "dev-kmsg-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: config.DevKmsgPath,
+								Type: &hostPathCharDev,
 							},
 						},
 					},

@@ -18,6 +18,7 @@ package nonrootenabler
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"sigs.k8s.io/release-utils/util"
@@ -85,6 +86,37 @@ func (n *NonRootEnabler) Run() error {
 		return errors.Wrap(err, "copy local security profiles")
 	}
 
+	// Create log enricher paths and links
+	enricherLogPath := filepath.Dir(config.EnricherLogFile)
+	if err := n.impl.MkdirAll(
+		enricherLogPath, dirPermissions,
+	); err != nil {
+		return errors.Wrapf(
+			err, "create log enricher path %s", enricherLogPath,
+		)
+	}
+	if err := n.impl.Chmod(enricherLogPath, dirPermissions); err != nil {
+		return errors.Wrap(err, "change log enricher path permissions")
+	}
+	if err := n.impl.Chown(
+		enricherLogPath, config.UserRootless, config.UserRootless,
+	); err != nil {
+		return errors.Wrap(err, "change log enricher path permissions")
+	}
+	if _, err := n.impl.Stat(config.EnricherLogFile); os.IsNotExist(err) {
+		if err := n.impl.Symlink(
+			config.DevKmsgPath, config.EnricherLogFile,
+		); err != nil {
+			return errors.Wrap(err, "link kernel log file")
+		}
+	}
+	// Set the correct symlink permissions
+	if err := n.impl.Lchown(
+		config.EnricherLogFile, config.UserRootless, config.UserRootless,
+	); err != nil {
+		return errors.Wrap(err, "change log file permissions")
+	}
+
 	return nil
 }
 
@@ -96,6 +128,7 @@ type impl interface {
 	Stat(name string) (os.FileInfo, error)
 	Symlink(oldname, newname string) error
 	Chown(name string, uid, gid int) error
+	Lchown(name string, uid, gid int) error
 	CopyDirContentsLocal(src, dst string) error
 }
 
@@ -119,6 +152,10 @@ func (*defaultImpl) Symlink(oldname, newname string) error {
 
 func (*defaultImpl) Chown(name string, uid, gid int) error {
 	return os.Chown(name, uid, gid)
+}
+
+func (*defaultImpl) Lchown(name string, uid, gid int) error {
+	return os.Lchown(name, uid, gid)
 }
 
 func (*defaultImpl) CopyDirContentsLocal(src, dst string) error {

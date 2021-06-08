@@ -43,9 +43,8 @@ const (
 // daemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type daemonTunables struct {
-	selinuxdImage    string
-	logEnricherImage string
-	watchNamespace   string
+	selinuxdImage  string
+	watchNamespace string
 }
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -87,8 +86,7 @@ func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
 			Labels:    map[string]string{"app": config.OperatorName},
 		},
 		Spec: spodv1alpha1.SPODSpec{
-			EnableSelinux:     false,
-			EnableLogEnricher: false,
+			EnableSelinux: false,
 			Tolerations: []corev1.Toleration{
 				{
 					Key:      "node-role.kubernetes.io/master",
@@ -143,9 +141,6 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 
 	selinuxd := &refSPOd.Spec.Template.Spec.Containers[1]
 	selinuxd.Image = dt.selinuxdImage
-
-	logEnricher := &refSPOd.Spec.Template.Spec.Containers[2]
-	logEnricher.Image = dt.logEnricherImage
 
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well

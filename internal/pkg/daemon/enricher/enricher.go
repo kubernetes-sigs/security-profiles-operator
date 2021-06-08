@@ -25,35 +25,32 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-)
 
-var (
-	logFile = "/var/log/spo.log"
-	logger  logr.Logger
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 // Run the log-enricher to scrap audit logs and enrich them with
 // Kubernetes data (namespace, pod and container).
-func Run(l logr.Logger) {
-	logger = l
-	nodeName := os.Getenv("NODE_NAME")
+func Run(logger logr.Logger) error {
+	nodeName := os.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
-		logger.Error(nil, "'NODE_NAME' environment variable not found")
-		os.Exit(1)
+		err := errors.Errorf("%s environment variable not set", config.NodeNameEnvKey)
+		logger.Error(err, "unable to run enricher")
+		return err
 	}
 
-	logger.V(1).Info("starting log-exporter on node: ", nodeName)
+	logger.V(1).Info("Starting log-enricher on node: ", nodeName)
 
 	auditLines := make(chan string)
 	tailErrors := make(chan error)
-	go tailFile(logFile, auditLines, tailErrors)
+	go tailFile(auditLines, tailErrors)
 
 	for {
 		var line string
 		select {
 		case err := <-tailErrors:
 			logger.Error(err, "tail audit log")
-			os.Exit(1)
+			return errors.Wrap(err, "tail failed")
 		case line = <-auditLines:
 		}
 
@@ -63,14 +60,14 @@ func Run(l logr.Logger) {
 
 		auditLine, err := extractAuditLine(line)
 		if err != nil {
-			fmt.Printf("extract seccomp details from audit line: %v\n", err)
+			logger.Error(err, "extract seccomp details from audit line")
 		}
 
 		if auditLine.SystemCallID == 0 {
 			continue
 		}
 
-		cID := getContainerID(auditLine.ProcessID)
+		cID := getContainerID(logger, auditLine.ProcessID)
 		containers, err := getNodeContainers(nodeName)
 		c, found := containers[cID]
 
@@ -80,15 +77,15 @@ func Run(l logr.Logger) {
 		}
 
 		name := systemCalls[auditLine.SystemCallID]
-		fmt.Printf("audit(%s) type=%s node=%s pid=%d ns=%s pod=%s c=%s exe=%s scid=%d scname=%s\n",
+		logger.Info(fmt.Sprintf("audit(%s) type=%s node=%s pid=%d ns=%s pod=%s c=%s exe=%s scid=%d scname=%s\n",
 			auditLine.TimestampID, auditLine.Type, nodeName,
 			auditLine.ProcessID, c.Namespace, c.PodName,
-			c.ContainerName, auditLine.Executable, auditLine.SystemCallID, name)
+			c.ContainerName, auditLine.Executable, auditLine.SystemCallID, name))
 	}
 }
 
-func tailFile(filePath string, lines chan string, errChan chan error) {
-	file, err := os.Open(filepath.Clean(filePath))
+func tailFile(lines chan string, errChan chan error) {
+	file, err := os.Open(filepath.Clean(config.EnricherLogFile))
 	if err != nil {
 		errChan <- errors.Wrap(err, "open audit log file")
 		return
