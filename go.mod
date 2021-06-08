@@ -13,7 +13,7 @@ require (
 	github.com/prometheus/client_model v0.2.0
 	github.com/stretchr/testify v1.7.0
 	github.com/urfave/cli/v2 v2.3.0
-	google.golang.org/grpc v1.33.2
+	google.golang.org/grpc v1.38.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.1.0
 	google.golang.org/protobuf v1.26.0
 	k8s.io/api v0.20.6
