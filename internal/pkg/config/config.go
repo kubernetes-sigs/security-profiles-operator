@@ -67,6 +67,9 @@ const (
 
 	// EnricherLogFile is the path to the kernel messages log file used for the enricher.
 	EnricherLogFile = "/var/log/spo.log"
+
+	// DevKmsgPath is the path to the kernel log messages.
+	DevKmsgPath = "/dev/kmsg"
 )
 
 // ProfileRecordingOutputPath is the path where the recorded profiles will be
