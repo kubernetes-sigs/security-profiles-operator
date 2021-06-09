@@ -405,10 +405,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	// Log enricher parameters
 	if cfg.Spec.EnableLogEnricher {
+		r.baseSPOd.Spec.Template.Spec.Containers[2].Image = image
 		templateSpec.Containers = append(
 			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[2])
-		templateSpec.Containers[2].Image = image
 
 		// HostPID is only required for the log-enricher
 		// and is used to access cgroup files to map Process IDs to Pod IDs
