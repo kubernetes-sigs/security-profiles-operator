@@ -34,7 +34,7 @@ var (
 	truly                           = true
 	userRoot                  int64 = 0
 	userRootless                    = int64(config.UserRootless)
-	hostPathFile                    = v1.HostPathFile
+	hostPathFileOrCreate            = v1.HostPathFileOrCreate
 	hostPathDirectory               = v1.HostPathDirectory
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
 	metricsPort               int32 = 9443
@@ -65,8 +65,9 @@ var Manifest = &appsv1.DaemonSet{
 		Template: v1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"openshift.io/scc":         "privileged",
-					v1.SeccompPodAnnotationKey: v1.SeccompProfileRuntimeDefault,
+					"openshift.io/scc":            "privileged",
+					"io.kubernetes.cri-o.Devices": config.DevKmsgPath,
+					v1.SeccompPodAnnotationKey:    v1.SeccompProfileRuntimeDefault,
 					v1.SeccompContainerAnnotationKeyPrefix + config.OperatorName: "localhost/security-profiles-operator.json",
 				},
 				Labels: map[string]string{
@@ -523,7 +524,7 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						VolumeSource: v1.VolumeSource{
 							HostPath: &v1.HostPathVolumeSource{
 								Path: config.EnricherLogFile,
-								Type: &hostPathFile,
+								Type: &hostPathFileOrCreate,
 							},
 						},
 					},

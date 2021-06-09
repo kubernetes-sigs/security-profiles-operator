@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	"sigs.k8s.io/release-utils/util"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -39,11 +40,17 @@ func Run(logger logr.Logger) error {
 		return err
 	}
 
-	logger.V(1).Info("Starting log-enricher on node: " + nodeName)
+	logger.Info("Starting log-enricher on node: " + nodeName)
 
 	auditLines := make(chan string)
 	tailErrors := make(chan error)
-	go tailFile(config.EnricherLogFile, auditLines, tailErrors)
+
+	logFile := config.EnricherLogFile
+	if util.Exists(config.DevKmsgPath) {
+		logFile = config.DevKmsgPath
+	}
+	logger.Info("Reading from file " + logFile)
+	go tailFile(logger, logFile, auditLines, tailErrors)
 
 	for {
 		var line string
@@ -84,7 +91,7 @@ func Run(logger logr.Logger) error {
 	}
 }
 
-func tailFile(filePath string, lines chan string, errChan chan error) {
+func tailFile(logger logr.Logger, filePath string, lines chan string, errChan chan error) {
 	file, err := os.Open(filepath.Clean(filePath))
 	if err != nil {
 		errChan <- errors.Wrap(err, "open audit log file")
@@ -97,24 +104,24 @@ func tailFile(filePath string, lines chan string, errChan chan error) {
 		}
 	}()
 
-	offset, err := file.Seek(0, io.SeekEnd)
-	if err != nil {
+	if _, err := file.Seek(0, io.SeekEnd); err != nil {
 		errChan <- errors.Wrap(err, "seek end audit log")
 		return
 	}
 
 	buffer := make([]byte, 1024)
 	for {
-		readBytes, err := file.ReadAt(buffer, offset)
+		readBytes, err := file.Read(buffer)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
 				errChan <- errors.Wrap(err, "read audit log buffer")
 				return
 			}
 		}
-		offset += int64(readBytes)
 		if readBytes != 0 {
-			lines <- string(buffer[:readBytes])
+			line := string(buffer[:readBytes])
+			logger.Info(line)
+			lines <- line
 		}
 		time.Sleep(time.Second)
 	}
