@@ -47,7 +47,6 @@ const (
 	SelinuxdPrivateDir   = "/var/run/selinuxd"
 	SelinuxdSocketPath   = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath       = SelinuxdPrivateDir + "/selinuxd.db"
-	varLogSpoPath        = "/var/log/spo.log"
 	MetricsImage         = "quay.io/brancz/kube-rbac-proxy:v0.9.0"
 )
 
@@ -361,7 +360,7 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						VolumeMounts: []v1.VolumeMount{
 							{
 								Name:      "host-varlogspo-volume",
-								MountPath: varLogSpoPath,
+								MountPath: config.EnricherLogFile,
 								ReadOnly:  true,
 							},
 						},
@@ -387,11 +386,10 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						},
 						Env: []v1.EnvVar{
 							{
-								Name: "NODE_NAME",
+								Name: config.NodeNameEnvKey,
 								ValueFrom: &v1.EnvVarSource{
 									FieldRef: &v1.ObjectFieldSelector{
-										APIVersion: "v1",
-										FieldPath:  "spec.nodeName",
+										FieldPath: "spec.nodeName",
 									},
 								},
 							},
@@ -524,7 +522,7 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						Name: "host-varlogspo-volume",
 						VolumeSource: v1.VolumeSource{
 							HostPath: &v1.HostPathVolumeSource{
-								Path: varLogSpoPath,
+								Path: config.EnricherLogFile,
 								Type: &hostPathFile,
 							},
 						},

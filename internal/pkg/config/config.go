@@ -64,6 +64,9 @@ const (
 
 	// HealthProbePort is the port where the liveness probe will be served.
 	HealthProbePort = 8085
+
+	// EnricherLogFile is the path to the kernel messages log file used for the enricher.
+	EnricherLogFile = "/var/log/spo.log"
 )
 
 // ProfileRecordingOutputPath is the path where the recorded profiles will be

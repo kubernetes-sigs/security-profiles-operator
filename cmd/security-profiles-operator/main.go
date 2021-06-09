@@ -325,8 +325,7 @@ func runDaemon(ctx *cli.Context) error {
 
 func runLogEnricher(ctx *cli.Context) error {
 	printInfo("log-enricher")
-	enricher.Run(ctrl.Log.WithName("log-enricher"))
-	return nil
+	return enricher.Run(ctrl.Log.WithName("log-enricher"))
 }
 
 func runWebhook(ctx *cli.Context) error {
