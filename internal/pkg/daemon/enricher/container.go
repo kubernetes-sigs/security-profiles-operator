@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -86,7 +87,7 @@ func containerIDRaw(containerID string) (string, error) {
 	return "", errors.Wrap(errUnsupportedContainerRuntime, containerID)
 }
 
-func getContainerID(processID int) string {
+func getContainerID(logger logr.Logger, processID int) string {
 	cgroupFile := fmt.Sprintf("/proc/%d/cgroup", processID)
 	file, err := os.Open(filepath.Clean(cgroupFile))
 	if err != nil {
