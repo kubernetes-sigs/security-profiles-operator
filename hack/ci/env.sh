@@ -27,3 +27,5 @@ IP=$(local_ip)
 export KUBE_MASTER_URL=$IP
 export KUBE_MASTER_IP=$IP
 export KUBE_MASTER=$IP
+
+alias k=kubectl

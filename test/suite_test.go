@@ -222,7 +222,7 @@ func (e *kinde2e) SetupTest() {
 
 	// Wait for the nodes to  be ready
 	e.logf("Waiting for cluster to be ready")
-	e.kubectl("wait", "--for", "condition=ready", "nodes", "--all", "--timeout=120s")
+	e.waitFor("condition=ready", "nodes", "--all")
 
 	// Build and load the test image
 	e.logf("Building operator container image")
@@ -247,6 +247,7 @@ func (e *kinde2e) TearDownTest() {
 	e.logf("#### Snapshot of security-profiles-operator namespace ####")
 	e.kubectl("--namespace", "security-profiles-operator", "describe", "all")
 	e.logf("########")
+	e.kubectl("-n", "kube-system", "logs", "deploy/coredns")
 
 	e.logf("Destroying cluster")
 	e.run(
@@ -424,7 +425,12 @@ func (e *e2e) kubectlOperatorNS(args ...string) string {
 func (e *e2e) kubectlRun(args ...string) string {
 	return e.kubectl(
 		append([]string{
-			"run", "--rm", "-i", "--restart=Never",
+			"run",
+			"--timeout=5m",
+			"--pod-running-timeout=5m",
+			"--rm",
+			"-i",
+			"--restart=Never",
 			"--image=registry.fedoraproject.org/fedora-minimal:latest",
 		}, args...)...,
 	)
