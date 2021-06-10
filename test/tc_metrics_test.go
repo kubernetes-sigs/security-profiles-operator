@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	curlCMD     = "curl -ks -H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
-	metricsURL  = "https://metrics.security-profiles-operator/"
+	curlBaseCMD = "curl -ksfL --retry 5 --retry-delay 3 --show-error "
+	curlCMD     = curlBaseCMD + "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
+	metricsURL  = "https://metrics.security-profiles-operator.svc.cluster.local/"
 	curlSpodCMD = curlCMD + metricsURL + "metrics-spod"
 	curlCtrlCMD = curlCMD + metricsURL + "metrics"
 	profileName = "metrics-profile"
@@ -40,7 +41,7 @@ func (e *e2e) testCaseSeccompMetrics(nodes []string) {
 	)
 
 	e.logf("Retrieving spo metrics for getting assertions")
-	output := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlSpodCMD)
+	output := e.kubectlRunOperatorNS("pod-1", "--", "bash", "-c", curlSpodCMD)
 	metricDeletions := e.parseMetric(output, operationDelete)
 	metricUpdates := e.parseMetric(output, operationUpdate)
 
@@ -63,11 +64,10 @@ spec:
 	e.kubectl("delete", "sp", profileName)
 
 	e.logf("Retrieving controller runtime metrics")
-	outputCtrl := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlCtrlCMD)
-	e.Contains(outputCtrl, "workqueue_work_duration_seconds_count")
+	e.kubectlRunOperatorNS("pod-2", "--", "bash", "-c", curlCtrlCMD)
 
 	e.logf("Retrieving spo metrics for validation")
-	outputSpod := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlSpodCMD)
+	outputSpod := e.kubectlRunOperatorNS("pod-3", "--", "bash", "-c", curlSpodCMD)
 	e.Contains(outputSpod, "promhttp_metric_handler_requests_total")
 
 	e.logf("Asserting metrics values")
@@ -104,7 +104,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	e.logf("Deleting errorlogger profile")
 	e.kubectl("delete", "selinuxprofile", "errorlogger")
 	e.logf("assert errorlogger policy was removed")
-	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
+	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
 
 	e.logf("Retrieving spo metrics for validation")
 	outputSpod := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlSpodCMD)

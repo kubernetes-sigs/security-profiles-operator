@@ -45,6 +45,9 @@ const (
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {
+	e.logf("Waiting for all pods to become ready")
+	e.waitFor("condition=ready", "pods", "--all", "--all-namespaces")
+
 	// Deploy prerequisites
 	e.deployCertManager()
 
