@@ -19,7 +19,6 @@ Vagrant.configure("2") do |config|
 
   config.vm.provision "install-dependencies", type: "shell", run: "once" do |sh|
     sh.inline = <<~SHELL
-    whoami
       set -euxo pipefail
       dnf install -y \
         conntrack \
@@ -31,6 +30,16 @@ Vagrant.configure("2") do |config|
         oci-seccomp-bpf-hook \
         openssl \
         podman
+
+      echo "nameserver 8.8.8.8" > /etc/resolv.conf
+      modprobe br_netfilter
+      ip6tables --list >/dev/null
+      iptables -F
+      sysctl -w net.ipv4.conf.all.route_localnet=1
+      sysctl -w net.ipv4.ip_forward=1
+      sysctl -w net.bridge.bridge-nf-call-iptables=1
+      sysctl -w fs.inotify.max_user_watches=1048576
+      iptables -t nat -I POSTROUTING -s 127.0.0.0/8 ! -d 127.0.0.0/8 -j MASQUERADE
     SHELL
   end
 
