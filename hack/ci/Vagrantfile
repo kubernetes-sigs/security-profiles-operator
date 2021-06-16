@@ -31,7 +31,10 @@ Vagrant.configure("2") do |config|
         openssl \
         podman
 
+      # Use a non-localhost DNS to avoid cluster DNS lookup loops
       echo "nameserver 8.8.8.8" > /etc/resolv.conf
+
+      # Configure system to work seamlessly on single node clusters
       modprobe br_netfilter
       ip6tables --list >/dev/null
       iptables -F
