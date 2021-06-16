@@ -28,4 +28,5 @@ export KUBE_MASTER_URL=$IP
 export KUBE_MASTER_IP=$IP
 export KUBE_MASTER=$IP
 
+# Added for faster debugging with lower verbosity
 alias k=kubectl
