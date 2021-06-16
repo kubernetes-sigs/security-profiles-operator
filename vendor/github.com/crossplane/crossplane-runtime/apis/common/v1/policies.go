@@ -18,6 +18,7 @@ package v1
 
 // A DeletionPolicy determines what should happen to the underlying external
 // resource when a managed resource is deleted.
+// +kubebuilder:validation:Enum=Orphan;Delete
 type DeletionPolicy string
 
 const (

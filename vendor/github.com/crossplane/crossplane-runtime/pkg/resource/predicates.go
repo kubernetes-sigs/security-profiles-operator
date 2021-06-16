@@ -135,3 +135,14 @@ func IsPropagated() PredicateFn {
 		return nn.Namespace != "" && nn.Name != ""
 	}
 }
+
+// IsNamed accepts objects that is named as the given name.
+func IsNamed(name string) PredicateFn {
+	return func(obj runtime.Object) bool {
+		mo, ok := obj.(metav1.Object)
+		if !ok {
+			return false
+		}
+		return mo.GetName() == name
+	}
+}
