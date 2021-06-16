@@ -27,6 +27,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
@@ -212,6 +214,11 @@ func IsAPIError(err error) bool {
 	return ok
 }
 
+// IsAPIErrorWrapped returns true if err is a K8s API error, or recursively wraps a K8s API error
+func IsAPIErrorWrapped(err error) bool {
+	return IsAPIError(errors.Cause(err))
+}
+
 // IsConditionTrue returns if condition status is true
 func IsConditionTrue(c xpv1.Condition) bool {
 	return c.Status == corev1.ConditionTrue
@@ -220,6 +227,39 @@ func IsConditionTrue(c xpv1.Condition) bool {
 // An Applicator applies changes to an object.
 type Applicator interface {
 	Apply(context.Context, client.Object, ...ApplyOption) error
+}
+
+type shouldRetryFunc func(error) bool
+
+// An ApplicatorWithRetry applies changes to an object, retrying on transient failures
+type ApplicatorWithRetry struct {
+	Applicator
+	shouldRetry shouldRetryFunc
+	backoff     wait.Backoff
+}
+
+// Apply invokes nested Applicator's Apply retrying on designated errors
+func (awr *ApplicatorWithRetry) Apply(ctx context.Context, c client.Object, opts ...ApplyOption) error {
+	return retry.OnError(awr.backoff, awr.shouldRetry, func() error {
+		return awr.Applicator.Apply(ctx, c, opts...)
+	})
+}
+
+// NewApplicatorWithRetry returns an ApplicatorWithRetry for the specified
+// applicator and with the specified retry function.
+//   If backoff is nil, then retry.DefaultRetry is used as the default.
+func NewApplicatorWithRetry(applicator Applicator, shouldRetry shouldRetryFunc, backoff *wait.Backoff) *ApplicatorWithRetry {
+	result := &ApplicatorWithRetry{
+		Applicator:  applicator,
+		shouldRetry: shouldRetry,
+		backoff:     retry.DefaultRetry,
+	}
+
+	if backoff != nil {
+		result.backoff = *backoff
+	}
+
+	return result
 }
 
 // A ClientApplicator may be used to build a single 'client' that satisfies both
