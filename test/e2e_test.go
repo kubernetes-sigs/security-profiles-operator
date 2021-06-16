@@ -39,9 +39,10 @@ const (
 	// NOTE(jaosorior): We should be able to decrease this once we
 	// migrate to a single daemonset-based implementation for the
 	// SELinux pieces.
-	defaultSelinuxOpTimeout = "360s"
-	defaultWaitTimeout      = "120s"
-	defaultWaitTime         = 10 * time.Second
+	defaultSelinuxOpTimeout     = "360s"
+	defaultLogEnricherOpTimeout = defaultSelinuxOpTimeout
+	defaultWaitTimeout          = "120s"
+	defaultWaitTime             = 10 * time.Second
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {
@@ -88,6 +89,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		{
 			"Seccomp: Re-deploy the operator",
 			e.testCaseReDeployOperator,
+		},
+		{
+			"Log Enricher",
+			e.testCaseLogEnricher,
 		},
 		{
 			"SELinux: sanity check",
