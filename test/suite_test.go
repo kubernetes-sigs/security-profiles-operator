@@ -48,6 +48,7 @@ var (
 	envSkipBuildImages              = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	envTestImage                    = os.Getenv("E2E_SPO_IMAGE")
 	envSelinuxTestsEnabled          = os.Getenv("E2E_TEST_SELINUX")
+	envLogEnricherTestsEnabled      = os.Getenv("E2E_TEST_LOG_ENRICHER")
 	envSeccompTestsEnabled          = os.Getenv("E2E_TEST_SECCOMP")
 	envProfileRecordingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_RECORDING")
 	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
@@ -66,6 +67,7 @@ type e2e struct {
 	selinuxdImage        string
 	pullPolicy           string
 	selinuxEnabled       bool
+	logEnricherEnabled   bool
 	testSeccomp          bool
 	testProfileRecording bool
 	logger               logr.Logger
@@ -101,6 +103,10 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		selinuxEnabled = false
 	}
+	logEnricherEnabled, err := strconv.ParseBool(envLogEnricherTestsEnabled)
+	if err != nil {
+		logEnricherEnabled = false
+	}
 	testSeccomp, err := strconv.ParseBool(envSeccompTestsEnabled)
 	if err != nil {
 		testSeccomp = true
@@ -122,6 +128,7 @@ func TestSuite(t *testing.T) {
 				pullPolicy:           "Never",
 				testImage:            testImage,
 				selinuxEnabled:       selinuxEnabled,
+				logEnricherEnabled:   logEnricherEnabled,
 				testSeccomp:          testSeccomp,
 				testProfileRecording: testProfileRecording,
 				selinuxdImage:        selinuxdImage,
@@ -145,6 +152,7 @@ func TestSuite(t *testing.T) {
 				pullPolicy:           "Always",
 				testImage:            testImage,
 				selinuxEnabled:       selinuxEnabled,
+				logEnricherEnabled:   logEnricherEnabled,
 				testSeccomp:          testSeccomp,
 				testProfileRecording: testProfileRecording,
 				selinuxdImage:        selinuxdImage,
@@ -163,6 +171,7 @@ func TestSuite(t *testing.T) {
 				pullPolicy:           "Never",
 				testImage:            testImage,
 				selinuxEnabled:       selinuxEnabled,
+				logEnricherEnabled:   logEnricherEnabled,
 				testSeccomp:          testSeccomp,
 				testProfileRecording: testProfileRecording,
 				selinuxdImage:        selinuxdImage,
@@ -476,6 +485,24 @@ func (e *e2e) enableSelinuxInSpod() {
 
 		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultSelinuxOpTimeout)
 	}
+}
+
+func (e *e2e) logEnricherOnlyTestCase() {
+	if !e.logEnricherEnabled {
+		e.T().Skip("Skipping log-enricher related test")
+	}
+
+	e.enableLogEnricherInSpod()
+}
+
+func (e *e2e) enableLogEnricherInSpod() {
+	e.logf("Enable log-enricher in SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableLogEnricher": true}}`, "--type=merge")
+
+	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
 }
 
 func (e *e2e) seccompOnlyTestCase() {
