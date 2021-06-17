@@ -48,7 +48,7 @@ github.com/beorn7/perks/quantile
 github.com/blang/semver
 # github.com/cespare/xxhash/v2 v2.1.1
 github.com/cespare/xxhash/v2
-# github.com/containers/common v0.39.0
+# github.com/containers/common v0.40.0
 ## explicit
 github.com/containers/common/pkg/seccomp
 # github.com/cpuguy83/go-md2man/v2 v2.0.0
@@ -172,7 +172,7 @@ github.com/hashicorp/go-retryablehttp
 # github.com/hashicorp/golang-lru v0.5.4
 github.com/hashicorp/golang-lru
 github.com/hashicorp/golang-lru/simplelru
-# github.com/imdario/mergo v0.3.11
+# github.com/imdario/mergo v0.3.12
 github.com/imdario/mergo
 # github.com/inconshreveable/mousetrap v1.0.0
 github.com/inconshreveable/mousetrap
@@ -297,7 +297,7 @@ golang.org/x/net/trace
 # golang.org/x/oauth2 v0.0.0-20210112200429-01de73cf58bd
 golang.org/x/oauth2
 golang.org/x/oauth2/internal
-# golang.org/x/sys v0.0.0-20210603081109-ebe580a85c40
+# golang.org/x/sys v0.0.0-20210603125802-9665404d3644
 golang.org/x/sys/cpu
 golang.org/x/sys/execabs
 golang.org/x/sys/internal/unsafeheader
