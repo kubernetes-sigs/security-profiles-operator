@@ -133,11 +133,9 @@ func main() {
 			},
 		},
 		&cli.Command{
-			Name:  "non-root-enabler",
-			Usage: "run the non root enabler",
-			Action: func(*cli.Context) error {
-				return nonrootenabler.New().Run()
-			},
+			Name:   "non-root-enabler",
+			Usage:  "run the non root enabler",
+			Action: runNonRootEnabler,
 		},
 		&cli.Command{
 			Name:    "log-enricher",
@@ -324,8 +322,15 @@ func runDaemon(ctx *cli.Context) error {
 }
 
 func runLogEnricher(ctx *cli.Context) error {
-	printInfo("log-enricher")
-	return enricher.Run(ctrl.Log.WithName("log-enricher"))
+	const component = "log-enricher"
+	printInfo(component)
+	return enricher.Run(ctrl.Log.WithName(component))
+}
+
+func runNonRootEnabler(ctx *cli.Context) error {
+	const component = "non-root-enabler"
+	printInfo(component)
+	return nonrootenabler.New().Run(ctrl.Log.WithName(component))
 }
 
 func runWebhook(ctx *cli.Context) error {

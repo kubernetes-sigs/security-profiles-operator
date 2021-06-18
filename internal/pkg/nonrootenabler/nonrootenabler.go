@@ -19,6 +19,7 @@ package nonrootenabler
 import (
 	"os"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"sigs.k8s.io/release-utils/util"
 
@@ -42,9 +43,10 @@ func (n *NonRootEnabler) SetImpl(i impl) {
 }
 
 // Run executes the NonRootEnabler and returns an error if anything fails.
-func (n *NonRootEnabler) Run() error {
+func (n *NonRootEnabler) Run(logger logr.Logger) error {
 	const dirPermissions os.FileMode = 0o744
 
+	logger.Info("Ensuring seccomp root path: " + config.KubeletSeccompRootPath)
 	if err := n.impl.MkdirAll(
 		config.KubeletSeccompRootPath, dirPermissions,
 	); err != nil {
@@ -53,6 +55,7 @@ func (n *NonRootEnabler) Run() error {
 		)
 	}
 
+	logger.Info("Ensuring operator root path: " + config.OperatorRoot)
 	if err := n.impl.MkdirAll(
 		config.OperatorRoot, dirPermissions,
 	); err != nil {
@@ -60,12 +63,15 @@ func (n *NonRootEnabler) Run() error {
 			err, "create operator root path %s", config.KubeletSeccompRootPath,
 		)
 	}
+
 	// In case the directory already existed
+	logger.Info("Setting operator root permissions")
 	if err := n.impl.Chmod(config.OperatorRoot, dirPermissions); err != nil {
 		return errors.Wrap(err, "change operator root path permissions")
 	}
 
 	if _, err := n.impl.Stat(config.ProfilesRootPath); os.IsNotExist(err) {
+		logger.Info("Linking profiles root path")
 		if err := n.impl.Symlink(
 			config.OperatorRoot, config.ProfilesRootPath,
 		); err != nil {
@@ -73,12 +79,14 @@ func (n *NonRootEnabler) Run() error {
 		}
 	}
 
+	logger.Info("Setting operator root user and group")
 	if err := n.impl.Chown(
 		config.OperatorRoot, config.UserRootless, config.UserRootless,
 	); err != nil {
 		return errors.Wrap(err, "change operator root permissions")
 	}
 
+	logger.Info("Copying profiles into root path")
 	if err := n.impl.CopyDirContentsLocal(
 		"/opt/spo-profiles", config.KubeletSeccompRootPath,
 	); err != nil {
