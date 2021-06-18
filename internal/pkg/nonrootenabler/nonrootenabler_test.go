@@ -21,6 +21,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
@@ -88,7 +89,7 @@ func TestRun(t *testing.T) {
 		tc.prepare(mock)
 		sut.SetImpl(mock)
 
-		err := sut.Run()
+		err := sut.Run(logr.DiscardLogger{})
 		if tc.shouldError {
 			require.NotNil(t, err)
 		} else {
