@@ -18,14 +18,12 @@ package enricher
 
 import (
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/hpcloud/tail"
 	"github.com/pkg/errors"
-	"sigs.k8s.io/release-utils/util"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -42,25 +40,29 @@ func Run(logger logr.Logger) error {
 
 	logger.Info("Starting log-enricher on node: " + nodeName)
 
-	auditLines := make(chan string)
-	tailErrors := make(chan error)
-
-	logFile := config.EnricherLogFile
-	if util.Exists(config.DevKmsgPath) {
-		logFile = config.DevKmsgPath
+	// If the file does not exist, then tail will wait for it to appear
+	tailFile, err := tail.TailFile(
+		config.AuditLogPath,
+		tail.Config{
+			Follow: true,
+			Location: &tail.SeekInfo{
+				Offset: 0,
+				Whence: os.SEEK_END,
+			},
+		},
+	)
+	if err != nil {
+		return errors.Wrap(err, "tailing file")
 	}
-	logger.Info("Reading from file " + logFile)
-	go tailFile(logger, logFile, auditLines, tailErrors)
 
-	for {
-		var line string
-		select {
-		case err := <-tailErrors:
-			logger.Error(err, "tail audit log")
-			return errors.Wrap(err, "failed to tail")
-		case line = <-auditLines:
+	logger.Info("Reading from file " + config.AuditLogPath)
+	for l := range tailFile.Lines {
+		if l.Err != nil {
+			logger.Error(l.Err, "failed to tail")
+			continue
 		}
 
+		line := l.Text
 		if !isAuditLine(line) {
 			continue
 		}
@@ -68,9 +70,11 @@ func Run(logger logr.Logger) error {
 		auditLine, err := extractAuditLine(line)
 		if err != nil {
 			logger.Error(err, "extract seccomp details from audit line")
+			continue
 		}
 
 		if auditLine.SystemCallID == 0 {
+			logger.Info("Audit line SystemCallID is 0, skipping")
 			continue
 		}
 
@@ -84,45 +88,17 @@ func Run(logger logr.Logger) error {
 		}
 
 		name := systemCalls[auditLine.SystemCallID]
-		logger.Info(fmt.Sprintf("audit(%s) type=%s node=%s pid=%d ns=%s pod=%s c=%s exe=%s scid=%d scname=%s\n",
+		logger.Info(fmt.Sprintf(
+			"audit(%s) type=%s node=%s pid=%d ns=%s pod=%s c=%s exe=%s scid=%d scname=%s",
 			auditLine.TimestampID, auditLine.Type, nodeName,
 			auditLine.ProcessID, c.Namespace, c.PodName,
-			c.ContainerName, auditLine.Executable, auditLine.SystemCallID, name))
-	}
-}
-
-func tailFile(logger logr.Logger, filePath string, lines chan string, errChan chan error) {
-	file, err := os.Open(filepath.Clean(filePath))
-	if err != nil {
-		errChan <- errors.Wrap(err, "open audit log file")
-		return
-	}
-	defer func() {
-		err := file.Close()
-		if err != nil {
-			errChan <- errors.Wrap(err, "close audit log file")
-		}
-	}()
-
-	if _, err := file.Seek(0, io.SeekEnd); err != nil {
-		errChan <- errors.Wrap(err, "seek end audit log")
-		return
+			c.ContainerName, auditLine.Executable, auditLine.SystemCallID, name,
+		))
 	}
 
-	buffer := make([]byte, 1024)
+	logger.Error(tailFile.Err(), "enricher failed")
+
 	for {
-		readBytes, err := file.Read(buffer)
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				errChan <- errors.Wrap(err, "read audit log buffer")
-				return
-			}
-		}
-		if readBytes != 0 {
-			line := string(buffer[:readBytes])
-			logger.Info(line)
-			lines <- line
-		}
 		time.Sleep(time.Second)
 	}
 }
