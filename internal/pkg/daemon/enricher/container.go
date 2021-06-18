@@ -45,19 +45,19 @@ const (
 func getNodeContainers(nodeName string) (map[string]containerInfo, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		return nil, fmt.Errorf("get in-cluster config: %w", err)
+		return nil, errors.Wrap(err, "get in-cluster config")
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("load in-cluster config: %w", err)
+		return nil, errors.Wrap(err, "load in-cluster config")
 	}
 
 	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
 		FieldSelector: "spec.nodeName=" + nodeName,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list node %s's pods: %w", nodeName, err)
+		return nil, errors.Wrapf(err, "list node %s's pods", nodeName)
 	}
 
 	containers := make(map[string]containerInfo)
@@ -65,7 +65,7 @@ func getNodeContainers(nodeName string) (map[string]containerInfo, error) {
 		for c := range pods.Items[p].Status.ContainerStatuses {
 			containerID, err := containerIDRaw(pods.Items[p].Status.ContainerStatuses[c].ContainerID)
 			if err != nil {
-				return nil, fmt.Errorf("container id: %w", err)
+				return nil, errors.Wrap(err, "container id")
 			}
 
 			containers[containerID] = containerInfo{
