@@ -3,7 +3,10 @@
 package api
 
 import (
+	context "context"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -15,6 +18,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SecurityProfilesOperatorClient interface {
+	MetricsAuditInc(ctx context.Context, in *MetricsAuditRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
 }
 
 type securityProfilesOperatorClient struct {
@@ -25,10 +29,20 @@ func NewSecurityProfilesOperatorClient(cc grpc.ClientConnInterface) SecurityProf
 	return &securityProfilesOperatorClient{cc}
 }
 
+func (c *securityProfilesOperatorClient) MetricsAuditInc(ctx context.Context, in *MetricsAuditRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
+	out := new(EmptyResponse)
+	err := c.cc.Invoke(ctx, "/api.SecurityProfilesOperator/MetricsAuditInc", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SecurityProfilesOperatorServer is the server API for SecurityProfilesOperator service.
 // All implementations must embed UnimplementedSecurityProfilesOperatorServer
 // for forward compatibility
 type SecurityProfilesOperatorServer interface {
+	MetricsAuditInc(context.Context, *MetricsAuditRequest) (*EmptyResponse, error)
 	mustEmbedUnimplementedSecurityProfilesOperatorServer()
 }
 
@@ -36,6 +50,9 @@ type SecurityProfilesOperatorServer interface {
 type UnimplementedSecurityProfilesOperatorServer struct {
 }
 
+func (UnimplementedSecurityProfilesOperatorServer) MetricsAuditInc(context.Context, *MetricsAuditRequest) (*EmptyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MetricsAuditInc not implemented")
+}
 func (UnimplementedSecurityProfilesOperatorServer) mustEmbedUnimplementedSecurityProfilesOperatorServer() {
 }
 
@@ -50,13 +67,36 @@ func RegisterSecurityProfilesOperatorServer(s grpc.ServiceRegistrar, srv Securit
 	s.RegisterService(&SecurityProfilesOperator_ServiceDesc, srv)
 }
 
+func _SecurityProfilesOperator_MetricsAuditInc_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MetricsAuditRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SecurityProfilesOperatorServer).MetricsAuditInc(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.SecurityProfilesOperator/MetricsAuditInc",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SecurityProfilesOperatorServer).MetricsAuditInc(ctx, req.(*MetricsAuditRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SecurityProfilesOperator_ServiceDesc is the grpc.ServiceDesc for SecurityProfilesOperator service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var SecurityProfilesOperator_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "api.SecurityProfilesOperator",
 	HandlerType: (*SecurityProfilesOperatorServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams:     []grpc.StreamDesc{},
-	Metadata:    "api/server/api.proto",
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "MetricsAuditInc",
+			Handler:    _SecurityProfilesOperator_MetricsAuditInc_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "api/server/api.proto",
 }

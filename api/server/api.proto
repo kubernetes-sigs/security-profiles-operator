@@ -20,4 +20,21 @@ package api;
 option go_package = "/api";
 
 service SecurityProfilesOperator {
+    rpc MetricsAuditInc(MetricsAuditRequest) returns (EmptyResponse) {}
 }
+
+message MetricsAuditRequest {
+    enum Type {
+        SECCOMP = 0;
+        SELINUX = 1;
+    }
+    Type type = 1;
+    string node = 2;
+    string namespace = 3;
+    string pod = 4;
+    string container = 5;
+    string executable = 6;
+    string syscall = 7;
+}
+
+message EmptyResponse {}

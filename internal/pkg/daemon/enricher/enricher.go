@@ -17,14 +17,18 @@ limitations under the License.
 package enricher
 
 import (
+	"context"
 	"os"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/hpcloud/tail"
 	"github.com/pkg/errors"
+	"google.golang.org/grpc"
 
+	api "sigs.k8s.io/security-profiles-operator/api/server"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/server"
 )
 
 // Run the log-enricher to scrap audit logs and enrich them with
@@ -38,6 +42,14 @@ func Run(logger logr.Logger) error {
 	}
 
 	logger.Info("Starting log-enricher on node: " + nodeName)
+
+	logger.Info("Connecting to local GRPC server")
+	conn, err := grpc.Dial(server.Addr(), grpc.WithInsecure())
+	if err != nil {
+		return errors.Wrap(err, "connecting to local GRPC server")
+	}
+	defer conn.Close()
+	client := api.NewSecurityProfilesOperatorClient(conn)
 
 	// If the file does not exist, then tail will wait for it to appear
 	tailFile, err := tail.TailFile(
@@ -95,7 +107,7 @@ func Run(logger logr.Logger) error {
 			continue
 		}
 
-		name := systemCalls[auditLine.SystemCallID]
+		syscallName := systemCalls[auditLine.SystemCallID]
 		logger.Info("audit",
 			"timestamp", auditLine.TimestampID,
 			"type", auditLine.Type,
@@ -106,8 +118,27 @@ func Run(logger logr.Logger) error {
 			"executable", auditLine.Executable,
 			"pid", auditLine.ProcessID,
 			"syscallID", auditLine.SystemCallID,
-			"syscallName", name,
+			"syscallName", syscallName,
 		)
+
+		metricsType := api.MetricsAuditRequest_SECCOMP
+		if auditLine.Type == AuditTypeSelinux {
+			metricsType = api.MetricsAuditRequest_SELINUX
+		}
+		if _, err := client.MetricsAuditInc(
+			context.Background(),
+			&api.MetricsAuditRequest{
+				Type:       metricsType,
+				Node:       nodeName,
+				Namespace:  c.Namespace,
+				Pod:        c.PodName,
+				Container:  c.ContainerName,
+				Executable: auditLine.Executable,
+				Syscall:    syscallName,
+			},
+		); err != nil {
+			logger.Error(err, "unable to update metrics")
+		}
 	}
 
 	logger.Error(tailFile.Err(), "enricher failed")
