@@ -299,7 +299,7 @@ func runDaemon(ctx *cli.Context) error {
 	}
 
 	// Setup the GRPC server
-	if err := server.New(ctrl.Log.WithName("server")).Start(); err != nil {
+	if err := server.New(ctrl.Log.WithName("server"), met).Start(); err != nil {
 		return errors.Wrap(err, "start GRPC server")
 	}
 

@@ -33,15 +33,29 @@ import (
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
 const (
-	metricNamespace               = "security_profiles_operator"
+	metricNamespace = "security_profiles_operator"
+
+	// Metrics names.
 	metricNameSeccompProfile      = "seccomp_profile_total"
 	metricNameSelinuxProfile      = "selinux_profile_total"
+	metricNameSeccompProfileAudit = "seccomp_profile_audit_total"
+	metricNameSelinuxProfileAudit = "selinux_profile_audit_total"
 	metricNameSeccompProfileError = "seccomp_profile_error_total"
 	metricNameSelinuxProfileError = "selinux_profile_error_total"
+
+	// Metrics label values.
 	metricLabelValueProfileUpdate = "update"
 	metricLabelValueProfileDelete = "delete"
-	metricLabelOperation          = "operation"
-	metricsLabelReason            = "reason"
+
+	// Metrics labels.
+	metricLabelOperation   = "operation"
+	metricsLabelContainer  = "container"
+	metricsLabelExecutable = "executable"
+	metricsLabelNamespace  = "namespace"
+	metricsLabelNode       = "node"
+	metricsLabelPod        = "pod"
+	metricsLabelReason     = "reason"
+	metricsLabelSyscall    = "syscall"
 
 	// HandlerPath is the default path for serving metrics.
 	HandlerPath = "/metrics-spod"
@@ -52,8 +66,10 @@ type Metrics struct {
 	impl                      impl
 	log                       logr.Logger
 	metricSeccompProfile      *prometheus.CounterVec
+	metricSeccompProfileAudit *prometheus.CounterVec
 	metricSeccompProfileError *prometheus.CounterVec
 	metricSelinuxProfile      *prometheus.CounterVec
+	metricSelinuxProfileAudit *prometheus.CounterVec
 	metricSelinuxProfileError *prometheus.CounterVec
 }
 
@@ -69,6 +85,21 @@ func New() *Metrics {
 				Help:      "Counter about seccomp profile operations.",
 			},
 			[]string{metricLabelOperation},
+		),
+		metricSeccompProfileAudit: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameSeccompProfileAudit,
+				Namespace: metricNamespace,
+				Help:      "Counter about seccomp profile audits, requires the log enricher to be enabled.",
+			},
+			[]string{
+				metricsLabelNode,
+				metricsLabelNamespace,
+				metricsLabelPod,
+				metricsLabelContainer,
+				metricsLabelExecutable,
+				metricsLabelSyscall,
+			},
 		),
 		metricSeccompProfileError: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -86,6 +117,21 @@ func New() *Metrics {
 			},
 			[]string{metricLabelOperation},
 		),
+		metricSelinuxProfileAudit: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameSelinuxProfileAudit,
+				Namespace: metricNamespace,
+				Help:      "Counter about selinux profile audits, requires the log enricher to be enabled.",
+			},
+			[]string{
+				metricsLabelNode,
+				metricsLabelNamespace,
+				metricsLabelPod,
+				metricsLabelContainer,
+				metricsLabelExecutable,
+				metricsLabelSyscall,
+			},
+		),
 		metricSelinuxProfileError: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name:      metricNameSelinuxProfileError,
@@ -101,8 +147,10 @@ func New() *Metrics {
 func (m *Metrics) Register() error {
 	for name, collector := range map[string]prometheus.Collector{
 		metricNameSeccompProfile:      m.metricSeccompProfile,
+		metricNameSeccompProfileAudit: m.metricSeccompProfileAudit,
 		metricNameSeccompProfileError: m.metricSeccompProfileError,
 		metricNameSelinuxProfile:      m.metricSelinuxProfile,
+		metricNameSelinuxProfileAudit: m.metricSelinuxProfileAudit,
 		metricNameSelinuxProfileError: m.metricSelinuxProfileError,
 	} {
 		m.log.Info(fmt.Sprintf("Registering metric: %s", name))
@@ -132,6 +180,16 @@ func (m *Metrics) IncSeccompProfileDelete() {
 		WithLabelValues(metricLabelValueProfileDelete).Inc()
 }
 
+// IncSeccompProfileAudit increments the seccomp profile audit counter for the
+// provided labels.
+func (m *Metrics) IncSeccompProfileAudit(
+	node, namespace, pod, container, executable, syscall string,
+) {
+	m.metricSeccompProfileAudit.WithLabelValues(
+		node, namespace, pod, container, executable, syscall,
+	).Inc()
+}
+
 // IncSeccompProfileError increments the seccomp profile error counter for the
 // provided reason.
 func (m *Metrics) IncSeccompProfileError(reason event.Reason) {
@@ -148,6 +206,16 @@ func (m *Metrics) IncSelinuxProfileUpdate() {
 func (m *Metrics) IncSelinuxProfileDelete() {
 	m.metricSelinuxProfile.
 		WithLabelValues(metricLabelValueProfileDelete).Inc()
+}
+
+// IncSelinuxProfileAudit increments the selinux profile audit counter for the
+// provided labels.
+func (m *Metrics) IncSelinuxProfileAudit(
+	node, namespace, pod, container, executable, syscall string,
+) {
+	m.metricSelinuxProfileAudit.WithLabelValues(
+		node, namespace, pod, container, executable, syscall,
+	).Inc()
 }
 
 // IncSelinuxProfileError increments the selinux profile error counter for the

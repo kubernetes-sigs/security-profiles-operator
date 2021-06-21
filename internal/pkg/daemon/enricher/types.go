@@ -24,6 +24,11 @@ var (
 	errContainerIDEmpty            = errors.New("container ID is empty")
 )
 
+const (
+	AuditTypeSeccomp = "seccomp"
+	AuditTypeSelinux = "selinux"
+)
+
 type auditLine struct {
 	ProcessID    int
 	SystemCallID int
