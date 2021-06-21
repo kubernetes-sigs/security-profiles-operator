@@ -25,6 +25,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -34,23 +35,245 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type MetricsAuditRequest_Type int32
+
+const (
+	MetricsAuditRequest_SECCOMP MetricsAuditRequest_Type = 0
+	MetricsAuditRequest_SELINUX MetricsAuditRequest_Type = 1
+)
+
+// Enum value maps for MetricsAuditRequest_Type.
+var (
+	MetricsAuditRequest_Type_name = map[int32]string{
+		0: "SECCOMP",
+		1: "SELINUX",
+	}
+	MetricsAuditRequest_Type_value = map[string]int32{
+		"SECCOMP": 0,
+		"SELINUX": 1,
+	}
+)
+
+func (x MetricsAuditRequest_Type) Enum() *MetricsAuditRequest_Type {
+	p := new(MetricsAuditRequest_Type)
+	*p = x
+	return p
+}
+
+func (x MetricsAuditRequest_Type) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MetricsAuditRequest_Type) Descriptor() protoreflect.EnumDescriptor {
+	return file_api_server_api_proto_enumTypes[0].Descriptor()
+}
+
+func (MetricsAuditRequest_Type) Type() protoreflect.EnumType {
+	return &file_api_server_api_proto_enumTypes[0]
+}
+
+func (x MetricsAuditRequest_Type) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MetricsAuditRequest_Type.Descriptor instead.
+func (MetricsAuditRequest_Type) EnumDescriptor() ([]byte, []int) {
+	return file_api_server_api_proto_rawDescGZIP(), []int{0, 0}
+}
+
+type MetricsAuditRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Type       MetricsAuditRequest_Type `protobuf:"varint,1,opt,name=type,proto3,enum=api.MetricsAuditRequest_Type" json:"type,omitempty"`
+	Node       string                   `protobuf:"bytes,2,opt,name=node,proto3" json:"node,omitempty"`
+	Namespace  string                   `protobuf:"bytes,3,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Pod        string                   `protobuf:"bytes,4,opt,name=pod,proto3" json:"pod,omitempty"`
+	Container  string                   `protobuf:"bytes,5,opt,name=container,proto3" json:"container,omitempty"`
+	Executable string                   `protobuf:"bytes,6,opt,name=executable,proto3" json:"executable,omitempty"`
+	Syscall    string                   `protobuf:"bytes,7,opt,name=syscall,proto3" json:"syscall,omitempty"`
+}
+
+func (x *MetricsAuditRequest) Reset() {
+	*x = MetricsAuditRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_api_server_api_proto_msgTypes[0]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *MetricsAuditRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetricsAuditRequest) ProtoMessage() {}
+
+func (x *MetricsAuditRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_api_proto_msgTypes[0]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MetricsAuditRequest.ProtoReflect.Descriptor instead.
+func (*MetricsAuditRequest) Descriptor() ([]byte, []int) {
+	return file_api_server_api_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *MetricsAuditRequest) GetType() MetricsAuditRequest_Type {
+	if x != nil {
+		return x.Type
+	}
+	return MetricsAuditRequest_SECCOMP
+}
+
+func (x *MetricsAuditRequest) GetNode() string {
+	if x != nil {
+		return x.Node
+	}
+	return ""
+}
+
+func (x *MetricsAuditRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *MetricsAuditRequest) GetPod() string {
+	if x != nil {
+		return x.Pod
+	}
+	return ""
+}
+
+func (x *MetricsAuditRequest) GetContainer() string {
+	if x != nil {
+		return x.Container
+	}
+	return ""
+}
+
+func (x *MetricsAuditRequest) GetExecutable() string {
+	if x != nil {
+		return x.Executable
+	}
+	return ""
+}
+
+func (x *MetricsAuditRequest) GetSyscall() string {
+	if x != nil {
+		return x.Syscall
+	}
+	return ""
+}
+
+type EmptyResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *EmptyResponse) Reset() {
+	*x = EmptyResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_api_server_api_proto_msgTypes[1]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *EmptyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EmptyResponse) ProtoMessage() {}
+
+func (x *EmptyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_api_proto_msgTypes[1]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EmptyResponse.ProtoReflect.Descriptor instead.
+func (*EmptyResponse) Descriptor() ([]byte, []int) {
+	return file_api_server_api_proto_rawDescGZIP(), []int{1}
+}
+
 var File_api_server_api_proto protoreflect.FileDescriptor
 
 var file_api_server_api_proto_rawDesc = []byte{
 	0x0a, 0x14, 0x61, 0x70, 0x69, 0x2f, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x2f, 0x61, 0x70, 0x69,
-	0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x03, 0x61, 0x70, 0x69, 0x32, 0x1a, 0x0a, 0x18, 0x53,
-	0x65, 0x63, 0x75, 0x72, 0x69, 0x74, 0x79, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x4f,
-	0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x42, 0x06, 0x5a, 0x04, 0x2f, 0x61, 0x70, 0x69, 0x62,
-	0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x03, 0x61, 0x70, 0x69, 0x22, 0x86, 0x02, 0x0a, 0x13,
+	0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x41, 0x75, 0x64, 0x69, 0x74, 0x52, 0x65, 0x71, 0x75,
+	0x65, 0x73, 0x74, 0x12, 0x31, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x0e, 0x32, 0x1d, 0x2e, 0x61, 0x70, 0x69, 0x2e, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x41,
+	0x75, 0x64, 0x69, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2e, 0x54, 0x79, 0x70, 0x65,
+	0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x6f, 0x64, 0x65, 0x18, 0x02,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x6f, 0x64, 0x65, 0x12, 0x1c, 0x0a, 0x09, 0x6e, 0x61,
+	0x6d, 0x65, 0x73, 0x70, 0x61, 0x63, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x6e,
+	0x61, 0x6d, 0x65, 0x73, 0x70, 0x61, 0x63, 0x65, 0x12, 0x10, 0x0a, 0x03, 0x70, 0x6f, 0x64, 0x18,
+	0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x70, 0x6f, 0x64, 0x12, 0x1c, 0x0a, 0x09, 0x63, 0x6f,
+	0x6e, 0x74, 0x61, 0x69, 0x6e, 0x65, 0x72, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x63,
+	0x6f, 0x6e, 0x74, 0x61, 0x69, 0x6e, 0x65, 0x72, 0x12, 0x1e, 0x0a, 0x0a, 0x65, 0x78, 0x65, 0x63,
+	0x75, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x18, 0x06, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x65, 0x78,
+	0x65, 0x63, 0x75, 0x74, 0x61, 0x62, 0x6c, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x73, 0x79, 0x73, 0x63,
+	0x61, 0x6c, 0x6c, 0x18, 0x07, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x73, 0x79, 0x73, 0x63, 0x61,
+	0x6c, 0x6c, 0x22, 0x20, 0x0a, 0x04, 0x54, 0x79, 0x70, 0x65, 0x12, 0x0b, 0x0a, 0x07, 0x53, 0x45,
+	0x43, 0x43, 0x4f, 0x4d, 0x50, 0x10, 0x00, 0x12, 0x0b, 0x0a, 0x07, 0x53, 0x45, 0x4c, 0x49, 0x4e,
+	0x55, 0x58, 0x10, 0x01, 0x22, 0x0f, 0x0a, 0x0d, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x32, 0x5d, 0x0a, 0x18, 0x53, 0x65, 0x63, 0x75, 0x72, 0x69, 0x74,
+	0x79, 0x50, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x4f, 0x70, 0x65, 0x72, 0x61, 0x74, 0x6f,
+	0x72, 0x12, 0x41, 0x0a, 0x0f, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x41, 0x75, 0x64, 0x69,
+	0x74, 0x49, 0x6e, 0x63, 0x12, 0x18, 0x2e, 0x61, 0x70, 0x69, 0x2e, 0x4d, 0x65, 0x74, 0x72, 0x69,
+	0x63, 0x73, 0x41, 0x75, 0x64, 0x69, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x12,
+	0x2e, 0x61, 0x70, 0x69, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x22, 0x00, 0x42, 0x06, 0x5a, 0x04, 0x2f, 0x61, 0x70, 0x69, 0x62, 0x06, 0x70, 0x72,
+	0x6f, 0x74, 0x6f, 0x33,
 }
 
-var file_api_server_api_proto_goTypes = []interface{}{}
+var (
+	file_api_server_api_proto_rawDescOnce sync.Once
+	file_api_server_api_proto_rawDescData = file_api_server_api_proto_rawDesc
+)
+
+func file_api_server_api_proto_rawDescGZIP() []byte {
+	file_api_server_api_proto_rawDescOnce.Do(func() {
+		file_api_server_api_proto_rawDescData = protoimpl.X.CompressGZIP(file_api_server_api_proto_rawDescData)
+	})
+	return file_api_server_api_proto_rawDescData
+}
+
+var file_api_server_api_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_api_server_api_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_api_server_api_proto_goTypes = []interface{}{
+	(MetricsAuditRequest_Type)(0), // 0: api.MetricsAuditRequest.Type
+	(*MetricsAuditRequest)(nil),   // 1: api.MetricsAuditRequest
+	(*EmptyResponse)(nil),         // 2: api.EmptyResponse
+}
 var file_api_server_api_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0, // 0: api.MetricsAuditRequest.type:type_name -> api.MetricsAuditRequest.Type
+	1, // 1: api.SecurityProfilesOperator.MetricsAuditInc:input_type -> api.MetricsAuditRequest
+	2, // 2: api.SecurityProfilesOperator.MetricsAuditInc:output_type -> api.EmptyResponse
+	2, // [2:3] is the sub-list for method output_type
+	1, // [1:2] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_api_server_api_proto_init() }
@@ -58,18 +281,46 @@ func file_api_server_api_proto_init() {
 	if File_api_server_api_proto != nil {
 		return
 	}
+	if !protoimpl.UnsafeEnabled {
+		file_api_server_api_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*MetricsAuditRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_api_server_api_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*EmptyResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_api_server_api_proto_rawDesc,
-			NumEnums:      0,
-			NumMessages:   0,
+			NumEnums:      1,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_api_server_api_proto_goTypes,
 		DependencyIndexes: file_api_server_api_proto_depIdxs,
+		EnumInfos:         file_api_server_api_proto_enumTypes,
+		MessageInfos:      file_api_server_api_proto_msgTypes,
 	}.Build()
 	File_api_server_api_proto = out.File
 	file_api_server_api_proto_rawDesc = nil
