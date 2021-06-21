@@ -23,6 +23,7 @@ require (
 	k8s.io/klog/v2 v2.9.0
 	sigs.k8s.io/controller-runtime v0.8.3
 	sigs.k8s.io/controller-tools v0.5.0
+	sigs.k8s.io/mdtoc v1.0.1
 	sigs.k8s.io/release-utils v0.2.0
 	sigs.k8s.io/zeitgeist v0.3.0
 )

@@ -1,5 +1,23 @@
 # Installation and Usage
 
+<!-- toc -->
+- [Features](#features)
+- [Tutorials and Demos](#tutorials-and-demos)
+- [How To](#how-to)
+  - [1. Install operator](#1-install-operator)
+  - [2. Create Profile](#2-create-profile)
+  - [3. Apply profile to pod](#3-apply-profile-to-pod)
+    - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
+    - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
+    - [Record profiles from workloads with ProfileRecordings](#record-profiles-from-workloads-with-profilerecordings)
+- [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
+- [Using metrics](#using-metrics)
+  - [Available metrics](#available-metrics)
+- [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
+- [Troubleshooting](#troubleshooting)
+- [Uninstalling](#uninstalling)
+<!-- /toc -->
+
 ## Features
 
 The feature scope of the security-profiles-operator is right now limited to:
@@ -474,7 +492,7 @@ additional metrics are provided by the daemon, which are always prefixed with
 | `seccomp_profile_total`       | `operation={delete,update}`                                                                                                                                                                                | Counter | Amount of seccomp profile operations. |
 | `seccomp_profile_error_total` | `reason={`<br>`SeccompNotSupportedOnNode,`<br>`InvalidSeccompProfile,`<br>`CannotSaveSeccompProfile,`<br>`CannotRemoveSeccompProfile,`<br>`CannotUpdateSeccompProfile,`<br>`CannotUpdateNodeStatus`<br>`}` | Counter | Amount of seccomp profile errors.     |
 | `selinux_profile_total`       | `operation={delete,update}`                                                                                                                                                                                | Counter | Amount of selinux profile operations. |
-| `selinux_profile_error_total` | `reason={`<br>`CannotSaveSelinuxPolicy,`<br>`CannotUpdatePolicyStatus,`<br>`CannotRemoveSelinuxPolicy,`<br>`CannotContactSelinuxd,`<br>`CannotWritePolicyFile,`<br>`CannotGetPolicyStatus`<br>`}` | Counter | Amount of selinux profile errors.     |
+| `selinux_profile_error_total` | `reason={`<br>`CannotSaveSelinuxPolicy,`<br>`CannotUpdatePolicyStatus,`<br>`CannotRemoveSelinuxPolicy,`<br>`CannotContactSelinuxd,`<br>`CannotWritePolicyFile,`<br>`CannotGetPolicyStatus`<br>`}`          | Counter | Amount of selinux profile errors.     |
 
 ## Automatic ServiceMonitor deployment
 

@@ -196,10 +196,17 @@ vagrant-up: ## Boot the vagrant based test VM
 	# remote resource (like the VM image)
 	vagrant up || vagrant up || vagrant up
 
+$(BUILD_DIR)/mdtoc: $(BUILD_DIR)
+	$(call go-build,./vendor/sigs.k8s.io/mdtoc)
+
+.PHONY: update-toc
+update-toc: $(BUILD_DIR)/mdtoc ## Update the table of contents for the documentation
+	$(BUILD_DIR)/mdtoc --inplace installation-usage.md
+
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc ## Run all verification targets
 
 .PHONY: verify-boilerplate
 verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
@@ -240,6 +247,10 @@ verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 
 $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 	$(call go-build,./vendor/sigs.k8s.io/zeitgeist)
+
+.PHONY: verify-toc
+verify-toc: update-toc ## Verify the table of contents for the documentation
+	hack/tree-status
 
 # Test targets
 
