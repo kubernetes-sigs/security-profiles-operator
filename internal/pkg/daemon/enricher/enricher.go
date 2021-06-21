@@ -17,7 +17,6 @@ limitations under the License.
 package enricher
 
 import (
-	"fmt"
 	"os"
 	"time"
 
@@ -78,22 +77,37 @@ func Run(logger logr.Logger) error {
 			continue
 		}
 
-		cID := getContainerID(logger, auditLine.ProcessID)
-		containers, err := getNodeContainers(nodeName)
+		cID, err := getContainerID(auditLine.ProcessID)
+		if err != nil {
+			logger.Error(err, "unable to get container ID", "processID", auditLine.ProcessID)
+			continue
+		}
+
+		containers, err := getNodeContainers(logger, nodeName)
 		c, found := containers[cID]
 
 		if !found {
-			logger.Error(err, "containerID not found", "processID", auditLine.ProcessID)
+			logger.Error(
+				err, "containerID not found in cluster",
+				"processID", auditLine.ProcessID,
+				"containerID", cID,
+			)
 			continue
 		}
 
 		name := systemCalls[auditLine.SystemCallID]
-		logger.Info(fmt.Sprintf(
-			"audit(%s) type=%s node=%s pid=%d ns=%s pod=%s c=%s exe=%s scid=%d scname=%s",
-			auditLine.TimestampID, auditLine.Type, nodeName,
-			auditLine.ProcessID, c.Namespace, c.PodName,
-			c.ContainerName, auditLine.Executable, auditLine.SystemCallID, name,
-		))
+		logger.Info("audit",
+			"timestamp", auditLine.TimestampID,
+			"type", auditLine.Type,
+			"node", nodeName,
+			"namespace", c.Namespace,
+			"pod", c.PodName,
+			"container", c.ContainerName,
+			"executable", auditLine.Executable,
+			"pid", auditLine.ProcessID,
+			"syscallID", auditLine.SystemCallID,
+			"syscallName", name,
+		)
 	}
 
 	logger.Error(tailFile.Err(), "enricher failed")
