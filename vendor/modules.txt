@@ -1,3 +1,5 @@
+# github.com/BurntSushi/toml v0.3.1
+github.com/BurntSushi/toml
 # github.com/aws/aws-sdk-go v1.37.6
 github.com/aws/aws-sdk-go/aws
 github.com/aws/aws-sdk-go/aws/awserr
@@ -145,6 +147,10 @@ github.com/golang/protobuf/ptypes
 github.com/golang/protobuf/ptypes/any
 github.com/golang/protobuf/ptypes/duration
 github.com/golang/protobuf/ptypes/timestamp
+# github.com/gomarkdown/markdown v0.0.0-20200824053859-8c8b3816f167
+github.com/gomarkdown/markdown/ast
+github.com/gomarkdown/markdown/html
+github.com/gomarkdown/markdown/parser
 # github.com/google/go-cmp v0.5.5
 github.com/google/go-cmp/cmp
 github.com/google/go-cmp/cmp/cmpopts
@@ -207,6 +213,10 @@ github.com/maxbrunsfeld/counterfeiter/v6/generator
 github.com/mitchellh/go-homedir
 # github.com/mitchellh/mapstructure v1.4.1
 github.com/mitchellh/mapstructure
+# github.com/mmarkdown/mmark v2.0.40+incompatible
+github.com/mmarkdown/mmark/mast
+github.com/mmarkdown/mmark/mast/reference
+github.com/mmarkdown/mmark/mparser
 # github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
 github.com/modern-go/concurrent
 # github.com/modern-go/reflect2 v1.0.1
@@ -697,6 +707,10 @@ sigs.k8s.io/controller-tools/pkg/schemapatcher
 sigs.k8s.io/controller-tools/pkg/schemapatcher/internal/yaml
 sigs.k8s.io/controller-tools/pkg/version
 sigs.k8s.io/controller-tools/pkg/webhook
+# sigs.k8s.io/mdtoc v1.0.1
+## explicit
+sigs.k8s.io/mdtoc
+sigs.k8s.io/mdtoc/pkg/mdtoc
 # sigs.k8s.io/release-utils v0.2.0
 ## explicit
 sigs.k8s.io/release-utils/command
