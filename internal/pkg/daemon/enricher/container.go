@@ -30,6 +30,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -42,7 +44,7 @@ const (
 // Cluster scoped
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;
 
-func getNodeContainers(nodeName string) (map[string]containerInfo, error) {
+func getNodeContainers(logger logr.Logger, nodeName string) (map[string]containerInfo, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, errors.Wrap(err, "get in-cluster config")
@@ -53,30 +55,56 @@ func getNodeContainers(nodeName string) (map[string]containerInfo, error) {
 		return nil, errors.Wrap(err, "load in-cluster config")
 	}
 
-	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
-		FieldSelector: "spec.nodeName=" + nodeName,
-	})
-	if err != nil {
-		return nil, errors.Wrapf(err, "list node %s's pods", nodeName)
-	}
-
 	containers := make(map[string]containerInfo)
-	for p := range pods.Items {
-		for c := range pods.Items[p].Status.ContainerStatuses {
-			containerID, err := containerIDRaw(pods.Items[p].Status.ContainerStatuses[c].ContainerID)
+	err = util.Retry(
+		func() (retryErr error) {
+			pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
+				FieldSelector: "spec.nodeName=" + nodeName,
+			})
 			if err != nil {
-				return nil, errors.Wrap(err, "container id")
+				return errors.Wrapf(err, "list node %s's pods", nodeName)
 			}
 
-			containers[containerID] = containerInfo{
-				PodName:       pods.Items[p].Name,
-				ContainerName: pods.Items[p].Status.ContainerStatuses[c].Name,
-				Namespace:     pods.Items[p].Namespace,
-				ContainerID:   containerID,
+			containers = make(map[string]containerInfo)
+			for p := range pods.Items {
+				pod := pods.Items[p]
+
+				for c := range pod.Status.ContainerStatuses {
+					containerStatus := pod.Status.ContainerStatuses[c]
+					containerID := containerStatus.ContainerID
+
+					if containerID == "" {
+						logger.Info(
+							"container ID is still empty, retrying",
+							"containerName", containerStatus.Name,
+						)
+						return errContainerIDEmpty
+					}
+
+					rawContainerID, err := containerIDRaw(containerID)
+					if err != nil {
+						logger.Error(
+							err, "unable to get container ID",
+							"containerName", pod.Name,
+						)
+						continue
+					}
+
+					containers[rawContainerID] = containerInfo{
+						PodName:       pod.Name,
+						ContainerName: containerStatus.Name,
+						Namespace:     pod.Namespace,
+						ContainerID:   rawContainerID,
+					}
+				}
 			}
-		}
-	}
-	return containers, nil
+			return nil
+		},
+		func(inErr error) bool {
+			return errors.Is(inErr, errContainerIDEmpty)
+		},
+	)
+	return containers, err
 }
 
 func containerIDRaw(containerID string) (string, error) {
@@ -87,12 +115,11 @@ func containerIDRaw(containerID string) (string, error) {
 	return "", errors.Wrap(errUnsupportedContainerRuntime, containerID)
 }
 
-func getContainerID(logger logr.Logger, processID int) string {
+func getContainerID(processID int) (string, error) {
 	cgroupFile := fmt.Sprintf("/proc/%d/cgroup", processID)
 	file, err := os.Open(filepath.Clean(cgroupFile))
 	if err != nil {
-		logger.Error(nil, "could not open cgroup", "process-id", processID)
-		return ""
+		return "", errors.Errorf("could not open cgroup path %s", cgroupFile)
 	}
 	defer func() {
 		cerr := file.Close()
@@ -105,11 +132,11 @@ func getContainerID(logger logr.Logger, processID int) string {
 	scanner.Split(bufio.ScanLines)
 	for scanner.Scan() {
 		if containerID := extractID(scanner.Text()); containerID != "" {
-			return containerID
+			return containerID, nil
 		}
 	}
 
-	return ""
+	return "", errors.New("unable to find container ID from cgroup path")
 }
 
 func extractID(cgroup string) string {
