@@ -558,7 +558,6 @@ within host PID namespace (`hostPID`).
 Further requirements to the Kubernetes node have to be fulfilled to use the log
 enrichment feature:
 
-- [CRI-O][cri-o] has to be the container runtime
 - [auditd][auditd] needs to run and has to be configured to log into
   `/var/log/audit/audit.log`
 
