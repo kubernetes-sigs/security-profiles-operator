@@ -1,19 +1,20 @@
 # Installation and Usage
 
 <!-- toc -->
+
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
-- [How To](#how-to)
-  - [1. Install operator](#1-install-operator)
-  - [2. Create Profile](#2-create-profile)
-  - [3. Apply profile to pod](#3-apply-profile-to-pod)
-    - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
-    - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
-    - [Record profiles from workloads with ProfileRecordings](#record-profiles-from-workloads-with-profilerecordings)
+- [Install operator](#install-operator)
+- [Create Profile](#create-profile)
+  - [Apply profile to pod](#apply-profile-to-pod)
+  - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
+  - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
+  - [Record profiles from workloads with ProfileRecordings](#record-profiles-from-workloads-with-profilerecordings)
 - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
 - [Using metrics](#using-metrics)
   - [Available metrics](#available-metrics)
-- [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
+  - [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
+- [Using the log enricher](#using-the-log-enricher)
 - [Troubleshooting](#troubleshooting)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
@@ -36,9 +37,7 @@ The feature scope of the security-profiles-operator is right now limited to:
 - [Enhancing Kubernetes with the Security Profiles Operator](https://youtu.be/xisAIB3kOJo)
   ([@cmurphy](https://github.com/cmurphy) and [@saschagrunert](https://github.com/saschagrunert))
 
-## How To
-
-### 1. Install operator
+## Install operator
 
 The operator container image consists of an image manifest which supports the
 architectures `amd64` and `arm64` for now. To deploy the operator, first install
@@ -55,7 +54,7 @@ Then apply the operator manifest:
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
 ```
 
-### 2. Create Profile
+## Create Profile
 
 Use the `SeccompProfile` kind to create profiles. Example:
 
@@ -78,7 +77,7 @@ run it without root G/UID. This will be done by creating a symlink from the
 rootless profile storage `/var/lib/security-profiles-operator` to the default seccomp root
 path inside of the kubelet root `/var/lib/kubelet/seccomp/operator`.
 
-### 3. Apply profile to pod
+### Apply profile to pod
 
 Create a pod using one of the created profiles. On Kubernetes >= 1.19, the
 profile can be specified as part of the pod's security context:
@@ -143,7 +142,7 @@ $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spe
 }
 ```
 
-#### Base syscalls for a container runtime
+### Base syscalls for a container runtime
 
 An example of the minimum required syscalls for a runtime such as
 [runc](https://github.com/opencontainers/runc) (tested on version 1.0.0-rc92) to
@@ -174,7 +173,7 @@ If you're not using runc but the alternative
 the [corresponding example profile](./examples/baseprofile-crun.yaml) (tested
 with version 0.17).
 
-#### Bind workloads to profiles with ProfileBindings
+### Bind workloads to profiles with ProfileBindings
 
 If you do not want to directly modify the SecurityContext of a Pod, for instance
 if you are deploying a public application, you can use the ProfileBinding
@@ -207,7 +206,7 @@ $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.sec
 {"localhostProfile":"operator/default/generic/profile-complain-unsafe.json","type":"Localhost"}
 ```
 
-#### Record profiles from workloads with ProfileRecordings
+### Record profiles from workloads with ProfileRecordings
 
 The operator is capable of recording seccomp profiles by the usage of the
 [oci-seccomp-bpf-hook][bpf-hook]. [OCI hooks][hooks] are part of the OCI
@@ -496,7 +495,7 @@ additional metrics are provided by the daemon, which are always prefixed with
 | `selinux_profile_audit_total` | `node`, `namespace`, `pod`, `container`, `executable`, `syscall`                                                                                                                                           | Counter | Amount of selinux profile audit operations. Requires the log-enricher to be enabled. |
 | `selinux_profile_error_total` | `reason={`<br>`CannotSaveSelinuxPolicy,`<br>`CannotUpdatePolicyStatus,`<br>`CannotRemoveSelinuxPolicy,`<br>`CannotContactSelinuxd,`<br>`CannotWritePolicyFile,`<br>`CannotGetPolicyStatus`<br>`}`          | Counter | Amount of selinux profile errors.                                                    |
 
-## Automatic ServiceMonitor deployment
+### Automatic ServiceMonitor deployment
 
 If the Kubernetes cluster has the [Prometheus
 Operator](https://github.com/prometheus-operator/prometheus-operator) deployed,
@@ -547,6 +546,133 @@ Forwarding from [::1]:9090 -> 9090
 The OpenShift UI is now able to display the operator metrics, too:
 
 ![prometheus targets](doc/img/openshift-metrics.png)
+
+## Using the log enricher
+
+The operator ships with a log enrichment feature, which is disabled per
+default. The reason for that is that the log enricher container runs in
+privileged mode to be able to read the audit logs from the local node. It is also
+required that the enricher is able to read the host processes and therefore runs
+within host PID namespace (`hostPID`).
+
+Further requirements to the Kubernetes node have to be fulfilled to use the log
+enrichment feature:
+
+- [CRI-O][cri-o] has to be the container runtime
+- [auditd][auditd] needs to run and has to be configured to log into
+  `/var/log/audit/audit.log`
+
+[auditd]: https://man7.org/linux/man-pages/man8/auditd.8.html
+
+If all requirements are met, then the feature can be enabled by patching the
+`spod` configuration:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableLogEnricher":true}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
+Now the operator will take care of re-deploying the `spod` DaemonSet and the
+enricher should listening on new changes to the audit logs:
+
+```
+> kubectl -n security-profiles-operator logs -f ds/spod log-enricher
+I0623 12:51:04.257814 1854764 deleg.go:130] setup "msg"="starting component: log-enricher"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.2" "platform"="linux/amd64" "version"="0.4.0-dev"
+I0623 12:51:04.257890 1854764 enricher.go:44] log-enricher "msg"="Starting log-enricher on node: 127.0.0.1"
+I0623 12:51:04.257898 1854764 enricher.go:46] log-enricher "msg"="Connecting to local GRPC server"
+I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from file /var/log/audit/audit.log"
+2021/06/23 12:51:04 Seeked /var/log/audit/audit.log - &{Offset:0 Whence:2}
+```
+
+To be able to trace an application, we have to create a logging profile like this:
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: SeccompProfile
+metadata:
+  name: log
+  namespace: default
+spec:
+  defaultAction: SCMP_ACT_LOG
+```
+
+After the profile has been created, a corresponding workload can be started to
+use the profile:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: log-pod
+spec:
+  securityContext:
+    seccompProfile:
+      type: Localhost
+      localhostProfile: operator/default/log.json
+  containers:
+    - name: log-container
+      image: nginx
+```
+
+If the pod is running, then we can examine the log enricher output:
+
+```
+> kubectl -n security-profiles-operator logs -f ds/spod log-enricher
+…
+I0623 12:59:10.220291 1854764 container.go:77] log-enricher "msg"="container ID is still empty, retrying"  "containerName"="log-container"
+I0623 12:59:10.724938 1854764 container.go:77] log-enricher "msg"="container ID is still empty, retrying"  "containerName"="log-container"
+I0623 12:59:11.479869 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=3 "syscallName"="close" "timestamp"="1624453150.205:1061" "type"="seccomp"
+I0623 12:59:11.487323 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=157 "syscallName"="prctl" "timestamp"="1624453150.205:1062" "type"="seccomp"
+I0623 12:59:11.492157 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=157 "syscallName"="prctl" "timestamp"="1624453150.205:1063" "type"="seccomp"
+…
+I0623 12:59:20.258523 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/usr/sbin/nginx" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=12 "syscallName"="brk" "timestamp"="1624453150.235:2873" "type"="seccomp"
+I0623 12:59:20.263349 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/usr/sbin/nginx" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=21 "syscallName"="access" "timestamp"="1624453150.235:2874" "type"="seccomp"
+I0623 12:59:20.354091 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/usr/sbin/nginx" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=257 "syscallName"="openat" "timestamp"="1624453150.235:2875" "type"="seccomp"
+I0623 12:59:20.358844 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/usr/sbin/nginx" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=5 "syscallName"="fstat" "timestamp"="1624453150.235:2876" "type"="seccomp"
+I0623 12:59:20.363510 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/usr/sbin/nginx" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=9 "syscallName"="mmap" "timestamp"="1624453150.235:2877" "type"="seccomp"
+I0623 12:59:20.454127 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/usr/sbin/nginx" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=3 "syscallName"="close" "timestamp"="1624453150.235:2878" "type"="seccomp"
+I0623 12:59:20.458654 1854764 enricher.go:111] log-enricher "msg"="audit"  "container"="log-container" "executable"="/usr/sbin/nginx" "namespace"="default" "node"="127.0.0.1" "pid"=1905792 "pod"="log-pod" "syscallID"=257 "syscallName"="openat" "timestamp"="1624453150.235:2879" "type"="seccomp"
+…
+```
+
+The startup of the nginx container already invokes a huge amount of syscalls, which
+are now all available within a human readable way within the log enricher.
+
+The metrics endpoint of the Security Profiles Operator can be used to examine
+the log enricher data in a more structured way. This means that each syscall
+invocation will create a new metric entry
+`security_profiles_operator_seccomp_profile_audit_total` containing the
+corresponding metadata as labels:
+
+```
+# HELP security_profiles_operator_seccomp_profile_audit_total Counter about seccomp profile audits, requires the log enricher to be enabled.
+# TYPE security_profiles_operator_seccomp_profile_audit_total counter
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="access"} 1
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="arch_prctl"} 1
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="bind"} 2
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="brk"} 18
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="close"} 154
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="pread64"} 4
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="prlimit64"} 3
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="pwrite64"} 1
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="recvmsg"} 120
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="rt_sigaction"} 14
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="rt_sigprocmask"} 14
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="rt_sigsuspend"} 1
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="sendmsg"} 68
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="set_robust_list"} 13
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="set_tid_address"} 1
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="setgid"} 12
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="setgroups"} 12
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="setsockopt"} 3
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="setuid"} 12
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="socket"} 6
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="socketpair"} 24
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="stat"} 6
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="sysinfo"} 1
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="uname"} 2
+security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="write"} 20
+```
 
 ## Troubleshooting
 
