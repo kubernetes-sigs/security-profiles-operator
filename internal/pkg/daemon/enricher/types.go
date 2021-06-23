@@ -19,9 +19,8 @@ package enricher
 import "errors"
 
 var (
-	errUnsupportedContainerRuntime = errors.New("unsupported container runtime")
-	errUnsupportedLogLine          = errors.New("unsupported log line")
-	errContainerIDEmpty            = errors.New("container ID is empty")
+	errUnsupportedLogLine = errors.New("unsupported log line")
+	errContainerIDEmpty   = errors.New("container ID is empty")
 )
 
 const (
