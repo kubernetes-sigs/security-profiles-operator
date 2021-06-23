@@ -18,6 +18,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -448,6 +449,24 @@ func (e *e2e) kubectlRunOperatorNS(args ...string) string {
 	return e.kubectlRun(
 		append([]string{"-n", config.OperatorName}, args...)...,
 	)
+}
+
+const (
+	curlBaseCMD = "curl -ksfL --retry 5 --retry-delay 3 --show-error "
+	curlCMD     = curlBaseCMD + "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
+	metricsURL  = "https://metrics.security-profiles-operator.svc.cluster.local/"
+	curlSpodCMD = curlCMD + metricsURL + "metrics-spod"
+	curlCtrlCMD = curlCMD + metricsURL + "metrics"
+)
+
+func (e *e2e) getSpodMetrics() string {
+	rand.Seed(time.Now().UnixNano())
+	letters := []rune("abcdefghijklmnopqrstuvwxyz")
+	b := make([]rune, 10)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))] // nolint: gosec
+	}
+	return e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", curlSpodCMD)
 }
 
 func (e *e2e) waitFor(args ...string) {
