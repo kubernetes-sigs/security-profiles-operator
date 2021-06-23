@@ -23,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -32,11 +31,6 @@ import (
 	"k8s.io/client-go/rest"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
-)
-
-const (
-	crioCgroupRegex = `\/.+-([a-f0-9]+)`
-	crioPrefix      = "cri-o://"
 )
 
 // NOTE(jaosorior): Should this actually be namespace-scoped?
@@ -81,8 +75,8 @@ func getNodeContainers(logger logr.Logger, nodeName string) (map[string]containe
 						return errContainerIDEmpty
 					}
 
-					rawContainerID, err := containerIDRaw(containerID)
-					if err != nil {
+					rawContainerID := regexID.FindString(containerID)
+					if rawContainerID == "" {
 						logger.Error(
 							err, "unable to get container ID",
 							"containerName", pod.Name,
@@ -105,14 +99,6 @@ func getNodeContainers(logger logr.Logger, nodeName string) (map[string]containe
 		},
 	)
 	return containers, err
-}
-
-func containerIDRaw(containerID string) (string, error) {
-	if strings.Contains(containerID, crioPrefix) {
-		return strings.TrimPrefix(containerID, crioPrefix), nil
-	}
-
-	return "", errors.Wrap(errUnsupportedContainerRuntime, containerID)
 }
 
 func getContainerID(processID int) (string, error) {
@@ -139,12 +125,9 @@ func getContainerID(processID int) (string, error) {
 	return "", errors.New("unable to find container ID from cgroup path")
 }
 
-func extractID(cgroup string) string {
-	containerIDRegex := regexp.MustCompile(crioCgroupRegex)
-	capture := containerIDRegex.FindStringSubmatch(cgroup)
-	if len(capture) > 1 {
-		return capture[1]
-	}
+// We assume that a container ID has a length of 64.
+var regexID = regexp.MustCompile(`[0-9a-f]{64}`)
 
-	return ""
+func extractID(cgroup string) string {
+	return regexID.FindString(cgroup)
 }
