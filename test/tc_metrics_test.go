@@ -23,14 +23,7 @@ import (
 	"strings"
 )
 
-const (
-	curlBaseCMD = "curl -ksfL --retry 5 --retry-delay 3 --show-error "
-	curlCMD     = curlBaseCMD + "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
-	metricsURL  = "https://metrics.security-profiles-operator.svc.cluster.local/"
-	curlSpodCMD = curlCMD + metricsURL + "metrics-spod"
-	curlCtrlCMD = curlCMD + metricsURL + "metrics"
-	profileName = "metrics-profile"
-)
+const profileName = "metrics-profile"
 
 func (e *e2e) testCaseSeccompMetrics(nodes []string) {
 	e.seccompOnlyTestCase()
@@ -41,7 +34,7 @@ func (e *e2e) testCaseSeccompMetrics(nodes []string) {
 	)
 
 	e.logf("Retrieving spo metrics for getting assertions")
-	output := e.kubectlRunOperatorNS("pod-1", "--", "bash", "-c", curlSpodCMD)
+	output := e.getSpodMetrics()
 	metricDeletions := e.parseMetric(output, operationDelete)
 	metricUpdates := e.parseMetric(output, operationUpdate)
 
@@ -67,7 +60,7 @@ spec:
 	e.kubectlRunOperatorNS("pod-2", "--", "bash", "-c", curlCtrlCMD)
 
 	e.logf("Retrieving spo metrics for validation")
-	outputSpod := e.kubectlRunOperatorNS("pod-3", "--", "bash", "-c", curlSpodCMD)
+	outputSpod := e.getSpodMetrics()
 	e.Contains(outputSpod, "promhttp_metric_handler_requests_total")
 
 	e.logf("Asserting metrics values")

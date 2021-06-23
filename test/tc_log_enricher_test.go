@@ -98,4 +98,15 @@ spec:
 	e.Contains(output, `"timestamp"`)
 	e.Contains(output, `"syscallName"="listen"`)
 	e.Contains(output, `"syscallID"=50`)
+
+	metrics := e.getSpodMetrics()
+	e.Contains(metrics, fmt.Sprintf(`security_profiles_operator_seccomp_profile_audit_total{`+
+		`container="%s",`+
+		`executable="/usr/sbin/nginx",`+
+		`namespace="%s",`+
+		`node="127.0.0.1",`+
+		`pod="%s",`+
+		`syscall="listen"} 4`,
+		containerName, namespace, podName,
+	))
 }
