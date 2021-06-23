@@ -55,6 +55,7 @@ func Run(logger logr.Logger) error {
 	tailFile, err := tail.TailFile(
 		config.AuditLogPath,
 		tail.Config{
+			ReOpen: true,
 			Follow: true,
 			Location: &tail.SeekInfo{
 				Offset: 0,
