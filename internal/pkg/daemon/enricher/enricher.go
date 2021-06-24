@@ -85,11 +85,6 @@ func Run(logger logr.Logger) error {
 			continue
 		}
 
-		if auditLine.SystemCallID == 0 {
-			logger.Info("Audit line SystemCallID is 0, skipping")
-			continue
-		}
-
 		cID, err := getContainerID(auditLine.ProcessID)
 		if err != nil {
 			logger.Error(err, "unable to get container ID", "processID", auditLine.ProcessID)
