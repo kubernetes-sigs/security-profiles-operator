@@ -111,7 +111,7 @@ func (p *podSeccompRecorder) Handle(
 
 	for i := range items {
 		item := items[i]
-		if item.Spec.Kind != "SeccompProfile" {
+		if item.Spec.Kind != profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile {
 			p.log.Info(fmt.Sprintf(
 				"recording kind %s not supported", item.Spec.Kind,
 			))

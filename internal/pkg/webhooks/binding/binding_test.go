@@ -98,7 +98,7 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileBindingSpec{
 								ProfileRef: v1alpha1.ProfileRef{
-									Kind: "SeccompProfile",
+									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
 							},
 						},
@@ -174,7 +174,7 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileBindingSpec{
 								ProfileRef: v1alpha1.ProfileRef{
-									Kind: "SeccompProfile",
+									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
 							},
 						},
@@ -207,7 +207,7 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileBindingSpec{
 								ProfileRef: v1alpha1.ProfileRef{
-									Kind: "SeccompProfile",
+									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
 							},
 						},
@@ -239,7 +239,7 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileBindingSpec{
 								ProfileRef: v1alpha1.ProfileRef{
-									Kind: "SeccompProfile",
+									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
 							},
 						},
@@ -278,7 +278,7 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileBindingSpec{
 								ProfileRef: v1alpha1.ProfileRef{
-									Kind: "SeccompProfile",
+									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
 							},
 						},
@@ -316,7 +316,7 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileBindingSpec{
 								ProfileRef: v1alpha1.ProfileRef{
-									Kind: "SeccompProfile",
+									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
 							},
 							Status: v1alpha1.ProfileBindingStatus{
@@ -343,7 +343,7 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileBindingSpec{
 								ProfileRef: v1alpha1.ProfileRef{
-									Kind: "SeccompProfile",
+									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
 							},
 							Status: v1alpha1.ProfileBindingStatus{
