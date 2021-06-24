@@ -118,7 +118,7 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 
 	for i := range profilebindings {
 		// TODO(cmurphy): handle profiles kinds other than SeccompProfile
-		if profilebindings[i].Spec.ProfileRef.Kind != "SeccompProfile" {
+		if profilebindings[i].Spec.ProfileRef.Kind != profilebindingv1alpha1.ProfileBindingKindSeccompProfile {
 			p.log.Info(fmt.Sprintf("profile kind %s not yet supported", profilebindings[i].Spec.ProfileRef.Kind))
 			continue
 		}
