@@ -54,7 +54,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 
 	// Deploy the operator
 	e.deployOperator(manifest)
-	defer e.run("git", "checkout", manifest)
 
 	// Retrieve the inputs for the test cases
 	nodes := e.getWorkerNodes()
@@ -133,6 +132,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(manifest)
+	e.run("git", "checkout", manifest)
 
 	e.logf("testing namespace operator")
 
@@ -145,7 +145,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		"sed", "-i", fmt.Sprintf("s/NS_REPLACE/%s/", testNamespace),
 		namespaceManifest,
 	)
-	defer e.run("git", "checkout", namespaceManifest)
 	// All following operations such as create pod will be in the test namespace
 	e.kubectl("config", "set-context", "--current", "--namespace", testNamespace)
 	e.deployOperator(namespaceManifest)
@@ -156,6 +155,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			tc.fn(nodes)
 		})
 	}
+	e.run("git", "checkout", namespaceManifest)
 }
 
 func (e *e2e) deployCertManager() {
