@@ -20,6 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type ProfileBindingKind string
+
+const (
+	ProfileBindingKindSeccompProfile ProfileBindingKind = "SeccompProfile"
+)
+
 // ProfileBindingSpec defines the desired state of ProfileBinding.
 type ProfileBindingSpec struct {
 	// ProfileRef references a SeccompProfile or other profile type in the current namespace.
@@ -32,7 +38,7 @@ type ProfileBindingSpec struct {
 type ProfileRef struct {
 	// Kind of object to be bound.
 	// +kubebuilder:validation:Enum=SeccompProfile
-	Kind string `json:"kind"` // TODO(cmurphy) add SelinuxProfile
+	Kind ProfileBindingKind `json:"kind"` // TODO(cmurphy) add SelinuxProfile
 	// Name of the profile within the current namespace to which to bind the selected pods.
 	Name string `json:"name"`
 }
