@@ -16,7 +16,9 @@ local_ip() {
     ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]'
 }
 
-GOPATH=$(go env GOPATH)
+export PATH="/usr/local/go/bin:$PATH"
+export GOPATH="$HOME/go"
+export GOBIN="$GOPATH/bin"
 
 export KUBE_CONTAINER_RUNTIME=remote
 export KUBERUN=/var/run/kubernetes
