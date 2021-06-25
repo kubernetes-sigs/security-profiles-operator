@@ -18,17 +18,12 @@ package enricher
 
 import (
 	"bufio"
-	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -38,13 +33,13 @@ import (
 // Cluster scoped
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;
 
-func getNodeContainers(logger logr.Logger, nodeName string) (map[string]containerInfo, error) {
-	config, err := rest.InClusterConfig()
+func (e *Enricher) getNodeContainers(logger logr.Logger, nodeName string) (map[string]containerInfo, error) {
+	config, err := e.impl.InClusterConfig()
 	if err != nil {
 		return nil, errors.Wrap(err, "get in-cluster config")
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	clientset, err := e.impl.NewForConfig(config)
 	if err != nil {
 		return nil, errors.Wrap(err, "load in-cluster config")
 	}
@@ -52,9 +47,7 @@ func getNodeContainers(logger logr.Logger, nodeName string) (map[string]containe
 	containers := make(map[string]containerInfo)
 	err = util.Retry(
 		func() (retryErr error) {
-			pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
-				FieldSelector: "spec.nodeName=" + nodeName,
-			})
+			pods, err := e.impl.ListPods(clientset, nodeName)
 			if err != nil {
 				return errors.Wrapf(err, "list node %s's pods", nodeName)
 			}
@@ -101,9 +94,9 @@ func getNodeContainers(logger logr.Logger, nodeName string) (map[string]containe
 	return containers, err
 }
 
-func getContainerID(processID int) (string, error) {
+func (e *Enricher) getContainerID(processID int) (string, error) {
 	cgroupFile := fmt.Sprintf("/proc/%d/cgroup", processID)
-	file, err := os.Open(filepath.Clean(cgroupFile))
+	file, err := e.impl.Open(filepath.Clean(cgroupFile))
 	if err != nil {
 		return "", errors.Errorf("could not open cgroup path %s", cgroupFile)
 	}

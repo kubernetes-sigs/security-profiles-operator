@@ -17,42 +17,52 @@ limitations under the License.
 package enricher
 
 import (
-	"context"
 	"os"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/hpcloud/tail"
 	"github.com/pkg/errors"
-	"google.golang.org/grpc"
 
 	api "sigs.k8s.io/security-profiles-operator/api/server"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/server"
 )
+
+// Enricher is the main structure of this package.
+type Enricher struct {
+	impl   impl
+	logger logr.Logger
+}
+
+// New returns a new Enricher instance.
+func New(logger logr.Logger) *Enricher {
+	return &Enricher{
+		impl:   &defaultImpl{},
+		logger: logger,
+	}
+}
 
 // Run the log-enricher to scrap audit logs and enrich them with
 // Kubernetes data (namespace, pod and container).
-func Run(logger logr.Logger) error {
-	nodeName := os.Getenv(config.NodeNameEnvKey)
+func (e *Enricher) Run() error {
+	nodeName := e.impl.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
 		err := errors.Errorf("%s environment variable not set", config.NodeNameEnvKey)
-		logger.Error(err, "unable to run enricher")
+		e.logger.Error(err, "unable to run enricher")
 		return err
 	}
 
-	logger.Info("Starting log-enricher on node: " + nodeName)
+	e.logger.Info("Starting log-enricher on node: " + nodeName)
 
-	logger.Info("Connecting to local GRPC server")
-	conn, err := grpc.Dial(server.Addr(), grpc.WithInsecure())
+	e.logger.Info("Connecting to local GRPC server")
+	conn, err := e.impl.Dial()
 	if err != nil {
 		return errors.Wrap(err, "connecting to local GRPC server")
 	}
-	defer conn.Close()
+	defer e.impl.Close(conn)
 	client := api.NewSecurityProfilesOperatorClient(conn)
 
 	// If the file does not exist, then tail will wait for it to appear
-	tailFile, err := tail.TailFile(
+	tailFile, err := e.impl.TailFile(
 		config.AuditLogPath,
 		tail.Config{
 			ReOpen: true,
@@ -67,10 +77,10 @@ func Run(logger logr.Logger) error {
 		return errors.Wrap(err, "tailing file")
 	}
 
-	logger.Info("Reading from file " + config.AuditLogPath)
-	for l := range tailFile.Lines {
+	e.logger.Info("Reading from file " + config.AuditLogPath)
+	for l := range e.impl.Lines(tailFile) {
 		if l.Err != nil {
-			logger.Error(l.Err, "failed to tail")
+			e.logger.Error(l.Err, "failed to tail")
 			continue
 		}
 
@@ -81,21 +91,21 @@ func Run(logger logr.Logger) error {
 
 		auditLine, err := extractAuditLine(line)
 		if err != nil {
-			logger.Error(err, "extract seccomp details from audit line")
+			e.logger.Error(err, "extract seccomp details from audit line")
 			continue
 		}
 
-		cID, err := getContainerID(auditLine.ProcessID)
+		cID, err := e.getContainerID(auditLine.ProcessID)
 		if err != nil {
-			logger.Error(err, "unable to get container ID", "processID", auditLine.ProcessID)
+			e.logger.Error(err, "unable to get container ID", "processID", auditLine.ProcessID)
 			continue
 		}
 
-		containers, err := getNodeContainers(logger, nodeName)
+		containers, err := e.getNodeContainers(e.logger, nodeName)
 		c, found := containers[cID]
 
 		if !found {
-			logger.Error(
+			e.logger.Error(
 				err, "containerID not found in cluster",
 				"processID", auditLine.ProcessID,
 				"containerID", cID,
@@ -104,7 +114,7 @@ func Run(logger logr.Logger) error {
 		}
 
 		syscallName := systemCalls[auditLine.SystemCallID]
-		logger.Info("audit",
+		e.logger.Info("audit",
 			"timestamp", auditLine.TimestampID,
 			"type", auditLine.Type,
 			"node", nodeName,
@@ -121,8 +131,8 @@ func Run(logger logr.Logger) error {
 		if auditLine.Type == AuditTypeSelinux {
 			metricsType = api.MetricsAuditRequest_SELINUX
 		}
-		if _, err := client.MetricsAuditInc(
-			context.Background(),
+		if _, err := e.impl.MetricsAuditInc(
+			client,
 			&api.MetricsAuditRequest{
 				Type:       metricsType,
 				Node:       nodeName,
@@ -133,13 +143,9 @@ func Run(logger logr.Logger) error {
 				Syscall:    syscallName,
 			},
 		); err != nil {
-			logger.Error(err, "unable to update metrics")
+			e.logger.Error(err, "unable to update metrics")
 		}
 	}
 
-	logger.Error(tailFile.Err(), "enricher failed")
-
-	for {
-		time.Sleep(time.Second)
-	}
+	return errors.Wrap(tailFile.Err(), "enricher failed")
 }
