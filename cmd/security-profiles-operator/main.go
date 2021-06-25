@@ -324,7 +324,7 @@ func runDaemon(ctx *cli.Context) error {
 func runLogEnricher(ctx *cli.Context) error {
 	const component = "log-enricher"
 	printInfo(component)
-	return enricher.Run(ctrl.Log.WithName(component))
+	return enricher.New(ctrl.Log.WithName(component)).Run()
 }
 
 func runNonRootEnabler(ctx *cli.Context) error {
