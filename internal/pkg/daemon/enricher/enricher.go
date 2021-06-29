@@ -17,8 +17,11 @@ limitations under the License.
 package enricher
 
 import (
+	"fmt"
 	"os"
+	"time"
 
+	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/go-logr/logr"
 	"github.com/hpcloud/tail"
 	"github.com/pkg/errors"
@@ -27,23 +30,41 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
+// defaultCacheTimeout is the timeout for the container ID and info cache being
+// used. The chosen value is nothing more than a rough guess.
+const defaultCacheTimeout time.Duration = time.Hour
+
 // Enricher is the main structure of this package.
 type Enricher struct {
-	impl   impl
-	logger logr.Logger
+	impl             impl
+	logger           logr.Logger
+	containerIDCache ttlcache.SimpleCache
+	infoCache        ttlcache.SimpleCache
 }
 
 // New returns a new Enricher instance.
 func New(logger logr.Logger) *Enricher {
 	return &Enricher{
-		impl:   &defaultImpl{},
-		logger: logger,
+		impl:             &defaultImpl{},
+		logger:           logger,
+		containerIDCache: ttlcache.NewCache(),
+		infoCache:        ttlcache.NewCache(),
 	}
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
 // Kubernetes data (namespace, pod and container).
 func (e *Enricher) Run() error {
+	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
+	for _, cache := range []ttlcache.SimpleCache{
+		e.containerIDCache, e.infoCache,
+	} {
+		if err := cache.SetTTL(defaultCacheTimeout); err != nil {
+			return errors.Wrap(err, "set cache timeout")
+		}
+		defer cache.Close()
+	}
+
 	nodeName := e.impl.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
 		err := errors.Errorf("%s environment variable not set", config.NodeNameEnvKey)
@@ -101,12 +122,10 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
-		containers, err := e.getNodeContainers(e.logger, nodeName)
-		c, found := containers[cID]
-
-		if !found {
+		info, err := e.getContainerInfo(e.logger, nodeName, cID)
+		if err != nil {
 			e.logger.Error(
-				err, "containerID not found in cluster",
+				err, "container ID not found in cluster",
 				"processID", auditLine.processID,
 				"containerID", cID,
 			)
@@ -118,9 +137,9 @@ func (e *Enricher) Run() error {
 			"timestamp", auditLine.timestampID,
 			"type", auditLine.type_,
 			"node", nodeName,
-			"namespace", c.namespace,
-			"pod", c.podName,
-			"container", c.containerName,
+			"namespace", info.namespace,
+			"pod", info.podName,
+			"container", info.containerName,
 			"executable", auditLine.executable,
 			"pid", auditLine.processID,
 			"syscallID", auditLine.systemCallID,
@@ -136,9 +155,9 @@ func (e *Enricher) Run() error {
 			&api.MetricsAuditRequest{
 				Type:       metricsType,
 				Node:       nodeName,
-				Namespace:  c.namespace,
-				Pod:        c.podName,
-				Container:  c.containerName,
+				Namespace:  info.namespace,
+				Pod:        info.podName,
+				Container:  info.containerName,
 				Executable: auditLine.executable,
 				Syscall:    syscallName,
 			},

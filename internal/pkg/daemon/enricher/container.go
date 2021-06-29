@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
 
+	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 
@@ -33,7 +35,16 @@ import (
 // Cluster scoped
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;
 
-func (e *Enricher) getNodeContainers(logger logr.Logger, nodeName string) (map[string]containerInfo, error) {
+func (e *Enricher) getContainerInfo(
+	logger logr.Logger, nodeName, containerID string,
+) (*containerInfo, error) {
+	// Check the cache first
+	if info, err := e.infoCache.Get(
+		containerID,
+	); !errors.Is(err, ttlcache.ErrNotFound) {
+		return info.(*containerInfo), nil
+	}
+
 	config, err := e.impl.InClusterConfig()
 	if err != nil {
 		return nil, errors.Wrap(err, "get in-cluster config")
@@ -44,15 +55,15 @@ func (e *Enricher) getNodeContainers(logger logr.Logger, nodeName string) (map[s
 		return nil, errors.Wrap(err, "load in-cluster config")
 	}
 
-	containers := make(map[string]containerInfo)
-	err = util.Retry(
+	containers := make(map[string]*containerInfo)
+	if err := util.Retry(
 		func() (retryErr error) {
 			pods, err := e.impl.ListPods(clientset, nodeName)
 			if err != nil {
 				return errors.Wrapf(err, "list node %s's pods", nodeName)
 			}
 
-			containers = make(map[string]containerInfo)
+			containers = make(map[string]*containerInfo)
 			for p := range pods.Items {
 				pod := pods.Items[p]
 
@@ -77,11 +88,17 @@ func (e *Enricher) getNodeContainers(logger logr.Logger, nodeName string) (map[s
 						continue
 					}
 
-					containers[rawContainerID] = containerInfo{
+					info := &containerInfo{
 						podName:       pod.Name,
 						containerName: containerStatus.Name,
 						namespace:     pod.Namespace,
 						containerID:   rawContainerID,
+					}
+					containers[rawContainerID] = info
+
+					// Update the cache
+					if err := e.infoCache.Set(containerID, info); err != nil {
+						return errors.Wrap(err, "update cache")
 					}
 				}
 			}
@@ -90,11 +107,26 @@ func (e *Enricher) getNodeContainers(logger logr.Logger, nodeName string) (map[s
 		func(inErr error) bool {
 			return errors.Is(inErr, errContainerIDEmpty)
 		},
-	)
-	return containers, err
+	); err != nil {
+		return nil, errors.Wrap(err, "get container info for pods")
+	}
+
+	info, found := containers[containerID]
+	if !found {
+		return nil, errors.Wrap(err, "no container info for container ID")
+	}
+
+	return info, err
 }
 
 func (e *Enricher) getContainerID(processID int) (string, error) {
+	// Check the cache first
+	if id, err := e.containerIDCache.Get(
+		strconv.Itoa(processID),
+	); !errors.Is(err, ttlcache.ErrNotFound) {
+		return id.(string), nil
+	}
+
 	cgroupFile := fmt.Sprintf("/proc/%d/cgroup", processID)
 	file, err := e.impl.Open(filepath.Clean(cgroupFile))
 	if err != nil {
@@ -111,6 +143,13 @@ func (e *Enricher) getContainerID(processID int) (string, error) {
 	scanner.Split(bufio.ScanLines)
 	for scanner.Scan() {
 		if containerID := extractID(scanner.Text()); containerID != "" {
+			// Update the cache
+			if err := e.containerIDCache.Set(
+				strconv.Itoa(processID), containerID,
+			); err != nil {
+				return "", errors.Wrap(err, "update cache")
+			}
+
 			return containerID, nil
 		}
 	}
