@@ -78,10 +78,10 @@ func (e *Enricher) getNodeContainers(logger logr.Logger, nodeName string) (map[s
 					}
 
 					containers[rawContainerID] = containerInfo{
-						PodName:       pod.Name,
-						ContainerName: containerStatus.Name,
-						Namespace:     pod.Namespace,
-						ContainerID:   rawContainerID,
+						podName:       pod.Name,
+						containerName: containerStatus.Name,
+						namespace:     pod.Namespace,
+						containerID:   rawContainerID,
 					}
 				}
 			}
