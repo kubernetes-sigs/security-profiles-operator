@@ -20,7 +20,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -142,7 +141,8 @@ func PackagesAvailable(packages ...string) (bool, error) {
 	for _, pkg := range packages {
 		logrus.Infof("Checking if %q has been installed", pkg)
 
-		args := append(checker.verifier.args, pkg)
+		args := checker.verifier.args
+		args = append(args, pkg)
 		if err := command.New(checker.verifier.cmd, args...).
 			RunSilentSuccess(); err != nil {
 			logrus.Infof("Adding %s to missing packages", pkg)
@@ -436,7 +436,7 @@ func CopyDirContentsLocal(src, dst string) error {
 			return errors.Wrapf(err, "create destination directory %s", dst)
 		}
 	}
-	files, err := ioutil.ReadDir(src)
+	files, err := os.ReadDir(src)
 	if err != nil {
 		return errors.Wrapf(err, "reading source dir %s", src)
 	}
@@ -531,7 +531,7 @@ func CleanLogFile(logPath string) (err error) {
 	logrus.Debugf("Sanitizing logfile %s", logPath)
 
 	// Open a tempfile to write sanitized log
-	tempFile, err := ioutil.TempFile(os.TempDir(), "temp-release-log-")
+	tempFile, err := os.CreateTemp("", "temp-release-log-")
 	if err != nil {
 		return errors.Wrap(err, "creating temp file for sanitizing log")
 	}
