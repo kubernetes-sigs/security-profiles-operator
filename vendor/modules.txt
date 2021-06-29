@@ -1,5 +1,8 @@
 # github.com/BurntSushi/toml v0.3.1
 github.com/BurntSushi/toml
+# github.com/ReneKroon/ttlcache/v2 v2.7.0
+## explicit
+github.com/ReneKroon/ttlcache/v2
 # github.com/aws/aws-sdk-go v1.37.6
 github.com/aws/aws-sdk-go/aws
 github.com/aws/aws-sdk-go/aws/awserr
@@ -314,6 +317,8 @@ golang.org/x/net/trace
 # golang.org/x/oauth2 v0.0.0-20210112200429-01de73cf58bd
 golang.org/x/oauth2
 golang.org/x/oauth2/internal
+# golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+golang.org/x/sync/singleflight
 # golang.org/x/sys v0.0.0-20210603125802-9665404d3644
 golang.org/x/sys/cpu
 golang.org/x/sys/execabs
