@@ -95,9 +95,9 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
-		cID, err := e.getContainerID(auditLine.ProcessID)
+		cID, err := e.getContainerID(auditLine.processID)
 		if err != nil {
-			e.logger.Error(err, "unable to get container ID", "processID", auditLine.ProcessID)
+			e.logger.Error(err, "unable to get container ID", "processID", auditLine.processID)
 			continue
 		}
 
@@ -107,28 +107,28 @@ func (e *Enricher) Run() error {
 		if !found {
 			e.logger.Error(
 				err, "containerID not found in cluster",
-				"processID", auditLine.ProcessID,
+				"processID", auditLine.processID,
 				"containerID", cID,
 			)
 			continue
 		}
 
-		syscallName := systemCalls[auditLine.SystemCallID]
+		syscallName := systemCalls[auditLine.systemCallID]
 		e.logger.Info("audit",
-			"timestamp", auditLine.TimestampID,
-			"type", auditLine.Type,
+			"timestamp", auditLine.timestampID,
+			"type", auditLine.type_,
 			"node", nodeName,
-			"namespace", c.Namespace,
-			"pod", c.PodName,
-			"container", c.ContainerName,
-			"executable", auditLine.Executable,
-			"pid", auditLine.ProcessID,
-			"syscallID", auditLine.SystemCallID,
+			"namespace", c.namespace,
+			"pod", c.podName,
+			"container", c.containerName,
+			"executable", auditLine.executable,
+			"pid", auditLine.processID,
+			"syscallID", auditLine.systemCallID,
 			"syscallName", syscallName,
 		)
 
 		metricsType := api.MetricsAuditRequest_SECCOMP
-		if auditLine.Type == AuditTypeSelinux {
+		if auditLine.type_ == auditTypeSelinux {
 			metricsType = api.MetricsAuditRequest_SELINUX
 		}
 		if _, err := e.impl.MetricsAuditInc(
@@ -136,10 +136,10 @@ func (e *Enricher) Run() error {
 			&api.MetricsAuditRequest{
 				Type:       metricsType,
 				Node:       nodeName,
-				Namespace:  c.Namespace,
-				Pod:        c.PodName,
-				Container:  c.ContainerName,
-				Executable: auditLine.Executable,
+				Namespace:  c.namespace,
+				Pod:        c.podName,
+				Container:  c.containerName,
+				Executable: auditLine.executable,
 				Syscall:    syscallName,
 			},
 		); err != nil {

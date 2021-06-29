@@ -24,23 +24,23 @@ var (
 )
 
 const (
-	AuditTypeSeccomp = "seccomp"
-	AuditTypeSelinux = "selinux"
+	auditTypeSeccomp = "seccomp"
+	auditTypeSelinux = "selinux"
 )
 
 type auditLine struct {
-	ProcessID    int
-	SystemCallID int
-	Type         string
-	TimestampID  string
-	Executable   string
+	processID    int
+	systemCallID int
+	type_        string
+	timestampID  string
+	executable   string
 }
 
 type containerInfo struct {
-	PodName       string
-	ContainerName string
-	Namespace     string
-	ContainerID   string
+	podName       string
+	containerName string
+	namespace     string
+	containerID   string
 }
 
 // List of x86-x64 syscalls
