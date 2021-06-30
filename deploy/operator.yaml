@@ -174,9 +174,16 @@ spec:
                       are ANDed.
                     type: object
                 type: object
+              recorder:
+                description: Recorder to be used.
+                enum:
+                - hook
+                - logs
+                type: string
             required:
             - kind
             - podSelector
+            - recorder
             type: object
           status:
             description: ProfileRecordingStatus contains status of the ProfileRecording.
@@ -1417,6 +1424,11 @@ spec:
       containers:
       - args:
         - webhook
+        env:
+        - name: OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
         imagePullPolicy: Always
         name: security-profiles-operator

@@ -41,6 +41,7 @@ type containerInfo struct {
 	containerName string
 	namespace     string
 	containerID   string
+	recordProfile string
 }
 
 // List of x86-x64 syscalls

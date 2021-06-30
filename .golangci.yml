@@ -78,6 +78,8 @@ linters:
     # - testpackage
     # - wsl
 linters-settings:
+  nestif:
+    min-complexity: 10
   gci:
     local-prefixes: sigs.k8s.io/security-profiles-operator
   errcheck:

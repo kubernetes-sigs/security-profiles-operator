@@ -101,12 +101,11 @@ type FakeImpl struct {
 		result1 *v1.PodList
 		result2 error
 	}
-	MetricsAuditIncStub        func(api.SecurityProfilesOperatorClient, *api.MetricsAuditRequest, ...grpc.CallOption) (*api.EmptyResponse, error)
+	MetricsAuditIncStub        func(api.SecurityProfilesOperatorClient, *api.MetricsAuditRequest) (*api.EmptyResponse, error)
 	metricsAuditIncMutex       sync.RWMutex
 	metricsAuditIncArgsForCall []struct {
 		arg1 api.SecurityProfilesOperatorClient
 		arg2 *api.MetricsAuditRequest
-		arg3 []grpc.CallOption
 	}
 	metricsAuditIncReturns struct {
 		result1 *api.EmptyResponse
@@ -140,6 +139,20 @@ type FakeImpl struct {
 	}
 	openReturnsOnCall map[int]struct {
 		result1 *os.File
+		result2 error
+	}
+	RecordSyscallStub        func(api.SecurityProfilesOperatorClient, *api.RecordSyscallRequest) (*api.EmptyResponse, error)
+	recordSyscallMutex       sync.RWMutex
+	recordSyscallArgsForCall []struct {
+		arg1 api.SecurityProfilesOperatorClient
+		arg2 *api.RecordSyscallRequest
+	}
+	recordSyscallReturns struct {
+		result1 *api.EmptyResponse
+		result2 error
+	}
+	recordSyscallReturnsOnCall map[int]struct {
+		result1 *api.EmptyResponse
 		result2 error
 	}
 	TailFileStub        func(string, tail.Config) (*tail.Tail, error)
@@ -520,20 +533,19 @@ func (fake *FakeImpl) ListPodsReturnsOnCall(i int, result1 *v1.PodList, result2 
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) MetricsAuditInc(arg1 api.SecurityProfilesOperatorClient, arg2 *api.MetricsAuditRequest, arg3 ...grpc.CallOption) (*api.EmptyResponse, error) {
+func (fake *FakeImpl) MetricsAuditInc(arg1 api.SecurityProfilesOperatorClient, arg2 *api.MetricsAuditRequest) (*api.EmptyResponse, error) {
 	fake.metricsAuditIncMutex.Lock()
 	ret, specificReturn := fake.metricsAuditIncReturnsOnCall[len(fake.metricsAuditIncArgsForCall)]
 	fake.metricsAuditIncArgsForCall = append(fake.metricsAuditIncArgsForCall, struct {
 		arg1 api.SecurityProfilesOperatorClient
 		arg2 *api.MetricsAuditRequest
-		arg3 []grpc.CallOption
-	}{arg1, arg2, arg3})
+	}{arg1, arg2})
 	stub := fake.MetricsAuditIncStub
 	fakeReturns := fake.metricsAuditIncReturns
-	fake.recordInvocation("MetricsAuditInc", []interface{}{arg1, arg2, arg3})
+	fake.recordInvocation("MetricsAuditInc", []interface{}{arg1, arg2})
 	fake.metricsAuditIncMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3...)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -547,17 +559,17 @@ func (fake *FakeImpl) MetricsAuditIncCallCount() int {
 	return len(fake.metricsAuditIncArgsForCall)
 }
 
-func (fake *FakeImpl) MetricsAuditIncCalls(stub func(api.SecurityProfilesOperatorClient, *api.MetricsAuditRequest, ...grpc.CallOption) (*api.EmptyResponse, error)) {
+func (fake *FakeImpl) MetricsAuditIncCalls(stub func(api.SecurityProfilesOperatorClient, *api.MetricsAuditRequest) (*api.EmptyResponse, error)) {
 	fake.metricsAuditIncMutex.Lock()
 	defer fake.metricsAuditIncMutex.Unlock()
 	fake.MetricsAuditIncStub = stub
 }
 
-func (fake *FakeImpl) MetricsAuditIncArgsForCall(i int) (api.SecurityProfilesOperatorClient, *api.MetricsAuditRequest, []grpc.CallOption) {
+func (fake *FakeImpl) MetricsAuditIncArgsForCall(i int) (api.SecurityProfilesOperatorClient, *api.MetricsAuditRequest) {
 	fake.metricsAuditIncMutex.RLock()
 	defer fake.metricsAuditIncMutex.RUnlock()
 	argsForCall := fake.metricsAuditIncArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.arg1, argsForCall.arg2
 }
 
 func (fake *FakeImpl) MetricsAuditIncReturns(result1 *api.EmptyResponse, result2 error) {
@@ -714,6 +726,71 @@ func (fake *FakeImpl) OpenReturnsOnCall(i int, result1 *os.File, result2 error) 
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) RecordSyscall(arg1 api.SecurityProfilesOperatorClient, arg2 *api.RecordSyscallRequest) (*api.EmptyResponse, error) {
+	fake.recordSyscallMutex.Lock()
+	ret, specificReturn := fake.recordSyscallReturnsOnCall[len(fake.recordSyscallArgsForCall)]
+	fake.recordSyscallArgsForCall = append(fake.recordSyscallArgsForCall, struct {
+		arg1 api.SecurityProfilesOperatorClient
+		arg2 *api.RecordSyscallRequest
+	}{arg1, arg2})
+	stub := fake.RecordSyscallStub
+	fakeReturns := fake.recordSyscallReturns
+	fake.recordInvocation("RecordSyscall", []interface{}{arg1, arg2})
+	fake.recordSyscallMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) RecordSyscallCallCount() int {
+	fake.recordSyscallMutex.RLock()
+	defer fake.recordSyscallMutex.RUnlock()
+	return len(fake.recordSyscallArgsForCall)
+}
+
+func (fake *FakeImpl) RecordSyscallCalls(stub func(api.SecurityProfilesOperatorClient, *api.RecordSyscallRequest) (*api.EmptyResponse, error)) {
+	fake.recordSyscallMutex.Lock()
+	defer fake.recordSyscallMutex.Unlock()
+	fake.RecordSyscallStub = stub
+}
+
+func (fake *FakeImpl) RecordSyscallArgsForCall(i int) (api.SecurityProfilesOperatorClient, *api.RecordSyscallRequest) {
+	fake.recordSyscallMutex.RLock()
+	defer fake.recordSyscallMutex.RUnlock()
+	argsForCall := fake.recordSyscallArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) RecordSyscallReturns(result1 *api.EmptyResponse, result2 error) {
+	fake.recordSyscallMutex.Lock()
+	defer fake.recordSyscallMutex.Unlock()
+	fake.RecordSyscallStub = nil
+	fake.recordSyscallReturns = struct {
+		result1 *api.EmptyResponse
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) RecordSyscallReturnsOnCall(i int, result1 *api.EmptyResponse, result2 error) {
+	fake.recordSyscallMutex.Lock()
+	defer fake.recordSyscallMutex.Unlock()
+	fake.RecordSyscallStub = nil
+	if fake.recordSyscallReturnsOnCall == nil {
+		fake.recordSyscallReturnsOnCall = make(map[int]struct {
+			result1 *api.EmptyResponse
+			result2 error
+		})
+	}
+	fake.recordSyscallReturnsOnCall[i] = struct {
+		result1 *api.EmptyResponse
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) TailFile(arg1 string, arg2 tail.Config) (*tail.Tail, error) {
 	fake.tailFileMutex.Lock()
 	ret, specificReturn := fake.tailFileReturnsOnCall[len(fake.tailFileArgsForCall)]
@@ -800,6 +877,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.newForConfigMutex.RUnlock()
 	fake.openMutex.RLock()
 	defer fake.openMutex.RUnlock()
+	fake.recordSyscallMutex.RLock()
+	defer fake.recordSyscallMutex.RUnlock()
 	fake.tailFileMutex.RLock()
 	defer fake.tailFileMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}

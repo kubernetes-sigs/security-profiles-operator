@@ -164,6 +164,18 @@ func (e *Enricher) Run() error {
 		); err != nil {
 			e.logger.Error(err, "unable to update metrics")
 		}
+
+		if info.recordProfile != "" {
+			if _, err := e.impl.RecordSyscall(
+				client,
+				&api.RecordSyscallRequest{
+					Profile: info.recordProfile,
+					Syscall: syscallName,
+				},
+			); err != nil {
+				e.logger.Error(err, "unable to record syscall")
+			}
+		}
 	}
 
 	return errors.Wrap(tailFile.Err(), "enricher failed")

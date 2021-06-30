@@ -19,10 +19,12 @@ package server
 import (
 	"context"
 	"net"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	api "sigs.k8s.io/security-profiles-operator/api/server"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -35,8 +37,9 @@ const (
 // Server is the main structure of this package.
 type Server struct {
 	api.UnimplementedSecurityProfilesOperatorServer
-	logger  logr.Logger
-	metrics *metrics.Metrics
+	logger   logr.Logger
+	metrics  *metrics.Metrics
+	syscalls sync.Map
 }
 
 // New creates a new Server instance.
@@ -81,7 +84,6 @@ func (s *Server) MetricsAuditInc(
 	ctx context.Context, r *api.MetricsAuditRequest,
 ) (*api.EmptyResponse, error) {
 	if r.GetType() == api.MetricsAuditRequest_SECCOMP {
-		s.logger.Info("Updating seccomp audit metrics")
 		s.metrics.IncSeccompProfileAudit(
 			r.GetNode(),
 			r.GetNamespace(),
@@ -91,7 +93,6 @@ func (s *Server) MetricsAuditInc(
 			r.GetSyscall(),
 		)
 	} else if r.GetType() == api.MetricsAuditRequest_SELINUX {
-		s.logger.Info("Updating selinux audit metrics")
 		s.metrics.IncSelinuxProfileAudit(
 			r.GetNode(),
 			r.GetNamespace(),
@@ -101,5 +102,37 @@ func (s *Server) MetricsAuditInc(
 			r.GetSyscall(),
 		)
 	}
+	return &api.EmptyResponse{}, nil
+}
+
+// RecordSyscall traces a single syscall for a provided profile.
+func (s *Server) RecordSyscall(
+	ctx context.Context, r *api.RecordSyscallRequest,
+) (*api.EmptyResponse, error) {
+	syscalls, _ := s.syscalls.LoadOrStore(r.GetProfile(), sets.NewString())
+	syscalls.(sets.String).Insert(r.GetSyscall())
+	return &api.EmptyResponse{}, nil
+}
+
+// Syscalls returns the syscalls for a provided profile.
+func (s *Server) Syscalls(
+	ctx context.Context, r *api.SyscallsRequest,
+) (*api.SyscallsResponse, error) {
+	syscalls, ok := s.syscalls.Load(r.GetProfile())
+	if !ok {
+		return nil, errors.Errorf(
+			"no syscalls recorded for profile: %v", r.GetProfile(),
+		)
+	}
+	return &api.SyscallsResponse{
+		Syscalls: syscalls.(sets.String).List(),
+	}, nil
+}
+
+// ResetSyscalls removes the syscalls for a provided profile.
+func (s *Server) ResetSyscalls(
+	ctx context.Context, r *api.SyscallsRequest,
+) (*api.EmptyResponse, error) {
+	s.syscalls.Delete(r.GetProfile())
 	return &api.EmptyResponse{}, nil
 }

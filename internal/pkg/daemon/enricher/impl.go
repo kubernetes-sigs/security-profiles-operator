@@ -48,7 +48,10 @@ type impl interface {
 	MetricsAuditInc(
 		client api.SecurityProfilesOperatorClient,
 		in *api.MetricsAuditRequest,
-		opts ...grpc.CallOption,
+	) (*api.EmptyResponse, error)
+	RecordSyscall(
+		client api.SecurityProfilesOperatorClient,
+		in *api.RecordSyscallRequest,
 	) (*api.EmptyResponse, error)
 }
 
@@ -99,7 +102,13 @@ func (d *defaultImpl) ListPods(
 func (d *defaultImpl) MetricsAuditInc(
 	client api.SecurityProfilesOperatorClient,
 	in *api.MetricsAuditRequest,
-	opts ...grpc.CallOption,
 ) (*api.EmptyResponse, error) {
-	return client.MetricsAuditInc(context.Background(), in, opts...)
+	return client.MetricsAuditInc(context.Background(), in)
+}
+
+func (d *defaultImpl) RecordSyscall(
+	client api.SecurityProfilesOperatorClient,
+	in *api.RecordSyscallRequest,
+) (*api.EmptyResponse, error) {
+	return client.RecordSyscall(context.Background(), in)
 }
