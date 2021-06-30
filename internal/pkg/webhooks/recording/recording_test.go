@@ -94,7 +94,8 @@ func TestHandle(t *testing.T) {
 					Items: []v1alpha1.ProfileRecording{
 						{
 							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind: v1alpha1.ProfileRecordingKindSeccompProfile,
+								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
+								Recorder: v1alpha1.ProfileRecorderHook,
 							},
 						},
 					},
@@ -190,7 +191,8 @@ func TestHandle(t *testing.T) {
 					Items: []v1alpha1.ProfileRecording{
 						{
 							Spec: v1alpha1.ProfileRecordingSpec{
-								Kind: v1alpha1.ProfileRecordingKindSeccompProfile,
+								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
+								Recorder: v1alpha1.ProfileRecorderHook,
 							},
 						},
 					},

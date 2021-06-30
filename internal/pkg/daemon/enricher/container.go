@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -45,17 +46,16 @@ func (e *Enricher) getContainerInfo(
 		return info.(*containerInfo), nil
 	}
 
-	config, err := e.impl.InClusterConfig()
+	clusterConfig, err := e.impl.InClusterConfig()
 	if err != nil {
 		return nil, errors.Wrap(err, "get in-cluster config")
 	}
 
-	clientset, err := e.impl.NewForConfig(config)
+	clientset, err := e.impl.NewForConfig(clusterConfig)
 	if err != nil {
 		return nil, errors.Wrap(err, "load in-cluster config")
 	}
 
-	containers := make(map[string]*containerInfo)
 	if err := util.Retry(
 		func() (retryErr error) {
 			pods, err := e.impl.ListPods(clientset, nodeName)
@@ -63,18 +63,19 @@ func (e *Enricher) getContainerInfo(
 				return errors.Wrapf(err, "list node %s's pods", nodeName)
 			}
 
-			containers = make(map[string]*containerInfo)
 			for p := range pods.Items {
-				pod := pods.Items[p]
+				pod := &pods.Items[p]
 
 				for c := range pod.Status.ContainerStatuses {
 					containerStatus := pod.Status.ContainerStatuses[c]
 					containerID := containerStatus.ContainerID
+					containerName := containerStatus.Name
 
 					if containerID == "" {
 						logger.Info(
 							"container ID is still empty, retrying",
-							"containerName", containerStatus.Name,
+							"podName", pod.Name,
+							"containerName", containerName,
 						)
 						return errContainerIDEmpty
 					}
@@ -83,21 +84,23 @@ func (e *Enricher) getContainerInfo(
 					if rawContainerID == "" {
 						logger.Error(
 							err, "unable to get container ID",
-							"containerName", pod.Name,
+							"podName", pod.Name,
+							"containerName", containerName,
 						)
 						continue
 					}
 
+					recordProfile := pod.Annotations[config.SeccompProfileRecordLogsAnnotationKey+containerName]
 					info := &containerInfo{
 						podName:       pod.Name,
 						containerName: containerStatus.Name,
 						namespace:     pod.Namespace,
 						containerID:   rawContainerID,
+						recordProfile: recordProfile,
 					}
-					containers[rawContainerID] = info
 
 					// Update the cache
-					if err := e.infoCache.Set(containerID, info); err != nil {
+					if err := e.infoCache.Set(rawContainerID, info); err != nil {
 						return errors.Wrap(err, "update cache")
 					}
 				}
@@ -111,12 +114,13 @@ func (e *Enricher) getContainerInfo(
 		return nil, errors.Wrap(err, "get container info for pods")
 	}
 
-	info, found := containers[containerID]
-	if !found {
-		return nil, errors.Wrap(err, "no container info for container ID")
+	if info, err := e.infoCache.Get(
+		containerID,
+	); !errors.Is(err, ttlcache.ErrNotFound) {
+		return info.(*containerInfo), nil
 	}
 
-	return info, err
+	return nil, errors.New("no container info for container ID")
 }
 
 func (e *Enricher) getContainerID(processID int) (string, error) {

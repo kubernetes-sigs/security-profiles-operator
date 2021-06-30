@@ -124,7 +124,8 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	})
 
 	e.Run("cluster-wide: Seccomp: Verify profile recording", func() {
-		e.testCaseProfileRecordingStaticPod()
+		e.testCaseProfileRecordingStaticPodHook()
+		e.testCaseProfileRecordingStaticPodLogs()
 		e.testCaseProfileRecordingKubectlRun()
 		e.testCaseProfileRecordingMultiContainer()
 		e.testCaseProfileRecordingDeployment()

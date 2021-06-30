@@ -137,7 +137,10 @@ func (p *podSeccompRecorder) Handle(
 		}
 
 		if selector.Matches(podLabels) {
-			podChanged = p.addAnnotations(pod, &item)
+			podChanged, err = p.updatePod(pod, &item)
+			if err != nil {
+				return admission.Errored(http.StatusInternalServerError, err)
+			}
 		}
 
 		if podChanged {
@@ -160,13 +163,18 @@ func (p *podSeccompRecorder) Handle(
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
-func (p *podSeccompRecorder) addAnnotations(
+func (p *podSeccompRecorder) updatePod(
 	pod *corev1.Pod,
 	profileRecording *profilerecordingv1alpha1.ProfileRecording,
-) (podChanged bool) {
-	ctrs := []corev1.Container{}
-	ctrs = append(ctrs, pod.Spec.InitContainers...)
-	ctrs = append(ctrs, pod.Spec.Containers...)
+) (podChanged bool, err error) {
+	// Collect containers as references to not copy them during modification
+	ctrs := []*corev1.Container{}
+	for i := range pod.Spec.InitContainers {
+		ctrs = append(ctrs, &pod.Spec.InitContainers[i])
+	}
+	for i := range pod.Spec.Containers {
+		ctrs = append(ctrs, &pod.Spec.Containers[i])
+	}
 
 	// Handle replicas by tracking them
 	replica := ""
@@ -177,22 +185,43 @@ func (p *podSeccompRecorder) addAnnotations(
 	}
 
 	for i := range ctrs {
-		ctr := &ctrs[i]
-		key := fmt.Sprintf("%s/%s", config.SeccompProfileRecordAnnotationKey, ctr.Name)
+		ctr := ctrs[i]
 
 		ctrName := ctr.Name
 		if replica != "" {
 			ctrName += replica
 		}
 
-		value := fmt.Sprintf(
-			"of:%s/%s-%s-%d.json",
-			config.ProfileRecordingOutputPath,
-			profileRecording.GetName(),
-			ctrName,
-			time.Now().Unix(),
-		)
+		// Distinguish the profile recorders by using different annotation prefixes
+		var annotationPrefix, value string
+		switch profileRecording.Spec.Recorder {
+		case profilerecordingv1alpha1.ProfileRecorderHook:
+			annotationPrefix = config.SeccompProfileRecordHookAnnotationKey
+			value = fmt.Sprintf(
+				"of:%s/%s-%s-%d.json",
+				config.ProfileRecordingOutputPath,
+				profileRecording.GetName(),
+				ctrName,
+				time.Now().Unix(),
+			)
 
+		case profilerecordingv1alpha1.ProfileRecorderLogs:
+			annotationPrefix = config.SeccompProfileRecordLogsAnnotationKey
+			value = fmt.Sprintf(
+				"%s-%s-%d",
+				profileRecording.GetName(),
+				ctrName,
+				time.Now().Unix(),
+			)
+			p.updateSecurityContext(ctr)
+
+		default:
+			return false, errors.Errorf(
+				"invalid recorder: %s", profileRecording.Spec.Recorder,
+			)
+		}
+
+		key := annotationPrefix + ctr.Name
 		existingValue, ok := pod.GetAnnotations()[key]
 		if !ok {
 			if pod.Annotations == nil {
@@ -220,7 +249,32 @@ func (p *podSeccompRecorder) addAnnotations(
 		}
 	}
 
-	return podChanged
+	return podChanged, nil
+}
+
+func (p *podSeccompRecorder) updateSecurityContext(
+	ctr *corev1.Container,
+) {
+	if ctr.SecurityContext == nil {
+		ctr.SecurityContext = &corev1.SecurityContext{}
+	}
+
+	if ctr.SecurityContext.SeccompProfile == nil {
+		ctr.SecurityContext.SeccompProfile = &corev1.SeccompProfile{}
+	}
+
+	ctr.SecurityContext.SeccompProfile.Type = corev1.SeccompProfileTypeLocalhost
+	profile := fmt.Sprintf(
+		"operator/%s/%s.json",
+		config.GetOperatorNamespace(),
+		config.LogEnricherProfile,
+	)
+	ctr.SecurityContext.SeccompProfile.LocalhostProfile = &profile
+
+	p.log.Info(fmt.Sprintf(
+		"set SecurityContext for container %s: %+v",
+		ctr.Name, ctr.SecurityContext,
+	))
 }
 
 func (p *podSeccompRecorder) cleanupReplicas(podName string) {

@@ -32,14 +32,24 @@ var (
 
 // DefaultProfiles returns the default profiles deployed by the operator.
 func DefaultProfiles() []*v1alpha1.SeccompProfile {
+	namespace := config.GetOperatorNamespace()
+	labels := map[string]string{"app": config.OperatorName}
 	return []*v1alpha1.SeccompProfile{
 		{
 			ObjectMeta: metav1.ObjectMeta{
+				Name:      config.LogEnricherProfile,
+				Namespace: namespace,
+				Labels:    labels,
+			},
+			Spec: v1alpha1.SeccompProfileSpec{
+				DefaultAction: seccomp.ActLog,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
 				Name:      "nginx-1.19.1",
-				Namespace: config.GetOperatorNamespace(),
-				Labels: map[string]string{
-					"app": config.OperatorName,
-				},
+				Namespace: namespace,
+				Labels:    labels,
 			},
 			Spec: v1alpha1.SeccompProfileSpec{
 				DefaultAction: seccomp.ActErrno,

@@ -92,9 +92,16 @@ spec:
                       are ANDed.
                     type: object
                 type: object
+              recorder:
+                description: Recorder to be used.
+                enum:
+                - hook
+                - logs
+                type: string
             required:
             - kind
             - podSelector
+            - recorder
             type: object
           status:
             description: ProfileRecordingStatus contains status of the ProfileRecording.
