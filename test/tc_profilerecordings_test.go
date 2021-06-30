@@ -19,19 +19,29 @@ package e2e_test
 import (
 	"io/ioutil"
 	"os"
+	"time"
 )
 
 const (
-	exampleRecordingPath = "examples/profilerecording.yaml"
-	recordingName        = "test-recording"
+	exampleRecordingHookPath = "examples/profilerecording-hook.yaml"
+	exampleRecordingLogsPath = "examples/profilerecording-logs.yaml"
+	recordingName            = "test-recording"
 )
 
-func (e *e2e) testCaseProfileRecordingStaticPod() {
+func (e *e2e) testCaseProfileRecordingStaticPodHook() {
 	e.profileRecordingTestCase()
+	e.profileRecordingStaticPod(exampleRecordingHookPath, 0)
+}
 
+func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
+	e.profileRecordingTestCase()
+	e.logEnricherOnlyTestCase()
+	e.profileRecordingStaticPod(exampleRecordingLogsPath, 10*time.Second)
+}
+
+func (e *e2e) profileRecordingStaticPod(recording string, sleepTime time.Duration) {
 	e.logf("Creating recording for static pod test")
-	e.kubectl("create", "-f", exampleRecordingPath)
-	defer e.kubectl("delete", "-f", exampleRecordingPath)
+	e.kubectl("create", "-f", recording)
 
 	e.logf("Creating test pod")
 	const testPod = `
@@ -49,7 +59,6 @@ spec:
 `
 	testPodFile, err := ioutil.TempFile(os.TempDir(), "recording-pod*.yaml")
 	e.Nil(err)
-	defer os.Remove(testPodFile.Name())
 	_, err = testPodFile.Write([]byte(testPod))
 	e.Nil(err)
 	err = testPodFile.Close()
@@ -60,20 +69,25 @@ spec:
 	const podName = "recording"
 	e.retryGet("pod", podName)
 	e.waitFor("condition=ready", "pod", podName)
+
+	time.Sleep(sleepTime)
 	e.kubectl("delete", "pod", podName)
 
 	resourceName := recordingName + "-nginx"
 	profile := e.retryGetSeccompProfile(resourceName)
-	defer e.kubectl("delete", "sp", resourceName)
-	e.Contains(profile, "mkdir")
+	e.Contains(profile, "close")
+
+	e.kubectl("delete", "-f", recording)
+	e.Nil(os.Remove(testPodFile.Name()))
+	e.kubectl("delete", "sp", resourceName)
 }
 
 func (e *e2e) testCaseProfileRecordingKubectlRun() {
 	e.profileRecordingTestCase()
 
 	e.logf("Creating recording for kubectl run test")
-	e.kubectl("create", "-f", exampleRecordingPath)
-	defer e.kubectl("delete", "-f", exampleRecordingPath)
+	e.kubectl("create", "-f", exampleRecordingHookPath)
+	defer e.kubectl("delete", "-f", exampleRecordingHookPath)
 
 	e.logf("Creating test pod")
 	e.kubectlRun("--labels=app=alpine", "fedora", "--", "echo", "test")
@@ -89,8 +103,8 @@ func (e *e2e) testCaseProfileRecordingMultiContainer() {
 	e.profileRecordingTestCase()
 
 	e.logf("Creating recording for multi container test")
-	e.kubectl("create", "-f", exampleRecordingPath)
-	defer e.kubectl("delete", "-f", exampleRecordingPath)
+	e.kubectl("create", "-f", exampleRecordingHookPath)
+	defer e.kubectl("delete", "-f", exampleRecordingHookPath)
 
 	e.logf("Creating test pod")
 	const testPod = `
@@ -134,8 +148,8 @@ func (e *e2e) testCaseProfileRecordingDeployment() {
 	e.profileRecordingTestCase()
 
 	e.logf("Creating recording for deployment test")
-	e.kubectl("create", "-f", exampleRecordingPath)
-	defer e.kubectl("delete", "-f", exampleRecordingPath)
+	e.kubectl("create", "-f", exampleRecordingHookPath)
+	defer e.kubectl("delete", "-f", exampleRecordingHookPath)
 
 	e.logf("Creating test deployment")
 	const testDeployment = `
