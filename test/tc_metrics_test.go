@@ -100,7 +100,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
 
 	e.logf("Retrieving spo metrics for validation")
-	outputSpod := e.kubectlRunOperatorNS("pod", "--", "bash", "-c", curlSpodCMD)
+	outputSpod := e.getSpodMetrics()
 	e.Contains(outputSpod, "promhttp_metric_handler_requests_total")
 
 	e.logf("Asserting metrics values")
