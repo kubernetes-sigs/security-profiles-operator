@@ -466,7 +466,16 @@ func (e *e2e) getSpodMetrics() string {
 	for i := range b {
 		b[i] = letters[rand.Intn(len(letters))] // nolint: gosec
 	}
-	return e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", curlSpodCMD)
+	// Sometimes the metrics command does not output anything in CI. We fix
+	// that by retrying the metrics retrieval several times.
+	for i := 0; i < 5; i++ {
+		output := e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", curlSpodCMD)
+		if len(strings.Split(output, "\n")) > 1 {
+			return output
+		}
+	}
+	e.Fail("unable to retrieve SPOD metrics")
+	return ""
 }
 
 func (e *e2e) waitFor(args ...string) {
