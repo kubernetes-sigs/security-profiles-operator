@@ -54,8 +54,11 @@ type impl interface {
 	) error
 	RecordSyscall(
 		client api.SecurityProfilesOperatorClient,
+	) (api.SecurityProfilesOperator_RecordSyscallClient, error)
+	SendSyscall(
+		client api.SecurityProfilesOperator_RecordSyscallClient,
 		in *api.RecordSyscallRequest,
-	) (*api.EmptyResponse, error)
+	) error
 }
 
 func (d *defaultImpl) Getenv(key string) string {
@@ -117,7 +120,13 @@ func (d *defaultImpl) SendMetric(
 
 func (d *defaultImpl) RecordSyscall(
 	client api.SecurityProfilesOperatorClient,
+) (api.SecurityProfilesOperator_RecordSyscallClient, error) {
+	return client.RecordSyscall(context.Background())
+}
+
+func (d *defaultImpl) SendSyscall(
+	client api.SecurityProfilesOperator_RecordSyscallClient,
 	in *api.RecordSyscallRequest,
-) (*api.EmptyResponse, error) {
-	return client.RecordSyscall(context.Background(), in)
+) error {
+	return client.Send(in)
 }
