@@ -22,7 +22,7 @@ dependencies:
       match: REPO_INFRA_VERSION
 
   - name: kustomize
-    version: 4.1.2
+    version: 4.2.0
     refPaths:
     - path: Makefile
       match: KUSTOMIZE_VERSION
