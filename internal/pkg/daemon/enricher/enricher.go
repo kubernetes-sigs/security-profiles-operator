@@ -23,7 +23,7 @@ import (
 
 	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/go-logr/logr"
-	"github.com/hpcloud/tail"
+	"github.com/nxadm/tail"
 	"github.com/pkg/errors"
 
 	api "sigs.k8s.io/security-profiles-operator/api/server"
