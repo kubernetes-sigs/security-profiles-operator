@@ -7,8 +7,8 @@ require (
 	github.com/containers/common v0.40.1
 	github.com/crossplane/crossplane-runtime v0.14.0
 	github.com/go-logr/logr v0.4.0
-	github.com/hpcloud/tail v1.0.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.4.1
+	github.com/nxadm/tail v1.4.8
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.48.1
 	github.com/prometheus/client_golang v1.11.0
