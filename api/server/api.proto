@@ -21,7 +21,7 @@ option go_package = "/api";
 
 service SecurityProfilesOperator {
     rpc MetricsAuditInc(stream MetricsAuditRequest) returns (EmptyResponse) {}
-    rpc RecordSyscall(RecordSyscallRequest) returns (EmptyResponse) {}
+    rpc RecordSyscall(stream RecordSyscallRequest) returns (EmptyResponse) {}
     rpc Syscalls(SyscallsRequest) returns (SyscallsResponse) {}
     rpc ResetSyscalls(SyscallsRequest) returns (EmptyResponse) {}
 }

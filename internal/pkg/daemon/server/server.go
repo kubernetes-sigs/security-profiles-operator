@@ -118,11 +118,20 @@ func (s *Server) MetricsAuditInc(
 
 // RecordSyscall traces a single syscall for a provided profile.
 func (s *Server) RecordSyscall(
-	ctx context.Context, r *api.RecordSyscallRequest,
-) (*api.EmptyResponse, error) {
-	syscalls, _ := s.syscalls.LoadOrStore(r.GetProfile(), sets.NewString())
-	syscalls.(sets.String).Insert(r.GetSyscall())
-	return &api.EmptyResponse{}, nil
+	stream api.SecurityProfilesOperator_RecordSyscallServer,
+) error {
+	for {
+		r, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return stream.SendAndClose(&api.EmptyResponse{})
+		}
+		if err != nil {
+			return errors.Wrap(err, "record syscalls")
+		}
+
+		syscalls, _ := s.syscalls.LoadOrStore(r.GetProfile(), sets.NewString())
+		syscalls.(sets.String).Insert(r.GetSyscall())
+	}
 }
 
 // Syscalls returns the syscalls for a provided profile.
