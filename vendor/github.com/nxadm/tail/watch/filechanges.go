@@ -1,3 +1,4 @@
+// Copyright (c) 2019 FOSS contributors of https://github.com/nxadm/tail
 package watch
 
 type FileChanges struct {
@@ -8,7 +9,7 @@ type FileChanges struct {
 
 func NewFileChanges() *FileChanges {
 	return &FileChanges{
-		make(chan bool), make(chan bool), make(chan bool)}
+		make(chan bool, 1), make(chan bool, 1), make(chan bool, 1)}
 }
 
 func (fc *FileChanges) NotifyModified() {

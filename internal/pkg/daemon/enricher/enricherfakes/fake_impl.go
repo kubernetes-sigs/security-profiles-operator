@@ -21,7 +21,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/hpcloud/tail"
+	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
