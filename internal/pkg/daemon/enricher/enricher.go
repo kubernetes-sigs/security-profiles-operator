@@ -87,6 +87,11 @@ func (e *Enricher) Run() error {
 		return errors.Wrap(err, "create metrics audit client")
 	}
 
+	recordSyscallClient, err := e.impl.RecordSyscall(client)
+	if err != nil {
+		return errors.Wrap(err, "create syscall recording client")
+	}
+
 	// If the file does not exist, then tail will wait for it to appear
 	tailFile, err := e.impl.TailFile(
 		config.AuditLogPath,
@@ -178,8 +183,8 @@ func (e *Enricher) Run() error {
 		}
 
 		if info.recordProfile != "" {
-			if _, err := e.impl.RecordSyscall(
-				client,
+			if err := e.impl.SendSyscall(
+				recordSyscallClient,
 				&api.RecordSyscallRequest{
 					Profile: info.recordProfile,
 					Syscall: syscallName,
