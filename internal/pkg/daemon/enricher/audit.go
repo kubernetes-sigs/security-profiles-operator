@@ -25,8 +25,9 @@ import (
 
 // type IDs are defined at https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/audit.h
 var (
-	//nolint:lll
-	seccompLineRegex = regexp.MustCompile(`(type=SECCOMP|audit:.+type=1326).+audit\((.+)\).+pid=(\b\d+\b).+exe="(.+)".+syscall=(\b\d+\b).*`)
+	seccompLineRegex = regexp.MustCompile(
+		`(type=SECCOMP|audit:.+type=1326).+audit\((.+)\).+pid=(\b\d+\b).+exe="(.+)".+syscall=(\b\d+\b).*`,
+	)
 	selinuxLineRegex = regexp.MustCompile(`type=AVC.+audit\((.+)\).+pid=(\b\d+\b).*`)
 )
 
@@ -56,7 +57,7 @@ func extractAuditLine(logLine string) (*auditLine, error) {
 		return selinux, nil
 	}
 
-	return nil, errors.Wrap(errUnsupportedLogLine, logLine)
+	return nil, errors.Errorf("unsupported log line: %s", logLine)
 }
 
 func extractSeccompLine(logLine string) *auditLine {

@@ -117,12 +117,19 @@ func (e *Enricher) Run() error {
 		}
 
 		cID, err := e.getContainerID(auditLine.processID)
+		if errors.Is(err, os.ErrNotExist) {
+			// We're probably in container creation or removal
+			continue
+		}
 		if err != nil {
-			e.logger.Error(err, "unable to get container ID", "processID", auditLine.processID)
+			e.logger.Error(
+				err, "unable to get container ID",
+				"processID", auditLine.processID,
+			)
 			continue
 		}
 
-		info, err := e.getContainerInfo(e.logger, nodeName, cID)
+		info, err := e.getContainerInfo(nodeName, cID)
 		if err != nil {
 			e.logger.Error(
 				err, "container ID not found in cluster",

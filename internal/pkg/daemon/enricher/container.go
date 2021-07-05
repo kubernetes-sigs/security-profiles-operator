@@ -24,7 +24,6 @@ import (
 	"strconv"
 
 	"github.com/ReneKroon/ttlcache/v2"
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -37,7 +36,7 @@ import (
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;
 
 func (e *Enricher) getContainerInfo(
-	logger logr.Logger, nodeName, containerID string,
+	nodeName, containerID string,
 ) (*containerInfo, error) {
 	// Check the cache first
 	if info, err := e.infoCache.Get(
@@ -56,6 +55,7 @@ func (e *Enricher) getContainerInfo(
 		return nil, errors.Wrap(err, "load in-cluster config")
 	}
 
+	errContainerIDEmpty := errors.New("container ID is empty")
 	if err := util.Retry(
 		func() (retryErr error) {
 			pods, err := e.impl.ListPods(clientset, nodeName)
@@ -72,7 +72,7 @@ func (e *Enricher) getContainerInfo(
 					containerName := containerStatus.Name
 
 					if containerID == "" {
-						logger.Info(
+						e.logger.Info(
 							"container ID is still empty, retrying",
 							"podName", pod.Name,
 							"containerName", containerName,
@@ -82,7 +82,7 @@ func (e *Enricher) getContainerInfo(
 
 					rawContainerID := regexID.FindString(containerID)
 					if rawContainerID == "" {
-						logger.Error(
+						e.logger.Error(
 							err, "unable to get container ID",
 							"podName", pod.Name,
 							"containerName", containerName,
@@ -123,6 +123,9 @@ func (e *Enricher) getContainerInfo(
 	return nil, errors.New("no container info for container ID")
 }
 
+// We assume that a container ID has a length of 64.
+var regexID = regexp.MustCompile(`[0-9a-f]{64}`)
+
 func (e *Enricher) getContainerID(processID int) (string, error) {
 	// Check the cache first
 	if id, err := e.containerIDCache.Get(
@@ -131,11 +134,13 @@ func (e *Enricher) getContainerID(processID int) (string, error) {
 		return id.(string), nil
 	}
 
-	cgroupFile := fmt.Sprintf("/proc/%d/cgroup", processID)
-	file, err := e.impl.Open(filepath.Clean(cgroupFile))
+	cgroupPath := fmt.Sprintf("/proc/%d/cgroup", processID)
+
+	file, err := e.impl.Open(filepath.Clean(cgroupPath))
 	if err != nil {
-		return "", errors.Errorf("could not open cgroup path %s", cgroupFile)
+		return "", errors.Wrap(err, "could not open cgroup path")
 	}
+
 	defer func() {
 		cerr := file.Close()
 		if err == nil {
@@ -144,9 +149,8 @@ func (e *Enricher) getContainerID(processID int) (string, error) {
 	}()
 
 	scanner := bufio.NewScanner(file)
-	scanner.Split(bufio.ScanLines)
 	for scanner.Scan() {
-		if containerID := extractID(scanner.Text()); containerID != "" {
+		if containerID := regexID.FindString(scanner.Text()); containerID != "" {
 			// Update the cache
 			if err := e.containerIDCache.Set(
 				strconv.Itoa(processID), containerID,
@@ -159,11 +163,4 @@ func (e *Enricher) getContainerID(processID int) (string, error) {
 	}
 
 	return "", errors.New("unable to find container ID from cgroup path")
-}
-
-// We assume that a container ID has a length of 64.
-var regexID = regexp.MustCompile(`[0-9a-f]{64}`)
-
-func extractID(cgroup string) string {
-	return regexID.FindString(cgroup)
 }
