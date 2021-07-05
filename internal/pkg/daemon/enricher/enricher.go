@@ -82,6 +82,11 @@ func (e *Enricher) Run() error {
 	defer e.impl.Close(conn)
 	client := api.NewSecurityProfilesOperatorClient(conn)
 
+	metricsAuditIncClient, err := e.impl.MetricsAuditInc(client)
+	if err != nil {
+		return errors.Wrap(err, "create metrics audit client")
+	}
+
 	// If the file does not exist, then tail will wait for it to appear
 	tailFile, err := e.impl.TailFile(
 		config.AuditLogPath,
@@ -150,8 +155,8 @@ func (e *Enricher) Run() error {
 		if auditLine.type_ == auditTypeSelinux {
 			metricsType = api.MetricsAuditRequest_SELINUX
 		}
-		if _, err := e.impl.MetricsAuditInc(
-			client,
+		if err := e.impl.SendMetric(
+			metricsAuditIncClient,
 			&api.MetricsAuditRequest{
 				Type:       metricsType,
 				Node:       nodeName,
