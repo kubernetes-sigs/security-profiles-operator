@@ -19,6 +19,7 @@ package e2e_test
 import (
 	"io/ioutil"
 	"os"
+	"regexp"
 	"time"
 )
 
@@ -28,18 +29,45 @@ const (
 	recordingName            = "test-recording"
 )
 
+func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
+	for i := 0; i < 10; i++ {
+		e.logf("Waiting for enricher to record syscalls")
+		logs := e.kubectlOperatorNS(
+			"logs",
+			"--since-time="+since.Format(time.RFC3339),
+			"ds/spod",
+			"log-enricher",
+		)
+
+		matchAll := true
+		for _, condition := range conditions {
+			if !condition.MatchString(logs) {
+				matchAll = false
+			}
+		}
+		if matchAll {
+			break
+		}
+
+		time.Sleep(3 * time.Second)
+	}
+}
+
 func (e *e2e) testCaseProfileRecordingStaticPodHook() {
 	e.profileRecordingTestCase()
-	e.profileRecordingStaticPod(exampleRecordingHookPath, 0)
+	e.profileRecordingStaticPod(exampleRecordingHookPath)
 }
 
 func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 	e.profileRecordingTestCase()
 	e.logEnricherOnlyTestCase()
-	e.profileRecordingStaticPod(exampleRecordingLogsPath, 10*time.Second)
+	e.profileRecordingStaticPod(
+		exampleRecordingLogsPath,
+		regexp.MustCompile(`(?m)"syscallName"="setuid"`),
+	)
 }
 
-func (e *e2e) profileRecordingStaticPod(recording string, sleepTime time.Duration) {
+func (e *e2e) profileRecordingStaticPod(recording string, waitConditions ...*regexp.Regexp) {
 	e.logf("Creating recording for static pod test")
 	e.kubectl("create", "-f", recording)
 
@@ -63,6 +91,8 @@ spec:
 	e.Nil(err)
 	err = testPodFile.Close()
 	e.Nil(err)
+
+	since := time.Now() // nolint: ifshort
 	e.kubectl("create", "-f", testPodFile.Name())
 
 	e.logf("Waiting for test pod to be initialized")
@@ -70,41 +100,61 @@ spec:
 	e.retryGet("pod", podName)
 	e.waitFor("condition=ready", "pod", podName)
 
-	time.Sleep(sleepTime)
+	if waitConditions != nil {
+		e.waitForEnricherLogs(since, waitConditions...)
+	}
+
 	e.kubectl("delete", "pod", podName)
 
 	resourceName := recordingName + "-nginx"
 	profile := e.retryGetSeccompProfile(resourceName)
-	e.Contains(profile, "close")
+	e.Contains(profile, "setuid")
 
 	e.kubectl("delete", "-f", recording)
 	e.Nil(os.Remove(testPodFile.Name()))
 	e.kubectl("delete", "sp", resourceName)
 }
 
-func (e *e2e) testCaseProfileRecordingKubectlRun() {
+func (e *e2e) testCaseProfileRecordingKubectlRunHook() {
 	e.profileRecordingTestCase()
 
 	e.logf("Creating recording for kubectl run test")
 	e.kubectl("create", "-f", exampleRecordingHookPath)
-	defer e.kubectl("delete", "-f", exampleRecordingHookPath)
 
 	e.logf("Creating test pod")
 	e.kubectlRun("--labels=app=alpine", "fedora", "--", "echo", "test")
 
 	resourceName := recordingName + "-fedora"
 	profile := e.retryGetSeccompProfile(resourceName)
-	defer e.kubectl("delete", "sp", resourceName)
 	e.Contains(profile, "prctl")
 	e.NotContains(profile, "mkdir")
+
+	e.kubectl("delete", "-f", exampleRecordingHookPath)
+	e.kubectl("delete", "sp", resourceName)
 }
 
-func (e *e2e) testCaseProfileRecordingMultiContainer() {
+func (e *e2e) testCaseProfileRecordingMultiContainerHook() {
+	e.profileRecordingTestCase()
+	e.profileRecordingMultiContainer(exampleRecordingHookPath)
+}
+
+func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
+	e.profileRecordingTestCase()
+	e.logEnricherOnlyTestCase()
+	e.profileRecordingMultiContainer(
+		exampleRecordingLogsPath,
+		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="setuid"`),
+		regexp.MustCompile(`(?m)"container"="redis".*"syscallName"="epoll_wait"`),
+	)
+}
+
+func (e *e2e) profileRecordingMultiContainer(
+	recording string, waitConditions ...*regexp.Regexp,
+) {
 	e.profileRecordingTestCase()
 
 	e.logf("Creating recording for multi container test")
-	e.kubectl("create", "-f", exampleRecordingHookPath)
-	defer e.kubectl("delete", "-f", exampleRecordingHookPath)
+	e.kubectl("create", "-f", recording)
 
 	e.logf("Creating test pod")
 	const testPod = `
@@ -124,32 +174,61 @@ spec:
 `
 	testPodFile, err := ioutil.TempFile(os.TempDir(), "recording-pod*.yaml")
 	e.Nil(err)
-	defer os.Remove(testPodFile.Name())
 	_, err = testPodFile.Write([]byte(testPod))
 	e.Nil(err)
 	err = testPodFile.Close()
 	e.Nil(err)
+
+	since := time.Now() // nolint: ifshort
 	e.kubectl("create", "-f", testPodFile.Name())
 
 	e.logf("Waiting for test pod to be initialized")
 	const podName = "my-pod"
 	e.retryGet("pod", podName)
 	e.waitFor("condition=ready", "pod", podName)
+
+	if waitConditions != nil {
+		e.waitForEnricherLogs(since, waitConditions...)
+	}
+
 	e.kubectl("delete", "pod", podName)
 
-	profileRedis := e.retryGetSeccompProfile(recordingName + "-redis")
-	profileNginx := e.retryGetSeccompProfile(recordingName + "-nginx")
-	defer e.kubectl("delete", "sp", "--all")
-	e.Contains(profileNginx, "unlink")
-	e.Contains(profileRedis, "nanosleep")
+	const profileNameRedis = recordingName + "-redis"
+	profileRedis := e.retryGetSeccompProfile(profileNameRedis)
+	e.Contains(profileRedis, "epoll_wait")
+
+	const profileNameNginx = recordingName + "-nginx"
+	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
+	e.Contains(profileNginx, "close")
+
+	e.kubectl("delete", "-f", recording)
+	e.Nil(os.Remove(testPodFile.Name()))
+	e.kubectl("delete", "sp", profileNameRedis, profileNameNginx)
 }
 
-func (e *e2e) testCaseProfileRecordingDeployment() {
+func (e *e2e) testCaseProfileRecordingDeploymentHook() {
+	e.profileRecordingTestCase()
+	e.profileRecordingDeployment(exampleRecordingHookPath)
+}
+
+func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
+	e.profileRecordingTestCase()
+	e.logEnricherOnlyTestCase()
+	e.profileRecordingDeployment(
+		exampleRecordingLogsPath,
+		regexp.MustCompile(
+			`(?s)"container"="nginx".*"syscallName"="setuid"`+
+				`.*"container"="nginx".*"syscallName"="setuid"`),
+	)
+}
+
+func (e *e2e) profileRecordingDeployment(
+	recording string, waitConditions ...*regexp.Regexp,
+) {
 	e.profileRecordingTestCase()
 
 	e.logf("Creating recording for deployment test")
-	e.kubectl("create", "-f", exampleRecordingHookPath)
-	defer e.kubectl("delete", "-f", exampleRecordingHookPath)
+	e.kubectl("create", "-f", recording)
 
 	e.logf("Creating test deployment")
 	const testDeployment = `
@@ -173,23 +252,34 @@ spec:
 `
 	testFile, err := ioutil.TempFile(os.TempDir(), "recording-deployment*.yaml")
 	e.Nil(err)
-	defer os.Remove(testFile.Name())
 	_, err = testFile.Write([]byte(testDeployment))
 	e.Nil(err)
 	err = testFile.Close()
 	e.Nil(err)
+
+	since := time.Now() // nolint: ifshort
 	e.kubectl("create", "-f", testFile.Name())
+
 	const deployName = "my-deployment"
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
+
+	if waitConditions != nil {
+		e.waitForEnricherLogs(since, waitConditions...)
+	}
+
 	e.kubectl("delete", "deploy", deployName)
 
-	profile0 := e.retryGetSeccompProfile(recordingName + "-nginx-0")
-	profile1 := e.retryGetSeccompProfile(recordingName + "-nginx-1")
-	e.Contains(profile0, "unlink")
-	e.Contains(profile1, "unlink")
-	defer e.kubectl("delete", "sp", recordingName+"-nginx-0")
-	defer e.kubectl("delete", "sp", recordingName+"-nginx-1")
+	const profileName0 = recordingName + "-nginx-0"
+	const profileName1 = recordingName + "-nginx-1"
+	profile0 := e.retryGetSeccompProfile(profileName0)
+	profile1 := e.retryGetSeccompProfile(profileName1)
+	e.Contains(profile0, "setuid")
+	e.Contains(profile1, "setuid")
+
+	e.kubectl("delete", "-f", recording)
+	e.Nil(os.Remove(testFile.Name()))
+	e.kubectl("delete", "sp", profileName0, profileName1)
 }
 
 func (e *e2e) retryGetSeccompProfile(args ...string) string {
