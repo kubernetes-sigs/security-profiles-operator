@@ -9,7 +9,9 @@
   - [Apply profile to pod](#apply-profile-to-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
   - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
-  - [Record profiles from workloads with ProfileRecordings](#record-profiles-from-workloads-with-profilerecordings)
+  - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-)
+    - [Hook based recording](#hook-based-recording)
+    - [Log enricher based recording](#log-enricher-based-recording)
 - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
 - [Using metrics](#using-metrics)
   - [Available metrics](#available-metrics)
@@ -206,15 +208,19 @@ $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.sec
 {"localhostProfile":"operator/default/generic/profile-complain-unsafe.json","type":"Localhost"}
 ```
 
-### Record profiles from workloads with ProfileRecordings
+### Record profiles from workloads with `ProfileRecordings`
 
 The operator is capable of recording seccomp profiles by the usage of the
-[oci-seccomp-bpf-hook][bpf-hook]. [OCI hooks][hooks] are part of the OCI
-runtime-spec, which allow to hook into the container creation process. The
-Kubernetes container runtime [CRI-O][cri-o] supports those hooks out of the box,
-but has to be configured to listen on the hooks directory where the
-[oci-seccomp-bpf-hook.json][hook-json] located. This can be done via a drop-in
-configuration file, for example:
+[oci-seccomp-bpf-hook][bpf-hook] or by evaluating the [audit][auditd] logs. Both
+methods have its pros and cons as well as separate technical requirements.
+
+#### Hook based recording
+
+[OCI hooks][hooks] are part of the OCI runtime-spec, which allow to hook into
+the container creation process. The Kubernetes container runtime [CRI-O][cri-o]
+supports those hooks out of the box, but has to be configured to listen on the
+hooks directory where the [oci-seccomp-bpf-hook.json][hook-json] is located.
+This can be done via a drop-in configuration file, for example:
 
 ```
 $ cat /etc/crio/crio.conf.d/03-hooks.conf
@@ -234,6 +240,12 @@ and CRI-O work nicely together.
 [hook-json]: https://github.com/containers/oci-seccomp-bpf-hook/blob/50e711/oci-seccomp-bpf-hook.json
 [path]: https://github.com/containers/oci-seccomp-bpf-hook/blob/50e711/oci-seccomp-bpf-hook.json#L4
 
+Unfortunately, [containerd][containerd] is not [capable of running OCI
+hooks][containerd-hooks], yet.
+
+[containerd]: https://containerd.io
+[containerd-hooks]: https://github.com/containerd/cri/issues/405
+
 We can create a new `ProfileRecording` to indicate to the operator that a
 specific workload should be recorded:
 
@@ -244,15 +256,18 @@ metadata:
   name: test-recording
 spec:
   kind: SeccompProfile
+  recorder: hook
   podSelector:
     matchLabels:
       app: alpine
 ```
 
-This means that every workload which contains the label `app=alpine` will from
-now on be recorded into the `SeccompProfile` CRD with the name `test-recording`.
-Please be aware that the resource will be overwritten if recordings are executed
-multiple times.
+Please note the `recorder: hook`, which has to be used to use the hook based
+recording feature. Recordings are linked to workloads by using a `podSelector`,
+which means that every workload, which contains the label `app=alpine`, will
+from now on be recorded into the `SeccompProfile` CRD with the name
+`test-recording`. Please be aware that the resource will be overwritten if
+recordings are executed multiple times.
 
 Now we can start the recording by running a workload which contains the label:
 
@@ -315,6 +330,7 @@ metadata:
   name: recording
 spec:
   kind: SeccompProfile
+  recorder: hook
   podSelector:
     matchLabels:
       app: my-app
@@ -385,6 +401,79 @@ Please note that we encourage you to only use this recording approach for
 development purposes. It is not recommended to use the OCI hook in production
 clusters because it runs as highly privileged process to trace the container
 workload via a BPF module.
+
+#### Log enricher based recording
+
+When using the log enricher for recording seccomp profiles, please ensure that
+the feature [is enabled within the spod][using-the-log-enricher] configuration
+resource. The log based recording works in the same way with
+[containerd][containerd] and [CRI-O][cri-o], while using the node local
+[audit][auditd] logs as input source of truth.
+
+To record by using the enricher, create a `ProfileRecording` which is using
+`recorder: logs`:
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileRecording
+metadata:
+  name: test-recording
+spec:
+  kind: SeccompProfile
+  recorder: logs
+  podSelector:
+    matchLabels:
+      app: my-app
+```
+
+Then we can create a workload to be recorded, for example two containers within
+a single pod:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+  labels:
+    app: my-app
+spec:
+  containers:
+    - name: nginx
+      image: quay.io/security-profiles-operator/test-nginx:1.19.1
+    - name: redis
+      image: quay.io/security-profiles-operator/redis:6.2.1
+```
+
+If the pod is up and running:
+
+```
+> kubectl get pods
+NAME     READY   STATUS    RESTARTS   AGE
+my-pod   2/2     Running   0          18s
+```
+
+Then the enricher should indicate that it receives audit logs for those containers:
+
+```
+> kubectl -n security-profiles-operator logs --since=1m ds/spod log-enricher
+…
+I0705 12:08:18.729660 1843190 enricher.go:136] log-enricher "msg"="audit"  "container"="redis" "executable"="/usr/local/bin/redis-server" "namespace"="default" "node"="127.0.0.1" "pid"=1847839 "pod"="my-pod" "syscallID"=232 "syscallName"="epoll_wait" "timestamp"="1625486870.273:187492" "type"="seccomp"
+```
+
+Now, if we remove the pod:
+
+```
+> kubectl delete pod my-pod
+```
+
+Then the operator will reconcile two seccomp profiles:
+
+```
+> kubectl get sp
+NAME                   STATUS      AGE
+test-recording-nginx   Installed   15s
+test-recording-redis   Installed   15s
+```
 
 ## Restricting to a Single Namespace
 
