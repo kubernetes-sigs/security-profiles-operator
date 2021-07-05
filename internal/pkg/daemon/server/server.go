@@ -18,6 +18,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"net"
 	"sync"
 
@@ -81,28 +82,38 @@ func Addr() string {
 // MetricSeccompProfileAuditInc updates the metrics for the seccomp audit
 // counter.
 func (s *Server) MetricsAuditInc(
-	ctx context.Context, r *api.MetricsAuditRequest,
-) (*api.EmptyResponse, error) {
-	if r.GetType() == api.MetricsAuditRequest_SECCOMP {
-		s.metrics.IncSeccompProfileAudit(
-			r.GetNode(),
-			r.GetNamespace(),
-			r.GetPod(),
-			r.GetContainer(),
-			r.GetExecutable(),
-			r.GetSyscall(),
-		)
-	} else if r.GetType() == api.MetricsAuditRequest_SELINUX {
-		s.metrics.IncSelinuxProfileAudit(
-			r.GetNode(),
-			r.GetNamespace(),
-			r.GetPod(),
-			r.GetContainer(),
-			r.GetExecutable(),
-			r.GetSyscall(),
-		)
+	stream api.SecurityProfilesOperator_MetricsAuditIncServer,
+) error {
+	for {
+		r, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return stream.SendAndClose(&api.EmptyResponse{})
+		}
+		if err != nil {
+			return errors.Wrap(err, "record syscalls")
+		}
+
+		switch r.GetType() {
+		case api.MetricsAuditRequest_SECCOMP:
+			s.metrics.IncSeccompProfileAudit(
+				r.GetNode(),
+				r.GetNamespace(),
+				r.GetPod(),
+				r.GetContainer(),
+				r.GetExecutable(),
+				r.GetSyscall(),
+			)
+		case api.MetricsAuditRequest_SELINUX:
+			s.metrics.IncSelinuxProfileAudit(
+				r.GetNode(),
+				r.GetNamespace(),
+				r.GetPod(),
+				r.GetContainer(),
+				r.GetExecutable(),
+				r.GetSyscall(),
+			)
+		}
 	}
-	return &api.EmptyResponse{}, nil
 }
 
 // RecordSyscall traces a single syscall for a provided profile.

@@ -18,7 +18,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SecurityProfilesOperatorClient interface {
-	MetricsAuditInc(ctx context.Context, in *MetricsAuditRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
+	MetricsAuditInc(ctx context.Context, opts ...grpc.CallOption) (SecurityProfilesOperator_MetricsAuditIncClient, error)
 	RecordSyscall(ctx context.Context, in *RecordSyscallRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
 	Syscalls(ctx context.Context, in *SyscallsRequest, opts ...grpc.CallOption) (*SyscallsResponse, error)
 	ResetSyscalls(ctx context.Context, in *SyscallsRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
@@ -32,13 +32,38 @@ func NewSecurityProfilesOperatorClient(cc grpc.ClientConnInterface) SecurityProf
 	return &securityProfilesOperatorClient{cc}
 }
 
-func (c *securityProfilesOperatorClient) MetricsAuditInc(ctx context.Context, in *MetricsAuditRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
-	out := new(EmptyResponse)
-	err := c.cc.Invoke(ctx, "/api.SecurityProfilesOperator/MetricsAuditInc", in, out, opts...)
+func (c *securityProfilesOperatorClient) MetricsAuditInc(ctx context.Context, opts ...grpc.CallOption) (SecurityProfilesOperator_MetricsAuditIncClient, error) {
+	stream, err := c.cc.NewStream(ctx, &SecurityProfilesOperator_ServiceDesc.Streams[0], "/api.SecurityProfilesOperator/MetricsAuditInc", opts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &securityProfilesOperatorMetricsAuditIncClient{stream}
+	return x, nil
+}
+
+type SecurityProfilesOperator_MetricsAuditIncClient interface {
+	Send(*MetricsAuditRequest) error
+	CloseAndRecv() (*EmptyResponse, error)
+	grpc.ClientStream
+}
+
+type securityProfilesOperatorMetricsAuditIncClient struct {
+	grpc.ClientStream
+}
+
+func (x *securityProfilesOperatorMetricsAuditIncClient) Send(m *MetricsAuditRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *securityProfilesOperatorMetricsAuditIncClient) CloseAndRecv() (*EmptyResponse, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(EmptyResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func (c *securityProfilesOperatorClient) RecordSyscall(ctx context.Context, in *RecordSyscallRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
@@ -72,7 +97,7 @@ func (c *securityProfilesOperatorClient) ResetSyscalls(ctx context.Context, in *
 // All implementations must embed UnimplementedSecurityProfilesOperatorServer
 // for forward compatibility
 type SecurityProfilesOperatorServer interface {
-	MetricsAuditInc(context.Context, *MetricsAuditRequest) (*EmptyResponse, error)
+	MetricsAuditInc(SecurityProfilesOperator_MetricsAuditIncServer) error
 	RecordSyscall(context.Context, *RecordSyscallRequest) (*EmptyResponse, error)
 	Syscalls(context.Context, *SyscallsRequest) (*SyscallsResponse, error)
 	ResetSyscalls(context.Context, *SyscallsRequest) (*EmptyResponse, error)
@@ -83,8 +108,8 @@ type SecurityProfilesOperatorServer interface {
 type UnimplementedSecurityProfilesOperatorServer struct {
 }
 
-func (UnimplementedSecurityProfilesOperatorServer) MetricsAuditInc(context.Context, *MetricsAuditRequest) (*EmptyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method MetricsAuditInc not implemented")
+func (UnimplementedSecurityProfilesOperatorServer) MetricsAuditInc(SecurityProfilesOperator_MetricsAuditIncServer) error {
+	return status.Errorf(codes.Unimplemented, "method MetricsAuditInc not implemented")
 }
 func (UnimplementedSecurityProfilesOperatorServer) RecordSyscall(context.Context, *RecordSyscallRequest) (*EmptyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecordSyscall not implemented")
@@ -109,22 +134,30 @@ func RegisterSecurityProfilesOperatorServer(s grpc.ServiceRegistrar, srv Securit
 	s.RegisterService(&SecurityProfilesOperator_ServiceDesc, srv)
 }
 
-func _SecurityProfilesOperator_MetricsAuditInc_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MetricsAuditRequest)
-	if err := dec(in); err != nil {
+func _SecurityProfilesOperator_MetricsAuditInc_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(SecurityProfilesOperatorServer).MetricsAuditInc(&securityProfilesOperatorMetricsAuditIncServer{stream})
+}
+
+type SecurityProfilesOperator_MetricsAuditIncServer interface {
+	SendAndClose(*EmptyResponse) error
+	Recv() (*MetricsAuditRequest, error)
+	grpc.ServerStream
+}
+
+type securityProfilesOperatorMetricsAuditIncServer struct {
+	grpc.ServerStream
+}
+
+func (x *securityProfilesOperatorMetricsAuditIncServer) SendAndClose(m *EmptyResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *securityProfilesOperatorMetricsAuditIncServer) Recv() (*MetricsAuditRequest, error) {
+	m := new(MetricsAuditRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
-	if interceptor == nil {
-		return srv.(SecurityProfilesOperatorServer).MetricsAuditInc(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/api.SecurityProfilesOperator/MetricsAuditInc",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SecurityProfilesOperatorServer).MetricsAuditInc(ctx, req.(*MetricsAuditRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return m, nil
 }
 
 func _SecurityProfilesOperator_RecordSyscall_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -189,10 +222,6 @@ var SecurityProfilesOperator_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*SecurityProfilesOperatorServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "MetricsAuditInc",
-			Handler:    _SecurityProfilesOperator_MetricsAuditInc_Handler,
-		},
-		{
 			MethodName: "RecordSyscall",
 			Handler:    _SecurityProfilesOperator_RecordSyscall_Handler,
 		},
@@ -205,6 +234,12 @@ var SecurityProfilesOperator_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _SecurityProfilesOperator_ResetSyscalls_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "MetricsAuditInc",
+			Handler:       _SecurityProfilesOperator_MetricsAuditInc_Handler,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "api/server/api.proto",
 }
