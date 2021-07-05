@@ -126,9 +126,11 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.Run("cluster-wide: Seccomp: Verify profile recording", func() {
 		e.testCaseProfileRecordingStaticPodHook()
 		e.testCaseProfileRecordingStaticPodLogs()
-		e.testCaseProfileRecordingKubectlRun()
-		e.testCaseProfileRecordingMultiContainer()
-		e.testCaseProfileRecordingDeployment()
+		e.testCaseProfileRecordingKubectlRunHook()
+		e.testCaseProfileRecordingMultiContainerHook()
+		e.testCaseProfileRecordingMultiContainerLogs()
+		e.testCaseProfileRecordingDeploymentHook()
+		e.testCaseProfileRecordingDeploymentLogs()
 	})
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
