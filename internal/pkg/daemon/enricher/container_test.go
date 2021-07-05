@@ -31,8 +31,8 @@ func TestExtractContainerID(t *testing.T) {
 	}{
 		{
 			"Should extract crio ID",
-			//nolint:lll
-			`4:net_cls,net_prio:/kubepods/besteffort/pod26ba375c-2266-4ecc-bf2d-b626db8762af/crio-af208fd68bf39a07a439ed0c9b6609b9ae63ecd8a5f1a2af3e0db48b945b320a`,
+			`4:net_cls,net_prio:/kubepods/besteffort/pod26ba375c-2266-4ecc-bf2d-b626db8762af/` +
+				`crio-af208fd68bf39a07a439ed0c9b6609b9ae63ecd8a5f1a2af3e0db48b945b320a`,
 			"af208fd68bf39a07a439ed0c9b6609b9ae63ecd8a5f1a2af3e0db48b945b320a",
 		},
 		{
@@ -50,7 +50,7 @@ func TestExtractContainerID(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := extractID(tt.cgroupLine)
+			got := regexID.FindString(tt.cgroupLine)
 			require.Equal(t, tt.want, got)
 		})
 	}

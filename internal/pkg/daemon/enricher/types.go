@@ -16,13 +16,6 @@ limitations under the License.
 
 package enricher
 
-import "errors"
-
-var (
-	errUnsupportedLogLine = errors.New("unsupported log line")
-	errContainerIDEmpty   = errors.New("container ID is empty")
-)
-
 const (
 	auditTypeSeccomp = "seccomp"
 	auditTypeSelinux = "selinux"
