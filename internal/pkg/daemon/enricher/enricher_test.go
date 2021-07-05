@@ -93,11 +93,11 @@ func TestRun(t *testing.T) {
 					Time: time.Now(),
 				}
 
-				for mock.MetricsAuditIncCallCount() != 1 {
+				for mock.SendMetricCallCount() != 1 {
 					// Wait for MetricsAuditIncCallCount to be called
 				}
 
-				_, res := mock.MetricsAuditIncArgsForCall(0)
+				_, res := mock.SendMetricArgsForCall(0)
 				require.Equal(t, node, res.Node)
 				require.Equal(t, namespace, res.Namespace)
 				require.Equal(t, pod, res.Pod)

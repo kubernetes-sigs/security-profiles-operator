@@ -47,8 +47,11 @@ type impl interface {
 	ListPods(c *kubernetes.Clientset, nodeName string) (*v1.PodList, error)
 	MetricsAuditInc(
 		client api.SecurityProfilesOperatorClient,
+	) (api.SecurityProfilesOperator_MetricsAuditIncClient, error)
+	SendMetric(
+		client api.SecurityProfilesOperator_MetricsAuditIncClient,
 		in *api.MetricsAuditRequest,
-	) (*api.EmptyResponse, error)
+	) error
 	RecordSyscall(
 		client api.SecurityProfilesOperatorClient,
 		in *api.RecordSyscallRequest,
@@ -101,9 +104,15 @@ func (d *defaultImpl) ListPods(
 
 func (d *defaultImpl) MetricsAuditInc(
 	client api.SecurityProfilesOperatorClient,
+) (api.SecurityProfilesOperator_MetricsAuditIncClient, error) {
+	return client.MetricsAuditInc(context.Background())
+}
+
+func (d *defaultImpl) SendMetric(
+	client api.SecurityProfilesOperator_MetricsAuditIncClient,
 	in *api.MetricsAuditRequest,
-) (*api.EmptyResponse, error) {
-	return client.MetricsAuditInc(context.Background(), in)
+) error {
+	return client.Send(in)
 }
 
 func (d *defaultImpl) RecordSyscall(
