@@ -41,6 +41,7 @@ type Info struct {
 	GoVersion    string `json:"goVersion,omitempty"`
 	Compiler     string `json:"compiler,omitempty"`
 	Platform     string `json:"platform,omitempty"`
+	Libseccomp   string `json:"libseccomp,omitempty"`
 }
 
 func Get() *Info {
@@ -52,6 +53,7 @@ func Get() *Info {
 		GoVersion:    runtime.Version(),
 		Compiler:     runtime.Compiler,
 		Platform:     fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		Libseccomp:   libseccompVersion(),
 	}
 }
 
@@ -67,6 +69,7 @@ func (i *Info) String() string {
 	fmt.Fprintf(w, "GoVersion:\t%s\n", i.GoVersion)
 	fmt.Fprintf(w, "Compiler:\t%s\n", i.Compiler)
 	fmt.Fprintf(w, "Platform:\t%s\n", i.Platform)
+	fmt.Fprintf(w, "Libseccomp:\t%s\n", i.Libseccomp)
 
 	w.Flush()
 	return b.String()
