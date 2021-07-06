@@ -405,7 +405,7 @@ workload via a BPF module.
 #### Log enricher based recording
 
 When using the log enricher for recording seccomp profiles, please ensure that
-the feature [is enabled within the spod][using-the-log-enricher] configuration
+the feature [is enabled within the spod](#using-the-log-enricher) configuration
 resource. The log based recording works in the same way with
 [containerd][containerd] and [CRI-O][cri-o], while using the node local
 [audit][auditd] logs as input source of truth.
