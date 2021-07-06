@@ -82,7 +82,7 @@ func (r *ReconcileSPOd) Setup(
 func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
 	obj := &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "spod",
+			Name:      config.DefaultConfig,
 			Namespace: config.GetOperatorNamespace(),
 			Labels:    map[string]string{"app": config.OperatorName},
 		},

@@ -376,7 +376,6 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 ) *appsv1.DaemonSet {
 	newSPOd := r.baseSPOd.DeepCopy()
 
-	newSPOd.SetName(cfg.GetName())
 	newSPOd.SetNamespace(config.GetOperatorNamespace())
 	templateSpec := &newSPOd.Spec.Template.Spec
 

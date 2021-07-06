@@ -506,10 +506,10 @@ func (e *e2e) enableSelinuxInSpod() {
 	selinuxEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
 		e.logf("Enable selinux in SPOD")
-		e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
+		e.kubectlOperatorNS("patch", "spod", config.DefaultConfig, "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
 
 		time.Sleep(defaultWaitTime)
-		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+		e.waitInOperatorNSFor("condition=ready", "spod", config.DefaultConfig)
 
 		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultSelinuxOpTimeout)
 	}
@@ -525,10 +525,13 @@ func (e *e2e) logEnricherOnlyTestCase() {
 
 func (e *e2e) enableLogEnricherInSpod() {
 	e.logf("Enable log-enricher in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableLogEnricher": true}}`, "--type=merge")
+	e.kubectlOperatorNS(
+		"patch", "spod", config.DefaultConfig,
+		"-p", `{"spec":{"enableLogEnricher": true}}`, "--type=merge",
+	)
 
 	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.waitInOperatorNSFor("condition=ready", "spod", config.DefaultConfig)
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
 }

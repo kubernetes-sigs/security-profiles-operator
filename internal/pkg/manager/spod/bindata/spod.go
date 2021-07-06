@@ -51,7 +51,7 @@ const (
 
 var Manifest = &appsv1.DaemonSet{
 	ObjectMeta: metav1.ObjectMeta{
-		Name:      config.OperatorName,
+		Name:      "spod",
 		Namespace: config.OperatorName,
 	},
 	Spec: appsv1.DaemonSetSpec{

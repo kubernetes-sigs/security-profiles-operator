@@ -31,6 +31,9 @@ const (
 	// Service Account for the security-profiles-operator daemon.
 	SPOdServiceAccount = "spod"
 
+	// DefaultConfig is the name of the default daemon configuration.
+	DefaultConfig = "default"
+
 	// OperatorRoot is the root directory of the operator.
 	OperatorRoot = "/var/lib/security-profiles-operator"
 

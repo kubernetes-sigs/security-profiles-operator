@@ -656,7 +656,7 @@ If all requirements are met, then the feature can be enabled by patching the
 `spod` configuration:
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableLogEnricher":true}}'
+> kubectl -n security-profiles-operator patch spod default --type=merge -p '{"spec":{"enableLogEnricher":true}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 

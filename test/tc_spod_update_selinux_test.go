@@ -16,13 +16,19 @@ limitations under the License.
 
 package e2e_test
 
-import "time"
+import (
+	"time"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+)
 
 func (e *e2e) testCaseSPODUpdateSelinux(nodes []string) {
 	e.selinuxOnlyTestCase()
 
 	e.logf("assert selinux is enabled in the spod object")
-	selinuxEnabledInSPODObj := e.kubectlOperatorNS("get", "spod", "spod", "-o", "jsonpath={.spec.enableSelinux}")
+	selinuxEnabledInSPODObj := e.kubectlOperatorNS(
+		"get", "spod", config.DefaultConfig, "-o", "jsonpath={.spec.enableSelinux}",
+	)
 	e.Equal(selinuxEnabledInSPODObj, "true")
 
 	e.logf("assert selinux is enabled in the spod DS")
@@ -30,20 +36,20 @@ func (e *e2e) testCaseSPODUpdateSelinux(nodes []string) {
 	e.Contains(selinuxEnabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Disable selinux from SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": false}}`, "--type=merge")
+	e.kubectlOperatorNS("patch", "spod", config.DefaultConfig, "-p", `{"spec":{"enableSelinux": false}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.waitInOperatorNSFor("condition=ready", "spod", config.DefaultConfig)
 
 	e.logf("assert selinux is disabled in the spod DS")
 	selinuxDisabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	e.NotContains(selinuxDisabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Re-enable selinux in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
+	e.kubectlOperatorNS("patch", "spod", config.DefaultConfig, "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.waitInOperatorNSFor("condition=ready", "spod", config.DefaultConfig)
 
 	e.logf("assert selinux is enabled in the spod DS")
 	selinuxEnabledInSPODDS = e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
