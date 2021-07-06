@@ -17,6 +17,7 @@ limitations under the License.
 package enricher
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -48,10 +49,11 @@ const (
 		"crio-" + containerID + "\n"
 )
 
+var errTest = errors.New("test")
+
 func TestRun(t *testing.T) {
 	t.Parallel()
 
-	lineChan := make(chan *tail.Line)
 	f, err := os.CreateTemp("", "cgroup-")
 	require.Nil(t, err)
 	_, err = f.WriteString(cgroupLine)
@@ -61,11 +63,13 @@ func TestRun(t *testing.T) {
 	defer os.Remove(cgroupFilePath)
 
 	for _, tc := range []struct {
-		prepare func(*enricherfakes.FakeImpl)
-		assert  func(*enricherfakes.FakeImpl, error)
+		runAsync bool
+		prepare  func(*enricherfakes.FakeImpl, chan *tail.Line)
+		assert   func(*enricherfakes.FakeImpl, chan *tail.Line, error)
 	}{
 		{ // success
-			prepare: func(mock *enricherfakes.FakeImpl) {
+			runAsync: true,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.GetenvReturns(node)
 				mock.LinesReturns(lineChan)
 				mock.OpenCalls(func(string) (*os.File, error) {
@@ -83,7 +87,7 @@ func TestRun(t *testing.T) {
 					},
 				}}}, nil)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, err error) {
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
 				for mock.LinesCallCount() != 1 {
 					// Wait for Lines() to be called
 				}
@@ -107,15 +111,117 @@ func TestRun(t *testing.T) {
 				require.Nil(t, err)
 			},
 		},
+		{ // failure on SetTTL
+			runAsync: false,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.SetTTLReturns(errTest)
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // failure on Getenv
+			runAsync: false,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.GetenvReturns("")
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // failure on Dial
+			runAsync: false,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.GetenvReturns(node)
+				mock.DialReturns(nil, errTest)
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // failure on MetricsAuditInc
+			runAsync: false,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.GetenvReturns(node)
+				mock.MetricsAuditIncReturns(nil, errTest)
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // failure on Tail
+			runAsync: false,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.GetenvReturns(node)
+				mock.TailFileReturns(nil, errTest)
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // failure on Lines
+			runAsync: false,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.GetenvReturns(node)
+				close(lineChan)
+				mock.LinesReturns(lineChan)
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // success, but metrics send failed
+			runAsync: true,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.GetenvReturns(node)
+				mock.LinesReturns(lineChan)
+				mock.OpenCalls(func(string) (*os.File, error) {
+					return os.Open(cgroupFilePath)
+				})
+				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      pod,
+						Namespace: namespace,
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{{
+							ContainerID: crioPrefix + containerID,
+						}},
+					},
+				}}}, nil)
+				mock.SendMetricReturns(errTest)
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				for mock.LinesCallCount() != 1 {
+					// Wait for Lines() to be called
+				}
+
+				lineChan <- &tail.Line{
+					Text: seccompLine,
+					Time: time.Now(),
+				}
+
+				for mock.SendMetricCallCount() != 1 {
+					// Wait for MetricsAuditIncCallCount to be called
+				}
+
+				require.Nil(t, err)
+			},
+		},
 	} {
+		lineChan := make(chan *tail.Line)
 		mock := &enricherfakes.FakeImpl{}
-		tc.prepare(mock)
+		tc.prepare(mock, lineChan)
 
 		sut := New(logr.DiscardLogger{})
 		sut.impl = mock
 
 		var err error
-		go func() { err = sut.Run() }()
-		tc.assert(mock, err)
+		if tc.runAsync {
+			go func() { err = sut.Run() }()
+		} else {
+			err = sut.Run()
+		}
+		tc.assert(mock, lineChan, err)
 	}
 }
