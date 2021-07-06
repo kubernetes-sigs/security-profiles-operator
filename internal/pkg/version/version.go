@@ -58,7 +58,8 @@ func Get() *Info {
 // String returns the string representation of the version info.
 func (i *Info) String() string {
 	b := strings.Builder{}
-	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	const padding = 2
+	w := tabwriter.NewWriter(&b, 0, 0, padding, ' ', 0)
 
 	fmt.Fprintf(w, "Version:\t%s\n", i.Version)
 	fmt.Fprintf(w, "GitCommit:\t%s\n", i.GitCommit)

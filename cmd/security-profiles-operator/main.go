@@ -246,12 +246,10 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 }
 
 func getEnabledControllers(ctx *cli.Context) []controller.Controller {
-	controllers := make([]controller.Controller, 0, 2)
-
-	controllers = append(controllers,
+	controllers := []controller.Controller{
 		seccompprofile.NewController(),
 		profilerecorder.NewController(),
-	)
+	}
 
 	if ctx.Bool(selinuxFlag) {
 		controllers = append(controllers, selinuxprofile.NewController())

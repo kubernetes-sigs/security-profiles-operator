@@ -280,10 +280,11 @@ func (r *ReconcileSP) reconcilePolicyFile(sp *selinuxprofilev1alpha1.SelinuxProf
 // drop dir is private to this pod, but mostly just calling a single write is much easier codepath
 // than mucking around with seeks and truncates to account for all the corner cases.
 func writeFileIfDiffers(filePath string, contents []byte) error {
-	file, err := os.OpenFile(filePath, os.O_RDONLY, 0600)
+	const filePermissions = 0o600
+	file, err := os.OpenFile(filePath, os.O_RDONLY, filePermissions)
 	if os.IsNotExist(err) {
 		file.Close()
-		return ioutil.WriteFile(filePath, contents, 0600)
+		return ioutil.WriteFile(filePath, contents, filePermissions)
 	} else if err != nil {
 		return errors.Wrap(err, "could not open for reading"+filePath)
 	}
@@ -298,7 +299,7 @@ func writeFileIfDiffers(filePath string, contents []byte) error {
 		return nil
 	}
 
-	return ioutil.WriteFile(filePath, contents, 0600)
+	return ioutil.WriteFile(filePath, contents, filePermissions)
 }
 
 func (r *ReconcileSP) reconcileDeletePolicy(
