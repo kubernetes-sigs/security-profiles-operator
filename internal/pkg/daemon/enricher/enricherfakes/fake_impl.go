@@ -20,7 +20,9 @@ package enricherfakes
 import (
 	"os"
 	"sync"
+	"time"
 
+	ttlcache "github.com/ReneKroon/ttlcache/v2"
 	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -175,6 +177,18 @@ type FakeImpl struct {
 		result1 error
 	}
 	sendSyscallReturnsOnCall map[int]struct {
+		result1 error
+	}
+	SetTTLStub        func(ttlcache.SimpleCache, time.Duration) error
+	setTTLMutex       sync.RWMutex
+	setTTLArgsForCall []struct {
+		arg1 ttlcache.SimpleCache
+		arg2 time.Duration
+	}
+	setTTLReturns struct {
+		result1 error
+	}
+	setTTLReturnsOnCall map[int]struct {
 		result1 error
 	}
 	TailFileStub        func(string, tail.Config) (*tail.Tail, error)
@@ -935,6 +949,68 @@ func (fake *FakeImpl) SendSyscallReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) SetTTL(arg1 ttlcache.SimpleCache, arg2 time.Duration) error {
+	fake.setTTLMutex.Lock()
+	ret, specificReturn := fake.setTTLReturnsOnCall[len(fake.setTTLArgsForCall)]
+	fake.setTTLArgsForCall = append(fake.setTTLArgsForCall, struct {
+		arg1 ttlcache.SimpleCache
+		arg2 time.Duration
+	}{arg1, arg2})
+	stub := fake.SetTTLStub
+	fakeReturns := fake.setTTLReturns
+	fake.recordInvocation("SetTTL", []interface{}{arg1, arg2})
+	fake.setTTLMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) SetTTLCallCount() int {
+	fake.setTTLMutex.RLock()
+	defer fake.setTTLMutex.RUnlock()
+	return len(fake.setTTLArgsForCall)
+}
+
+func (fake *FakeImpl) SetTTLCalls(stub func(ttlcache.SimpleCache, time.Duration) error) {
+	fake.setTTLMutex.Lock()
+	defer fake.setTTLMutex.Unlock()
+	fake.SetTTLStub = stub
+}
+
+func (fake *FakeImpl) SetTTLArgsForCall(i int) (ttlcache.SimpleCache, time.Duration) {
+	fake.setTTLMutex.RLock()
+	defer fake.setTTLMutex.RUnlock()
+	argsForCall := fake.setTTLArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) SetTTLReturns(result1 error) {
+	fake.setTTLMutex.Lock()
+	defer fake.setTTLMutex.Unlock()
+	fake.SetTTLStub = nil
+	fake.setTTLReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SetTTLReturnsOnCall(i int, result1 error) {
+	fake.setTTLMutex.Lock()
+	defer fake.setTTLMutex.Unlock()
+	fake.SetTTLStub = nil
+	if fake.setTTLReturnsOnCall == nil {
+		fake.setTTLReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.setTTLReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) TailFile(arg1 string, arg2 tail.Config) (*tail.Tail, error) {
 	fake.tailFileMutex.Lock()
 	ret, specificReturn := fake.tailFileReturnsOnCall[len(fake.tailFileArgsForCall)]
@@ -1027,6 +1103,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.sendMetricMutex.RUnlock()
 	fake.sendSyscallMutex.RLock()
 	defer fake.sendSyscallMutex.RUnlock()
+	fake.setTTLMutex.RLock()
+	defer fake.setTTLMutex.RUnlock()
 	fake.tailFileMutex.RLock()
 	defer fake.tailFileMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}

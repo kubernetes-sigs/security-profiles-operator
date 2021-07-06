@@ -19,7 +19,9 @@ package enricher
 import (
 	"context"
 	"os"
+	"time"
 
+	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -36,6 +38,7 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 //counterfeiter:generate . impl
 type impl interface {
+	SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error
 	Getenv(key string) string
 	Dial() (*grpc.ClientConn, error)
 	Close(*grpc.ClientConn) error
@@ -59,6 +62,10 @@ type impl interface {
 		client api.SecurityProfilesOperator_RecordSyscallClient,
 		in *api.RecordSyscallRequest,
 	) error
+}
+
+func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
+	return cache.SetTTL(ttl)
 }
 
 func (d *defaultImpl) Getenv(key string) string {

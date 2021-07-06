@@ -59,7 +59,7 @@ func (e *Enricher) Run() error {
 	for _, cache := range []ttlcache.SimpleCache{
 		e.containerIDCache, e.infoCache,
 	} {
-		if err := cache.SetTTL(defaultCacheTimeout); err != nil {
+		if err := e.impl.SetTTL(cache, defaultCacheTimeout); err != nil {
 			return errors.Wrap(err, "set cache timeout")
 		}
 		defer cache.Close()
@@ -195,5 +195,5 @@ func (e *Enricher) Run() error {
 		}
 	}
 
-	return errors.Wrap(tailFile.Err(), "enricher failed")
+	return errors.New("enricher failed")
 }
