@@ -178,7 +178,7 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 		return reconcile.Result{}, nil
 	}
 
-	var lowestCommonState statusv1alpha1.ProfileState = statusv1alpha1.LowestState
+	lowestCommonState := statusv1alpha1.LowestState
 	for i := range nodeStatusList.Items {
 		lowestCommonState = statusv1alpha1.LowerOfTwoStates(lowestCommonState, nodeStatusList.Items[i].Status)
 	}
