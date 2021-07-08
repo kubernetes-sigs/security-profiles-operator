@@ -131,6 +131,7 @@ func (e *Enricher) Run() error {
 		}
 
 		cID, err := e.getContainerID(auditLine.processID)
+		e.logger.Info("trying to get container ID", "err", err)
 		if errors.Is(err, os.ErrNotExist) {
 			// We're probably in container creation or removal
 			continue

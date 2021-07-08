@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export E2E_TEST_LOG_ENRICHER=true
+
 make test-e2e

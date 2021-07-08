@@ -3,5 +3,20 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
+    extraMounts:
+    - hostPath: /var/log/audit
+      containerPath: /var/log/audit
+    - hostPath: /proc
+      containerPath: /proc-host
   - role: worker
+    extraMounts:
+    - hostPath: /var/log/audit
+      containerPath: /var/log/audit
+    - hostPath: /proc
+      containerPath: /proc-host
   - role: worker
+    extraMounts:
+    - hostPath: /var/log/audit
+      containerPath: /var/log/audit
+    - hostPath: /proc
+      containerPath: /proc-host

@@ -257,6 +257,7 @@ func (e *kinde2e) TearDownTest() {
 	e.logf("#### Snapshot of security-profiles-operator namespace ####")
 	e.kubectl("--namespace", "security-profiles-operator", "describe", "all")
 	e.logf("########")
+	e.run("cat", "/var/log/audit/audit.log")
 
 	e.logf("Destroying cluster")
 	e.run(

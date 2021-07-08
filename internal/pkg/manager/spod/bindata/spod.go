@@ -367,10 +367,17 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 								MountPath: filepath.Dir(config.SyslogLogPath),
 								ReadOnly:  true,
 							},
+							{
+								Name:      "host-proc-volume",
+								MountPath: "/proc-host",
+								ReadOnly:  true,
+							},
 						},
 						SecurityContext: &v1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
 							Privileged:             &truly,
+							RunAsUser:              &userRoot,
+							RunAsGroup:             &userRoot,
 							SELinuxOptions: &v1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
 								Type: "spc_t",
@@ -536,6 +543,15 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						VolumeSource: v1.VolumeSource{
 							HostPath: &v1.HostPathVolumeSource{
 								Path: filepath.Dir(config.SyslogLogPath),
+								Type: &hostPathDirectoryOrCreate,
+							},
+						},
+					},
+					{
+						Name: "host-proc-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/proc-host",
 								Type: &hostPathDirectoryOrCreate,
 							},
 						},

@@ -76,16 +76,20 @@ spec:
 	e.waitFor("condition=ready", "sp", profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
-	for i := 0; i < 20; i++ {
+	const max = 20
+	for i := 0; i <= max; i++ {
 		output := e.kubectl("get", "pod", podName)
-		if strings.Contains(output, "Completed") {
+		if strings.Contains(output, "Running") {
 			break
 		}
-		time.Sleep(time.Second)
+		if i == max {
+			e.Fail("Unable to get pod in running state")
+		}
+		time.Sleep(5 * time.Second)
 	}
 
 	e.logf("Checking log enricher output")
-	output := e.kubectlOperatorNS("logs", "ds/spod", "log-enricher")
+	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "log-enricher")
 
 	e.Contains(output, `"msg"="audit"`)
 	e.Contains(output, `"type"="seccomp"`)

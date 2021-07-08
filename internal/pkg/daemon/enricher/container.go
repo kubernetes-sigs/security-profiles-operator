@@ -19,6 +19,7 @@ package enricher
 import (
 	"bufio"
 	"fmt"
+	"io/ioutil"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -134,7 +135,15 @@ func (e *Enricher) getContainerID(processID int) (string, error) {
 		return id.(string), nil
 	}
 
-	cgroupPath := fmt.Sprintf("/proc/%d/cgroup", processID)
+	files, err := ioutil.ReadDir("/proc-host")
+	if err != nil {
+		return "", errors.Wrap(err, "read host proc")
+	}
+	for _, f := range files {
+		e.logger.Info(f.Name())
+	}
+
+	cgroupPath := fmt.Sprintf("/proc-host/%d/cgroup", processID)
 
 	file, err := e.impl.Open(filepath.Clean(cgroupPath))
 	if err != nil {
