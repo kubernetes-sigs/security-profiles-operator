@@ -46,7 +46,7 @@ architectures `amd64` and `arm64` for now. To deploy the operator, first install
 cert-manager via `kubectl`:
 
 ```sh
-$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.3.1/cert-manager.yaml
+$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.4.0/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
