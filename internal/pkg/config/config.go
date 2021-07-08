@@ -73,6 +73,9 @@ const (
 	// AuditLogPath is the path to the auditd log file.
 	AuditLogPath = "/var/log/audit/audit.log"
 
+	// SyslogLogPath is the path to the syslog log file.
+	SyslogLogPath = "/var/log/syslog"
+
 	// LogEnricherProfile is the seccomp profile name for tracing syscalls from
 	// the log enricher.
 	LogEnricherProfile = "log-enricher-trace"
