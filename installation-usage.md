@@ -211,8 +211,9 @@ $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.sec
 ### Record profiles from workloads with `ProfileRecordings`
 
 The operator is capable of recording seccomp profiles by the usage of the
-[oci-seccomp-bpf-hook][bpf-hook] or by evaluating the [audit][auditd] logs. Both
-methods have its pros and cons as well as separate technical requirements.
+[oci-seccomp-bpf-hook][bpf-hook] or by evaluating the [audit][auditd] or
+[syslog][syslog] files. Both methods have its pros and cons as well as separate
+technical requirements.
 
 #### Hook based recording
 
@@ -407,8 +408,8 @@ workload via a BPF module.
 When using the log enricher for recording seccomp profiles, please ensure that
 the feature [is enabled within the spod](#using-the-log-enricher) configuration
 resource. The log based recording works in the same way with
-[containerd][containerd] and [CRI-O][cri-o], while using the node local
-[audit][auditd] logs as input source of truth.
+[containerd][containerd] and [CRI-O][cri-o], while using the node local logs as
+input source of truth.
 
 To record by using the enricher, create a `ProfileRecording` which is using
 `recorder: logs`:
@@ -644,13 +645,16 @@ privileged mode to be able to read the audit logs from the local node. It is als
 required that the enricher is able to read the host processes and therefore runs
 within host PID namespace (`hostPID`).
 
-Further requirements to the Kubernetes node have to be fulfilled to use the log
-enrichment feature:
+One of the following requirements to the Kubernetes node have to be fulfilled to
+use the log enrichment feature:
 
 - [auditd][auditd] needs to run and has to be configured to log into
   `/var/log/audit/audit.log`
+- [syslog][syslog] can be used as fallback to auditd and needs to log into
+  `/var/log/syslog`
 
 [auditd]: https://man7.org/linux/man-pages/man8/auditd.8.html
+[syslog]: https://man7.org/linux/man-pages/man3/syslog.3.html
 
 If all requirements are met, then the feature can be enabled by patching the
 `spod` configuration:

@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/nxadm/tail"
 	"github.com/pkg/errors"
+	"sigs.k8s.io/release-utils/util"
 
 	api "sigs.k8s.io/security-profiles-operator/api/server"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -92,9 +93,12 @@ func (e *Enricher) Run() error {
 		return errors.Wrap(err, "create syscall recording client")
 	}
 
+	// Use auditd logs as main source or syslog as fallback.
+	filePath := logFilePath()
+
 	// If the file does not exist, then tail will wait for it to appear
 	tailFile, err := e.impl.TailFile(
-		config.AuditLogPath,
+		filePath,
 		tail.Config{
 			ReOpen: true,
 			Follow: true,
@@ -108,7 +112,7 @@ func (e *Enricher) Run() error {
 		return errors.Wrap(err, "tailing file")
 	}
 
-	e.logger.Info("Reading from file " + config.AuditLogPath)
+	e.logger.Info("Reading from file " + filePath)
 	for l := range e.impl.Lines(tailFile) {
 		if l.Err != nil {
 			e.logger.Error(l.Err, "failed to tail")
@@ -196,4 +200,14 @@ func (e *Enricher) Run() error {
 	}
 
 	return errors.New("enricher failed")
+}
+
+// logFilePath returns either the path to the audit logs or falls back to
+// syslog if the audit log path does not exist.
+func logFilePath() string {
+	filePath := config.SyslogLogPath
+	if util.Exists(config.AuditLogPath) {
+		filePath = config.AuditLogPath
+	}
+	return filePath
 }

@@ -358,8 +358,13 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						ImagePullPolicy: v1.PullAlways,
 						VolumeMounts: []v1.VolumeMount{
 							{
-								Name:      "host-varlogaudit-volume",
+								Name:      "host-auditlog-volume",
 								MountPath: filepath.Dir(config.AuditLogPath),
+								ReadOnly:  true,
+							},
+							{
+								Name:      "host-syslog-volume",
+								MountPath: filepath.Dir(config.SyslogLogPath),
 								ReadOnly:  true,
 							},
 						},
@@ -518,10 +523,19 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						},
 					},
 					{
-						Name: "host-varlogaudit-volume",
+						Name: "host-auditlog-volume",
 						VolumeSource: v1.VolumeSource{
 							HostPath: &v1.HostPathVolumeSource{
 								Path: filepath.Dir(config.AuditLogPath),
+								Type: &hostPathDirectoryOrCreate,
+							},
+						},
+					},
+					{
+						Name: "host-syslog-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: filepath.Dir(config.SyslogLogPath),
 								Type: &hostPathDirectoryOrCreate,
 							},
 						},

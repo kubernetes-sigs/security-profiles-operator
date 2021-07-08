@@ -36,6 +36,12 @@ func Test_isAuditLine(t *testing.T) {
 			true,
 		},
 		{
+			"Should identify type=1326 lines with timestamp",
+			//nolint:lll
+			`Jul  8 10:31:23 ubuntu2004 kernel: [  270.853767] audit: type=1326 audit(1625740283.502:574): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=4709 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=13 compat=0 ip=0x7f3c012e467b code=0x7ffc0000`,
+			true,
+		},
+		{
 			"Should identify type=SECCOMP log lines",
 			//nolint:lll
 			`type=SECCOMP msg=audit(1613596317.899:6461): auid=4294967295 uid=0 gid=0 ses=4294967295 subj=system_u:system_r:spc_t:s0:c284,c594 pid=2039886 comm="ls" exe="/bin/ls" sig=0 arch=c000003e syscall=3 compat=0 ip=0x7f62dce3d4c7 code=0x7ffc0000AUID="unset" UID="root" GID="root" ARCH=x86_64 SYSCALL=close`,
