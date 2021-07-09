@@ -165,6 +165,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				close(lineChan)
 				mock.LinesReturns(lineChan)
+				mock.ReasonReturns(errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
 				require.NotNil(t, err)

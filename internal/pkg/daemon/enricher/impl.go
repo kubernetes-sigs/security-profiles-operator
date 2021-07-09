@@ -44,6 +44,7 @@ type impl interface {
 	Close(*grpc.ClientConn) error
 	TailFile(filename string, config tail.Config) (*tail.Tail, error)
 	Lines(tailFile *tail.Tail) chan *tail.Line
+	Reason(tailFile *tail.Tail) error
 	Open(name string) (*os.File, error)
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(c *rest.Config) (*kubernetes.Clientset, error)
@@ -88,6 +89,10 @@ func (d *defaultImpl) TailFile(
 
 func (d *defaultImpl) Lines(tailFile *tail.Tail) chan *tail.Line {
 	return tailFile.Lines
+}
+
+func (d *defaultImpl) Reason(tailFile *tail.Tail) error {
+	return tailFile.Err()
 }
 
 func (d *defaultImpl) Open(name string) (*os.File, error) {
