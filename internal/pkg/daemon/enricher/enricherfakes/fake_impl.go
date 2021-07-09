@@ -142,6 +142,17 @@ type FakeImpl struct {
 		result1 *os.File
 		result2 error
 	}
+	ReasonStub        func(*tail.Tail) error
+	reasonMutex       sync.RWMutex
+	reasonArgsForCall []struct {
+		arg1 *tail.Tail
+	}
+	reasonReturns struct {
+		result1 error
+	}
+	reasonReturnsOnCall map[int]struct {
+		result1 error
+	}
 	RecordSyscallStub        func(api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_RecordSyscallClient, error)
 	recordSyscallMutex       sync.RWMutex
 	recordSyscallArgsForCall []struct {
@@ -761,6 +772,67 @@ func (fake *FakeImpl) OpenReturnsOnCall(i int, result1 *os.File, result2 error) 
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) Reason(arg1 *tail.Tail) error {
+	fake.reasonMutex.Lock()
+	ret, specificReturn := fake.reasonReturnsOnCall[len(fake.reasonArgsForCall)]
+	fake.reasonArgsForCall = append(fake.reasonArgsForCall, struct {
+		arg1 *tail.Tail
+	}{arg1})
+	stub := fake.ReasonStub
+	fakeReturns := fake.reasonReturns
+	fake.recordInvocation("Reason", []interface{}{arg1})
+	fake.reasonMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) ReasonCallCount() int {
+	fake.reasonMutex.RLock()
+	defer fake.reasonMutex.RUnlock()
+	return len(fake.reasonArgsForCall)
+}
+
+func (fake *FakeImpl) ReasonCalls(stub func(*tail.Tail) error) {
+	fake.reasonMutex.Lock()
+	defer fake.reasonMutex.Unlock()
+	fake.ReasonStub = stub
+}
+
+func (fake *FakeImpl) ReasonArgsForCall(i int) *tail.Tail {
+	fake.reasonMutex.RLock()
+	defer fake.reasonMutex.RUnlock()
+	argsForCall := fake.reasonArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) ReasonReturns(result1 error) {
+	fake.reasonMutex.Lock()
+	defer fake.reasonMutex.Unlock()
+	fake.ReasonStub = nil
+	fake.reasonReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) ReasonReturnsOnCall(i int, result1 error) {
+	fake.reasonMutex.Lock()
+	defer fake.reasonMutex.Unlock()
+	fake.ReasonStub = nil
+	if fake.reasonReturnsOnCall == nil {
+		fake.reasonReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.reasonReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) RecordSyscall(arg1 api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_RecordSyscallClient, error) {
 	fake.recordSyscallMutex.Lock()
 	ret, specificReturn := fake.recordSyscallReturnsOnCall[len(fake.recordSyscallArgsForCall)]
@@ -1097,6 +1169,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.newForConfigMutex.RUnlock()
 	fake.openMutex.RLock()
 	defer fake.openMutex.RUnlock()
+	fake.reasonMutex.RLock()
+	defer fake.reasonMutex.RUnlock()
 	fake.recordSyscallMutex.RLock()
 	defer fake.recordSyscallMutex.RUnlock()
 	fake.sendMetricMutex.RLock()

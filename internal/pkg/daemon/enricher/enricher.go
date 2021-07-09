@@ -199,7 +199,7 @@ func (e *Enricher) Run() error {
 		}
 	}
 
-	return errors.New("enricher failed")
+	return errors.Wrap(e.impl.Reason(tailFile), "enricher failed")
 }
 
 // logFilePath returns either the path to the audit logs or falls back to
