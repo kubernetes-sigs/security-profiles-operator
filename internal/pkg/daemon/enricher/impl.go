@@ -40,7 +40,7 @@ type defaultImpl struct{}
 type impl interface {
 	SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error
 	Getenv(key string) string
-	Dial() (*grpc.ClientConn, error)
+	Dial() (*grpc.ClientConn, context.CancelFunc, error)
 	Close(*grpc.ClientConn) error
 	TailFile(filename string, config tail.Config) (*tail.Tail, error)
 	Lines(tailFile *tail.Tail) chan *tail.Line
@@ -73,8 +73,8 @@ func (d *defaultImpl) Getenv(key string) string {
 	return os.Getenv(key)
 }
 
-func (d *defaultImpl) Dial() (*grpc.ClientConn, error) {
-	return grpc.Dial(server.Addr(), grpc.WithInsecure())
+func (d *defaultImpl) Dial() (*grpc.ClientConn, context.CancelFunc, error) {
+	return server.Dial()
 }
 
 func (d *defaultImpl) Close(conn *grpc.ClientConn) error {

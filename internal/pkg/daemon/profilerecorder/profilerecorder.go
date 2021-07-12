@@ -33,7 +33,6 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -137,10 +136,11 @@ func (r *RecorderReconciler) Setup(
 	}
 
 	r.log.Info("Connecting to local GRPC server")
-	conn, err := grpc.Dial(server.Addr(), grpc.WithInsecure())
+	conn, cancel, err := server.Dial()
 	if err != nil {
 		return errors.Wrap(err, "connecting to local GRPC server")
 	}
+	defer cancel()
 
 	r.grpcClient = api.NewSecurityProfilesOperatorClient(conn)
 	r.client = mgr.GetClient()

@@ -21,6 +21,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -32,7 +33,8 @@ import (
 )
 
 const (
-	maxMsgSize = 16 * 1024 * 1024
+	defaultTimeout time.Duration = 20 * time.Second
+	maxMsgSize                   = 16 * 1024 * 1024
 )
 
 // Server is the main structure of this package.
@@ -53,7 +55,7 @@ func New(logger logr.Logger, met *metrics.Metrics) *Server {
 
 // Start runs the server in the background.
 func (s *Server) Start() error {
-	listener, err := net.Listen("tcp", Addr())
+	listener, err := net.Listen("tcp", addr())
 	if err != nil {
 		return errors.Wrap(err, "create listener")
 	}
@@ -74,8 +76,20 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Addr returns the default server listening address.
-func Addr() string {
+// Dial can be used to connect to the default GRPC server by creating a new
+// client.
+func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	conn, err := grpc.DialContext(ctx, addr(), grpc.WithInsecure())
+	if err != nil {
+		cancel()
+		return nil, nil, errors.Wrap(err, "GRPC dial")
+	}
+	return conn, cancel, nil
+}
+
+// addr returns the default server listening address.
+func addr() string {
 	return net.JoinHostPort("localhost", "9111")
 }
 
