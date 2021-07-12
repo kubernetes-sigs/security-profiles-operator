@@ -133,7 +133,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.GetenvReturns(node)
-				mock.DialReturns(nil, errTest)
+				mock.DialReturns(nil, nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
 				require.NotNil(t, err)
@@ -143,6 +143,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.GetenvReturns(node)
+				mock.DialReturns(nil, func() {}, errTest)
 				mock.MetricsAuditIncReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
@@ -153,6 +154,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.GetenvReturns(node)
+				mock.DialReturns(nil, func() {}, errTest)
 				mock.TailFileReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
@@ -163,6 +165,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.GetenvReturns(node)
+				mock.DialReturns(nil, func() {}, errTest)
 				close(lineChan)
 				mock.LinesReturns(lineChan)
 				mock.ReasonReturns(errTest)
