@@ -76,10 +76,11 @@ func (e *Enricher) Run() error {
 	e.logger.Info("Starting log-enricher on node: " + nodeName)
 
 	e.logger.Info("Connecting to local GRPC server")
-	conn, err := e.impl.Dial()
+	conn, cancel, err := e.impl.Dial()
 	if err != nil {
 		return errors.Wrap(err, "connecting to local GRPC server")
 	}
+	defer cancel()
 	defer e.impl.Close(conn)
 	client := api.NewSecurityProfilesOperatorClient(conn)
 

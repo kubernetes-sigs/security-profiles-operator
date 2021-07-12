@@ -18,6 +18,7 @@ limitations under the License.
 package enricherfakes
 
 import (
+	"context"
 	"os"
 	"sync"
 	"time"
@@ -43,17 +44,19 @@ type FakeImpl struct {
 	closeReturnsOnCall map[int]struct {
 		result1 error
 	}
-	DialStub        func() (*grpc.ClientConn, error)
+	DialStub        func() (*grpc.ClientConn, context.CancelFunc, error)
 	dialMutex       sync.RWMutex
 	dialArgsForCall []struct {
 	}
 	dialReturns struct {
 		result1 *grpc.ClientConn
-		result2 error
+		result2 context.CancelFunc
+		result3 error
 	}
 	dialReturnsOnCall map[int]struct {
 		result1 *grpc.ClientConn
-		result2 error
+		result2 context.CancelFunc
+		result3 error
 	}
 	GetenvStub        func(string) string
 	getenvMutex       sync.RWMutex
@@ -281,7 +284,7 @@ func (fake *FakeImpl) CloseReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) Dial() (*grpc.ClientConn, error) {
+func (fake *FakeImpl) Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	fake.dialMutex.Lock()
 	ret, specificReturn := fake.dialReturnsOnCall[len(fake.dialArgsForCall)]
 	fake.dialArgsForCall = append(fake.dialArgsForCall, struct {
@@ -294,9 +297,9 @@ func (fake *FakeImpl) Dial() (*grpc.ClientConn, error) {
 		return stub()
 	}
 	if specificReturn {
-		return ret.result1, ret.result2
+		return ret.result1, ret.result2, ret.result3
 	}
-	return fakeReturns.result1, fakeReturns.result2
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
 func (fake *FakeImpl) DialCallCount() int {
@@ -305,36 +308,39 @@ func (fake *FakeImpl) DialCallCount() int {
 	return len(fake.dialArgsForCall)
 }
 
-func (fake *FakeImpl) DialCalls(stub func() (*grpc.ClientConn, error)) {
+func (fake *FakeImpl) DialCalls(stub func() (*grpc.ClientConn, context.CancelFunc, error)) {
 	fake.dialMutex.Lock()
 	defer fake.dialMutex.Unlock()
 	fake.DialStub = stub
 }
 
-func (fake *FakeImpl) DialReturns(result1 *grpc.ClientConn, result2 error) {
+func (fake *FakeImpl) DialReturns(result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
 	fake.dialMutex.Lock()
 	defer fake.dialMutex.Unlock()
 	fake.DialStub = nil
 	fake.dialReturns = struct {
 		result1 *grpc.ClientConn
-		result2 error
-	}{result1, result2}
+		result2 context.CancelFunc
+		result3 error
+	}{result1, result2, result3}
 }
 
-func (fake *FakeImpl) DialReturnsOnCall(i int, result1 *grpc.ClientConn, result2 error) {
+func (fake *FakeImpl) DialReturnsOnCall(i int, result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
 	fake.dialMutex.Lock()
 	defer fake.dialMutex.Unlock()
 	fake.DialStub = nil
 	if fake.dialReturnsOnCall == nil {
 		fake.dialReturnsOnCall = make(map[int]struct {
 			result1 *grpc.ClientConn
-			result2 error
+			result2 context.CancelFunc
+			result3 error
 		})
 	}
 	fake.dialReturnsOnCall[i] = struct {
 		result1 *grpc.ClientConn
-		result2 error
-	}{result1, result2}
+		result2 context.CancelFunc
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *FakeImpl) Getenv(arg1 string) string {
