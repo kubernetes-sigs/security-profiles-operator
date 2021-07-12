@@ -51,9 +51,6 @@ spec:
 	e.logf("Creating test pod")
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 
-	// Usually, the `sleep 5` is not required if the machine executing the test
-	// is fast enough to extract the container ID from the cgroup wile the
-	// container is still running. We still add it here for deflaking purposes.
 	pod := fmt.Sprintf(`
 apiVersion: v1
 kind: Pod
@@ -76,12 +73,16 @@ spec:
 	e.waitFor("condition=ready", "sp", profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
-	for i := 0; i < 20; i++ {
+	const max = 20
+	for i := 0; i <= max; i++ {
 		output := e.kubectl("get", "pod", podName)
-		if strings.Contains(output, "Completed") {
+		if strings.Contains(output, "Running") {
 			break
 		}
-		time.Sleep(time.Second)
+		if i == max {
+			e.Fail("Unable to get pod in running state")
+		}
+		time.Sleep(5 * time.Second)
 	}
 
 	e.logf("Checking log enricher output")
