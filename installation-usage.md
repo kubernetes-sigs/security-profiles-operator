@@ -651,7 +651,13 @@ use the log enrichment feature:
 - [auditd][auditd] needs to run and has to be configured to log into
   `/var/log/audit/audit.log`
 - [syslog][syslog] can be used as fallback to auditd and needs to log into
-  `/var/log/syslog`
+  `/var/log/syslog`. Depending on the system configuration, a printk rate limiting may be
+  in place which has direct influence on the log enrichment. To diable the rate
+  limiting, set the following sysctls:
+  ```
+  > sysctl -w kernel.printk_ratelimit=0
+  > sysctl -w kernel.printk_ratelimit_burst=0
+  ```
 
 [auditd]: https://man7.org/linux/man-pages/man8/auditd.8.html
 [syslog]: https://man7.org/linux/man-pages/man3/syslog.3.html

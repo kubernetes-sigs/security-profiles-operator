@@ -1,12 +1,14 @@
 dependencies:
   - name: go
-    version: 1.16
+    version: 1.16.6
     refPaths:
     - path: .github/workflows/build.yml
       match: GO_VERSION
     - path: .github/workflows/test.yml
       match: GO_VERSION
-    - path: hack/ci/Vagrantfile
+    - path: hack/ci/Vagrantfile-fedora
+      match: GO_VERSION
+    - path: hack/ci/Vagrantfile-ubuntu
       match: GO_VERSION
 
   - name: golangci-lint
@@ -62,8 +64,14 @@ dependencies:
   - name: e2e-fedora
     version: 33
     refPaths:
-    - path: hack/ci/Vagrantfile
+    - path: hack/ci/Vagrantfile-fedora
       match: fedora
+
+  - name: e2e-ubuntu
+    version: 2004
+    refPaths:
+    - path: hack/ci/Vagrantfile-ubuntu
+      match: ubuntu
 
   - name: debian-base
     version: 1.6.0
