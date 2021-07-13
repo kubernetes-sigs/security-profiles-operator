@@ -371,6 +371,8 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 						SecurityContext: &v1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
 							Privileged:             &truly,
+							RunAsUser:              &userRoot,
+							RunAsGroup:             &userRoot,
 							SELinuxOptions: &v1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
 								Type: "spc_t",
