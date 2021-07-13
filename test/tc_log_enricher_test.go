@@ -85,7 +85,7 @@ spec:
 	}
 
 	e.logf("Checking log enricher output")
-	output := e.kubectlOperatorNS("logs", "ds/spod", "log-enricher")
+	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "log-enricher")
 
 	e.Contains(output, `"msg"="audit"`)
 	e.Contains(output, `"type"="seccomp"`)
@@ -93,20 +93,20 @@ spec:
 	e.Contains(output, fmt.Sprintf(`"pod"=%q`, podName))
 	e.Contains(output, fmt.Sprintf(`"container"=%q`, containerName))
 	e.Contains(output, fmt.Sprintf(`"namespace"=%q`, namespace))
-	e.Contains(output, `"node"="127.0.0.1"`)
+	e.Regexp(`(?mU)\s"node"=".*"\s`, output)
 	e.Contains(output, `"pid"`)
 	e.Contains(output, `"timestamp"`)
 	e.Contains(output, `"syscallName"="listen"`)
 	e.Contains(output, `"syscallID"=50`)
 
 	metrics := e.getSpodMetrics()
-	e.Contains(metrics, fmt.Sprintf(`security_profiles_operator_seccomp_profile_audit_total{`+
+	e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_audit_total{`+
 		`container="%s",`+
 		`executable="/usr/sbin/nginx",`+
 		`namespace="%s",`+
-		`node="127.0.0.1",`+
+		`node=".*",`+
 		`pod="%s",`+
 		`syscall="listen"} 4`,
 		containerName, namespace, podName,
-	))
+	), metrics)
 }

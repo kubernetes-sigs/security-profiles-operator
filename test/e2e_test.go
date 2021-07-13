@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 const (
@@ -123,13 +124,16 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseProfileBinding(nodes)
 	})
 
-	e.Run("cluster-wide: Seccomp: Verify profile recording", func() {
+	e.Run("cluster-wide: Seccomp: Verify profile recording hook", func() {
 		e.testCaseProfileRecordingStaticPodHook()
-		e.testCaseProfileRecordingStaticPodLogs()
 		e.testCaseProfileRecordingKubectlRunHook()
 		e.testCaseProfileRecordingMultiContainerHook()
-		e.testCaseProfileRecordingMultiContainerLogs()
 		e.testCaseProfileRecordingDeploymentHook()
+	})
+
+	e.Run("cluster-wide: Seccomp: Verify profile recording logs", func() {
+		e.testCaseProfileRecordingStaticPodLogs()
+		e.testCaseProfileRecordingMultiContainerLogs()
 		e.testCaseProfileRecordingDeploymentLogs()
 	})
 
@@ -265,6 +269,15 @@ func (e *e2e) deployOperator(manifest string) {
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "name=spod")
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=spod")
+	// Wait for spod to be available
+	for {
+		if res, err := command.New(
+			e.kubectlPath, "-n", config.OperatorName, "get", "spod", "spod",
+		).Run(); err == nil && res.Success() {
+			break
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 func (e *e2e) cleanupOperator(manifest string) {

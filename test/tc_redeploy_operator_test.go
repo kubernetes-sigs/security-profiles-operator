@@ -17,6 +17,8 @@ limitations under the License.
 package e2e_test
 
 func (e *e2e) testCaseReDeployOperator([]string) {
+	e.seccompOnlyTestCase()
+
 	// Clean up the operator
 	e.cleanupOperator(manifest)
 
@@ -25,6 +27,8 @@ func (e *e2e) testCaseReDeployOperator([]string) {
 }
 
 func (e *e2e) testCaseReDeployNamespaceOperator([]string) {
+	e.seccompOnlyTestCase()
+
 	// Clean up the operator
 	e.cleanupOperator(namespaceManifest)
 

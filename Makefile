@@ -185,16 +185,24 @@ update-proto: $(BUILD_DIR)/protoc-gen-go $(BUILD_DIR)/protoc-gen-go-grpc ## Upda
 			--go-grpc_opt=paths=source_relative \
 			api/server/api.proto
 
-.PHONY: vagrant-up
-vagrant-up: ## Boot the vagrant based test VM
+define vagrant-up
 	if [ ! -f image.tar ]; then \
 		make image IMAGE=$(IMAGE) && \
 		$(CONTAINER_RUNTIME) save -o image.tar $(IMAGE); \
 	fi
-	ln -sf hack/ci/Vagrantfile .
+	ln -sf hack/ci/Vagrantfile-$(1) Vagrantfile
 	# Retry in case provisioning failed because of some temporarily unavailable
 	# remote resource (like the VM image)
 	vagrant up || vagrant up || vagrant up
+endef
+
+.PHONY: vagrant-up-fedora
+vagrant-up-fedora: ## Boot the Vagrant Fedora based test VM
+	$(call vagrant-up,fedora)
+
+.PHONY: vagrant-up-ubuntu
+vagrant-up-ubuntu: ## Boot the Vagrant Ubuntu based test VM
+	$(call vagrant-up,ubuntu)
 
 $(BUILD_DIR)/mdtoc: $(BUILD_DIR)
 	$(call go-build,./vendor/sigs.k8s.io/mdtoc)

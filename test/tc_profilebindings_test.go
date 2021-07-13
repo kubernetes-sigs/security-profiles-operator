@@ -24,6 +24,8 @@ import (
 )
 
 func (e *e2e) testCaseProfileBinding([]string) {
+	e.seccompOnlyTestCase()
+
 	const exampleProfilePath = "examples/seccompprofile.yaml"
 	const testBinding = `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1

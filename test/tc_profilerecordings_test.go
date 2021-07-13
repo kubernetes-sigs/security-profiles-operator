@@ -59,7 +59,6 @@ func (e *e2e) testCaseProfileRecordingStaticPodHook() {
 }
 
 func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
-	e.profileRecordingTestCase()
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingStaticPod(
 		exampleRecordingLogsPath,
@@ -139,7 +138,6 @@ func (e *e2e) testCaseProfileRecordingMultiContainerHook() {
 }
 
 func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
-	e.profileRecordingTestCase()
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingMultiContainer(
 		exampleRecordingLogsPath,
@@ -151,8 +149,6 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 func (e *e2e) profileRecordingMultiContainer(
 	recording string, waitConditions ...*regexp.Regexp,
 ) {
-	e.profileRecordingTestCase()
-
 	e.logf("Creating recording for multi container test")
 	e.kubectl("create", "-f", recording)
 
@@ -212,7 +208,6 @@ func (e *e2e) testCaseProfileRecordingDeploymentHook() {
 }
 
 func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
-	e.profileRecordingTestCase()
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingDeployment(
 		exampleRecordingLogsPath,
@@ -225,8 +220,6 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 func (e *e2e) profileRecordingDeployment(
 	recording string, waitConditions ...*regexp.Regexp,
 ) {
-	e.profileRecordingTestCase()
-
 	e.logf("Creating recording for deployment test")
 	e.kubectl("create", "-f", recording)
 

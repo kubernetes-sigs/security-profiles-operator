@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-ENVFILE=$(dirname "${BASH_SOURCE[0]}")/env.sh
+ENVFILE=$(dirname "${BASH_SOURCE[0]}")/env-fedora.sh
 . "$ENVFILE"
 
 K8SPATH="$GOPATH/src/k8s.io"
