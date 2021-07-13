@@ -21,7 +21,7 @@ Vagrant.configure("2") do |config|
     sh.inline = <<~SHELL
       set -euxo pipefail
 
-      export GO_VERSION=1.16
+      GO_VERSION=1.16.6
       curl -sSfL -o- https://dl.google.com/go/go"$GO_VERSION".linux-amd64.tar.gz |
         tar xfz - -C /usr/local
 

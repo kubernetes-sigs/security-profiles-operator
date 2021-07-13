@@ -1,0 +1,60 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "generic/ubuntu2004"
+  memory = 6144
+  cpus = 4
+
+  config.vm.provider :virtualbox do |v|
+    v.memory = memory
+    v.cpus = cpus
+  end
+
+  config.vm.provider :libvirt do |v|
+    v.memory = memory
+    v.cpus = cpus
+  end
+
+  config.vm.synced_folder ".", "/vagrant"
+  config.vm.provision "docker"
+
+  config.vm.provision "install-dependencies", type: "shell", run: "once" do |sh|
+    sh.inline = <<~SHELL
+      set -euxo pipefail
+
+      # golang
+      GO_VERSION=1.16.6
+      curl -sSfL -o- https://golang.org/dl/go$GO_VERSION.linux-amd64.tar.gz | tar xfz - -C /usr/local
+
+      # Kubernetes
+      curl -sSfL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+      echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
+      apt-get update
+      apt-get install -y build-essential kubelet kubeadm kubectl
+
+      # Disable kernel print rate limiting for syslog messaging
+      sysctl -w kernel.printk_ratelimit=0
+      sysctl -w kernel.printk_ratelimit_burst=0
+
+      # Setup cluster
+      IP=`ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]'`
+      NODENAME=$(hostname -s)
+      swapoff -a
+      kubeadm init --apiserver-cert-extra-sans=$IP  --node-name $NODENAME
+
+      # Load pre-built image
+      docker load -i /vagrant/image.tar
+
+      # Setup kubectl
+      mkdir /home/vagrant/.kube
+      cp /etc/kubernetes/admin.conf /home/vagrant/.kube/config
+      chown -R vagrant:vagrant /home/vagrant/.kube
+
+      # Configure cluster
+      export KUBECONFIG=/etc/kubernetes/admin.conf
+      kubectl taint nodes --all node-role.kubernetes.io/master-
+      kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+    SHELL
+  end
+end
