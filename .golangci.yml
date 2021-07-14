@@ -78,6 +78,8 @@ linters:
     # - wrapcheck
     # - wsl
 linters-settings:
+  gocognit:
+    min-complexity: 40
   nestif:
     min-complexity: 10
   gci:
