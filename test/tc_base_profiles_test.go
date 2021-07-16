@@ -28,11 +28,11 @@ func (e *e2e) testCaseBaseProfile([]string) {
 	e.seccompOnlyTestCase()
 
 	baseProfilePath := "examples/baseprofile-runc.yaml"
-	baseProfileName := "runc-v1.0.0-rc92"
+	baseProfileName := "runc-v1.0.0"
 
 	if clusterType == clusterTypeVanilla {
 		baseProfilePath = "examples/baseprofile-crun.yaml"
-		baseProfileName = "crun-v0.17"
+		baseProfileName = "crun-v0.20.1"
 	}
 
 	helloProfile := fmt.Sprintf(`
