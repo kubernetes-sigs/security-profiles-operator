@@ -19,9 +19,9 @@ require (
 	google.golang.org/grpc v1.39.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.1.0
 	google.golang.org/protobuf v1.27.1
-	k8s.io/api v0.20.6
-	k8s.io/apimachinery v0.21.2
-	k8s.io/client-go v0.20.6
+	k8s.io/api v0.21.3
+	k8s.io/apimachinery v0.21.3
+	k8s.io/client-go v0.21.3
 	k8s.io/klog/v2 v2.10.0
 	sigs.k8s.io/controller-runtime v0.8.3
 	sigs.k8s.io/controller-tools v0.5.0
