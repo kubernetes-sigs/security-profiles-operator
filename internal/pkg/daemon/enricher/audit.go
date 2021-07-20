@@ -73,8 +73,13 @@ func extractSeccompLine(logLine string) *auditLine {
 	if v, err := strconv.Atoi(captures[3]); err == nil {
 		line.processID = v
 	}
-	if v, err := strconv.Atoi(captures[5]); err == nil {
-		line.systemCallID = v
+
+	const (
+		base    = 10
+		bitSize = 32
+	)
+	if v, err := strconv.ParseInt(captures[5], base, bitSize); err == nil {
+		line.systemCallID = int32(v)
 	}
 
 	return &line

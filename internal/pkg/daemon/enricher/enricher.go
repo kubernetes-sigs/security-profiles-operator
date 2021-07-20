@@ -154,11 +154,12 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
-		syscallName, ok := systemCalls[auditLine.systemCallID]
-		if !ok {
+		syscallName, err := syscallName(auditLine.systemCallID)
+		if err != nil {
 			e.logger.Info(
 				"no syscall name found for ID",
 				"syscallID", auditLine.systemCallID,
+				"err", err.Error(),
 			)
 			continue
 		}
