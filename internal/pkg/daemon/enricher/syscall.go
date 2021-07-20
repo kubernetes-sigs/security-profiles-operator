@@ -1,5 +1,7 @@
+// +build linux
+
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,23 +18,9 @@ limitations under the License.
 
 package enricher
 
-const (
-	auditTypeSeccomp = "seccomp"
-	auditTypeSelinux = "selinux"
-)
+import seccomp "github.com/seccomp/libseccomp-golang"
 
-type auditLine struct {
-	processID    int
-	systemCallID int32
-	type_        string
-	timestampID  string
-	executable   string
-}
-
-type containerInfo struct {
-	podName       string
-	containerName string
-	namespace     string
-	containerID   string
-	recordProfile string
+// syscallName returns the syscall name for the provided ID.
+func syscallName(id int32) (string, error) {
+	return seccomp.ScmpSyscall(id).GetName()
 }
