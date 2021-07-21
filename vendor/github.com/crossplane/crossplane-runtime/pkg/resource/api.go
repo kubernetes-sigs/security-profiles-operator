@@ -154,8 +154,8 @@ func (a *APIPatchingApplicator) Apply(ctx context.Context, o client.Object, ao .
 
 type patch struct{ from runtime.Object }
 
-func (p *patch) Type() types.PatchType                 { return types.MergePatchType }
-func (p *patch) Data(_ runtime.Object) ([]byte, error) { return json.Marshal(p.from) }
+func (p *patch) Type() types.PatchType                { return types.MergePatchType }
+func (p *patch) Data(_ client.Object) ([]byte, error) { return json.Marshal(p.from) }
 
 // An APIUpdatingApplicator applies changes to an object by either creating or
 // updating it in a Kubernetes API server.
