@@ -17,6 +17,7 @@ limitations under the License.
 package enricher
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -25,10 +26,12 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/nxadm/tail"
 	"github.com/pkg/errors"
-	"sigs.k8s.io/release-utils/util"
+	"google.golang.org/grpc"
+	rutil "sigs.k8s.io/release-utils/util"
 
 	api "sigs.k8s.io/security-profiles-operator/api/server"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // defaultCacheTimeout is the timeout for the container ID and info cache being
@@ -76,23 +79,41 @@ func (e *Enricher) Run() error {
 	e.logger.Info("Starting log-enricher on node: " + nodeName)
 
 	e.logger.Info("Connecting to local GRPC server")
-	conn, cancel, err := e.impl.Dial()
-	if err != nil {
-		return errors.Wrap(err, "connecting to local GRPC server")
+
+	var (
+		conn                  *grpc.ClientConn
+		cancel                context.CancelFunc
+		metricsAuditIncClient api.SecurityProfilesOperator_MetricsAuditIncClient
+		recordSyscallClient   api.SecurityProfilesOperator_RecordSyscallClient
+	)
+
+	if err := util.Retry(func() (err error) {
+		conn, cancel, err = e.impl.Dial()
+		if err != nil {
+			return errors.Wrap(err, "connecting to local GRPC server")
+		}
+		client := api.NewSecurityProfilesOperatorClient(conn)
+
+		metricsAuditIncClient, err = e.impl.MetricsAuditInc(client)
+		if err != nil {
+			cancel()
+			e.impl.Close(conn)
+			return errors.Wrap(err, "create metrics audit client")
+		}
+
+		recordSyscallClient, err = e.impl.RecordSyscall(client)
+		if err != nil {
+			cancel()
+			e.impl.Close(conn)
+			return errors.Wrap(err, "create syscall recording client")
+		}
+
+		return nil
+	}, func(err error) bool { return true }); err != nil {
+		return errors.Wrap(err, "connect to local GRPC server")
 	}
 	defer cancel()
 	defer e.impl.Close(conn)
-	client := api.NewSecurityProfilesOperatorClient(conn)
-
-	metricsAuditIncClient, err := e.impl.MetricsAuditInc(client)
-	if err != nil {
-		return errors.Wrap(err, "create metrics audit client")
-	}
-
-	recordSyscallClient, err := e.impl.RecordSyscall(client)
-	if err != nil {
-		return errors.Wrap(err, "create syscall recording client")
-	}
 
 	// Use auditd logs as main source or syslog as fallback.
 	filePath := logFilePath()
@@ -216,7 +237,7 @@ func (e *Enricher) Run() error {
 // syslog if the audit log path does not exist.
 func logFilePath() string {
 	filePath := config.SyslogLogPath
-	if util.Exists(config.AuditLogPath) {
+	if rutil.Exists(config.AuditLogPath) {
 		filePath = config.AuditLogPath
 	}
 	return filePath
