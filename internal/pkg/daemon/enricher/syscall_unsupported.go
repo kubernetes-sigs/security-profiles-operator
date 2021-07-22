@@ -20,9 +20,9 @@ package enricher
 
 import "errors"
 
-var errUnsupoprtedPlatform = errors.New("unsupoprted platform")
+var errUnsupportedPlatform = errors.New("unsupported platform")
 
 // syscallName returns the syscall name for the provided ID.
 func syscallName(id int32) (string, error) {
-	return "", errUnsupoprtedPlatform
+	return "", errUnsupportedPlatform
 }
