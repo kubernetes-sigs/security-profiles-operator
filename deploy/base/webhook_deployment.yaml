@@ -27,6 +27,12 @@ spec:
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 250m
+            limits:
+              memory: 64Mi
           volumeMounts:
           - name: cert
             mountPath: /tmp/k8s-webhook-server/serving-certs
