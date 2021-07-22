@@ -116,7 +116,6 @@ var Manifest = &appsv1.DaemonSet{
 							},
 							Limits: v1.ResourceList{
 								v1.ResourceMemory:           resource.MustParse("64Mi"),
-								v1.ResourceCPU:              resource.MustParse("250m"),
 								v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
 							},
 						},
@@ -192,7 +191,6 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							Limits: v1.ResourceList{
 								// libsemanage is very resource hungry...
 								v1.ResourceMemory:           resource.MustParse("1024Mi"),
-								v1.ResourceCPU:              resource.MustParse("250m"),
 								v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
 							},
 						},
@@ -242,7 +240,6 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							},
 							Limits: v1.ResourceList{
 								v1.ResourceMemory:           resource.MustParse("128Mi"),
-								v1.ResourceCPU:              resource.MustParse("300m"),
 								v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
 							},
 						},
@@ -347,7 +344,6 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							},
 							Limits: v1.ResourceList{
 								v1.ResourceMemory:           resource.MustParse("1024Mi"),
-								v1.ResourceCPU:              resource.MustParse("1000m"),
 								v1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
 							},
 						},
@@ -386,7 +382,6 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							},
 							Limits: v1.ResourceList{
 								v1.ResourceMemory:           resource.MustParse("128Mi"),
-								v1.ResourceCPU:              resource.MustParse("150m"),
 								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
 							},
 						},
@@ -420,7 +415,6 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 							},
 							Limits: v1.ResourceList{
 								v1.ResourceMemory:           resource.MustParse("128Mi"),
-								v1.ResourceCPU:              resource.MustParse("150m"),
 								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
 							},
 						},
