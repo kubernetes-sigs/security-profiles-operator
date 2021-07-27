@@ -244,7 +244,7 @@ func (r *ReconcileSP) reconcilePolicy(
 		r.record.Event(sp, event.Normal(reasonInstalledPolicy, evstr))
 	case failedStatus:
 		polState = statusv1alpha1.ProfileStateError
-		evstr := fmt.Sprintf("Failed to save profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
+		evstr := fmt.Sprintf("Failed to save profile to disk on %s: %s", os.Getenv(config.NodeNameEnvKey), polStatus.Msg)
 		r.metrics.IncSelinuxProfileError(reasonCannotInstallPolicy)
 		r.record.Event(sp, event.Warning(reasonCannotInstallPolicy, errors.New(evstr)))
 	}
@@ -337,6 +337,8 @@ func (r *ReconcileSP) reconcileDeletePolicy(
 				return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation")
 			}
 
+			evstr := fmt.Sprintf("Failed to save profile to disk on %s: %s", os.Getenv(config.NodeNameEnvKey), polStatus.Msg)
+			r.record.Event(sp, event.Warning(reasonCannotInstallPolicy, errors.New(evstr)))
 			return reconcile.Result{}, nil
 		}
 	}
