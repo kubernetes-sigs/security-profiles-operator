@@ -127,6 +127,7 @@ spec:
                 description: Kind of object to be recorded.
                 enum:
                 - SeccompProfile
+                - SelinuxProfile
                 type: string
               podSelector:
                 description: PodSelector selects the pods to record. This field follows

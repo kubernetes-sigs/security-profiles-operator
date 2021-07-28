@@ -17,13 +17,20 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+	"time"
+
+	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 type ProfileRecordingKind string
 
 const (
 	ProfileRecordingKindSeccompProfile ProfileRecordingKind = "SeccompProfile"
+	ProfileRecordingKindSelinuxProfile ProfileRecordingKind = "SelinuxProfile"
 )
 
 type ProfileRecorder string
@@ -36,7 +43,7 @@ const (
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
 type ProfileRecordingSpec struct {
 	// Kind of object to be recorded.
-	// +kubebuilder:validation:Enum=SeccompProfile
+	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile
 	Kind ProfileRecordingKind `json:"kind"`
 
 	// Recorder to be used.
@@ -65,6 +72,89 @@ type ProfileRecording struct {
 
 	Spec   ProfileRecordingSpec   `json:"spec,omitempty"`
 	Status ProfileRecordingStatus `json:"status,omitempty"`
+}
+
+func (pr *ProfileRecording) CtrAnnotation(replica, ctrName string) (key, value string, err error) {
+	ctrReplicaName := ctrName
+	if replica != "" {
+		ctrReplicaName += replica
+	}
+
+	switch pr.Spec.Kind {
+	case ProfileRecordingKindSeccompProfile:
+		return pr.ctrAnnotationSeccomp(ctrReplicaName, ctrName)
+	case ProfileRecordingKindSelinuxProfile:
+		return pr.ctrAnnotationSelinux(ctrReplicaName, ctrName)
+	}
+
+	return "", "", errors.Errorf(
+		"invalid kind: %s", pr.Spec.Kind,
+	)
+}
+
+func (pr *ProfileRecording) IsKindSupported() bool {
+	switch pr.Spec.Kind {
+	case ProfileRecordingKindSelinuxProfile, ProfileRecordingKindSeccompProfile:
+		return true
+	}
+	return false
+}
+
+func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrReplicaName, ctrName string) (key, value string, err error) {
+	var annotationPrefix string
+
+	switch pr.Spec.Recorder {
+	case ProfileRecorderHook:
+		annotationPrefix = config.SeccompProfileRecordHookAnnotationKey
+		value = fmt.Sprintf(
+			"of:%s/%s-%s-%d.json",
+			config.ProfileRecordingOutputPath,
+			pr.GetName(),
+			ctrReplicaName,
+			time.Now().Unix(),
+		)
+
+	case ProfileRecorderLogs:
+		annotationPrefix = config.SeccompProfileRecordLogsAnnotationKey
+		value = fmt.Sprintf(
+			"%s-%s-%d",
+			pr.GetName(),
+			ctrReplicaName,
+			time.Now().Unix(),
+		)
+
+	default:
+		return "", "", errors.Errorf(
+			"invalid recorder: %s", pr.Spec.Recorder,
+		)
+	}
+
+	key = annotationPrefix + ctrName
+	return key, value, err
+}
+
+func (pr *ProfileRecording) ctrAnnotationSelinux(ctrReplicaName, ctrName string) (key, value string, err error) {
+	var annotationPrefix string
+
+	switch pr.Spec.Recorder {
+	case ProfileRecorderLogs:
+		annotationPrefix = config.SelinuxProfileRecordLogsAnnotationKey
+		value = fmt.Sprintf(
+			"%s-%s-%d",
+			pr.GetName(),
+			ctrReplicaName,
+			time.Now().Unix(),
+		)
+
+	case ProfileRecorderHook:
+	default:
+		return "", "", errors.Errorf(
+			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderLogs,
+		)
+	}
+
+	key = annotationPrefix + ctrName
+	return
 }
 
 // +kubebuilder:object:root=true

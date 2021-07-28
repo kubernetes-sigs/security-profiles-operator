@@ -24,9 +24,9 @@ import (
 )
 
 const (
-	exampleRecordingHookPath = "examples/profilerecording-hook.yaml"
-	exampleRecordingLogsPath = "examples/profilerecording-logs.yaml"
-	recordingName            = "test-recording"
+	exampleRecordingHookPath        = "examples/profilerecording-hook.yaml"
+	exampleRecordingSeccompLogsPath = "examples/profilerecording-seccomp-logs.yaml"
+	recordingName                   = "test-recording"
 )
 
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
@@ -61,7 +61,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodHook() {
 func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingStaticPod(
-		exampleRecordingLogsPath,
+		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(`(?m)"syscallName"="setuid"`),
 	)
 }
@@ -140,7 +140,7 @@ func (e *e2e) testCaseProfileRecordingMultiContainerHook() {
 func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingMultiContainer(
-		exampleRecordingLogsPath,
+		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="setuid"`),
 		regexp.MustCompile(`(?m)"container"="redis".*"syscallName"="epoll_wait"`),
 	)
@@ -210,7 +210,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentHook() {
 func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingDeployment(
-		exampleRecordingLogsPath,
+		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(
 			`(?s)"container"="nginx".*"syscallName"="setuid"`+
 				`.*"container"="nginx".*"syscallName"="setuid"`),

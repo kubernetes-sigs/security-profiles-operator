@@ -44,6 +44,16 @@ type FakeImpl struct {
 		result1 *v1.Pod
 		result2 error
 	}
+	GetOperatorNamespaceStub        func() string
+	getOperatorNamespaceMutex       sync.RWMutex
+	getOperatorNamespaceArgsForCall []struct {
+	}
+	getOperatorNamespaceReturns struct {
+		result1 string
+	}
+	getOperatorNamespaceReturnsOnCall map[int]struct {
+		result1 string
+	}
 	LabelSelectorAsSelectorStub        func(*v1a.LabelSelector) (labels.Selector, error)
 	labelSelectorAsSelectorMutex       sync.RWMutex
 	labelSelectorAsSelectorArgsForCall []struct {
@@ -156,6 +166,59 @@ func (fake *FakeImpl) DecodePodReturnsOnCall(i int, result1 *v1.Pod, result2 err
 		result1 *v1.Pod
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetOperatorNamespace() string {
+	fake.getOperatorNamespaceMutex.Lock()
+	ret, specificReturn := fake.getOperatorNamespaceReturnsOnCall[len(fake.getOperatorNamespaceArgsForCall)]
+	fake.getOperatorNamespaceArgsForCall = append(fake.getOperatorNamespaceArgsForCall, struct {
+	}{})
+	stub := fake.GetOperatorNamespaceStub
+	fakeReturns := fake.getOperatorNamespaceReturns
+	fake.recordInvocation("GetOperatorNamespace", []interface{}{})
+	fake.getOperatorNamespaceMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) GetOperatorNamespaceCallCount() int {
+	fake.getOperatorNamespaceMutex.RLock()
+	defer fake.getOperatorNamespaceMutex.RUnlock()
+	return len(fake.getOperatorNamespaceArgsForCall)
+}
+
+func (fake *FakeImpl) GetOperatorNamespaceCalls(stub func() string) {
+	fake.getOperatorNamespaceMutex.Lock()
+	defer fake.getOperatorNamespaceMutex.Unlock()
+	fake.GetOperatorNamespaceStub = stub
+}
+
+func (fake *FakeImpl) GetOperatorNamespaceReturns(result1 string) {
+	fake.getOperatorNamespaceMutex.Lock()
+	defer fake.getOperatorNamespaceMutex.Unlock()
+	fake.GetOperatorNamespaceStub = nil
+	fake.getOperatorNamespaceReturns = struct {
+		result1 string
+	}{result1}
+}
+
+func (fake *FakeImpl) GetOperatorNamespaceReturnsOnCall(i int, result1 string) {
+	fake.getOperatorNamespaceMutex.Lock()
+	defer fake.getOperatorNamespaceMutex.Unlock()
+	fake.GetOperatorNamespaceStub = nil
+	if fake.getOperatorNamespaceReturnsOnCall == nil {
+		fake.getOperatorNamespaceReturnsOnCall = make(map[int]struct {
+			result1 string
+		})
+	}
+	fake.getOperatorNamespaceReturnsOnCall[i] = struct {
+		result1 string
+	}{result1}
 }
 
 func (fake *FakeImpl) LabelSelectorAsSelector(arg1 *v1a.LabelSelector) (labels.Selector, error) {
@@ -388,6 +451,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.invocationsMutex.RUnlock()
 	fake.decodePodMutex.RLock()
 	defer fake.decodePodMutex.RUnlock()
+	fake.getOperatorNamespaceMutex.RLock()
+	defer fake.getOperatorNamespaceMutex.RUnlock()
 	fake.labelSelectorAsSelectorMutex.RLock()
 	defer fake.labelSelectorAsSelectorMutex.RUnlock()
 	fake.listProfileRecordingsMutex.RLock()
