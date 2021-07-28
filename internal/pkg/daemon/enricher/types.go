@@ -22,11 +22,21 @@ const (
 )
 
 type auditLine struct {
-	processID    int
+	type_ string
+
+	// common
+	processID   int
+	timestampID string
+
+	// seccomp
 	systemCallID int32
-	type_        string
-	timestampID  string
 	executable   string
+
+	// selinux
+	scontext string
+	tcontext string
+	tclass   string
+	perm     string
 }
 
 type containerInfo struct {
