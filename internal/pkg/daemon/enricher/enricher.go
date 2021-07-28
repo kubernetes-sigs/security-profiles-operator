@@ -56,6 +56,12 @@ func New(logger logr.Logger) *Enricher {
 	}
 }
 
+type grpcClients struct {
+	metricsAuditIncClient api.SecurityProfilesOperator_MetricsAuditIncClient
+	recordSyscallClient   api.SecurityProfilesOperator_RecordSyscallClient
+	recordAvcClient       api.SecurityProfilesOperator_RecordAvcClient
+}
+
 // Run the log-enricher to scrap audit logs and enrich them with
 // Kubernetes data (namespace, pod and container).
 func (e *Enricher) Run() error {
@@ -81,10 +87,9 @@ func (e *Enricher) Run() error {
 	e.logger.Info("Connecting to local GRPC server")
 
 	var (
-		conn                  *grpc.ClientConn
-		cancel                context.CancelFunc
-		metricsAuditIncClient api.SecurityProfilesOperator_MetricsAuditIncClient
-		recordSyscallClient   api.SecurityProfilesOperator_RecordSyscallClient
+		conn   *grpc.ClientConn
+		cancel context.CancelFunc
+		gcli   grpcClients
 	)
 
 	if err := util.Retry(func() (err error) {
@@ -94,18 +99,23 @@ func (e *Enricher) Run() error {
 		}
 		client := api.NewSecurityProfilesOperatorClient(conn)
 
-		metricsAuditIncClient, err = e.impl.MetricsAuditInc(client)
+		gcli.metricsAuditIncClient, err = e.impl.MetricsAuditInc(client)
 		if err != nil {
 			cancel()
 			e.impl.Close(conn)
 			return errors.Wrap(err, "create metrics audit client")
 		}
 
-		recordSyscallClient, err = e.impl.RecordSyscall(client)
+		gcli.recordSyscallClient, err = e.impl.RecordSyscall(client)
 		if err != nil {
 			cancel()
 			e.impl.Close(conn)
 			return errors.Wrap(err, "create syscall recording client")
+		}
+
+		gcli.recordAvcClient, err = e.impl.RecordAvc(client)
+		if err != nil {
+			return errors.Wrap(err, "create avc recording client")
 		}
 
 		return nil
@@ -175,62 +185,119 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
-		syscallName, err := syscallName(auditLine.systemCallID)
+		err = e.dispatchAuditLine(&gcli, nodeName, auditLine, info)
 		if err != nil {
-			e.logger.Info(
-				"no syscall name found for ID",
-				"syscallID", auditLine.systemCallID,
-				"err", err.Error(),
-			)
+			e.logger.Error(
+				err, "dispatch audit line")
 			continue
-		}
-
-		e.logger.Info("audit",
-			"timestamp", auditLine.timestampID,
-			"type", auditLine.type_,
-			"node", nodeName,
-			"namespace", info.namespace,
-			"pod", info.podName,
-			"container", info.containerName,
-			"executable", auditLine.executable,
-			"pid", auditLine.processID,
-			"syscallID", auditLine.systemCallID,
-			"syscallName", syscallName,
-		)
-
-		metricsType := api.MetricsAuditRequest_SECCOMP
-		if auditLine.type_ == auditTypeSelinux {
-			metricsType = api.MetricsAuditRequest_SELINUX
-		}
-		if err := e.impl.SendMetric(
-			metricsAuditIncClient,
-			&api.MetricsAuditRequest{
-				Type:       metricsType,
-				Node:       nodeName,
-				Namespace:  info.namespace,
-				Pod:        info.podName,
-				Container:  info.containerName,
-				Executable: auditLine.executable,
-				Syscall:    syscallName,
-			},
-		); err != nil {
-			e.logger.Error(err, "unable to update metrics")
-		}
-
-		if info.recordProfile != "" {
-			if err := e.impl.SendSyscall(
-				recordSyscallClient,
-				&api.RecordSyscallRequest{
-					Profile: info.recordProfile,
-					Syscall: syscallName,
-				},
-			); err != nil {
-				e.logger.Error(err, "unable to record syscall")
-			}
 		}
 	}
 
 	return errors.Wrap(e.impl.Reason(tailFile), "enricher failed")
+}
+
+func (e *Enricher) dispatchAuditLine(
+	gcli *grpcClients,
+	nodeName string,
+	auditLine *auditLine,
+	info *containerInfo,
+) error {
+	switch auditLine.type_ {
+	case auditTypeSelinux:
+		e.dispatchSelinuxLine(gcli, nodeName, auditLine, info)
+	case auditTypeSeccomp:
+		e.dispatchSeccompLine(gcli, nodeName, auditLine, info)
+	default:
+		return errors.Errorf("unknown audit line type %s", auditLine.type_)
+	}
+
+	return nil
+}
+
+func (e *Enricher) dispatchSelinuxLine(gcli *grpcClients, nodeName string, auditLine *auditLine, info *containerInfo) {
+	e.logger.Info("audit",
+		"timestamp", auditLine.timestampID,
+		"type", auditLine.type_,
+		"profile", info.recordProfile,
+		"node", nodeName,
+		"namespace", info.namespace,
+		"pod", info.podName,
+		"container", info.containerName,
+		"perm", auditLine.perm,
+		"scontext", auditLine.scontext,
+		"tcontext", auditLine.tcontext,
+		"tclass", auditLine.tclass,
+	)
+
+	if info.recordProfile != "" {
+		if err := e.impl.SendAvc(
+			gcli.recordAvcClient,
+			&api.RecordAvcRequest{
+				Profile: info.recordProfile,
+				Avc: &api.RecordAvcRequest_SelinuxAvc{
+					Perm:     auditLine.perm,
+					Scontext: auditLine.scontext,
+					Tcontext: auditLine.tcontext,
+					Tclass:   auditLine.tclass,
+				},
+			},
+		); err != nil {
+			e.logger.Error(err, "unable to record syscall")
+		}
+	}
+}
+
+func (e *Enricher) dispatchSeccompLine(gcli *grpcClients, nodeName string, auditLine *auditLine, info *containerInfo) {
+	syscallName, err := syscallName(auditLine.systemCallID)
+	if err != nil {
+		e.logger.Info(
+			"no syscall name found for ID",
+			"syscallID", auditLine.systemCallID,
+			"err", err.Error(),
+		)
+		return
+	}
+
+	e.logger.Info("audit",
+		"timestamp", auditLine.timestampID,
+		"type", auditLine.type_,
+		"node", nodeName,
+		"namespace", info.namespace,
+		"pod", info.podName,
+		"container", info.containerName,
+		"executable", auditLine.executable,
+		"pid", auditLine.processID,
+		"syscallID", auditLine.systemCallID,
+		"syscallName", syscallName,
+	)
+
+	metricsType := api.MetricsAuditRequest_SECCOMP
+	if err := e.impl.SendMetric(
+		gcli.metricsAuditIncClient,
+		&api.MetricsAuditRequest{
+			Type:       metricsType,
+			Node:       nodeName,
+			Namespace:  info.namespace,
+			Pod:        info.podName,
+			Container:  info.containerName,
+			Executable: auditLine.executable,
+			Syscall:    syscallName,
+		},
+	); err != nil {
+		e.logger.Error(err, "unable to update metrics")
+	}
+
+	if info.recordProfile != "" {
+		if err := e.impl.SendSyscall(
+			gcli.recordSyscallClient,
+			&api.RecordSyscallRequest{
+				Profile: info.recordProfile,
+				Syscall: syscallName,
+			},
+		); err != nil {
+			e.logger.Error(err, "unable to record syscall")
+		}
+	}
 }
 
 // logFilePath returns either the path to the audit logs or falls back to
