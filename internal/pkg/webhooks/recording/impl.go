@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -44,6 +45,7 @@ type impl interface {
 	SetDecoder(*admission.Decoder)
 	DecodePod(admission.Request) (*corev1.Pod, error)
 	LabelSelectorAsSelector(*metav1.LabelSelector) (labels.Selector, error)
+	GetOperatorNamespace() string
 }
 
 func (d *defaultImpl) ListProfileRecordings(
@@ -65,6 +67,10 @@ func (d *defaultImpl) UpdateResource(
 
 func (d *defaultImpl) SetDecoder(decoder *admission.Decoder) {
 	d.decoder = decoder
+}
+
+func (d *defaultImpl) GetOperatorNamespace() string {
+	return config.GetOperatorNamespace()
 }
 
 // nolint: gocritic

@@ -88,6 +88,40 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
 			},
 		},
+		// todo: bad combination, selinux + hook
+		// todo: actually look at the content of the patches
+		{ // success pod changed - tailing logs
+			prepare: func(mock *recordingfakes.FakeImpl) {
+				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
+					Items: []v1alpha1.ProfileRecording{
+						{
+							Spec: v1alpha1.ProfileRecordingSpec{
+								Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
+								Recorder: v1alpha1.ProfileRecorderLogs,
+							},
+						},
+					},
+				}, nil)
+				mock.GetOperatorNamespaceReturns("test-ns")
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.Nil(t, err)
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.AdmissionResponse.Allowed)
+				require.Len(t, resp.Patches, 2) // 2 because security context and the annotation
+			},
+		},
 		{ // success pod changed
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{

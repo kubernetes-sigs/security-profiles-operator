@@ -67,6 +67,11 @@ const (
 	// created a seccomp profile.
 	SeccompProfileRecordLogsAnnotationKey = "io.containers.trace-logs/"
 
+	// SelinuxProfileRecordLogsAnnotationKey is the annotation on a Pod that
+	// triggers the internal log enricher to trace the AVC denials of a Pod and
+	// created a selinux profile.
+	SelinuxProfileRecordLogsAnnotationKey = "io.containers.trace-avcs/"
+
 	// HealthProbePort is the port where the liveness probe will be served.
 	HealthProbePort = 8085
 
