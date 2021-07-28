@@ -28,12 +28,14 @@ var (
 	seccompLineRegex = regexp.MustCompile(
 		`(type=SECCOMP|audit:.+type=1326).+audit\((.+)\).+pid=(\b\d+\b).+exe="(.+)".+syscall=(\b\d+\b).*`,
 	)
-	selinuxLineRegex = regexp.MustCompile(`type=AVC.+audit\((.+)\).+pid=(\b\d+\b).*`)
+	selinuxLineRegex = regexp.MustCompile(
+		`type=AVC.+audit\((.+)\).+{ (\w+) }.+pid=(\b\d+\b).*scontext=(.+) tcontext=(.+) tclass=(\b\w+\b).*`,
+	)
 )
 
 var (
 	minSeccompCapturesExpected = 5
-	minSelinuxCapturesExpected = 3
+	minSelinuxCapturesExpected = 7
 )
 
 // isAuditLine checks whether logLine is a supported audit line.
@@ -94,9 +96,13 @@ func extractSelinuxLine(logLine string) *auditLine {
 	line := auditLine{}
 	line.type_ = auditTypeSelinux
 	line.timestampID = captures[1]
-	if v, err := strconv.Atoi(captures[2]); err == nil {
+	line.perm = captures[2]
+	if v, err := strconv.Atoi(captures[3]); err == nil {
 		line.processID = v
 	}
+	line.scontext = captures[4]
+	line.tcontext = captures[5]
+	line.tclass = captures[6]
 
 	return &line
 }
