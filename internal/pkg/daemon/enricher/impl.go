@@ -63,6 +63,13 @@ type impl interface {
 		client api.SecurityProfilesOperator_RecordSyscallClient,
 		in *api.RecordSyscallRequest,
 	) error
+	RecordAvc(
+		client api.SecurityProfilesOperatorClient,
+	) (api.SecurityProfilesOperator_RecordAvcClient, error)
+	SendAvc(
+		client api.SecurityProfilesOperator_RecordAvcClient,
+		in *api.RecordAvcRequest,
+	) error
 }
 
 func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
@@ -139,6 +146,19 @@ func (d *defaultImpl) RecordSyscall(
 func (d *defaultImpl) SendSyscall(
 	client api.SecurityProfilesOperator_RecordSyscallClient,
 	in *api.RecordSyscallRequest,
+) error {
+	return client.Send(in)
+}
+
+func (d *defaultImpl) RecordAvc(
+	client api.SecurityProfilesOperatorClient,
+) (api.SecurityProfilesOperator_RecordAvcClient, error) {
+	return client.RecordAvc(context.Background())
+}
+
+func (d *defaultImpl) SendAvc(
+	client api.SecurityProfilesOperator_RecordAvcClient,
+	in *api.RecordAvcRequest,
 ) error {
 	return client.Send(in)
 }

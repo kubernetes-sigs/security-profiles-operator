@@ -24,6 +24,9 @@ service SecurityProfilesOperator {
     rpc RecordSyscall(stream RecordSyscallRequest) returns (EmptyResponse) {}
     rpc Syscalls(SyscallsRequest) returns (SyscallsResponse) {}
     rpc ResetSyscalls(SyscallsRequest) returns (EmptyResponse) {}
+    rpc RecordAvc(stream RecordAvcRequest) returns (EmptyResponse) {}
+    rpc Avcs(AvcRequest) returns (AvcResponse) {}
+    rpc ResetAvcs(AvcRequest) returns (EmptyResponse) {}
 }
 
 message MetricsAuditRequest {
@@ -51,6 +54,25 @@ message SyscallsRequest {
 
 message SyscallsResponse {
     repeated string syscalls = 1;
+}
+
+message RecordAvcRequest {
+    string profile = 1;
+    message SelinuxAvc {
+        string perm = 1;
+        string scontext = 2;
+        string tcontext = 3;
+        string tclass = 4;
+    }
+    SelinuxAvc avc = 2;
+}
+
+message AvcRequest {
+    string profile = 1;
+}
+
+message AvcResponse {
+    repeated RecordAvcRequest.SelinuxAvc avc = 1;
 }
 
 message EmptyResponse {}

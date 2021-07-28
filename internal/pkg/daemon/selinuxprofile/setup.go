@@ -31,7 +31,7 @@ import (
 
 var log = logf.Log.WithName("selinuxprofile")
 
-// Setup adds a controller that reconciles seccomp profiles.
+// Setup adds a controller that reconciles selinux profiles.
 func (r *ReconcileSP) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,
