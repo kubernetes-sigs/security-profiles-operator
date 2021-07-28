@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -66,6 +65,7 @@ func RegisterWebhook(server *webhook.Server, c client.Client) {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=delete;get;update;patch
+// TODO(jhrozek): is this needed? If yes, we probably need the same for selinux
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
@@ -111,7 +111,7 @@ func (p *podSeccompRecorder) Handle(
 
 	for i := range items {
 		item := items[i]
-		if item.Spec.Kind != profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile {
+		if !item.IsKindSupported() {
 			p.log.Info(fmt.Sprintf(
 				"recording kind %s not supported", item.Spec.Kind,
 			))
@@ -187,41 +187,12 @@ func (p *podSeccompRecorder) updatePod(
 	for i := range ctrs {
 		ctr := ctrs[i]
 
-		ctrName := ctr.Name
-		if replica != "" {
-			ctrName += replica
+		key, value, err := profileRecording.CtrAnnotation(replica, ctr.Name)
+		if err != nil {
+			return false, err
 		}
 
-		// Distinguish the profile recorders by using different annotation prefixes
-		var annotationPrefix, value string
-		switch profileRecording.Spec.Recorder {
-		case profilerecordingv1alpha1.ProfileRecorderHook:
-			annotationPrefix = config.SeccompProfileRecordHookAnnotationKey
-			value = fmt.Sprintf(
-				"of:%s/%s-%s-%d.json",
-				config.ProfileRecordingOutputPath,
-				profileRecording.GetName(),
-				ctrName,
-				time.Now().Unix(),
-			)
-
-		case profilerecordingv1alpha1.ProfileRecorderLogs:
-			annotationPrefix = config.SeccompProfileRecordLogsAnnotationKey
-			value = fmt.Sprintf(
-				"%s-%s-%d",
-				profileRecording.GetName(),
-				ctrName,
-				time.Now().Unix(),
-			)
-			p.updateSecurityContext(ctr)
-
-		default:
-			return false, errors.Errorf(
-				"invalid recorder: %s", profileRecording.Spec.Recorder,
-			)
-		}
-
-		key := annotationPrefix + ctr.Name
+		p.updateSecurityContext(ctr, profileRecording)
 		existingValue, ok := pod.GetAnnotations()[key]
 		if !ok {
 			if pod.Annotations == nil {
@@ -229,7 +200,7 @@ func (p *podSeccompRecorder) updatePod(
 			}
 			pod.Annotations[key] = value
 			p.log.Info(fmt.Sprintf(
-				"adding seccomp recording annotation %s=%s to pod %s",
+				"adding recording annotation %s=%s to pod %s",
 				key, value, pod.Name,
 			))
 			podChanged = true
@@ -253,6 +224,28 @@ func (p *podSeccompRecorder) updatePod(
 }
 
 func (p *podSeccompRecorder) updateSecurityContext(
+	ctr *corev1.Container, pr *profilerecordingv1alpha1.ProfileRecording,
+) {
+	if pr.Spec.Recorder != profilerecordingv1alpha1.ProfileRecorderLogs {
+		// we only need to ensure the special security context if we're tailing
+		// the logs
+		return
+	}
+
+	switch pr.Spec.Kind {
+	case profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile:
+		p.updateSeccompSecurityContext(ctr)
+	case profilerecordingv1alpha1.ProfileRecordingKindSelinuxProfile:
+		p.updateSelinuxSecurityContext(ctr)
+	}
+
+	p.log.Info(fmt.Sprintf(
+		"set SecurityContext for container %s: %+v",
+		ctr.Name, ctr.SecurityContext,
+	))
+}
+
+func (p *podSeccompRecorder) updateSeccompSecurityContext(
 	ctr *corev1.Container,
 ) {
 	if ctr.SecurityContext == nil {
@@ -266,15 +259,24 @@ func (p *podSeccompRecorder) updateSecurityContext(
 	ctr.SecurityContext.SeccompProfile.Type = corev1.SeccompProfileTypeLocalhost
 	profile := fmt.Sprintf(
 		"operator/%s/%s.json",
-		config.GetOperatorNamespace(),
+		p.impl.GetOperatorNamespace(),
 		config.LogEnricherProfile,
 	)
 	ctr.SecurityContext.SeccompProfile.LocalhostProfile = &profile
+}
 
-	p.log.Info(fmt.Sprintf(
-		"set SecurityContext for container %s: %+v",
-		ctr.Name, ctr.SecurityContext,
-	))
+func (p *podSeccompRecorder) updateSelinuxSecurityContext(
+	ctr *corev1.Container,
+) {
+	if ctr.SecurityContext == nil {
+		ctr.SecurityContext = &corev1.SecurityContext{}
+	}
+
+	if ctr.SecurityContext.SELinuxOptions == nil {
+		ctr.SecurityContext.SELinuxOptions = &corev1.SELinuxOptions{}
+	}
+
+	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile
 }
 
 func (p *podSeccompRecorder) cleanupReplicas(podName string) {
