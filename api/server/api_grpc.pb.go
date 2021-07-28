@@ -22,6 +22,9 @@ type SecurityProfilesOperatorClient interface {
 	RecordSyscall(ctx context.Context, opts ...grpc.CallOption) (SecurityProfilesOperator_RecordSyscallClient, error)
 	Syscalls(ctx context.Context, in *SyscallsRequest, opts ...grpc.CallOption) (*SyscallsResponse, error)
 	ResetSyscalls(ctx context.Context, in *SyscallsRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
+	RecordAvc(ctx context.Context, opts ...grpc.CallOption) (SecurityProfilesOperator_RecordAvcClient, error)
+	Avcs(ctx context.Context, in *AvcRequest, opts ...grpc.CallOption) (*AvcResponse, error)
+	ResetAvcs(ctx context.Context, in *AvcRequest, opts ...grpc.CallOption) (*EmptyResponse, error)
 }
 
 type securityProfilesOperatorClient struct {
@@ -118,6 +121,58 @@ func (c *securityProfilesOperatorClient) ResetSyscalls(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *securityProfilesOperatorClient) RecordAvc(ctx context.Context, opts ...grpc.CallOption) (SecurityProfilesOperator_RecordAvcClient, error) {
+	stream, err := c.cc.NewStream(ctx, &SecurityProfilesOperator_ServiceDesc.Streams[2], "/api.SecurityProfilesOperator/RecordAvc", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &securityProfilesOperatorRecordAvcClient{stream}
+	return x, nil
+}
+
+type SecurityProfilesOperator_RecordAvcClient interface {
+	Send(*RecordAvcRequest) error
+	CloseAndRecv() (*EmptyResponse, error)
+	grpc.ClientStream
+}
+
+type securityProfilesOperatorRecordAvcClient struct {
+	grpc.ClientStream
+}
+
+func (x *securityProfilesOperatorRecordAvcClient) Send(m *RecordAvcRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *securityProfilesOperatorRecordAvcClient) CloseAndRecv() (*EmptyResponse, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(EmptyResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *securityProfilesOperatorClient) Avcs(ctx context.Context, in *AvcRequest, opts ...grpc.CallOption) (*AvcResponse, error) {
+	out := new(AvcResponse)
+	err := c.cc.Invoke(ctx, "/api.SecurityProfilesOperator/Avcs", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *securityProfilesOperatorClient) ResetAvcs(ctx context.Context, in *AvcRequest, opts ...grpc.CallOption) (*EmptyResponse, error) {
+	out := new(EmptyResponse)
+	err := c.cc.Invoke(ctx, "/api.SecurityProfilesOperator/ResetAvcs", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SecurityProfilesOperatorServer is the server API for SecurityProfilesOperator service.
 // All implementations must embed UnimplementedSecurityProfilesOperatorServer
 // for forward compatibility
@@ -126,6 +181,9 @@ type SecurityProfilesOperatorServer interface {
 	RecordSyscall(SecurityProfilesOperator_RecordSyscallServer) error
 	Syscalls(context.Context, *SyscallsRequest) (*SyscallsResponse, error)
 	ResetSyscalls(context.Context, *SyscallsRequest) (*EmptyResponse, error)
+	RecordAvc(SecurityProfilesOperator_RecordAvcServer) error
+	Avcs(context.Context, *AvcRequest) (*AvcResponse, error)
+	ResetAvcs(context.Context, *AvcRequest) (*EmptyResponse, error)
 	mustEmbedUnimplementedSecurityProfilesOperatorServer()
 }
 
@@ -144,6 +202,15 @@ func (UnimplementedSecurityProfilesOperatorServer) Syscalls(context.Context, *Sy
 }
 func (UnimplementedSecurityProfilesOperatorServer) ResetSyscalls(context.Context, *SyscallsRequest) (*EmptyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResetSyscalls not implemented")
+}
+func (UnimplementedSecurityProfilesOperatorServer) RecordAvc(SecurityProfilesOperator_RecordAvcServer) error {
+	return status.Errorf(codes.Unimplemented, "method RecordAvc not implemented")
+}
+func (UnimplementedSecurityProfilesOperatorServer) Avcs(context.Context, *AvcRequest) (*AvcResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Avcs not implemented")
+}
+func (UnimplementedSecurityProfilesOperatorServer) ResetAvcs(context.Context, *AvcRequest) (*EmptyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResetAvcs not implemented")
 }
 func (UnimplementedSecurityProfilesOperatorServer) mustEmbedUnimplementedSecurityProfilesOperatorServer() {
 }
@@ -247,6 +314,68 @@ func _SecurityProfilesOperator_ResetSyscalls_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SecurityProfilesOperator_RecordAvc_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(SecurityProfilesOperatorServer).RecordAvc(&securityProfilesOperatorRecordAvcServer{stream})
+}
+
+type SecurityProfilesOperator_RecordAvcServer interface {
+	SendAndClose(*EmptyResponse) error
+	Recv() (*RecordAvcRequest, error)
+	grpc.ServerStream
+}
+
+type securityProfilesOperatorRecordAvcServer struct {
+	grpc.ServerStream
+}
+
+func (x *securityProfilesOperatorRecordAvcServer) SendAndClose(m *EmptyResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *securityProfilesOperatorRecordAvcServer) Recv() (*RecordAvcRequest, error) {
+	m := new(RecordAvcRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func _SecurityProfilesOperator_Avcs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AvcRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SecurityProfilesOperatorServer).Avcs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.SecurityProfilesOperator/Avcs",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SecurityProfilesOperatorServer).Avcs(ctx, req.(*AvcRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SecurityProfilesOperator_ResetAvcs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AvcRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SecurityProfilesOperatorServer).ResetAvcs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/api.SecurityProfilesOperator/ResetAvcs",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SecurityProfilesOperatorServer).ResetAvcs(ctx, req.(*AvcRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SecurityProfilesOperator_ServiceDesc is the grpc.ServiceDesc for SecurityProfilesOperator service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -262,6 +391,14 @@ var SecurityProfilesOperator_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "ResetSyscalls",
 			Handler:    _SecurityProfilesOperator_ResetSyscalls_Handler,
 		},
+		{
+			MethodName: "Avcs",
+			Handler:    _SecurityProfilesOperator_Avcs_Handler,
+		},
+		{
+			MethodName: "ResetAvcs",
+			Handler:    _SecurityProfilesOperator_ResetAvcs_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -272,6 +409,11 @@ var SecurityProfilesOperator_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "RecordSyscall",
 			Handler:       _SecurityProfilesOperator_RecordSyscall_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "RecordAvc",
+			Handler:       _SecurityProfilesOperator_RecordAvc_Handler,
 			ClientStreams: true,
 		},
 	},

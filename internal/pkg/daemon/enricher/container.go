@@ -90,7 +90,10 @@ func (e *Enricher) getContainerInfo(
 						continue
 					}
 
-					recordProfile := pod.Annotations[config.SeccompProfileRecordLogsAnnotationKey+containerName]
+					recordProfile, ok := pod.Annotations[config.SeccompProfileRecordLogsAnnotationKey+containerName]
+					if !ok {
+						recordProfile = pod.Annotations[config.SelinuxProfileRecordLogsAnnotationKey+containerName]
+					}
 					info := &containerInfo{
 						podName:       pod.Name,
 						containerName: containerStatus.Name,
