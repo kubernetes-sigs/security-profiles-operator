@@ -6,4 +6,5 @@ updates:
     interval: daily
   labels:
     - "release-note-none"
+    - "ok-to-test"
   open-pull-requests-limit: 10
