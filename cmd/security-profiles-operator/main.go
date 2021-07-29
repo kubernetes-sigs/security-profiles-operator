@@ -152,16 +152,9 @@ func main() {
 }
 
 func printInfo(component string) {
-	v := version.Get()
 	setupLog.Info(
 		fmt.Sprintf("starting component: %s", component),
-		"version", v.Version,
-		"gitCommit", v.GitCommit,
-		"gitTreeState", v.GitTreeState,
-		"buildDate", v.BuildDate,
-		"goVersion", v.GoVersion,
-		"compiler", v.Compiler,
-		"platform", v.Platform,
+		version.Get().AsKeyValues()...,
 	)
 }
 

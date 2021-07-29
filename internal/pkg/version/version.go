@@ -84,3 +84,17 @@ func (i *Info) JSONString() (string, error) {
 	}
 	return string(b), nil
 }
+
+// AsKeyValues returns a key value slice of the info.
+func (i *Info) AsKeyValues() []interface{} {
+	return []interface{}{
+		"version", i.Version,
+		"gitCommit", i.GitCommit,
+		"gitTreeState", i.GitTreeState,
+		"buildDate", i.BuildDate,
+		"goVersion", i.GoVersion,
+		"compiler", i.Compiler,
+		"platform", i.Platform,
+		"libseccomp", i.Libseccomp,
+	}
+}
