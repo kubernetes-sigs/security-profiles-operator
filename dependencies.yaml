@@ -60,6 +60,8 @@ dependencies:
     refPaths:
     - path: hack/ci/install-kubernetes.sh
       match: VERSION
+    - path: hack/ci/Vagrantfile-ubuntu
+      match: KUBERNETES_VERSION
 
   - name: e2e-fedora
     version: 33
