@@ -31,7 +31,11 @@ Vagrant.configure("2") do |config|
       curl -sSfL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
       echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
       apt-get update
-      apt-get install -y build-essential kubelet kubeadm kubectl
+      KUBERNETES_VERSION=1.21.0-00
+      apt-get install -y build-essential \
+        kubelet=$KUBERNETES_VERSION \
+        kubeadm=$KUBERNETES_VERSION \
+        kubectl=$KUBERNETES_VERSION
 
       # Disable kernel print rate limiting for syslog messaging
       sysctl -w kernel.printk_ratelimit=0
