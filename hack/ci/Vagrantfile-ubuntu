@@ -24,7 +24,7 @@ Vagrant.configure("2") do |config|
       set -euxo pipefail
 
       # golang
-      GO_VERSION=1.16.6
+      GO_VERSION=1.17
       curl -sSfL -o- https://golang.org/dl/go$GO_VERSION.linux-amd64.tar.gz | tar xfz - -C /usr/local
 
       # Kubernetes
