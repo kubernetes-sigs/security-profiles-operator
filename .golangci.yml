@@ -13,6 +13,7 @@ linters:
     - dupl
     - durationcheck
     - errcheck
+    - errname
     - errorlint
     - exhaustive
     - exportloopref
