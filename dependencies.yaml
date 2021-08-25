@@ -18,7 +18,7 @@ dependencies:
       match: GOLANGCI_LINT_VERSION
 
   - name: repo-infra
-    version: 0.1.8
+    version: 0.1.10
     refPaths:
     - path: Makefile
       match: REPO_INFRA_VERSION
