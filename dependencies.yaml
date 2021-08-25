@@ -76,7 +76,7 @@ dependencies:
       match: ubuntu
 
   - name: debian-base
-    version: 1.6.0
+    version: 1.0.0
     refPaths:
     - path: hack/build-image/Dockerfile
       match: k8s.gcr.io/build-image/debian-base
