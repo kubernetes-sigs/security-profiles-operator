@@ -92,3 +92,9 @@ dependencies:
     refPaths:
     - path: internal/pkg/manager/spod/bindata/spod.go
       match: quay.io/brancz/kube-rbac-proxy
+
+  - name: gcb-docker-gcloud
+    version: v20210722-085d930
+    refPaths:
+    - path: cloudbuild.yaml
+      match: gcr.io/k8s-testimages/gcb-docker-gcloud
