@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	api "sigs.k8s.io/security-profiles-operator/api/server"
@@ -43,6 +44,7 @@ type Server struct {
 	logger   logr.Logger
 	metrics  *metrics.Metrics
 	syscalls sync.Map
+	avcs     sync.Map
 }
 
 // New creates a new Server instance.
@@ -168,5 +170,62 @@ func (s *Server) ResetSyscalls(
 	ctx context.Context, r *api.SyscallsRequest,
 ) (*api.EmptyResponse, error) {
 	s.syscalls.Delete(r.GetProfile())
+	return &api.EmptyResponse{}, nil
+}
+
+func (s *Server) RecordAvc(
+	stream api.SecurityProfilesOperator_RecordAvcServer,
+) error {
+	for {
+		r, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return stream.SendAndClose(&api.EmptyResponse{})
+		}
+		if err != nil {
+			return errors.Wrap(err, "record avcs")
+		}
+
+		jsonBytes, err := protojson.Marshal(r.Avc)
+		if err != nil {
+			return errors.Wrap(err, "marshall protobuf")
+		}
+
+		profileAvcs, _ := s.avcs.LoadOrStore(r.GetProfile(), sets.NewString())
+		profileAvcs.(sets.String).Insert(string(jsonBytes))
+	}
+}
+
+// Avcs returns the AVC messages for a provided profile.
+func (s *Server) Avcs(
+	ctx context.Context, r *api.AvcRequest,
+) (*api.AvcResponse, error) {
+	avcs, ok := s.avcs.Load(r.GetProfile())
+	if !ok {
+		return nil, errors.Errorf(
+			"no avcs recorded for profile: %v", r.GetProfile(),
+		)
+	}
+
+	avcList := make([]*api.RecordAvcRequest_SelinuxAvc, 0)
+	jsonList := avcs.(sets.String).List()
+	for i := range jsonList {
+		avc := &api.RecordAvcRequest_SelinuxAvc{}
+		err := protojson.Unmarshal([]byte(jsonList[i]), avc)
+		if err != nil {
+			return nil, errors.Wrap(err, "unmarshall error")
+		}
+		avcList = append(avcList, avc)
+	}
+
+	return &api.AvcResponse{
+		Avc: avcList,
+	}, nil
+}
+
+// ResetAvcs removes the avcs for a provided profile.
+func (s *Server) ResetAvcs(
+	ctx context.Context, r *api.AvcRequest,
+) (*api.EmptyResponse, error) {
+	s.avcs.Delete(r.GetProfile())
 	return &api.EmptyResponse{}, nil
 }
