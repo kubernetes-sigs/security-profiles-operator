@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -47,6 +49,7 @@ import (
 
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	selinuxv1lpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	api "sigs.k8s.io/security-profiles-operator/api/server"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
@@ -67,6 +70,8 @@ const (
 	reasonProfileCreated        event.Reason = "SeccompProfileCreated"
 	reasonProfileCreationFailed event.Reason = "CannotCreateSeccompProfile"
 	reasonAnnotationParsing     event.Reason = "SeccompAnnotationParsing"
+
+	seContextRequiredParts = 3
 )
 
 // NewController returns a new empty controller instance.
@@ -83,9 +88,14 @@ type RecorderReconciler struct {
 	podsToWatch   sync.Map
 }
 
+type profileToCollect struct {
+	kind profilerecording1alpha1.ProfileRecordingKind
+	name string
+}
+
 type podToWatch struct {
 	recorder profilerecording1alpha1.ProfileRecorder
-	profiles []string
+	profiles []profileToCollect
 }
 
 // Name returns the name of the controller.
@@ -187,6 +197,7 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 
 	for key := range p.Annotations {
 		if strings.HasPrefix(key, config.SeccompProfileRecordHookAnnotationKey) ||
+			strings.HasPrefix(key, config.SelinuxProfileRecordLogsAnnotationKey) ||
 			strings.HasPrefix(key, config.SeccompProfileRecordLogsAnnotationKey) {
 			return true
 		}
@@ -239,7 +250,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			return reconcile.Result{}, nil
 		}
 
-		var profiles []string
+		var profiles []profileToCollect
 		var recorder profilerecording1alpha1.ProfileRecorder
 		if len(hookProfiles) > 0 { // nolint: gocritic
 			profiles = hookProfiles
@@ -252,16 +263,15 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			return reconcile.Result{}, nil
 		}
 
-		logger.Info(fmt.Sprintf(
-			"Recording seccomp profiles for pod %s: %s",
-			req.NamespacedName.String(),
-			strings.Join(profiles, ", "),
-		))
+		for _, prf := range profiles {
+			logger.Info("Recording profile", "kind", prf.kind, "name", prf.name, "pod", req.NamespacedName.String())
+		}
+
 		r.podsToWatch.Store(
 			req.NamespacedName.String(),
 			podToWatch{recorder, profiles},
 		)
-		r.record.Event(pod, event.Normal(reasonProfileRecording, "Recording seccomp profiles"))
+		r.record.Event(pod, event.Normal(reasonProfileRecording, "Recording profiles"))
 	}
 
 	if pod.Status.Phase == corev1.PodSucceeded {
@@ -311,9 +321,14 @@ func (r *RecorderReconciler) collectProfile(
 func (r *RecorderReconciler) collectLocalProfiles(
 	ctx context.Context,
 	name types.NamespacedName,
-	profiles []string,
+	profiles []profileToCollect,
 ) error {
-	for _, profilePath := range profiles {
+	for _, prf := range profiles {
+		profilePath := prf.name
+		if prf.kind != profilerecording1alpha1.ProfileRecordingKindSeccompProfile {
+			return errors.New("only seccomp profiles supported via a hook")
+		}
+
 		r.log.Info("Collecting profile", "path", profilePath)
 
 		data, err := ioutil.ReadFile(profilePath)
@@ -360,68 +375,169 @@ func (r *RecorderReconciler) collectLocalProfiles(
 func (r *RecorderReconciler) collectLogProfiles(
 	ctx context.Context,
 	name types.NamespacedName,
-	profiles []string,
+	profiles []profileToCollect,
 ) error {
-	for _, profileID := range profiles {
+	for _, prf := range profiles {
 		// Remove the timestamp
-		profileName, err := extractProfileName(profileID)
+		profileName, err := extractProfileName(prf.name)
 		if err != nil {
 			return errors.Wrap(err, "extract profile name")
 		}
 
-		r.log.Info("Collecting profile", "name", profileName)
+		r.log.Info("Collecting profile", "name", profileName, "kind", prf.kind)
 
-		// Retrieve the syscalls for the recording
-		request := &api.SyscallsRequest{Profile: profileID}
-		response, err := r.grpcClient.Syscalls(ctx, request)
+		switch prf.kind {
+		case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
+			err = r.collectLogSeccompProfile(ctx, profileName, name.Namespace, prf.name)
+		case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
+			err = r.collectLogSelinuxProfile(ctx, profileName, name.Namespace, prf.name)
+		default:
+			err = errors.Errorf("unrecognized kind %s", prf.kind)
+		}
+
 		if err != nil {
-			return errors.Wrapf(
-				err, "retrieve syscalls for profile %s", profileID,
-			)
-		}
-
-		profileSpec := v1alpha1.SeccompProfileSpec{
-			DefaultAction: seccomp.ActErrno,
-			Syscalls: []*v1alpha1.Syscall{{
-				Action: seccomp.ActAllow,
-				Names:  response.GetSyscalls(),
-			}},
-		}
-
-		profile := &v1alpha1.SeccompProfile{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      profileName,
-				Namespace: name.Namespace,
-			},
-			Spec: profileSpec,
-		}
-
-		res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
-			func() error {
-				profile.Spec = profileSpec
-				return nil
-			},
-		)
-		if err != nil {
-			r.log.Error(err, "Cannot create seccompprofile resource")
-			r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
-			return errors.Wrap(err, "create seccompProfile resource")
-		}
-		r.log.Info("Created/updated profile", "action", res, "name", profileName)
-		r.record.Event(
-			profile,
-			event.Normal(reasonProfileCreated, "seccomp profile created"),
-		)
-
-		// Reset the syscalls for further recordings
-		if _, err := r.grpcClient.ResetSyscalls(ctx, request); err != nil {
-			return errors.Wrapf(
-				err, "reset syscalls for profile %s", profileID,
-			)
+			return err
 		}
 	}
 
 	return nil
+}
+
+func (r *RecorderReconciler) collectLogSeccompProfile(
+	ctx context.Context,
+	profileName string,
+	namespace string,
+	profileID string,
+) error {
+	// Retrieve the syscalls for the recording
+	request := &api.SyscallsRequest{Profile: profileID}
+	response, err := r.grpcClient.Syscalls(ctx, request)
+	if err != nil {
+		return errors.Wrapf(
+			err, "retrieve syscalls for profile %s", profileID,
+		)
+	}
+
+	profileSpec := v1alpha1.SeccompProfileSpec{
+		DefaultAction: seccomp.ActErrno,
+		Syscalls: []*v1alpha1.Syscall{{
+			Action: seccomp.ActAllow,
+			Names:  response.GetSyscalls(),
+		}},
+	}
+
+	profile := &v1alpha1.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      profileName,
+			Namespace: namespace,
+		},
+		Spec: profileSpec,
+	}
+
+	res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
+		func() error {
+			profile.Spec = profileSpec
+			return nil
+		},
+	)
+	if err != nil {
+		r.log.Error(err, "Cannot create seccompprofile resource")
+		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+		return errors.Wrap(err, "create seccompProfile resource")
+	}
+
+	r.log.Info("Created/updated profile", "action", res, "name", profileName)
+	r.record.Event(
+		profile,
+		event.Normal(reasonProfileCreated, "seccomp profile created"),
+	)
+
+	// Reset the syscalls for further recordings
+	if _, err := r.grpcClient.ResetSyscalls(ctx, request); err != nil {
+		return errors.Wrapf(
+			err, "reset syscalls for profile %s", profileID,
+		)
+	}
+
+	return nil
+}
+
+func (r *RecorderReconciler) collectLogSelinuxProfile(
+	ctx context.Context,
+	profileName string,
+	namespace string,
+	profileID string,
+) error {
+	// Retrieve the syscalls for the recording
+	request := &api.AvcRequest{Profile: profileID}
+	response, err := r.grpcClient.Avcs(ctx, request)
+	if err != nil {
+		return errors.Wrapf(
+			err, "retrieve avcs for profile %s", profileID,
+		)
+	}
+
+	selinuxProfileSpec := selinuxv1lpha1.SelinuxProfileSpec{}
+
+	profile := &selinuxv1lpha1.SelinuxProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      profileName,
+			Namespace: namespace,
+		},
+		Spec: selinuxProfileSpec,
+	}
+
+	selinuxProfileSpec.Policy, err = r.formatSelinuxProfile(profile, response)
+	if err != nil {
+		r.log.Error(err, "Cannot format selinuxprofile")
+		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+		return errors.Wrap(err, "format selinuxprofile resource")
+	}
+	r.log.Info("Created", "profile", profile)
+
+	res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
+		func() error {
+			profile.Spec = selinuxProfileSpec
+			return nil
+		},
+	)
+	if err != nil {
+		r.log.Error(err, "Cannot create selinuxprofile resource")
+		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+		return errors.Wrap(err, "create selinuxprofile resource")
+	}
+	r.log.Info("Created/updated selinux profile", "action", res, "name", profileName)
+	r.record.Event(
+		profile,
+		event.Normal(reasonProfileCreated, "selinuxprofile profile created"),
+	)
+
+	// Reset the selinuxprofile for further recordings
+	if _, err := r.grpcClient.ResetAvcs(ctx, request); err != nil {
+		return errors.Wrapf(
+			err, "reset selinuxprofile for profile %s", profileName,
+		)
+	}
+
+	return nil
+}
+
+func (r *RecorderReconciler) formatSelinuxProfile(
+	selinuxprofile *selinuxv1lpha1.SelinuxProfile,
+	avcResponse *api.AvcResponse,
+) (string, error) {
+	seBuilder := newSeProfileBuilder(selinuxprofile.GetPolicyUsage(), r.log)
+
+	if err := seBuilder.AddAvcList(avcResponse.GetAvc()); err != nil {
+		return "", errors.Wrap(err, "consuming AVCs")
+	}
+
+	sePol, err := seBuilder.Format()
+	if err != nil {
+		return "", errors.Wrap(err, "building policy")
+	}
+
+	return sePol, nil
 }
 
 func extractProfileName(s string) (string, error) {
@@ -434,7 +550,7 @@ func extractProfileName(s string) (string, error) {
 
 // parseHookAnnotations parses the provided annotations and extracts the
 // mandatory output files for the hook recorder.
-func parseHookAnnotations(annotations map[string]string) (res []string, err error) {
+func parseHookAnnotations(annotations map[string]string) (res []profileToCollect, err error) {
 	const prefix = "of:"
 
 	for key, value := range annotations {
@@ -463,7 +579,10 @@ func parseHookAnnotations(annotations map[string]string) (res []string, err erro
 			continue
 		}
 
-		res = append(res, outputFile)
+		res = append(res, profileToCollect{
+			kind: profilerecording1alpha1.ProfileRecordingKindSeccompProfile,
+			name: outputFile,
+		})
 	}
 
 	return res, nil
@@ -471,9 +590,16 @@ func parseHookAnnotations(annotations map[string]string) (res []string, err erro
 
 // parseLogAnnotations parses the provided annotations and extracts the
 // mandatory output profiles for the log recorder.
-func parseLogAnnotations(annotations map[string]string) (res []string, err error) {
+func parseLogAnnotations(annotations map[string]string) (res []profileToCollect, err error) {
 	for key, profile := range annotations {
-		if !strings.HasPrefix(key, config.SeccompProfileRecordLogsAnnotationKey) {
+		var collectProfile profileToCollect
+
+		// nolint: gocritic
+		if strings.HasPrefix(key, config.SeccompProfileRecordLogsAnnotationKey) {
+			collectProfile.kind = profilerecording1alpha1.ProfileRecordingKindSeccompProfile
+		} else if strings.HasPrefix(key, config.SelinuxProfileRecordLogsAnnotationKey) {
+			collectProfile.kind = profilerecording1alpha1.ProfileRecordingKindSelinuxProfile
+		} else {
 			continue
 		}
 
@@ -481,9 +607,122 @@ func parseLogAnnotations(annotations map[string]string) (res []string, err error
 			return nil, errors.Wrap(errors.New(errInvalidAnnotation),
 				"providing output profile is mandatory")
 		}
+		collectProfile.name = profile
 
-		res = append(res, profile)
+		res = append(res, collectProfile)
 	}
 
 	return res, nil
+}
+
+type seProfileBuilder struct {
+	permMap       map[string]sets.String
+	keys          []string
+	usageCtx      string
+	policyBuilder strings.Builder
+	log           logr.Logger
+}
+
+func newSeProfileBuilder(usageCtx string, log logr.Logger) *seProfileBuilder {
+	return &seProfileBuilder{
+		permMap:       make(map[string]sets.String),
+		keys:          make([]string, 0),
+		usageCtx:      usageCtx,
+		policyBuilder: strings.Builder{},
+		log:           log,
+	}
+}
+
+func (sb *seProfileBuilder) AddAvcList(avcs []*api.RecordAvcRequest_SelinuxAvc) error {
+	for _, avc := range avcs {
+		sb.log.Info("Received an AVC response",
+			"perm", avc.Perm, "tclass",
+			avc.Tclass, "scontext", avc.Scontext,
+			"tcontext", avc.Tcontext)
+
+		if err := sb.addAvc(avc); err != nil {
+			return errors.Wrap(err, "adding AVC")
+		}
+	}
+
+	return nil
+}
+
+func (sb *seProfileBuilder) addAvc(avc *api.RecordAvcRequest_SelinuxAvc) error {
+	ctxType, err := ctxt2type(avc.Tcontext)
+	if err != nil {
+		return errors.Wrap(err, "converting context to type")
+	}
+
+	key := avc.Tclass + " " + ctxType
+	sb.keys = append(sb.keys, key)
+
+	perms, ok := sb.permMap[key]
+	if ok {
+		perms.Insert(avc.Perm)
+	} else {
+		sb.permMap[key] = sets.NewString(avc.Perm)
+	}
+	return nil
+}
+
+func (sb *seProfileBuilder) Format() (string, error) {
+	sb.policyBuilder.WriteString("(blockinherit container)\n")
+
+	sort.Strings(sb.keys)
+	for _, key := range sb.keys {
+		val := sb.permMap[key]
+
+		if err := sb.writeLineFromKeyVal(key, val); err != nil {
+			return "", errors.Wrap(err, "writing policy line from key-value pair")
+		}
+	}
+
+	return sb.policyBuilder.String(), nil
+}
+
+func (sb *seProfileBuilder) writeLineFromKeyVal(key string, val sets.String) error {
+	tclass, tcontext := sb.targetClassCtx(key)
+	if tclass == "" || tcontext == "" {
+		return errors.New("empty context or class")
+	}
+
+	policyLine, err := sb.policyLine(tclass, tcontext, val)
+	if err != nil {
+		return errors.Wrap(err, "writing policy line")
+	}
+	sb.policyBuilder.WriteString(policyLine)
+
+	return nil
+}
+
+func (sb *seProfileBuilder) targetClassCtx(key string) (tclass, tcontext string) {
+	splitkey := strings.Split(key, " ")
+	tclass = splitkey[0]
+	tcontext = splitkey[1]
+	if tcontext == config.SelinuxPermissiveProfile {
+		// rewrite the context to what the usage of the policy would have been
+		tcontext = sb.usageCtx
+	}
+	return
+}
+
+func (sb *seProfileBuilder) policyLine(tclass, tcontext string, perms sets.String) (string, error) {
+	if perms == nil || len(perms) == 0 {
+		return "", errors.New("nil permissions set or no permissions")
+	}
+
+	permsList := perms.List()
+	sort.Strings(permsList)
+
+	policyLine := fmt.Sprintf("(allow process %s ( %s ( %s )))\n", tcontext, tclass, strings.Join(permsList, " "))
+	return policyLine, nil
+}
+
+func ctxt2type(ctx string) (string, error) {
+	elems := strings.Split(ctx, ":")
+	if len(elems) < seContextRequiredParts {
+		return "", errors.New("Malformed SELinux context")
+	}
+	return elems[2], nil
 }
