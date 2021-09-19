@@ -137,6 +137,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseProfileRecordingDeploymentLogs()
 	})
 
+	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
+		e.testCaseProfileRecordingStaticPodSELinuxLogs()
+	})
+
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(manifest)
 	e.run("git", "checkout", manifest)
