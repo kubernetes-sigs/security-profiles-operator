@@ -70,7 +70,7 @@ dependencies:
       match: fedora
 
   - name: e2e-ubuntu
-    version: 2004
+    version: focal64
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
       match: ubuntu
