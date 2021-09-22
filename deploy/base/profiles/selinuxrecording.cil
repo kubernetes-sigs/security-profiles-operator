@@ -1,0 +1,4 @@
+(block selinuxrecording
+  (blockinherit container)
+  (typepermissive process)
+)

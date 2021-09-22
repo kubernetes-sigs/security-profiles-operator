@@ -144,6 +144,7 @@ chown 65535:0 /etc/selinux.d
 chmod 750 /etc/selinux.d
 semodule -i /usr/share/selinuxd/templates/*.cil
 semodule -i /opt/spo-profiles/selinuxd.cil
+semodule -i /opt/spo-profiles/selinuxrecording.cil
 `,
 						},
 						VolumeMounts: []v1.VolumeMount{

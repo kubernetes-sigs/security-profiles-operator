@@ -79,6 +79,10 @@ const (
 	// LogEnricherProfile is the seccomp profile name for tracing syscalls from
 	// the log enricher.
 	LogEnricherProfile = "log-enricher-trace"
+
+	// SelinuxPermissiveProfile is the selinux profile name for tracing AVC from
+	// the log enricher.
+	SelinuxPermissiveProfile = "selinuxrecording.process"
 )
 
 // ProfileRecordingOutputPath is the path where the recorded profiles will be

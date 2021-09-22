@@ -1784,6 +1784,11 @@ data:
     sysfs_t ( file ( append create getattr ioctl lock map open read rename setattr
     unlink write )))\n    (allow process sysfs_t ( sock_file ( append getattr open
     read write )))\n)\n"
+  selinuxrecording.cil: |
+    (block selinuxrecording
+      (blockinherit container)
+      (typepermissive process)
+    )
 kind: ConfigMap
 metadata:
   labels:
