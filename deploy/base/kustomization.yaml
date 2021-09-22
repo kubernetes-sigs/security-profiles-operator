@@ -52,6 +52,7 @@ configMapGenerator:
     files:
       - profiles/security-profiles-operator.json
       - profiles/selinuxd.cil
+      - profiles/selinuxrecording.cil
 
 generatorOptions:
   disableNameSuffixHash: true
