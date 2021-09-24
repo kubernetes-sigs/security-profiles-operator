@@ -4,7 +4,7 @@ approvers:
   - hasheddan
   - pjbgf
   - saschagrunert
-reviewers:
-  - cmurphy
   - JAORMX
   - jhrozek
+reviewers:
+  - cmurphy
