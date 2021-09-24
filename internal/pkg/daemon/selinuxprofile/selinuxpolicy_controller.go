@@ -33,6 +33,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -136,8 +137,8 @@ func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (r
 	// Fetch the SelinuxProfile instance
 	instance := &selinuxprofilev1alpha1.SelinuxProfile{}
 	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
-	if err != nil {
-		return reconcile.Result{}, IgnoreNotFound(err)
+	if err != nil && !kerrors.IsNotFound(err) {
+		return reconcile.Result{}, err
 	}
 
 	nodeStatus, err := nodestatus.NewForProfile(instance, r.client)
