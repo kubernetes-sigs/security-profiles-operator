@@ -1,7 +1,6 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
@@ -9,7 +8,7 @@
   - [Apply profile to pod](#apply-profile-to-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
   - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
-  - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-)
+  - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-profilerecordings)
     - [Hook based recording](#hook-based-recording)
     - [Log enricher based recording](#log-enricher-based-recording)
 - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
