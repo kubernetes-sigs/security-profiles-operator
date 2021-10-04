@@ -24,7 +24,7 @@ require (
 	k8s.io/client-go v0.22.2
 	k8s.io/klog/v2 v2.10.0
 	sigs.k8s.io/controller-runtime v0.10.2
-	sigs.k8s.io/controller-tools v0.6.2
+	sigs.k8s.io/controller-tools v0.7.0
 	sigs.k8s.io/mdtoc v1.1.0
 	sigs.k8s.io/release-utils v0.3.0
 	sigs.k8s.io/zeitgeist v0.3.0
