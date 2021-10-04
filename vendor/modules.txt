@@ -151,7 +151,7 @@ github.com/golang/protobuf/ptypes
 github.com/golang/protobuf/ptypes/any
 github.com/golang/protobuf/ptypes/duration
 github.com/golang/protobuf/ptypes/timestamp
-# github.com/gomarkdown/markdown v0.0.0-20200824053859-8c8b3816f167
+# github.com/gomarkdown/markdown v0.0.0-20210514010506-3b9f47219fe7
 github.com/gomarkdown/markdown/ast
 github.com/gomarkdown/markdown/html
 github.com/gomarkdown/markdown/parser
@@ -756,7 +756,7 @@ sigs.k8s.io/controller-tools/pkg/schemapatcher
 sigs.k8s.io/controller-tools/pkg/schemapatcher/internal/yaml
 sigs.k8s.io/controller-tools/pkg/version
 sigs.k8s.io/controller-tools/pkg/webhook
-# sigs.k8s.io/mdtoc v1.0.1
+# sigs.k8s.io/mdtoc v1.1.0
 ## explicit
 sigs.k8s.io/mdtoc
 sigs.k8s.io/mdtoc/pkg/mdtoc
