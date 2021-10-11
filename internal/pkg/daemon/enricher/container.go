@@ -72,12 +72,20 @@ func (e *Enricher) getContainerInfo(
 					containerName := containerStatus.Name
 
 					if containerID == "" {
-						e.logger.Info(
-							"container ID is still empty, retrying",
-							"podName", pod.Name,
-							"containerName", containerName,
+						if containerStatus.State.Waiting != nil &&
+							containerStatus.State.Waiting.Reason == "ContainerCreating" {
+							e.logger.Info(
+								"container ID is still empty, retrying",
+								"podName", pod.Name,
+								"containerName", containerName,
+							)
+							return errContainerIDEmpty
+						}
+
+						return errors.Errorf(
+							"container ID not found with container state: %v",
+							containerStatus.State,
 						)
-						return errContainerIDEmpty
 					}
 
 					rawContainerID := regexID.FindString(containerID)
