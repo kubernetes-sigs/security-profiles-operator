@@ -1,8 +1,8 @@
 diff --git a/deploy/operator.yaml b/deploy/operator.yaml
-index f0b1a57..eb44040 100644
+index 6d28eddd..154fbad0 100644
 --- a/deploy/operator.yaml
 +++ b/deploy/operator.yaml
-@@ -1358,7 +1358,7 @@ metadata:
+@@ -1359,7 +1359,7 @@ metadata:
    name: security-profiles-operator
    namespace: security-profiles-operator
  spec:
@@ -11,7 +11,7 @@ index f0b1a57..eb44040 100644
    selector:
      matchLabels:
        app: security-profiles-operator
-@@ -1381,8 +1381,8 @@ spec:
+@@ -1382,8 +1382,8 @@ spec:
            valueFrom:
              fieldRef:
                fieldPath: metadata.namespace
@@ -20,9 +20,9 @@ index f0b1a57..eb44040 100644
 +        image: localhost/security-profiles-operator:latest
 +        imagePullPolicy: IfNotPresent
          name: security-profiles-operator
-         securityContext:
-           allowPrivilegeEscalation: false
-@@ -1407,7 +1407,7 @@ metadata:
+         resources:
+           limits:
+@@ -1414,7 +1414,7 @@ metadata:
    name: security-profiles-operator-webhook
    namespace: security-profiles-operator
  spec:
@@ -31,7 +31,7 @@ index f0b1a57..eb44040 100644
    selector:
      matchLabels:
        app: security-profiles-operator
-@@ -1429,8 +1429,8 @@ spec:
+@@ -1436,8 +1436,8 @@ spec:
            valueFrom:
              fieldRef:
                fieldPath: metadata.namespace
