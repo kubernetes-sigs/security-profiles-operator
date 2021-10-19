@@ -42,7 +42,11 @@ func Retry(fn func() error, retryCondition func(error) bool) error {
 		Steps:    backoffSteps,
 	}
 
-	waitErr := wait.ExponentialBackoff(backoff, func() (bool, error) {
+	return RetryEx(&backoff, fn, retryCondition)
+}
+
+func RetryEx(backoff *wait.Backoff, fn func() error, retryCondition func(error) bool) error {
+	waitErr := wait.ExponentialBackoff(*backoff, func() (bool, error) {
 		err := fn()
 		if err == nil {
 			return true, nil
