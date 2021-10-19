@@ -36,6 +36,8 @@ dependencies:
       match: jetstack/cert-manager
     - path: installation-usage.md
       match: jetstack/cert-manager
+    - path: Makefile
+      match: jetstack/cert-manager
 
   - name: kind
     version: 0.11.1
