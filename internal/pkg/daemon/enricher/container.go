@@ -22,12 +22,20 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+)
+
+const (
+	backoffDuration = 500 * time.Millisecond
+	backoffFactor   = 1.5
+	backoffSteps    = 10
 )
 
 // NOTE(jaosorior): Should this actually be namespace-scoped?
@@ -55,8 +63,15 @@ func (e *Enricher) getContainerInfo(
 		return nil, errors.Wrap(err, "load in-cluster config")
 	}
 
+	containerRetryBackoff := wait.Backoff{
+		Duration: backoffDuration,
+		Factor:   backoffFactor,
+		Steps:    backoffSteps,
+	}
+
 	errContainerIDEmpty := errors.New("container ID is empty")
-	if err := util.Retry(
+	if err := util.RetryEx(
+		&containerRetryBackoff,
 		func() (retryErr error) {
 			pods, err := e.impl.ListPods(clientset, nodeName)
 			if err != nil {
