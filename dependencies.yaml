@@ -30,7 +30,7 @@ dependencies:
       match: KUSTOMIZE_VERSION
 
   - name: cert-manager
-    version: 1.5.3
+    version: 1.5.4
     refPaths:
     - path: test/e2e_test.go
       match: jetstack/cert-manager
