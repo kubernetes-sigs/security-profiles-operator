@@ -11,12 +11,15 @@ with pkgs; buildGoModule rec {
     which
   ];
   buildInputs = [
+    (libseccomp.overrideAttrs (x: { dontDisableStatic = true; }))
     glibc
     glibc.static
-    (libseccomp.overrideAttrs (x: { dontDisableStatic = true; }))
+    libbpf
+    libelf
+    zlib.static
   ];
   buildPhase = ''
-    make
+    make WITH_BPF=1
   '';
   installPhase = ''
     install -Dm755 -t $out build/security-profiles-operator

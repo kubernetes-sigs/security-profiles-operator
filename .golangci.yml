@@ -32,7 +32,6 @@ linters:
     - goheader
     - goimports
     - gomnd
-    - gomoddirectives
     - gomodguard
     - goprintffuncname
     - gosec
@@ -72,6 +71,7 @@ linters:
     # - forbidigo
     # - funlen
     # - gochecknoglobals
+    # - gomoddirectives
     # - nilerr
     # - nlreturn
     # - revive
@@ -82,7 +82,7 @@ linters-settings:
   gocognit:
     min-complexity: 40
   nestif:
-    min-complexity: 10
+    min-complexity: 15
   gci:
     local-prefixes: sigs.k8s.io/security-profiles-operator
   errcheck:

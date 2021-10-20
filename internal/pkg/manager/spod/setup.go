@@ -89,6 +89,7 @@ func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
 		Spec: spodv1alpha1.SPODSpec{
 			EnableSelinux:     false,
 			EnableLogEnricher: false,
+			EnableBpfRecorder: false,
 			Tolerations: []corev1.Toleration{
 				{
 					Key:      "node-role.kubernetes.io/master",

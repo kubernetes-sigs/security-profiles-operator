@@ -39,6 +39,7 @@ import (
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder"
@@ -142,6 +143,12 @@ func main() {
 			Aliases: []string{"l"},
 			Usage:   "run the audit's log enricher",
 			Action:  runLogEnricher,
+		},
+		&cli.Command{
+			Name:    "bpf-recorder",
+			Aliases: []string{"b"},
+			Usage:   "run the bpf recorder",
+			Action:  runBPFRecorder,
 		},
 	}
 
@@ -311,6 +318,12 @@ func runDaemon(ctx *cli.Context) error {
 
 	setupLog.Info("ending daemon")
 	return nil
+}
+
+func runBPFRecorder(ctx *cli.Context) error {
+	const component = "bpf-recorder"
+	printInfo(component)
+	return bpfrecorder.New(ctrl.Log.WithName(component)).Run()
 }
 
 func runLogEnricher(ctx *cli.Context) error {

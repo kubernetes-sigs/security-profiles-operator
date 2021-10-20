@@ -70,6 +70,11 @@ const (
 	// created a seccomp profile.
 	SeccompProfileRecordLogsAnnotationKey = "io.containers.trace-logs/"
 
+	// SeccompProfileRecordBpfAnnotationKey is the annotation on a Pod that
+	// triggers the internal bpf module to trace the syscalls of a Pod and
+	// created a seccomp profile.
+	SeccompProfileRecordBpfAnnotationKey = "io.containers.trace-bpf/"
+
 	// SelinuxProfileRecordLogsAnnotationKey is the annotation on a Pod that
 	// triggers the internal log enricher to trace the AVC denials of a Pod and
 	// created a selinux profile.
