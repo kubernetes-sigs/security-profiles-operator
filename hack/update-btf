@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TEMP_DIR=$(mktemp -u)
+ROOT_DIR=$(git rev-parse --show-toplevel)
+BPF_OBJECT="$ROOT_DIR/build/recorder.bpf.o"
+BTF_DIR="$ROOT_DIR/internal/pkg/daemon/bpfrecorder/btf"
+
+rm -rf "$BTF_DIR"
+git clone --depth=1 https://github.com/aquasecurity/btfhub "$TEMP_DIR"
+
+pushd "$TEMP_DIR"/tools
+bash ./btfgen.sh "$BPF_OBJECT"
+rm -rf output/.gitignore
+cp -R output "$BTF_DIR"
+popd
+
+rm -rf "$TEMP_DIR"

@@ -23,6 +23,17 @@ CONTROLLER_GEN_CMD := $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/
 PROJECT := security-profiles-operator
 BUILD_DIR := build
 
+BPFTOOL ?= bpftool
+CLANG ?= clang
+LLVM_STRIP ?= llvm-strip
+BPF_PATH := internal/pkg/daemon/bpfrecorder/bpf
+ARCH := $(shell uname -m | \
+	sed 's/x86_64/x86/' | \
+	sed 's/aarch64/arm64/' | \
+	sed 's/ppc64le/powerpc/' | \
+	sed 's/mips.*/mips/')
+INCLUDES := -I$(BUILD_DIR)
+
 DATE_FMT = +'%Y-%m-%dT%H:%M:%SZ'
 ifdef SOURCE_DATE_EPOCH
     BUILD_DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "$(DATE_FMT)" 2>/dev/null || date -u "$(DATE_FMT)")
@@ -34,10 +45,17 @@ GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null || echo unknown)
 GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
 VERSION := $(shell cat VERSION)
 
-ifneq ($(shell uname -s), Darwin)
-BUILDTAGS := netgo osusergo seccomp
+ifdef WITH_BPF
+export CGO_LDFLAGS=-lelf -lz -lbpf -lseccomp
+BPF_BUILD_TAG :=
 else
-BUILDTAGS := netgo osusergo
+BPF_BUILD_TAG := no_bpf
+endif
+
+ifneq ($(shell uname -s), Darwin)
+BUILDTAGS := netgo osusergo seccomp $(BPF_BUILD_TAG)
+else
+BUILDTAGS := netgo osusergo $(BPF_BUILD_TAG)
 endif
 
 ifneq ($(shell uname -s), Darwin)
@@ -180,6 +198,7 @@ update-proto: $(BUILD_DIR)/protoc-gen-go $(BUILD_DIR)/protoc-gen-go-grpc ## Upda
 	for PROTO in \
 		api/grpc/metrics \
 		api/grpc/enricher \
+		api/grpc/bpfrecorder \
 	; do \
 	PATH=$(BUILD_DIR):$$PATH \
 		 protoc \
@@ -216,6 +235,30 @@ $(BUILD_DIR)/mdtoc: $(BUILD_DIR)
 update-toc: $(BUILD_DIR)/mdtoc ## Update the table of contents for the documentation
 	$(BUILD_DIR)/mdtoc --inplace installation-usage.md
 
+$(BUILD_DIR)/vmlinux.h: $(BUILD_DIR) ## Generate the vmlinux.h required for building the BPF module
+	$(BPFTOOL) btf dump file /sys/kernel/btf/vmlinux format c > $@
+
+$(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR)/vmlinux.h ## Build the BPF module
+	$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
+		$(INCLUDES) $(CFLAGS) -c $(BPF_PATH)/recorder.bpf.c -o $@
+	$(LLVM_STRIP) -g $@
+
+.PHONY: update-btf
+update-btf: ## Build and update all generated BTF code for supported kernels
+	./hack/update-btf
+
+.PHONY: update-bpf
+update-bpf: update-btf ## Build and update all generated BPF code
+	$(GO) generate ./internal/pkg/daemon/bpfrecorder/...
+
+.PHONY: update-bpf-nix
+update-bpf-nix: $(BUILD_DIR) ## Build and update all generated BPF code with nix
+	rm -rf $(BUILD_DIR)/recorder.bpf.o
+	nix-build --extra-sandbox-paths /sys nix/default-bpf.nix
+	cp -f result/recorder.bpf.o $(BUILD_DIR)/
+	chmod 0644 $(BUILD_DIR)/recorder.bpf.o
+	$(GO) generate ./internal/pkg/daemon/bpfrecorder/...
+
 # Verification targets
 
 .PHONY: verify
@@ -226,7 +269,8 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 	$(BUILD_DIR)/verify_boilerplate.py \
 		--boilerplate-dir hack/boilerplate \
 		--skip api/grpc/metrics/api_grpc.pb.go \
-		--skip api/grpc/enricher/api_grpc.pb.go
+		--skip api/grpc/enricher/api_grpc.pb.go \
+		--skip api/grpc/bpfrecorder/api_grpc.pb.go
 
 $(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
 	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/$(REPO_INFRA_VERSION)/hack/verify_boilerplate.py \
@@ -266,6 +310,10 @@ $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 verify-toc: update-toc ## Verify the table of contents for the documentation
 	hack/tree-status
 
+.PHONY: verify-bpf
+verify-bpf: update-bpf ## Verify the bpf module generated code
+	hack/tree-status
+
 # Test targets
 
 .PHONY: test-unit
@@ -291,7 +339,7 @@ manifests:
 
 # Generate deepcopy code
 generate:
-	$(CONTROLLER_GEN_CMD) object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./..."
+	$(CONTROLLER_GEN_CMD) object:headerFile="hack/boilerplate/boilerplate.go.txt",year=$(shell date -u "+%Y") paths="./api/..."
 	$(CONTROLLER_GEN_CMD) rbac:roleName=security-profiles-operator paths="./internal/pkg/manager/..." output:rbac:stdout > deploy/base/role.yaml
 	$(CONTROLLER_GEN_CMD) rbac:roleName=spod paths="./internal/pkg/daemon/..." output:rbac:stdout >> deploy/base/role.yaml
 	$(CONTROLLER_GEN_CMD) rbac:roleName=spo-webhook paths="./internal/pkg/webhooks/..." output:rbac:stdout >> deploy/base/role.yaml

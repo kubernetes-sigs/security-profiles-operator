@@ -38,6 +38,7 @@ type ProfileRecorder string
 const (
 	ProfileRecorderHook ProfileRecorder = "hook"
 	ProfileRecorderLogs ProfileRecorder = "logs"
+	ProfileRecorderBpf  ProfileRecorder = "bpf"
 )
 
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
@@ -47,7 +48,7 @@ type ProfileRecordingSpec struct {
 	Kind ProfileRecordingKind `json:"kind"`
 
 	// Recorder to be used.
-	// +kubebuilder:validation:Enum=hook;logs
+	// +kubebuilder:validation:Enum=bpf;hook;logs
 	Recorder ProfileRecorder `json:"recorder"`
 
 	// PodSelector selects the pods to record. This field follows standard
@@ -123,6 +124,15 @@ func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrReplicaName, ctrName string)
 			time.Now().Unix(),
 		)
 
+	case ProfileRecorderBpf:
+		annotationPrefix = config.SeccompProfileRecordBpfAnnotationKey
+		value = fmt.Sprintf(
+			"%s-%s-%d",
+			pr.GetName(),
+			ctrReplicaName,
+			time.Now().Unix(),
+		)
+
 	default:
 		return "", "", errors.Errorf(
 			"invalid recorder: %s", pr.Spec.Recorder,
@@ -147,6 +157,7 @@ func (pr *ProfileRecording) ctrAnnotationSelinux(ctrReplicaName, ctrName string)
 		)
 
 	case ProfileRecorderHook:
+	case ProfileRecorderBpf:
 	default:
 		return "", "", errors.Errorf(
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderLogs,

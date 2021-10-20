@@ -415,10 +415,22 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.HostPID = true
 	}
 
+	// Bpf recorder parameters
+	if cfg.Spec.EnableBpfRecorder {
+		r.baseSPOd.Spec.Template.Spec.Containers[3].Image = image
+		templateSpec.Containers = append(
+			templateSpec.Containers,
+			r.baseSPOd.Spec.Template.Spec.Containers[3])
+
+		// HostPID is only required for the bpf recorder and is used to access
+		// cgroup files to map Process IDs to Pod IDs.
+		templateSpec.HostPID = true
+	}
+
 	// Metrics parameters
 	templateSpec.Containers = append(
 		templateSpec.Containers,
-		r.baseSPOd.Spec.Template.Spec.Containers[3],
+		r.baseSPOd.Spec.Template.Spec.Containers[4],
 	)
 
 	// Set image pull policy

@@ -4,6 +4,10 @@ github.com/BurntSushi/toml/internal
 # github.com/ReneKroon/ttlcache/v2 v2.9.0
 ## explicit
 github.com/ReneKroon/ttlcache/v2
+# github.com/aquasecurity/libbpfgo v0.2.1-libbpf-0.4.0.0.20210928164917-f097a0171b12 => github.com/saschagrunert/libbpfgo v0.2.1-libbpf-0.4.0.0.20211026092140-9b286c168b65
+## explicit
+github.com/aquasecurity/libbpfgo
+github.com/aquasecurity/libbpfgo/helpers
 # github.com/aws/aws-sdk-go v1.37.6
 github.com/aws/aws-sdk-go/aws
 github.com/aws/aws-sdk-go/aws/awserr
@@ -54,6 +58,9 @@ github.com/beorn7/perks/quantile
 github.com/blang/semver
 # github.com/cespare/xxhash/v2 v2.1.1
 github.com/cespare/xxhash/v2
+# github.com/cobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
+## explicit
+github.com/cobaugh/osrelease
 # github.com/containers/common v0.46.0
 ## explicit
 github.com/containers/common/pkg/seccomp
@@ -787,3 +794,4 @@ sigs.k8s.io/zeitgeist/internal/github/internal
 sigs.k8s.io/zeitgeist/internal/release/regex
 sigs.k8s.io/zeitgeist/pkg/gitlab
 sigs.k8s.io/zeitgeist/upstreams
+# github.com/aquasecurity/libbpfgo => github.com/saschagrunert/libbpfgo v0.2.1-libbpf-0.4.0.0.20211026092140-9b286c168b65
