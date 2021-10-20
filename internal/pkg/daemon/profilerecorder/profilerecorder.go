@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
+	bpfrecorderapi "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
@@ -54,6 +55,7 @@ import (
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
@@ -208,7 +210,8 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 	for key := range p.Annotations {
 		if strings.HasPrefix(key, config.SeccompProfileRecordHookAnnotationKey) ||
 			strings.HasPrefix(key, config.SelinuxProfileRecordLogsAnnotationKey) ||
-			strings.HasPrefix(key, config.SeccompProfileRecordLogsAnnotationKey) {
+			strings.HasPrefix(key, config.SeccompProfileRecordLogsAnnotationKey) ||
+			strings.HasPrefix(key, config.SeccompProfileRecordBpfAnnotationKey) {
 			return true
 		}
 	}
@@ -260,6 +263,15 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			return reconcile.Result{}, nil
 		}
 
+		bpfProfiles, err := parseBpfAnnotations(pod.Annotations)
+		if err != nil {
+			// Malformed annotations could be set by users directly, which is
+			// why we are ignoring them.
+			logger.Info("Ignoring because unable to parse bpf annotation", "error", err)
+			r.record.Event(pod, event.Warning(reasonAnnotationParsing, err))
+			return reconcile.Result{}, nil
+		}
+
 		var profiles []profileToCollect
 		var recorder profilerecording1alpha1.ProfileRecorder
 		if len(hookProfiles) > 0 { // nolint: gocritic
@@ -268,6 +280,13 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 		} else if len(logProfiles) > 0 {
 			profiles = logProfiles
 			recorder = profilerecording1alpha1.ProfileRecorderLogs
+		} else if len(bpfProfiles) > 0 {
+			if err := r.startBpfRecoder(); err != nil {
+				logger.Error(err, "unable to start bpf recorder")
+				return reconcile.Result{}, nil
+			}
+			profiles = bpfProfiles
+			recorder = profilerecording1alpha1.ProfileRecorderBpf
 		} else {
 			logger.Info("Neither hook nor log annotations found on pod")
 			return reconcile.Result{}, nil
@@ -291,6 +310,56 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	}
 
 	return reconcile.Result{}, nil
+}
+
+func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderClient, context.CancelFunc, error) {
+	r.log.Info("Checking if bpf recoder is enabled")
+
+	spod, err := r.getSPOD()
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "getting SPOD config")
+	}
+
+	if !spod.Spec.EnableBpfRecorder {
+		return nil, nil, errors.New("bpf recorder is not enabled")
+	}
+
+	r.log.Info("Connecting to local GRPC bpf recorder server")
+	conn, cancel, err := bpfrecorder.Dial()
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "connect to bpf recorder GRPC server")
+	}
+	enricherClient := bpfrecorderapi.NewBpfRecorderClient(conn)
+
+	return enricherClient, cancel, nil
+}
+
+func (r *RecorderReconciler) startBpfRecoder() error {
+	recorderClient, cancel, err := r.getBpfRecorderClient()
+	if err != nil {
+		return errors.Wrap(err, "get bpf recoder client")
+	}
+	defer cancel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	defer cancel()
+	r.log.Info("Starting BPF recorder on node")
+	_, err = recorderClient.Start(ctx, &bpfrecorderapi.EmptyRequest{})
+	return err
+}
+
+func (r *RecorderReconciler) stopBpfRecorder() error {
+	recorderClient, cancel, err := r.getBpfRecorderClient()
+	if err != nil {
+		return errors.Wrap(err, "get bpf recoder client")
+	}
+	defer cancel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	defer cancel()
+	r.log.Info("Stopping BPF recorder on node")
+	_, err = recorderClient.Stop(ctx, &bpfrecorderapi.EmptyRequest{})
+	return err
 }
 
 func (r *RecorderReconciler) collectProfile(
@@ -321,6 +390,14 @@ func (r *RecorderReconciler) collectProfile(
 			ctx, name, podToWatch.profiles,
 		); err != nil {
 			return errors.Wrap(err, "collect log profile")
+		}
+	}
+
+	if podToWatch.recorder == profilerecording1alpha1.ProfileRecorderBpf {
+		if err := r.collectBpfProfiles(
+			ctx, name, podToWatch.profiles,
+		); err != nil {
+			return errors.Wrap(err, "collect bpf profile")
 		}
 	}
 
@@ -571,6 +648,74 @@ func (r *RecorderReconciler) formatSelinuxProfile(
 	return sePol, nil
 }
 
+func (r *RecorderReconciler) collectBpfProfiles(
+	ctx context.Context,
+	name types.NamespacedName,
+	profiles []profileToCollect,
+) error {
+	recorderClient, cancel, err := r.getBpfRecorderClient()
+	if err != nil {
+		return errors.Wrap(err, "get bpf recoder client")
+	}
+	defer cancel()
+
+	for _, profile := range profiles {
+		r.log.Info("Collecting BPF profile", "name", profile.name, "kind", profile.kind)
+		response, err := recorderClient.SyscallsForProfile(
+			ctx, &bpfrecorderapi.ProfileRequest{Name: profile.name},
+		)
+		if err != nil {
+			return errors.Wrap(err, "get syscalls for profile")
+		}
+
+		profileSpec := v1alpha1.SeccompProfileSpec{
+			DefaultAction: seccomp.ActErrno,
+			Syscalls: []*v1alpha1.Syscall{{
+				Action: seccomp.ActAllow,
+				Names:  response.GetSyscalls(),
+			}},
+		}
+
+		// Remove the timestamp
+		profileName, err := extractProfileName(profile.name)
+		if err != nil {
+			return errors.Wrap(err, "extract profile name")
+		}
+
+		profile := &v1alpha1.SeccompProfile{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      profileName,
+				Namespace: name.Namespace,
+			},
+			Spec: profileSpec,
+		}
+
+		res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
+			func() error {
+				profile.Spec = profileSpec
+				return nil
+			},
+		)
+		if err != nil {
+			r.log.Error(err, "Cannot create seccompprofile resource")
+			r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+			return errors.Wrap(err, "create seccompProfile resource")
+		}
+
+		r.log.Info("Created/updated profile", "action", res, "name", profileName)
+		r.record.Event(
+			profile,
+			event.Normal(reasonProfileCreated, "seccomp profile created"),
+		)
+	}
+
+	if err := r.stopBpfRecorder(); err != nil {
+		r.log.Error(err, "unable to stop bpf recorder")
+		return errors.Wrap(err, "stop bpf recorder")
+	}
+	return nil
+}
+
 func extractProfileName(s string) (string, error) {
 	lastIndex := strings.LastIndex(s, "-")
 	if lastIndex == -1 {
@@ -630,6 +775,30 @@ func parseLogAnnotations(annotations map[string]string) (res []profileToCollect,
 			collectProfile.kind = profilerecording1alpha1.ProfileRecordingKindSeccompProfile
 		} else if strings.HasPrefix(key, config.SelinuxProfileRecordLogsAnnotationKey) {
 			collectProfile.kind = profilerecording1alpha1.ProfileRecordingKindSelinuxProfile
+		} else {
+			continue
+		}
+
+		if profile == "" {
+			return nil, errors.Wrap(errors.New(errInvalidAnnotation),
+				"providing output profile is mandatory")
+		}
+		collectProfile.name = profile
+
+		res = append(res, collectProfile)
+	}
+
+	return res, nil
+}
+
+// parseBpfAnnotations parses the provided annotations and extracts the
+// mandatory output profiles for the bpf recorder.
+func parseBpfAnnotations(annotations map[string]string) (res []profileToCollect, err error) {
+	for key, profile := range annotations {
+		var collectProfile profileToCollect
+
+		if strings.HasPrefix(key, config.SeccompProfileRecordBpfAnnotationKey) {
+			collectProfile.kind = profilerecording1alpha1.ProfileRecordingKindSeccompProfile
 		} else {
 			continue
 		}

@@ -36,9 +36,11 @@ var (
 	userRootless                    = int64(config.UserRootless)
 	hostPathDirectory               = v1.HostPathDirectory
 	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
+	hostPathFile                    = v1.HostPathFile
 	metricsPort               int32 = 9443
 	healthzPath                     = "/healthz"
 	metricsCertPath                 = "/var/run/secrets/metrics"
+	etcOSReleasePath                = "/etc/os-release"
 )
 
 const (
@@ -47,6 +49,7 @@ const (
 	SelinuxdSocketPath   = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath       = SelinuxdPrivateDir + "/selinuxd.db"
 	MetricsImage         = "quay.io/brancz/kube-rbac-proxy:v0.9.0"
+	sysKernelDebugPath   = "/sys/kernel/debug"
 )
 
 var Manifest = &appsv1.DaemonSet{
@@ -398,6 +401,57 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 					{
+						Name:            "bpf-recorder",
+						Args:            []string{"bpf-recorder"},
+						ImagePullPolicy: v1.PullAlways,
+						VolumeMounts: []v1.VolumeMount{
+							{
+								Name:      "sys-kernel-debug-volume",
+								MountPath: sysKernelDebugPath,
+								ReadOnly:  true,
+							},
+							{
+								Name:      "host-etc-osrelease-volume",
+								MountPath: etcOSReleasePath,
+							},
+							{
+								Name:      "tmp-volume",
+								MountPath: "/tmp",
+							},
+						},
+						SecurityContext: &v1.SecurityContext{
+							ReadOnlyRootFilesystem: &truly,
+							Privileged:             &truly,
+							RunAsUser:              &userRoot,
+							RunAsGroup:             &userRoot,
+							SELinuxOptions: &v1.SELinuxOptions{
+								// TODO(pjbgf): Use a more restricted selinux type
+								Type: "spc_t",
+							},
+						},
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("64Mi"),
+								v1.ResourceCPU:              resource.MustParse("50m"),
+								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+							},
+							Limits: v1.ResourceList{
+								v1.ResourceMemory:           resource.MustParse("128Mi"),
+								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
+							},
+						},
+						Env: []v1.EnvVar{
+							{
+								Name: config.NodeNameEnvKey,
+								ValueFrom: &v1.EnvVarSource{
+									FieldRef: &v1.ObjectFieldSelector{
+										FieldPath: "spec.nodeName",
+									},
+								},
+							},
+						},
+					},
+					{
 						Name:            "metrics",
 						Image:           MetricsImage,
 						ImagePullPolicy: v1.PullIfNotPresent,
@@ -543,6 +597,30 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							Secret: &v1.SecretVolumeSource{
 								SecretName: "metrics-server-cert",
 							},
+						},
+					},
+					{
+						Name: "sys-kernel-debug-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: sysKernelDebugPath,
+								Type: &hostPathDirectory,
+							},
+						},
+					},
+					{
+						Name: "host-etc-osrelease-volume",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: etcOSReleasePath,
+								Type: &hostPathFile,
+							},
+						},
+					},
+					{
+						Name: "tmp-volume",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{},
 						},
 					},
 				},
