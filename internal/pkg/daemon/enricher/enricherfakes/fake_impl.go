@@ -34,6 +34,19 @@ import (
 )
 
 type FakeImpl struct {
+	AddToBacklogStub        func(*ttlcache.Cache, string, interface{}) error
+	addToBacklogMutex       sync.RWMutex
+	addToBacklogArgsForCall []struct {
+		arg1 *ttlcache.Cache
+		arg2 string
+		arg3 interface{}
+	}
+	addToBacklogReturns struct {
+		result1 error
+	}
+	addToBacklogReturnsOnCall map[int]struct {
+		result1 error
+	}
 	AuditIncStub        func(api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)
 	auditIncMutex       sync.RWMutex
 	auditIncArgsForCall []struct {
@@ -71,6 +84,32 @@ type FakeImpl struct {
 		result1 *grpc.ClientConn
 		result2 context.CancelFunc
 		result3 error
+	}
+	FlushBacklogStub        func(*ttlcache.Cache, string) error
+	flushBacklogMutex       sync.RWMutex
+	flushBacklogArgsForCall []struct {
+		arg1 *ttlcache.Cache
+		arg2 string
+	}
+	flushBacklogReturns struct {
+		result1 error
+	}
+	flushBacklogReturnsOnCall map[int]struct {
+		result1 error
+	}
+	GetFromBacklogStub        func(*ttlcache.Cache, string) (interface{}, error)
+	getFromBacklogMutex       sync.RWMutex
+	getFromBacklogArgsForCall []struct {
+		arg1 *ttlcache.Cache
+		arg2 string
+	}
+	getFromBacklogReturns struct {
+		result1 interface{}
+		result2 error
+	}
+	getFromBacklogReturnsOnCall map[int]struct {
+		result1 interface{}
+		result2 error
 	}
 	GetenvStub        func(string) string
 	getenvMutex       sync.RWMutex
@@ -223,6 +262,69 @@ type FakeImpl struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeImpl) AddToBacklog(arg1 *ttlcache.Cache, arg2 string, arg3 interface{}) error {
+	fake.addToBacklogMutex.Lock()
+	ret, specificReturn := fake.addToBacklogReturnsOnCall[len(fake.addToBacklogArgsForCall)]
+	fake.addToBacklogArgsForCall = append(fake.addToBacklogArgsForCall, struct {
+		arg1 *ttlcache.Cache
+		arg2 string
+		arg3 interface{}
+	}{arg1, arg2, arg3})
+	stub := fake.AddToBacklogStub
+	fakeReturns := fake.addToBacklogReturns
+	fake.recordInvocation("AddToBacklog", []interface{}{arg1, arg2, arg3})
+	fake.addToBacklogMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) AddToBacklogCallCount() int {
+	fake.addToBacklogMutex.RLock()
+	defer fake.addToBacklogMutex.RUnlock()
+	return len(fake.addToBacklogArgsForCall)
+}
+
+func (fake *FakeImpl) AddToBacklogCalls(stub func(*ttlcache.Cache, string, interface{}) error) {
+	fake.addToBacklogMutex.Lock()
+	defer fake.addToBacklogMutex.Unlock()
+	fake.AddToBacklogStub = stub
+}
+
+func (fake *FakeImpl) AddToBacklogArgsForCall(i int) (*ttlcache.Cache, string, interface{}) {
+	fake.addToBacklogMutex.RLock()
+	defer fake.addToBacklogMutex.RUnlock()
+	argsForCall := fake.addToBacklogArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) AddToBacklogReturns(result1 error) {
+	fake.addToBacklogMutex.Lock()
+	defer fake.addToBacklogMutex.Unlock()
+	fake.AddToBacklogStub = nil
+	fake.addToBacklogReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) AddToBacklogReturnsOnCall(i int, result1 error) {
+	fake.addToBacklogMutex.Lock()
+	defer fake.addToBacklogMutex.Unlock()
+	fake.AddToBacklogStub = nil
+	if fake.addToBacklogReturnsOnCall == nil {
+		fake.addToBacklogReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.addToBacklogReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeImpl) AuditInc(arg1 api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error) {
@@ -407,6 +509,133 @@ func (fake *FakeImpl) DialReturnsOnCall(i int, result1 *grpc.ClientConn, result2
 		result2 context.CancelFunc
 		result3 error
 	}{result1, result2, result3}
+}
+
+func (fake *FakeImpl) FlushBacklog(arg1 *ttlcache.Cache, arg2 string) error {
+	fake.flushBacklogMutex.Lock()
+	ret, specificReturn := fake.flushBacklogReturnsOnCall[len(fake.flushBacklogArgsForCall)]
+	fake.flushBacklogArgsForCall = append(fake.flushBacklogArgsForCall, struct {
+		arg1 *ttlcache.Cache
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.FlushBacklogStub
+	fakeReturns := fake.flushBacklogReturns
+	fake.recordInvocation("FlushBacklog", []interface{}{arg1, arg2})
+	fake.flushBacklogMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) FlushBacklogCallCount() int {
+	fake.flushBacklogMutex.RLock()
+	defer fake.flushBacklogMutex.RUnlock()
+	return len(fake.flushBacklogArgsForCall)
+}
+
+func (fake *FakeImpl) FlushBacklogCalls(stub func(*ttlcache.Cache, string) error) {
+	fake.flushBacklogMutex.Lock()
+	defer fake.flushBacklogMutex.Unlock()
+	fake.FlushBacklogStub = stub
+}
+
+func (fake *FakeImpl) FlushBacklogArgsForCall(i int) (*ttlcache.Cache, string) {
+	fake.flushBacklogMutex.RLock()
+	defer fake.flushBacklogMutex.RUnlock()
+	argsForCall := fake.flushBacklogArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) FlushBacklogReturns(result1 error) {
+	fake.flushBacklogMutex.Lock()
+	defer fake.flushBacklogMutex.Unlock()
+	fake.FlushBacklogStub = nil
+	fake.flushBacklogReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) FlushBacklogReturnsOnCall(i int, result1 error) {
+	fake.flushBacklogMutex.Lock()
+	defer fake.flushBacklogMutex.Unlock()
+	fake.FlushBacklogStub = nil
+	if fake.flushBacklogReturnsOnCall == nil {
+		fake.flushBacklogReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.flushBacklogReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) GetFromBacklog(arg1 *ttlcache.Cache, arg2 string) (interface{}, error) {
+	fake.getFromBacklogMutex.Lock()
+	ret, specificReturn := fake.getFromBacklogReturnsOnCall[len(fake.getFromBacklogArgsForCall)]
+	fake.getFromBacklogArgsForCall = append(fake.getFromBacklogArgsForCall, struct {
+		arg1 *ttlcache.Cache
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.GetFromBacklogStub
+	fakeReturns := fake.getFromBacklogReturns
+	fake.recordInvocation("GetFromBacklog", []interface{}{arg1, arg2})
+	fake.getFromBacklogMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetFromBacklogCallCount() int {
+	fake.getFromBacklogMutex.RLock()
+	defer fake.getFromBacklogMutex.RUnlock()
+	return len(fake.getFromBacklogArgsForCall)
+}
+
+func (fake *FakeImpl) GetFromBacklogCalls(stub func(*ttlcache.Cache, string) (interface{}, error)) {
+	fake.getFromBacklogMutex.Lock()
+	defer fake.getFromBacklogMutex.Unlock()
+	fake.GetFromBacklogStub = stub
+}
+
+func (fake *FakeImpl) GetFromBacklogArgsForCall(i int) (*ttlcache.Cache, string) {
+	fake.getFromBacklogMutex.RLock()
+	defer fake.getFromBacklogMutex.RUnlock()
+	argsForCall := fake.getFromBacklogArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) GetFromBacklogReturns(result1 interface{}, result2 error) {
+	fake.getFromBacklogMutex.Lock()
+	defer fake.getFromBacklogMutex.Unlock()
+	fake.GetFromBacklogStub = nil
+	fake.getFromBacklogReturns = struct {
+		result1 interface{}
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetFromBacklogReturnsOnCall(i int, result1 interface{}, result2 error) {
+	fake.getFromBacklogMutex.Lock()
+	defer fake.getFromBacklogMutex.Unlock()
+	fake.GetFromBacklogStub = nil
+	if fake.getFromBacklogReturnsOnCall == nil {
+		fake.getFromBacklogReturnsOnCall = make(map[int]struct {
+			result1 interface{}
+			result2 error
+		})
+	}
+	fake.getFromBacklogReturnsOnCall[i] = struct {
+		result1 interface{}
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) Getenv(arg1 string) string {
@@ -1160,12 +1389,18 @@ func (fake *FakeImpl) TailFileReturnsOnCall(i int, result1 *tail.Tail, result2 e
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
+	fake.addToBacklogMutex.RLock()
+	defer fake.addToBacklogMutex.RUnlock()
 	fake.auditIncMutex.RLock()
 	defer fake.auditIncMutex.RUnlock()
 	fake.closeMutex.RLock()
 	defer fake.closeMutex.RUnlock()
 	fake.dialMutex.RLock()
 	defer fake.dialMutex.RUnlock()
+	fake.flushBacklogMutex.RLock()
+	defer fake.flushBacklogMutex.RUnlock()
+	fake.getFromBacklogMutex.RLock()
+	defer fake.getFromBacklogMutex.RUnlock()
 	fake.getenvMutex.RLock()
 	defer fake.getenvMutex.RUnlock()
 	fake.inClusterConfigMutex.RLock()
