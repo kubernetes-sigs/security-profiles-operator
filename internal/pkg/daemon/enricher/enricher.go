@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -43,6 +44,7 @@ const (
 	// defaultCacheTimeout is the timeout for the container ID and info cache being
 	// used. The chosen value is nothing more than a rough guess.
 	defaultCacheTimeout time.Duration = time.Hour
+	auditBacklogMax                   = 128
 
 	defaultTimeout time.Duration = time.Minute
 	maxMsgSize     int           = 16 * 1024 * 1024
@@ -57,6 +59,7 @@ type Enricher struct {
 	infoCache        ttlcache.SimpleCache
 	syscalls         sync.Map
 	avcs             sync.Map
+	auditLineCache   *ttlcache.Cache
 }
 
 // New returns a new Enricher instance.
@@ -68,6 +71,7 @@ func New(logger logr.Logger) *Enricher {
 		infoCache:        ttlcache.NewCache(),
 		syscalls:         sync.Map{},
 		avcs:             sync.Map{},
+		auditLineCache:   ttlcache.NewCache(),
 	}
 }
 
@@ -76,13 +80,20 @@ func New(logger logr.Logger) *Enricher {
 func (e *Enricher) Run() error {
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
 	for _, cache := range []ttlcache.SimpleCache{
-		e.containerIDCache, e.infoCache,
+		e.containerIDCache,
+		e.infoCache,
+		e.auditLineCache,
 	} {
 		if err := e.impl.SetTTL(cache, defaultCacheTimeout); err != nil {
 			return errors.Wrap(err, "set cache timeout")
 		}
 		defer cache.Close()
 	}
+
+	// For the audit line cache we don't want to increase the TTL on Gets
+	// because we want the TTLs just to quietly expire if/when the cache
+	// is full
+	e.auditLineCache.SkipTTLExtensionOnHit(true)
 
 	nodeName := e.impl.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
@@ -165,6 +176,9 @@ func (e *Enricher) Run() error {
 		cID, err := e.getContainerID(auditLine.processID)
 		if errors.Is(err, os.ErrNotExist) {
 			// We're probably in container creation or removal
+			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
+				e.logger.Error(backlogErr, "adding line to backlog")
+			}
 			continue
 		}
 		if err != nil {
@@ -172,6 +186,9 @@ func (e *Enricher) Run() error {
 				err, "unable to get container ID",
 				"processID", auditLine.processID,
 			)
+			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
+				e.logger.Error(backlogErr, "adding line to backlog")
+			}
 			continue
 		}
 
@@ -182,6 +199,9 @@ func (e *Enricher) Run() error {
 				"processID", auditLine.processID,
 				"containerID", cID,
 			)
+			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
+				e.logger.Error(backlogErr, "adding line to backlog")
+			}
 			continue
 		}
 
@@ -189,6 +209,14 @@ func (e *Enricher) Run() error {
 		if err != nil {
 			e.logger.Error(
 				err, "dispatch audit line")
+			continue
+		}
+
+		// check if there's anything in the cache for this processID
+		err = e.dispatchBacklog(metricsClient, nodeName, info, auditLine.processID)
+		if err != nil {
+			e.logger.Error(
+				err, "process backlog")
 			continue
 		}
 	}
@@ -234,6 +262,83 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 // addr returns the default server listening address.
 func addr() string {
 	return net.JoinHostPort("localhost", "9114")
+}
+
+func (e *Enricher) addToBacklog(line *auditLine) error {
+	strPid := strconv.Itoa(line.processID)
+
+	backlog, err := e.auditLineCache.Get(strPid)
+	if errors.Is(err, ttlcache.ErrNotFound) {
+		if setErr := e.impl.AddToBacklog(e.auditLineCache, strPid, []*auditLine{line}); setErr != nil {
+			return errors.Wrap(setErr, "adding the first line to the backlog")
+		}
+		e.logger.Info("line added to backlog")
+		return nil
+	} else if err != nil {
+		return errors.Wrap(err, "retrieving an item from the cache")
+	}
+
+	auditBacklog, ok := backlog.([]*auditLine)
+	if !ok {
+		return errors.New("wrong type")
+	}
+
+	if auditBacklog == nil {
+		// this should not happen, but let's be paranoid
+		return errors.New("nil slice in cache")
+	}
+
+	// If the number of backlog messages per process is over the limit, we just stop
+	// adding new ones. Eventually the TTL will expire and the backlog will flush.
+	// In case the workload appears later, we create a partial policy but that was
+	// true before this change anyway
+	if len(auditBacklog) > auditBacklogMax {
+		return nil
+	}
+
+	if setErr := e.impl.AddToBacklog(e.auditLineCache, strPid, append(auditBacklog, line)); setErr != nil {
+		return errors.Wrap(setErr, "adding a line to the backlog")
+	}
+
+	e.logger.Info("line appended to backlog")
+	return nil
+}
+
+func (e *Enricher) dispatchBacklog(
+	metricsClient apimetrics.Metrics_AuditIncClient,
+	nodeName string,
+	info *containerInfo,
+	processID int,
+) error {
+	strPid := strconv.Itoa(processID)
+
+	backlog, err := e.impl.GetFromBacklog(e.auditLineCache, strPid)
+	if errors.Is(err, ttlcache.ErrNotFound) {
+		// nothing in the cache
+		return nil
+	} else if err != nil {
+		return errors.Wrap(err, "retrieving backlog")
+	}
+
+	auditBacklog, ok := backlog.([]*auditLine)
+	if !ok {
+		return errors.New("wrong type")
+	}
+
+	for i := range auditBacklog {
+		auditLine := auditBacklog[i]
+		if err := e.dispatchAuditLine(metricsClient, nodeName, auditLine, info); err != nil {
+			e.logger.Error(
+				err, "dispatch audit line")
+			continue
+		}
+	}
+
+	if err := e.impl.FlushBacklog(e.auditLineCache, strPid); err != nil {
+		return errors.Wrap(err, "flushing backlog")
+	}
+
+	return nil
 }
 
 func (e *Enricher) dispatchAuditLine(
