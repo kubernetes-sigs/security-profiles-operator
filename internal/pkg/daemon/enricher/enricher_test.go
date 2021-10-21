@@ -45,6 +45,11 @@ const (
 		`exe="` + executable + `" sig=0 arch=c000003e syscall=10 compat=0 ` +
 		`ip=0x7f4ce626349b code=0x7ffc0000 AUID="user" UID="root" ` +
 		`GID="root" ARCH=x86_64 SYSCALL=` + syscall
+	avcLine = `type=AVC msg=audit(1613173578.156:2945): avc:  denied ` +
+		`{ read } for  pid=75593 comm="security-profil" name="token" ` +
+		`dev="tmpfs" ino=612459 ` +
+		`scontext=system_u:system_r:container_t:s0:c4,c808 ` +
+		`tcontext=system_u:object_r:var_lib_t:s0 tclass=lnk_file permissive=0`
 	containerID = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
 	cgroupLine  = "0::/kubepods/burstable/" +
 		"pod4baee654-1da5-4d8c-a110-864a22f9ae39/" +
@@ -109,6 +114,8 @@ func TestRun(t *testing.T) {
 				require.Equal(t, pod, res.Pod)
 				require.Equal(t, executable, res.Executable)
 				require.Equal(t, syscall, res.Syscall)
+
+				require.Equal(t, 0, mock.AddToBacklogCallCount())
 
 				require.Nil(t, err)
 			},
@@ -211,6 +218,105 @@ func TestRun(t *testing.T) {
 					// Wait for MetricsAuditIncCallCount to be called
 				}
 
+				require.Nil(t, err)
+			},
+		},
+		{ // success, but using the backlog
+			runAsync: true,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.GetenvReturns(node)
+				mock.LinesReturns(lineChan)
+				mock.OpenCalls(func(string) (*os.File, error) {
+					return os.Open(cgroupFilePath)
+				})
+
+				// container.go says that there are 10 retries to get the container
+				// ID. Simulate a failure by returning the container ID on the 11th
+				// retry
+				i := 0
+				for ; i < 10; i++ {
+					mock.ListPodsReturnsOnCall(i, &v1.PodList{Items: []v1.Pod{{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      pod,
+							Namespace: namespace,
+						},
+						Status: v1.PodStatus{
+							ContainerStatuses: []v1.ContainerStatus{{
+								ContainerID: "",
+								State: v1.ContainerState{
+									Waiting: &v1.ContainerStateWaiting{
+										Reason: "ContainerCreating",
+									},
+								},
+							}},
+						},
+					}}}, nil)
+				}
+				mock.ListPodsReturnsOnCall(i, &v1.PodList{Items: []v1.Pod{{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      pod,
+						Namespace: namespace,
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{{
+							ContainerID: crioPrefix + containerID,
+						}},
+					},
+				}}}, nil)
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				for mock.LinesCallCount() != 1 {
+					// Wait for Lines() to be called. We should hit continue
+					// in the loop, failing the find the container ID
+				}
+
+				lineChan <- &tail.Line{
+					Text: avcLine,
+					Time: time.Now(),
+				}
+
+				for mock.AddToBacklogCallCount() != 1 {
+					// Make sure the backlog was added to, because the
+					// pod information shouldn't be available yet
+				}
+				// nothing should be read from the backlog yet
+				require.Equal(t, mock.GetFromBacklogCallCount(), 0)
+
+				lineChan <- &tail.Line{
+					Text: avcLine,
+					Time: time.Now(),
+				}
+
+				// the other line shouldn't hit the backlog, so there
+				// should be still only one write to backlog
+				require.Equal(t, mock.AddToBacklogCallCount(), 1)
+
+				// add something to the mock backlog
+				mock.GetFromBacklogReturns(
+					[]*auditLine{
+						{
+							type_:        "selinux",
+							timestampID:  "1613173578.156:2945",
+							systemCallID: 0,
+							processID:    75593,
+							executable:   "",
+							perm:         "read",
+							scontext:     "system_u:system_r:container_t:s0:c4,c808",
+							tcontext:     "system_u:object_r:var_lib_t:s0",
+							tclass:       "lnk_file",
+						},
+					}, nil,
+				)
+
+				for mock.GetFromBacklogCallCount() != 1 {
+					// Make sure the backlog was read from when the avcs
+					// were dispatched
+				}
+				for mock.FlushBacklogCallCount() != 1 {
+					// Make sure the backlog was flushed. This ensures
+					// that it was not empty and the mock entry was
+					// actually processed
+				}
 				require.Nil(t, err)
 			},
 		},

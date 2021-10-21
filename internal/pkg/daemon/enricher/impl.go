@@ -54,6 +54,9 @@ type impl interface {
 	SendMetric(client api.Metrics_AuditIncClient, in *api.AuditRequest) error
 	Listen(string, string) (net.Listener, error)
 	Serve(*grpc.Server, net.Listener) error
+	AddToBacklog(cache *ttlcache.Cache, key string, data interface{}) error
+	GetFromBacklog(cache *ttlcache.Cache, key string) (interface{}, error)
+	FlushBacklog(cache *ttlcache.Cache, key string) error
 }
 
 func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
@@ -112,6 +115,24 @@ func (d *defaultImpl) AuditInc(
 	client api.MetricsClient,
 ) (api.Metrics_AuditIncClient, error) {
 	return client.AuditInc(context.Background())
+}
+
+func (d *defaultImpl) AddToBacklog(
+	cache *ttlcache.Cache, key string, value interface{},
+) error {
+	return cache.Set(key, value)
+}
+
+func (d *defaultImpl) GetFromBacklog(
+	cache *ttlcache.Cache, key string,
+) (interface{}, error) {
+	return cache.Get(key)
+}
+
+func (d *defaultImpl) FlushBacklog(
+	cache *ttlcache.Cache, key string,
+) error {
+	return cache.Remove(key)
 }
 
 func (d *defaultImpl) SendMetric(
