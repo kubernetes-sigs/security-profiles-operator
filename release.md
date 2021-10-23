@@ -31,7 +31,7 @@ promotes the built container images (the manifest as well as the builds for
 `amd64` and `arm`).
 
 We can use the tool
-[`cip-mm`](https://github.com/kubernetes/release/tree/master/cmd/cip-mm) to
+[`cip-mm`](https://github.com/kubernetes-sigs/promo-tools/tree/main/cmd/cip-mm) to
 allow easier retrieval and modification of the necessary container image digests.
 To run the tool from `$GOPATH/src/k8s.io/release`, just execute:
 
