@@ -151,42 +151,50 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 	)
 }
 
+func (e *e2e) testCaseProfileRecordingMultiContainerSELinuxLogs() {
+	e.logEnricherOnlyTestCase()
+	e.selinuxOnlyTestCase()
+
+	e.profileRecordingSelinuxMultiContainer(
+		exampleRecordingSelinuxLogsPath,
+		regexp.MustCompile(`(?m)"container"="nginx".*"perm"="listen"`),
+		regexp.MustCompile(`(?m)"container"="redis".*"perm"="name_bind"`),
+	)
+}
+
+func (e *e2e) profileRecordingSelinuxMultiContainer(
+	recording string, waitConditions ...*regexp.Regexp,
+) {
+	e.logf("Creating SELinux recording for multi container test")
+	e.kubectl("create", "-f", recording)
+
+	since, podName := e.createRecordingTestMultiPod()
+
+	if waitConditions != nil {
+		e.waitForEnricherLogs(since, waitConditions...)
+	}
+
+	e.kubectl("delete", "pod", podName)
+
+	const profileNameRedis = selinuxRecordingName + "-redis"
+	profileRedis := e.retryGetSelinuxProfile(profileNameRedis)
+	e.Contains(profileRedis, "(allow process redis_port_t ( tcp_socket ( name_bind )))")
+
+	const profileNameNginx = selinuxRecordingName + "-nginx"
+	profileNginx := e.retryGetSelinuxProfile(profileNameNginx)
+	e.Contains(profileNginx, "(allow process http_port_t ( tcp_socket ( name_bind )))")
+
+	e.kubectl("delete", "-f", recording)
+	e.kubectl("delete", "selinuxprofile", profileNameRedis, profileNameNginx)
+}
+
 func (e *e2e) profileRecordingMultiContainer(
 	recording string, waitConditions ...*regexp.Regexp,
 ) {
 	e.logf("Creating recording for multi container test")
 	e.kubectl("create", "-f", recording)
 
-	e.logf("Creating test pod")
-	const testPod = `
-apiVersion: v1
-kind: Pod
-metadata:
-  name: my-pod
-  labels:
-    app: alpine
-spec:
-  containers:
-  - name: nginx
-    image: quay.io/security-profiles-operator/test-nginx:1.19.1
-  - name: redis
-    image: quay.io/security-profiles-operator/redis:6.2.1
-  restartPolicy: Never
-`
-	testPodFile, err := ioutil.TempFile(os.TempDir(), "recording-pod*.yaml")
-	e.Nil(err)
-	_, err = testPodFile.Write([]byte(testPod))
-	e.Nil(err)
-	err = testPodFile.Close()
-	e.Nil(err)
-
-	since := time.Now() // nolint: ifshort
-	e.kubectl("create", "-f", testPodFile.Name())
-
-	e.logf("Waiting for test pod to be initialized")
-	const podName = "my-pod"
-	e.retryGet("pod", podName)
-	e.waitFor("condition=ready", "pod", podName)
+	since, podName := e.createRecordingTestMultiPod()
 
 	if waitConditions != nil {
 		e.waitForEnricherLogs(since, waitConditions...)
@@ -203,7 +211,6 @@ spec:
 	e.Contains(profileNginx, "close")
 
 	e.kubectl("delete", "-f", recording)
-	e.Nil(os.Remove(testPodFile.Name()))
 	e.kubectl("delete", "sp", profileNameRedis, profileNameNginx)
 }
 
@@ -307,6 +314,43 @@ spec:
   containers:
   - image: quay.io/security-profiles-operator/test-nginx:1.19.1
     name: nginx
+  restartPolicy: Never
+`
+	testPodFile, err := ioutil.TempFile(os.TempDir(), "recording-pod*.yaml")
+	e.Nil(err)
+	_, err = testPodFile.Write([]byte(testPod))
+	e.Nil(err)
+	err = testPodFile.Close()
+	e.Nil(err)
+
+	since = time.Now()
+	e.kubectl("create", "-f", testPodFile.Name())
+
+	e.logf("Waiting for test pod to be initialized")
+	e.retryGet("pod", podName)
+	e.waitFor("condition=ready", "pod", podName)
+	e.Nil(os.Remove(testPodFile.Name()))
+
+	return since, podName
+}
+
+func (e *e2e) createRecordingTestMultiPod() (since time.Time, podName string) {
+	e.logf("Creating test pod")
+	podName = "my-pod"
+
+	const testPod = `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+  labels:
+    app: alpine
+spec:
+  containers:
+  - name: nginx
+    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+  - name: redis
+    image: quay.io/security-profiles-operator/redis:6.2.1
   restartPolicy: Never
 `
 	testPodFile, err := ioutil.TempFile(os.TempDir(), "recording-pod*.yaml")
