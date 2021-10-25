@@ -47,14 +47,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
+	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	selinuxv1lpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
-	api "sigs.k8s.io/security-profiles-operator/api/server"
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/server"
 )
 
 const (
@@ -81,7 +82,6 @@ func NewController() controller.Controller {
 
 type RecorderReconciler struct {
 	client        client.Client
-	grpcClient    api.SecurityProfilesOperatorClient
 	log           logr.Logger
 	record        event.Recorder
 	nodeAddresses []string
@@ -108,6 +108,9 @@ func (r *RecorderReconciler) SchemeBuilder() *scheme.Builder {
 	return profilerecording1alpha1.SchemeBuilder
 }
 
+// nolint: lll
+//
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 
 // Setup is the initialization of the controller.
@@ -145,14 +148,6 @@ func (r *RecorderReconciler) Setup(
 		return errors.New("Unable to get node's internal Address")
 	}
 
-	r.log.Info("Connecting to local GRPC server")
-	conn, cancel, err := server.Dial()
-	if err != nil {
-		return errors.Wrap(err, "connecting to local GRPC server")
-	}
-	defer cancel()
-
-	r.grpcClient = api.NewSecurityProfilesOperatorClient(conn)
 	r.client = mgr.GetClient()
 	r.nodeAddresses = nodeAddresses
 	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(name))
@@ -165,6 +160,21 @@ func (r *RecorderReconciler) Setup(
 		)).
 		For(&corev1.Pod{}).
 		Complete(r)
+}
+
+func (r *RecorderReconciler) getSPOD() (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	defer cancel()
+
+	spod := &spodv1alpha1.SecurityProfilesOperatorDaemon{}
+	if err := r.client.Get(ctx, types.NamespacedName{
+		Name:      config.SPOdName,
+		Namespace: config.GetOperatorNamespace(),
+	}, spod); err != nil {
+		return nil, err
+	}
+
+	return spod, nil
 }
 
 // Healthz is the liveness probe endpoint of the controller.
@@ -377,6 +387,25 @@ func (r *RecorderReconciler) collectLogProfiles(
 	name types.NamespacedName,
 	profiles []profileToCollect,
 ) error {
+	r.log.Info("Checking checking if enricher is enabled")
+
+	spod, err := r.getSPOD()
+	if err != nil {
+		return errors.Wrap(err, "getting SPOD config")
+	}
+
+	if !spod.Spec.EnableLogEnricher {
+		return errors.New("log enricher not enabled")
+	}
+
+	r.log.Info("Connecting to local GRPC enricher server")
+	conn, cancel, err := enricher.Dial()
+	if err != nil {
+		return errors.Wrap(err, "connecting to local GRPC server")
+	}
+	defer cancel()
+	enricherClient := enricherapi.NewEnricherClient(conn)
+
 	for _, prf := range profiles {
 		// Remove the timestamp
 		profileName, err := extractProfileName(prf.name)
@@ -388,9 +417,9 @@ func (r *RecorderReconciler) collectLogProfiles(
 
 		switch prf.kind {
 		case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
-			err = r.collectLogSeccompProfile(ctx, profileName, name.Namespace, prf.name)
+			err = r.collectLogSeccompProfile(ctx, enricherClient, profileName, name.Namespace, prf.name)
 		case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
-			err = r.collectLogSelinuxProfile(ctx, profileName, name.Namespace, prf.name)
+			err = r.collectLogSelinuxProfile(ctx, enricherClient, profileName, name.Namespace, prf.name)
 		default:
 			err = errors.Errorf("unrecognized kind %s", prf.kind)
 		}
@@ -405,13 +434,14 @@ func (r *RecorderReconciler) collectLogProfiles(
 
 func (r *RecorderReconciler) collectLogSeccompProfile(
 	ctx context.Context,
+	enricherClient enricherapi.EnricherClient,
 	profileName string,
 	namespace string,
 	profileID string,
 ) error {
 	// Retrieve the syscalls for the recording
-	request := &api.SyscallsRequest{Profile: profileID}
-	response, err := r.grpcClient.Syscalls(ctx, request)
+	request := &enricherapi.SyscallsRequest{Profile: profileID}
+	response, err := enricherClient.Syscalls(ctx, request)
 	if err != nil {
 		return errors.Wrapf(
 			err, "retrieve syscalls for profile %s", profileID,
@@ -453,7 +483,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	)
 
 	// Reset the syscalls for further recordings
-	if _, err := r.grpcClient.ResetSyscalls(ctx, request); err != nil {
+	if _, err := enricherClient.ResetSyscalls(ctx, request); err != nil {
 		return errors.Wrapf(
 			err, "reset syscalls for profile %s", profileID,
 		)
@@ -464,13 +494,14 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 
 func (r *RecorderReconciler) collectLogSelinuxProfile(
 	ctx context.Context,
+	enricherClient enricherapi.EnricherClient,
 	profileName string,
 	namespace string,
 	profileID string,
 ) error {
 	// Retrieve the syscalls for the recording
-	request := &api.AvcRequest{Profile: profileID}
-	response, err := r.grpcClient.Avcs(ctx, request)
+	request := &enricherapi.AvcRequest{Profile: profileID}
+	response, err := enricherClient.Avcs(ctx, request)
 	if err != nil {
 		return errors.Wrapf(
 			err, "retrieve avcs for profile %s", profileID,
@@ -513,7 +544,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	)
 
 	// Reset the selinuxprofile for further recordings
-	if _, err := r.grpcClient.ResetAvcs(ctx, request); err != nil {
+	if _, err := enricherClient.ResetAvcs(ctx, request); err != nil {
 		return errors.Wrapf(
 			err, "reset selinuxprofile for profile %s", profileName,
 		)
@@ -524,7 +555,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 
 func (r *RecorderReconciler) formatSelinuxProfile(
 	selinuxprofile *selinuxv1lpha1.SelinuxProfile,
-	avcResponse *api.AvcResponse,
+	avcResponse *enricherapi.AvcResponse,
 ) (string, error) {
 	seBuilder := newSeProfileBuilder(selinuxprofile.GetPolicyUsage(), r.log)
 
@@ -633,7 +664,7 @@ func newSeProfileBuilder(usageCtx string, log logr.Logger) *seProfileBuilder {
 	}
 }
 
-func (sb *seProfileBuilder) AddAvcList(avcs []*api.RecordAvcRequest_SelinuxAvc) error {
+func (sb *seProfileBuilder) AddAvcList(avcs []*enricherapi.AvcResponse_SelinuxAvc) error {
 	for _, avc := range avcs {
 		sb.log.Info("Received an AVC response",
 			"perm", avc.Perm, "tclass",
@@ -648,7 +679,7 @@ func (sb *seProfileBuilder) AddAvcList(avcs []*api.RecordAvcRequest_SelinuxAvc) 
 	return nil
 }
 
-func (sb *seProfileBuilder) addAvc(avc *api.RecordAvcRequest_SelinuxAvc) error {
+func (sb *seProfileBuilder) addAvc(avc *enricherapi.AvcResponse_SelinuxAvc) error {
 	ctxType, err := ctxt2type(avc.Tcontext)
 	if err != nil {
 		return errors.Wrap(err, "converting context to type")

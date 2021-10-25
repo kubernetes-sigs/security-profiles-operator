@@ -1081,6 +1081,14 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - securityprofilesoperatordaemons
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
   - selinuxprofiles
   verbs:
   - create

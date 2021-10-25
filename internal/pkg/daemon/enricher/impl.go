@@ -18,6 +18,7 @@ package enricher
 
 import (
 	"context"
+	"net"
 	"os"
 	"time"
 
@@ -29,8 +30,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	api "sigs.k8s.io/security-profiles-operator/api/server"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/server"
+	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
 type defaultImpl struct{}
@@ -49,27 +50,10 @@ type impl interface {
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(c *rest.Config) (*kubernetes.Clientset, error)
 	ListPods(c *kubernetes.Clientset, nodeName string) (*v1.PodList, error)
-	MetricsAuditInc(
-		client api.SecurityProfilesOperatorClient,
-	) (api.SecurityProfilesOperator_MetricsAuditIncClient, error)
-	SendMetric(
-		client api.SecurityProfilesOperator_MetricsAuditIncClient,
-		in *api.MetricsAuditRequest,
-	) error
-	RecordSyscall(
-		client api.SecurityProfilesOperatorClient,
-	) (api.SecurityProfilesOperator_RecordSyscallClient, error)
-	SendSyscall(
-		client api.SecurityProfilesOperator_RecordSyscallClient,
-		in *api.RecordSyscallRequest,
-	) error
-	RecordAvc(
-		client api.SecurityProfilesOperatorClient,
-	) (api.SecurityProfilesOperator_RecordAvcClient, error)
-	SendAvc(
-		client api.SecurityProfilesOperator_RecordAvcClient,
-		in *api.RecordAvcRequest,
-	) error
+	AuditInc(client api.MetricsClient) (api.Metrics_AuditIncClient, error)
+	SendMetric(client api.Metrics_AuditIncClient, in *api.AuditRequest) error
+	Listen(string, string) (net.Listener, error)
+	Serve(*grpc.Server, net.Listener) error
 }
 
 func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
@@ -81,7 +65,7 @@ func (d *defaultImpl) Getenv(key string) string {
 }
 
 func (d *defaultImpl) Dial() (*grpc.ClientConn, context.CancelFunc, error) {
-	return server.Dial()
+	return metrics.Dial()
 }
 
 func (d *defaultImpl) Close(conn *grpc.ClientConn) error {
@@ -124,41 +108,23 @@ func (d *defaultImpl) ListPods(
 	})
 }
 
-func (d *defaultImpl) MetricsAuditInc(
-	client api.SecurityProfilesOperatorClient,
-) (api.SecurityProfilesOperator_MetricsAuditIncClient, error) {
-	return client.MetricsAuditInc(context.Background())
+func (d *defaultImpl) AuditInc(
+	client api.MetricsClient,
+) (api.Metrics_AuditIncClient, error) {
+	return client.AuditInc(context.Background())
 }
 
 func (d *defaultImpl) SendMetric(
-	client api.SecurityProfilesOperator_MetricsAuditIncClient,
-	in *api.MetricsAuditRequest,
+	client api.Metrics_AuditIncClient,
+	in *api.AuditRequest,
 ) error {
 	return client.Send(in)
 }
 
-func (d *defaultImpl) RecordSyscall(
-	client api.SecurityProfilesOperatorClient,
-) (api.SecurityProfilesOperator_RecordSyscallClient, error) {
-	return client.RecordSyscall(context.Background())
+func (d *defaultImpl) Serve(grpcServer *grpc.Server, listener net.Listener) error {
+	return grpcServer.Serve(listener)
 }
 
-func (d *defaultImpl) SendSyscall(
-	client api.SecurityProfilesOperator_RecordSyscallClient,
-	in *api.RecordSyscallRequest,
-) error {
-	return client.Send(in)
-}
-
-func (d *defaultImpl) RecordAvc(
-	client api.SecurityProfilesOperatorClient,
-) (api.SecurityProfilesOperator_RecordAvcClient, error) {
-	return client.RecordAvc(context.Background())
-}
-
-func (d *defaultImpl) SendAvc(
-	client api.SecurityProfilesOperator_RecordAvcClient,
-	in *api.RecordAvcRequest,
-) error {
-	return client.Send(in)
+func (d *defaultImpl) Listen(network, address string) (net.Listener, error) {
+	return net.Listen(network, address)
 }

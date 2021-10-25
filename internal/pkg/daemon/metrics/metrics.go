@@ -26,6 +26,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 )
 
 // Metrics proxy required permissions
@@ -63,6 +65,7 @@ const (
 
 // Metrics is the main structure of this package.
 type Metrics struct {
+	api.UnimplementedMetricsServer
 	impl                      impl
 	log                       logr.Logger
 	metricSeccompProfile      *prometheus.CounterVec

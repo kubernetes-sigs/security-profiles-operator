@@ -19,6 +19,7 @@ package enricherfakes
 
 import (
 	"context"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -29,10 +30,23 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	api "sigs.k8s.io/security-profiles-operator/api/server"
+	api_metrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 )
 
 type FakeImpl struct {
+	AuditIncStub        func(api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)
+	auditIncMutex       sync.RWMutex
+	auditIncArgsForCall []struct {
+		arg1 api_metrics.MetricsClient
+	}
+	auditIncReturns struct {
+		result1 api_metrics.Metrics_AuditIncClient
+		result2 error
+	}
+	auditIncReturnsOnCall map[int]struct {
+		result1 api_metrics.Metrics_AuditIncClient
+		result2 error
+	}
 	CloseStub        func(*grpc.ClientConn) error
 	closeMutex       sync.RWMutex
 	closeArgsForCall []struct {
@@ -106,17 +120,18 @@ type FakeImpl struct {
 		result1 *v1.PodList
 		result2 error
 	}
-	MetricsAuditIncStub        func(api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_MetricsAuditIncClient, error)
-	metricsAuditIncMutex       sync.RWMutex
-	metricsAuditIncArgsForCall []struct {
-		arg1 api.SecurityProfilesOperatorClient
+	ListenStub        func(string, string) (net.Listener, error)
+	listenMutex       sync.RWMutex
+	listenArgsForCall []struct {
+		arg1 string
+		arg2 string
 	}
-	metricsAuditIncReturns struct {
-		result1 api.SecurityProfilesOperator_MetricsAuditIncClient
+	listenReturns struct {
+		result1 net.Listener
 		result2 error
 	}
-	metricsAuditIncReturnsOnCall map[int]struct {
-		result1 api.SecurityProfilesOperator_MetricsAuditIncClient
+	listenReturnsOnCall map[int]struct {
+		result1 net.Listener
 		result2 error
 	}
 	NewForConfigStub        func(*rest.Config) (*kubernetes.Clientset, error)
@@ -156,49 +171,11 @@ type FakeImpl struct {
 	reasonReturnsOnCall map[int]struct {
 		result1 error
 	}
-	RecordAvcStub        func(api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_RecordAvcClient, error)
-	recordAvcMutex       sync.RWMutex
-	recordAvcArgsForCall []struct {
-		arg1 api.SecurityProfilesOperatorClient
-	}
-	recordAvcReturns struct {
-		result1 api.SecurityProfilesOperator_RecordAvcClient
-		result2 error
-	}
-	recordAvcReturnsOnCall map[int]struct {
-		result1 api.SecurityProfilesOperator_RecordAvcClient
-		result2 error
-	}
-	RecordSyscallStub        func(api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_RecordSyscallClient, error)
-	recordSyscallMutex       sync.RWMutex
-	recordSyscallArgsForCall []struct {
-		arg1 api.SecurityProfilesOperatorClient
-	}
-	recordSyscallReturns struct {
-		result1 api.SecurityProfilesOperator_RecordSyscallClient
-		result2 error
-	}
-	recordSyscallReturnsOnCall map[int]struct {
-		result1 api.SecurityProfilesOperator_RecordSyscallClient
-		result2 error
-	}
-	SendAvcStub        func(api.SecurityProfilesOperator_RecordAvcClient, *api.RecordAvcRequest) error
-	sendAvcMutex       sync.RWMutex
-	sendAvcArgsForCall []struct {
-		arg1 api.SecurityProfilesOperator_RecordAvcClient
-		arg2 *api.RecordAvcRequest
-	}
-	sendAvcReturns struct {
-		result1 error
-	}
-	sendAvcReturnsOnCall map[int]struct {
-		result1 error
-	}
-	SendMetricStub        func(api.SecurityProfilesOperator_MetricsAuditIncClient, *api.MetricsAuditRequest) error
+	SendMetricStub        func(api_metrics.Metrics_AuditIncClient, *api_metrics.AuditRequest) error
 	sendMetricMutex       sync.RWMutex
 	sendMetricArgsForCall []struct {
-		arg1 api.SecurityProfilesOperator_MetricsAuditIncClient
-		arg2 *api.MetricsAuditRequest
+		arg1 api_metrics.Metrics_AuditIncClient
+		arg2 *api_metrics.AuditRequest
 	}
 	sendMetricReturns struct {
 		result1 error
@@ -206,16 +183,16 @@ type FakeImpl struct {
 	sendMetricReturnsOnCall map[int]struct {
 		result1 error
 	}
-	SendSyscallStub        func(api.SecurityProfilesOperator_RecordSyscallClient, *api.RecordSyscallRequest) error
-	sendSyscallMutex       sync.RWMutex
-	sendSyscallArgsForCall []struct {
-		arg1 api.SecurityProfilesOperator_RecordSyscallClient
-		arg2 *api.RecordSyscallRequest
+	ServeStub        func(*grpc.Server, net.Listener) error
+	serveMutex       sync.RWMutex
+	serveArgsForCall []struct {
+		arg1 *grpc.Server
+		arg2 net.Listener
 	}
-	sendSyscallReturns struct {
+	serveReturns struct {
 		result1 error
 	}
-	sendSyscallReturnsOnCall map[int]struct {
+	serveReturnsOnCall map[int]struct {
 		result1 error
 	}
 	SetTTLStub        func(ttlcache.SimpleCache, time.Duration) error
@@ -246,6 +223,70 @@ type FakeImpl struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeImpl) AuditInc(arg1 api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error) {
+	fake.auditIncMutex.Lock()
+	ret, specificReturn := fake.auditIncReturnsOnCall[len(fake.auditIncArgsForCall)]
+	fake.auditIncArgsForCall = append(fake.auditIncArgsForCall, struct {
+		arg1 api_metrics.MetricsClient
+	}{arg1})
+	stub := fake.AuditIncStub
+	fakeReturns := fake.auditIncReturns
+	fake.recordInvocation("AuditInc", []interface{}{arg1})
+	fake.auditIncMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) AuditIncCallCount() int {
+	fake.auditIncMutex.RLock()
+	defer fake.auditIncMutex.RUnlock()
+	return len(fake.auditIncArgsForCall)
+}
+
+func (fake *FakeImpl) AuditIncCalls(stub func(api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)) {
+	fake.auditIncMutex.Lock()
+	defer fake.auditIncMutex.Unlock()
+	fake.AuditIncStub = stub
+}
+
+func (fake *FakeImpl) AuditIncArgsForCall(i int) api_metrics.MetricsClient {
+	fake.auditIncMutex.RLock()
+	defer fake.auditIncMutex.RUnlock()
+	argsForCall := fake.auditIncArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) AuditIncReturns(result1 api_metrics.Metrics_AuditIncClient, result2 error) {
+	fake.auditIncMutex.Lock()
+	defer fake.auditIncMutex.Unlock()
+	fake.AuditIncStub = nil
+	fake.auditIncReturns = struct {
+		result1 api_metrics.Metrics_AuditIncClient
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) AuditIncReturnsOnCall(i int, result1 api_metrics.Metrics_AuditIncClient, result2 error) {
+	fake.auditIncMutex.Lock()
+	defer fake.auditIncMutex.Unlock()
+	fake.AuditIncStub = nil
+	if fake.auditIncReturnsOnCall == nil {
+		fake.auditIncReturnsOnCall = make(map[int]struct {
+			result1 api_metrics.Metrics_AuditIncClient
+			result2 error
+		})
+	}
+	fake.auditIncReturnsOnCall[i] = struct {
+		result1 api_metrics.Metrics_AuditIncClient
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) Close(arg1 *grpc.ClientConn) error {
@@ -611,18 +652,19 @@ func (fake *FakeImpl) ListPodsReturnsOnCall(i int, result1 *v1.PodList, result2 
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) MetricsAuditInc(arg1 api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_MetricsAuditIncClient, error) {
-	fake.metricsAuditIncMutex.Lock()
-	ret, specificReturn := fake.metricsAuditIncReturnsOnCall[len(fake.metricsAuditIncArgsForCall)]
-	fake.metricsAuditIncArgsForCall = append(fake.metricsAuditIncArgsForCall, struct {
-		arg1 api.SecurityProfilesOperatorClient
-	}{arg1})
-	stub := fake.MetricsAuditIncStub
-	fakeReturns := fake.metricsAuditIncReturns
-	fake.recordInvocation("MetricsAuditInc", []interface{}{arg1})
-	fake.metricsAuditIncMutex.Unlock()
+func (fake *FakeImpl) Listen(arg1 string, arg2 string) (net.Listener, error) {
+	fake.listenMutex.Lock()
+	ret, specificReturn := fake.listenReturnsOnCall[len(fake.listenArgsForCall)]
+	fake.listenArgsForCall = append(fake.listenArgsForCall, struct {
+		arg1 string
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.ListenStub
+	fakeReturns := fake.listenReturns
+	fake.recordInvocation("Listen", []interface{}{arg1, arg2})
+	fake.listenMutex.Unlock()
 	if stub != nil {
-		return stub(arg1)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -630,47 +672,47 @@ func (fake *FakeImpl) MetricsAuditInc(arg1 api.SecurityProfilesOperatorClient) (
 	return fakeReturns.result1, fakeReturns.result2
 }
 
-func (fake *FakeImpl) MetricsAuditIncCallCount() int {
-	fake.metricsAuditIncMutex.RLock()
-	defer fake.metricsAuditIncMutex.RUnlock()
-	return len(fake.metricsAuditIncArgsForCall)
+func (fake *FakeImpl) ListenCallCount() int {
+	fake.listenMutex.RLock()
+	defer fake.listenMutex.RUnlock()
+	return len(fake.listenArgsForCall)
 }
 
-func (fake *FakeImpl) MetricsAuditIncCalls(stub func(api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_MetricsAuditIncClient, error)) {
-	fake.metricsAuditIncMutex.Lock()
-	defer fake.metricsAuditIncMutex.Unlock()
-	fake.MetricsAuditIncStub = stub
+func (fake *FakeImpl) ListenCalls(stub func(string, string) (net.Listener, error)) {
+	fake.listenMutex.Lock()
+	defer fake.listenMutex.Unlock()
+	fake.ListenStub = stub
 }
 
-func (fake *FakeImpl) MetricsAuditIncArgsForCall(i int) api.SecurityProfilesOperatorClient {
-	fake.metricsAuditIncMutex.RLock()
-	defer fake.metricsAuditIncMutex.RUnlock()
-	argsForCall := fake.metricsAuditIncArgsForCall[i]
-	return argsForCall.arg1
+func (fake *FakeImpl) ListenArgsForCall(i int) (string, string) {
+	fake.listenMutex.RLock()
+	defer fake.listenMutex.RUnlock()
+	argsForCall := fake.listenArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) MetricsAuditIncReturns(result1 api.SecurityProfilesOperator_MetricsAuditIncClient, result2 error) {
-	fake.metricsAuditIncMutex.Lock()
-	defer fake.metricsAuditIncMutex.Unlock()
-	fake.MetricsAuditIncStub = nil
-	fake.metricsAuditIncReturns = struct {
-		result1 api.SecurityProfilesOperator_MetricsAuditIncClient
+func (fake *FakeImpl) ListenReturns(result1 net.Listener, result2 error) {
+	fake.listenMutex.Lock()
+	defer fake.listenMutex.Unlock()
+	fake.ListenStub = nil
+	fake.listenReturns = struct {
+		result1 net.Listener
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) MetricsAuditIncReturnsOnCall(i int, result1 api.SecurityProfilesOperator_MetricsAuditIncClient, result2 error) {
-	fake.metricsAuditIncMutex.Lock()
-	defer fake.metricsAuditIncMutex.Unlock()
-	fake.MetricsAuditIncStub = nil
-	if fake.metricsAuditIncReturnsOnCall == nil {
-		fake.metricsAuditIncReturnsOnCall = make(map[int]struct {
-			result1 api.SecurityProfilesOperator_MetricsAuditIncClient
+func (fake *FakeImpl) ListenReturnsOnCall(i int, result1 net.Listener, result2 error) {
+	fake.listenMutex.Lock()
+	defer fake.listenMutex.Unlock()
+	fake.ListenStub = nil
+	if fake.listenReturnsOnCall == nil {
+		fake.listenReturnsOnCall = make(map[int]struct {
+			result1 net.Listener
 			result2 error
 		})
 	}
-	fake.metricsAuditIncReturnsOnCall[i] = struct {
-		result1 api.SecurityProfilesOperator_MetricsAuditIncClient
+	fake.listenReturnsOnCall[i] = struct {
+		result1 net.Listener
 		result2 error
 	}{result1, result2}
 }
@@ -864,202 +906,12 @@ func (fake *FakeImpl) ReasonReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) RecordAvc(arg1 api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_RecordAvcClient, error) {
-	fake.recordAvcMutex.Lock()
-	ret, specificReturn := fake.recordAvcReturnsOnCall[len(fake.recordAvcArgsForCall)]
-	fake.recordAvcArgsForCall = append(fake.recordAvcArgsForCall, struct {
-		arg1 api.SecurityProfilesOperatorClient
-	}{arg1})
-	stub := fake.RecordAvcStub
-	fakeReturns := fake.recordAvcReturns
-	fake.recordInvocation("RecordAvc", []interface{}{arg1})
-	fake.recordAvcMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) RecordAvcCallCount() int {
-	fake.recordAvcMutex.RLock()
-	defer fake.recordAvcMutex.RUnlock()
-	return len(fake.recordAvcArgsForCall)
-}
-
-func (fake *FakeImpl) RecordAvcCalls(stub func(api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_RecordAvcClient, error)) {
-	fake.recordAvcMutex.Lock()
-	defer fake.recordAvcMutex.Unlock()
-	fake.RecordAvcStub = stub
-}
-
-func (fake *FakeImpl) RecordAvcArgsForCall(i int) api.SecurityProfilesOperatorClient {
-	fake.recordAvcMutex.RLock()
-	defer fake.recordAvcMutex.RUnlock()
-	argsForCall := fake.recordAvcArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) RecordAvcReturns(result1 api.SecurityProfilesOperator_RecordAvcClient, result2 error) {
-	fake.recordAvcMutex.Lock()
-	defer fake.recordAvcMutex.Unlock()
-	fake.RecordAvcStub = nil
-	fake.recordAvcReturns = struct {
-		result1 api.SecurityProfilesOperator_RecordAvcClient
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) RecordAvcReturnsOnCall(i int, result1 api.SecurityProfilesOperator_RecordAvcClient, result2 error) {
-	fake.recordAvcMutex.Lock()
-	defer fake.recordAvcMutex.Unlock()
-	fake.RecordAvcStub = nil
-	if fake.recordAvcReturnsOnCall == nil {
-		fake.recordAvcReturnsOnCall = make(map[int]struct {
-			result1 api.SecurityProfilesOperator_RecordAvcClient
-			result2 error
-		})
-	}
-	fake.recordAvcReturnsOnCall[i] = struct {
-		result1 api.SecurityProfilesOperator_RecordAvcClient
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) RecordSyscall(arg1 api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_RecordSyscallClient, error) {
-	fake.recordSyscallMutex.Lock()
-	ret, specificReturn := fake.recordSyscallReturnsOnCall[len(fake.recordSyscallArgsForCall)]
-	fake.recordSyscallArgsForCall = append(fake.recordSyscallArgsForCall, struct {
-		arg1 api.SecurityProfilesOperatorClient
-	}{arg1})
-	stub := fake.RecordSyscallStub
-	fakeReturns := fake.recordSyscallReturns
-	fake.recordInvocation("RecordSyscall", []interface{}{arg1})
-	fake.recordSyscallMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) RecordSyscallCallCount() int {
-	fake.recordSyscallMutex.RLock()
-	defer fake.recordSyscallMutex.RUnlock()
-	return len(fake.recordSyscallArgsForCall)
-}
-
-func (fake *FakeImpl) RecordSyscallCalls(stub func(api.SecurityProfilesOperatorClient) (api.SecurityProfilesOperator_RecordSyscallClient, error)) {
-	fake.recordSyscallMutex.Lock()
-	defer fake.recordSyscallMutex.Unlock()
-	fake.RecordSyscallStub = stub
-}
-
-func (fake *FakeImpl) RecordSyscallArgsForCall(i int) api.SecurityProfilesOperatorClient {
-	fake.recordSyscallMutex.RLock()
-	defer fake.recordSyscallMutex.RUnlock()
-	argsForCall := fake.recordSyscallArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) RecordSyscallReturns(result1 api.SecurityProfilesOperator_RecordSyscallClient, result2 error) {
-	fake.recordSyscallMutex.Lock()
-	defer fake.recordSyscallMutex.Unlock()
-	fake.RecordSyscallStub = nil
-	fake.recordSyscallReturns = struct {
-		result1 api.SecurityProfilesOperator_RecordSyscallClient
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) RecordSyscallReturnsOnCall(i int, result1 api.SecurityProfilesOperator_RecordSyscallClient, result2 error) {
-	fake.recordSyscallMutex.Lock()
-	defer fake.recordSyscallMutex.Unlock()
-	fake.RecordSyscallStub = nil
-	if fake.recordSyscallReturnsOnCall == nil {
-		fake.recordSyscallReturnsOnCall = make(map[int]struct {
-			result1 api.SecurityProfilesOperator_RecordSyscallClient
-			result2 error
-		})
-	}
-	fake.recordSyscallReturnsOnCall[i] = struct {
-		result1 api.SecurityProfilesOperator_RecordSyscallClient
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) SendAvc(arg1 api.SecurityProfilesOperator_RecordAvcClient, arg2 *api.RecordAvcRequest) error {
-	fake.sendAvcMutex.Lock()
-	ret, specificReturn := fake.sendAvcReturnsOnCall[len(fake.sendAvcArgsForCall)]
-	fake.sendAvcArgsForCall = append(fake.sendAvcArgsForCall, struct {
-		arg1 api.SecurityProfilesOperator_RecordAvcClient
-		arg2 *api.RecordAvcRequest
-	}{arg1, arg2})
-	stub := fake.SendAvcStub
-	fakeReturns := fake.sendAvcReturns
-	fake.recordInvocation("SendAvc", []interface{}{arg1, arg2})
-	fake.sendAvcMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) SendAvcCallCount() int {
-	fake.sendAvcMutex.RLock()
-	defer fake.sendAvcMutex.RUnlock()
-	return len(fake.sendAvcArgsForCall)
-}
-
-func (fake *FakeImpl) SendAvcCalls(stub func(api.SecurityProfilesOperator_RecordAvcClient, *api.RecordAvcRequest) error) {
-	fake.sendAvcMutex.Lock()
-	defer fake.sendAvcMutex.Unlock()
-	fake.SendAvcStub = stub
-}
-
-func (fake *FakeImpl) SendAvcArgsForCall(i int) (api.SecurityProfilesOperator_RecordAvcClient, *api.RecordAvcRequest) {
-	fake.sendAvcMutex.RLock()
-	defer fake.sendAvcMutex.RUnlock()
-	argsForCall := fake.sendAvcArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) SendAvcReturns(result1 error) {
-	fake.sendAvcMutex.Lock()
-	defer fake.sendAvcMutex.Unlock()
-	fake.SendAvcStub = nil
-	fake.sendAvcReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) SendAvcReturnsOnCall(i int, result1 error) {
-	fake.sendAvcMutex.Lock()
-	defer fake.sendAvcMutex.Unlock()
-	fake.SendAvcStub = nil
-	if fake.sendAvcReturnsOnCall == nil {
-		fake.sendAvcReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.sendAvcReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) SendMetric(arg1 api.SecurityProfilesOperator_MetricsAuditIncClient, arg2 *api.MetricsAuditRequest) error {
+func (fake *FakeImpl) SendMetric(arg1 api_metrics.Metrics_AuditIncClient, arg2 *api_metrics.AuditRequest) error {
 	fake.sendMetricMutex.Lock()
 	ret, specificReturn := fake.sendMetricReturnsOnCall[len(fake.sendMetricArgsForCall)]
 	fake.sendMetricArgsForCall = append(fake.sendMetricArgsForCall, struct {
-		arg1 api.SecurityProfilesOperator_MetricsAuditIncClient
-		arg2 *api.MetricsAuditRequest
+		arg1 api_metrics.Metrics_AuditIncClient
+		arg2 *api_metrics.AuditRequest
 	}{arg1, arg2})
 	stub := fake.SendMetricStub
 	fakeReturns := fake.sendMetricReturns
@@ -1080,13 +932,13 @@ func (fake *FakeImpl) SendMetricCallCount() int {
 	return len(fake.sendMetricArgsForCall)
 }
 
-func (fake *FakeImpl) SendMetricCalls(stub func(api.SecurityProfilesOperator_MetricsAuditIncClient, *api.MetricsAuditRequest) error) {
+func (fake *FakeImpl) SendMetricCalls(stub func(api_metrics.Metrics_AuditIncClient, *api_metrics.AuditRequest) error) {
 	fake.sendMetricMutex.Lock()
 	defer fake.sendMetricMutex.Unlock()
 	fake.SendMetricStub = stub
 }
 
-func (fake *FakeImpl) SendMetricArgsForCall(i int) (api.SecurityProfilesOperator_MetricsAuditIncClient, *api.MetricsAuditRequest) {
+func (fake *FakeImpl) SendMetricArgsForCall(i int) (api_metrics.Metrics_AuditIncClient, *api_metrics.AuditRequest) {
 	fake.sendMetricMutex.RLock()
 	defer fake.sendMetricMutex.RUnlock()
 	argsForCall := fake.sendMetricArgsForCall[i]
@@ -1116,17 +968,17 @@ func (fake *FakeImpl) SendMetricReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) SendSyscall(arg1 api.SecurityProfilesOperator_RecordSyscallClient, arg2 *api.RecordSyscallRequest) error {
-	fake.sendSyscallMutex.Lock()
-	ret, specificReturn := fake.sendSyscallReturnsOnCall[len(fake.sendSyscallArgsForCall)]
-	fake.sendSyscallArgsForCall = append(fake.sendSyscallArgsForCall, struct {
-		arg1 api.SecurityProfilesOperator_RecordSyscallClient
-		arg2 *api.RecordSyscallRequest
+func (fake *FakeImpl) Serve(arg1 *grpc.Server, arg2 net.Listener) error {
+	fake.serveMutex.Lock()
+	ret, specificReturn := fake.serveReturnsOnCall[len(fake.serveArgsForCall)]
+	fake.serveArgsForCall = append(fake.serveArgsForCall, struct {
+		arg1 *grpc.Server
+		arg2 net.Listener
 	}{arg1, arg2})
-	stub := fake.SendSyscallStub
-	fakeReturns := fake.sendSyscallReturns
-	fake.recordInvocation("SendSyscall", []interface{}{arg1, arg2})
-	fake.sendSyscallMutex.Unlock()
+	stub := fake.ServeStub
+	fakeReturns := fake.serveReturns
+	fake.recordInvocation("Serve", []interface{}{arg1, arg2})
+	fake.serveMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2)
 	}
@@ -1136,44 +988,44 @@ func (fake *FakeImpl) SendSyscall(arg1 api.SecurityProfilesOperator_RecordSyscal
 	return fakeReturns.result1
 }
 
-func (fake *FakeImpl) SendSyscallCallCount() int {
-	fake.sendSyscallMutex.RLock()
-	defer fake.sendSyscallMutex.RUnlock()
-	return len(fake.sendSyscallArgsForCall)
+func (fake *FakeImpl) ServeCallCount() int {
+	fake.serveMutex.RLock()
+	defer fake.serveMutex.RUnlock()
+	return len(fake.serveArgsForCall)
 }
 
-func (fake *FakeImpl) SendSyscallCalls(stub func(api.SecurityProfilesOperator_RecordSyscallClient, *api.RecordSyscallRequest) error) {
-	fake.sendSyscallMutex.Lock()
-	defer fake.sendSyscallMutex.Unlock()
-	fake.SendSyscallStub = stub
+func (fake *FakeImpl) ServeCalls(stub func(*grpc.Server, net.Listener) error) {
+	fake.serveMutex.Lock()
+	defer fake.serveMutex.Unlock()
+	fake.ServeStub = stub
 }
 
-func (fake *FakeImpl) SendSyscallArgsForCall(i int) (api.SecurityProfilesOperator_RecordSyscallClient, *api.RecordSyscallRequest) {
-	fake.sendSyscallMutex.RLock()
-	defer fake.sendSyscallMutex.RUnlock()
-	argsForCall := fake.sendSyscallArgsForCall[i]
+func (fake *FakeImpl) ServeArgsForCall(i int) (*grpc.Server, net.Listener) {
+	fake.serveMutex.RLock()
+	defer fake.serveMutex.RUnlock()
+	argsForCall := fake.serveArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) SendSyscallReturns(result1 error) {
-	fake.sendSyscallMutex.Lock()
-	defer fake.sendSyscallMutex.Unlock()
-	fake.SendSyscallStub = nil
-	fake.sendSyscallReturns = struct {
+func (fake *FakeImpl) ServeReturns(result1 error) {
+	fake.serveMutex.Lock()
+	defer fake.serveMutex.Unlock()
+	fake.ServeStub = nil
+	fake.serveReturns = struct {
 		result1 error
 	}{result1}
 }
 
-func (fake *FakeImpl) SendSyscallReturnsOnCall(i int, result1 error) {
-	fake.sendSyscallMutex.Lock()
-	defer fake.sendSyscallMutex.Unlock()
-	fake.SendSyscallStub = nil
-	if fake.sendSyscallReturnsOnCall == nil {
-		fake.sendSyscallReturnsOnCall = make(map[int]struct {
+func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
+	fake.serveMutex.Lock()
+	defer fake.serveMutex.Unlock()
+	fake.ServeStub = nil
+	if fake.serveReturnsOnCall == nil {
+		fake.serveReturnsOnCall = make(map[int]struct {
 			result1 error
 		})
 	}
-	fake.sendSyscallReturnsOnCall[i] = struct {
+	fake.serveReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -1308,6 +1160,8 @@ func (fake *FakeImpl) TailFileReturnsOnCall(i int, result1 *tail.Tail, result2 e
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
+	fake.auditIncMutex.RLock()
+	defer fake.auditIncMutex.RUnlock()
 	fake.closeMutex.RLock()
 	defer fake.closeMutex.RUnlock()
 	fake.dialMutex.RLock()
@@ -1320,24 +1174,18 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.linesMutex.RUnlock()
 	fake.listPodsMutex.RLock()
 	defer fake.listPodsMutex.RUnlock()
-	fake.metricsAuditIncMutex.RLock()
-	defer fake.metricsAuditIncMutex.RUnlock()
+	fake.listenMutex.RLock()
+	defer fake.listenMutex.RUnlock()
 	fake.newForConfigMutex.RLock()
 	defer fake.newForConfigMutex.RUnlock()
 	fake.openMutex.RLock()
 	defer fake.openMutex.RUnlock()
 	fake.reasonMutex.RLock()
 	defer fake.reasonMutex.RUnlock()
-	fake.recordAvcMutex.RLock()
-	defer fake.recordAvcMutex.RUnlock()
-	fake.recordSyscallMutex.RLock()
-	defer fake.recordSyscallMutex.RUnlock()
-	fake.sendAvcMutex.RLock()
-	defer fake.sendAvcMutex.RUnlock()
 	fake.sendMetricMutex.RLock()
 	defer fake.sendMetricMutex.RUnlock()
-	fake.sendSyscallMutex.RLock()
-	defer fake.sendSyscallMutex.RUnlock()
+	fake.serveMutex.RLock()
+	defer fake.serveMutex.RUnlock()
 	fake.setTTLMutex.RLock()
 	defer fake.setTTLMutex.RUnlock()
 	fake.tailFileMutex.RLock()
