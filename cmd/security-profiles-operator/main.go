@@ -36,6 +36,7 @@ import (
 	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selinuxprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
@@ -43,7 +44,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/profilerecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/selinuxprofile"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/server"
 	nodestatus "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
@@ -284,19 +284,20 @@ func runDaemon(ctx *cli.Context) error {
 	if err := met.Register(); err != nil {
 		return errors.Wrap(err, "register metrics")
 	}
+	if err := met.ServeGRPC(); err != nil {
+		return errors.Wrap(err, "start metrics grpc server")
+	}
 
 	if err := mgr.AddMetricsExtraHandler(metrics.HandlerPath, met.Handler()); err != nil {
 		return errors.Wrap(err, "add metrics extra handler")
 	}
 
-	// Setup the GRPC server
-	if err := server.New(ctrl.Log.WithName("server"), met).Start(); err != nil {
-		return errors.Wrap(err, "start GRPC server")
-	}
-
 	// This API provides status which is used by both seccomp and selinux
 	if err := secprofnodestatusv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add per-node Status API to scheme")
+	}
+	if err := spodv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add SPOD config API to scheme")
 	}
 
 	if err := setupEnabledControllers(ctx.Context, enabledControllers, mgr, met); err != nil {

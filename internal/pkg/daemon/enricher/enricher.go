@@ -19,7 +19,9 @@ package enricher
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/ReneKroon/ttlcache/v2"
@@ -27,23 +29,34 @@ import (
 	"github.com/nxadm/tail"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
+	"k8s.io/apimachinery/pkg/util/sets"
 	rutil "sigs.k8s.io/release-utils/util"
 
-	api "sigs.k8s.io/security-profiles-operator/api/server"
+	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
+	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-// defaultCacheTimeout is the timeout for the container ID and info cache being
-// used. The chosen value is nothing more than a rough guess.
-const defaultCacheTimeout time.Duration = time.Hour
+const (
+	// defaultCacheTimeout is the timeout for the container ID and info cache being
+	// used. The chosen value is nothing more than a rough guess.
+	defaultCacheTimeout time.Duration = time.Hour
+
+	defaultTimeout time.Duration = time.Minute
+	maxMsgSize     int           = 16 * 1024 * 1024
+)
 
 // Enricher is the main structure of this package.
 type Enricher struct {
+	apienricher.UnimplementedEnricherServer
 	impl             impl
 	logger           logr.Logger
 	containerIDCache ttlcache.SimpleCache
 	infoCache        ttlcache.SimpleCache
+	syscalls         sync.Map
+	avcs             sync.Map
 }
 
 // New returns a new Enricher instance.
@@ -53,13 +66,9 @@ func New(logger logr.Logger) *Enricher {
 		logger:           logger,
 		containerIDCache: ttlcache.NewCache(),
 		infoCache:        ttlcache.NewCache(),
+		syscalls:         sync.Map{},
+		avcs:             sync.Map{},
 	}
-}
-
-type grpcClients struct {
-	metricsAuditIncClient api.SecurityProfilesOperator_MetricsAuditIncClient
-	recordSyscallClient   api.SecurityProfilesOperator_RecordSyscallClient
-	recordAvcClient       api.SecurityProfilesOperator_RecordAvcClient
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
@@ -85,11 +94,10 @@ func (e *Enricher) Run() error {
 	e.logger.Info("Starting log-enricher on node: " + nodeName)
 
 	e.logger.Info("Connecting to local GRPC server")
-
 	var (
-		conn   *grpc.ClientConn
-		cancel context.CancelFunc
-		gcli   grpcClients
+		conn          *grpc.ClientConn
+		cancel        context.CancelFunc
+		metricsClient apimetrics.Metrics_AuditIncClient
 	)
 
 	if err := util.Retry(func() (err error) {
@@ -97,25 +105,13 @@ func (e *Enricher) Run() error {
 		if err != nil {
 			return errors.Wrap(err, "connecting to local GRPC server")
 		}
-		client := api.NewSecurityProfilesOperatorClient(conn)
+		client := apimetrics.NewMetricsClient(conn)
 
-		gcli.metricsAuditIncClient, err = e.impl.MetricsAuditInc(client)
+		metricsClient, err = e.impl.AuditInc(client)
 		if err != nil {
 			cancel()
 			e.impl.Close(conn)
 			return errors.Wrap(err, "create metrics audit client")
-		}
-
-		gcli.recordSyscallClient, err = e.impl.RecordSyscall(client)
-		if err != nil {
-			cancel()
-			e.impl.Close(conn)
-			return errors.Wrap(err, "create syscall recording client")
-		}
-
-		gcli.recordAvcClient, err = e.impl.RecordAvc(client)
-		if err != nil {
-			return errors.Wrap(err, "create avc recording client")
 		}
 
 		return nil
@@ -124,6 +120,10 @@ func (e *Enricher) Run() error {
 	}
 	defer cancel()
 	defer e.impl.Close(conn)
+
+	if err := e.startGrpcServer(); err != nil {
+		return errors.Wrap(err, "start GRPC server")
+	}
 
 	// Use auditd logs as main source or syslog as fallback.
 	filePath := logFilePath()
@@ -185,7 +185,7 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
-		err = e.dispatchAuditLine(&gcli, nodeName, auditLine, info)
+		err = e.dispatchAuditLine(metricsClient, nodeName, auditLine, info)
 		if err != nil {
 			e.logger.Error(
 				err, "dispatch audit line")
@@ -196,17 +196,57 @@ func (e *Enricher) Run() error {
 	return errors.Wrap(e.impl.Reason(tailFile), "enricher failed")
 }
 
+func (e *Enricher) startGrpcServer() error {
+	e.logger.Info("Starting GRPC server API")
+
+	listener, err := e.impl.Listen("tcp", addr())
+	if err != nil {
+		return errors.Wrap(err, "create listener")
+	}
+
+	grpcServer := grpc.NewServer(
+		grpc.MaxSendMsgSize(maxMsgSize),
+		grpc.MaxRecvMsgSize(maxMsgSize),
+	)
+	apienricher.RegisterEnricherServer(grpcServer, e)
+
+	go func() {
+		if err := e.impl.Serve(grpcServer, listener); err != nil {
+			e.logger.Error(err, "unable to run GRPC server")
+		}
+	}()
+
+	return nil
+}
+
+// Dial can be used to connect to the default GRPC server by creating a new
+// client.
+func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	conn, err := grpc.DialContext(ctx, addr(), grpc.WithInsecure())
+	if err != nil {
+		cancel()
+		return nil, nil, errors.Wrap(err, "GRPC dial")
+	}
+	return conn, cancel, nil
+}
+
+// addr returns the default server listening address.
+func addr() string {
+	return net.JoinHostPort("localhost", "9114")
+}
+
 func (e *Enricher) dispatchAuditLine(
-	gcli *grpcClients,
+	metricsClient apimetrics.Metrics_AuditIncClient,
 	nodeName string,
 	auditLine *auditLine,
 	info *containerInfo,
 ) error {
 	switch auditLine.type_ {
 	case auditTypeSelinux:
-		e.dispatchSelinuxLine(gcli, nodeName, auditLine, info)
+		e.dispatchSelinuxLine(metricsClient, nodeName, auditLine, info)
 	case auditTypeSeccomp:
-		e.dispatchSeccompLine(gcli, nodeName, auditLine, info)
+		e.dispatchSeccompLine(metricsClient, nodeName, auditLine, info)
 	default:
 		return errors.Errorf("unknown audit line type %s", auditLine.type_)
 	}
@@ -214,7 +254,12 @@ func (e *Enricher) dispatchAuditLine(
 	return nil
 }
 
-func (e *Enricher) dispatchSelinuxLine(gcli *grpcClients, nodeName string, auditLine *auditLine, info *containerInfo) {
+func (e *Enricher) dispatchSelinuxLine(
+	_ apimetrics.Metrics_AuditIncClient,
+	nodeName string,
+	auditLine *auditLine,
+	info *containerInfo,
+) {
 	e.logger.Info("audit",
 		"timestamp", auditLine.timestampID,
 		"type", auditLine.type_,
@@ -230,24 +275,28 @@ func (e *Enricher) dispatchSelinuxLine(gcli *grpcClients, nodeName string, audit
 	)
 
 	if info.recordProfile != "" {
-		if err := e.impl.SendAvc(
-			gcli.recordAvcClient,
-			&api.RecordAvcRequest{
-				Profile: info.recordProfile,
-				Avc: &api.RecordAvcRequest_SelinuxAvc{
-					Perm:     auditLine.perm,
-					Scontext: auditLine.scontext,
-					Tcontext: auditLine.tcontext,
-					Tclass:   auditLine.tclass,
-				},
-			},
-		); err != nil {
-			e.logger.Error(err, "unable to record syscall")
+		avc := &apienricher.AvcResponse_SelinuxAvc{
+			Perm:     auditLine.perm,
+			Scontext: auditLine.scontext,
+			Tcontext: auditLine.tcontext,
+			Tclass:   auditLine.tclass,
 		}
+		jsonBytes, err := protojson.Marshal(avc)
+		if err != nil {
+			e.logger.Error(err, "marshall protobuf")
+		}
+
+		a, _ := e.avcs.LoadOrStore(info.recordProfile, sets.NewString())
+		a.(sets.String).Insert(string(jsonBytes))
 	}
 }
 
-func (e *Enricher) dispatchSeccompLine(gcli *grpcClients, nodeName string, auditLine *auditLine, info *containerInfo) {
+func (e *Enricher) dispatchSeccompLine(
+	metricsClient apimetrics.Metrics_AuditIncClient,
+	nodeName string,
+	auditLine *auditLine,
+	info *containerInfo,
+) {
 	syscallName, err := syscallName(auditLine.systemCallID)
 	if err != nil {
 		e.logger.Info(
@@ -271,10 +320,10 @@ func (e *Enricher) dispatchSeccompLine(gcli *grpcClients, nodeName string, audit
 		"syscallName", syscallName,
 	)
 
-	metricsType := api.MetricsAuditRequest_SECCOMP
+	metricsType := apimetrics.AuditRequest_SECCOMP
 	if err := e.impl.SendMetric(
-		gcli.metricsAuditIncClient,
-		&api.MetricsAuditRequest{
+		metricsClient,
+		&apimetrics.AuditRequest{
 			Type:       metricsType,
 			Node:       nodeName,
 			Namespace:  info.namespace,
@@ -288,15 +337,8 @@ func (e *Enricher) dispatchSeccompLine(gcli *grpcClients, nodeName string, audit
 	}
 
 	if info.recordProfile != "" {
-		if err := e.impl.SendSyscall(
-			gcli.recordSyscallClient,
-			&api.RecordSyscallRequest{
-				Profile: info.recordProfile,
-				Syscall: syscallName,
-			},
-		); err != nil {
-			e.logger.Error(err, "unable to record syscall")
-		}
+		s, _ := e.syscalls.LoadOrStore(info.recordProfile, sets.NewString())
+		s.(sets.String).Insert(syscallName)
 	}
 }
 

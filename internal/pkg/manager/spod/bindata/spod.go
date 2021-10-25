@@ -58,7 +58,7 @@ var Manifest = &appsv1.DaemonSet{
 		Selector: &metav1.LabelSelector{
 			MatchLabels: map[string]string{
 				"app":  config.OperatorName,
-				"name": "spod",
+				"name": config.SPOdName,
 			},
 		},
 		Template: v1.PodTemplateSpec{
@@ -70,7 +70,7 @@ var Manifest = &appsv1.DaemonSet{
 				},
 				Labels: map[string]string{
 					"app":  config.OperatorName,
-					"name": "spod",
+					"name": config.SPOdName,
 				},
 			},
 			Spec: v1.PodSpec{

@@ -177,13 +177,18 @@ $(BUILD_DIR)/protoc-gen-go: $(BUILD_DIR)
 
 .PHONY: update-proto
 update-proto: $(BUILD_DIR)/protoc-gen-go $(BUILD_DIR)/protoc-gen-go-grpc ## Update GRPC server protocol definitions
+	for PROTO in \
+		api/grpc/metrics \
+		api/grpc/enricher \
+	; do \
 	PATH=$(BUILD_DIR):$$PATH \
 		 protoc \
 			--go_out=. \
 			--go_opt=paths=source_relative \
 			--go-grpc_out=. \
 			--go-grpc_opt=paths=source_relative \
-			api/server/api.proto
+			$$PROTO/api.proto ;\
+	done
 
 define vagrant-up
 	if [ ! -f image.tar ]; then \
@@ -220,7 +225,8 @@ verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verif
 verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
 	$(BUILD_DIR)/verify_boilerplate.py \
 		--boilerplate-dir hack/boilerplate \
-		--skip api/server/api_grpc.pb.go
+		--skip api/grpc/metrics/api_grpc.pb.go \
+		--skip api/grpc/enricher/api_grpc.pb.go
 
 $(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
 	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/$(REPO_INFRA_VERSION)/hack/verify_boilerplate.py \

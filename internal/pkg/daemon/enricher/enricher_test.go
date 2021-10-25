@@ -146,7 +146,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.GetenvReturns(node)
 				mock.DialReturns(nil, func() {}, errTest)
-				mock.MetricsAuditIncReturns(nil, errTest)
+				mock.AuditIncReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
 				require.NotNil(t, err)

@@ -28,8 +28,11 @@ const (
 	// OperatorName is the name when referring to the operator.
 	OperatorName = "security-profiles-operator"
 
+	// SPOdName is the name of the default SPOd config instance.
+	SPOdName = "spod"
+
 	// Service Account for the security-profiles-operator daemon.
-	SPOdServiceAccount = "spod"
+	SPOdServiceAccount = SPOdName
 
 	// OperatorRoot is the root directory of the operator.
 	OperatorRoot = "/var/lib/security-profiles-operator"
