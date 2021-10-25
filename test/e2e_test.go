@@ -139,6 +139,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogs()
+		e.testCaseProfileRecordingMultiContainerSELinuxLogs()
 	})
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
