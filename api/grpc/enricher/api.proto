@@ -16,36 +16,14 @@ limitations under the License.
 
 syntax = "proto3";
 
-package api;
-option go_package = "/api";
+package api_enricher;
+option go_package = "/api_enricher";
 
-service SecurityProfilesOperator {
-    rpc MetricsAuditInc(stream MetricsAuditRequest) returns (EmptyResponse) {}
-    rpc RecordSyscall(stream RecordSyscallRequest) returns (EmptyResponse) {}
+service Enricher {
     rpc Syscalls(SyscallsRequest) returns (SyscallsResponse) {}
     rpc ResetSyscalls(SyscallsRequest) returns (EmptyResponse) {}
-    rpc RecordAvc(stream RecordAvcRequest) returns (EmptyResponse) {}
     rpc Avcs(AvcRequest) returns (AvcResponse) {}
     rpc ResetAvcs(AvcRequest) returns (EmptyResponse) {}
-}
-
-message MetricsAuditRequest {
-    enum Type {
-        SECCOMP = 0;
-        SELINUX = 1;
-    }
-    Type type = 1;
-    string node = 2;
-    string namespace = 3;
-    string pod = 4;
-    string container = 5;
-    string executable = 6;
-    string syscall = 7;
-}
-
-message RecordSyscallRequest {
-    string profile = 1;
-    string syscall = 2;
 }
 
 message SyscallsRequest {
@@ -56,23 +34,18 @@ message SyscallsResponse {
     repeated string syscalls = 1;
 }
 
-message RecordAvcRequest {
+message AvcRequest {
     string profile = 1;
+}
+
+message AvcResponse {
     message SelinuxAvc {
         string perm = 1;
         string scontext = 2;
         string tcontext = 3;
         string tclass = 4;
     }
-    SelinuxAvc avc = 2;
-}
-
-message AvcRequest {
-    string profile = 1;
-}
-
-message AvcResponse {
-    repeated RecordAvcRequest.SelinuxAvc avc = 1;
+    repeated SelinuxAvc avc = 1;
 }
 
 message EmptyResponse {}
