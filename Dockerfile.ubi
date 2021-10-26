@@ -36,3 +36,5 @@ COPY --from=build /work/build/security-profiles-operator /usr/bin/
 ENTRYPOINT ["/usr/bin/security-profiles-operator"]
 
 USER 65535:65535
+
+# vim: ft=dockerfile
