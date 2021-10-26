@@ -80,13 +80,13 @@ dependencies:
   - name: debian-base
     version: 1.0.0
     refPaths:
-    - path: hack/build-image/Dockerfile
+    - path: Dockerfile.build-image
       match: k8s.gcr.io/build-image/debian-base
 
   - name: nix
-    version: 2.3.10
+    version: 2.3.16
     refPaths:
-    - path: hack/build-image/Dockerfile
+    - path: Dockerfile.build-image
       match: NIX_VERSION
 
   - name: kube-rbac-proxy
