@@ -39,7 +39,7 @@ jobs:
           image: build
           oci: true
           dockerfiles: |
-            hack/build-image/Dockerfile
+            Dockerfile.build-image
       - if: github.ref == 'refs/heads/master'
         uses: redhat-actions/push-to-registry@v2
         with:
