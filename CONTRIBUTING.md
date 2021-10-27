@@ -58,7 +58,7 @@ Following the targets that can be used to test your changes locally.
 ## Where the CI Tests are configured
 
 1. See the [action files](.github/workflows) to check its tests, and the scripts used on it.
-1. Note that the prow tests used in the CI are configured in [kubernetes-sigs/seccomp-operator/seccomp-operator-presubmits.yaml](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes-sigs/seccomp-operator/seccomp-operator-presubmits.yaml).
+1. Note that the prow tests used in the CI are configured in [kubernetes-sigs/security-profiles-operator/seccomp-operator-presubmits.yaml](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes-sigs/security-profiles-operator/seccomp-operator-presubmits.yaml).
 
 ## Mentorship
 
