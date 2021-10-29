@@ -1,7 +1,8 @@
 { pkgs, buildGoModule }:
 with pkgs; buildGoModule rec {
   name = "security-profiles-operator";
-  src = ./..;
+  src = builtins.filterSource
+    (path: type: !(type == "directory" && baseNameOf path == "build")) ./..;
   vendorSha256 = null;
   doCheck = false;
   outputs = [ "out" ];
