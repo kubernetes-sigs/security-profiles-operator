@@ -27,7 +27,7 @@ BPFTOOL ?= bpftool
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
 BPF_PATH := internal/pkg/daemon/bpfrecorder/bpf
-ARCH := $(shell uname -m | \
+ARCH ?= $(shell uname -m | \
 	sed 's/x86_64/x86/' | \
 	sed 's/aarch64/arm64/' | \
 	sed 's/ppc64le/powerpc/' | \
@@ -238,9 +238,14 @@ update-toc: $(BUILD_DIR)/mdtoc ## Update the table of contents for the documenta
 $(BUILD_DIR)/vmlinux.h: $(BUILD_DIR) ## Generate the vmlinux.h required for building the BPF module
 	$(BPFTOOL) btf dump file /sys/kernel/btf/vmlinux format c > $@
 
-$(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR)/vmlinux.h ## Build the BPF module
-	$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) \
-		$(INCLUDES) $(CFLAGS) -c $(BPF_PATH)/recorder.bpf.c -o $@
+$(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
+	$(CLANG) -g -O2 \
+		-target bpf \
+		-D__TARGET_ARCH_$(ARCH) \
+		$(CFLAGS) \
+		-I ./internal/pkg/daemon/bpfrecorder/vmlinux/$(ARCH) \
+		-c $(BPF_PATH)/recorder.bpf.c \
+		-o $@
 	$(LLVM_STRIP) -g $@
 
 .PHONY: update-btf
@@ -248,15 +253,16 @@ update-btf: ## Build and update all generated BTF code for supported kernels
 	./hack/update-btf
 
 .PHONY: update-bpf
-update-bpf: update-btf ## Build and update all generated BPF code
+update-bpf: ## Build and update all generated BPF code
 	$(GO) generate ./internal/pkg/daemon/bpfrecorder/...
 
 .PHONY: update-bpf-nix
 update-bpf-nix: $(BUILD_DIR) ## Build and update all generated BPF code with nix
-	rm -rf $(BUILD_DIR)/recorder.bpf.o
-	nix-build --extra-sandbox-paths /sys nix/default-bpf.nix
-	cp -f result/recorder.bpf.o $(BUILD_DIR)/
-	chmod 0644 $(BUILD_DIR)/recorder.bpf.o
+	for arch in amd64 arm64; do \
+		nix-build nix/default-bpf-$$arch.nix ;\
+		cp -f result/recorder.bpf.o $(BUILD_DIR)/recorder.bpf.o.$$arch ;\
+	done
+	chmod 0644 $(BUILD_DIR)/recorder.bpf.o.*
 	$(GO) generate ./internal/pkg/daemon/bpfrecorder/...
 
 # Verification targets
@@ -270,7 +276,8 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 		--boilerplate-dir hack/boilerplate \
 		--skip api/grpc/metrics/api_grpc.pb.go \
 		--skip api/grpc/enricher/api_grpc.pb.go \
-		--skip api/grpc/bpfrecorder/api_grpc.pb.go
+		--skip api/grpc/bpfrecorder/api_grpc.pb.go \
+		--skip internal/pkg/daemon/bpfrecorder/generated.go
 
 $(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
 	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/$(REPO_INFRA_VERSION)/hack/verify_boilerplate.py \
@@ -310,8 +317,8 @@ $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 verify-toc: update-toc ## Verify the table of contents for the documentation
 	hack/tree-status
 
-.PHONY: verify-bpf
-verify-bpf: update-bpf ## Verify the bpf module generated code
+.PHONY: verify-bpf-nix
+verify-bpf-nix: update-bpf-nix ## Verify the bpf module generated code
 	hack/tree-status
 
 # Test targets

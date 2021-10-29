@@ -90,26 +90,33 @@ func run() error {
 }
 
 func generateBpfObj(builder *strings.Builder) error {
-	file, err := ioutil.ReadFile(filepath.Join(buildDir, bpfObj))
-	if err != nil {
-		return errors.Wrap(err, "read bpf object path")
-	}
-	size := len(file)
-
 	builder.WriteString(header)
-	builder.WriteString("var bpfObject = []byte{\n")
+	builder.WriteString("var bpfObjects = map[string][]byte{\n")
 
-	for k, v := range file {
-		builder.WriteString(fmt.Sprint(v))
+	for _, arch := range []string{"amd64", "arm64"} {
+		builder.WriteString(fmt.Sprintf("%q: {\n", arch))
 
-		if k < size-1 {
-			builder.WriteString(", ")
+		file, err := ioutil.ReadFile(filepath.Join(buildDir, bpfObj+"."+arch))
+		if err != nil {
+			return errors.Wrap(err, "read bpf object path")
 		}
 
-		if k != 0 && k%16 == 0 {
-			builder.WriteString("\n\t")
+		size := len(file)
+		for k, v := range file {
+			builder.WriteString(fmt.Sprint(v))
+
+			if k < size-1 {
+				builder.WriteString(", ")
+			}
+
+			if k != 0 && k%16 == 0 {
+				builder.WriteString("\n\t")
+			}
 		}
+
+		builder.WriteString("},\n")
 	}
+
 	builder.WriteString("}\n\n")
 	return nil
 }
