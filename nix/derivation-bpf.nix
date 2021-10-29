@@ -1,14 +1,15 @@
-{ pkgs, buildGoModule }:
+{ pkgs, buildGoModule, arch ? "x86" }:
 with pkgs; buildGoModule rec {
   name = "security-profiles-operator";
-  src = ./..;
+  src = builtins.filterSource
+    (path: type: !(type == "directory" && baseNameOf path == "build")) ./..;
   vendorSha256 = null;
   doCheck = false;
   outputs = [ "out" ];
   nativeBuildInputs = with buildPackages; [
     bpftool
-    clang_12
     git
+    llvmPackages_12.clang-unwrapped
     llvm_12
     pkg-config
     which
@@ -22,8 +23,8 @@ with pkgs; buildGoModule rec {
     zlib.static
   ];
   buildPhase = ''
-    export CLANG=clang-12
     export CFLAGS=$NIX_CFLAGS_COMPILE
+    export ARCH=${arch}
     make build/recorder.bpf.o
   '';
   installPhase = ''

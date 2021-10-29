@@ -280,8 +280,9 @@ func (b *BpfRecorder) load() (err error) {
 		return errors.Wrap(err, "find btf")
 	}
 
-	if runtime.GOARCH != "amd64" {
-		return errors.Errorf("architecture %s is currently unsupported")
+	bpfObject, ok := bpfObjects[runtime.GOARCH]
+	if !ok {
+		return errors.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
 
 	module, err := bpf.NewModuleFromBufferArgs(bpf.NewModuleArgs{
