@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"net"
 	"os"
 	"runtime"
 	"sort"
@@ -122,9 +121,23 @@ func (b *BpfRecorder) Run() error {
 		return errors.Wrap(err, "load in-cluster client")
 	}
 
-	listener, err := b.Listen("tcp", addr())
+	if _, err := b.Stat(config.GRPCServerSocketBpfRecorder); err == nil {
+		if err := b.RemoveAll(config.GRPCServerSocketBpfRecorder); err != nil {
+			return errors.Wrap(err, "remove GRPC socket file")
+		}
+	}
+
+	listener, err := b.Listen("unix", config.GRPCServerSocketBpfRecorder)
 	if err != nil {
 		return errors.Wrap(err, "create listener")
+	}
+
+	if err := b.Chown(
+		config.GRPCServerSocketBpfRecorder,
+		config.UserRootless,
+		config.UserRootless,
+	); err != nil {
+		return errors.Wrap(err, "change GRPC socket owner to rootless")
 	}
 
 	b.logger.Info("Doing BPF load/unload self-test")
@@ -142,6 +155,7 @@ func (b *BpfRecorder) Run() error {
 
 	if err := b.Serve(grpcServer, listener); err != nil {
 		b.logger.Error(err, "unable to run GRPC server")
+		return err
 	}
 
 	return nil
@@ -151,17 +165,12 @@ func (b *BpfRecorder) Run() error {
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	conn, err := grpc.DialContext(ctx, addr(), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, "unix://"+config.GRPCServerSocketBpfRecorder, grpc.WithInsecure())
 	if err != nil {
 		cancel()
 		return nil, nil, errors.Wrap(err, "GRPC dial")
 	}
 	return conn, cancel, nil
-}
-
-// addr returns the default server listening address.
-func addr() string {
-	return net.JoinHostPort("localhost", "9112")
 }
 
 func (b *BpfRecorder) Start(
