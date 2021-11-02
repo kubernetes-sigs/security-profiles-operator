@@ -64,6 +64,19 @@ type FakeImpl struct {
 	bPFLoadObjectReturnsOnCall map[int]struct {
 		result1 error
 	}
+	ChownStub        func(string, int, int) error
+	chownMutex       sync.RWMutex
+	chownArgsForCall []struct {
+		arg1 string
+		arg2 int
+		arg3 int
+	}
+	chownReturns struct {
+		result1 error
+	}
+	chownReturnsOnCall map[int]struct {
+		result1 error
+	}
 	ContainerIDForPIDStub        func(ttlcache.SimpleCache, int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
 	containerIDForPIDArgsForCall []struct {
@@ -249,6 +262,17 @@ type FakeImpl struct {
 	readOSReleaseReturnsOnCall map[int]struct {
 		result1 map[string]string
 		result2 error
+	}
+	RemoveAllStub        func(string) error
+	removeAllMutex       sync.RWMutex
+	removeAllArgsForCall []struct {
+		arg1 string
+	}
+	removeAllReturns struct {
+		result1 error
+	}
+	removeAllReturnsOnCall map[int]struct {
+		result1 error
 	}
 	ServeStub        func(*grpc.Server, net.Listener) error
 	serveMutex       sync.RWMutex
@@ -465,6 +489,69 @@ func (fake *FakeImpl) BPFLoadObjectReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.bPFLoadObjectReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) Chown(arg1 string, arg2 int, arg3 int) error {
+	fake.chownMutex.Lock()
+	ret, specificReturn := fake.chownReturnsOnCall[len(fake.chownArgsForCall)]
+	fake.chownArgsForCall = append(fake.chownArgsForCall, struct {
+		arg1 string
+		arg2 int
+		arg3 int
+	}{arg1, arg2, arg3})
+	stub := fake.ChownStub
+	fakeReturns := fake.chownReturns
+	fake.recordInvocation("Chown", []interface{}{arg1, arg2, arg3})
+	fake.chownMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) ChownCallCount() int {
+	fake.chownMutex.RLock()
+	defer fake.chownMutex.RUnlock()
+	return len(fake.chownArgsForCall)
+}
+
+func (fake *FakeImpl) ChownCalls(stub func(string, int, int) error) {
+	fake.chownMutex.Lock()
+	defer fake.chownMutex.Unlock()
+	fake.ChownStub = stub
+}
+
+func (fake *FakeImpl) ChownArgsForCall(i int) (string, int, int) {
+	fake.chownMutex.RLock()
+	defer fake.chownMutex.RUnlock()
+	argsForCall := fake.chownArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) ChownReturns(result1 error) {
+	fake.chownMutex.Lock()
+	defer fake.chownMutex.Unlock()
+	fake.ChownStub = nil
+	fake.chownReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) ChownReturnsOnCall(i int, result1 error) {
+	fake.chownMutex.Lock()
+	defer fake.chownMutex.Unlock()
+	fake.ChownStub = nil
+	if fake.chownReturnsOnCall == nil {
+		fake.chownReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.chownReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -1353,6 +1440,67 @@ func (fake *FakeImpl) ReadOSReleaseReturnsOnCall(i int, result1 map[string]strin
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) RemoveAll(arg1 string) error {
+	fake.removeAllMutex.Lock()
+	ret, specificReturn := fake.removeAllReturnsOnCall[len(fake.removeAllArgsForCall)]
+	fake.removeAllArgsForCall = append(fake.removeAllArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.RemoveAllStub
+	fakeReturns := fake.removeAllReturns
+	fake.recordInvocation("RemoveAll", []interface{}{arg1})
+	fake.removeAllMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) RemoveAllCallCount() int {
+	fake.removeAllMutex.RLock()
+	defer fake.removeAllMutex.RUnlock()
+	return len(fake.removeAllArgsForCall)
+}
+
+func (fake *FakeImpl) RemoveAllCalls(stub func(string) error) {
+	fake.removeAllMutex.Lock()
+	defer fake.removeAllMutex.Unlock()
+	fake.RemoveAllStub = stub
+}
+
+func (fake *FakeImpl) RemoveAllArgsForCall(i int) string {
+	fake.removeAllMutex.RLock()
+	defer fake.removeAllMutex.RUnlock()
+	argsForCall := fake.removeAllArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) RemoveAllReturns(result1 error) {
+	fake.removeAllMutex.Lock()
+	defer fake.removeAllMutex.Unlock()
+	fake.RemoveAllStub = nil
+	fake.removeAllReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) RemoveAllReturnsOnCall(i int, result1 error) {
+	fake.removeAllMutex.Lock()
+	defer fake.removeAllMutex.Unlock()
+	fake.RemoveAllStub = nil
+	if fake.removeAllReturnsOnCall == nil {
+		fake.removeAllReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.removeAllReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) Serve(arg1 *grpc.Server, arg2 net.Listener) error {
 	fake.serveMutex.Lock()
 	ret, specificReturn := fake.serveReturnsOnCall[len(fake.serveArgsForCall)]
@@ -1811,6 +1959,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.attachTracepointMutex.RUnlock()
 	fake.bPFLoadObjectMutex.RLock()
 	defer fake.bPFLoadObjectMutex.RUnlock()
+	fake.chownMutex.RLock()
+	defer fake.chownMutex.RUnlock()
 	fake.containerIDForPIDMutex.RLock()
 	defer fake.containerIDForPIDMutex.RUnlock()
 	fake.deleteKeyMutex.RLock()
@@ -1839,6 +1989,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.newModuleFromBufferArgsMutex.RUnlock()
 	fake.readOSReleaseMutex.RLock()
 	defer fake.readOSReleaseMutex.RUnlock()
+	fake.removeAllMutex.RLock()
+	defer fake.removeAllMutex.RUnlock()
 	fake.serveMutex.RLock()
 	defer fake.serveMutex.RUnlock()
 	fake.setTTLMutex.RLock()

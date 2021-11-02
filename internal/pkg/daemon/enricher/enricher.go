@@ -19,7 +19,6 @@ package enricher
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"strconv"
 	"sync"
@@ -227,9 +226,23 @@ func (e *Enricher) Run() error {
 func (e *Enricher) startGrpcServer() error {
 	e.logger.Info("Starting GRPC server API")
 
-	listener, err := e.impl.Listen("tcp", addr())
+	if _, err := e.impl.Stat(config.GRPCServerSocketEnricher); err == nil {
+		if err := e.impl.RemoveAll(config.GRPCServerSocketEnricher); err != nil {
+			return errors.Wrap(err, "remove GRPC socket file")
+		}
+	}
+
+	listener, err := e.impl.Listen("unix", config.GRPCServerSocketEnricher)
 	if err != nil {
 		return errors.Wrap(err, "create listener")
+	}
+
+	if err := e.impl.Chown(
+		config.GRPCServerSocketEnricher,
+		config.UserRootless,
+		config.UserRootless,
+	); err != nil {
+		return errors.Wrap(err, "change GRPC socket owner to rootless")
 	}
 
 	grpcServer := grpc.NewServer(
@@ -251,17 +264,12 @@ func (e *Enricher) startGrpcServer() error {
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	conn, err := grpc.DialContext(ctx, addr(), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, "unix://"+config.GRPCServerSocketEnricher, grpc.WithInsecure())
 	if err != nil {
 		cancel()
 		return nil, nil, errors.Wrap(err, "GRPC dial")
 	}
 	return conn, cancel, nil
-}
-
-// addr returns the default server listening address.
-func addr() string {
-	return net.JoinHostPort("localhost", "9114")
 }
 
 func (e *Enricher) addToBacklog(line *auditLine) error {

@@ -229,6 +229,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Name:      "profile-recording-output-volume",
 								MountPath: config.ProfileRecordingOutputPath,
 							},
+							{
+								Name:      "grpc-server-volume",
+								MountPath: filepath.Dir(config.GRPCServerSocketMetrics),
+							},
 						},
 						SecurityContext: &v1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
@@ -374,6 +378,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								MountPath: filepath.Dir(config.SyslogLogPath),
 								ReadOnly:  true,
 							},
+							{
+								Name:      "grpc-server-volume",
+								MountPath: filepath.Dir(config.GRPCServerSocketEnricher),
+							},
 						},
 						SecurityContext: &v1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
@@ -424,6 +432,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							{
 								Name:      "tmp-volume",
 								MountPath: "/tmp",
+							},
+							{
+								Name:      "grpc-server-volume",
+								MountPath: filepath.Dir(config.GRPCServerSocketBpfRecorder),
 							},
 						},
 						SecurityContext: &v1.SecurityContext{
@@ -626,6 +638,12 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "tmp-volume",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{},
+						},
+					},
+					{
+						Name: "grpc-server-volume",
 						VolumeSource: v1.VolumeSource{
 							EmptyDir: &v1.EmptyDirVolumeSource{},
 						},

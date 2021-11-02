@@ -20,12 +20,14 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
 	"time"
 
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 const (
@@ -35,7 +37,13 @@ const (
 
 // ServeGRPC runs the GRPC API server in the background.
 func (m *Metrics) ServeGRPC() error {
-	listener, err := net.Listen("tcp", addr())
+	if _, err := os.Stat(config.GRPCServerSocketMetrics); err == nil {
+		if err := os.RemoveAll(config.GRPCServerSocketMetrics); err != nil {
+			return errors.Wrap(err, "remove GRPC socket file")
+		}
+	}
+
+	listener, err := net.Listen("unix", config.GRPCServerSocketMetrics)
 	if err != nil {
 		return errors.Wrap(err, "create listener")
 	}
@@ -60,17 +68,12 @@ func (m *Metrics) ServeGRPC() error {
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	conn, err := grpc.DialContext(ctx, addr(), grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, "unix://"+config.GRPCServerSocketMetrics, grpc.WithInsecure())
 	if err != nil {
 		cancel()
 		return nil, nil, errors.Wrap(err, "GRPC dial")
 	}
 	return conn, cancel, nil
-}
-
-// addr returns the default server listening address.
-func addr() string {
-	return net.JoinHostPort("localhost", "9111")
 }
 
 // AuditInc updates the metrics for the audit counter.
