@@ -69,6 +69,8 @@ type impl interface {
 	DeleteKey(*bpf.BPFMap, uint32) error
 	ListPods(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
 	GetName(seccomp.ScmpSyscall) (string, error)
+	RemoveAll(string) error
+	Chown(string, int, int) error
 }
 
 func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
@@ -167,4 +169,12 @@ func (d *defaultImpl) ListPods(
 
 func (d *defaultImpl) GetName(s seccomp.ScmpSyscall) (string, error) {
 	return s.GetName()
+}
+
+func (d *defaultImpl) RemoveAll(path string) error {
+	return os.RemoveAll(path)
+}
+
+func (d *defaultImpl) Chown(name string, uid, gid int) error {
+	return os.Chown(name, uid, gid)
 }

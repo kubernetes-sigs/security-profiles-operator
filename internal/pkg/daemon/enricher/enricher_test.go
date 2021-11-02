@@ -156,6 +156,28 @@ func TestRun(t *testing.T) {
 				require.NotNil(t, err)
 			},
 		},
+		{ // failure on Listen
+			runAsync: false,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.GetenvReturns(node)
+				mock.DialReturns(nil, func() {}, errTest)
+				mock.ListenReturns(nil, errTest)
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // failure on Chown
+			runAsync: false,
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.GetenvReturns(node)
+				mock.DialReturns(nil, func() {}, errTest)
+				mock.ChownReturns(errTest)
+			},
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				require.NotNil(t, err)
+			},
+		},
 		{ // failure on Lines
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {

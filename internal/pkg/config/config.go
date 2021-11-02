@@ -96,6 +96,15 @@ const (
 	// SelinuxPermissiveProfile is the selinux profile name for tracing AVC from
 	// the log enricher.
 	SelinuxPermissiveProfile = "selinuxrecording.process"
+
+	// GRPCServerSocketMetrics is the socket path for the GRPC metrics server.
+	GRPCServerSocketMetrics = "/var/run/grpc/metrics.sock"
+
+	// GRPCServerSocketEnricher is the socket path for the GRPC enricher server.
+	GRPCServerSocketEnricher = "/var/run/grpc/enricher.sock"
+
+	// GRPCServerSocketBpfRecorder is the socket path for the GRPC bpf recorder server.
+	GRPCServerSocketBpfRecorder = "/var/run/grpc/bpf-recorder.sock"
 )
 
 // ProfileRecordingOutputPath is the path where the recorded profiles will be

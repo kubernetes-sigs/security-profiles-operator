@@ -58,6 +58,9 @@ type impl interface {
 	AddToBacklog(cache *ttlcache.Cache, key string, data interface{}) error
 	GetFromBacklog(cache *ttlcache.Cache, key string) (interface{}, error)
 	FlushBacklog(cache *ttlcache.Cache, key string) error
+	Chown(string, int, int) error
+	Stat(string) (os.FileInfo, error)
+	RemoveAll(string) error
 }
 
 func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
@@ -149,4 +152,16 @@ func (d *defaultImpl) Serve(grpcServer *grpc.Server, listener net.Listener) erro
 
 func (d *defaultImpl) Listen(network, address string) (net.Listener, error) {
 	return net.Listen(network, address)
+}
+
+func (d *defaultImpl) Chown(name string, uid, gid int) error {
+	return os.Chown(name, uid, gid)
+}
+
+func (d *defaultImpl) Stat(name string) (os.FileInfo, error) {
+	return os.Stat(name)
+}
+
+func (d *defaultImpl) RemoveAll(path string) error {
+	return os.RemoveAll(path)
 }

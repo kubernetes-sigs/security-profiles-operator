@@ -19,6 +19,7 @@ package enricherfakes
 
 import (
 	"context"
+	"io/fs"
 	"net"
 	"sync"
 	"time"
@@ -58,6 +59,19 @@ type FakeImpl struct {
 	auditIncReturnsOnCall map[int]struct {
 		result1 api_metrics.Metrics_AuditIncClient
 		result2 error
+	}
+	ChownStub        func(string, int, int) error
+	chownMutex       sync.RWMutex
+	chownArgsForCall []struct {
+		arg1 string
+		arg2 int
+		arg3 int
+	}
+	chownReturns struct {
+		result1 error
+	}
+	chownReturnsOnCall map[int]struct {
+		result1 error
 	}
 	CloseStub        func(*grpc.ClientConn) error
 	closeMutex       sync.RWMutex
@@ -210,6 +224,17 @@ type FakeImpl struct {
 	reasonReturnsOnCall map[int]struct {
 		result1 error
 	}
+	RemoveAllStub        func(string) error
+	removeAllMutex       sync.RWMutex
+	removeAllArgsForCall []struct {
+		arg1 string
+	}
+	removeAllReturns struct {
+		result1 error
+	}
+	removeAllReturnsOnCall map[int]struct {
+		result1 error
+	}
 	SendMetricStub        func(api_metrics.Metrics_AuditIncClient, *api_metrics.AuditRequest) error
 	sendMetricMutex       sync.RWMutex
 	sendMetricArgsForCall []struct {
@@ -245,6 +270,19 @@ type FakeImpl struct {
 	}
 	setTTLReturnsOnCall map[int]struct {
 		result1 error
+	}
+	StatStub        func(string) (fs.FileInfo, error)
+	statMutex       sync.RWMutex
+	statArgsForCall []struct {
+		arg1 string
+	}
+	statReturns struct {
+		result1 fs.FileInfo
+		result2 error
+	}
+	statReturnsOnCall map[int]struct {
+		result1 fs.FileInfo
+		result2 error
 	}
 	TailFileStub        func(string, tail.Config) (*tail.Tail, error)
 	tailFileMutex       sync.RWMutex
@@ -389,6 +427,69 @@ func (fake *FakeImpl) AuditIncReturnsOnCall(i int, result1 api_metrics.Metrics_A
 		result1 api_metrics.Metrics_AuditIncClient
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) Chown(arg1 string, arg2 int, arg3 int) error {
+	fake.chownMutex.Lock()
+	ret, specificReturn := fake.chownReturnsOnCall[len(fake.chownArgsForCall)]
+	fake.chownArgsForCall = append(fake.chownArgsForCall, struct {
+		arg1 string
+		arg2 int
+		arg3 int
+	}{arg1, arg2, arg3})
+	stub := fake.ChownStub
+	fakeReturns := fake.chownReturns
+	fake.recordInvocation("Chown", []interface{}{arg1, arg2, arg3})
+	fake.chownMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) ChownCallCount() int {
+	fake.chownMutex.RLock()
+	defer fake.chownMutex.RUnlock()
+	return len(fake.chownArgsForCall)
+}
+
+func (fake *FakeImpl) ChownCalls(stub func(string, int, int) error) {
+	fake.chownMutex.Lock()
+	defer fake.chownMutex.Unlock()
+	fake.ChownStub = stub
+}
+
+func (fake *FakeImpl) ChownArgsForCall(i int) (string, int, int) {
+	fake.chownMutex.RLock()
+	defer fake.chownMutex.RUnlock()
+	argsForCall := fake.chownArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) ChownReturns(result1 error) {
+	fake.chownMutex.Lock()
+	defer fake.chownMutex.Unlock()
+	fake.ChownStub = nil
+	fake.chownReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) ChownReturnsOnCall(i int, result1 error) {
+	fake.chownMutex.Lock()
+	defer fake.chownMutex.Unlock()
+	fake.ChownStub = nil
+	if fake.chownReturnsOnCall == nil {
+		fake.chownReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.chownReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeImpl) Close(arg1 *grpc.ClientConn) error {
@@ -1136,6 +1237,67 @@ func (fake *FakeImpl) ReasonReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) RemoveAll(arg1 string) error {
+	fake.removeAllMutex.Lock()
+	ret, specificReturn := fake.removeAllReturnsOnCall[len(fake.removeAllArgsForCall)]
+	fake.removeAllArgsForCall = append(fake.removeAllArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.RemoveAllStub
+	fakeReturns := fake.removeAllReturns
+	fake.recordInvocation("RemoveAll", []interface{}{arg1})
+	fake.removeAllMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) RemoveAllCallCount() int {
+	fake.removeAllMutex.RLock()
+	defer fake.removeAllMutex.RUnlock()
+	return len(fake.removeAllArgsForCall)
+}
+
+func (fake *FakeImpl) RemoveAllCalls(stub func(string) error) {
+	fake.removeAllMutex.Lock()
+	defer fake.removeAllMutex.Unlock()
+	fake.RemoveAllStub = stub
+}
+
+func (fake *FakeImpl) RemoveAllArgsForCall(i int) string {
+	fake.removeAllMutex.RLock()
+	defer fake.removeAllMutex.RUnlock()
+	argsForCall := fake.removeAllArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) RemoveAllReturns(result1 error) {
+	fake.removeAllMutex.Lock()
+	defer fake.removeAllMutex.Unlock()
+	fake.RemoveAllStub = nil
+	fake.removeAllReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) RemoveAllReturnsOnCall(i int, result1 error) {
+	fake.removeAllMutex.Lock()
+	defer fake.removeAllMutex.Unlock()
+	fake.RemoveAllStub = nil
+	if fake.removeAllReturnsOnCall == nil {
+		fake.removeAllReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.removeAllReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) SendMetric(arg1 api_metrics.Metrics_AuditIncClient, arg2 *api_metrics.AuditRequest) error {
 	fake.sendMetricMutex.Lock()
 	ret, specificReturn := fake.sendMetricReturnsOnCall[len(fake.sendMetricArgsForCall)]
@@ -1322,6 +1484,70 @@ func (fake *FakeImpl) SetTTLReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) Stat(arg1 string) (fs.FileInfo, error) {
+	fake.statMutex.Lock()
+	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
+	fake.statArgsForCall = append(fake.statArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.StatStub
+	fakeReturns := fake.statReturns
+	fake.recordInvocation("Stat", []interface{}{arg1})
+	fake.statMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) StatCallCount() int {
+	fake.statMutex.RLock()
+	defer fake.statMutex.RUnlock()
+	return len(fake.statArgsForCall)
+}
+
+func (fake *FakeImpl) StatCalls(stub func(string) (fs.FileInfo, error)) {
+	fake.statMutex.Lock()
+	defer fake.statMutex.Unlock()
+	fake.StatStub = stub
+}
+
+func (fake *FakeImpl) StatArgsForCall(i int) string {
+	fake.statMutex.RLock()
+	defer fake.statMutex.RUnlock()
+	argsForCall := fake.statArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) StatReturns(result1 fs.FileInfo, result2 error) {
+	fake.statMutex.Lock()
+	defer fake.statMutex.Unlock()
+	fake.StatStub = nil
+	fake.statReturns = struct {
+		result1 fs.FileInfo
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) StatReturnsOnCall(i int, result1 fs.FileInfo, result2 error) {
+	fake.statMutex.Lock()
+	defer fake.statMutex.Unlock()
+	fake.StatStub = nil
+	if fake.statReturnsOnCall == nil {
+		fake.statReturnsOnCall = make(map[int]struct {
+			result1 fs.FileInfo
+			result2 error
+		})
+	}
+	fake.statReturnsOnCall[i] = struct {
+		result1 fs.FileInfo
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) TailFile(arg1 string, arg2 tail.Config) (*tail.Tail, error) {
 	fake.tailFileMutex.Lock()
 	ret, specificReturn := fake.tailFileReturnsOnCall[len(fake.tailFileArgsForCall)]
@@ -1394,6 +1620,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.addToBacklogMutex.RUnlock()
 	fake.auditIncMutex.RLock()
 	defer fake.auditIncMutex.RUnlock()
+	fake.chownMutex.RLock()
+	defer fake.chownMutex.RUnlock()
 	fake.closeMutex.RLock()
 	defer fake.closeMutex.RUnlock()
 	fake.containerIDForPIDMutex.RLock()
@@ -1418,12 +1646,16 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.newForConfigMutex.RUnlock()
 	fake.reasonMutex.RLock()
 	defer fake.reasonMutex.RUnlock()
+	fake.removeAllMutex.RLock()
+	defer fake.removeAllMutex.RUnlock()
 	fake.sendMetricMutex.RLock()
 	defer fake.sendMetricMutex.RUnlock()
 	fake.serveMutex.RLock()
 	defer fake.serveMutex.RUnlock()
 	fake.setTTLMutex.RLock()
 	defer fake.setTTLMutex.RUnlock()
+	fake.statMutex.RLock()
+	defer fake.statMutex.RUnlock()
 	fake.tailFileMutex.RLock()
 	defer fake.tailFileMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
