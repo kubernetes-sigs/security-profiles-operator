@@ -380,35 +380,39 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	newSPOd.SetNamespace(config.GetOperatorNamespace())
 	templateSpec := &newSPOd.Spec.Template.Spec
 
-	templateSpec.InitContainers = []corev1.Container{r.baseSPOd.Spec.Template.Spec.InitContainers[0]}
+	templateSpec.InitContainers = []corev1.Container{
+		r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDNonRootenabler],
+	}
 	// Set Images
-	// - Base workload
-	templateSpec.Containers = []corev1.Container{r.baseSPOd.Spec.Template.Spec.Containers[0]}
-	templateSpec.Containers[0].Image = image
+	// Base workload
+	templateSpec.Containers = []corev1.Container{
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDDaemon],
+	}
+	templateSpec.Containers[bindata.ContainerIDDaemon].Image = image
 
-	// - The non root enabler
-	templateSpec.InitContainers[0].Image = image
+	// Non root enabler
+	templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Image = image
 
 	// SELinux parameters
 	if cfg.Spec.EnableSelinux {
 		templateSpec.InitContainers = append(
 			templateSpec.InitContainers,
-			r.baseSPOd.Spec.Template.Spec.InitContainers[1])
+			r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.ContainerIDSelinuxd])
 		templateSpec.Containers = append(
 			templateSpec.Containers,
-			r.baseSPOd.Spec.Template.Spec.Containers[1])
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd])
 
-		templateSpec.Containers[0].Args = append(
-			templateSpec.Containers[0].Args,
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			"--with-selinux=true")
 	}
 
 	// Log enricher parameters
 	if cfg.Spec.EnableLogEnricher {
-		r.baseSPOd.Spec.Template.Spec.Containers[2].Image = image
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Image = image
 		templateSpec.Containers = append(
 			templateSpec.Containers,
-			r.baseSPOd.Spec.Template.Spec.Containers[2])
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher])
 
 		// HostPID is only required for the log-enricher
 		// and is used to access cgroup files to map Process IDs to Pod IDs
@@ -417,10 +421,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	// Bpf recorder parameters
 	if cfg.Spec.EnableBpfRecorder {
-		r.baseSPOd.Spec.Template.Spec.Containers[3].Image = image
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder].Image = image
 		templateSpec.Containers = append(
 			templateSpec.Containers,
-			r.baseSPOd.Spec.Template.Spec.Containers[3])
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder])
 
 		// HostPID is only required for the bpf recorder and is used to access
 		// cgroup files to map Process IDs to Pod IDs.
@@ -430,7 +434,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	// Metrics parameters
 	templateSpec.Containers = append(
 		templateSpec.Containers,
-		r.baseSPOd.Spec.Template.Spec.Containers[4],
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDMetrics],
 	)
 
 	// Set image pull policy

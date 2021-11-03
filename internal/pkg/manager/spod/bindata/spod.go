@@ -44,12 +44,19 @@ var (
 )
 
 const (
-	SelinuxDropDirectory = "/etc/selinux.d"
-	SelinuxdPrivateDir   = "/var/run/selinuxd"
-	SelinuxdSocketPath   = SelinuxdPrivateDir + "/selinuxd.sock"
-	SelinuxdDBPath       = SelinuxdPrivateDir + "/selinuxd.db"
-	MetricsImage         = "quay.io/brancz/kube-rbac-proxy:v0.9.0"
-	sysKernelDebugPath   = "/sys/kernel/debug"
+	SelinuxDropDirectory                       = "/etc/selinux.d"
+	SelinuxdPrivateDir                         = "/var/run/selinuxd"
+	SelinuxdSocketPath                         = SelinuxdPrivateDir + "/selinuxd.sock"
+	SelinuxdDBPath                             = SelinuxdPrivateDir + "/selinuxd.db"
+	MetricsImage                               = "quay.io/brancz/kube-rbac-proxy:v0.9.0"
+	sysKernelDebugPath                         = "/sys/kernel/debug"
+	InitContainerIDNonRootenabler              = 0
+	InitContainerIDSelinuxSharedPoliciesCopier = 1
+	ContainerIDDaemon                          = 0
+	ContainerIDSelinuxd                        = 1
+	ContainerIDLogEnricher                     = 2
+	ContainerIDBpfRecorder                     = 3
+	ContainerIDMetrics                         = 4
 )
 
 var Manifest = &appsv1.DaemonSet{
