@@ -68,7 +68,6 @@ type BpfRecorder struct {
 	logger                 logr.Logger
 	startRequests          int64
 	syscalls               *bpf.BPFMap
-	pids                   *bpf.BPFMap
 	comms                  *bpf.BPFMap
 	btfPath                string
 	syscallNamesForIDCache ttlcache.SimpleCache
@@ -223,58 +222,51 @@ func (b *BpfRecorder) SyscallsForProfile(
 		return nil, errors.Errorf("PID slice is empty")
 	}
 
-	// We're just choosing the first PID because their mount namespace should
-	// be the same (last famous words).
-	mntns, err := b.mountNamespaceForPID(pids[0].id)
-	if err != nil {
-		return nil, errors.Wrapf(err, "get mount namespace")
-	}
+	result := []string{}
+	for _, pid := range pids {
+		pidKey := pid.id
+		syscalls, err := b.syscalls.GetValue(unsafe.Pointer(&pidKey))
+		if err != nil {
+			return nil, errors.Wrap(err, "no syscalls found for PID")
+		}
 
-	mntnsKey := unsafe.Pointer(&mntns)
-	syscalls, err := b.syscalls.GetValue(mntnsKey)
-	if err != nil {
-		return nil, errors.Wrap(err, "no syscalls found for namespace")
-	}
+		for id, set := range syscalls {
+			if set == 1 {
+				name, err := b.syscallNameForID(id)
+				if err != nil {
+					b.logger.Error(err, "unable to convert syscall ID")
+					continue
+				}
 
-	resp := &api.SyscallsResponse{}
-	prctlSeen := false
-	for id, set := range syscalls {
-		if set == 1 {
-			name, err := b.syscallNameForID(id)
-			if err != nil {
-				b.logger.Error(err, "unable to convert syscall ID")
-				continue
-			}
-
-			// We only start recording the syscalls from the call to prctl
-			// within the OCI runtime.
-			if name == "prctl" {
-				prctlSeen = true
-			}
-
-			if prctlSeen {
-				resp.Syscalls = append(resp.Syscalls, name)
+				result = append(result, name)
 			}
 		}
 	}
-	sort.Strings(resp.Syscalls)
 
 	// Cleanup hashmaps
 	b.logger.Info("Cleaning up BPF hashmaps")
-	if err := b.syscalls.DeleteKey(mntnsKey); err != nil {
-		b.logger.Error(err, "unable to cleanup mount namespaces map")
-	}
 	for _, pid := range pids {
 		p := pid.id
-		if err := b.pids.DeleteKey(unsafe.Pointer(&p)); err != nil {
-			b.logger.Error(err, "unable to cleanup PIDs map", "pid", pid.id)
-		}
 		if err := b.comms.DeleteKey(unsafe.Pointer(&p)); err != nil {
 			b.logger.Error(err, "unable to cleanup comms map", "pid", pid.id)
 		}
 	}
 
-	return resp, nil
+	return &api.SyscallsResponse{
+		Syscalls: sortUnique(result),
+	}, nil
+}
+
+func sortUnique(input []string) (res []string) {
+	tmp := map[string]bool{}
+	for _, val := range input {
+		tmp[val] = true
+	}
+	for k := range tmp {
+		res = append(res, k)
+	}
+	sort.Strings(res)
+	return res
 }
 
 func (b *BpfRecorder) load() (err error) {
@@ -321,12 +313,6 @@ func (b *BpfRecorder) load() (err error) {
 		return errors.Wrap(err, "get syscalls map")
 	}
 
-	b.logger.Info("Getting PIDs map")
-	pids, err := module.GetMap("pids")
-	if err != nil {
-		return errors.Wrap(err, "get PIDs map")
-	}
-
 	b.logger.Info("Getting comms map")
 	comms, err := module.GetMap("comms")
 	if err != nil {
@@ -341,7 +327,6 @@ func (b *BpfRecorder) load() (err error) {
 	ringbuffer.Start()
 
 	b.syscalls = syscalls
-	b.pids = pids
 	b.comms = comms
 	go b.processEvents(events)
 
@@ -552,19 +537,8 @@ func (b *BpfRecorder) unload() {
 	b.logger.Info("Unloading bpf module")
 	b.syscalls.GetModule().Close()
 	b.syscalls = nil
-	b.pids = nil
 	b.comms = nil
 	os.RemoveAll(b.btfPath)
-}
-
-func (b *BpfRecorder) mountNamespaceForPID(pid uint32) (uint64, error) {
-	nsValue, err := b.pids.GetValue(unsafe.Pointer(&pid))
-	if err != nil {
-		return 0, errors.Wrapf(err, "no namespace found for PID: %d", pid)
-	}
-
-	mntns := binary.LittleEndian.Uint64(nsValue)
-	return mntns, nil
 }
 
 func (b *BpfRecorder) syscallNameForID(id int) (string, error) {

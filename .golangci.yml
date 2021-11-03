@@ -6,6 +6,7 @@ issues:
   exclude-rules:
     - path: internal/pkg/daemon/bpfrecorder/generated.go
       linters:
+        - dupl
         - gofumpt
         - lll
 linters:
