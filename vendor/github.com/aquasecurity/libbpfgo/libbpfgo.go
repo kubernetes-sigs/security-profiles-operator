@@ -1,5 +1,3 @@
-// +build !no_bpf
-
 package libbpfgo
 
 /*

@@ -64,15 +64,6 @@ $ make selftest-static-run => will build & run all static selftests
 > Note 01: dynamic builds need your OS to have a *recent enough* libbpf package (and its headers) installed. Sometimes, recent features might require the use of backported OS packages in order for your OS to contain latest *libbpf* features (sometimes required by libbpfgo).
 > Note 02: static builds need `git submodule init` first. Make sure to sync the *libbpf* git submodule before trying to statically compile or test the *libbpfgo* repository.
 
-### Build tags
-
-If a project wants to make the libbpfgo dependencies (libbpf, libz, libelf)
-optional, then it can disable bpf support by using the build tag `no_bpf`:
-
-```bash
-go build -tags no_bpf ./...
-```
-
 ## Concepts
 
 libbpfgo tries to make it natural for Go developers to use, by abstracting away C technicalities. For example, it will translate low level return codes into Go `error`, it will organize functionality around Go `struct`, and it will use `channel` as to let you consume events.

@@ -24,10 +24,11 @@ jobs:
       - uses: actions/setup-go@v2
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: Install libseccomp-dev
+      - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y libseccomp-dev
+          sudo apt install -y libseccomp-dev libelf-dev
+          sudo hack/install-libbpf.sh
       - run: make test-unit
       - uses: codecov/codecov-action@v1
         with:

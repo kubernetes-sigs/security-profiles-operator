@@ -4,7 +4,7 @@ github.com/BurntSushi/toml/internal
 # github.com/ReneKroon/ttlcache/v2 v2.9.0
 ## explicit
 github.com/ReneKroon/ttlcache/v2
-# github.com/aquasecurity/libbpfgo v0.2.1-libbpf-0.4.0.0.20210928164917-f097a0171b12 => github.com/saschagrunert/libbpfgo v0.2.1-libbpf-0.4.0.0.20211026092140-9b286c168b65
+# github.com/aquasecurity/libbpfgo v0.2.1-libbpf-0.4.0.0.20210928164917-f097a0171b12
 ## explicit
 github.com/aquasecurity/libbpfgo
 github.com/aquasecurity/libbpfgo/helpers
@@ -794,4 +794,3 @@ sigs.k8s.io/zeitgeist/internal/github/internal
 sigs.k8s.io/zeitgeist/internal/release/regex
 sigs.k8s.io/zeitgeist/pkg/gitlab
 sigs.k8s.io/zeitgeist/upstreams
-# github.com/aquasecurity/libbpfgo => github.com/saschagrunert/libbpfgo v0.2.1-libbpf-0.4.0.0.20211026092140-9b286c168b65

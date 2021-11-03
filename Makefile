@@ -45,17 +45,11 @@ GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null || echo unknown)
 GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
 VERSION := $(shell cat VERSION)
 
-ifdef WITH_BPF
-export CGO_LDFLAGS=-lelf -lz -lbpf -lseccomp
-BPF_BUILD_TAG :=
-else
-BPF_BUILD_TAG := no_bpf
-endif
-
 ifneq ($(shell uname -s), Darwin)
-BUILDTAGS := netgo osusergo seccomp $(BPF_BUILD_TAG)
+export CGO_LDFLAGS=-lelf -lz -lbpf -lseccomp
+BUILDTAGS := netgo osusergo seccomp
 else
-BUILDTAGS := netgo osusergo $(BPF_BUILD_TAG)
+BUILDTAGS := netgo osusergo
 endif
 
 ifneq ($(shell uname -s), Darwin)
@@ -333,7 +327,7 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	$(GO) test -parallel 1 -timeout 80m -count=1 ./test/... -v
+	CGO_LDFLAGS= $(GO) test -parallel 1 -timeout 80m -count=1 ./test/... -v
 
 # Generate CRD manifests
 manifests:
