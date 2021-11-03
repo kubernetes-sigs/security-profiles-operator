@@ -31,5 +31,3 @@ require (
 	sigs.k8s.io/release-utils v0.3.0
 	sigs.k8s.io/zeitgeist v0.3.0
 )
-
-replace github.com/aquasecurity/libbpfgo => github.com/saschagrunert/libbpfgo v0.2.1-libbpf-0.4.0.0.20211026092140-9b286c168b65

@@ -100,3 +100,15 @@ dependencies:
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-testimages/gcb-docker-gcloud
+
+  - name: libbpf
+    version: 0.5.0
+    refPaths:
+    - path: hack/install-libbpf.sh
+      match: VERSION
+
+  - name: libelf
+    version: 0.185
+    refPaths:
+    - path: hack/install-libelf.sh
+      match: VERSION

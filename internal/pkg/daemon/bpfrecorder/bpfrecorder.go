@@ -1,4 +1,4 @@
-// +build linux,!no_bpf
+// +build linux
 
 /*
 Copyright 2021 The Kubernetes Authors.
@@ -59,6 +59,7 @@ const (
 	defaultTimeout      time.Duration = time.Minute
 	maxMsgSize          int           = 16 * 1024 * 1024
 	defaultCacheTimeout time.Duration = time.Hour
+	verboseLvl          int           = 4
 )
 
 // BpfRecorder is the main structure of this package.
@@ -200,7 +201,7 @@ func (b *BpfRecorder) Stop(
 	return &api.EmptyResponse{}, nil
 }
 
-// SyscallsForNamespace returns the syscall names for the provided PID.
+// SyscallsForProfile returns the syscall names for the provided PID.
 func (b *BpfRecorder) SyscallsForProfile(
 	ctx context.Context, r *api.ProfileRequest,
 ) (*api.SyscallsResponse, error) {
@@ -213,7 +214,10 @@ func (b *BpfRecorder) SyscallsForProfile(
 	if !exist {
 		return nil, errors.Errorf("no PID found for container")
 	}
-	pids := res.([]Pid)
+	pids, ok := res.([]Pid)
+	if !ok {
+		return nil, errors.New("result it not a pid type")
+	}
 	b.logger.Info(fmt.Sprintf("Got PIDs for the profile: %v", pids))
 	if len(pids) == 0 {
 		return nil, errors.Errorf("PID slice is empty")
@@ -381,7 +385,9 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	b.logger.Info(fmt.Sprintf("OS version found in btf map: %s", osVersion))
 
 	uname := syscall.Utsname{}
-	syscall.Uname(&uname)
+	if err := syscall.Uname(&uname); err != nil {
+		return "", errors.Wrap(err, "uname syscall failed")
+	}
 
 	arch := types.Arch(toStringInt8(uname.Machine))
 	btfArch, ok := btfOsVersion[arch]
@@ -442,7 +448,7 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 			continue
 		}
 
-		b.logger.V(4).Info(
+		b.logger.V(verboseLvl).Info(
 			"Found container for PID", "pid", pid, "containerID", containerID,
 		)
 		if err := b.findContainerID(containerID); err != nil {
@@ -471,7 +477,7 @@ func (b *BpfRecorder) findContainerID(id string) error {
 	errContainerIDNotFound := errors.New("container ID not found")
 	if err := util.Retry(
 		func() (retryErr error) {
-			b.logger.V(4).Info("Searching for in-cluster container ID: " + id)
+			b.logger.V(verboseLvl).Info("Searching for in-cluster container ID: " + id)
 
 			pods, err := b.clientset.CoreV1().Pods("").List(
 				ctx, metav1.ListOptions{FieldSelector: "spec.nodeName=" + b.nodeName},
@@ -490,6 +496,11 @@ func (b *BpfRecorder) findContainerID(id string) error {
 					// An empty container ID should not happen if the PID is already running,
 					// so this is most likely not the pod we're looking for
 					if fullContainerID == "" {
+						b.logger.V(verboseLvl).Info(
+							"No container ID available",
+							"podName", pod.Name,
+							"containerName", containerName,
+						)
 						continue
 					}
 
@@ -505,7 +516,7 @@ func (b *BpfRecorder) findContainerID(id string) error {
 
 					key := config.SeccompProfileRecordBpfAnnotationKey + containerName
 					if profile, ok := pod.Annotations[key]; ok {
-						b.logger.V(4).Info(
+						b.logger.V(verboseLvl).Info(
 							"Found profile to record",
 							"profile", profile,
 							"containerID", containerID,
@@ -523,7 +534,6 @@ func (b *BpfRecorder) findContainerID(id string) error {
 						return nil
 					}
 				}
-
 			}
 
 			return errContainerIDNotFound
@@ -536,7 +546,6 @@ func (b *BpfRecorder) findContainerID(id string) error {
 	}
 
 	return nil
-
 }
 
 func (b *BpfRecorder) unload() {
@@ -549,12 +558,12 @@ func (b *BpfRecorder) unload() {
 }
 
 func (b *BpfRecorder) mountNamespaceForPID(pid uint32) (uint64, error) {
-	ns_value, err := b.pids.GetValue(unsafe.Pointer(&pid))
+	nsValue, err := b.pids.GetValue(unsafe.Pointer(&pid))
 	if err != nil {
 		return 0, errors.Wrapf(err, "no namespace found for PID: %d", pid)
 	}
 
-	mntns := binary.LittleEndian.Uint64(ns_value)
+	mntns := binary.LittleEndian.Uint64(nsValue)
 	return mntns, nil
 }
 

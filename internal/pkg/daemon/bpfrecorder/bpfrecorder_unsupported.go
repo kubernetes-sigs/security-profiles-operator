@@ -1,4 +1,4 @@
-// +build !linux no_bpf
+// +build !linux
 
 /*
 Copyright 2021 The Kubernetes Authors.
