@@ -2,6 +2,12 @@
 run:
   concurrency: 6
   deadline: 5m
+issues:
+  exclude-rules:
+    - path: internal/pkg/daemon/bpfrecorder/generated.go
+      linters:
+        - gofumpt
+        - lll
 linters:
   disable-all: true
   enable:

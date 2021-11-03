@@ -16,9 +16,24 @@ FROM registry.fedoraproject.org/fedora-minimal:latest AS build
 USER root
 WORKDIR /work
 
-RUN microdnf install -y make golang-bin libseccomp-static glibc-static
+RUN microdnf install -y \
+        bzip2 \
+        curl-devel \
+        g++ \
+        glibc-static \
+        golang-bin \
+        libarchive-devel \
+        libmicrohttpd-devel \
+        libseccomp-static \
+        m4 \
+        make \
+        sqlite-devel \
+        tar \
+        zlib-static
 
 ADD . /work
+RUN hack/install-libelf.sh
+RUN hack/install-libbpf.sh
 RUN mkdir -p build
 
 RUN make
