@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"runtime"
@@ -33,27 +32,20 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/ReneKroon/ttlcache/v2"
 	bpf "github.com/aquasecurity/libbpfgo"
-	"github.com/cobaugh/osrelease"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
-
-//go:generate go run ./generate
 
 const (
 	defaultTimeout      time.Duration = time.Minute
@@ -69,6 +61,7 @@ var excludeComms = []string{
 // BpfRecorder is the main structure of this package.
 type BpfRecorder struct {
 	api.UnimplementedBpfRecorderServer
+	impl
 	logger                 logr.Logger
 	startRequests          int64
 	syscalls               *bpf.BPFMap
@@ -90,6 +83,7 @@ type Pid struct {
 // New returns a new BpfRecorder instance.
 func New(logger logr.Logger) *BpfRecorder {
 	return &BpfRecorder{
+		impl:                   &defaultImpl{},
 		logger:                 logger,
 		syscallNamesForIDCache: ttlcache.NewCache(),
 		containerIDCache:       ttlcache.NewCache(),
@@ -104,13 +98,13 @@ func (b *BpfRecorder) Run() error {
 	for _, cache := range []ttlcache.SimpleCache{
 		b.containerIDCache, b.syscallNamesForIDCache,
 	} {
-		if err := cache.SetTTL(defaultCacheTimeout); err != nil {
+		if err := b.SetTTL(cache, defaultCacheTimeout); err != nil {
 			return errors.Wrap(err, "set cache timeout")
 		}
 		defer cache.Close()
 	}
 
-	b.nodeName = os.Getenv(config.NodeNameEnvKey)
+	b.nodeName = b.Getenv(config.NodeNameEnvKey)
 	if b.nodeName == "" {
 		err := errors.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		b.logger.Error(err, "unable to run recorder")
@@ -118,17 +112,17 @@ func (b *BpfRecorder) Run() error {
 	}
 	b.logger.Info("Starting log-enricher on node: " + b.nodeName)
 
-	clusterConfig, err := rest.InClusterConfig()
+	clusterConfig, err := b.InClusterConfig()
 	if err != nil {
 		return errors.Wrap(err, "get in-cluster config")
 	}
 
-	b.clientset, err = kubernetes.NewForConfig(clusterConfig)
+	b.clientset, err = b.NewForConfig(clusterConfig)
 	if err != nil {
 		return errors.Wrap(err, "load in-cluster client")
 	}
 
-	listener, err := net.Listen("tcp", addr())
+	listener, err := b.Listen("tcp", addr())
 	if err != nil {
 		return errors.Wrap(err, "create listener")
 	}
@@ -146,7 +140,7 @@ func (b *BpfRecorder) Run() error {
 	)
 	api.RegisterBpfRecorderServer(grpcServer, b)
 
-	if err := grpcServer.Serve(listener); err != nil {
+	if err := b.Serve(grpcServer, listener); err != nil {
 		b.logger.Error(err, "unable to run GRPC server")
 	}
 
@@ -233,8 +227,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 			continue
 		}
 
-		pidKey := pid.id
-		syscalls, err := b.syscalls.GetValue(unsafe.Pointer(&pidKey))
+		syscalls, err := b.GetValue(b.syscalls, pid.id)
 		if err != nil {
 			return nil, errors.Wrap(err, "no syscalls found for PID")
 		}
@@ -255,8 +248,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 	// Cleanup hashmaps
 	b.logger.Info("Cleaning up BPF hashmaps")
 	for _, pid := range pids {
-		p := pid.id
-		if err := b.comms.DeleteKey(unsafe.Pointer(&p)); err != nil {
+		if err := b.DeleteKey(b.comms, pid.id); err != nil {
 			b.logger.Error(err, "unable to cleanup comms map", "pid", pid.id)
 		}
 	}
@@ -290,7 +282,7 @@ func (b *BpfRecorder) load() (err error) {
 		return errors.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
 
-	module, err := bpf.NewModuleFromBufferArgs(bpf.NewModuleArgs{
+	module, err := b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
 		BPFObjBuff: bpfObject,
 		BPFObjName: "recorder.bpf.o",
 		BTFObjPath: b.btfPath,
@@ -300,36 +292,36 @@ func (b *BpfRecorder) load() (err error) {
 	}
 
 	b.logger.Info("Loading bpf object from module")
-	if err := module.BPFLoadObject(); err != nil {
+	if err := b.BPFLoadObject(module); err != nil {
 		return errors.Wrap(err, "load bpf object")
 	}
 
 	const programName = "sys_exit"
 	b.logger.Info("Getting bpf program " + programName)
-	program, err := module.GetProgram(programName)
+	program, err := b.GetProgram(module, programName)
 	if err != nil {
 		return errors.Wrapf(err, "get %s program", programName)
 	}
 
 	b.logger.Info("Attaching bpf tracepoint")
-	if _, err := program.AttachTracepoint("raw_syscalls", programName); err != nil {
+	if _, err := b.AttachTracepoint(program, "raw_syscalls", programName); err != nil {
 		return errors.Wrap(err, "attach tracepoint")
 	}
 
 	b.logger.Info("Getting syscalls map")
-	syscalls, err := module.GetMap("syscalls")
+	syscalls, err := b.GetMap(module, "syscalls")
 	if err != nil {
 		return errors.Wrap(err, "get syscalls map")
 	}
 
 	b.logger.Info("Getting comms map")
-	comms, err := module.GetMap("comms")
+	comms, err := b.GetMap(module, "comms")
 	if err != nil {
 		return errors.Wrap(err, "get comms map")
 	}
 
 	events := make(chan []byte)
-	ringbuffer, err := module.InitRingBuf("events", events)
+	ringbuffer, err := b.InitRingBuf(module, "events", events)
 	if err != nil {
 		return errors.Wrap(err, "init events ringbuffer")
 	}
@@ -345,7 +337,7 @@ func (b *BpfRecorder) load() (err error) {
 
 func (b *BpfRecorder) findBtfPath() (string, error) {
 	// Use the system btf if possible
-	if _, err := os.Stat("/sys/kernel/btf/vmlinux"); err == nil {
+	if _, err := b.Stat("/sys/kernel/btf/vmlinux"); err == nil {
 		b.logger.Info("Using system btf file")
 		return "", nil
 	}
@@ -353,11 +345,11 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	b.logger.Info("Trying to find matching in-memory btf")
 
 	btf := types.Btf{}
-	if err := json.Unmarshal([]byte(btfJSON), &btf); err != nil {
+	if err := b.Unmarshal([]byte(btfJSON), &btf); err != nil {
 		return "", errors.Wrap(err, "unmarshal btf JSON")
 	}
 
-	res, err := osrelease.Read()
+	res, err := b.ReadOSRelease()
 	if err != nil {
 		return "", errors.Wrap(err, "read os-release file")
 	}
@@ -379,7 +371,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	b.logger.Info(fmt.Sprintf("OS version found in btf map: %s", osVersion))
 
 	uname := syscall.Utsname{}
-	if err := syscall.Uname(&uname); err != nil {
+	if err := b.Uname(&uname); err != nil {
 		return "", errors.Wrap(err, "uname syscall failed")
 	}
 
@@ -399,7 +391,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	}
 	b.logger.Info(fmt.Sprintf("Kernel found in btf map: %s", kernel))
 
-	file, err := ioutil.TempFile(
+	file, err := b.TempFile(
 		"",
 		fmt.Sprintf("spo-btf-%s-%s-%s-%s", osID, osVersion, arch, kernel),
 	)
@@ -408,7 +400,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	}
 	defer file.Close()
 
-	if _, err := file.Write(btfBytes); err != nil {
+	if _, err := b.Write(file, btfBytes); err != nil {
 		return "", errors.Wrap(err, "write BTF")
 	}
 
@@ -437,7 +429,7 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 		// Newly arrived PIDs
 		pid := binary.LittleEndian.Uint32(event)
 
-		containerID, err := util.ContainerIDForPID(b.containerIDCache, int(pid))
+		containerID, err := b.ContainerIDForPID(b.containerIDCache, int(pid))
 		if err != nil {
 			continue
 		}
@@ -451,7 +443,7 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 		}
 
 		if profile, exist := b.profileForContainerIDs.LoadAndDelete(containerID); exist {
-			rawComm, err := b.comms.GetValue(unsafe.Pointer(&pid))
+			rawComm, err := b.GetValue(b.comms, pid)
 			if err != nil {
 				b.logger.Error(err, "unable to get command name for PID", "pid", pid)
 			}
@@ -473,9 +465,7 @@ func (b *BpfRecorder) findContainerID(id string) error {
 		func() (retryErr error) {
 			b.logger.V(verboseLvl).Info("Searching for in-cluster container ID: " + id)
 
-			pods, err := b.clientset.CoreV1().Pods("").List(
-				ctx, metav1.ListOptions{FieldSelector: "spec.nodeName=" + b.nodeName},
-			)
+			pods, err := b.ListPods(ctx, b.clientset, b.nodeName)
 			if err != nil {
 				return errors.Wrapf(err, "list node pods")
 			}
@@ -559,7 +549,7 @@ func (b *BpfRecorder) syscallNameForID(id int) (string, error) {
 		return name.(string), nil
 	}
 
-	name, err := seccomp.ScmpSyscall(id).GetName()
+	name, err := b.GetName(seccomp.ScmpSyscall(id))
 	if err != nil {
 		return "", errors.Wrapf(err, "get syscall name for ID %d", id)
 	}

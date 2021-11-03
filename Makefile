@@ -169,7 +169,7 @@ update-go-mod: ## Cleanup, vendor and verify go modules
 
 .PHONY: update-mocks
 update-mocks: ## Update all generated mocks
-	go generate ./...
+	$(GO) generate ./...
 	for f in $(shell find . -path ./vendor -prune -false -o -name fake_*.go); do \
 		cp hack/boilerplate/boilerplate.generatego.txt tmp ;\
 		cat $$f >> tmp ;\
@@ -257,7 +257,7 @@ update-bpf-nix: $(BUILD_DIR) ## Build and update all generated BPF code with nix
 		cp -f result/recorder.bpf.o $(BUILD_DIR)/recorder.bpf.o.$$arch ;\
 	done
 	chmod 0644 $(BUILD_DIR)/recorder.bpf.o.*
-	$(GO) generate ./internal/pkg/daemon/bpfrecorder/...
+	$(GO) run ./internal/pkg/daemon/bpfrecorder/generate
 
 # Verification targets
 

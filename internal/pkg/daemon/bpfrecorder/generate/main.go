@@ -54,10 +54,11 @@ package bpfrecorder
 `
 
 const (
-	buildDir    = "../../../../build/"
+	buildDir    = "build/"
 	bpfObj      = "recorder.bpf.o"
-	generatedGo = "generated.go"
-	btfDir      = "btf"
+	baseDir     = "internal/pkg/daemon/bpfrecorder/"
+	generatedGo = baseDir + "generated.go"
+	btfDir      = baseDir + "btf"
 )
 
 func main() {
@@ -136,7 +137,7 @@ func generateBtf(builder *strings.Builder) error {
 		// - the architecture
 		// - the btf file containing the kernel version
 		pathSplit := strings.Split(path, string(os.PathSeparator))
-		const expectedBPFPathLen = 5
+		const expectedBPFPathLen = 9
 		if len(pathSplit) != expectedBPFPathLen {
 			return errors.Errorf("invalid btf path: %s (len = %d)", path, len(pathSplit))
 		}
@@ -146,10 +147,10 @@ func generateBtf(builder *strings.Builder) error {
 			return errors.Wrap(err, "read btf file")
 		}
 
-		os := types.Os(pathSplit[1])
-		osVersion := types.OsVersion(pathSplit[2])
-		arch := types.Arch(pathSplit[3])
-		kernel := types.Kernel(pathSplit[4][0 : len(pathSplit[4])-len(filepath.Ext(pathSplit[4]))])
+		os := types.Os(pathSplit[5])
+		osVersion := types.OsVersion(pathSplit[6])
+		arch := types.Arch(pathSplit[7])
+		kernel := types.Kernel(pathSplit[8][0 : len(pathSplit[8])-len(filepath.Ext(pathSplit[8]))])
 
 		if _, ok := btfs[os]; !ok {
 			btfs[os] = map[types.OsVersion]map[types.Arch]map[types.Kernel][]byte{}
