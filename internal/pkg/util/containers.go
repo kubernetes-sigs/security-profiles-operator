@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/pkg/errors"
@@ -70,11 +69,6 @@ func ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		text := scanner.Text()
-
-		// exclude conmon, the container monitor of CRI-O
-		if strings.Contains(text, "/crio-conmon-") {
-			continue
-		}
 
 		if containerID := ContainerIDRegex.FindString(text); containerID != "" {
 			// Update the cache
