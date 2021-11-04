@@ -17,11 +17,6 @@ limitations under the License.
 package enricher
 
 import (
-	"bufio"
-	"fmt"
-	"path/filepath"
-	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/ReneKroon/ttlcache/v2"
@@ -103,7 +98,7 @@ func (e *Enricher) getContainerInfo(
 						)
 					}
 
-					rawContainerID := regexID.FindString(containerID)
+					rawContainerID := util.ContainerIDRegex.FindString(containerID)
 					if rawContainerID == "" {
 						e.logger.Error(
 							err, "unable to get container ID",
@@ -147,46 +142,4 @@ func (e *Enricher) getContainerInfo(
 	}
 
 	return nil, errors.New("no container info for container ID")
-}
-
-// We assume that a container ID has a length of 64.
-var regexID = regexp.MustCompile(`[0-9a-f]{64}`)
-
-func (e *Enricher) getContainerID(processID int) (string, error) {
-	// Check the cache first
-	if id, err := e.containerIDCache.Get(
-		strconv.Itoa(processID),
-	); !errors.Is(err, ttlcache.ErrNotFound) {
-		return id.(string), nil
-	}
-
-	cgroupPath := fmt.Sprintf("/proc/%d/cgroup", processID)
-
-	file, err := e.impl.Open(filepath.Clean(cgroupPath))
-	if err != nil {
-		return "", errors.Wrap(err, "could not open cgroup path")
-	}
-
-	defer func() {
-		cerr := file.Close()
-		if err == nil {
-			err = cerr
-		}
-	}()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		if containerID := regexID.FindString(scanner.Text()); containerID != "" {
-			// Update the cache
-			if err := e.containerIDCache.Set(
-				strconv.Itoa(processID), containerID,
-			); err != nil {
-				return "", errors.Wrap(err, "update cache")
-			}
-
-			return containerID, nil
-		}
-	}
-
-	return "", errors.New("unable to find container ID from cgroup path")
 }
