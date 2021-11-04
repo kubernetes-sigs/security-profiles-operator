@@ -20,7 +20,6 @@ package enricher
 
 import (
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -51,23 +50,12 @@ const (
 		`scontext=system_u:system_r:container_t:s0:c4,c808 ` +
 		`tcontext=system_u:object_r:var_lib_t:s0 tclass=lnk_file permissive=0`
 	containerID = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
-	cgroupLine  = "0::/kubepods/burstable/" +
-		"pod4baee654-1da5-4d8c-a110-864a22f9ae39/" +
-		"crio-" + containerID + "\n"
 )
 
 var errTest = errors.New("test")
 
 func TestRun(t *testing.T) {
 	t.Parallel()
-
-	f, err := os.CreateTemp("", "cgroup-")
-	require.Nil(t, err)
-	_, err = f.WriteString(cgroupLine)
-	require.Nil(t, err)
-	require.Nil(t, f.Close())
-	cgroupFilePath := f.Name()
-	defer os.Remove(cgroupFilePath)
 
 	for _, tc := range []struct {
 		runAsync bool
@@ -79,9 +67,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.GetenvReturns(node)
 				mock.LinesReturns(lineChan)
-				mock.OpenCalls(func(string) (*os.File, error) {
-					return os.Open(cgroupFilePath)
-				})
+				mock.ContainerIDForPIDReturns(containerID, nil)
 				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      pod,
@@ -188,9 +174,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.GetenvReturns(node)
 				mock.LinesReturns(lineChan)
-				mock.OpenCalls(func(string) (*os.File, error) {
-					return os.Open(cgroupFilePath)
-				})
+				mock.ContainerIDForPIDReturns(containerID, nil)
 				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      pod,
@@ -226,9 +210,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
 				mock.GetenvReturns(node)
 				mock.LinesReturns(lineChan)
-				mock.OpenCalls(func(string) (*os.File, error) {
-					return os.Open(cgroupFilePath)
-				})
+				mock.ContainerIDForPIDReturns(containerID, nil)
 
 				// container.go says that there are 10 retries to get the container
 				// ID. Simulate a failure by returning the container ID on the 11th

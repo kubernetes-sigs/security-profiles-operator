@@ -20,7 +20,6 @@ package enricherfakes
 import (
 	"context"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -70,6 +69,20 @@ type FakeImpl struct {
 	}
 	closeReturnsOnCall map[int]struct {
 		result1 error
+	}
+	ContainerIDForPIDStub        func(ttlcache.SimpleCache, int) (string, error)
+	containerIDForPIDMutex       sync.RWMutex
+	containerIDForPIDArgsForCall []struct {
+		arg1 ttlcache.SimpleCache
+		arg2 int
+	}
+	containerIDForPIDReturns struct {
+		result1 string
+		result2 error
+	}
+	containerIDForPIDReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
 	}
 	DialStub        func() (*grpc.ClientConn, context.CancelFunc, error)
 	dialMutex       sync.RWMutex
@@ -184,19 +197,6 @@ type FakeImpl struct {
 	}
 	newForConfigReturnsOnCall map[int]struct {
 		result1 *kubernetes.Clientset
-		result2 error
-	}
-	OpenStub        func(string) (*os.File, error)
-	openMutex       sync.RWMutex
-	openArgsForCall []struct {
-		arg1 string
-	}
-	openReturns struct {
-		result1 *os.File
-		result2 error
-	}
-	openReturnsOnCall map[int]struct {
-		result1 *os.File
 		result2 error
 	}
 	ReasonStub        func(*tail.Tail) error
@@ -450,6 +450,71 @@ func (fake *FakeImpl) CloseReturnsOnCall(i int, result1 error) {
 	fake.closeReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) ContainerIDForPID(arg1 ttlcache.SimpleCache, arg2 int) (string, error) {
+	fake.containerIDForPIDMutex.Lock()
+	ret, specificReturn := fake.containerIDForPIDReturnsOnCall[len(fake.containerIDForPIDArgsForCall)]
+	fake.containerIDForPIDArgsForCall = append(fake.containerIDForPIDArgsForCall, struct {
+		arg1 ttlcache.SimpleCache
+		arg2 int
+	}{arg1, arg2})
+	stub := fake.ContainerIDForPIDStub
+	fakeReturns := fake.containerIDForPIDReturns
+	fake.recordInvocation("ContainerIDForPID", []interface{}{arg1, arg2})
+	fake.containerIDForPIDMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ContainerIDForPIDCallCount() int {
+	fake.containerIDForPIDMutex.RLock()
+	defer fake.containerIDForPIDMutex.RUnlock()
+	return len(fake.containerIDForPIDArgsForCall)
+}
+
+func (fake *FakeImpl) ContainerIDForPIDCalls(stub func(ttlcache.SimpleCache, int) (string, error)) {
+	fake.containerIDForPIDMutex.Lock()
+	defer fake.containerIDForPIDMutex.Unlock()
+	fake.ContainerIDForPIDStub = stub
+}
+
+func (fake *FakeImpl) ContainerIDForPIDArgsForCall(i int) (ttlcache.SimpleCache, int) {
+	fake.containerIDForPIDMutex.RLock()
+	defer fake.containerIDForPIDMutex.RUnlock()
+	argsForCall := fake.containerIDForPIDArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) ContainerIDForPIDReturns(result1 string, result2 error) {
+	fake.containerIDForPIDMutex.Lock()
+	defer fake.containerIDForPIDMutex.Unlock()
+	fake.ContainerIDForPIDStub = nil
+	fake.containerIDForPIDReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ContainerIDForPIDReturnsOnCall(i int, result1 string, result2 error) {
+	fake.containerIDForPIDMutex.Lock()
+	defer fake.containerIDForPIDMutex.Unlock()
+	fake.ContainerIDForPIDStub = nil
+	if fake.containerIDForPIDReturnsOnCall == nil {
+		fake.containerIDForPIDReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.containerIDForPIDReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) Dial() (*grpc.ClientConn, context.CancelFunc, error) {
@@ -1010,70 +1075,6 @@ func (fake *FakeImpl) NewForConfigReturnsOnCall(i int, result1 *kubernetes.Clien
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) Open(arg1 string) (*os.File, error) {
-	fake.openMutex.Lock()
-	ret, specificReturn := fake.openReturnsOnCall[len(fake.openArgsForCall)]
-	fake.openArgsForCall = append(fake.openArgsForCall, struct {
-		arg1 string
-	}{arg1})
-	stub := fake.OpenStub
-	fakeReturns := fake.openReturns
-	fake.recordInvocation("Open", []interface{}{arg1})
-	fake.openMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) OpenCallCount() int {
-	fake.openMutex.RLock()
-	defer fake.openMutex.RUnlock()
-	return len(fake.openArgsForCall)
-}
-
-func (fake *FakeImpl) OpenCalls(stub func(string) (*os.File, error)) {
-	fake.openMutex.Lock()
-	defer fake.openMutex.Unlock()
-	fake.OpenStub = stub
-}
-
-func (fake *FakeImpl) OpenArgsForCall(i int) string {
-	fake.openMutex.RLock()
-	defer fake.openMutex.RUnlock()
-	argsForCall := fake.openArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) OpenReturns(result1 *os.File, result2 error) {
-	fake.openMutex.Lock()
-	defer fake.openMutex.Unlock()
-	fake.OpenStub = nil
-	fake.openReturns = struct {
-		result1 *os.File
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) OpenReturnsOnCall(i int, result1 *os.File, result2 error) {
-	fake.openMutex.Lock()
-	defer fake.openMutex.Unlock()
-	fake.OpenStub = nil
-	if fake.openReturnsOnCall == nil {
-		fake.openReturnsOnCall = make(map[int]struct {
-			result1 *os.File
-			result2 error
-		})
-	}
-	fake.openReturnsOnCall[i] = struct {
-		result1 *os.File
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeImpl) Reason(arg1 *tail.Tail) error {
 	fake.reasonMutex.Lock()
 	ret, specificReturn := fake.reasonReturnsOnCall[len(fake.reasonArgsForCall)]
@@ -1395,6 +1396,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.auditIncMutex.RUnlock()
 	fake.closeMutex.RLock()
 	defer fake.closeMutex.RUnlock()
+	fake.containerIDForPIDMutex.RLock()
+	defer fake.containerIDForPIDMutex.RUnlock()
 	fake.dialMutex.RLock()
 	defer fake.dialMutex.RUnlock()
 	fake.flushBacklogMutex.RLock()
@@ -1413,8 +1416,6 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.listenMutex.RUnlock()
 	fake.newForConfigMutex.RLock()
 	defer fake.newForConfigMutex.RUnlock()
-	fake.openMutex.RLock()
-	defer fake.openMutex.RUnlock()
 	fake.reasonMutex.RLock()
 	defer fake.reasonMutex.RUnlock()
 	fake.sendMetricMutex.RLock()

@@ -32,6 +32,7 @@ import (
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 type defaultImpl struct{}
@@ -46,7 +47,7 @@ type impl interface {
 	TailFile(filename string, config tail.Config) (*tail.Tail, error)
 	Lines(tailFile *tail.Tail) chan *tail.Line
 	Reason(tailFile *tail.Tail) error
-	Open(name string) (*os.File, error)
+	ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error)
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(c *rest.Config) (*kubernetes.Clientset, error)
 	ListPods(c *kubernetes.Clientset, nodeName string) (*v1.PodList, error)
@@ -89,8 +90,8 @@ func (d *defaultImpl) Reason(tailFile *tail.Tail) error {
 	return tailFile.Err()
 }
 
-func (d *defaultImpl) Open(name string) (*os.File, error) {
-	return os.Open(name)
+func (d *defaultImpl) ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
+	return util.ContainerIDForPID(cache, pid)
 }
 
 func (d *defaultImpl) InClusterConfig() (*rest.Config, error) {

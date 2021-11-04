@@ -173,7 +173,7 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
-		cID, err := e.getContainerID(auditLine.processID)
+		cID, err := e.impl.ContainerIDForPID(e.containerIDCache, auditLine.processID)
 		if errors.Is(err, os.ErrNotExist) {
 			// We're probably in container creation or removal
 			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
