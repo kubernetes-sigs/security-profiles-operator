@@ -174,19 +174,11 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 	// try to get profile(s) from securityContext in pods
 	containers := pod.Spec.Containers
 	containers = append(containers, pod.Spec.InitContainers...)
-	contains := func(a []string, b string) bool {
-		for _, s := range a {
-			if s == b {
-				return true
-			}
-		}
-		return false
-	}
 	for i := range containers {
 		sc := containers[i].SecurityContext
 		if sc != nil && isOperatorSeccompProfile(sc.SeccompProfile) {
 			profileString := *containers[i].SecurityContext.SeccompProfile.LocalhostProfile
-			if !contains(profiles, profileString) {
+			if !util.Contains(profiles, profileString) {
 				profiles = append(profiles, profileString)
 			}
 		}
@@ -195,7 +187,7 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 	annotation, hasAnnotation := pod.GetAnnotations()[corev1.SeccompPodAnnotationKey]
 	if hasAnnotation && strings.HasPrefix(annotation, "localhost/") {
 		profileString := strings.TrimPrefix(annotation, "localhost/")
-		if !contains(profiles, profileString) {
+		if !util.Contains(profiles, profileString) {
 			profiles = append(profiles, profileString)
 		}
 	}
