@@ -62,6 +62,10 @@ const (
 	verboseLvl          int           = 4
 )
 
+var excludeComms = []string{
+	"conmon", // container monitoring daemon from CRI-O
+}
+
 // BpfRecorder is the main structure of this package.
 type BpfRecorder struct {
 	api.UnimplementedBpfRecorderServer
@@ -224,6 +228,11 @@ func (b *BpfRecorder) SyscallsForProfile(
 
 	result := []string{}
 	for _, pid := range pids {
+		if util.Contains(excludeComms, pid.comm) {
+			b.logger.Info("Filtering syscalls from excluded command: " + pid.comm)
+			continue
+		}
+
 		pidKey := pid.id
 		syscalls, err := b.syscalls.GetValue(unsafe.Pointer(&pidKey))
 		if err != nil {

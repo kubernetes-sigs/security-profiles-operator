@@ -24,3 +24,13 @@ func NamespacedName(name, namespace string) types.NamespacedName {
 		Namespace: namespace,
 	}
 }
+
+// Contains returns true if the slice a contains string b.
+func Contains(a []string, b string) bool {
+	for _, s := range a {
+		if s == b {
+			return true
+		}
+	}
+	return false
+}
