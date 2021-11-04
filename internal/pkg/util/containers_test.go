@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package enricher
+package util
 
 import (
 	"testing"
@@ -56,7 +56,7 @@ func TestExtractContainerID(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := regexID.FindString(tt.cgroupLine)
+			got := ContainerIDRegex.FindString(tt.cgroupLine)
 			require.Equal(t, tt.want, got)
 		})
 	}
