@@ -180,9 +180,13 @@ func (r *ReconcileSP) Reconcile(_ context.Context, request reconcile.Request) (r
 	}
 
 	res, err := r.reconcileDeletePolicy(instance, nodeStatus, reqLogger)
-	if res.Requeue || err != nil {
+	if err != nil {
+		reqLogger.Error(err, "cannot delete policy or requeue")
 		r.metrics.IncSelinuxProfileError(reasonCannotRemovePolicy)
 		r.record.Event(instance, event.Warning(reasonCannotRemovePolicy, err))
+		return res, err
+	} else if res.Requeue {
+		reqLogger.Info("Re-queueing delete request to make sure the policy is gone")
 		return res, err
 	}
 
