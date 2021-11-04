@@ -272,7 +272,6 @@ func (e *Enricher) addToBacklog(line *auditLine) error {
 		if setErr := e.impl.AddToBacklog(e.auditLineCache, strPid, []*auditLine{line}); setErr != nil {
 			return errors.Wrap(setErr, "adding the first line to the backlog")
 		}
-		e.logger.Info("line added to backlog")
 		return nil
 	} else if err != nil {
 		return errors.Wrap(err, "retrieving an item from the cache")
