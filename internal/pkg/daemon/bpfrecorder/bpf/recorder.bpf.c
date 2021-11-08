@@ -29,8 +29,13 @@ struct {
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
 
-SEC("tracepoint/raw_syscalls/sys_exit")
-int sys_exit(struct trace_event_raw_sys_exit * args)
+struct event_t {
+    u64 pid;
+    u64 mntns;
+};
+
+SEC("tracepoint/raw_syscalls/sys_enter")
+int sys_enter(struct trace_event_raw_sys_enter * args)
 {
     // Sanity check
     u32 id = args->id;
@@ -39,6 +44,12 @@ int sys_exit(struct trace_event_raw_sys_exit * args)
     }
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u64 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+    if (mntns == 0) {
+        return 0;
+    }
 
     // Update the command name if required
     char comm[MAX_COMM_LEN];
@@ -53,12 +64,16 @@ int sys_exit(struct trace_event_raw_sys_exit * args)
         syscall_value[id] = 1;
     } else {
         // New element, throw event
-        u32 * event = bpf_ringbuf_reserve(&events, sizeof(u32), 0);
+        struct event_t * event =
+            bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
         if (!event) {
             // Not enough space within the ringbuffer
             return 0;
         }
-        *event = pid;
+
+        event->pid = pid;
+        event->mntns = mntns;
+
         bpf_ringbuf_submit(event, 0);
 
         static const char init[MAX_SYSCALLS];

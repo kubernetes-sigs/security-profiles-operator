@@ -61,33 +61,37 @@ var excludeComms = []string{
 type BpfRecorder struct {
 	api.UnimplementedBpfRecorderServer
 	impl
-	logger                 logr.Logger
-	startRequests          int64
-	syscalls               *bpf.BPFMap
-	comms                  *bpf.BPFMap
-	btfPath                string
-	syscallNamesForIDCache ttlcache.SimpleCache
-	containerIDCache       ttlcache.SimpleCache
-	nodeName               string
-	clientset              *kubernetes.Clientset
-	profileForContainerIDs sync.Map
-	pidsForProfiles        sync.Map
+	logger                   logr.Logger
+	startRequests            int64
+	syscalls                 *bpf.BPFMap
+	comms                    *bpf.BPFMap
+	btfPath                  string
+	syscallNamesForIDCache   ttlcache.SimpleCache
+	containerIDCache         ttlcache.SimpleCache
+	nodeName                 string
+	clientset                *kubernetes.Clientset
+	profileForContainerIDs   sync.Map
+	pidsForProfiles          sync.Map
+	profileForMountNamespace sync.Map
+	systemMountNamespace     uint64
 }
 
 type Pid struct {
-	id   uint32
-	comm string
+	id    uint32
+	comm  string
+	mntns uint64
 }
 
 // New returns a new BpfRecorder instance.
 func New(logger logr.Logger) *BpfRecorder {
 	return &BpfRecorder{
-		impl:                   &defaultImpl{},
-		logger:                 logger,
-		syscallNamesForIDCache: ttlcache.NewCache(),
-		containerIDCache:       ttlcache.NewCache(),
-		profileForContainerIDs: sync.Map{},
-		pidsForProfiles:        sync.Map{},
+		impl:                     &defaultImpl{},
+		logger:                   logger,
+		syscallNamesForIDCache:   ttlcache.NewCache(),
+		containerIDCache:         ttlcache.NewCache(),
+		profileForContainerIDs:   sync.Map{},
+		pidsForProfiles:          sync.Map{},
+		profileForMountNamespace: sync.Map{},
 	}
 }
 
@@ -139,6 +143,12 @@ func (b *BpfRecorder) Run() error {
 	); err != nil {
 		return errors.Wrap(err, "change GRPC socket owner to rootless")
 	}
+
+	b.systemMountNamespace, err = b.findSystemMountNamespace()
+	if err != nil {
+		return errors.Wrap(err, "retrieve current mount namespace")
+	}
+	b.logger.Info("Got system mount namespace: " + fmt.Sprint(b.systemMountNamespace))
 
 	b.logger.Info("Doing BPF load/unload self-test")
 	if err := b.load(); err != nil {
@@ -226,6 +236,8 @@ func (b *BpfRecorder) SyscallsForProfile(
 
 	result := []string{}
 	for _, pid := range pids {
+		b.profileForMountNamespace.Delete(pid.mntns)
+
 		if util.Contains(excludeComms, pid.comm) {
 			b.logger.Info("Filtering syscalls from excluded command: " + pid.comm)
 			continue
@@ -244,6 +256,10 @@ func (b *BpfRecorder) SyscallsForProfile(
 					continue
 				}
 
+				b.logger.V(verboseLvl).Info(
+					"Got syscall",
+					"comm", pid.comm, "pid", pid.id, "name", name,
+				)
 				result = append(result, name)
 			}
 		}
@@ -300,7 +316,7 @@ func (b *BpfRecorder) load() (err error) {
 		return errors.Wrap(err, "load bpf object")
 	}
 
-	const programName = "sys_exit"
+	const programName = "sys_enter"
 	b.logger.Info("Getting bpf program " + programName)
 	program, err := b.GetProgram(module, programName)
 	if err != nil {
@@ -431,8 +447,25 @@ func toStringByte(array []byte) string {
 func (b *BpfRecorder) processEvents(events chan []byte) {
 	for event := range events {
 		// Newly arrived PIDs
-		pid := binary.LittleEndian.Uint32(event)
+		const eventLen = 16
+		if len(event) != eventLen {
+			b.logger.Info("Invalid event length", "len", len(event))
+		}
 
+		pid := binary.LittleEndian.Uint32(event)
+		mntns := binary.LittleEndian.Uint64(event[8:])
+
+		// Short path via the mount namespace
+		if profile, exist := b.profileForMountNamespace.Load(mntns); exist {
+			b.logger.Info(
+				"Using short path via tracked mount namespace",
+				"pid", pid, "mntns", mntns, "profile", profile,
+			)
+			b.trackProfileForPid(pid, mntns, profile)
+			continue
+		}
+
+		// Regular container ID retrieval via the cgroup
 		containerID, err := b.ContainerIDForPID(b.containerIDCache, int(pid))
 		if err != nil {
 			continue
@@ -447,17 +480,48 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 		}
 
 		if profile, exist := b.profileForContainerIDs.LoadAndDelete(containerID); exist {
-			rawComm, err := b.GetValue(b.comms, pid)
-			if err != nil {
-				b.logger.Error(err, "unable to get command name for PID", "pid", pid)
+			b.logger.Info(
+				"Saving PID for profile",
+				"pid", pid, "mntns", mntns, "profile", profile,
+			)
+			b.trackProfileForPid(pid, mntns, profile)
+			if mntns != b.systemMountNamespace {
+				b.profileForMountNamespace.Store(mntns, profile)
 			}
-			comm := toStringByte(rawComm)
-			b.logger.Info("Saving PID for profile", "pid", pid, "profile", profile, "comm", comm)
-
-			pids, _ := b.pidsForProfiles.LoadOrStore(profile, []Pid{})
-			b.pidsForProfiles.Store(profile, append(pids.([]Pid), Pid{id: pid, comm: comm}))
 		}
 	}
+}
+
+func (b *BpfRecorder) findSystemMountNamespace() (uint64, error) {
+	res, err := b.Readlink("/proc/1/ns/mnt")
+	if err != nil {
+		return 0, errors.Wrap(err, "read mount namespace link")
+	}
+	stripped := strings.TrimPrefix(res, "mnt:[")
+	stripped = strings.TrimSuffix(stripped, "]")
+
+	ns, err := b.Atoi(stripped)
+	if err != nil {
+		return 0, errors.Wrap(err, "convert namespace to integer")
+	}
+
+	return uint64(ns), nil
+}
+
+func (b *BpfRecorder) trackProfileForPid(pid uint32, mntns uint64, profile interface{}) {
+	comm := b.commForPid(pid)
+	pids, _ := b.pidsForProfiles.LoadOrStore(profile, []Pid{})
+	b.pidsForProfiles.Store(profile, append(
+		pids.([]Pid), Pid{id: pid, comm: comm, mntns: mntns}),
+	)
+}
+
+func (b *BpfRecorder) commForPid(pid uint32) string {
+	rawComm, err := b.GetValue(b.comms, pid)
+	if err != nil {
+		b.logger.Error(err, "unable to get command name for PID", "pid", pid)
+	}
+	return toStringByte(rawComm)
 }
 
 func (b *BpfRecorder) findContainerID(id string) error {

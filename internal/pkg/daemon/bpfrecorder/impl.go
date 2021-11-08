@@ -25,6 +25,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 	"unsafe"
@@ -75,6 +76,8 @@ type impl interface {
 	CloseModule(*bpf.BPFMap)
 	StartRingBuffer(*bpf.RingBuffer)
 	GoArch() string
+	Readlink(string) (string, error)
+	Atoi(string) (int, error)
 }
 
 func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
@@ -193,4 +196,12 @@ func (d *defaultImpl) StartRingBuffer(b *bpf.RingBuffer) {
 
 func (d *defaultImpl) CloseModule(m *bpf.BPFMap) {
 	m.GetModule().Close()
+}
+
+func (d *defaultImpl) Readlink(name string) (string, error) {
+	return os.Readlink(name)
+}
+
+func (d *defaultImpl) Atoi(s string) (int, error) {
+	return strconv.Atoi(s)
 }

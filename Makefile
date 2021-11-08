@@ -247,11 +247,7 @@ update-btf: ## Build and update all generated BTF code for supported kernels
 	./hack/update-btf
 
 .PHONY: update-bpf
-update-bpf: ## Build and update all generated BPF code
-	$(GO) generate ./internal/pkg/daemon/bpfrecorder/...
-
-.PHONY: update-bpf-nix
-update-bpf-nix: $(BUILD_DIR) ## Build and update all generated BPF code with nix
+update-bpf: $(BUILD_DIR) ## Build and update all generated BPF code with nix
 	for arch in amd64 arm64; do \
 		nix-build nix/default-bpf-$$arch.nix ;\
 		cp -f result/recorder.bpf.o $(BUILD_DIR)/recorder.bpf.o.$$arch ;\
@@ -311,8 +307,8 @@ $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 verify-toc: update-toc ## Verify the table of contents for the documentation
 	hack/tree-status
 
-.PHONY: verify-bpf-nix
-verify-bpf-nix: update-bpf-nix ## Verify the bpf module generated code
+.PHONY: verify-bpf
+verify-bpf: update-bpf ## Verify the bpf module generated code
 	hack/tree-status
 
 # Test targets
