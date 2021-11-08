@@ -24,6 +24,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"runtime"
 	"syscall"
 	"time"
 	"unsafe"
@@ -71,6 +72,9 @@ type impl interface {
 	GetName(seccomp.ScmpSyscall) (string, error)
 	RemoveAll(string) error
 	Chown(string, int, int) error
+	CloseModule(*bpf.BPFMap)
+	StartRingBuffer(*bpf.RingBuffer)
+	GoArch() string
 }
 
 func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
@@ -177,4 +181,16 @@ func (d *defaultImpl) RemoveAll(path string) error {
 
 func (d *defaultImpl) Chown(name string, uid, gid int) error {
 	return os.Chown(name, uid, gid)
+}
+
+func (d *defaultImpl) GoArch() string {
+	return runtime.GOARCH
+}
+
+func (d *defaultImpl) StartRingBuffer(b *bpf.RingBuffer) {
+	b.Start()
+}
+
+func (d *defaultImpl) CloseModule(m *bpf.BPFMap) {
+	m.GetModule().Close()
 }

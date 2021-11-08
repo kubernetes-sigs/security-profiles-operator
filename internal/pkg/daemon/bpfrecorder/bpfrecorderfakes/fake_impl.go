@@ -77,6 +77,11 @@ type FakeImpl struct {
 	chownReturnsOnCall map[int]struct {
 		result1 error
 	}
+	CloseModuleStub        func(*libbpfgo.BPFMap)
+	closeModuleMutex       sync.RWMutex
+	closeModuleArgsForCall []struct {
+		arg1 *libbpfgo.BPFMap
+	}
 	ContainerIDForPIDStub        func(ttlcache.SimpleCache, int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
 	containerIDForPIDArgsForCall []struct {
@@ -167,6 +172,16 @@ type FakeImpl struct {
 		result1 string
 	}
 	getenvReturnsOnCall map[int]struct {
+		result1 string
+	}
+	GoArchStub        func() string
+	goArchMutex       sync.RWMutex
+	goArchArgsForCall []struct {
+	}
+	goArchReturns struct {
+		result1 string
+	}
+	goArchReturnsOnCall map[int]struct {
 		result1 string
 	}
 	InClusterConfigStub        func() (*rest.Config, error)
@@ -297,6 +312,11 @@ type FakeImpl struct {
 	}
 	setTTLReturnsOnCall map[int]struct {
 		result1 error
+	}
+	StartRingBufferStub        func(*libbpfgo.RingBuffer)
+	startRingBufferMutex       sync.RWMutex
+	startRingBufferArgsForCall []struct {
+		arg1 *libbpfgo.RingBuffer
 	}
 	StatStub        func(string) (fs.FileInfo, error)
 	statMutex       sync.RWMutex
@@ -554,6 +574,38 @@ func (fake *FakeImpl) ChownReturnsOnCall(i int, result1 error) {
 	fake.chownReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) CloseModule(arg1 *libbpfgo.BPFMap) {
+	fake.closeModuleMutex.Lock()
+	fake.closeModuleArgsForCall = append(fake.closeModuleArgsForCall, struct {
+		arg1 *libbpfgo.BPFMap
+	}{arg1})
+	stub := fake.CloseModuleStub
+	fake.recordInvocation("CloseModule", []interface{}{arg1})
+	fake.closeModuleMutex.Unlock()
+	if stub != nil {
+		fake.CloseModuleStub(arg1)
+	}
+}
+
+func (fake *FakeImpl) CloseModuleCallCount() int {
+	fake.closeModuleMutex.RLock()
+	defer fake.closeModuleMutex.RUnlock()
+	return len(fake.closeModuleArgsForCall)
+}
+
+func (fake *FakeImpl) CloseModuleCalls(stub func(*libbpfgo.BPFMap)) {
+	fake.closeModuleMutex.Lock()
+	defer fake.closeModuleMutex.Unlock()
+	fake.CloseModuleStub = stub
+}
+
+func (fake *FakeImpl) CloseModuleArgsForCall(i int) *libbpfgo.BPFMap {
+	fake.closeModuleMutex.RLock()
+	defer fake.closeModuleMutex.RUnlock()
+	argsForCall := fake.closeModuleArgsForCall[i]
+	return argsForCall.arg1
 }
 
 func (fake *FakeImpl) ContainerIDForPID(arg1 ttlcache.SimpleCache, arg2 int) (string, error) {
@@ -999,6 +1051,59 @@ func (fake *FakeImpl) GetenvReturnsOnCall(i int, result1 string) {
 		})
 	}
 	fake.getenvReturnsOnCall[i] = struct {
+		result1 string
+	}{result1}
+}
+
+func (fake *FakeImpl) GoArch() string {
+	fake.goArchMutex.Lock()
+	ret, specificReturn := fake.goArchReturnsOnCall[len(fake.goArchArgsForCall)]
+	fake.goArchArgsForCall = append(fake.goArchArgsForCall, struct {
+	}{})
+	stub := fake.GoArchStub
+	fakeReturns := fake.goArchReturns
+	fake.recordInvocation("GoArch", []interface{}{})
+	fake.goArchMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) GoArchCallCount() int {
+	fake.goArchMutex.RLock()
+	defer fake.goArchMutex.RUnlock()
+	return len(fake.goArchArgsForCall)
+}
+
+func (fake *FakeImpl) GoArchCalls(stub func() string) {
+	fake.goArchMutex.Lock()
+	defer fake.goArchMutex.Unlock()
+	fake.GoArchStub = stub
+}
+
+func (fake *FakeImpl) GoArchReturns(result1 string) {
+	fake.goArchMutex.Lock()
+	defer fake.goArchMutex.Unlock()
+	fake.GoArchStub = nil
+	fake.goArchReturns = struct {
+		result1 string
+	}{result1}
+}
+
+func (fake *FakeImpl) GoArchReturnsOnCall(i int, result1 string) {
+	fake.goArchMutex.Lock()
+	defer fake.goArchMutex.Unlock()
+	fake.GoArchStub = nil
+	if fake.goArchReturnsOnCall == nil {
+		fake.goArchReturnsOnCall = make(map[int]struct {
+			result1 string
+		})
+	}
+	fake.goArchReturnsOnCall[i] = struct {
 		result1 string
 	}{result1}
 }
@@ -1625,6 +1730,38 @@ func (fake *FakeImpl) SetTTLReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) StartRingBuffer(arg1 *libbpfgo.RingBuffer) {
+	fake.startRingBufferMutex.Lock()
+	fake.startRingBufferArgsForCall = append(fake.startRingBufferArgsForCall, struct {
+		arg1 *libbpfgo.RingBuffer
+	}{arg1})
+	stub := fake.StartRingBufferStub
+	fake.recordInvocation("StartRingBuffer", []interface{}{arg1})
+	fake.startRingBufferMutex.Unlock()
+	if stub != nil {
+		fake.StartRingBufferStub(arg1)
+	}
+}
+
+func (fake *FakeImpl) StartRingBufferCallCount() int {
+	fake.startRingBufferMutex.RLock()
+	defer fake.startRingBufferMutex.RUnlock()
+	return len(fake.startRingBufferArgsForCall)
+}
+
+func (fake *FakeImpl) StartRingBufferCalls(stub func(*libbpfgo.RingBuffer)) {
+	fake.startRingBufferMutex.Lock()
+	defer fake.startRingBufferMutex.Unlock()
+	fake.StartRingBufferStub = stub
+}
+
+func (fake *FakeImpl) StartRingBufferArgsForCall(i int) *libbpfgo.RingBuffer {
+	fake.startRingBufferMutex.RLock()
+	defer fake.startRingBufferMutex.RUnlock()
+	argsForCall := fake.startRingBufferArgsForCall[i]
+	return argsForCall.arg1
+}
+
 func (fake *FakeImpl) Stat(arg1 string) (fs.FileInfo, error) {
 	fake.statMutex.Lock()
 	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
@@ -1961,6 +2098,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.bPFLoadObjectMutex.RUnlock()
 	fake.chownMutex.RLock()
 	defer fake.chownMutex.RUnlock()
+	fake.closeModuleMutex.RLock()
+	defer fake.closeModuleMutex.RUnlock()
 	fake.containerIDForPIDMutex.RLock()
 	defer fake.containerIDForPIDMutex.RUnlock()
 	fake.deleteKeyMutex.RLock()
@@ -1975,6 +2114,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.getValueMutex.RUnlock()
 	fake.getenvMutex.RLock()
 	defer fake.getenvMutex.RUnlock()
+	fake.goArchMutex.RLock()
+	defer fake.goArchMutex.RUnlock()
 	fake.inClusterConfigMutex.RLock()
 	defer fake.inClusterConfigMutex.RUnlock()
 	fake.initRingBufMutex.RLock()
@@ -1995,6 +2136,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.serveMutex.RUnlock()
 	fake.setTTLMutex.RLock()
 	defer fake.setTTLMutex.RUnlock()
+	fake.startRingBufferMutex.RLock()
+	defer fake.startRingBufferMutex.RUnlock()
 	fake.statMutex.RLock()
 	defer fake.statMutex.RUnlock()
 	fake.tempFileMutex.RLock()
