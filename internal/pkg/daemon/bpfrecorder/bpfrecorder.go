@@ -153,12 +153,7 @@ func (b *BpfRecorder) Run() error {
 	)
 	api.RegisterBpfRecorderServer(grpcServer, b)
 
-	if err := b.Serve(grpcServer, listener); err != nil {
-		b.logger.Error(err, "unable to run GRPC server")
-		return err
-	}
-
-	return nil
+	return b.Serve(grpcServer, listener)
 }
 
 // Dial can be used to connect to the default GRPC server by creating a new
@@ -286,7 +281,7 @@ func (b *BpfRecorder) load() (err error) {
 		return errors.Wrap(err, "find btf")
 	}
 
-	bpfObject, ok := bpfObjects[runtime.GOARCH]
+	bpfObject, ok := bpfObjects[b.GoArch()]
 	if !ok {
 		return errors.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
@@ -334,7 +329,7 @@ func (b *BpfRecorder) load() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "init events ringbuffer")
 	}
-	ringbuffer.Start()
+	b.StartRingBuffer(ringbuffer)
 
 	b.syscalls = syscalls
 	b.comms = comms
@@ -543,7 +538,7 @@ func (b *BpfRecorder) findContainerID(id string) error {
 
 func (b *BpfRecorder) unload() {
 	b.logger.Info("Unloading bpf module")
-	b.syscalls.GetModule().Close()
+	b.CloseModule(b.syscalls)
 	b.syscalls = nil
 	b.comms = nil
 	os.RemoveAll(b.btfPath)
