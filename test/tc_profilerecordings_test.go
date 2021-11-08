@@ -262,7 +262,6 @@ spec:
 	err = testFile.Close()
 	e.Nil(err)
 
-	since := time.Now() // nolint: ifshort
 	e.kubectl("create", "-f", testFile.Name())
 
 	const deployName = "my-deployment"
@@ -270,6 +269,7 @@ spec:
 	e.waitFor("condition=available", "deploy", deployName)
 
 	if waitConditions != nil {
+		since := time.Now()
 		e.waitForEnricherLogs(since, waitConditions...)
 	}
 
