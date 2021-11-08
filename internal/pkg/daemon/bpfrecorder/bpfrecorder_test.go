@@ -104,6 +104,33 @@ func TestRun(t *testing.T) {
 				require.NotNil(t, err)
 			},
 		},
+		{ // Chown fails
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GetenvReturns(node)
+				mock.ChownReturns(errTest)
+			},
+			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // Readlink fails
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GetenvReturns(node)
+				mock.ReadlinkReturns("", errTest)
+			},
+			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // Atoi fails
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GetenvReturns(node)
+				mock.AtoiReturns(0, errTest)
+			},
+			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+				require.NotNil(t, err)
+			},
+		},
 		{ // ServeFails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
