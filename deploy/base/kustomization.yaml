@@ -36,6 +36,7 @@ resources:
   - crds/securityprofilenodestatus.yaml
   - crds/securityprofilesoperatordaemon.yaml
   - crds/selinuxpolicy.yaml
+  - crds/apparmorprofile.yaml
   - ns.yaml
   - service_account.yaml
   - role.yaml
