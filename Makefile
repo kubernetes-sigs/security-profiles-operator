@@ -243,7 +243,7 @@ $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
 	$(LLVM_STRIP) -g $@
 
 .PHONY: update-btf
-update-btf: ## Build and update all generated BTF code for supported kernels
+update-btf: update-bpf ## Build and update all generated BTF code for supported kernels
 	./hack/update-btf
 
 .PHONY: update-bpf
@@ -324,8 +324,8 @@ $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 verify-toc: update-toc ## Verify the table of contents for the documentation
 	hack/tree-status
 
-.PHONY: verify-bpf
-verify-bpf: update-bpf ## Verify the bpf module generated code
+.PHONY: verify-bpf-btf
+verify-bpf-btf: update-btf ## Verify the bpf module generated code
 	hack/tree-status
 
 # Test targets
