@@ -29,7 +29,7 @@ jobs:
           pushFilter: security-profiles-operator
       - run: make nix nix-arm64
 
-  bpf:
+  bpf-btf:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-go@v2
@@ -42,7 +42,7 @@ jobs:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
           pushFilter: security-profiles-operator
-      - run: make verify-bpf
+      - run: make verify-bpf-btf
 
   image:
     runs-on: ubuntu-18.04
