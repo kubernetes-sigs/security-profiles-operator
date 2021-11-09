@@ -13,6 +13,7 @@ linters:
   disable-all: true
   enable:
     - asciicheck
+    - bidichk
     - bodyclose
     - deadcode
     - depguard
@@ -64,6 +65,7 @@ linters:
     - structcheck
     - stylecheck
     - tagliatelle
+    - tenv
     - thelper
     - tparallel
     - typecheck
