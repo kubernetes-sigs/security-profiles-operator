@@ -234,6 +234,34 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - apparmorprofiles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - apparmorprofiles/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - apparmorprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
   - seccompprofiles
   verbs:
   - create
