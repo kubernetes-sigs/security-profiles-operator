@@ -38,8 +38,8 @@ SEC("tracepoint/raw_syscalls/sys_enter")
 int sys_enter(struct trace_event_raw_sys_enter * args)
 {
     // Sanity check
-    u32 id = args->id;
-    if (id < 0 || id >= MAX_SYSCALLS) {
+    u32 syscall_id = args->id;
+    if (syscall_id < 0 || syscall_id >= MAX_SYSCALLS) {
         return 0;
     }
 
@@ -61,7 +61,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     // Update the syscalls
     u8 * const syscall_value = bpf_map_lookup_elem(&syscalls, &pid);
     if (syscall_value) {
-        syscall_value[id] = 1;
+        syscall_value[syscall_id] = 1;
     } else {
         // New element, throw event
         struct event_t * event =
@@ -84,7 +84,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
             // Should not happen, we updated the element straight ahead
             return 0;
         }
-        value[id] = 1;
+        value[syscall_id] = 1;
     }
 
     return 0;

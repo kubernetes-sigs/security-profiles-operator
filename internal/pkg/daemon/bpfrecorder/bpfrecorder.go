@@ -493,6 +493,8 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 }
 
 func (b *BpfRecorder) findSystemMountNamespace() (uint64, error) {
+	// This requires the container to run with host PID, otherwise we will get
+	// the namespace from the container.
 	res, err := b.Readlink("/proc/1/ns/mnt")
 	if err != nil {
 		return 0, errors.Wrap(err, "read mount namespace link")
