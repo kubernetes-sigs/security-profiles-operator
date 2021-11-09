@@ -38,12 +38,15 @@ const (
 	metricNamespace = "security_profiles_operator"
 
 	// Metrics names.
-	metricNameSeccompProfile      = "seccomp_profile_total"
-	metricNameSelinuxProfile      = "selinux_profile_total"
-	metricNameSeccompProfileAudit = "seccomp_profile_audit_total"
-	metricNameSelinuxProfileAudit = "selinux_profile_audit_total"
-	metricNameSeccompProfileError = "seccomp_profile_error_total"
-	metricNameSelinuxProfileError = "selinux_profile_error_total"
+	metricNameSeccompProfile       = "seccomp_profile_total"
+	metricNameSelinuxProfile       = "selinux_profile_total"
+	metricNameAppArmorProfile      = "apparmor_profile_total"
+	metricNameSeccompProfileAudit  = "seccomp_profile_audit_total"
+	metricNameSelinuxProfileAudit  = "selinux_profile_audit_total"
+	metricNameAppArmorProfileAudit = "apparmor_profile_audit_total"
+	metricNameSeccompProfileError  = "seccomp_profile_error_total"
+	metricNameSelinuxProfileError  = "selinux_profile_error_total"
+	metricNameAppArmorProfileError = "apparmor_profile_error_total"
 
 	// Metrics label values.
 	metricLabelValueProfileUpdate = "update"
@@ -66,14 +69,17 @@ const (
 // Metrics is the main structure of this package.
 type Metrics struct {
 	api.UnimplementedMetricsServer
-	impl                      impl
-	log                       logr.Logger
-	metricSeccompProfile      *prometheus.CounterVec
-	metricSeccompProfileAudit *prometheus.CounterVec
-	metricSeccompProfileError *prometheus.CounterVec
-	metricSelinuxProfile      *prometheus.CounterVec
-	metricSelinuxProfileAudit *prometheus.CounterVec
-	metricSelinuxProfileError *prometheus.CounterVec
+	impl                       impl
+	log                        logr.Logger
+	metricSeccompProfile       *prometheus.CounterVec
+	metricSeccompProfileAudit  *prometheus.CounterVec
+	metricSeccompProfileError  *prometheus.CounterVec
+	metricSelinuxProfile       *prometheus.CounterVec
+	metricSelinuxProfileAudit  *prometheus.CounterVec
+	metricSelinuxProfileError  *prometheus.CounterVec
+	metricAppArmorProfile      *prometheus.CounterVec
+	metricAppArmorProfileAudit *prometheus.CounterVec
+	metricAppArmorProfileError *prometheus.CounterVec
 }
 
 // New returns a new Metrics instance.
@@ -143,18 +149,52 @@ func New() *Metrics {
 			},
 			[]string{metricsLabelReason},
 		),
+		metricAppArmorProfile: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameAppArmorProfile,
+				Namespace: metricNamespace,
+				Help:      "Counter about apparmor profile operations.",
+			},
+			[]string{metricLabelOperation},
+		),
+		metricAppArmorProfileAudit: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameAppArmorProfileAudit,
+				Namespace: metricNamespace,
+				Help:      "Counter about apparmor profile audits, requires the log enricher to be enabled.",
+			},
+			[]string{
+				metricsLabelNode,
+				metricsLabelNamespace,
+				metricsLabelPod,
+				metricsLabelContainer,
+				metricsLabelExecutable,
+				metricsLabelSyscall,
+			},
+		),
+		metricAppArmorProfileError: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameAppArmorProfileError,
+				Namespace: metricNamespace,
+				Help:      "Counter about apparmor profile errors.",
+			},
+			[]string{metricsLabelReason},
+		),
 	}
 }
 
 // Register iterates over all available metrics and registers them.
 func (m *Metrics) Register() error {
 	for name, collector := range map[string]prometheus.Collector{
-		metricNameSeccompProfile:      m.metricSeccompProfile,
-		metricNameSeccompProfileAudit: m.metricSeccompProfileAudit,
-		metricNameSeccompProfileError: m.metricSeccompProfileError,
-		metricNameSelinuxProfile:      m.metricSelinuxProfile,
-		metricNameSelinuxProfileAudit: m.metricSelinuxProfileAudit,
-		metricNameSelinuxProfileError: m.metricSelinuxProfileError,
+		metricNameSeccompProfile:       m.metricSeccompProfile,
+		metricNameSeccompProfileAudit:  m.metricSeccompProfileAudit,
+		metricNameSeccompProfileError:  m.metricSeccompProfileError,
+		metricNameSelinuxProfile:       m.metricSelinuxProfile,
+		metricNameSelinuxProfileAudit:  m.metricSelinuxProfileAudit,
+		metricNameSelinuxProfileError:  m.metricSelinuxProfileError,
+		metricNameAppArmorProfile:      m.metricAppArmorProfile,
+		metricNameAppArmorProfileAudit: m.metricAppArmorProfileAudit,
+		metricNameAppArmorProfileError: m.metricAppArmorProfileError,
 	} {
 		m.log.Info(fmt.Sprintf("Registering metric: %s", name))
 		if err := m.impl.Register(collector); err != nil {
@@ -225,4 +265,32 @@ func (m *Metrics) IncSelinuxProfileAudit(
 // provided reason.
 func (m *Metrics) IncSelinuxProfileError(reason event.Reason) {
 	m.metricSelinuxProfileError.WithLabelValues(string(reason)).Inc()
+}
+
+// IncAppArmorProfileUpdate increments the apparmor profile update counter.
+func (m *Metrics) IncAppArmorProfileUpdate() {
+	m.metricAppArmorProfile.
+		WithLabelValues(metricLabelValueProfileUpdate).Inc()
+}
+
+// IncAppArmorProfileDelete increments the apparmor profile deletion counter.
+func (m *Metrics) IncAppArmorProfileDelete() {
+	m.metricAppArmorProfile.
+		WithLabelValues(metricLabelValueProfileDelete).Inc()
+}
+
+// IncAppArmorProfileAudit increments the apparmor profile audit counter for the
+// provided labels.
+func (m *Metrics) IncAppArmorProfileAudit(
+	node, namespace, pod, container, executable, syscall string,
+) {
+	m.metricAppArmorProfileAudit.WithLabelValues(
+		node, namespace, pod, container, executable, syscall,
+	).Inc()
+}
+
+// IncAppArmorProfileError increments the apparmor profile error counter for the
+// provided reason.
+func (m *Metrics) IncAppArmorProfileError(reason event.Reason) {
+	m.metricAppArmorProfileError.WithLabelValues(string(reason)).Inc()
 }

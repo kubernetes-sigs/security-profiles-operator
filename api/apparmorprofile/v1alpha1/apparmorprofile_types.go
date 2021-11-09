@@ -22,6 +22,10 @@ import (
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 )
 
+const (
+	profilePrefix string = "security-profiles-operator/"
+)
+
 // Ensure AppArmorProfile implements the StatusBaseUser interface.
 var _ profilebasev1alpha1.StatusBaseUser = &AppArmorProfile{}
 
@@ -71,4 +75,8 @@ type AppArmorProfileList struct {
 
 func init() { //nolint:gochecknoinits
 	SchemeBuilder.Register(&AppArmorProfile{}, &AppArmorProfileList{})
+}
+
+func (sp *AppArmorProfile) GetProfileName() string {
+	return profilePrefix + sp.GetName()
 }
