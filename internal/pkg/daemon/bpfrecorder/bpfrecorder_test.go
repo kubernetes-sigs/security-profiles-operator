@@ -19,6 +19,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"context"
 	"encoding/json"
 	"io/ioutil"
 	"syscall"
@@ -28,6 +29,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 
+	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
 )
 
@@ -50,14 +52,14 @@ func TestRun(t *testing.T) {
 
 	for _, tc := range []struct {
 		prepare func(*bpfrecorderfakes.FakeImpl)
-		assert  func(*bpfrecorderfakes.FakeImpl, error)
+		assert  func(error)
 	}{
 		{ // Success
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
 				mock.GoArchReturns(validGoArch)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.Nil(t, err)
 			},
 		},
@@ -65,7 +67,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.SetTTLReturns(errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -73,7 +75,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns("")
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -82,7 +84,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.InClusterConfigReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -91,7 +93,16 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.NewForConfigReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // RemoveAll fails
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GetenvReturns(node)
+				mock.RemoveAllReturns(errTest)
+			},
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -100,7 +111,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.ListenReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -109,7 +120,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.ChownReturns(errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -118,7 +129,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.ReadlinkReturns("", errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -127,7 +138,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.AtoiReturns(0, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -136,7 +147,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.ServeReturns(errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -145,7 +156,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.GoArchReturns("invalid")
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -155,7 +166,7 @@ func TestRun(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -165,7 +176,7 @@ func TestRun(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				mock.BPFLoadObjectReturns(errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -175,7 +186,7 @@ func TestRun(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				mock.GetProgramReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -185,7 +196,7 @@ func TestRun(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				mock.AttachTracepointReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -195,7 +206,7 @@ func TestRun(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				mock.GetMapReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -205,7 +216,7 @@ func TestRun(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				mock.GetMapReturnsOnCall(1, nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -215,7 +226,7 @@ func TestRun(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				mock.InitRingBufReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -225,7 +236,7 @@ func TestRun(t *testing.T) {
 				mock.StatReturns(nil, errTest)
 				mock.UnmarshalReturns(errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -235,7 +246,7 @@ func TestRun(t *testing.T) {
 				mock.StatReturns(nil, errTest)
 				mock.ReadOSReleaseReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -254,7 +265,7 @@ func TestRun(t *testing.T) {
 				})
 				mock.TempFileCalls(ioutil.TempFile)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -273,7 +284,7 @@ func TestRun(t *testing.T) {
 				})
 				mock.WriteReturns(0, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -292,7 +303,7 @@ func TestRun(t *testing.T) {
 				})
 				mock.TempFileReturns(nil, errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -309,7 +320,7 @@ func TestRun(t *testing.T) {
 					return nil
 				})
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -322,7 +333,7 @@ func TestRun(t *testing.T) {
 					"ID": "centos", "VERSION_ID": "7",
 				}, nil)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -336,7 +347,7 @@ func TestRun(t *testing.T) {
 				}, nil)
 				mock.UnameReturns(errTest)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -347,7 +358,7 @@ func TestRun(t *testing.T) {
 				mock.UnmarshalCalls(json.Unmarshal)
 				mock.ReadOSReleaseReturns(map[string]string{"ID": "centos"}, nil)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -358,7 +369,7 @@ func TestRun(t *testing.T) {
 				mock.UnmarshalCalls(json.Unmarshal)
 				mock.ReadOSReleaseReturns(map[string]string{}, nil)
 			},
-			assert: func(mock *bpfrecorderfakes.FakeImpl, err error) {
+			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
@@ -370,6 +381,106 @@ func TestRun(t *testing.T) {
 		sut.impl = mock
 
 		err := sut.Run()
-		tc.assert(mock, err)
+		tc.assert(err)
+	}
+}
+
+func TestStart(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		prepare func(*bpfrecorderfakes.FakeImpl)
+		assert  func(*BpfRecorder, error)
+	}{
+		{ // Success
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GoArchReturns(validGoArch)
+			},
+			assert: func(sut *BpfRecorder, err error) {
+				require.Nil(t, err)
+				require.EqualValues(t, 1, sut.startRequests)
+			},
+		},
+		{ // Success already running
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GoArchReturns(validGoArch)
+			},
+			assert: func(sut *BpfRecorder, err error) {
+				require.Nil(t, err)
+				require.EqualValues(t, 1, sut.startRequests)
+				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				require.Nil(t, err)
+				require.EqualValues(t, 2, sut.startRequests)
+			},
+		},
+		{ // load failed wrong GOARCH
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GoArchReturns("invalid")
+			},
+			assert: func(sut *BpfRecorder, err error) {
+				require.NotNil(t, err)
+				require.EqualValues(t, 0, sut.startRequests)
+			},
+		},
+	} {
+		mock := &bpfrecorderfakes.FakeImpl{}
+		tc.prepare(mock)
+
+		sut := New(logr.DiscardLogger{})
+		sut.impl = mock
+
+		_, err := sut.Start(context.Background(), &api.EmptyRequest{})
+		tc.assert(sut, err)
+	}
+}
+
+func TestStop(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl)
+		assert  func(*BpfRecorder, error)
+	}{
+		{ // Success
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
+			assert: func(sut *BpfRecorder, err error) {
+				require.Nil(t, err)
+				require.EqualValues(t, 0, sut.startRequests)
+			},
+		},
+		{ // Success with start
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				mock.GoArchReturns(validGoArch)
+				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
+				require.Nil(t, err)
+			},
+			assert: func(sut *BpfRecorder, err error) {
+				require.Nil(t, err)
+				require.EqualValues(t, 0, sut.startRequests)
+			},
+		},
+		{ // Success with double start
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				mock.GoArchReturns(validGoArch)
+				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
+				require.Nil(t, err)
+				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				require.Nil(t, err)
+			},
+			assert: func(sut *BpfRecorder, err error) {
+				require.Nil(t, err)
+				require.EqualValues(t, 1, sut.startRequests)
+			},
+		},
+	} {
+		sut := New(logr.DiscardLogger{})
+
+		mock := &bpfrecorderfakes.FakeImpl{}
+		sut.impl = mock
+
+		tc.prepare(sut, mock)
+
+		_, err := sut.Stop(context.Background(), &api.EmptyRequest{})
+		tc.assert(sut, err)
 	}
 }
