@@ -15,7 +15,7 @@
 GO ?= go
 
 GOLANGCI_LINT_VERSION = v1.43.0
-REPO_INFRA_VERSION = v0.1.10
+REPO_INFRA_VERSION = master
 KUSTOMIZE_VERSION = 4.3.0
 
 CONTROLLER_GEN_CMD := $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
@@ -267,7 +267,24 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 		--skip api/grpc/metrics/api_grpc.pb.go \
 		--skip api/grpc/enricher/api_grpc.pb.go \
 		--skip api/grpc/bpfrecorder/api_grpc.pb.go \
-		--skip internal/pkg/daemon/bpfrecorder/generated.go
+		--skip api/grpc/bpfrecorder/api.pb.go \
+		--skip api/grpc/enricher/api.pb.go \
+		--skip api/grpc/metrics/api.pb.go \
+		--skip api/apparmorprofile/v1alpha1/zz_generated.deepcopy.go \
+		--skip api/profilebinding/v1alpha1/zz_generated.deepcopy.go \
+		--skip api/profilerecording/v1alpha1/zz_generated.deepcopy.go \
+		--skip api/seccompprofile/v1alpha1/zz_generated.deepcopy.go \
+		--skip api/secprofnodestatus/v1alpha1/zz_generated.deepcopy.go \
+		--skip api/selinuxprofile/v1alpha1/zz_generated.deepcopy.go \
+		--skip api/spod/v1alpha1/zz_generated.deepcopy.go \
+		--skip internal/pkg/daemon/bpfrecorder/generated.go \
+		--skip internal/pkg/daemon/bpfrecorder/bpfrecorderfakes/fake_impl.go \
+		--skip internal/pkg/daemon/enricher/enricherfakes/fake_impl.go \
+		--skip internal/pkg/daemon/metrics/metricsfakes/fake_impl.go \
+		--skip internal/pkg/nonrootenabler/nonrootenablerfakes/fake_impl.go \
+		--skip internal/pkg/webhooks/binding/bindingfakes/fake_impl.go \
+		--skip internal/pkg/webhooks/recording/recordingfakes/fake_impl.go
+
 
 $(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
 	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/$(REPO_INFRA_VERSION)/hack/verify_boilerplate.py \
