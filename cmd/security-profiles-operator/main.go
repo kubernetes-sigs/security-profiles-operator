@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/urfave/cli/v2"
+	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -66,8 +68,6 @@ var (
 )
 
 func main() {
-	ctrl.SetLogger(klogr.New())
-
 	app := cli.NewApp()
 	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Security Profiles Operator"
@@ -151,11 +151,36 @@ func main() {
 			Action:  runBPFRecorder,
 		},
 	}
+	app.Flags = []cli.Flag{
+		&cli.UintFlag{
+			Name:    "verbosity",
+			Aliases: []string{"V"},
+			Usage:   "the logging verbosity to be used",
+			Value:   0,
+			EnvVars: []string{"SPO_VERBOSITY"},
+		},
+	}
+	app.Before = initLogging
 
 	if err := app.Run(os.Args); err != nil {
 		setupLog.Error(err, "running security-profiles-operator")
 		os.Exit(1)
 	}
+}
+
+func initLogging(ctx *cli.Context) error {
+	ctrl.SetLogger(klogr.New())
+
+	set := flag.NewFlagSet("logging", flag.ContinueOnError)
+	klog.InitFlags(set)
+
+	level := ctx.Uint("verbosity")
+	if err := set.Parse([]string{fmt.Sprintf("-v=%d", level)}); err != nil {
+		return errors.Wrap(err, "parse verbosity flag")
+	}
+
+	ctrl.Log.Info(fmt.Sprintf("Set logging verbosity to %d", level))
+	return nil
 }
 
 func printInfo(component string) {
