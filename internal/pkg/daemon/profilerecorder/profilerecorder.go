@@ -281,7 +281,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			profiles = logProfiles
 			recorder = profilerecording1alpha1.ProfileRecorderLogs
 		} else if len(bpfProfiles) > 0 {
-			if err := r.startBpfRecoder(); err != nil {
+			if err := r.startBpfRecorder(); err != nil {
 				logger.Error(err, "unable to start bpf recorder")
 				return reconcile.Result{}, nil
 			}
@@ -313,7 +313,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 }
 
 func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderClient, context.CancelFunc, error) {
-	r.log.Info("Checking if bpf recoder is enabled")
+	r.log.Info("Checking if bpf recorder is enabled")
 
 	spod, err := r.getSPOD()
 	if err != nil {
@@ -334,10 +334,10 @@ func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderC
 	return enricherClient, cancel, nil
 }
 
-func (r *RecorderReconciler) startBpfRecoder() error {
+func (r *RecorderReconciler) startBpfRecorder() error {
 	recorderClient, cancel, err := r.getBpfRecorderClient()
 	if err != nil {
-		return errors.Wrap(err, "get bpf recoder client")
+		return errors.Wrap(err, "get bpf recorder client")
 	}
 	defer cancel()
 
@@ -351,7 +351,7 @@ func (r *RecorderReconciler) startBpfRecoder() error {
 func (r *RecorderReconciler) stopBpfRecorder() error {
 	recorderClient, cancel, err := r.getBpfRecorderClient()
 	if err != nil {
-		return errors.Wrap(err, "get bpf recoder client")
+		return errors.Wrap(err, "get bpf recorder client")
 	}
 	defer cancel()
 
@@ -655,7 +655,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 ) error {
 	recorderClient, cancel, err := r.getBpfRecorderClient()
 	if err != nil {
-		return errors.Wrap(err, "get bpf recoder client")
+		return errors.Wrap(err, "get bpf recorder client")
 	}
 	defer cancel()
 
