@@ -52,7 +52,7 @@ const (
 	defaultTimeout      time.Duration = time.Minute
 	maxMsgSize          int           = 16 * 1024 * 1024
 	defaultCacheTimeout time.Duration = time.Hour
-	verboseLvl          int           = 4
+	verboseLvl          int           = 1
 	backoffDuration                   = 500 * time.Millisecond
 	backoffFactor                     = 1.5
 	backoffSteps                      = 10
