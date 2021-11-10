@@ -451,6 +451,7 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 		const eventLen = 16
 		if len(event) != eventLen {
 			b.logger.Info("Invalid event length", "len", len(event))
+			continue
 		}
 
 		pid := binary.LittleEndian.Uint32(event)
