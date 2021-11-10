@@ -4,9 +4,9 @@
 [![test](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/test.yml/badge.svg)](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/test.yml)
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/5368/badge)](https://bestpractices.coreinfrastructure.org/projects/5368)
 
-This project is the starting point for the _Security Profiles Operator_, an
-out-of-tree Kubernetes enhancement which aims to make managing and applying
-seccomp and AppArmor profiles more easy and straight forward in Kubernetes.
+This project is the starting point for the _Security Profiles Operator_ (SPO), an
+out-of-tree Kubernetes enhancement which aims to make it easier for users to use
+SELinux, seccomp and AppArmor in Kubernetes clusters.
 
 - [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
 - [Installation and Usage](installation-usage.md)
@@ -39,6 +39,23 @@ the Kubernetes world:
 [4]: https://github.com/kubernetes/kubernetes/tree/c30da3839c8e13fdff59ef5115e982362b2c90ed/test/images/apparmor-loader
 [5]: https://github.com/openshift/machine-config-operator/tree/master/docs
 [6]: https://github.com/UKHomeOffice/seccomp-config
+
+
+## Features
+
+The SPO's features are implemented for each one of the underlying
+supported technologies, namely: Seccomp, SELinux and AppArmor. 
+Here's the feature parity status across them:
+
+|                                  | Seccomp | SELinux | AppArmor |
+|----------------------------------|---------|---------|----------|
+|                      Profile CRD |   Yes   |   Yes   |    Yes   |
+|                   ProfileBinding |   Yes   |   No    |    No    |
+|       Deploy profiles into nodes |   Yes   |   Yes   |    WIP   |
+| Remove profiles no longer in use |   Yes   |   Yes   |    WIP   |
+|   Profile Auto-generation (logs) |   Yes   |   WIP   |    No    |
+|   Profile Auto-generation (ebpf) |   WIP   |   No    |    No    |
+|             Audit log enrichment |   Yes   |   WIP   |    Yes   |
 
 ## Personas & User Stories
 
