@@ -39,6 +39,7 @@ import (
 	"github.com/pkg/errors"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
@@ -52,6 +53,9 @@ const (
 	maxMsgSize          int           = 16 * 1024 * 1024
 	defaultCacheTimeout time.Duration = time.Hour
 	verboseLvl          int           = 4
+	backoffDuration                   = 500 * time.Millisecond
+	backoffFactor                     = 1.5
+	backoffSteps                      = 10
 )
 
 var excludeComms = []string{
@@ -533,7 +537,13 @@ func (b *BpfRecorder) findContainerID(id string) error {
 	defer cancel()
 
 	errContainerIDNotFound := errors.New("container ID not found")
-	if err := util.Retry(
+
+	if err := util.RetryEx(
+		&wait.Backoff{
+			Duration: backoffDuration,
+			Factor:   backoffFactor,
+			Steps:    backoffSteps,
+		},
 		func() (retryErr error) {
 			b.logger.V(verboseLvl).Info("Searching for in-cluster container ID: " + id)
 
