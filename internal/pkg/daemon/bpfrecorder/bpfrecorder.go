@@ -58,10 +58,6 @@ const (
 	backoffSteps                      = 10
 )
 
-var excludeComms = []string{
-	"conmon", // container monitoring daemon from CRI-O
-}
-
 // BpfRecorder is the main structure of this package.
 type BpfRecorder struct {
 	api.UnimplementedBpfRecorderServer
@@ -242,11 +238,6 @@ func (b *BpfRecorder) SyscallsForProfile(
 	result := []string{}
 	for _, pid := range pids {
 		b.profileForMountNamespace.Delete(pid.mntns)
-
-		if util.Contains(excludeComms, pid.comm) {
-			b.logger.Info("Filtering syscalls from excluded command: " + pid.comm)
-			continue
-		}
 
 		syscalls, err := b.GetValue(b.syscalls, pid.id)
 		if err != nil {
@@ -461,6 +452,15 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 		pid := binary.LittleEndian.Uint32(event)
 		mntns := binary.LittleEndian.Uint64(event[8:])
 
+		// Filter out non-containers
+		if mntns == b.systemMountNamespace {
+			b.logger.V(verboseLvl).Info(
+				"Skipping PID, because it's on the system mount namespace",
+				"pid", pid, "mntns", mntns,
+			)
+			continue
+		}
+
 		// Short path via the mount namespace
 		if profile, exist := b.profileForMountNamespace.Load(mntns); exist {
 			b.logger.Info(
@@ -474,6 +474,10 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 		// Regular container ID retrieval via the cgroup
 		containerID, err := b.ContainerIDForPID(b.containerIDCache, int(pid))
 		if err != nil {
+			b.logger.V(verboseLvl).Info(
+				"No container ID found for PID",
+				"pid", pid, "err", err.Error(),
+			)
 			continue
 		}
 
@@ -491,9 +495,7 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 				"pid", pid, "mntns", mntns, "profile", profile,
 			)
 			b.trackProfileForPid(pid, mntns, profile)
-			if mntns != b.systemMountNamespace {
-				b.profileForMountNamespace.Store(mntns, profile)
-			}
+			b.profileForMountNamespace.Store(mntns, profile)
 		}
 	}
 }
