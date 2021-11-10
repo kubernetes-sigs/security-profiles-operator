@@ -42,6 +42,7 @@ const (
 	// SELinux pieces.
 	defaultSelinuxOpTimeout     = "360s"
 	defaultLogEnricherOpTimeout = defaultSelinuxOpTimeout
+	defaultBpfRecorderOpTimeout = defaultSelinuxOpTimeout
 	defaultWaitTimeout          = "120s"
 	defaultWaitTime             = 10 * time.Second
 )
@@ -140,6 +141,12 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogs()
 		e.testCaseProfileRecordingMultiContainerSELinuxLogs()
+	})
+
+	e.Run("cluster-wide: Seccomp: Verify profile recording bpf", func() {
+		e.testCaseBpfRecorderStaticPod()
+		e.testCaseBpfRecorderMultiContainer()
+		e.testCaseBpfRecorderDeployment()
 	})
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
