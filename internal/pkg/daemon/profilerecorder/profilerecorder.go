@@ -34,6 +34,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -665,6 +666,15 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			ctx, &bpfrecorderapi.ProfileRequest{Name: profile.name},
 		)
 		if err != nil {
+			// Something went wrong during BPF event collection, which also
+			// means that we do not have to retry this failure case.
+			if status.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
+				r.log.Error(err, "Recorded profile not found, giving up")
+				if err := r.stopBpfRecorder(); err != nil {
+					r.log.Error(err, "Unable to stop bpf recorder")
+				}
+				return nil
+			}
 			return errors.Wrap(err, "get syscalls for profile")
 		}
 
@@ -710,7 +720,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	}
 
 	if err := r.stopBpfRecorder(); err != nil {
-		r.log.Error(err, "unable to stop bpf recorder")
+		r.log.Error(err, "Unable to stop bpf recorder")
 		return errors.Wrap(err, "stop bpf recorder")
 	}
 	return nil
