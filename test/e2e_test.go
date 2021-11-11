@@ -111,6 +111,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"SPOD: Update SELinux flag",
 			e.testCaseSPODUpdateSelinux,
 		},
+		{
+			"SPOD: Change verbosity",
+			e.testCaseVerbosityChange,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase

@@ -437,9 +437,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDMetrics],
 	)
 
-	// Set image pull policy
 	for i := range templateSpec.InitContainers {
+		// Set image pull policy
 		templateSpec.InitContainers[i].ImagePullPolicy = pullPolicy
+
+		// Set the logging verbosity
+		templateSpec.InitContainers[i].Env = append(templateSpec.InitContainers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
 	}
 
 	for i := range templateSpec.Containers {
@@ -447,12 +450,23 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		if templateSpec.Containers[i].Image == bindata.MetricsImage {
 			continue
 		}
+		// Set image pull policy
 		templateSpec.Containers[i].ImagePullPolicy = pullPolicy
+
+		// Set the logging verbosity
+		templateSpec.Containers[i].Env = append(templateSpec.Containers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
 	}
 
 	templateSpec.Tolerations = cfg.Spec.Tolerations
 
 	return newSPOd
+}
+
+func verbosityEnv(value uint) corev1.EnvVar {
+	return corev1.EnvVar{
+		Name:  config.VerbosityEnvKey,
+		Value: fmt.Sprint(value),
+	}
 }
 
 func spodNeedsUpdate(configured, found *appsv1.DaemonSet) bool {

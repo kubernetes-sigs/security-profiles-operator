@@ -60,6 +60,9 @@ const (
 	// the operator to work on only a single Kubernetes namespace.
 	RestrictNamespaceEnvKey = "RESTRICT_TO_NAMESPACE"
 
+	// VerbosityEnvKey is the environment variable key for the logging verbosity.
+	VerbosityEnvKey = "SPO_VERBOSITY"
+
 	// SeccompProfileRecordHookAnnotationKey is the annotation on a Pod that
 	// triggers the oci-seccomp-bpf-hook to trace the syscalls of a Pod and
 	// created a seccomp profile.

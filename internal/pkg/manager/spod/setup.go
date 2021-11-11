@@ -87,6 +87,7 @@ func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
 			Labels:    map[string]string{"app": config.OperatorName},
 		},
 		Spec: spodv1alpha1.SPODSpec{
+			Verbosity:         0,
 			EnableSelinux:     false,
 			EnableLogEnricher: false,
 			EnableBpfRecorder: false,

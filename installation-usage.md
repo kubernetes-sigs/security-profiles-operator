@@ -4,6 +4,7 @@
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
+- [Set logging verbosity](#set-logging-verbosity)
 - [Create Profile](#create-profile)
   - [Apply profile to pod](#apply-profile-to-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
@@ -53,6 +54,24 @@ Then apply the operator manifest:
 
 ```sh
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
+```
+
+## Set logging verbosity
+
+The operator supports the default logging verbosity of `0` and an enhanced `1`.
+To switch to the enhanced logging verbosity, patch the spod config by adjusting
+the value:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"verbosity":1}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
+The daemon should now indicate that it's using the new logging verbosity:
+
+```
+> k logs ds/spod security-profiles-operator | head -n1
+I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 ```
 
 ## Create Profile

@@ -24,6 +24,8 @@ import (
 
 // SPODStatus defines the desired state of SPOD.
 type SPODSpec struct {
+	// Verbosity specifies the logging verbosity of the daemon.
+	Verbosity uint `json:"verbosity,omitempty"`
 	// tells the operator whether or not to enable SELinux support for this
 	// SPOD instance.
 	EnableSelinux bool `json:"enableSelinux,omitempty"`
