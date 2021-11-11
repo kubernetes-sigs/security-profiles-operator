@@ -602,7 +602,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GetValueReturns(nil, errTest)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.NotNil(t, err)
+				require.Nil(t, err)
 			},
 		},
 	} {
