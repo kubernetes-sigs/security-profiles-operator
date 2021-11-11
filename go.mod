@@ -8,7 +8,7 @@ require (
 	github.com/cobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
 	github.com/containers/common v0.46.0
 	github.com/crossplane/crossplane-runtime v0.14.1-0.20210713194031-85b19c28ea88
-	github.com/go-logr/logr v0.4.0
+	github.com/go-logr/logr v1.2.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.4.1
 	github.com/nxadm/tail v1.4.8
 	github.com/pkg/errors v0.9.1
@@ -25,7 +25,7 @@ require (
 	k8s.io/api v0.22.3
 	k8s.io/apimachinery v0.22.3
 	k8s.io/client-go v0.22.3
-	k8s.io/klog/v2 v2.10.0
+	k8s.io/klog/v2 v2.30.0
 	sigs.k8s.io/controller-runtime v0.10.3
 	sigs.k8s.io/controller-tools v0.7.0
 	sigs.k8s.io/mdtoc v1.1.0
