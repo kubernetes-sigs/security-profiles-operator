@@ -157,7 +157,7 @@ func main() {
 			Aliases: []string{"V"},
 			Usage:   "the logging verbosity to be used",
 			Value:   0,
-			EnvVars: []string{"SPO_VERBOSITY"},
+			EnvVars: []string{config.VerbosityEnvKey},
 		},
 	}
 	app.Before = initLogging
