@@ -75,6 +75,7 @@ type BpfRecorder struct {
 	pidsForProfiles          sync.Map
 	profileForMountNamespace sync.Map
 	systemMountNamespace     uint64
+	loadUnloadMutex          sync.RWMutex
 }
 
 type Pid struct {
@@ -93,6 +94,7 @@ func New(logger logr.Logger) *BpfRecorder {
 		profileForContainerIDs:   sync.Map{},
 		pidsForProfiles:          sync.Map{},
 		profileForMountNamespace: sync.Map{},
+		loadUnloadMutex:          sync.RWMutex{},
 	}
 }
 
@@ -224,7 +226,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 
 	res, exist := b.pidsForProfiles.LoadAndDelete(r.Name)
 	if !exist {
-		return nil, errors.Errorf("no PID found for container")
+		return nil, ErrNotFound
 	}
 	pids, ok := res.([]Pid)
 	if !ok {
@@ -239,9 +241,12 @@ func (b *BpfRecorder) SyscallsForProfile(
 	for _, pid := range pids {
 		b.profileForMountNamespace.Delete(pid.mntns)
 
+		b.loadUnloadMutex.RLock()
 		syscalls, err := b.GetValue(b.syscalls, pid.id)
+		b.loadUnloadMutex.RUnlock()
 		if err != nil {
-			return nil, errors.Wrap(err, "no syscalls found for PID")
+			b.logger.Error(err, "no syscalls found for PID", "pid", pid.id)
+			continue
 		}
 
 		for id, set := range syscalls {
@@ -264,9 +269,11 @@ func (b *BpfRecorder) SyscallsForProfile(
 	// Cleanup hashmaps
 	b.logger.Info("Cleaning up BPF hashmaps")
 	for _, pid := range pids {
+		b.loadUnloadMutex.Lock()
 		if err := b.DeleteKey(b.comms, pid.id); err != nil {
 			b.logger.Error(err, "unable to cleanup comms map", "pid", pid.id)
 		}
+		b.loadUnloadMutex.Unlock()
 	}
 
 	return &api.SyscallsResponse{
@@ -527,7 +534,9 @@ func (b *BpfRecorder) trackProfileForPid(pid uint32, mntns uint64, profile inter
 }
 
 func (b *BpfRecorder) commForPid(pid uint32) string {
+	b.loadUnloadMutex.RLock()
 	rawComm, err := b.GetValue(b.comms, pid)
+	b.loadUnloadMutex.RUnlock()
 	if err != nil {
 		b.logger.Error(err, "unable to get command name for PID", "pid", pid)
 	}
@@ -618,10 +627,12 @@ func (b *BpfRecorder) findContainerID(id string) error {
 
 func (b *BpfRecorder) unload() {
 	b.logger.Info("Unloading bpf module")
+	b.loadUnloadMutex.Lock()
 	b.CloseModule(b.syscalls)
 	b.syscalls = nil
 	b.comms = nil
 	os.RemoveAll(b.btfPath)
+	b.loadUnloadMutex.Unlock()
 }
 
 func (b *BpfRecorder) syscallNameForID(id int) (string, error) {

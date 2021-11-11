@@ -34,6 +34,7 @@ import (
 	"github.com/ReneKroon/ttlcache/v2"
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/cobaugh/osrelease"
+	"github.com/pkg/errors"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -160,10 +161,16 @@ func (d *defaultImpl) ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (st
 }
 
 func (d *defaultImpl) GetValue(m *bpf.BPFMap, key uint32) ([]byte, error) {
+	if m == nil {
+		return nil, errors.New("provided bpf map is nil")
+	}
 	return m.GetValue(unsafe.Pointer(&key))
 }
 
 func (d *defaultImpl) DeleteKey(m *bpf.BPFMap, key uint32) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
 	return m.DeleteKey(unsafe.Pointer(&key))
 }
 
