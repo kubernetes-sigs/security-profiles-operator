@@ -35,6 +35,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	api_metrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 )
 
 type FakeImpl struct {
@@ -77,6 +78,19 @@ type FakeImpl struct {
 	bPFLoadObjectReturnsOnCall map[int]struct {
 		result1 error
 	}
+	BpfIncClientStub        func(api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error)
+	bpfIncClientMutex       sync.RWMutex
+	bpfIncClientArgsForCall []struct {
+		arg1 api_metrics.MetricsClient
+	}
+	bpfIncClientReturns struct {
+		result1 api_metrics.Metrics_BpfIncClient
+		result2 error
+	}
+	bpfIncClientReturnsOnCall map[int]struct {
+		result1 api_metrics.Metrics_BpfIncClient
+		result2 error
+	}
 	ChownStub        func(string, int, int) error
 	chownMutex       sync.RWMutex
 	chownArgsForCall []struct {
@@ -88,6 +102,17 @@ type FakeImpl struct {
 		result1 error
 	}
 	chownReturnsOnCall map[int]struct {
+		result1 error
+	}
+	CloseGRPCStub        func(*grpc.ClientConn) error
+	closeGRPCMutex       sync.RWMutex
+	closeGRPCArgsForCall []struct {
+		arg1 *grpc.ClientConn
+	}
+	closeGRPCReturns struct {
+		result1 error
+	}
+	closeGRPCReturnsOnCall map[int]struct {
 		result1 error
 	}
 	CloseModuleStub        func(*libbpfgo.BPFMap)
@@ -120,6 +145,20 @@ type FakeImpl struct {
 	}
 	deleteKeyReturnsOnCall map[int]struct {
 		result1 error
+	}
+	DialMetricsStub        func() (*grpc.ClientConn, context.CancelFunc, error)
+	dialMetricsMutex       sync.RWMutex
+	dialMetricsArgsForCall []struct {
+	}
+	dialMetricsReturns struct {
+		result1 *grpc.ClientConn
+		result2 context.CancelFunc
+		result3 error
+	}
+	dialMetricsReturnsOnCall map[int]struct {
+		result1 *grpc.ClientConn
+		result2 context.CancelFunc
+		result3 error
 	}
 	GetMapStub        func(*libbpfgo.Module, string) (*libbpfgo.BPFMap, error)
 	getMapMutex       sync.RWMutex
@@ -313,6 +352,18 @@ type FakeImpl struct {
 		result1 error
 	}
 	removeAllReturnsOnCall map[int]struct {
+		result1 error
+	}
+	SendMetricStub        func(api_metrics.Metrics_BpfIncClient, *api_metrics.BpfRequest) error
+	sendMetricMutex       sync.RWMutex
+	sendMetricArgsForCall []struct {
+		arg1 api_metrics.Metrics_BpfIncClient
+		arg2 *api_metrics.BpfRequest
+	}
+	sendMetricReturns struct {
+		result1 error
+	}
+	sendMetricReturnsOnCall map[int]struct {
 		result1 error
 	}
 	ServeStub        func(*grpc.Server, net.Listener) error
@@ -603,6 +654,70 @@ func (fake *FakeImpl) BPFLoadObjectReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) BpfIncClient(arg1 api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error) {
+	fake.bpfIncClientMutex.Lock()
+	ret, specificReturn := fake.bpfIncClientReturnsOnCall[len(fake.bpfIncClientArgsForCall)]
+	fake.bpfIncClientArgsForCall = append(fake.bpfIncClientArgsForCall, struct {
+		arg1 api_metrics.MetricsClient
+	}{arg1})
+	stub := fake.BpfIncClientStub
+	fakeReturns := fake.bpfIncClientReturns
+	fake.recordInvocation("BpfIncClient", []interface{}{arg1})
+	fake.bpfIncClientMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) BpfIncClientCallCount() int {
+	fake.bpfIncClientMutex.RLock()
+	defer fake.bpfIncClientMutex.RUnlock()
+	return len(fake.bpfIncClientArgsForCall)
+}
+
+func (fake *FakeImpl) BpfIncClientCalls(stub func(api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error)) {
+	fake.bpfIncClientMutex.Lock()
+	defer fake.bpfIncClientMutex.Unlock()
+	fake.BpfIncClientStub = stub
+}
+
+func (fake *FakeImpl) BpfIncClientArgsForCall(i int) api_metrics.MetricsClient {
+	fake.bpfIncClientMutex.RLock()
+	defer fake.bpfIncClientMutex.RUnlock()
+	argsForCall := fake.bpfIncClientArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) BpfIncClientReturns(result1 api_metrics.Metrics_BpfIncClient, result2 error) {
+	fake.bpfIncClientMutex.Lock()
+	defer fake.bpfIncClientMutex.Unlock()
+	fake.BpfIncClientStub = nil
+	fake.bpfIncClientReturns = struct {
+		result1 api_metrics.Metrics_BpfIncClient
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) BpfIncClientReturnsOnCall(i int, result1 api_metrics.Metrics_BpfIncClient, result2 error) {
+	fake.bpfIncClientMutex.Lock()
+	defer fake.bpfIncClientMutex.Unlock()
+	fake.BpfIncClientStub = nil
+	if fake.bpfIncClientReturnsOnCall == nil {
+		fake.bpfIncClientReturnsOnCall = make(map[int]struct {
+			result1 api_metrics.Metrics_BpfIncClient
+			result2 error
+		})
+	}
+	fake.bpfIncClientReturnsOnCall[i] = struct {
+		result1 api_metrics.Metrics_BpfIncClient
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) Chown(arg1 string, arg2 int, arg3 int) error {
 	fake.chownMutex.Lock()
 	ret, specificReturn := fake.chownReturnsOnCall[len(fake.chownArgsForCall)]
@@ -662,6 +777,67 @@ func (fake *FakeImpl) ChownReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.chownReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) CloseGRPC(arg1 *grpc.ClientConn) error {
+	fake.closeGRPCMutex.Lock()
+	ret, specificReturn := fake.closeGRPCReturnsOnCall[len(fake.closeGRPCArgsForCall)]
+	fake.closeGRPCArgsForCall = append(fake.closeGRPCArgsForCall, struct {
+		arg1 *grpc.ClientConn
+	}{arg1})
+	stub := fake.CloseGRPCStub
+	fakeReturns := fake.closeGRPCReturns
+	fake.recordInvocation("CloseGRPC", []interface{}{arg1})
+	fake.closeGRPCMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) CloseGRPCCallCount() int {
+	fake.closeGRPCMutex.RLock()
+	defer fake.closeGRPCMutex.RUnlock()
+	return len(fake.closeGRPCArgsForCall)
+}
+
+func (fake *FakeImpl) CloseGRPCCalls(stub func(*grpc.ClientConn) error) {
+	fake.closeGRPCMutex.Lock()
+	defer fake.closeGRPCMutex.Unlock()
+	fake.CloseGRPCStub = stub
+}
+
+func (fake *FakeImpl) CloseGRPCArgsForCall(i int) *grpc.ClientConn {
+	fake.closeGRPCMutex.RLock()
+	defer fake.closeGRPCMutex.RUnlock()
+	argsForCall := fake.closeGRPCArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) CloseGRPCReturns(result1 error) {
+	fake.closeGRPCMutex.Lock()
+	defer fake.closeGRPCMutex.Unlock()
+	fake.CloseGRPCStub = nil
+	fake.closeGRPCReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) CloseGRPCReturnsOnCall(i int, result1 error) {
+	fake.closeGRPCMutex.Lock()
+	defer fake.closeGRPCMutex.Unlock()
+	fake.CloseGRPCStub = nil
+	if fake.closeGRPCReturnsOnCall == nil {
+		fake.closeGRPCReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.closeGRPCReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -823,6 +999,65 @@ func (fake *FakeImpl) DeleteKeyReturnsOnCall(i int, result1 error) {
 	fake.deleteKeyReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) DialMetrics() (*grpc.ClientConn, context.CancelFunc, error) {
+	fake.dialMetricsMutex.Lock()
+	ret, specificReturn := fake.dialMetricsReturnsOnCall[len(fake.dialMetricsArgsForCall)]
+	fake.dialMetricsArgsForCall = append(fake.dialMetricsArgsForCall, struct {
+	}{})
+	stub := fake.DialMetricsStub
+	fakeReturns := fake.dialMetricsReturns
+	fake.recordInvocation("DialMetrics", []interface{}{})
+	fake.dialMetricsMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1, ret.result2, ret.result3
+	}
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
+}
+
+func (fake *FakeImpl) DialMetricsCallCount() int {
+	fake.dialMetricsMutex.RLock()
+	defer fake.dialMetricsMutex.RUnlock()
+	return len(fake.dialMetricsArgsForCall)
+}
+
+func (fake *FakeImpl) DialMetricsCalls(stub func() (*grpc.ClientConn, context.CancelFunc, error)) {
+	fake.dialMetricsMutex.Lock()
+	defer fake.dialMetricsMutex.Unlock()
+	fake.DialMetricsStub = stub
+}
+
+func (fake *FakeImpl) DialMetricsReturns(result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+	fake.dialMetricsMutex.Lock()
+	defer fake.dialMetricsMutex.Unlock()
+	fake.DialMetricsStub = nil
+	fake.dialMetricsReturns = struct {
+		result1 *grpc.ClientConn
+		result2 context.CancelFunc
+		result3 error
+	}{result1, result2, result3}
+}
+
+func (fake *FakeImpl) DialMetricsReturnsOnCall(i int, result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+	fake.dialMetricsMutex.Lock()
+	defer fake.dialMetricsMutex.Unlock()
+	fake.DialMetricsStub = nil
+	if fake.dialMetricsReturnsOnCall == nil {
+		fake.dialMetricsReturnsOnCall = make(map[int]struct {
+			result1 *grpc.ClientConn
+			result2 context.CancelFunc
+			result3 error
+		})
+	}
+	fake.dialMetricsReturnsOnCall[i] = struct {
+		result1 *grpc.ClientConn
+		result2 context.CancelFunc
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *FakeImpl) GetMap(arg1 *libbpfgo.Module, arg2 string) (*libbpfgo.BPFMap, error) {
@@ -1760,6 +1995,68 @@ func (fake *FakeImpl) RemoveAllReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) SendMetric(arg1 api_metrics.Metrics_BpfIncClient, arg2 *api_metrics.BpfRequest) error {
+	fake.sendMetricMutex.Lock()
+	ret, specificReturn := fake.sendMetricReturnsOnCall[len(fake.sendMetricArgsForCall)]
+	fake.sendMetricArgsForCall = append(fake.sendMetricArgsForCall, struct {
+		arg1 api_metrics.Metrics_BpfIncClient
+		arg2 *api_metrics.BpfRequest
+	}{arg1, arg2})
+	stub := fake.SendMetricStub
+	fakeReturns := fake.sendMetricReturns
+	fake.recordInvocation("SendMetric", []interface{}{arg1, arg2})
+	fake.sendMetricMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) SendMetricCallCount() int {
+	fake.sendMetricMutex.RLock()
+	defer fake.sendMetricMutex.RUnlock()
+	return len(fake.sendMetricArgsForCall)
+}
+
+func (fake *FakeImpl) SendMetricCalls(stub func(api_metrics.Metrics_BpfIncClient, *api_metrics.BpfRequest) error) {
+	fake.sendMetricMutex.Lock()
+	defer fake.sendMetricMutex.Unlock()
+	fake.SendMetricStub = stub
+}
+
+func (fake *FakeImpl) SendMetricArgsForCall(i int) (api_metrics.Metrics_BpfIncClient, *api_metrics.BpfRequest) {
+	fake.sendMetricMutex.RLock()
+	defer fake.sendMetricMutex.RUnlock()
+	argsForCall := fake.sendMetricArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) SendMetricReturns(result1 error) {
+	fake.sendMetricMutex.Lock()
+	defer fake.sendMetricMutex.Unlock()
+	fake.SendMetricStub = nil
+	fake.sendMetricReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SendMetricReturnsOnCall(i int, result1 error) {
+	fake.sendMetricMutex.Lock()
+	defer fake.sendMetricMutex.Unlock()
+	fake.SendMetricStub = nil
+	if fake.sendMetricReturnsOnCall == nil {
+		fake.sendMetricReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.sendMetricReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) Serve(arg1 *grpc.Server, arg2 net.Listener) error {
 	fake.serveMutex.Lock()
 	ret, specificReturn := fake.serveReturnsOnCall[len(fake.serveArgsForCall)]
@@ -2252,14 +2549,20 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.attachTracepointMutex.RUnlock()
 	fake.bPFLoadObjectMutex.RLock()
 	defer fake.bPFLoadObjectMutex.RUnlock()
+	fake.bpfIncClientMutex.RLock()
+	defer fake.bpfIncClientMutex.RUnlock()
 	fake.chownMutex.RLock()
 	defer fake.chownMutex.RUnlock()
+	fake.closeGRPCMutex.RLock()
+	defer fake.closeGRPCMutex.RUnlock()
 	fake.closeModuleMutex.RLock()
 	defer fake.closeModuleMutex.RUnlock()
 	fake.containerIDForPIDMutex.RLock()
 	defer fake.containerIDForPIDMutex.RUnlock()
 	fake.deleteKeyMutex.RLock()
 	defer fake.deleteKeyMutex.RUnlock()
+	fake.dialMetricsMutex.RLock()
+	defer fake.dialMetricsMutex.RUnlock()
 	fake.getMapMutex.RLock()
 	defer fake.getMapMutex.RUnlock()
 	fake.getNameMutex.RLock()
@@ -2290,6 +2593,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.readlinkMutex.RUnlock()
 	fake.removeAllMutex.RLock()
 	defer fake.removeAllMutex.RUnlock()
+	fake.sendMetricMutex.RLock()
+	defer fake.sendMetricMutex.RUnlock()
 	fake.serveMutex.RLock()
 	defer fake.serveMutex.RUnlock()
 	fake.setTTLMutex.RLock()

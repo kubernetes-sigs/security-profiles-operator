@@ -17,6 +17,7 @@ limitations under the License.
 package e2e_test
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"regexp"
@@ -63,6 +64,14 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 
 	e.kubectl("delete", "-f", exampleRecordingBpfPath)
 	e.kubectl("delete", "sp", resourceName)
+
+	metrics := e.getSpodMetrics()
+	e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_bpf_total{`+
+		`mount_namespace=".*",`+
+		`node=".*",`+
+		`profile="%s-.*"} \d+`,
+		resourceName,
+	), metrics)
 }
 
 func (e *e2e) testCaseBpfRecorderMultiContainer() {

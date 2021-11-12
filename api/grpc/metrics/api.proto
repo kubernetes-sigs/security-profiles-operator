@@ -21,6 +21,7 @@ option go_package = "/api_metrics";
 
 service Metrics {
     rpc AuditInc(stream AuditRequest) returns (EmptyResponse) {}
+    rpc BpfInc(stream BpfRequest) returns (EmptyResponse) {}
 }
 
 message AuditRequest {
@@ -35,6 +36,12 @@ message AuditRequest {
     string container = 5;
     string executable = 6;
     string syscall = 7;
+}
+
+message BpfRequest {
+    string node = 1;
+    uint64 mount_namespace = 2;
+    string profile = 3;
 }
 
 message EmptyResponse {}
