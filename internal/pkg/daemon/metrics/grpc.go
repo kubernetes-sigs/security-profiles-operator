@@ -111,3 +111,22 @@ func (m *Metrics) AuditInc(
 		}
 	}
 }
+
+// BpfInc updates the metrics for the bpf counter.
+func (m *Metrics) BpfInc(stream api.Metrics_BpfIncServer) error {
+	for {
+		r, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return stream.SendAndClose(&api.EmptyResponse{})
+		}
+		if err != nil {
+			return errors.Wrap(err, "record bpf metrics")
+		}
+
+		m.IncSeccompProfileBpf(
+			r.GetNode(),
+			r.GetProfile(),
+			r.GetMountNamespace(),
+		)
+	}
+}
