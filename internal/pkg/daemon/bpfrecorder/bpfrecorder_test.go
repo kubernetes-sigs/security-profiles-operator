@@ -32,6 +32,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -71,6 +72,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
 				mock.GoArchReturns(validGoArch)
+				mock.DialMetricsReturns(&grpc.ClientConn{}, func() {}, nil)
 			},
 			assert: func(err error) {
 				require.Nil(t, err)
@@ -132,6 +134,26 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
 				mock.ChownReturns(errTest)
+			},
+			assert: func(err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // connectMetrics:DialMetrics fails
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GetenvReturns(node)
+				mock.DialMetricsReturns(nil, nil, errTest)
+			},
+			assert: func(err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // connectMetrics:BpfIncClient fails
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GetenvReturns(node)
+				mock.DialMetricsReturns(&grpc.ClientConn{}, func() {}, nil)
+				mock.CloseGRPCReturns(errTest)
+				mock.BpfIncClientReturns(nil, errTest)
 			},
 			assert: func(err error) {
 				require.NotNil(t, err)

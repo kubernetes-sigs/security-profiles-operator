@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -151,6 +152,64 @@ func TestSeccompProfile(t *testing.T) {
 				ctrDelete, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
 				require.Nil(t, err)
 				require.Equal(t, 2, getMetricValue(ctrDelete))
+			},
+		},
+	} {
+		mock := &metricsfakes.FakeImpl{}
+		sut := New()
+		sut.impl = mock
+
+		tc.when(sut)
+		tc.then(sut)
+	}
+}
+
+func TestSeccompProfileBpf(t *testing.T) {
+	t.Parallel()
+
+	const (
+		node           = "node"
+		profile        = "profile"
+		mountNamespace = 1
+	)
+
+	getMetricValue := func(col prometheus.Collector) int {
+		c := make(chan prometheus.Metric, 1)
+		col.Collect(c)
+		m := dto.Metric{}
+		err := (<-c).Write(&m)
+		require.Nil(t, err)
+		return int(*m.Counter.Value)
+	}
+
+	for _, tc := range []struct {
+		when func(m *Metrics)
+		then func(m *Metrics)
+	}{
+		{ // single update
+			when: func(m *Metrics) {
+				m.IncSeccompProfileBpf(node, profile, mountNamespace)
+			},
+			then: func(m *Metrics) {
+				ctr, err := m.metricSeccompProfileBpf.GetMetricWithLabelValues(
+					node, fmt.Sprint(mountNamespace), profile,
+				)
+				require.Nil(t, err)
+				require.Equal(t, 1, getMetricValue(ctr))
+			},
+		},
+		{ // multiple update
+			when: func(m *Metrics) {
+				m.IncSeccompProfileBpf(node, profile, mountNamespace)
+				m.IncSeccompProfileBpf(node, profile, mountNamespace)
+				m.IncSeccompProfileBpf(node, profile, mountNamespace)
+			},
+			then: func(m *Metrics) {
+				ctrUpdate, err := m.metricSeccompProfileBpf.GetMetricWithLabelValues(
+					node, fmt.Sprint(mountNamespace), profile,
+				)
+				require.Nil(t, err)
+				require.Equal(t, 3, getMetricValue(ctrUpdate))
 			},
 		},
 	} {

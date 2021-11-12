@@ -42,6 +42,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -80,6 +82,10 @@ type impl interface {
 	GoArch() string
 	Readlink(string) (string, error)
 	Atoi(string) (int, error)
+	DialMetrics() (*grpc.ClientConn, context.CancelFunc, error)
+	BpfIncClient(client apimetrics.MetricsClient) (apimetrics.Metrics_BpfIncClient, error)
+	CloseGRPC(*grpc.ClientConn) error
+	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
 }
 
 func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
@@ -212,4 +218,25 @@ func (d *defaultImpl) Readlink(name string) (string, error) {
 
 func (d *defaultImpl) Atoi(s string) (int, error) {
 	return strconv.Atoi(s)
+}
+
+func (d *defaultImpl) DialMetrics() (*grpc.ClientConn, context.CancelFunc, error) {
+	return metrics.Dial()
+}
+
+func (d *defaultImpl) BpfIncClient(
+	client apimetrics.MetricsClient,
+) (apimetrics.Metrics_BpfIncClient, error) {
+	return client.BpfInc(context.Background())
+}
+
+func (d *defaultImpl) CloseGRPC(conn *grpc.ClientConn) error {
+	return conn.Close()
+}
+
+func (d *defaultImpl) SendMetric(
+	client apimetrics.Metrics_BpfIncClient,
+	in *apimetrics.BpfRequest,
+) error {
+	return client.Send(in)
 }

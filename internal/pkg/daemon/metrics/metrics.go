@@ -44,6 +44,7 @@ const (
 	metricNameSeccompProfileAudit  = "seccomp_profile_audit_total"
 	metricNameSelinuxProfileAudit  = "selinux_profile_audit_total"
 	metricNameAppArmorProfileAudit = "apparmor_profile_audit_total"
+	metricNameSeccompProfileBpf    = "seccomp_profile_bpf_total"
 	metricNameSeccompProfileError  = "seccomp_profile_error_total"
 	metricNameSelinuxProfileError  = "selinux_profile_error_total"
 	metricNameAppArmorProfileError = "apparmor_profile_error_total"
@@ -53,14 +54,16 @@ const (
 	metricLabelValueProfileDelete = "delete"
 
 	// Metrics labels.
-	metricLabelOperation   = "operation"
-	metricsLabelContainer  = "container"
-	metricsLabelExecutable = "executable"
-	metricsLabelNamespace  = "namespace"
-	metricsLabelNode       = "node"
-	metricsLabelPod        = "pod"
-	metricsLabelReason     = "reason"
-	metricsLabelSyscall    = "syscall"
+	metricLabelOperation       = "operation"
+	metricsLabelContainer      = "container"
+	metricsLabelExecutable     = "executable"
+	metricsLabelNamespace      = "namespace"
+	metricsLabelNode           = "node"
+	metricsLabelPod            = "pod"
+	metricsLabelReason         = "reason"
+	metricsLabelSyscall        = "syscall"
+	metricsLabelProfile        = "profile"
+	metricsLabelMountNamespace = "mount_namespace"
 
 	// HandlerPath is the default path for serving metrics.
 	HandlerPath = "/metrics-spod"
@@ -73,6 +76,7 @@ type Metrics struct {
 	log                        logr.Logger
 	metricSeccompProfile       *prometheus.CounterVec
 	metricSeccompProfileAudit  *prometheus.CounterVec
+	metricSeccompProfileBpf    *prometheus.CounterVec
 	metricSeccompProfileError  *prometheus.CounterVec
 	metricSelinuxProfile       *prometheus.CounterVec
 	metricSelinuxProfileAudit  *prometheus.CounterVec
@@ -108,6 +112,18 @@ func New() *Metrics {
 				metricsLabelContainer,
 				metricsLabelExecutable,
 				metricsLabelSyscall,
+			},
+		),
+		metricSeccompProfileBpf: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameSeccompProfileBpf,
+				Namespace: metricNamespace,
+				Help:      "Counter about seccomp profile bpf events, requires the bpf recorder to be enabled.",
+			},
+			[]string{
+				metricsLabelNode,
+				metricsLabelMountNamespace,
+				metricsLabelProfile,
 			},
 		),
 		metricSeccompProfileError: prometheus.NewCounterVec(
@@ -188,6 +204,7 @@ func (m *Metrics) Register() error {
 	for name, collector := range map[string]prometheus.Collector{
 		metricNameSeccompProfile:       m.metricSeccompProfile,
 		metricNameSeccompProfileAudit:  m.metricSeccompProfileAudit,
+		metricNameSeccompProfileBpf:    m.metricSeccompProfileBpf,
 		metricNameSeccompProfileError:  m.metricSeccompProfileError,
 		metricNameSelinuxProfile:       m.metricSelinuxProfile,
 		metricNameSelinuxProfileAudit:  m.metricSelinuxProfileAudit,
@@ -230,6 +247,16 @@ func (m *Metrics) IncSeccompProfileAudit(
 ) {
 	m.metricSeccompProfileAudit.WithLabelValues(
 		node, namespace, pod, container, executable, syscall,
+	).Inc()
+}
+
+// IncSeccompProfileBpf increments the seccomp profile bpf counter for the
+// provided labels.
+func (m *Metrics) IncSeccompProfileBpf(
+	node, profile string, mountNamespace uint64,
+) {
+	m.metricSeccompProfileBpf.WithLabelValues(
+		node, fmt.Sprint(mountNamespace), profile,
 	).Inc()
 }
 

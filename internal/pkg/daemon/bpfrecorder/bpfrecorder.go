@@ -43,6 +43,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
+	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -76,6 +77,7 @@ type BpfRecorder struct {
 	profileForMountNamespace sync.Map
 	systemMountNamespace     uint64
 	loadUnloadMutex          sync.RWMutex
+	metricsClient            apimetrics.Metrics_BpfIncClient
 }
 
 type Pid struct {
@@ -147,6 +149,18 @@ func (b *BpfRecorder) Run() error {
 		return errors.Wrap(err, "change GRPC socket owner to rootless")
 	}
 
+	b.logger.Info("Connecting to metrics server")
+	conn, cancel, err := b.connectMetrics()
+	if err != nil {
+		return errors.Wrap(err, "connect to metrics server")
+	}
+	if cancel != nil {
+		defer cancel()
+	}
+	if conn != nil {
+		defer b.CloseGRPC(conn) // nolint: errcheck
+	}
+
 	b.systemMountNamespace, err = b.findSystemMountNamespace()
 	if err != nil {
 		return errors.Wrap(err, "retrieve current mount namespace")
@@ -167,6 +181,31 @@ func (b *BpfRecorder) Run() error {
 	api.RegisterBpfRecorderServer(grpcServer, b)
 
 	return b.Serve(grpcServer, listener)
+}
+
+func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.CancelFunc, err error) {
+	if err := util.Retry(func() (err error) {
+		conn, cancel, err = b.DialMetrics()
+		if err != nil {
+			return errors.Wrap(err, "connecting to local metrics GRPC server")
+		}
+		client := apimetrics.NewMetricsClient(conn)
+
+		b.metricsClient, err = b.BpfIncClient(client)
+		if err != nil {
+			cancel()
+			if err := b.CloseGRPC(conn); err != nil {
+				b.logger.Error(err, "Unable to close GRPC connection")
+			}
+			return errors.Wrap(err, "create metrics bpf client")
+		}
+
+		return nil
+	}, func(err error) bool { return true }); err != nil {
+		return nil, nil, errors.Wrap(err, "connect to local GRPC server")
+	}
+
+	return conn, cancel, nil
 }
 
 // Dial can be used to connect to the default GRPC server by creating a new
@@ -527,6 +566,15 @@ func (b *BpfRecorder) findSystemMountNamespace() (uint64, error) {
 
 func (b *BpfRecorder) trackProfileForPid(pid uint32, mntns uint64, profile interface{}) {
 	comm := b.commForPid(pid)
+
+	if err := b.SendMetric(b.metricsClient, &apimetrics.BpfRequest{
+		Node:           b.nodeName,
+		Profile:        profile.(string),
+		MountNamespace: mntns,
+	}); err != nil {
+		b.logger.Error(err, "Unable to update metrics")
+	}
+
 	pids, _ := b.pidsForProfiles.LoadOrStore(profile, []Pid{})
 	b.pidsForProfiles.Store(profile, append(
 		pids.([]Pid), Pid{id: pid, comm: comm, mntns: mntns}),
