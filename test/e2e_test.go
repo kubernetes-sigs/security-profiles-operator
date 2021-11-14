@@ -145,6 +145,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogs()
 		e.testCaseProfileRecordingMultiContainerSELinuxLogs()
+		e.testCaseProfileRecordingSelinuxDeploymentLogs()
 	})
 
 	e.Run("cluster-wide: Seccomp: Verify profile recording bpf", func() {

@@ -229,13 +229,70 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 	)
 }
 
+func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
+	e.logEnricherOnlyTestCase()
+	e.selinuxOnlyTestCase()
+
+	e.profileRecordingSelinuxDeployment(
+		exampleRecordingSelinuxLogsPath,
+		regexp.MustCompile(`(?s)"perm"="listen"`+
+			`.*"perm"="listen"`),
+	)
+}
+
 func (e *e2e) profileRecordingDeployment(
 	recording string, waitConditions ...*regexp.Regexp,
 ) {
 	e.logf("Creating recording for deployment test")
 	e.kubectl("create", "-f", recording)
 
+	since, deployName := e.createRecordingTestDeployment()
+
+	if waitConditions != nil {
+		e.waitForEnricherLogs(since, waitConditions...)
+	}
+
+	e.kubectl("delete", "deploy", deployName)
+
+	const profileName0 = recordingName + "-nginx-0"
+	const profileName1 = recordingName + "-nginx-1"
+	profile0 := e.retryGetSeccompProfile(profileName0)
+	profile1 := e.retryGetSeccompProfile(profileName1)
+	e.Contains(profile0, "setuid")
+	e.Contains(profile1, "setuid")
+
+	e.kubectl("delete", "-f", recording)
+	e.kubectl("delete", "sp", profileName0, profileName1)
+}
+
+func (e *e2e) profileRecordingSelinuxDeployment(
+	recording string, waitConditions ...*regexp.Regexp,
+) {
+	e.logf("Creating recording for deployment test")
+	e.kubectl("create", "-f", recording)
+
+	since, deployName := e.createRecordingTestDeployment()
+	if waitConditions != nil {
+		e.waitForEnricherLogs(since, waitConditions...)
+	}
+
+	e.kubectl("delete", "deploy", deployName)
+
+	const profileName0 = selinuxRecordingName + "-nginx-0"
+	const profileName1 = selinuxRecordingName + "-nginx-1"
+	profile0 := e.retryGetSelinuxProfile(profileName0)
+	profile1 := e.retryGetSelinuxProfile(profileName1)
+	e.Contains(profile0, "(allow process http_port_t ( tcp_socket ( name_bind )))")
+	e.Contains(profile1, "(allow process http_port_t ( tcp_socket ( name_bind )))")
+
+	e.kubectl("delete", "-f", recording)
+	e.kubectl("delete", "selinuxprofile", profileName0, profileName1)
+}
+
+func (e *e2e) createRecordingTestDeployment() (since time.Time, podName string) {
 	e.logf("Creating test deployment")
+	podName = "my-deployment"
+
 	const testDeployment = `
 apiVersion: apps/v1
 kind: Deployment
@@ -255,6 +312,7 @@ spec:
       - name: nginx
         image: quay.io/security-profiles-operator/test-nginx:1.19.1
 `
+
 	testFile, err := ioutil.TempFile(os.TempDir(), "recording-deployment*.yaml")
 	e.Nil(err)
 	_, err = testFile.Write([]byte(testDeployment))
@@ -262,29 +320,15 @@ spec:
 	err = testFile.Close()
 	e.Nil(err)
 
+	since = time.Now()
 	e.kubectl("create", "-f", testFile.Name())
 
 	const deployName = "my-deployment"
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
-
-	if waitConditions != nil {
-		since := time.Now()
-		e.waitForEnricherLogs(since, waitConditions...)
-	}
-
-	e.kubectl("delete", "deploy", deployName)
-
-	const profileName0 = recordingName + "-nginx-0"
-	const profileName1 = recordingName + "-nginx-1"
-	profile0 := e.retryGetSeccompProfile(profileName0)
-	profile1 := e.retryGetSeccompProfile(profileName1)
-	e.Contains(profile0, "setuid")
-	e.Contains(profile1, "setuid")
-
-	e.kubectl("delete", "-f", recording)
 	e.Nil(os.Remove(testFile.Name()))
-	e.kubectl("delete", "sp", profileName0, profileName1)
+
+	return since, podName
 }
 
 func (e *e2e) retryGetProfile(kind string, args ...string) string {
