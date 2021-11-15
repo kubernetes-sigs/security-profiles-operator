@@ -317,6 +317,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 
 	return &api.SyscallsResponse{
 		Syscalls: sortUnique(result),
+		GoArch:   runtime.GOARCH,
 	}, nil
 }
 
