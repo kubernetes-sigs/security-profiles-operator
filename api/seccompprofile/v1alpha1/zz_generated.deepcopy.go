@@ -104,14 +104,8 @@ func (in *SeccompProfileSpec) DeepCopyInto(out *SeccompProfileSpec) {
 	*out = *in
 	if in.Architectures != nil {
 		in, out := &in.Architectures, &out.Architectures
-		*out = make([]*Arch, len(*in))
-		for i := range *in {
-			if (*in)[i] != nil {
-				in, out := &(*in)[i], &(*out)[i]
-				*out = new(Arch)
-				**out = **in
-			}
-		}
+		*out = make([]Arch, len(*in))
+		copy(*out, *in)
 	}
 	if in.Syscalls != nil {
 		in, out := &in.Syscalls, &out.Syscalls
