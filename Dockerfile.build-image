@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y wget xz-utils
 
 ENV USER=root
 
-ARG NIX_VERSION=2.3.16
+ARG NIX_VERSION=2.4
 RUN wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
     tar xf nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
     groupadd -r -g 30000 nixbld && \
