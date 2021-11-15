@@ -47,7 +47,7 @@ type SeccompProfileSpec struct {
 	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG
 	DefaultAction seccomp.Action `json:"defaultAction"`
 	// the architecture used for system calls
-	Architectures []*Arch `json:"architectures,omitempty"`
+	Architectures []Arch `json:"architectures,omitempty"`
 	// match a syscall in seccomp. While this property is OPTIONAL, some values
 	// of defaultAction are not useful without syscalls entries. For example,
 	// if defaultAction is SCMP_ACT_KILL and syscalls is empty or unset, the

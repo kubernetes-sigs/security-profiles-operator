@@ -184,7 +184,7 @@ func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconc
 // OutputProfile represents the on-disk form of the SeccompProfile.
 type OutputProfile struct {
 	DefaultAction seccomp.Action      `json:"defaultAction"`
-	Architectures []*v1alpha1.Arch    `json:"architectures,omitempty"`
+	Architectures []v1alpha1.Arch     `json:"architectures,omitempty"`
 	Syscalls      []*v1alpha1.Syscall `json:"syscalls,omitempty"`
 	Flags         []*v1alpha1.Flag    `json:"flags,omitempty"`
 }
