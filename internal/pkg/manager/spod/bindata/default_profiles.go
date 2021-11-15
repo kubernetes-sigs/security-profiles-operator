@@ -24,12 +24,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
-var (
-	archX8664 = v1alpha1.Arch(seccomp.ArchX86_64)
-	archX86   = v1alpha1.Arch(seccomp.ArchX86)
-	archX32   = v1alpha1.Arch(seccomp.ArchX32)
-)
-
 // DefaultProfiles returns the default profiles deployed by the operator.
 func DefaultProfiles() []*v1alpha1.SeccompProfile {
 	namespace := config.GetOperatorNamespace()
@@ -53,7 +47,11 @@ func DefaultProfiles() []*v1alpha1.SeccompProfile {
 			},
 			Spec: v1alpha1.SeccompProfileSpec{
 				DefaultAction: seccomp.ActErrno,
-				Architectures: []*v1alpha1.Arch{&archX8664, &archX86, &archX32},
+				Architectures: []v1alpha1.Arch{
+					v1alpha1.Arch(seccomp.ArchX86_64),
+					v1alpha1.Arch(seccomp.ArchX86),
+					v1alpha1.Arch(seccomp.ArchX32),
+				},
 				Syscalls: []*v1alpha1.Syscall{
 					{
 						Action: seccomp.ActAllow,
