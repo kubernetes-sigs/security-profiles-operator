@@ -84,7 +84,7 @@ dependencies:
       match: k8s.gcr.io/build-image/debian-base
 
   - name: nix
-    version: 2.3.16
+    version: 2.4
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION
