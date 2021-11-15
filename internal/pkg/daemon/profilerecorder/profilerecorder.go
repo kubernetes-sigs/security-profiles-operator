@@ -526,8 +526,14 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		)
 	}
 
+	arch, err := goArchToSeccompArch(response.GoArch)
+	if err != nil {
+		return errors.Wrap(err, "get seccomp arch")
+	}
+
 	profileSpec := v1alpha1.SeccompProfileSpec{
 		DefaultAction: seccomp.ActErrno,
+		Architectures: []v1alpha1.Arch{arch},
 		Syscalls: []*v1alpha1.Syscall{{
 			Action: seccomp.ActAllow,
 			Names:  response.GetSyscalls(),
@@ -678,8 +684,14 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			return errors.Wrap(err, "get syscalls for profile")
 		}
 
+		arch, err := goArchToSeccompArch(response.GoArch)
+		if err != nil {
+			return errors.Wrap(err, "get seccomp arch")
+		}
+
 		profileSpec := v1alpha1.SeccompProfileSpec{
 			DefaultAction: seccomp.ActErrno,
+			Architectures: []v1alpha1.Arch{arch},
 			Syscalls: []*v1alpha1.Syscall{{
 				Action: seccomp.ActAllow,
 				Names:  response.GetSyscalls(),
@@ -935,4 +947,12 @@ func ctxt2type(ctx string) (string, error) {
 		return "", errors.New("Malformed SELinux context")
 	}
 	return elems[2], nil
+}
+
+func goArchToSeccompArch(goarch string) (v1alpha1.Arch, error) {
+	seccompArch, err := seccomp.GoArchToSeccompArch(goarch)
+	if err != nil {
+		return "", errors.Wrap(err, "convert golang to seccomp arch")
+	}
+	return v1alpha1.Arch(seccompArch), nil
 }

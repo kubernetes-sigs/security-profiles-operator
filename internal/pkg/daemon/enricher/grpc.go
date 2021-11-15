@@ -18,6 +18,7 @@ package enricher
 
 import (
 	"context"
+	"runtime"
 
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -36,7 +37,10 @@ func (e *Enricher) Syscalls(
 			"no syscalls recorded for profile: %v", r.GetProfile(),
 		)
 	}
-	return &api.SyscallsResponse{Syscalls: syscalls.(sets.String).List()}, nil
+	return &api.SyscallsResponse{
+		Syscalls: syscalls.(sets.String).List(),
+		GoArch:   runtime.GOARCH,
+	}, nil
 }
 
 // ResetSyscalls removes the syscalls for a provided profile.

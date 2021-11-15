@@ -32,6 +32,7 @@ message SyscallsRequest {
 
 message SyscallsResponse {
     repeated string syscalls = 1;
+    string go_arch = 2;
 }
 
 message AvcRequest {
