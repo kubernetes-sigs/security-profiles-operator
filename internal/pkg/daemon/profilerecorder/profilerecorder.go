@@ -51,7 +51,7 @@ import (
 	bpfrecorderapi "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
-	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	selinuxv1lpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -431,7 +431,7 @@ func (r *RecorderReconciler) collectLocalProfiles(
 			return errors.Wrap(err, "extract profile name")
 		}
 
-		profile := &v1alpha1.SeccompProfile{
+		profile := &seccompprofileapi.SeccompProfile{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      profileName,
 				Namespace: name.Namespace,
@@ -531,16 +531,16 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		return errors.Wrap(err, "get seccomp arch")
 	}
 
-	profileSpec := v1alpha1.SeccompProfileSpec{
+	profileSpec := seccompprofileapi.SeccompProfileSpec{
 		DefaultAction: seccomp.ActErrno,
-		Architectures: []v1alpha1.Arch{arch},
-		Syscalls: []*v1alpha1.Syscall{{
+		Architectures: []seccompprofileapi.Arch{arch},
+		Syscalls: []*seccompprofileapi.Syscall{{
 			Action: seccomp.ActAllow,
 			Names:  response.GetSyscalls(),
 		}},
 	}
 
-	profile := &v1alpha1.SeccompProfile{
+	profile := &seccompprofileapi.SeccompProfile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      profileName,
 			Namespace: namespace,
@@ -689,10 +689,10 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			return errors.Wrap(err, "get seccomp arch")
 		}
 
-		profileSpec := v1alpha1.SeccompProfileSpec{
+		profileSpec := seccompprofileapi.SeccompProfileSpec{
 			DefaultAction: seccomp.ActErrno,
-			Architectures: []v1alpha1.Arch{arch},
-			Syscalls: []*v1alpha1.Syscall{{
+			Architectures: []seccompprofileapi.Arch{arch},
+			Syscalls: []*seccompprofileapi.Syscall{{
 				Action: seccomp.ActAllow,
 				Names:  response.GetSyscalls(),
 			}},
@@ -704,7 +704,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			return errors.Wrap(err, "extract profile name")
 		}
 
-		profile := &v1alpha1.SeccompProfile{
+		profile := &seccompprofileapi.SeccompProfile{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      profileName,
 				Namespace: name.Namespace,
@@ -949,10 +949,10 @@ func ctxt2type(ctx string) (string, error) {
 	return elems[2], nil
 }
 
-func goArchToSeccompArch(goarch string) (v1alpha1.Arch, error) {
+func goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, error) {
 	seccompArch, err := seccomp.GoArchToSeccompArch(goarch)
 	if err != nil {
 		return "", errors.Wrap(err, "convert golang to seccomp arch")
 	}
-	return v1alpha1.Arch(seccompArch), nil
+	return seccompprofileapi.Arch(seccompArch), nil
 }

@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
-	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -44,7 +44,7 @@ type impl interface {
 	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
 	SetDecoder(*admission.Decoder)
 	DecodePod(admission.Request) (*corev1.Pod, error)
-	GetSeccompProfile(context.Context, types.NamespacedName) (*seccompprofilev1alpha1.SeccompProfile, error)
+	GetSeccompProfile(context.Context, types.NamespacedName) (*seccompprofileapi.SeccompProfile, error)
 }
 
 func (d *defaultImpl) ListProfileBindings(
@@ -86,8 +86,8 @@ func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
 
 func (d *defaultImpl) GetSeccompProfile(
 	ctx context.Context, key types.NamespacedName,
-) (*seccompprofilev1alpha1.SeccompProfile, error) {
-	seccompProfile := &seccompprofilev1alpha1.SeccompProfile{}
+) (*seccompprofileapi.SeccompProfile, error) {
+	seccompProfile := &seccompprofileapi.SeccompProfile{}
 	err := d.client.Get(ctx, key, seccompProfile)
 	return seccompProfile, errors.Wrap(err, "get seccomp profile")
 }

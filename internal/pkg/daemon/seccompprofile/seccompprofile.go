@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
-	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/atomic"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -98,7 +98,7 @@ func (r *Reconciler) Name() string {
 
 // SchemeBuilder returns the API scheme of the controller.
 func (r *Reconciler) SchemeBuilder() *scheme.Builder {
-	return v1alpha1.SchemeBuilder
+	return seccompprofileapi.SchemeBuilder
 }
 
 // Setup adds a controller that reconciles seccomp profiles.
@@ -116,7 +116,7 @@ func (r *Reconciler) Setup(
 	// Register the regular reconciler to manage SeccompProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("profile").
-		For(&v1alpha1.SeccompProfile{}).
+		For(&seccompprofileapi.SeccompProfile{}).
 		Complete(r)
 }
 
@@ -161,7 +161,7 @@ func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconc
 		logger.Error(err, fmt.Sprintf("node %q does not support seccomp", os.Getenv(config.NodeNameEnvKey)))
 		if r.record != nil {
 			r.metrics.IncSeccompProfileError(reasonSeccompNotSupported)
-			r.record.Event(&v1alpha1.SeccompProfile{},
+			r.record.Event(&seccompprofileapi.SeccompProfile{},
 				event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey),
 					"node does not support seccomp"))
 		}
@@ -172,7 +172,7 @@ func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconc
 		return reconcile.Result{}, nil
 	}
 
-	seccompProfile := &v1alpha1.SeccompProfile{}
+	seccompProfile := &seccompprofileapi.SeccompProfile{}
 	if err := r.client.Get(ctx, req.NamespacedName, seccompProfile); err != nil {
 		// Expected to find a SeccompProfile, return an error and requeue
 		return reconcile.Result{}, errors.Wrap(util.IgnoreNotFound(err), errGetProfile)
@@ -183,13 +183,13 @@ func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconc
 
 // OutputProfile represents the on-disk form of the SeccompProfile.
 type OutputProfile struct {
-	DefaultAction seccomp.Action      `json:"defaultAction"`
-	Architectures []v1alpha1.Arch     `json:"architectures,omitempty"`
-	Syscalls      []*v1alpha1.Syscall `json:"syscalls,omitempty"`
-	Flags         []*v1alpha1.Flag    `json:"flags,omitempty"`
+	DefaultAction seccomp.Action               `json:"defaultAction"`
+	Architectures []seccompprofileapi.Arch     `json:"architectures,omitempty"`
+	Syscalls      []*seccompprofileapi.Syscall `json:"syscalls,omitempty"`
+	Flags         []*seccompprofileapi.Flag    `json:"flags,omitempty"`
 }
 
-func unionSyscalls(baseSyscalls, appliedSyscalls []*v1alpha1.Syscall) []*v1alpha1.Syscall {
+func unionSyscalls(baseSyscalls, appliedSyscalls []*seccompprofileapi.Syscall) []*seccompprofileapi.Syscall {
 	allSyscalls := make(map[seccomp.Action]map[string]bool)
 	for _, b := range baseSyscalls {
 		allSyscalls[b.Action] = make(map[string]bool)
@@ -205,9 +205,9 @@ func unionSyscalls(baseSyscalls, appliedSyscalls []*v1alpha1.Syscall) []*v1alpha
 			allSyscalls[s.Action][n] = true
 		}
 	}
-	finalSyscalls := make([]*v1alpha1.Syscall, 0, len(appliedSyscalls)+len(baseSyscalls))
+	finalSyscalls := make([]*seccompprofileapi.Syscall, 0, len(appliedSyscalls)+len(baseSyscalls))
 	for action, names := range allSyscalls {
-		syscall := v1alpha1.Syscall{Action: action}
+		syscall := seccompprofileapi.Syscall{Action: action}
 		for n := range names {
 			syscall.Names = append(syscall.Names, n)
 		}
@@ -217,7 +217,7 @@ func unionSyscalls(baseSyscalls, appliedSyscalls []*v1alpha1.Syscall) []*v1alpha
 }
 
 func (r *Reconciler) mergeBaseProfile(
-	ctx context.Context, sp *v1alpha1.SeccompProfile, l logr.Logger,
+	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
 ) (OutputProfile, error) {
 	op := OutputProfile{
 		DefaultAction: sp.Spec.DefaultAction,
@@ -229,7 +229,7 @@ func (r *Reconciler) mergeBaseProfile(
 		op.Syscalls = sp.Spec.Syscalls
 		return op, nil
 	}
-	baseProfile := &v1alpha1.SeccompProfile{}
+	baseProfile := &seccompprofileapi.SeccompProfile{}
 	if err := r.client.Get(
 		ctx, util.NamespacedName(baseProfileName, sp.GetNamespace()), baseProfile); err != nil {
 		l.Error(err, "cannot retrieve base profile "+baseProfileName)
@@ -242,7 +242,7 @@ func (r *Reconciler) mergeBaseProfile(
 }
 
 func (r *Reconciler) reconcileSeccompProfile(
-	ctx context.Context, sp *v1alpha1.SeccompProfile, l logr.Logger) (reconcile.Result, error) {
+	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger) (reconcile.Result, error) {
 	if sp == nil {
 		return reconcile.Result{}, errors.New(errSeccompProfileNil)
 	}
@@ -327,7 +327,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 func (r *Reconciler) reconcileDeletion(
 	ctx context.Context,
-	sp *v1alpha1.SeccompProfile,
+	sp *seccompprofileapi.SeccompProfile,
 	nsc *nodestatus.StatusClient,
 ) (reconcile.Result, error) {
 	hasStatus, err := nsc.Exists(ctx)
@@ -376,7 +376,7 @@ func (r *Reconciler) reconcileDeletion(
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) handleDeletion(sp *v1alpha1.SeccompProfile) error {
+func (r *Reconciler) handleDeletion(sp *seccompprofileapi.SeccompProfile) error {
 	profilePath := sp.GetProfilePath()
 	err := os.Remove(profilePath)
 	if os.IsNotExist(err) {

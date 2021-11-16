@@ -80,7 +80,7 @@ I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 Use the `SeccompProfile` kind to create profiles. Example:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   namespace: my-namespace
@@ -175,7 +175,7 @@ application-specific profiles that only specify syscalls that are required on
 top of the base calls needed for the container runtime. For example:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   namespace: my-namespace
@@ -206,7 +206,7 @@ example seccomp profile, create a ProfileBinding in the same namespace as both
 the Pod and the SeccompProfile:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: ProfileBinding
 metadata:
   name: nginx-binding
@@ -705,7 +705,7 @@ I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from f
 To be able to trace an application, we have to create a logging profile like this:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: log

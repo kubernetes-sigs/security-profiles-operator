@@ -34,7 +34,7 @@ import (
 
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
-	seccompv1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding/bindingfakes"
 )
@@ -105,8 +105,8 @@ func TestHandle(t *testing.T) {
 					},
 				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.GetSeccompProfileReturns(&seccompv1alpha1.SeccompProfile{
-					Status: seccompv1alpha1.SeccompProfileStatus{
+				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
+					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebasev1alpha1.StatusBase{
 							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
 						},
@@ -143,8 +143,8 @@ func TestHandle(t *testing.T) {
 					},
 				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.GetSeccompProfileReturns(&seccompv1alpha1.SeccompProfile{
-					Status: seccompv1alpha1.SeccompProfileStatus{
+				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
+					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebasev1alpha1.StatusBase{
 							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
 						},
@@ -181,8 +181,8 @@ func TestHandle(t *testing.T) {
 					},
 				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.GetSeccompProfileReturns(&seccompv1alpha1.SeccompProfile{
-					Status: seccompv1alpha1.SeccompProfileStatus{},
+				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
+					Status: seccompprofileapi.SeccompProfileStatus{},
 				}, nil)
 			},
 			request: admission.Request{
@@ -246,8 +246,8 @@ func TestHandle(t *testing.T) {
 					},
 				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.GetSeccompProfileReturns(&seccompv1alpha1.SeccompProfile{
-					Status: seccompv1alpha1.SeccompProfileStatus{
+				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
+					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebasev1alpha1.StatusBase{
 							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
 						},
@@ -285,8 +285,8 @@ func TestHandle(t *testing.T) {
 					},
 				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
-				mock.GetSeccompProfileReturns(&seccompv1alpha1.SeccompProfile{
-					Status: seccompv1alpha1.SeccompProfileStatus{
+				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
+					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebasev1alpha1.StatusBase{
 							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
 						},

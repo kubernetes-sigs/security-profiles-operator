@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
-	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -169,7 +169,7 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 func (p *podSeccompBinder) getSeccompProfile(
 	ctx context.Context,
 	key types.NamespacedName,
-) (seccompProfile *seccompprofilev1alpha1.SeccompProfile, err error) {
+) (seccompProfile *seccompprofileapi.SeccompProfile, err error) {
 	err = util.Retry(
 		func() (retryErr error) {
 			seccompProfile, retryErr = p.GetSeccompProfile(ctx, key)
@@ -189,7 +189,7 @@ func (p *podSeccompBinder) getSeccompProfile(
 }
 
 func (p *podSeccompBinder) addSecurityContext(
-	c *corev1.Container, seccompProfile *seccompprofilev1alpha1.SeccompProfile) bool {
+	c *corev1.Container, seccompProfile *seccompprofileapi.SeccompProfile) bool {
 	podChanged := false
 	profileRef := seccompProfile.Status.LocalhostProfile
 	sp := corev1.SeccompProfile{

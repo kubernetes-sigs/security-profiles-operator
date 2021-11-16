@@ -26,7 +26,7 @@ import (
 
 	"sigs.k8s.io/release-utils/command"
 
-	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -316,11 +316,11 @@ func (e *e2e) getWorkerNodes() []string {
 	return nodes
 }
 
-func (e *e2e) getSeccompProfile(name, namespace string) *v1alpha1.SeccompProfile {
+func (e *e2e) getSeccompProfile(name, namespace string) *seccompprofileapi.SeccompProfile {
 	seccompProfileJSON := e.kubectl(
 		"-n", namespace, "get", "seccompprofile", name, "-o", "json",
 	)
-	seccompProfile := &v1alpha1.SeccompProfile{}
+	seccompProfile := &seccompprofileapi.SeccompProfile{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileJSON), seccompProfile))
 	return seccompProfile
 }

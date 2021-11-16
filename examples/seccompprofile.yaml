@@ -1,5 +1,5 @@
 ---
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: profile-block-all
@@ -8,7 +8,7 @@ metadata:
 spec:
   defaultAction: "SCMP_ACT_ERRNO"
 ---
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: profile-complain-unsafe
@@ -17,7 +17,7 @@ metadata:
 spec:
   defaultAction: "SCMP_ACT_LOG"
 ---
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: profile-allow-unsafe
@@ -26,7 +26,7 @@ metadata:
 spec:
   defaultAction: "SCMP_ACT_ALLOW"
 ---
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: profile-complain-block-high-risk

@@ -273,7 +273,7 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 		--skip api/apparmorprofile/v1alpha1/zz_generated.deepcopy.go \
 		--skip api/profilebinding/v1alpha1/zz_generated.deepcopy.go \
 		--skip api/profilerecording/v1alpha1/zz_generated.deepcopy.go \
-		--skip api/seccompprofile/v1alpha1/zz_generated.deepcopy.go \
+		--skip api/seccompprofile/v1beta1/zz_generated.deepcopy.go \
 		--skip api/secprofnodestatus/v1alpha1/zz_generated.deepcopy.go \
 		--skip api/selinuxprofile/v1alpha1/zz_generated.deepcopy.go \
 		--skip api/spod/v1alpha1/zz_generated.deepcopy.go \

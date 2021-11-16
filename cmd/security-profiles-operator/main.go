@@ -35,7 +35,7 @@ import (
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
-	seccompprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selinuxprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
@@ -215,7 +215,7 @@ func runManager(ctx *cli.Context) error {
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add profilebinding API to scheme")
 	}
-	if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add seccompprofile API to scheme")
 	}
 	if err := selinuxprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
@@ -386,7 +386,7 @@ func runWebhook(ctx *cli.Context) error {
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add profilebinding API to scheme")
 	}
-	if err := seccompprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add seccompprofile API to scheme")
 	}
 	if err := profilerecording1alpha1.AddToScheme(mgr.GetScheme()); err != nil {

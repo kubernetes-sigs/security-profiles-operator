@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
-	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -89,7 +89,7 @@ func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (rec
 		return reconcile.Result{}, errors.Wrap(err, "looking up pod in pod reconciler")
 	}
 	if kerrors.IsNotFound(err) { // this is a pod deletion, so update all seccomp profiles that were using it
-		seccompProfiles := &v1alpha1.SeccompProfileList{}
+		seccompProfiles := &seccompprofileapi.SeccompProfileList{}
 		if err = r.client.List(ctx, seccompProfiles, client.MatchingFields{linkedPodsKey: podID}); err != nil {
 			return reconcile.Result{}, errors.Wrap(err, "listing SeccompProfiles for deleted pod")
 		}
@@ -105,7 +105,7 @@ func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (rec
 		profileElements := strings.Split(profileIndex, "/")
 		profileNamespace := profileElements[1]
 		profileName := strings.TrimSuffix(profileElements[2], ".json")
-		seccompProfile := &v1alpha1.SeccompProfile{}
+		seccompProfile := &seccompprofileapi.SeccompProfile{}
 		if err := r.client.Get(ctx, util.NamespacedName(profileName, profileNamespace), seccompProfile); err != nil {
 			logger.Error(err, "could not get seccomp profile for pod")
 			return reconcile.Result{}, errors.Wrap(err, "looking up SeccompProfile for new or updated pod")
@@ -120,7 +120,7 @@ func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (rec
 
 // updatePodReferences updates a SeccompProfile with the identifiers of pods using it and ensures
 // it has a finalizer indicating it is in use to prevent it from being deleted.
-func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *v1alpha1.SeccompProfile) error {
+func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *seccompprofileapi.SeccompProfile) error {
 	linkedPods := &corev1.PodList{}
 	profileReference := fmt.Sprintf("operator/%s/%s.json", sp.GetNamespace(), sp.GetName())
 	err := r.client.List(ctx, linkedPods, client.MatchingFields{spOwnerKey: profileReference})
