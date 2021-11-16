@@ -37,7 +37,7 @@ import (
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	selinuxprofilev1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
+	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
@@ -218,7 +218,7 @@ func runManager(ctx *cli.Context) error {
 	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add seccompprofile API to scheme")
 	}
-	if err := selinuxprofilev1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := selxv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add selinuxprofile API to scheme")
 	}
 	if err := monitoringv1.AddToScheme(mgr.GetScheme()); err != nil {
@@ -277,7 +277,9 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 	}
 
 	if ctx.Bool(selinuxFlag) {
-		controllers = append(controllers, selinuxprofile.NewController())
+		controllers = append(controllers,
+			selinuxprofile.NewController(),
+			selinuxprofile.NewRawController())
 	}
 
 	return controllers

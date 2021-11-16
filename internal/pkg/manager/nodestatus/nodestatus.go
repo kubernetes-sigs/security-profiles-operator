@@ -37,7 +37,7 @@ import (
 	pbv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	selinuxv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
+	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -93,6 +93,9 @@ func NewStatusReconciler(cli client.Client, log logr.Logger, record event.Record
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=delete;get;update;patch
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
 // nolint:lll
@@ -231,7 +234,7 @@ func (r *StatusReconciler) getProfileFromStatus(
 	case "SeccompProfile":
 		prof = &seccompprofileapi.SeccompProfile{}
 	case "SelinuxProfile":
-		prof = &selinuxv1alpha1.SelinuxProfile{}
+		prof = &selxv1alpha2.SelinuxProfile{}
 	default:
 		return nil, errors.Wrapf(ErrUnkownOwnerKind, "getting owner profile")
 	}

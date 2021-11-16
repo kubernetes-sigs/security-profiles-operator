@@ -19,7 +19,6 @@ package profilerecorder
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -52,7 +51,7 @@ import (
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	selinuxv1lpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
+	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
@@ -585,9 +584,16 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 		)
 	}
 
-	selinuxProfileSpec := selinuxv1lpha1.SelinuxProfileSpec{}
+	selinuxProfileSpec := selxv1alpha2.SelinuxProfileSpec{
+		Inherit: []selxv1alpha2.PolicyRef{
+			{
+				Kind: selxv1alpha2.SystemPolicyKind,
+				Name: "container",
+			},
+		},
+	}
 
-	profile := &selinuxv1lpha1.SelinuxProfile{
+	profile := &selxv1alpha2.SelinuxProfile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      profileName,
 			Namespace: namespace,
@@ -595,7 +601,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 		Spec: selinuxProfileSpec,
 	}
 
-	selinuxProfileSpec.Policy, err = r.formatSelinuxProfile(profile, response)
+	selinuxProfileSpec.Allow, err = r.formatSelinuxProfile(profile, response)
 	if err != nil {
 		r.log.Error(err, "Cannot format selinuxprofile")
 		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
@@ -631,18 +637,18 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 }
 
 func (r *RecorderReconciler) formatSelinuxProfile(
-	selinuxprofile *selinuxv1lpha1.SelinuxProfile,
+	selinuxprofile *selxv1alpha2.SelinuxProfile,
 	avcResponse *enricherapi.AvcResponse,
-) (string, error) {
+) (selxv1alpha2.Allow, error) {
 	seBuilder := newSeProfileBuilder(selinuxprofile.GetPolicyUsage(), r.log)
 
 	if err := seBuilder.AddAvcList(avcResponse.GetAvc()); err != nil {
-		return "", errors.Wrap(err, "consuming AVCs")
+		return nil, errors.Wrap(err, "consuming AVCs")
 	}
 
 	sePol, err := seBuilder.Format()
 	if err != nil {
-		return "", errors.Wrap(err, "building policy")
+		return nil, errors.Wrap(err, "building policy")
 	}
 
 	return sePol, nil
@@ -832,19 +838,20 @@ func parseBpfAnnotations(annotations map[string]string) (res []profileToCollect,
 
 type seProfileBuilder struct {
 	permMap       map[string]sets.String
-	keys          []string
 	usageCtx      string
-	policyBuilder strings.Builder
+	policyBuilder selxv1alpha2.Allow
 	log           logr.Logger
+	// used to optimize sorting
+	keys []string
 }
 
 func newSeProfileBuilder(usageCtx string, log logr.Logger) *seProfileBuilder {
 	return &seProfileBuilder{
 		permMap:       make(map[string]sets.String),
-		keys:          make([]string, 0),
 		usageCtx:      usageCtx,
-		policyBuilder: strings.Builder{},
+		policyBuilder: make(selxv1alpha2.Allow),
 		log:           log,
+		keys:          make([]string, 0),
 	}
 }
 
@@ -881,33 +888,34 @@ func (sb *seProfileBuilder) addAvc(avc *enricherapi.AvcResponse_SelinuxAvc) erro
 	return nil
 }
 
-func (sb *seProfileBuilder) Format() (string, error) {
-	sb.policyBuilder.WriteString("(blockinherit container)\n")
-
+func (sb *seProfileBuilder) Format() (selxv1alpha2.Allow, error) {
 	sort.Strings(sb.keys)
 	for _, key := range sb.keys {
 		val := sb.permMap[key]
-
 		if err := sb.writeLineFromKeyVal(key, val); err != nil {
-			return "", errors.Wrap(err, "writing policy line from key-value pair")
+			return nil, errors.Wrap(err, "writing policy line from key-value pair")
 		}
 	}
 
-	return sb.policyBuilder.String(), nil
+	return sb.policyBuilder, nil
 }
 
 func (sb *seProfileBuilder) writeLineFromKeyVal(key string, val sets.String) error {
-	tclass, tcontext := sb.targetClassCtx(key)
-	if tclass == "" || tcontext == "" {
+	tclass, setype := sb.targetClassCtx(key)
+	if tclass == "" || setype == "" {
 		return errors.New("empty context or class")
 	}
 
-	policyLine, err := sb.policyLine(tclass, tcontext, val)
-	if err != nil {
-		return errors.Wrap(err, "writing policy line")
+	// If we haven't parsed the type, ensure we have space for it
+	_, haveType := sb.policyBuilder[selxv1alpha2.LabelKey(setype)]
+	if !haveType {
+		sb.policyBuilder[selxv1alpha2.LabelKey(setype)] = make(map[selxv1alpha2.ObjectClassKey]selxv1alpha2.PermissionSet)
 	}
-	sb.policyBuilder.WriteString(policyLine)
 
+	typePerms := sb.policyBuilder[selxv1alpha2.LabelKey(setype)]
+	l := val.List()
+	sort.Strings(l)
+	typePerms[selxv1alpha2.ObjectClassKey(tclass)] = selxv1alpha2.PermissionSet(l)
 	return nil
 }
 
@@ -916,22 +924,11 @@ func (sb *seProfileBuilder) targetClassCtx(key string) (tclass, tcontext string)
 	tclass = splitkey[0]
 	tcontext = splitkey[1]
 	if tcontext == config.SelinuxPermissiveProfile {
-		// rewrite the context to what the usage of the policy would have been
-		tcontext = sb.usageCtx
+		// rewrite the context to reference itself.
+		// We replace this when writing the policy.
+		tcontext = selxv1alpha2.AllowSelf
 	}
 	return
-}
-
-func (sb *seProfileBuilder) policyLine(tclass, tcontext string, perms sets.String) (string, error) {
-	if perms == nil || len(perms) == 0 {
-		return "", errors.New("nil permissions set or no permissions")
-	}
-
-	permsList := perms.List()
-	sort.Strings(permsList)
-
-	policyLine := fmt.Sprintf("(allow process %s ( %s ( %s )))\n", tcontext, tclass, strings.Join(permsList, " "))
-	return policyLine, nil
 }
 
 func ctxt2type(ctx string) (string, error) {
