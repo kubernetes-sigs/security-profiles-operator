@@ -13,6 +13,7 @@
   - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-profilerecordings)
     - [Hook based recording](#hook-based-recording)
     - [Log enricher based recording](#log-enricher-based-recording)
+    - [eBPF based recording](#ebpf-based-recording)
 - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
 - [Using metrics](#using-metrics)
   - [Available metrics](#available-metrics)
@@ -493,6 +494,112 @@ Then the operator will reconcile two seccomp profiles:
 NAME                   STATUS      AGE
 test-recording-nginx   Installed   15s
 test-recording-redis   Installed   15s
+```
+
+#### eBPF based recording
+
+The operator also supports an [eBPF](https://ebpf.io) based recorder, which
+only supports seccomp profiles for now.
+
+To use the recorder, enable it by patching the `spod` configuration:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableBpfRecorder":true}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
+We can verify that the recorder is up and running after the spod rollout has
+been finished:
+
+```
+> kubectl logs ds/spod -c bpf-recorder
+Found 6 pods, using pod/spod-h7dpm
+I1115 12:02:45.991786  110307 main.go:182]  "msg"="Set logging verbosity to 0"
+I1115 12:02:45.991901  110307 deleg.go:130] setup "msg"="starting component: bpf-recorder"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.9" "libseccomp"="2.5.1" "platform"="linux/amd64" "version"="0.4.0-dev"
+I1115 12:02:45.991955  110307 bpfrecorder.go:105] bpf-recorder "msg"="Setting up caches with expiry of 1h0m0s"
+I1115 12:02:45.991973  110307 bpfrecorder.go:121] bpf-recorder "msg"="Starting log-enricher on node: ip-10-0-228-234.us-east-2.compute.internal"
+I1115 12:02:45.994232  110307 bpfrecorder.go:152] bpf-recorder "msg"="Connecting to metrics server"
+I1115 12:02:48.373469  110307 bpfrecorder.go:168] bpf-recorder "msg"="Got system mount namespace: 4026531840"
+I1115 12:02:48.373518  110307 bpfrecorder.go:170] bpf-recorder "msg"="Doing BPF load/unload self-test"
+I1115 12:02:48.373529  110307 bpfrecorder.go:336] bpf-recorder "msg"="Loading bpf module"
+I1115 12:02:48.373570  110307 bpfrecorder.go:403] bpf-recorder "msg"="Using system btf file"
+I1115 12:02:48.373770  110307 bpfrecorder.go:356] bpf-recorder "msg"="Loading bpf object from module"
+I1115 12:02:48.403766  110307 bpfrecorder.go:362] bpf-recorder "msg"="Getting bpf program sys_enter"
+I1115 12:02:48.403792  110307 bpfrecorder.go:368] bpf-recorder "msg"="Attaching bpf tracepoint"
+I1115 12:02:48.406205  110307 bpfrecorder.go:373] bpf-recorder "msg"="Getting syscalls map"
+I1115 12:02:48.406287  110307 bpfrecorder.go:379] bpf-recorder "msg"="Getting comms map"
+I1115 12:02:48.406862  110307 bpfrecorder.go:396] bpf-recorder "msg"="Module successfully loaded, watching for events"
+I1115 12:02:48.406908  110307 bpfrecorder.go:677] bpf-recorder "msg"="Unloading bpf module"
+I1115 12:02:48.411636  110307 bpfrecorder.go:176] bpf-recorder "msg"="Starting GRPC API server"
+```
+
+The recorder does a system sanity check on startup to ensure everything works as
+expected. This includes a `load` and `unload` of the BPF module. If this fails,
+please open an issue find out what went wrong.
+
+To record seccomp profiles by using the BPF recorder, create a
+`ProfileRecording` which is using `recorder: bpf`:
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileRecording
+metadata:
+  name: my-recording
+spec:
+  kind: SeccompProfile
+  recorder: bpf
+  podSelector:
+    matchLabels:
+      app: my-app
+```
+
+Then we can create a workload to be recorded, for example this one:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+  labels:
+    app: my-app
+spec:
+  containers:
+    - name: nginx
+      image: quay.io/security-profiles-operator/test-nginx:1.19.1
+```
+
+If the pod is up and running:
+
+```
+> kubectl get pods
+NAME     READY   STATUS    RESTARTS   AGE
+my-pod   1/1     Running   0          10s
+```
+
+Then the BPF recorder should indicate that it found the container:
+
+```
+> kubectl -n security-profiles-operator logs --since=1m ds/spod log-enricher
+…
+I1115 12:12:30.029216   66106 bpfrecorder.go:654] bpf-recorder "msg"="Found container ID in cluster"  "containerID"="c2e10af47011f6a61cd7e92073db2711796f174af35b34486967588ef7f95fbc" "containerName"="nginx"
+I1115 12:12:30.029264   66106 bpfrecorder.go:539] bpf-recorder "msg"="Saving PID for profile"  "mntns"=4026533352 "pid"=74384 "profile"="my-recording-nginx-1636978341"
+I1115 12:12:30.029428   66106 bpfrecorder.go:512] bpf-recorder "msg"="Using short path via tracked mount namespace"  "mntns"=4026533352 "pid"=74403 "profile"="my-recording-nginx-1636978341"
+I1115 12:12:30.029575   66106 bpfrecorder.go:512] bpf-recorder "msg"="Using short path via tracked mount namespace"  "mntns"=4026533352 "pid"=74402 "profile"="my-recording-nginx-1636978341"
+…
+```
+
+Now, if we remove the pod:
+
+```
+> kubectl delete pod my-pod
+```
+
+Then the operator will reconcile the seccomp profile:
+
+```
+> kubectl get sp
+NAME                 STATUS      AGE
+my-recording-nginx   Installed   15s
 ```
 
 ## Restricting to a Single Namespace
