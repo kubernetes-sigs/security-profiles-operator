@@ -21,11 +21,12 @@ import (
 	"path/filepath"
 
 	appsv1 "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -34,9 +35,9 @@ var (
 	truly                           = true
 	userRoot                  int64 = 0
 	userRootless                    = int64(config.UserRootless)
-	hostPathDirectory               = v1.HostPathDirectory
-	hostPathDirectoryOrCreate       = v1.HostPathDirectoryOrCreate
-	hostPathFile                    = v1.HostPathFile
+	hostPathDirectory               = corev1.HostPathDirectory
+	hostPathDirectoryOrCreate       = corev1.HostPathDirectoryOrCreate
+	hostPathFile                    = corev1.HostPathFile
 	metricsPort               int32 = 9443
 	healthzPath                     = "/healthz"
 	metricsCertPath                 = "/var/run/secrets/metrics"
@@ -59,6 +60,41 @@ const (
 	ContainerIDMetrics                         = 4
 )
 
+var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:   config.SPOdName,
+		Labels: map[string]string{"app": config.OperatorName},
+	},
+	Spec: spodv1alpha1.SPODSpec{
+		Verbosity:         0,
+		EnableSelinux:     false,
+		EnableLogEnricher: false,
+		EnableBpfRecorder: false,
+		SelinuxOpts: spodv1alpha1.SelinuxOptions{
+			AllowedSystemProfiles: []string{
+				"container",
+			},
+		},
+		Tolerations: []corev1.Toleration{
+			{
+				Key:      "node-role.kubernetes.io/master",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			},
+			{
+				Key:      "node-role.kubernetes.io/control-plane",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			},
+			{
+				Key:      "node.kubernetes.io/not-ready",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoExecute,
+			},
+		},
+	},
+}
+
 var Manifest = &appsv1.DaemonSet{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:      config.OperatorName,
@@ -71,26 +107,26 @@ var Manifest = &appsv1.DaemonSet{
 				"name": config.SPOdName,
 			},
 		},
-		Template: v1.PodTemplateSpec{
+		Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"openshift.io/scc":         "privileged",
-					v1.SeccompPodAnnotationKey: v1.SeccompProfileRuntimeDefault,
-					v1.SeccompContainerAnnotationKeyPrefix + config.OperatorName: "localhost/security-profiles-operator.json",
+					"openshift.io/scc":             "privileged",
+					corev1.SeccompPodAnnotationKey: corev1.SeccompProfileRuntimeDefault,
+					corev1.SeccompContainerAnnotationKeyPrefix + config.OperatorName: "localhost/security-profiles-operator.json",
 				},
 				Labels: map[string]string{
 					"app":  config.OperatorName,
 					"name": config.SPOdName,
 				},
 			},
-			Spec: v1.PodSpec{
+			Spec: corev1.PodSpec{
 				ServiceAccountName: config.SPOdServiceAccount,
-				InitContainers: []v1.Container{
+				InitContainers: []corev1.Container{
 					{
 						Name:            "non-root-enabler",
 						Args:            []string{"non-root-enabler"},
-						ImagePullPolicy: v1.PullAlways,
-						VolumeMounts: []v1.VolumeMount{
+						ImagePullPolicy: corev1.PullAlways,
+						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "host-varlib-volume",
 								MountPath: "/var/lib",
@@ -105,28 +141,28 @@ var Manifest = &appsv1.DaemonSet{
 								MountPath: metricsCertPath,
 							},
 						},
-						SecurityContext: &v1.SecurityContext{
+						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
 							ReadOnlyRootFilesystem:   &truly,
-							Capabilities: &v1.Capabilities{
-								Drop: []v1.Capability{"ALL"},
-								Add:  []v1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+								Add:  []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
 							},
 							RunAsUser: &userRoot,
-							SELinuxOptions: &v1.SELinuxOptions{
+							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(jaosorior): Use a more restricted selinux type
 								Type: "spc_t",
 							},
 						},
-						Resources: v1.ResourceRequirements{
-							Requests: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("32Mi"),
-								v1.ResourceCPU:              resource.MustParse("100m"),
-								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("32Mi"),
+								corev1.ResourceCPU:              resource.MustParse("100m"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
 							},
-							Limits: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("64Mi"),
-								v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("64Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
 							},
 						},
 					},
@@ -157,7 +193,7 @@ semodule -i /opt/spo-profiles/selinuxd.cil
 semodule -i /opt/spo-profiles/selinuxrecording.cil
 `,
 						},
-						VolumeMounts: []v1.VolumeMount{
+						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "selinux-drop-dir",
 								MountPath: SelinuxDropDirectory,
@@ -180,39 +216,39 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								MountPath: "/var/lib/selinux",
 							},
 						},
-						SecurityContext: &v1.SecurityContext{
+						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
 							ReadOnlyRootFilesystem:   &truly,
-							Capabilities: &v1.Capabilities{
-								Drop: []v1.Capability{"ALL"},
-								Add:  []v1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
+								Add:  []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
 							},
 							RunAsUser: &userRoot,
-							SELinuxOptions: &v1.SELinuxOptions{
+							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(jaosorior): Use a more restricted selinux type
 								Type: "spc_t",
 							},
 						},
-						Resources: v1.ResourceRequirements{
-							Requests: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("32Mi"),
-								v1.ResourceCPU:              resource.MustParse("100m"),
-								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("32Mi"),
+								corev1.ResourceCPU:              resource.MustParse("100m"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
 							},
-							Limits: v1.ResourceList{
+							Limits: corev1.ResourceList{
 								// libsemanage is very resource hungry...
-								v1.ResourceMemory:           resource.MustParse("1024Mi"),
-								v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+								corev1.ResourceMemory:           resource.MustParse("1024Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
 							},
 						},
 					},
 				},
-				Containers: []v1.Container{
+				Containers: []corev1.Container{
 					{
 						Name:            config.OperatorName,
 						Args:            []string{"daemon"},
-						ImagePullPolicy: v1.PullAlways,
-						VolumeMounts: []v1.VolumeMount{
+						ImagePullPolicy: corev1.PullAlways,
+						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "host-operator-volume",
 								MountPath: config.ProfilesRootPath,
@@ -234,43 +270,43 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								MountPath: filepath.Dir(config.GRPCServerSocketMetrics),
 							},
 						},
-						SecurityContext: &v1.SecurityContext{
+						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
 							ReadOnlyRootFilesystem:   &truly,
-							Capabilities: &v1.Capabilities{
-								Drop: []v1.Capability{"ALL"},
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"ALL"},
 							},
 							RunAsUser:  &userRootless,
 							RunAsGroup: &userRootless,
-							SELinuxOptions: &v1.SELinuxOptions{
+							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(jaosorior): Use a more restricted selinux type
 								Type: "spc_t",
 							},
 						},
-						Resources: v1.ResourceRequirements{
-							Requests: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("64Mi"),
-								v1.ResourceCPU:              resource.MustParse("100m"),
-								v1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("64Mi"),
+								corev1.ResourceCPU:              resource.MustParse("100m"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
 							},
-							Limits: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("128Mi"),
-								v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("128Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
 							},
 						},
-						Env: []v1.EnvVar{
+						Env: []corev1.EnvVar{
 							{
 								Name: config.NodeNameEnvKey,
-								ValueFrom: &v1.EnvVarSource{
-									FieldRef: &v1.ObjectFieldSelector{
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
 										FieldPath: "spec.nodeName",
 									},
 								},
 							},
 							{
 								Name: "OPERATOR_NAMESPACE",
-								ValueFrom: &v1.EnvVarSource{
-									FieldRef: &v1.ObjectFieldSelector{
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
 										FieldPath: "metadata.namespace",
 									},
 								},
@@ -281,29 +317,29 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Value: config.SPOdName,
 							},
 						},
-						Ports: []v1.ContainerPort{
+						Ports: []corev1.ContainerPort{
 							{
 								Name:          "liveness-port",
 								ContainerPort: config.HealthProbePort,
-								Protocol:      v1.ProtocolTCP,
+								Protocol:      corev1.ProtocolTCP,
 							},
 						},
-						StartupProbe: &v1.Probe{
-							Handler: v1.Handler{HTTPGet: &v1.HTTPGetAction{
+						StartupProbe: &corev1.Probe{
+							Handler: corev1.Handler{HTTPGet: &corev1.HTTPGetAction{
 								Path:   healthzPath,
 								Port:   intstr.FromString("liveness-port"),
-								Scheme: v1.URISchemeHTTP,
+								Scheme: corev1.URISchemeHTTP,
 							}},
 							FailureThreshold: 10, // nolint: gomnd
 							PeriodSeconds:    3,  // nolint: gomnd
 							TimeoutSeconds:   1,
 							SuccessThreshold: 1,
 						},
-						LivenessProbe: &v1.Probe{
-							Handler: v1.Handler{HTTPGet: &v1.HTTPGetAction{
+						LivenessProbe: &corev1.Probe{
+							Handler: corev1.Handler{HTTPGet: &corev1.HTTPGetAction{
 								Path:   healthzPath,
 								Port:   intstr.FromString("liveness-port"),
-								Scheme: v1.URISchemeHTTP,
+								Scheme: corev1.URISchemeHTTP,
 							}},
 							FailureThreshold: 1,
 							PeriodSeconds:    10, // nolint: gomnd
@@ -321,8 +357,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							"--socket-uid", "0",
 							"--socket-gid", "65535",
 						},
-						ImagePullPolicy: v1.PullAlways,
-						VolumeMounts: []v1.VolumeMount{
+						ImagePullPolicy: corev1.PullAlways,
+						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "selinux-drop-dir",
 								MountPath: SelinuxDropDirectory,
@@ -345,34 +381,34 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								MountPath: "/var/lib/selinux",
 							},
 						},
-						SecurityContext: &v1.SecurityContext{
+						SecurityContext: &corev1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
-							Capabilities: &v1.Capabilities{
-								Add: []v1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
+							Capabilities: &corev1.Capabilities{
+								Add: []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
 							},
-							SELinuxOptions: &v1.SELinuxOptions{
+							SELinuxOptions: &corev1.SELinuxOptions{
 								Type: "selinuxd.process",
 							},
 						},
-						Resources: v1.ResourceRequirements{
-							Requests: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("512Mi"),
-								v1.ResourceCPU:              resource.MustParse("100m"),
-								v1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("512Mi"),
+								corev1.ResourceCPU:              resource.MustParse("100m"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("200Mi"),
 							},
-							Limits: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("1024Mi"),
-								v1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("1024Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
 							},
 						},
 					},
 					{
 						Name:            "log-enricher",
 						Args:            []string{"log-enricher"},
-						ImagePullPolicy: v1.PullAlways,
-						VolumeMounts: []v1.VolumeMount{
+						ImagePullPolicy: corev1.PullAlways,
+						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "host-auditlog-volume",
 								MountPath: filepath.Dir(config.AuditLogPath),
@@ -388,32 +424,32 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								MountPath: filepath.Dir(config.GRPCServerSocketEnricher),
 							},
 						},
-						SecurityContext: &v1.SecurityContext{
+						SecurityContext: &corev1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
 							Privileged:             &truly,
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
-							SELinuxOptions: &v1.SELinuxOptions{
+							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
 								Type: "spc_t",
 							},
 						},
-						Resources: v1.ResourceRequirements{
-							Requests: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("64Mi"),
-								v1.ResourceCPU:              resource.MustParse("50m"),
-								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("64Mi"),
+								corev1.ResourceCPU:              resource.MustParse("50m"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
 							},
-							Limits: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("128Mi"),
-								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("128Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
 							},
 						},
-						Env: []v1.EnvVar{
+						Env: []corev1.EnvVar{
 							{
 								Name: config.NodeNameEnvKey,
-								ValueFrom: &v1.EnvVarSource{
-									FieldRef: &v1.ObjectFieldSelector{
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
 										FieldPath: "spec.nodeName",
 									},
 								},
@@ -423,8 +459,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					{
 						Name:            "bpf-recorder",
 						Args:            []string{"bpf-recorder"},
-						ImagePullPolicy: v1.PullAlways,
-						VolumeMounts: []v1.VolumeMount{
+						ImagePullPolicy: corev1.PullAlways,
+						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "sys-kernel-debug-volume",
 								MountPath: sysKernelDebugPath,
@@ -443,32 +479,32 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								MountPath: filepath.Dir(config.GRPCServerSocketBpfRecorder),
 							},
 						},
-						SecurityContext: &v1.SecurityContext{
+						SecurityContext: &corev1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
 							Privileged:             &truly,
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
-							SELinuxOptions: &v1.SELinuxOptions{
+							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
 								Type: "spc_t",
 							},
 						},
-						Resources: v1.ResourceRequirements{
-							Requests: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("64Mi"),
-								v1.ResourceCPU:              resource.MustParse("50m"),
-								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("64Mi"),
+								corev1.ResourceCPU:              resource.MustParse("50m"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
 							},
-							Limits: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("128Mi"),
-								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("128Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
 							},
 						},
-						Env: []v1.EnvVar{
+						Env: []corev1.EnvVar{
 							{
 								Name: config.NodeNameEnvKey,
-								ValueFrom: &v1.EnvVarSource{
-									FieldRef: &v1.ObjectFieldSelector{
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
 										FieldPath: "spec.nodeName",
 									},
 								},
@@ -478,7 +514,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					{
 						Name:            "metrics",
 						Image:           MetricsImage,
-						ImagePullPolicy: v1.PullIfNotPresent,
+						ImagePullPolicy: corev1.PullIfNotPresent,
 						Args: []string{
 							fmt.Sprintf("--secure-listen-address=0.0.0.0:%d", metricsPort),
 							"--upstream=http://127.0.0.1:8080",
@@ -486,24 +522,24 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							fmt.Sprintf("--tls-cert-file=%s", filepath.Join(metricsCertPath, "tls.crt")),
 							fmt.Sprintf("--tls-private-key-file=%s", filepath.Join(metricsCertPath, "tls.key")),
 						},
-						Resources: v1.ResourceRequirements{
-							Requests: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("32Mi"),
-								v1.ResourceCPU:              resource.MustParse("50m"),
-								v1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("32Mi"),
+								corev1.ResourceCPU:              resource.MustParse("50m"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
 							},
-							Limits: v1.ResourceList{
-								v1.ResourceMemory:           resource.MustParse("128Mi"),
-								v1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("128Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
 							},
 						},
-						SecurityContext: &v1.SecurityContext{
+						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
 						},
-						Ports: []v1.ContainerPort{
+						Ports: []corev1.ContainerPort{
 							{Name: "https", ContainerPort: metricsPort},
 						},
-						VolumeMounts: []v1.VolumeMount{
+						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "metrics-cert-volume",
 								MountPath: metricsCertPath,
@@ -512,13 +548,13 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 				},
-				Volumes: []v1.Volume{
+				Volumes: []corev1.Volume{
 					// /var/lib is used as symlinks cannot be created across
 					// different volumes
 					{
 						Name: "host-varlib-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: "/var/lib",
 								Type: &hostPathDirectory,
 							},
@@ -526,8 +562,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "host-operator-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: "/var/lib/security-profiles-operator",
 								Type: &hostPathDirectoryOrCreate,
 							},
@@ -535,9 +571,9 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "operator-profiles-volume",
-						VolumeSource: v1.VolumeSource{
-							ConfigMap: &v1.ConfigMapVolumeSource{
-								LocalObjectReference: v1.LocalObjectReference{
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{
 									Name: "security-profiles-operator-profile",
 								},
 							},
@@ -545,8 +581,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "selinux-drop-dir",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: SelinuxDropDirectory,
 								Type: &hostPathDirectoryOrCreate,
 							},
@@ -554,8 +590,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "selinuxd-private-volume",
-						VolumeSource: v1.VolumeSource{
-							EmptyDir: &v1.EmptyDirVolumeSource{},
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
 					// The following host mounts only make sense on a SELinux enabled
@@ -563,8 +599,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					// used by any container, so it's OK to define them unconditionally
 					{
 						Name: "host-fsselinux-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: "/sys/fs/selinux",
 								Type: &hostPathDirectory,
 							},
@@ -572,8 +608,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "host-etcselinux-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: "/etc/selinux",
 								Type: &hostPathDirectory,
 							},
@@ -581,8 +617,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "host-varlibselinux-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: "/var/lib/selinux",
 								Type: &hostPathDirectory,
 							},
@@ -590,8 +626,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "profile-recording-output-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: config.ProfileRecordingOutputPath,
 								Type: &hostPathDirectoryOrCreate,
 							},
@@ -599,8 +635,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "host-auditlog-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: filepath.Dir(config.AuditLogPath),
 								Type: &hostPathDirectoryOrCreate,
 							},
@@ -608,8 +644,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "host-syslog-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: filepath.Dir(config.SyslogLogPath),
 								Type: &hostPathDirectoryOrCreate,
 							},
@@ -617,16 +653,16 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "metrics-cert-volume",
-						VolumeSource: v1.VolumeSource{
-							Secret: &v1.SecretVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{
 								SecretName: "metrics-server-cert",
 							},
 						},
 					},
 					{
 						Name: "sys-kernel-debug-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: sysKernelDebugPath,
 								Type: &hostPathDirectory,
 							},
@@ -634,8 +670,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "host-etc-osrelease-volume",
-						VolumeSource: v1.VolumeSource{
-							HostPath: &v1.HostPathVolumeSource{
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
 								Path: etcOSReleasePath,
 								Type: &hostPathFile,
 							},
@@ -643,30 +679,30 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name: "tmp-volume",
-						VolumeSource: v1.VolumeSource{
-							EmptyDir: &v1.EmptyDirVolumeSource{},
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
 					{
 						Name: "grpc-server-volume",
-						VolumeSource: v1.VolumeSource{
-							EmptyDir: &v1.EmptyDirVolumeSource{},
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
 				},
-				Tolerations: []v1.Toleration{
+				Tolerations: []corev1.Toleration{
 					{
-						Effect: v1.TaintEffectNoSchedule,
+						Effect: corev1.TaintEffectNoSchedule,
 						Key:    "node-role.kubernetes.io/master",
 					},
 					{
-						Effect: v1.TaintEffectNoSchedule,
+						Effect: corev1.TaintEffectNoSchedule,
 						Key:    "node-role.kubernetes.io/control-plane",
 					},
 					{
-						Effect:   v1.TaintEffectNoExecute,
+						Effect:   corev1.TaintEffectNoExecute,
 						Key:      "node.kubernetes.io/not-ready",
-						Operator: v1.TolerationOpExists,
+						Operator: corev1.TolerationOpExists,
 					},
 				},
 				NodeSelector: map[string]string{

@@ -26,7 +26,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -80,37 +79,8 @@ func (r *ReconcileSPOd) Setup(
 }
 
 func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
-	obj := &spodv1alpha1.SecurityProfilesOperatorDaemon{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      config.SPOdName,
-			Namespace: config.GetOperatorNamespace(),
-			Labels:    map[string]string{"app": config.OperatorName},
-		},
-		Spec: spodv1alpha1.SPODSpec{
-			Verbosity:         0,
-			EnableSelinux:     false,
-			EnableLogEnricher: false,
-			EnableBpfRecorder: false,
-			Tolerations: []corev1.Toleration{
-				{
-					Key:      "node-role.kubernetes.io/master",
-					Operator: corev1.TolerationOpExists,
-					Effect:   corev1.TaintEffectNoSchedule,
-				},
-				{
-					Key:      "node-role.kubernetes.io/control-plane",
-					Operator: corev1.TolerationOpExists,
-					Effect:   corev1.TaintEffectNoSchedule,
-				},
-				{
-					Key:      "node.kubernetes.io/not-ready",
-					Operator: corev1.TolerationOpExists,
-					Effect:   corev1.TaintEffectNoExecute,
-				},
-			},
-		},
-	}
-
+	obj := bindata.DefaultSPOD.DeepCopy()
+	obj.Namespace = config.GetOperatorNamespace()
 	if err := r.client.Create(ctx, obj); !k8serrors.IsAlreadyExists(err) {
 		return errors.Wrap(err, "create SecurityProfilesOperatorDaemon object")
 	}

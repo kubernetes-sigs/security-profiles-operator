@@ -26,16 +26,41 @@ const (
 	maxNodeIterations      = 3
 	sleepBetweenIterations = 5 * time.Second
 	errorloggerPolicy      = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
 kind: SelinuxProfile
 metadata:
   name: errorlogger
 spec:
-  policy: |
-    (blockinherit container)
-    (allow process var_log_t ( dir ( open read getattr lock search ioctl add_name remove_name write )))
-    (allow process var_log_t ( file ( getattr read write append ioctl lock map open create  )))
-    (allow process var_log_t ( sock_file ( getattr read write append open  )))
+  inherit:
+    - name: container
+  allow:
+    var_log_t:
+      dir:
+        - open
+        - read
+        - getattr
+        - lock
+        - search
+        - ioctl
+        - add_name
+        - remove_name
+        - write
+      file:
+        - getattr
+        - read
+        - write
+        - append
+        - ioctl
+        - lock
+        - map
+        - open
+        - create
+      sock_file:
+        - getattr
+        - read
+        - write
+        - append
+        - open
 `
 
 	// nolint:lll

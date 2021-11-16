@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,13 +22,50 @@ import (
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 )
 
+const (
+	// AllowSelf describes an "allow" entry meant to give
+	// the same process.
+	AllowSelf = "@self"
+)
+
 // Ensure SelinuxProfile implements the StatusBaseUser interface.
 var _ profilebasev1alpha1.StatusBaseUser = &SelinuxProfile{}
 
+type PolicyRef struct {
+	// The Kind of the policy that this inherits from.
+	// Can be one of the policy objects: SelinuxProfile or RawSelinuxProfile.
+	// Or "System" if an already installed policy will be used.
+	// The allowed "System" policies are available in the
+	// SecurityProfilesOpertorDaemon instance.
+	// +kubebuilder:default="System"
+	// +kubebuilder:validation:Enum=System;SelinuxProfile;RawSelinuxProfile;
+	Kind string `json:"kind,omitempty"`
+	// The name of the policy that this inherits from.
+	Name string `json:"name"`
+}
+
 // SelinuxProfileSpec defines the desired state of SelinuxProfile.
 type SelinuxProfileSpec struct {
-	Policy string `json:"policy,omitempty"`
+	// A SELinuxProfile or set of profiles that this inherits from.
+	// Note that they need to be in the same namespace.
+	// +optional
+	Inherit []PolicyRef `json:"inherit,omitempty"`
+	// Defines the allow policy for the profile
+	Allow Allow `json:"allow,omitempty"`
 }
+
+type LabelKey string
+
+func (lk LabelKey) String() string {
+	return string(lk)
+}
+
+type ObjectClassKey string
+
+type PermissionSet []string
+
+// Allow defines the allow policy for the profile.
+type Allow map[LabelKey]map[ObjectClassKey]PermissionSet
 
 // SelinuxProfileStatus defines the observed state of SelinuxProfile.
 type SelinuxProfileStatus struct {
@@ -41,6 +78,7 @@ type SelinuxProfileStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // SelinuxProfile is the Schema for the selinuxprofiles API.
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=selinuxprofiles,scope=Namespaced
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`

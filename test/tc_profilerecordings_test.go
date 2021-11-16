@@ -17,6 +17,7 @@ limitations under the License.
 package e2e_test
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"regexp"
@@ -91,8 +92,8 @@ func (e *e2e) profileRecordingStaticSelinuxPod(recording string, waitConditions 
 	e.kubectl("delete", "pod", podName)
 
 	resourceName := selinuxRecordingName + "-nginx"
-	profile := e.retryGetSelinuxProfile(resourceName)
-	e.Contains(profile, "(allow process http_port_t ( tcp_socket ( name_bind )))")
+	pathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_port_t.tcp_socket}", resourceName)
+	e.Contains(pathresult, "name_bind")
 
 	e.kubectl("delete", "-f", recording)
 
@@ -177,12 +178,12 @@ func (e *e2e) profileRecordingSelinuxMultiContainer(
 	e.kubectl("delete", "pod", podName)
 
 	const profileNameRedis = selinuxRecordingName + "-redis"
-	profileRedis := e.retryGetSelinuxProfile(profileNameRedis)
-	e.Contains(profileRedis, "(allow process redis_port_t ( tcp_socket ( name_bind )))")
+	redispathresult := e.retryGetSelinuxJsonpath("{.spec.allow.redis_port_t.tcp_socket}", profileNameRedis)
+	e.Contains(redispathresult, "name_bind")
 
 	const profileNameNginx = selinuxRecordingName + "-nginx"
-	profileNginx := e.retryGetSelinuxProfile(profileNameNginx)
-	e.Contains(profileNginx, "(allow process http_port_t ( tcp_socket ( name_bind )))")
+	nginxpathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_port_t.tcp_socket}", profileNameNginx)
+	e.Contains(nginxpathresult, "name_bind")
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "selinuxprofile", profileNameRedis, profileNameNginx)
@@ -280,10 +281,10 @@ func (e *e2e) profileRecordingSelinuxDeployment(
 
 	const profileName0 = selinuxRecordingName + "-nginx-0"
 	const profileName1 = selinuxRecordingName + "-nginx-1"
-	profile0 := e.retryGetSelinuxProfile(profileName0)
-	profile1 := e.retryGetSelinuxProfile(profileName1)
-	e.Contains(profile0, "(allow process http_port_t ( tcp_socket ( name_bind )))")
-	e.Contains(profile1, "(allow process http_port_t ( tcp_socket ( name_bind )))")
+	profile0result := e.retryGetSelinuxJsonpath("{.spec.allow.http_port_t.tcp_socket}", profileName0)
+	e.Contains(profile0result, "name_bind")
+	profile1result := e.retryGetSelinuxJsonpath("{.spec.allow.http_port_t.tcp_socket}", profileName1)
+	e.Contains(profile1result, "name_bind")
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "selinuxprofile", profileName0, profileName1)
@@ -339,8 +340,9 @@ func (e *e2e) retryGetSeccompProfile(args ...string) string {
 	return e.retryGetProfile("sp", args...)
 }
 
-func (e *e2e) retryGetSelinuxProfile(args ...string) string {
-	return e.retryGetProfile("selinuxprofile", args...)
+func (e *e2e) retryGetSelinuxJsonpath(jsonpath string, args ...string) string {
+	jsonpatharg := fmt.Sprintf("jsonpath=%s", jsonpath)
+	return e.retryGet(append([]string{"selinuxprofile", "-o", jsonpatharg}, args...)...)
 }
 
 func (e *e2e) createRecordingTestPod() (since time.Time, podName string) {
