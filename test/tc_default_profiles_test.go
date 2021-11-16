@@ -22,7 +22,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
@@ -101,7 +101,7 @@ func (e *e2e) verifyBaseProfileContent(node string, cm *v1.ConfigMap) {
 	e.Contains(content, catOutput)
 }
 
-func (e *e2e) verifyCRDProfileContent(node string, sp *v1alpha1.SeccompProfile) {
+func (e *e2e) verifyCRDProfileContent(node string, sp *seccompprofileapi.SeccompProfile) {
 	e.logf("Verifying %s profile on node %s", sp.Name, node)
 	profilePath := sp.GetProfilePath()
 	catOutput := e.execNode(node, "cat", profilePath)

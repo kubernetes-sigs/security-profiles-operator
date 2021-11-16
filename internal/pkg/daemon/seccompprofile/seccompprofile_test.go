@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
@@ -207,12 +207,12 @@ func TestGetProfilePath(t *testing.T) {
 	cases := []struct {
 		name string
 		want string
-		sp   *v1alpha1.SeccompProfile
+		sp   *seccompprofileapi.SeccompProfile
 	}{
 		{
 			name: "AppendNamespaceAndProfile",
 			want: path.Join(config.ProfilesRootPath, "config-namespace", "file.json"),
-			sp: &v1alpha1.SeccompProfile{
+			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
 					Namespace: "config-namespace",
@@ -222,7 +222,7 @@ func TestGetProfilePath(t *testing.T) {
 		{
 			name: "BlockTraversalAtProfileName",
 			want: path.Join(config.ProfilesRootPath, "ns", "file.json"),
-			sp: &v1alpha1.SeccompProfile{
+			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "../../../../../file.json",
 					Namespace: "ns",
@@ -232,7 +232,7 @@ func TestGetProfilePath(t *testing.T) {
 		{
 			name: "BlockTraversalAtTargetName",
 			want: path.Join(config.ProfilesRootPath, "ns", "file.json"),
-			sp: &v1alpha1.SeccompProfile{
+			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
 					Namespace: "ns",
@@ -242,7 +242,7 @@ func TestGetProfilePath(t *testing.T) {
 		{
 			name: "BlockTraversalAtSPNamespace",
 			want: path.Join(config.ProfilesRootPath, "ns", "file.json"),
-			sp: &v1alpha1.SeccompProfile{
+			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
 					Namespace: "../../../../../ns",
@@ -252,7 +252,7 @@ func TestGetProfilePath(t *testing.T) {
 		{
 			name: "AppendExtension",
 			want: path.Join(config.ProfilesRootPath, "config-namespace", "file.json"),
-			sp: &v1alpha1.SeccompProfile{
+			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file",
 					Namespace: "config-namespace",
@@ -277,26 +277,26 @@ func TestUnionSyscalls(t *testing.T) {
 
 	cases := []struct {
 		name            string
-		baseSyscalls    []*v1alpha1.Syscall
-		appliedSyscalls []*v1alpha1.Syscall
-		want            []*v1alpha1.Syscall
+		baseSyscalls    []*seccompprofileapi.Syscall
+		appliedSyscalls []*seccompprofileapi.Syscall
+		want            []*seccompprofileapi.Syscall
 	}{
 		{
 			name:            "BothEmpty",
-			baseSyscalls:    []*v1alpha1.Syscall{},
-			appliedSyscalls: []*v1alpha1.Syscall{},
-			want:            []*v1alpha1.Syscall{},
+			baseSyscalls:    []*seccompprofileapi.Syscall{},
+			appliedSyscalls: []*seccompprofileapi.Syscall{},
+			want:            []*seccompprofileapi.Syscall{},
 		},
 		{
 			name:         "BaseEmpty",
-			baseSyscalls: []*v1alpha1.Syscall{},
-			appliedSyscalls: []*v1alpha1.Syscall{
+			baseSyscalls: []*seccompprofileapi.Syscall{},
+			appliedSyscalls: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: seccomp.Action("foo"),
 				},
 			},
-			want: []*v1alpha1.Syscall{
+			want: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: seccomp.Action("foo"),
@@ -305,14 +305,14 @@ func TestUnionSyscalls(t *testing.T) {
 		},
 		{
 			name: "AppliedEmpty",
-			baseSyscalls: []*v1alpha1.Syscall{
+			baseSyscalls: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: seccomp.Action("foo"),
 				},
 			},
-			appliedSyscalls: []*v1alpha1.Syscall{},
-			want: []*v1alpha1.Syscall{
+			appliedSyscalls: []*seccompprofileapi.Syscall{},
+			want: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: seccomp.Action("foo"),
@@ -321,19 +321,19 @@ func TestUnionSyscalls(t *testing.T) {
 		},
 		{
 			name: "UniqueActions",
-			baseSyscalls: []*v1alpha1.Syscall{
+			baseSyscalls: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: seccomp.Action("foo"),
 				},
 			},
-			appliedSyscalls: []*v1alpha1.Syscall{
+			appliedSyscalls: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: seccomp.Action("bar"),
 				},
 			},
-			want: []*v1alpha1.Syscall{
+			want: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: seccomp.Action("bar"),
@@ -346,19 +346,19 @@ func TestUnionSyscalls(t *testing.T) {
 		},
 		{
 			name: "OverlappingActionsWithUniqueNames",
-			baseSyscalls: []*v1alpha1.Syscall{
+			baseSyscalls: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: seccomp.Action("foo"),
 				},
 			},
-			appliedSyscalls: []*v1alpha1.Syscall{
+			appliedSyscalls: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"d", "e", "f"},
 					Action: seccomp.Action("foo"),
 				},
 			},
-			want: []*v1alpha1.Syscall{
+			want: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c", "d", "e", "f"},
 					Action: seccomp.Action("foo"),
@@ -367,7 +367,7 @@ func TestUnionSyscalls(t *testing.T) {
 		},
 		{
 			name: "OverlappingActionsWithOverlappingNames",
-			baseSyscalls: []*v1alpha1.Syscall{
+			baseSyscalls: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: seccomp.Action("foo"),
@@ -377,7 +377,7 @@ func TestUnionSyscalls(t *testing.T) {
 					Action: seccomp.Action("bar"),
 				},
 			},
-			appliedSyscalls: []*v1alpha1.Syscall{
+			appliedSyscalls: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"b", "c", "d"},
 					Action: seccomp.Action("foo"),
@@ -387,7 +387,7 @@ func TestUnionSyscalls(t *testing.T) {
 					Action: seccomp.Action("bar"),
 				},
 			},
-			want: []*v1alpha1.Syscall{
+			want: []*seccompprofileapi.Syscall{
 				{
 					Names:  []string{"x", "y", "z"},
 					Action: seccomp.Action("bar"),

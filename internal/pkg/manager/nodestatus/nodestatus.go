@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	pbv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
-	seccompv1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selinuxv1alpha1 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -229,7 +229,7 @@ func (r *StatusReconciler) getProfileFromStatus(
 	var prof pbv1alpha1.StatusBaseUser
 	switch ctrl.Kind {
 	case "SeccompProfile":
-		prof = &seccompv1alpha1.SeccompProfile{}
+		prof = &seccompprofileapi.SeccompProfile{}
 	case "SelinuxProfile":
 		prof = &selinuxv1alpha1.SelinuxProfile{}
 	default:

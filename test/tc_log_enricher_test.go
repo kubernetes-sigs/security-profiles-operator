@@ -33,7 +33,7 @@ func (e *e2e) testCaseLogEnricher([]string) {
 
 	e.logf("Creating test profile")
 	profile := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: %s
