@@ -22,6 +22,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// SelinuxOptions defines options specific to the SELinux
+// functionality of the SecurityProfilesOperator.
+type SelinuxOptions struct {
+	// Lists the profiles coming from the system itself that are
+	// allowed to be inherited by workloads. Use this with care,
+	// as this might provide a lot of permissions depending on the
+	// policy.
+	// +kubebuilder:default={"container"}
+	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
+}
+
 // SPODStatus defines the desired state of SPOD.
 type SPODSpec struct {
 	// Verbosity specifies the logging verbosity of the daemon.
@@ -38,6 +49,9 @@ type SPODSpec struct {
 	// If specified, the SPOD's tolerations.
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// Defines options specific to the SELinux
+	// functionality of the SecurityProfilesOperator
+	SelinuxOpts SelinuxOptions `json:"selinuxOptions,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.

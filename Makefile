@@ -276,7 +276,7 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 		--skip api/profilerecording/v1alpha1/zz_generated.deepcopy.go \
 		--skip api/seccompprofile/v1beta1/zz_generated.deepcopy.go \
 		--skip api/secprofnodestatus/v1alpha1/zz_generated.deepcopy.go \
-		--skip api/selinuxprofile/v1alpha1/zz_generated.deepcopy.go \
+		--skip api/selinuxprofile/v1alpha2/zz_generated.deepcopy.go \
 		--skip api/spod/v1alpha1/zz_generated.deepcopy.go \
 		--skip internal/pkg/daemon/bpfrecorder/bpfrecorderfakes/fake_impl.go \
 		--skip internal/pkg/daemon/enricher/enricherfakes/fake_impl.go \
