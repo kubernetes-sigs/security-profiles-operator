@@ -27,7 +27,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
@@ -55,8 +55,8 @@ func (r *PodReconciler) Setup(
 
 	// Index SeccompProfiles with active pods
 	if err := mgr.GetFieldIndexer().IndexField(
-		ctx, &v1alpha1.SeccompProfile{}, linkedPodsKey, func(rawObj client.Object) []string {
-			sp, ok := rawObj.(*v1alpha1.SeccompProfile)
+		ctx, &seccompprofileapi.SeccompProfile{}, linkedPodsKey, func(rawObj client.Object) []string {
+			sp, ok := rawObj.(*seccompprofileapi.SeccompProfile)
 			if !ok {
 				return []string{}
 			}

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1beta1
 
 import (
 	"path"
@@ -24,12 +24,12 @@ import (
 	"github.com/containers/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 // Ensure SeccompProfile implements the StatusBaseUser interface.
-var _ profilebasev1alpha1.StatusBaseUser = &SeccompProfile{}
+var _ profilebase.StatusBaseUser = &SeccompProfile{}
 
 const (
 	extJSON = ".json"
@@ -102,9 +102,9 @@ type Arg struct {
 
 // SeccompProfileStatus contains status of the deployed SeccompProfile.
 type SeccompProfileStatus struct {
-	profilebasev1alpha1.StatusBase `json:",inline"`
-	Path                           string   `json:"path,omitempty"`
-	ActiveWorkloads                []string `json:"activeWorkloads,omitempty"`
+	profilebase.StatusBase `json:",inline"`
+	Path                   string   `json:"path,omitempty"`
+	ActiveWorkloads        []string `json:"activeWorkloads,omitempty"`
 	// The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
 	// field of a Pod or container spec
 	LocalhostProfile string `json:"localhostProfile,omitempty"`
@@ -127,11 +127,11 @@ type SeccompProfile struct {
 	Status SeccompProfileStatus `json:"status,omitempty"`
 }
 
-func (sp *SeccompProfile) GetStatusBase() *profilebasev1alpha1.StatusBase {
+func (sp *SeccompProfile) GetStatusBase() *profilebase.StatusBase {
 	return &sp.Status.StatusBase
 }
 
-func (sp *SeccompProfile) DeepCopyToStatusBaseIf() profilebasev1alpha1.StatusBaseUser {
+func (sp *SeccompProfile) DeepCopyToStatusBaseIf() profilebase.StatusBaseUser {
 	return sp.DeepCopy()
 }
 

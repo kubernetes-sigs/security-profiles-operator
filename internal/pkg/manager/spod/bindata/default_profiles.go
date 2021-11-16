@@ -20,22 +20,22 @@ import (
 	"github.com/containers/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 // DefaultProfiles returns the default profiles deployed by the operator.
-func DefaultProfiles() []*v1alpha1.SeccompProfile {
+func DefaultProfiles() []*seccompprofileapi.SeccompProfile {
 	namespace := config.GetOperatorNamespace()
 	labels := map[string]string{"app": config.OperatorName}
-	return []*v1alpha1.SeccompProfile{
+	return []*seccompprofileapi.SeccompProfile{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      config.LogEnricherProfile,
 				Namespace: namespace,
 				Labels:    labels,
 			},
-			Spec: v1alpha1.SeccompProfileSpec{
+			Spec: seccompprofileapi.SeccompProfileSpec{
 				DefaultAction: seccomp.ActLog,
 			},
 		},
@@ -45,14 +45,14 @@ func DefaultProfiles() []*v1alpha1.SeccompProfile {
 				Namespace: namespace,
 				Labels:    labels,
 			},
-			Spec: v1alpha1.SeccompProfileSpec{
+			Spec: seccompprofileapi.SeccompProfileSpec{
 				DefaultAction: seccomp.ActErrno,
-				Architectures: []v1alpha1.Arch{
-					v1alpha1.Arch(seccomp.ArchX86_64),
-					v1alpha1.Arch(seccomp.ArchX86),
-					v1alpha1.Arch(seccomp.ArchX32),
+				Architectures: []seccompprofileapi.Arch{
+					seccompprofileapi.Arch(seccomp.ArchX86_64),
+					seccompprofileapi.Arch(seccomp.ArchX86),
+					seccompprofileapi.Arch(seccomp.ArchX32),
 				},
-				Syscalls: []*v1alpha1.Syscall{
+				Syscalls: []*seccompprofileapi.Syscall{
 					{
 						Action: seccomp.ActAllow,
 						Names: []string{

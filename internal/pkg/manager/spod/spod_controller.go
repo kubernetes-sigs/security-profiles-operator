@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
-	sccmpv1alpha1 "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
@@ -319,7 +319,7 @@ func (r *ReconcileSPOd) handleUpdate(
 			Name:      profile.GetName(),
 			Namespace: profile.GetNamespace(),
 		}
-		foundProfile := &sccmpv1alpha1.SeccompProfile{}
+		foundProfile := &seccompprofileapi.SeccompProfile{}
 		var err error
 		if err = r.client.Get(ctx, pKey, foundProfile); err == nil {
 			updatedProfile := foundProfile.DeepCopy()

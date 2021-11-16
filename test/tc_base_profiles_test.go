@@ -36,7 +36,7 @@ func (e *e2e) testCaseBaseProfile([]string) {
 	}
 
 	helloProfile := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: hello

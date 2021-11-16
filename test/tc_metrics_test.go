@@ -39,7 +39,7 @@ func (e *e2e) testCaseSeccompMetrics(nodes []string) {
 	metricUpdates := e.parseMetric(output, operationUpdate)
 
 	profile := fmt.Sprintf(`
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: %s
