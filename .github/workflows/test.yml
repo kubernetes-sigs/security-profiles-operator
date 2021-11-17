@@ -71,6 +71,30 @@ jobs:
         run: $RUN kubectl get nodes -o wide
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-fedora.sh
+      - name: Fetch SPO logs
+        run: $RUN kubectl -n security-profiles-operator logs -l name=security-profiles-operator --tail=-1 > spo.log
+        if: ${{ failure() }}
+      - uses: actions/upload-artifact@v2
+        with:
+          name: e2e-fedora-spo.log
+          path: spo.log
+        if: ${{ failure() }}
+      - name: Fetch spod main logs
+        run: $RUN kubectl -n security-profiles-operator logs -l name=spod -c security-profiles-operator --tail=-1 > spod-spod.log
+        if: ${{ failure() }}
+      - uses: actions/upload-artifact@v2
+        with:
+          name: e2e-fedora-spod-spod.log
+          path: spod-spod.log
+        if: ${{ failure() }}
+      - name: Fetch spod selinuxd logs
+        run: $RUN kubectl logs -n security-profiles-operator -l name=spod -c selinuxd --tail=-1 > spod-selinuxd.log
+        if: ${{ failure() }}
+      - uses: actions/upload-artifact@v2
+        with:
+          name: e2e-fedora-spod-selinuxd.log
+          path: spod-selinuxd.log
+        if: ${{ failure() }}
 
   e2e-ubuntu:
     needs: image
