@@ -535,7 +535,7 @@ I1115 12:02:48.411636  110307 bpfrecorder.go:176] bpf-recorder "msg"="Starting G
 
 The recorder does a system sanity check on startup to ensure everything works as
 expected. This includes a `load` and `unload` of the BPF module. If this fails,
-please open an issue find out what went wrong.
+please open an issue so that we can find out what went wrong.
 
 To record seccomp profiles by using the BPF recorder, create a
 `ProfileRecording` which is using `recorder: bpf`:
