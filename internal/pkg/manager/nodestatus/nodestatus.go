@@ -133,16 +133,6 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 		"Profile.Kind", prof.GetObjectKind().GroupVersionKind(),
 	)
 
-	// get all the other statuses
-	profName := instance.Labels[statusv1alpha1.StatusToProfLabel]
-	if profName == "" {
-		return reconcile.Result{}, errors.New("Unlabeled node status")
-	}
-
-	if prof.GetName() != profName {
-		return reconcile.Result{}, errors.New("status doesn't match owner")
-	}
-
 	// Initialize status if it hasn't happened already
 	if prof.GetStatusBase().Status == "" {
 		lprof.Info("Initializing Profile status")
@@ -154,7 +144,17 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 		return r.reconcileStatus(ctx, prof, targetStatus, lprof)
 	}
 
-	nodeStatusList, err := listStatusesForProfile(ctx, r.client, profName)
+	// get all the other statuses
+	profLabel := instance.Labels[statusv1alpha1.StatusToProfLabel]
+	if profLabel == "" {
+		return reconcile.Result{}, errors.New("Unlabeled node status")
+	}
+
+	if util.KindBasedDNSLengthName(prof) != instance.Labels[statusv1alpha1.StatusToProfLabel] {
+		return reconcile.Result{}, errors.New("status doesn't match owner")
+	}
+
+	nodeStatusList, err := listStatusesForProfile(ctx, r.client, profLabel)
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "cannot list the node statuses")
 	}
@@ -292,11 +292,11 @@ func daemonSetIsUpdating(ds *appsv1.DaemonSet) bool {
 }
 
 func listStatusesForProfile(
-	ctx context.Context, c client.Client, polName string,
+	ctx context.Context, c client.Client, labelVal string,
 ) (*statusv1alpha1.SecurityProfileNodeStatusList, error) {
 	statusList := statusv1alpha1.SecurityProfileNodeStatusList{}
 	allStatusesForProf := client.MatchingLabels{
-		statusv1alpha1.StatusToProfLabel: polName,
+		statusv1alpha1.StatusToProfLabel: labelVal,
 	}
 
 	if err := c.List(ctx, &statusList, allStatusesForProf); err != nil {

@@ -65,6 +65,10 @@ func (nsf *StatusClient) Create(ctx context.Context) error {
 		return errors.Wrapf(err, "cannot create finalizer for %s", nsf.pol.GetName())
 	}
 
+	if err := nsf.createPolLabel(ctx); err != nil {
+		return errors.Wrapf(err, "cannot create policy name label for %s", nsf.pol.GetName())
+	}
+
 	// if object does not exist, add it
 	if err := nsf.createNodeStatus(ctx); err != nil {
 		return errors.Wrapf(err, "cannot create node status for %s", nsf.pol.GetName())
@@ -78,6 +82,25 @@ func (nsf *StatusClient) createFinalizer(ctx context.Context) error {
 	}, util.IsNotFoundOrConflict)
 }
 
+func (nsf *StatusClient) createPolLabel(ctx context.Context) error {
+	return util.Retry(func() error {
+		labels := nsf.pol.GetLabels()
+		if labels == nil {
+			labels = make(map[string]string)
+		}
+
+		if _, ok := labels[secprofnodestatusv1alpha1.StatusToProfLabel]; ok {
+			// the label is already set, nothing to do
+			return nil
+		}
+
+		labels[secprofnodestatusv1alpha1.StatusToProfLabel] = util.KindBasedDNSLengthName(nsf.pol)
+		nsf.pol.SetLabels(labels)
+
+		return nsf.client.Update(ctx, nsf.pol)
+	}, util.IsNotFoundOrConflict)
+}
+
 func (nsf *StatusClient) statusObj(
 	polState secprofnodestatusv1alpha1.ProfileState,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatus {
@@ -86,7 +109,7 @@ func (nsf *StatusClient) statusObj(
 			Name:      nsf.perNodeStatusName(),
 			Namespace: nsf.pol.GetNamespace(),
 			Labels: map[string]string{
-				secprofnodestatusv1alpha1.StatusToProfLabel: nsf.pol.GetName(),
+				secprofnodestatusv1alpha1.StatusToProfLabel: util.KindBasedDNSLengthName(nsf.pol),
 				secprofnodestatusv1alpha1.StatusToNodeLabel: nsf.nodeName,
 				secprofnodestatusv1alpha1.StatusStateLabel:  string(polState),
 				secprofnodestatusv1alpha1.StatusKindLabel:   nsf.pol.GetObjectKind().GroupVersionKind().Kind,

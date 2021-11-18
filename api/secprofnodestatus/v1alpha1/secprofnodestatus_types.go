@@ -41,8 +41,9 @@ const (
 
 // Common labels of the node status objects.
 const (
-	// Identifies the profile by name so that the admin can list all node statuses for a certain profile.
-	StatusToProfLabel = "spo.x-k8s.io/profile-name"
+	// StatusToProfLabel identifies the profile by name, or if the name is too long, by a hash so that
+	// the admin can list all node statuses for a certain profile.
+	StatusToProfLabel = "spo.x-k8s.io/profile-id"
 	// Identifies the node on which the profile is installed so that the admin can list profiles per node.
 	StatusToNodeLabel = "spo.x-k8s.io/node-name"
 	// Allows the admin to filter out node statuses with a certain state (e.g. show me all that failed).

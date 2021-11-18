@@ -16,7 +16,15 @@ limitations under the License.
 
 package util
 
-import "k8s.io/apimachinery/pkg/types"
+import (
+	"crypto/sha256"
+	"fmt"
+	"io"
+
+	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
 
 func NamespacedName(name, namespace string) types.NamespacedName {
 	return types.NamespacedName{
@@ -33,4 +41,45 @@ func Contains(a []string, b string) bool {
 		}
 	}
 	return false
+}
+
+// LengthName creates a string of maximum defined length.
+func lengthName(maxLen int, hashPrefix, format string, a ...interface{}) (string, error) {
+	friendlyName := fmt.Sprintf(format, a...)
+	if len(friendlyName) < maxLen {
+		return friendlyName, nil
+	}
+
+	// If that's too long, just hash the name. It's not very user friendly, but whatever
+	hasher := sha256.New()
+	if _, err := io.WriteString(hasher, friendlyName); err != nil {
+		return "", errors.Wrap(err, "writing string")
+	}
+
+	hashStr := fmt.Sprintf("%x", hasher.Sum(nil))
+	hashUseLen := maxLen - len(hashPrefix) - 1 // -1 for the dash separator
+	if hashUseLen < maxLen {
+		hashStr = hashStr[:hashUseLen]
+	}
+	hashedName := fmt.Sprintf("%s-%s", hashPrefix, hashStr)
+
+	if len(hashedName) > maxLen {
+		return "", errors.New("shortening string")
+	}
+	return hashedName, nil
+}
+
+func dnsLengthName(hashPrefix, format string, a ...interface{}) string {
+	const maxDNSLen = 63
+
+	// (jhrozek): I think it makes sense to make the utility function return
+	// error, but here I think it's OK to just ignore
+	// nolint:errcheck
+	name, _ := lengthName(maxDNSLen, hashPrefix, format, a...)
+	return name
+}
+
+func KindBasedDNSLengthName(obj client.Object) string {
+	kind := obj.GetObjectKind().GroupVersionKind().Kind
+	return dnsLengthName(kind, "%s-%s", kind, obj.GetName())
 }
