@@ -114,6 +114,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"SPOD: Change verbosity",
 			e.testCaseVerbosityChange,
 		},
+		{
+			"Seccomp: make sure statuses for profiles with long names can be listed",
+			e.testCaseLongSeccompProfileName,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase
@@ -328,9 +332,9 @@ func (e *e2e) getSeccompProfile(name, namespace string) *seccompprofileapi.Secco
 }
 
 func (e *e2e) getSeccompProfileNodeStatus(
-	name, namespace, node string,
+	id, namespace, node string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatus {
-	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-name=%s", node, name)
+	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
@@ -341,9 +345,9 @@ func (e *e2e) getSeccompProfileNodeStatus(
 }
 
 func (e *e2e) getAllSeccompProfileNodeStatuses(
-	name, namespace string,
+	id, namespace string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatusList {
-	selector := fmt.Sprintf("spo.x-k8s.io/profile-name=%s", name)
+	selector := fmt.Sprintf("spo.x-k8s.io/profile-id=SeccompProfile-%s", id)
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
@@ -411,4 +415,9 @@ func (e *e2e) retryGet(args ...string) string {
 
 	e.Fail("Timed out to wait for resource")
 	return ""
+}
+
+func (e *e2e) getSeccompPolicyID(profile string) string {
+	ns := e.getCurrentContextNamespace(defaultNamespace)
+	return e.kubectl("get", "sp", "-n", ns, profile, "-o", "jsonpath={.metadata.labels.spo\\.x-k8s\\.io/profile-id}")
 }
