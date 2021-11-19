@@ -112,3 +112,9 @@ dependencies:
     refPaths:
     - path: hack/install-libelf.sh
       match: VERSION
+
+  - name: fedora-vmlinux
+    version: 35
+    refPaths:
+    - path: hack/update-vmlinux
+      match: VERSION
