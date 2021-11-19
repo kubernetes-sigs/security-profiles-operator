@@ -229,9 +229,6 @@ $(BUILD_DIR)/mdtoc: $(BUILD_DIR)
 update-toc: $(BUILD_DIR)/mdtoc ## Update the table of contents for the documentation
 	$(BUILD_DIR)/mdtoc --inplace installation-usage.md
 
-$(BUILD_DIR)/vmlinux.h: $(BUILD_DIR) ## Generate the vmlinux.h required for building the BPF module
-	$(BPFTOOL) btf dump file /sys/kernel/btf/vmlinux format c > $@
-
 $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
 	$(CLANG) -g -O2 \
 		-target bpf \
@@ -241,6 +238,10 @@ $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
 		-c $(BPF_PATH)/recorder.bpf.c \
 		-o $@
 	$(LLVM_STRIP) -g $@
+
+.PHONY: update-vmlinux
+update-vmlinux: ## Generate the vmlinux.h required for building the BPF modules.
+	./hack/update-vmlinux
 
 .PHONY: update-btf
 update-btf: update-bpf ## Build and update all generated BTF code for supported kernels
