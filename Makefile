@@ -15,7 +15,7 @@
 GO ?= go
 
 GOLANGCI_LINT_VERSION = v1.43.0
-REPO_INFRA_VERSION = master
+REPO_INFRA_VERSION = v0.2.3
 KUSTOMIZE_VERSION = 4.3.0
 
 CONTROLLER_GEN_CMD := $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
@@ -278,7 +278,6 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 		--skip api/secprofnodestatus/v1alpha1/zz_generated.deepcopy.go \
 		--skip api/selinuxprofile/v1alpha1/zz_generated.deepcopy.go \
 		--skip api/spod/v1alpha1/zz_generated.deepcopy.go \
-		--skip internal/pkg/daemon/bpfrecorder/generated.go \
 		--skip internal/pkg/daemon/bpfrecorder/bpfrecorderfakes/fake_impl.go \
 		--skip internal/pkg/daemon/enricher/enricherfakes/fake_impl.go \
 		--skip internal/pkg/daemon/metrics/metricsfakes/fake_impl.go \
