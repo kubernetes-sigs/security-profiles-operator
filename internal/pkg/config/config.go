@@ -34,6 +34,10 @@ const (
 	// Service Account for the security-profiles-operator daemon.
 	SPOdServiceAccount = SPOdName
 
+	// SPOdNameEnvKey allows one to query the name of the SPOd instance
+	// from within the daemon.
+	SPOdNameEnvKey = "SPOD_NAME"
+
 	// OperatorRoot is the root directory of the operator.
 	OperatorRoot = "/var/lib/security-profiles-operator"
 
