@@ -75,6 +75,12 @@ type e2e struct {
 	bpfRecorderEnabled   bool
 	logger               logr.Logger
 	execNode             func(node string, args ...string) string
+	waitForReadyPods     func()
+}
+
+func defaultWaitForReadyPods(e *e2e) {
+	e.logf("Waiting for all pods to become ready")
+	e.waitFor("condition=ready", "pods", "--all", "--all-namespaces")
 }
 
 type kinde2e struct {
@@ -196,8 +202,9 @@ func TestSuite(t *testing.T) {
 func (e *kinde2e) SetupSuite() {
 	e.logf("Setting up suite")
 	command.SetGlobalVerbose(true)
-	// Override execNode function
+	// Override execNode and waitForReadyPods functions
 	e.e2e.execNode = e.execNodeKind
+	e.e2e.waitForReadyPods = e.waitForReadyPodsKind
 	parentCwd := e.setWorkDir()
 	buildDir := filepath.Join(parentCwd, "build")
 	e.Nil(os.MkdirAll(buildDir, 0o755))
@@ -279,12 +286,17 @@ func (e *kinde2e) execNodeKind(node string, args ...string) string {
 	return e.run(containerRuntime, append([]string{"exec", node}, args...)...)
 }
 
+func (e *e2e) waitForReadyPodsKind() {
+	defaultWaitForReadyPods(e)
+}
+
 func (e *openShifte2e) SetupSuite() {
 	var err error
 	e.logf("Setting up suite")
 	command.SetGlobalVerbose(true)
-	// Override execNode function
+	// Override execNode and waitForReadyPods functions
 	e.e2e.execNode = e.execNodeOCP
+	e.e2e.waitForReadyPods = e.waitForReadyPodsOCP
 	e.setWorkDir()
 
 	e.kubectlPath, err = exec.LookPath("oc")
@@ -367,13 +379,20 @@ func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
 	)
 }
 
+func (e *e2e) waitForReadyPodsOCP() {
+	// intentionally blank, it is presumed a test driver or the developer
+	// ensure the cluster is up before the test runs. At least for now.
+}
+
 func (e *vanilla) SetupSuite() {
 	var err error
 	e.logf("Setting up suite")
 	e.setWorkDir()
 
+	// Override execNode and waitForReadyPods functions
 	e.e2e.execNode = e.execNodeVanilla
 	e.kubectlPath, err = exec.LookPath("kubectl")
+	e.e2e.waitForReadyPods = e.waitForReadyPodsVanilla
 	e.Nil(err)
 }
 
@@ -386,6 +405,10 @@ func (e *vanilla) TearDownTest() {
 
 func (e *vanilla) execNodeVanilla(node string, args ...string) string {
 	return e.run(args[0], args[1:]...)
+}
+
+func (e *e2e) waitForReadyPodsVanilla() {
+	defaultWaitForReadyPods(e)
 }
 
 func (e *e2e) setWorkDir() string {
