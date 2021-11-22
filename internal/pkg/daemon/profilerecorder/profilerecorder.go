@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
@@ -169,15 +170,7 @@ func (r *RecorderReconciler) getSPOD() (*spodv1alpha1.SecurityProfilesOperatorDa
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 
-	spod := &spodv1alpha1.SecurityProfilesOperatorDaemon{}
-	if err := r.client.Get(ctx, types.NamespacedName{
-		Name:      config.SPOdName,
-		Namespace: config.GetOperatorNamespace(),
-	}, spod); err != nil {
-		return nil, err
-	}
-
-	return spod, nil
+	return common.GetSPOD(ctx, r.client)
 }
 
 // Healthz is the liveness probe endpoint of the controller.

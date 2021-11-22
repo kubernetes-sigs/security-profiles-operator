@@ -393,6 +393,15 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	// Non root enabler
 	templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Image = image
 
+	// SPOD Name
+	for envid := range templateSpec.Containers[bindata.ContainerIDDaemon].Env {
+		env := &templateSpec.Containers[bindata.ContainerIDDaemon].Env[envid]
+		if env.Name == config.SPOdNameEnvKey {
+			env.Value = cfg.GetName()
+			break
+		}
+	}
+
 	// SELinux parameters
 	if cfg.Spec.EnableSelinux {
 		templateSpec.InitContainers = append(

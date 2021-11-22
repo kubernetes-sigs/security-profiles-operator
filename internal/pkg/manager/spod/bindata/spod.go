@@ -275,6 +275,11 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 									},
 								},
 							},
+							{
+								// Note that this will be set per SPOD instance
+								Name:  config.SPOdNameEnvKey,
+								Value: config.SPOdName,
+							},
 						},
 						Ports: []v1.ContainerPort{
 							{
