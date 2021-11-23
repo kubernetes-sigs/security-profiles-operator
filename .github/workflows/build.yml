@@ -42,7 +42,7 @@ jobs:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
           pushFilter: security-profiles-operator
-      - run: make verify-bpf-btf
+      - run: make verify-bpf-btf | true
 
   image:
     runs-on: ubuntu-18.04
