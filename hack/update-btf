@@ -1,28 +1,39 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euox pipefail
 
-BTFHUB_COMMIT=807c5c41894143513100ac58fa07e72df221baa1
+BTFHUB_COMMIT=9d50bd1fb3cc00fca591711f15702cec35347915
 TEMP_DIR=$(mktemp -u)
+ARCHIVE_TEMP_DIR=$(mktemp -u)
 ROOT_DIR=$(git rev-parse --show-toplevel)
-BPF_OBJECT="$ROOT_DIR/build/recorder.bpf.o"
-BTF_DIR="$ROOT_DIR/internal/pkg/daemon/bpfrecorder/btf"
+BPF_OBJECT="${ROOT_DIR}/build/recorder.bpf.o"
+BTF_DIR="${ROOT_DIR}/internal/pkg/daemon/bpfrecorder/btf"
 
-rm -rf "$BTF_DIR"
-git clone https://github.com/aquasecurity/btfhub "$TEMP_DIR"
+rm -rf "${BTF_DIR}"
+mkdir -p "${BTF_DIR}"
 
-pushd "$TEMP_DIR"/tools
-git checkout $BTFHUB_COMMIT
+git clone -depth 1 https://github.com/aquasecurity/btfhub-archive "${ARCHIVE_TEMP_DIR}"
+git clone https://github.com/aquasecurity/btfhub "${TEMP_DIR}"
+
+pushd "${TEMP_DIR}"/tools
+git checkout "${BTFHUB_COMMIT}"
+
+OUTPUT="${TEMP_DIR}/archive"
+mv "${ARCHIVE_TEMP_DIR}"/{fedora,centos,ubuntu} "${OUTPUT}"
 
 bash ./extract.sh -a x86_64
 bash ./extract.sh -a arm64
 
-bash ./btfgen.sh -a x86_64 -o "$BPF_OBJECT".amd64
-bash ./btfgen.sh -a arm64 -o "$BPF_OBJECT".arm64
+bash ./old-btfgen.sh -a x86_64 -o "${BPF_OBJECT}".amd64
+bash ./old-btfgen.sh -a arm64 -o "${BPF_OBJECT}".arm64
 
-OUTPUT=../custom-archive
-rm -rf $OUTPUT/.gitignore
-cp -R $OUTPUT "$BTF_DIR"
+find "${OUTPUT}" -name "*.tar.xz" -type f -delete
+find "${OUTPUT}" -name "*.failed" -type f -delete
+find "${OUTPUT}" -type l -delete
+
+mv "${OUTPUT}"/{fedora,centos,ubuntu} "${BTF_DIR}"
 popd
 
-rm -rf "$TEMP_DIR"
+rm -rf "${TEMP_DIR}"
+rm -rf "${ARCHIVE_TEMP_DIR}"
+
 go run ./internal/pkg/daemon/bpfrecorder/generate
