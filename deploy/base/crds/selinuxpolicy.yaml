@@ -53,6 +53,9 @@ spec:
                 description: Defines the allow policy for the profile
                 type: object
               inherit:
+                default:
+                - kind: System
+                  name: container
                 description: A SELinuxProfile or set of profiles that this inherits
                   from. Note that they need to be in the same namespace.
                 items:
