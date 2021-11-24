@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -65,16 +65,14 @@ func NewController() controller.Controller {
 	return &Reconciler{}
 }
 
-type saver func(string, string) (bool, error)
-
 // A Reconciler reconciles AppArmor profiles.
 type Reconciler struct {
 	client  client.Client
 	log     logr.Logger
 	record  event.Recorder
-	save    saver
 	metrics *metrics.Metrics
 	ready   atomic.Bool
+	manager ProfileManager
 }
 
 // Name returns the name of the controller.
@@ -85,25 +83,6 @@ func (r *Reconciler) Name() string {
 // SchemeBuilder returns the API scheme of the controller.
 func (r *Reconciler) SchemeBuilder() *scheme.Builder {
 	return v1alpha1.SchemeBuilder
-}
-
-// Setup adds a controller that reconciles AppArmor profiles.
-func (r *Reconciler) Setup(
-	ctx context.Context,
-	mgr ctrl.Manager,
-	met *metrics.Metrics,
-) error {
-	r.client = mgr.GetClient()
-	r.log = ctrl.Log.WithName(r.Name())
-	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor("apparmorprofile"))
-	r.save = LoadAppArmorProfile
-	r.metrics = met
-
-	// Register the regular reconciler to manage AppArmorProfiles
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("apparmorprofile").
-		For(&v1alpha1.AppArmorProfile{}).
-		Complete(r)
 }
 
 // Healthz is the liveness probe endpoint of the controller.
@@ -143,11 +122,11 @@ func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconc
 	defer cancel()
 
 	// Pre-check if the node supports AppArmor
-	if IsAppArmorSupported() {
+	if !r.manager.Enabled() {
 		err := errors.New("profile not added")
 		logger.Error(err, fmt.Sprintf("node %q does not support apparmor", os.Getenv(config.NodeNameEnvKey)))
 		if r.record != nil {
-			r.metrics.IncSeccompProfileError(reasonAppArmorNotSupported)
+			r.metrics.IncAppArmorProfileError(reasonAppArmorNotSupported)
 			r.record.Event(&v1alpha1.AppArmorProfile{},
 				event.Warning(reasonAppArmorNotSupported, err, os.Getenv(config.NodeNameEnvKey),
 					"node does not support apparmor"))
@@ -173,7 +152,6 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	if sp == nil {
 		return reconcile.Result{}, errors.New(errAppArmorProfileNil)
 	}
-	profileName := sp.GetProfileName()
 
 	nodeStatus, err := nodestatus.NewForProfile(sp, r.client)
 	if err != nil {
@@ -199,7 +177,8 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 
-	updated, err := r.save(profileName, sp.Spec.Policy)
+	// TODO: backoff policy
+	updated, err := r.manager.InstallProfile(sp)
 	if err != nil {
 		l.Error(err, "cannot load profile into node")
 		r.metrics.IncAppArmorProfileError(reasonCannotLoadProfile)
@@ -281,21 +260,20 @@ func (r *Reconciler) reconcileDeletion(
 	}
 
 	if err := nsc.Remove(ctx, r.client); err != nil {
-		r.log.Error(err, "cannot remove node status/finalizer from seccomp profile")
+		r.log.Error(err, "cannot remove node status/finalizer from apparmor profile")
 		r.metrics.IncAppArmorProfileError(reasonCannotUpdateStatus)
 		r.record.Event(sp, event.Warning(reasonCannotUpdateStatus, err))
-		return ctrl.Result{}, errors.Wrap(err, "deleting node status/finalizer for deleted SeccompProfile")
+		return ctrl.Result{}, errors.Wrap(err, "deleting node status/finalizer for deleted AppArmorProfile")
 	}
 	return ctrl.Result{}, nil
 }
 
 func (r *Reconciler) handleDeletion(sp *v1alpha1.AppArmorProfile) error {
-	profileName := sp.GetProfileName()
-	err := UnloadAppArmorProfile(profileName)
+	err := r.manager.RemoveProfile(sp)
 	if err != nil {
 		return errors.Wrap(err, "unloading profile from host")
 	}
-	r.log.Info(fmt.Sprintf("removed profile %s", profileName))
+	r.log.Info(fmt.Sprintf("removed profile %s", sp.GetProfileName()))
 	r.metrics.IncAppArmorProfileDelete()
 	return nil
 }

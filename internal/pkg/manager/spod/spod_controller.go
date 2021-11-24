@@ -423,7 +423,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher])
 
-		// HostPID is only required for the log-enricher
+		// HostPID is required for the log-enricher
 		// and is used to access cgroup files to map Process IDs to Pod IDs
 		templateSpec.HostPID = true
 	}
@@ -435,8 +435,30 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder])
 
-		// HostPID is only required for the bpf recorder and is used to access
+		// HostPID is required for the bpf recorder and is used to access
 		// cgroup files to map Process IDs to Pod IDs.
+		templateSpec.HostPID = true
+	}
+
+	// AppArmor parameters
+	if cfg.Spec.EnableAppArmor {
+		falsely, truly := false, true
+		var userRoot int64 = 0
+		// a more privileged mode is required when apparmor is enabled
+		// TODO: review security model and provide a dynamic approach that can be case specific
+		templateSpec.Containers[bindata.ContainerIDDaemon].SecurityContext = &corev1.SecurityContext{
+			AllowPrivilegeEscalation: &truly,
+			Privileged:               &truly,
+			ReadOnlyRootFilesystem:   &falsely,
+			RunAsUser:                &userRoot,
+			RunAsGroup:               &userRoot,
+		}
+
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+			"--with-apparmor=true")
+
+		// HostPID is required for AppArmor when trying to get access to the host ns
 		templateSpec.HostPID = true
 	}
 

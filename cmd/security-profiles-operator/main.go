@@ -41,6 +41,7 @@ import (
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -59,6 +60,7 @@ import (
 const (
 	jsonFlag           string = "json"
 	selinuxFlag        string = "with-selinux"
+	apparmorFlag       string = "with-apparmor"
 	defaultWebhookPort int    = 9443
 )
 
@@ -115,6 +117,11 @@ func main() {
 				&cli.BoolFlag{
 					Name:  selinuxFlag,
 					Usage: "Listen for SELinux API resources",
+					Value: false,
+				},
+				&cli.BoolFlag{
+					Name:  apparmorFlag,
+					Usage: "Listen for AppArmor API resources",
 					Value: false,
 				},
 			},
@@ -278,6 +285,10 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 
 	if ctx.Bool(selinuxFlag) {
 		controllers = append(controllers, selinuxprofile.NewController())
+	}
+
+	if ctx.Bool(apparmorFlag) {
+		controllers = append(controllers, apparmorprofile.NewController())
 	}
 
 	return controllers

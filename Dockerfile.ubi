@@ -36,6 +36,8 @@ RUN hack/install-libelf.sh
 RUN hack/install-libbpf.sh
 RUN mkdir -p build
 
+ARG APPARMOR_ENABLED=0
+
 RUN make
 
 FROM registry.access.redhat.com/ubi8/ubi-minimal:latest

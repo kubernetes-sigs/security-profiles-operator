@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,14 +16,20 @@ limitations under the License.
 
 package apparmorprofile
 
-func IsAppArmorSupported() bool {
-	return false
+import (
+	"github.com/go-logr/logr"
+)
+
+type aaProfileManager struct {
+	loadProfile   func(_ logr.Logger, _, _ string) (bool, error)
+	removeProfile func(_ logr.Logger, _ string) error
+	logger        logr.Logger
 }
 
-func UnloadAppArmorProfile(name string) error {
-	return nil
-}
-
-func LoadAppArmorProfile(name, content string) (bool, error) {
-	return false, nil
+func NewAppArmorProfileManager(logger logr.Logger) ProfileManager {
+	return &aaProfileManager{
+		loadProfile:   loadProfile,
+		removeProfile: removeProfile,
+		logger:        logger,
+	}
 }

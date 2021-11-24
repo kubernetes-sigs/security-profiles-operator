@@ -17,6 +17,7 @@ with pkgs; buildGoModule rec {
     glibc.static
     libbpf
     libelf
+    libapparmor
     zlib.static
   ];
   buildPhase = ''

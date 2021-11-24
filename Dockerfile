@@ -26,7 +26,7 @@ ARG version
 
 LABEL name="Security Profiles Operator" \
       version=$version \
-      description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
+      description="The Security Profiles Operator makes it easier for cluster admins to manage their SELinux, seccomp and AppArmor profiles and apply them to Kubernetes' workloads."
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=make /work/result/security-profiles-operator /
