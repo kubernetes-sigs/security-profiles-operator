@@ -31,8 +31,6 @@ kind: SelinuxProfile
 metadata:
   name: errorlogger
 spec:
-  inherit:
-    - name: container
   allow:
     var_log_t:
       dir:

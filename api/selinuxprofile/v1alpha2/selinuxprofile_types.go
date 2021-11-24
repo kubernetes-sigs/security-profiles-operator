@@ -49,6 +49,7 @@ type SelinuxProfileSpec struct {
 	// A SELinuxProfile or set of profiles that this inherits from.
 	// Note that they need to be in the same namespace.
 	// +optional
+	// +kubebuilder:default={{kind:"System",name:"container"}}
 	Inherit []PolicyRef `json:"inherit,omitempty"`
 	// Defines the allow policy for the profile
 	Allow Allow `json:"allow,omitempty"`
