@@ -33,12 +33,12 @@ var _ profilebasev1alpha1.StatusBaseUser = &SelinuxProfile{}
 
 type PolicyRef struct {
 	// The Kind of the policy that this inherits from.
-	// Can be one of the policy objects: SelinuxProfile or RawSelinuxProfile.
-	// Or "System" if an already installed policy will be used.
+	// Can be a SelinuxProfile object Or "System" if an already
+	// installed policy will be used.
 	// The allowed "System" policies are available in the
 	// SecurityProfilesOpertorDaemon instance.
 	// +kubebuilder:default="System"
-	// +kubebuilder:validation:Enum=System;SelinuxProfile;RawSelinuxProfile;
+	// +kubebuilder:validation:Enum=System;SelinuxProfile;
 	Kind string `json:"kind,omitempty"`
 	// The name of the policy that this inherits from.
 	Name string `json:"name"`
