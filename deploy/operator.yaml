@@ -752,15 +752,13 @@ spec:
                   properties:
                     kind:
                       default: System
-                      description: 'The Kind of the policy that this inherits from.
-                        Can be one of the policy objects: SelinuxProfile or RawSelinuxProfile.
-                        Or "System" if an already installed policy will be used. The
-                        allowed "System" policies are available in the SecurityProfilesOpertorDaemon
-                        instance.'
+                      description: The Kind of the policy that this inherits from.
+                        Can be a SelinuxProfile object Or "System" if an already installed
+                        policy will be used. The allowed "System" policies are available
+                        in the SecurityProfilesOpertorDaemon instance.
                       enum:
                       - System
                       - SelinuxProfile
-                      - RawSelinuxProfile
                       type: string
                     name:
                       description: The name of the policy that this inherits from.

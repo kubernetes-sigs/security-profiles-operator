@@ -93,7 +93,7 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 	// We default to System if Kind is left empty
 	case selxv1alpha2.SystemPolicyKind, "":
 		return sph.handleInheritSystemPolicy(ancestorRef)
-	case "SelinuxPolicy", "RawSelinuxPolicy":
+	case "SelinuxPolicy":
 		return sph.handleInheritSPOPolicy(ancestorRef, namespace)
 	}
 	return errors.Wrapf(ErrUnknownKindForEntry, "%s/%s", ancestorRef.Kind, ancestorRef.Name)
@@ -103,17 +103,8 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 	ancestorRef selxv1alpha2.PolicyRef,
 	namespace string,
 ) error {
-	var ancestor selxv1alpha2.SelinuxProfileObject
+	ancestor := &selxv1alpha2.SelinuxProfile{}
 	key := types.NamespacedName{Name: ancestorRef.Name, Namespace: namespace}
-	switch ancestorRef.Kind {
-	// We default to SelinuxPolicy if Kind is left empty
-	case "SelinuxPolicy":
-		ancestor = &selxv1alpha2.SelinuxProfile{}
-	case "RawSelinuxPolicy":
-		ancestor = &selxv1alpha2.RawSelinuxProfile{}
-	default:
-		return errors.Wrapf(ErrUnknownKindForEntry, "%s/%s", ancestorRef.Kind, ancestorRef.Name)
-	}
 	err := sph.cli.Get(context.Background(), key, ancestor)
 	if err != nil && kerrors.IsNotFound(err) {
 		return errors.Wrapf(err, "couldn't find inherit reference %s/%s",
