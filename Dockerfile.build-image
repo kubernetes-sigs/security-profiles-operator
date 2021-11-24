@@ -15,7 +15,7 @@
 FROM k8s.gcr.io/build-image/debian-base:bullseye-v1.0.0
 WORKDIR /work
 
-RUN apt-get update && apt-get install -y wget xz-utils
+RUN apt-get update && apt-get install -y wget xz-utils libapparmor-dev
 
 ENV USER=root
 

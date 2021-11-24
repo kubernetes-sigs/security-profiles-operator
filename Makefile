@@ -23,6 +23,8 @@ CONTROLLER_GEN_CMD := $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/
 PROJECT := security-profiles-operator
 BUILD_DIR := build
 
+APPARMOR_ENABLED ?= 1
+
 BPFTOOL ?= bpftool
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
@@ -50,12 +52,18 @@ export CGO_LDFLAGS=-lelf -lz -lbpf -lseccomp
 BUILDTAGS := netgo osusergo seccomp
 else
 BUILDTAGS := netgo osusergo
+APPARMOR_ENABLED = 0
 endif
 
 ifneq ($(shell uname -s), Darwin)
 LINT_BUILDTAGS := e2e,netgo,osusergo,seccomp,-tools
 else
 LINT_BUILDTAGS := e2e,netgo,osusergo,-tools
+endif
+
+ifeq ($(APPARMOR_ENABLED), 1)
+BUILDTAGS := $(BUILDTAGS) apparmor
+LINT_BUILDTAGS := $(LINT_BUILDTAGS),apparmor
 endif
 
 export CGO_ENABLED=1

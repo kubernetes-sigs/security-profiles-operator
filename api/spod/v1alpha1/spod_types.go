@@ -46,6 +46,9 @@ type SPODSpec struct {
 	// tells the operator whether or not to enable bpf recorder support for this
 	// SPOD instance.
 	EnableBpfRecorder bool `json:"enableBpfRecorder,omitempty"`
+	// tells the operator whether or not to enable AppArmor support for this
+	// SPOD instance.
+	EnableAppArmor bool `json:"enableAppArmor,omitempty"`
 	// If specified, the SPOD's tolerations.
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
