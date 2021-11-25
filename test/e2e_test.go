@@ -148,6 +148,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	})
 
 	e.Run("cluster-wide: Seccomp: Verify profile recording bpf", func() {
+		e.testCaseBpfRecorderKubectlRun()
 		e.testCaseBpfRecorderStaticPod()
 		e.testCaseBpfRecorderMultiContainer()
 		e.testCaseBpfRecorderDeployment()

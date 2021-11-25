@@ -769,7 +769,7 @@ func TestProcessEvents(t *testing.T) {
 					if success {
 						break
 					}
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(200 * time.Millisecond)
 				}
 				require.True(t, success)
 			},
