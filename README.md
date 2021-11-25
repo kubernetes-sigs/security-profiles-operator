@@ -57,6 +57,9 @@ Here's the feature parity status across them:
 |   Profile Auto-generation (ebpf) |   WIP   |   No    |    No    |
 |             Audit log enrichment |   Yes   |   WIP   |    Yes   |
 
+For information about the security model and what permissions each features requires,
+refer to SPO's [security model](security-model.md).
+
 ## Personas & User Stories
 
 As any other piece of software, this operator is meant to help people. Thus,
