@@ -67,6 +67,11 @@ const (
 	// VerbosityEnvKey is the environment variable key for the logging verbosity.
 	VerbosityEnvKey = "SPO_VERBOSITY"
 
+	// SelinuxEnabledByDefaultEnvKey is the environment variable key for enabling
+	// SELinux by default if the default SecurityProfilesOperatorDaemon instance
+	// is not yet created.
+	SelinuxEnabledByDefaultEnvKey = "DEFAULT_ENABLE_SELINUX"
+
 	// SeccompProfileRecordHookAnnotationKey is the annotation on a Pod that
 	// triggers the oci-seccomp-bpf-hook to trace the syscalls of a Pod and
 	// created a seccomp profile.
