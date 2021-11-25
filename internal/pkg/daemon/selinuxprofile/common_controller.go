@@ -230,7 +230,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		if err := nodeStatus.SetNodeStatus(context.TODO(), statusv1alpha1.ProfileStateError); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 			r.record.Event(sp, event.Warning(reasonCannotUpdatePolicyStatus, err))
-			return reconcile.Result{}, errors.Wrap(err, "setting node status to in progress")
+			return reconcile.Result{}, errors.Wrap(err, "setting node status to error")
 		}
 		evstr := fmt.Sprintf("Profile failed validation on %s: %s", os.Getenv(config.NodeNameEnvKey), valErr.Error())
 		r.metrics.IncSelinuxProfileError(reasonCannotInstallPolicy)
