@@ -54,9 +54,9 @@ const (
 	maxMsgSize          int           = 16 * 1024 * 1024
 	defaultCacheTimeout time.Duration = time.Hour
 	verboseLvl          int           = 1
-	backoffDuration                   = 500 * time.Millisecond
-	backoffFactor                     = 1.5
-	backoffSteps                      = 10
+	backoffDuration                   = 100 * time.Millisecond
+	backoffFactor                     = 1.2
+	backoffSteps                      = 20
 )
 
 // BpfRecorder is the main structure of this package.
@@ -74,6 +74,7 @@ type BpfRecorder struct {
 	clientset                *kubernetes.Clientset
 	profileForContainerIDs   sync.Map
 	pidsForProfiles          sync.Map
+	pidLock                  sync.Mutex
 	profileForMountNamespace sync.Map
 	systemMountNamespace     uint64
 	loadUnloadMutex          sync.RWMutex
@@ -95,6 +96,7 @@ func New(logger logr.Logger) *BpfRecorder {
 		containerIDCache:         ttlcache.NewCache(),
 		profileForContainerIDs:   sync.Map{},
 		pidsForProfiles:          sync.Map{},
+		pidLock:                  sync.Mutex{},
 		profileForMountNamespace: sync.Map{},
 		loadUnloadMutex:          sync.RWMutex{},
 	}
@@ -168,7 +170,7 @@ func (b *BpfRecorder) Run() error {
 	b.logger.Info("Got system mount namespace: " + fmt.Sprint(b.systemMountNamespace))
 
 	b.logger.Info("Doing BPF load/unload self-test")
-	if err := b.load(); err != nil {
+	if err := b.load(false); err != nil {
 		return errors.Wrap(err, "load self-test")
 	}
 	b.unload()
@@ -225,7 +227,7 @@ func (b *BpfRecorder) Start(
 ) (*api.EmptyResponse, error) {
 	if b.startRequests == 0 {
 		b.logger.Info("Starting bpf recorder")
-		if err := b.load(); err != nil {
+		if err := b.load(true); err != nil {
 			return nil, errors.Wrap(err, "load bpf")
 		}
 	} else {
@@ -263,7 +265,10 @@ func (b *BpfRecorder) SyscallsForProfile(
 	}
 	b.logger.Info("Getting syscalls for profile " + r.Name)
 
+	b.pidLock.Lock()
 	res, exist := b.pidsForProfiles.LoadAndDelete(r.Name)
+	b.pidLock.Unlock()
+
 	if !exist {
 		return nil, ErrNotFound
 	}
@@ -271,7 +276,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 	if !ok {
 		return nil, errors.New("result it not a pid type")
 	}
-	b.logger.Info(fmt.Sprintf("Got PIDs for the profile: %v", pids))
+	b.logger.Info(fmt.Sprintf("Got PIDs for the profile: %+v", pids))
 	if len(pids) == 0 {
 		return nil, errors.Errorf("PID slice is empty")
 	}
@@ -333,7 +338,7 @@ func sortUnique(input []string) (res []string) {
 	return res
 }
 
-func (b *BpfRecorder) load() (err error) {
+func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
 	b.logger.Info("Loading bpf module")
 	b.btfPath, err = b.findBtfPath()
 	if err != nil {
@@ -392,9 +397,11 @@ func (b *BpfRecorder) load() (err error) {
 
 	b.syscalls = syscalls
 	b.comms = comms
-	go b.processEvents(events)
+	if startEventProcessor {
+		go b.processEvents(events)
+	}
 
-	b.logger.Info("Module successfully loaded, watching for events")
+	b.logger.Info("Module successfully loaded")
 	return nil
 }
 
@@ -488,62 +495,69 @@ func toStringByte(array []byte) string {
 }
 
 func (b *BpfRecorder) processEvents(events chan []byte) {
+	b.logger.Info("Processing events")
 	for event := range events {
-		// Newly arrived PIDs
-		const eventLen = 16
-		if len(event) != eventLen {
-			b.logger.Info("Invalid event length", "len", len(event))
-			continue
-		}
+		func() {
+			// Newly arrived PIDs
+			const eventLen = 16
+			if len(event) != eventLen {
+				b.logger.Info("Invalid event length", "len", len(event))
+				return
+			}
 
-		pid := binary.LittleEndian.Uint32(event)
-		mntns := binary.LittleEndian.Uint64(event[8:])
+			pid := binary.LittleEndian.Uint32(event)
+			mntns := binary.LittleEndian.Uint64(event[8:])
 
-		// Filter out non-containers
-		if mntns == b.systemMountNamespace {
+			// Filter out non-containers
+			if mntns == b.systemMountNamespace {
+				b.logger.V(verboseLvl).Info(
+					"Skipping PID, because it's on the system mount namespace",
+					"pid", pid, "mntns", mntns,
+				)
+				return
+			}
+
+			// Blocking from syscall retrieval when PIDs are currently being analyzed
+			b.pidLock.Lock()
+			defer b.pidLock.Unlock()
+
+			// Short path via the mount namespace
+			if profile, exist := b.profileForMountNamespace.Load(mntns); exist {
+				b.logger.Info(
+					"Using short path via tracked mount namespace",
+					"pid", pid, "mntns", mntns, "profile", profile,
+				)
+				b.trackProfileForPid(pid, mntns, profile)
+				return
+			}
+
+			// Regular container ID retrieval via the cgroup
+			containerID, err := b.ContainerIDForPID(b.containerIDCache, int(pid))
+			if err != nil {
+				b.logger.V(verboseLvl).Info(
+					"No container ID found for PID",
+					"pid", pid, "err", err.Error(),
+				)
+				return
+			}
+
 			b.logger.V(verboseLvl).Info(
-				"Skipping PID, because it's on the system mount namespace",
-				"pid", pid, "mntns", mntns,
+				"Found container for PID", "pid", pid, "containerID", containerID,
 			)
-			continue
-		}
+			if err := b.findContainerID(containerID); err != nil {
+				b.logger.Error(err, "unable to find container ID in cluster")
+				return
+			}
 
-		// Short path via the mount namespace
-		if profile, exist := b.profileForMountNamespace.Load(mntns); exist {
-			b.logger.Info(
-				"Using short path via tracked mount namespace",
-				"pid", pid, "mntns", mntns, "profile", profile,
-			)
-			b.trackProfileForPid(pid, mntns, profile)
-			continue
-		}
-
-		// Regular container ID retrieval via the cgroup
-		containerID, err := b.ContainerIDForPID(b.containerIDCache, int(pid))
-		if err != nil {
-			b.logger.V(verboseLvl).Info(
-				"No container ID found for PID",
-				"pid", pid, "err", err.Error(),
-			)
-			continue
-		}
-
-		b.logger.V(verboseLvl).Info(
-			"Found container for PID", "pid", pid, "containerID", containerID,
-		)
-		if err := b.findContainerID(containerID); err != nil {
-			b.logger.Error(err, "unable to find container ID in cluster")
-			continue
-		}
-
-		if profile, exist := b.profileForContainerIDs.LoadAndDelete(containerID); exist {
-			b.logger.Info(
-				"Saving PID for profile",
-				"pid", pid, "mntns", mntns, "profile", profile,
-			)
-			b.trackProfileForPid(pid, mntns, profile)
-			b.profileForMountNamespace.Store(mntns, profile)
-		}
+			if profile, exist := b.profileForContainerIDs.LoadAndDelete(containerID); exist {
+				b.logger.Info(
+					"Saving PID for profile",
+					"pid", pid, "mntns", mntns, "profile", profile,
+				)
+				b.trackProfileForPid(pid, mntns, profile)
+				b.profileForMountNamespace.Store(mntns, profile)
+			}
+		}()
 	}
 }
 
@@ -596,17 +610,16 @@ func (b *BpfRecorder) findContainerID(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
-	errContainerIDNotFound := errors.New("container ID not found")
-
+	try := -1
 	if err := util.RetryEx(
 		&wait.Backoff{
 			Duration: backoffDuration,
 			Factor:   backoffFactor,
 			Steps:    backoffSteps,
 		},
-		func() (retryErr error) {
-			b.logger.V(verboseLvl).Info("Searching for in-cluster container ID: " + id)
-
+		func() error {
+			try++
+			b.logger.Info("Looking up in-cluster container ID", "id", id, "try", try)
 			pods, err := b.ListPods(ctx, b.clientset, b.nodeName)
 			if err != nil {
 				return errors.Wrapf(err, "list node pods")
@@ -619,11 +632,12 @@ func (b *BpfRecorder) findContainerID(id string) error {
 					fullContainerID := containerStatus.ContainerID
 					containerName := containerStatus.Name
 
-					// An empty container ID should not happen if the PID is already running,
-					// so this is most likely not the pod we're looking for
+					// It's possible that the container ID is not yet set, but
+					// we cannot be sure since we have to test against the
+					// `id`.
 					if fullContainerID == "" {
-						b.logger.V(verboseLvl).Info(
-							"No container ID available",
+						b.logger.Info(
+							"Container ID not yet available",
 							"podName", pod.Name,
 							"containerName", containerName,
 						)
@@ -662,11 +676,9 @@ func (b *BpfRecorder) findContainerID(id string) error {
 				}
 			}
 
-			return errContainerIDNotFound
+			return errors.New("container ID not found")
 		},
-		func(inErr error) bool {
-			return errors.Is(inErr, errContainerIDNotFound)
-		},
+		func(error) bool { return true },
 	); err != nil {
 		return errors.Wrap(err, "find container ID")
 	}

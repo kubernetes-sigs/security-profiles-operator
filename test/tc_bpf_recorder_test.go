@@ -46,6 +46,23 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time) {
 	}
 }
 
+func (e *e2e) testCaseBpfRecorderKubectlRun() {
+	e.bpfRecorderOnlyTestCase()
+
+	e.logf("Creating bpf recording for kubectl run test")
+	e.kubectl("create", "-f", exampleRecordingBpfPath)
+
+	e.logf("Creating test pod")
+	e.kubectlRun("--labels=app=alpine", "fedora", "--", "mkdir", "/test")
+
+	resourceName := recordingName + "-fedora"
+	profile := e.retryGetSeccompProfile(resourceName)
+	e.Contains(profile, "mkdir")
+
+	e.kubectl("delete", "-f", exampleRecordingBpfPath)
+	e.kubectl("delete", "sp", resourceName)
+}
+
 func (e *e2e) testCaseBpfRecorderStaticPod() {
 	e.bpfRecorderOnlyTestCase()
 
