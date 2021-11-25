@@ -297,7 +297,7 @@ verify-go-mod: update-go-mod ## Verify the go modules
 
 .PHONY: verify-deployments
 verify-deployments: deployments ## Verify the generated deployments
-	hack/tree-status
+	hack/tree-status || hack/tree-status || hack/tree-status
 
 .PHONY: verify-go-lint
 verify-go-lint: $(BUILD_DIR)/golangci-lint ## Verify the golang code by linting
