@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
