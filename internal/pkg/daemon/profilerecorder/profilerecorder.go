@@ -30,7 +30,6 @@ import (
 
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/status"
@@ -43,7 +42,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
@@ -80,10 +78,13 @@ const (
 
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
-	return &RecorderReconciler{}
+	return &RecorderReconciler{
+		impl: &defaultImpl{},
+	}
 }
 
 type RecorderReconciler struct {
+	impl
 	client        client.Client
 	log           logr.Logger
 	record        event.Recorder
@@ -123,17 +124,15 @@ func (r *RecorderReconciler) Setup(
 	met *metrics.Metrics,
 ) error {
 	const name = "profilerecorder"
-	c, err := client.New(mgr.GetConfig(), client.Options{})
+	c, err := r.NewClient(mgr)
 	if err != nil {
 		return errors.Wrap(err, errGetClient)
 	}
 
 	node := &corev1.Node{}
-	if c.Get(
-		context.Background(),
-		client.ObjectKey{Name: os.Getenv(config.NodeNameEnvKey)},
-		node,
-	) != nil {
+	if err := r.ClientGet(
+		c, client.ObjectKey{Name: os.Getenv(config.NodeNameEnvKey)}, node,
+	); err != nil {
 		return errors.Wrap(err, errGetNode)
 	}
 
@@ -151,18 +150,13 @@ func (r *RecorderReconciler) Setup(
 		return errors.New("Unable to get node's internal Address")
 	}
 
-	r.client = mgr.GetClient()
+	r.client = r.ManagerGetClient(mgr)
 	r.nodeAddresses = nodeAddresses
-	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(name))
+	r.record = event.NewAPIRecorder(r.ManagerGetEventRecorderFor(mgr, name))
 
-	return ctrl.NewControllerManagedBy(mgr).
-		Named(name).
-		WithEventFilter(predicate.And(
-			resource.NewPredicates(r.isPodWithTraceAnnotation),
-			resource.NewPredicates(r.isPodOnLocalNode),
-		)).
-		For(&corev1.Pod{}).
-		Complete(r)
+	return r.NewControllerManagedBy(
+		mgr, name, r.isPodWithTraceAnnotation, r.isPodOnLocalNode, r,
+	)
 }
 
 func (r *RecorderReconciler) getSPOD() (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
