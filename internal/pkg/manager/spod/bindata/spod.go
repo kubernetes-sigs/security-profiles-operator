@@ -582,10 +582,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					{
 						Name: "selinux-drop-dir",
 						VolumeSource: corev1.VolumeSource{
-							HostPath: &corev1.HostPathVolumeSource{
-								Path: SelinuxDropDirectory,
-								Type: &hostPathDirectoryOrCreate,
-							},
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
 					{
