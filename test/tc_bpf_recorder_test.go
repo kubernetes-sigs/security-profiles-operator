@@ -170,3 +170,78 @@ spec:
 	e.Nil(os.Remove(testFile.Name()))
 	e.kubectl("delete", "sp", profileName0, profileName1)
 }
+
+func (e *e2e) testCaseBpfRecorderParallel() {
+	e.bpfRecorderOnlyTestCase()
+
+	e.logf("Creating bpf recording for parallel test")
+	e.kubectl("create", "-f", exampleRecordingBpfPath)
+
+	since, podNames := e.createRecordingTestParallelPods()
+
+	e.waitForBpfRecorderLogs(since)
+
+	logs := e.kubectlOperatorNS(
+		"logs", "--since-time="+since.Format(time.RFC3339),
+		"ds/spod", "bpf-recorder",
+	)
+	e.Contains(logs, "bpf recorder already running")
+
+	for _, podName := range podNames {
+		e.kubectl("delete", "pod", podName)
+	}
+
+	const profileNameFirstCtr = recordingName + "-rec-0"
+	firstProfile := e.retryGetSeccompProfile(profileNameFirstCtr)
+	e.Contains(firstProfile, "close")
+
+	const profileNameSecondCtr = recordingName + "-rec-1"
+	secondProfile := e.retryGetSeccompProfile(profileNameSecondCtr)
+	e.Contains(secondProfile, "epoll_wait")
+
+	e.kubectl("delete", "-f", exampleRecordingBpfPath)
+	e.kubectl("delete", "sp", profileNameSecondCtr, profileNameFirstCtr)
+}
+
+func (e *e2e) createRecordingTestParallelPods() (since time.Time, podNames []string) {
+	e.logf("Creating test pod")
+	since = time.Now()
+
+	for i, image := range []string{
+		"quay.io/security-profiles-operator/test-nginx:1.19.1",
+		"quay.io/security-profiles-operator/redis:6.2.1",
+	} {
+		podName := fmt.Sprintf("my-pod-%d", i)
+		podNames = append(podNames, podName)
+
+		testPod := fmt.Sprintf(`
+apiVersion: v1
+kind: Pod
+metadata:
+  name: %s
+  labels:
+    app: alpine
+spec:
+  containers:
+  - name: rec-%d
+    image: %s
+  restartPolicy: Never
+`, podName, i, image)
+
+		testPodFile, err := ioutil.TempFile(os.TempDir(), "recording-pod*.yaml")
+		e.Nil(err)
+		_, err = testPodFile.Write([]byte(testPod))
+		e.Nil(err)
+		err = testPodFile.Close()
+		e.Nil(err)
+
+		e.kubectl("create", "-f", testPodFile.Name())
+
+		e.logf("Waiting for test pod to be initialized")
+		e.retryGet("pod", podName)
+		e.waitFor("condition=ready", "pod", podName)
+		e.Nil(os.Remove(testPodFile.Name()))
+	}
+
+	return since, podNames
+}

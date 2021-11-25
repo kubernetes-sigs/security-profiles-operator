@@ -152,6 +152,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseBpfRecorderStaticPod()
 		e.testCaseBpfRecorderMultiContainer()
 		e.testCaseBpfRecorderDeployment()
+		e.testCaseBpfRecorderParallel()
 	})
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
