@@ -285,7 +285,8 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 		--skip internal/pkg/daemon/metrics/metricsfakes/fake_impl.go \
 		--skip internal/pkg/nonrootenabler/nonrootenablerfakes/fake_impl.go \
 		--skip internal/pkg/webhooks/binding/bindingfakes/fake_impl.go \
-		--skip internal/pkg/webhooks/recording/recordingfakes/fake_impl.go
+		--skip internal/pkg/webhooks/recording/recordingfakes/fake_impl.go \
+		--skip internal/pkg/daemon/profilerecorder/profilerecorderfakes/fake_impl.go
 
 
 $(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
