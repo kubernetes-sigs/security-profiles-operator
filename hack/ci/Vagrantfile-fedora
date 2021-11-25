@@ -4,7 +4,7 @@
 # Vagrant box for testing
 Vagrant.configure("2") do |config|
   config.vm.box = "fedora/35-cloud-base"
-  memory = 6144
+  memory = 8192
   cpus = 4
 
   config.vm.provider :virtualbox do |v|
