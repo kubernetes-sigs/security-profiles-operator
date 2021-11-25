@@ -1,0 +1,10 @@
+# This is the cluster wide security-profiles-operator deployment, which listens for
+# configMaps on all namespaces
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+bases:
+  - ../cluster
+
+patchesStrategicMerge:
+  - deployment.yaml

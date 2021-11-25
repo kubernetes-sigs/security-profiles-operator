@@ -131,6 +131,8 @@ $(BUILD_DIR)/kustomize: $(BUILD_DIR)
 deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deployment files with kustomize
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
+	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift -o deploy/openshift.yaml
+	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/openshift-dev.yaml
 
 .PHONY: image
 image: ## Build the container image
@@ -387,15 +389,10 @@ do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 	@echo "Deploying cert-manager"
 	oc apply -f https://github.com/jetstack/cert-manager/releases/download/v1.6.0/cert-manager.yaml
 	oc wait --for=condition=Ready pod -lapp.kubernetes.io/instance=cert-manager -ncert-manager
-	@echo "Building custom operator.yaml"
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/operator.yaml
-	sed -i 's/enableSelinux: false/enableSelinux: true/' deploy/operator.yaml
 	@echo "Deploying"
-	oc apply -f deploy/operator.yaml
+	oc apply -f deploy/openshift-dev.yaml
 	@echo "Setting triggers to track image"
 	oc set triggers -n security-profiles-operator deployment/security-profiles-operator --from-image openshift/security-profiles-operator:latest -c security-profiles-operator
-	@echo "Resetting operator.yaml"
-	git checkout deploy/operator.yaml
 
 # Deploy for development into OpenShift
 .PHONY: deploy-openshift-dev
