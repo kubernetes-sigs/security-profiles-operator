@@ -54,7 +54,7 @@ Here's the feature parity status across them:
 |       Deploy profiles into nodes |   Yes   |   Yes   |    WIP   |
 | Remove profiles no longer in use |   Yes   |   Yes   |    WIP   |
 |   Profile Auto-generation (logs) |   Yes   |   WIP   |    No    |
-|   Profile Auto-generation (ebpf) |   WIP   |   No    |    No    |
+|   Profile Auto-generation (ebpf) |   Yes   |   No    |    No    |
 |             Audit log enrichment |   Yes   |   WIP   |    Yes   |
 
 ## Personas & User Stories
