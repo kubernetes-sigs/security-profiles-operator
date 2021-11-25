@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -34,16 +33,23 @@ func Test_getEffectiveSPOd(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			"Should correctly set the image",
-			daemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
-			false,
-			false,
+			name: "Should correctly set the image",
+			dt: daemonTunables{
+				selinuxdImage:    "foo:bar",
+				logEnricherImage: "bar:baz",
+			},
+			nsIsSet: false,
+			wantErr: false,
 		},
 		{
-			"Should correctly set the namespace",
-			daemonTunables{"foo:bar", "bar:baz", "brot:wurst"},
-			true,
-			false,
+			name: "Should correctly set the namespace",
+			dt: daemonTunables{
+				selinuxdImage:    "foo:bar",
+				logEnricherImage: "bar:baz",
+				watchNamespace:   "watch-ns",
+			},
+			nsIsSet: true,
+			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
