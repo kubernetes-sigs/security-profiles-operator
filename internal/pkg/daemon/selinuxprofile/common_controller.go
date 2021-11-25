@@ -123,6 +123,13 @@ func (r *ReconcileSelinux) SchemeBuilder() *scheme.Builder {
 
 // Healthz is the liveness probe endpoint of the controller.
 func (r *ReconcileSelinux) Healthz(*http.Request) error {
+	ready, err := isSelinuxdReady()
+	if err != nil {
+		return errors.Wrapf(err, "getting health status")
+	}
+	if !ready {
+		return errors.New("not ready")
+	}
 	return nil
 }
 
