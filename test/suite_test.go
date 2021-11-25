@@ -423,7 +423,10 @@ func (e *e2e) setWorkDir() string {
 func (e *e2e) run(cmd string, args ...string) string {
 	output, err := command.New(cmd, args...).RunSuccessOutput()
 	e.Nil(err)
-	return output.OutputTrimNL()
+	if output != nil {
+		return output.OutputTrimNL()
+	}
+	return ""
 }
 
 func (e *e2e) runFailure(cmd string, args ...string) string {
