@@ -44,7 +44,7 @@ const (
 	defaultLogEnricherOpTimeout = defaultSelinuxOpTimeout
 	defaultBpfRecorderOpTimeout = defaultSelinuxOpTimeout
 	defaultWaitTimeout          = "180s"
-	defaultWaitTime             = 10 * time.Second
+	defaultWaitTime             = 15 * time.Second
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {
