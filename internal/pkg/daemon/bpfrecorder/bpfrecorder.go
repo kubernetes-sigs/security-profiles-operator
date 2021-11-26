@@ -54,9 +54,6 @@ const (
 	maxMsgSize          int           = 16 * 1024 * 1024
 	defaultCacheTimeout time.Duration = time.Hour
 	verboseLvl          int           = 1
-	backoffDuration                   = 100 * time.Millisecond
-	backoffFactor                     = 1.2
-	backoffSteps                      = 20
 )
 
 // BpfRecorder is the main structure of this package.
@@ -265,13 +262,38 @@ func (b *BpfRecorder) SyscallsForProfile(
 	}
 	b.logger.Info("Getting syscalls for profile " + r.Name)
 
-	b.pidLock.Lock()
-	res, exist := b.pidsForProfiles.LoadAndDelete(r.Name)
-	b.pidLock.Unlock()
+	// There is a chance to miss the PID if concurrent processes are being
+	// analyzed. If we request the `SyscallsForProfile` exactly between two
+	// events, while the first one is from a different recording container and
+	// we have to expect the profile in the second event. We try to overcome
+	// this race by retrying, but with a more loose backoff strategy than
+	// retrying to retrieve the in-cluster container ID.
+	var (
+		res   interface{}
+		exist bool
+		try   = -1
+	)
+	if err := util.Retry(
+		func() error {
+			try++
+			b.logger.Info(
+				"Looking up PID for profile", "try", try, "profile", r.Name,
+			)
 
-	if !exist {
+			b.pidLock.Lock()
+			res, exist = b.pidsForProfiles.LoadAndDelete(r.Name)
+			b.pidLock.Unlock()
+
+			if !exist {
+				return ErrNotFound
+			}
+			return nil
+		},
+		func(error) bool { return true },
+	); err != nil {
 		return nil, ErrNotFound
 	}
+
 	pids, ok := res.([]Pid)
 	if !ok {
 		return nil, errors.New("result it not a pid type")
@@ -609,6 +631,12 @@ func (b *BpfRecorder) commForPid(pid uint32) string {
 func (b *BpfRecorder) findContainerID(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
+
+	const (
+		backoffDuration = 100 * time.Millisecond
+		backoffFactor   = 1.2
+		backoffSteps    = 20
+	)
 
 	try := -1
 	if err := util.RetryEx(
