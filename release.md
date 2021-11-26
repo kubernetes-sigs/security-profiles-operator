@@ -22,7 +22,7 @@ The first PR targets this repository and:
 After this PR has been merged, we have to watch out the successful build of the
 container image via the automatically triggered
 `post-security-profiles-operator-push-image` post submit job in prow. All jobs of this
-type can be found either on the commit status on the master branch or [in prow
+type can be found either on the commit status on the `main` branch or [in prow
 directly](https://prow.k8s.io/?job=post-security-profiles-operator-push-image).
 
 If the image got built successfully, then we can create a second PR to [the
