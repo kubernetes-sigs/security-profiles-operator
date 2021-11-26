@@ -55,7 +55,7 @@ $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kuberne
 Then apply the operator manifest:
 
 ```sh
-$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/operator.yaml
 ```
 
 ## Set logging verbosity
@@ -613,7 +613,7 @@ operator deployment to run in a single namespace, use the
 ```sh
 NAMESPACE=<your-namespace>
 
-curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
+curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
 ```
 
 ## Using metrics
@@ -936,5 +936,5 @@ To uninstall, remove the profiles before removing the rest of the operator:
 
 ```sh
 $ kubectl delete seccompprofiles --all --all-namespaces
-$ kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/master/deploy/operator.yaml
+$ kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/operator.yaml
 ```
