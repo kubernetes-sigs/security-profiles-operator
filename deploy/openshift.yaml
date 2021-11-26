@@ -564,6 +564,10 @@ spec:
           spec:
             description: SPODStatus defines the desired state of SPOD.
             properties:
+              enableAppArmor:
+                description: tells the operator whether or not to enable AppArmor
+                  support for this SPOD instance.
+                type: boolean
               enableBpfRecorder:
                 description: tells the operator whether or not to enable bpf recorder
                   support for this SPOD instance.
@@ -2073,7 +2077,9 @@ data:
         (allow process file_context_t ( fifo_file ( getattr read write append ioctl lock open )))
         (allow process file_context_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
         (allow process file_context_t ( sock_file ( append getattr open read write )))
-        (allow process selinux_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+        (allow process security_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process security_t ( security ( load_policy )))
+        (allow process selinux_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rename rmdir search setattr write )))
         (allow process selinux_config_t ( fifo_file ( getattr read write append ioctl lock open )))
         (allow process selinux_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
         (allow process selinux_config_t ( sock_file ( append getattr open read write )))
