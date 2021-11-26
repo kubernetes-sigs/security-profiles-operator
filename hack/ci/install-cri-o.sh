@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-curl https://raw.githubusercontent.com/cri-o/cri-o/master/scripts/get | bash
+curl https://raw.githubusercontent.com/cri-o/cri-o/main/scripts/get | bash
 
 chcon -u system_u -r object_r -t container_runtime_exec_t \
     /usr/local/bin/crio \

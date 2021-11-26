@@ -2,7 +2,7 @@ name: test
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
 env:
   GO_VERSION: '1.17'

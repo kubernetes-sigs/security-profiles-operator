@@ -2,7 +2,7 @@ name: build
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
 env:
   GO_VERSION: '1.17'
@@ -55,7 +55,7 @@ jobs:
           oci: true
           dockerfiles: |
             Dockerfile.build-image
-      - if: github.ref == 'refs/heads/master'
+      - if: github.ref == 'refs/heads/main'
         uses: redhat-actions/push-to-registry@v2
         with:
           image: ${{ steps.build-image.outputs.image }}
