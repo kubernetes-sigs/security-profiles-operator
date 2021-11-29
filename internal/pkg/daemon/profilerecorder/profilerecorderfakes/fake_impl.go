@@ -18,14 +18,21 @@ limitations under the License.
 package profilerecorderfakes
 
 import (
+	"context"
 	"sync"
 
+	"github.com/containers/common/pkg/seccomp"
+	"google.golang.org/grpc"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	api_bpfrecorder "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
+	"sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 )
 
 type FakeImpl struct {
@@ -41,6 +48,78 @@ type FakeImpl struct {
 	}
 	clientGetReturnsOnCall map[int]struct {
 		result1 error
+	}
+	CreateOrUpdateStub        func(context.Context, client.Client, client.Object, controllerutil.MutateFn) (controllerutil.OperationResult, error)
+	createOrUpdateMutex       sync.RWMutex
+	createOrUpdateArgsForCall []struct {
+		arg1 context.Context
+		arg2 client.Client
+		arg3 client.Object
+		arg4 controllerutil.MutateFn
+	}
+	createOrUpdateReturns struct {
+		result1 controllerutil.OperationResult
+		result2 error
+	}
+	createOrUpdateReturnsOnCall map[int]struct {
+		result1 controllerutil.OperationResult
+		result2 error
+	}
+	DialBpfRecorderStub        func() (*grpc.ClientConn, context.CancelFunc, error)
+	dialBpfRecorderMutex       sync.RWMutex
+	dialBpfRecorderArgsForCall []struct {
+	}
+	dialBpfRecorderReturns struct {
+		result1 *grpc.ClientConn
+		result2 context.CancelFunc
+		result3 error
+	}
+	dialBpfRecorderReturnsOnCall map[int]struct {
+		result1 *grpc.ClientConn
+		result2 context.CancelFunc
+		result3 error
+	}
+	GetPodStub        func(context.Context, client.Client, types.NamespacedName) (*v1.Pod, error)
+	getPodMutex       sync.RWMutex
+	getPodArgsForCall []struct {
+		arg1 context.Context
+		arg2 client.Client
+		arg3 types.NamespacedName
+	}
+	getPodReturns struct {
+		result1 *v1.Pod
+		result2 error
+	}
+	getPodReturnsOnCall map[int]struct {
+		result1 *v1.Pod
+		result2 error
+	}
+	GetSPODStub        func(context.Context, client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error)
+	getSPODMutex       sync.RWMutex
+	getSPODArgsForCall []struct {
+		arg1 context.Context
+		arg2 client.Client
+	}
+	getSPODReturns struct {
+		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result2 error
+	}
+	getSPODReturnsOnCall map[int]struct {
+		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result2 error
+	}
+	GoArchToSeccompArchStub        func(string) (seccomp.Arch, error)
+	goArchToSeccompArchMutex       sync.RWMutex
+	goArchToSeccompArchArgsForCall []struct {
+		arg1 string
+	}
+	goArchToSeccompArchReturns struct {
+		result1 seccomp.Arch
+		result2 error
+	}
+	goArchToSeccompArchReturnsOnCall map[int]struct {
+		result1 seccomp.Arch
+		result2 error
 	}
 	ManagerGetClientStub        func(manager.Manager) client.Client
 	managerGetClientMutex       sync.RWMutex
@@ -92,6 +171,45 @@ type FakeImpl struct {
 	}
 	newControllerManagedByReturnsOnCall map[int]struct {
 		result1 error
+	}
+	StartBpfRecorderStub        func(api_bpfrecorder.BpfRecorderClient, context.Context) error
+	startBpfRecorderMutex       sync.RWMutex
+	startBpfRecorderArgsForCall []struct {
+		arg1 api_bpfrecorder.BpfRecorderClient
+		arg2 context.Context
+	}
+	startBpfRecorderReturns struct {
+		result1 error
+	}
+	startBpfRecorderReturnsOnCall map[int]struct {
+		result1 error
+	}
+	StopBpfRecorderStub        func(api_bpfrecorder.BpfRecorderClient, context.Context) error
+	stopBpfRecorderMutex       sync.RWMutex
+	stopBpfRecorderArgsForCall []struct {
+		arg1 api_bpfrecorder.BpfRecorderClient
+		arg2 context.Context
+	}
+	stopBpfRecorderReturns struct {
+		result1 error
+	}
+	stopBpfRecorderReturnsOnCall map[int]struct {
+		result1 error
+	}
+	SyscallsForProfileStub        func(api_bpfrecorder.BpfRecorderClient, context.Context, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error)
+	syscallsForProfileMutex       sync.RWMutex
+	syscallsForProfileArgsForCall []struct {
+		arg1 api_bpfrecorder.BpfRecorderClient
+		arg2 context.Context
+		arg3 *api_bpfrecorder.ProfileRequest
+	}
+	syscallsForProfileReturns struct {
+		result1 *api_bpfrecorder.SyscallsResponse
+		result2 error
+	}
+	syscallsForProfileReturnsOnCall map[int]struct {
+		result1 *api_bpfrecorder.SyscallsResponse
+		result2 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
@@ -158,6 +276,327 @@ func (fake *FakeImpl) ClientGetReturnsOnCall(i int, result1 error) {
 	fake.clientGetReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) CreateOrUpdate(arg1 context.Context, arg2 client.Client, arg3 client.Object, arg4 controllerutil.MutateFn) (controllerutil.OperationResult, error) {
+	fake.createOrUpdateMutex.Lock()
+	ret, specificReturn := fake.createOrUpdateReturnsOnCall[len(fake.createOrUpdateArgsForCall)]
+	fake.createOrUpdateArgsForCall = append(fake.createOrUpdateArgsForCall, struct {
+		arg1 context.Context
+		arg2 client.Client
+		arg3 client.Object
+		arg4 controllerutil.MutateFn
+	}{arg1, arg2, arg3, arg4})
+	stub := fake.CreateOrUpdateStub
+	fakeReturns := fake.createOrUpdateReturns
+	fake.recordInvocation("CreateOrUpdate", []interface{}{arg1, arg2, arg3, arg4})
+	fake.createOrUpdateMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3, arg4)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) CreateOrUpdateCallCount() int {
+	fake.createOrUpdateMutex.RLock()
+	defer fake.createOrUpdateMutex.RUnlock()
+	return len(fake.createOrUpdateArgsForCall)
+}
+
+func (fake *FakeImpl) CreateOrUpdateCalls(stub func(context.Context, client.Client, client.Object, controllerutil.MutateFn) (controllerutil.OperationResult, error)) {
+	fake.createOrUpdateMutex.Lock()
+	defer fake.createOrUpdateMutex.Unlock()
+	fake.CreateOrUpdateStub = stub
+}
+
+func (fake *FakeImpl) CreateOrUpdateArgsForCall(i int) (context.Context, client.Client, client.Object, controllerutil.MutateFn) {
+	fake.createOrUpdateMutex.RLock()
+	defer fake.createOrUpdateMutex.RUnlock()
+	argsForCall := fake.createOrUpdateArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
+}
+
+func (fake *FakeImpl) CreateOrUpdateReturns(result1 controllerutil.OperationResult, result2 error) {
+	fake.createOrUpdateMutex.Lock()
+	defer fake.createOrUpdateMutex.Unlock()
+	fake.CreateOrUpdateStub = nil
+	fake.createOrUpdateReturns = struct {
+		result1 controllerutil.OperationResult
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) CreateOrUpdateReturnsOnCall(i int, result1 controllerutil.OperationResult, result2 error) {
+	fake.createOrUpdateMutex.Lock()
+	defer fake.createOrUpdateMutex.Unlock()
+	fake.CreateOrUpdateStub = nil
+	if fake.createOrUpdateReturnsOnCall == nil {
+		fake.createOrUpdateReturnsOnCall = make(map[int]struct {
+			result1 controllerutil.OperationResult
+			result2 error
+		})
+	}
+	fake.createOrUpdateReturnsOnCall[i] = struct {
+		result1 controllerutil.OperationResult
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) DialBpfRecorder() (*grpc.ClientConn, context.CancelFunc, error) {
+	fake.dialBpfRecorderMutex.Lock()
+	ret, specificReturn := fake.dialBpfRecorderReturnsOnCall[len(fake.dialBpfRecorderArgsForCall)]
+	fake.dialBpfRecorderArgsForCall = append(fake.dialBpfRecorderArgsForCall, struct {
+	}{})
+	stub := fake.DialBpfRecorderStub
+	fakeReturns := fake.dialBpfRecorderReturns
+	fake.recordInvocation("DialBpfRecorder", []interface{}{})
+	fake.dialBpfRecorderMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1, ret.result2, ret.result3
+	}
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
+}
+
+func (fake *FakeImpl) DialBpfRecorderCallCount() int {
+	fake.dialBpfRecorderMutex.RLock()
+	defer fake.dialBpfRecorderMutex.RUnlock()
+	return len(fake.dialBpfRecorderArgsForCall)
+}
+
+func (fake *FakeImpl) DialBpfRecorderCalls(stub func() (*grpc.ClientConn, context.CancelFunc, error)) {
+	fake.dialBpfRecorderMutex.Lock()
+	defer fake.dialBpfRecorderMutex.Unlock()
+	fake.DialBpfRecorderStub = stub
+}
+
+func (fake *FakeImpl) DialBpfRecorderReturns(result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+	fake.dialBpfRecorderMutex.Lock()
+	defer fake.dialBpfRecorderMutex.Unlock()
+	fake.DialBpfRecorderStub = nil
+	fake.dialBpfRecorderReturns = struct {
+		result1 *grpc.ClientConn
+		result2 context.CancelFunc
+		result3 error
+	}{result1, result2, result3}
+}
+
+func (fake *FakeImpl) DialBpfRecorderReturnsOnCall(i int, result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+	fake.dialBpfRecorderMutex.Lock()
+	defer fake.dialBpfRecorderMutex.Unlock()
+	fake.DialBpfRecorderStub = nil
+	if fake.dialBpfRecorderReturnsOnCall == nil {
+		fake.dialBpfRecorderReturnsOnCall = make(map[int]struct {
+			result1 *grpc.ClientConn
+			result2 context.CancelFunc
+			result3 error
+		})
+	}
+	fake.dialBpfRecorderReturnsOnCall[i] = struct {
+		result1 *grpc.ClientConn
+		result2 context.CancelFunc
+		result3 error
+	}{result1, result2, result3}
+}
+
+func (fake *FakeImpl) GetPod(arg1 context.Context, arg2 client.Client, arg3 types.NamespacedName) (*v1.Pod, error) {
+	fake.getPodMutex.Lock()
+	ret, specificReturn := fake.getPodReturnsOnCall[len(fake.getPodArgsForCall)]
+	fake.getPodArgsForCall = append(fake.getPodArgsForCall, struct {
+		arg1 context.Context
+		arg2 client.Client
+		arg3 types.NamespacedName
+	}{arg1, arg2, arg3})
+	stub := fake.GetPodStub
+	fakeReturns := fake.getPodReturns
+	fake.recordInvocation("GetPod", []interface{}{arg1, arg2, arg3})
+	fake.getPodMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetPodCallCount() int {
+	fake.getPodMutex.RLock()
+	defer fake.getPodMutex.RUnlock()
+	return len(fake.getPodArgsForCall)
+}
+
+func (fake *FakeImpl) GetPodCalls(stub func(context.Context, client.Client, types.NamespacedName) (*v1.Pod, error)) {
+	fake.getPodMutex.Lock()
+	defer fake.getPodMutex.Unlock()
+	fake.GetPodStub = stub
+}
+
+func (fake *FakeImpl) GetPodArgsForCall(i int) (context.Context, client.Client, types.NamespacedName) {
+	fake.getPodMutex.RLock()
+	defer fake.getPodMutex.RUnlock()
+	argsForCall := fake.getPodArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) GetPodReturns(result1 *v1.Pod, result2 error) {
+	fake.getPodMutex.Lock()
+	defer fake.getPodMutex.Unlock()
+	fake.GetPodStub = nil
+	fake.getPodReturns = struct {
+		result1 *v1.Pod
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetPodReturnsOnCall(i int, result1 *v1.Pod, result2 error) {
+	fake.getPodMutex.Lock()
+	defer fake.getPodMutex.Unlock()
+	fake.GetPodStub = nil
+	if fake.getPodReturnsOnCall == nil {
+		fake.getPodReturnsOnCall = make(map[int]struct {
+			result1 *v1.Pod
+			result2 error
+		})
+	}
+	fake.getPodReturnsOnCall[i] = struct {
+		result1 *v1.Pod
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error) {
+	fake.getSPODMutex.Lock()
+	ret, specificReturn := fake.getSPODReturnsOnCall[len(fake.getSPODArgsForCall)]
+	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, struct {
+		arg1 context.Context
+		arg2 client.Client
+	}{arg1, arg2})
+	stub := fake.GetSPODStub
+	fakeReturns := fake.getSPODReturns
+	fake.recordInvocation("GetSPOD", []interface{}{arg1, arg2})
+	fake.getSPODMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetSPODCallCount() int {
+	fake.getSPODMutex.RLock()
+	defer fake.getSPODMutex.RUnlock()
+	return len(fake.getSPODArgsForCall)
+}
+
+func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error)) {
+	fake.getSPODMutex.Lock()
+	defer fake.getSPODMutex.Unlock()
+	fake.GetSPODStub = stub
+}
+
+func (fake *FakeImpl) GetSPODArgsForCall(i int) (context.Context, client.Client) {
+	fake.getSPODMutex.RLock()
+	defer fake.getSPODMutex.RUnlock()
+	argsForCall := fake.getSPODArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) GetSPODReturns(result1 *v1alpha1.SecurityProfilesOperatorDaemon, result2 error) {
+	fake.getSPODMutex.Lock()
+	defer fake.getSPODMutex.Unlock()
+	fake.GetSPODStub = nil
+	fake.getSPODReturns = struct {
+		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1alpha1.SecurityProfilesOperatorDaemon, result2 error) {
+	fake.getSPODMutex.Lock()
+	defer fake.getSPODMutex.Unlock()
+	fake.GetSPODStub = nil
+	if fake.getSPODReturnsOnCall == nil {
+		fake.getSPODReturnsOnCall = make(map[int]struct {
+			result1 *v1alpha1.SecurityProfilesOperatorDaemon
+			result2 error
+		})
+	}
+	fake.getSPODReturnsOnCall[i] = struct {
+		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GoArchToSeccompArch(arg1 string) (seccomp.Arch, error) {
+	fake.goArchToSeccompArchMutex.Lock()
+	ret, specificReturn := fake.goArchToSeccompArchReturnsOnCall[len(fake.goArchToSeccompArchArgsForCall)]
+	fake.goArchToSeccompArchArgsForCall = append(fake.goArchToSeccompArchArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.GoArchToSeccompArchStub
+	fakeReturns := fake.goArchToSeccompArchReturns
+	fake.recordInvocation("GoArchToSeccompArch", []interface{}{arg1})
+	fake.goArchToSeccompArchMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GoArchToSeccompArchCallCount() int {
+	fake.goArchToSeccompArchMutex.RLock()
+	defer fake.goArchToSeccompArchMutex.RUnlock()
+	return len(fake.goArchToSeccompArchArgsForCall)
+}
+
+func (fake *FakeImpl) GoArchToSeccompArchCalls(stub func(string) (seccomp.Arch, error)) {
+	fake.goArchToSeccompArchMutex.Lock()
+	defer fake.goArchToSeccompArchMutex.Unlock()
+	fake.GoArchToSeccompArchStub = stub
+}
+
+func (fake *FakeImpl) GoArchToSeccompArchArgsForCall(i int) string {
+	fake.goArchToSeccompArchMutex.RLock()
+	defer fake.goArchToSeccompArchMutex.RUnlock()
+	argsForCall := fake.goArchToSeccompArchArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) GoArchToSeccompArchReturns(result1 seccomp.Arch, result2 error) {
+	fake.goArchToSeccompArchMutex.Lock()
+	defer fake.goArchToSeccompArchMutex.Unlock()
+	fake.GoArchToSeccompArchStub = nil
+	fake.goArchToSeccompArchReturns = struct {
+		result1 seccomp.Arch
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GoArchToSeccompArchReturnsOnCall(i int, result1 seccomp.Arch, result2 error) {
+	fake.goArchToSeccompArchMutex.Lock()
+	defer fake.goArchToSeccompArchMutex.Unlock()
+	fake.GoArchToSeccompArchStub = nil
+	if fake.goArchToSeccompArchReturnsOnCall == nil {
+		fake.goArchToSeccompArchReturnsOnCall = make(map[int]struct {
+			result1 seccomp.Arch
+			result2 error
+		})
+	}
+	fake.goArchToSeccompArchReturnsOnCall[i] = struct {
+		result1 seccomp.Arch
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) ManagerGetClient(arg1 manager.Manager) client.Client {
@@ -412,11 +851,211 @@ func (fake *FakeImpl) NewControllerManagedByReturnsOnCall(i int, result1 error) 
 	}{result1}
 }
 
+func (fake *FakeImpl) StartBpfRecorder(arg1 api_bpfrecorder.BpfRecorderClient, arg2 context.Context) error {
+	fake.startBpfRecorderMutex.Lock()
+	ret, specificReturn := fake.startBpfRecorderReturnsOnCall[len(fake.startBpfRecorderArgsForCall)]
+	fake.startBpfRecorderArgsForCall = append(fake.startBpfRecorderArgsForCall, struct {
+		arg1 api_bpfrecorder.BpfRecorderClient
+		arg2 context.Context
+	}{arg1, arg2})
+	stub := fake.StartBpfRecorderStub
+	fakeReturns := fake.startBpfRecorderReturns
+	fake.recordInvocation("StartBpfRecorder", []interface{}{arg1, arg2})
+	fake.startBpfRecorderMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) StartBpfRecorderCallCount() int {
+	fake.startBpfRecorderMutex.RLock()
+	defer fake.startBpfRecorderMutex.RUnlock()
+	return len(fake.startBpfRecorderArgsForCall)
+}
+
+func (fake *FakeImpl) StartBpfRecorderCalls(stub func(api_bpfrecorder.BpfRecorderClient, context.Context) error) {
+	fake.startBpfRecorderMutex.Lock()
+	defer fake.startBpfRecorderMutex.Unlock()
+	fake.StartBpfRecorderStub = stub
+}
+
+func (fake *FakeImpl) StartBpfRecorderArgsForCall(i int) (api_bpfrecorder.BpfRecorderClient, context.Context) {
+	fake.startBpfRecorderMutex.RLock()
+	defer fake.startBpfRecorderMutex.RUnlock()
+	argsForCall := fake.startBpfRecorderArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) StartBpfRecorderReturns(result1 error) {
+	fake.startBpfRecorderMutex.Lock()
+	defer fake.startBpfRecorderMutex.Unlock()
+	fake.StartBpfRecorderStub = nil
+	fake.startBpfRecorderReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) StartBpfRecorderReturnsOnCall(i int, result1 error) {
+	fake.startBpfRecorderMutex.Lock()
+	defer fake.startBpfRecorderMutex.Unlock()
+	fake.StartBpfRecorderStub = nil
+	if fake.startBpfRecorderReturnsOnCall == nil {
+		fake.startBpfRecorderReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.startBpfRecorderReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) StopBpfRecorder(arg1 api_bpfrecorder.BpfRecorderClient, arg2 context.Context) error {
+	fake.stopBpfRecorderMutex.Lock()
+	ret, specificReturn := fake.stopBpfRecorderReturnsOnCall[len(fake.stopBpfRecorderArgsForCall)]
+	fake.stopBpfRecorderArgsForCall = append(fake.stopBpfRecorderArgsForCall, struct {
+		arg1 api_bpfrecorder.BpfRecorderClient
+		arg2 context.Context
+	}{arg1, arg2})
+	stub := fake.StopBpfRecorderStub
+	fakeReturns := fake.stopBpfRecorderReturns
+	fake.recordInvocation("StopBpfRecorder", []interface{}{arg1, arg2})
+	fake.stopBpfRecorderMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) StopBpfRecorderCallCount() int {
+	fake.stopBpfRecorderMutex.RLock()
+	defer fake.stopBpfRecorderMutex.RUnlock()
+	return len(fake.stopBpfRecorderArgsForCall)
+}
+
+func (fake *FakeImpl) StopBpfRecorderCalls(stub func(api_bpfrecorder.BpfRecorderClient, context.Context) error) {
+	fake.stopBpfRecorderMutex.Lock()
+	defer fake.stopBpfRecorderMutex.Unlock()
+	fake.StopBpfRecorderStub = stub
+}
+
+func (fake *FakeImpl) StopBpfRecorderArgsForCall(i int) (api_bpfrecorder.BpfRecorderClient, context.Context) {
+	fake.stopBpfRecorderMutex.RLock()
+	defer fake.stopBpfRecorderMutex.RUnlock()
+	argsForCall := fake.stopBpfRecorderArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) StopBpfRecorderReturns(result1 error) {
+	fake.stopBpfRecorderMutex.Lock()
+	defer fake.stopBpfRecorderMutex.Unlock()
+	fake.StopBpfRecorderStub = nil
+	fake.stopBpfRecorderReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) StopBpfRecorderReturnsOnCall(i int, result1 error) {
+	fake.stopBpfRecorderMutex.Lock()
+	defer fake.stopBpfRecorderMutex.Unlock()
+	fake.StopBpfRecorderStub = nil
+	if fake.stopBpfRecorderReturnsOnCall == nil {
+		fake.stopBpfRecorderReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.stopBpfRecorderReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SyscallsForProfile(arg1 api_bpfrecorder.BpfRecorderClient, arg2 context.Context, arg3 *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error) {
+	fake.syscallsForProfileMutex.Lock()
+	ret, specificReturn := fake.syscallsForProfileReturnsOnCall[len(fake.syscallsForProfileArgsForCall)]
+	fake.syscallsForProfileArgsForCall = append(fake.syscallsForProfileArgsForCall, struct {
+		arg1 api_bpfrecorder.BpfRecorderClient
+		arg2 context.Context
+		arg3 *api_bpfrecorder.ProfileRequest
+	}{arg1, arg2, arg3})
+	stub := fake.SyscallsForProfileStub
+	fakeReturns := fake.syscallsForProfileReturns
+	fake.recordInvocation("SyscallsForProfile", []interface{}{arg1, arg2, arg3})
+	fake.syscallsForProfileMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) SyscallsForProfileCallCount() int {
+	fake.syscallsForProfileMutex.RLock()
+	defer fake.syscallsForProfileMutex.RUnlock()
+	return len(fake.syscallsForProfileArgsForCall)
+}
+
+func (fake *FakeImpl) SyscallsForProfileCalls(stub func(api_bpfrecorder.BpfRecorderClient, context.Context, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error)) {
+	fake.syscallsForProfileMutex.Lock()
+	defer fake.syscallsForProfileMutex.Unlock()
+	fake.SyscallsForProfileStub = stub
+}
+
+func (fake *FakeImpl) SyscallsForProfileArgsForCall(i int) (api_bpfrecorder.BpfRecorderClient, context.Context, *api_bpfrecorder.ProfileRequest) {
+	fake.syscallsForProfileMutex.RLock()
+	defer fake.syscallsForProfileMutex.RUnlock()
+	argsForCall := fake.syscallsForProfileArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) SyscallsForProfileReturns(result1 *api_bpfrecorder.SyscallsResponse, result2 error) {
+	fake.syscallsForProfileMutex.Lock()
+	defer fake.syscallsForProfileMutex.Unlock()
+	fake.SyscallsForProfileStub = nil
+	fake.syscallsForProfileReturns = struct {
+		result1 *api_bpfrecorder.SyscallsResponse
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) SyscallsForProfileReturnsOnCall(i int, result1 *api_bpfrecorder.SyscallsResponse, result2 error) {
+	fake.syscallsForProfileMutex.Lock()
+	defer fake.syscallsForProfileMutex.Unlock()
+	fake.SyscallsForProfileStub = nil
+	if fake.syscallsForProfileReturnsOnCall == nil {
+		fake.syscallsForProfileReturnsOnCall = make(map[int]struct {
+			result1 *api_bpfrecorder.SyscallsResponse
+			result2 error
+		})
+	}
+	fake.syscallsForProfileReturnsOnCall[i] = struct {
+		result1 *api_bpfrecorder.SyscallsResponse
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
 	fake.clientGetMutex.RLock()
 	defer fake.clientGetMutex.RUnlock()
+	fake.createOrUpdateMutex.RLock()
+	defer fake.createOrUpdateMutex.RUnlock()
+	fake.dialBpfRecorderMutex.RLock()
+	defer fake.dialBpfRecorderMutex.RUnlock()
+	fake.getPodMutex.RLock()
+	defer fake.getPodMutex.RUnlock()
+	fake.getSPODMutex.RLock()
+	defer fake.getSPODMutex.RUnlock()
+	fake.goArchToSeccompArchMutex.RLock()
+	defer fake.goArchToSeccompArchMutex.RUnlock()
 	fake.managerGetClientMutex.RLock()
 	defer fake.managerGetClientMutex.RUnlock()
 	fake.managerGetEventRecorderForMutex.RLock()
@@ -425,6 +1064,12 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.newClientMutex.RUnlock()
 	fake.newControllerManagedByMutex.RLock()
 	defer fake.newControllerManagedByMutex.RUnlock()
+	fake.startBpfRecorderMutex.RLock()
+	defer fake.startBpfRecorderMutex.RUnlock()
+	fake.stopBpfRecorderMutex.RLock()
+	defer fake.stopBpfRecorderMutex.RUnlock()
+	fake.syscallsForProfileMutex.RLock()
+	defer fake.syscallsForProfileMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

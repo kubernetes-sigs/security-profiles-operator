@@ -54,7 +54,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
@@ -63,9 +62,6 @@ const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
 
-	errGetClient         = "cannot get client connection"
-	errGetNode           = "cannot get node object"
-	errGetPod            = "cannot get pod"
 	errInvalidAnnotation = "invalid Annotation"
 
 	reasonProfileRecording      event.Reason = "SeccompProfileRecording"
@@ -126,14 +122,14 @@ func (r *RecorderReconciler) Setup(
 	const name = "profilerecorder"
 	c, err := r.NewClient(mgr)
 	if err != nil {
-		return errors.Wrap(err, errGetClient)
+		return errors.Wrap(err, "cannot get client connection")
 	}
 
 	node := &corev1.Node{}
 	if err := r.ClientGet(
 		c, client.ObjectKey{Name: os.Getenv(config.NodeNameEnvKey)}, node,
 	); err != nil {
-		return errors.Wrap(err, errGetNode)
+		return errors.Wrap(err, "cannot get node object")
 	}
 
 	r.log = ctrl.Log.WithName(r.Name())
@@ -162,8 +158,7 @@ func (r *RecorderReconciler) Setup(
 func (r *RecorderReconciler) getSPOD() (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
-
-	return common.GetSPOD(ctx, r.client)
+	return r.GetSPOD(ctx, r.client)
 }
 
 // Healthz is the liveness probe endpoint of the controller.
@@ -213,16 +208,15 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 
-	pod := &corev1.Pod{}
-	if err := r.client.Get(ctx, req.NamespacedName, pod); err != nil {
+	pod, err := r.GetPod(ctx, r.client, req.NamespacedName)
+	if err != nil {
 		if kerrors.IsNotFound(err) {
-			if err := r.collectProfile(ctx, req.NamespacedName); err != nil {
-				return reconcile.Result{}, errors.Wrap(err, "collect profile for removed pod")
-			}
+			err = r.collectProfile(ctx, req.NamespacedName)
+			return reconcile.Result{}, errors.Wrap(err, "collect profile for removed pod")
 		} else {
 			// Returning an error means we will be requeued implicitly.
 			logger.Error(err, "Error reading pod")
-			return reconcile.Result{}, errors.Wrap(err, errGetPod)
+			return reconcile.Result{}, errors.Wrap(err, "cannot get pod")
 		}
 	}
 
@@ -270,12 +264,12 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 		} else if len(bpfProfiles) > 0 {
 			if err := r.startBpfRecorder(); err != nil {
 				logger.Error(err, "unable to start bpf recorder")
-				return reconcile.Result{}, nil
+				return reconcile.Result{}, err
 			}
 			profiles = bpfProfiles
 			recorder = profilerecording1alpha1.ProfileRecorderBpf
 		} else {
-			logger.Info("Neither hook nor log annotations found on pod")
+			logger.Info("No hook, log or bpf annotations found on pod")
 			return reconcile.Result{}, nil
 		}
 
@@ -312,7 +306,7 @@ func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderC
 	}
 
 	r.log.Info("Connecting to local GRPC bpf recorder server")
-	conn, cancel, err := bpfrecorder.Dial()
+	conn, cancel, err := r.DialBpfRecorder()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "connect to bpf recorder GRPC server")
 	}
@@ -331,8 +325,7 @@ func (r *RecorderReconciler) startBpfRecorder() error {
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 	r.log.Info("Starting BPF recorder on node")
-	_, err = recorderClient.Start(ctx, &bpfrecorderapi.EmptyRequest{})
-	return err
+	return r.StartBpfRecorder(recorderClient, ctx)
 }
 
 func (r *RecorderReconciler) stopBpfRecorder() error {
@@ -345,8 +338,7 @@ func (r *RecorderReconciler) stopBpfRecorder() error {
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 	r.log.Info("Stopping BPF recorder on node")
-	_, err = recorderClient.Stop(ctx, &bpfrecorderapi.EmptyRequest{})
-	return err
+	return r.StopBpfRecorder(recorderClient, ctx)
 }
 
 func (r *RecorderReconciler) collectProfile(
@@ -512,7 +504,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		)
 	}
 
-	arch, err := goArchToSeccompArch(response.GoArch)
+	arch, err := r.goArchToSeccompArch(response.GoArch)
 	if err != nil {
 		return errors.Wrap(err, "get seccomp arch")
 	}
@@ -661,8 +653,8 @@ func (r *RecorderReconciler) collectBpfProfiles(
 
 	for _, profile := range profiles {
 		r.log.Info("Collecting BPF profile", "name", profile.name, "kind", profile.kind)
-		response, err := recorderClient.SyscallsForProfile(
-			ctx, &bpfrecorderapi.ProfileRequest{Name: profile.name},
+		response, err := r.SyscallsForProfile(
+			recorderClient, ctx, &bpfrecorderapi.ProfileRequest{Name: profile.name},
 		)
 		if err != nil {
 			// Something went wrong during BPF event collection, which also
@@ -677,7 +669,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			return errors.Wrap(err, "get syscalls for profile")
 		}
 
-		arch, err := goArchToSeccompArch(response.GoArch)
+		arch, err := r.goArchToSeccompArch(response.GoArch)
 		if err != nil {
 			return errors.Wrap(err, "get seccomp arch")
 		}
@@ -705,7 +697,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			Spec: profileSpec,
 		}
 
-		res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
+		res, err := r.CreateOrUpdate(ctx, r.client, profile,
 			func() error {
 				profile.Spec = profileSpec
 				return nil
@@ -933,8 +925,8 @@ func ctxt2type(ctx string) (string, error) {
 	return elems[2], nil
 }
 
-func goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, error) {
-	seccompArch, err := seccomp.GoArchToSeccompArch(goarch)
+func (r *RecorderReconciler) goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, error) {
+	seccompArch, err := r.GoArchToSeccompArch(goarch)
 	if err != nil {
 		return "", errors.Wrap(err, "convert golang to seccomp arch")
 	}
