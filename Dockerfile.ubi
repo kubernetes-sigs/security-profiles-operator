@@ -17,26 +17,16 @@ USER root
 WORKDIR /work
 
 RUN microdnf install -y \
-        bzip2 \
-        curl-devel \
-        g++ \
         glibc-static \
         golang-bin \
-        libarchive-devel \
-        libmicrohttpd-devel \
-        libseccomp-static \
-        m4 \
         make \
-        sqlite-devel \
-        tar \
-        zlib-static
+        libseccomp-static
 
 ADD . /work
-RUN hack/install-libelf.sh
-RUN hack/install-libbpf.sh
 RUN mkdir -p build
 
 ARG APPARMOR_ENABLED=0
+ARG BPF_ENABLED=0
 
 RUN make
 

@@ -24,6 +24,7 @@ PROJECT := security-profiles-operator
 BUILD_DIR := build
 
 APPARMOR_ENABLED ?= 1
+BPF_ENABLED ?= 1
 
 BPFTOOL ?= bpftool
 CLANG ?= clang
@@ -48,11 +49,12 @@ GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirt
 VERSION := $(shell cat VERSION)
 
 ifneq ($(shell uname -s), Darwin)
-export CGO_LDFLAGS=-lelf -lz -lbpf -lseccomp
 BUILDTAGS := netgo osusergo seccomp
+CGO_LDFLAGS=-lseccomp
 else
 BUILDTAGS := netgo osusergo
 APPARMOR_ENABLED = 0
+BPF_ENABLED = 0
 endif
 
 ifneq ($(shell uname -s), Darwin)
@@ -66,6 +68,13 @@ BUILDTAGS := $(BUILDTAGS) apparmor
 LINT_BUILDTAGS := $(LINT_BUILDTAGS),apparmor
 endif
 
+ifeq ($(BPF_ENABLED), 1)
+CGO_LDFLAGS := $(CGO_LDFLAGS) -lelf -lz -lbpf
+else
+BUILDTAGS := $(BUILDTAGS) no_bpf
+endif
+
+export CGO_LDFLAGS
 export CGO_ENABLED=1
 
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
