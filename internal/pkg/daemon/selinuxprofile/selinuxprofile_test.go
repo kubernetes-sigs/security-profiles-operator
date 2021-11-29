@@ -103,6 +103,11 @@ func Test_selinuxProfileHandler(t *testing.T) {
 								"open",
 							},
 						},
+						"@self": {
+							"tcp_socket": []string{
+								"listen",
+							},
+						},
 					},
 				},
 			},
@@ -230,7 +235,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 			},
 			wantValidateErr: true,
 			wantErrMatches: []string{
-				"unknown inherit kind for entry: InvalidKind/foo",
+				"InvalidKind/foo: unknown inherit kind for entry",
 			},
 			existingObjs: []client.Object{
 				spodinstance.DeepCopy(),
@@ -265,6 +270,96 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				"\"test-selinux-recording-nginx\" not found",
 			},
 		},
+		{
+			name: "Test validate injection through label key",
+			profile: &selxv1alpha2.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Spec: selxv1alpha2.SelinuxProfileSpec{
+					Allow: selxv1alpha2.Allow{
+						"var_log_t) (typeattribute container_runtime_domain (process))": {
+							"dir": []string{
+								"open",
+								"read",
+								"getattr",
+								"lock",
+								"search",
+								"ioctl",
+								"add_name",
+								"remove_name",
+								"write",
+							},
+						},
+					},
+				},
+			},
+			wantValidateErr: true,
+			wantErrMatches: []string{
+				"didn't match expected characters: invalid label key",
+			},
+		},
+		{
+			name: "Test validate injection through object class key",
+			profile: &selxv1alpha2.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Spec: selxv1alpha2.SelinuxProfileSpec{
+					Allow: selxv1alpha2.Allow{
+						"var_log_t": {
+							"dir) (typeattribute container_runtime_domain (process))": []string{
+								"open",
+								"read",
+								"getattr",
+								"lock",
+								"search",
+								"ioctl",
+								"add_name",
+								"remove_name",
+								"write",
+							},
+						},
+					},
+				},
+			},
+			wantValidateErr: true,
+			wantErrMatches: []string{
+				"didn't match expected characters: invalid object class",
+			},
+		},
+		{
+			name: "Test validate injection through object permission",
+			profile: &selxv1alpha2.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Spec: selxv1alpha2.SelinuxProfileSpec{
+					Allow: selxv1alpha2.Allow{
+						"var_log_t": {
+							"dir": []string{
+								"open",
+								"read",
+								"getattr",
+								"lock",
+								"search",
+								"ioctl",
+								"add_name",
+								"remove_name",
+								"write) (typeattribute container_runtime_domain (process))",
+							},
+						},
+					},
+				},
+			},
+			wantValidateErr: true,
+			wantErrMatches: []string{
+				"didn't match expected characters: invalid permission",
+			},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -277,12 +372,10 @@ func Test_selinuxProfileHandler(t *testing.T) {
 			key := types.NamespacedName{Name: tt.profile.GetName(), Namespace: tt.profile.GetNamespace()}
 			sph, initerr := newSelinuxProfileHandler(context.TODO(), cli, key)
 
-			// There was an init error
 			if (initerr != nil) != tt.wantInitErr {
 				t.Errorf("newSelinuxProfileHandler() error = %v, wantErr %v", initerr, tt.wantInitErr)
 			}
-
-			// there's an expected error
+			// There was an expected error
 			if (initerr != nil) && tt.wantInitErr {
 				for _, wantMatch := range tt.wantErrMatches {
 					matched, matcherr := regexp.MatchString(wantMatch, initerr.Error())
@@ -292,24 +385,21 @@ func Test_selinuxProfileHandler(t *testing.T) {
 						t.Errorf("The error didn't match expectation.\nExpected match for: %s\nGot instead: %s", wantMatch, initerr)
 					}
 				}
+				return
 			}
 
-			// There's no init error
-			if initerr != nil {
-				valerr := sph.Validate()
-				if (valerr != nil) != tt.wantValidateErr {
-					t.Errorf("selinuxProfileHandler.Validate() error = %v, wantErr %v", valerr, tt.wantValidateErr)
-				}
-
-				// there's an expected error
-				if (valerr != nil) && tt.wantValidateErr {
-					for _, wantMatch := range tt.wantErrMatches {
-						matched, matcherr := regexp.MatchString(wantMatch, valerr.Error())
-						if matcherr != nil {
-							t.Errorf("failed matching the error to expected string: %s", matcherr)
-						} else if !matched {
-							t.Errorf("The error didn't match expectation.\nExpected match for: %s\nGot instead: %s", wantMatch, valerr)
-						}
+			valerr := sph.Validate()
+			if (valerr != nil) != tt.wantValidateErr {
+				t.Errorf("selinuxProfileHandler.Validate() error = %v, wantErr %v", valerr, tt.wantValidateErr)
+			}
+			// there's an expected error
+			if (valerr != nil) && tt.wantValidateErr {
+				for _, wantMatch := range tt.wantErrMatches {
+					matched, matcherr := regexp.MatchString(wantMatch, valerr.Error())
+					if matcherr != nil {
+						t.Errorf("failed matching the error to expected string: %s", matcherr)
+					} else if !matched {
+						t.Errorf("The error didn't match expectation.\nExpected match for: %s\nGot instead: %s", wantMatch, valerr)
 					}
 				}
 			}
