@@ -231,7 +231,7 @@ github.com/nxadm/tail/watch
 github.com/nxadm/tail/winfile
 # github.com/opencontainers/runtime-spec v1.0.3-0.20210326190908-1c3f411f0417
 github.com/opencontainers/runtime-spec/specs-go
-# github.com/pjbgf/go-apparmor v0.0.6
+# github.com/pjbgf/go-apparmor v0.0.7
 ## explicit
 github.com/pjbgf/go-apparmor/pkg/apparmor
 github.com/pjbgf/go-apparmor/pkg/hostop

@@ -31,7 +31,7 @@ var (
 // Enforceable checks whether AppArmor is installed, enabled and that
 // policies are enforceable.
 func (a *AppArmor) Enforceable() bool {
-	return aaModuleLoaded()
+	return aaModuleLoaded() && aaParserInstalled()
 }
 
 // DeletePolicy removes an AppArmor policy from the kernel.
@@ -150,5 +150,13 @@ func hasEnoughPrivileges() (bool, error) {
 // moduleLoaded checks whether the AppArmor module is loaded into the kernel.
 func aaModuleLoaded() bool {
 	_, err := os.Stat(modulePath)
-	return err != nil
+	return err == nil
+}
+
+// aaParserInstalled checks whether apparmor_parser is installed.
+// this is required to convert plain-text policies into binary,
+// which is what aa_kernel_interface_replace_policy_from_file
+// expects.
+func aaParserInstalled() bool {
+	return appArmorParser() != ""
 }
