@@ -18,6 +18,7 @@ package selinuxprofile
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,7 +33,13 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/translator"
 )
 
-var ErrUnknownKindForEntry = errors.New("unknown inherit kind for entry")
+var (
+	ErrInvalidLabelKey         = errors.New("invalid label key")
+	ErrInvalidObjClass         = errors.New("invalid object class")
+	ErrInvalidPermission       = errors.New("invalid permission")
+	ErrSystemInheritNotAllowed = errors.New("system profile not allowed")
+	ErrUnknownKindForEntry     = errors.New("unknown inherit kind for entry")
+)
 
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
@@ -52,10 +59,12 @@ func selinuxProfileControllerBuild(b *ctrl.Builder, r reconcile.Reconciler) erro
 var _ SelinuxObjectHandler = &selinuxProfileHandler{}
 
 type selinuxProfileHandler struct {
-	sp             *selxv1alpha2.SelinuxProfile
-	cli            client.Client
-	systemInherits []string
-	objInherits    []selxv1alpha2.SelinuxProfileObject
+	sp                *selxv1alpha2.SelinuxProfile
+	cli               client.Client
+	systemInherits    []string
+	objInherits       []selxv1alpha2.SelinuxProfileObject
+	labelRegex        *regexp.Regexp
+	objClassPermRegex *regexp.Regexp
 }
 
 func (sph *selinuxProfileHandler) Init(
@@ -67,8 +76,23 @@ func (sph *selinuxProfileHandler) Init(
 	if sph.cli == nil {
 		sph.cli = cli
 	}
-	err := sph.cli.Get(ctx, key, sph.sp)
-	return err
+	// initiate the SelinuxProfile object
+	if err := sph.cli.Get(ctx, key, sph.sp); err != nil {
+		return err
+	}
+
+	// Matches alpha numerical names in upper and lower-case, as well as
+	// dashes and underscores. @self is also allowed explicitly.
+	// Must be at least one character.
+	// The characters must match from beginning to end of the string
+	sph.labelRegex = regexp.MustCompile(`^([a-zA-Z0-9.\-_]+|@self)$`)
+
+	// Matches alpha numerical names in upper and lower-case, as well as
+	// dashes and underscores.
+	// Must be at least one character.
+	// The characters must match from beginning to end of the string
+	sph.objClassPermRegex = regexp.MustCompile(`^[a-zA-Z0-9.\-_]+$`)
+	return nil
 }
 
 func (sph *selinuxProfileHandler) GetProfileObject() selxv1alpha2.SelinuxProfileObject {
@@ -80,6 +104,22 @@ func (sph *selinuxProfileHandler) Validate() error {
 		err := sph.validateAndTrackInherit(inherit, sph.sp.GetNamespace())
 		if err != nil {
 			return err
+		}
+	}
+
+	for key, classperms := range sph.sp.Spec.Allow {
+		if err := sph.validateLabelKey(key); err != nil {
+			return err
+		}
+		for objclass, perms := range classperms {
+			if err := sph.validateObjClass(objclass); err != nil {
+				return err
+			}
+			for _, perm := range perms {
+				if err := sph.validatePermission(perm); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -97,6 +137,33 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 		return sph.handleInheritSPOPolicy(ancestorRef, namespace)
 	}
 	return errors.Wrapf(ErrUnknownKindForEntry, "%s/%s", ancestorRef.Kind, ancestorRef.Name)
+}
+
+func (sph *selinuxProfileHandler) validateLabelKey(
+	key selxv1alpha2.LabelKey,
+) error {
+	if !sph.labelRegex.MatchString(string(key)) {
+		return errors.Wrapf(ErrInvalidLabelKey, "'%s' didn't match expected characters", key)
+	}
+	return nil
+}
+
+func (sph *selinuxProfileHandler) validateObjClass(
+	key selxv1alpha2.ObjectClassKey,
+) error {
+	if !sph.objClassPermRegex.MatchString(string(key)) {
+		return errors.Wrapf(ErrInvalidObjClass, "'%s' didn't match expected characters", key)
+	}
+	return nil
+}
+
+func (sph *selinuxProfileHandler) validatePermission(
+	perm string,
+) error {
+	if !sph.objClassPermRegex.MatchString(perm) {
+		return errors.Wrapf(ErrInvalidPermission, "'%s' didn't match expected characters", perm)
+	}
+	return nil
 }
 
 func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
@@ -132,7 +199,7 @@ func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
 			return nil
 		}
 	}
-	return errors.Wrapf(err, "system profile %s not in SecurityProfilesOperatorDaemon's allow list",
+	return errors.Wrapf(ErrSystemInheritNotAllowed, "system profile %s not in SecurityProfilesOperatorDaemon's allow list",
 		ancestorRef.Name)
 }
 
