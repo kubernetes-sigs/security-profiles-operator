@@ -32,8 +32,8 @@ import (
 	"unsafe"
 
 	"github.com/ReneKroon/ttlcache/v2"
+	"github.com/acobaugh/osrelease"
 	bpf "github.com/aquasecurity/libbpfgo"
-	"github.com/cobaugh/osrelease"
 	"github.com/pkg/errors"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
