@@ -405,7 +405,7 @@ push-openshift-dev: set-openshift-image-params openshift-user image
 .PHONY: do-deploy-openshift-dev
 do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 	@echo "Deploying cert-manager"
-	oc apply -f https://github.com/jetstack/cert-manager/releases/download/v1.6.0/cert-manager.yaml
+	oc apply -f https://github.com/jetstack/cert-manager/releases/download/v1.6.1/cert-manager.yaml
 	oc wait --for=condition=Ready pod -lapp.kubernetes.io/instance=cert-manager -ncert-manager
 	@echo "Deploying"
 	oc apply -f deploy/openshift-dev.yaml
