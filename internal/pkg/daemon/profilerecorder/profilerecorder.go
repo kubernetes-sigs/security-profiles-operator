@@ -19,7 +19,6 @@ package profilerecorder
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -41,7 +40,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
@@ -54,7 +52,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
@@ -310,9 +307,9 @@ func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderC
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "connect to bpf recorder GRPC server")
 	}
-	enricherClient := bpfrecorderapi.NewBpfRecorderClient(conn)
+	bpfRecorderClient := bpfrecorderapi.NewBpfRecorderClient(conn)
 
-	return enricherClient, cancel, nil
+	return bpfRecorderClient, cancel, nil
 }
 
 func (r *RecorderReconciler) startBpfRecorder() error {
@@ -397,7 +394,7 @@ func (r *RecorderReconciler) collectLocalProfiles(
 
 		r.log.Info("Collecting profile", "path", profilePath)
 
-		data, err := ioutil.ReadFile(profilePath)
+		data, err := r.ReadFile(profilePath)
 		if err != nil {
 			r.log.Error(err, "Failed to read profile")
 			return errors.Wrap(err, "read profile")
@@ -415,7 +412,7 @@ func (r *RecorderReconciler) collectLocalProfiles(
 				Namespace: name.Namespace,
 			},
 		}
-		res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
+		res, err := r.CreateOrUpdate(ctx, r.client, profile,
 			func() error {
 				return errors.Wrap(
 					json.Unmarshal(data, &profile.Spec),
@@ -455,7 +452,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 	}
 
 	r.log.Info("Connecting to local GRPC enricher server")
-	conn, cancel, err := enricher.Dial()
+	conn, cancel, err := r.DialEnricher()
 	if err != nil {
 		return errors.Wrap(err, "connecting to local GRPC server")
 	}
@@ -497,7 +494,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 ) error {
 	// Retrieve the syscalls for the recording
 	request := &enricherapi.SyscallsRequest{Profile: profileID}
-	response, err := enricherClient.Syscalls(ctx, request)
+	response, err := r.Syscalls(enricherClient, ctx, request)
 	if err != nil {
 		return errors.Wrapf(
 			err, "retrieve syscalls for profile %s", profileID,
@@ -526,7 +523,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		Spec: profileSpec,
 	}
 
-	res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
+	res, err := r.CreateOrUpdate(ctx, r.client, profile,
 		func() error {
 			profile.Spec = profileSpec
 			return nil
@@ -545,7 +542,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	)
 
 	// Reset the syscalls for further recordings
-	if _, err := enricherClient.ResetSyscalls(ctx, request); err != nil {
+	if err := r.ResetSyscalls(enricherClient, ctx, request); err != nil {
 		return errors.Wrapf(
 			err, "reset syscalls for profile %s", profileID,
 		)
@@ -563,7 +560,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 ) error {
 	// Retrieve the syscalls for the recording
 	request := &enricherapi.AvcRequest{Profile: profileID}
-	response, err := enricherClient.Avcs(ctx, request)
+	response, err := r.Avcs(enricherClient, ctx, request)
 	if err != nil {
 		return errors.Wrapf(
 			err, "retrieve avcs for profile %s", profileID,
@@ -595,7 +592,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	}
 	r.log.Info("Created", "profile", profile)
 
-	res, err := controllerutil.CreateOrUpdate(ctx, r.client, profile,
+	res, err := r.CreateOrUpdate(ctx, r.client, profile,
 		func() error {
 			profile.Spec = selinuxProfileSpec
 			return nil
@@ -613,7 +610,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	)
 
 	// Reset the selinuxprofile for further recordings
-	if _, err := enricherClient.ResetAvcs(ctx, request); err != nil {
+	if err := r.ResetAvcs(enricherClient, ctx, request); err != nil {
 		return errors.Wrapf(
 			err, "reset selinuxprofile for profile %s", profileName,
 		)
@@ -752,10 +749,6 @@ func parseHookAnnotations(annotations map[string]string) (res []profileToCollect
 				"output file path must be absolute: %q", outputFile)
 		}
 
-		if outputFile == "" {
-			return nil, errors.Wrap(errors.New(errInvalidAnnotation),
-				"providing output file is mandatory")
-		}
 		if !strings.HasPrefix(outputFile, config.ProfileRecordingOutputPath) {
 			// Ignoring profile outside standard output path, it may be
 			// user-defined
