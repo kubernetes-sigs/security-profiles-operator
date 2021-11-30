@@ -39,7 +39,7 @@ import (
 
 const (
 	kindVersion      = "v0.11.1"
-	kindImage        = "kindest/node:v1.21.1"
+	kindImage        = "kindest/node:v1.22.4"
 	kindDarwinSHA512 = "602482412f3459f5c5ee1bd5e189ec776075e03114b033532c948b568bef6f32d9ea4ca73dd24e8fc6c067f33e52d5902769b91719f19d1f6a21e26717ad8871" // nolint: lll
 	kindLinuxSHA512  = "ce57a5438dcbec1269c583470695d11e5e759ad22a88a1214f0564e6513b912e3ffd380f6be61afc759a66b611bf1d966043cef16059ac096d96d81129281204" // nolint: lll
 )

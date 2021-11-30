@@ -19,7 +19,7 @@ ENVFILE=$(dirname "${BASH_SOURCE[0]}")/env-fedora.sh
 . "$ENVFILE"
 
 K8SPATH="$GOPATH/src/k8s.io"
-VERSION=v1.21.0
+VERSION=v1.22.4
 
 download-kubernetes() {
     export KUBERNETES_RELEASE=$VERSION
@@ -38,7 +38,9 @@ local-up() {
     export CONTAINER_RUNTIME=remote
     export CGROUP_DRIVER=systemd
     export CONTAINER_RUNTIME_ENDPOINT=/var/run/crio/crio.sock
+    export CGROUPS_PER_QOS=false
     export ALLOW_PRIVILEGED=1
+    export KUBELET_FLAGS='--enforce-node-allocatable='
 
     echo "Using IP: $IP"
     export DNS_SERVER_IP=$IP
