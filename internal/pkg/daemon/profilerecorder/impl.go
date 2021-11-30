@@ -18,6 +18,7 @@ package profilerecorder
 
 import (
 	"context"
+	"io/ioutil"
 
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
@@ -33,9 +34,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	bpfrecorderapi "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
+	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 )
 
 type defaultImpl struct{}
@@ -64,6 +67,20 @@ type impl interface {
 		context.Context, client.Client, client.Object, controllerutil.MutateFn,
 	) (controllerutil.OperationResult, error)
 	GoArchToSeccompArch(string) (seccomp.Arch, error)
+	ReadFile(string) ([]byte, error)
+	Syscalls(
+		enricherapi.EnricherClient, context.Context, *enricherapi.SyscallsRequest,
+	) (*enricherapi.SyscallsResponse, error)
+	ResetSyscalls(
+		enricherapi.EnricherClient, context.Context, *enricherapi.SyscallsRequest,
+	) error
+	Avcs(
+		enricherapi.EnricherClient, context.Context, *enricherapi.AvcRequest,
+	) (*enricherapi.AvcResponse, error)
+	ResetAvcs(
+		enricherapi.EnricherClient, context.Context, *enricherapi.AvcRequest,
+	) error
+	DialEnricher() (*grpc.ClientConn, context.CancelFunc, error)
 }
 
 func (*defaultImpl) NewClient(mgr ctrl.Manager) (client.Client, error) {
@@ -154,4 +171,38 @@ func (*defaultImpl) CreateOrUpdate(
 
 func (*defaultImpl) GoArchToSeccompArch(goArch string) (seccomp.Arch, error) {
 	return seccomp.GoArchToSeccompArch(goArch)
+}
+
+func (*defaultImpl) ReadFile(filename string) ([]byte, error) {
+	return ioutil.ReadFile(filename)
+}
+
+func (*defaultImpl) Syscalls(
+	c enricherapi.EnricherClient, ctx context.Context, in *enricherapi.SyscallsRequest,
+) (*enricherapi.SyscallsResponse, error) {
+	return c.Syscalls(ctx, in)
+}
+
+func (*defaultImpl) ResetSyscalls(
+	c enricherapi.EnricherClient, ctx context.Context, in *enricherapi.SyscallsRequest,
+) error {
+	_, err := c.ResetSyscalls(ctx, in)
+	return err
+}
+
+func (*defaultImpl) Avcs(
+	c enricherapi.EnricherClient, ctx context.Context, in *enricherapi.AvcRequest,
+) (*enricherapi.AvcResponse, error) {
+	return c.Avcs(ctx, in)
+}
+
+func (*defaultImpl) ResetAvcs(
+	c enricherapi.EnricherClient, ctx context.Context, in *enricherapi.AvcRequest,
+) error {
+	_, err := c.ResetAvcs(ctx, in)
+	return err
+}
+
+func (*defaultImpl) DialEnricher() (*grpc.ClientConn, context.CancelFunc, error) {
+	return enricher.Dial()
 }
