@@ -99,7 +99,7 @@ dependencies:
     version: v20210722-085d930
     refPaths:
     - path: cloudbuild.yaml
-      match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20211008-60e346af
+      match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20211118-2f2d816b90
 
   - name: libbpf
     version: 0.5.0
