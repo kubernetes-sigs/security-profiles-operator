@@ -46,7 +46,7 @@ dependencies:
       match: kindVersion
 
   - name: kind-image
-    version: 1.21.1
+    version: 1.22.4
     refPaths:
     - path: test/suite_test.go
       match: kindest/node
@@ -58,7 +58,7 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.21.0
+    version: 1.22.4
     refPaths:
     - path: hack/ci/install-kubernetes.sh
       match: VERSION
@@ -72,10 +72,12 @@ dependencies:
       match: fedora
 
   - name: e2e-ubuntu
-    version: focal64
+    version: ubuntu2004
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
-      match: ubuntu
+      match: config.vm.box
+    - path: .github/workflows/test.yml
+      match: node
 
   - name: debian-base
     version: 1.0.0
