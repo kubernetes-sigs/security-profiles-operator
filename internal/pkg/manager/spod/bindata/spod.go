@@ -101,6 +101,13 @@ var Manifest = &appsv1.DaemonSet{
 		Namespace: config.OperatorName,
 	},
 	Spec: appsv1.DaemonSetSpec{
+		UpdateStrategy: appsv1.DaemonSetUpdateStrategy{
+			Type: appsv1.RollingUpdateDaemonSetStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateDaemonSet{
+				// Update everything in parallel
+				MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "100%"},
+			},
+		},
 		Selector: &metav1.LabelSelector{
 			MatchLabels: map[string]string{
 				"app":  config.OperatorName,
