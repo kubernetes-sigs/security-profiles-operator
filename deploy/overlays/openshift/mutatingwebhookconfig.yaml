@@ -1,0 +1,6 @@
+- op: add
+  path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+  value: true
+- op: remove
+  path: /metadata/annotations/cert-manager.io~1inject-ca-from
+  value: "security-profiles-operator/webhook-cert"

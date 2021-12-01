@@ -1,0 +1,43 @@
+---
+$patch: delete
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+  namespace: security-profiles-operator
+spec:
+  selfSigned: {}
+---
+$patch: delete
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: webhook-cert
+  namespace: security-profiles-operator
+spec:
+  dnsNames:
+  - webhook-service.security-profiles-operator.svc
+  - webhook-service.security-profiles-operator.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: webhook-server-cert
+---
+$patch: delete
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: metrics-cert
+  namespace: security-profiles-operator
+spec:
+  subject:
+    organizations:
+    - security-profiles-operator
+  dnsNames:
+  - metrics.security-profiles-operator
+  - metrics.security-profiles-operator.svc
+  - metrics.security-profiles-operator.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: metrics-server-cert
