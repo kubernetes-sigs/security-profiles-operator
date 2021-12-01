@@ -17,6 +17,7 @@ GO ?= go
 GOLANGCI_LINT_VERSION = v1.43.0
 REPO_INFRA_VERSION = v0.2.3
 KUSTOMIZE_VERSION = 4.4.1
+KUBERNETES_SPLIT_YAML_VERSION = 0.3.0
 
 CONTROLLER_GEN_CMD := $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
@@ -144,8 +145,13 @@ $(BUILD_DIR)/kustomize: $(BUILD_DIR)
 	curl -sfL $$URL/master/hack/install_kustomize.sh \
 		| bash -s $(KUSTOMIZE_VERSION) $(PWD)/$(BUILD_DIR)
 
+$(BUILD_DIR)/kubernetes-split-yaml: $(BUILD_DIR)
+	export URL=https://github.com/mogensen/kubernetes-split-yaml/releases/download/v$(KUBERNETES_SPLIT_YAML_VERSION)/kubernetes-split-yaml_$(KUBERNETES_SPLIT_YAML_VERSION)_linux_amd64.tar.gz && \
+    curl -sfL $$URL | \
+        tar -C "${BUILD_DIR}" -xz
+
 .PHONY: deployments
-deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deployment files with kustomize
+deployments: $(BUILD_DIR)/kustomize $(BUILD_DIR)/kubernetes-split-yaml manifests generate ## Generate the deployment files with kustomize
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift -o deploy/openshift.yaml
@@ -364,12 +370,12 @@ test-e2e: ## Run the end-to-end tests
 
 # Generate CRD manifests
 manifests:
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/spod/..." output:crd:stdout > deploy/base/crds/securityprofilesoperatordaemon.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/secprofnodestatus/..." output:crd:stdout > deploy/base/crds/securityprofilenodestatus.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/seccompprofile/..." output:crd:stdout > deploy/base/crds/seccompprofile.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/selinuxprofile/..." output:crd:stdout > deploy/base/crds/selinuxpolicy.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/profilebinding/..." output:crd:stdout > deploy/base/crds/profilebinding.yaml
-	$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths="./api/profilerecording/..." output:crd:stdout > deploy/base/crds/profilerecording.yaml
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base/crds/securityprofilesoperatordaemon.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/secprofnodestatus/...' output:crd:stdout" "deploy/base/crds/securityprofilenodestatus.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/seccompprofile/...' output:crd:stdout" "deploy/base/crds/seccompprofile.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/selinuxprofile/...' output:crd:stdout" "deploy/base/crds/selinuxpolicy.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilebinding/...' output:crd:stdout" "deploy/base/crds/profilebinding.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilerecording/...' output:crd:stdout" "deploy/base/crds/profilerecording.yaml"
 
 # Generate deepcopy code
 generate:
