@@ -21,6 +21,11 @@ permissions:
   statuses: none
 jobs:
   analyze:
+    permissions:
+      
+      # write security-events is required by all codeql-action workflows
+      security-events: write 
+
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
