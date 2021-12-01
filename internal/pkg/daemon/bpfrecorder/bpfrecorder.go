@@ -54,6 +54,7 @@ const (
 	maxMsgSize          int           = 16 * 1024 * 1024
 	defaultCacheTimeout time.Duration = time.Hour
 	verboseLvl          int           = 1
+	maxCacheItems       int           = 1000
 )
 
 // BpfRecorder is the main structure of this package.
@@ -65,8 +66,8 @@ type BpfRecorder struct {
 	syscalls                 *bpf.BPFMap
 	comms                    *bpf.BPFMap
 	btfPath                  string
-	syscallNamesForIDCache   ttlcache.SimpleCache
-	containerIDCache         ttlcache.SimpleCache
+	syscallNamesForIDCache   *ttlcache.Cache
+	containerIDCache         *ttlcache.Cache
 	nodeName                 string
 	clientset                *kubernetes.Clientset
 	profileForContainerIDs   sync.Map
@@ -102,12 +103,13 @@ func New(logger logr.Logger) *BpfRecorder {
 // Run the BpfRecorder.
 func (b *BpfRecorder) Run() error {
 	b.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
-	for _, cache := range []ttlcache.SimpleCache{
+	for _, cache := range []*ttlcache.Cache{
 		b.containerIDCache, b.syscallNamesForIDCache,
 	} {
 		if err := b.SetTTL(cache, defaultCacheTimeout); err != nil {
 			return errors.Wrap(err, "set cache timeout")
 		}
+		cache.SetCacheSizeLimit(maxCacheItems)
 		defer cache.Close()
 	}
 

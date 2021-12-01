@@ -52,7 +52,7 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 //counterfeiter:generate . impl
 type impl interface {
-	SetTTL(ttlcache.SimpleCache, time.Duration) error
+	SetTTL(*ttlcache.Cache, time.Duration) error
 	Getenv(string) string
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(*rest.Config) (*kubernetes.Clientset, error)
@@ -88,7 +88,7 @@ type impl interface {
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
 }
 
-func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
+func (d *defaultImpl) SetTTL(cache *ttlcache.Cache, ttl time.Duration) error {
 	return cache.SetTTL(ttl)
 }
 
