@@ -154,6 +154,8 @@ $(BUILD_DIR)/kubernetes-split-yaml: $(BUILD_DIR)
 deployments: $(BUILD_DIR)/kustomize $(BUILD_DIR)/kubernetes-split-yaml manifests generate ## Generate the deployment files with kustomize
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
+	cp -f deploy/base/certificate.yaml deploy/overlays/openshift/no_certificate.yaml
+	sed -i '/^---$$/a $$patch: delete' deploy/overlays/openshift/no_certificate.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift -o deploy/openshift.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/openshift-dev.yaml
 
@@ -410,9 +412,6 @@ push-openshift-dev: set-openshift-image-params openshift-user image
 
 .PHONY: do-deploy-openshift-dev
 do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
-	@echo "Deploying cert-manager"
-	oc apply -f https://github.com/jetstack/cert-manager/releases/download/v1.6.1/cert-manager.yaml
-	oc wait --for=condition=Ready pod -lapp.kubernetes.io/instance=cert-manager -ncert-manager
 	@echo "Deploying"
 	oc apply -f deploy/openshift-dev.yaml
 	@echo "Setting triggers to track image"
