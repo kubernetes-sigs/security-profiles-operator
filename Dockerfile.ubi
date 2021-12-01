@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM registry.fedoraproject.org/fedora-minimal:latest AS build
+# hash below referred to latest
+FROM registry.fedoraproject.org/fedora-minimal@sha256:13b422a79980fc4ce26c46b0b6ad573dfaf0825a9d93dda8f6403a66d6709f47 AS build
 USER root
 WORKDIR /work
 
@@ -30,7 +31,8 @@ ARG BPF_ENABLED=0
 
 RUN make
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
+# hash below referred to latest
+FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:16da4d4c5cb289433305050a06834b7328769f8a5257ad5b4a5006465a0379ff
 ARG version
 USER root
 

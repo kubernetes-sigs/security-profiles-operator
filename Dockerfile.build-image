@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM k8s.gcr.io/build-image/debian-base:bullseye-v1.0.0
+# hash below relates to tag: bullseye-v1.0.0
+FROM k8s.gcr.io/build-image/debian-base@sha256:aa2e259dfe202b601b2a94a8b2e1b203a0fe92a601947da3d0c510be4e54c352
 WORKDIR /work
 
 RUN apt-get update && apt-get install -y wget xz-utils libapparmor-dev
