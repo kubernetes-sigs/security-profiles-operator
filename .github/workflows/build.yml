@@ -6,6 +6,19 @@ on:
   pull_request:
 env:
   GO_VERSION: '1.17'
+permissions:
+  actions: none
+  checks: none
+  contents: none
+  deployments: none
+  id-token: none
+  issues: none
+  discussions: none
+  packages: none
+  pull-requests: none
+  repository-projects: none
+  security-events: none
+  statuses: none
 jobs:
   macos:
     runs-on: macos-latest
