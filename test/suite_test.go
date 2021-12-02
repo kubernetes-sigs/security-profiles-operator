@@ -52,7 +52,6 @@ var (
 	envLogEnricherTestsEnabled      = os.Getenv("E2E_TEST_LOG_ENRICHER")
 	envSeccompTestsEnabled          = os.Getenv("E2E_TEST_SECCOMP")
 	envProfileRecordingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_RECORDING")
-	envBpfRecorderTestsEnabled      = os.Getenv("E2E_TEST_BPF_RECORDER")
 	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
 )
 
@@ -72,7 +71,6 @@ type e2e struct {
 	logEnricherEnabled   bool
 	testSeccomp          bool
 	testProfileRecording bool
-	bpfRecorderEnabled   bool
 	logger               logr.Logger
 	execNode             func(node string, args ...string) string
 	waitForReadyPods     func()
@@ -124,10 +122,6 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		testProfileRecording = false
 	}
-	bpfRecorderEnabled, err := strconv.ParseBool(envBpfRecorderTestsEnabled)
-	if err != nil {
-		bpfRecorderEnabled = false
-	}
 
 	selinuxdImage := "quay.io/jaosorior/selinuxd"
 	switch {
@@ -145,7 +139,6 @@ func TestSuite(t *testing.T) {
 				testSeccomp:          testSeccomp,
 				testProfileRecording: testProfileRecording,
 				selinuxdImage:        selinuxdImage,
-				bpfRecorderEnabled:   bpfRecorderEnabled,
 			},
 			"", "",
 		})
@@ -170,7 +163,6 @@ func TestSuite(t *testing.T) {
 				testSeccomp:          testSeccomp,
 				testProfileRecording: testProfileRecording,
 				selinuxdImage:        selinuxdImage,
-				bpfRecorderEnabled:   bpfRecorderEnabled,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -190,7 +182,6 @@ func TestSuite(t *testing.T) {
 				testSeccomp:          testSeccomp,
 				testProfileRecording: testProfileRecording,
 				selinuxdImage:        selinuxdImage,
-				bpfRecorderEnabled:   bpfRecorderEnabled,
 			},
 		})
 	default:
@@ -578,22 +569,4 @@ func (e *e2e) profileRecordingTestCase() {
 	if !e.testProfileRecording {
 		e.T().Skip("Skipping Profile-Recording-related test")
 	}
-}
-
-func (e *e2e) bpfRecorderOnlyTestCase() {
-	if !e.bpfRecorderEnabled {
-		e.T().Skip("Skipping bpf recorder related test")
-	}
-
-	e.enableBpfRecorderInSpod()
-}
-
-func (e *e2e) enableBpfRecorderInSpod() {
-	e.logf("Enable bpf recorder in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableBpfRecorder": true}}`, "--type=merge")
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
 }

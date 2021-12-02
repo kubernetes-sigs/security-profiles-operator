@@ -1,3 +1,6 @@
+//go:build flake
+// +build flake
+
 /*
 Copyright 2021 The Kubernetes Authors.
 

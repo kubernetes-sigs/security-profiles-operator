@@ -16,12 +16,14 @@
 set -euo pipefail
 
 export E2E_CLUSTER_TYPE=vanilla
-export E2E_TEST_SELINUX=true
-export E2E_TEST_LOG_ENRICHER=true
-export E2E_TEST_PROFILE_RECORDING=true
 
 # These are already tested in the standard e2e test.
 # No need to test them here.
 export E2E_TEST_SECCOMP=false
 
-make test-e2e
+# These are already tested in the fedora e2e test.
+export E2E_TEST_SELINUX=false
+export E2E_TEST_LOG_ENRICHER=false
+export E2E_TEST_PROFILE_RECORDING=false
+
+E2E_TEST_TAGS=flake make test-e2e

@@ -59,114 +59,13 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	// Retrieve the inputs for the test cases
 	nodes := e.getWorkerNodes()
 
-	// Execute the test cases. Each test case should cleanup on its own and
-	// leave a working operator behind.
-	e.logf("testing cluster-wide operator")
-	testCases := []struct {
-		description string
-		fn          func(nodes []string)
-	}{
-		{
-			"Seccomp: Verify default and example profiles",
-			e.testCaseDefaultAndExampleProfiles,
-		},
-		{
-			"Seccomp: Run a test pod",
-			e.testCaseRunPod,
-		},
-		{
-			"Seccomp: Verify base profile merge",
-			e.testCaseBaseProfile,
-		},
-		{
-			"Seccomp: Delete profiles",
-			e.testCaseDeleteProfiles,
-		},
-		{
-			"Seccomp: Metrics",
-			e.testCaseSeccompMetrics,
-		},
-		{
-			"Seccomp: Re-deploy the operator",
-			e.testCaseReDeployOperator,
-		},
-		{
-			"Log Enricher",
-			e.testCaseLogEnricher,
-		},
-		{
-			"SELinux: sanity check",
-			e.testCaseSelinuxSanityCheck,
-		},
-		{
-			"SELinux: base case (install policy, run pod and delete)",
-			e.testCaseSelinuxBaseUsage,
-		},
-		{
-			"SELinux: Metrics (update, delete)",
-			e.testCaseSelinuxMetrics,
-		},
-		{
-			"SPOD: Update SELinux flag",
-			e.testCaseSPODUpdateSelinux,
-		},
-		{
-			"SPOD: Change verbosity",
-			e.testCaseVerbosityChange,
-		},
-		{
-			"Seccomp: make sure statuses for profiles with long names can be listed",
-			e.testCaseLongSeccompProfileName,
-		},
-	}
-	for _, testCase := range testCases {
-		tc := testCase
-		e.Run("cluster-wide: "+tc.description, func() {
-			tc.fn(nodes)
-		})
-	}
-
-	// TODO(jaosorior): Re-introduce this to the namespaced tests once we
-	// fix the issue with the certs.
-	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
-		e.testCaseProfileBinding(nodes)
-	})
-
-	e.Run("cluster-wide: Seccomp: Verify profile recording hook", func() {
-		e.testCaseProfileRecordingStaticPodHook()
-		e.testCaseProfileRecordingKubectlRunHook()
-		e.testCaseProfileRecordingMultiContainerHook()
-		e.testCaseProfileRecordingDeploymentHook()
-	})
-
-	e.Run("cluster-wide: Seccomp: Verify profile recording logs", func() {
-		e.testCaseProfileRecordingStaticPodLogs()
-		e.testCaseProfileRecordingMultiContainerLogs()
-		e.testCaseProfileRecordingDeploymentLogs()
-	})
-
-	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
-		e.testCaseProfileRecordingStaticPodSELinuxLogs()
-		e.testCaseProfileRecordingMultiContainerSELinuxLogs()
-		e.testCaseProfileRecordingSelinuxDeploymentLogs()
-	})
-
-	e.Run("cluster-wide: Seccomp: Verify profile recording bpf", func() {
-		e.testCaseBpfRecorderKubectlRun()
-		e.testCaseBpfRecorderStaticPod()
-		e.testCaseBpfRecorderMultiContainer()
-		e.testCaseBpfRecorderDeployment()
-		e.testCaseBpfRecorderParallel()
-	})
+	e.runClusterWideTests(nodes)
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(manifest)
 	e.run("git", "checkout", manifest)
 
 	e.logf("testing namespace operator")
-
-	// Use namespace manifests for redeploy test
-	testCases[5].fn = e.testCaseReDeployNamespaceOperator
 
 	// Deploy the namespace operator
 	e.kubectl("create", "namespace", testNamespace)
@@ -178,12 +77,8 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.kubectl("config", "set-context", "--current", "--namespace", testNamespace)
 	e.deployOperator(namespaceManifest)
 
-	for _, testCase := range testCases {
-		tc := testCase
-		e.Run("namespaced: "+tc.description, func() {
-			tc.fn(nodes)
-		})
-	}
+	e.runNamespacedTests(nodes)
+
 	e.run("git", "checkout", namespaceManifest)
 }
 

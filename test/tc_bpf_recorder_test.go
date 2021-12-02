@@ -1,3 +1,6 @@
+//go:build flake
+// +build flake
+
 /*
 Copyright 2021 The Kubernetes Authors.
 
@@ -47,8 +50,6 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time) {
 }
 
 func (e *e2e) testCaseBpfRecorderKubectlRun() {
-	e.bpfRecorderOnlyTestCase()
-
 	e.logf("Creating bpf recording for kubectl run test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
 
@@ -64,8 +65,6 @@ func (e *e2e) testCaseBpfRecorderKubectlRun() {
 }
 
 func (e *e2e) testCaseBpfRecorderStaticPod() {
-	e.bpfRecorderOnlyTestCase()
-
 	e.logf("Creating bpf recording for static pod test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
 
@@ -92,8 +91,6 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 }
 
 func (e *e2e) testCaseBpfRecorderMultiContainer() {
-	e.bpfRecorderOnlyTestCase()
-
 	e.logf("Creating bpf recording for multi container test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
 
@@ -116,8 +113,6 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 }
 
 func (e *e2e) testCaseBpfRecorderDeployment() {
-	e.bpfRecorderOnlyTestCase()
-
 	e.logf("Creating bpf recording for deployment test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
 
@@ -172,8 +167,6 @@ spec:
 }
 
 func (e *e2e) testCaseBpfRecorderParallel() {
-	e.bpfRecorderOnlyTestCase()
-
 	e.logf("Creating bpf recording for parallel test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
 
@@ -244,4 +237,14 @@ spec:
 	}
 
 	return since, podNames
+}
+
+func (e *e2e) enableBpfRecorderInSpod() {
+	e.logf("Enable bpf recorder in SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableBpfRecorder": true}}`, "--type=merge")
+
+	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
 }

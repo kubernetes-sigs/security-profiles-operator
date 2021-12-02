@@ -94,6 +94,12 @@ jobs:
           $RUN kubectl get nodes -o wide
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-fedora.sh
+      - name: Run E2E flake tests
+        uses: nick-invision/retry@002ef572db3a198cb4a15e23c0121bcdcfdb016d # v2.5.1
+        with:
+          timeout_minutes: 35
+          max_attempts: 3
+          command: $RUN hack/ci/e2e-fedora-flake.sh
 
   e2e-ubuntu:
     needs: image

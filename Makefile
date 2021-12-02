@@ -75,6 +75,8 @@ else
 BUILDTAGS := $(BUILDTAGS) no_bpf
 endif
 
+E2E_TEST_TAGS ?= 
+
 export CGO_LDFLAGS
 export CGO_ENABLED=1
 
@@ -366,7 +368,7 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	CGO_LDFLAGS= $(GO) test -parallel 1 -timeout 80m -count=1 ./test/... -v
+	CGO_LDFLAGS= $(GO) test -parallel 1 -timeout 80m -tags='$(E2E_TEST_TAGS)' -count=1 ./test/... -v
 
 # Generate CRD manifests
 manifests:
