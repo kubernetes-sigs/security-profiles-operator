@@ -42,6 +42,7 @@ type Info struct {
 	Compiler     string `json:"compiler,omitempty"`
 	Platform     string `json:"platform,omitempty"`
 	Libseccomp   string `json:"libseccomp,omitempty"`
+	Libbpf       string `json:"libbpf,omitempty"`
 }
 
 func Get() *Info {
@@ -54,6 +55,7 @@ func Get() *Info {
 		Compiler:     runtime.Compiler,
 		Platform:     fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 		Libseccomp:   libseccompVersion(),
+		Libbpf:       libbpfVersion(),
 	}
 }
 
@@ -71,6 +73,7 @@ func (i *Info) String() string {
 	fmt.Fprintf(w, "Compiler:\t%s\n", i.Compiler)
 	fmt.Fprintf(w, "Platform:\t%s\n", i.Platform)
 	fmt.Fprintf(w, "Libseccomp:\t%s\n", i.Libseccomp)
+	fmt.Fprintf(w, "Libbpf:\t%s\n", i.Libbpf)
 
 	w.Flush()
 	return b.String()
@@ -96,5 +99,6 @@ func (i *Info) AsKeyValues() []interface{} {
 		"compiler", i.Compiler,
 		"platform", i.Platform,
 		"libseccomp", i.Libseccomp,
+		"libbpf", i.Libbpf,
 	}
 }
