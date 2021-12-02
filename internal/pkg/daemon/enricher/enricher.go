@@ -47,6 +47,7 @@ const (
 
 	defaultTimeout time.Duration = time.Minute
 	maxMsgSize     int           = 16 * 1024 * 1024
+	maxCacheItems  int           = 1000
 )
 
 // Enricher is the main structure of this package.
@@ -54,8 +55,8 @@ type Enricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl             impl
 	logger           logr.Logger
-	containerIDCache ttlcache.SimpleCache
-	infoCache        ttlcache.SimpleCache
+	containerIDCache *ttlcache.Cache
+	infoCache        *ttlcache.Cache
 	syscalls         sync.Map
 	avcs             sync.Map
 	auditLineCache   *ttlcache.Cache
@@ -78,7 +79,7 @@ func New(logger logr.Logger) *Enricher {
 // Kubernetes data (namespace, pod and container).
 func (e *Enricher) Run() error {
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
-	for _, cache := range []ttlcache.SimpleCache{
+	for _, cache := range []*ttlcache.Cache{
 		e.containerIDCache,
 		e.infoCache,
 		e.auditLineCache,
@@ -86,6 +87,7 @@ func (e *Enricher) Run() error {
 		if err := e.impl.SetTTL(cache, defaultCacheTimeout); err != nil {
 			return errors.Wrap(err, "set cache timeout")
 		}
+		cache.SetCacheSizeLimit(maxCacheItems)
 		defer cache.Close()
 	}
 

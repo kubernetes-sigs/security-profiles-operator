@@ -84,10 +84,10 @@ type FakeImpl struct {
 	closeReturnsOnCall map[int]struct {
 		result1 error
 	}
-	ContainerIDForPIDStub        func(ttlcache.SimpleCache, int) (string, error)
+	ContainerIDForPIDStub        func(*ttlcache.Cache, int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
 	containerIDForPIDArgsForCall []struct {
-		arg1 ttlcache.SimpleCache
+		arg1 *ttlcache.Cache
 		arg2 int
 	}
 	containerIDForPIDReturns struct {
@@ -259,10 +259,10 @@ type FakeImpl struct {
 	serveReturnsOnCall map[int]struct {
 		result1 error
 	}
-	SetTTLStub        func(ttlcache.SimpleCache, time.Duration) error
+	SetTTLStub        func(*ttlcache.Cache, time.Duration) error
 	setTTLMutex       sync.RWMutex
 	setTTLArgsForCall []struct {
-		arg1 ttlcache.SimpleCache
+		arg1 *ttlcache.Cache
 		arg2 time.Duration
 	}
 	setTTLReturns struct {
@@ -553,11 +553,11 @@ func (fake *FakeImpl) CloseReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) ContainerIDForPID(arg1 ttlcache.SimpleCache, arg2 int) (string, error) {
+func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache, arg2 int) (string, error) {
 	fake.containerIDForPIDMutex.Lock()
 	ret, specificReturn := fake.containerIDForPIDReturnsOnCall[len(fake.containerIDForPIDArgsForCall)]
 	fake.containerIDForPIDArgsForCall = append(fake.containerIDForPIDArgsForCall, struct {
-		arg1 ttlcache.SimpleCache
+		arg1 *ttlcache.Cache
 		arg2 int
 	}{arg1, arg2})
 	stub := fake.ContainerIDForPIDStub
@@ -579,13 +579,13 @@ func (fake *FakeImpl) ContainerIDForPIDCallCount() int {
 	return len(fake.containerIDForPIDArgsForCall)
 }
 
-func (fake *FakeImpl) ContainerIDForPIDCalls(stub func(ttlcache.SimpleCache, int) (string, error)) {
+func (fake *FakeImpl) ContainerIDForPIDCalls(stub func(*ttlcache.Cache, int) (string, error)) {
 	fake.containerIDForPIDMutex.Lock()
 	defer fake.containerIDForPIDMutex.Unlock()
 	fake.ContainerIDForPIDStub = stub
 }
 
-func (fake *FakeImpl) ContainerIDForPIDArgsForCall(i int) (ttlcache.SimpleCache, int) {
+func (fake *FakeImpl) ContainerIDForPIDArgsForCall(i int) (*ttlcache.Cache, int) {
 	fake.containerIDForPIDMutex.RLock()
 	defer fake.containerIDForPIDMutex.RUnlock()
 	argsForCall := fake.containerIDForPIDArgsForCall[i]
@@ -1422,11 +1422,11 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) SetTTL(arg1 ttlcache.SimpleCache, arg2 time.Duration) error {
+func (fake *FakeImpl) SetTTL(arg1 *ttlcache.Cache, arg2 time.Duration) error {
 	fake.setTTLMutex.Lock()
 	ret, specificReturn := fake.setTTLReturnsOnCall[len(fake.setTTLArgsForCall)]
 	fake.setTTLArgsForCall = append(fake.setTTLArgsForCall, struct {
-		arg1 ttlcache.SimpleCache
+		arg1 *ttlcache.Cache
 		arg2 time.Duration
 	}{arg1, arg2})
 	stub := fake.SetTTLStub
@@ -1448,13 +1448,13 @@ func (fake *FakeImpl) SetTTLCallCount() int {
 	return len(fake.setTTLArgsForCall)
 }
 
-func (fake *FakeImpl) SetTTLCalls(stub func(ttlcache.SimpleCache, time.Duration) error) {
+func (fake *FakeImpl) SetTTLCalls(stub func(*ttlcache.Cache, time.Duration) error) {
 	fake.setTTLMutex.Lock()
 	defer fake.setTTLMutex.Unlock()
 	fake.SetTTLStub = stub
 }
 
-func (fake *FakeImpl) SetTTLArgsForCall(i int) (ttlcache.SimpleCache, time.Duration) {
+func (fake *FakeImpl) SetTTLArgsForCall(i int) (*ttlcache.Cache, time.Duration) {
 	fake.setTTLMutex.RLock()
 	defer fake.setTTLMutex.RUnlock()
 	argsForCall := fake.setTTLArgsForCall[i]

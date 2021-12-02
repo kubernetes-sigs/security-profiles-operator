@@ -40,14 +40,14 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 //counterfeiter:generate . impl
 type impl interface {
-	SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error
+	SetTTL(cache *ttlcache.Cache, ttl time.Duration) error
 	Getenv(key string) string
 	Dial() (*grpc.ClientConn, context.CancelFunc, error)
 	Close(*grpc.ClientConn) error
 	TailFile(filename string, config tail.Config) (*tail.Tail, error)
 	Lines(tailFile *tail.Tail) chan *tail.Line
 	Reason(tailFile *tail.Tail) error
-	ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error)
+	ContainerIDForPID(cache *ttlcache.Cache, pid int) (string, error)
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(c *rest.Config) (*kubernetes.Clientset, error)
 	ListPods(c *kubernetes.Clientset, nodeName string) (*v1.PodList, error)
@@ -63,7 +63,7 @@ type impl interface {
 	RemoveAll(string) error
 }
 
-func (d *defaultImpl) SetTTL(cache ttlcache.SimpleCache, ttl time.Duration) error {
+func (d *defaultImpl) SetTTL(cache *ttlcache.Cache, ttl time.Duration) error {
 	return cache.SetTTL(ttl)
 }
 
@@ -93,7 +93,7 @@ func (d *defaultImpl) Reason(tailFile *tail.Tail) error {
 	return tailFile.Err()
 }
 
-func (d *defaultImpl) ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
+func (d *defaultImpl) ContainerIDForPID(cache *ttlcache.Cache, pid int) (string, error) {
 	return util.ContainerIDForPID(cache, pid)
 }
 
