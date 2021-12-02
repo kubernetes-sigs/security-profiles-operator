@@ -486,6 +486,14 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 		// Set the logging verbosity
 		templateSpec.Containers[i].Env = append(templateSpec.Containers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
+
+		// Enable profiling if requested
+		if cfg.Spec.EnableProfiling {
+			templateSpec.Containers[i].Env = append(
+				templateSpec.Containers[i].Env,
+				profilingEnvs(i)...,
+			)
+		}
 	}
 
 	templateSpec.Tolerations = cfg.Spec.Tolerations
@@ -497,6 +505,19 @@ func verbosityEnv(value uint) corev1.EnvVar {
 	return corev1.EnvVar{
 		Name:  config.VerbosityEnvKey,
 		Value: fmt.Sprint(value),
+	}
+}
+
+func profilingEnvs(add int) []corev1.EnvVar {
+	return []corev1.EnvVar{
+		{
+			Name:  config.ProfilingEnvKey,
+			Value: "true",
+		},
+		{
+			Name:  config.ProfilingPortEnvKey,
+			Value: fmt.Sprint(config.DefaultProfilingPort + add),
+		},
 	}
 }
 

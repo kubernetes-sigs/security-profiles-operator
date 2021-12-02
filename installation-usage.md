@@ -20,6 +20,7 @@
   - [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
 - [Using the log enricher](#using-the-log-enricher)
 - [Troubleshooting](#troubleshooting)
+  - [Enable CPU and memory profiling](#enable-cpu-and-memory-profiling)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
 
@@ -929,6 +930,46 @@ Please note corrupted seccomp profiles can disrupt your workloads. Therefore, en
 - Not creating that user on the actual node.
 - Restricting the user ID to only security-profiles-operator (i.e. using PSP).
 - Not allowing other workloads to map any part of the path `/var/lib/kubelet/seccomp/operator`.
+
+### Enable CPU and memory profiling
+
+It is possible to enable the CPU and memory profiling endpoints for debugging
+purposes. To be able to utilize the profiling support, patch the spod config by
+adjusting the `enableProfiling` value:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableProfiling":true}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
+The containers of the daemon should now indicate that it's serving the profiling
+endpoint, where every container is using a different port:
+
+```
+> k logs ds/spod -c security-profiles-operator | grep "Starting profiling"
+I1202 15:14:40.276363 2185724 main.go:226]  "msg"="Starting profiling server"  "endpoint"="localhost:6060"
+
+> k logs ds/spod -c log-enricher | grep "Starting profiling"
+I1202 15:14:40.364046 2185814 main.go:226]  "msg"="Starting profiling server"  "endpoint"="localhost:6061"
+
+> k logs ds/spod -c bpf-recorder | grep "Starting profiling"
+I1202 15:14:40.457506 2185914 main.go:226]  "msg"="Starting profiling server"  "endpoint"="localhost:6062"
+```
+
+Then use the pprof tool to look at the heap profile:
+
+```
+> go tool pprof http://$PODIP:6060/debug/pprof/heap
+```
+
+Or to look at a 30-second CPU profile:
+
+```
+go tool pprof http://$PODIP:6060/debug/pprof/profile?seconds=30
+```
+
+For a study of the facility in action, please visit:
+https://blog.golang.org/2011/06/profiling-go-programs.html
 
 ## Uninstalling
 
