@@ -108,6 +108,8 @@ dependencies:
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
+    - path: internal/pkg/version/version_bpf_supported.go
+      match: return
 
   - name: libelf
     version: 0.185
