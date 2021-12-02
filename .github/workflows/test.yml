@@ -26,20 +26,20 @@ jobs:
       # write security-events is required by all codeql-action workflows
       security-events: write 
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v2
-      - uses: github/codeql-action/init@v1
+      - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
+      - uses: github/codeql-action/init@26567f6a492cf20b8a8a6913432a4f1b834b12be # v1.0.24
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@v1
-      - uses: github/codeql-action/analyze@v1
+      - uses: github/codeql-action/autobuild@26567f6a492cf20b8a8a6913432a4f1b834b12be # v1.0.24
+      - uses: github/codeql-action/analyze@26567f6a492cf20b8a8a6913432a4f1b834b12be # v1.0.24
 
   coverage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-go@v2
+      - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
+      - uses: actions/setup-go@331ce1d993939866bb63c32c6cbbfd48fa76fc57 # v2.1.4
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install dependencies
@@ -48,38 +48,41 @@ jobs:
           sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
           sudo hack/install-libbpf.sh
       - run: make test-unit
-      - uses: codecov/codecov-action@v2
+      - uses: codecov/codecov-action@f32b3a3741e1053eb607407145bc9619351dc93b # v2.1.0
         with:
           files: build/coverage.out
           flags: unittests
           verbose: true
 
   image:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
       - run: make image
       - run: podman save -o image.tar security-profiles-operator
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@27121b0bdffd731efa15d66772be8dc71245d074 # v2.2.4
         with:
           name: image
           path: image.tar
 
   e2e-fedora:
     needs: image
+    
+    # runs-on not set to macos-11 as vagrant currently not available and stable on macos BigSur
+    # https://github.com/actions/virtual-environments/issues/2999
     runs-on: macos-10.15
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-fedora.sh
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+      - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
+      - uses: actions/cache@937d24475381cd9c75ae6db12cb4e79714b926ed # v2.1.7
         with:
           path: |
             ~/.vagrant.d/boxes
           key: e2e-fedora-${{ hashFiles('hack/ci/Vagrantfile-fedora') }}
           restore-keys: e2e-fedora-
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@3be87be14a055c47b01d3bd88f8fe02320a9bb60 # v2.0.10
         with:
           name: image
           path: .
@@ -94,19 +97,22 @@ jobs:
 
   e2e-ubuntu:
     needs: image
+
+    # runs-on not set to macos-11 as vagrant currently not available and stable on macos BigSur
+    # https://github.com/actions/virtual-environments/issues/2999
     runs-on: macos-10.15
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2
+      - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
+      - uses: actions/cache@937d24475381cd9c75ae6db12cb4e79714b926ed # v2.1.7
         with:
           path: |
             ~/.vagrant.d/boxes
           key: e2e-ubuntu-${{ hashFiles('hack/ci/Vagrantfile-ubuntu') }}
           restore-keys: e2e-ubuntu-
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@3be87be14a055c47b01d3bd88f8fe02320a9bb60 # v2.0.10
         with:
           name: image
           path: .
