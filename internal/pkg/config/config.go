@@ -67,6 +67,17 @@ const (
 	// VerbosityEnvKey is the environment variable key for the logging verbosity.
 	VerbosityEnvKey = "SPO_VERBOSITY"
 
+	// ProfilingEnvKey is the environment variable key for enabling profiling
+	// support.
+	ProfilingEnvKey = "SPO_PROFILING"
+
+	// ProfilingPortEnvKey is the environment variable key for choosing the
+	// profiling port.
+	ProfilingPortEnvKey = "SPO_PROFILING_PORT"
+
+	// DefaultProfilingPort is the start port where the profiling endpoint runs.
+	DefaultProfilingPort = 6060
+
 	// SelinuxEnabledByDefaultEnvKey is the environment variable key for enabling
 	// SELinux by default if the default SecurityProfilesOperatorDaemon instance
 	// is not yet created.

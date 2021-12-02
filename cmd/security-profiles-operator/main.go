@@ -20,6 +20,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
+
+	// nolint: gosec
+	_ "net/http/pprof"
 	"os"
 	"strings"
 	"time"
@@ -166,13 +170,34 @@ func main() {
 			Value:   0,
 			EnvVars: []string{config.VerbosityEnvKey},
 		},
+		&cli.BoolFlag{
+			Name:    "profiling",
+			Aliases: []string{"p"},
+			Usage:   "enable profiling support",
+			EnvVars: []string{config.ProfilingEnvKey},
+		},
+		&cli.UintFlag{
+			Name:    "profiling-port",
+			Usage:   "the profiling port to be used",
+			Value:   config.DefaultProfilingPort,
+			EnvVars: []string{config.ProfilingPortEnvKey},
+		},
 	}
-	app.Before = initLogging
+	app.Before = initialize
 
 	if err := app.Run(os.Args); err != nil {
 		setupLog.Error(err, "running security-profiles-operator")
 		os.Exit(1)
 	}
+}
+
+func initialize(ctx *cli.Context) error {
+	if err := initLogging(ctx); err != nil {
+		return errors.Wrap(err, "init logging")
+	}
+
+	initProfiling(ctx)
+	return nil
 }
 
 func initLogging(ctx *cli.Context) error {
@@ -188,6 +213,23 @@ func initLogging(ctx *cli.Context) error {
 
 	ctrl.Log.Info(fmt.Sprintf("Set logging verbosity to %d", level))
 	return nil
+}
+
+func initProfiling(ctx *cli.Context) {
+	enabled := ctx.Bool("profiling")
+	ctrl.Log.Info(fmt.Sprintf("Profiling support enabled: %v", enabled))
+
+	if enabled {
+		go func() {
+			port := ctx.Uint("profiling-port")
+			endpoint := fmt.Sprintf(":%d", port)
+
+			ctrl.Log.Info("Starting profiling server", "endpoint", endpoint)
+			if err := http.ListenAndServe(endpoint, nil); err != nil {
+				ctrl.Log.Error(err, "unable to run profiling server")
+			}
+		}()
+	}
 }
 
 func printInfo(component string) {
