@@ -129,7 +129,7 @@ func TestSuite(t *testing.T) {
 		bpfRecorderEnabled = false
 	}
 
-	selinuxdImage := "quay.io/jaosorior/selinuxd"
+	selinuxdImage := "quay.io/security-profiles-operator/selinuxd"
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, clusterTypeKind):
 		if testImage == "" {
@@ -179,7 +179,7 @@ func TestSuite(t *testing.T) {
 		if testImage == "" {
 			testImage = "localhost/" + config.OperatorName + ":latest"
 		}
-		selinuxdImage = "quay.io/jaosorior/selinuxd-fedora"
+		selinuxdImage = "quay.io/security-profiles-operator/selinuxd-fedora"
 		suite.Run(t, &vanilla{
 			e2e{
 				logger:               klogr.New(),
@@ -261,7 +261,7 @@ func (e *kinde2e) SetupTest() {
 		containerRuntime, "pull", e.selinuxdImage,
 	)
 	e.run(
-		e.kindPath, "load", "docker-image", "--name="+e.clusterName, "quay.io/jaosorior/selinuxd",
+		e.kindPath, "load", "docker-image", "--name="+e.clusterName, "quay.io/security-profiles-operator/selinuxd",
 	)
 }
 

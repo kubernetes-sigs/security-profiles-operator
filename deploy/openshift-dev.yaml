@@ -1697,7 +1697,7 @@ spec:
         - name: DEFAULT_ENABLE_SELINUX
           value: "true"
         - name: RELATED_IMAGE_SELINUXD
-          value: quay.io/jaosorior/selinuxd
+          value: quay.io/security-profiles-operator/selinuxd
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:

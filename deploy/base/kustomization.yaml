@@ -24,7 +24,7 @@ patchesStrategicMerge:
           - name: security-profiles-operator
             env:
               - name: RELATED_IMAGE_SELINUXD
-                value: quay.io/jaosorior/selinuxd
+                value: quay.io/security-profiles-operator/selinuxd
 
 commonLabels:
   app: security-profiles-operator
