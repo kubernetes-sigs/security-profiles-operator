@@ -176,7 +176,7 @@ var Manifest = &appsv1.DaemonSet{
 					},
 					{
 						Name:  "selinux-shared-policies-copier",
-						Image: "quay.io/jaosorior/selinuxd",
+						Image: "quay.io/security-profiles-operator/selinuxd",
 						// Primes the volume mount under /etc/selinux.d with the
 						// shared policies shipped by selinuxd and makes sure the volume mount
 						// is writable by 65535 in order for the controller to be able to
@@ -357,7 +357,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					},
 					{
 						Name:  "selinuxd",
-						Image: "quay.io/jaosorior/selinuxd",
+						Image: "quay.io/security-profiles-operator/selinuxd",
 						Args: []string{
 							"daemon",
 							"--datastore-path", SelinuxdDBPath,
