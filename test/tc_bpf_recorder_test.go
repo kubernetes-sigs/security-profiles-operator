@@ -53,7 +53,7 @@ func (e *e2e) testCaseBpfRecorderKubectlRun() {
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
 
 	e.logf("Creating test pod")
-	e.kubectlRun("--labels=app=alpine", "fedora", "--", "mkdir", "/test")
+	e.kubectlRun("--labels=app=alpine", "fedora", "--", "sh", "-c", "sleep 3; mkdir /test")
 
 	resourceName := recordingName + "-fedora"
 	profile := e.retryGetSeccompProfile(resourceName)
