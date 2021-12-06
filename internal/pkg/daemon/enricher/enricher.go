@@ -309,7 +309,6 @@ func (e *Enricher) addToBacklog(line *auditLine) error {
 		return errors.Wrap(setErr, "adding a line to the backlog")
 	}
 
-	e.logger.Info("line appended to backlog")
 	return nil
 }
 

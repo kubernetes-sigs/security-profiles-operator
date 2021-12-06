@@ -449,7 +449,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								corev1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
 							},
 							Limits: corev1.ResourceList{
-								corev1.ResourceMemory:           resource.MustParse("128Mi"),
+								corev1.ResourceMemory:           resource.MustParse("256Mi"),
 								corev1.ResourceEphemeralStorage: resource.MustParse("128Mi"),
 							},
 						},
