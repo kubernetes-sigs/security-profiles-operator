@@ -489,10 +489,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 		// Enable profiling if requested
 		if cfg.Spec.EnableProfiling {
-			templateSpec.Containers[i].Env = append(
-				templateSpec.Containers[i].Env,
-				profilingEnvs(i)...,
-			)
+			enableContainerProfiling(templateSpec, i)
 		}
 	}
 
@@ -508,7 +505,26 @@ func verbosityEnv(value uint) corev1.EnvVar {
 	}
 }
 
-func profilingEnvs(add int) []corev1.EnvVar {
+func enableContainerProfiling(templateSpec *corev1.PodSpec, cID int) {
+	switch cID {
+	case bindata.ContainerIDSelinuxd:
+		templateSpec.Containers[cID].Args = append(
+			templateSpec.Containers[cID].Args,
+			profilingArgsSelinuxd()...,
+		)
+	default:
+		templateSpec.Containers[cID].Env = append(
+			templateSpec.Containers[cID].Env,
+			profilingEnvsSpo(cID)...,
+		)
+	}
+}
+
+func profilingArgsSelinuxd() []string {
+	return []string{"--enable-profiling=true"}
+}
+
+func profilingEnvsSpo(add int) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{
 			Name:  config.ProfilingEnvKey,

@@ -968,6 +968,15 @@ Or to look at a 30-second CPU profile:
 go tool pprof http://$PODIP:6060/debug/pprof/profile?seconds=30
 ```
 
+Note that selinuxd, if enabled, doesn't set up a HTTP listener, but only
+listens on a UNIX socket shared between selinuxd and the `spod` DS pod.
+Nonetheless, this socket can be used to reach the profiling enpoint as
+well:
+```
+kubectl exec spod-4pt84 -c selinuxd -- curl --unix-socket /var/run/selinuxd/selinuxd.sock http://localhost/debug/pprof/heap --output - > /tmp/heap.selinuxd
+go tool pprof /tmp/heap.selinuxd
+```
+
 For a study of the facility in action, please visit:
 https://blog.golang.org/2011/06/profiling-go-programs.html
 
