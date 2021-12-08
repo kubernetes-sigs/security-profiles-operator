@@ -1,5 +1,5 @@
 { pkgs, buildGoModule, arch ? "x86" }:
-with pkgs; buildGoModule rec {
+with pkgs; buildGo117Module rec {
   name = "security-profiles-operator";
   src = builtins.filterSource
     (path: type: !(type == "directory" && baseNameOf path == "build")) ./..;
