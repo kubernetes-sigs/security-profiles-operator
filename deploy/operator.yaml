@@ -1704,7 +1704,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
+        image: k8s.gcr.io/security-profiles-operator/security-profiles-operator:v0.4.0
         imagePullPolicy: Always
         name: security-profiles-operator
         resources:
@@ -1758,7 +1758,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
+        image: k8s.gcr.io/security-profiles-operator/security-profiles-operator:v0.4.0
         imagePullPolicy: Always
         name: security-profiles-operator
         ports:
