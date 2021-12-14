@@ -37,7 +37,7 @@ To run the tool from `$GOPATH/src/k8s.io/release`, just execute:
 
 ```bash
 > go run ./cmd/cip-mm/main.go \
-    --base_dir ../k8s.io/k8s.gcr.io \
+    --base_dir ../../k8s.io/k8s.io/k8s.gcr.io \
     --staging_repo gcr.io/k8s-staging-sp-operator \
     --filter_tag v0.x.0  # change the tag accordingly
 ```
