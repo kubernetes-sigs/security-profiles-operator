@@ -412,7 +412,7 @@ func TestRun(t *testing.T) {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		tc.prepare(mock)
 
-		sut := New(logr.DiscardLogger{})
+		sut := New(logr.Discard())
 		sut.impl = mock
 
 		err := sut.Run()
@@ -461,7 +461,7 @@ func TestStart(t *testing.T) {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		tc.prepare(mock)
 
-		sut := New(logr.DiscardLogger{})
+		sut := New(logr.Discard())
 		sut.impl = mock
 
 		_, err := sut.Start(context.Background(), &api.EmptyRequest{})
@@ -508,7 +508,7 @@ func TestStop(t *testing.T) {
 			},
 		},
 	} {
-		sut := New(logr.DiscardLogger{})
+		sut := New(logr.Discard())
 
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock
@@ -628,7 +628,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			},
 		},
 	} {
-		sut := New(logr.DiscardLogger{})
+		sut := New(logr.Discard())
 
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock
@@ -647,12 +647,12 @@ type Logger struct {
 	mutex    sync.RWMutex
 }
 
-func (l *Logger) Enabled() bool                                       { return true }
-func (l *Logger) V(level int) logr.Logger                             { return l }
-func (l *Logger) WithValues(keysAndValues ...interface{}) logr.Logger { return l }
-func (l *Logger) WithName(name string) logr.Logger                    { return l }
+func (l *Logger) Init(logr.RuntimeInfo)                                {}
+func (l *Logger) Enabled(int) bool                                     { return true }
+func (l *Logger) WithValues(keysAndValues ...interface{}) logr.LogSink { return l }
+func (l *Logger) WithName(name string) logr.LogSink                    { return l }
 
-func (l *Logger) Info(msg string, keysAndValues ...interface{}) {
+func (l *Logger) Info(_ int, msg string, keysAndValues ...interface{}) {
 	l.mutex.Lock()
 	l.messages = append(l.messages, msg)
 	l.mutex.Unlock()
@@ -799,7 +799,8 @@ func TestProcessEvents(t *testing.T) {
 			},
 		},
 	} {
-		logger := &Logger{}
+		logSink := &Logger{}
+		logger := logr.New(logSink)
 		sut := New(logger)
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock
@@ -810,7 +811,7 @@ func TestProcessEvents(t *testing.T) {
 		go sut.processEvents(ch)
 		ch <- msg
 
-		tc.assert(sut, logger)
+		tc.assert(sut, logSink)
 		close(ch)
 	}
 }
