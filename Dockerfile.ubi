@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# hash below referred to latest
-FROM registry.fedoraproject.org/fedora-minimal@sha256:13b422a79980fc4ce26c46b0b6ad573dfaf0825a9d93dda8f6403a66d6709f47 AS build
+# hash below referred to `:36` tag
+FROM registry.fedoraproject.org/fedora-minimal@sha256:b4b4e7b6d82e0b3650039e1eb27b13594cd82133f7b6b2b05244865f95c0f10f AS build
 USER root
 WORKDIR /work
 
