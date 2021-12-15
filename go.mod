@@ -8,7 +8,7 @@ require (
 	github.com/aquasecurity/libbpfgo v0.2.1-libbpf-0.4.0.0.20210928164917-f097a0171b12
 	github.com/containers/common v0.46.0
 	github.com/crossplane/crossplane-runtime v0.14.1-0.20210713194031-85b19c28ea88
-	github.com/go-logr/logr v1.2.0
+	github.com/go-logr/logr v1.2.2
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.4.1
 	github.com/nxadm/tail v1.4.8
 	github.com/pjbgf/go-apparmor v0.0.7
