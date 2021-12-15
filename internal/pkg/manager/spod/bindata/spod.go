@@ -333,7 +333,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							},
 						},
 						StartupProbe: &corev1.Probe{
-							Handler: corev1.Handler{HTTPGet: &corev1.HTTPGetAction{
+							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
 								Path:   healthzPath,
 								Port:   intstr.FromString("liveness-port"),
 								Scheme: corev1.URISchemeHTTP,
@@ -344,7 +344,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							SuccessThreshold: 1,
 						},
 						LivenessProbe: &corev1.Probe{
-							Handler: corev1.Handler{HTTPGet: &corev1.HTTPGetAction{
+							ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{
 								Path:   healthzPath,
 								Port:   intstr.FromString("liveness-port"),
 								Scheme: corev1.URISchemeHTTP,
