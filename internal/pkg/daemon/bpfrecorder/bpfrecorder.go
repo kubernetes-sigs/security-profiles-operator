@@ -39,6 +39,7 @@ import (
 	"github.com/pkg/errors"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 
@@ -213,7 +214,11 @@ func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.Ca
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	conn, err := grpc.DialContext(ctx, "unix://"+config.GRPCServerSocketBpfRecorder, grpc.WithInsecure())
+	conn, err := grpc.DialContext(
+		ctx,
+		"unix://"+config.GRPCServerSocketBpfRecorder,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		cancel()
 		return nil, nil, errors.Wrap(err, "GRPC dial")
