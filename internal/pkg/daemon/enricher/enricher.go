@@ -29,6 +29,7 @@ import (
 	"github.com/nxadm/tail"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
 	rutil "sigs.k8s.io/release-utils/util"
@@ -266,7 +267,11 @@ func (e *Enricher) startGrpcServer() error {
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	conn, err := grpc.DialContext(ctx, "unix://"+config.GRPCServerSocketEnricher, grpc.WithInsecure())
+	conn, err := grpc.DialContext(
+		ctx,
+		"unix://"+config.GRPCServerSocketEnricher,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
 	if err != nil {
 		cancel()
 		return nil, nil, errors.Wrap(err, "GRPC dial")
