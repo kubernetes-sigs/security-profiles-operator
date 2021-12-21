@@ -847,7 +847,7 @@ func kvListFormat(b *bytes.Buffer, keysAndValues ...interface{}) {
 		// (https://github.com/kubernetes/kubernetes/pull/106594#issuecomment-975526235).
 		switch v := v.(type) {
 		case fmt.Stringer:
-			writeStringValue(b, true, v.String())
+			writeStringValue(b, true, stringerToString(v))
 		case string:
 			writeStringValue(b, true, v)
 		case error:
@@ -870,6 +870,16 @@ func kvListFormat(b *bytes.Buffer, keysAndValues ...interface{}) {
 			writeStringValue(b, false, fmt.Sprintf("%+v", v))
 		}
 	}
+}
+
+func stringerToString(s fmt.Stringer) (ret string) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = "nil"
+		}
+	}()
+	ret = s.String()
+	return
 }
 
 func writeStringValue(b *bytes.Buffer, quote bool, v string) {
