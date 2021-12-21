@@ -21,7 +21,7 @@ require (
 	github.com/urfave/cli/v2 v2.3.0
 	golang.org/x/sys v0.0.0-20211116061358-0a5406a5449c // indirect
 	google.golang.org/grpc v1.43.0
-	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.1.0
+	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.2.0
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	k8s.io/api v0.23.1
