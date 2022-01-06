@@ -1,4 +1,3 @@
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -184,7 +183,6 @@ rules:
   - get
   - patch
   - update
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -207,7 +205,6 @@ rules:
   - securitycontextconstraints
   verbs:
   - use
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -391,7 +388,6 @@ rules:
   - get
   - patch
   - update
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -414,7 +410,6 @@ rules:
   - securitycontextconstraints
   verbs:
   - use
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -505,7 +500,6 @@ rules:
   - get
   - list
   - watch
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
