@@ -208,7 +208,7 @@ example seccomp profile, create a ProfileBinding in the same namespace as both
 the Pod and the SeccompProfile:
 
 ```yaml
-apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: ProfileBinding
 metadata:
   name: nginx-binding
