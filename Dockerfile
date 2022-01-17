@@ -22,7 +22,7 @@ FROM build as make
 ARG target=nix
 RUN nix-build $target
 
-FROM scratch
+FROM alpine
 ARG version
 
 LABEL name="Security Profiles Operator" \
