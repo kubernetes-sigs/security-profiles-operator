@@ -58,6 +58,11 @@ type SPODSpec struct {
 	// Defines options specific to the SELinux
 	// functionality of the SecurityProfilesOperator
 	SelinuxOpts SelinuxOptions `json:"selinuxOptions,omitempty"`
+	// HostProcVolumePath is the path for specifying a custom host /proc
+	// volume, which is required for the log-enricher as well as bpf-recorder
+	// to retrieve the container ID for a process ID. This can be helpful for
+	// nested environments, for example when using "kind".
+	HostProcVolumePath string `json:"hostProcVolumePath,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.
