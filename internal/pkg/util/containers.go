@@ -52,7 +52,7 @@ func ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
 		return id.(string), nil
 	}
 
-	cgroupPath := fmt.Sprintf("/proc/%d/cgroup", pid)
+	cgroupPath := fmt.Sprintf("/hostproc/%d/cgroup", pid)
 
 	file, err := os.Open(filepath.Clean(cgroupPath))
 	if err != nil {

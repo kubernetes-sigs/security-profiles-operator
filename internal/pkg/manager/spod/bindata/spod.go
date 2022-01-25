@@ -428,6 +428,11 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								ReadOnly:  true,
 							},
 							{
+								Name:      "host-proc-volume",
+								MountPath: "/hostproc",
+								ReadOnly:  true,
+							},
+							{
 								Name:      "grpc-server-volume",
 								MountPath: filepath.Dir(config.GRPCServerSocketEnricher),
 							},
@@ -652,6 +657,15 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
 								Path: filepath.Dir(config.SyslogLogPath),
+								Type: &hostPathDirectoryOrCreate,
+							},
+						},
+					},
+					{
+						Name: "host-proc-volume",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/hostproc",
 								Type: &hostPathDirectoryOrCreate,
 							},
 						},
