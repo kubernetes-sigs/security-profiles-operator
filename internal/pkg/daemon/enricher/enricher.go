@@ -165,7 +165,9 @@ func (e *Enricher) Run() error {
 		}
 
 		line := l.Text
+		e.logger.V(config.VerboseLevel).Info("Got line: " + line)
 		if !isAuditLine(line) {
+			e.logger.V(config.VerboseLevel).Info("Not an audit line")
 			continue
 		}
 
@@ -175,6 +177,7 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
+		e.logger.V(config.VerboseLevel).Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.processID))
 		cID, err := e.impl.ContainerIDForPID(e.containerIDCache, auditLine.processID)
 		if errors.Is(err, os.ErrNotExist) {
 			// We're probably in container creation or removal
@@ -194,6 +197,7 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
+		e.logger.V(config.VerboseLevel).Info("Get container info for: " + cID)
 		info, err := e.getContainerInfo(nodeName, cID)
 		if err != nil {
 			e.logger.Error(

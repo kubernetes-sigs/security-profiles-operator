@@ -54,7 +54,6 @@ const (
 	defaultTimeout      time.Duration = time.Minute
 	maxMsgSize          int           = 16 * 1024 * 1024
 	defaultCacheTimeout time.Duration = time.Hour
-	verboseLvl          int           = 1
 	maxCacheItems       int           = 1000
 )
 
@@ -330,7 +329,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 					continue
 				}
 
-				b.logger.V(verboseLvl).Info(
+				b.logger.V(config.VerboseLevel).Info(
 					"Got syscall",
 					"comm", pid.comm, "pid", pid.id, "name", name,
 				)
@@ -539,7 +538,7 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 
 			// Filter out non-containers
 			if mntns == b.systemMountNamespace {
-				b.logger.V(verboseLvl).Info(
+				b.logger.V(config.VerboseLevel).Info(
 					"Skipping PID, because it's on the system mount namespace",
 					"pid", pid, "mntns", mntns,
 				)
@@ -563,14 +562,14 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 			// Regular container ID retrieval via the cgroup
 			containerID, err := b.ContainerIDForPID(b.containerIDCache, int(pid))
 			if err != nil {
-				b.logger.V(verboseLvl).Info(
+				b.logger.V(config.VerboseLevel).Info(
 					"No container ID found for PID",
 					"pid", pid, "err", err.Error(),
 				)
 				return
 			}
 
-			b.logger.V(verboseLvl).Info(
+			b.logger.V(config.VerboseLevel).Info(
 				"Found container for PID", "pid", pid, "containerID", containerID,
 			)
 			if err := b.findContainerID(containerID); err != nil {
@@ -691,7 +690,7 @@ func (b *BpfRecorder) findContainerID(id string) error {
 
 					key := config.SeccompProfileRecordBpfAnnotationKey + containerName
 					if profile, ok := pod.Annotations[key]; ok {
-						b.logger.V(verboseLvl).Info(
+						b.logger.V(config.VerboseLevel).Info(
 							"Found profile to record",
 							"profile", profile,
 							"containerID", containerID,

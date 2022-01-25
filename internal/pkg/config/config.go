@@ -67,6 +67,9 @@ const (
 	// VerbosityEnvKey is the environment variable key for the logging verbosity.
 	VerbosityEnvKey = "SPO_VERBOSITY"
 
+	// VerboseLevel is the increased verbosity log level.
+	VerboseLevel = 1
+
 	// ProfilingEnvKey is the environment variable key for enabling profiling
 	// support.
 	ProfilingEnvKey = "SPO_PROFILING"
