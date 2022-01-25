@@ -416,28 +416,42 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-selinux=true")
 	}
 
-	// Log enricher parameters
-	if cfg.Spec.EnableLogEnricher {
-		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Image = image
-		templateSpec.Containers = append(
-			templateSpec.Containers,
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher])
+	// Custom host proc volume
+	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath
+	volume, mount := bindata.CustomHostProcVolume(cfg.Spec.HostProcVolumePath)
 
-		// HostPID is required for the log-enricher
+	if cfg.Spec.EnableLogEnricher || cfg.Spec.EnableBpfRecorder {
+		if useCustomHostProc {
+			templateSpec.Volumes = append(templateSpec.Volumes, volume)
+		}
+
+		// HostPID is required for the log-enricher and bpf recorder
 		// and is used to access cgroup files to map Process IDs to Pod IDs
 		templateSpec.HostPID = true
 	}
 
+	// Log enricher parameters
+	if cfg.Spec.EnableLogEnricher {
+		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher]
+		ctr.Image = image
+
+		if useCustomHostProc {
+			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
+		}
+
+		templateSpec.Containers = append(templateSpec.Containers, ctr)
+	}
+
 	// Bpf recorder parameters
 	if cfg.Spec.EnableBpfRecorder {
-		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder].Image = image
-		templateSpec.Containers = append(
-			templateSpec.Containers,
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder])
+		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder]
+		ctr.Image = image
 
-		// HostPID is required for the bpf recorder and is used to access
-		// cgroup files to map Process IDs to Pod IDs.
-		templateSpec.HostPID = true
+		if useCustomHostProc {
+			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
+		}
+
+		templateSpec.Containers = append(templateSpec.Containers, ctr)
 	}
 
 	// AppArmor parameters

@@ -1,7 +1,6 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
@@ -21,6 +20,7 @@
 - [Using the log enricher](#using-the-log-enricher)
 - [Troubleshooting](#troubleshooting)
   - [Enable CPU and memory profiling](#enable-cpu-and-memory-profiling)
+  - [Use a custom <code>/proc</code> location for nested environments like <code>kind</code>](#use-a-custom-proc-location-for-nested-environments-like-kind)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
 
@@ -972,6 +972,7 @@ Note that selinuxd, if enabled, doesn't set up a HTTP listener, but only
 listens on a UNIX socket shared between selinuxd and the `spod` DS pod.
 Nonetheless, this socket can be used to reach the profiling enpoint as
 well:
+
 ```
 kubectl exec spod-4pt84 -c selinuxd -- curl --unix-socket /var/run/selinuxd/selinuxd.sock http://localhost/debug/pprof/heap --output - > /tmp/heap.selinuxd
 go tool pprof /tmp/heap.selinuxd
@@ -979,6 +980,16 @@ go tool pprof /tmp/heap.selinuxd
 
 For a study of the facility in action, please visit:
 https://blog.golang.org/2011/06/profiling-go-programs.html
+
+### Use a custom `/proc` location for nested environments like `kind`
+
+The operator configuration supports specifying a custom `/proc` location, which
+is required for the container ID retrieval of the log-enricher as well as the
+bpf-recorder. To use a custom path for `/proc`, just patch the spod accordingly:
+
+```
+kubectl patch spod spod --type=merge -p '{"spec":{"hostProcVolumePath":"/my-proc"}}'
+```
 
 ## Uninstalling
 

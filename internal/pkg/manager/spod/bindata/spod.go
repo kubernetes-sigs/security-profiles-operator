@@ -42,6 +42,7 @@ var (
 	healthzPath                     = "/healthz"
 	metricsCertPath                 = "/var/run/secrets/metrics"
 	etcOSReleasePath                = "/etc/os-release"
+	DefaultHostProcPath             = "/proc"
 )
 
 const (
@@ -66,11 +67,12 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		Labels: map[string]string{"app": config.OperatorName},
 	},
 	Spec: spodv1alpha1.SPODSpec{
-		Verbosity:         0,
-		EnableProfiling:   false,
-		EnableSelinux:     false,
-		EnableLogEnricher: false,
-		EnableBpfRecorder: false,
+		Verbosity:          0,
+		EnableProfiling:    false,
+		EnableSelinux:      false,
+		EnableLogEnricher:  false,
+		EnableBpfRecorder:  false,
+		HostProcVolumePath: DefaultHostProcPath,
 		SelinuxOpts: spodv1alpha1.SelinuxOptions{
 			AllowedSystemProfiles: []string{
 				"container",
@@ -716,4 +718,23 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 			},
 		},
 	},
+}
+
+// CustomHostProcVolume returns a new host /proc path volume as well as
+// corresponding mount used for the log-enricher or bpf-recorder.
+func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
+	const volumeName = "host-proc-volume"
+	return corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: path,
+					Type: &hostPathDirectory,
+				},
+			},
+		}, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: DefaultHostProcPath,
+			ReadOnly:  true,
+		}
 }
