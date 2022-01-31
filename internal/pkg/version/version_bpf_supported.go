@@ -22,6 +22,6 @@ package version
 // libbpfVersion returns a human readable string of the libbpf version.
 func libbpfVersion() string {
 	// TODO: switch to libbpf_version_string() if supported by libbpfgo (from
-	// 0.6.0): https://github.com/libbpf/libbpf/releases/tag/v0.6.0
-	return "0.5.0"
+	// libbpf 0.6.0): https://github.com/libbpf/libbpf/releases/tag/v0.6.0
+	return "0.6.1"
 }

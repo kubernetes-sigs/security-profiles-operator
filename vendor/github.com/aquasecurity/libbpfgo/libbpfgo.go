@@ -224,9 +224,10 @@ type BPFMap struct {
 }
 
 type BPFProg struct {
-	name   string
-	prog   *C.struct_bpf_program
-	module *Module
+	name       string
+	prog       *C.struct_bpf_program
+	module     *Module
+	pinnedPath string
 }
 
 type LinkType int
@@ -578,6 +579,120 @@ func (b *BPFMap) GetValue(key unsafe.Pointer) ([]byte, error) {
 	return value, nil
 }
 
+// BPFMapBatchOpts mirrors the C structure bpf_map_batch_opts.
+type BPFMapBatchOpts struct {
+	Sz        uint64
+	ElemFlags uint64
+	Flags     uint64
+}
+
+func bpfMapBatchOptsToC(batchOpts *BPFMapBatchOpts) *C.struct_bpf_map_batch_opts {
+	if batchOpts == nil {
+		return nil
+	}
+	opts := C.struct_bpf_map_batch_opts{}
+	opts.sz = C.ulong(batchOpts.Sz)
+	opts.elem_flags = C.ulonglong(batchOpts.ElemFlags)
+	opts.flags = C.ulonglong(batchOpts.Flags)
+
+	return &opts
+}
+
+// GetValueBatch allows for batch lookups of multiple keys.
+// The first argument is a pointer to an array or slice of keys which will be populated with the keys returned from this operation.
+// It returns the associated values as a slice of slices of bytes.
+// This API allows for batch lookups of multiple keys, potentially in steps over multiple iterations. For example,
+// you provide the last key seen (or nil) for the startKey, and the first key to start the next iteration with in nextKey.
+// Once the first iteration is complete you can provide the last key seen in the previous iteration as the startKey for the next iteration
+// and repeat until nextKey is nil.
+func (b *BPFMap) GetValueBatch(keys unsafe.Pointer, startKey, nextKey unsafe.Pointer, count uint32) ([][]byte, error) {
+	var (
+		values    = make([]byte, b.ValueSize()*int(count))
+		valuesPtr = unsafe.Pointer(&values[0])
+		countC    = C.uint(count)
+	)
+
+	opts := &BPFMapBatchOpts{
+		Sz:        uint64(unsafe.Sizeof(BPFMapBatchOpts{})),
+		ElemFlags: C.BPF_ANY,
+		Flags:     C.BPF_ANY,
+	}
+
+	errC := C.bpf_map_lookup_batch(b.fd, startKey, nextKey, keys, valuesPtr, &countC, bpfMapBatchOptsToC(opts))
+	if errC != 0 {
+		return nil, fmt.Errorf("failed to batch lookup values %v in map %s: %d", keys, b.name, errC)
+	}
+
+	parsedVals := collectBatchValues(values, count, b.ValueSize())
+
+	return parsedVals, nil
+}
+
+// GetValueAndDeleteBatch allows for batch lookups of multiple keys and deletes those keys.
+func (b *BPFMap) GetValueAndDeleteBatch(keys, startKey, nextKey unsafe.Pointer, count uint32) ([][]byte, error) {
+	var (
+		values    = make([]byte, b.ValueSize()*int(count))
+		valuesPtr = unsafe.Pointer(&values[0])
+		countC    = C.uint(count)
+	)
+
+	opts := &BPFMapBatchOpts{
+		Sz:        uint64(unsafe.Sizeof(BPFMapBatchOpts{})),
+		ElemFlags: C.BPF_ANY,
+		Flags:     C.BPF_ANY,
+	}
+
+	errC := C.bpf_map_lookup_and_delete_batch(b.fd, startKey, nextKey, keys, valuesPtr, &countC, bpfMapBatchOptsToC(opts))
+	if errC != 0 {
+		return nil, fmt.Errorf("failed to batch lookup and delete values %v in map %s", keys, b.name)
+	}
+
+	parsedVals := collectBatchValues(values, count, b.ValueSize())
+
+	return parsedVals, nil
+}
+
+func collectBatchValues(values []byte, count uint32, valueSize int) [][]byte {
+	var value []byte
+	var collected [][]byte
+	for i := 0; i < int(count*uint32(valueSize)); i += valueSize {
+		value = values[i : i+valueSize]
+		collected = append(collected, value)
+	}
+	return collected
+}
+
+// UpdateBatch takes a pointer to an array of keys and values which are then stored in the map.
+func (b *BPFMap) UpdateBatch(keys, values unsafe.Pointer, count uint32) error {
+	countC := C.uint(count)
+	opts := BPFMapBatchOpts{
+		Sz:        uint64(unsafe.Sizeof(BPFMapBatchOpts{})),
+		ElemFlags: C.BPF_ANY,
+		Flags:     C.BPF_ANY,
+	}
+	errC := C.bpf_map_update_batch(b.fd, keys, values, &countC, bpfMapBatchOptsToC(&opts))
+	if errC != 0 {
+		return fmt.Errorf("failed to update map %s: %v", b.name, errC)
+	}
+	return nil
+}
+
+// DeleteKeyBatch will delete `count` keys from the map, returning the keys deleted in the
+// slice pointed to by `keys`.
+func (b *BPFMap) DeleteKeyBatch(keys unsafe.Pointer, count uint32) error {
+	countC := C.uint(count)
+	opts := &BPFMapBatchOpts{
+		Sz:        uint64(unsafe.Sizeof(BPFMapBatchOpts{})),
+		ElemFlags: C.BPF_ANY,
+		Flags:     C.BPF_ANY,
+	}
+	errC := C.bpf_map_delete_batch(b.fd, keys, &countC, bpfMapBatchOptsToC(opts))
+	if errC != 0 {
+		return fmt.Errorf("failed to get lookup key %d from map %s", keys, b.name)
+	}
+	return nil
+}
+
 // DeleteKey takes a pointer to the key which is stored in the map.
 // It removes the key and associated value from the BPFMap.
 // All basic types, and structs are supported as keys.
@@ -690,12 +805,44 @@ func (p *BPFProg) GetFd() int {
 	return int(C.bpf_program__fd(p.prog))
 }
 
+func (p *BPFProg) Pin(path string) error {
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("invalid path: %s: %v", path, err)
+	}
+
+	cs := C.CString(absPath)
+	cErr := C.bpf_program__pin(p.prog, cs)
+	C.free(unsafe.Pointer(cs))
+	if cErr != 0 {
+		return fmt.Errorf("failed to pin program %s to %s", p.name, path)
+	}
+	p.pinnedPath = absPath
+	return nil
+}
+
+func (p *BPFProg) Unpin(path string) error {
+	cs := C.CString(path)
+	err := C.bpf_program__unpin(p.prog, cs)
+	C.free(unsafe.Pointer(cs))
+	if err != 0 {
+		return fmt.Errorf("failed to unpin program %s to %s", p.name, path)
+	}
+	p.pinnedPath = ""
+	return nil
+}
+
 func (p *BPFProg) GetModule() *Module {
 	return p.module
 }
 
 func (p *BPFProg) GetName() string {
 	return p.name
+}
+
+func (p *BPFProg) GetPinPath() string {
+	return p.pinnedPath
 }
 
 // BPFProgType is an enum as defined in https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/bpf.h

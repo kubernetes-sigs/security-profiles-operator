@@ -75,12 +75,13 @@ libbpfgo-static: $(VMLINUXH) | $(LIBBPF_OBJ)
 		.
 
 libbpfgo-static-test: libbpfgo-test-bpf-static
-	CC=$(CLANG) \
+	sudo env PATH=$(PATH) \
+		CC=$(CLANG) \
 		CGO_CFLAGS=$(CGO_CFLAGS_STATIC) \
 		CGO_LDFLAGS=$(CGO_LDFLAGS_STATIC) \
 		GOOS=linux GOARCH=$(ARCH) \
-		sudo -E -- go test \
-		-tags netgo -ldflags $(CGO_EXTLDFLAGS_STATIC) \
+		go test \
+		-v -tags netgo -ldflags $(CGO_EXTLDFLAGS_STATIC) \
 		.
 
 # vmlinux header file
@@ -94,6 +95,10 @@ $(VMLINUXH): $(OUTPUT)
 		exit 1; \
 	fi
 	@if [ ! -f $(VMLINUXH) ]; then \
+		if [ ! $(BPFTOOL) ]; then \
+			echo "ERROR: could not find bpftool"; \
+			exit 1; \
+		fi; \
 		echo "INFO: generating $(VMLINUXH) from $(BTFFILE)"; \
 		$(BPFTOOL) btf dump file $(BTFFILE) format c > $(VMLINUXH); \
 	fi
