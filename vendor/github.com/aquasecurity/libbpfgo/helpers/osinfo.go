@@ -2,6 +2,8 @@ package helpers
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -58,7 +60,9 @@ const (
 	OS_BUILD_ID
 	OS_IMAGE_ID
 	OS_IMAGE_VERSION
-	OS_KERNEL_RELEASE // not part of default os-release, but we can use it here to facilitate things
+	// not part of default os-release:
+	OS_KERNEL_RELEASE
+	OS_ARCH
 )
 
 type OSReleaseField uint32
@@ -82,6 +86,7 @@ var stringToOSReleaseField = map[string]OSReleaseField{
 	"IMAGE_ID":         OS_IMAGE_ID,
 	"IMAGE_VERSION":    OS_IMAGE_VERSION,
 	"KERNEL_RELEASE":   OS_KERNEL_RELEASE,
+	"ARCH":             OS_ARCH,
 }
 
 // osReleaseFieldToString is a map of os-release file fields
@@ -99,6 +104,7 @@ var osReleaseFieldToString = map[OSReleaseField]string{
 	OS_IMAGE_ID:         "IMAGE_ID",
 	OS_IMAGE_VERSION:    "IMAGE_VERSION",
 	OS_KERNEL_RELEASE:   "KERNEL_RELEASE",
+	OS_ARCH:             "ARCH",
 }
 
 // OSBTFEnabled checks if kernel has embedded BTF vmlinux file
@@ -122,6 +128,11 @@ func GetOSInfo() (*OSInfo, error) {
 		return &info, fmt.Errorf("could not determine uname release: %w", err)
 	}
 
+	info.osReleaseFieldValues[OS_ARCH], err = UnameMachine()
+	if err != nil {
+		return &info, fmt.Errorf("could not determine uname machine: %w", err)
+	}
+
 	info.osReleaseFilePath, err = checkEnvPath("LIBBPFGO_OSRELEASE_FILE") // useful if users wants to mount host os-release in a container
 	if err != nil {
 		return &info, err
@@ -139,8 +150,8 @@ func GetOSInfo() (*OSInfo, error) {
 // OSInfo object contains all OS relevant information
 //
 // OSRelease is relevant to examples such as:
-// 1) OSInfo.OSReleaseInfo[helpers.OS_KERNEL_RELEASE]) => will provide $(uname -r) string
-// 2) if OSInfo.GetReleaseID() == helpers.UBUNTU => {} will allow to run code in specific distribution
+// 1) OSInfo.OSReleaseInfo[helpers.OS_KERNEL_RELEASE] => will provide $(uname -r) string
+// 2) if OSInfo.GetReleaseID() == helpers.UBUNTU => {} will allow running code in specific distribution
 //
 type OSInfo struct {
 	osReleaseFieldValues map[OSReleaseField]string
@@ -159,7 +170,7 @@ func (btfi *OSInfo) GetOSReleaseFilePath() string {
 	return btfi.osReleaseFilePath
 }
 
-// GetOSReleaseFilePath provides the ID of current Linux distribution
+// GetOSReleaseID provides the ID of current Linux distribution
 func (btfi *OSInfo) GetOSReleaseID() OSReleaseID {
 	return btfi.osReleaseID
 }
@@ -218,4 +229,60 @@ func (btfi *OSInfo) discoverOSDistro() error {
 	}
 
 	return nil
+}
+
+func FtraceEnabled() (bool, error) {
+	b, err := os.ReadFile("/proc/sys/kernel/ftrace_enabled")
+	if err != nil {
+		return false, fmt.Errorf("could not read from ftrace_enabled file: %s", err.Error())
+	}
+	b = bytes.TrimSpace(b)
+	if len(b) != 1 {
+		return false, errors.New("malformed ftrace_enabled file")
+	}
+	return b[0] == '1', nil
+}
+
+type LockdownMode int32
+
+func (l LockdownMode) String() string {
+	return lockdownModeToString[l]
+}
+
+const (
+	NOVALUE LockdownMode = iota
+	NONE
+	INTEGRITY
+	CONFIDENTIALITY
+)
+
+var stringToLockdownMode = map[string]LockdownMode{
+	"none":            NONE,
+	"integrity":       INTEGRITY,
+	"confidentiality": CONFIDENTIALITY,
+}
+
+var lockdownModeToString = map[LockdownMode]string{
+	NONE:            "none",
+	INTEGRITY:       "integrity",
+	CONFIDENTIALITY: "confidentiality",
+}
+
+func Lockdown() (LockdownMode, error) {
+	LockdownFile := "/sys/kernel/security/lockdown"
+	data, err := os.ReadFile(LockdownFile)
+	if err != nil {
+		return NOVALUE, err
+	}
+
+	dataString := string(data[:])
+
+	for lockString, lockMode := range stringToLockdownMode {
+		tempString := fmt.Sprintf("[%s]", lockString)
+		if strings.Contains(dataString, tempString) {
+			return lockMode, nil
+		}
+	}
+
+	return NOVALUE, fmt.Errorf("could not get lockdown mode")
 }

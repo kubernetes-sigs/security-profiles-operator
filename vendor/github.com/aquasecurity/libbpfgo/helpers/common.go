@@ -38,6 +38,28 @@ func UnameRelease() (string, error) {
 	return ver, nil
 }
 
+// UnameMachine gets the version string of host's architecture
+func UnameMachine() (string, error) {
+	var uname syscall.Utsname
+	if err := syscall.Uname(&uname); err != nil {
+		return "", fmt.Errorf("could not get utsname")
+	}
+
+	var buf [65]byte
+	for i, b := range uname.Machine {
+		buf[i] = byte(b)
+	}
+
+	arch := string(buf[:])
+	arch = strings.Trim(arch, "\x00")
+
+	if strings.Contains(arch, "aarch64") {
+		arch = "arm64"
+	}
+
+	return arch, nil
+}
+
 // CompareKernelRelease will compare two given kernel version/release
 // strings and return -1, 0 or 1 if given version is less, equal or bigger,
 // respectively, than the given one

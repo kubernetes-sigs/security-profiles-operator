@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 )
 
-const header = `+//go:build linux,!no_bpf
-// +build linux
+const header = `//go:build linux && !no_bpf
+// +build linux,!no_bpf
 
 /*
 Copyright 2021 The Kubernetes Authors.
