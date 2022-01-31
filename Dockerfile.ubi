@@ -18,6 +18,7 @@ USER root
 WORKDIR /work
 
 RUN microdnf install -y \
+        git \
         glibc-static \
         golang-bin \
         make \

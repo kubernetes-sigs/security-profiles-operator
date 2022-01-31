@@ -5,7 +5,7 @@ go 1.15
 require (
 	github.com/ReneKroon/ttlcache/v2 v2.11.0
 	github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
-	github.com/aquasecurity/libbpfgo v0.2.1-libbpf-0.4.0.0.20210928164917-f097a0171b12
+	github.com/aquasecurity/libbpfgo v0.2.4-libbpf-0.6.1
 	github.com/containers/common v0.46.0
 	github.com/crossplane/crossplane-runtime v0.14.1-0.20210713194031-85b19c28ea88
 	github.com/go-logr/logr v1.2.2
