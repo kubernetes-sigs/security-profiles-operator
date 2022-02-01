@@ -51,7 +51,7 @@ func SetupGlobalLogger(level string) error {
 
 // ToFile adds a file destination to the global logger.
 func ToFile(fileName string) error {
-	file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0755)
+	file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0o755)
 	if err != nil {
 		return errors.Wrap(err, "open log file")
 	}

@@ -793,7 +793,7 @@ sigs.k8s.io/json/internal/golang/encoding/json
 ## explicit
 sigs.k8s.io/mdtoc
 sigs.k8s.io/mdtoc/pkg/mdtoc
-# sigs.k8s.io/release-utils v0.3.0
+# sigs.k8s.io/release-utils v0.4.0
 ## explicit
 sigs.k8s.io/release-utils/command
 sigs.k8s.io/release-utils/env
