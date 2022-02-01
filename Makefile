@@ -352,9 +352,13 @@ $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 verify-toc: update-toc ## Verify the table of contents for the documentation
 	hack/tree-status
 
-.PHONY: verify-bpf-btf
-verify-bpf-btf: update-btf ## Verify the bpf module generated code
+.PHONY: verify-bpf
+verify-bpf: update-bpf ## Verify the generated bpf code
 	hack/tree-status
+
+.PHONY: verify-btf
+verify-btf: update-btf ## Verify the generated btf code
+	git diff
 
 # Test targets
 

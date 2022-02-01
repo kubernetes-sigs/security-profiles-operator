@@ -2,7 +2,6 @@
 set -euox pipefail
 
 BTFHUB_COMMIT=73a05a7dfd2a71b78f45a8e48283e75e0bfb3dce
-BTFHUB_ARCHIVE_COMMIT=aa16697470e59a088448449b85a2733ed0b33f86
 
 TEMP_DIR=$(mktemp -u)
 ROOT_DIR=$(git rev-parse --show-toplevel)
@@ -17,9 +16,6 @@ git checkout "${BTFHUB_COMMIT}"
 ARCHIVE="${TEMP_DIR}/archive"
 rm -rf "${ARCHIVE}"
 git clone --depth 1 https://github.com/aquasecurity/btfhub-archive "${ARCHIVE}"
-pushd "${ARCHIVE}"
-git checkout "${BTFHUB_ARCHIVE_COMMIT}"
-popd
 
 bash ./extract.sh -a x86_64
 bash ./extract.sh -a arm64
