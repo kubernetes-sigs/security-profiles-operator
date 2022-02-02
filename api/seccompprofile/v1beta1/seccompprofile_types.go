@@ -44,10 +44,14 @@ type SeccompProfileSpec struct {
 
 	// the default action for seccomp
 	//nolint:lll
-	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG
+	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
 	DefaultAction seccomp.Action `json:"defaultAction"`
 	// the architecture used for system calls
 	Architectures []Arch `json:"architectures,omitempty"`
+	// path of UNIX domain socket to contact a seccomp agent for SCMP_ACT_NOTIFY
+	ListenerPath string `json:"listenerPath,omitempty"`
+	// opaque data to pass to the seccomp agent
+	ListenerMetadata string `json:"listenerMetadata,omitempty"`
 	// match a syscall in seccomp. While this property is OPTIONAL, some values
 	// of defaultAction are not useful without syscalls entries. For example,
 	// if defaultAction is SCMP_ACT_KILL and syscalls is empty or unset, the
@@ -73,7 +77,7 @@ type Syscall struct {
 	Names []string `json:"names"`
 	// the action for seccomp rules
 	//nolint:lll
-	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG
+	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
 	Action seccomp.Action `json:"action"`
 	// the errno return code to use. Some actions like SCMP_ACT_ERRNO and
 	// SCMP_ACT_TRACE allow to specify the errno code to return
