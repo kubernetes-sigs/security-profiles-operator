@@ -183,10 +183,12 @@ func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconc
 
 // OutputProfile represents the on-disk form of the SeccompProfile.
 type OutputProfile struct {
-	DefaultAction seccomp.Action               `json:"defaultAction"`
-	Architectures []seccompprofileapi.Arch     `json:"architectures,omitempty"`
-	Syscalls      []*seccompprofileapi.Syscall `json:"syscalls,omitempty"`
-	Flags         []*seccompprofileapi.Flag    `json:"flags,omitempty"`
+	DefaultAction    seccomp.Action               `json:"defaultAction"`
+	Architectures    []seccompprofileapi.Arch     `json:"architectures,omitempty"`
+	ListenerPath     string                       `json:"listenerPath,omitempty"`
+	ListenerMetadata string                       `json:"listenerMetadata,omitempty"`
+	Syscalls         []*seccompprofileapi.Syscall `json:"syscalls,omitempty"`
+	Flags            []*seccompprofileapi.Flag    `json:"flags,omitempty"`
 }
 
 func unionSyscalls(baseSyscalls, appliedSyscalls []*seccompprofileapi.Syscall) []*seccompprofileapi.Syscall {
@@ -220,9 +222,11 @@ func (r *Reconciler) mergeBaseProfile(
 	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
 ) (OutputProfile, error) {
 	op := OutputProfile{
-		DefaultAction: sp.Spec.DefaultAction,
-		Architectures: sp.Spec.Architectures,
-		Flags:         sp.Spec.Flags,
+		DefaultAction:    sp.Spec.DefaultAction,
+		Architectures:    sp.Spec.Architectures,
+		ListenerPath:     sp.Spec.ListenerPath,
+		ListenerMetadata: sp.Spec.ListenerMetadata,
+		Flags:            sp.Spec.Flags,
 	}
 	baseProfileName := sp.Spec.BaseProfileName
 	if baseProfileName == "" {

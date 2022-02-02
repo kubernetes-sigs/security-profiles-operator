@@ -300,6 +300,7 @@ spec:
                 - SCMP_ACT_TRACE
                 - SCMP_ACT_ALLOW
                 - SCMP_ACT_LOG
+                - SCMP_ACT_NOTIFY
                 type: string
               flags:
                 description: list of flags to use with seccomp(2)
@@ -310,6 +311,13 @@ spec:
                   - SECCOMP_FILTER_FLAG_SPEC_ALLOW
                   type: string
                 type: array
+              listenerMetadata:
+                description: opaque data to pass to the seccomp agent
+                type: string
+              listenerPath:
+                description: path of UNIX domain socket to contact a seccomp agent
+                  for SCMP_ACT_NOTIFY
+                type: string
               syscalls:
                 description: match a syscall in seccomp. While this property is OPTIONAL,
                   some values of defaultAction are not useful without syscalls entries.
@@ -330,6 +338,7 @@ spec:
                       - SCMP_ACT_TRACE
                       - SCMP_ACT_ALLOW
                       - SCMP_ACT_LOG
+                      - SCMP_ACT_NOTIFY
                       type: string
                     args:
                       description: the specific syscall in seccomp
