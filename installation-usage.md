@@ -1,6 +1,7 @@
 # Installation and Usage
 
 <!-- toc -->
+
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
@@ -499,8 +500,10 @@ test-recording-redis   Installed   15s
 
 #### eBPF based recording
 
-The operator also supports an [eBPF](https://ebpf.io) based recorder, which
-only supports seccomp profiles for now.
+The operator also supports an [eBPF](https://ebpf.io) based recorder. This
+recorder only supports seccomp profiles for now. Recording via ebpf works for
+kernels which expose the `/sys/kernel/btf/vmlinux` file per default as well as a
+[custom list of selected Linux kernels](bpf-support.md).
 
 To use the recorder, enable it by patching the `spod` configuration:
 
