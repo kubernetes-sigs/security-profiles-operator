@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -60,6 +61,9 @@ const (
 	baseDir     = "internal/pkg/daemon/bpfrecorder/"
 	generatedGo = baseDir + "generated.go"
 	btfDir      = baseDir + "btf"
+	docsFile    = "bpf-support.md"
+	docsHeader  = "The following Kernels are supported to run the BPF recorder " +
+		"beside those which already expose `/sys/kernel/btf/vmlinux`\n\n"
 )
 
 func main() {
@@ -126,6 +130,11 @@ func generateBpfObj(builder *strings.Builder) error {
 func generateBtf(builder *strings.Builder) error {
 	builder.WriteString("var btfJSON = `")
 	btfs := types.Btf{}
+
+	docs := &bytes.Buffer{}
+	docs.WriteString(docsHeader)
+	kernels := 0
+
 	if err := filepath.Walk(btfDir, func(path string, info fs.FileInfo, retErr error) error {
 		if info.IsDir() || filepath.Ext(path) != ".btf" {
 			return nil
@@ -155,15 +164,20 @@ func generateBtf(builder *strings.Builder) error {
 
 		if _, ok := btfs[os]; !ok {
 			btfs[os] = map[types.OsVersion]map[types.Arch]map[types.Kernel][]byte{}
+			fmt.Fprintf(docs, "- %s\n", os)
 		}
 		if _, ok := btfs[os][osVersion]; !ok {
 			btfs[os][osVersion] = map[types.Arch]map[types.Kernel][]byte{}
+			fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 2), osVersion) // nolint: gomnd
 		}
 		if _, ok := btfs[os][osVersion][arch]; !ok {
 			btfs[os][osVersion][arch] = map[types.Kernel][]byte{}
+			fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 4), arch) // nolint: gomnd
 		}
 
 		btfs[os][osVersion][arch][kernel] = btfBytes
+		fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 6), kernel) // nolint: gomnd
+		kernels++
 
 		return nil
 	}); err != nil {
@@ -175,5 +189,13 @@ func generateBtf(builder *strings.Builder) error {
 	}
 	builder.Write(jsonBytes)
 	builder.WriteString("`\n")
+
+	fmt.Fprintf(docs, "\nSum: %d\n", kernels)
+	if err := os.WriteFile(
+		docsFile, docs.Bytes(), fs.FileMode(0o644), // nolint: gomnd
+	); err != nil {
+		return errors.Wrap(err, "write docs file")
+	}
+
 	return nil
 }
