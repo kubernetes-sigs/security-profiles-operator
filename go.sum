@@ -221,6 +221,7 @@ github.com/cockroachdb/datadriven v0.0.0-20190809214429-80d97fb3cbaa/go.mod h1:z
 github.com/cockroachdb/datadriven v0.0.0-20200714090401-bf6692d28da5/go.mod h1:h6jFvWxBdQXxjopDMZyH2UVceIRfR84bdzbkoKrsWNo=
 github.com/cockroachdb/errors v1.2.4/go.mod h1:rQD95gz6FARkaKkQXUksEje/d9a6wBJoCr5oaCLELYA=
 github.com/cockroachdb/logtags v0.0.0-20190617123548-eb05cc24525f/go.mod h1:i/u985jwjWRlyHXQbwatDASoW0RMlZ/3i9yJHE2xLkI=
+github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be/go.mod h1:mk5IQ+Y0ZeO87b858TlA645sVcEcbiX6YqP98kt+7+w=
 github.com/containerd/aufs v0.0.0-20200908144142-dab0cbea06f4/go.mod h1:nukgQABAEopAHvB6j7cnP5zJ+/3aVcE7hCYqvIwAHyE=
 github.com/containerd/aufs v0.0.0-20201003224125-76a6863f2989/go.mod h1:AkGGQs9NM2vtYHaUen+NljV0/baGCAPELGm2q9ZXpWU=
 github.com/containerd/aufs v0.0.0-20210316121734-20793ff83c97/go.mod h1:kL5kd6KM5TzQjR79jljyi4olc1Vrx6XBlcyj3gNv2PU=
@@ -1958,8 +1959,8 @@ sigs.k8s.io/json v0.0.0-20211020170558-c049b76a60c6/go.mod h1:p4QtZmO4uMYipTQNza
 sigs.k8s.io/mdtoc v1.1.0 h1:q3YtqYzmC2e0hgLXRIOm7/QLuPux1CX3ZHCwlbABxZo=
 sigs.k8s.io/mdtoc v1.1.0/go.mod h1:QZLVEdHH2iNIR4uHAZyvFRtjloHgVItk8lo/mzCtq3w=
 sigs.k8s.io/release-utils v0.2.0/go.mod h1:9O5livl2h3Q56jUkoZ7UnV22XVRB6MuD4l/51C2vAPg=
-sigs.k8s.io/release-utils v0.4.0 h1:Iw6LLHwdTxcYA2kDuGZn1th0KQQ4TGiq4Jx4Do1GJ4o=
-sigs.k8s.io/release-utils v0.4.0/go.mod h1:uPLtztS57gl9hTjHkafKHiyc9Tl/wV75t4nxGM6D0YU=
+sigs.k8s.io/release-utils v0.5.0 h1:TVJUoFLjfYYdJ11+mIw6eb44XIOC5BI3QQKiKYCtk/8=
+sigs.k8s.io/release-utils v0.5.0/go.mod h1:t9pL38kZkTBVDcjL1y7ajrkNQFLiArVAjOVO0sxzFF0=
 sigs.k8s.io/structured-merge-diff v0.0.0-20190525122527-15d366b2352e/go.mod h1:wWxsB5ozmmv/SG7nM11ayaAW51xMvak/t1r0CSlcokI=
 sigs.k8s.io/structured-merge-diff v0.0.0-20190817042607-6149e4549fca h1:6dsH6AYQWbyZmtttJNe8Gq1cXOeS1BdV3eW37zHilAQ=
 sigs.k8s.io/structured-merge-diff v0.0.0-20190817042607-6149e4549fca/go.mod h1:IIgPezJWb76P0hotTxzDbWsMYB8APh18qZnxkomBpxA=
