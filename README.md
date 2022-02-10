@@ -86,6 +86,9 @@ PodSecurityPolicies and RBAC permissions.
 
 ## Community, discussion, contribution, and support
 
+If you're interested in contributing to SPO, please see the [developer focused 
+document](hacking.md)
+
 We schedule a monthly meeting every last Thursday of a month.
 
 - [Meeting Notes][8]
