@@ -1057,9 +1057,32 @@ metadata:
   name: security-profiles-operator
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - apps
   resources:
   - daemonsets
+  - deployments
   verbs:
   - create
   - get
@@ -1071,6 +1094,7 @@ rules:
   - apps
   resources:
   - daemonsets/finalizers
+  - deployments
   verbs:
   - delete
   - get
@@ -1080,6 +1104,26 @@ rules:
   - apps
   resources:
   - deployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  - issuers
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - clusteroperators
   verbs:
   - get
   - list
@@ -1745,218 +1789,12 @@ spec:
         key: node.kubernetes.io/not-ready
         operator: Exists
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: security-profiles-operator-webhook
-  namespace: security-profiles-operator
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: security-profiles-operator
-      name: security-profiles-operator-webhook
-  template:
-    metadata:
-      annotations:
-        openshift.io/scc: privileged
-        seccomp.security.alpha.kubernetes.io/pod: runtime/default
-      labels:
-        app: security-profiles-operator
-        name: security-profiles-operator-webhook
-    spec:
-      containers:
-      - args:
-        - webhook
-        env:
-        - name: OPERATOR_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
-        imagePullPolicy: Always
-        name: security-profiles-operator
-        ports:
-        - containerPort: 9443
-          name: webhook
-          protocol: TCP
-        resources:
-          limits:
-            memory: 64Mi
-          requests:
-            cpu: 250m
-            memory: 32Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-        volumeMounts:
-        - mountPath: /tmp/k8s-webhook-server/serving-certs
-          name: cert
-          readOnly: true
-      serviceAccountName: spo-webhook
-      tolerations:
-      - effect: NoSchedule
-        key: node-role.kubernetes.io/master
-        operator: Exists
-      - effect: NoSchedule
-        key: node-role.kubernetes.io/control-plane
-        operator: Exists
-      - effect: NoExecute
-        key: node.kubernetes.io/not-ready
-        operator: Exists
-      volumes:
-      - name: cert
-        secret:
-          defaultMode: 420
-          secretName: webhook-server-cert
----
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
-  annotations:
-    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
   labels:
     app: security-profiles-operator
   name: spo-mutating-webhook-configuration
-webhooks:
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
-    caBundle: Cg==
-    service:
-      name: webhook-service
-      namespace: security-profiles-operator
-      path: /mutate-v1-pod-binding
-  failurePolicy: Fail
-  name: binding.spo.io
-  objectSelector:
-    matchExpressions:
-    - key: name
-      operator: NotIn
-      values:
-      - security-profiles-operator
-      - security-profiles-operator-webhook
-  rules:
-  - apiGroups:
-    - ""
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    - UPDATE
-    - DELETE
-    resources:
-    - pods
-  sideEffects: None
-- admissionReviewVersions:
-  - v1beta1
-  clientConfig:
-    caBundle: Cg==
-    service:
-      name: webhook-service
-      namespace: security-profiles-operator
-      path: /mutate-v1-pod-recording
-  failurePolicy: Fail
-  name: recording.spo.io
-  objectSelector:
-    matchExpressions:
-    - key: name
-      operator: NotIn
-      values:
-      - security-profiles-operator
-      - security-profiles-operator-webhook
-  rules:
-  - apiGroups:
-    - ""
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    - UPDATE
-    - DELETE
-    resources:
-    - pods
-  sideEffects: None
----
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: selfsigned-issuer
-  namespace: security-profiles-operator
-spec:
-  selfSigned: {}
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: webhook-cert
-  namespace: security-profiles-operator
-spec:
-  dnsNames:
-  - webhook-service.security-profiles-operator.svc
-  - webhook-service.security-profiles-operator.svc.cluster.local
-  issuerRef:
-    kind: Issuer
-    name: selfsigned-issuer
-  secretName: webhook-server-cert
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: metrics-cert
-  namespace: security-profiles-operator
-spec:
-  dnsNames:
-  - metrics.security-profiles-operator
-  - metrics.security-profiles-operator.svc
-  - metrics.security-profiles-operator.svc.cluster.local
-  issuerRef:
-    kind: Issuer
-    name: selfsigned-issuer
-  secretName: metrics-server-cert
-  subject:
-    organizations:
-    - security-profiles-operator
----
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: webhook-service
-  namespace: security-profiles-operator
-spec:
-  ports:
-  - port: 443
-    targetPort: 9443
-  selector:
-    app: security-profiles-operator
-    name: security-profiles-operator-webhook
----
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app: security-profiles-operator
-    name: spod
-  name: metrics
-  namespace: security-profiles-operator
-spec:
-  ports:
-  - name: https
-    port: 443
-    targetPort: 9443
-  selector:
-    app: security-profiles-operator
-    name: spod
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

@@ -9,8 +9,10 @@ require (
 	github.com/containers/common v0.47.3
 	github.com/crossplane/crossplane-runtime v0.14.1-0.20210713194031-85b19c28ea88
 	github.com/go-logr/logr v1.2.2
+	github.com/jetstack/cert-manager v1.7.1
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.4.1
 	github.com/nxadm/tail v1.4.8
+	github.com/openshift/api v0.0.0-20220209124712-b632c5fc10c0
 	github.com/pjbgf/go-apparmor v0.0.7
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.54.0

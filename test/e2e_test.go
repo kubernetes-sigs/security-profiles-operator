@@ -288,7 +288,7 @@ func (e *e2e) deployOperator(manifest string) {
 	// Wait for all pods in deployment
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "app=security-profiles-operator")
 	// Wait for all pods in DaemonSet
-	time.Sleep(defaultWaitTime)
+	e.waitForSpod()
 	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "name=spod")
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=spod")
 	// Wait for spod to be available
@@ -398,6 +398,23 @@ func (e *e2e) sliceContainsString(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func (e *e2e) waitForSpod() {
+	for i := 0; i < 50; i++ {
+		output, err := command.New(
+			e.kubectlPath, "-n", config.OperatorName,
+			"get", "pod", "-l", "name=spod",
+		).RunSilent()
+		e.Nil(err)
+		if !strings.Contains(output.Error(), "No resources found") {
+			return
+		}
+		e.logf("Waiting for resource to be available (%d)", i)
+		time.Sleep(3 * time.Second)
+	}
+
+	e.Fail("Timed out to wait for resource")
 }
 
 func (e *e2e) retryGet(args ...string) string {

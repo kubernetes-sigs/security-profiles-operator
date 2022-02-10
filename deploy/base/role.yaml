@@ -6,9 +6,32 @@ metadata:
   name: security-profiles-operator
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - apps
   resources:
   - daemonsets
+  - deployments
   verbs:
   - create
   - get
@@ -20,6 +43,7 @@ rules:
   - apps
   resources:
   - daemonsets/finalizers
+  - deployments
   verbs:
   - delete
   - get
@@ -29,6 +53,26 @@ rules:
   - apps
   resources:
   - deployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  - issuers
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - clusteroperators
   verbs:
   - get
   - list

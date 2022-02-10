@@ -38,11 +38,13 @@ var (
 	hostPathDirectory               = corev1.HostPathDirectory
 	hostPathDirectoryOrCreate       = corev1.HostPathDirectoryOrCreate
 	hostPathFile                    = corev1.HostPathFile
-	metricsPort               int32 = 9443
+	servicePort               int32 = 443
 	healthzPath                     = "/healthz"
-	metricsCertPath                 = "/var/run/secrets/metrics"
 	etcOSReleasePath                = "/etc/os-release"
-	DefaultHostProcPath             = "/proc"
+	metricsPort               int32 = 9443
+	metricsCertPath                 = "/var/run/secrets/metrics"
+	metricsServerCert               = "metrics-server-cert"
+	openshiftCertAnnotation         = "service.beta.openshift.io/serving-cert-secret-name"
 )
 
 const (
@@ -59,6 +61,7 @@ const (
 	ContainerIDLogEnricher                     = 2
 	ContainerIDBpfRecorder                     = 3
 	ContainerIDMetrics                         = 4
+	DefaultHostProcPath                        = "/proc"
 )
 
 var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
@@ -662,7 +665,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						Name: "metrics-cert-volume",
 						VolumeSource: corev1.VolumeSource{
 							Secret: &corev1.SecretVolumeSource{
-								SecretName: "metrics-server-cert",
+								SecretName: metricsServerCert,
 							},
 						},
 					},
@@ -716,6 +719,45 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 					"kubernetes.io/os": "linux",
 				},
 			},
+		},
+	},
+}
+
+func GetMetricsService(
+	namespace string,
+	caInjectType CAInjectType,
+) *corev1.Service {
+	service := metricsService.DeepCopy()
+	service.Namespace = namespace
+
+	if caInjectType == CAInjectTypeOpenShift {
+		service.Annotations = map[string]string{
+			openshiftCertAnnotation: metricsServerCert,
+		}
+	}
+
+	return service
+}
+
+var metricsService = &corev1.Service{
+	ObjectMeta: metav1.ObjectMeta{
+		Name: "metrics",
+		Labels: map[string]string{
+			"app":  config.OperatorName,
+			"name": config.SPOdName,
+		},
+	},
+	Spec: corev1.ServiceSpec{
+		Ports: []corev1.ServicePort{
+			{
+				Name:       "https",
+				Port:       servicePort,
+				TargetPort: intstr.FromInt(int(metricsPort)),
+			},
+		},
+		Selector: map[string]string{
+			"app":  config.OperatorName,
+			"name": config.SPOdName,
 		},
 	},
 }
