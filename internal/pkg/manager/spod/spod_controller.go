@@ -66,6 +66,7 @@ type ReconcileSPOd struct {
 	record         event.Recorder
 	log            logr.Logger
 	watchNamespace string
+	namespace      string
 }
 
 // Name returns the name of the controller.
@@ -90,8 +91,11 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=core,resources=configmaps;events,verbs=get;list;watch;create;update;patch
 //
 // Operand:
-// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=apps,resources=daemonsets/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=issuers;certificates,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/finalizers,verbs=delete;get;update;patch
@@ -107,6 +111,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 //
 // OpenShift (This is ignored in other distros):
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
+// +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
@@ -128,14 +133,14 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 
 	deploymentKey := types.NamespacedName{
 		Name:      config.OperatorName,
-		Namespace: config.GetOperatorNamespace(),
+		Namespace: r.namespace,
 	}
 	foundDeployment := &appsv1.Deployment{}
 	if err := r.client.Get(ctx, deploymentKey, foundDeployment); err != nil {
 		if kerrors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
-		return reconcile.Result{}, fmt.Errorf("error getting operator deployment: %w", err)
+		return reconcile.Result{}, errors.Wrap(err, "get operator deployment")
 	}
 	// We use the same target image for the deamonset as which we have right
 	// now running.
@@ -146,13 +151,28 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 
 	spodKey := types.NamespacedName{
 		Name:      spod.GetName(),
-		Namespace: config.GetOperatorNamespace(),
+		Namespace: r.namespace,
+	}
+
+	caInjectType, err := bindata.GetCAInjectType(ctx, r.log, r.namespace, r.client)
+	if err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "get ca inject type")
+	}
+
+	webhook := bindata.GetWebhook(r.log, r.namespace, image, pullPolicy, caInjectType)
+	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
+
+	var certManagerResources *bindata.CertManagerResources
+	if caInjectType == bindata.CAInjectTypeCertManager {
+		certManagerResources = bindata.GetCertManagerResources(r.namespace)
 	}
 
 	foundSPOd := &appsv1.DaemonSet{}
 	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
 		if kerrors.IsNotFound(err) {
-			createErr := r.handleCreate(ctx, spod, configuredSPOd)
+			createErr := r.handleCreate(
+				ctx, spod, configuredSPOd, webhook, metricsService, certManagerResources,
+			)
 			if createErr != nil {
 				r.record.Event(spod, event.Warning(reasonCannotCreateSPOD, createErr))
 				return reconcile.Result{}, createErr
@@ -165,7 +185,9 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	if spodNeedsUpdate(configuredSPOd, foundSPOd) {
 		updatedSPod := foundSPOd.DeepCopy()
 		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
-		updateErr := r.handleUpdate(ctx, updatedSPod)
+		updateErr := r.handleUpdate(
+			ctx, updatedSPod, webhook, metricsService, certManagerResources,
+		)
 		if updateErr != nil {
 			r.record.Event(spod, event.Warning(reasonCannotUpdateSPOD, updateErr))
 			return reconcile.Result{}, updateErr
@@ -247,9 +269,23 @@ func (r *ReconcileSPOd) handleCreate(
 	ctx context.Context,
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	newSPOd *appsv1.DaemonSet,
+	webhook *bindata.Webhook,
+	metricsService *corev1.Service,
+	certManagerResources *bindata.CertManagerResources,
 ) error {
-	r.log.Info("Creating operator resources")
+	if certManagerResources != nil {
+		r.log.Info("Deploying cert manager resources")
+		if err := certManagerResources.Create(ctx, r.client); err != nil {
+			return errors.Wrap(err, "creating cert manager resources")
+		}
+	}
 
+	r.log.Info("Deploying operator webhook")
+	if err := webhook.Create(ctx, r.client); err != nil {
+		return errors.Wrap(err, "creating webhook")
+	}
+
+	r.log.Info("Creating operator resources")
 	if err := controllerutil.SetControllerReference(cfg, newSPOd, r.scheme); err != nil {
 		return errors.Wrap(err, "setting spod controller reference")
 	}
@@ -279,6 +315,14 @@ func (r *ReconcileSPOd) handleCreate(
 		}
 	}
 
+	r.log.Info("Deploying metrics service")
+	if err := r.client.Create(ctx, metricsService); err != nil {
+		if kerrors.IsAlreadyExists(err) {
+			return nil
+		}
+		return errors.Wrap(err, "creating metrics service")
+	}
+
 	r.log.Info("Deploying operator service monitor")
 	if err := r.client.Create(
 		ctx, bindata.ServiceMonitor(),
@@ -299,13 +343,25 @@ func (r *ReconcileSPOd) handleCreate(
 func (r *ReconcileSPOd) handleUpdate(
 	ctx context.Context,
 	spodInstance *appsv1.DaemonSet,
+	webhook *bindata.Webhook,
+	metricsService *corev1.Service,
+	certManagerResources *bindata.CertManagerResources,
 ) error {
+	if certManagerResources != nil {
+		r.log.Info("Updating cert manager resources")
+		if err := certManagerResources.Update(ctx, r.client); err != nil {
+			return errors.Wrap(err, "updating cert manager resources")
+		}
+	}
+
+	r.log.Info("Updating operator webhook")
+	if err := webhook.Update(ctx, r.client); err != nil {
+		return errors.Wrap(err, "updating webhook")
+	}
+
 	r.log.Info("Updating operator daemonset")
 	if err := r.client.Patch(ctx, spodInstance, client.Merge); err != nil {
-		if kerrors.IsAlreadyExists(err) {
-			return nil
-		}
-		return errors.Wrap(err, "creating operator DaemonSet")
+		return errors.Wrap(err, "updating operator DaemonSet")
 	}
 
 	r.log.Info("Updating operator default profiles")
@@ -350,15 +406,17 @@ func (r *ReconcileSPOd) handleUpdate(
 		)
 	}
 
+	r.log.Info("Updating metrics service")
+	if err := r.client.Patch(ctx, metricsService, client.Merge); err != nil {
+		return errors.Wrap(err, "updating metrics service")
+	}
+
 	r.log.Info("Updating operator service monitor")
 	if err := r.client.Patch(
 		ctx, bindata.ServiceMonitor(), client.Merge,
 	); err != nil {
-		// nolint: gocritic
 		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
-		} else if kerrors.IsAlreadyExists(err) {
-			r.log.Info("Service monitor already exist, skipping")
 		} else {
 			return errors.Wrap(err, "updating service monitor")
 		}
@@ -377,7 +435,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	newSPOd := r.baseSPOd.DeepCopy()
 
 	newSPOd.SetName(cfg.GetName())
-	newSPOd.SetNamespace(config.GetOperatorNamespace())
+	newSPOd.SetNamespace(r.namespace)
 	templateSpec := &newSPOd.Spec.Template.Spec
 
 	templateSpec.InitContainers = []corev1.Container{

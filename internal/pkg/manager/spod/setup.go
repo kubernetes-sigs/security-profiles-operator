@@ -72,6 +72,7 @@ func (r *ReconcileSPOd) Setup(
 
 	r.scheme = mgr.GetScheme()
 	r.watchNamespace = dt.watchNamespace
+	r.namespace = config.GetOperatorNamespace()
 
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name()).

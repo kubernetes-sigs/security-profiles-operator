@@ -8,11 +8,3 @@ bases:
 
 patchesStrategicMerge:
   - deployment.yaml
-  - no_certificate.yaml
-  - svc_gen_cert.yaml
-patchesJson6902:
-  - target:
-      version: v1
-      kind: MutatingWebhookConfiguration
-      name: spo-mutating-webhook-configuration
-    path: mutatingwebhookconfig.yaml
