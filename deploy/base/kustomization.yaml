@@ -42,10 +42,7 @@ resources:
   - role.yaml
   - role_binding.yaml
   - manager_deployment.yaml
-  - webhook_deployment.yaml
   - mutatingwebhookconfig.yaml
-  - certificate.yaml
-  - service.yaml
   - metrics_client.yaml
 
 configMapGenerator:

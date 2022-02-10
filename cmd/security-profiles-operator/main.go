@@ -28,6 +28,8 @@ import (
 	"strings"
 	"time"
 
+	certmanagerv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
+	configv1 "github.com/openshift/api/config/v1"
 	"github.com/pkg/errors"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/urfave/cli/v2"
@@ -261,6 +263,12 @@ func runManager(ctx *cli.Context) error {
 		return errors.Wrap(err, "create cluster manager")
 	}
 
+	if err := configv1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add OpenShift config API to scheme")
+	}
+	if err := certmanagerv1.AddToScheme(mgr.GetScheme()); err != nil {
+		return errors.Wrap(err, "add certmanager API to scheme")
+	}
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return errors.Wrap(err, "add profilebinding API to scheme")
 	}
