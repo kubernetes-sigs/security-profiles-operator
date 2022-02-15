@@ -154,7 +154,6 @@ $(BUILD_DIR)/kubernetes-split-yaml: $(BUILD_DIR)
 deployments: $(BUILD_DIR)/kustomize $(BUILD_DIR)/kubernetes-split-yaml manifests generate ## Generate the deployment files with kustomize
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift -o deploy/openshift.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/openshift-dev.yaml
 
 .PHONY: image

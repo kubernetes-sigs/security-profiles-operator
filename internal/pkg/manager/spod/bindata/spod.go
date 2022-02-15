@@ -72,7 +72,7 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 	Spec: spodv1alpha1.SPODSpec{
 		Verbosity:          0,
 		EnableProfiling:    false,
-		EnableSelinux:      false,
+		EnableSelinux:      nil,
 		EnableLogEnricher:  false,
 		EnableBpfRecorder:  false,
 		HostProcVolumePath: DefaultHostProcPath,

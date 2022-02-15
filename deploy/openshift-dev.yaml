@@ -1757,8 +1757,6 @@ spec:
       - args:
         - manager
         env:
-        - name: DEFAULT_ENABLE_SELINUX
-          value: "true"
         - name: RELATED_IMAGE_SELINUXD
           value: quay.io/security-profiles-operator/selinuxd
         - name: OPERATOR_NAMESPACE

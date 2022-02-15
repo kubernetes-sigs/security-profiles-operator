@@ -42,7 +42,7 @@ type SPODSpec struct {
 	EnableProfiling bool `json:"enableProfiling,omitempty"`
 	// tells the operator whether or not to enable SELinux support for this
 	// SPOD instance.
-	EnableSelinux bool `json:"enableSelinux,omitempty"`
+	EnableSelinux *bool `json:"enableSelinux,omitempty"`
 	// tells the operator whether or not to enable log enrichment support for this
 	// SPOD instance.
 	EnableLogEnricher bool `json:"enableLogEnricher,omitempty"`

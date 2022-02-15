@@ -19,7 +19,6 @@ package spod
 import (
 	"context"
 	"os"
-	"strings"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
@@ -43,10 +42,9 @@ const (
 // daemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type daemonTunables struct {
-	selinuxEnabledByDefault bool
-	selinuxdImage           string
-	logEnricherImage        string
-	watchNamespace          string
+	selinuxdImage    string
+	logEnricherImage string
+	watchNamespace   string
 }
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -66,7 +64,7 @@ func (r *ReconcileSPOd) Setup(
 
 	r.baseSPOd = getEffectiveSPOd(dt)
 
-	if err := r.createConfigIfNotExist(ctx, dt); err != nil {
+	if err := r.createConfigIfNotExist(ctx); err != nil {
 		return errors.Wrap(err, "create config if not existing")
 	}
 
@@ -82,12 +80,10 @@ func (r *ReconcileSPOd) Setup(
 		Complete(r)
 }
 
-func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context, dt *daemonTunables) error {
+func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
 	obj := bindata.DefaultSPOD.DeepCopy()
 	obj.Namespace = config.GetOperatorNamespace()
-	if dt.selinuxEnabledByDefault {
-		obj.Spec.EnableSelinux = true
-	}
+
 	if err := r.client.Create(ctx, obj); !k8serrors.IsAlreadyExists(err) {
 		return errors.Wrap(err, "create SecurityProfilesOperatorDaemon object")
 	}
@@ -104,12 +100,6 @@ func getTunables() (*daemonTunables, error) {
 		return dt, errors.New("invalid selinuxd image")
 	}
 	dt.selinuxdImage = selinuxdImage
-
-	dt.selinuxEnabledByDefault = strings.EqualFold(
-		strings.ToLower(os.Getenv(config.SelinuxEnabledByDefaultEnvKey)),
-		"true",
-	)
-
 	return dt, nil
 }
 
