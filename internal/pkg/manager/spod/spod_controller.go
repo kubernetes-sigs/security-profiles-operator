@@ -147,8 +147,6 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	image := foundDeployment.Spec.Template.Spec.Containers[0].Image
 	pullPolicy := foundDeployment.Spec.Template.Spec.Containers[0].ImagePullPolicy
 
-	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy)
-
 	spodKey := types.NamespacedName{
 		Name:      spod.GetName(),
 		Namespace: r.namespace,
@@ -158,6 +156,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "get ca inject type")
 	}
+	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy, caInjectType)
 
 	webhook := bindata.GetWebhook(r.log, r.namespace, image, pullPolicy, caInjectType)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
@@ -431,6 +430,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	image string,
 	pullPolicy corev1.PullPolicy,
+	caInjectType bindata.CAInjectType,
 ) *appsv1.DaemonSet {
 	newSPOd := r.baseSPOd.DeepCopy()
 
@@ -461,7 +461,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	}
 
 	// SELinux parameters
-	if cfg.Spec.EnableSelinux {
+	enableSelinux := (cfg.Spec.EnableSelinux != nil && *cfg.Spec.EnableSelinux) ||
+		// enable SELinux support per default in OpenShift
+		(cfg.Spec.EnableSelinux == nil && caInjectType == bindata.CAInjectTypeOpenShift)
+
+	if enableSelinux {
 		templateSpec.InitContainers = append(
 			templateSpec.InitContainers,
 			r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.ContainerIDSelinuxd])
