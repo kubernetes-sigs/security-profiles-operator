@@ -47,14 +47,16 @@ The feature scope of the security-profiles-operator is right now limited to:
 
 The operator container image consists of an image manifest which supports the
 architectures `amd64` and `arm64` for now. To deploy the operator, first install
-cert-manager via `kubectl`:
+cert-manager via `kubectl`, if you're **not** running on
+[OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
 ```sh
 $ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.7.1/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
-Then apply the operator manifest:
+OpenShift ships it's own CA injector which means we can skip installing
+cert-manager. After this step, apply the operator manifest:
 
 ```sh
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/operator.yaml

@@ -38,7 +38,7 @@ var (
 	defaultMode             int32 = 420
 	failurePolicy                 = admissionregv1.Fail
 	caBundle                      = []byte("Cg==")
-	bindindPath                   = "/mutate-v1-pod-binding"
+	bindingPath                   = "/mutate-v1-pod-binding"
 	recordingPath                 = "/mutate-v1-pod-recording"
 	sideEffects                   = admissionregv1.SideEffectClassNone
 	admissionReviewVersions       = []string{"v1beta1"}
@@ -276,7 +276,7 @@ var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{
 					Name: serviceName,
-					Path: &bindindPath,
+					Path: &bindingPath,
 				},
 			},
 			AdmissionReviewVersions: admissionReviewVersions,
