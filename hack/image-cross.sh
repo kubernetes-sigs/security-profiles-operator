@@ -24,7 +24,7 @@ TAG=${TAG:-$(git describe --tags --always --dirty)}
 
 ARCHES=(amd64 arm64)
 VERSION=v$(cat VERSION)
-QEMUVERSION=5.2.0-2
+QEMUVERSION=6.1.0-8
 TAGS=("$TAG" "$VERSION" latest)
 
 docker run --rm --privileged \

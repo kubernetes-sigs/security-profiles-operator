@@ -49,7 +49,11 @@ func ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
 	if id, err := cache.Get(
 		strconv.Itoa(pid),
 	); !errors.Is(err, ttlcache.ErrNotFound) {
-		return id.(string), nil
+		idString, ok := id.(string)
+		if !ok {
+			return "", errors.New("id is not a string")
+		}
+		return idString, nil
 	}
 
 	cgroupPath := fmt.Sprintf("/proc/%d/cgroup", pid)

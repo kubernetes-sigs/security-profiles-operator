@@ -263,6 +263,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 	outputProfile, err := r.mergeBaseProfile(ctx, sp, l)
 	if err != nil {
+		l.Error(err, "merge base profile")
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 	profileContent, err := json.Marshal(outputProfile)
