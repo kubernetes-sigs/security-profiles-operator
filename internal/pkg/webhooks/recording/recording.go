@@ -179,7 +179,11 @@ func (p *podSeccompRecorder) updatePod(
 	if pod.Name == "" && pod.GenerateName != "" {
 		v, _ := p.replicas.LoadOrStore(pod.GenerateName, uint(0))
 		replica = fmt.Sprintf("-%d", v)
-		p.replicas.Store(pod.GenerateName, v.(uint)+1)
+		vUint, ok := v.(uint)
+		if !ok {
+			return false, errors.New("replicas value is not an uint")
+		}
+		p.replicas.Store(pod.GenerateName, vUint+1)
 	}
 
 	for i := range ctrs {
@@ -279,7 +283,11 @@ func (p *podSeccompRecorder) updateSelinuxSecurityContext(
 
 func (p *podSeccompRecorder) cleanupReplicas(podName string) {
 	p.replicas.Range(func(key, _ interface{}) bool {
-		if strings.HasPrefix(podName, key.(string)) {
+		keyString, ok := key.(string)
+		if !ok {
+			return false
+		}
+		if strings.HasPrefix(podName, keyString) {
 			p.replicas.Delete(key)
 			return false
 		}

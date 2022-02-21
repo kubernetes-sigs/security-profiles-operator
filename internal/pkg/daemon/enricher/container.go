@@ -45,7 +45,11 @@ func (e *Enricher) getContainerInfo(
 	if info, err := e.infoCache.Get(
 		containerID,
 	); !errors.Is(err, ttlcache.ErrNotFound) {
-		return info.(*containerInfo), nil
+		cInfo, ok := info.(*containerInfo)
+		if !ok {
+			return nil, errors.New("cache value is not container info")
+		}
+		return cInfo, nil
 	}
 
 	clusterConfig, err := e.impl.InClusterConfig()
@@ -138,7 +142,11 @@ func (e *Enricher) getContainerInfo(
 	if info, err := e.infoCache.Get(
 		containerID,
 	); !errors.Is(err, ttlcache.ErrNotFound) {
-		return info.(*containerInfo), nil
+		cInfo, ok := info.(*containerInfo)
+		if !ok {
+			return nil, errors.New("cache value is not container info")
+		}
+		return cInfo, nil
 	}
 
 	return nil, errors.New("no container info for container ID")

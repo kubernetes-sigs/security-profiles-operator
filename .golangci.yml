@@ -15,12 +15,15 @@ linters:
     - asciicheck
     - bidichk
     - bodyclose
+    - containedctx
     - deadcode
+    - decorder
     - depguard
     - dogsled
     - dupl
     - durationcheck
     - errcheck
+    - errchkjson
     - errname
     - errorlint
     - exhaustive
@@ -45,6 +48,7 @@ linters:
     - gosec
     - gosimple
     - govet
+    - grouper
     - ifshort
     - importas
     - ineffassign
@@ -53,6 +57,8 @@ linters:
     - misspell
     - nakedret
     - nestif
+    - nilerr
+    - nilnil
     - noctx
     - nolintlint
     - paralleltest
@@ -75,16 +81,19 @@ linters:
     - varcheck
     - wastedassign
     - whitespace
+    # - contextcheck
     # - cyclop
     # - exhaustivestruct
     # - forbidigo
     # - funlen
     # - gochecknoglobals
     # - gomoddirectives
-    # - nilerr
+    # - ireturn
+    # - maintidx
     # - nlreturn
     # - revive
     # - testpackage
+    # - varnamelen
     # - wrapcheck
     # - wsl
 linters-settings:
