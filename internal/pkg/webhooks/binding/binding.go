@@ -68,14 +68,20 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 		for i := range spec.Containers {
 			image := spec.Containers[i].Image
 			value, _ := m.LoadOrStore(image, containerList{})
-			m.Store(image, append(value.(containerList), &spec.Containers[i]))
+			cList, ok := value.(containerList)
+			if ok {
+				m.Store(image, append(cList, &spec.Containers[i]))
+			}
 		}
 	}
 	if spec.InitContainers != nil {
 		for i := range spec.InitContainers {
 			image := spec.InitContainers[i].Image
 			value, _ := m.LoadOrStore(image, containerList{})
-			m.Store(image, append(value.(containerList), &spec.InitContainers[i]))
+			cList, ok := value.(containerList)
+			if ok {
+				m.Store(image, append(cList, &spec.InitContainers[i]))
+			}
 		}
 	}
 }

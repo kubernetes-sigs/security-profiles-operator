@@ -507,7 +507,13 @@ func TestNewContainerMap(t *testing.T) {
 			var result sync.Map
 			initContainerMap(&result, tc.podSpec)
 			result.Range(func(k, v interface{}) bool {
-				require.Equal(t, tc.want[k.(string)], v.(containerList))
+				ks, ok := k.(string)
+				require.True(t, ok)
+
+				vl, ok := v.(containerList)
+				require.True(t, ok)
+
+				require.Equal(t, tc.want[ks], vl)
 				return true
 			})
 		})

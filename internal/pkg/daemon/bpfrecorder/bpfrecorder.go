@@ -610,18 +610,24 @@ func (b *BpfRecorder) findSystemMountNamespace() (uint64, error) {
 func (b *BpfRecorder) trackProfileForPid(pid uint32, mntns uint64, profile interface{}) {
 	comm := b.commForPid(pid)
 
-	if err := b.SendMetric(b.metricsClient, &apimetrics.BpfRequest{
-		Node:           b.nodeName,
-		Profile:        profile.(string),
-		MountNamespace: mntns,
-	}); err != nil {
-		b.logger.Error(err, "Unable to update metrics")
+	profileString, ok := profile.(string)
+	if ok {
+		if err := b.SendMetric(b.metricsClient, &apimetrics.BpfRequest{
+			Node:           b.nodeName,
+			Profile:        profileString,
+			MountNamespace: mntns,
+		}); err != nil {
+			b.logger.Error(err, "Unable to update metrics")
+		}
 	}
 
 	pids, _ := b.pidsForProfiles.LoadOrStore(profile, []Pid{})
-	b.pidsForProfiles.Store(profile, append(
-		pids.([]Pid), Pid{id: pid, comm: comm, mntns: mntns}),
-	)
+	pidList, ok := pids.([]Pid)
+	if ok {
+		b.pidsForProfiles.Store(profile, append(
+			pidList, Pid{id: pid, comm: comm, mntns: mntns}),
+		)
+	}
 }
 
 func (b *BpfRecorder) commForPid(pid uint32) string {
@@ -736,7 +742,11 @@ func (b *BpfRecorder) syscallNameForID(id int) (string, error) {
 	if name, err := b.syscallNamesForIDCache.Get(key); !errors.Is(
 		err, ttlcache.ErrNotFound,
 	) {
-		return name.(string), nil
+		nameString, ok := name.(string)
+		if !ok {
+			return "", errors.New("name is not a string")
+		}
+		return nameString, nil
 	}
 
 	name, err := b.GetName(seccomp.ScmpSyscall(id))

@@ -12,19 +12,19 @@ dependencies:
       match: GO_VERSION
 
   - name: golangci-lint
-    version: 1.43.0
+    version: 1.44.2
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
 
   - name: repo-infra
-    version: v0.2.3
+    version: v0.2.5
     refPaths:
     - path: Makefile
       match: REPO_INFRA_VERSION
 
   - name: kustomize
-    version: 4.4.1
+    version: 4.5.2
     refPaths:
     - path: Makefile
       match: KUSTOMIZE_VERSION
@@ -50,7 +50,7 @@ dependencies:
       match: kindest/node
 
   - name: qemu
-    version: 5.2.0-2
+    version: 6.1.0-8
     refPaths:
     - path: hack/image-cross.sh
       match: QEMUVERSION
@@ -84,7 +84,7 @@ dependencies:
       match: k8s.gcr.io/build-image/debian-base
 
   - name: nix
-    version: 2.4
+    version: 2.6.0
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION

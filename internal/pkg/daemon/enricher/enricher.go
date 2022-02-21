@@ -409,7 +409,10 @@ func (e *Enricher) dispatchSelinuxLine(
 		}
 
 		a, _ := e.avcs.LoadOrStore(info.recordProfile, sets.NewString())
-		a.(sets.String).Insert(string(jsonBytes))
+		stringSet, ok := a.(sets.String)
+		if ok {
+			stringSet.Insert(string(jsonBytes))
+		}
 	}
 }
 
@@ -460,7 +463,10 @@ func (e *Enricher) dispatchSeccompLine(
 
 	if info.recordProfile != "" {
 		s, _ := e.syscalls.LoadOrStore(info.recordProfile, sets.NewString())
-		s.(sets.String).Insert(syscallName)
+		stringSet, ok := s.(sets.String)
+		if ok {
+			stringSet.Insert(syscallName)
+		}
 	}
 }
 
