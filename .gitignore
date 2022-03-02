@@ -6,3 +6,5 @@ Vagrantfile
 build
 image.tar
 result
+bundle
+bundle.Dockerfile

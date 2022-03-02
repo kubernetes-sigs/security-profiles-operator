@@ -8,3 +8,4 @@ spec:
   enableSelinux: false
   enableLogEnricher: false
   enableAppArmor: false
+
