@@ -1,0 +1,66 @@
+domain: security-profiles-operator.x-k8s.io
+layout:
+- go.kubebuilder.io/v3
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: security-profiles-operator
+repo: github.com/kubernetes-sigs/security-profiles-operator
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: security-profiles-operator.x-k8s.io
+  kind: SecurityProfileNodeStatus
+  path: sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: security-profiles-operator.x-k8s.io
+  kind: SeccompProfile
+  path: sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1
+  version: v1beta1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: security-profiles-operator.x-k8s.io
+  kind: SecurityProfilesOperatorDaemon
+  path: sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: security-profiles-operator.x-k8s.io
+  kind: SelinuxProfile
+  path: sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2
+  version: v1alpha2
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: security-profiles-operator.x-k8s.io
+  kind: AppArmorProfile
+  path: sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: security-profiles-operator.x-k8s.io
+  kind: ProfileBinding
+  path: sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: security-profiles-operator.x-k8s.io
+  kind: ProfileRecording
+  path: sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1
+  version: v1alpha1
+version: "3"

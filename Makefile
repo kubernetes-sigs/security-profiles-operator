@@ -397,6 +397,80 @@ generate:
 	$(CONTROLLER_GEN_CMD) rbac:roleName=spod paths="./internal/pkg/daemon/..." output:rbac:stdout >> deploy/base/role.yaml
 	$(CONTROLLER_GEN_CMD) rbac:roleName=spo-webhook paths="./internal/pkg/webhooks/..." output:rbac:stdout >> deploy/base/role.yaml
 
+## Bundle packaging begins here
+## read more at https://sdk.operatorframework.io/docs/olm-integration/tutorial-bundle/
+
+.PHONY: operator-sdk
+OPERATOR_SDK = $(BUILD_DIR)/operator-sdk
+operator-sdk: $(BUILD_DIR) ## Download sdk locally if necessary.
+ifeq (,$(wildcard $(OPERATOR_SDK)))
+ifeq (,$(shell which operator-sdk 2>/dev/null))
+	@{ \
+	set -e ;\
+	mkdir -p $(dir $(OPERATOR_SDK)) ;\
+	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
+	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/v1.17.0/operator-sdk_$${OS}_$${ARCH} ;\
+	chmod +x $(OPERATOR_SDK) ;\
+	}
+else
+OPERATOR_SDK = $(shell which operator-sdk)
+endif
+endif
+
+
+# CHANNELS define the bundle channels used in the bundle.
+# Add a new line here if you would like to change its default config. (E.g CHANNELS = "candidate,fast,stable")
+# To re-generate a bundle for other specific channels without changing the standard setup, you can:
+# - use the CHANNELS as arg of the bundle target (e.g make bundle CHANNELS=candidate,fast,stable)
+# - use environment variables to overwrite this value (e.g export CHANNELS="candidate,fast,stable")
+CHANNELS="stable"
+ifneq ($(origin CHANNELS), undefined)
+BUNDLE_CHANNELS := --channels=$(CHANNELS)
+endif
+
+# DEFAULT_CHANNEL defines the default channel used in the bundle.
+# Add a new line here if you would like to change its default config. (E.g DEFAULT_CHANNEL = "stable")
+# To re-generate a bundle for any other default channel without changing the default setup, you can:
+# - use the DEFAULT_CHANNEL as arg of the bundle target (e.g make bundle DEFAULT_CHANNEL=stable)
+# - use environment variables to overwrite this value (e.g export DEFAULT_CHANNEL="stable")
+DEFAULT_CHANNEL="stable"
+ifneq ($(origin DEFAULT_CHANNEL), undefined)
+BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
+endif
+BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
+
+# BUNDLE_IMG defines the image:tag used for the bundle.
+# You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
+BUNDLE_IMG ?= $(PROJECT)-bundle:v$(VERSION)
+
+# These examples are added to the alm-examples annotation and subsequently
+# displayed in the UI
+OLM_EXAMPLES := \
+	examples/apparmorprofile.yaml \
+	examples/config.yaml \
+	examples/profilerecording-seccomp-bpf.yaml \
+	examples/profilebinding.yaml \
+	examples/rawselinuxprofile.yaml \
+	examples/seccompprofile.yaml \
+	examples/selinuxprofile.yaml
+
+.PHONY: bundle
+bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then validate generated files.
+	sed -i "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
+	cat $(OLM_EXAMPLES) deploy/operator.yaml deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
+	git restore deploy/base/clusterserviceversion.yaml
+	mkdir -p ./bundle/tests/scorecard
+	cp deploy/bundle-test-config.yaml ./bundle/tests/scorecard/config.yaml
+	$(OPERATOR_SDK) bundle validate ./bundle
+
+.PHONY: bundle-build
+bundle-build: ## Build the bundle image.
+	$(CONTAINER_RUNTIME) build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+
+.PHONY: bundle-push
+bundle-push: ## Push the bundle image.
+	$(CONTAINER_RUNTIME) push $(BUNDLE_IMG)
+
 ## OpenShift-only
 ## These targets are meant to make development in OpenShift easier.
 
