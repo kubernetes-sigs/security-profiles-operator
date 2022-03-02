@@ -1,0 +1,87 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+    olm.skipRange: '>=0.4.1 <0.4.2-dev'
+    operatorframework.io/suggested-namespace: security-profiles-operator`
+  name: security-profiles-operator.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: AppArmorProfile is a cluster level specification for an AppArmor
+        profile.
+      displayName: App Armor Profile
+      kind: AppArmorProfile
+      name: apparmorprofiles.security-profiles-operator.x-k8s.io
+      version: v1alpha1
+    - description: ProfileBinding is the Schema for the profilebindings API.
+      displayName: Profile Binding
+      kind: ProfileBinding
+      name: profilebindings.security-profiles-operator.x-k8s.io
+      version: v1alpha1
+    - description: ProfileRecording is the Schema for the profilerecordings API.
+      displayName: Profile Recording
+      kind: ProfileRecording
+      name: profilerecordings.security-profiles-operator.x-k8s.io
+      version: v1alpha1
+    - description: SeccompProfile is a cluster level specification for a seccomp profile.
+        See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
+      displayName: Seccomp Profile
+      kind: SeccompProfile
+      name: seccompprofiles.security-profiles-operator.x-k8s.io
+      version: v1beta1
+    - description: SecurityProfileNodeStatus is a per-node status of a security profile
+      displayName: Security Profile Node Status
+      kind: SecurityProfileNodeStatus
+      name: securityprofilenodestatuses.security-profiles-operator.x-k8s.io
+      version: v1alpha1
+    - description: SecurityProfilesOperatorDaemon is the Schema to configure the spod
+        deployment.
+      displayName: Security Profiles Operator Daemon
+      kind: SecurityProfilesOperatorDaemon
+      name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
+      version: v1alpha1
+    - description: SelinuxProfile is the Schema for the selinuxprofiles API.
+      displayName: Selinux Profile
+      kind: SelinuxProfile
+      name: selinuxprofiles.security-profiles-operator.x-k8s.io
+      version: v1alpha2
+  description: SPO is an operator which aims to make it easier for users to use SELinux, seccomp and AppArmor in Kubernetes clusters
+  displayName: Security Profiles Operator
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: true
+    type: OwnNamespace
+  - supported: true
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: false
+    type: AllNamespaces
+  keywords:
+  - security
+  - selinux
+  - seccomp
+  - apparmor
+  - ebpf
+  links:
+  - name: Security Profiles Operator
+    url: https://github.com/kubernetes-sigs/security-profiles-operator
+  maintainers:
+  - email: dev@kubernetes.io
+    name: Kubernetes upstream
+  maturity: alpha
+  provider:
+    name: Kubernetes SIGs
+    url: https://github.com/kubernetes-sigs
+  version: 0.0.0
