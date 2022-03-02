@@ -47,6 +47,8 @@ spec:
             type: object
           nodeName:
             type: string
+          spec:
+            type: object
           status:
             description: ProfileState defines the state that the profile is in. A
               profile in this context refers to a SeccompProfile or a SELinux profile,
