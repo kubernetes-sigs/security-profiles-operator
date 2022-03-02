@@ -84,9 +84,13 @@ type SecurityProfileNodeStatus struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	Spec SecurityProfileNodeStatusSpec `json:"spec,omitempty"`
+
 	NodeName string       `json:"nodeName"`
 	Status   ProfileState `json:"status,omitempty"`
 }
+
+type SecurityProfileNodeStatusSpec struct{}
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
