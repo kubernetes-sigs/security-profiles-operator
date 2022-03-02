@@ -14,10 +14,17 @@ func SymbolToOffset(path, symbol string) (uint32, error) {
 		return 0, fmt.Errorf("could not open elf file to resolve symbol offset: %w", err)
 	}
 
-	syms, err := f.Symbols()
-	if err != nil {
-		return 0, fmt.Errorf("could not open symbol section to resolve symbol offset: %w", err)
+	regularSymbols, regularSymbolsErr := f.Symbols()
+	dynamicSymbols, dynamicSymbolsErr := f.DynamicSymbols()
+
+	// Only if we failed getting both regular and dynamic symbols - then we abort.
+	if regularSymbolsErr != nil && dynamicSymbolsErr != nil {
+		return 0, fmt.Errorf("could not open symbol sections to resolve symbol offset: %w, %w", regularSymbolsErr, dynamicSymbolsErr)
 	}
+
+	// Concatenating into a single list.
+	// The list can have duplications, but we will find the first occurrence which is sufficient.
+	syms := append(regularSymbols, dynamicSymbols...)
 
 	sectionsToSearchForSymbol := []*elf.Section{}
 
@@ -48,5 +55,5 @@ func SymbolToOffset(path, symbol string) (uint32, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("symbol not found")
+	return 0, fmt.Errorf("symbol %s not found in %s", symbol, path)
 }
