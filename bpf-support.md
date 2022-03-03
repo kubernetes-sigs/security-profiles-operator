@@ -245,6 +245,7 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 3.10.0-1160.45.1.el7.x86_64
       - 3.10.0-1160.49.1.el7.x86_64
       - 3.10.0-1160.53.1.el7.x86_64
+      - 3.10.0-1160.59.1.el7.x86_64
       - 3.10.0-1160.6.1.el7.x86_64
       - 3.10.0-1160.el7.x86_64
       - 3.10.0-123.1.2.el7.x86_64
@@ -1217,4 +1218,4 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 5.8.0-59-generic
       - 5.8.0-63-generic
 
-Sum: 1181
+Sum: 1182

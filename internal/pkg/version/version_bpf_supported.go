@@ -19,9 +19,9 @@ limitations under the License.
 
 package version
 
+import "github.com/aquasecurity/libbpfgo"
+
 // libbpfVersion returns a human readable string of the libbpf version.
 func libbpfVersion() string {
-	// TODO: switch to libbpf_version_string() if supported by libbpfgo (from
-	// libbpf 0.6.0): https://github.com/libbpf/libbpf/releases/tag/v0.6.0
-	return "0.6.1"
+	return libbpfgo.VersionString()
 }
