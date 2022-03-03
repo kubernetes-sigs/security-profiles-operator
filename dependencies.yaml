@@ -102,12 +102,10 @@ dependencies:
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20211118-2f2d816b90
 
   - name: libbpf
-    version: 0.6.1
+    version: 0.7.0
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
-    - path: internal/pkg/version/version_bpf_supported.go
-      match: return
 
   - name: libelf
     version: 0.185

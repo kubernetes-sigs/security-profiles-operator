@@ -3,49 +3,39 @@ package libbpfgo
 /*
 #cgo LDFLAGS: -lelf -lz
 
-#include <bpf/bpf.h>
-#include <bpf/libbpf.h>
-#include <stdint.h>
-#include <stdio.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <sys/resource.h>
 
-#include <asm-generic/unistd.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <linux/perf_event.h>
-#include <linux/unistd.h>
-#include <string.h>
-#include <unistd.h>
+#include <bpf/bpf.h>
+#include <bpf/libbpf.h>
 
 #ifndef MAX_ERRNO
-#define MAX_ERRNO       4095
+#define MAX_ERRNO           4095
+#define IS_ERR_VALUE(x)     ((x) >= (unsigned long)-MAX_ERRNO)
 
-#define IS_ERR_VALUE(x) ((x) >= (unsigned long)-MAX_ERRNO)
-
-static inline bool IS_ERR(const void *ptr) {
-	return IS_ERR_VALUE((unsigned long)ptr);
+static inline bool IS_ERR(const void *ptr)
+{
+    return IS_ERR_VALUE((unsigned long)ptr);
 }
 
-static inline bool IS_ERR_OR_NULL(const void *ptr) {
-	return !ptr || IS_ERR_VALUE((unsigned long)ptr);
+static inline bool IS_ERR_OR_NULL(const void *ptr)
+{
+    return !ptr || IS_ERR_VALUE((unsigned long)ptr);
 }
 
-static inline long PTR_ERR(const void *ptr) {
-	return (long) ptr;
+static inline long PTR_ERR(const void *ptr)
+{
+    return (long) ptr;
 }
 #endif
 
-extern void perfCallback(void *ctx, int cpu, void *data, __u32 size);
-extern void perfLostCallback(void *ctx, int cpu, __u64 cnt);
-
-extern int ringbufferCallback(void *ctx, void *data, size_t size);
-
-int libbpf_print_fn(enum libbpf_print_level level,
-               const char *format, va_list args)
+int libbpf_print_fn(enum libbpf_print_level level, const char *format,
+                    va_list args)
 {
     if (level != LIBBPF_WARN)
         return 0;
+
     return vfprintf(stderr, format, args);
 }
 
@@ -53,142 +43,38 @@ void set_print_fn() {
     libbpf_set_print(libbpf_print_fn);
 }
 
-struct ring_buffer * init_ring_buf(int map_fd, uintptr_t ctx) {
+extern void perfCallback(void *ctx, int cpu, void *data, __u32 size);
+extern void perfLostCallback(void *ctx, int cpu, __u64 cnt);
+extern int ringbufferCallback(void *ctx, void *data, size_t size);
+
+struct ring_buffer * init_ring_buf(int map_fd, uintptr_t ctx)
+{
     struct ring_buffer *rb = NULL;
+
     rb = ring_buffer__new(map_fd, ringbufferCallback, (void*)ctx, NULL);
     if (!rb) {
         fprintf(stderr, "Failed to initialize ring buffer\n");
         return NULL;
     }
+
     return rb;
 }
 
-struct perf_buffer * init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx) {
+struct perf_buffer * init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx)
+{
     struct perf_buffer_opts pb_opts = {};
     struct perf_buffer *pb = NULL;
-    pb_opts.sample_cb = perfCallback;
-    pb_opts.lost_cb = perfLostCallback;
-    pb_opts.ctx = (void*)ctx;
-    pb = perf_buffer__new(map_fd, page_cnt, &pb_opts);
+
+    pb_opts.sz = sizeof(struct perf_buffer_opts);
+
+    pb = perf_buffer__new(map_fd, page_cnt, perfCallback, perfLostCallback,
+                          (void *) ctx, &pb_opts);
     if (libbpf_get_error(pb)) {
         fprintf(stderr, "Failed to initialize perf buffer!\n");
         return NULL;
     }
+
     return pb;
-}
-
-int poke_kprobe_events(bool add, const char* name, bool ret) {
-    char buf[256];
-    int fd, err;
-    char pr;
-
-    fd = open("/sys/kernel/debug/tracing/kprobe_events", O_WRONLY | O_APPEND, 0);
-    if (fd < 0) {
-        err = -errno;
-        fprintf(stderr, "failed to open kprobe_events file: %d\n", err);
-        return err;
-    }
-
-    pr = ret ? 'r' : 'p';
-
-    if (add)
-        snprintf(buf, sizeof(buf), "%c:kprobes/%c%s %s", pr, pr, name, name);
-    else
-        snprintf(buf, sizeof(buf), "-:kprobes/%c%s", pr, name);
-
-    err = write(fd, buf, strlen(buf));
-    if (err < 0) {
-        err = -errno;
-        fprintf(
-            stderr,
-            "failed to %s kprobe '%s': %d\n",
-            add ? "add" : "remove",
-            buf,
-            err);
-    }
-    close(fd);
-    return err >= 0 ? 0 : err;
-}
-
-int add_kprobe_event(const char* func_name, bool is_kretprobe) {
-    return poke_kprobe_events(true, func_name, is_kretprobe);
-}
-
-int remove_kprobe_event(const char* func_name, bool is_kretprobe) {
-    return poke_kprobe_events(false, func_name, is_kretprobe);
-}
-
-struct bpf_link* attach_kprobe_legacy(
-    struct bpf_program* prog,
-    const char* func_name,
-    bool is_kretprobe) {
-    char fname[256];
-    struct perf_event_attr attr;
-    struct bpf_link* link;
-    int fd = -1, err, id;
-    FILE* f = NULL;
-    char pr;
-
-    err = add_kprobe_event(func_name, is_kretprobe);
-    if (err) {
-        fprintf(stderr, "failed to create kprobe event: %d\n", err);
-        return NULL;
-    }
-
-    pr = is_kretprobe ? 'r' : 'p';
-
-    snprintf(
-        fname,
-        sizeof(fname),
-        "/sys/kernel/debug/tracing/events/kprobes/%c%s/id",
-        pr, func_name);
-    f = fopen(fname, "r");
-    if (!f) {
-        fprintf(stderr, "failed to open kprobe id file '%s': %d\n", fname, -errno);
-        goto err_out;
-    }
-
-    if (fscanf(f, "%d\n", &id) != 1) {
-        fprintf(stderr, "failed to read kprobe id from '%s': %d\n", fname, -errno);
-        goto err_out;
-    }
-
-    fclose(f);
-    f = NULL;
-
-    memset(&attr, 0, sizeof(attr));
-    attr.size = sizeof(attr);
-    attr.config = id;
-    attr.type = PERF_TYPE_TRACEPOINT;
-    attr.sample_period = 1;
-    attr.wakeup_events = 1;
-
-    fd = syscall(__NR_perf_event_open, &attr, -1, 0, -1, PERF_FLAG_FD_CLOEXEC);
-    if (fd < 0) {
-        fprintf(
-            stderr,
-            "failed to create perf event for kprobe ID %d: %d\n",
-            id,
-            -errno);
-        goto err_out;
-    }
-
-    link = bpf_program__attach_perf_event(prog, fd);
-    err = libbpf_get_error(link);
-    if (err) {
-        fprintf(stderr, "failed to attach to perf event FD %d: %d\n", fd, err);
-        goto err_out;
-    }
-
-    return link;
-
-err_out:
-    if (f)
-        fclose(f);
-    if (fd >= 0)
-        close(fd);
-    remove_kprobe_event(func_name, is_kretprobe);
-    return NULL;
 }
 */
 import "C"
@@ -208,6 +94,21 @@ const (
 	// Maximum number of channels (RingBuffers + PerfBuffers) supported
 	maxEventChannels = 512
 )
+
+// MajorVersion returns the major semver version of libbpf.
+func MajorVersion() int {
+	return C.LIBBPF_MAJOR_VERSION
+}
+
+// MinorVersion returns the minor semver version of libbpf.
+func MinorVersion() int {
+	return C.LIBBPF_MINOR_VERSION
+}
+
+// VersionString returns the string representation of the libbpf version.
+func VersionString() string {
+	return fmt.Sprintf("v%d.%d", MajorVersion(), MinorVersion())
+}
 
 type Module struct {
 	obj      *C.struct_bpf_object
@@ -237,8 +138,6 @@ const (
 	RawTracepoint
 	Kprobe
 	Kretprobe
-	KprobeLegacy
-	KretprobeLegacy
 	LSM
 	PerfEvent
 	Uprobe
@@ -412,17 +311,7 @@ func (m *Module) Close() {
 		rb.Close()
 	}
 	for _, link := range m.links {
-		C.bpf_link__destroy(link.link) // this call will remove non-legacy kprobes
-		if link.linkType == KprobeLegacy {
-			cs := C.CString(link.eventName)
-			C.remove_kprobe_event(cs, false)
-			C.free(unsafe.Pointer(cs))
-		}
-		if link.linkType == KretprobeLegacy {
-			cs := C.CString(link.eventName)
-			C.remove_kprobe_event(cs, true)
-			C.free(unsafe.Pointer(cs))
-		}
+		C.bpf_link__destroy(link.link)
 	}
 	C.bpf_object__close(m.obj)
 }
@@ -438,10 +327,10 @@ func (m *Module) BPFLoadObject() error {
 
 func (m *Module) GetMap(mapName string) (*BPFMap, error) {
 	cs := C.CString(mapName)
-	bpfMap := C.bpf_object__find_map_by_name(m.obj, cs)
+	bpfMap, errno := C.bpf_object__find_map_by_name(m.obj, cs)
 	C.free(unsafe.Pointer(cs))
 	if bpfMap == nil {
-		return nil, fmt.Errorf("failed to find BPF map %s", mapName)
+		return nil, fmt.Errorf("failed to find BPF map %s: %w", mapName, errno)
 	}
 
 	return &BPFMap{
@@ -457,7 +346,7 @@ func (b *BPFMap) Pin(pinPath string) error {
 	errC := C.bpf_map__pin(b.bpfMap, path)
 	C.free(unsafe.Pointer(path))
 	if errC != 0 {
-		return fmt.Errorf("failed to pin map %s to path %s", b.name, pinPath)
+		return fmt.Errorf("failed to pin map %s to path %s: %w", b.name, pinPath, syscall.Errno(-errC))
 	}
 	return nil
 }
@@ -467,7 +356,7 @@ func (b *BPFMap) Unpin(pinPath string) error {
 	errC := C.bpf_map__unpin(b.bpfMap, path)
 	C.free(unsafe.Pointer(path))
 	if errC != 0 {
-		return fmt.Errorf("failed to unpin map %s from path %s", b.name, pinPath)
+		return fmt.Errorf("failed to unpin map %s from path %s: %w", b.name, pinPath, syscall.Errno(-errC))
 	}
 	return nil
 }
@@ -477,7 +366,7 @@ func (b *BPFMap) SetPinPath(pinPath string) error {
 	errC := C.bpf_map__set_pin_path(b.bpfMap, path)
 	C.free(unsafe.Pointer(path))
 	if errC != 0 {
-		return fmt.Errorf("failed to set pin for map %s to path %s", b.name, pinPath)
+		return fmt.Errorf("failed to set pin for map %s to path %s: %w", b.name, pinPath, syscall.Errno(-errC))
 	}
 	return nil
 }
@@ -490,7 +379,7 @@ func (b *BPFMap) SetPinPath(pinPath string) error {
 func (b *BPFMap) Resize(maxEntries uint32) error {
 	errC := C.bpf_map__set_max_entries(b.bpfMap, C.uint(maxEntries))
 	if errC != 0 {
-		return fmt.Errorf("failed to resize map %s to %v", b.name, maxEntries)
+		return fmt.Errorf("failed to resize map %s to %v: %w", b.name, maxEntries, syscall.Errno(-errC))
 	}
 	return nil
 }
@@ -574,7 +463,7 @@ func (b *BPFMap) GetValue(key unsafe.Pointer) ([]byte, error) {
 
 	errC := C.bpf_map_lookup_elem(b.fd, key, valuePtr)
 	if errC != 0 {
-		return nil, fmt.Errorf("failed to lookup value %v in map %s", key, b.name)
+		return nil, fmt.Errorf("failed to lookup value %v in map %s: %w", key, b.name, syscall.Errno(-errC))
 	}
 	return value, nil
 }
@@ -620,7 +509,7 @@ func (b *BPFMap) GetValueBatch(keys unsafe.Pointer, startKey, nextKey unsafe.Poi
 
 	errC := C.bpf_map_lookup_batch(b.fd, startKey, nextKey, keys, valuesPtr, &countC, bpfMapBatchOptsToC(opts))
 	if errC != 0 {
-		return nil, fmt.Errorf("failed to batch lookup values %v in map %s: %d", keys, b.name, errC)
+		return nil, fmt.Errorf("failed to batch lookup values %v in map %s: %w", keys, b.name, syscall.Errno(-errC))
 	}
 
 	parsedVals := collectBatchValues(values, count, b.ValueSize())
@@ -644,7 +533,7 @@ func (b *BPFMap) GetValueAndDeleteBatch(keys, startKey, nextKey unsafe.Pointer, 
 
 	errC := C.bpf_map_lookup_and_delete_batch(b.fd, startKey, nextKey, keys, valuesPtr, &countC, bpfMapBatchOptsToC(opts))
 	if errC != 0 {
-		return nil, fmt.Errorf("failed to batch lookup and delete values %v in map %s", keys, b.name)
+		return nil, fmt.Errorf("failed to batch lookup and delete values %v in map %s: %w", keys, b.name, syscall.Errno(-errC))
 	}
 
 	parsedVals := collectBatchValues(values, count, b.ValueSize())
@@ -672,7 +561,7 @@ func (b *BPFMap) UpdateBatch(keys, values unsafe.Pointer, count uint32) error {
 	}
 	errC := C.bpf_map_update_batch(b.fd, keys, values, &countC, bpfMapBatchOptsToC(&opts))
 	if errC != 0 {
-		return fmt.Errorf("failed to update map %s: %v", b.name, errC)
+		return fmt.Errorf("failed to update map %s: %w", b.name, errC)
 	}
 	return nil
 }
@@ -688,7 +577,7 @@ func (b *BPFMap) DeleteKeyBatch(keys unsafe.Pointer, count uint32) error {
 	}
 	errC := C.bpf_map_delete_batch(b.fd, keys, &countC, bpfMapBatchOptsToC(opts))
 	if errC != 0 {
-		return fmt.Errorf("failed to get lookup key %d from map %s", keys, b.name)
+		return fmt.Errorf("failed to get lookup key %d from map %s: %w", keys, b.name, syscall.Errno(-errC))
 	}
 	return nil
 }
@@ -704,7 +593,7 @@ func (b *BPFMap) DeleteKeyBatch(keys unsafe.Pointer, count uint32) error {
 func (b *BPFMap) DeleteKey(key unsafe.Pointer) error {
 	errC := C.bpf_map_delete_elem(b.fd, key)
 	if errC != 0 {
-		return fmt.Errorf("failed to get lookup key %d from map %s", key, b.name)
+		return fmt.Errorf("failed to get lookup key %d from map %s: %w", key, b.name, syscall.Errno(-errC))
 	}
 	return nil
 }
@@ -727,7 +616,7 @@ func (b *BPFMap) DeleteKey(key unsafe.Pointer) error {
 func (b *BPFMap) Update(key, value unsafe.Pointer) error {
 	errC := C.bpf_map_update_elem(b.fd, key, value, C.BPF_ANY)
 	if errC != 0 {
-		return fmt.Errorf("failed to update map %s", b.name)
+		return fmt.Errorf("failed to update map %s: %w", b.name, syscall.Errno(-errC))
 	}
 	return nil
 }
@@ -788,10 +677,10 @@ func (it *BPFMapIterator) Err() error {
 
 func (m *Module) GetProgram(progName string) (*BPFProg, error) {
 	cs := C.CString(progName)
-	prog := C.bpf_object__find_program_by_name(m.obj, cs)
+	prog, errno := C.bpf_object__find_program_by_name(m.obj, cs)
 	C.free(unsafe.Pointer(cs))
 	if prog == nil {
-		return nil, fmt.Errorf("failed to find BPF program %s", progName)
+		return nil, fmt.Errorf("failed to find BPF program %s: %w", progName, errno)
 	}
 
 	return &BPFProg{
@@ -813,10 +702,10 @@ func (p *BPFProg) Pin(path string) error {
 	}
 
 	cs := C.CString(absPath)
-	cErr := C.bpf_program__pin(p.prog, cs)
+	errC := C.bpf_program__pin(p.prog, cs)
 	C.free(unsafe.Pointer(cs))
-	if cErr != 0 {
-		return fmt.Errorf("failed to pin program %s to %s", p.name, path)
+	if errC != 0 {
+		return fmt.Errorf("failed to pin program %s to %s: %w", p.name, path, syscall.Errno(-errC))
 	}
 	p.pinnedPath = absPath
 	return nil
@@ -824,10 +713,10 @@ func (p *BPFProg) Pin(path string) error {
 
 func (p *BPFProg) Unpin(path string) error {
 	cs := C.CString(path)
-	err := C.bpf_program__unpin(p.prog, cs)
+	errC := C.bpf_program__unpin(p.prog, cs)
 	C.free(unsafe.Pointer(cs))
-	if err != 0 {
-		return fmt.Errorf("failed to unpin program %s to %s", p.name, path)
+	if errC != 0 {
+		return fmt.Errorf("failed to unpin program %s to %s: %w", p.name, path, errC)
 	}
 	p.pinnedPath = ""
 	return nil
@@ -888,17 +777,17 @@ func (p *BPFProg) GetType() uint32 {
 
 func (p *BPFProg) SetAutoload(autoload bool) error {
 	cbool := C.bool(autoload)
-	err := C.bpf_program__set_autoload(p.prog, cbool)
-	if err != 0 {
-		return fmt.Errorf("failed to set bpf program autoload")
+	errC := C.bpf_program__set_autoload(p.prog, cbool)
+	if errC != 0 {
+		return fmt.Errorf("failed to set bpf program autoload: %w", syscall.Errno(-errC))
 	}
 	return nil
 }
 
 func (p *BPFProg) SetTracepoint() error {
-	err := C.bpf_program__set_tracepoint(p.prog)
-	if err != 0 {
-		return fmt.Errorf("failed to set bpf program as tracepoint")
+	errC := C.bpf_program__set_tracepoint(p.prog)
+	if errC != 0 {
+		return fmt.Errorf("failed to set bpf program as tracepoint: %w", syscall.Errno(-errC))
 	}
 	return nil
 }
@@ -943,8 +832,8 @@ func (p *BPFProg) AttachRawTracepoint(tpEvent string) (*BPFLink, error) {
 
 func (p *BPFProg) AttachPerfEvent(fd int) (*BPFLink, error) {
 	link := C.bpf_program__attach_perf_event(p.prog, C.int(fd))
-	if link == nil {
-		return nil, fmt.Errorf("failed to attach perf event to program %s", p.name)
+	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
+		return nil, errptrError(unsafe.Pointer(link), "failed to attach perf event to program %s", p.name)
 	}
 
 	bpfLink := &BPFLink{
@@ -1053,38 +942,6 @@ func doAttachUprobe(prog *BPFProg, isUretprobe bool, pid int, path string, offse
 		linkType:  upType,
 		eventName: fmt.Sprintf("%s:%d:%d", path, pid, offset),
 	}
-	return bpfLink, nil
-}
-
-func (p *BPFProg) AttachKprobeLegacy(kp string) (*BPFLink, error) {
-	return doAttachKprobeLegacy(p, kp, false)
-}
-
-func (p *BPFProg) AttachKretprobeLegacy(kp string) (*BPFLink, error) {
-	return doAttachKprobeLegacy(p, kp, true)
-}
-
-func doAttachKprobeLegacy(prog *BPFProg, kp string, isKretprobe bool) (*BPFLink, error) {
-	cs := C.CString(kp)
-	cbool := C.bool(isKretprobe)
-	link := C.attach_kprobe_legacy(prog.prog, cs, cbool)
-	C.free(unsafe.Pointer(cs))
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
-		return nil, errptrError(unsafe.Pointer(link), "failed to attach %s k(ret)probe using legacy debugfs API", kp)
-	}
-
-	kpType := KprobeLegacy
-	if isKretprobe {
-		kpType = KretprobeLegacy
-	}
-
-	bpfLink := &BPFLink{
-		link:      link,
-		prog:      prog,
-		linkType:  kpType,
-		eventName: kp,
-	}
-	prog.module.links = append(prog.module.links, bpfLink)
 	return bpfLink, nil
 }
 
@@ -1381,18 +1238,18 @@ func (hook *TcHook) SetParent(a int, b int) {
 }
 
 func (hook *TcHook) Create() error {
-	ret := C.bpf_tc_hook_create(hook.hook)
-	if ret < 0 {
-		return syscall.Errno(-ret)
+	errC := C.bpf_tc_hook_create(hook.hook)
+	if errC < 0 {
+		return fmt.Errorf("failed to create tc hook: %w", syscall.Errno(-errC))
 	}
 
 	return nil
 }
 
 func (hook *TcHook) Destroy() error {
-	ret := C.bpf_tc_hook_destroy(hook.hook)
-	if ret < 0 {
-		return syscall.Errno(-ret)
+	errC := C.bpf_tc_hook_destroy(hook.hook)
+	if errC < 0 {
+		return fmt.Errorf("failed to destroy tc hook: %w", syscall.Errno(-errC))
 	}
 
 	return nil
@@ -1400,9 +1257,9 @@ func (hook *TcHook) Destroy() error {
 
 func (hook *TcHook) Attach(tcOpts *TcOpts) error {
 	opts := tcOptsToC(tcOpts)
-	ret := C.bpf_tc_attach(hook.hook, opts)
-	if ret < 0 {
-		return syscall.Errno(-ret)
+	errC := C.bpf_tc_attach(hook.hook, opts)
+	if errC < 0 {
+		return fmt.Errorf("failed to attach tc hook: %w", syscall.Errno(-errC))
 	}
 	tcOptsFromC(tcOpts, opts)
 
@@ -1411,9 +1268,9 @@ func (hook *TcHook) Attach(tcOpts *TcOpts) error {
 
 func (hook *TcHook) Detach(tcOpts *TcOpts) error {
 	opts := tcOptsToC(tcOpts)
-	ret := C.bpf_tc_detach(hook.hook, opts)
-	if ret < 0 {
-		return syscall.Errno(-ret)
+	errC := C.bpf_tc_detach(hook.hook, opts)
+	if errC < 0 {
+		return fmt.Errorf("failed to detach tc hook: %w", syscall.Errno(-errC))
 	}
 	tcOptsFromC(tcOpts, opts)
 
@@ -1422,9 +1279,9 @@ func (hook *TcHook) Detach(tcOpts *TcOpts) error {
 
 func (hook *TcHook) Query(tcOpts *TcOpts) error {
 	opts := tcOptsToC(tcOpts)
-	ret := C.bpf_tc_query(hook.hook, opts)
-	if ret < 0 {
-		return syscall.Errno(-ret)
+	errC := C.bpf_tc_query(hook.hook, opts)
+	if errC < 0 {
+		return fmt.Errorf("failed to query tc hook: %w", syscall.Errno(-errC))
 	}
 	tcOptsFromC(tcOpts, opts)
 

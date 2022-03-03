@@ -29,7 +29,7 @@ github.com/ReneKroon/ttlcache/v2
 github.com/acobaugh/osrelease
 # github.com/acomagu/bufpipe v1.0.3
 github.com/acomagu/bufpipe
-# github.com/aquasecurity/libbpfgo v0.2.4-libbpf-0.6.1
+# github.com/aquasecurity/libbpfgo v0.2.5-libbpf-0.7.0
 ## explicit
 github.com/aquasecurity/libbpfgo
 github.com/aquasecurity/libbpfgo/helpers
