@@ -38,16 +38,16 @@ dependencies:
       match: jetstack/cert-manager
 
   - name: kind
-    version: 0.11.1
+    version: 0.12.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.23.3
+    version: 1.23.4
     refPaths:
     - path: test/suite_test.go
-      match: kindest/node
+      match: kindImage
 
   - name: qemu
     version: 6.1.0-8

@@ -38,10 +38,10 @@ import (
 )
 
 const (
-	kindVersion      = "v0.11.1"
-	kindImage        = "kindest/node:v1.23.3"
-	kindDarwinSHA512 = "602482412f3459f5c5ee1bd5e189ec776075e03114b033532c948b568bef6f32d9ea4ca73dd24e8fc6c067f33e52d5902769b91719f19d1f6a21e26717ad8871" // nolint: lll
-	kindLinuxSHA512  = "ce57a5438dcbec1269c583470695d11e5e759ad22a88a1214f0564e6513b912e3ffd380f6be61afc759a66b611bf1d966043cef16059ac096d96d81129281204" // nolint: lll
+	kindVersion      = "v0.12.0"
+	kindImage        = "kindest/node:v1.23.4@sha256:0e34f0d0fd448aa2f2819cfd74e99fe5793a6e4938b328f657c8e3f81ee0dfb9"
+	kindDarwinSHA512 = "7aaeee7543e13c9919d9a14d62c275ac5d9f5abf15243490a83cf99eae7d30aef1682105a8f3f02641621617515c908136d4ae6c82ef06a84479d6468559fce7" // nolint: lll
+	kindLinuxSHA512  = "0d64b9bebbe23c8b9e0b8852c5f57b73b09989145b1e9d7913c524f9ab5feeb0f55d491e35e784fef282aa8496af4c12001dbd61a1d91144332ddbad0be6857c" // nolint: lll
 )
 
 var (
