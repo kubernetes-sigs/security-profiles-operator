@@ -19,34 +19,45 @@ COMMIT_ID="d7cc66fe80c51a197d13a642ad5bddd9dc7e9f74"
 
 curl "https://raw.githubusercontent.com/cri-o/cri-o/${COMMIT_ID}/scripts/get" | bash
 
-chcon -u system_u -r object_r -t container_runtime_exec_t \
-    /usr/local/bin/crio \
-    /usr/local/bin/crio-status \
-    /usr/local/bin/runc \
-    /usr/local/bin/crun
+. /etc/os-release
 
-chcon -u system_u -r object_r -t bin_t \
-    /usr/local/bin/conmon \
-    /usr/local/bin/crictl \
-    /usr/local/bin/pinns
+if [[ $ID == fedora ]]; then
+    chcon -u system_u -r object_r -t container_runtime_exec_t \
+        /usr/local/bin/crio \
+        /usr/local/bin/crio-status \
+        /usr/local/bin/runc \
+        /usr/local/bin/crun
 
-chcon -R -u system_u -r object_r -t bin_t /opt/cni/bin
+    chcon -u system_u -r object_r -t bin_t \
+        /usr/local/bin/conmon \
+        /usr/local/bin/crictl \
+        /usr/local/bin/pinns
 
-mkdir -p /var/lib/kubelet
-chcon -R -u system_u -r object_r -t var_lib_t /var/lib/kubelet
+    chcon -R -u system_u -r object_r -t bin_t /opt/cni/bin
 
-mkdir -p /etc/crio/crio.conf.d
+    mkdir -p /var/lib/kubelet
+    chcon -R -u system_u -r object_r -t var_lib_t /var/lib/kubelet
 
-cat <<EOT >>/etc/crio/crio.conf.d/30-selinux.conf
+    cat <<EOT >>/etc/crio/crio.conf.d/30-selinux.conf
 [crio.runtime]
 selinux = true
 EOT
 
-chcon -R -u system_u -r object_r -t container_config_t \
-    /etc/crio \
-    /etc/crio/crio.conf \
-    /usr/local/share/oci-umount/oci-umount.d/crio-umount.conf
+    chcon -R -u system_u -r object_r -t container_config_t \
+        /etc/crio \
+        /etc/crio/crio.conf \
+        /usr/local/share/oci-umount/oci-umount.d/crio-umount.conf
+fi
+
+if [[ $ID == ubuntu ]]; then
+    rm /etc/cni/net.d/10-crio-bridge.conf
+    printf '[crio.network]\ncni_default_network = "weave"' >/etc/crio/crio.conf.d/01-net.conf
+fi
 
 systemctl enable crio.service
-restorecon /usr/local/lib/systemd/system/crio.service
+
+if [[ $ID == fedora ]]; then
+    restorecon /usr/local/lib/systemd/system/crio.service
+fi
+
 systemctl start crio.service
