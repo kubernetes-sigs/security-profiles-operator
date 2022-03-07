@@ -70,7 +70,7 @@ dependencies:
       match: fedora
 
   - name: e2e-ubuntu
-    version: ubuntu2004
+    version: ubuntu2110
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
       match: config.vm.box

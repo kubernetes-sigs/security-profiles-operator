@@ -2,7 +2,7 @@
 # vi: set ft=ruby :
 
 Vagrant.configure("2") do |config|
-  config.vm.box = "generic/ubuntu2004"
+  config.vm.box = "generic/ubuntu2110"
   memory = 6144
   cpus = 4
 
@@ -17,16 +17,6 @@ Vagrant.configure("2") do |config|
   end
 
   config.vm.synced_folder ".", "/vagrant"
-  config.vm.provision "docker"
-
-  config.vm.provision "configure-docker", type: "shell", run: "once" do |sh|
-    sh.inline = <<~SHELL
-      set -euxo pipefail
-
-      echo '{"exec-opts": ["native.cgroupdriver=systemd"]}' > /etc/docker/daemon.json
-      systemctl restart docker
-    SHELL
-  end
 
   config.vm.provision "install-dependencies", type: "shell", run: "once" do |sh|
     sh.inline = <<~SHELL
@@ -41,23 +31,28 @@ Vagrant.configure("2") do |config|
       echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
       apt-get update
       KUBERNETES_VERSION=1.23.4-00
-      apt-get install -y build-essential \
+      apt-get install -y \
+        build-essential \
         kubelet=$KUBERNETES_VERSION \
         kubeadm=$KUBERNETES_VERSION \
-        kubectl=$KUBERNETES_VERSION
+        kubectl=$KUBERNETES_VERSION \
+        podman \
+        jq
 
       # Disable kernel print rate limiting for syslog messaging
       sysctl -w kernel.printk_ratelimit=0
       sysctl -w kernel.printk_ratelimit_burst=0
 
+      podman load -i /vagrant/image.tar
+      /vagrant/hack/ci/install-cri-o.sh
+
       # Setup cluster
       IP=`ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]'`
       NODENAME=$(hostname -s)
       swapoff -a
+      modprobe br_netfilter
+      sysctl -w net.ipv4.ip_forward=1
       kubeadm init --apiserver-cert-extra-sans=$IP  --node-name $NODENAME
-
-      # Load pre-built image
-      docker load -i /vagrant/image.tar
 
       # Setup kubectl
       mkdir /home/vagrant/.kube
