@@ -53,27 +53,10 @@ Vagrant.configure("2") do |config|
       sysctl -w net.bridge.bridge-nf-call-iptables=1
       sysctl -w fs.inotify.max_user_watches=1048576
       iptables -t nat -I POSTROUTING -s 127.0.0.0/8 ! -d 127.0.0.0/8 -j MASQUERADE
-    SHELL
-  end
 
-  config.vm.provision "load-test-image", type: "shell", run: "once" do |sh|
-    sh.inline = <<~SHELL
-      set -euxo pipefail
-      sudo podman load -i /vagrant/image.tar
-    SHELL
-  end
-
-  config.vm.provision "install-cri-o", type: "shell", run: "once" do |sh|
-    sh.inline = <<~SHELL
-      set -euxo pipefail
-      sudo /vagrant/hack/ci/install-cri-o.sh
-    SHELL
-  end
-
-  config.vm.provision "install-kubernetes", type: "shell", run: "once" do |sh|
-    sh.inline = <<~SHELL
-      set -euxo pipefail
-      sudo /vagrant/hack/ci/install-kubernetes.sh
+      podman load -i /vagrant/image.tar
+      /vagrant/hack/ci/install-cri-o.sh
+      /vagrant/hack/ci/install-kubernetes.sh
     SHELL
   end
 end
