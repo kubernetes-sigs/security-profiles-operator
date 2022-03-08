@@ -654,16 +654,15 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			recorderClient, ctx, &bpfrecorderapi.ProfileRequest{Name: profile.name},
 		)
 		if err != nil {
-			// Something went wrong during BPF event collection, which also
-			// means that we do not have to retry this failure case.
+			// PID was not found for this profile, this might be an init container
+			// which is not longer active. Let's skip here and keep processing the
+			// next profile.
 			if status.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
-				r.log.Error(err, "Recorded profile not found, giving up")
-				if err := r.stopBpfRecorder(); err != nil {
-					r.log.Error(err, "Unable to stop bpf recorder")
-				}
-				return nil
+				r.log.Error(err, "Recorded profile not found", profile.name)
+				continue
+			} else {
+				return errors.Wrap(err, "get syscalls for profile")
 			}
-			return errors.Wrap(err, "get syscalls for profile")
 		}
 
 		arch, err := r.goArchToSeccompArch(response.GoArch)
