@@ -458,7 +458,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 				mock.DialBpfRecorderReturns(nil, func() {}, nil)
 				mock.SyscallsForProfileReturns(nil, bpfrecorder.ErrNotFound)
-				mock.StopBpfRecorderReturns(errTest) // will be ignored
+				mock.StopBpfRecorderReturns(nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				assert.Nil(t, err)
