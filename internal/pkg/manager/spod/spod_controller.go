@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -550,9 +551,20 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 		// Set the logging verbosity
 		templateSpec.InitContainers[i].Env = append(templateSpec.InitContainers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
+
+		// Path the security context
+		sc := util.GetSecurityContext(cfg.Spec.SecurityContexts, templateSpec.InitContainers[i].Name)
+		if sc != nil {
+			templateSpec.InitContainers[i].SecurityContext = util.PatchSecurityContext(templateSpec.InitContainers[i].SecurityContext, sc)
+		}
 	}
 
 	for i := range templateSpec.Containers {
+		// Path the security context
+		sc := util.GetSecurityContext(cfg.Spec.SecurityContexts, templateSpec.InitContainers[i].Name)
+		if sc != nil {
+			templateSpec.Containers[i].SecurityContext = util.PatchSecurityContext(templateSpec.Containers[i].SecurityContext, sc)
+		}
 		// The metrics image should be pulled always as IfNotPresent
 		if templateSpec.Containers[i].Image == bindata.MetricsImage {
 			continue

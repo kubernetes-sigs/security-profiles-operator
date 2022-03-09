@@ -98,6 +98,56 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 				Effect:   corev1.TaintEffectNoExecute,
 			},
 		},
+		SecurityContexts: []spodv1alpha1.SecurityContext{
+			{
+				ContainerName: "non-root-enabler",
+				SecurityContext: &corev1.SecurityContext{
+					SELinuxOptions: &corev1.SELinuxOptions{
+						Type: "spc_t",
+					},
+				},
+			},
+			{
+				ContainerName: "selinux-shared-policies-copier",
+				SecurityContext: &corev1.SecurityContext{
+					SELinuxOptions: &corev1.SELinuxOptions{
+						Type: "spc_t",
+					},
+				},
+			},
+			{
+				ContainerName: config.OperatorName,
+				SecurityContext: &corev1.SecurityContext{
+					SELinuxOptions: &corev1.SELinuxOptions{
+						Type: "spc_t",
+					},
+				},
+			},
+			{
+				ContainerName: "log-enricher",
+				SecurityContext: &corev1.SecurityContext{
+					SELinuxOptions: &corev1.SELinuxOptions{
+						Type: "spc_t",
+					},
+				},
+			},
+			{
+				ContainerName: "bpf-recorder",
+				SecurityContext: &corev1.SecurityContext{
+					SELinuxOptions: &corev1.SELinuxOptions{
+						Type: "spc_t",
+					},
+				},
+			},
+			{
+				ContainerName: "selinuxd",
+				SecurityContext: &corev1.SecurityContext{
+					SELinuxOptions: &corev1.SELinuxOptions{
+						Type: "selinuxd.process",
+					},
+				},
+			},
+		},
 	},
 }
 
@@ -162,10 +212,6 @@ var Manifest = &appsv1.DaemonSet{
 								Add:  []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
 							},
 							RunAsUser: &userRoot,
-							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(jaosorior): Use a more restricted selinux type
-								Type: "spc_t",
-							},
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
@@ -237,10 +283,6 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Add:  []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
 							},
 							RunAsUser: &userRoot,
-							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(jaosorior): Use a more restricted selinux type
-								Type: "spc_t",
-							},
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
@@ -291,10 +333,6 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							},
 							RunAsUser:  &userRootless,
 							RunAsGroup: &userRootless,
-							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(jaosorior): Use a more restricted selinux type
-								Type: "spc_t",
-							},
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
@@ -401,9 +439,6 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							Capabilities: &corev1.Capabilities{
 								Add: []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
 							},
-							SELinuxOptions: &corev1.SELinuxOptions{
-								Type: "selinuxd.process",
-							},
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
@@ -442,10 +477,6 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							Privileged:             &truly,
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
-							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(pjbgf): Use a more restricted selinux type
-								Type: "spc_t",
-							},
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
@@ -497,10 +528,6 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							Privileged:             &truly,
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
-							SELinuxOptions: &corev1.SELinuxOptions{
-								// TODO(pjbgf): Use a more restricted selinux type
-								Type: "spc_t",
-							},
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
