@@ -72,7 +72,7 @@ spec:
                   containers part of SPOD
                 items:
                   description: SecurityContext define the security context of a container
-                    part of SPOD daemon pod
+                    part of SPOD daemon pod.
                   properties:
                     containerName:
                       description: ContainerName name of the container for which the
