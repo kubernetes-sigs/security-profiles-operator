@@ -33,6 +33,14 @@ type SelinuxOptions struct {
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
 }
 
+// SecurityContext define the security context of a container part of SPOD daemon pod
+type SecurityContext struct {
+	// ContainerName name of the container for which the security context is applied
+	ContainerName string `json:"containerName,omitempty"`
+	// SecurityContext speicifies the security context of the given container
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+}
+
 // SPODStatus defines the desired state of SPOD.
 type SPODSpec struct {
 	// Verbosity specifies the logging verbosity of the daemon.
@@ -63,6 +71,10 @@ type SPODSpec struct {
 	// to retrieve the container ID for a process ID. This can be helpful for
 	// nested environments, for example when using "kind".
 	HostProcVolumePath string `json:"hostProcVolumePath,omitempty"`
+	// SecurityContexts if specified, the security context of containers part
+	// of SPOD
+	// +optional
+	SecurityContexts []SecurityContext `json:"securityContexts,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.
