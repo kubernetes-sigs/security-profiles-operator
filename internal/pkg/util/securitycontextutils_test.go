@@ -26,7 +26,7 @@ import (
 func TestPatchSecurityContext(t *testing.T) {
 	t.Parallel()
 
-	truely := true
+	truly := true
 	intValue := int64(1000)
 	stringValue := "test"
 	procMount := corev1.ProcMountType("test")
@@ -45,11 +45,11 @@ func TestPatchSecurityContext(t *testing.T) {
 		{
 			name: "nil patch",
 			base: &corev1.SecurityContext{
-				RunAsNonRoot: &truely,
+				RunAsNonRoot: &truly,
 			},
 			patch: nil,
 			want: &corev1.SecurityContext{
-				RunAsNonRoot: &truely,
+				RunAsNonRoot: &truly,
 			},
 		},
 		{
@@ -87,8 +87,8 @@ func TestPatchSecurityContext(t *testing.T) {
 		{
 			name: "patch only nil fields",
 			base: &corev1.SecurityContext{
-				RunAsNonRoot:           &truely,
-				ReadOnlyRootFilesystem: &truely,
+				RunAsNonRoot:           &truly,
+				ReadOnlyRootFilesystem: &truly,
 			},
 			patch: &corev1.SecurityContext{
 				SELinuxOptions: &corev1.SELinuxOptions{
@@ -96,8 +96,8 @@ func TestPatchSecurityContext(t *testing.T) {
 				},
 			},
 			want: &corev1.SecurityContext{
-				RunAsNonRoot:           &truely,
-				ReadOnlyRootFilesystem: &truely,
+				RunAsNonRoot:           &truly,
+				ReadOnlyRootFilesystem: &truly,
 				SELinuxOptions: &corev1.SELinuxOptions{
 					Type: "path_type",
 				},
@@ -111,18 +111,18 @@ func TestPatchSecurityContext(t *testing.T) {
 					Add:  []corev1.Capability{"nothing"},
 					Drop: []corev1.Capability{"all"},
 				},
-				Privileged: &truely,
+				Privileged: &truly,
 				SELinuxOptions: &corev1.SELinuxOptions{
 					Type: "path_type",
 				},
 				WindowsOptions: &corev1.WindowsSecurityContextOptions{
-					HostProcess: &truely,
+					HostProcess: &truly,
 				},
 				RunAsUser:                &intValue,
 				RunAsGroup:               &intValue,
-				RunAsNonRoot:             &truely,
-				ReadOnlyRootFilesystem:   &truely,
-				AllowPrivilegeEscalation: &truely,
+				RunAsNonRoot:             &truly,
+				ReadOnlyRootFilesystem:   &truly,
+				AllowPrivilegeEscalation: &truly,
 				ProcMount:                &procMount,
 				SeccompProfile: &corev1.SeccompProfile{
 					LocalhostProfile: &stringValue,
@@ -133,18 +133,18 @@ func TestPatchSecurityContext(t *testing.T) {
 					Add:  []corev1.Capability{"nothing"},
 					Drop: []corev1.Capability{"all"},
 				},
-				Privileged: &truely,
+				Privileged: &truly,
 				SELinuxOptions: &corev1.SELinuxOptions{
 					Type: "path_type",
 				},
 				WindowsOptions: &corev1.WindowsSecurityContextOptions{
-					HostProcess: &truely,
+					HostProcess: &truly,
 				},
 				RunAsUser:                &intValue,
 				RunAsGroup:               &intValue,
-				RunAsNonRoot:             &truely,
-				ReadOnlyRootFilesystem:   &truely,
-				AllowPrivilegeEscalation: &truely,
+				RunAsNonRoot:             &truly,
+				ReadOnlyRootFilesystem:   &truly,
+				AllowPrivilegeEscalation: &truly,
 				ProcMount:                &procMount,
 				SeccompProfile: &corev1.SeccompProfile{
 					LocalhostProfile: &stringValue,

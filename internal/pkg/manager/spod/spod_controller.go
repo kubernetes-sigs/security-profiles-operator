@@ -555,7 +555,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// Path the security context
 		sc := util.GetSecurityContext(cfg.Spec.SecurityContexts, templateSpec.InitContainers[i].Name)
 		if sc != nil {
-			templateSpec.InitContainers[i].SecurityContext = util.PatchSecurityContext(templateSpec.InitContainers[i].SecurityContext, sc)
+			templateSpec.InitContainers[i].SecurityContext = util.PatchSecurityContext(
+				templateSpec.InitContainers[i].SecurityContext, sc)
 		}
 	}
 
@@ -563,7 +564,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// Path the security context
 		sc := util.GetSecurityContext(cfg.Spec.SecurityContexts, templateSpec.InitContainers[i].Name)
 		if sc != nil {
-			templateSpec.Containers[i].SecurityContext = util.PatchSecurityContext(templateSpec.Containers[i].SecurityContext, sc)
+			templateSpec.Containers[i].SecurityContext = util.PatchSecurityContext(
+				templateSpec.Containers[i].SecurityContext, sc)
 		}
 		// The metrics image should be pulled always as IfNotPresent
 		if templateSpec.Containers[i].Image == bindata.MetricsImage {

@@ -33,7 +33,7 @@ type SelinuxOptions struct {
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
 }
 
-// SecurityContext define the security context of a container part of SPOD daemon pod
+// SecurityContext define the security context of a container part of SPOD daemon pod.
 type SecurityContext struct {
 	// ContainerName name of the container for which the security context is applied
 	ContainerName string `json:"containerName,omitempty"`

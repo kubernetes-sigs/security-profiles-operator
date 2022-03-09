@@ -18,12 +18,13 @@ package util
 
 import (
 	corev1 "k8s.io/api/core/v1"
+
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 )
 
 // PatchSecurityContext patches a security context fields
 // This avoids overwriting an existing value with a nil which is the case when using DeepCopy.
-func PatchSecurityContext(base *corev1.SecurityContext, patch *corev1.SecurityContext) *corev1.SecurityContext {
+func PatchSecurityContext(base, patch *corev1.SecurityContext) *corev1.SecurityContext {
 	if patch == nil {
 		return base
 	}
@@ -70,7 +71,7 @@ func PatchSecurityContext(base *corev1.SecurityContext, patch *corev1.SecurityCo
 	return base
 }
 
-// GetSecurityContext returns a security context with matches the container name or nil otherwise
+// GetSecurityContext returns a security context with matches the container name or nil otherwise.
 func GetSecurityContext(securityContexts []spodv1alpha1.SecurityContext, name string) *corev1.SecurityContext {
 	for _, sc := range securityContexts {
 		if sc.ContainerName == name {
