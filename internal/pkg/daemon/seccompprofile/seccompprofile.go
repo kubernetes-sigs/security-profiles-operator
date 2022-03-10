@@ -39,7 +39,6 @@ import (
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/atomic"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -88,7 +87,6 @@ type Reconciler struct {
 	record  event.Recorder
 	save    saver
 	metrics *metrics.Metrics
-	ready   atomic.Bool
 }
 
 // Name returns the name of the controller.
@@ -122,8 +120,20 @@ func (r *Reconciler) Setup(
 
 // Healthz is the liveness probe endpoint of the controller.
 func (r *Reconciler) Healthz(*http.Request) error {
-	if !r.ready.Get() {
-		return errors.New("not ready")
+	return r.checkSeccomp()
+}
+
+// checkSeccomp verifies if the seccomp is supported by the node
+func (r *Reconciler) checkSeccomp() error {
+	if !seccomp.IsSupported() {
+		err := fmt.Errorf("node %q does not support seccomp", os.Getenv(config.NodeNameEnvKey))
+		if r.record != nil {
+			r.metrics.IncSeccompProfileError(reasonSeccompNotSupported)
+			r.record.Event(&seccompprofileapi.SeccompProfile{},
+				event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey),
+					"node does not support seccomp"))
+		}
+		return err
 	}
 	return nil
 }
@@ -145,27 +155,13 @@ func (r *Reconciler) Healthz(*http.Request) error {
 
 // Reconcile reconciles a SeccompProfile.
 func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
-	// Mark the controller as ready if the first reconcile has been finished
-	if !r.ready.Get() {
-		defer func() { r.ready.Set(true) }()
-	}
-
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 
-	// Pre-check if the node supports seccomp
-	if !seccomp.IsSupported() {
-		err := errors.New("profile not added")
-		logger.Error(err, fmt.Sprintf("node %q does not support seccomp", os.Getenv(config.NodeNameEnvKey)))
-		if r.record != nil {
-			r.metrics.IncSeccompProfileError(reasonSeccompNotSupported)
-			r.record.Event(&seccompprofileapi.SeccompProfile{},
-				event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey),
-					"node does not support seccomp"))
-		}
-
+	if err := r.checkSeccomp(); err != nil {
+		logger.Error(err, "profile not added")
 		// Do not requeue (will be requeued if a change to the object is
 		// observed, or after the usually very long reconcile timeout
 		// configured for the controller manager)
