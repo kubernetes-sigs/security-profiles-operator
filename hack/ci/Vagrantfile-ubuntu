@@ -37,7 +37,8 @@ Vagrant.configure("2") do |config|
         kubeadm=$KUBERNETES_VERSION \
         kubectl=$KUBERNETES_VERSION \
         podman \
-        jq
+        jq \
+        moreutils
 
       # Disable kernel print rate limiting for syslog messaging
       sysctl -w kernel.printk_ratelimit=0
@@ -46,13 +47,17 @@ Vagrant.configure("2") do |config|
       podman load -i /vagrant/image.tar
       /vagrant/hack/ci/install-cri-o.sh
 
+      # Disable IPv6 in bridge plugin config
+      CNI_CONFIG=/etc/cni/net.d/10-crio-bridge.conf
+      jq 'del(.ipam.routes[1], .ipam.ranges[1])' $CNI_CONFIG | sponge $CNI_CONFIG
+
       # Setup cluster
       IP=`ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]'`
       NODENAME=$(hostname -s)
       swapoff -a
       modprobe br_netfilter
       sysctl -w net.ipv4.ip_forward=1
-      kubeadm init --apiserver-cert-extra-sans=$IP  --node-name $NODENAME
+      kubeadm init --apiserver-cert-extra-sans=$IP --node-name $NODENAME
 
       # Setup kubectl
       mkdir /home/vagrant/.kube
@@ -62,7 +67,6 @@ Vagrant.configure("2") do |config|
       # Configure cluster
       export KUBECONFIG=/etc/kubernetes/admin.conf
       kubectl taint nodes --all node-role.kubernetes.io/master-
-      kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
     SHELL
   end
 end
