@@ -118,3 +118,9 @@ dependencies:
     refPaths:
     - path: hack/update-vmlinux
       match: VERSION
+
+  - name: CRI-O
+    version: v1.23.1
+    refPaths:
+    - path: hack/ci/install-cri-o.sh
+      match: TAG
