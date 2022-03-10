@@ -263,6 +263,11 @@ github.com/nxadm/tail/watch
 github.com/nxadm/tail/winfile
 # github.com/opencontainers/runtime-spec v1.0.3-0.20210326190908-1c3f411f0417
 github.com/opencontainers/runtime-spec/specs-go
+# github.com/opencontainers/selinux v1.10.0
+## explicit
+github.com/opencontainers/selinux/go-selinux
+github.com/opencontainers/selinux/pkg/pwalk
+github.com/opencontainers/selinux/pkg/pwalkdir
 # github.com/openshift/api v0.0.0-20220209124712-b632c5fc10c0
 ## explicit
 github.com/openshift/api/config/v1

@@ -12,6 +12,7 @@ require (
 	github.com/jetstack/cert-manager v1.7.1
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.5.0
 	github.com/nxadm/tail v1.4.8
+	github.com/opencontainers/selinux v1.10.0
 	github.com/openshift/api v0.0.0-20220209124712-b632c5fc10c0
 	github.com/pjbgf/go-apparmor v0.0.7
 	github.com/pkg/errors v0.9.1

@@ -22,6 +22,7 @@ import (
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
+	selinux "github.com/opencontainers/selinux/go-selinux"
 	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -123,6 +124,16 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well
+
+	// Disable SELinux configuration when SELinux is not in enforcing mode
+	if selinux.EnforceMode() != selinux.Enforcing {
+		for i := range refSPOd.Spec.Template.Spec.InitContainers {
+			refSPOd.Spec.Template.Spec.InitContainers[i].SecurityContext.SELinuxOptions = nil
+		}
+		for i := range refSPOd.Spec.Template.Spec.Containers {
+			refSPOd.Spec.Template.Spec.Containers[i].SecurityContext.SELinuxOptions = nil
+		}
+	}
 	return refSPOd
 }
 
