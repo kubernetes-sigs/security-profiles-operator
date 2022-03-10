@@ -123,10 +123,11 @@ func (r *Reconciler) Healthz(*http.Request) error {
 	return r.checkSeccomp()
 }
 
-// checkSeccomp verifies if the seccomp is supported by the node
+// checkSeccomp verifies if the seccomp is supported by the node.
 func (r *Reconciler) checkSeccomp() error {
 	if !seccomp.IsSupported() {
-		err := fmt.Errorf("node %q does not support seccomp", os.Getenv(config.NodeNameEnvKey))
+		err := errors.New("seccomp not supported")
+		err = fmt.Errorf("node %q: %w", os.Getenv(config.NodeNameEnvKey), err)
 		if r.record != nil {
 			r.metrics.IncSeccompProfileError(reasonSeccompNotSupported)
 			r.record.Event(&seccompprofileapi.SeccompProfile{},
