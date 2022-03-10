@@ -29,6 +29,24 @@ dependencies:
     - path: Makefile
       match: KUSTOMIZE_VERSION
 
+  - name: operator-sdk
+    version: v1.17.0
+    refPaths:
+    - path: Makefile
+      match: OPERATOR_SDK_VERSION
+
+  - name: opm
+    version: v1.19.1
+    refPaths:
+    - path: Makefile
+      match: OPM_VERSION
+
+  - name: olm
+    version: v0.18.2
+    refPaths:
+    - path: Makefile
+      match: OLM_VERSION
+
   - name: cert-manager
     version: 1.7.2
     refPaths:
