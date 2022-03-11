@@ -161,6 +161,15 @@ func (p *podSeccompRecorder) Handle(
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
+func (p *podSeccompRecorder) shouldRecordContainer(containerName string,
+	profileRecording *profilerecordingv1alpha1.ProfileRecording) bool {
+	// Allow all containers when no containers are explicitly listed
+	if profileRecording.Spec.Containers == nil {
+		return true
+	}
+	return utils.Exists(profileRecording.Spec.Containers, containerName)
+}
+
 func (p *podSeccompRecorder) updatePod(
 	pod *corev1.Pod,
 	profileRecording *profilerecordingv1alpha1.ProfileRecording,
@@ -168,10 +177,14 @@ func (p *podSeccompRecorder) updatePod(
 	// Collect containers as references to not copy them during modification
 	ctrs := []*corev1.Container{}
 	for i := range pod.Spec.InitContainers {
-		ctrs = append(ctrs, &pod.Spec.InitContainers[i])
+		if p.shouldRecordContainer(pod.Spec.InitContainers[i].Name, profileRecording) {
+			ctrs = append(ctrs, &pod.Spec.InitContainers[i])
+		}
 	}
 	for i := range pod.Spec.Containers {
-		ctrs = append(ctrs, &pod.Spec.Containers[i])
+		if p.shouldRecordContainer(pod.Spec.Containers[i].Name, profileRecording) {
+			ctrs = append(ctrs, &pod.Spec.Containers[i])
+		}
 	}
 
 	// Handle replicas by tracking them
