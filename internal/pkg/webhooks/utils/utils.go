@@ -45,6 +45,16 @@ func RemoveIfExists(list []string, item string) []string {
 	return list
 }
 
+// Exists checks an item is present in the provided list.
+func Exists(list []string, item string) bool {
+	for _, s := range list {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateResource tries to update the provided object by using the
 // client.StatusWriter. If the update fails, it automatically logs to the
 // provided logger.
