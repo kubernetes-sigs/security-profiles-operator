@@ -64,6 +64,12 @@ else
 LINT_BUILDTAGS := e2e,netgo,osusergo,-tools
 endif
 
+ifneq ($(shell uname -s), Darwin)
+OS := linux
+else
+OS := darwin
+endif
+
 ifeq ($(APPARMOR_ENABLED), 1)
 BUILDTAGS := $(BUILDTAGS) apparmor
 LINT_BUILDTAGS := $(LINT_BUILDTAGS),apparmor
@@ -146,7 +152,7 @@ $(BUILD_DIR)/kustomize: $(BUILD_DIR)
 		| bash -s $(KUSTOMIZE_VERSION) $(PWD)/$(BUILD_DIR)
 
 $(BUILD_DIR)/kubernetes-split-yaml: $(BUILD_DIR)
-	export URL=https://github.com/mogensen/kubernetes-split-yaml/releases/download/v$(KUBERNETES_SPLIT_YAML_VERSION)/kubernetes-split-yaml_$(KUBERNETES_SPLIT_YAML_VERSION)_linux_amd64.tar.gz && \
+	export URL=https://github.com/mogensen/kubernetes-split-yaml/releases/download/v$(KUBERNETES_SPLIT_YAML_VERSION)/kubernetes-split-yaml_$(KUBERNETES_SPLIT_YAML_VERSION)_$(OS)_amd64.tar.gz && \
     curl -sfL $$URL | \
         tar -C "${BUILD_DIR}" -xz
 
