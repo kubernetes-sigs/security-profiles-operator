@@ -55,6 +55,12 @@ type ProfileRecordingSpec struct {
 	// label selector semantics. An empty podSelector matches all pods in this
 	// namespace.
 	PodSelector metav1.LabelSelector `json:"podSelector"`
+
+	// Containers a set of containers to record. This allows to select
+	// only specific containers to record instead of all containers present
+	// in the pod.
+	// +optional
+	Containers []string `json:"containers,omitempty"`
 }
 
 // ProfileRecordingStatus contains status of the ProfileRecording.

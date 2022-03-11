@@ -123,6 +123,13 @@ spec:
           spec:
             description: ProfileRecordingSpec defines the desired state of ProfileRecording.
             properties:
+              containers:
+                description: Containers a set of containers to record. This allows
+                  to select only specific containers to record instead of all containers
+                  present in the pod.
+                items:
+                  type: string
+                type: array
               kind:
                 description: Kind of object to be recorded.
                 enum:
