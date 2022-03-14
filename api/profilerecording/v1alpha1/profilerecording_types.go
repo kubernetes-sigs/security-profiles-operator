@@ -56,7 +56,7 @@ type ProfileRecordingSpec struct {
 	// namespace.
 	PodSelector metav1.LabelSelector `json:"podSelector"`
 
-	// Containers a set of containers to record. This allows to select
+	// Containers is a set of containers to record. This allows to select
 	// only specific containers to record instead of all containers present
 	// in the pod.
 	// +optional
