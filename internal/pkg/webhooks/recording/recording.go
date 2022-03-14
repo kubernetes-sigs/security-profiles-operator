@@ -37,6 +37,7 @@ import (
 
 	profilerecordingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -167,7 +168,7 @@ func (p *podSeccompRecorder) shouldRecordContainer(containerName string,
 	if profileRecording.Spec.Containers == nil {
 		return true
 	}
-	return utils.Exists(profileRecording.Spec.Containers, containerName)
+	return util.Contains(profileRecording.Spec.Containers, containerName)
 }
 
 func (p *podSeccompRecorder) updatePod(
