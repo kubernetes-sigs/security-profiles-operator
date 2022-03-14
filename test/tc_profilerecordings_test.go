@@ -155,7 +155,7 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 
 func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 	e.logEnricherOnlyTestCase()
-	e.profileRecordingSpecificContainer(exampleRecordingBpfSpecificContainerPath,
+	e.profileRecordingSpecificContainer(exampleRecordingSeccompSpecificContainerLogsPath,
 		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="setuid"`),
 	)
 }
