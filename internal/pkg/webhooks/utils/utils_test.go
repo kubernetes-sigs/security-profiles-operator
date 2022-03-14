@@ -87,39 +87,6 @@ func TestRemoveIfExists(t *testing.T) {
 	}
 }
 
-func TestExists(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		provided []string
-		item     string
-		want     bool
-	}{
-		{
-			provided: nil,
-			item:     "",
-			want:     false,
-		},
-		{
-			provided: []string{},
-			item:     "",
-			want:     false,
-		},
-		{
-			provided: []string{"a"},
-			item:     "b",
-			want:     false,
-		},
-		{
-			provided: []string{"a", "b"},
-			item:     "b",
-			want:     true,
-		},
-	} {
-		res := utils.Exists(tc.provided, tc.item)
-		require.Equal(t, tc.want, res)
-	}
-}
-
 type fakeClient struct {
 	updateFails bool
 }
