@@ -25,11 +25,12 @@ import (
 )
 
 const (
-	exampleRecordingHookPath        = "examples/profilerecording-hook.yaml"
-	exampleRecordingSeccompLogsPath = "examples/profilerecording-seccomp-logs.yaml"
-	exampleRecordingSelinuxLogsPath = "examples/profilerecording-selinux-logs.yaml"
-	recordingName                   = "test-recording"
-	selinuxRecordingName            = "test-selinux-recording"
+	exampleRecordingHookPath                         = "examples/profilerecording-hook.yaml"
+	exampleRecordingSeccompLogsPath                  = "examples/profilerecording-seccomp-logs.yaml"
+	exampleRecordingSeccompSpecificContainerLogsPath = "examples/profilerecording-seccomp-specific-container-logs.yaml"
+	exampleRecordingSelinuxLogsPath                  = "examples/profilerecording-selinux-logs.yaml"
+	recordingName                                    = "test-recording"
+	selinuxRecordingName                             = "test-selinux-recording"
 )
 
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
@@ -152,6 +153,13 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 	)
 }
 
+func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
+	e.logEnricherOnlyTestCase()
+	e.profileRecordingSpecificContainer(exampleRecordingBpfSpecificContainerPath,
+		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="setuid"`),
+	)
+}
+
 func (e *e2e) testCaseProfileRecordingMultiContainerSELinuxLogs() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
@@ -213,6 +221,32 @@ func (e *e2e) profileRecordingMultiContainer(
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "sp", profileNameRedis, profileNameNginx)
+}
+
+func (e *e2e) profileRecordingSpecificContainer(
+	recording string, waitConditions ...*regexp.Regexp,
+) {
+	e.logf("Creating recording for specific container test")
+	e.kubectl("create", "-f", recording)
+
+	since, podName := e.createRecordingTestMultiPod()
+
+	if waitConditions != nil {
+		e.waitForEnricherLogs(since, waitConditions...)
+	}
+
+	e.kubectl("delete", "pod", podName)
+
+	const profileNameNginx = recordingName + "-nginx"
+	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
+	e.Contains(profileNginx, "close")
+
+	const profileNameRedis = recordingName + "-redis"
+	profileRedis := e.retryGetSeccompProfile(profileNameRedis)
+	e.Empty(profileRedis)
+
+	e.kubectl("delete", "-f", recording)
+	e.kubectl("delete", "sp", profileNameNginx)
 }
 
 func (e *e2e) testCaseProfileRecordingDeploymentHook() {

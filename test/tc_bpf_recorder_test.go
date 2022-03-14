@@ -24,7 +24,10 @@ import (
 	"time"
 )
 
-const exampleRecordingBpfPath = "examples/profilerecording-seccomp-bpf.yaml"
+const (
+	exampleRecordingBpfPath                  = "examples/profilerecording-seccomp-bpf.yaml"
+	exampleRecordingBpfSpecificContainerPath = "examples/profilerecording-seccomp-bpf-specific-container.yaml"
+)
 
 var testRegex = regexp.MustCompile(`Using short path via tracked mount namespace`)
 
@@ -244,4 +247,28 @@ spec:
 	}
 
 	return since, podNames
+}
+
+func (e *e2e) testCaseBpfRecorderSelectContainer() {
+	e.bpfRecorderOnlyTestCase()
+
+	e.logf("Creating bpf recording for specific container test")
+	e.kubectl("create", "-f", exampleRecordingBpfSpecificContainerPath)
+
+	since, podName := e.createRecordingTestMultiPod()
+
+	e.waitForBpfRecorderLogs(since)
+
+	e.kubectl("delete", "pod", podName)
+
+	const profileNameNginx = recordingName + "-nginx"
+	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
+	e.Contains(profileNginx, "close")
+
+	const profileNameRedis = recordingName + "-redis"
+	profileRedis := e.retryGetSeccompProfile(profileNameRedis)
+	e.Empty(profileRedis)
+
+	e.kubectl("delete", "-f", exampleRecordingBpfSpecificContainerPath)
+	e.kubectl("delete", "sp", profileNameNginx)
 }
