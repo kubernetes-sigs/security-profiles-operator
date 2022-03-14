@@ -124,7 +124,7 @@ spec:
             description: ProfileRecordingSpec defines the desired state of ProfileRecording.
             properties:
               containers:
-                description: Containers a set of containers to record. This allows
+                description: Containers is a set of containers to record. This allows
                   to select only specific containers to record instead of all containers
                   present in the pod.
                 items:
