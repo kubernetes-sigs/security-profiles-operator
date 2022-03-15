@@ -436,6 +436,16 @@ func (e *e2e) retryGet(args ...string) string {
 	return ""
 }
 
+func (e *e2e) exists(args ...string) bool {
+	output, err := command.New(
+		e.kubectlPath, append([]string{"get"}, args...)...,
+	).RunSilent()
+	if err != nil {
+		return !strings.Contains(output.Error(), "not found")
+	}
+	return true
+}
+
 func (e *e2e) getSeccompPolicyID(profile string) string {
 	ns := e.getCurrentContextNamespace(defaultNamespace)
 	return e.kubectl("get", "sp", "-n", ns, profile, "-o", "jsonpath={.metadata.labels.spo\\.x-k8s\\.io/profile-id}")

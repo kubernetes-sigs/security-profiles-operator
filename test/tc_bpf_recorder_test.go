@@ -266,8 +266,8 @@ func (e *e2e) testCaseBpfRecorderSelectContainer() {
 	e.Contains(profileNginx, "close")
 
 	const profileNameRedis = recordingName + "-redis"
-	profileRedis := e.retryGetSeccompProfile(profileNameRedis)
-	e.Empty(profileRedis)
+	exists := e.existsSeccompProfile(profileNameRedis)
+	e.False(exists)
 
 	e.kubectl("delete", "-f", exampleRecordingBpfSpecificContainerPath)
 	e.kubectl("delete", "sp", profileNameNginx)
