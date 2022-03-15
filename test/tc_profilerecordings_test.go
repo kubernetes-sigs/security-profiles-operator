@@ -242,8 +242,8 @@ func (e *e2e) profileRecordingSpecificContainer(
 	e.Contains(profileNginx, "close")
 
 	const profileNameRedis = recordingName + "-redis"
-	profileRedis := e.retryGetSeccompProfile(profileNameRedis)
-	e.Empty(profileRedis)
+	exists := e.existsSeccompProfile(profileNameRedis)
+	e.False(exists)
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "sp", profileNameNginx)
@@ -372,6 +372,10 @@ func (e *e2e) retryGetProfile(kind string, args ...string) string {
 
 func (e *e2e) retryGetSeccompProfile(args ...string) string {
 	return e.retryGetProfile("sp", args...)
+}
+
+func (e *e2e) existsSeccompProfile(args ...string) bool {
+	return e.exists(append([]string{"sp"}, args...)...)
 }
 
 func (e *e2e) retryGetSelinuxJsonpath(jsonpath string, args ...string) string {
