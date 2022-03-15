@@ -440,10 +440,8 @@ func (e *e2e) exists(args ...string) bool {
 	output, err := command.New(
 		e.kubectlPath, append([]string{"get"}, args...)...,
 	).RunSilent()
-	if err != nil {
-		return !strings.Contains(output.Error(), "not found")
-	}
-	return true
+	e.Nil(err)
+	return !strings.Contains(output.Error(), "not found")
 }
 
 func (e *e2e) getSeccompPolicyID(profile string) string {
