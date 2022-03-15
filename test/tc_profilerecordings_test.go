@@ -156,7 +156,7 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingSpecificContainer(exampleRecordingSeccompSpecificContainerLogsPath,
-		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="setuid"`),
+		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="epoll_wait"`),
 	)
 }
 
