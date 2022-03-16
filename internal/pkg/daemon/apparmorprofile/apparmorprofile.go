@@ -148,7 +148,8 @@ func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconc
 }
 
 func (r *Reconciler) reconcileAppArmorProfile(
-	ctx context.Context, sp *v1alpha1.AppArmorProfile, l logr.Logger) (reconcile.Result, error) {
+	ctx context.Context, sp *v1alpha1.AppArmorProfile, l logr.Logger,
+) (reconcile.Result, error) {
 	if sp == nil {
 		return reconcile.Result{}, errors.New(errAppArmorProfileNil)
 	}

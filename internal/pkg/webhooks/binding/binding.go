@@ -195,7 +195,8 @@ func (p *podSeccompBinder) getSeccompProfile(
 }
 
 func (p *podSeccompBinder) addSecurityContext(
-	c *corev1.Container, seccompProfile *seccompprofileapi.SeccompProfile) bool {
+	c *corev1.Container, seccompProfile *seccompprofileapi.SeccompProfile,
+) bool {
 	podChanged := false
 	profileRef := seccompProfile.Status.LocalhostProfile
 	sp := corev1.SeccompProfile{

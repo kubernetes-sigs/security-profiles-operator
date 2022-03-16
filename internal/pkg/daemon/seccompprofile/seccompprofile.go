@@ -243,7 +243,8 @@ func (r *Reconciler) mergeBaseProfile(
 }
 
 func (r *Reconciler) reconcileSeccompProfile(
-	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger) (reconcile.Result, error) {
+	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
+) (reconcile.Result, error) {
 	if sp == nil {
 		return reconcile.Result{}, errors.New(errSeccompProfileNil)
 	}
