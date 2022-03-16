@@ -235,7 +235,8 @@ func TestReconcile(t *testing.T) {
 					ctx context.Context,
 					c client.Client,
 					obj client.Object,
-					f controllerutil.MutateFn) (controllerutil.OperationResult, error) {
+					f controllerutil.MutateFn,
+				) (controllerutil.OperationResult, error) {
 					err := f()
 					assert.Nil(t, err)
 					return "", nil
@@ -779,7 +780,8 @@ func TestReconcile(t *testing.T) {
 					ctx context.Context,
 					c client.Client,
 					obj client.Object,
-					f controllerutil.MutateFn) (controllerutil.OperationResult, error) {
+					f controllerutil.MutateFn,
+				) (controllerutil.OperationResult, error) {
 					err := f()
 					assert.Nil(t, err)
 					return "", nil
@@ -932,7 +934,8 @@ func TestReconcile(t *testing.T) {
 					ctx context.Context,
 					c client.Client,
 					obj client.Object,
-					f controllerutil.MutateFn) (controllerutil.OperationResult, error) {
+					f controllerutil.MutateFn,
+				) (controllerutil.OperationResult, error) {
 					err := f()
 					assert.Nil(t, err)
 					return "", nil
@@ -1273,7 +1276,8 @@ func TestReconcile(t *testing.T) {
 					ctx context.Context,
 					c client.Client,
 					obj client.Object,
-					f controllerutil.MutateFn) (controllerutil.OperationResult, error) {
+					f controllerutil.MutateFn,
+				) (controllerutil.OperationResult, error) {
 					err := f()
 					assert.Nil(t, err)
 					return "", nil
