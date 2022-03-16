@@ -163,7 +163,8 @@ func (p *podSeccompRecorder) Handle(
 }
 
 func (p *podSeccompRecorder) shouldRecordContainer(containerName string,
-	profileRecording *profilerecordingv1alpha1.ProfileRecording) bool {
+	profileRecording *profilerecordingv1alpha1.ProfileRecording,
+) bool {
 	// Allow all containers when no containers are explicitly listed
 	if profileRecording.Spec.Containers == nil {
 		return true

@@ -370,7 +370,8 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 }
 
 func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selxv1alpha2.SelinuxProfileObject,
-	l logr.Logger) (reconcile.Result, error) {
+	l logr.Logger,
+) (reconcile.Result, error) {
 	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
 
 	l.Info("Removing policy file", "policyPath", policyPath)
