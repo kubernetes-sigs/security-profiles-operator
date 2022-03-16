@@ -42,6 +42,10 @@ var (
 	// none is available.
 	globalLogger *Logger
 
+	// globalLoggerOptions contains the options that were supplied for
+	// globalLogger.
+	globalLoggerOptions loggerOptions
+
 	// contextualLogger defines whether globalLogger may get called
 	// directly.
 	contextualLogger bool
@@ -87,11 +91,10 @@ func SetLogger(logger logr.Logger) {
 // later release.
 func SetLoggerWithOptions(logger logr.Logger, opts ...LoggerOption) {
 	globalLogger = &logger
-	var o loggerOptions
+	globalLoggerOptions = loggerOptions{}
 	for _, opt := range opts {
-		opt(&o)
+		opt(&globalLoggerOptions)
 	}
-	contextualLogger = o.contextualLogger
 }
 
 // ContextualLogger determines whether the logger passed to
@@ -108,6 +111,18 @@ func ContextualLogger(enabled bool) LoggerOption {
 	}
 }
 
+// FlushLogger provides a callback for flushing data buffered by the logger.
+//
+// Experimental
+//
+// Notice: This function is EXPERIMENTAL and may be changed or removed in a
+// later release.
+func FlushLogger(flush func()) LoggerOption {
+	return func(o *loggerOptions) {
+		o.flush = flush
+	}
+}
+
 // LoggerOption implements the functional parameter paradigm for
 // SetLoggerWithOptions.
 //
@@ -119,6 +134,7 @@ type LoggerOption func(o *loggerOptions)
 
 type loggerOptions struct {
 	contextualLogger bool
+	flush            func()
 }
 
 // SetContextualLogger does the same as SetLogger, but in addition the
@@ -137,6 +153,7 @@ func SetContextualLogger(logger logr.Logger) {
 // goroutines invoke log calls, usually during program initialization.
 func ClearLogger() {
 	globalLogger = nil
+	globalLoggerOptions = loggerOptions{}
 }
 
 // EnableContextualLogging controls whether contextual logging is enabled.
@@ -196,7 +213,9 @@ func TODO() Logger {
 // Notice: This function is EXPERIMENTAL and may be changed or removed in a
 // later release.
 func Background() Logger {
-	if globalLogger != nil && contextualLogger {
+	if globalLoggerOptions.contextualLogger {
+		// Is non-nil because globalLoggerOptions.contextualLogger is
+		// only true if a logger was set.
 		return *globalLogger
 	}
 
