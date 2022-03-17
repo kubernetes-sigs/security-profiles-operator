@@ -16,8 +16,6 @@ limitations under the License.
 
 package e2e_test
 
-import "fmt"
-
 func (e *e2e) testCaseRunPod([]string) {
 	e.seccompOnlyTestCase()
 	const (
@@ -27,10 +25,7 @@ func (e *e2e) testCaseRunPod([]string) {
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	if namespace != defaultNamespace {
-		e.run(
-			"sed", "-i", fmt.Sprintf("s/security-profiles-operator/%s/g", namespace),
-			examplePodPath,
-		)
+		e.updateManifest(examplePodPath, "security-profiles-operator", namespace)
 		defer e.run("git", "checkout", examplePodPath)
 	}
 
