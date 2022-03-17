@@ -127,20 +127,21 @@ func GetWebhook(
 
 func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 	for k, o := range w.objectMap() {
-		if k == "config" {
-			// The config already exists because it's a global resource we have to remove later on
-			if err := c.Patch(ctx, o, client.Merge); err != nil {
-				return errors.Wrapf(err, "updating %s", k)
-			}
-		} else {
-			if err := c.Create(ctx, o); err != nil {
-				if kerrors.IsAlreadyExists(err) {
-					continue
+		if err := c.Create(ctx, o); err != nil {
+			if kerrors.IsAlreadyExists(err) {
+				if k == "config" {
+					// The config already exists because it's a global resource we have to remove later on
+					if err := c.Patch(ctx, o, client.Merge); err != nil {
+						return errors.Wrapf(err, "updating %s", k)
+					}
 				}
+				continue
+			} else {
 				return errors.Wrapf(err, "creating %s", k)
 			}
 		}
 	}
+
 	return nil
 }
 
