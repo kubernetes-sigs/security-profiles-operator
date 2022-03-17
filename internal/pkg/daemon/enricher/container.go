@@ -22,6 +22,11 @@ import (
 	"time"
 
 	"github.com/ReneKroon/ttlcache/v2"
+	"github.com/go-logr/logr"
+	"golang.org/x/net/context"
+	"golang.org/x/sync/errgroup"
+	v1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -29,22 +34,28 @@ import (
 )
 
 const (
-	backoffDuration = 500 * time.Millisecond
-	backoffFactor   = 1.5
-	backoffSteps    = 10
+	// timeout for operations... The number was chosen randomly.
+	operationTimeout = 10 * time.Second
+	backoffDuration  = 500 * time.Millisecond
+	backoffFactor    = 1.5
+	backoffSteps     = 10
+
+	problematicContainerLabelKey = "spo.x-k8s.io/had-denials"
 )
+
+var errContainerIDEmpty = errors.New("container ID is empty")
 
 // NOTE(jaosorior): Should this actually be namespace-scoped?
 //
 // Cluster scoped
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;patch;update
 
 func (e *Enricher) getContainerInfo(
-	nodeName, containerID string,
+	nodeName, targetContainerID string,
 ) (*containerInfo, error) {
 	// Check the cache first
 	if info, err := e.infoCache.Get(
-		containerID,
+		targetContainerID,
 	); !errors.Is(err, ttlcache.ErrNotFound) {
 		cInfo, ok := info.(*containerInfo)
 		if !ok {
@@ -53,95 +64,12 @@ func (e *Enricher) getContainerInfo(
 		return cInfo, nil
 	}
 
-	clusterConfig, err := e.impl.InClusterConfig()
-	if err != nil {
-		return nil, fmt.Errorf("get in-cluster config: %w", err)
-	}
-
-	clientset, err := e.impl.NewForConfig(clusterConfig)
-	if err != nil {
-		return nil, fmt.Errorf("load in-cluster config: %w", err)
-	}
-
-	containerRetryBackoff := wait.Backoff{
-		Duration: backoffDuration,
-		Factor:   backoffFactor,
-		Steps:    backoffSteps,
-	}
-
-	errContainerIDEmpty := errors.New("container ID is empty")
-	if err := util.RetryEx(
-		&containerRetryBackoff,
-		func() (retryErr error) {
-			pods, err := e.impl.ListPods(clientset, nodeName)
-			if err != nil {
-				return fmt.Errorf("list node %s's pods: %w", nodeName, err)
-			}
-
-			for p := range pods.Items {
-				pod := &pods.Items[p]
-
-				for c := range pod.Status.ContainerStatuses {
-					containerStatus := pod.Status.ContainerStatuses[c]
-					containerID := containerStatus.ContainerID
-					containerName := containerStatus.Name
-
-					if containerID == "" {
-						if containerStatus.State.Waiting != nil &&
-							containerStatus.State.Waiting.Reason == "ContainerCreating" {
-							e.logger.Info(
-								"container ID is still empty, retrying",
-								"podName", pod.Name,
-								"containerName", containerName,
-							)
-							return errContainerIDEmpty
-						}
-
-						return fmt.Errorf(
-							"container ID not found with container state: %v",
-							containerStatus.State,
-						)
-					}
-
-					rawContainerID := util.ContainerIDRegex.FindString(containerID)
-					if rawContainerID == "" {
-						e.logger.Error(
-							err, "unable to get container ID",
-							"podName", pod.Name,
-							"containerName", containerName,
-						)
-						continue
-					}
-
-					recordProfile, ok := pod.Annotations[config.SeccompProfileRecordLogsAnnotationKey+containerName]
-					if !ok {
-						recordProfile = pod.Annotations[config.SelinuxProfileRecordLogsAnnotationKey+containerName]
-					}
-					info := &containerInfo{
-						podName:       pod.Name,
-						containerName: containerStatus.Name,
-						namespace:     pod.Namespace,
-						containerID:   rawContainerID,
-						recordProfile: recordProfile,
-					}
-
-					// Update the cache
-					if err := e.infoCache.Set(rawContainerID, info); err != nil {
-						return fmt.Errorf("update cache: %w", err)
-					}
-				}
-			}
-			return nil
-		},
-		func(inErr error) bool {
-			return errors.Is(inErr, errContainerIDEmpty)
-		},
-	); err != nil {
+	if err := e.populateContainerPodCache(nodeName, targetContainerID); err != nil {
 		return nil, fmt.Errorf("get container info for pods: %w", err)
 	}
 
 	if info, err := e.infoCache.Get(
-		containerID,
+		targetContainerID,
 	); !errors.Is(err, ttlcache.ErrNotFound) {
 		cInfo, ok := info.(*containerInfo)
 		if !ok {
@@ -151,4 +79,155 @@ func (e *Enricher) getContainerInfo(
 	}
 
 	return nil, errors.New("no container info for container ID")
+}
+
+func (e *Enricher) populateContainerPodCache(
+	nodeName, targetContainerID string,
+) error {
+	containerRetryBackoff := wait.Backoff{
+		Duration: backoffDuration,
+		Factor:   backoffFactor,
+		Steps:    backoffSteps,
+	}
+
+	ctxwithTimeout, cancel := context.WithTimeout(context.Background(), operationTimeout)
+	defer cancel()
+
+	return util.RetryEx(
+		&containerRetryBackoff,
+		func() (retryErr error) {
+			pods, err := e.impl.ListPods(ctxwithTimeout, e.clientset, nodeName)
+			if err != nil {
+				return fmt.Errorf("list node %s's pods: %w", nodeName, err)
+			}
+
+			eg, ctx := errgroup.WithContext(ctxwithTimeout)
+
+			for p := range pods.Items {
+				pod := &pods.Items[p]
+				e.populateCacheEntryForContainer(ctx, targetContainerID, pod, eg)
+			}
+
+			if werr := eg.Wait(); werr != nil {
+				return werr
+			}
+
+			return nil
+		},
+		func(inErr error) bool {
+			return errors.Is(inErr, errContainerIDEmpty)
+		},
+	)
+}
+
+func (e *Enricher) populateCacheEntryForContainer(
+	ctx context.Context, targetContainerID string, pod *v1.Pod, eg *errgroup.Group,
+) {
+	eg.Go(func() (errorToRetry error) {
+		// nolint:gocritic // This is what we expect and want
+		statuses := append(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses...)
+
+		for c := range statuses {
+			containerStatus := statuses[c]
+			containerID := containerStatus.ContainerID
+			containerName := containerStatus.Name
+
+			if containerID == "" {
+				// This just means the container is still being created
+				// We can come back to this later
+				idemptyErr := e.handleContainerIDEmpty(pod.Name, containerName, &containerStatus)
+				if errors.Is(idemptyErr, errContainerIDEmpty) {
+					errorToRetry = idemptyErr
+					continue
+				}
+				return idemptyErr
+			}
+
+			rawContainerID := util.ContainerIDRegex.FindString(containerID)
+			if rawContainerID == "" {
+				e.logger.Info(
+					"unable to get container ID",
+					"podName", pod.Name,
+					"containerName", containerName,
+				)
+				continue
+			}
+
+			recordProfile, ok := pod.Annotations[config.SeccompProfileRecordLogsAnnotationKey+containerName]
+			if !ok {
+				recordProfile = pod.Annotations[config.SelinuxProfileRecordLogsAnnotationKey+containerName]
+			}
+			info := &containerInfo{
+				podName:       pod.Name,
+				containerName: containerStatus.Name,
+				namespace:     pod.Namespace,
+				containerID:   rawContainerID,
+				recordProfile: recordProfile,
+			}
+
+			if e.labelDenials && rawContainerID == targetContainerID {
+				e.logger.Info("labeling problematic container", "containerID", containerID,
+					"podNamespace", pod.Namespace, "podName", pod.Name)
+				e.labelPodDenials(ctx, info.containerName, pod.DeepCopy(), e.logger)
+			}
+
+			// Update the cache
+			if err := e.infoCache.Set(rawContainerID, info); err != nil {
+				return fmt.Errorf("update cache: %w", err)
+			}
+		}
+
+		return errorToRetry
+	})
+}
+
+func (e *Enricher) handleContainerIDEmpty(podName, containerName string, containerStatus *v1.ContainerStatus) error {
+	if containerStatus.State.Waiting != nil &&
+		(containerStatus.State.Waiting.Reason == "ContainerCreating" ||
+			containerStatus.State.Waiting.Reason == "PodInitializing") {
+		e.logger.Info(
+			"container ID is still empty, retrying",
+			"podName", podName,
+			"containerName", containerName,
+		)
+		return errContainerIDEmpty
+	}
+
+	return fmt.Errorf(
+		"container ID not found with container state: %v",
+		containerStatus.State,
+	)
+}
+
+func (e *Enricher) labelPodDenials(
+	ctx context.Context, containerName string, pod *v1.Pod, l logr.Logger,
+) {
+	// verify if we need to label or if the label is already there
+	if labels := pod.GetLabels(); labels != nil {
+		if _, ok := labels[problematicContainerLabelKey]; ok {
+			return
+		}
+	}
+
+	containerRetryBackoff := wait.Backoff{
+		Duration: backoffDuration,
+		Factor:   backoffFactor,
+		Steps:    backoffSteps,
+	}
+
+	if err := util.RetryEx(
+		&containerRetryBackoff,
+		func() (retryErr error) {
+			return e.impl.LabelPodDenials(ctx, e.clientset, pod)
+		},
+		func(inErr error) bool {
+			return !kerrors.IsNotFound(inErr)
+		},
+	); err != nil {
+		l.Error(
+			err, "unable to patch container to mark it as problematic",
+			"pod.Namespace", pod.GetNamespace(), "pod.Name", pod.GetName(),
+			"containerName", containerName,
+		)
+	}
 }

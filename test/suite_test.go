@@ -54,6 +54,7 @@ var (
 	envSeccompTestsEnabled          = os.Getenv("E2E_TEST_SECCOMP")
 	envProfileRecordingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_RECORDING")
 	envBpfRecorderTestsEnabled      = os.Getenv("E2E_TEST_BPF_RECORDER")
+	envLabelPodDenialsEnabled       = os.Getenv("E2E_TEST_LABEL_POD_DENIALS")
 	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
 	nodeRootfsPrefix                = os.Getenv("NODE_ROOTFS_PREFIX")
 )
@@ -70,21 +71,22 @@ const (
 
 type e2e struct {
 	suite.Suite
-	containerRuntime     string
-	kubectlPath          string
-	testImage            string
-	selinuxdImage        string
-	pullPolicy           string
-	spodConfig           string
-	nodeRootfsPrefix     string
-	selinuxEnabled       bool
-	logEnricherEnabled   bool
-	testSeccomp          bool
-	testProfileRecording bool
-	bpfRecorderEnabled   bool
-	logger               logr.Logger
-	execNode             func(node string, args ...string) string
-	waitForReadyPods     func()
+	containerRuntime       string
+	kubectlPath            string
+	testImage              string
+	selinuxdImage          string
+	pullPolicy             string
+	spodConfig             string
+	nodeRootfsPrefix       string
+	selinuxEnabled         bool
+	logEnricherEnabled     bool
+	testSeccomp            bool
+	testProfileRecording   bool
+	labelPodDenialsEnabled bool
+	bpfRecorderEnabled     bool
+	logger                 logr.Logger
+	execNode               func(node string, args ...string) string
+	waitForReadyPods       func()
 }
 
 func defaultWaitForReadyPods(e *e2e) {
@@ -137,6 +139,10 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		bpfRecorderEnabled = false
 	}
+	labelPodDenialsEnabled, err := strconv.ParseBool(envLabelPodDenialsEnabled)
+	if err != nil {
+		labelPodDenialsEnabled = false
+	}
 
 	selinuxdImage := "quay.io/security-profiles-operator/selinuxd"
 	switch {
@@ -146,18 +152,19 @@ func TestSuite(t *testing.T) {
 		}
 		suite.Run(t, &kinde2e{
 			e2e{
-				logger:               klogr.New(),
-				pullPolicy:           "Never",
-				testImage:            testImage,
-				spodConfig:           spodConfig,
-				containerRuntime:     containerRuntime,
-				nodeRootfsPrefix:     nodeRootfsPrefix,
-				selinuxEnabled:       selinuxEnabled,
-				logEnricherEnabled:   logEnricherEnabled,
-				testSeccomp:          testSeccomp,
-				testProfileRecording: testProfileRecording,
-				selinuxdImage:        selinuxdImage,
-				bpfRecorderEnabled:   bpfRecorderEnabled,
+				logger:                 klogr.New(),
+				pullPolicy:             "Never",
+				testImage:              testImage,
+				spodConfig:             spodConfig,
+				containerRuntime:       containerRuntime,
+				nodeRootfsPrefix:       nodeRootfsPrefix,
+				selinuxEnabled:         selinuxEnabled,
+				logEnricherEnabled:     logEnricherEnabled,
+				testSeccomp:            testSeccomp,
+				testProfileRecording:   testProfileRecording,
+				selinuxdImage:          selinuxdImage,
+				bpfRecorderEnabled:     bpfRecorderEnabled,
+				labelPodDenialsEnabled: labelPodDenialsEnabled,
 			},
 			"", "",
 		})
@@ -175,17 +182,18 @@ func TestSuite(t *testing.T) {
 				logger: klogr.New(),
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
-				pullPolicy:           "Always",
-				testImage:            testImage,
-				spodConfig:           spodConfig,
-				containerRuntime:     containerRuntime,
-				nodeRootfsPrefix:     nodeRootfsPrefix,
-				selinuxEnabled:       selinuxEnabled,
-				logEnricherEnabled:   logEnricherEnabled,
-				testSeccomp:          testSeccomp,
-				testProfileRecording: testProfileRecording,
-				selinuxdImage:        selinuxdImage,
-				bpfRecorderEnabled:   bpfRecorderEnabled,
+				pullPolicy:             "Always",
+				testImage:              testImage,
+				spodConfig:             spodConfig,
+				containerRuntime:       containerRuntime,
+				nodeRootfsPrefix:       nodeRootfsPrefix,
+				selinuxEnabled:         selinuxEnabled,
+				logEnricherEnabled:     logEnricherEnabled,
+				testSeccomp:            testSeccomp,
+				testProfileRecording:   testProfileRecording,
+				selinuxdImage:          selinuxdImage,
+				bpfRecorderEnabled:     bpfRecorderEnabled,
+				labelPodDenialsEnabled: labelPodDenialsEnabled,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -197,18 +205,19 @@ func TestSuite(t *testing.T) {
 		selinuxdImage = "quay.io/security-profiles-operator/selinuxd-fedora"
 		suite.Run(t, &vanilla{
 			e2e{
-				logger:               klogr.New(),
-				pullPolicy:           "Never",
-				testImage:            testImage,
-				spodConfig:           spodConfig,
-				containerRuntime:     containerRuntime,
-				nodeRootfsPrefix:     nodeRootfsPrefix,
-				selinuxEnabled:       selinuxEnabled,
-				logEnricherEnabled:   logEnricherEnabled,
-				testSeccomp:          testSeccomp,
-				testProfileRecording: testProfileRecording,
-				selinuxdImage:        selinuxdImage,
-				bpfRecorderEnabled:   bpfRecorderEnabled,
+				logger:                 klogr.New(),
+				pullPolicy:             "Never",
+				testImage:              testImage,
+				spodConfig:             spodConfig,
+				containerRuntime:       containerRuntime,
+				nodeRootfsPrefix:       nodeRootfsPrefix,
+				selinuxEnabled:         selinuxEnabled,
+				logEnricherEnabled:     logEnricherEnabled,
+				testSeccomp:            testSeccomp,
+				testProfileRecording:   testProfileRecording,
+				selinuxdImage:          selinuxdImage,
+				bpfRecorderEnabled:     bpfRecorderEnabled,
+				labelPodDenialsEnabled: labelPodDenialsEnabled,
 			},
 		})
 	default:
@@ -617,4 +626,22 @@ func (e *e2e) enableBpfRecorderInSpod() {
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+}
+
+func (e *e2e) labelPodDenialsOnlyTestCase() {
+	if !e.labelPodDenialsEnabled {
+		e.T().Skip("Skipping label-denials-pod related test")
+	}
+
+	e.enableLabelingPodDenials()
+}
+
+func (e *e2e) enableLabelingPodDenials() {
+	e.logf("Enable labeling problematic pods in SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"labelPodDenials": true}}`, "--type=merge")
+
+	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLabelPodDenialsTimeout)
 }

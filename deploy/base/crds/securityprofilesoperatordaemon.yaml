@@ -67,6 +67,12 @@ spec:
                   as bpf-recorder to retrieve the container ID for a process ID. This
                   can be helpful for nested environments, for example when using "kind".
                 type: string
+              labelPodDenials:
+                description: tells the operator whether or not to apply labels to
+                  pods that present security policy-related denials. Note that this
+                  will be done cluster-wide. Note that this currently requires the
+                  log enricher to be enabled.
+                type: boolean
               selinuxOptions:
                 description: Defines options specific to the SELinux functionality
                   of the SecurityProfilesOperator

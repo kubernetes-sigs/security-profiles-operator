@@ -18,6 +18,7 @@ set -euo pipefail
 export E2E_CLUSTER_TYPE=vanilla
 export E2E_TEST_SELINUX=true
 export E2E_TEST_LOG_ENRICHER=true
+export E2E_TEST_LABEL_POD_DENIALS=true
 export E2E_TEST_BPF_RECORDER=true
 export E2E_TEST_PROFILE_RECORDING=true
 

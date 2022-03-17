@@ -161,6 +161,19 @@ type FakeImpl struct {
 		result1 *rest.Config
 		result2 error
 	}
+	LabelPodDenialsStub        func(context.Context, kubernetes.Interface, *v1.Pod) error
+	labelPodDenialsMutex       sync.RWMutex
+	labelPodDenialsArgsForCall []struct {
+		arg1 context.Context
+		arg2 kubernetes.Interface
+		arg3 *v1.Pod
+	}
+	labelPodDenialsReturns struct {
+		result1 error
+	}
+	labelPodDenialsReturnsOnCall map[int]struct {
+		result1 error
+	}
 	LinesStub        func(*tail.Tail) chan *tail.Line
 	linesMutex       sync.RWMutex
 	linesArgsForCall []struct {
@@ -172,11 +185,12 @@ type FakeImpl struct {
 	linesReturnsOnCall map[int]struct {
 		result1 chan *tail.Line
 	}
-	ListPodsStub        func(*kubernetes.Clientset, string) (*v1.PodList, error)
+	ListPodsStub        func(context.Context, kubernetes.Interface, string) (*v1.PodList, error)
 	listPodsMutex       sync.RWMutex
 	listPodsArgsForCall []struct {
-		arg1 *kubernetes.Clientset
-		arg2 string
+		arg1 context.Context
+		arg2 kubernetes.Interface
+		arg3 string
 	}
 	listPodsReturns struct {
 		result1 *v1.PodList
@@ -921,6 +935,69 @@ func (fake *FakeImpl) InClusterConfigReturnsOnCall(i int, result1 *rest.Config, 
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) LabelPodDenials(arg1 context.Context, arg2 kubernetes.Interface, arg3 *v1.Pod) error {
+	fake.labelPodDenialsMutex.Lock()
+	ret, specificReturn := fake.labelPodDenialsReturnsOnCall[len(fake.labelPodDenialsArgsForCall)]
+	fake.labelPodDenialsArgsForCall = append(fake.labelPodDenialsArgsForCall, struct {
+		arg1 context.Context
+		arg2 kubernetes.Interface
+		arg3 *v1.Pod
+	}{arg1, arg2, arg3})
+	stub := fake.LabelPodDenialsStub
+	fakeReturns := fake.labelPodDenialsReturns
+	fake.recordInvocation("LabelPodDenials", []interface{}{arg1, arg2, arg3})
+	fake.labelPodDenialsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) LabelPodDenialsCallCount() int {
+	fake.labelPodDenialsMutex.RLock()
+	defer fake.labelPodDenialsMutex.RUnlock()
+	return len(fake.labelPodDenialsArgsForCall)
+}
+
+func (fake *FakeImpl) LabelPodDenialsCalls(stub func(context.Context, kubernetes.Interface, *v1.Pod) error) {
+	fake.labelPodDenialsMutex.Lock()
+	defer fake.labelPodDenialsMutex.Unlock()
+	fake.LabelPodDenialsStub = stub
+}
+
+func (fake *FakeImpl) LabelPodDenialsArgsForCall(i int) (context.Context, kubernetes.Interface, *v1.Pod) {
+	fake.labelPodDenialsMutex.RLock()
+	defer fake.labelPodDenialsMutex.RUnlock()
+	argsForCall := fake.labelPodDenialsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) LabelPodDenialsReturns(result1 error) {
+	fake.labelPodDenialsMutex.Lock()
+	defer fake.labelPodDenialsMutex.Unlock()
+	fake.LabelPodDenialsStub = nil
+	fake.labelPodDenialsReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) LabelPodDenialsReturnsOnCall(i int, result1 error) {
+	fake.labelPodDenialsMutex.Lock()
+	defer fake.labelPodDenialsMutex.Unlock()
+	fake.LabelPodDenialsStub = nil
+	if fake.labelPodDenialsReturnsOnCall == nil {
+		fake.labelPodDenialsReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.labelPodDenialsReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) Lines(arg1 *tail.Tail) chan *tail.Line {
 	fake.linesMutex.Lock()
 	ret, specificReturn := fake.linesReturnsOnCall[len(fake.linesArgsForCall)]
@@ -982,19 +1059,20 @@ func (fake *FakeImpl) LinesReturnsOnCall(i int, result1 chan *tail.Line) {
 	}{result1}
 }
 
-func (fake *FakeImpl) ListPods(arg1 *kubernetes.Clientset, arg2 string) (*v1.PodList, error) {
+func (fake *FakeImpl) ListPods(arg1 context.Context, arg2 kubernetes.Interface, arg3 string) (*v1.PodList, error) {
 	fake.listPodsMutex.Lock()
 	ret, specificReturn := fake.listPodsReturnsOnCall[len(fake.listPodsArgsForCall)]
 	fake.listPodsArgsForCall = append(fake.listPodsArgsForCall, struct {
-		arg1 *kubernetes.Clientset
-		arg2 string
-	}{arg1, arg2})
+		arg1 context.Context
+		arg2 kubernetes.Interface
+		arg3 string
+	}{arg1, arg2, arg3})
 	stub := fake.ListPodsStub
 	fakeReturns := fake.listPodsReturns
-	fake.recordInvocation("ListPods", []interface{}{arg1, arg2})
+	fake.recordInvocation("ListPods", []interface{}{arg1, arg2, arg3})
 	fake.listPodsMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -1008,17 +1086,17 @@ func (fake *FakeImpl) ListPodsCallCount() int {
 	return len(fake.listPodsArgsForCall)
 }
 
-func (fake *FakeImpl) ListPodsCalls(stub func(*kubernetes.Clientset, string) (*v1.PodList, error)) {
+func (fake *FakeImpl) ListPodsCalls(stub func(context.Context, kubernetes.Interface, string) (*v1.PodList, error)) {
 	fake.listPodsMutex.Lock()
 	defer fake.listPodsMutex.Unlock()
 	fake.ListPodsStub = stub
 }
 
-func (fake *FakeImpl) ListPodsArgsForCall(i int) (*kubernetes.Clientset, string) {
+func (fake *FakeImpl) ListPodsArgsForCall(i int) (context.Context, kubernetes.Interface, string) {
 	fake.listPodsMutex.RLock()
 	defer fake.listPodsMutex.RUnlock()
 	argsForCall := fake.listPodsArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
 func (fake *FakeImpl) ListPodsReturns(result1 *v1.PodList, result2 error) {
@@ -1636,6 +1714,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.getenvMutex.RUnlock()
 	fake.inClusterConfigMutex.RLock()
 	defer fake.inClusterConfigMutex.RUnlock()
+	fake.labelPodDenialsMutex.RLock()
+	defer fake.labelPodDenialsMutex.RUnlock()
 	fake.linesMutex.RLock()
 	defer fake.linesMutex.RUnlock()
 	fake.listPodsMutex.RLock()
