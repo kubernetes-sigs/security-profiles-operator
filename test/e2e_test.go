@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -172,10 +173,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 
 	// Deploy the namespace operator
 	e.kubectl("create", "namespace", testNamespace)
-	e.run(
-		"sed", "-i", fmt.Sprintf("s/NS_REPLACE/%s/", testNamespace),
-		namespaceManifest,
-	)
+	e.updateManifest(namespaceManifest, "NS_REPLACE", testNamespace)
 	// All following operations such as create pod will be in the test namespace
 	e.kubectl("config", "set-context", "--current", "--namespace", testNamespace)
 	e.deployOperator(namespaceManifest)
@@ -248,35 +246,25 @@ spec:
 	)
 }
 
+func (e *e2e) updateManifest(path, src, repl string) {
+	content, err := ioutil.ReadFile(path)
+	e.Nil(err)
+	re := regexp.MustCompile(src)
+	result := re.ReplaceAllString(string(content), repl)
+	err = ioutil.WriteFile(path, []byte(result), 0o600)
+	e.Nil(err)
+}
+
 func (e *e2e) deployOperator(manifest string) {
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
-	e.run(
-		"sed", "-i",
-		fmt.Sprintf("s;imagePullPolicy: Always;imagePullPolicy: %s;g", e.pullPolicy),
-		manifest,
-	)
-
-	// Update the image name to match the test image
-	e.run(
-		"sed", "-i", fmt.Sprintf("s;image: .*gcr.io/.*;image: %s;g", e.testImage),
-		manifest,
-	)
-	e.run(
-		"sed", "-i", fmt.Sprintf("s;value: .*gcr.io/.*;value: %s;g", e.testImage),
-		manifest,
-	)
-	e.run(
-		"sed", "-i", fmt.Sprintf("s;value: .*quay.io/.*/selinuxd.*;value: %s;g", e.selinuxdImage),
-		manifest,
-	)
-
+	e.updateManifest(manifest, "imagePullPolicy: Always", fmt.Sprintf("imagePullPolicy: %s", e.pullPolicy))
+	e.updateManifest(manifest, "image: .*gcr.io/.*", fmt.Sprintf("image: %s", e.testImage))
+	e.updateManifest(manifest, "value: .*gcr.io/.*", fmt.Sprintf("value: %s", e.testImage))
+	e.updateManifest(manifest, "value: .*quay.io/.*/selinuxd.*", fmt.Sprintf("value: %s", e.selinuxdImage))
 	if e.selinuxEnabled {
-		e.run(
-			"sed", "-i", "s/enableSelinux: false/enableSelinux: true/",
-			manifest,
-		)
+		e.updateManifest(manifest, "enableSelinux: false", "enableSelinux: true")
 	}
 
 	// Deploy the operator
