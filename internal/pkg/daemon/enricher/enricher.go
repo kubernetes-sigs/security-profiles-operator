@@ -32,6 +32,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/kubernetes"
 	rutil "sigs.k8s.io/release-utils/util"
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
@@ -61,24 +62,48 @@ type Enricher struct {
 	syscalls         sync.Map
 	avcs             sync.Map
 	auditLineCache   *ttlcache.Cache
+	clientset        kubernetes.Interface
+	labelDenials     bool
 }
 
 // New returns a new Enricher instance.
-func New(logger logr.Logger) *Enricher {
+func New(logger logr.Logger, labelDenials bool, impls ...impl) (*Enricher, error) {
+	var effectiveimpl impl
+	if len(impls) == 0 {
+		effectiveimpl = &defaultImpl{}
+	} else {
+		effectiveimpl = impls[0]
+	}
+	clusterConfig, err := effectiveimpl.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("get in-cluster config: %w", err)
+	}
+
+	clientset, err := effectiveimpl.NewForConfig(clusterConfig)
+	if err != nil {
+		return nil, fmt.Errorf("load in-cluster config: %w", err)
+	}
+
 	return &Enricher{
-		impl:             &defaultImpl{},
+		impl:             effectiveimpl,
 		logger:           logger,
 		containerIDCache: ttlcache.NewCache(),
 		infoCache:        ttlcache.NewCache(),
 		syscalls:         sync.Map{},
 		avcs:             sync.Map{},
 		auditLineCache:   ttlcache.NewCache(),
-	}
+		labelDenials:     labelDenials,
+		clientset:        clientset,
+	}, nil
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
 // Kubernetes data (namespace, pod and container).
 func (e *Enricher) Run() error {
+	if e.labelDenials {
+		e.logger.Info("Labeling problematic containers is enabled")
+	}
+
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
 	for _, cache := range []*ttlcache.Cache{
 		e.containerIDCache,

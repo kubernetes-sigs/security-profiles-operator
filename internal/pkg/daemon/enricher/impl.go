@@ -50,7 +50,8 @@ type impl interface {
 	ContainerIDForPID(cache *ttlcache.Cache, pid int) (string, error)
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(c *rest.Config) (*kubernetes.Clientset, error)
-	ListPods(c *kubernetes.Clientset, nodeName string) (*v1.PodList, error)
+	ListPods(ctx context.Context, c kubernetes.Interface, nodeName string) (*v1.PodList, error)
+	LabelPodDenials(ctx context.Context, c kubernetes.Interface, pod *v1.Pod) error
 	AuditInc(client api.MetricsClient) (api.Metrics_AuditIncClient, error)
 	SendMetric(client api.Metrics_AuditIncClient, in *api.AuditRequest) error
 	Listen(string, string) (net.Listener, error)
@@ -108,11 +109,26 @@ func (d *defaultImpl) NewForConfig(
 }
 
 func (d *defaultImpl) ListPods(
-	c *kubernetes.Clientset, nodeName string,
+	ctx context.Context, c kubernetes.Interface, nodeName string,
 ) (*v1.PodList, error) {
-	return c.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{
+	return c.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 		FieldSelector: "spec.nodeName=" + nodeName,
 	})
+}
+
+func (d *defaultImpl) LabelPodDenials(
+	ctx context.Context, c kubernetes.Interface, pod *v1.Pod,
+) error {
+	labels := pod.GetLabels()
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labels[problematicContainerLabelKey] = ""
+	pod.SetLabels(labels)
+	_, err := c.CoreV1().Pods(pod.GetNamespace()).Update(
+		ctx, pod, metav1.UpdateOptions{},
+	)
+	return err
 }
 
 func (d *defaultImpl) AuditInc(
