@@ -495,6 +495,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher]
 		ctr.Image = image
 
+		if cfg.Spec.LabelPodDenials {
+			ctr.Args = []string{"log-enricher", "--label-denials"}
+		}
+
 		if useCustomHostProc {
 			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
 		}

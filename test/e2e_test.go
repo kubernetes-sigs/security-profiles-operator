@@ -40,11 +40,12 @@ const (
 	// NOTE(jaosorior): We should be able to decrease this once we
 	// migrate to a single daemonset-based implementation for the
 	// SELinux pieces.
-	defaultSelinuxOpTimeout     = "360s"
-	defaultLogEnricherOpTimeout = defaultSelinuxOpTimeout
-	defaultBpfRecorderOpTimeout = defaultSelinuxOpTimeout
-	defaultWaitTimeout          = "180s"
-	defaultWaitTime             = 15 * time.Second
+	defaultSelinuxOpTimeout       = "360s"
+	defaultLogEnricherOpTimeout   = defaultSelinuxOpTimeout
+	defaultBpfRecorderOpTimeout   = defaultSelinuxOpTimeout
+	defaultLabelPodDenialsTimeout = defaultSelinuxOpTimeout
+	defaultWaitTimeout            = "180s"
+	defaultWaitTime               = 15 * time.Second
 )
 
 func (e *e2e) TestSecurityProfilesOperator() {
@@ -95,8 +96,8 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseLogEnricher,
 		},
 		{
-			"SELinux: sanity check",
-			e.testCaseSelinuxSanityCheck,
+			"SELinux: label problematic pod",
+			e.testCaseSelinuxLabelPodDenials,
 		},
 		{
 			"SELinux: base case (install policy, run pod and delete)",

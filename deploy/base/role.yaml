@@ -299,6 +299,8 @@ rules:
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
