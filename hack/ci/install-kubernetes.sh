@@ -19,7 +19,7 @@ ENVFILE=$(dirname "${BASH_SOURCE[0]}")/env-fedora.sh
 . "$ENVFILE"
 
 K8SPATH="$GOPATH/src/k8s.io"
-VERSION=v1.23.4
+VERSION=v1.23.5
 
 download-kubernetes() {
     export KUBERNETES_RELEASE=$VERSION
