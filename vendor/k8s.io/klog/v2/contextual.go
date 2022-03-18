@@ -46,10 +46,6 @@ var (
 	// globalLogger.
 	globalLoggerOptions loggerOptions
 
-	// contextualLogger defines whether globalLogger may get called
-	// directly.
-	contextualLogger bool
-
 	// klogLogger is used as fallback for logging through the normal klog code
 	// when no Logger is set.
 	klogLogger logr.Logger = logr.New(&klogger{})
@@ -135,15 +131,6 @@ type LoggerOption func(o *loggerOptions)
 type loggerOptions struct {
 	contextualLogger bool
 	flush            func()
-}
-
-// SetContextualLogger does the same as SetLogger, but in addition the
-// logger may also get called directly by code that retrieves it
-// with FromContext, TODO or Background. The logger therefore must
-// implements its own verbosity checking.
-func SetContextualLogger(logger logr.Logger) {
-	globalLogger = &logger
-	contextualLogger = true
 }
 
 // ClearLogger removes a backing Logger implementation if one was set earlier
