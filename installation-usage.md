@@ -1,11 +1,11 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
 - [Set logging verbosity](#set-logging-verbosity)
+- [Configure the SELinux type](#configure-the-selinux-type)
 - [Create Profile](#create-profile)
   - [Apply profile to pod](#apply-profile-to-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
