@@ -1,0 +1,12 @@
+# This is a deployment, which does not configure the SElLinux option
+# in the security context of SPOd's containers. This is useful for Linux
+# distributions which don't enforce SELinux by default, and to not provide
+# the "spc_t" SELinux type.
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+bases:
+  - ../cluster
+
+patchesStrategicMerge:
+  - deployment.yaml

@@ -45,6 +45,7 @@ type daemonTunables struct {
 	selinuxdImage    string
 	logEnricherImage string
 	watchNamespace   string
+	disableSelinux   bool
 }
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -100,6 +101,11 @@ func getTunables() (*daemonTunables, error) {
 		return dt, errors.New("invalid selinuxd image")
 	}
 	dt.selinuxdImage = selinuxdImage
+
+	disableSelinux := os.Getenv(config.SPOdSelinuxDisableEnvKey)
+	if disableSelinux == "true" || disableSelinux == "1" {
+		dt.disableSelinux = true
+	}
 	return dt, nil
 }
 
@@ -123,6 +129,17 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well
+
+	// Disable SELinux from security context of all containers part of
+	// SPOd deployment when was configured to do so
+	if dt.disableSelinux {
+		for i := range refSPOd.Spec.Template.Spec.InitContainers {
+			refSPOd.Spec.Template.Spec.InitContainers[i].SecurityContext.SELinuxOptions = nil
+		}
+		for i := range refSPOd.Spec.Template.Spec.Containers {
+			refSPOd.Spec.Template.Spec.Containers[i].SecurityContext.SELinuxOptions = nil
+		}
+	}
 	return refSPOd
 }
 

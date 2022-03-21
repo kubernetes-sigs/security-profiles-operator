@@ -81,6 +81,10 @@ const (
 	// DefaultProfilingPort is the start port where the profiling endpoint runs.
 	DefaultProfilingPort = 6060
 
+	// SPOdSelinuxDisableEnvKey is the environment variable key for disabling
+	// the SELinux option form security context of SPODd deployment.
+	SPOdSelinuxDisableEnvKey = "SPOD_SELINUX_DISABLE"
+
 	// SeccompProfileRecordHookAnnotationKey is the annotation on a Pod that
 	// triggers the oci-seccomp-bpf-hook to trace the syscalls of a Pod and
 	// created a seccomp profile.
