@@ -80,6 +80,33 @@ The daemon should now indicate that it's using the new logging verbosity:
 I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 ```
 
+## Configure the SELinux type
+
+The operator uses by default the `spc_t` SELinux type in the security context of the daemon pod. This can be easily 
+changed to a different SELinux type by patching the spod config as follows:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"selinuxTypeTag":"unconfined_t"}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
+The `ds/spod` should now be updated by the manager with the new SELinux type, and all daemon pods recreated:
+
+```
+ kubectl get ds spod -o yaml | grep unconfined_t -B2
+          runAsUser: 65535
+          seLinuxOptions:
+            type: unconfined_t
+--
+          runAsUser: 0
+          seLinuxOptions:
+            type: unconfined_t
+--
+          runAsUser: 0
+          seLinuxOptions:
+            type: unconfined_t
+```
+
 ## Create Profile
 
 Use the `SeccompProfile` kind to create profiles. Example:
