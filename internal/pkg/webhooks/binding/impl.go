@@ -77,7 +77,7 @@ func (d *defaultImpl) SetDecoder(decoder *admission.Decoder) {
 	d.decoder = decoder
 }
 
-// nolint: gocritic
+// nolint:gocritic
 func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
 	pod := &corev1.Pod{}
 	err := d.decoder.Decode(req, pod)

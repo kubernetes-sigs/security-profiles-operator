@@ -18,7 +18,6 @@ package seccompprofile
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"path"
 	"sort"
@@ -132,7 +131,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("Test does not work as root user")
 	}
-	dir, err := ioutil.TempDir("", config.OperatorName)
+	dir, err := os.MkdirTemp("", config.OperatorName)
 	if err != nil {
 		t.Error(errors.Wrap(err, "error creating temp file for tests"))
 	}
@@ -188,13 +187,15 @@ func TestSaveProfileOnDisk(t *testing.T) {
 			}
 
 			_, gotErr := saveProfileOnDisk(tc.fileName, []byte(tc.contents))
-			file, _ := os.Stat(tc.fileName) // nolint: errcheck
+			file, statErr := os.Stat(tc.fileName)
 			gotFileCreated := file != nil
 
 			if tc.wantErr == "" {
 				require.NoError(t, gotErr)
+				require.NoError(t, statErr)
 			} else {
 				require.Equal(t, tc.wantErr, gotErr.Error())
+				require.Error(t, statErr)
 			}
 			require.Equal(t, tc.fileCreated, gotFileCreated, "was file created?")
 		})

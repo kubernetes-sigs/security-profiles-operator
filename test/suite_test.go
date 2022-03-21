@@ -40,8 +40,8 @@ import (
 const (
 	kindVersion      = "v0.12.0"
 	kindImage        = "kindest/node:v1.23.4@sha256:0e34f0d0fd448aa2f2819cfd74e99fe5793a6e4938b328f657c8e3f81ee0dfb9"
-	kindDarwinSHA512 = "7aaeee7543e13c9919d9a14d62c275ac5d9f5abf15243490a83cf99eae7d30aef1682105a8f3f02641621617515c908136d4ae6c82ef06a84479d6468559fce7" // nolint: lll
-	kindLinuxSHA512  = "0d64b9bebbe23c8b9e0b8852c5f57b73b09989145b1e9d7913c524f9ab5feeb0f55d491e35e784fef282aa8496af4c12001dbd61a1d91144332ddbad0be6857c" // nolint: lll
+	kindDarwinSHA512 = "7aaeee7543e13c9919d9a14d62c275ac5d9f5abf15243490a83cf99eae7d30aef1682105a8f3f02641621617515c908136d4ae6c82ef06a84479d6468559fce7" // nolint:lll // full length SHA
+	kindLinuxSHA512  = "0d64b9bebbe23c8b9e0b8852c5f57b73b09989145b1e9d7913c524f9ab5feeb0f55d491e35e784fef282aa8496af4c12001dbd61a1d91144332ddbad0be6857c" // nolint:lll // full length SHA
 )
 
 var (
@@ -102,7 +102,7 @@ type vanilla struct {
 // We're unable to use parallel tests because of our usage of testify/suite.
 // See https://github.com/stretchr/testify/issues/187
 //
-// nolint:paralleltest
+// nolint:paralleltest // should not run in parallel
 func TestSuite(t *testing.T) {
 	fmt.Printf("cluster-type: %s\n", clusterType)
 	fmt.Printf("container-runtime: %s\n", containerRuntime)
@@ -235,7 +235,7 @@ func (e *kinde2e) SetupTest() {
 	e.logf("Deploying the cluster")
 	e.clusterName = fmt.Sprintf("spo-e2e-%d", time.Now().Unix())
 
-	cmd := exec.Command( // nolint: gosec
+	cmd := exec.Command( // nolint:gosec // fine in tests
 		e.kindPath, "create", "cluster",
 		"--name="+e.clusterName,
 		"--image="+kindImage,
@@ -499,7 +499,7 @@ func (e *e2e) getSpodMetrics() string {
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
 	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))] // nolint: gosec
+		b[i] = letters[rand.Intn(len(letters))] // nolint:gosec // fine in tests
 	}
 	// Sometimes the metrics command does not output anything in CI. We fix
 	// that by retrying the metrics retrieval several times.

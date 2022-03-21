@@ -43,7 +43,7 @@ type SeccompProfileSpec struct {
 	// Properties from containers/common/pkg/seccomp.Seccomp type
 
 	// the default action for seccomp
-	//nolint:lll
+	//nolint:lll // required for kubebuilder
 	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
 	DefaultAction seccomp.Action `json:"defaultAction"`
 	// the architecture used for system calls
@@ -64,7 +64,7 @@ type SeccompProfileSpec struct {
 	Flags []*Flag `json:"flags,omitempty"`
 }
 
-//nolint:lll
+//nolint:lll // required for kubebuilder
 // +kubebuilder:validation:Enum=SCMP_ARCH_NATIVE;SCMP_ARCH_X86;SCMP_ARCH_X86_64;SCMP_ARCH_X32;SCMP_ARCH_ARM;SCMP_ARCH_AARCH64;SCMP_ARCH_MIPS;SCMP_ARCH_MIPS64;SCMP_ARCH_MIPS64N32;SCMP_ARCH_MIPSEL;SCMP_ARCH_MIPSEL64;SCMP_ARCH_MIPSEL64N32;SCMP_ARCH_PPC;SCMP_ARCH_PPC64;SCMP_ARCH_PPC64LE;SCMP_ARCH_S390;SCMP_ARCH_S390X;SCMP_ARCH_PARISC;SCMP_ARCH_PARISC64;SCMP_ARCH_RISCV64
 type Arch string
 
@@ -76,7 +76,7 @@ type Syscall struct {
 	// the names of the syscalls
 	Names []string `json:"names"`
 	// the action for seccomp rules
-	//nolint:lll
+	//nolint:lll // required for kubebuilder
 	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
 	Action seccomp.Action `json:"action"`
 	// the errno return code to use. Some actions like SCMP_ACT_ERRNO and
@@ -99,7 +99,7 @@ type Arg struct {
 	// +kubebuilder:validation:Minimum=0
 	ValueTwo uint64 `json:"valueTwo,omitempty"`
 	// the operator for syscall arguments in seccomp
-	//nolint:lll
+	//nolint:lll // required for kubebuilder
 	// +kubebuilder:validation:Enum=SCMP_CMP_NE;SCMP_CMP_LT;SCMP_CMP_LE;SCMP_CMP_EQ;SCMP_CMP_GE;SCMP_CMP_GT;SCMP_CMP_MASKED_EQ
 	Op seccomp.Operator `json:"op"`
 }
@@ -165,6 +165,6 @@ type SeccompProfileList struct {
 	Items           []SeccompProfile `json:"items"`
 }
 
-func init() { //nolint:gochecknoinits
+func init() { // nolint:gochecknoinits // required to init scheme
 	SchemeBuilder.Register(&SeccompProfile{}, &SeccompProfileList{})
 }

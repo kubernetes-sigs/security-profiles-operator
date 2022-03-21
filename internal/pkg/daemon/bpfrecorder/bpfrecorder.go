@@ -110,7 +110,7 @@ func (b *BpfRecorder) Run() error {
 			return errors.Wrap(err, "set cache timeout")
 		}
 		cache.SetCacheSizeLimit(maxCacheItems)
-		defer cache.Close()
+		defer cache.Close() // nolint:gocritic // this is intentional
 	}
 
 	b.nodeName = b.Getenv(config.NodeNameEnvKey)
@@ -159,7 +159,11 @@ func (b *BpfRecorder) Run() error {
 		defer cancel()
 	}
 	if conn != nil {
-		defer b.CloseGRPC(conn) // nolint: errcheck
+		defer func() {
+			if err := b.CloseGRPC(conn); err != nil {
+				b.logger.Error(err, "unable to close GRPC connection")
+			}
+		}()
 	}
 
 	b.systemMountNamespace, err = b.findSystemMountNamespace()

@@ -23,7 +23,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"sync"
 	"syscall"
 	"testing"
@@ -298,7 +298,7 @@ func TestRun(t *testing.T) {
 					copy(res.Release[:], release)
 					return nil
 				})
-				mock.TempFileCalls(ioutil.TempFile)
+				mock.TempFileCalls(os.CreateTemp)
 			},
 			assert: func(err error) {
 				require.NotNil(t, err)

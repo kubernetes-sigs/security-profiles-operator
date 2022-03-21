@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
@@ -140,7 +139,7 @@ func (r *Reconciler) checkSeccomp() error {
 }
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
-// nolint:lll
+// nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=delete;get;update;patch
@@ -151,7 +150,7 @@ func (r *Reconciler) checkSeccomp() error {
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch
 
 // OpenShift ... This is ignored in other distros
-// nolint:lll
+// nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 
 // Reconcile reconciles a SeccompProfile.
@@ -398,12 +397,12 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 		return false, errors.Wrap(err, errCreatingOperatorDir)
 	}
 
-	existingContent, err := ioutil.ReadFile(fileName)
+	existingContent, err := os.ReadFile(fileName)
 	if err == nil && bytes.Equal(existingContent, content) {
 		return false, nil
 	}
 
-	if err := ioutil.WriteFile(fileName, content, filePermissionMode); err != nil {
+	if err := os.WriteFile(fileName, content, filePermissionMode); err != nil {
 		return false, errors.Wrap(err, errSavingProfile)
 	}
 

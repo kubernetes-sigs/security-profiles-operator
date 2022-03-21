@@ -19,7 +19,6 @@ package e2e_test
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
@@ -226,9 +225,9 @@ spec:
     name: test-selfsigned
 `
 
-	file, err := ioutil.TempFile(os.TempDir(), "test-resource*.yaml")
+	file, err := os.CreateTemp("", "test-resource*.yaml")
 	e.Nil(err)
-	_, err = file.Write([]byte(certManifest))
+	_, err = file.WriteString(certManifest)
 	e.Nil(err)
 	defer os.Remove(file.Name())
 	for i := 0; i < tries; i++ {
@@ -247,11 +246,11 @@ spec:
 }
 
 func (e *e2e) updateManifest(path, src, repl string) {
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	e.Nil(err)
 	re := regexp.MustCompile(src)
 	result := re.ReplaceAllString(string(content), repl)
-	err = ioutil.WriteFile(path, []byte(result), 0o600)
+	err = os.WriteFile(path, []byte(result), 0o600)
 	e.Nil(err)
 }
 
@@ -355,10 +354,10 @@ func (e *e2e) getCurrentContextNamespace(alt string) string {
 }
 
 func (e *e2e) writeAndCreate(manifest, filePattern string) func() {
-	file, err := ioutil.TempFile(os.TempDir(), filePattern)
+	file, err := os.CreateTemp("", filePattern)
 	fileName := file.Name()
 	e.Nil(err)
-	_, err = file.Write([]byte(manifest))
+	_, err = file.WriteString(manifest)
 	e.Nil(err)
 	err = file.Close()
 	e.Nil(err)

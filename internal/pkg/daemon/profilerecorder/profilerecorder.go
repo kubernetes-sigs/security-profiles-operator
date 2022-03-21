@@ -105,7 +105,7 @@ func (r *RecorderReconciler) SchemeBuilder() *scheme.Builder {
 	return profilerecording1alpha1.SchemeBuilder
 }
 
-// nolint: lll
+// nolint:lll // required for kubebuilder
 //
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
@@ -252,7 +252,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 
 		var profiles []profileToCollect
 		var recorder profilerecording1alpha1.ProfileRecorder
-		if len(hookProfiles) > 0 { // nolint: gocritic
+		if len(hookProfiles) > 0 { // nolint:gocritic
 			profiles = hookProfiles
 			recorder = profilerecording1alpha1.ProfileRecorderHook
 		} else if len(logProfiles) > 0 {
@@ -769,7 +769,7 @@ func parseLogAnnotations(annotations map[string]string) (res []profileToCollect,
 	for key, profile := range annotations {
 		var collectProfile profileToCollect
 
-		// nolint: gocritic
+		// nolint:gocritic
 		if strings.HasPrefix(key, config.SeccompProfileRecordLogsAnnotationKey) {
 			collectProfile.kind = profilerecording1alpha1.ProfileRecordingKindSeccompProfile
 		} else if strings.HasPrefix(key, config.SelinuxProfileRecordLogsAnnotationKey) {
