@@ -18,7 +18,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"time"
@@ -144,9 +143,9 @@ spec:
       - name: nginx
         image: quay.io/security-profiles-operator/test-nginx:1.19.1
 `
-	testFile, err := ioutil.TempFile(os.TempDir(), "recording-deployment*.yaml")
+	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
 	e.Nil(err)
-	_, err = testFile.Write([]byte(testDeployment))
+	_, err = testFile.WriteString(testDeployment)
 	e.Nil(err)
 	err = testFile.Close()
 	e.Nil(err)
@@ -231,9 +230,9 @@ spec:
   restartPolicy: Never
 `, podName, i, image)
 
-		testPodFile, err := ioutil.TempFile(os.TempDir(), "recording-pod*.yaml")
+		testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
 		e.Nil(err)
-		_, err = testPodFile.Write([]byte(testPod))
+		_, err = testPodFile.WriteString(testPod)
 		e.Nil(err)
 		err = testPodFile.Close()
 		e.Nil(err)

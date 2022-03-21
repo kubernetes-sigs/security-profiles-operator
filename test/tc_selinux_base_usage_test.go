@@ -61,7 +61,7 @@ spec:
         - open
 `
 
-	// nolint:lll
+	// nolint:lll // full yaml
 	podWithPolicyFmt = `
 apiVersion: v1
 kind: Pod

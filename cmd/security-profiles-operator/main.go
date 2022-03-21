@@ -21,7 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	_ "net/http/pprof" // nolint: gosec
+	_ "net/http/pprof" // nolint:gosec // required for profiling
 	"os"
 	"strings"
 	"time"

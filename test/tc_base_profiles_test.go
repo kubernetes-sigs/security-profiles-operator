@@ -18,7 +18,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 	"time"
@@ -70,10 +69,10 @@ spec:
 	defer e.kubectl("delete", "-f", baseProfilePath)
 
 	e.logf("Creating hello profile")
-	helloProfileFile, err := ioutil.TempFile(os.TempDir(), "hello-profile*.yaml")
+	helloProfileFile, err := os.CreateTemp("", "hello-profile*.yaml")
 	e.Nil(err)
 	defer os.Remove(helloProfileFile.Name())
-	_, err = helloProfileFile.Write([]byte(helloProfile))
+	_, err = helloProfileFile.WriteString(helloProfile)
 	e.Nil(err)
 	err = helloProfileFile.Close()
 	e.Nil(err)
@@ -84,12 +83,12 @@ spec:
 	e.waitFor("condition=ready", "sp", "hello")
 
 	e.logf("Creating hello-world pod")
-	helloPodFile, err := ioutil.TempFile(os.TempDir(), "hello-pod*.yaml")
+	helloPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
 	e.Nil(err)
 	defer os.Remove(helloPodFile.Name())
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	_, err = helloPodFile.Write([]byte(fmt.Sprintf(helloPod, namespace)))
+	_, err = helloPodFile.WriteString(fmt.Sprintf(helloPod, namespace))
 	e.Nil(err)
 	err = helloPodFile.Close()
 	e.Nil(err)

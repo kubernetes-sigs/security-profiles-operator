@@ -94,7 +94,7 @@ func (r *Reconciler) Healthz(*http.Request) error {
 }
 
 // Security Profiles Operator RBAC permissions to manage AppArmorProfile
-// nolint:lll
+// nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=delete;get;update;patch
@@ -105,7 +105,7 @@ func (r *Reconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch
 
 // OpenShift ... This is ignored in other distros
-// nolint:lll
+// nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 
 // Reconcile reconciles a AppArmorProfile.

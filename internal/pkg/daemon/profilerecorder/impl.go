@@ -18,7 +18,7 @@ package profilerecorder
 
 import (
 	"context"
-	"io/ioutil"
+	"os"
 
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
@@ -174,7 +174,7 @@ func (*defaultImpl) GoArchToSeccompArch(goArch string) (seccomp.Arch, error) {
 }
 
 func (*defaultImpl) ReadFile(filename string) ([]byte, error) {
-	return ioutil.ReadFile(filename)
+	return os.ReadFile(filename)
 }
 
 func (*defaultImpl) Syscalls(

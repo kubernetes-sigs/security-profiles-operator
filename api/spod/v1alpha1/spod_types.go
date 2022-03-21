@@ -142,6 +142,6 @@ func (s *SPODStatus) StateRunning() {
 	s.ConditionedStatus.SetConditions(rcommonv1.Available())
 }
 
-func init() { //nolint:gochecknoinits
+func init() { // nolint:gochecknoinits // required to init the scheme
 	SchemeBuilder.Register(&SecurityProfilesOperatorDaemon{}, &SecurityProfilesOperatorDaemonList{})
 }

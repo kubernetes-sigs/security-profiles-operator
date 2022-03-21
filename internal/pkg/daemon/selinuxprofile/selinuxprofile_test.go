@@ -33,11 +33,11 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
-// nolint:gocognit
+// nolint:gocognit // complexity is fine for a test
 func Test_selinuxProfileHandler(t *testing.T) {
 	t.Parallel()
 	ns := "security-profiles-operator"
-	// nolint:tenv
+	// nolint:tenv // we want to set the env here
 	os.Setenv("OPERATOR_NAMESPACE", ns)
 	schemeInstance := scheme.Scheme
 	if err := spodv1alpha1.AddToScheme(schemeInstance); err != nil {
