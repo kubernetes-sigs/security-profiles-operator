@@ -622,6 +622,7 @@ spec:
                     type: array
                 type: object
               selinuxTypeTag:
+                default: spc_t
                 description: If specified, the SELinux type tag applied to the security
                   context of SPOD.
                 type: string
