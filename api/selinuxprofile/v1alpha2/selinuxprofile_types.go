@@ -125,6 +125,6 @@ type SelinuxProfileList struct {
 	Items           []SelinuxProfile `json:"items"`
 }
 
-func init() { //nolint:gochecknoinits
+func init() { // nolint:gochecknoinits // required to init scheme
 	SchemeBuilder.Register(&SelinuxProfile{}, &SelinuxProfileList{})
 }

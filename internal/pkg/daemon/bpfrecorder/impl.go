@@ -22,7 +22,6 @@ package bpfrecorder
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"net"
 	"os"
 	"runtime"
@@ -155,7 +154,7 @@ func (d *defaultImpl) Uname(buf *syscall.Utsname) error {
 }
 
 func (d *defaultImpl) TempFile(dir, pattern string) (*os.File, error) {
-	return ioutil.TempFile(dir, pattern)
+	return os.CreateTemp(dir, pattern)
 }
 
 func (d *defaultImpl) Write(file *os.File, b []byte) (n int, err error) {

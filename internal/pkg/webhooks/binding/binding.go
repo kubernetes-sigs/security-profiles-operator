@@ -87,7 +87,7 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 }
 
 // Security Profiles Operator Webhook RBAC permissions
-// nolint:lll
+// nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/finalizers,verbs=delete;get;update;patch
@@ -95,12 +95,12 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Leader election
-// nolint:lll
+// nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update;
 
-// nolint: gocritic
+// nolint:gocritic
 func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) admission.Response {
 	profileBindings, err := p.ListProfileBindings(ctx, client.InNamespace(req.Namespace))
 	if err != nil {
@@ -189,8 +189,7 @@ func (p *podSeccompBinder) getSeccompProfile(
 		}, func(inErr error) bool {
 			return errors.Is(inErr, ErrProfWithoutStatus) || kerrors.IsNotFound(inErr)
 		})
-	// nolint:wrapcheck
-	// error is already wrapped
+	// nolint:wrapcheck // already wrapped
 	return seccompProfile, err
 }
 

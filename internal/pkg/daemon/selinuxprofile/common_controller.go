@@ -21,7 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -136,7 +136,7 @@ func (r *ReconcileSelinux) Healthz(*http.Request) error {
 	return nil
 }
 
-// nolint:lll
+// nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=delete;get;update;patch
@@ -449,7 +449,7 @@ func selinuxdGetRequest(url string) (*http.Response, error) {
 		},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create a request to selinuxd")
 	}
@@ -468,13 +468,13 @@ func writeFileIfDiffers(filePath string, contents []byte) error {
 	file, err := os.OpenFile(filePath, os.O_RDONLY, filePermissions)
 	if os.IsNotExist(err) {
 		file.Close()
-		return ioutil.WriteFile(filePath, contents, filePermissions)
+		return os.WriteFile(filePath, contents, filePermissions)
 	} else if err != nil {
 		return errors.Wrap(err, "could not open for reading"+filePath)
 	}
 	defer file.Close()
 
-	existing, err := ioutil.ReadAll(file)
+	existing, err := io.ReadAll(file)
 	if err != nil {
 		return errors.Wrap(err, "reading file "+filePath)
 	}
@@ -483,5 +483,5 @@ func writeFileIfDiffers(filePath string, contents []byte) error {
 		return nil
 	}
 
-	return ioutil.WriteFile(filePath, contents, filePermissions)
+	return os.WriteFile(filePath, contents, filePermissions)
 }

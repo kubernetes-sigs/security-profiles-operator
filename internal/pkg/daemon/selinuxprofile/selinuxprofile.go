@@ -222,5 +222,6 @@ func newSelinuxProfileHandler(
 		objInherits:    make([]selxv1alpha2.SelinuxProfileObject, 0),
 	}
 
-	return oh, oh.Init(ctx, cli, key)
+	err := oh.Init(ctx, cli, key)
+	return oh, err
 }

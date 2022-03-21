@@ -183,6 +183,6 @@ type ProfileRecordingList struct {
 	Items           []ProfileRecording `json:"items"`
 }
 
-func init() { //nolint:gochecknoinits
+func init() { // nolint:gochecknoinits // required to init the scheme
 	SchemeBuilder.Register(&ProfileRecording{}, &ProfileRecordingList{})
 }

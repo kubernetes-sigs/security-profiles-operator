@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,8 +82,9 @@ func run() error {
 		return errors.Wrap(err, "generate btf")
 	}
 
-	// nolint: gosec, gomnd
-	if err := ioutil.WriteFile(
+	// nolint:gosec // permissions are fine
+	if err := os.WriteFile(
+		// nolint:gomnd // filemode is fine
 		generatedGo, []byte(builder.String()), 0o644,
 	); err != nil {
 		return errors.Wrap(err, "writing generated object")
@@ -102,7 +102,7 @@ func generateBpfObj(builder *strings.Builder) error {
 	for _, arch := range []string{"amd64", "arm64"} {
 		builder.WriteString(fmt.Sprintf("%q: {\n", arch))
 
-		file, err := ioutil.ReadFile(filepath.Join(buildDir, bpfObj+"."+arch))
+		file, err := os.ReadFile(filepath.Join(buildDir, bpfObj+"."+arch))
 		if err != nil {
 			return errors.Wrap(err, "read bpf object path")
 		}
@@ -152,7 +152,7 @@ func generateBtf(builder *strings.Builder) error {
 			return errors.Errorf("invalid btf path: %s (len = %d)", path, len(pathSplit))
 		}
 
-		btfBytes, err := ioutil.ReadFile(path)
+		btfBytes, err := os.ReadFile(path)
 		if err != nil {
 			return errors.Wrap(err, "read btf file")
 		}
@@ -168,15 +168,15 @@ func generateBtf(builder *strings.Builder) error {
 		}
 		if _, ok := btfs[os][osVersion]; !ok {
 			btfs[os][osVersion] = map[types.Arch]map[types.Kernel][]byte{}
-			fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 2), osVersion) // nolint: gomnd
+			fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 2), osVersion) // nolint:gomnd // indent
 		}
 		if _, ok := btfs[os][osVersion][arch]; !ok {
 			btfs[os][osVersion][arch] = map[types.Kernel][]byte{}
-			fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 4), arch) // nolint: gomnd
+			fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 4), arch) // nolint:gomnd // indent
 		}
 
 		btfs[os][osVersion][arch][kernel] = btfBytes
-		fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 6), kernel) // nolint: gomnd
+		fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 6), kernel) // nolint:gomnd // indent
 		kernels++
 
 		return nil
@@ -192,7 +192,7 @@ func generateBtf(builder *strings.Builder) error {
 
 	fmt.Fprintf(docs, "\nSum: %d\n", kernels)
 	if err := os.WriteFile(
-		docsFile, docs.Bytes(), fs.FileMode(0o644), // nolint: gomnd
+		docsFile, docs.Bytes(), fs.FileMode(0o644), // nolint:gomnd // filemode is fine
 	); err != nil {
 		return errors.Wrap(err, "write docs file")
 	}

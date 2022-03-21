@@ -85,7 +85,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 }
 
 // Security Profiles Operator RBAC permissions to manage its own configuration
-// nolint:lll
+// nolint:lll // required for kubebuilder
 //
 // Used for leader election:
 // +kubebuilder:rbac:groups=core,resources=configmaps;events,verbs=get;list;watch;create;update;patch
@@ -326,7 +326,7 @@ func (r *ReconcileSPOd) handleCreate(
 	if err := r.client.Create(
 		ctx, bindata.ServiceMonitor(),
 	); err != nil {
-		// nolint: gocritic
+		// nolint:gocritic
 		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
 		} else if kerrors.IsAlreadyExists(err) {

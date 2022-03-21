@@ -18,7 +18,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 )
@@ -55,10 +54,10 @@ spec:
 	defer e.kubectl("delete", "-f", exampleProfilePath)
 
 	e.logf("Creating test profile binding")
-	testBindingFile, err := ioutil.TempFile(os.TempDir(), "hello-binding*.yaml")
+	testBindingFile, err := os.CreateTemp("", "hello-binding*.yaml")
 	e.Nil(err)
 	defer os.Remove(testBindingFile.Name())
-	_, err = testBindingFile.Write([]byte(testBinding))
+	_, err = testBindingFile.WriteString(testBinding)
 	e.Nil(err)
 	err = testBindingFile.Close()
 	e.Nil(err)
@@ -66,11 +65,11 @@ spec:
 	defer e.kubectl("delete", "-f", testBindingFile.Name())
 
 	e.logf("Creating test pod")
-	testPodFile, err := ioutil.TempFile(os.TempDir(), "hello-pod*.yaml")
+	testPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
 	e.Nil(err)
 	defer os.Remove(testPodFile.Name())
 
-	_, err = testPodFile.Write([]byte(testPod))
+	_, err = testPodFile.WriteString(testPod)
 	e.Nil(err)
 	err = testPodFile.Close()
 	e.Nil(err)

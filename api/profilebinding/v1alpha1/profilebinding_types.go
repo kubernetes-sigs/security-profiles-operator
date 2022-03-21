@@ -69,6 +69,6 @@ type ProfileBindingList struct {
 	Items           []ProfileBinding `json:"items"`
 }
 
-func init() { //nolint:gochecknoinits
+func init() { // nolint:gochecknoinits // required to register the scheme
 	SchemeBuilder.Register(&ProfileBinding{}, &ProfileBindingList{})
 }

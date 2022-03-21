@@ -89,7 +89,7 @@ func (e *Enricher) Run() error {
 			return errors.Wrap(err, "set cache timeout")
 		}
 		cache.SetCacheSizeLimit(maxCacheItems)
-		defer cache.Close()
+		defer cache.Close() // nolint:gocritic // this is intentional
 	}
 
 	// For the audit line cache we don't want to increase the TTL on Gets
