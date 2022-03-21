@@ -621,6 +621,10 @@ spec:
                       type: string
                     type: array
                 type: object
+              selinuxTypeTag:
+                description: If specified, the SELinux type tag applied to the security
+                  context of SPOD.
+                type: string
               tolerations:
                 description: If specified, the SPOD's tolerations.
                 items:
