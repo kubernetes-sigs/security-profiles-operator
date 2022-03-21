@@ -45,6 +45,7 @@ type SPODSpec struct {
 	EnableSelinux *bool `json:"enableSelinux,omitempty"`
 	// If specified, the SELinux type tag applied to the security context of SPOD.
 	// +optional
+	// +kubebuilder:default="spc_t"
 	SelinuxTypeTag string `json:"selinuxTypeTag,omitempty"`
 	// tells the operator whether or not to enable log enrichment support for this
 	// SPOD instance.
