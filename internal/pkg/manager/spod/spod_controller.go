@@ -550,6 +550,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 		// Set the logging verbosity
 		templateSpec.InitContainers[i].Env = append(templateSpec.InitContainers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
+
+		// Update the SELinux type tag when is defined in the configuration
+		if cfg.Spec.SelinuxTypeTag != "" {
+			templateSpec.InitContainers[i].SecurityContext.SELinuxOptions.Type = cfg.Spec.SelinuxTypeTag
+		}
 	}
 
 	for i := range templateSpec.Containers {
@@ -566,6 +571,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// Enable profiling if requested
 		if cfg.Spec.EnableProfiling {
 			enableContainerProfiling(templateSpec, i)
+		}
+		// Update the SELinux type tag when is defined in the configuration
+		if cfg.Spec.SelinuxTypeTag != "" {
+			templateSpec.Containers[i].SecurityContext.SELinuxOptions.Type = cfg.Spec.SelinuxTypeTag
 		}
 	}
 
