@@ -69,7 +69,7 @@ func extractSeccompLine(logLine string) *auditLine {
 	}
 
 	line := auditLine{}
-	line.type_ = auditTypeSeccomp
+	line.auditType = auditTypeSeccomp
 	line.timestampID = captures[2]
 	line.executable = captures[4]
 	if v, err := strconv.Atoi(captures[3]); err == nil {
@@ -94,7 +94,7 @@ func extractSelinuxLine(logLine string) *auditLine {
 	}
 
 	line := auditLine{}
-	line.type_ = auditTypeSelinux
+	line.auditType = auditTypeSelinux
 	line.timestampID = captures[1]
 	line.perm = captures[2]
 	if v, err := strconv.Atoi(captures[3]); err == nil {

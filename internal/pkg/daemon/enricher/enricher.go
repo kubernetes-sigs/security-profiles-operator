@@ -364,13 +364,13 @@ func (e *Enricher) dispatchAuditLine(
 	auditLine *auditLine,
 	info *containerInfo,
 ) error {
-	switch auditLine.type_ {
+	switch auditLine.auditType {
 	case auditTypeSelinux:
 		e.dispatchSelinuxLine(metricsClient, nodeName, auditLine, info)
 	case auditTypeSeccomp:
 		e.dispatchSeccompLine(metricsClient, nodeName, auditLine, info)
 	default:
-		return errors.Errorf("unknown audit line type %s", auditLine.type_)
+		return errors.Errorf("unknown audit line type %s", auditLine.auditType)
 	}
 
 	return nil
@@ -384,7 +384,7 @@ func (e *Enricher) dispatchSelinuxLine(
 ) {
 	e.logger.Info("audit",
 		"timestamp", auditLine.timestampID,
-		"type", auditLine.type_,
+		"type", auditLine.auditType,
 		"profile", info.recordProfile,
 		"node", nodeName,
 		"namespace", info.namespace,
@@ -434,7 +434,7 @@ func (e *Enricher) dispatchSeccompLine(
 
 	e.logger.Info("audit",
 		"timestamp", auditLine.timestampID,
-		"type", auditLine.type_,
+		"type", auditLine.auditType,
 		"node", nodeName,
 		"namespace", info.namespace,
 		"pod", info.podName,

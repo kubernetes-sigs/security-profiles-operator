@@ -210,11 +210,11 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 		if kerrors.IsNotFound(err) {
 			err = r.collectProfile(ctx, req.NamespacedName)
 			return reconcile.Result{}, errors.Wrap(err, "collect profile for removed pod")
-		} else {
-			// Returning an error means we will be requeued implicitly.
-			logger.Error(err, "Error reading pod")
-			return reconcile.Result{}, errors.Wrap(err, "cannot get pod")
 		}
+
+		// Returning an error means we will be requeued implicitly.
+		logger.Error(err, "Error reading pod")
+		return reconcile.Result{}, errors.Wrap(err, "cannot get pod")
 	}
 
 	if pod.Status.Phase == corev1.PodPending {
@@ -322,7 +322,7 @@ func (r *RecorderReconciler) startBpfRecorder() error {
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 	r.log.Info("Starting BPF recorder on node")
-	return r.StartBpfRecorder(recorderClient, ctx)
+	return r.StartBpfRecorder(ctx, recorderClient)
 }
 
 func (r *RecorderReconciler) stopBpfRecorder() error {
@@ -335,7 +335,7 @@ func (r *RecorderReconciler) stopBpfRecorder() error {
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 	r.log.Info("Stopping BPF recorder on node")
-	return r.StopBpfRecorder(recorderClient, ctx)
+	return r.StopBpfRecorder(ctx, recorderClient)
 }
 
 func (r *RecorderReconciler) collectProfile(
@@ -494,7 +494,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 ) error {
 	// Retrieve the syscalls for the recording
 	request := &enricherapi.SyscallsRequest{Profile: profileID}
-	response, err := r.Syscalls(enricherClient, ctx, request)
+	response, err := r.Syscalls(ctx, enricherClient, request)
 	if err != nil {
 		return errors.Wrapf(
 			err, "retrieve syscalls for profile %s", profileID,
@@ -542,7 +542,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	)
 
 	// Reset the syscalls for further recordings
-	if err := r.ResetSyscalls(enricherClient, ctx, request); err != nil {
+	if err := r.ResetSyscalls(ctx, enricherClient, request); err != nil {
 		return errors.Wrapf(
 			err, "reset syscalls for profile %s", profileID,
 		)
@@ -560,7 +560,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 ) error {
 	// Retrieve the syscalls for the recording
 	request := &enricherapi.AvcRequest{Profile: profileID}
-	response, err := r.Avcs(enricherClient, ctx, request)
+	response, err := r.Avcs(ctx, enricherClient, request)
 	if err != nil {
 		return errors.Wrapf(
 			err, "retrieve avcs for profile %s", profileID,
@@ -610,7 +610,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	)
 
 	// Reset the selinuxprofile for further recordings
-	if err := r.ResetAvcs(enricherClient, ctx, request); err != nil {
+	if err := r.ResetAvcs(ctx, enricherClient, request); err != nil {
 		return errors.Wrapf(
 			err, "reset selinuxprofile for profile %s", profileName,
 		)
@@ -651,7 +651,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	for _, profile := range profiles {
 		r.log.Info("Collecting BPF profile", "name", profile.name, "kind", profile.kind)
 		response, err := r.SyscallsForProfile(
-			recorderClient, ctx, &bpfrecorderapi.ProfileRequest{Name: profile.name},
+			ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profile.name},
 		)
 		if err != nil {
 			// PID was not found for this profile, this might be an init container

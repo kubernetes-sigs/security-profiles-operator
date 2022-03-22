@@ -23,7 +23,7 @@ type Bool int32
 
 // Set can be used to set the atomic bool to a certain value.
 func (b *Bool) Set(yes bool) {
-	var value int32 = 0
+	var value int32
 	if yes {
 		value = 1
 	}
