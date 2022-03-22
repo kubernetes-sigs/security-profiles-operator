@@ -56,11 +56,11 @@ type impl interface {
 	GetPod(context.Context, client.Client, client.ObjectKey) (*corev1.Pod, error)
 	GetSPOD(context.Context, client.Client) (*spodapi.SecurityProfilesOperatorDaemon, error)
 	DialBpfRecorder() (*grpc.ClientConn, context.CancelFunc, error)
-	StartBpfRecorder(bpfrecorderapi.BpfRecorderClient, context.Context) error
-	StopBpfRecorder(bpfrecorderapi.BpfRecorderClient, context.Context) error
+	StartBpfRecorder(context.Context, bpfrecorderapi.BpfRecorderClient) error
+	StopBpfRecorder(context.Context, bpfrecorderapi.BpfRecorderClient) error
 	SyscallsForProfile(
-		bpfrecorderapi.BpfRecorderClient,
 		context.Context,
+		bpfrecorderapi.BpfRecorderClient,
 		*bpfrecorderapi.ProfileRequest,
 	) (*bpfrecorderapi.SyscallsResponse, error)
 	CreateOrUpdate(
@@ -69,16 +69,16 @@ type impl interface {
 	GoArchToSeccompArch(string) (seccomp.Arch, error)
 	ReadFile(string) ([]byte, error)
 	Syscalls(
-		enricherapi.EnricherClient, context.Context, *enricherapi.SyscallsRequest,
+		context.Context, enricherapi.EnricherClient, *enricherapi.SyscallsRequest,
 	) (*enricherapi.SyscallsResponse, error)
 	ResetSyscalls(
-		enricherapi.EnricherClient, context.Context, *enricherapi.SyscallsRequest,
+		context.Context, enricherapi.EnricherClient, *enricherapi.SyscallsRequest,
 	) error
 	Avcs(
-		enricherapi.EnricherClient, context.Context, *enricherapi.AvcRequest,
+		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
 	) (*enricherapi.AvcResponse, error)
 	ResetAvcs(
-		enricherapi.EnricherClient, context.Context, *enricherapi.AvcRequest,
+		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
 	) error
 	DialEnricher() (*grpc.ClientConn, context.CancelFunc, error)
 }
@@ -139,22 +139,22 @@ func (*defaultImpl) DialBpfRecorder() (*grpc.ClientConn, context.CancelFunc, err
 }
 
 func (*defaultImpl) StartBpfRecorder(
-	c bpfrecorderapi.BpfRecorderClient, ctx context.Context,
+	ctx context.Context, c bpfrecorderapi.BpfRecorderClient,
 ) error {
 	_, err := c.Start(ctx, &bpfrecorderapi.EmptyRequest{})
 	return err
 }
 
 func (*defaultImpl) StopBpfRecorder(
-	c bpfrecorderapi.BpfRecorderClient, ctx context.Context,
+	ctx context.Context, c bpfrecorderapi.BpfRecorderClient,
 ) error {
 	_, err := c.Stop(ctx, &bpfrecorderapi.EmptyRequest{})
 	return err
 }
 
 func (*defaultImpl) SyscallsForProfile(
-	c bpfrecorderapi.BpfRecorderClient,
 	ctx context.Context,
+	c bpfrecorderapi.BpfRecorderClient,
 	req *bpfrecorderapi.ProfileRequest,
 ) (*bpfrecorderapi.SyscallsResponse, error) {
 	return c.SyscallsForProfile(ctx, req)
@@ -178,26 +178,26 @@ func (*defaultImpl) ReadFile(filename string) ([]byte, error) {
 }
 
 func (*defaultImpl) Syscalls(
-	c enricherapi.EnricherClient, ctx context.Context, in *enricherapi.SyscallsRequest,
+	ctx context.Context, c enricherapi.EnricherClient, in *enricherapi.SyscallsRequest,
 ) (*enricherapi.SyscallsResponse, error) {
 	return c.Syscalls(ctx, in)
 }
 
 func (*defaultImpl) ResetSyscalls(
-	c enricherapi.EnricherClient, ctx context.Context, in *enricherapi.SyscallsRequest,
+	ctx context.Context, c enricherapi.EnricherClient, in *enricherapi.SyscallsRequest,
 ) error {
 	_, err := c.ResetSyscalls(ctx, in)
 	return err
 }
 
 func (*defaultImpl) Avcs(
-	c enricherapi.EnricherClient, ctx context.Context, in *enricherapi.AvcRequest,
+	ctx context.Context, c enricherapi.EnricherClient, in *enricherapi.AvcRequest,
 ) (*enricherapi.AvcResponse, error) {
 	return c.Avcs(ctx, in)
 }
 
 func (*defaultImpl) ResetAvcs(
-	c enricherapi.EnricherClient, ctx context.Context, in *enricherapi.AvcRequest,
+	ctx context.Context, c enricherapi.EnricherClient, in *enricherapi.AvcRequest,
 ) error {
 	_, err := c.ResetAvcs(ctx, in)
 	return err

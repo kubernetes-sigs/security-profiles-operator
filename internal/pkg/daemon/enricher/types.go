@@ -22,7 +22,7 @@ const (
 )
 
 type auditLine struct {
-	type_ string
+	auditType string
 
 	// common
 	processID   int

@@ -519,7 +519,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	// AppArmor parameters
 	if cfg.Spec.EnableAppArmor {
 		falsely, truly := false, true
-		var userRoot int64 = 0
+		var userRoot int64
 		// a more privileged mode is required when apparmor is enabled
 		// TODO: review security model and provide a dynamic approach that can be case specific
 		templateSpec.Containers[bindata.ContainerIDDaemon].SecurityContext = &corev1.SecurityContext{

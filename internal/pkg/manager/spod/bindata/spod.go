@@ -31,9 +31,9 @@ import (
 )
 
 var (
+	userRoot                  int64
 	falsely                         = false
 	truly                           = true
-	userRoot                  int64 = 0
 	userRootless                    = int64(config.UserRootless)
 	hostPathDirectory               = corev1.HostPathDirectory
 	hostPathDirectoryOrCreate       = corev1.HostPathDirectoryOrCreate
