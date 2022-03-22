@@ -88,7 +88,7 @@ func Test_extractAuditLine(t *testing.T) {
 			// nolint:lll // no need to wrap
 			`audit: type=1326 audit(1612299677.115:549067): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`,
 			&auditLine{
-				type_:        "seccomp",
+				auditType:    "seccomp",
 				timestampID:  "1612299677.115:549067",
 				systemCallID: 0,
 				processID:    3109464,
@@ -101,7 +101,7 @@ func Test_extractAuditLine(t *testing.T) {
 			// nolint:lll // no need to wrap
 			`type=SECCOMP msg=audit(1613596317.899:6461): auid=4294967295 uid=0 gid=0 ses=4294967295 subj=system_u:system_r:spc_t:s0:c284,c594 pid=2039886 comm="ls" exe="/bin/ls" sig=0 arch=c000003e syscall=3 compat=0 ip=0x7f62dce3d4c7 code=0x7ffc0000AUID="unset" UID="root" GID="root" ARCH=x86_64 SYSCALL=close`,
 			&auditLine{
-				type_:        "seccomp",
+				auditType:    "seccomp",
 				timestampID:  "1613596317.899:6461",
 				systemCallID: 3,
 				processID:    2039886,
@@ -114,7 +114,7 @@ func Test_extractAuditLine(t *testing.T) {
 			// nolint:lll // no need to wrap
 			`type=AVC msg=audit(1613173578.156:2945): avc:  denied  { read } for  pid=75593 comm="security-profil" name="token" dev="tmpfs" ino=612459 scontext=system_u:system_r:container_t:s0:c4,c808 tcontext=system_u:object_r:var_lib_t:s0 tclass=lnk_file permissive=0`,
 			&auditLine{
-				type_:        "selinux",
+				auditType:    "selinux",
 				timestampID:  "1613173578.156:2945",
 				systemCallID: 0,
 				processID:    75593,

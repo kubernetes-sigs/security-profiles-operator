@@ -37,11 +37,11 @@ import (
 )
 
 type FakeImpl struct {
-	AvcsStub        func(api_enricher.EnricherClient, context.Context, *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error)
+	AvcsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error)
 	avcsMutex       sync.RWMutex
 	avcsArgsForCall []struct {
-		arg1 api_enricher.EnricherClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_enricher.EnricherClient
 		arg3 *api_enricher.AvcRequest
 	}
 	avcsReturns struct {
@@ -215,11 +215,11 @@ type FakeImpl struct {
 		result1 []byte
 		result2 error
 	}
-	ResetAvcsStub        func(api_enricher.EnricherClient, context.Context, *api_enricher.AvcRequest) error
+	ResetAvcsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) error
 	resetAvcsMutex       sync.RWMutex
 	resetAvcsArgsForCall []struct {
-		arg1 api_enricher.EnricherClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_enricher.EnricherClient
 		arg3 *api_enricher.AvcRequest
 	}
 	resetAvcsReturns struct {
@@ -228,11 +228,11 @@ type FakeImpl struct {
 	resetAvcsReturnsOnCall map[int]struct {
 		result1 error
 	}
-	ResetSyscallsStub        func(api_enricher.EnricherClient, context.Context, *api_enricher.SyscallsRequest) error
+	ResetSyscallsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.SyscallsRequest) error
 	resetSyscallsMutex       sync.RWMutex
 	resetSyscallsArgsForCall []struct {
-		arg1 api_enricher.EnricherClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_enricher.EnricherClient
 		arg3 *api_enricher.SyscallsRequest
 	}
 	resetSyscallsReturns struct {
@@ -241,11 +241,11 @@ type FakeImpl struct {
 	resetSyscallsReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StartBpfRecorderStub        func(api_bpfrecorder.BpfRecorderClient, context.Context) error
+	StartBpfRecorderStub        func(context.Context, api_bpfrecorder.BpfRecorderClient) error
 	startBpfRecorderMutex       sync.RWMutex
 	startBpfRecorderArgsForCall []struct {
-		arg1 api_bpfrecorder.BpfRecorderClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
 	}
 	startBpfRecorderReturns struct {
 		result1 error
@@ -253,11 +253,11 @@ type FakeImpl struct {
 	startBpfRecorderReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StopBpfRecorderStub        func(api_bpfrecorder.BpfRecorderClient, context.Context) error
+	StopBpfRecorderStub        func(context.Context, api_bpfrecorder.BpfRecorderClient) error
 	stopBpfRecorderMutex       sync.RWMutex
 	stopBpfRecorderArgsForCall []struct {
-		arg1 api_bpfrecorder.BpfRecorderClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
 	}
 	stopBpfRecorderReturns struct {
 		result1 error
@@ -265,11 +265,11 @@ type FakeImpl struct {
 	stopBpfRecorderReturnsOnCall map[int]struct {
 		result1 error
 	}
-	SyscallsStub        func(api_enricher.EnricherClient, context.Context, *api_enricher.SyscallsRequest) (*api_enricher.SyscallsResponse, error)
+	SyscallsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.SyscallsRequest) (*api_enricher.SyscallsResponse, error)
 	syscallsMutex       sync.RWMutex
 	syscallsArgsForCall []struct {
-		arg1 api_enricher.EnricherClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_enricher.EnricherClient
 		arg3 *api_enricher.SyscallsRequest
 	}
 	syscallsReturns struct {
@@ -280,11 +280,11 @@ type FakeImpl struct {
 		result1 *api_enricher.SyscallsResponse
 		result2 error
 	}
-	SyscallsForProfileStub        func(api_bpfrecorder.BpfRecorderClient, context.Context, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error)
+	SyscallsForProfileStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error)
 	syscallsForProfileMutex       sync.RWMutex
 	syscallsForProfileArgsForCall []struct {
-		arg1 api_bpfrecorder.BpfRecorderClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
 		arg3 *api_bpfrecorder.ProfileRequest
 	}
 	syscallsForProfileReturns struct {
@@ -299,12 +299,12 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) Avcs(arg1 api_enricher.EnricherClient, arg2 context.Context, arg3 *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error) {
+func (fake *FakeImpl) Avcs(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error) {
 	fake.avcsMutex.Lock()
 	ret, specificReturn := fake.avcsReturnsOnCall[len(fake.avcsArgsForCall)]
 	fake.avcsArgsForCall = append(fake.avcsArgsForCall, struct {
-		arg1 api_enricher.EnricherClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_enricher.EnricherClient
 		arg3 *api_enricher.AvcRequest
 	}{arg1, arg2, arg3})
 	stub := fake.AvcsStub
@@ -326,13 +326,13 @@ func (fake *FakeImpl) AvcsCallCount() int {
 	return len(fake.avcsArgsForCall)
 }
 
-func (fake *FakeImpl) AvcsCalls(stub func(api_enricher.EnricherClient, context.Context, *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error)) {
+func (fake *FakeImpl) AvcsCalls(stub func(context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error)) {
 	fake.avcsMutex.Lock()
 	defer fake.avcsMutex.Unlock()
 	fake.AvcsStub = stub
 }
 
-func (fake *FakeImpl) AvcsArgsForCall(i int) (api_enricher.EnricherClient, context.Context, *api_enricher.AvcRequest) {
+func (fake *FakeImpl) AvcsArgsForCall(i int) (context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) {
 	fake.avcsMutex.RLock()
 	defer fake.avcsMutex.RUnlock()
 	argsForCall := fake.avcsArgsForCall[i]
@@ -1124,12 +1124,12 @@ func (fake *FakeImpl) ReadFileReturnsOnCall(i int, result1 []byte, result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ResetAvcs(arg1 api_enricher.EnricherClient, arg2 context.Context, arg3 *api_enricher.AvcRequest) error {
+func (fake *FakeImpl) ResetAvcs(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.AvcRequest) error {
 	fake.resetAvcsMutex.Lock()
 	ret, specificReturn := fake.resetAvcsReturnsOnCall[len(fake.resetAvcsArgsForCall)]
 	fake.resetAvcsArgsForCall = append(fake.resetAvcsArgsForCall, struct {
-		arg1 api_enricher.EnricherClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_enricher.EnricherClient
 		arg3 *api_enricher.AvcRequest
 	}{arg1, arg2, arg3})
 	stub := fake.ResetAvcsStub
@@ -1151,13 +1151,13 @@ func (fake *FakeImpl) ResetAvcsCallCount() int {
 	return len(fake.resetAvcsArgsForCall)
 }
 
-func (fake *FakeImpl) ResetAvcsCalls(stub func(api_enricher.EnricherClient, context.Context, *api_enricher.AvcRequest) error) {
+func (fake *FakeImpl) ResetAvcsCalls(stub func(context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) error) {
 	fake.resetAvcsMutex.Lock()
 	defer fake.resetAvcsMutex.Unlock()
 	fake.ResetAvcsStub = stub
 }
 
-func (fake *FakeImpl) ResetAvcsArgsForCall(i int) (api_enricher.EnricherClient, context.Context, *api_enricher.AvcRequest) {
+func (fake *FakeImpl) ResetAvcsArgsForCall(i int) (context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) {
 	fake.resetAvcsMutex.RLock()
 	defer fake.resetAvcsMutex.RUnlock()
 	argsForCall := fake.resetAvcsArgsForCall[i]
@@ -1187,12 +1187,12 @@ func (fake *FakeImpl) ResetAvcsReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) ResetSyscalls(arg1 api_enricher.EnricherClient, arg2 context.Context, arg3 *api_enricher.SyscallsRequest) error {
+func (fake *FakeImpl) ResetSyscalls(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.SyscallsRequest) error {
 	fake.resetSyscallsMutex.Lock()
 	ret, specificReturn := fake.resetSyscallsReturnsOnCall[len(fake.resetSyscallsArgsForCall)]
 	fake.resetSyscallsArgsForCall = append(fake.resetSyscallsArgsForCall, struct {
-		arg1 api_enricher.EnricherClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_enricher.EnricherClient
 		arg3 *api_enricher.SyscallsRequest
 	}{arg1, arg2, arg3})
 	stub := fake.ResetSyscallsStub
@@ -1214,13 +1214,13 @@ func (fake *FakeImpl) ResetSyscallsCallCount() int {
 	return len(fake.resetSyscallsArgsForCall)
 }
 
-func (fake *FakeImpl) ResetSyscallsCalls(stub func(api_enricher.EnricherClient, context.Context, *api_enricher.SyscallsRequest) error) {
+func (fake *FakeImpl) ResetSyscallsCalls(stub func(context.Context, api_enricher.EnricherClient, *api_enricher.SyscallsRequest) error) {
 	fake.resetSyscallsMutex.Lock()
 	defer fake.resetSyscallsMutex.Unlock()
 	fake.ResetSyscallsStub = stub
 }
 
-func (fake *FakeImpl) ResetSyscallsArgsForCall(i int) (api_enricher.EnricherClient, context.Context, *api_enricher.SyscallsRequest) {
+func (fake *FakeImpl) ResetSyscallsArgsForCall(i int) (context.Context, api_enricher.EnricherClient, *api_enricher.SyscallsRequest) {
 	fake.resetSyscallsMutex.RLock()
 	defer fake.resetSyscallsMutex.RUnlock()
 	argsForCall := fake.resetSyscallsArgsForCall[i]
@@ -1250,12 +1250,12 @@ func (fake *FakeImpl) ResetSyscallsReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) StartBpfRecorder(arg1 api_bpfrecorder.BpfRecorderClient, arg2 context.Context) error {
+func (fake *FakeImpl) StartBpfRecorder(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient) error {
 	fake.startBpfRecorderMutex.Lock()
 	ret, specificReturn := fake.startBpfRecorderReturnsOnCall[len(fake.startBpfRecorderArgsForCall)]
 	fake.startBpfRecorderArgsForCall = append(fake.startBpfRecorderArgsForCall, struct {
-		arg1 api_bpfrecorder.BpfRecorderClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
 	}{arg1, arg2})
 	stub := fake.StartBpfRecorderStub
 	fakeReturns := fake.startBpfRecorderReturns
@@ -1276,13 +1276,13 @@ func (fake *FakeImpl) StartBpfRecorderCallCount() int {
 	return len(fake.startBpfRecorderArgsForCall)
 }
 
-func (fake *FakeImpl) StartBpfRecorderCalls(stub func(api_bpfrecorder.BpfRecorderClient, context.Context) error) {
+func (fake *FakeImpl) StartBpfRecorderCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient) error) {
 	fake.startBpfRecorderMutex.Lock()
 	defer fake.startBpfRecorderMutex.Unlock()
 	fake.StartBpfRecorderStub = stub
 }
 
-func (fake *FakeImpl) StartBpfRecorderArgsForCall(i int) (api_bpfrecorder.BpfRecorderClient, context.Context) {
+func (fake *FakeImpl) StartBpfRecorderArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient) {
 	fake.startBpfRecorderMutex.RLock()
 	defer fake.startBpfRecorderMutex.RUnlock()
 	argsForCall := fake.startBpfRecorderArgsForCall[i]
@@ -1312,12 +1312,12 @@ func (fake *FakeImpl) StartBpfRecorderReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) StopBpfRecorder(arg1 api_bpfrecorder.BpfRecorderClient, arg2 context.Context) error {
+func (fake *FakeImpl) StopBpfRecorder(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient) error {
 	fake.stopBpfRecorderMutex.Lock()
 	ret, specificReturn := fake.stopBpfRecorderReturnsOnCall[len(fake.stopBpfRecorderArgsForCall)]
 	fake.stopBpfRecorderArgsForCall = append(fake.stopBpfRecorderArgsForCall, struct {
-		arg1 api_bpfrecorder.BpfRecorderClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
 	}{arg1, arg2})
 	stub := fake.StopBpfRecorderStub
 	fakeReturns := fake.stopBpfRecorderReturns
@@ -1338,13 +1338,13 @@ func (fake *FakeImpl) StopBpfRecorderCallCount() int {
 	return len(fake.stopBpfRecorderArgsForCall)
 }
 
-func (fake *FakeImpl) StopBpfRecorderCalls(stub func(api_bpfrecorder.BpfRecorderClient, context.Context) error) {
+func (fake *FakeImpl) StopBpfRecorderCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient) error) {
 	fake.stopBpfRecorderMutex.Lock()
 	defer fake.stopBpfRecorderMutex.Unlock()
 	fake.StopBpfRecorderStub = stub
 }
 
-func (fake *FakeImpl) StopBpfRecorderArgsForCall(i int) (api_bpfrecorder.BpfRecorderClient, context.Context) {
+func (fake *FakeImpl) StopBpfRecorderArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient) {
 	fake.stopBpfRecorderMutex.RLock()
 	defer fake.stopBpfRecorderMutex.RUnlock()
 	argsForCall := fake.stopBpfRecorderArgsForCall[i]
@@ -1374,12 +1374,12 @@ func (fake *FakeImpl) StopBpfRecorderReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) Syscalls(arg1 api_enricher.EnricherClient, arg2 context.Context, arg3 *api_enricher.SyscallsRequest) (*api_enricher.SyscallsResponse, error) {
+func (fake *FakeImpl) Syscalls(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.SyscallsRequest) (*api_enricher.SyscallsResponse, error) {
 	fake.syscallsMutex.Lock()
 	ret, specificReturn := fake.syscallsReturnsOnCall[len(fake.syscallsArgsForCall)]
 	fake.syscallsArgsForCall = append(fake.syscallsArgsForCall, struct {
-		arg1 api_enricher.EnricherClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_enricher.EnricherClient
 		arg3 *api_enricher.SyscallsRequest
 	}{arg1, arg2, arg3})
 	stub := fake.SyscallsStub
@@ -1401,13 +1401,13 @@ func (fake *FakeImpl) SyscallsCallCount() int {
 	return len(fake.syscallsArgsForCall)
 }
 
-func (fake *FakeImpl) SyscallsCalls(stub func(api_enricher.EnricherClient, context.Context, *api_enricher.SyscallsRequest) (*api_enricher.SyscallsResponse, error)) {
+func (fake *FakeImpl) SyscallsCalls(stub func(context.Context, api_enricher.EnricherClient, *api_enricher.SyscallsRequest) (*api_enricher.SyscallsResponse, error)) {
 	fake.syscallsMutex.Lock()
 	defer fake.syscallsMutex.Unlock()
 	fake.SyscallsStub = stub
 }
 
-func (fake *FakeImpl) SyscallsArgsForCall(i int) (api_enricher.EnricherClient, context.Context, *api_enricher.SyscallsRequest) {
+func (fake *FakeImpl) SyscallsArgsForCall(i int) (context.Context, api_enricher.EnricherClient, *api_enricher.SyscallsRequest) {
 	fake.syscallsMutex.RLock()
 	defer fake.syscallsMutex.RUnlock()
 	argsForCall := fake.syscallsArgsForCall[i]
@@ -1440,12 +1440,12 @@ func (fake *FakeImpl) SyscallsReturnsOnCall(i int, result1 *api_enricher.Syscall
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) SyscallsForProfile(arg1 api_bpfrecorder.BpfRecorderClient, arg2 context.Context, arg3 *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error) {
+func (fake *FakeImpl) SyscallsForProfile(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error) {
 	fake.syscallsForProfileMutex.Lock()
 	ret, specificReturn := fake.syscallsForProfileReturnsOnCall[len(fake.syscallsForProfileArgsForCall)]
 	fake.syscallsForProfileArgsForCall = append(fake.syscallsForProfileArgsForCall, struct {
-		arg1 api_bpfrecorder.BpfRecorderClient
-		arg2 context.Context
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
 		arg3 *api_bpfrecorder.ProfileRequest
 	}{arg1, arg2, arg3})
 	stub := fake.SyscallsForProfileStub
@@ -1467,13 +1467,13 @@ func (fake *FakeImpl) SyscallsForProfileCallCount() int {
 	return len(fake.syscallsForProfileArgsForCall)
 }
 
-func (fake *FakeImpl) SyscallsForProfileCalls(stub func(api_bpfrecorder.BpfRecorderClient, context.Context, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error)) {
+func (fake *FakeImpl) SyscallsForProfileCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.SyscallsResponse, error)) {
 	fake.syscallsForProfileMutex.Lock()
 	defer fake.syscallsForProfileMutex.Unlock()
 	fake.SyscallsForProfileStub = stub
 }
 
-func (fake *FakeImpl) SyscallsForProfileArgsForCall(i int) (api_bpfrecorder.BpfRecorderClient, context.Context, *api_bpfrecorder.ProfileRequest) {
+func (fake *FakeImpl) SyscallsForProfileArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) {
 	fake.syscallsForProfileMutex.RLock()
 	defer fake.syscallsForProfileMutex.RUnlock()
 	argsForCall := fake.syscallsForProfileArgsForCall[i]

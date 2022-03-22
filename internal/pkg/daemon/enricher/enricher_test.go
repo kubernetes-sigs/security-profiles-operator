@@ -300,7 +300,7 @@ func TestRun(t *testing.T) {
 				mock.GetFromBacklogReturns(
 					[]*auditLine{
 						{
-							type_:        "selinux",
+							auditType:    "selinux",
 							timestampID:  "1613173578.156:2945",
 							systemCallID: 0,
 							processID:    75593,
