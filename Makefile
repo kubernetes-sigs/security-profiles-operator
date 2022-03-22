@@ -205,6 +205,10 @@ update-mocks: ## Update all generated mocks
 		cat $$f >> tmp ;\
 		mv tmp $$f ;\
 	done
+	export BPF_IMPL=internal/pkg/daemon/bpfrecorder/bpfrecorderfakes/fake_impl.go && \
+	printf "//go:build linux && !no_bpf\n// +build linux,!no_bpf\n\n" | \
+		cat - $$BPF_IMPL | \
+		tee $$BPF_IMPL >/dev/null
 
 define go-build
 	$(GO) build -o $(BUILD_DIR)/$(shell basename $(1)) $(1)
@@ -289,7 +293,7 @@ update-bpf: $(BUILD_DIR) ## Build and update all generated BPF code with nix
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks ## Run all verification targets
 
 .PHONY: verify-boilerplate
 verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
@@ -353,6 +357,10 @@ $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 
 .PHONY: verify-toc
 verify-toc: update-toc ## Verify the table of contents for the documentation
+	hack/tree-status
+
+.PHONY: verify-mocks
+verify-mocks: update-mocks ## Verify the content of the generated mocks
 	hack/tree-status
 
 .PHONY: verify-bpf
