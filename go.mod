@@ -9,7 +9,7 @@ require (
 	github.com/containers/common v0.47.4
 	github.com/crossplane/crossplane-runtime v0.14.1-0.20210713194031-85b19c28ea88
 	github.com/go-logr/logr v1.2.3
-	github.com/jetstack/cert-manager v1.7.1
+	github.com/jetstack/cert-manager v1.7.2
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.5.0
 	github.com/nxadm/tail v1.4.8
 	github.com/openshift/api v0.0.0-20220209124712-b632c5fc10c0
