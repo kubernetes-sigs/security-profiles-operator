@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	_ "net/http/pprof" // nolint:gosec // required for profiling
 	"os"
@@ -79,7 +80,13 @@ func main() {
 	app.Usage = "Kubernetes Security Profiles Operator"
 	app.Description = "The Security Profiles Operator makes it easier for cluster admins " +
 		"to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
-	app.Version = version.Get().Version
+
+	info, err := version.Get()
+	if err != nil {
+		log.Fatal(err)
+	}
+	app.Version = info.Version
+
 	app.Commands = cli.Commands{
 		&cli.Command{
 			Name:    "version",
@@ -93,10 +100,9 @@ func main() {
 				},
 			},
 			Action: func(c *cli.Context) error {
-				v := version.Get()
-				res := v.String()
+				res := info.String()
 				if c.Bool(jsonFlag) {
-					j, err := v.JSONString()
+					j, err := info.JSONString()
 					if err != nil {
 						return errors.Wrap(err, "unable to generate JSON from version info")
 					}
@@ -111,14 +117,18 @@ func main() {
 			Name:    "manager",
 			Aliases: []string{"m"},
 			Usage:   "run the manager",
-			Action:  runManager,
+			Action: func(ctx *cli.Context) error {
+				return runManager(ctx, info)
+			},
 		},
 		&cli.Command{
 			Before:  initialize,
 			Name:    "daemon",
 			Aliases: []string{"d"},
 			Usage:   "run the daemon",
-			Action:  runDaemon,
+			Action: func(ctx *cli.Context) error {
+				return runDaemon(ctx, info)
+			},
 			Flags: []cli.Flag{
 				&cli.BoolFlag{
 					Name:  selinuxFlag,
@@ -137,7 +147,9 @@ func main() {
 			Name:    "webhook",
 			Aliases: []string{"w"},
 			Usage:   "run the webhook",
-			Action:  runWebhook,
+			Action: func(ctx *cli.Context) error {
+				return runWebhook(ctx, info)
+			},
 			Flags: []cli.Flag{
 				&cli.IntFlag{
 					Name:    "port",
@@ -151,21 +163,27 @@ func main() {
 			Before: initialize,
 			Name:   "non-root-enabler",
 			Usage:  "run the non root enabler",
-			Action: runNonRootEnabler,
+			Action: func(ctx *cli.Context) error {
+				return runNonRootEnabler(ctx, info)
+			},
 		},
 		&cli.Command{
 			Before:  initialize,
 			Name:    "log-enricher",
 			Aliases: []string{"l"},
 			Usage:   "run the audit's log enricher",
-			Action:  runLogEnricher,
+			Action: func(ctx *cli.Context) error {
+				return runLogEnricher(ctx, info)
+			},
 		},
 		&cli.Command{
 			Before:  initialize,
 			Name:    "bpf-recorder",
 			Aliases: []string{"b"},
 			Usage:   "run the bpf recorder",
-			Action:  runBPFRecorder,
+			Action: func(ctx *cli.Context) error {
+				return runBPFRecorder(ctx, info)
+			},
 		},
 	}
 	app.Flags = []cli.Flag{
@@ -237,15 +255,15 @@ func initProfiling(ctx *cli.Context) {
 	}
 }
 
-func printInfo(component string) {
+func printInfo(component string, info *version.Info) {
 	setupLog.Info(
 		fmt.Sprintf("starting component: %s", component),
-		version.Get().AsKeyValues()...,
+		info.AsKeyValues()...,
 	)
 }
 
-func runManager(ctx *cli.Context) error {
-	printInfo("security-profiles-operator")
+func runManager(ctx *cli.Context, info *version.Info) error {
+	printInfo("security-profiles-operator", info)
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "get config")
@@ -349,9 +367,9 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 	return controllers
 }
 
-func runDaemon(ctx *cli.Context) error {
+func runDaemon(ctx *cli.Context, info *version.Info) error {
 	// security-profiles-operator-daemon
-	printInfo("spod")
+	printInfo("spod", info)
 
 	enabledControllers := getEnabledControllers(ctx)
 	if len(enabledControllers) == 0 {
@@ -411,26 +429,26 @@ func runDaemon(ctx *cli.Context) error {
 	return nil
 }
 
-func runBPFRecorder(ctx *cli.Context) error {
+func runBPFRecorder(_ *cli.Context, info *version.Info) error {
 	const component = "bpf-recorder"
-	printInfo(component)
+	printInfo(component, info)
 	return bpfrecorder.New(ctrl.Log.WithName(component)).Run()
 }
 
-func runLogEnricher(ctx *cli.Context) error {
+func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	const component = "log-enricher"
-	printInfo(component)
+	printInfo(component, info)
 	return enricher.New(ctrl.Log.WithName(component)).Run()
 }
 
-func runNonRootEnabler(ctx *cli.Context) error {
+func runNonRootEnabler(_ *cli.Context, info *version.Info) error {
 	const component = "non-root-enabler"
-	printInfo(component)
+	printInfo(component, info)
 	return nonrootenabler.New().Run(ctrl.Log.WithName(component))
 }
 
-func runWebhook(ctx *cli.Context) error {
-	printInfo("security-profiles-operator-webhook")
+func runWebhook(ctx *cli.Context, info *version.Info) error {
+	printInfo("security-profiles-operator-webhook", info)
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return errors.Wrap(err, "get config")
