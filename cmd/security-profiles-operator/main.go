@@ -107,12 +107,14 @@ func main() {
 			},
 		},
 		&cli.Command{
+			Before:  initialize,
 			Name:    "manager",
 			Aliases: []string{"m"},
 			Usage:   "run the manager",
 			Action:  runManager,
 		},
 		&cli.Command{
+			Before:  initialize,
 			Name:    "daemon",
 			Aliases: []string{"d"},
 			Usage:   "run the daemon",
@@ -131,6 +133,7 @@ func main() {
 			},
 		},
 		&cli.Command{
+			Before:  initialize,
 			Name:    "webhook",
 			Aliases: []string{"w"},
 			Usage:   "run the webhook",
@@ -145,17 +148,20 @@ func main() {
 			},
 		},
 		&cli.Command{
+			Before: initialize,
 			Name:   "non-root-enabler",
 			Usage:  "run the non root enabler",
 			Action: runNonRootEnabler,
 		},
 		&cli.Command{
+			Before:  initialize,
 			Name:    "log-enricher",
 			Aliases: []string{"l"},
 			Usage:   "run the audit's log enricher",
 			Action:  runLogEnricher,
 		},
 		&cli.Command{
+			Before:  initialize,
 			Name:    "bpf-recorder",
 			Aliases: []string{"b"},
 			Usage:   "run the bpf recorder",
@@ -183,7 +189,6 @@ func main() {
 			EnvVars: []string{config.ProfilingPortEnvKey},
 		},
 	}
-	app.Before = initialize
 
 	if err := app.Run(os.Args); err != nil {
 		setupLog.Error(err, "running security-profiles-operator")
