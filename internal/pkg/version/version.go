@@ -50,8 +50,11 @@ type Info struct {
 	Dependencies  []string `json:"dependencies,omitempty"`
 }
 
-func Get() *Info {
-	info, _ := debug.ReadBuildInfo()
+func Get() (*Info, error) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return nil, errors.New("unable to retrieve build info")
+	}
 
 	const unknown = "unknown"
 	gitCommit := unknown
@@ -108,7 +111,7 @@ func Get() *Info {
 		LDFlags:       ldFlags,
 		CGOLDFlags:    cgoLdflags,
 		Dependencies:  dependencies,
-	}
+	}, nil
 }
 
 // String returns the string representation of the version info.
