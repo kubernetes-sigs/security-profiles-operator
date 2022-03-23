@@ -47,5 +47,5 @@ func TestVersionJSON(t *testing.T) {
 func TestAsKeyValues(t *testing.T) {
 	t.Parallel()
 	sut := Get().AsKeyValues()
-	require.Len(t, sut, 2*9)
+	require.Len(t, sut, 2*14)
 }

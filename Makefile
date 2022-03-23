@@ -45,8 +45,6 @@ else
     BUILD_DATE ?= $(shell date -u "$(DATE_FMT)")
 endif
 
-GIT_COMMIT := $(shell git rev-parse HEAD 2> /dev/null || echo unknown)
-GIT_TREE_STATE := $(if $(shell git status --porcelain --untracked-files=no),dirty,clean)
 VERSION := $(shell cat VERSION)
 
 ifneq ($(shell uname -s), Darwin)
@@ -89,8 +87,6 @@ export GOFLAGS?=-mod=vendor
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
 	-X $(GO_PROJECT)/internal/pkg/version.buildDate=$(BUILD_DATE) \
-	-X $(GO_PROJECT)/internal/pkg/version.gitCommit=$(GIT_COMMIT) \
-	-X $(GO_PROJECT)/internal/pkg/version.gitTreeState=$(GIT_TREE_STATE) \
 	-X $(GO_PROJECT)/internal/pkg/version.version=$(VERSION)
 LINKMODE_EXTERNAL ?= yes
 ifeq ($(LINKMODE_EXTERNAL), yes)
