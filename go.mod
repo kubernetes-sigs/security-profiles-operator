@@ -6,7 +6,7 @@ require (
 	github.com/ReneKroon/ttlcache/v2 v2.11.0
 	github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
 	github.com/aquasecurity/libbpfgo v0.2.5-libbpf-0.7.0
-	github.com/containers/common v0.47.4
+	github.com/containers/common v0.47.5
 	github.com/crossplane/crossplane-runtime v0.14.1-0.20210713194031-85b19c28ea88
 	github.com/go-logr/logr v1.2.3
 	github.com/jetstack/cert-manager v1.7.2
