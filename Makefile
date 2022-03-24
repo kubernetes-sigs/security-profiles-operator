@@ -445,6 +445,10 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
 BUNDLE_IMG ?= $(PROJECT)-bundle:v$(VERSION)
 
+# The operator manifest to include in the CSV. Defaults to the cluster-scoped
+# operator. Can be only one
+BUNDLE_OPERATOR_MANIFEST ?= deploy/operator.yaml
+
 # These examples are added to the alm-examples annotation and subsequently
 # displayed in the UI
 OLM_EXAMPLES := \
@@ -459,14 +463,14 @@ OLM_EXAMPLES := \
 .PHONY: bundle
 bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then validate generated files.
 	sed -i "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
-	cat $(OLM_EXAMPLES) deploy/operator.yaml deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
+	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	git restore deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
 	cp deploy/bundle-test-config.yaml ./bundle/tests/scorecard/config.yaml
 	# For some reason, the profile CM is not added automatically to the
 	# bundle, but in general bundles can contain CMs, so let's add it
 	# manually
-	python hack/extract-cm.py deploy/operator.yaml configMap security-profiles-operator-profile > ./bundle/manifests/security-profiles-operator-profile_v1_configmap.yaml
+	python hack/extract-cm.py $(BUNDLE_OPERATOR_MANIFEST) configMap security-profiles-operator-profile > ./bundle/manifests/security-profiles-operator-profile_v1_configmap.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle
 
 .PHONY: bundle-build
