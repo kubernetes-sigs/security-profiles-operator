@@ -91,7 +91,7 @@ github.com/blang/semver
 # github.com/cespare/xxhash/v2 v2.1.2
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
-# github.com/containers/common v0.47.4
+# github.com/containers/common v0.47.5
 ## explicit; go 1.15
 github.com/containers/common/pkg/seccomp
 # github.com/cpuguy83/go-md2man/v2 v2.0.1
