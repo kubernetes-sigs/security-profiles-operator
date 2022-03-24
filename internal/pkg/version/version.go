@@ -19,6 +19,7 @@ package version
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -116,20 +117,36 @@ func (i *Info) String() string {
 	const padding = 2
 	w := tabwriter.NewWriter(&b, 0, 0, padding, ' ', 0)
 
-	fmt.Fprintf(w, "Version:\t%s\n", i.Version)
-	fmt.Fprintf(w, "GitCommit:\t%s\n", i.GitCommit)
-	fmt.Fprintf(w, "GitCommitDate:\t%s\n", i.GitCommitDate)
-	fmt.Fprintf(w, "GitTreeState:\t%s\n", i.GitTreeState)
-	fmt.Fprintf(w, "BuildDate:\t%s\n", i.BuildDate)
-	fmt.Fprintf(w, "GoVersion:\t%s\n", i.GoVersion)
-	fmt.Fprintf(w, "Compiler:\t%s\n", i.Compiler)
-	fmt.Fprintf(w, "Platform:\t%s\n", i.Platform)
-	fmt.Fprintf(w, "Libseccomp:\t%s\n", i.Libseccomp)
-	fmt.Fprintf(w, "Libbpf:\t%s\n", i.Libbpf)
-	fmt.Fprintf(w, "BuildTags:\t%s\n", i.BuildTags)
-	fmt.Fprintf(w, "LDFlags:\t%s\n", i.LDFlags)
-	fmt.Fprintf(w, "CGOLDFlags:\t%s\n", i.CGOLDFlags)
-	fmt.Fprintf(w, "Dependencies:\n  %s\n", strings.Join(i.Dependencies, "\n  "))
+	v := reflect.ValueOf(*i)
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		value := v.FieldByName(field.Name)
+
+		valueString := ""
+		// nolint:exhaustive // we ignore missing switch cases on purpose
+		switch field.Type.Kind() {
+		case reflect.Bool:
+			valueString = fmt.Sprint(value.Bool())
+
+		case reflect.Slice:
+			// Only expecting []string here; ignore other slices.
+			if s, ok := value.Interface().([]string); ok {
+				const sep = "\n  "
+				valueString = sep + strings.Join(s, sep)
+			}
+
+		case reflect.String:
+			valueString = value.String()
+		}
+
+		if valueString != "" {
+			fmt.Fprintf(w, "%s:\t%s", field.Name, valueString)
+			if i+1 < t.NumField() {
+				fmt.Fprintf(w, "\n")
+			}
+		}
+	}
 
 	w.Flush()
 	return b.String()
