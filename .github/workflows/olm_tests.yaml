@@ -1,0 +1,56 @@
+name: OLM-Tests
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+env:
+  GO_VERSION: '1.18'
+  KIND_IMG_TAG: v1.23.4
+permissions:
+  actions: none
+  checks: none
+  contents: none
+  deployments: none
+  id-token: none
+  issues: none
+  discussions: none
+  packages: none
+  pull-requests: none
+  repository-projects: none
+  security-events: none
+  statuses: none
+jobs:
+  main:
+    name: Run tests
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
+
+    - name: Download binaries
+      run: |
+        mkdir -p ${GITHUB_WORKSPACE}/build
+        echo "${GITHUB_WORKSPACE}/build" >> ${GITHUB_PATH}
+        make operator-sdk
+        make opm
+
+    - uses: actions/setup-go@331ce1d993939866bb63c32c6cbbfd48fa76fc57 # v2.1.4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
+        sudo hack/install-libbpf.sh
+
+    - name: Create and verify bundle
+      run: |
+        make verify-bundle
+
+    - name: Create and set up K8s KinD Cluster
+      run: |
+        ./hack/kind-with-registry.sh
+
+    - name: Run the tests
+      run: ./hack/ci/e2e-olm.sh

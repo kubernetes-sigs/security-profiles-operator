@@ -481,6 +481,10 @@ bundle-build: ## Build the bundle image.
 bundle-push: ## Push the bundle image.
 	$(CONTAINER_RUNTIME) push $(BUNDLE_IMG)
 
+.PHONY: verify-bundle
+verify-bundle: bundle ## Verify the bundle doesn't alter the state of the tree
+	hack/tree-status
+
 .PHONY: opm
 OPM = $(BUILD_DIR)/opm
 opm: $(BUILD_DIR) ## Download opm locally if necessary.

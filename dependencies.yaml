@@ -6,6 +6,8 @@ dependencies:
       match: GO_VERSION
     - path: .github/workflows/test.yml
       match: GO_VERSION
+    - path: .github/workflows/olm_tests.yaml
+      match: GO_VERSION
     - path: hack/ci/Vagrantfile-fedora
       match: GO_VERSION
     - path: hack/ci/Vagrantfile-ubuntu
@@ -44,7 +46,7 @@ dependencies:
   - name: olm
     version: v0.18.2
     refPaths:
-    - path: Makefile
+    - path: hack/ci/e2e-olm.sh
       match: OLM_VERSION
 
   - name: cert-manager
@@ -53,6 +55,8 @@ dependencies:
     - path: test/e2e_test.go
       match: jetstack/cert-manager
     - path: installation-usage.md
+      match: jetstack/cert-manager
+    - path: hack/ci/e2e-olm.sh
       match: jetstack/cert-manager
 
   - name: kind
@@ -66,6 +70,8 @@ dependencies:
     refPaths:
     - path: test/suite_test.go
       match: kindImage
+    - path: .github/workflows/olm_tests.yaml
+      match: KIND_IMG_TAG
 
   - name: qemu
     version: 6.1.0-8
