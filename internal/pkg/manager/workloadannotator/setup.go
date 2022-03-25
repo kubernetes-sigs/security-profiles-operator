@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
@@ -53,6 +54,17 @@ func (r *PodReconciler) Setup(
 		return fmt.Errorf("creating pod index: %w", err)
 	}
 
+	// Index Pods using selinux profiles
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, seOwnerKey, func(rawObj client.Object) []string {
+		pod, ok := rawObj.(*corev1.Pod)
+		if !ok {
+			return []string{}
+		}
+		return getSelinuxProfilesFromPod(r, pod)
+	}); err != nil {
+		return fmt.Errorf("creating pod index: %w", err)
+	}
+
 	// Index SeccompProfiles with active pods
 	if err := mgr.GetFieldIndexer().IndexField(
 		ctx, &seccompprofileapi.SeccompProfile{}, linkedPodsKey, func(rawObj client.Object) []string {
@@ -60,16 +72,29 @@ func (r *PodReconciler) Setup(
 			if !ok {
 				return []string{}
 			}
+
 			return sp.Status.ActiveWorkloads
 		}); err != nil {
 		return fmt.Errorf("creating seccomp profile index: %w", err)
+	}
+
+	// Index SelinuxProfile with active pods
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx, &selinuxprofileapi.SelinuxProfile{}, linkedPodsKey, func(rawObj client.Object) []string {
+			sp, ok := rawObj.(*selinuxprofileapi.SelinuxProfile)
+			if !ok {
+				return []string{}
+			}
+			return sp.Status.ActiveWorkloads
+		}); err != nil {
+		return fmt.Errorf("creating selinux profile index: %w", err)
 	}
 
 	// Register a special reconciler for pod events
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
 		For(&corev1.Pod{}).
-		WithEventFilter(resource.NewPredicates(hasSeccompProfile)).
+		WithEventFilter(resource.NewPredicates(r.hasValidProfile)).
 		Complete(r)
 }
 
@@ -80,4 +105,17 @@ func hasSeccompProfile(obj runtime.Object) bool {
 	}
 
 	return len(getSeccompProfilesFromPod(pod)) > 0
+}
+
+func hasSelinuxProfile(r *PodReconciler, obj runtime.Object) bool {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return false
+	}
+
+	return len(getSelinuxProfilesFromPod(r, pod)) > 0
+}
+
+func (r *PodReconciler) hasValidProfile(obj runtime.Object) bool {
+	return hasSeccompProfile(obj) || hasSelinuxProfile(r, obj)
 }

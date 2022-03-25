@@ -89,3 +89,11 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxprofiles
+  verbs:
+  - get
+  - list
+  - watch

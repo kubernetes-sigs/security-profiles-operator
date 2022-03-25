@@ -45,6 +45,7 @@ spec:
                     description: Kind of object to be bound.
                     enum:
                     - SeccompProfile
+                    - SelinuxProfile
                     type: string
                   name:
                     description: Name of the profile within the current namespace

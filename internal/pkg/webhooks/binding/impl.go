@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -45,6 +46,7 @@ type impl interface {
 	SetDecoder(*admission.Decoder)
 	DecodePod(admission.Request) (*corev1.Pod, error)
 	GetSeccompProfile(context.Context, types.NamespacedName) (*seccompprofileapi.SeccompProfile, error)
+	GetSelinuxProfile(context.Context, types.NamespacedName) (*selinuxprofileapi.SelinuxProfile, error)
 }
 
 func (d *defaultImpl) ListProfileBindings(
@@ -96,4 +98,15 @@ func (d *defaultImpl) GetSeccompProfile(
 		return nil, fmt.Errorf("get seccomp profile: %w", err)
 	}
 	return seccompProfile, nil
+}
+
+func (d *defaultImpl) GetSelinuxProfile(
+	ctx context.Context, key types.NamespacedName,
+) (*selinuxprofileapi.SelinuxProfile, error) {
+	selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
+	err := d.client.Get(ctx, key, selinuxProfile)
+	if err != nil {
+		return nil, fmt.Errorf("get selinux profile: %w", err)
+	}
+	return selinuxProfile, nil
 }
