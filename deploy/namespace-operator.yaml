@@ -47,6 +47,7 @@ spec:
                     description: Kind of object to be bound.
                     enum:
                     - SeccompProfile
+                    - SelinuxProfile
                     type: string
                   name:
                     description: Name of the profile within the current namespace
@@ -776,6 +777,10 @@ spec:
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
             properties:
+              activeWorkloads:
+                items:
+                  type: string
+                type: array
               conditions:
                 description: Conditions of the resource.
                 items:
@@ -915,6 +920,10 @@ spec:
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
             properties:
+              activeWorkloads:
+                items:
+                  type: string
+                type: array
               conditions:
                 description: Conditions of the resource.
                 items:
@@ -1613,6 +1622,14 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - seccompprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxprofiles
   verbs:
   - get
   - list

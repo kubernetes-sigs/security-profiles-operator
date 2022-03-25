@@ -73,7 +73,8 @@ type SelinuxProfileStatus struct {
 	profilebasev1alpha1.StatusBase `json:",inline"`
 	// Represents the string that the SelinuxProfile object can be
 	// referenced as in a pod seLinuxOptions section.
-	Usage string `json:"usage,omitempty"`
+	Usage           string   `json:"usage,omitempty"`
+	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
