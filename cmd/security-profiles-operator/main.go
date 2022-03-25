@@ -473,6 +473,9 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add seccompprofile API to scheme: %w", err)
 	}
+	if err := selxv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("add selinuxprofile API to scheme: %w", err)
+	}
 	if err := profilerecording1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add profilerecording API to scheme: %w", err)
 	}

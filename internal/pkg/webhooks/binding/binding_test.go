@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding/bindingfakes"
 )
 
@@ -109,6 +110,44 @@ func TestHandle(t *testing.T) {
 					Status: seccompprofileapi.SeccompProfileStatus{
 						StatusBase: profilebasev1alpha1.StatusBase{
 							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						},
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.Nil(t, err)
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.AdmissionResponse.Allowed)
+				require.Len(t, resp.Patches, 1)
+			},
+		},
+		{ // selinux success pod changed
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
+					Items: []v1alpha1.ProfileBinding{
+						{
+							Spec: v1alpha1.ProfileBindingSpec{
+								ProfileRef: v1alpha1.ProfileRef{
+									Kind: v1alpha1.ProfileBindingKindSelinuxProfile,
+								},
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
+					Status: selinuxprofileapi.SelinuxProfileStatus{
+						StatusBase: profilebasev1alpha1.StatusBase{
+							Status: "Installed",
 						},
 					},
 				}, nil)
@@ -368,7 +407,7 @@ func TestHandle(t *testing.T) {
 		mock := &bindingfakes.FakeImpl{}
 		tc.prepare(mock)
 
-		binder := podSeccompBinder{impl: mock, log: logr.Discard()}
+		binder := podBinder{impl: mock, log: logr.Discard()}
 		resp := binder.Handle(context.Background(), tc.request)
 		tc.assert(resp)
 	}

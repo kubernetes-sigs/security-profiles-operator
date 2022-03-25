@@ -129,7 +129,11 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	// TODO(jaosorior): Re-introduce this to the namespaced tests once we
 	// fix the issue with the certs.
 	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
-		e.testCaseProfileBinding(nodes)
+		e.testCaseSeccompProfileBinding(nodes)
+	})
+
+	e.Run("cluster-wide: Selinux: Verify profile binding", func() {
+		e.testCaseSelinuxProfileBinding(nodes)
 	})
 
 	e.Run("cluster-wide: Seccomp: Verify profile recording hook", func() {

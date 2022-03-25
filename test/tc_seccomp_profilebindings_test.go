@@ -22,7 +22,7 @@ import (
 	"strings"
 )
 
-func (e *e2e) testCaseProfileBinding([]string) {
+func (e *e2e) testCaseSeccompProfileBinding([]string) {
 	e.seccompOnlyTestCase()
 
 	const exampleProfilePath = "examples/seccompprofile.yaml"

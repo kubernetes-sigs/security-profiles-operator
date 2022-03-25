@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	"sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 )
 
 type FakeImpl struct {
@@ -56,6 +57,20 @@ type FakeImpl struct {
 	}
 	getSeccompProfileReturnsOnCall map[int]struct {
 		result1 *v1beta1.SeccompProfile
+		result2 error
+	}
+	GetSelinuxProfileStub        func(context.Context, types.NamespacedName) (*v1alpha2.SelinuxProfile, error)
+	getSelinuxProfileMutex       sync.RWMutex
+	getSelinuxProfileArgsForCall []struct {
+		arg1 context.Context
+		arg2 types.NamespacedName
+	}
+	getSelinuxProfileReturns struct {
+		result1 *v1alpha2.SelinuxProfile
+		result2 error
+	}
+	getSelinuxProfileReturnsOnCall map[int]struct {
+		result1 *v1alpha2.SelinuxProfile
 		result2 error
 	}
 	ListProfileBindingsStub        func(context.Context, ...client.ListOption) (*v1alpha1.ProfileBindingList, error)
@@ -234,6 +249,71 @@ func (fake *FakeImpl) GetSeccompProfileReturnsOnCall(i int, result1 *v1beta1.Sec
 	}
 	fake.getSeccompProfileReturnsOnCall[i] = struct {
 		result1 *v1beta1.SeccompProfile
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetSelinuxProfile(arg1 context.Context, arg2 types.NamespacedName) (*v1alpha2.SelinuxProfile, error) {
+	fake.getSelinuxProfileMutex.Lock()
+	ret, specificReturn := fake.getSelinuxProfileReturnsOnCall[len(fake.getSelinuxProfileArgsForCall)]
+	fake.getSelinuxProfileArgsForCall = append(fake.getSelinuxProfileArgsForCall, struct {
+		arg1 context.Context
+		arg2 types.NamespacedName
+	}{arg1, arg2})
+	stub := fake.GetSelinuxProfileStub
+	fakeReturns := fake.getSelinuxProfileReturns
+	fake.recordInvocation("GetSelinuxProfile", []interface{}{arg1, arg2})
+	fake.getSelinuxProfileMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetSelinuxProfileCallCount() int {
+	fake.getSelinuxProfileMutex.RLock()
+	defer fake.getSelinuxProfileMutex.RUnlock()
+	return len(fake.getSelinuxProfileArgsForCall)
+}
+
+func (fake *FakeImpl) GetSelinuxProfileCalls(stub func(context.Context, types.NamespacedName) (*v1alpha2.SelinuxProfile, error)) {
+	fake.getSelinuxProfileMutex.Lock()
+	defer fake.getSelinuxProfileMutex.Unlock()
+	fake.GetSelinuxProfileStub = stub
+}
+
+func (fake *FakeImpl) GetSelinuxProfileArgsForCall(i int) (context.Context, types.NamespacedName) {
+	fake.getSelinuxProfileMutex.RLock()
+	defer fake.getSelinuxProfileMutex.RUnlock()
+	argsForCall := fake.getSelinuxProfileArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) GetSelinuxProfileReturns(result1 *v1alpha2.SelinuxProfile, result2 error) {
+	fake.getSelinuxProfileMutex.Lock()
+	defer fake.getSelinuxProfileMutex.Unlock()
+	fake.GetSelinuxProfileStub = nil
+	fake.getSelinuxProfileReturns = struct {
+		result1 *v1alpha2.SelinuxProfile
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetSelinuxProfileReturnsOnCall(i int, result1 *v1alpha2.SelinuxProfile, result2 error) {
+	fake.getSelinuxProfileMutex.Lock()
+	defer fake.getSelinuxProfileMutex.Unlock()
+	fake.GetSelinuxProfileStub = nil
+	if fake.getSelinuxProfileReturnsOnCall == nil {
+		fake.getSelinuxProfileReturnsOnCall = make(map[int]struct {
+			result1 *v1alpha2.SelinuxProfile
+			result2 error
+		})
+	}
+	fake.getSelinuxProfileReturnsOnCall[i] = struct {
+		result1 *v1alpha2.SelinuxProfile
 		result2 error
 	}{result1, result2}
 }
@@ -470,6 +550,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.decodePodMutex.RUnlock()
 	fake.getSeccompProfileMutex.RLock()
 	defer fake.getSeccompProfileMutex.RUnlock()
+	fake.getSelinuxProfileMutex.RLock()
+	defer fake.getSelinuxProfileMutex.RUnlock()
 	fake.listProfileBindingsMutex.RLock()
 	defer fake.listProfileBindingsMutex.RUnlock()
 	fake.setDecoderMutex.RLock()

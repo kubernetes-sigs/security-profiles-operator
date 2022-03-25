@@ -36,6 +36,7 @@ import (
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
@@ -44,7 +45,7 @@ const finalizer = "active-workload-lock"
 
 var ErrProfWithoutStatus = errors.New("profile hasn't been initialized with status")
 
-type podSeccompBinder struct {
+type podBinder struct {
 	impl
 	log logr.Logger
 }
@@ -53,7 +54,7 @@ func RegisterWebhook(server *webhook.Server, c client.Client) {
 	server.Register(
 		"/mutate-v1-pod-binding",
 		&webhook.Admission{
-			Handler: &podSeccompBinder{
+			Handler: &podBinder{
 				impl: &defaultImpl{client: c},
 				log:  logf.Log.WithName("binding"),
 			},
@@ -92,6 +93,7 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Leader election
@@ -101,7 +103,7 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 // +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update;
 
 // nolint:gocritic
-func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) admission.Response {
+func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission.Response {
 	profileBindings, err := p.ListProfileBindings(ctx, client.InNamespace(req.Namespace))
 	if err != nil {
 		p.log.Error(err, "could not list profile bindings")
@@ -123,11 +125,14 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 	}
 
 	for i := range profilebindings {
-		// TODO(cmurphy): handle profiles kinds other than SeccompProfile
-		if profilebindings[i].Spec.ProfileRef.Kind != profilebindingv1alpha1.ProfileBindingKindSeccompProfile {
-			p.log.Info(fmt.Sprintf("profile kind %s not yet supported", profilebindings[i].Spec.ProfileRef.Kind))
-			continue
+		profileKind := profilebindings[i].Spec.ProfileRef.Kind
+		if profileKind != profilebindingv1alpha1.ProfileBindingKindSeccompProfile {
+			if profileKind != profilebindingv1alpha1.ProfileBindingKindSelinuxProfile {
+				p.log.Info(fmt.Sprintf("profile kind %s not yet supported", profileKind))
+				continue
+			}
 		}
+
 		profileName := profilebindings[i].Spec.ProfileRef.Name
 		if req.Operation == "DELETE" {
 			if err := p.removePodFromBinding(ctx, podID, &profilebindings[i]); err != nil {
@@ -145,14 +150,24 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 		}
 
 		namespacedName := types.NamespacedName{Namespace: req.Namespace, Name: profileName}
-		seccompProfile, err := p.getSeccompProfile(ctx, namespacedName)
+		var bindProfile interface{}
+		var err error
+
+		if profileKind == profilebindingv1alpha1.ProfileBindingKindSeccompProfile {
+			bindProfile, err = p.getSeccompProfile(ctx, namespacedName)
+		}
+
+		if profileKind == profilebindingv1alpha1.ProfileBindingKindSelinuxProfile {
+			bindProfile, err = p.getSelinuxProfile(ctx, namespacedName)
+		}
+
 		if err != nil {
-			p.log.Error(err, fmt.Sprintf("failed to get SeccompProfile %#v", namespacedName))
+			p.log.Error(err, fmt.Sprintf("failed to get %v %#v", profileKind, namespacedName))
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
 
 		for j := range containers {
-			podChanged = p.addSecurityContext(containers[j], seccompProfile)
+			podChanged = p.addSecurityContext(containers[j], bindProfile)
 		}
 		if podChanged {
 			if err := p.addPodToBinding(ctx, podID, &profilebindings[i]); err != nil {
@@ -172,7 +187,7 @@ func (p *podSeccompBinder) Handle(ctx context.Context, req admission.Request) ad
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
-func (p *podSeccompBinder) getSeccompProfile(
+func (p *podBinder) getSeccompProfile(
 	ctx context.Context,
 	key types.NamespacedName,
 ) (seccompProfile *seccompprofileapi.SeccompProfile, err error) {
@@ -193,7 +208,45 @@ func (p *podSeccompBinder) getSeccompProfile(
 	return seccompProfile, err
 }
 
-func (p *podSeccompBinder) addSecurityContext(
+func (p *podBinder) getSelinuxProfile(
+	ctx context.Context,
+	key types.NamespacedName,
+) (selinuxProfile *selinuxprofileapi.SelinuxProfile, err error) {
+	err = util.Retry(
+		func() (retryErr error) {
+			selinuxProfile, retryErr = p.GetSelinuxProfile(ctx, key)
+			if retryErr != nil {
+				return fmt.Errorf("getting profile: %w", retryErr)
+			}
+			if selinuxProfile.Status.Status == "" {
+				return fmt.Errorf("getting profile:	%w", ErrProfWithoutStatus)
+			}
+			return nil
+		}, func(inErr error) bool {
+			return errors.Is(inErr, ErrProfWithoutStatus) || kerrors.IsNotFound(inErr)
+		})
+	// nolint:wrapcheck // error is already wrapped
+	return selinuxProfile, err
+}
+
+func (p *podBinder) addSecurityContext(
+	c *corev1.Container, bindProfile interface{},
+) bool {
+	var podChanged bool
+
+	switch v := bindProfile.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		podChanged = p.addSeccompContext(c, v)
+	case *selinuxprofileapi.SelinuxProfile:
+		podChanged = p.addSelinuxContext(c, v)
+	default:
+		p.log.Info("Unexpected Profile Type")
+		return false
+	}
+	return podChanged
+}
+
+func (p *podBinder) addSeccompContext(
 	c *corev1.Container, seccompProfile *seccompprofileapi.SeccompProfile,
 ) bool {
 	podChanged := false
@@ -214,7 +267,28 @@ func (p *podSeccompBinder) addSecurityContext(
 	return podChanged
 }
 
-func (p *podSeccompBinder) addPodToBinding(
+func (p *podBinder) addSelinuxContext(
+	c *corev1.Container, selinuxProfile *selinuxprofileapi.SelinuxProfile,
+) bool {
+	podChanged := false
+	usage := selinuxProfile.Status.Usage
+	sl := corev1.SELinuxOptions{
+		Type: usage,
+	}
+
+	if c.SecurityContext == nil {
+		c.SecurityContext = &corev1.SecurityContext{}
+	}
+	if c.SecurityContext.SELinuxOptions != nil {
+		p.log.Info("cannot override existing selinux profile for pod or container")
+	} else {
+		c.SecurityContext.SELinuxOptions = &sl
+		podChanged = true
+	}
+	return podChanged
+}
+
+func (p *podBinder) addPodToBinding(
 	ctx context.Context,
 	podID string,
 	pb *profilebindingv1alpha1.ProfileBinding,
@@ -229,7 +303,7 @@ func (p *podSeccompBinder) addPodToBinding(
 	return p.impl.UpdateResource(ctx, p.log, pb, "profilebinding")
 }
 
-func (p *podSeccompBinder) removePodFromBinding(
+func (p *podBinder) removePodFromBinding(
 	ctx context.Context,
 	podID string,
 	pb *profilebindingv1alpha1.ProfileBinding,
@@ -245,7 +319,7 @@ func (p *podSeccompBinder) removePodFromBinding(
 	return p.impl.UpdateResource(ctx, p.log, pb, "profilebinding")
 }
 
-func (p *podSeccompBinder) InjectDecoder(decoder *admission.Decoder) error {
+func (p *podBinder) InjectDecoder(decoder *admission.Decoder) error {
 	p.impl.SetDecoder(decoder)
 	return nil
 }

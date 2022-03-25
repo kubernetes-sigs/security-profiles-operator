@@ -49,6 +49,10 @@ spec:
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
             properties:
+              activeWorkloads:
+                items:
+                  type: string
+                type: array
               conditions:
                 description: Conditions of the resource.
                 items:
