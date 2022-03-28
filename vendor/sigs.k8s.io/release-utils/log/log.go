@@ -22,7 +22,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"sigs.k8s.io/release-utils/command"
@@ -37,7 +36,7 @@ func SetupGlobalLogger(level string) error {
 
 	lvl, err := logrus.ParseLevel(level)
 	if err != nil {
-		return errors.Wrapf(err, "setting log level to %s", level)
+		return fmt.Errorf("setting log level to %s: %w", level, err)
 	}
 	logrus.SetLevel(lvl)
 	if lvl >= logrus.DebugLevel {
@@ -53,7 +52,7 @@ func SetupGlobalLogger(level string) error {
 func ToFile(fileName string) error {
 	file, err := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0o755)
 	if err != nil {
-		return errors.Wrap(err, "open log file")
+		return fmt.Errorf("open log file: %w", err)
 	}
 
 	writer := io.MultiWriter(logrus.StandardLogger().Out, file)
