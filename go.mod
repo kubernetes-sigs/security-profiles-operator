@@ -31,7 +31,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.11.1
 	sigs.k8s.io/controller-tools v0.8.0
 	sigs.k8s.io/mdtoc v1.1.0
-	sigs.k8s.io/release-utils v0.5.0
+	sigs.k8s.io/release-utils v0.6.0
 	sigs.k8s.io/zeitgeist v0.3.0
 )
 
@@ -88,7 +88,7 @@ require (
 	github.com/sergi/go-diff v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
-	github.com/spf13/cobra v1.3.0 // indirect
+	github.com/spf13/cobra v1.4.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/xanzy/go-gitlab v0.43.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.1 // indirect
