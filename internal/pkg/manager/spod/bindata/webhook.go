@@ -19,6 +19,7 @@ package bindata
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/go-logr/logr"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
@@ -27,9 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -63,10 +66,42 @@ var (
 			},
 		},
 	}
+
+	emptySelector = metav1.LabelSelector{}
+
+	ocpWebhookOpts = []spodv1alpha1.WebhookOptions{
+		{
+			Name:          "binding.spo.io",
+			FailurePolicy: &failurePolicy,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "openshift.io/run-level",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"0", "1"},
+					},
+				},
+			},
+		},
+		{
+			Name:          "recording.spo.io",
+			FailurePolicy: &failurePolicy,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "openshift.io/run-level",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"0", "1"},
+					},
+				},
+			},
+		},
+	}
 )
 
 const (
 	webhookName        = config.OperatorName + "-webhook"
+	webhookConfigName  = "spo-mutating-webhook-configuration"
 	serviceAccountName = "spo-webhook"
 	certsMountPath     = "/tmp/k8s-webhook-server/serving-certs"
 	containerPort      = 9443
@@ -84,6 +119,7 @@ type Webhook struct {
 func GetWebhook(
 	log logr.Logger,
 	namespace string,
+	webhookOpts []spodv1alpha1.WebhookOptions,
 	image string,
 	pullPolicy corev1.PullPolicy,
 	caInjectType CAInjectType,
@@ -115,7 +151,13 @@ func GetWebhook(
 		service.Annotations = map[string]string{
 			openshiftCertAnnotation: webhookServerCert,
 		}
+
+		// first apply the distro-specific opts
+		applyWebhookOptions(cfg, ocpWebhookOpts)
 	}
+
+	// then apply the user-specified opts
+	applyWebhookOptions(cfg, webhookOpts)
 
 	return &Webhook{
 		log:        log,
@@ -143,6 +185,90 @@ func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 	}
 
 	return nil
+}
+
+func applyWebhookOptions(cfg *admissionregv1.MutatingWebhookConfiguration, opts []spodv1alpha1.WebhookOptions) {
+	for i := range cfg.Webhooks {
+		var userOpt *spodv1alpha1.WebhookOptions
+
+		hook := &cfg.Webhooks[i]
+		for j := range opts {
+			userOpt = &opts[j]
+
+			if userOpt == nil || userOpt.Name != hook.Name {
+				continue
+			}
+
+			if userOpt.FailurePolicy != nil {
+				hook.FailurePolicy = userOpt.FailurePolicy
+			}
+
+			if userOpt.NamespaceSelector != nil {
+				hook.NamespaceSelector = userOpt.NamespaceSelector
+			}
+		}
+	}
+}
+
+func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error) {
+	existingWebHook := admissionregv1.MutatingWebhookConfiguration{}
+
+	if err := c.Get(ctx,
+		types.NamespacedName{Namespace: w.config.Namespace, Name: w.config.Name},
+		&existingWebHook); err != nil {
+		return false, err
+	}
+
+	if len(existingWebHook.Webhooks) != len(w.config.Webhooks) {
+		return true, nil
+	}
+
+	for i := range existingWebHook.Webhooks {
+		ew := existingWebHook.Webhooks[i]
+		for j := range w.config.Webhooks {
+			cw := w.config.Webhooks[j]
+
+			if ew.Name != cw.Name {
+				continue
+			}
+
+			if webhookNeedsUpdate(&ew, &cw) {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// only compare the settings that are tunable in spod now.
+func webhookNeedsUpdate(existing, configured *admissionregv1.MutatingWebhook) bool {
+	if existing.FailurePolicy == nil && configured.FailurePolicy != nil ||
+		existing.FailurePolicy != nil && configured.FailurePolicy == nil {
+		// comparing pointers, not values
+		return true
+	}
+
+	if existing.FailurePolicy != nil &&
+		configured.FailurePolicy != nil &&
+		*existing.FailurePolicy != *configured.FailurePolicy {
+		// comparing values this time
+		return true
+	}
+
+	if existing.NamespaceSelector == nil && configured.NamespaceSelector != nil ||
+		existing.NamespaceSelector != nil && configured.NamespaceSelector == nil {
+		// comparing pointers, not values
+		return true
+	}
+
+	if existing.NamespaceSelector != nil &&
+		configured.NamespaceSelector != nil &&
+		!reflect.DeepEqual(*existing.NamespaceSelector, *configured.NamespaceSelector) {
+		return true
+	}
+
+	return false
 }
 
 func (w *Webhook) Update(ctx context.Context, c client.Client) error {
@@ -264,15 +390,16 @@ var webhookDeployment = &appsv1.Deployment{
 
 var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 	ObjectMeta: metav1.ObjectMeta{
-		Name: "spo-mutating-webhook-configuration",
+		Name: webhookConfigName,
 	},
 	Webhooks: []admissionregv1.MutatingWebhook{
 		{
-			Name:           "binding.spo.io",
-			FailurePolicy:  &failurePolicy,
-			SideEffects:    &sideEffects,
-			Rules:          rules,
-			ObjectSelector: &objectSelector,
+			Name:              "binding.spo.io",
+			FailurePolicy:     &failurePolicy,
+			SideEffects:       &sideEffects,
+			Rules:             rules,
+			ObjectSelector:    &objectSelector,
+			NamespaceSelector: &emptySelector,
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{
@@ -283,11 +410,12 @@ var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 			AdmissionReviewVersions: admissionReviewVersions,
 		},
 		{
-			Name:           "recording.spo.io",
-			FailurePolicy:  &failurePolicy,
-			SideEffects:    &sideEffects,
-			Rules:          rules,
-			ObjectSelector: &objectSelector,
+			Name:              "recording.spo.io",
+			FailurePolicy:     &failurePolicy,
+			SideEffects:       &sideEffects,
+			Rules:             rules,
+			ObjectSelector:    &objectSelector,
+			NamespaceSelector: &emptySelector,
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{

@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -31,6 +32,17 @@ type SelinuxOptions struct {
 	// policy.
 	// +kubebuilder:default={"container"}
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
+}
+
+type WebhookOptions struct {
+	// Name specifies which webhook do we configure
+	Name string `json:"name,omitempty"`
+	// FailurePolicy sets the webhook failure policy
+	// +optional
+	FailurePolicy *admissionregv1.FailurePolicyType `json:"failurePolicy,omitempty"`
+	// NamespaceSelector sets webhook's namespace selector
+	// +optional
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 }
 
 // SPODStatus defines the desired state of SPOD.
@@ -67,6 +79,10 @@ type SPODSpec struct {
 	// to retrieve the container ID for a process ID. This can be helpful for
 	// nested environments, for example when using "kind".
 	HostProcVolumePath string `json:"hostProcVolumePath,omitempty"`
+	// WebhookOpts set custom namespace selectors and failure mode for
+	// SPO's webhooks
+	// +optional
+	WebhookOpts []WebhookOptions `json:"webhookOptions,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.
