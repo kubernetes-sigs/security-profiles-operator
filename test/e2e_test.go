@@ -118,6 +118,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"Seccomp: make sure statuses for profiles with long names can be listed",
 			e.testCaseLongSeccompProfileName,
 		},
+		{
+			"SPOD: Change webhook config",
+			e.testCaseWebhookOptionsChange,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase

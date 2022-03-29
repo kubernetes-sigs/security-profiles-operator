@@ -157,7 +157,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	}
 	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy, caInjectType)
 
-	webhook := bindata.GetWebhook(r.log, r.namespace, image, pullPolicy, caInjectType)
+	webhook := bindata.GetWebhook(r.log, r.namespace, spod.Spec.WebhookOpts, image, pullPolicy, caInjectType)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
 
 	var certManagerResources *bindata.CertManagerResources
@@ -180,7 +180,13 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 		return reconcile.Result{}, fmt.Errorf("getting spod DaemonSet: %w", err)
 	}
 
-	if spodNeedsUpdate(configuredSPOd, foundSPOd) {
+	spodUpdate := spodNeedsUpdate(configuredSPOd, foundSPOd)
+	hookUpdate, err := webhook.NeedsUpdate(ctx, r.client)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("determining if webhook needs update: %w", err)
+	}
+
+	if spodUpdate || hookUpdate {
 		updatedSPod := foundSPOd.DeepCopy()
 		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
 		updateErr := r.handleUpdate(
