@@ -20,6 +20,7 @@
   - [Available metrics](#available-metrics)
   - [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
 - [Using the log enricher](#using-the-log-enricher)
+- [Configuring webhooks](#configuring-webhooks)
 - [Troubleshooting](#troubleshooting)
   - [Enable CPU and memory profiling](#enable-cpu-and-memory-profiling)
   - [Use a custom <code>/proc</code> location for nested environments like <code>kind</code>](#use-a-custom-proc-location-for-nested-environments-like-kind)
@@ -933,6 +934,43 @@ security_profiles_operator_seccomp_profile_audit_total{container="log-container"
 security_profiles_operator_seccomp_profile_audit_total{container="log-container",executable="/usr/sbin/nginx",namespace="default",node="127.0.0.1",pod="log-pod",syscall="write"} 20
 ```
 
+## Configuring webhooks
+
+Both profile binding and profile recording make use of webhooks. Their configuration (an instance of
+`MutatingWebhookConfiguration` CR) is managed by SPO itself and not part of the deployed YAML manifests.
+While the defaults should be acceptable for the majority of users and the webhooks do nothing unless an
+instance of either `ProfileBinding` or `ProfileRecording` exists in a namespace, it might still be useful
+to configure the webhooks.
+
+In order to change webhook's configuration, the `spod` CR exposes an object `webhookOptions` that allows
+the `failurePolicy` and the `namespaceSelector` to be set. This way you can set the webhooks to "soft-fail"
+or restrict them to a subset of a namespaces so that even if the webhooks had a bug that would prevent them
+from running at all, other namespaces or resources wouldn't be affected.
+
+For example, to set the `binding.spo.io` webhook's configuration to ignore errors as well as restrict it
+to a subset of namespaces labeled with `spo.x-k8s.io/enable-binding=true`, create a following patch file:
+```yaml
+spec:
+  webhookOptions:
+    - name: binding.spo.io
+      failurePolicy: Ignore
+      namespaceSelector:
+        matchExpressions:
+          - key: spo.x-k8s.io/enable-binding
+            operator: In
+            values:
+              - 'true'
+```
+
+And patch the `spod/spod` instance:
+```shell
+$ kubectl -nsecurity-profiles-operator patch spod spod -p $(cat /tmp/spod-wh.patch) --type=merge
+```
+
+To view the resulting `MutatingWebhookConfiguration`, call:
+```shell
+$ kubectl -nsecurity-profiles-operator get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
+```
 ## Troubleshooting
 
 Confirm that the profile is being reconciled:
