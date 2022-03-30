@@ -548,6 +548,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
+							ReadOnlyRootFilesystem:   &truly,
 						},
 						Ports: []corev1.ContainerPort{
 							{Name: "https", ContainerPort: metricsPort},
