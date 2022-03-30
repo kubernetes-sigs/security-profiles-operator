@@ -40,7 +40,7 @@ function build_and_push_packages() {
         rm -f build/kustomize
 
         # create bundle, bundle image, push bundle using our manifest created earlier
-        make bundle BUNDLE_OPERATOR_MANIFEST=${OPERATOR_MANIFEST} IMG=${IMG}
+        make bundle BUNDLE_OPERATOR_MANIFEST=${OPERATOR_MANIFEST}
         # GH CI workers have pretty limited CPU and won't be able to run SPO, OLM and cert-manager at the same time
         sed -i '/cpu\:/d' bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
         make bundle-build BUNDLE_IMG=${BUNDLE_IMG}

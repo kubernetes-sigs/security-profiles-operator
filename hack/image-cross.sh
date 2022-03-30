@@ -27,6 +27,7 @@ VERSION=v$(cat VERSION)
 QEMUVERSION=6.1.0-8
 TAGS=("$TAG" "$VERSION" latest)
 
+# Build and push the main image
 docker run --rm --privileged \
     multiarch/qemu-user-static:$QEMUVERSION --reset -p yes
 docker buildx version
@@ -61,3 +62,11 @@ for T in "${TAGS[@]}"; do
 
     docker manifest push --purge "$IMAGE:$T"
 done
+
+# Build and push the catalog image
+export BUNDLE_IMG=$IMAGE-bundle:$VERSION
+export CATALOG_IMG=$IMAGE-catalog:$VERSION
+make bundle-build \
+    bundle-push \
+    catalog-build \
+    catalog-push
