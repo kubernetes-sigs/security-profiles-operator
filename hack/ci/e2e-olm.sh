@@ -71,7 +71,7 @@ function check_spo_is_running() {
         for i in $(seq 1 5); do
             kubectl -nolm wait --for=condition=ready pods -lolm.catalogSource=security-profiles-operator
             catalog_logs=$(kubectl -nolm logs $(kubectl -nolm get pods --no-headers -lolm.catalogSource=security-profiles-operator | awk '{print $1}') 2>/dev/null)
-            if "x"$logs != "x"; then
+            if [[ -n "$catalog_logs" ]]; then
                 echo $catalog_logs
                 break
             fi
