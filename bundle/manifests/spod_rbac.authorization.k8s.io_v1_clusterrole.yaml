@@ -1,0 +1,184 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: spod
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - subjectaccessreviews
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - apparmorprofiles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - apparmorprofiles/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - apparmorprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - rawselinuxprofiles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - rawselinuxprofiles/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - rawselinuxprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilenodestatuses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - securityprofilesoperatordaemons
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxprofiles
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxprofiles/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxprofiles/status
+  verbs:
+  - get
+  - patch
+  - update

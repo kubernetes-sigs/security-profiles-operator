@@ -1,4 +1,4 @@
-name: OLM-Tests
+name: olm
 on:
   push:
     branches:
@@ -22,7 +22,7 @@ permissions:
   statuses: none
 jobs:
   main:
-    name: Run tests
+    name: tests
     runs-on: ubuntu-20.04
 
     steps:
