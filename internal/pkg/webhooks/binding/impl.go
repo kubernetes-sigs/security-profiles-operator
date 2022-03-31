@@ -18,9 +18,9 @@ package binding
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,8 +51,10 @@ func (d *defaultImpl) ListProfileBindings(
 	ctx context.Context, opts ...client.ListOption,
 ) (*v1alpha1.ProfileBindingList, error) {
 	profileBindings := &v1alpha1.ProfileBindingList{}
-	err := d.client.List(ctx, profileBindings, opts...)
-	return profileBindings, errors.Wrap(err, "list profile bindings")
+	if err := d.client.List(ctx, profileBindings, opts...); err != nil {
+		return nil, fmt.Errorf("list profile bindings: %w", err)
+	}
+	return profileBindings, nil
 }
 
 func (d *defaultImpl) UpdateResource(
@@ -80,14 +82,18 @@ func (d *defaultImpl) SetDecoder(decoder *admission.Decoder) {
 // nolint:gocritic
 func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
 	pod := &corev1.Pod{}
-	err := d.decoder.Decode(req, pod)
-	return pod, errors.Wrap(err, "decode pod")
+	if err := d.decoder.Decode(req, pod); err != nil {
+		return nil, fmt.Errorf("decode pod: %w", err)
+	}
+	return pod, nil
 }
 
 func (d *defaultImpl) GetSeccompProfile(
 	ctx context.Context, key types.NamespacedName,
 ) (*seccompprofileapi.SeccompProfile, error) {
 	seccompProfile := &seccompprofileapi.SeccompProfile{}
-	err := d.client.Get(ctx, key, seccompProfile)
-	return seccompProfile, errors.Wrap(err, "get seccomp profile")
+	if err := d.client.Get(ctx, key, seccompProfile); err != nil {
+		return nil, fmt.Errorf("get seccomp profile: %w", err)
+	}
+	return seccompProfile, nil
 }

@@ -18,10 +18,10 @@ package util
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 
-	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -53,7 +53,7 @@ func lengthName(maxLen int, hashPrefix, format string, a ...interface{}) (string
 	// If that's too long, just hash the name. It's not very user friendly, but whatever
 	hasher := sha256.New()
 	if _, err := io.WriteString(hasher, friendlyName); err != nil {
-		return "", errors.Wrap(err, "writing string")
+		return "", fmt.Errorf("writing string: %w", err)
 	}
 
 	hashStr := fmt.Sprintf("%x", hasher.Sum(nil))

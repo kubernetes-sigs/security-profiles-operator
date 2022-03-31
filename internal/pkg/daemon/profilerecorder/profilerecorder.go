@@ -19,6 +19,8 @@ package profilerecorder
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -30,7 +32,6 @@ import (
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -119,14 +120,14 @@ func (r *RecorderReconciler) Setup(
 	const name = "profilerecorder"
 	c, err := r.NewClient(mgr)
 	if err != nil {
-		return errors.Wrap(err, "cannot get client connection")
+		return fmt.Errorf("cannot get client connection: %w", err)
 	}
 
 	node := &corev1.Node{}
 	if err := r.ClientGet(
 		c, client.ObjectKey{Name: os.Getenv(config.NodeNameEnvKey)}, node,
 	); err != nil {
-		return errors.Wrap(err, "cannot get node object")
+		return fmt.Errorf("cannot get node object: %w", err)
 	}
 
 	r.log = ctrl.Log.WithName(r.Name())
@@ -140,7 +141,7 @@ func (r *RecorderReconciler) Setup(
 	}
 
 	if len(nodeAddresses) == 0 {
-		return errors.New("Unable to get node's internal Address")
+		return errors.New("unable to get node's internal Address")
 	}
 
 	r.client = r.ManagerGetClient(mgr)
@@ -208,13 +209,15 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	pod, err := r.GetPod(ctx, r.client, req.NamespacedName)
 	if err != nil {
 		if kerrors.IsNotFound(err) {
-			err = r.collectProfile(ctx, req.NamespacedName)
-			return reconcile.Result{}, errors.Wrap(err, "collect profile for removed pod")
+			if err := r.collectProfile(ctx, req.NamespacedName); err != nil {
+				return reconcile.Result{}, fmt.Errorf("collect profile for removed pod: %w", err)
+			}
+			return reconcile.Result{}, nil
 		}
 
 		// Returning an error means we will be requeued implicitly.
 		logger.Error(err, "Error reading pod")
-		return reconcile.Result{}, errors.Wrap(err, "cannot get pod")
+		return reconcile.Result{}, fmt.Errorf("cannot get pod: %w", err)
 	}
 
 	if pod.Status.Phase == corev1.PodPending {
@@ -283,7 +286,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 
 	if pod.Status.Phase == corev1.PodSucceeded {
 		if err := r.collectProfile(ctx, req.NamespacedName); err != nil {
-			return reconcile.Result{}, errors.Wrap(err, "collect profile for succeeded pod")
+			return reconcile.Result{}, fmt.Errorf("collect profile for succeeded pod: %w", err)
 		}
 	}
 
@@ -295,7 +298,7 @@ func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderC
 
 	spod, err := r.getSPOD()
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "getting SPOD config")
+		return nil, nil, fmt.Errorf("getting SPOD config: %w", err)
 	}
 
 	if !spod.Spec.EnableBpfRecorder {
@@ -305,7 +308,7 @@ func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderC
 	r.log.Info("Connecting to local GRPC bpf recorder server")
 	conn, cancel, err := r.DialBpfRecorder()
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "connect to bpf recorder GRPC server")
+		return nil, nil, fmt.Errorf("connect to bpf recorder GRPC server: %w", err)
 	}
 	bpfRecorderClient := bpfrecorderapi.NewBpfRecorderClient(conn)
 
@@ -315,7 +318,7 @@ func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderC
 func (r *RecorderReconciler) startBpfRecorder() error {
 	recorderClient, cancel, err := r.getBpfRecorderClient()
 	if err != nil {
-		return errors.Wrap(err, "get bpf recorder client")
+		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
 	defer cancel()
 
@@ -328,7 +331,7 @@ func (r *RecorderReconciler) startBpfRecorder() error {
 func (r *RecorderReconciler) stopBpfRecorder() error {
 	recorderClient, cancel, err := r.getBpfRecorderClient()
 	if err != nil {
-		return errors.Wrap(err, "get bpf recorder client")
+		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
 	defer cancel()
 
@@ -357,7 +360,7 @@ func (r *RecorderReconciler) collectProfile(
 		if err := r.collectLocalProfiles(
 			ctx, name, podToWatch.profiles,
 		); err != nil {
-			return errors.Wrap(err, "collect local profile")
+			return fmt.Errorf("collect local profile: %w", err)
 		}
 	}
 
@@ -365,7 +368,7 @@ func (r *RecorderReconciler) collectProfile(
 		if err := r.collectLogProfiles(
 			ctx, name, podToWatch.profiles,
 		); err != nil {
-			return errors.Wrap(err, "collect log profile")
+			return fmt.Errorf("collect log profile: %w", err)
 		}
 	}
 
@@ -373,7 +376,7 @@ func (r *RecorderReconciler) collectProfile(
 		if err := r.collectBpfProfiles(
 			ctx, name, podToWatch.profiles,
 		); err != nil {
-			return errors.Wrap(err, "collect bpf profile")
+			return fmt.Errorf("collect bpf profile: %w", err)
 		}
 	}
 
@@ -397,13 +400,13 @@ func (r *RecorderReconciler) collectLocalProfiles(
 		data, err := r.ReadFile(profilePath)
 		if err != nil {
 			r.log.Error(err, "Failed to read profile")
-			return errors.Wrap(err, "read profile")
+			return fmt.Errorf("read profile: %w", err)
 		}
 
 		// Remove the file extension and timestamp
 		profileName, err := extractProfileName(filepath.Base(profilePath))
 		if err != nil {
-			return errors.Wrap(err, "extract profile name")
+			return fmt.Errorf("extract profile name: %w", err)
 		}
 
 		profile := &seccompprofileapi.SeccompProfile{
@@ -414,16 +417,16 @@ func (r *RecorderReconciler) collectLocalProfiles(
 		}
 		res, err := r.CreateOrUpdate(ctx, r.client, profile,
 			func() error {
-				return errors.Wrap(
-					json.Unmarshal(data, &profile.Spec),
-					"unmarshal profile spec JSON",
-				)
+				if err := json.Unmarshal(data, &profile.Spec); err != nil {
+					return fmt.Errorf("unmarshal profile spec JSON: %w", err)
+				}
+				return nil
 			},
 		)
 		if err != nil {
 			r.log.Error(err, "Cannot create seccompprofile resource")
 			r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
-			return errors.Wrap(err, "create seccompProfile resource")
+			return fmt.Errorf("create seccompProfile resource: %w", err)
 		}
 		r.log.Info("Created/updated profile", "action", res, "name", profileName)
 		r.record.Event(
@@ -444,7 +447,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 
 	spod, err := r.getSPOD()
 	if err != nil {
-		return errors.Wrap(err, "getting SPOD config")
+		return fmt.Errorf("getting SPOD config: %w", err)
 	}
 
 	if !spod.Spec.EnableLogEnricher {
@@ -454,7 +457,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 	r.log.Info("Connecting to local GRPC enricher server")
 	conn, cancel, err := r.DialEnricher()
 	if err != nil {
-		return errors.Wrap(err, "connecting to local GRPC server")
+		return fmt.Errorf("connecting to local GRPC server: %w", err)
 	}
 	defer cancel()
 	enricherClient := enricherapi.NewEnricherClient(conn)
@@ -463,7 +466,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 		// Remove the timestamp
 		profileName, err := extractProfileName(prf.name)
 		if err != nil {
-			return errors.Wrap(err, "extract profile name")
+			return fmt.Errorf("extract profile name: %w", err)
 		}
 
 		r.log.Info("Collecting profile", "name", profileName, "kind", prf.kind)
@@ -474,7 +477,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 		case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
 			err = r.collectLogSelinuxProfile(ctx, enricherClient, profileName, name.Namespace, prf.name)
 		default:
-			err = errors.Errorf("unrecognized kind %s", prf.kind)
+			err = fmt.Errorf("unrecognized kind %s", prf.kind)
 		}
 
 		if err != nil {
@@ -496,14 +499,12 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	request := &enricherapi.SyscallsRequest{Profile: profileID}
 	response, err := r.Syscalls(ctx, enricherClient, request)
 	if err != nil {
-		return errors.Wrapf(
-			err, "retrieve syscalls for profile %s", profileID,
-		)
+		return fmt.Errorf("retrieve syscalls for profile %s: %w", profileID, err)
 	}
 
 	arch, err := r.goArchToSeccompArch(response.GoArch)
 	if err != nil {
-		return errors.Wrap(err, "get seccomp arch")
+		return fmt.Errorf("get seccomp arch: %w", err)
 	}
 
 	profileSpec := seccompprofileapi.SeccompProfileSpec{
@@ -532,7 +533,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	if err != nil {
 		r.log.Error(err, "Cannot create seccompprofile resource")
 		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
-		return errors.Wrap(err, "create seccompProfile resource")
+		return fmt.Errorf("create seccompProfile resource: %w", err)
 	}
 
 	r.log.Info("Created/updated profile", "action", res, "name", profileName)
@@ -543,9 +544,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 
 	// Reset the syscalls for further recordings
 	if err := r.ResetSyscalls(ctx, enricherClient, request); err != nil {
-		return errors.Wrapf(
-			err, "reset syscalls for profile %s", profileID,
-		)
+		return fmt.Errorf("reset syscalls for profile %s: %w", profileID, err)
 	}
 
 	return nil
@@ -562,9 +561,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	request := &enricherapi.AvcRequest{Profile: profileID}
 	response, err := r.Avcs(ctx, enricherClient, request)
 	if err != nil {
-		return errors.Wrapf(
-			err, "retrieve avcs for profile %s", profileID,
-		)
+		return fmt.Errorf("retrieve avcs for profile %s: %w", profileID, err)
 	}
 
 	selinuxProfileSpec := selxv1alpha2.SelinuxProfileSpec{
@@ -588,7 +585,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	if err != nil {
 		r.log.Error(err, "Cannot format selinuxprofile")
 		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
-		return errors.Wrap(err, "format selinuxprofile resource")
+		return fmt.Errorf("format selinuxprofile resource: %w", err)
 	}
 	r.log.Info("Created", "profile", profile)
 
@@ -601,7 +598,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	if err != nil {
 		r.log.Error(err, "Cannot create selinuxprofile resource")
 		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
-		return errors.Wrap(err, "create selinuxprofile resource")
+		return fmt.Errorf("create selinuxprofile resource: %w", err)
 	}
 	r.log.Info("Created/updated selinux profile", "action", res, "name", profileName)
 	r.record.Event(
@@ -611,9 +608,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 
 	// Reset the selinuxprofile for further recordings
 	if err := r.ResetAvcs(ctx, enricherClient, request); err != nil {
-		return errors.Wrapf(
-			err, "reset selinuxprofile for profile %s", profileName,
-		)
+		return fmt.Errorf("reset selinuxprofile for profile %s: %w", profileName, err)
 	}
 
 	return nil
@@ -626,12 +621,12 @@ func (r *RecorderReconciler) formatSelinuxProfile(
 	seBuilder := newSeProfileBuilder(selinuxprofile.GetPolicyUsage(), r.log)
 
 	if err := seBuilder.AddAvcList(avcResponse.GetAvc()); err != nil {
-		return nil, errors.Wrap(err, "consuming AVCs")
+		return nil, fmt.Errorf("consuming AVCs: %w", err)
 	}
 
 	sePol, err := seBuilder.Format()
 	if err != nil {
-		return nil, errors.Wrap(err, "building policy")
+		return nil, fmt.Errorf("building policy: %w", err)
 	}
 
 	return sePol, nil
@@ -644,7 +639,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 ) error {
 	recorderClient, cancel, err := r.getBpfRecorderClient()
 	if err != nil {
-		return errors.Wrap(err, "get bpf recorder client")
+		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
 	defer cancel()
 
@@ -661,13 +656,13 @@ func (r *RecorderReconciler) collectBpfProfiles(
 				r.log.Error(err, "Recorded profile not found", profile.name)
 				continue
 			} else {
-				return errors.Wrap(err, "get syscalls for profile")
+				return fmt.Errorf("get syscalls for profile: %w", err)
 			}
 		}
 
 		arch, err := r.goArchToSeccompArch(response.GoArch)
 		if err != nil {
-			return errors.Wrap(err, "get seccomp arch")
+			return fmt.Errorf("get seccomp arch: %w", err)
 		}
 
 		profileSpec := seccompprofileapi.SeccompProfileSpec{
@@ -682,7 +677,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		// Remove the timestamp
 		profileName, err := extractProfileName(profile.name)
 		if err != nil {
-			return errors.Wrap(err, "extract profile name")
+			return fmt.Errorf("extract profile name: %w", err)
 		}
 
 		profile := &seccompprofileapi.SeccompProfile{
@@ -702,7 +697,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		if err != nil {
 			r.log.Error(err, "Cannot create seccompprofile resource")
 			r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
-			return errors.Wrap(err, "create seccompProfile resource")
+			return fmt.Errorf("create seccompProfile resource: %w", err)
 		}
 
 		r.log.Info("Created/updated profile", "action", res, "name", profileName)
@@ -714,7 +709,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 
 	if err := r.stopBpfRecorder(); err != nil {
 		r.log.Error(err, "Unable to stop bpf recorder")
-		return errors.Wrap(err, "stop bpf recorder")
+		return fmt.Errorf("stop bpf recorder: %w", err)
 	}
 	return nil
 }
@@ -722,7 +717,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 func extractProfileName(s string) (string, error) {
 	lastIndex := strings.LastIndex(s, "-")
 	if lastIndex == -1 {
-		return "", errors.Errorf("malformed profile path: %s", s)
+		return "", fmt.Errorf("malformed profile path: %s", s)
 	}
 	return s[:lastIndex], nil
 }
@@ -738,14 +733,17 @@ func parseHookAnnotations(annotations map[string]string) (res []profileToCollect
 		}
 
 		if !strings.HasPrefix(value, prefix) {
-			return nil, errors.Wrapf(errors.New(errInvalidAnnotation),
-				"must start with %q prefix", prefix)
+			return nil, fmt.Errorf(
+				"%s: must start with %q prefix", errInvalidAnnotation, prefix,
+			)
 		}
 
 		outputFile := strings.TrimSpace(strings.TrimPrefix(value, prefix))
 		if !filepath.IsAbs(outputFile) {
-			return nil, errors.Wrapf(errors.New(errInvalidAnnotation),
-				"output file path must be absolute: %q", outputFile)
+			return nil, fmt.Errorf(
+				"%s: output file path must be absolute: %q",
+				errInvalidAnnotation, outputFile,
+			)
 		}
 
 		if !strings.HasPrefix(outputFile, config.ProfileRecordingOutputPath) {
@@ -779,8 +777,10 @@ func parseLogAnnotations(annotations map[string]string) (res []profileToCollect,
 		}
 
 		if profile == "" {
-			return nil, errors.Wrap(errors.New(errInvalidAnnotation),
-				"providing output profile is mandatory")
+			return nil, fmt.Errorf(
+				"%s: providing output profile is mandatory",
+				errInvalidAnnotation,
+			)
 		}
 		collectProfile.name = profile
 
@@ -803,8 +803,10 @@ func parseBpfAnnotations(annotations map[string]string) (res []profileToCollect,
 		}
 
 		if profile == "" {
-			return nil, errors.Wrap(errors.New(errInvalidAnnotation),
-				"providing output profile is mandatory")
+			return nil, fmt.Errorf(
+				"%s: providing output profile is mandatory",
+				errInvalidAnnotation,
+			)
 		}
 		collectProfile.name = profile
 
@@ -841,7 +843,7 @@ func (sb *seProfileBuilder) AddAvcList(avcs []*enricherapi.AvcResponse_SelinuxAv
 			"tcontext", avc.Tcontext)
 
 		if err := sb.addAvc(avc); err != nil {
-			return errors.Wrap(err, "adding AVC")
+			return fmt.Errorf("adding AVC: %w", err)
 		}
 	}
 
@@ -851,7 +853,7 @@ func (sb *seProfileBuilder) AddAvcList(avcs []*enricherapi.AvcResponse_SelinuxAv
 func (sb *seProfileBuilder) addAvc(avc *enricherapi.AvcResponse_SelinuxAvc) error {
 	ctxType, err := ctxt2type(avc.Tcontext)
 	if err != nil {
-		return errors.Wrap(err, "converting context to type")
+		return fmt.Errorf("converting context to type: %w", err)
 	}
 
 	key := avc.Tclass + " " + ctxType
@@ -871,7 +873,7 @@ func (sb *seProfileBuilder) Format() (selxv1alpha2.Allow, error) {
 	for _, key := range sb.keys {
 		val := sb.permMap[key]
 		if err := sb.writeLineFromKeyVal(key, val); err != nil {
-			return nil, errors.Wrap(err, "writing policy line from key-value pair")
+			return nil, fmt.Errorf("writing policy line from key-value pair: %w", err)
 		}
 	}
 
@@ -912,7 +914,7 @@ func (sb *seProfileBuilder) targetClassCtx(key string) (tclass, tcontext string)
 func ctxt2type(ctx string) (string, error) {
 	elems := strings.Split(ctx, ":")
 	if len(elems) < seContextRequiredParts {
-		return "", errors.New("Malformed SELinux context")
+		return "", errors.New("malformed SELinux context")
 	}
 	return elems[2], nil
 }
@@ -920,7 +922,7 @@ func ctxt2type(ctx string) (string, error) {
 func (r *RecorderReconciler) goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, error) {
 	seccompArch, err := r.GoArchToSeccompArch(goarch)
 	if err != nil {
-		return "", errors.Wrap(err, "convert golang to seccomp arch")
+		return "", fmt.Errorf("convert golang to seccomp arch: %w", err)
 	}
 	return seccompprofileapi.Arch(seccompArch), nil
 }

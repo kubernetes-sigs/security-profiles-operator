@@ -18,6 +18,7 @@ package util
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +26,6 @@ import (
 	"strconv"
 
 	"github.com/ReneKroon/ttlcache/v2"
-	"github.com/pkg/errors"
 )
 
 var (
@@ -60,7 +60,7 @@ func ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
 
 	file, err := os.Open(filepath.Clean(cgroupPath))
 	if err != nil {
-		return "", errors.Wrap(err, ErrProcessNotFound.Error())
+		return "", fmt.Errorf("%v: %w", ErrProcessNotFound, err)
 	}
 
 	defer func() {
@@ -79,7 +79,7 @@ func ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
 			if err := cache.Set(
 				strconv.Itoa(pid), containerID,
 			); err != nil {
-				return "", errors.Wrap(err, "update cache")
+				return "", fmt.Errorf("update cache: %w", err)
 			}
 
 			return containerID, nil

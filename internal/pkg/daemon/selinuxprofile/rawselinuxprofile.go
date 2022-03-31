@@ -19,10 +19,10 @@ package selinuxprofile
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"html/template"
 	"strings"
 
-	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -98,7 +98,7 @@ func (sph *rawSelinuxProfileHandler) wrapPolicy() (string, error) {
 	}
 	var result bytes.Buffer
 	if err := sph.policyTemplate.Execute(&result, data); err != nil {
-		return "", errors.Wrapf(err, "couldn't render policy")
+		return "", fmt.Errorf("couldn't render policy: %w", err)
 	}
 	return result.String(), nil
 }

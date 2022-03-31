@@ -17,10 +17,11 @@ limitations under the License.
 package enricher
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/ReneKroon/ttlcache/v2"
-	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -54,12 +55,12 @@ func (e *Enricher) getContainerInfo(
 
 	clusterConfig, err := e.impl.InClusterConfig()
 	if err != nil {
-		return nil, errors.Wrap(err, "get in-cluster config")
+		return nil, fmt.Errorf("get in-cluster config: %w", err)
 	}
 
 	clientset, err := e.impl.NewForConfig(clusterConfig)
 	if err != nil {
-		return nil, errors.Wrap(err, "load in-cluster config")
+		return nil, fmt.Errorf("load in-cluster config: %w", err)
 	}
 
 	containerRetryBackoff := wait.Backoff{
@@ -74,7 +75,7 @@ func (e *Enricher) getContainerInfo(
 		func() (retryErr error) {
 			pods, err := e.impl.ListPods(clientset, nodeName)
 			if err != nil {
-				return errors.Wrapf(err, "list node %s's pods", nodeName)
+				return fmt.Errorf("list node %s's pods: %w", nodeName, err)
 			}
 
 			for p := range pods.Items {
@@ -96,7 +97,7 @@ func (e *Enricher) getContainerInfo(
 							return errContainerIDEmpty
 						}
 
-						return errors.Errorf(
+						return fmt.Errorf(
 							"container ID not found with container state: %v",
 							containerStatus.State,
 						)
@@ -126,7 +127,7 @@ func (e *Enricher) getContainerInfo(
 
 					// Update the cache
 					if err := e.infoCache.Set(rawContainerID, info); err != nil {
-						return errors.Wrap(err, "update cache")
+						return fmt.Errorf("update cache: %w", err)
 					}
 				}
 			}
@@ -136,7 +137,7 @@ func (e *Enricher) getContainerInfo(
 			return errors.Is(inErr, errContainerIDEmpty)
 		},
 	); err != nil {
-		return nil, errors.Wrap(err, "get container info for pods")
+		return nil, fmt.Errorf("get container info for pods: %w", err)
 	}
 
 	if info, err := e.infoCache.Get(

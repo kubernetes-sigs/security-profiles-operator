@@ -19,13 +19,13 @@ package recording
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -322,7 +322,7 @@ func (p *podSeccompRecorder) addPod(
 	if err := p.impl.UpdateResource(
 		ctx, p.log, profileRecording, "profilerecording status",
 	); err != nil {
-		return errors.Wrap(err, "update resource on adding pod")
+		return fmt.Errorf("update resource on adding pod: %w", err)
 	}
 
 	if !controllerutil.ContainsFinalizer(profileRecording, finalizer) {
@@ -348,7 +348,7 @@ func (p *podSeccompRecorder) removePod(
 	if err := p.impl.UpdateResource(
 		ctx, p.log, profileRecording, "profilerecording status",
 	); err != nil {
-		return errors.Wrap(err, "update resource on removing pod")
+		return fmt.Errorf("update resource on removing pod: %w", err)
 	}
 
 	if len(profileRecording.Status.ActiveWorkloads) == 0 &&

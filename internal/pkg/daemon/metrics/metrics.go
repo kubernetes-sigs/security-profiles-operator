@@ -22,7 +22,6 @@ import (
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -215,7 +214,7 @@ func (m *Metrics) Register() error {
 	} {
 		m.log.Info(fmt.Sprintf("Registering metric: %s", name))
 		if err := m.impl.Register(collector); err != nil {
-			return errors.Wrapf(err, "register collector for %s metric", name)
+			return fmt.Errorf("register collector for %s metric: %w", name, err)
 		}
 	}
 	return nil

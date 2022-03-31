@@ -18,13 +18,14 @@ package nodestatus
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -49,7 +50,7 @@ const (
 )
 
 var (
-	ErrNoOwnerProfile  = errors.New("No owner profile defined for this status")
+	ErrNoOwnerProfile  = errors.New("no owner profile defined for this status")
 	ErrUnkownOwnerKind = errors.New("the node status owner is of an unknown kind")
 )
 
@@ -147,7 +148,7 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 	// get all the other statuses
 	profLabel := instance.Labels[statusv1alpha1.StatusToProfLabel]
 	if profLabel == "" {
-		return reconcile.Result{}, errors.New("Unlabeled node status")
+		return reconcile.Result{}, errors.New("unlabeled node status")
 	}
 
 	if util.KindBasedDNSLengthName(prof) != instance.Labels[statusv1alpha1.StatusToProfLabel] {
@@ -156,13 +157,13 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 
 	nodeStatusList, err := listStatusesForProfile(ctx, r.client, profLabel)
 	if err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "cannot list the node statuses")
+		return reconcile.Result{}, fmt.Errorf("cannot list the node statuses: %w", err)
 	}
 
 	// get the DS
 	spodDS, err := r.getDS(ctx, config.GetOperatorNamespace(), lprof)
 	if err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "cannot get the DS")
+		return reconcile.Result{}, fmt.Errorf("cannot get the DS: %w", err)
 	}
 
 	if !daemonSetIsReady(spodDS) || daemonSetIsUpdating(spodDS) {
@@ -194,7 +195,7 @@ func (r *StatusReconciler) getDS(ctx context.Context, namespace string, l logr.L
 	dsSelect := labels.NewSelector()
 	spodDSFilter, err := labels.NewRequirement("spod", selection.Exists, []string{})
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot create DS list label")
+		return nil, fmt.Errorf("cannot create DS list label: %w", err)
 	}
 	dsSelect.Add(*spodDSFilter)
 	dsListOpts := client.ListOptions{
@@ -204,13 +205,13 @@ func (r *StatusReconciler) getDS(ctx context.Context, namespace string, l logr.L
 
 	spodDSList := appsv1.DaemonSetList{}
 	if err := r.client.List(ctx, &spodDSList, &dsListOpts); err != nil {
-		return nil, errors.Wrap(err, "cannot list DS")
+		return nil, fmt.Errorf("cannot list DS: %w", err)
 	}
 
 	if len(spodDSList.Items) != 1 {
-		retErr := errors.New("Did not find exactly one DS")
+		retErr := errors.New("did not find exactly one DS")
 		l.Error(retErr, "Expected to find 1 DS", "len(dsList.Items)", len(spodDSList.Items))
-		return nil, errors.Wrap(retErr, "listing DS")
+		return nil, fmt.Errorf("listing DS: %w", retErr)
 	}
 
 	return &spodDSList.Items[0], nil
@@ -222,7 +223,7 @@ func (r *StatusReconciler) getProfileFromStatus(
 ) (pbv1alpha1.StatusBaseUser, error) {
 	ctrl := metav1.GetControllerOf(s)
 	if ctrl == nil {
-		return nil, errors.Wrapf(ErrNoOwnerProfile, "getting owner profile")
+		return nil, fmt.Errorf("getting owner profile: %w", ErrNoOwnerProfile)
 	}
 
 	key := types.NamespacedName{
@@ -236,10 +237,10 @@ func (r *StatusReconciler) getProfileFromStatus(
 	case "SelinuxProfile":
 		prof = &selxv1alpha2.SelinuxProfile{}
 	default:
-		return nil, errors.Wrapf(ErrUnkownOwnerKind, "getting owner profile")
+		return nil, fmt.Errorf("getting owner profile: %w", ErrUnkownOwnerKind)
 	}
 	if err := r.client.Get(ctx, key, prof); err != nil {
-		return nil, errors.Wrapf(err, "getting owner profile: %s/%s", s.GetNamespace(), ctrl.Name)
+		return nil, fmt.Errorf("getting owner profile: %s/%s: %w", s.GetNamespace(), ctrl.Name, err)
 	}
 	return prof, nil
 }
@@ -276,7 +277,7 @@ func (r *StatusReconciler) reconcileStatus(
 
 	l.Info("Updating status")
 	if updateErr := r.client.Status().Update(ctx, pCopy); updateErr != nil {
-		return reconcile.Result{}, errors.Wrapf(updateErr, "Updating policy status")
+		return reconcile.Result{}, fmt.Errorf("updating policy status: %w", updateErr)
 	}
 
 	return reconcile.Result{}, nil
@@ -300,7 +301,7 @@ func listStatusesForProfile(
 	}
 
 	if err := c.List(ctx, &statusList, allStatusesForProf); err != nil {
-		return nil, errors.Wrap(err, "listing statuses")
+		return nil, fmt.Errorf("listing statuses: %w", err)
 	}
 
 	return &statusList, nil

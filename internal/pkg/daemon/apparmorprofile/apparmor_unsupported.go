@@ -20,8 +20,9 @@ limitations under the License.
 package apparmorprofile
 
 import (
+	"errors"
+
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 )

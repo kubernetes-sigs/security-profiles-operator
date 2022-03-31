@@ -17,10 +17,10 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -31,7 +31,7 @@ const (
 )
 
 func IsNotFoundOrConflict(err error) bool {
-	return kerrors.IsNotFound(err) || kerrors.IsConflict(err)
+	return errors.IsNotFound(err) || errors.IsConflict(err)
 }
 
 // retry attempts to execute fn up to 5 times if its failure meets retryCondition.
@@ -54,11 +54,11 @@ func RetryEx(backoff *wait.Backoff, fn func() error, retryCondition func(error) 
 			return false, nil
 		}
 
-		return false, errors.Wrap(err, "retry function")
+		return false, fmt.Errorf("retry function: %w", err)
 	})
 
 	if waitErr != nil {
-		return errors.Wrap(waitErr, "wait on retry")
+		return fmt.Errorf("wait on retry: %w", waitErr)
 	}
 
 	return nil

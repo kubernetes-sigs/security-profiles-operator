@@ -22,6 +22,7 @@ package bpfrecorder
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -36,7 +37,6 @@ import (
 	"github.com/ReneKroon/ttlcache/v2"
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -107,7 +107,7 @@ func (b *BpfRecorder) Run() error {
 		b.containerIDCache, b.syscallNamesForIDCache,
 	} {
 		if err := b.SetTTL(cache, defaultCacheTimeout); err != nil {
-			return errors.Wrap(err, "set cache timeout")
+			return fmt.Errorf("set cache timeout: %w", err)
 		}
 		cache.SetCacheSizeLimit(maxCacheItems)
 		defer cache.Close() // nolint:gocritic // this is intentional
@@ -115,7 +115,7 @@ func (b *BpfRecorder) Run() error {
 
 	b.nodeName = b.Getenv(config.NodeNameEnvKey)
 	if b.nodeName == "" {
-		err := errors.Errorf("%s environment variable not set", config.NodeNameEnvKey)
+		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		b.logger.Error(err, "unable to run recorder")
 		return err
 	}
@@ -123,23 +123,23 @@ func (b *BpfRecorder) Run() error {
 
 	clusterConfig, err := b.InClusterConfig()
 	if err != nil {
-		return errors.Wrap(err, "get in-cluster config")
+		return fmt.Errorf("get in-cluster config: %w", err)
 	}
 
 	b.clientset, err = b.NewForConfig(clusterConfig)
 	if err != nil {
-		return errors.Wrap(err, "load in-cluster client")
+		return fmt.Errorf("load in-cluster client: %w", err)
 	}
 
 	if _, err := b.Stat(config.GRPCServerSocketBpfRecorder); err == nil {
 		if err := b.RemoveAll(config.GRPCServerSocketBpfRecorder); err != nil {
-			return errors.Wrap(err, "remove GRPC socket file")
+			return fmt.Errorf("remove GRPC socket file: %w", err)
 		}
 	}
 
 	listener, err := b.Listen("unix", config.GRPCServerSocketBpfRecorder)
 	if err != nil {
-		return errors.Wrap(err, "create listener")
+		return fmt.Errorf("create listener: %w", err)
 	}
 
 	if err := b.Chown(
@@ -147,13 +147,13 @@ func (b *BpfRecorder) Run() error {
 		config.UserRootless,
 		config.UserRootless,
 	); err != nil {
-		return errors.Wrap(err, "change GRPC socket owner to rootless")
+		return fmt.Errorf("change GRPC socket owner to rootless: %w", err)
 	}
 
 	b.logger.Info("Connecting to metrics server")
 	conn, cancel, err := b.connectMetrics()
 	if err != nil {
-		return errors.Wrap(err, "connect to metrics server")
+		return fmt.Errorf("connect to metrics server: %w", err)
 	}
 	if cancel != nil {
 		defer cancel()
@@ -168,13 +168,13 @@ func (b *BpfRecorder) Run() error {
 
 	b.systemMountNamespace, err = b.findSystemMountNamespace()
 	if err != nil {
-		return errors.Wrap(err, "retrieve current mount namespace")
+		return fmt.Errorf("retrieve current mount namespace: %w", err)
 	}
 	b.logger.Info("Got system mount namespace: " + fmt.Sprint(b.systemMountNamespace))
 
 	b.logger.Info("Doing BPF load/unload self-test")
 	if err := b.load(false); err != nil {
-		return errors.Wrap(err, "load self-test")
+		return fmt.Errorf("load self-test: %w", err)
 	}
 	b.unload()
 
@@ -192,7 +192,7 @@ func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.Ca
 	if err := util.Retry(func() (err error) {
 		conn, cancel, err = b.DialMetrics()
 		if err != nil {
-			return errors.Wrap(err, "connecting to local metrics GRPC server")
+			return fmt.Errorf("connecting to local metrics GRPC server: %w", err)
 		}
 		client := apimetrics.NewMetricsClient(conn)
 
@@ -202,12 +202,12 @@ func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.Ca
 			if err := b.CloseGRPC(conn); err != nil {
 				b.logger.Error(err, "Unable to close GRPC connection")
 			}
-			return errors.Wrap(err, "create metrics bpf client")
+			return fmt.Errorf("create metrics bpf client: %w", err)
 		}
 
 		return nil
 	}, func(err error) bool { return true }); err != nil {
-		return nil, nil, errors.Wrap(err, "connect to local GRPC server")
+		return nil, nil, fmt.Errorf("connect to local GRPC server: %w", err)
 	}
 
 	return conn, cancel, nil
@@ -224,7 +224,7 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	)
 	if err != nil {
 		cancel()
-		return nil, nil, errors.Wrap(err, "GRPC dial")
+		return nil, nil, fmt.Errorf("GRPC dial: %w", err)
 	}
 	return conn, cancel, nil
 }
@@ -235,7 +235,7 @@ func (b *BpfRecorder) Start(
 	if b.startRequests == 0 {
 		b.logger.Info("Starting bpf recorder")
 		if err := b.load(true); err != nil {
-			return nil, errors.Wrap(err, "load bpf")
+			return nil, fmt.Errorf("load bpf: %w", err)
 		}
 	} else {
 		b.logger.Info("bpf recorder already running")
@@ -310,7 +310,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 	}
 	b.logger.Info(fmt.Sprintf("Got PIDs for the profile: %+v", pids))
 	if len(pids) == 0 {
-		return nil, errors.Errorf("PID slice is empty")
+		return nil, fmt.Errorf("PID slice is empty")
 	}
 
 	result := []string{}
@@ -374,12 +374,12 @@ func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
 	b.logger.Info("Loading bpf module")
 	b.btfPath, err = b.findBtfPath()
 	if err != nil {
-		return errors.Wrap(err, "find btf")
+		return fmt.Errorf("find btf: %w", err)
 	}
 
 	bpfObject, ok := bpfObjects[b.GoArch()]
 	if !ok {
-		return errors.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
+		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
 
 	module, err := b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
@@ -388,42 +388,42 @@ func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
 		BTFObjPath: b.btfPath,
 	})
 	if err != nil {
-		return errors.Wrap(err, "load bpf module")
+		return fmt.Errorf("load bpf module: %w", err)
 	}
 
 	b.logger.Info("Loading bpf object from module")
 	if err := b.BPFLoadObject(module); err != nil {
-		return errors.Wrap(err, "load bpf object")
+		return fmt.Errorf("load bpf object: %w", err)
 	}
 
 	const programName = "sys_enter"
 	b.logger.Info("Getting bpf program " + programName)
 	program, err := b.GetProgram(module, programName)
 	if err != nil {
-		return errors.Wrapf(err, "get %s program", programName)
+		return fmt.Errorf("get %s program: %w", programName, err)
 	}
 
 	b.logger.Info("Attaching bpf tracepoint")
 	if _, err := b.AttachTracepoint(program, "raw_syscalls", programName); err != nil {
-		return errors.Wrap(err, "attach tracepoint")
+		return fmt.Errorf("attach tracepoint: %w", err)
 	}
 
 	b.logger.Info("Getting syscalls map")
 	syscalls, err := b.GetMap(module, "syscalls")
 	if err != nil {
-		return errors.Wrap(err, "get syscalls map")
+		return fmt.Errorf("get syscalls map: %w", err)
 	}
 
 	b.logger.Info("Getting comms map")
 	comms, err := b.GetMap(module, "comms")
 	if err != nil {
-		return errors.Wrap(err, "get comms map")
+		return fmt.Errorf("get comms map: %w", err)
 	}
 
 	events := make(chan []byte)
 	ringbuffer, err := b.InitRingBuf(module, "events", events)
 	if err != nil {
-		return errors.Wrap(err, "init events ringbuffer")
+		return fmt.Errorf("init events ringbuffer: %w", err)
 	}
 	b.StartRingBuffer(ringbuffer)
 
@@ -448,12 +448,12 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 
 	btf := types.Btf{}
 	if err := b.Unmarshal([]byte(btfJSON), &btf); err != nil {
-		return "", errors.Wrap(err, "unmarshal btf JSON")
+		return "", fmt.Errorf("unmarshal btf JSON: %w", err)
 	}
 
 	res, err := b.ReadOSRelease()
 	if err != nil {
-		return "", errors.Wrap(err, "read os-release file")
+		return "", fmt.Errorf("read os-release file: %w", err)
 	}
 
 	osID := types.Os(res["ID"])
@@ -474,7 +474,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 
 	uname := syscall.Utsname{}
 	if err := b.Uname(&uname); err != nil {
-		return "", errors.Wrap(err, "uname syscall failed")
+		return "", fmt.Errorf("uname syscall failed: %w", err)
 	}
 
 	arch := types.Arch(toStringInt8(uname.Machine))
@@ -498,12 +498,12 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 		fmt.Sprintf("spo-btf-%s-%s-%s-%s", osID, osVersion, arch, kernel),
 	)
 	if err != nil {
-		return "", errors.Wrap(err, "create temp file")
+		return "", fmt.Errorf("create temp file: %w", err)
 	}
 	defer file.Close()
 
 	if _, err := b.Write(file, btfBytes); err != nil {
-		return "", errors.Wrap(err, "write BTF")
+		return "", fmt.Errorf("write BTF: %w", err)
 	}
 
 	b.logger.Info(fmt.Sprintf("Wrote BTF to file: %s", file.Name()))
@@ -598,14 +598,14 @@ func (b *BpfRecorder) findSystemMountNamespace() (uint64, error) {
 	// the namespace from the container.
 	res, err := b.Readlink("/proc/1/ns/mnt")
 	if err != nil {
-		return 0, errors.Wrap(err, "read mount namespace link")
+		return 0, fmt.Errorf("read mount namespace link: %w", err)
 	}
 	stripped := strings.TrimPrefix(res, "mnt:[")
 	stripped = strings.TrimSuffix(stripped, "]")
 
 	ns, err := b.Atoi(stripped)
 	if err != nil {
-		return 0, errors.Wrap(err, "convert namespace to integer")
+		return 0, fmt.Errorf("convert namespace to integer: %w", err)
 	}
 
 	return uint64(ns), nil
@@ -666,7 +666,7 @@ func (b *BpfRecorder) findContainerID(id string) error {
 			b.logger.Info("Looking up in-cluster container ID", "id", id, "try", try)
 			pods, err := b.ListPods(ctx, b.clientset, b.nodeName)
 			if err != nil {
-				return errors.Wrapf(err, "list node pods")
+				return fmt.Errorf("list node pods: %w", err)
 			}
 
 			for p := range pods.Items {
@@ -724,7 +724,7 @@ func (b *BpfRecorder) findContainerID(id string) error {
 		},
 		func(error) bool { return true },
 	); err != nil {
-		return errors.Wrap(err, "find container ID")
+		return fmt.Errorf("find container ID: %w", err)
 	}
 
 	return nil
@@ -755,11 +755,11 @@ func (b *BpfRecorder) syscallNameForID(id int) (string, error) {
 
 	name, err := b.GetName(seccomp.ScmpSyscall(id))
 	if err != nil {
-		return "", errors.Wrapf(err, "get syscall name for ID %d", id)
+		return "", fmt.Errorf("get syscall name for ID %d: %w", id, err)
 	}
 
 	if err := b.syscallNamesForIDCache.Set(key, name); err != nil {
-		return "", errors.Wrap(err, "update cache")
+		return "", fmt.Errorf("update cache: %w", err)
 	}
 	return name, nil
 }

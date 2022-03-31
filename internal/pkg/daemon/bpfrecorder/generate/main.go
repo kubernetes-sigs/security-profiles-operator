@@ -26,8 +26,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/errors"
-
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 )
 
@@ -75,11 +73,11 @@ func run() error {
 	builder := &strings.Builder{}
 
 	if err := generateBpfObj(builder); err != nil {
-		return errors.Wrap(err, "generate bpf object")
+		return fmt.Errorf("generate bpf object: %w", err)
 	}
 
 	if err := generateBtf(builder); err != nil {
-		return errors.Wrap(err, "generate btf")
+		return fmt.Errorf("generate btf: %w", err)
 	}
 
 	// nolint:gosec // permissions are fine
@@ -87,10 +85,10 @@ func run() error {
 		// nolint:gomnd // filemode is fine
 		generatedGo, []byte(builder.String()), 0o644,
 	); err != nil {
-		return errors.Wrap(err, "writing generated object")
+		return fmt.Errorf("writing generated object: %w", err)
 	}
 	if err := exec.Command("go", "fmt", generatedGo).Run(); err != nil {
-		return errors.Wrap(err, "format go code")
+		return fmt.Errorf("format go code: %w", err)
 	}
 	return nil
 }
@@ -104,7 +102,7 @@ func generateBpfObj(builder *strings.Builder) error {
 
 		file, err := os.ReadFile(filepath.Join(buildDir, bpfObj+"."+arch))
 		if err != nil {
-			return errors.Wrap(err, "read bpf object path")
+			return fmt.Errorf("read bpf object path: %w", err)
 		}
 
 		size := len(file)
@@ -149,12 +147,12 @@ func generateBtf(builder *strings.Builder) error {
 		pathSplit := strings.Split(path, string(os.PathSeparator))
 		const expectedBPFPathLen = 9
 		if len(pathSplit) != expectedBPFPathLen {
-			return errors.Errorf("invalid btf path: %s (len = %d)", path, len(pathSplit))
+			return fmt.Errorf("invalid btf path: %s (len = %d)", path, len(pathSplit))
 		}
 
 		btfBytes, err := os.ReadFile(path)
 		if err != nil {
-			return errors.Wrap(err, "read btf file")
+			return fmt.Errorf("read btf file: %w", err)
 		}
 
 		os := types.Os(pathSplit[5])
@@ -181,11 +179,11 @@ func generateBtf(builder *strings.Builder) error {
 
 		return nil
 	}); err != nil {
-		return errors.Wrap(err, "walk btf files")
+		return fmt.Errorf("walk btf files: %w", err)
 	}
 	jsonBytes, err := json.MarshalIndent(btfs, "", "  ")
 	if err != nil {
-		return errors.Wrap(err, "marshal btf JSON")
+		return fmt.Errorf("marshal btf JSON: %w", err)
 	}
 	builder.Write(jsonBytes)
 	builder.WriteString("`\n")
@@ -194,7 +192,7 @@ func generateBtf(builder *strings.Builder) error {
 	if err := os.WriteFile(
 		docsFile, docs.Bytes(), fs.FileMode(0o644), // nolint:gomnd // filemode is fine
 	); err != nil {
-		return errors.Wrap(err, "write docs file")
+		return fmt.Errorf("write docs file: %w", err)
 	}
 
 	return nil

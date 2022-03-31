@@ -18,8 +18,8 @@ package util
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -27,7 +27,7 @@ import (
 // addFinalizer attempts to add a finalizer to an object if not present and update the object.
 func AddFinalizer(ctx context.Context, c client.Client, pol client.Object, finalizer string) error {
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
-		return errors.Wrap(err, ErrGetProfile)
+		return fmt.Errorf("%s: %w", ErrGetProfile, err)
 	}
 	if controllerutil.ContainsFinalizer(pol, finalizer) {
 		return nil
@@ -39,7 +39,7 @@ func AddFinalizer(ctx context.Context, c client.Client, pol client.Object, final
 // removeFinalizer attempts to remove a finalizer from an object if present and update the object.
 func RemoveFinalizer(ctx context.Context, c client.Client, pol client.Object, finalizer string) error {
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
-		return errors.Wrap(err, ErrGetProfile)
+		return fmt.Errorf("%s: %w", ErrGetProfile, err)
 	}
 	if !controllerutil.ContainsFinalizer(pol, finalizer) {
 		return nil

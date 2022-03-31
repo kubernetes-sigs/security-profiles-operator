@@ -18,9 +18,10 @@ package selinuxprofile
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"regexp"
 
-	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -136,14 +137,14 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 	case "SelinuxPolicy":
 		return sph.handleInheritSPOPolicy(ancestorRef, namespace)
 	}
-	return errors.Wrapf(ErrUnknownKindForEntry, "%s/%s", ancestorRef.Kind, ancestorRef.Name)
+	return fmt.Errorf("%s/%s: %w", ancestorRef.Kind, ancestorRef.Name, ErrUnknownKindForEntry)
 }
 
 func (sph *selinuxProfileHandler) validateLabelKey(
 	key selxv1alpha2.LabelKey,
 ) error {
 	if !sph.labelRegex.MatchString(string(key)) {
-		return errors.Wrapf(ErrInvalidLabelKey, "'%s' didn't match expected characters", key)
+		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidLabelKey)
 	}
 	return nil
 }
@@ -152,7 +153,7 @@ func (sph *selinuxProfileHandler) validateObjClass(
 	key selxv1alpha2.ObjectClassKey,
 ) error {
 	if !sph.objClassPermRegex.MatchString(string(key)) {
-		return errors.Wrapf(ErrInvalidObjClass, "'%s' didn't match expected characters", key)
+		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidObjClass)
 	}
 	return nil
 }
@@ -161,7 +162,7 @@ func (sph *selinuxProfileHandler) validatePermission(
 	perm string,
 ) error {
 	if !sph.objClassPermRegex.MatchString(perm) {
-		return errors.Wrapf(ErrInvalidPermission, "'%s' didn't match expected characters", perm)
+		return fmt.Errorf("'%s' didn't match expected characters: %w", perm, ErrInvalidPermission)
 	}
 	return nil
 }
@@ -174,8 +175,8 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 	key := types.NamespacedName{Name: ancestorRef.Name, Namespace: namespace}
 	err := sph.cli.Get(context.Background(), key, ancestor)
 	if err != nil && kerrors.IsNotFound(err) {
-		return errors.Wrapf(err, "couldn't find inherit reference %s/%s",
-			ancestorRef.Kind, ancestorRef.Name)
+		return fmt.Errorf("couldn't find inherit reference %s/%s: %w",
+			ancestorRef.Kind, ancestorRef.Name, err)
 	}
 
 	// TODO(jaosorior): Handle dependencies... we could force a waiting period
@@ -189,7 +190,7 @@ func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
 ) error {
 	spod, err := common.GetSPOD(context.Background(), sph.cli)
 	if err != nil {
-		return errors.Wrapf(err, "couldn't get spod to verify system inheritance")
+		return fmt.Errorf("couldn't get spod to verify system inheritance: %w", err)
 	}
 
 	for idx := range spod.Spec.SelinuxOpts.AllowedSystemProfiles {
@@ -199,8 +200,10 @@ func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
 			return nil
 		}
 	}
-	return errors.Wrapf(ErrSystemInheritNotAllowed, "system profile %s not in SecurityProfilesOperatorDaemon's allow list",
-		ancestorRef.Name)
+	return fmt.Errorf(
+		"system profile %s not in SecurityProfilesOperatorDaemon's allow list: %w",
+		ancestorRef.Name, ErrSystemInheritNotAllowed,
+	)
 }
 
 func (sph *selinuxProfileHandler) GetCILPolicy() (string, error) {

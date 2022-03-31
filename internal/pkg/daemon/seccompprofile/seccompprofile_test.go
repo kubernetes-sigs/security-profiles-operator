@@ -18,6 +18,8 @@ package seccompprofile
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path"
 	"sort"
@@ -26,7 +28,6 @@ import (
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/test"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,16 +46,7 @@ func TestReconcile(t *testing.T) {
 
 	name := "cool-profile"
 	namespace := "cool-namespace"
-
 	errOops := errors.New("oops")
-
-	// return error only if seccomp is enabled
-	getErrorIfSeccompEnabled := func(e error) error {
-		if seccomp.IsEnabled() {
-			return e
-		}
-		return nil
-	}
 
 	cases := []struct {
 		name       string
@@ -88,7 +80,12 @@ func TestReconcile(t *testing.T) {
 			},
 			req:        reconcile.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}},
 			wantResult: reconcile.Result{},
-			wantErr:    errors.Wrap(getErrorIfSeccompEnabled(errOops), errGetProfile),
+			wantErr: func() error {
+				if seccomp.IsEnabled() {
+					return fmt.Errorf("%s: %w", errGetProfile, errOops)
+				}
+				return nil
+			}(),
 		},
 		{
 			name: "GotProfile",
@@ -133,7 +130,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 	}
 	dir, err := os.MkdirTemp("", config.OperatorName)
 	if err != nil {
-		t.Error(errors.Wrap(err, "error creating temp file for tests"))
+		t.Error(fmt.Errorf("creating temp file for tests: %w", err))
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 

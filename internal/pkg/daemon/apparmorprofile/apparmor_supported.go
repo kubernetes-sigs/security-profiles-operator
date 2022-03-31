@@ -20,6 +20,7 @@ limitations under the License.
 package apparmorprofile
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -27,7 +28,6 @@ import (
 	"github.com/go-logr/logr"
 	aa "github.com/pjbgf/go-apparmor/pkg/apparmor"
 	"github.com/pjbgf/go-apparmor/pkg/hostop"
-	"github.com/pkg/errors"
 
 	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
