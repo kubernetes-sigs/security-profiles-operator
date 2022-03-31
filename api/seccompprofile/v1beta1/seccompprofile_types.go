@@ -144,13 +144,27 @@ func (sp *SeccompProfile) SetImplementationStatus() {
 	sp.Status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath+"/")
 }
 
-func (sp *SeccompProfile) GetProfilePath() string {
+func (sp *SeccompProfile) GetProfileFile() string {
 	pfile := sp.GetName()
 	if !strings.HasSuffix(pfile, extJSON) {
 		pfile = sp.GetName() + extJSON
 	}
+	return pfile
+}
+
+func (sp *SeccompProfile) GetProfilePath() string {
+	pfile := sp.GetProfileFile()
 	return path.Join(
 		config.ProfilesRootPath,
+		filepath.Base(sp.GetNamespace()),
+		filepath.Base(pfile),
+	)
+}
+
+func (sp *SeccompProfile) GetProfileOperatorPath() string {
+	pfile := sp.GetProfileFile()
+	return path.Join(
+		config.OperatorRoot,
 		filepath.Base(sp.GetNamespace()),
 		filepath.Base(pfile),
 	)

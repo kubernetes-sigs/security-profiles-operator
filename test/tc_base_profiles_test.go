@@ -29,7 +29,7 @@ func (e *e2e) testCaseBaseProfile([]string) {
 	baseProfilePath := "examples/baseprofile-runc.yaml"
 	baseProfileName := "runc-v1.0.0"
 
-	if clusterType == clusterTypeVanilla {
+	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {
 		baseProfilePath = "examples/baseprofile-crun.yaml"
 		baseProfileName = "crun-v0.20.1"
 	}

@@ -48,12 +48,14 @@ var (
 	clusterType                     = os.Getenv("E2E_CLUSTER_TYPE")
 	envSkipBuildImages              = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	envTestImage                    = os.Getenv("E2E_SPO_IMAGE")
+	spodConfig                      = os.Getenv("E2E_SPOD_CONFIG")
 	envSelinuxTestsEnabled          = os.Getenv("E2E_TEST_SELINUX")
 	envLogEnricherTestsEnabled      = os.Getenv("E2E_TEST_LOG_ENRICHER")
 	envSeccompTestsEnabled          = os.Getenv("E2E_TEST_SECCOMP")
 	envProfileRecordingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_RECORDING")
 	envBpfRecorderTestsEnabled      = os.Getenv("E2E_TEST_BPF_RECORDER")
 	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
+	nodeRootfsPrefix                = os.Getenv("NODE_ROOTFS_PREFIX")
 )
 
 const (
@@ -62,12 +64,19 @@ const (
 	clusterTypeOpenShift = "openshift"
 )
 
+const (
+	containerRuntimeDocker = "docker"
+)
+
 type e2e struct {
 	suite.Suite
+	containerRuntime     string
 	kubectlPath          string
 	testImage            string
 	selinuxdImage        string
 	pullPolicy           string
+	spodConfig           string
+	nodeRootfsPrefix     string
 	selinuxEnabled       bool
 	logEnricherEnabled   bool
 	testSeccomp          bool
@@ -140,6 +149,9 @@ func TestSuite(t *testing.T) {
 				logger:               klogr.New(),
 				pullPolicy:           "Never",
 				testImage:            testImage,
+				spodConfig:           spodConfig,
+				containerRuntime:     containerRuntime,
+				nodeRootfsPrefix:     nodeRootfsPrefix,
 				selinuxEnabled:       selinuxEnabled,
 				logEnricherEnabled:   logEnricherEnabled,
 				testSeccomp:          testSeccomp,
@@ -165,6 +177,9 @@ func TestSuite(t *testing.T) {
 				// image registry and not on the nodes.
 				pullPolicy:           "Always",
 				testImage:            testImage,
+				spodConfig:           spodConfig,
+				containerRuntime:     containerRuntime,
+				nodeRootfsPrefix:     nodeRootfsPrefix,
 				selinuxEnabled:       selinuxEnabled,
 				logEnricherEnabled:   logEnricherEnabled,
 				testSeccomp:          testSeccomp,
@@ -185,6 +200,9 @@ func TestSuite(t *testing.T) {
 				logger:               klogr.New(),
 				pullPolicy:           "Never",
 				testImage:            testImage,
+				spodConfig:           spodConfig,
+				containerRuntime:     containerRuntime,
+				nodeRootfsPrefix:     nodeRootfsPrefix,
 				selinuxEnabled:       selinuxEnabled,
 				logEnricherEnabled:   logEnricherEnabled,
 				testSeccomp:          testSeccomp,
@@ -397,7 +415,10 @@ func (e *vanilla) SetupSuite() {
 }
 
 func (e *vanilla) SetupTest() {
-	e.run(containerRuntime, "pull", e.selinuxdImage)
+	e.logf("Setting up test")
+	if e.selinuxEnabled {
+		e.run(containerRuntime, "pull", e.selinuxdImage)
+	}
 }
 
 func (e *vanilla) TearDownTest() {
