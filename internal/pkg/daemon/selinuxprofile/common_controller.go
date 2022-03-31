@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -30,7 +31,6 @@ import (
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -128,7 +128,7 @@ func (r *ReconcileSelinux) SchemeBuilder() *scheme.Builder {
 func (r *ReconcileSelinux) Healthz(*http.Request) error {
 	ready, err := isSelinuxdReady()
 	if err != nil {
-		return errors.Wrapf(err, "getting health status")
+		return fmt.Errorf("getting health status: %w", err)
 	}
 	if !ready {
 		return errors.New("not ready")
@@ -161,7 +161,7 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 
 	nodeStatus, err := nodestatus.NewForProfile(instance, r.client)
 	if err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "cannot create nodeStatus instance")
+		return reconcile.Result{}, fmt.Errorf("cannot create nodeStatus instance: %w", err)
 	}
 
 	if instance.GetDeletionTimestamp().IsZero() {
@@ -170,12 +170,12 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 		exists, existErr := nodeStatus.Exists(ctx)
 
 		if existErr != nil {
-			return reconcile.Result{}, errors.Wrap(existErr, "checking if node status exists")
+			return reconcile.Result{}, fmt.Errorf("checking if node status exists: %w", existErr)
 		}
 
 		if !exists {
 			if err := nodeStatus.Create(ctx); err != nil {
-				return reconcile.Result{}, errors.Wrap(err, "cannot ensure node status")
+				return reconcile.Result{}, fmt.Errorf("cannot ensure node status: %w", err)
 			}
 		}
 
@@ -186,15 +186,18 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 		reqLogger.Error(err, "cannot update SELinux profile status")
 		r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 		r.record.Event(instance, event.Warning(reasonCannotUpdatePolicyStatus, err))
-		return reconcile.Result{}, errors.Wrap(err, "updating status for deleted SELinux profile")
+		return reconcile.Result{}, fmt.Errorf("updating status for deleted SELinux profile: %w", err)
 	}
 
 	// since the nodeStatus API always removes both the node status and the node's finalizer in sync,
 	// this condition will only be true after both are gone and therefore when the profile is really
 	// gone from the node
 	hasStatus, err := nodeStatus.Exists(context.TODO())
-	if err != nil || !hasStatus {
-		return reconcile.Result{}, errors.Wrap(err, "asserting if node status exists")
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("asserting if node status exists: %w", err)
+	}
+	if !hasStatus {
+		return reconcile.Result{}, nil
 	}
 
 	res, err := r.reconcileDeletePolicy(instance, nodeStatus, reqLogger)
@@ -212,7 +215,7 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 		reqLogger.Error(err, "cannot remove finalizer from SELinux profile")
 		r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 		r.record.Event(instance, event.Warning(reasonCannotUpdatePolicyStatus, err))
-		return ctrl.Result{}, errors.Wrap(err, "deleting finalizer for deleted SELinux profile")
+		return ctrl.Result{}, fmt.Errorf("deleting finalizer for deleted SELinux profile: %w", err)
 	}
 
 	return reconcile.Result{}, nil
@@ -228,7 +231,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotContactSelinuxd)
 		r.record.Event(sp, event.Warning(reasonCannotContactSelinuxd, err))
-		return reconcile.Result{}, errors.Wrap(err, "contacting selinuxd")
+		return reconcile.Result{}, fmt.Errorf("contacting selinuxd: %w", err)
 	}
 	if !selinuxdReady {
 		l.Info("selinuxd not yet up, requeue")
@@ -240,7 +243,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		if err := nodeStatus.SetNodeStatus(context.TODO(), statusv1alpha1.ProfileStateError); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 			r.record.Event(sp, event.Warning(reasonCannotUpdatePolicyStatus, err))
-			return reconcile.Result{}, errors.Wrap(err, "setting node status to error")
+			return reconcile.Result{}, fmt.Errorf("setting node status to error: %w", err)
 		}
 		evstr := fmt.Sprintf("Profile failed validation on %s: %s", os.Getenv(config.NodeNameEnvKey), valErr.Error())
 		r.metrics.IncSelinuxProfileError(reasonCannotInstallPolicy)
@@ -252,7 +255,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotWritePolicyFile)
 		r.record.Event(sp, event.Warning(reasonCannotWritePolicyFile, err))
-		return reconcile.Result{}, errors.Wrap(err, "Creating policy file")
+		return reconcile.Result{}, fmt.Errorf("creating policy file: %w", err)
 	}
 
 	l.Info("Checking if policy deployed", "policyName", sp.GetName())
@@ -262,7 +265,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		if err := nodeStatus.SetNodeStatus(context.TODO(), statusv1alpha1.ProfileStateInProgress); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 			r.record.Event(sp, event.Warning(reasonCannotUpdatePolicyStatus, err))
-			return reconcile.Result{}, errors.Wrap(err, "setting node status to in progress")
+			return reconcile.Result{}, fmt.Errorf("setting node status to in progress: %w", err)
 		}
 		return reconcile.Result{Requeue: true}, nil
 	}
@@ -270,7 +273,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotGetPolicyStatus)
 		r.record.Event(sp, event.Warning(reasonCannotGetPolicyStatus, err))
-		return reconcile.Result{}, errors.Wrap(err, "Looking up policy status")
+		return reconcile.Result{}, fmt.Errorf("looking up policy status: %w", err)
 	}
 
 	var polState statusv1alpha1.ProfileState
@@ -293,7 +296,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	if err := nodeStatus.SetNodeStatus(context.TODO(), polState); err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
 		r.record.Event(sp, event.Warning(reasonCannotUpdatePolicyStatus, err))
-		return reconcile.Result{}, errors.Wrap(err, "setting profile status")
+		return reconcile.Result{}, fmt.Errorf("setting profile status: %w", err)
 	}
 
 	return reconcile.Result{}, nil
@@ -307,14 +310,14 @@ func (r *ReconcileSelinux) reconcilePolicyFile(
 	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
 	cil, parseErr := oh.GetCILPolicy()
 	if parseErr != nil {
-		return errors.Wrap(parseErr, "Generating CIL")
+		return fmt.Errorf("generating CIL: %w", parseErr)
 	}
 	policyContent := []byte(cil)
 
 	l.Info("Writing to policy file", "policyPath", policyPath)
-	err := writeFileIfDiffers(policyPath, policyContent)
-	if err != nil {
-		return errors.Wrap(err, "Writing policy file")
+
+	if err := writeFileIfDiffers(policyPath, policyContent); err != nil {
+		return fmt.Errorf("writing policy file: %w", err)
 	}
 
 	return nil
@@ -325,7 +328,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 ) (reconcile.Result, error) {
 	selinuxdReady, err := isSelinuxdReady()
 	if err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "contacting selinuxd")
+		return reconcile.Result{}, fmt.Errorf("contacting selinuxd: %w", err)
 	}
 	if !selinuxdReady {
 		l.Info("selinuxd not yet up, requeue")
@@ -346,7 +349,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotGetPolicyStatus)
-		return reconcile.Result{}, errors.Wrap(err, "looking up policy status")
+		return reconcile.Result{}, fmt.Errorf("looking up policy status: %w", err)
 	}
 
 	switch polStatus.Status {
@@ -356,7 +359,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	case failedStatus:
 		if err := nodeStatus.SetNodeStatus(context.TODO(), statusv1alpha1.ProfileStateError); err != nil {
 			r.metrics.IncSelinuxProfileError(reasonCannotRemovePolicy)
-			return reconcile.Result{}, errors.Wrap(err, "Updating SELinux policy with installation")
+			return reconcile.Result{}, fmt.Errorf("updating SELinux policy with installation: %w", err)
 		}
 
 		evstr := fmt.Sprintf("Failed to save profile to disk on %s: %s", os.Getenv(config.NodeNameEnvKey), polStatus.Msg)
@@ -390,14 +393,14 @@ func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selxv1alpha2.SelinuxProf
 	}
 
 	// Retry on a generic error
-	return reconcile.Result{Requeue: true}, errors.Wrap(err, "error removing policy file")
+	return reconcile.Result{Requeue: true}, fmt.Errorf("error removing policy file: %w", err)
 }
 
 func getPolicyStatus(sp selxv1alpha2.SelinuxProfileObject) (*sePolStatus, error) {
 	polURL := selinuxdPoliciesBaseURL + sp.GetPolicyName()
 	response, err := selinuxdGetRequest(polURL)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to send a request to selinuxd")
+		return nil, fmt.Errorf("failed to send a request to selinuxd: %w", err)
 	}
 	defer response.Body.Close()
 
@@ -410,7 +413,7 @@ func getPolicyStatus(sp selxv1alpha2.SelinuxProfileObject) (*sePolStatus, error)
 	var status sePolStatus
 	err = json.NewDecoder(response.Body).Decode(&status)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to decode response from selinuxd")
+		return nil, fmt.Errorf("failed to decode response from selinuxd: %w", err)
 	}
 
 	switch status.Status {
@@ -424,14 +427,14 @@ func getPolicyStatus(sp selxv1alpha2.SelinuxProfileObject) (*sePolStatus, error)
 func isSelinuxdReady() (bool, error) {
 	response, err := selinuxdGetRequest(selinuxdReadyURL)
 	if err != nil {
-		return false, errors.Wrap(err, "failed to send a request to selinuxd")
+		return false, fmt.Errorf("failed to send a request to selinuxd: %w", err)
 	}
 	defer response.Body.Close()
 
 	var status map[string]bool
 	err = json.NewDecoder(response.Body).Decode(&status)
 	if err != nil {
-		return false, errors.Wrap(err, "failed to decode response from selinuxd")
+		return false, fmt.Errorf("failed to decode response from selinuxd: %w", err)
 	}
 
 	return status[selinuxdReadyKey], nil
@@ -451,7 +454,7 @@ func selinuxdGetRequest(url string) (*http.Response, error) {
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create a request to selinuxd")
+		return nil, fmt.Errorf("failed to create a request to selinuxd: %w", err)
 	}
 
 	return httpc.Do(req)
@@ -470,13 +473,13 @@ func writeFileIfDiffers(filePath string, contents []byte) error {
 		file.Close()
 		return os.WriteFile(filePath, contents, filePermissions)
 	} else if err != nil {
-		return errors.Wrap(err, "could not open for reading"+filePath)
+		return fmt.Errorf("could not open for reading: %w"+filePath, err)
 	}
 	defer file.Close()
 
 	existing, err := io.ReadAll(file)
 	if err != nil {
-		return errors.Wrap(err, "reading file "+filePath)
+		return fmt.Errorf("reading file : %w"+filePath, err)
 	}
 
 	if bytes.Equal(existing, contents) {

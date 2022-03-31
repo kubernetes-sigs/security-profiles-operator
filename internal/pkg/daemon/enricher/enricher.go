@@ -18,6 +18,7 @@ package enricher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -27,7 +28,6 @@ import (
 	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/go-logr/logr"
 	"github.com/nxadm/tail"
-	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -86,7 +86,7 @@ func (e *Enricher) Run() error {
 		e.auditLineCache,
 	} {
 		if err := e.impl.SetTTL(cache, defaultCacheTimeout); err != nil {
-			return errors.Wrap(err, "set cache timeout")
+			return fmt.Errorf("set cache timeout: %w", err)
 		}
 		cache.SetCacheSizeLimit(maxCacheItems)
 		defer cache.Close() // nolint:gocritic // this is intentional
@@ -99,7 +99,7 @@ func (e *Enricher) Run() error {
 
 	nodeName := e.impl.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
-		err := errors.Errorf("%s environment variable not set", config.NodeNameEnvKey)
+		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		e.logger.Error(err, "unable to run enricher")
 		return err
 	}
@@ -116,7 +116,7 @@ func (e *Enricher) Run() error {
 	if err := util.Retry(func() (err error) {
 		conn, cancel, err = e.impl.Dial()
 		if err != nil {
-			return errors.Wrap(err, "connecting to local GRPC server")
+			return fmt.Errorf("connecting to local GRPC server: %w", err)
 		}
 		client := apimetrics.NewMetricsClient(conn)
 
@@ -124,18 +124,18 @@ func (e *Enricher) Run() error {
 		if err != nil {
 			cancel()
 			e.impl.Close(conn)
-			return errors.Wrap(err, "create metrics audit client")
+			return fmt.Errorf("create metrics audit client: %w", err)
 		}
 
 		return nil
 	}, func(err error) bool { return true }); err != nil {
-		return errors.Wrap(err, "connect to local GRPC server")
+		return fmt.Errorf("connect to local GRPC server: %w", err)
 	}
 	defer cancel()
 	defer e.impl.Close(conn)
 
 	if err := e.startGrpcServer(); err != nil {
-		return errors.Wrap(err, "start GRPC server")
+		return fmt.Errorf("start GRPC server: %w", err)
 	}
 
 	// Use auditd logs as main source or syslog as fallback.
@@ -154,7 +154,7 @@ func (e *Enricher) Run() error {
 		},
 	)
 	if err != nil {
-		return errors.Wrap(err, "tailing file")
+		return fmt.Errorf("tailing file: %w", err)
 	}
 
 	e.logger.Info("Reading from file " + filePath)
@@ -227,7 +227,7 @@ func (e *Enricher) Run() error {
 		}
 	}
 
-	return errors.Wrap(e.impl.Reason(tailFile), "enricher failed")
+	return fmt.Errorf("enricher failed: %w", e.impl.Reason(tailFile))
 }
 
 func (e *Enricher) startGrpcServer() error {
@@ -235,13 +235,13 @@ func (e *Enricher) startGrpcServer() error {
 
 	if _, err := e.impl.Stat(config.GRPCServerSocketEnricher); err == nil {
 		if err := e.impl.RemoveAll(config.GRPCServerSocketEnricher); err != nil {
-			return errors.Wrap(err, "remove GRPC socket file")
+			return fmt.Errorf("remove GRPC socket file: %w", err)
 		}
 	}
 
 	listener, err := e.impl.Listen("unix", config.GRPCServerSocketEnricher)
 	if err != nil {
-		return errors.Wrap(err, "create listener")
+		return fmt.Errorf("create listener: %w", err)
 	}
 
 	if err := e.impl.Chown(
@@ -249,7 +249,7 @@ func (e *Enricher) startGrpcServer() error {
 		config.UserRootless,
 		config.UserRootless,
 	); err != nil {
-		return errors.Wrap(err, "change GRPC socket owner to rootless")
+		return fmt.Errorf("change GRPC socket owner to rootless: %w", err)
 	}
 
 	grpcServer := grpc.NewServer(
@@ -278,7 +278,7 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	)
 	if err != nil {
 		cancel()
-		return nil, nil, errors.Wrap(err, "GRPC dial")
+		return nil, nil, fmt.Errorf("GRPC dial: %w", err)
 	}
 	return conn, cancel, nil
 }
@@ -289,11 +289,11 @@ func (e *Enricher) addToBacklog(line *auditLine) error {
 	backlog, err := e.auditLineCache.Get(strPid)
 	if errors.Is(err, ttlcache.ErrNotFound) {
 		if setErr := e.impl.AddToBacklog(e.auditLineCache, strPid, []*auditLine{line}); setErr != nil {
-			return errors.Wrap(setErr, "adding the first line to the backlog")
+			return fmt.Errorf("adding the first line to the backlog: %w", setErr)
 		}
 		return nil
 	} else if err != nil {
-		return errors.Wrap(err, "retrieving an item from the cache")
+		return fmt.Errorf("retrieving an item from the cache: %w", err)
 	}
 
 	auditBacklog, ok := backlog.([]*auditLine)
@@ -315,7 +315,7 @@ func (e *Enricher) addToBacklog(line *auditLine) error {
 	}
 
 	if setErr := e.impl.AddToBacklog(e.auditLineCache, strPid, append(auditBacklog, line)); setErr != nil {
-		return errors.Wrap(setErr, "adding a line to the backlog")
+		return fmt.Errorf("adding a line to the backlog: %w", setErr)
 	}
 
 	return nil
@@ -334,7 +334,7 @@ func (e *Enricher) dispatchBacklog(
 		// nothing in the cache
 		return nil
 	} else if err != nil {
-		return errors.Wrap(err, "retrieving backlog")
+		return fmt.Errorf("retrieving backlog: %w", err)
 	}
 
 	auditBacklog, ok := backlog.([]*auditLine)
@@ -352,7 +352,7 @@ func (e *Enricher) dispatchBacklog(
 	}
 
 	if err := e.impl.FlushBacklog(e.auditLineCache, strPid); err != nil {
-		return errors.Wrap(err, "flushing backlog")
+		return fmt.Errorf("flushing backlog: %w", err)
 	}
 
 	return nil
@@ -370,7 +370,7 @@ func (e *Enricher) dispatchAuditLine(
 	case auditTypeSeccomp:
 		e.dispatchSeccompLine(metricsClient, nodeName, auditLine, info)
 	default:
-		return errors.Errorf("unknown audit line type %s", auditLine.auditType)
+		return fmt.Errorf("unknown audit line type %s", auditLine.auditType)
 	}
 
 	return nil

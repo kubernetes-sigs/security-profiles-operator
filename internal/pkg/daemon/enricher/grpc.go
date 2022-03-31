@@ -18,9 +18,10 @@ package enricher
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"runtime"
 
-	"github.com/pkg/errors"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -33,7 +34,7 @@ func (e *Enricher) Syscalls(
 ) (*api.SyscallsResponse, error) {
 	syscalls, ok := e.syscalls.Load(r.GetProfile())
 	if !ok {
-		return nil, errors.Errorf(
+		return nil, fmt.Errorf(
 			"no syscalls recorded for profile: %v", r.GetProfile(),
 		)
 	}
@@ -61,7 +62,7 @@ func (e *Enricher) Avcs(
 ) (*api.AvcResponse, error) {
 	avcs, ok := e.avcs.Load(r.GetProfile())
 	if !ok {
-		return nil, errors.Errorf(
+		return nil, fmt.Errorf(
 			"no avcs recorded for profile: %v", r.GetProfile(),
 		)
 	}
@@ -76,7 +77,7 @@ func (e *Enricher) Avcs(
 		avc := &api.AvcResponse_SelinuxAvc{}
 		err := protojson.Unmarshal([]byte(jsonList[i]), avc)
 		if err != nil {
-			return nil, errors.Wrap(err, "unmarshall JSON")
+			return nil, fmt.Errorf("unmarshall JSON: %w", err)
 		}
 		avcList = append(avcList, avc)
 	}

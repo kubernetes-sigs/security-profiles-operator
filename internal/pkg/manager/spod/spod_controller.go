@@ -23,11 +23,10 @@ import (
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -121,10 +120,10 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	// Fetch the ConfigMap instance
 	spod := &spodv1alpha1.SecurityProfilesOperatorDaemon{}
 	if err := r.client.Get(ctx, req.NamespacedName, spod); err != nil {
-		if kerrors.IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
-		return reconcile.Result{}, errors.Wrap(err, "getting spod configuration")
+		return reconcile.Result{}, fmt.Errorf("getting spod configuration: %w", err)
 	}
 
 	if spod.Status.State == "" {
@@ -137,10 +136,10 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	}
 	foundDeployment := &appsv1.Deployment{}
 	if err := r.client.Get(ctx, deploymentKey, foundDeployment); err != nil {
-		if kerrors.IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
-		return reconcile.Result{}, errors.Wrap(err, "get operator deployment")
+		return reconcile.Result{}, fmt.Errorf("get operator deployment: %w", err)
 	}
 	// We use the same target image for the deamonset as which we have right
 	// now running.
@@ -154,7 +153,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 
 	caInjectType, err := bindata.GetCAInjectType(ctx, r.log, r.namespace, r.client)
 	if err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "get ca inject type")
+		return reconcile.Result{}, fmt.Errorf("get ca inject type: %w", err)
 	}
 	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy, caInjectType)
 
@@ -168,7 +167,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 
 	foundSPOd := &appsv1.DaemonSet{}
 	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
-		if kerrors.IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			createErr := r.handleCreate(
 				ctx, spod, configuredSPOd, webhook, metricsService, certManagerResources,
 			)
@@ -178,7 +177,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 			}
 			return r.handleCreatingStatus(ctx, spod, logger)
 		}
-		return reconcile.Result{}, errors.Wrap(err, "getting spod DaemonSet")
+		return reconcile.Result{}, fmt.Errorf("getting spod DaemonSet: %w", err)
 	}
 
 	if spodNeedsUpdate(configuredSPOd, foundSPOd) {
@@ -214,7 +213,7 @@ func (r *ReconcileSPOd) handleInitialStatus(
 	sCopy.Status.StatePending()
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
-		return reconcile.Result{}, errors.Wrap(updateErr, "updating spod initial status")
+		return reconcile.Result{}, fmt.Errorf("updating spod initial status: %w", updateErr)
 	}
 	return reconcile.Result{}, nil
 }
@@ -229,7 +228,7 @@ func (r *ReconcileSPOd) handleCreatingStatus(
 	sCopy.Status.StateCreating()
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
-		return reconcile.Result{}, errors.Wrap(updateErr, "updating spod status to creating")
+		return reconcile.Result{}, fmt.Errorf("updating spod status to creating: %w", updateErr)
 	}
 	return reconcile.Result{}, nil
 }
@@ -244,7 +243,7 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 	sCopy.Status.StateUpdating()
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
-		return reconcile.Result{}, errors.Wrap(updateErr, "updating spod status to 'updating'")
+		return reconcile.Result{}, fmt.Errorf("updating spod status to 'updating': %w", updateErr)
 	}
 	return reconcile.Result{}, nil
 }
@@ -259,7 +258,7 @@ func (r *ReconcileSPOd) handleRunningStatus(
 	sCopy.Status.StateRunning()
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
-		return reconcile.Result{}, errors.Wrap(updateErr, "updating spod status to running")
+		return reconcile.Result{}, fmt.Errorf("updating spod status to running: %w", updateErr)
 	}
 	return reconcile.Result{}, nil
 }
@@ -275,26 +274,26 @@ func (r *ReconcileSPOd) handleCreate(
 	if certManagerResources != nil {
 		r.log.Info("Deploying cert manager resources")
 		if err := certManagerResources.Create(ctx, r.client); err != nil {
-			return errors.Wrap(err, "creating cert manager resources")
+			return fmt.Errorf("creating cert manager resources: %w", err)
 		}
 	}
 
 	r.log.Info("Deploying operator webhook")
 	if err := webhook.Create(ctx, r.client); err != nil {
-		return errors.Wrap(err, "creating webhook")
+		return fmt.Errorf("creating webhook: %w", err)
 	}
 
 	r.log.Info("Creating operator resources")
 	if err := controllerutil.SetControllerReference(cfg, newSPOd, r.scheme); err != nil {
-		return errors.Wrap(err, "setting spod controller reference")
+		return fmt.Errorf("setting spod controller reference: %w", err)
 	}
 
 	r.log.Info("Deploying operator daemonset")
 	if err := r.client.Create(ctx, newSPOd); err != nil {
-		if kerrors.IsAlreadyExists(err) {
+		if errors.IsAlreadyExists(err) {
 			return nil
 		}
-		return errors.Wrap(err, "creating operator DaemonSet")
+		return fmt.Errorf("creating operator DaemonSet: %w", err)
 	}
 
 	r.log.Info("Deploying operator default profiles")
@@ -305,21 +304,19 @@ func (r *ReconcileSPOd) handleCreate(
 		}
 
 		if err := r.client.Create(ctx, profile); err != nil {
-			if kerrors.IsAlreadyExists(err) {
+			if errors.IsAlreadyExists(err) {
 				continue
 			}
-			return errors.Wrapf(
-				err, "creating operator default profile %s", profile.Name,
-			)
+			return fmt.Errorf("creating operator default profile %s: %w", profile.Name, err)
 		}
 	}
 
 	r.log.Info("Deploying metrics service")
 	if err := r.client.Create(ctx, metricsService); err != nil {
-		if kerrors.IsAlreadyExists(err) {
+		if errors.IsAlreadyExists(err) {
 			return nil
 		}
-		return errors.Wrap(err, "creating metrics service")
+		return fmt.Errorf("creating metrics service: %w", err)
 	}
 
 	r.log.Info("Deploying operator service monitor")
@@ -329,10 +326,10 @@ func (r *ReconcileSPOd) handleCreate(
 		// nolint:gocritic
 		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
-		} else if kerrors.IsAlreadyExists(err) {
+		} else if errors.IsAlreadyExists(err) {
 			r.log.Info("Service monitor already exist, skipping")
 		} else {
-			return errors.Wrap(err, "creating service monitor")
+			return fmt.Errorf("creating service monitor: %w", err)
 		}
 	}
 
@@ -349,18 +346,18 @@ func (r *ReconcileSPOd) handleUpdate(
 	if certManagerResources != nil {
 		r.log.Info("Updating cert manager resources")
 		if err := certManagerResources.Update(ctx, r.client); err != nil {
-			return errors.Wrap(err, "updating cert manager resources")
+			return fmt.Errorf("updating cert manager resources: %w", err)
 		}
 	}
 
 	r.log.Info("Updating operator webhook")
 	if err := webhook.Update(ctx, r.client); err != nil {
-		return errors.Wrap(err, "updating webhook")
+		return fmt.Errorf("updating webhook: %w", err)
 	}
 
 	r.log.Info("Updating operator daemonset")
 	if err := r.client.Patch(ctx, spodInstance, client.Merge); err != nil {
-		return errors.Wrap(err, "updating operator DaemonSet")
+		return fmt.Errorf("updating operator DaemonSet: %w", err)
 	}
 
 	r.log.Info("Updating operator default profiles")
@@ -380,34 +377,28 @@ func (r *ReconcileSPOd) handleUpdate(
 			updatedProfile := foundProfile.DeepCopy()
 			updatedProfile.Spec = *profile.Spec.DeepCopy()
 			if updateErr := r.client.Update(ctx, updatedProfile); updateErr != nil {
-				return errors.Wrapf(
-					updateErr, "updating operator default profile %s", profile.Name,
-				)
+				return fmt.Errorf("updating operator default profile %s: %w", profile.Name, updateErr)
 			}
 			continue
 		}
 
-		if kerrors.IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			// Handle new default profile
 			if createErr := r.client.Create(ctx, profile); err != nil {
-				if kerrors.IsAlreadyExists(createErr) {
+				if errors.IsAlreadyExists(createErr) {
 					return nil
 				}
-				return errors.Wrapf(
-					createErr, "creating operator default profile %s", profile.Name,
-				)
+				return fmt.Errorf("creating operator default profile %s: %w", profile.Name, createErr)
 			}
 			continue
 		}
 
-		return errors.Wrapf(
-			err, "getting operator default profile %s", profile.Name,
-		)
+		return fmt.Errorf("getting operator default profile %s: %w", profile.Name, err)
 	}
 
 	r.log.Info("Updating metrics service")
 	if err := r.client.Patch(ctx, metricsService, client.Merge); err != nil {
-		return errors.Wrap(err, "updating metrics service")
+		return fmt.Errorf("updating metrics service: %w", err)
 	}
 
 	r.log.Info("Updating operator service monitor")
@@ -417,7 +408,7 @@ func (r *ReconcileSPOd) handleUpdate(
 		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
 		} else {
-			return errors.Wrap(err, "updating service monitor")
+			return fmt.Errorf("updating service monitor: %w", err)
 		}
 	}
 

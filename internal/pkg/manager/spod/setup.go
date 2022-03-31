@@ -18,11 +18,12 @@ package spod
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
-	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -59,13 +60,13 @@ func (r *ReconcileSPOd) Setup(
 
 	dt, err := getTunables()
 	if err != nil {
-		return errors.Wrap(err, "get tunables")
+		return fmt.Errorf("get tunables: %w", err)
 	}
 
 	r.baseSPOd = getEffectiveSPOd(dt)
 
 	if err := r.createConfigIfNotExist(ctx); err != nil {
-		return errors.Wrap(err, "create config if not existing")
+		return fmt.Errorf("create config if not existing: %w", err)
 	}
 
 	r.scheme = mgr.GetScheme()
@@ -84,8 +85,8 @@ func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
 	obj := bindata.DefaultSPOD.DeepCopy()
 	obj.Namespace = config.GetOperatorNamespace()
 
-	if err := r.client.Create(ctx, obj); !k8serrors.IsAlreadyExists(err) {
-		return errors.Wrap(err, "create SecurityProfilesOperatorDaemon object")
+	if err := r.client.Create(ctx, obj); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create SecurityProfilesOperatorDaemon object: %w", err)
 	}
 
 	return nil

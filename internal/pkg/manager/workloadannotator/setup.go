@@ -18,10 +18,10 @@ package workloadannotator
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -50,7 +50,7 @@ func (r *PodReconciler) Setup(
 		}
 		return getSeccompProfilesFromPod(pod)
 	}); err != nil {
-		return errors.Wrap(err, "creating pod index")
+		return fmt.Errorf("creating pod index: %w", err)
 	}
 
 	// Index SeccompProfiles with active pods
@@ -62,7 +62,7 @@ func (r *PodReconciler) Setup(
 			}
 			return sp.Status.ActiveWorkloads
 		}); err != nil {
-		return errors.Wrap(err, "creating seccomp profile index")
+		return fmt.Errorf("creating seccomp profile index: %w", err)
 	}
 
 	// Register a special reconciler for pod events

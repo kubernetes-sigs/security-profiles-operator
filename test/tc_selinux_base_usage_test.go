@@ -145,8 +145,10 @@ func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, node
 
 		if missingPolName != "" {
 			if i == nodeIterations-1 {
-				e.Failf("The SelinuxProfile errorlogger wasn't found in the %s node with the name %s",
-					missingPolName, policy)
+				e.Fail(fmt.Sprintf(
+					"The SelinuxProfile errorlogger wasn't found in the %s node with the name %s",
+					missingPolName, policy,
+				))
 			} else {
 				e.logf("the policy was stil present, trying again")
 				time.Sleep(sleep)
@@ -169,8 +171,10 @@ func (e *e2e) assertSelinuxPolicyIsRemoved(nodes []string, policy string, nodeIt
 
 		if missingPolName != "" {
 			if i == nodeIterations-1 {
-				e.Failf("The SelinuxProfile errorlogger was found in the %s node with the name %s",
-					missingPolName, policy)
+				e.Fail(fmt.Sprintf(
+					"The SelinuxProfile errorlogger was found in the %s node with the name %s",
+					missingPolName, policy,
+				))
 			} else {
 				e.logf("the policy was stil present, trying again")
 				time.Sleep(sleep)

@@ -25,9 +25,8 @@ import (
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	errors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
@@ -86,16 +85,16 @@ func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (rec
 	var err error
 	if err = r.client.Get(ctx, req.NamespacedName, pod); util.IgnoreNotFound(err) != nil {
 		logger.Error(err, "could not get pod")
-		return reconcile.Result{}, errors.Wrap(err, "looking up pod in pod reconciler")
+		return reconcile.Result{}, fmt.Errorf("looking up pod in pod reconciler: %w", err)
 	}
-	if kerrors.IsNotFound(err) { // this is a pod deletion, so update all seccomp profiles that were using it
+	if errors.IsNotFound(err) { // this is a pod deletion, so update all seccomp profiles that were using it
 		seccompProfiles := &seccompprofileapi.SeccompProfileList{}
 		if err = r.client.List(ctx, seccompProfiles, client.MatchingFields{linkedPodsKey: podID}); err != nil {
-			return reconcile.Result{}, errors.Wrap(err, "listing SeccompProfiles for deleted pod")
+			return reconcile.Result{}, fmt.Errorf("listing SeccompProfiles for deleted pod: %w", err)
 		}
 		for i := range seccompProfiles.Items {
 			if err = r.updatePodReferences(ctx, &seccompProfiles.Items[i]); err != nil {
-				return reconcile.Result{}, errors.Wrap(err, "updating SeccompProfile for deleted pod")
+				return reconcile.Result{}, fmt.Errorf("updating SeccompProfile for deleted pod: %w", err)
 			}
 		}
 		return reconcile.Result{}, nil
@@ -108,11 +107,11 @@ func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (rec
 		seccompProfile := &seccompprofileapi.SeccompProfile{}
 		if err := r.client.Get(ctx, util.NamespacedName(profileName, profileNamespace), seccompProfile); err != nil {
 			logger.Error(err, "could not get seccomp profile for pod")
-			return reconcile.Result{}, errors.Wrap(err, "looking up SeccompProfile for new or updated pod")
+			return reconcile.Result{}, fmt.Errorf("looking up SeccompProfile for new or updated pod: %w", err)
 		}
 		if err := r.updatePodReferences(ctx, seccompProfile); err != nil {
 			logger.Error(err, "could not update seccomp profile for pod")
-			return reconcile.Result{}, errors.Wrap(err, "updating SeccompProfile pod references for new or updated pod")
+			return reconcile.Result{}, fmt.Errorf("updating SeccompProfile pod references for new or updated pod: %w", err)
 		}
 	}
 	return reconcile.Result{}, nil
@@ -125,7 +124,7 @@ func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *seccompprof
 	profileReference := fmt.Sprintf("operator/%s/%s.json", sp.GetNamespace(), sp.GetName())
 	err := r.client.List(ctx, linkedPods, client.MatchingFields{spOwnerKey: profileReference})
 	if util.IgnoreNotFound(err) != nil {
-		return errors.Wrap(err, "listing pods to update seccompProfile")
+		return fmt.Errorf("listing pods to update seccompProfile: %w", err)
 	}
 	podList := make([]string, len(linkedPods.Items))
 	for i := range linkedPods.Items {
@@ -138,25 +137,26 @@ func (r *PodReconciler) updatePodReferences(ctx context.Context, sp *seccompprof
 		updateErr := r.client.Status().Update(ctx, sp)
 		if updateErr != nil {
 			if err := r.client.Get(ctx, util.NamespacedName(sp.GetName(), sp.GetNamespace()), sp); err != nil {
-				return errors.Wrap(err, "retrieving profile")
+				return fmt.Errorf("retrieving profile: %w", err)
 			}
+			return fmt.Errorf("updating profile: %w", updateErr)
 		}
 
-		return errors.Wrap(updateErr, "updating profile")
+		return nil
 	}, util.IsNotFoundOrConflict); err != nil {
-		return errors.Wrap(err, "updating SeccompProfile status")
+		return fmt.Errorf("updating SeccompProfile status: %w", err)
 	}
 	if len(linkedPods.Items) > 0 {
 		if err := util.Retry(func() error {
 			return util.AddFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString)
 		}, util.IsNotFoundOrConflict); err != nil {
-			return errors.Wrap(err, "adding finalizer")
+			return fmt.Errorf("adding finalizer: %w", err)
 		}
 	} else {
 		if err := util.Retry(func() error {
 			return util.RemoveFinalizer(ctx, r.client, sp, util.HasActivePodsFinalizerString)
 		}, util.IsNotFoundOrConflict); err != nil {
-			return errors.Wrap(err, "removing finalizer")
+			return fmt.Errorf("removing finalizer: %w", err)
 		}
 	}
 	return nil

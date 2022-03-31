@@ -17,10 +17,10 @@ limitations under the License.
 package nonrootenabler
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	"sigs.k8s.io/release-utils/util"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -50,8 +50,9 @@ func (n *NonRootEnabler) Run(logger logr.Logger) error {
 	if err := n.impl.MkdirAll(
 		config.KubeletSeccompRootPath, dirPermissions,
 	); err != nil {
-		return errors.Wrapf(
-			err, "create seccomp root path %s", config.KubeletSeccompRootPath,
+		return fmt.Errorf(
+			"create seccomp root path %s: %w",
+			config.KubeletSeccompRootPath, err,
 		)
 	}
 
@@ -59,15 +60,16 @@ func (n *NonRootEnabler) Run(logger logr.Logger) error {
 	if err := n.impl.MkdirAll(
 		config.OperatorRoot, dirPermissions,
 	); err != nil {
-		return errors.Wrapf(
-			err, "create operator root path %s", config.KubeletSeccompRootPath,
+		return fmt.Errorf(
+			"create operator root path %s: %w",
+			config.KubeletSeccompRootPath, err,
 		)
 	}
 
 	// In case the directory already existed
 	logger.Info("Setting operator root permissions")
 	if err := n.impl.Chmod(config.OperatorRoot, dirPermissions); err != nil {
-		return errors.Wrap(err, "change operator root path permissions")
+		return fmt.Errorf("change operator root path permissions: %w", err)
 	}
 
 	if _, err := n.impl.Stat(config.ProfilesRootPath); os.IsNotExist(err) {
@@ -75,7 +77,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger) error {
 		if err := n.impl.Symlink(
 			config.OperatorRoot, config.ProfilesRootPath,
 		); err != nil {
-			return errors.Wrap(err, "link profiles root path")
+			return fmt.Errorf("link profiles root path: %w", err)
 		}
 	}
 
@@ -83,14 +85,14 @@ func (n *NonRootEnabler) Run(logger logr.Logger) error {
 	if err := n.impl.Chown(
 		config.OperatorRoot, config.UserRootless, config.UserRootless,
 	); err != nil {
-		return errors.Wrap(err, "change operator root permissions")
+		return fmt.Errorf("change operator root permissions: %w", err)
 	}
 
 	logger.Info("Copying profiles into root path")
 	if err := n.impl.CopyDirContentsLocal(
 		"/opt/spo-profiles", config.KubeletSeccompRootPath,
 	); err != nil {
-		return errors.Wrap(err, "copy local security profiles")
+		return fmt.Errorf("copy local security profiles: %w", err)
 	}
 
 	return nil
