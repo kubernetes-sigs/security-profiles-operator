@@ -1,0 +1,119 @@
+#-*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "flatcar-stable"
+  config.vm.box_url = "https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json"
+  memory = 8192
+  cpus = 4 
+
+  config.vm.provider :virtualbox do |v|
+     v.customize [
+      "modifyvm", :id,
+      "--memory", memory,
+      "--paravirtprovider", "default",
+      "--cpus", cpus 
+    ]
+    v.check_guest_additions = false
+    v.functional_vboxsf = false
+  end
+
+  config.vm.provider :libvirt do |v|
+    v.memory = memory
+    v.cpus = cpus
+  end
+
+  config.ssh.username = 'core'
+  config.ssh.insert_key = true
+  config.ssh.forward_agent = true
+
+  config.vm.synced_folder ".", "/vagrant"
+
+  config.vm.provision "install-dependencies", type: "shell", run: "once" do |sh|
+    sh.inline = <<~SHELL
+      set -euxo pipefail
+
+      # Install Go
+      GO_VERSION=1.18
+      mkdir /opt/go
+      curl -sSfL -o- https://golang.org/dl/go$GO_VERSION.linux-amd64.tar.gz | tar xfz - -C /opt
+
+      # Setup Networking 
+      systemctl enable docker
+      modprobe br_netfilter
+
+      cat <<EOF | tee /etc/modules-load.d/k8s.conf
+      br_netfilter
+      EOF
+
+      cat <<EOF | tee /etc/sysctl.d/k8s.conf
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.bridge.bridge-nf-call-iptables = 1
+      EOF
+      sysctl --system
+
+      # Install k8s components
+      CNI_VERSION="v1.0.1"
+      RELEASE_VERSION="v0.4.0"
+      DOWNLOAD_DIR=/opt/bin
+      RELEASE="$(curl -sSL https://dl.k8s.io/release/stable.txt)"
+
+      mkdir -p $DOWNLOAD_DIR
+      mkdir -p /opt/cni/bin
+      mkdir -p /etc/systemd/system/kubelet.service.d
+
+      # Install tools
+      curl -sSL -o $DOWNLOAD_DIR/jq "https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64"
+      chmod +x $DOWNLOAD_DIR/jq
+      curl -sSL -o $DOWNLOAD_DIR/flatcar_developer_container.bin.bz2 "https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_developer_container.bin.bz2"
+      bzcat $DOWNLOAD_DIR/flatcar_developer_container.bin.bz2 > $DOWNLOAD_DIR/flatcar_developer_container.bin
+
+      curl -sSL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-amd64-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
+      curl -sSL "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_VERSION}/cmd/kubepkg/templates/latest/deb/kubelet/lib/systemd/system/kubelet.service" | sed "s:/usr/bin:${DOWNLOAD_DIR}:g" | tee /etc/systemd/system/kubelet.service
+      curl -sSL "https://raw.githubusercontent.com/kubernetes/release/${RELEASE_VERSION}/cmd/kubepkg/templates/latest/deb/kubeadm/10-kubeadm.conf" | sed "s:/usr/bin:${DOWNLOAD_DIR}:g" | tee /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+      curl -sSL --remote-name-all https://storage.googleapis.com/kubernetes-release/release/${RELEASE}/bin/linux/amd64/{kubeadm,kubelet,kubectl}
+
+      chmod +x {kubeadm,kubelet,kubectl}
+      mv {kubeadm,kubelet,kubectl} $DOWNLOAD_DIR/
+
+      # Disable kernel print rate limiting for syslog messaging
+      sysctl -w kernel.printk_ratelimit=0
+      sysctl -w kernel.printk_ratelimit_burst=0
+
+      # Import the test image for security profiles operator 
+      docker load -i /vagrant/image.tar
+      docker tag security-profiles-operator:latest localhost/security-profiles-operator:latest
+
+      # Install cri-o
+      # /vagrant/hack/ci/install-cri-o.sh
+
+      # Disable IPv6 in bridge plugin config
+      # CNI_CONFIG=/etc/cni/net.d/10-crio-bridge.conf
+      # jq 'del(.ipam.routes[1], .ipam.ranges[1])' $CNI_CONFIG | sponge $CNI_CONFIG
+
+      systemctl enable --now kubelet
+      systemctl status kubelet
+
+      # Setup cluster
+      IP=`ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]'`
+      NODENAME=$(hostname -s)
+      swapoff -a
+      sysctl -w net.ipv4.ip_forward=1
+      kubeadm config images pull
+      kubeadm init --config /vagrant/hack/ci/kubeadm-config-flatcar.yaml --node-name $NODENAME
+
+      # Setup kubectl
+      mkdir -p $HOME/.kube
+      cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+      chown -R core:core $HOME/.kube
+      export KUBECONFIG=/etc/kubernetes/admin.conf
+
+      # Configure cluster
+      kubectl taint nodes --all node-role.kubernetes.io/master-
+
+      # Install CNI
+      kubectl create -f https://docs.projectcalico.org/manifests/tigera-operator.yaml
+      kubectl apply -f /vagrant/hack/ci/flatcar-cni-plugin.yaml
+    SHELL
+  end
+end

@@ -257,6 +257,10 @@ vagrant-up-fedora: ## Boot the Vagrant Fedora based test VM
 vagrant-up-ubuntu: ## Boot the Vagrant Ubuntu based test VM
 	$(call vagrant-up,ubuntu)
 
+.PHONY: vagrant-up-flatcar
+vagrant-up-flatcar: ## Boot the Vagrant Flatcar based test VM
+	$(call vagrant-up,flatcar)
+
 $(BUILD_DIR)/mdtoc: $(BUILD_DIR)
 	$(call go-build,./vendor/sigs.k8s.io/mdtoc)
 

@@ -18,6 +18,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"path"
 	"time"
 
 	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
@@ -102,7 +103,7 @@ spec:
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	sp := e.getSeccompProfile(deleteProfileName, namespace)
-	path := sp.GetProfilePath()
+	profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitFor("condition=ready", "seccompprofile", deleteProfileName)
@@ -110,13 +111,13 @@ spec:
 	e.logf("Verifying profile exists")
 	time.Sleep(time.Second)
 	for _, node := range nodes {
-		e.execNode(node, "test", "-f", path)
+		e.execNode(node, "test", "-f", profileOperatorPath)
 	}
 	e.logf("Verifying profile deleted")
 	e.kubectl("delete", "seccompprofile", deleteProfileName)
 	time.Sleep(time.Second)
 	for _, node := range nodes {
-		e.execNode(node, "test", "!", "-f", path)
+		e.execNode(node, "test", "!", "-f", profileOperatorPath)
 	}
 
 	// Check linking pods prevent deletion
@@ -172,8 +173,8 @@ spec:
 			e.Equal(nodeStatuses.Items[i].Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
 			// On each node, there should still be the profile on the disk
 			nodeWithPodName := nodeStatuses.Items[i].NodeName
-			path := sp.GetProfilePath()
-			e.execNode(nodeWithPodName, "test", "-f", path)
+			profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
+			e.execNode(nodeWithPodName, "test", "-f", profileOperatorPath)
 		}
 
 		isDeleted := make(chan bool)

@@ -124,3 +124,33 @@ jobs:
           $RUN kubectl get nodes -o wide
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-ubuntu.sh
+
+  e2e-flatcar:
+    needs: image
+
+    # runs-on not set to macos-11 as vagrant currently not available and stable on macos BigSur
+    # https://github.com/actions/virtual-environments/issues/2999
+    runs-on: macos-10.15
+    timeout-minutes: 90
+    env:
+      RUN: ./hack/ci/run-flatcar.sh
+    steps:
+      - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
+      - uses: actions/cache@937d24475381cd9c75ae6db12cb4e79714b926ed # v2.1.7
+        with:
+          path: |
+            ~/.vagrant.d/boxes
+          key: e2e-flatcar-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
+          restore-keys: e2e-flatcar-
+      - uses: actions/download-artifact@3be87be14a055c47b01d3bd88f8fe02320a9bb60 # v2.0.10
+        with:
+          name: image
+          path: .
+      - name: Boot Virtual Machine
+        run: make vagrant-up-flatcar
+      - name: Show environment information
+        run: |
+          $RUN kubectl wait --for=condition=ready --timeout=60s node localhost
+          $RUN kubectl get nodes -o wide
+      - name: Run E2E tests
+        run: $RUN hack/ci/e2e-flatcar-dev-container.sh

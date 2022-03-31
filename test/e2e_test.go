@@ -270,6 +270,13 @@ func (e *e2e) deployOperator(manifest string) {
 	e.logf("Deploying operator")
 	e.kubectl("create", "-f", manifest)
 
+	// Update the default SPOD configuration
+	if e.spodConfig != "" {
+		e.logf("Updating SPOD config")
+		// Apply this server-side to avoid conflicts with the default configuration
+		e.kubectl("apply", "--server-side", "-f", e.spodConfig)
+	}
+
 	// Wait for the operator to be ready
 	e.logf("Waiting for operator to be ready")
 	// Wait for deployment
