@@ -17,9 +17,9 @@ limitations under the License.
 package util
 
 import (
+	"errors"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -45,6 +45,11 @@ func TestIgnoreNotFound(t *testing.T) {
 			name: "OtherError",
 			err:  errOops,
 			want: errOops,
+		},
+		{
+			name: "NilError",
+			err:  nil,
+			want: nil,
 		},
 	}
 

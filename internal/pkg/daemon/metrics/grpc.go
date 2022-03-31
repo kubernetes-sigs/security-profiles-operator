@@ -18,12 +18,13 @@ package metrics
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"time"
 
-	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -40,13 +41,13 @@ const (
 func (m *Metrics) ServeGRPC() error {
 	if _, err := os.Stat(config.GRPCServerSocketMetrics); err == nil {
 		if err := os.RemoveAll(config.GRPCServerSocketMetrics); err != nil {
-			return errors.Wrap(err, "remove GRPC socket file")
+			return fmt.Errorf("remove GRPC socket file: %w", err)
 		}
 	}
 
 	listener, err := net.Listen("unix", config.GRPCServerSocketMetrics)
 	if err != nil {
-		return errors.Wrap(err, "create listener")
+		return fmt.Errorf("create listener: %w", err)
 	}
 
 	grpcServer := grpc.NewServer(
@@ -76,7 +77,7 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	)
 	if err != nil {
 		cancel()
-		return nil, nil, errors.Wrap(err, "GRPC dial")
+		return nil, nil, fmt.Errorf("GRPC dial: %w", err)
 	}
 	return conn, cancel, nil
 }
@@ -91,7 +92,7 @@ func (m *Metrics) AuditInc(
 			return stream.SendAndClose(&api.EmptyResponse{})
 		}
 		if err != nil {
-			return errors.Wrap(err, "record syscalls")
+			return fmt.Errorf("record syscalls: %w", err)
 		}
 
 		switch r.GetType() {
@@ -125,7 +126,7 @@ func (m *Metrics) BpfInc(stream api.Metrics_BpfIncServer) error {
 			return stream.SendAndClose(&api.EmptyResponse{})
 		}
 		if err != nil {
-			return errors.Wrap(err, "record bpf metrics")
+			return fmt.Errorf("record bpf metrics: %w", err)
 		}
 
 		m.IncSeccompProfileBpf(

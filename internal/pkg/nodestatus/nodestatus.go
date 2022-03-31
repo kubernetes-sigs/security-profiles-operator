@@ -18,9 +18,10 @@ package nodestatus
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 
-	"github.com/pkg/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -62,16 +63,16 @@ func (nsf *StatusClient) perNodeStatusNamespacedName() types.NamespacedName {
 
 func (nsf *StatusClient) Create(ctx context.Context) error {
 	if err := nsf.createFinalizer(ctx); err != nil {
-		return errors.Wrapf(err, "cannot create finalizer for %s", nsf.pol.GetName())
+		return fmt.Errorf("cannot create finalizer for %s: %w", nsf.pol.GetName(), err)
 	}
 
 	if err := nsf.createPolLabel(ctx); err != nil {
-		return errors.Wrapf(err, "cannot create policy name label for %s", nsf.pol.GetName())
+		return fmt.Errorf("cannot create policy name label for %s: %w", nsf.pol.GetName(), err)
 	}
 
 	// if object does not exist, add it
 	if err := nsf.createNodeStatus(ctx); err != nil {
-		return errors.Wrapf(err, "cannot create node status for %s", nsf.pol.GetName())
+		return fmt.Errorf("cannot create node status for %s: %w", nsf.pol.GetName(), err)
 	}
 	return nil
 }
@@ -123,11 +124,11 @@ func (nsf *StatusClient) statusObj(
 func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
 	s := nsf.statusObj(secprofnodestatusv1alpha1.ProfileStatePending)
 	if setCtrlErr := controllerutil.SetControllerReference(nsf.pol, s, nsf.client.Scheme()); setCtrlErr != nil {
-		return errors.Wrapf(setCtrlErr, "cannot set node status owner reference: %s", nsf.pol.GetName())
+		return fmt.Errorf("cannot set node status owner reference: %s: %w", nsf.pol.GetName(), setCtrlErr)
 	}
 	err := nsf.client.Create(ctx, s)
 	if err != nil && !kerrors.IsAlreadyExists(err) {
-		return errors.Wrap(err, "creating node status")
+		return fmt.Errorf("creating node status: %w", err)
 	}
 
 	return nil
@@ -136,12 +137,12 @@ func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
 func (nsf *StatusClient) Remove(ctx context.Context, c client.Client) error {
 	// if finalizer exists, remove it
 	if err := nsf.removeFinalizer(ctx); err != nil {
-		return errors.Wrapf(err, "cannot remove finalizer for %s", nsf.pol.GetName())
+		return fmt.Errorf("cannot remove finalizer for %s: %w", nsf.pol.GetName(), err)
 	}
 
 	// if object exists, remove it
 	if err := nsf.removeNodeStatus(ctx, c); err != nil {
-		return errors.Wrapf(err, "cannot remove nodeStatus for %s", nsf.pol.GetName())
+		return fmt.Errorf("cannot remove nodeStatus for %s: %w", nsf.pol.GetName(), err)
 	}
 
 	return nil
@@ -157,7 +158,7 @@ func (nsf *StatusClient) removeNodeStatus(ctx context.Context, c client.Client) 
 	// the state here is more or less unused, we just care about the name since we're deleting...
 	err := c.Delete(ctx, nsf.statusObj(secprofnodestatusv1alpha1.ProfileStateTerminating))
 	if err != nil && !kerrors.IsNotFound(err) {
-		return errors.Wrap(err, "deleting node status")
+		return fmt.Errorf("deleting node status: %w", err)
 	}
 
 	return nil
@@ -180,7 +181,7 @@ func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
 	if kerrors.IsNotFound(err) {
 		return false, nil
 	} else if err != nil {
-		return false, errors.Wrap(err, "fetching node status")
+		return false, fmt.Errorf("fetching node status: %w", err)
 	}
 
 	return true, nil
@@ -195,13 +196,13 @@ func (nsf *StatusClient) SetNodeStatus(
 		// it's OK if we're about to terminate a profile but it was already gone
 		return nil
 	} else if err != nil {
-		return errors.Wrap(err, "retrieving the current status")
+		return fmt.Errorf("retrieving the current status: %w", err)
 	}
 
 	status.Status = polState
 	status.Labels[secprofnodestatusv1alpha1.StatusStateLabel] = string(polState)
 	if err := nsf.client.Update(ctx, &status); err != nil {
-		return errors.Wrap(err, "updating node status")
+		return fmt.Errorf("updating node status: %w", err)
 	}
 
 	return nil
@@ -216,7 +217,7 @@ func (nsf *StatusClient) Matches(
 			// it's OK if we're about to terminate a profile but it was already gone
 			return true, nil
 		}
-		return false, errors.Wrapf(err, "getting node status for matching")
+		return false, fmt.Errorf("getting node status for matching: %w", err)
 	}
 	return status.Status == polState, nil
 }

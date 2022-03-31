@@ -17,10 +17,9 @@ limitations under the License.
 package enricher
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
-
-	"github.com/pkg/errors"
 )
 
 // type IDs are defined at https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/audit.h
@@ -59,7 +58,7 @@ func extractAuditLine(logLine string) (*auditLine, error) {
 		return selinux, nil
 	}
 
-	return nil, errors.Errorf("unsupported log line: %s", logLine)
+	return nil, fmt.Errorf("unsupported log line: %s", logLine)
 }
 
 func extractSeccompLine(logLine string) *auditLine {

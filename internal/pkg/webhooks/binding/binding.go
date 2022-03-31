@@ -19,12 +19,12 @@ package binding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -180,10 +180,10 @@ func (p *podSeccompBinder) getSeccompProfile(
 		func() (retryErr error) {
 			seccompProfile, retryErr = p.GetSeccompProfile(ctx, key)
 			if retryErr != nil {
-				return errors.Wrapf(retryErr, "getting profile")
+				return fmt.Errorf("getting profile: %w", retryErr)
 			}
 			if seccompProfile.Status.Status == "" {
-				return errors.Wrapf(ErrProfWithoutStatus, "getting profile")
+				return fmt.Errorf("getting profile: %w", ErrProfWithoutStatus)
 			}
 			return nil
 		}, func(inErr error) bool {
@@ -221,7 +221,7 @@ func (p *podSeccompBinder) addPodToBinding(
 ) error {
 	pb.Status.ActiveWorkloads = utils.AppendIfNotExists(pb.Status.ActiveWorkloads, podID)
 	if err := p.impl.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
-		return errors.Wrap(err, "add pod to binding")
+		return fmt.Errorf("add pod to binding: %w", err)
 	}
 	if !controllerutil.ContainsFinalizer(pb, finalizer) {
 		controllerutil.AddFinalizer(pb, finalizer)
@@ -236,7 +236,7 @@ func (p *podSeccompBinder) removePodFromBinding(
 ) error {
 	pb.Status.ActiveWorkloads = utils.RemoveIfExists(pb.Status.ActiveWorkloads, podID)
 	if err := p.impl.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
-		return errors.Wrap(err, "remove pod from binding")
+		return fmt.Errorf("remove pod from binding: %w", err)
 	}
 	if len(pb.Status.ActiveWorkloads) == 0 &&
 		controllerutil.ContainsFinalizer(pb, finalizer) {

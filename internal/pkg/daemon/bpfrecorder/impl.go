@@ -22,6 +22,7 @@ package bpfrecorder
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"runtime"
@@ -33,7 +34,6 @@ import (
 	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/acobaugh/osrelease"
 	bpf "github.com/aquasecurity/libbpfgo"
-	"github.com/pkg/errors"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"

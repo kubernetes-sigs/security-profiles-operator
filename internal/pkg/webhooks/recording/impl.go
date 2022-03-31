@@ -18,9 +18,9 @@ package recording
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -52,8 +52,10 @@ func (d *defaultImpl) ListProfileRecordings(
 	ctx context.Context, opts ...client.ListOption,
 ) (*v1alpha1.ProfileRecordingList, error) {
 	profileRecordings := &v1alpha1.ProfileRecordingList{}
-	err := d.client.List(ctx, profileRecordings, opts...)
-	return profileRecordings, errors.Wrap(err, "list profile recordings")
+	if err := d.client.List(ctx, profileRecordings, opts...); err != nil {
+		return nil, fmt.Errorf("list profile recordings: %w", err)
+	}
+	return profileRecordings, nil
 }
 
 func (d *defaultImpl) UpdateResource(
@@ -76,8 +78,10 @@ func (d *defaultImpl) GetOperatorNamespace() string {
 // nolint:gocritic
 func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
 	pod := &corev1.Pod{}
-	err := d.decoder.Decode(req, pod)
-	return pod, errors.Wrap(err, "decode pod")
+	if err := d.decoder.Decode(req, pod); err != nil {
+		return nil, fmt.Errorf("decode pod: %w", err)
+	}
+	return pod, nil
 }
 
 func (*defaultImpl) LabelSelectorAsSelector(

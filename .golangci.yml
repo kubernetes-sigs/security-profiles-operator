@@ -9,6 +9,9 @@ issues:
         - dupl
         - gofumpt
         - lll
+    - linters:
+        - goerr113
+      text: do not define dynamic errors, use wrapped static errors instead
 linters:
   disable-all: true
   enable:

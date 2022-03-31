@@ -18,14 +18,14 @@ package bindata
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/go-logr/logr"
 	certmanagerv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
 	certmanagermetav1 "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/pkg/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -63,7 +63,7 @@ func GetCAInjectType(
 		return CAInjectTypeCertManager, nil
 	}
 
-	return res, errors.Wrap(err, "unable to determine certificate provider")
+	return res, fmt.Errorf("unable to determine certificate provider: %w", err)
 }
 
 const (
@@ -96,10 +96,10 @@ func GetCertManagerResources(namespace string) *CertManagerResources {
 func (c *CertManagerResources) Create(ctx context.Context, cl client.Client) error {
 	for k, o := range c.objectMap() {
 		if err := cl.Create(ctx, o); err != nil {
-			if kerrors.IsAlreadyExists(err) {
+			if errors.IsAlreadyExists(err) {
 				continue
 			}
-			return errors.Wrapf(err, "creating %s", k)
+			return fmt.Errorf("creating %s: %w", k, err)
 		}
 	}
 	return nil
@@ -108,7 +108,7 @@ func (c *CertManagerResources) Create(ctx context.Context, cl client.Client) err
 func (c *CertManagerResources) Update(ctx context.Context, cl client.Client) error {
 	for k, o := range c.objectMap() {
 		if err := cl.Patch(ctx, o, client.Merge); err != nil {
-			return errors.Wrapf(err, "updating %s", k)
+			return fmt.Errorf("updating %s: %w", k, err)
 		}
 	}
 	return nil

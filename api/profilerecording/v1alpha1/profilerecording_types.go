@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -94,7 +93,7 @@ func (pr *ProfileRecording) CtrAnnotation(replica, ctrName string) (key, value s
 		return pr.ctrAnnotationSelinux(ctrReplicaName, ctrName)
 	}
 
-	return "", "", errors.Errorf(
+	return "", "", fmt.Errorf(
 		"invalid kind: %s", pr.Spec.Kind,
 	)
 }
@@ -140,7 +139,7 @@ func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrReplicaName, ctrName string)
 		)
 
 	default:
-		return "", "", errors.Errorf(
+		return "", "", fmt.Errorf(
 			"invalid recorder: %s", pr.Spec.Recorder,
 		)
 	}
@@ -165,7 +164,7 @@ func (pr *ProfileRecording) ctrAnnotationSelinux(ctrReplicaName, ctrName string)
 	case ProfileRecorderHook:
 	case ProfileRecorderBpf:
 	default:
-		return "", "", errors.Errorf(
+		return "", "", fmt.Errorf(
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderLogs,
 		)
 	}

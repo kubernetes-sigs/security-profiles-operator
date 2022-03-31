@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -29,7 +30,6 @@ import (
 
 	certmanagerv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/pkg/errors"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/urfave/cli/v2"
 	"k8s.io/klog/v2"
@@ -104,7 +104,7 @@ func main() {
 				if c.Bool(jsonFlag) {
 					j, err := info.JSONString()
 					if err != nil {
-						return errors.Wrap(err, "unable to generate JSON from version info")
+						return fmt.Errorf("unable to generate JSON from version info: %w", err)
 					}
 					res = j
 				}
@@ -216,7 +216,7 @@ func main() {
 
 func initialize(ctx *cli.Context) error {
 	if err := initLogging(ctx); err != nil {
-		return errors.Wrap(err, "init logging")
+		return fmt.Errorf("init logging: %w", err)
 	}
 
 	initProfiling(ctx)
@@ -231,7 +231,7 @@ func initLogging(ctx *cli.Context) error {
 
 	level := ctx.Uint("verbosity")
 	if err := set.Parse([]string{fmt.Sprintf("-v=%d", level)}); err != nil {
-		return errors.Wrap(err, "parse verbosity flag")
+		return fmt.Errorf("parse verbosity flag: %w", err)
 	}
 
 	ctrl.Log.Info(fmt.Sprintf("Set logging verbosity to %d", level))
@@ -266,7 +266,7 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	printInfo("security-profiles-operator", info)
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
-		return errors.Wrap(err, "get config")
+		return fmt.Errorf("get config: %w", err)
 	}
 
 	sigHandler := ctrl.SetupSignalHandler()
@@ -281,26 +281,26 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
-		return errors.Wrap(err, "create cluster manager")
+		return fmt.Errorf("create cluster manager: %w", err)
 	}
 
 	if err := configv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add OpenShift config API to scheme")
+		return fmt.Errorf("add OpenShift config API to scheme: %w", err)
 	}
 	if err := certmanagerv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add certmanager API to scheme")
+		return fmt.Errorf("add certmanager API to scheme: %w", err)
 	}
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add profilebinding API to scheme")
+		return fmt.Errorf("add profilebinding API to scheme: %w", err)
 	}
 	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add seccompprofile API to scheme")
+		return fmt.Errorf("add seccompprofile API to scheme: %w", err)
 	}
 	if err := selxv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add selinuxprofile API to scheme")
+		return fmt.Errorf("add selinuxprofile API to scheme: %w", err)
 	}
 	if err := monitoringv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add ServiceMonitor API to scheme")
+		return fmt.Errorf("add ServiceMonitor API to scheme: %w", err)
 	}
 
 	if err := setupEnabledControllers(ctx.Context, []controller.Controller{
@@ -308,12 +308,12 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		spod.NewController(),
 		workloadannotator.NewController(),
 	}, mgr, nil); err != nil {
-		return errors.Wrap(err, "enable controllers")
+		return fmt.Errorf("enable controllers: %w", err)
 	}
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(sigHandler); err != nil {
-		return errors.Wrap(err, "controller manager error")
+		return fmt.Errorf("controller manager error: %w", err)
 	}
 
 	setupLog.Info("ending manager")
@@ -378,7 +378,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
-		return errors.Wrap(err, "get config")
+		return fmt.Errorf("get config: %w", err)
 	}
 
 	sigHandler := ctrl.SetupSignalHandler()
@@ -392,37 +392,37 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
-		return errors.Wrap(err, "create manager")
+		return fmt.Errorf("create manager: %w", err)
 	}
 
 	// Setup metrics
 	met := metrics.New()
 	if err := met.Register(); err != nil {
-		return errors.Wrap(err, "register metrics")
+		return fmt.Errorf("register metrics: %w", err)
 	}
 	if err := met.ServeGRPC(); err != nil {
-		return errors.Wrap(err, "start metrics grpc server")
+		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 
 	if err := mgr.AddMetricsExtraHandler(metrics.HandlerPath, met.Handler()); err != nil {
-		return errors.Wrap(err, "add metrics extra handler")
+		return fmt.Errorf("add metrics extra handler: %w", err)
 	}
 
 	// This API provides status which is used by both seccomp and selinux
 	if err := secprofnodestatusv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add per-node Status API to scheme")
+		return fmt.Errorf("add per-node Status API to scheme: %w", err)
 	}
 	if err := spodv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add SPOD config API to scheme")
+		return fmt.Errorf("add SPOD config API to scheme: %w", err)
 	}
 
 	if err := setupEnabledControllers(ctx.Context, enabledControllers, mgr, met); err != nil {
-		return errors.Wrap(err, "enable controllers")
+		return fmt.Errorf("enable controllers: %w", err)
 	}
 
 	setupLog.Info("starting daemon")
 	if err := mgr.Start(sigHandler); err != nil {
-		return errors.Wrap(err, "SPOd error")
+		return fmt.Errorf("SPOd error: %w", err)
 	}
 
 	setupLog.Info("ending daemon")
@@ -451,7 +451,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	printInfo("security-profiles-operator-webhook", info)
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
-		return errors.Wrap(err, "get config")
+		return fmt.Errorf("get config: %w", err)
 	}
 
 	port := ctx.Int("port")
@@ -464,17 +464,17 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
 	if err != nil {
-		return errors.Wrap(err, "create cluster webhook")
+		return fmt.Errorf("create cluster webhook: %w", err)
 	}
 
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add profilebinding API to scheme")
+		return fmt.Errorf("add profilebinding API to scheme: %w", err)
 	}
 	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add seccompprofile API to scheme")
+		return fmt.Errorf("add seccompprofile API to scheme: %w", err)
 	}
 	if err := profilerecording1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
-		return errors.Wrap(err, "add profilerecording API to scheme")
+		return fmt.Errorf("add profilerecording API to scheme: %w", err)
 	}
 
 	setupLog.Info("registering webhooks")
@@ -485,7 +485,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	sigHandler := ctrl.SetupSignalHandler()
 	setupLog.Info("starting webhook")
 	if err := mgr.Start(sigHandler); err != nil {
-		return errors.Wrap(err, "controller manager error")
+		return fmt.Errorf("controller manager error: %w", err)
 	}
 	return nil
 }
@@ -499,17 +499,17 @@ func setupEnabledControllers(
 	for _, enableCtrl := range enabledControllers {
 		if enableCtrl.SchemeBuilder() != nil {
 			if err := enableCtrl.SchemeBuilder().AddToScheme(mgr.GetScheme()); err != nil {
-				return errors.Wrap(err, "add core operator APIs to scheme")
+				return fmt.Errorf("add core operator APIs to scheme: %w", err)
 			}
 		}
 
 		if err := enableCtrl.Setup(ctx, mgr, met); err != nil {
-			return errors.Wrapf(err, "setup %s controller", enableCtrl.Name())
+			return fmt.Errorf("setup %s controller: %w", enableCtrl.Name(), err)
 		}
 
 		if met != nil {
 			if err := mgr.AddHealthzCheck(enableCtrl.Name(), enableCtrl.Healthz); err != nil {
-				return errors.Wrap(err, "add readiness check to controller")
+				return fmt.Errorf("add readiness check to controller: %w", err)
 			}
 		}
 	}

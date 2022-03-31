@@ -18,13 +18,13 @@ package bindata
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -128,16 +128,16 @@ func GetWebhook(
 func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 	for k, o := range w.objectMap() {
 		if err := c.Create(ctx, o); err != nil {
-			if kerrors.IsAlreadyExists(err) {
+			if errors.IsAlreadyExists(err) {
 				if k == "config" {
 					// The config already exists because it's a global resource we have to remove later on
 					if err := c.Patch(ctx, o, client.Merge); err != nil {
-						return errors.Wrapf(err, "updating %s", k)
+						return fmt.Errorf("updating %s: %w", k, err)
 					}
 				}
 				continue
 			} else {
-				return errors.Wrapf(err, "creating %s", k)
+				return fmt.Errorf("creating %s: %w", k, err)
 			}
 		}
 	}
@@ -148,7 +148,7 @@ func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 func (w *Webhook) Update(ctx context.Context, c client.Client) error {
 	for k, o := range w.objectMap() {
 		if err := c.Patch(ctx, o, client.Merge); err != nil {
-			return errors.Wrapf(err, "updating %s", k)
+			return fmt.Errorf("updating %s: %w", k, err)
 		}
 	}
 	return nil

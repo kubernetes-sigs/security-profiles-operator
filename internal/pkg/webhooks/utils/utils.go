@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -58,7 +57,7 @@ func UpdateResource(
 	if err := c.Update(ctx, object); err != nil {
 		msg := fmt.Sprintf("failed to update resource %s", name)
 		logger.Error(err, msg)
-		return errors.Wrap(err, msg)
+		return fmt.Errorf("%s: %w", msg, err)
 	}
 	return nil
 }

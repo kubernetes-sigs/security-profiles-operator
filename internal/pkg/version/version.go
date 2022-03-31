@@ -18,14 +18,13 @@ package version
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"runtime"
 	"runtime/debug"
 	"strings"
 	"text/tabwriter"
-
-	"github.com/pkg/errors"
 )
 
 var (
@@ -159,7 +158,7 @@ func (i *Info) String() string {
 func (i *Info) JSONString() (string, error) {
 	b, err := json.MarshalIndent(i, "", "  ")
 	if err != nil {
-		return "", errors.Wrap(err, "marshal info as JSON")
+		return "", fmt.Errorf("marshal info as JSON: %w", err)
 	}
 	return string(b), nil
 }
