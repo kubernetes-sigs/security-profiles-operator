@@ -1,0 +1,23 @@
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: SecurityProfilesOperatorDaemon
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spod
+  namespace: security-profiles-operator
+spec:
+  hostProcVolumePath: /proc
+  selinuxOptions:
+    allowedSystemProfiles:
+    - container
+  selinuxTypeTag: unconfined_t
+  tolerations:
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/master
+    operator: Exists
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+    operator: Exists
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
