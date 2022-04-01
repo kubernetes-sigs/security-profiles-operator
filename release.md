@@ -16,7 +16,7 @@ The first PR targets this repository and:
   [./deploy/base/kustomization.yaml](deploy/base/kustomization.yaml) from
   `gcr.io/k8s-staging-sp-operator/security-profiles-operator` to
   `k8s.gcr.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
-  corresponding tag (`newTag`). After that the make target `make deployments`
+  corresponding tag (`newTag`). After that the make target `make bundle`
   has to be run and the changes have to be committed.
 
 After this PR has been merged, we have to watch out the successful build of the
@@ -60,6 +60,7 @@ After that, another PR against this repository has to be created, which:
   [./deploy/base/kustomization.yaml](deploy/base/kustomization.yaml) back to
   `gcr.io/k8s-staging-sp-operator/security-profiles-operator` (`newName`) and `latest`
   (`newTag`).
+- runs `make bundle`
 
 The last step about the release creation is to send a release announcement to
 the [#security-profiles-operator Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator).
