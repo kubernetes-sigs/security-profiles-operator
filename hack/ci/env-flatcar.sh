@@ -21,4 +21,5 @@ export GOBIN="$GOPATH/bin"
 export PATH="/opt/bin:$PATH"
 
 # Added for faster debugging with lower verbosity
+export KUBECONFIG=/etc/kubernetes/admin.conf
 alias k=kubectl
