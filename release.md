@@ -31,22 +31,23 @@ promotes the built container images (the manifest as well as the builds for
 `amd64` and `arm`).
 
 We can use the tool
-[`cip-mm`](https://github.com/kubernetes-sigs/promo-tools/tree/main/cmd/cip-mm) to
-allow easier retrieval and modification of the necessary container image digests.
-To run the tool from `$GOPATH/src/k8s.io/release`, just execute:
+[`kpromo`](https://github.com/kubernetes-sigs/promo-tools#kpromo) to allow
+easier retrieval and modification of the necessary container image digests.
+To run the tool from `$GOPATH/src/sigs.k8s.io/promo-tools`, just execute:
 
 ```bash
-> go run ./cmd/cip-mm/main.go \
-    --base_dir ../../k8s.io/k8s.io/k8s.gcr.io \
-    --staging_repo gcr.io/k8s-staging-sp-operator \
-    --filter_tag v0.x.0  # change the tag accordingly
+> export GITHUB_TOKEN=<YOUR_TOKEN>
+> go run ./cmd/kpromo pr \
+    --fork <YOUR_GH_USERNAME> \
+    --project sp-operator \
+    --reviewers "" \
+    --image="" \
+    --digests="" \
+    --tag v0.x.y
 ```
 
-This will modify the file
-[`$GOPATH/src/k8s.io/k8s.io/k8s.gcr.io/images/k8s-staging-sp-operator/images.yaml`](https://github.com/kubernetes/k8s.io/blob/main/k8s.gcr.io/images/k8s-staging-sp-operator/images.yaml)
-which can be now proposed as a new PR.
-
-If this PR got merged, then we're finally ready to [create the
+This will automatically create a PR in the k/k8s.io repository. If this PR got
+merged, then we're finally ready to [create the
 release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/new)
 directly on GitHub and add the release notes. The release notes can be generated
 by the [official Kubernetes Release Notes
