@@ -150,7 +150,7 @@ jobs:
         run: make vagrant-up-flatcar
       - name: Show environment information
         run: |
-          $RUN kubectl wait --for=condition=ready --timeout=90s node localhost
+          $RUN kubectl wait --for=condition=ready --timeout=180s node localhost
           $RUN kubectl get nodes -o wide
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-flatcar-dev-container.sh
