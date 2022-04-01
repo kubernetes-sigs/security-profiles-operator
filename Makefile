@@ -144,10 +144,13 @@ $(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
 clean: ## Clean the build directory
 	rm -rf $(BUILD_DIR)
 
+.PHONY: $(BUILD_DIR)/kustomize
 $(BUILD_DIR)/kustomize: $(BUILD_DIR)
-	export URL=https://raw.githubusercontent.com/kubernetes-sigs/kustomize && \
-	curl -sfL $$URL/master/hack/install_kustomize.sh \
-		| bash -s $(KUSTOMIZE_VERSION) $(PWD)/$(BUILD_DIR)
+	if [ ! -f $@ ]; then \
+		export URL=https://raw.githubusercontent.com/kubernetes-sigs/kustomize && \
+		curl -sfL $$URL/master/hack/install_kustomize.sh \
+			| bash -s $(KUSTOMIZE_VERSION) $(PWD)/$(BUILD_DIR); \
+	fi
 
 $(BUILD_DIR)/kubernetes-split-yaml: $(BUILD_DIR)
 	export URL=https://github.com/mogensen/kubernetes-split-yaml/releases/download/v$(KUBERNETES_SPLIT_YAML_VERSION)/kubernetes-split-yaml_$(KUBERNETES_SPLIT_YAML_VERSION)_$(OS)_amd64.tar.gz && \
