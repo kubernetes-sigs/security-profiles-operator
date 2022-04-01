@@ -22,3 +22,7 @@ substitutions:
 images:
   - 'gcr.io/$PROJECT_ID/security-profiles-operator-amd64:$_GIT_TAG'
   - 'gcr.io/$PROJECT_ID/security-profiles-operator-amd64:latest'
+  - 'gcr.io/$PROJECT_ID/security-profiles-operator-catalog:$_GIT_TAG'
+  - 'gcr.io/$PROJECT_ID/security-profiles-operator-catalog:latest'
+  - 'gcr.io/$PROJECT_ID/security-profiles-operator-bundle:$_GIT_TAG'
+  - 'gcr.io/$PROJECT_ID/security-profiles-operator-bundle:latest'
