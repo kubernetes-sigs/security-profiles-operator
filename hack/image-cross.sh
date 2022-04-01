@@ -63,12 +63,10 @@ for T in "${TAGS[@]}"; do
     docker manifest push --purge "$IMAGE:$T"
 done
 
-# Build and push the catalog image
-export BUNDLE_IMG=$IMAGE-bundle:$VERSION
-export CATALOG_IMG=$IMAGE-catalog:$VERSION
-
 # Manually install OPM because of failing symbol relocation of the non-static
-# upstream binary build
+# upstream binary build.
+# TODO: remove me when switching to a new OPM version, which are nowadays
+# correctly statically linked.
 OPM_VERSION=1.19.1
 OPM_REPO=operator-registry
 OPM_DIR=$OPM_REPO-$OPM_VERSION
@@ -76,11 +74,24 @@ apk add --no-cache gcc libc-dev
 curl -sSfL --retry 5 --retry-delay 3 \
     "https://github.com/operator-framework/$OPM_REPO/archive/refs/tags/v$OPM_VERSION.tar.gz" -o- |
     tar xfz -
-make -C $OPM_DIR bin/opm
+make -C $OPM_DIR bin/opm CGO_LDFLAGS=
 mkdir -p build
 cp $OPM_DIR/bin/opm build/opm
 
-make bundle-build \
-    bundle-push \
-    catalog-build \
-    catalog-push
+# Build and push the bundle and catalog image
+BUNDLE_IMG_BASE=$IMAGE-bundle
+CATALOG_IMG_BASE=$IMAGE-catalog
+
+export BUNDLE_IMG=$BUNDLE_IMG_BASE:$VERSION
+export CATALOG_IMG=$CATALOG_IMG_BASE:$VERSION
+
+make bundle-build bundle-push catalog-build catalog-push
+
+# Ensure all tags are up to date
+IMAGES=("$BUNDLE_IMG_BASE" "$CATALOG_IMG_BASE")
+for I in "${IMAGES[@]}"; do
+    for T in "${TAGS[@]}"; do
+        docker tag "$I:$VERSION" "$I:$T"
+        docker push "$I:$T"
+    done
+done
