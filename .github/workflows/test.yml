@@ -151,7 +151,7 @@ jobs:
       - name: Show environment information
         run: |
           $RUN kubectl get nodes -o wide
-          $RUN kubectl wait --for=condition=ready --timeout=60s node localhost
+          $RUN kubectl wait --for=condition=ready --timeout=300s node localhost
           $RUN kubectl get nodes -o wide
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-flatcar-dev-container.sh
