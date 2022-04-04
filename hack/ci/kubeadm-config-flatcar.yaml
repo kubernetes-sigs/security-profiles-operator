@@ -3,6 +3,7 @@ kind: InitConfiguration
 nodeRegistration:
   kubeletExtraArgs:
     volume-plugin-dir: "/opt/libexec/kubernetes/kubelet-plugins/volume/exec/"
+  criSocket: "unix:///run/containerd/containerd.sock"
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
