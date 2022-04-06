@@ -1,6 +1,7 @@
 # Installation and Usage
 
 <!-- toc -->
+
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
@@ -51,7 +52,7 @@ cert-manager via `kubectl`, if you're **not** running on
 [OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
 ```sh
-$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.7.2/cert-manager.yaml
+$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.8.0/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
@@ -82,7 +83,7 @@ I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 
 ## Configure the SELinux type
 
-The operator uses by default the `spc_t` SELinux type in the security context of the daemon pod. This can be easily 
+The operator uses by default the `spc_t` SELinux type in the security context of the daemon pod. This can be easily
 changed to a different SELinux type by patching the spod config as follows:
 
 ```
