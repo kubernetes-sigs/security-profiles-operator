@@ -28,11 +28,9 @@ const (
 	exampleRecordingBpfSpecificContainerPath = "examples/profilerecording-seccomp-bpf-specific-container.yaml"
 )
 
-var testRegex = regexp.MustCompile(`Using short path via tracked mount namespace`)
-
-func (e *e2e) waitForBpfRecorderLogs(since time.Time) {
-	for i := 0; i < 10; i++ {
-		e.logf("Waiting for bpf recorder to find container")
+func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
+	for i := 0; i < 15; i++ {
+		e.logf("Waiting for bpf recorder to start recording profiles %v", profiles)
 		logs := e.kubectlOperatorNS(
 			"logs",
 			"--since-time="+since.Format(time.RFC3339),
@@ -40,12 +38,21 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time) {
 			"bpf-recorder",
 		)
 
-		if testRegex.MatchString(logs) {
-			break
+		matches := 0
+		for _, profile := range profiles {
+			pattern := fmt.Sprintf(`Using short path via tracked mount namespace.+%s`, profile)
+			testRegex := regexp.MustCompile(pattern)
+			if testRegex.MatchString(logs) {
+				matches++
+			}
+		}
+		if matches == len(profiles) {
+			return
 		}
 
 		time.Sleep(3 * time.Second)
 	}
+	e.logf("Timeout waiting for bpf recorder to start recording profiles %v", profiles)
 }
 
 func (e *e2e) testCaseBpfRecorderKubectlRun() {
@@ -55,7 +62,7 @@ func (e *e2e) testCaseBpfRecorderKubectlRun() {
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
 
 	e.logf("Creating test pod")
-	e.kubectlRun("--labels=app=alpine", "fedora", "--", "sh", "-c", "sleep 3; mkdir /test")
+	e.kubectlRun("--labels=app=alpine", "fedora", "--", "sh", "-c", "sleep 20; mkdir /test")
 
 	resourceName := recordingName + "-fedora"
 	profile := e.retryGetSeccompProfile(resourceName)
@@ -73,11 +80,11 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 
 	since, podName := e.createRecordingTestPod()
 
-	e.waitForBpfRecorderLogs(since)
+	resourceName := recordingName + "-nginx"
+	e.waitForBpfRecorderLogs(since, resourceName)
 
 	e.kubectl("delete", "pod", podName)
 
-	resourceName := recordingName + "-nginx"
 	profile := e.retryGetSeccompProfile(resourceName)
 	e.Contains(profile, "setuid")
 
@@ -101,15 +108,15 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 
 	since, podName := e.createRecordingTestMultiPod()
 
-	e.waitForBpfRecorderLogs(since)
+	const profileNameRedis = recordingName + "-redis"
+	const profileNameNginx = recordingName + "-nginx"
+	e.waitForBpfRecorderLogs(since, profileNameRedis, profileNameNginx)
 
 	e.kubectl("delete", "pod", podName)
 
-	const profileNameRedis = recordingName + "-redis"
 	profileRedis := e.retryGetSeccompProfile(profileNameRedis)
 	e.Contains(profileRedis, "epoll_wait")
 
-	const profileNameNginx = recordingName + "-nginx"
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "close")
 
@@ -157,12 +164,12 @@ spec:
 	e.waitFor("condition=available", "deploy", deployName)
 
 	since := time.Now()
-	e.waitForBpfRecorderLogs(since)
+	const profileName0 = recordingName + "-nginx-0"
+	const profileName1 = recordingName + "-nginx-1"
+	e.waitForBpfRecorderLogs(since, profileName0, profileName1)
 
 	e.kubectl("delete", "deploy", deployName)
 
-	const profileName0 = recordingName + "-nginx-0"
-	const profileName1 = recordingName + "-nginx-1"
 	profile0 := e.retryGetSeccompProfile(profileName0)
 	profile1 := e.retryGetSeccompProfile(profileName1)
 	e.Contains(profile0, "setuid")
@@ -181,23 +188,17 @@ func (e *e2e) testCaseBpfRecorderParallel() {
 
 	since, podNames := e.createRecordingTestParallelPods()
 
-	e.waitForBpfRecorderLogs(since)
-
-	logs := e.kubectlOperatorNS(
-		"logs", "--since-time="+since.Format(time.RFC3339),
-		"ds/spod", "bpf-recorder",
-	)
-	e.Contains(logs, "bpf recorder already running")
+	const profileNameFirstCtr = recordingName + "-rec-0"
+	const profileNameSecondCtr = recordingName + "-rec-1"
+	e.waitForBpfRecorderLogs(since, profileNameFirstCtr, profileNameSecondCtr)
 
 	for _, podName := range podNames {
 		e.kubectl("delete", "pod", podName)
 	}
 
-	const profileNameFirstCtr = recordingName + "-rec-0"
 	firstProfile := e.retryGetSeccompProfile(profileNameFirstCtr)
 	e.Contains(firstProfile, "close")
 
-	const profileNameSecondCtr = recordingName + "-rec-1"
 	secondProfile := e.retryGetSeccompProfile(profileNameSecondCtr)
 	e.Contains(secondProfile, "epoll_wait")
 
@@ -256,11 +257,11 @@ func (e *e2e) testCaseBpfRecorderSelectContainer() {
 
 	since, podName := e.createRecordingTestMultiPod()
 
-	e.waitForBpfRecorderLogs(since)
+	const profileNameNginx = recordingName + "-nginx"
+	e.waitForBpfRecorderLogs(since, profileNameNginx)
 
 	e.kubectl("delete", "pod", podName)
 
-	const profileNameNginx = recordingName + "-nginx"
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "epoll_wait")
 
