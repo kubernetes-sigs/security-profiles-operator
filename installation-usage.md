@@ -5,6 +5,7 @@
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
+  - [Installation using OLM from operatorhub.io](#installation-using-olm-from-operatorhubio)
 - [Set logging verbosity](#set-logging-verbosity)
 - [Configure the SELinux type](#configure-the-selinux-type)
 - [Create Profile](#create-profile)
@@ -62,6 +63,30 @@ cert-manager. After this step, apply the operator manifest:
 
 ```sh
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/operator.yaml
+```
+
+### Installation using OLM from operatorhub.io
+
+It is also possible to install packages from [operatorhub.io](https://operatorhub.io/operator/security-profiles-operator)
+using [OLM](https://operator-framework.github.io/olm-book/). This would install the `operatohubio-catalog` in the `olm`
+namespace:
+```shell
+$ kubectl get catalogsource.operators.coreos.com/operatorhubio-catalog -nolm
+```
+
+To install SPO, first make sure that OLM
+itself is [installed](https://operator-framework.github.io/olm-book/docs/install-olm.html). Then install
+SPO using the provided manifest:
+
+```sh
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/examples/olm/operatorhub-io.yaml
+```
+
+SPO would be then installed in the `security-profiles-operator` namespace. To troubleshoot the installation,
+check the state of the `Subscription`, `CSV` and `InstallPlan` objects in the `security-profiles-operator` namespace:
+
+```sh
+$ kubectl get ip,csv,sub -nsecurity-profiles-operator
 ```
 
 ## Set logging verbosity
