@@ -6,6 +6,7 @@
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
   - [Installation using OLM from operatorhub.io](#installation-using-olm-from-operatorhubio)
+  - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
 - [Set logging verbosity](#set-logging-verbosity)
 - [Configure the SELinux type](#configure-the-selinux-type)
 - [Create Profile](#create-profile)
@@ -87,6 +88,22 @@ check the state of the `Subscription`, `CSV` and `InstallPlan` objects in the `s
 
 ```sh
 $ kubectl get ip,csv,sub -nsecurity-profiles-operator
+```
+
+### Installation using OLM using upstream catalog and bundle
+
+The SPO upstream also creates bundles and catalogs for both released versions
+and after every commit to the `main` branch. Provided that your cluster uses OLM
+(see above) you can install SPO using:
+```sh
+$ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/examples/olm/install-resources.yaml
+```
+
+Note that on OpenShift, the OLM catalogs are deployed into the `openshift-marketplace` namespace, so you'd
+need to replace the namespaces before deploying:
+```shell
+manifest=https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/examples/olm/install-resources.yaml
+$ curl $manifest | sed "s#olm#openshift-marketplace#g" | oc apply -f -
 ```
 
 ## Set logging verbosity
