@@ -157,7 +157,8 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	}
 	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy, caInjectType)
 
-	webhook := bindata.GetWebhook(r.log, r.namespace, spod.Spec.WebhookOpts, image, pullPolicy, caInjectType)
+	webhook := bindata.GetWebhook(r.log, r.namespace, spod.Spec.WebhookOpts, image,
+		pullPolicy, caInjectType, spod.Spec.Tolerations)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
 
 	var certManagerResources *bindata.CertManagerResources
