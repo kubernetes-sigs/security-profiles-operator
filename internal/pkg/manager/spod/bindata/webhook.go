@@ -123,9 +123,13 @@ func GetWebhook(
 	image string,
 	pullPolicy corev1.PullPolicy,
 	caInjectType CAInjectType,
+	tolerations []corev1.Toleration,
 ) *Webhook {
 	deployment := webhookDeployment.DeepCopy()
 	deployment.Namespace = namespace
+	if len(tolerations) > 0 {
+		deployment.Spec.Template.Spec.Tolerations = tolerations
+	}
 
 	ctr := &deployment.Spec.Template.Spec.Containers[0]
 	ctr.Image = image
