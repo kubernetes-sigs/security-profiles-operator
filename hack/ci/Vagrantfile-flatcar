@@ -3,6 +3,7 @@
 
 Vagrant.configure("2") do |config|
   config.vm.box = "flatcar-stable"
+  config.vm.box_check_update = true
   config.vm.box_url = "https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json"
   memory = 8192
   cpus = 4 
@@ -33,6 +34,9 @@ Vagrant.configure("2") do |config|
   config.vm.provision "install-dependencies", type: "shell", run: "once" do |sh|
     sh.inline = <<~SHELL
       set -euxo pipefail
+
+      # Disable update-engine to avoid system reboots
+      systemctl disable --now update-engine.service
 
       # Disable docker
       systemctl disable --now docker.service
