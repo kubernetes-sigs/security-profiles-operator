@@ -142,6 +142,10 @@ jobs:
             ~/.vagrant.d/boxes
           key: e2e-flatcar-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
           restore-keys: e2e-flatcar-
+      - name: Upgrade vagrant box
+        run: |
+          ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
+          vagrant box update
       - uses: actions/download-artifact@3be87be14a055c47b01d3bd88f8fe02320a9bb60 # v2.0.10
         with:
           name: image
