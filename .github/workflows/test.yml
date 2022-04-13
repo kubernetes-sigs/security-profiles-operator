@@ -136,12 +136,17 @@ jobs:
       RUN: ./hack/ci/run-flatcar.sh
     steps:
       - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
+      - name: Vagrant box version
+        id: vagrant-box
+        run: |
+          echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
+        shell: bash
       - uses: actions/cache@937d24475381cd9c75ae6db12cb4e79714b926ed # v2.1.7
         with:
           path: |
             ~/.vagrant.d/boxes
-          key: e2e-flatcar-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
-          restore-keys: e2e-flatcar-
+          key: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
+          restore-keys: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-
       - name: Upgrade vagrant box
         run: |
           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
