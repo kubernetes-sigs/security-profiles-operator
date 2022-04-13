@@ -155,7 +155,7 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 		return reconcile.Result{}, errors.New("status doesn't match owner")
 	}
 
-	nodeStatusList, err := listStatusesForProfile(ctx, r.client, profLabel)
+	nodeStatusList, err := listStatusesForProfile(ctx, r.client, instance.Namespace, profLabel)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot list the node statuses: %w", err)
 	}
@@ -293,14 +293,21 @@ func daemonSetIsUpdating(ds *appsv1.DaemonSet) bool {
 }
 
 func listStatusesForProfile(
-	ctx context.Context, c client.Client, labelVal string,
+	ctx context.Context, c client.Client, namespace string, labelVal string,
 ) (*statusv1alpha1.SecurityProfileNodeStatusList, error) {
-	statusList := statusv1alpha1.SecurityProfileNodeStatusList{}
-	allStatusesForProf := client.MatchingLabels{
-		statusv1alpha1.StatusToProfLabel: labelVal,
+	statusSelect := labels.NewSelector()
+	statusFilter, err := labels.NewRequirement(statusv1alpha1.StatusToProfLabel, selection.Equals, []string{labelVal})
+	if err != nil {
+		return nil, fmt.Errorf("cannot create node status list label: %w", err)
+	}
+	statusSelect = statusSelect.Add(*statusFilter)
+	statusListOpts := client.ListOptions{
+		LabelSelector: statusSelect,
+		Namespace:     namespace,
 	}
 
-	if err := c.List(ctx, &statusList, allStatusesForProf); err != nil {
+	statusList := statusv1alpha1.SecurityProfileNodeStatusList{}
+	if err := c.List(ctx, &statusList, &statusListOpts); err != nil {
 		return nil, fmt.Errorf("listing statuses: %w", err)
 	}
 
