@@ -90,6 +90,17 @@ function check_spo_is_running() {
     # wait for the operator to be ready
     kubectl -nsecurity-profiles-operator wait --for=condition=ready pod -lname=security-profiles-operator
     kubectl -nsecurity-profiles-operator wait --for=condition=ready pod -lname=security-profiles-operator-webhook
+
+    # wait for spod pod to be created, kubectl wait for un-existed resource seems to exit with error
+    # which is causing random test failure
+    # see https://github.com/kubernetes/kubernetes/issues/83242
+    for i in $(seq 1 10); do 
+        found=$(kubectl get -nsecurity-profiles-operator pods -lname=spod 2> /dev/null)
+        if [[ $found ]]; then
+            break
+        fi
+        sleep 5
+    done
     kubectl -nsecurity-profiles-operator wait --for=condition=ready pod -lname=spod
 }
 
