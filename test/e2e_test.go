@@ -170,6 +170,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseBpfRecorderSelectContainer()
 	})
 
+	e.Run("cluster-wide: Same profile in multiple namespaces", func() {
+		e.testCaseSameProfileMultipleNs()
+	})
+
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(manifest)
 	e.run("git", "checkout", manifest)
