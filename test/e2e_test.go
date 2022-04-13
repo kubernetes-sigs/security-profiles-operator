@@ -282,7 +282,7 @@ func (e *e2e) deployOperator(manifest string) {
 	if e.spodConfig != "" {
 		e.logf("Updating SPOD config")
 		// Apply this server-side to avoid conflicts with the default configuration
-		e.kubectl("apply", "--server-side", "-f", e.spodConfig)
+		e.kubectl("apply", "--server-side", "--force-conflicts", "-f", e.spodConfig)
 	}
 
 	// Wait for the operator to be ready
