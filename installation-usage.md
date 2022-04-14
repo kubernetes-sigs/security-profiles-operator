@@ -306,9 +306,9 @@ $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.sec
 ### Record profiles from workloads with `ProfileRecordings`
 
 The operator is capable of recording seccomp profiles by the usage of the
-[oci-seccomp-bpf-hook][bpf-hook] or by evaluating the [audit][auditd] or
-[syslog][syslog] files. Both methods have its pros and cons as well as separate
-technical requirements.
+built-in [eBPF](https://ebpf.io) recorder, [oci-seccomp-bpf-hook][bpf-hook] or
+by evaluating the [audit][auditd] or [syslog][syslog] files. Each method has
+its pros and cons as well as separate technical requirements.
 
 #### Hook based recording
 
@@ -325,6 +325,10 @@ hooks_dir = [
     "/path/to/seccomp/hook",
 ]
 ```
+
+The `seccomp-hook` has to be installed as well. The package name differs on
+each Linux distributions, for example of Fedora/RHEL, the package is named
+`oci-seccomp-bpf-hook`
 
 The hook references a [path][path] to the actual binary which gets executed on
 `prestart`. Please note that at least CRI-O v1.21.0 is required to let the hook
@@ -576,7 +580,16 @@ test-recording-redis   Installed   15s
 The operator also supports an [eBPF](https://ebpf.io) based recorder. This
 recorder only supports seccomp profiles for now. Recording via ebpf works for
 kernels which expose the `/sys/kernel/btf/vmlinux` file per default as well as a
-[custom list of selected Linux kernels](bpf-support.md).
+[custom list of selected Linux kernels](bpf-support.md). In addition, this
+feature requires new library versions and thus might not be enabled. You
+can find out if your SPO build has the eBPF feature disabled by looking at
+the build tags:
+
+```
+> kubectl logs --selector name=security-profiles-operator | grep buildTags
+```
+
+If the output contains `no_bpf` then the feature has been disabled.
 
 To use the recorder, enable it by patching the `spod` configuration:
 
