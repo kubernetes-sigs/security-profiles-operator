@@ -120,7 +120,7 @@ securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 The daemon should now indicate that it's using the new logging verbosity:
 
 ```
-> k logs ds/spod security-profiles-operator | head -n1
+> k logs --selector name=spod security-profiles-operator | head -n1
 I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 ```
 
@@ -551,7 +551,7 @@ my-pod   2/2     Running   0          18s
 Then the enricher should indicate that it receives audit logs for those containers:
 
 ```
-> kubectl -n security-profiles-operator logs --since=1m ds/spod log-enricher
+> kubectl -n security-profiles-operator logs --since=1m --selector name=spod log-enricher
 …
 I0705 12:08:18.729660 1843190 enricher.go:136] log-enricher "msg"="audit"  "container"="redis" "executable"="/usr/local/bin/redis-server" "namespace"="default" "node"="127.0.0.1" "pid"=1847839 "pod"="my-pod" "syscallID"=232 "syscallName"="epoll_wait" "timestamp"="1625486870.273:187492" "type"="seccomp"
 ```
@@ -589,7 +589,7 @@ We can verify that the recorder is up and running after the spod rollout has
 been finished:
 
 ```
-> kubectl logs ds/spod -c bpf-recorder
+> kubectl -n security-profiles-operator logs --selector name=spod -c bpf-recorder
 Found 6 pods, using pod/spod-h7dpm
 I1115 12:02:45.991786  110307 main.go:182]  "msg"="Set logging verbosity to 0"
 I1115 12:02:45.991901  110307 deleg.go:130] setup "msg"="starting component: bpf-recorder"  "buildDate"="1980-01-01T00:00:00Z" "compiler"="gc" "gitCommit"="unknown" "gitTreeState"="clean" "goVersion"="go1.16.9" "libseccomp"="2.5.1" "platform"="linux/amd64" "version"="0.4.0-dev"
@@ -656,7 +656,7 @@ my-pod   1/1     Running   0          10s
 Then the BPF recorder should indicate that it found the container:
 
 ```
-> kubectl -n security-profiles-operator logs --since=1m ds/spod log-enricher
+> kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c log-enricher
 …
 I1115 12:12:30.029216   66106 bpfrecorder.go:654] bpf-recorder "msg"="Found container ID in cluster"  "containerID"="c2e10af47011f6a61cd7e92073db2711796f174af35b34486967588ef7f95fbc" "containerName"="nginx"
 I1115 12:12:30.029264   66106 bpfrecorder.go:539] bpf-recorder "msg"="Saving PID for profile"  "mntns"=4026533352 "pid"=74384 "profile"="my-recording-nginx-1636978341"
@@ -1059,13 +1059,13 @@ The containers of the daemon should now indicate that it's serving the profiling
 endpoint, where every container is using a different port:
 
 ```
-> k logs ds/spod -c security-profiles-operator | grep "Starting profiling"
+> k logs --selector name=spod -c security-profiles-operator | grep "Starting profiling"
 I1202 15:14:40.276363 2185724 main.go:226]  "msg"="Starting profiling server"  "endpoint"="localhost:6060"
 
-> k logs ds/spod -c log-enricher | grep "Starting profiling"
+> k logs --selector name=spod -c log-enricher | grep "Starting profiling"
 I1202 15:14:40.364046 2185814 main.go:226]  "msg"="Starting profiling server"  "endpoint"="localhost:6061"
 
-> k logs ds/spod -c bpf-recorder | grep "Starting profiling"
+> k logs --selector name=spod -c bpf-recorder | grep "Starting profiling"
 I1202 15:14:40.457506 2185914 main.go:226]  "msg"="Starting profiling server"  "endpoint"="localhost:6062"
 ```
 
