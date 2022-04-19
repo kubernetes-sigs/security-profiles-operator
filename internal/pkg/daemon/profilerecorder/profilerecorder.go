@@ -653,7 +653,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			// which is not longer active. Let's skip here and keep processing the
 			// next profile.
 			if status.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
-				r.log.Error(err, "Recorded profile not found", profile.name)
+				r.log.Error(err, "Recorded profile not found", "name", profile.name)
 				continue
 			} else {
 				return fmt.Errorf("get syscalls for profile: %w", err)
