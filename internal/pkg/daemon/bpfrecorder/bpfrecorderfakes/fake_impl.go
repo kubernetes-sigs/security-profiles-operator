@@ -249,19 +249,21 @@ type FakeImpl struct {
 		result1 *rest.Config
 		result2 error
 	}
-	InitRingBufStub        func(*libbpfgo.Module, string, chan []byte) (*libbpfgo.RingBuffer, error)
-	initRingBufMutex       sync.RWMutex
-	initRingBufArgsForCall []struct {
+	InitPerfBufStub        func(*libbpfgo.Module, string, chan []byte, chan uint64, int) (*libbpfgo.PerfBuffer, error)
+	initPerfBufMutex       sync.RWMutex
+	initPerfBufArgsForCall []struct {
 		arg1 *libbpfgo.Module
 		arg2 string
 		arg3 chan []byte
+		arg4 chan uint64
+		arg5 int
 	}
-	initRingBufReturns struct {
-		result1 *libbpfgo.RingBuffer
+	initPerfBufReturns struct {
+		result1 *libbpfgo.PerfBuffer
 		result2 error
 	}
-	initRingBufReturnsOnCall map[int]struct {
-		result1 *libbpfgo.RingBuffer
+	initPerfBufReturnsOnCall map[int]struct {
+		result1 *libbpfgo.PerfBuffer
 		result2 error
 	}
 	ListPodsStub        func(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
@@ -391,10 +393,10 @@ type FakeImpl struct {
 	setTTLReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StartRingBufferStub        func(*libbpfgo.RingBuffer)
-	startRingBufferMutex       sync.RWMutex
-	startRingBufferArgsForCall []struct {
-		arg1 *libbpfgo.RingBuffer
+	StartPerfBufferStub        func(*libbpfgo.PerfBuffer)
+	startPerfBufferMutex       sync.RWMutex
+	startPerfBufferArgsForCall []struct {
+		arg1 *libbpfgo.PerfBuffer
 	}
 	StatStub        func(string) (fs.FileInfo, error)
 	statMutex       sync.RWMutex
@@ -1490,20 +1492,22 @@ func (fake *FakeImpl) InClusterConfigReturnsOnCall(i int, result1 *rest.Config, 
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) InitRingBuf(arg1 *libbpfgo.Module, arg2 string, arg3 chan []byte) (*libbpfgo.RingBuffer, error) {
-	fake.initRingBufMutex.Lock()
-	ret, specificReturn := fake.initRingBufReturnsOnCall[len(fake.initRingBufArgsForCall)]
-	fake.initRingBufArgsForCall = append(fake.initRingBufArgsForCall, struct {
+func (fake *FakeImpl) InitPerfBuf(arg1 *libbpfgo.Module, arg2 string, arg3 chan []byte, arg4 chan uint64, arg5 int) (*libbpfgo.PerfBuffer, error) {
+	fake.initPerfBufMutex.Lock()
+	ret, specificReturn := fake.initPerfBufReturnsOnCall[len(fake.initPerfBufArgsForCall)]
+	fake.initPerfBufArgsForCall = append(fake.initPerfBufArgsForCall, struct {
 		arg1 *libbpfgo.Module
 		arg2 string
 		arg3 chan []byte
-	}{arg1, arg2, arg3})
-	stub := fake.InitRingBufStub
-	fakeReturns := fake.initRingBufReturns
-	fake.recordInvocation("InitRingBuf", []interface{}{arg1, arg2, arg3})
-	fake.initRingBufMutex.Unlock()
+		arg4 chan uint64
+		arg5 int
+	}{arg1, arg2, arg3, arg4, arg5})
+	stub := fake.InitPerfBufStub
+	fakeReturns := fake.initPerfBufReturns
+	fake.recordInvocation("InitPerfBuf", []interface{}{arg1, arg2, arg3, arg4, arg5})
+	fake.initPerfBufMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3)
+		return stub(arg1, arg2, arg3, arg4, arg5)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -1511,47 +1515,47 @@ func (fake *FakeImpl) InitRingBuf(arg1 *libbpfgo.Module, arg2 string, arg3 chan 
 	return fakeReturns.result1, fakeReturns.result2
 }
 
-func (fake *FakeImpl) InitRingBufCallCount() int {
-	fake.initRingBufMutex.RLock()
-	defer fake.initRingBufMutex.RUnlock()
-	return len(fake.initRingBufArgsForCall)
+func (fake *FakeImpl) InitPerfBufCallCount() int {
+	fake.initPerfBufMutex.RLock()
+	defer fake.initPerfBufMutex.RUnlock()
+	return len(fake.initPerfBufArgsForCall)
 }
 
-func (fake *FakeImpl) InitRingBufCalls(stub func(*libbpfgo.Module, string, chan []byte) (*libbpfgo.RingBuffer, error)) {
-	fake.initRingBufMutex.Lock()
-	defer fake.initRingBufMutex.Unlock()
-	fake.InitRingBufStub = stub
+func (fake *FakeImpl) InitPerfBufCalls(stub func(*libbpfgo.Module, string, chan []byte, chan uint64, int) (*libbpfgo.PerfBuffer, error)) {
+	fake.initPerfBufMutex.Lock()
+	defer fake.initPerfBufMutex.Unlock()
+	fake.InitPerfBufStub = stub
 }
 
-func (fake *FakeImpl) InitRingBufArgsForCall(i int) (*libbpfgo.Module, string, chan []byte) {
-	fake.initRingBufMutex.RLock()
-	defer fake.initRingBufMutex.RUnlock()
-	argsForCall := fake.initRingBufArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+func (fake *FakeImpl) InitPerfBufArgsForCall(i int) (*libbpfgo.Module, string, chan []byte, chan uint64, int) {
+	fake.initPerfBufMutex.RLock()
+	defer fake.initPerfBufMutex.RUnlock()
+	argsForCall := fake.initPerfBufArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5
 }
 
-func (fake *FakeImpl) InitRingBufReturns(result1 *libbpfgo.RingBuffer, result2 error) {
-	fake.initRingBufMutex.Lock()
-	defer fake.initRingBufMutex.Unlock()
-	fake.InitRingBufStub = nil
-	fake.initRingBufReturns = struct {
-		result1 *libbpfgo.RingBuffer
+func (fake *FakeImpl) InitPerfBufReturns(result1 *libbpfgo.PerfBuffer, result2 error) {
+	fake.initPerfBufMutex.Lock()
+	defer fake.initPerfBufMutex.Unlock()
+	fake.InitPerfBufStub = nil
+	fake.initPerfBufReturns = struct {
+		result1 *libbpfgo.PerfBuffer
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) InitRingBufReturnsOnCall(i int, result1 *libbpfgo.RingBuffer, result2 error) {
-	fake.initRingBufMutex.Lock()
-	defer fake.initRingBufMutex.Unlock()
-	fake.InitRingBufStub = nil
-	if fake.initRingBufReturnsOnCall == nil {
-		fake.initRingBufReturnsOnCall = make(map[int]struct {
-			result1 *libbpfgo.RingBuffer
+func (fake *FakeImpl) InitPerfBufReturnsOnCall(i int, result1 *libbpfgo.PerfBuffer, result2 error) {
+	fake.initPerfBufMutex.Lock()
+	defer fake.initPerfBufMutex.Unlock()
+	fake.InitPerfBufStub = nil
+	if fake.initPerfBufReturnsOnCall == nil {
+		fake.initPerfBufReturnsOnCall = make(map[int]struct {
+			result1 *libbpfgo.PerfBuffer
 			result2 error
 		})
 	}
-	fake.initRingBufReturnsOnCall[i] = struct {
-		result1 *libbpfgo.RingBuffer
+	fake.initPerfBufReturnsOnCall[i] = struct {
+		result1 *libbpfgo.PerfBuffer
 		result2 error
 	}{result1, result2}
 }
@@ -2182,35 +2186,35 @@ func (fake *FakeImpl) SetTTLReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) StartRingBuffer(arg1 *libbpfgo.RingBuffer) {
-	fake.startRingBufferMutex.Lock()
-	fake.startRingBufferArgsForCall = append(fake.startRingBufferArgsForCall, struct {
-		arg1 *libbpfgo.RingBuffer
+func (fake *FakeImpl) StartPerfBuffer(arg1 *libbpfgo.PerfBuffer) {
+	fake.startPerfBufferMutex.Lock()
+	fake.startPerfBufferArgsForCall = append(fake.startPerfBufferArgsForCall, struct {
+		arg1 *libbpfgo.PerfBuffer
 	}{arg1})
-	stub := fake.StartRingBufferStub
-	fake.recordInvocation("StartRingBuffer", []interface{}{arg1})
-	fake.startRingBufferMutex.Unlock()
+	stub := fake.StartPerfBufferStub
+	fake.recordInvocation("StartPerfBuffer", []interface{}{arg1})
+	fake.startPerfBufferMutex.Unlock()
 	if stub != nil {
-		fake.StartRingBufferStub(arg1)
+		fake.StartPerfBufferStub(arg1)
 	}
 }
 
-func (fake *FakeImpl) StartRingBufferCallCount() int {
-	fake.startRingBufferMutex.RLock()
-	defer fake.startRingBufferMutex.RUnlock()
-	return len(fake.startRingBufferArgsForCall)
+func (fake *FakeImpl) StartPerfBufferCallCount() int {
+	fake.startPerfBufferMutex.RLock()
+	defer fake.startPerfBufferMutex.RUnlock()
+	return len(fake.startPerfBufferArgsForCall)
 }
 
-func (fake *FakeImpl) StartRingBufferCalls(stub func(*libbpfgo.RingBuffer)) {
-	fake.startRingBufferMutex.Lock()
-	defer fake.startRingBufferMutex.Unlock()
-	fake.StartRingBufferStub = stub
+func (fake *FakeImpl) StartPerfBufferCalls(stub func(*libbpfgo.PerfBuffer)) {
+	fake.startPerfBufferMutex.Lock()
+	defer fake.startPerfBufferMutex.Unlock()
+	fake.StartPerfBufferStub = stub
 }
 
-func (fake *FakeImpl) StartRingBufferArgsForCall(i int) *libbpfgo.RingBuffer {
-	fake.startRingBufferMutex.RLock()
-	defer fake.startRingBufferMutex.RUnlock()
-	argsForCall := fake.startRingBufferArgsForCall[i]
+func (fake *FakeImpl) StartPerfBufferArgsForCall(i int) *libbpfgo.PerfBuffer {
+	fake.startPerfBufferMutex.RLock()
+	defer fake.startPerfBufferMutex.RUnlock()
+	argsForCall := fake.startPerfBufferArgsForCall[i]
 	return argsForCall.arg1
 }
 
@@ -2578,8 +2582,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.goArchMutex.RUnlock()
 	fake.inClusterConfigMutex.RLock()
 	defer fake.inClusterConfigMutex.RUnlock()
-	fake.initRingBufMutex.RLock()
-	defer fake.initRingBufMutex.RUnlock()
+	fake.initPerfBufMutex.RLock()
+	defer fake.initPerfBufMutex.RUnlock()
 	fake.listPodsMutex.RLock()
 	defer fake.listPodsMutex.RUnlock()
 	fake.listenMutex.RLock()
@@ -2600,8 +2604,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.serveMutex.RUnlock()
 	fake.setTTLMutex.RLock()
 	defer fake.setTTLMutex.RUnlock()
-	fake.startRingBufferMutex.RLock()
-	defer fake.startRingBufferMutex.RUnlock()
+	fake.startPerfBufferMutex.RLock()
+	defer fake.startPerfBufferMutex.RUnlock()
 	fake.statMutex.RLock()
 	defer fake.statMutex.RUnlock()
 	fake.tempFileMutex.RLock()

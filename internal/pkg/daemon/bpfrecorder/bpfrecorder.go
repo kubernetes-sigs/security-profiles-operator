@@ -421,11 +421,12 @@ func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
 	}
 
 	events := make(chan []byte)
-	ringbuffer, err := b.InitRingBuf(module, "events", events)
+	const pages = 1024
+	perfBuffer, err := b.InitPerfBuf(module, "events", events, nil, pages)
 	if err != nil {
-		return fmt.Errorf("init events ringbuffer: %w", err)
+		return fmt.Errorf("init events perf buffer: %w", err)
 	}
-	b.StartRingBuffer(ringbuffer)
+	b.StartPerfBuffer(perfBuffer)
 
 	b.syscalls = syscalls
 	b.comms = comms

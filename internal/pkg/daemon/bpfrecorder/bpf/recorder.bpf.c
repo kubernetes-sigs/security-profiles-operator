@@ -25,7 +25,7 @@ struct {
 } comms SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
 
@@ -64,17 +64,11 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         syscall_value[syscall_id] = 1;
     } else {
         // New element, throw event
-        struct event_t * event =
-            bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
-        if (!event) {
-            // Not enough space within the ringbuffer
-            return 0;
-        }
-
-        event->pid = pid;
-        event->mntns = mntns;
-
-        bpf_ringbuf_submit(event, 0);
+        struct event_t event = {
+            .pid = pid,
+            .mntns = mntns,
+        };
+        bpf_perf_event_output(args, &events, 0, &event, sizeof(event));
 
         static const char init[MAX_SYSCALLS];
         bpf_map_update_elem(&syscalls, &pid, &init, BPF_ANY);

@@ -58,6 +58,8 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.14.252-195.483.amzn2.aarch64
       - 4.14.256-197.484.amzn2.aarch64
       - 4.14.262-200.489.amzn2.aarch64
+      - 4.14.268-205.500.amzn2.aarch64
+      - 4.14.273-207.502.amzn2.aarch64
       - 4.14.77-80.57.amzn2.aarch64
       - 4.14.77-81.59.amzn2.aarch64
       - 4.14.77-86.82.amzn2.aarch64
@@ -122,6 +124,8 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.14.256-197.484.amzn2.x86_64
       - 4.14.26-54.32.amzn2.x86_64
       - 4.14.262-200.489.amzn2.x86_64
+      - 4.14.268-205.500.amzn2.x86_64
+      - 4.14.273-207.502.amzn2.x86_64
       - 4.14.33-59.34.amzn2.x86_64
       - 4.14.33-59.37.amzn2.x86_64
       - 4.14.42-61.37.amzn2.x86_64
@@ -185,6 +189,7 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.18.0-193.1.2.el7.aarch64
       - 4.18.0-193.28.1.el7.aarch64
       - 4.18.0-305.10.2.el7.aarch64
+      - 4.18.0-348.20.1.el7.aarch64
       - 4.18.0-80.7.1.el7.aarch64
       - 4.18.0-80.7.2.el7.aarch64
       - 4.19.104-300.el7.aarch64
@@ -210,6 +215,7 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.5.0-25.el7.aarch64
       - 4.5.0-27.el7.aarch64
       - 4.5.0-29.el7.aarch64
+      - 5.10.109-200.el7.aarch64
       - 5.4.28-200.el7.aarch64
       - 5.4.42-200.el7.aarch64
       - 5.4.49-200.el7.aarch64
@@ -247,6 +253,7 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 3.10.0-1160.53.1.el7.x86_64
       - 3.10.0-1160.59.1.el7.x86_64
       - 3.10.0-1160.6.1.el7.x86_64
+      - 3.10.0-1160.62.1.el7.x86_64
       - 3.10.0-1160.el7.x86_64
       - 3.10.0-123.1.2.el7.x86_64
       - 3.10.0-123.13.1.el7.x86_64
@@ -345,6 +352,8 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.19.0-17-rt-arm64
       - 4.19.0-18-arm64
       - 4.19.0-18-rt-arm64
+      - 4.19.0-20-arm64
+      - 4.19.0-20-rt-arm64
     - x86_64
       - 4.19.0-17-amd64
       - 4.19.0-17-cloud-amd64
@@ -352,6 +361,9 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.19.0-18-amd64
       - 4.19.0-18-cloud-amd64
       - 4.19.0-18-rt-amd64
+      - 4.19.0-20-amd64
+      - 4.19.0-20-cloud-amd64
+      - 4.19.0-20-rt-amd64
   - 9
     - arm64
       - 4.9.0-13-arm64
@@ -383,6 +395,7 @@ The following Kernels are supported to run the BPF recorder beside those which a
 - ubuntu
   - 18.04
     - arm64
+      - 4.15.0-101-generic
       - 4.15.0-1041-aws
       - 4.15.0-1043-aws
       - 4.15.0-1044-aws
@@ -396,6 +409,7 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.15.0-1056-aws
       - 4.15.0-1057-aws
       - 4.15.0-1058-aws
+      - 4.15.0-106-generic
       - 4.15.0-1060-aws
       - 4.15.0-1063-aws
       - 4.15.0-1065-aws
@@ -405,11 +419,13 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.15.0-1076-aws
       - 4.15.0-1077-aws
       - 4.15.0-1079-aws
+      - 4.15.0-108-generic
       - 4.15.0-1080-aws
       - 4.15.0-1082-aws
       - 4.15.0-1083-aws
       - 4.15.0-1086-aws
       - 4.15.0-1087-aws
+      - 4.15.0-109-generic
       - 4.15.0-1090-aws
       - 4.15.0-1091-aws
       - 4.15.0-1092-aws
@@ -425,6 +441,7 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.15.0-1103-aws
       - 4.15.0-1106-aws
       - 4.15.0-1109-aws
+      - 4.15.0-111-generic
       - 4.15.0-1110-aws
       - 4.15.0-1111-aws
       - 4.15.0-1112-aws
@@ -432,6 +449,68 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.15.0-1115-aws
       - 4.15.0-1116-aws
       - 4.15.0-1118-aws
+      - 4.15.0-1119-aws
+      - 4.15.0-112-generic
+      - 4.15.0-1121-aws
+      - 4.15.0-1123-aws
+      - 4.15.0-1124-aws
+      - 4.15.0-1126-aws
+      - 4.15.0-115-generic
+      - 4.15.0-117-generic
+      - 4.15.0-118-generic
+      - 4.15.0-121-generic
+      - 4.15.0-122-generic
+      - 4.15.0-123-generic
+      - 4.15.0-124-generic
+      - 4.15.0-128-generic
+      - 4.15.0-129-generic
+      - 4.15.0-130-generic
+      - 4.15.0-132-generic
+      - 4.15.0-134-generic
+      - 4.15.0-135-generic
+      - 4.15.0-136-generic
+      - 4.15.0-137-generic
+      - 4.15.0-139-generic
+      - 4.15.0-140-generic
+      - 4.15.0-141-generic
+      - 4.15.0-142-generic
+      - 4.15.0-143-generic
+      - 4.15.0-144-generic
+      - 4.15.0-147-generic
+      - 4.15.0-151-generic
+      - 4.15.0-153-generic
+      - 4.15.0-154-generic
+      - 4.15.0-156-generic
+      - 4.15.0-158-generic
+      - 4.15.0-159-generic
+      - 4.15.0-161-generic
+      - 4.15.0-162-generic
+      - 4.15.0-163-generic
+      - 4.15.0-166-generic
+      - 4.15.0-167-generic
+      - 4.15.0-169-generic
+      - 4.15.0-171-generic
+      - 4.15.0-173-generic
+      - 4.15.0-175-generic
+      - 4.15.0-20-generic
+      - 4.15.0-52-generic
+      - 4.15.0-54-generic
+      - 4.15.0-55-generic
+      - 4.15.0-58-generic
+      - 4.15.0-60-generic
+      - 4.15.0-62-generic
+      - 4.15.0-64-generic
+      - 4.15.0-65-generic
+      - 4.15.0-66-generic
+      - 4.15.0-69-generic
+      - 4.15.0-70-generic
+      - 4.15.0-72-generic
+      - 4.15.0-74-generic
+      - 4.15.0-76-generic
+      - 4.15.0-88-generic
+      - 4.15.0-91-generic
+      - 4.15.0-96-generic
+      - 4.15.0-99-generic
       - 5.4.0-1018-aws
       - 5.4.0-1020-aws
       - 5.4.0-1022-aws
@@ -493,17 +572,24 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 5.4.0-90-generic
       - 5.4.0-91-generic
     - x86_64
+      - 4.15.0-1006-gcp
       - 4.15.0-1007-aws
+      - 4.15.0-1008-gcp
       - 4.15.0-1009-aws
       - 4.15.0-1009-azure
+      - 4.15.0-1009-gcp
       - 4.15.0-101-generic
       - 4.15.0-1010-aws
+      - 4.15.0-1010-gcp
       - 4.15.0-1011-aws
       - 4.15.0-1012-azure
       - 4.15.0-1013-azure
       - 4.15.0-1014-azure
+      - 4.15.0-1014-gcp
+      - 4.15.0-1015-gcp
       - 4.15.0-1016-aws
       - 4.15.0-1017-aws
+      - 4.15.0-1017-gcp
       - 4.15.0-1018-azure
       - 4.15.0-1018-gcp
       - 4.15.0-1019-aws
@@ -674,18 +760,31 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.15.0-1115-azure
       - 4.15.0-1115-gcp
       - 4.15.0-1116-aws
+      - 4.15.0-1116-gcp
       - 4.15.0-1118-aws
       - 4.15.0-1118-azure
+      - 4.15.0-1118-gcp
+      - 4.15.0-1119-aws
+      - 4.15.0-1119-gcp
       - 4.15.0-112-generic
+      - 4.15.0-1120-gcp
+      - 4.15.0-1121-aws
       - 4.15.0-1121-azure
       - 4.15.0-1122-azure
+      - 4.15.0-1123-aws
       - 4.15.0-1123-azure
+      - 4.15.0-1124-aws
       - 4.15.0-1124-azure
       - 4.15.0-1125-azure
+      - 4.15.0-1126-aws
       - 4.15.0-1126-azure
       - 4.15.0-1127-azure
       - 4.15.0-1129-azure
       - 4.15.0-1130-azure
+      - 4.15.0-1131-azure
+      - 4.15.0-1133-azure
+      - 4.15.0-1134-azure
+      - 4.15.0-1136-azure
       - 4.15.0-115-generic
       - 4.15.0-117-generic
       - 4.15.0-118-generic
@@ -719,6 +818,10 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 4.15.0-163-generic
       - 4.15.0-166-generic
       - 4.15.0-167-generic
+      - 4.15.0-169-generic
+      - 4.15.0-171-generic
+      - 4.15.0-173-generic
+      - 4.15.0-175-generic
       - 4.15.0-20-generic
       - 4.15.0-22-generic
       - 4.15.0-23-generic
@@ -863,7 +966,12 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 5.4.0-1062-azure
       - 5.4.0-1062-gke
       - 5.4.0-1063-azure
+      - 5.4.0-1063-gke
       - 5.4.0-1064-azure
+      - 5.4.0-1065-gke
+      - 5.4.0-1066-gke
+      - 5.4.0-1067-gke
+      - 5.4.0-37-generic
       - 5.4.0-39-generic
       - 5.4.0-40-generic
       - 5.4.0-42-generic
@@ -1143,7 +1251,11 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 5.4.0-1062-azure
       - 5.4.0-1062-gke
       - 5.4.0-1063-azure
+      - 5.4.0-1063-gke
       - 5.4.0-1064-azure
+      - 5.4.0-1065-gke
+      - 5.4.0-1066-gke
+      - 5.4.0-1067-gke
       - 5.4.0-26-generic
       - 5.4.0-28-generic
       - 5.4.0-29-generic
@@ -1218,4 +1330,4 @@ The following Kernels are supported to run the BPF recorder beside those which a
       - 5.8.0-59-generic
       - 5.8.0-63-generic
 
-Sum: 1182
+Sum: 1294

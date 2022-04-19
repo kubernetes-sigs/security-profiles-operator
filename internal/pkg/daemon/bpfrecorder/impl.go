@@ -62,7 +62,7 @@ type impl interface {
 	GetProgram(*bpf.Module, string) (*bpf.BPFProg, error)
 	AttachTracepoint(*bpf.BPFProg, string, string) (*bpf.BPFLink, error)
 	GetMap(*bpf.Module, string) (*bpf.BPFMap, error)
-	InitRingBuf(*bpf.Module, string, chan []byte) (*bpf.RingBuffer, error)
+	InitPerfBuf(*bpf.Module, string, chan []byte, chan uint64, int) (*bpf.PerfBuffer, error)
 	Stat(string) (os.FileInfo, error)
 	Unmarshal([]byte, interface{}) error
 	ReadOSRelease() (map[string]string, error)
@@ -77,7 +77,7 @@ type impl interface {
 	RemoveAll(string) error
 	Chown(string, int, int) error
 	CloseModule(*bpf.BPFMap)
-	StartRingBuffer(*bpf.RingBuffer)
+	StartPerfBuffer(*bpf.PerfBuffer)
 	GoArch() string
 	Readlink(string) (string, error)
 	Atoi(string) (int, error)
@@ -133,8 +133,10 @@ func (d *defaultImpl) GetMap(module *bpf.Module, mapName string) (*bpf.BPFMap, e
 	return module.GetMap(mapName)
 }
 
-func (d *defaultImpl) InitRingBuf(module *bpf.Module, mapName string, eventsChan chan []byte) (*bpf.RingBuffer, error) {
-	return module.InitRingBuf(mapName, eventsChan)
+func (d *defaultImpl) InitPerfBuf(
+	module *bpf.Module, mapName string, eventsChan chan []byte, lostChan chan uint64, pageCnt int,
+) (*bpf.PerfBuffer, error) {
+	return module.InitPerfBuf(mapName, eventsChan, lostChan, pageCnt)
 }
 
 func (d *defaultImpl) Stat(name string) (os.FileInfo, error) {
@@ -203,7 +205,7 @@ func (d *defaultImpl) GoArch() string {
 	return runtime.GOARCH
 }
 
-func (d *defaultImpl) StartRingBuffer(b *bpf.RingBuffer) {
+func (d *defaultImpl) StartPerfBuffer(b *bpf.PerfBuffer) {
 	b.Start()
 }
 

@@ -255,11 +255,11 @@ func TestRun(t *testing.T) {
 				require.NotNil(t, err)
 			},
 		},
-		{ // load:InitRingBuf fails
+		{ // load:InitPerfBuf fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
 				mock.GoArchReturns(validGoArch)
-				mock.InitRingBufReturns(nil, errTest)
+				mock.InitPerfBufReturns(nil, errTest)
 			},
 			assert: func(err error) {
 				require.NotNil(t, err)
