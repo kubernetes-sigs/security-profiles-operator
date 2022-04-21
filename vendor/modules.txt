@@ -371,7 +371,7 @@ github.com/spf13/pflag
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
 github.com/stretchr/testify/suite
-# github.com/urfave/cli/v2 v2.4.0
+# github.com/urfave/cli/v2 v2.4.1
 ## explicit; go 1.11
 github.com/urfave/cli/v2
 # github.com/xanzy/go-gitlab v0.43.0
