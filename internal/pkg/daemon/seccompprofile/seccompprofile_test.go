@@ -414,3 +414,138 @@ func TestUnionSyscalls(t *testing.T) {
 		})
 	}
 }
+
+func TestAllowProfile(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name            string
+		allowedSyscalls []string
+		profile         *OutputProfile
+		want            error
+	}{
+		{
+			name:            "EmptyProfile",
+			allowedSyscalls: []string{"a", "b", "c"},
+			profile:         &OutputProfile{},
+			want:            nil,
+		},
+		{
+			name:            "EmptyAllowedList",
+			allowedSyscalls: []string{},
+			profile: &OutputProfile{
+				Syscalls: []*seccompprofileapi.Syscall{
+					{
+						Action: seccomp.ActAllow,
+						Names:  []string{"a"},
+					},
+				},
+			},
+			want: fmt.Errorf("%s: %s", errForbiddenSyscall, "a"),
+		},
+		{
+			name:            "ProfileWithEmptySyscalls",
+			allowedSyscalls: []string{"a", "b", "c"},
+			profile: &OutputProfile{
+				Syscalls: []*seccompprofileapi.Syscall{
+					{
+						Action: seccomp.ActAllow,
+						Names:  []string{},
+					},
+				},
+			},
+			want: nil,
+		},
+		{
+			name:            "AllowProfile",
+			allowedSyscalls: []string{"a", "b", "c"},
+			profile: &OutputProfile{
+				Syscalls: []*seccompprofileapi.Syscall{
+					{
+						Action: seccomp.ActAllow,
+						Names:  []string{"b"},
+					},
+				},
+			},
+			want: nil,
+		},
+		{
+			name:            "RejectProfile",
+			allowedSyscalls: []string{"a", "b", "c"},
+			profile: &OutputProfile{
+				Syscalls: []*seccompprofileapi.Syscall{
+					{
+						Action: seccomp.ActAllow,
+						Names:  []string{"d"},
+					},
+				},
+			},
+			want: fmt.Errorf("%s: %s", errForbiddenSyscall, "d"),
+		},
+		{
+			name:            "AllAllowedActions",
+			allowedSyscalls: []string{"a", "b", "c"},
+			profile: &OutputProfile{
+				Syscalls: []*seccompprofileapi.Syscall{
+					{
+						Action: seccomp.ActAllow,
+						Names:  []string{"a"},
+					},
+					{
+						Action: seccomp.ActLog,
+						Names:  []string{"b"},
+					},
+					{
+						Action: seccomp.ActTrace,
+						Names:  []string{"c"},
+					},
+				},
+			},
+			want: nil,
+		},
+		{
+			name:            "AllForbiddenActions",
+			allowedSyscalls: []string{"a", "b", "c"},
+			profile: &OutputProfile{
+				Syscalls: []*seccompprofileapi.Syscall{
+					{
+						Action: seccomp.ActErrno,
+						Names:  []string{"a"},
+					},
+					{
+						Action: seccomp.ActTrap,
+						Names:  []string{"d"},
+					},
+					{
+						Action: seccomp.ActKillThread,
+						Names:  []string{"e"},
+					},
+					{
+						Action: seccomp.ActKillThread,
+						Names:  []string{"f"},
+					},
+					{
+						Action: seccomp.ActKillProcess,
+						Names:  []string{"g"},
+					},
+					{
+						Action: seccomp.ActKill,
+						Names:  []string{"b"},
+					},
+				},
+			},
+			want: nil,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := allowProfile(tc.profile, tc.allowedSyscalls)
+
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
