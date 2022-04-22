@@ -40,6 +40,7 @@ import (
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -55,6 +56,7 @@ const (
 	errSeccompProfileNil   = "seccomp profile cannot be nil"
 	errSavingProfile       = "cannot save profile"
 	errCreatingOperatorDir = "cannot create operator directory"
+	errForbiddenSyscall    = "syscall not allowed"
 
 	filePermissionMode os.FileMode = 0o644
 
@@ -144,6 +146,7 @@ func (r *Reconciler) checkSeccomp() error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 
 // +kubebuilder:rbac:groups=apps,namespace="security-profiles-operator",resources=daemonsets,verbs=get;list;watch
@@ -266,6 +269,12 @@ func (r *Reconciler) reconcileSeccompProfile(
 		l.Error(err, "merge base profile")
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
+
+	if err := r.validateProfile(ctx, &outputProfile); err != nil {
+		l.Error(err, "validate profile")
+		return reconcile.Result{}, fmt.Errorf("validating profile: %w", err)
+	}
+
 	profileContent, err := json.Marshal(outputProfile)
 	if err != nil {
 		l.Error(err, "cannot validate profile "+profileName)
@@ -395,6 +404,17 @@ func (r *Reconciler) handleDeletion(sp *seccompprofileapi.SeccompProfile) error 
 	return nil
 }
 
+func (r *Reconciler) validateProfile(ctx context.Context, profile *OutputProfile) error {
+	spod, err := common.GetSPOD(ctx, r.client)
+	if err != nil {
+		return fmt.Errorf("retrieving the SPOD configuration: %w", err)
+	}
+	if len(spod.Spec.AllowedSyscalls) > 0 {
+		return allowProfile(profile, spod.Spec.AllowedSyscalls)
+	}
+	return nil
+}
+
 func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error) {
 	if err := os.MkdirAll(path.Dir(fileName), dirPermissionMode); err != nil {
 		return false, fmt.Errorf("%s: %w", errCreatingOperatorDir, err)
@@ -410,4 +430,27 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 	}
 
 	return true, nil
+}
+
+func allowProfile(profile *OutputProfile, allowedSyscalls []string) error {
+	syscalls := map[seccomp.Action]map[string]bool{}
+	for _, call := range profile.Syscalls {
+		if _, ok := syscalls[call.Action]; !ok {
+			syscalls[call.Action] = map[string]bool{}
+		}
+		for _, name := range call.Names {
+			syscalls[call.Action][name] = true
+		}
+	}
+	allowedActions := []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace}
+	for _, action := range allowedActions {
+		if actionCalls, ok := syscalls[action]; ok {
+			for call := range actionCalls {
+				if !util.Contains(allowedSyscalls, call) {
+					return fmt.Errorf("%s: %s", errForbiddenSyscall, call)
+				}
+			}
+		}
+	}
+	return nil
 }

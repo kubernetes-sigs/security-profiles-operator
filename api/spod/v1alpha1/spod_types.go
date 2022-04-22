@@ -87,6 +87,10 @@ type SPODSpec struct {
 	// SPO's webhooks
 	// +optional
 	WebhookOpts []WebhookOptions `json:"webhookOptions,omitempty"`
+	// AllowedSyscalls if specified, a list of system calls which are allowed
+	// in seccomp profiles.
+	// +optional
+	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.
