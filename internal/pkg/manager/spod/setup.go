@@ -37,13 +37,15 @@ import (
 )
 
 const (
-	selinuxdImageKey string = "RELATED_IMAGE_SELINUXD"
+	selinuxdImageKey  string = "RELATED_IMAGE_SELINUXD"
+	rbacProxyImageKey string = "RELATED_IMAGE_RBAC_PROXY"
 )
 
 // daemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type daemonTunables struct {
 	selinuxdImage    string
+	rbacProxyImage   string
 	logEnricherImage string
 	watchNamespace   string
 }
@@ -101,6 +103,12 @@ func getTunables() (*daemonTunables, error) {
 		return dt, errors.New("invalid selinuxd image")
 	}
 	dt.selinuxdImage = selinuxdImage
+
+	rbacProxyImage := os.Getenv(rbacProxyImageKey)
+	if rbacProxyImage == "" {
+		return dt, errors.New("invalid rbac proxy image")
+	}
+	dt.rbacProxyImage = rbacProxyImage
 	return dt, nil
 }
 
@@ -121,6 +129,9 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 
 	logEnricher := &refSPOd.Spec.Template.Spec.Containers[2]
 	logEnricher.Image = dt.logEnricherImage
+
+	metrixCtr := &refSPOd.Spec.Template.Spec.Containers[4]
+	metrixCtr.Image = dt.rbacProxyImage
 
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well

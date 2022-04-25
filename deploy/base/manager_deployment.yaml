@@ -33,6 +33,8 @@ spec:
             limits:
               memory: 128Mi
           env:
+            - name: RELATED_IMAGE_RBAC_PROXY
+              value: quay.io/brancz/kube-rbac-proxy:v0.11.0
             - name: RELATED_IMAGE_SELINUXD
               value: quay.io/security-profiles-operator/selinuxd
             - name: OPERATOR_NAMESPACE
