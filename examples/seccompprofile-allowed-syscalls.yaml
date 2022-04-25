@@ -1,0 +1,58 @@
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: profile-allowed-syscalls
+  annotations:
+    description: "profile with allowed syscalls"
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  architectures:
+  - SCMP_ARCH_X86_64
+  syscalls:
+  - action: SCMP_ACT_ALLOW
+    names:
+    - exit
+    - exit_group
+    - futex
+    - nanosleep
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: profile-denied-syscalls
+  annotations:
+    description: "profile with denied syscalls"
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  architectures:
+  - SCMP_ARCH_X86_64
+  syscalls:
+  - action: SCMP_ACT_ALLOW
+    names:
+    - exit
+    - exit_group
+    - futex
+    - nanosleep
+    - bpf
+  - action: SCMP_ACT_ERRNO
+    names:
+    - acct
+    - add_key
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: profile-allow-all-syscalls
+  annotations:
+    description: "profile with all syscalls allowed"
+spec:
+  defaultAction: "SCMP_ACT_ALLOW"
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: profile-block-all-syscalls
+  annotations:
+    description: "Blocks all syscalls."
+spec:
+  defaultAction: "SCMP_ACT_ERRNO"

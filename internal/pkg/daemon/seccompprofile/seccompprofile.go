@@ -57,6 +57,7 @@ const (
 	errSavingProfile       = "cannot save profile"
 	errCreatingOperatorDir = "cannot create operator directory"
 	errForbiddenSyscall    = "syscall not allowed"
+	errForbiddenProfile    = "seccomp profile not allowed"
 
 	filePermissionMode os.FileMode = 0o644
 
@@ -70,6 +71,7 @@ const (
 	reasonCannotRemoveProfile   event.Reason = "CannotRemoveSeccompProfile"
 	reasonCannotUpdateProfile   event.Reason = "CannotUpdateSeccompProfile"
 	reasonCannotUpdateStatus    event.Reason = "CannotUpdateNodeStatus"
+	reasonProfileNotAllowed     event.Reason = "ProfileNotAllowed"
 
 	reasonSavedProfile event.Reason = "SavedSeccompProfile"
 )
@@ -272,7 +274,9 @@ func (r *Reconciler) reconcileSeccompProfile(
 
 	if err := r.validateProfile(ctx, &outputProfile); err != nil {
 		l.Error(err, "validate profile")
-		return reconcile.Result{}, fmt.Errorf("validating profile: %w", err)
+		r.metrics.IncSeccompProfileError(reasonProfileNotAllowed)
+		r.record.Event(sp, event.Warning(reasonProfileNotAllowed, err))
+		return reconcile.Result{Requeue: false}, fmt.Errorf("validating profile: %w", err)
 	}
 
 	profileContent, err := json.Marshal(outputProfile)
@@ -450,6 +454,9 @@ func allowProfile(profile *OutputProfile, allowedSyscalls []string) error {
 					return fmt.Errorf("%s: %s", errForbiddenSyscall, call)
 				}
 			}
+		}
+		if profile.DefaultAction == action && len(allowedSyscalls) > 0 {
+			return fmt.Errorf(errForbiddenProfile)
 		}
 	}
 	return nil
