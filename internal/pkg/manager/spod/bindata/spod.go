@@ -62,6 +62,7 @@ const (
 	ContainerIDBpfRecorder                     = 3
 	ContainerIDMetrics                         = 4
 	DefaultHostProcPath                        = "/proc"
+	MetricsContainerName                       = "metrics"
 )
 
 var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
@@ -525,7 +526,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 					{
-						Name:            "metrics",
+						Name:            MetricsContainerName,
 						Image:           MetricsImage,
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Args: []string{
