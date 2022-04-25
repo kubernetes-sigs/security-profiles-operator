@@ -536,6 +536,22 @@ func TestAllowProfile(t *testing.T) {
 			},
 			want: nil,
 		},
+		{
+			name:            "AllowedAll",
+			allowedSyscalls: []string{"a"},
+			profile: &OutputProfile{
+				DefaultAction: seccomp.ActAllow,
+			},
+			want: fmt.Errorf(errForbiddenProfile),
+		},
+		{
+			name:            "DeniedAll",
+			allowedSyscalls: []string{"a"},
+			profile: &OutputProfile{
+				DefaultAction: seccomp.ActErrno,
+			},
+			want: nil,
+		},
 	}
 
 	for _, tc := range cases {

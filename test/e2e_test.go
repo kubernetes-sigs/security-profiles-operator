@@ -80,6 +80,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseBaseProfile,
 		},
 		{
+			"Seccomp: Allowed syscalls",
+			e.testCaseAllowedSyscalls,
+		},
+		{
 			"Seccomp: Delete profiles",
 			e.testCaseDeleteProfiles,
 		},
