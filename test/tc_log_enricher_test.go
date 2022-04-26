@@ -18,6 +18,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -67,6 +68,7 @@ spec:
   restartPolicy: Never
 `, podName, containerName, namespace, profileName)
 
+	since := time.Now()
 	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
 	defer podCleanup()
 	defer e.kubectl("delete", "pod", podName)
@@ -85,9 +87,13 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
+	// wait for at least one component of the expected logs to appear
+	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen"`))
+
 	e.logf("Checking log enricher output")
 	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "log-enricher")
 
+	// then match the rest
 	e.Contains(output, `"msg"="audit"`)
 	e.Contains(output, `"type"="seccomp"`)
 	e.Contains(output, `"executable"="/usr/sbin/nginx"`)
