@@ -16,6 +16,12 @@ limitations under the License.
 
 package e2e_test
 
+import (
+	"fmt"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+)
+
 func (e *e2e) testCaseSelinuxLabelPodDenials([]string) {
 	e.selinuxOnlyTestCase()
 	e.logEnricherOnlyTestCase()
@@ -64,10 +70,18 @@ spec:
 	e.NotEmpty(podlabels, "pod should have labels")
 	e.Contains(podlabels, "spo.x-k8s.io/had-denials", "pod should be marked as problematic")
 
-	// Prove that filtering through label works
-	problematicPodList := e.kubectl("get", "pods", "-l", "spo.x-k8s.io/had-denials=",
-		"-o", "jsonpath={.items[*].metadata.name}")
-	e.NotEmpty(problematicPodList, "problematic pod list should not be empty")
+	// Prove that filtering through label works. Retry several times to give more time for
+	// the label to actually arrive
+	if err := util.Retry(func() (err error) {
+		problematicPodList := e.kubectl("get", "pods", "-l", "spo.x-k8s.io/had-denials=",
+			"-o", "jsonpath={.items[*].metadata.name}")
+		if problematicPodList == "" {
+			return fmt.Errorf("no labeled pod yet")
+		}
+		return nil
+	}, func(err error) bool { return true }); err != nil {
+		e.Fail("problematic pod list should not be empty")
+	}
 
 	e.kubectl("delete", "pod", "el-no-policy")
 }
