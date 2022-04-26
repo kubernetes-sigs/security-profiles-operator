@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	maxNodeIterations      = 3
+	maxNodeIterations      = 6
 	sleepBetweenIterations = 5 * time.Second
 	errorloggerPolicy      = `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
