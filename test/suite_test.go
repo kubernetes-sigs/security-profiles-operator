@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/release-utils/util"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -533,14 +534,18 @@ func (e *e2e) getSpodMetrics() string {
 	}
 	// Sometimes the metrics command does not output anything in CI. We fix
 	// that by retrying the metrics retrieval several times.
-	for i := 0; i < 5; i++ {
-		output := e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", curlSpodCMD)
+	var output string
+	if err := spoutil.Retry(func() error {
+		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", curlSpodCMD)
 		if len(strings.Split(output, "\n")) > 1 {
-			return output
+			return nil
 		}
+		output = ""
+		return fmt.Errorf("no metrics output yet")
+	}, func(err error) bool { return true }); err != nil {
+		e.Fail("unable to retrieve SPOD metrics")
 	}
-	e.Fail("unable to retrieve SPOD metrics")
-	return ""
+	return output
 }
 
 func (e *e2e) waitFor(args ...string) {
