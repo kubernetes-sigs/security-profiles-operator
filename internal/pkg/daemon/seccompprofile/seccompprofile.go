@@ -298,6 +298,11 @@ func (r *Reconciler) reconcileSeccompProfile(
 		r.record.Event(sp, event.Warning(reasonCannotSaveProfile, err))
 		return reconcile.Result{}, fmt.Errorf("cannot save profile into disk: %w", err)
 	}
+	if updated {
+		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
+		r.metrics.IncSeccompProfileUpdate()
+		r.record.Event(sp, event.Normal(reasonSavedProfile, evstr))
+	}
 
 	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, statusv1alpha1.ProfileStateInstalled)
 	if getErr != nil {
@@ -322,11 +327,6 @@ func (r *Reconciler) reconcileSeccompProfile(
 		"resource version", sp.GetResourceVersion(),
 		"name", sp.GetName(),
 	)
-	if updated {
-		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
-		r.metrics.IncSeccompProfileUpdate()
-		r.record.Event(sp, event.Normal(reasonSavedProfile, evstr))
-	}
 	return reconcile.Result{}, nil
 }
 
