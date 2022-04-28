@@ -22,7 +22,7 @@ require (
 	github.com/urfave/cli/v2 v2.4.0
 	golang.org/x/net v0.0.0-20220225172249-27dd8689420f
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	google.golang.org/grpc v1.45.0
+	google.golang.org/grpc v1.46.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.2.0
 	google.golang.org/protobuf v1.28.0
 	k8s.io/api v0.23.6
@@ -35,6 +35,11 @@ require (
 	sigs.k8s.io/release-utils v0.6.0
 	sigs.k8s.io/zeitgeist v0.3.0
 )
+
+// Every newer commit will break building via controller-tools/controller-gen
+// Wait for https://github.com/kubernetes-sigs/controller-tools/pull/648
+// and remove the allowed replacement for the gomoddirectives linter in .golangci.yml
+replace golang.org/x/sys => golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
 
 require (
 	github.com/BurntSushi/toml v1.0.0 // indirect
