@@ -1,0 +1,17 @@
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: profile-allowed-syscalls
+  annotations:
+    description: "profile with allowed syscalls"
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  architectures:
+  - SCMP_ARCH_X86_64
+  syscalls:
+  - action: SCMP_ACT_ALLOW
+    names:
+    - exit
+    - exit_group
+    - futex
+    - nanosleep
