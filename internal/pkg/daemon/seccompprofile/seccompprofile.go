@@ -30,14 +30,21 @@ import (
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	kevent "sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
@@ -102,6 +109,43 @@ func (r *Reconciler) SchemeBuilder() *scheme.Builder {
 	return seccompprofileapi.SchemeBuilder
 }
 
+// AllowedSyscallsChangedPredicate implements a update predicate function on SPOD's AllowedSyscalls changed.
+type AllowedSyscallsChangedPredicate struct {
+	predicate.Funcs
+}
+
+// Update implements default update event filter for checking SPOD's AllowedSyscalls change.
+func (AllowedSyscallsChangedPredicate) Update(e kevent.UpdateEvent) bool {
+	if e.ObjectOld == nil || e.ObjectNew == nil {
+		return false
+	}
+	oldSpod, ok := e.ObjectOld.(*spodapi.SecurityProfilesOperatorDaemon)
+	if !ok {
+		return false
+	}
+	newSpod, ok := e.ObjectNew.(*spodapi.SecurityProfilesOperatorDaemon)
+	if !ok {
+		return false
+	}
+	if len(newSpod.Spec.AllowedSyscalls) != len(oldSpod.Spec.AllowedSyscalls) {
+		return true
+	}
+	diff := make(map[string]int, len(newSpod.Spec.AllowedSyscalls))
+	for _, s := range newSpod.Spec.AllowedSyscalls {
+		diff[s]++
+	}
+	for _, s := range oldSpod.Spec.AllowedSyscalls {
+		if _, ok := diff[s]; !ok {
+			return true
+		}
+		diff[s] -= 1
+		if diff[s] == 0 {
+			delete(diff, s)
+		}
+	}
+	return len(diff) != 0
+}
+
 // Setup adds a controller that reconciles seccomp profiles.
 func (r *Reconciler) Setup(
 	ctx context.Context,
@@ -118,7 +162,55 @@ func (r *Reconciler) Setup(
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("profile").
 		For(&seccompprofileapi.SeccompProfile{}).
+		Watches(
+			&source.Kind{Type: &spodapi.SecurityProfilesOperatorDaemon{}},
+			handler.EnqueueRequestsFromMapFunc(r.handleAllowedSyscallsChanged),
+			builder.WithPredicates(AllowedSyscallsChangedPredicate{}),
+		).
 		Complete(r)
+}
+
+func (r *Reconciler) handleAllowedSyscallsChanged(obj client.Object) []reconcile.Request {
+	spod, ok := obj.(*spodapi.SecurityProfilesOperatorDaemon)
+	if !ok {
+		r.log.Info("cannot handle allowedSyscalls changed for no SPOD objects")
+		return []reconcile.Request{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	defer cancel()
+
+	seccompProfileList := &seccompprofileapi.SeccompProfileList{}
+	if err := r.client.List(ctx, seccompProfileList, &client.ListOptions{}); err != nil {
+		r.log.Error(err, "cannot list seccomp profiles in the cluster")
+		return []reconcile.Request{}
+	}
+
+	reconcileRequests := []reconcile.Request{}
+	for _, sp := range seccompProfileList.Items {
+		op := &OutputProfile{
+			DefaultAction:    sp.Spec.DefaultAction,
+			Architectures:    sp.Spec.Architectures,
+			ListenerPath:     sp.Spec.ListenerPath,
+			ListenerMetadata: sp.Spec.ListenerMetadata,
+			Flags:            sp.Spec.Flags,
+			Syscalls:         sp.Spec.Syscalls,
+		}
+		if err := allowProfile(op, spod.Spec.AllowedSyscalls); err != nil {
+			r.log.Info(fmt.Sprintf("deleting not allowed seccomp profile %s/%s",
+				sp.GetNamespace(), sp.GetName()))
+			if err := r.client.Delete(ctx, &sp, &client.DeleteOptions{}); err != nil {
+				r.log.Error(err, "cannot delete not allowed seccomp profile")
+				continue
+			}
+			reconcileRequests = append(reconcileRequests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      sp.GetName(),
+					Namespace: sp.GetNamespace(),
+				},
+			})
+		}
+	}
+	return reconcileRequests
 }
 
 // Healthz is the liveness probe endpoint of the controller.
