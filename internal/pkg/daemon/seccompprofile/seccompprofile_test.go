@@ -33,10 +33,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	kevent "sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
@@ -560,6 +562,114 @@ func TestAllowProfile(t *testing.T) {
 			t.Parallel()
 
 			got := allowProfile(tc.profile, tc.allowedSyscalls)
+
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestAllowedSyscallsChangedPredicate(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		event kevent.UpdateEvent
+		want  bool
+	}{
+		{
+			name:  "NilObjects",
+			event: kevent.UpdateEvent{},
+			want:  false,
+		},
+		{
+			name: "FailedOldObjectAssertion",
+			event: kevent.UpdateEvent{
+				ObjectOld: &seccompprofileapi.SeccompProfile{},
+				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{},
+			},
+			want: false,
+		},
+		{
+			name: "FailedNewObjectAssertion",
+			event: kevent.UpdateEvent{
+				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{},
+				ObjectNew: &seccompprofileapi.SeccompProfile{},
+			},
+			want: false,
+		},
+		{
+			name: "DiffAllowedSyscallsLen",
+			event: kevent.UpdateEvent{
+				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						AllowedSyscalls: []string{"a"},
+					},
+				},
+				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						AllowedSyscalls: []string{"a", "b"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "DiffAllowedSyscalls",
+			event: kevent.UpdateEvent{
+				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						AllowedSyscalls: []string{"a", "c"},
+					},
+				},
+				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						AllowedSyscalls: []string{"a", "b"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "SameAllowedSyscalls",
+			event: kevent.UpdateEvent{
+				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						AllowedSyscalls: []string{"a", "b"},
+					},
+				},
+				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						AllowedSyscalls: []string{"a", "b"},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "SameAllowedSyscallsOtherOrder",
+			event: kevent.UpdateEvent{
+				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						AllowedSyscalls: []string{"b", "a"},
+					},
+				},
+				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{
+						AllowedSyscalls: []string{"a", "b"},
+					},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			predicate := AllowedSyscallsChangedPredicate{}
+			got := predicate.Update(tc.event)
 
 			require.Equal(t, tc.want, got)
 		})
