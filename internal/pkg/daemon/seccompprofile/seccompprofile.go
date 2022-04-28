@@ -138,7 +138,7 @@ func (AllowedSyscallsChangedPredicate) Update(e kevent.UpdateEvent) bool {
 		if _, ok := diff[s]; !ok {
 			return true
 		}
-		diff[s] -= 1
+		diff[s]--
 		if diff[s] == 0 {
 			delete(diff, s)
 		}
@@ -176,6 +176,10 @@ func (r *Reconciler) handleAllowedSyscallsChanged(obj client.Object) []reconcile
 		r.log.Info("cannot handle allowedSyscalls changed for no SPOD objects")
 		return []reconcile.Request{}
 	}
+	if len(spod.Spec.AllowedSyscalls) == 0 {
+		return []reconcile.Request{}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
 	defer cancel()
 
@@ -236,7 +240,7 @@ func (r *Reconciler) checkSeccomp() error {
 
 // Security Profiles Operator RBAC permissions to manage SeccompProfile
 // nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch;create;update;patch;delete
