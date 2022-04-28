@@ -74,7 +74,8 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 
 		for _, name := range deniedProfileNames {
 			namespace := e.getCurrentContextNamespace(defaultNamespace)
-			e.False(e.existsSeccompProfileNodeStatus(name, namespace, node))
+			e.Falsef(e.existsSeccompProfileNodeStatus(name, namespace, node),
+				"node status should not be updated for a denied seccomp profile")
 		}
 	}
 }
@@ -91,7 +92,6 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
 
 	e.kubectl("create", "-f", exampleProfilePath)
-	defer e.kubectl("delete", "-f", exampleProfilePath)
 
 	// Check that the seccomp profile was allowed and installed
 	name := "profile-allowed-syscalls"
@@ -127,12 +127,13 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 		}
 		time.Sleep(5 * time.Second)
 	}
-	e.False(exists)
+	e.Falsef(exists,
+		"seccomp profile should be removed because is not allowed anymore")
 
 	// Check that the seccomp profile file was removed also form the nodes
 	for _, node := range nodes {
 		profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
-		e.execNode(node, "test", "-f", profileOperatorPath)
+		e.execNode(node, "test", "!", "-f", profileOperatorPath)
 	}
 }
 
