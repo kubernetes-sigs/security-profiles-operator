@@ -190,7 +190,8 @@ func (r *Reconciler) handleAllowedSyscallsChanged(obj client.Object) []reconcile
 	}
 
 	reconcileRequests := []reconcile.Request{}
-	for _, sp := range seccompProfileList.Items {
+	for i := range seccompProfileList.Items {
+		sp := &seccompProfileList.Items[i]
 		op := &OutputProfile{
 			DefaultAction:    sp.Spec.DefaultAction,
 			Architectures:    sp.Spec.Architectures,
@@ -202,7 +203,7 @@ func (r *Reconciler) handleAllowedSyscallsChanged(obj client.Object) []reconcile
 		if err := allowProfile(op, spod.Spec.AllowedSyscalls); err != nil {
 			r.log.Info(fmt.Sprintf("deleting not allowed seccomp profile %s/%s",
 				sp.GetNamespace(), sp.GetName()))
-			if err := r.client.Delete(ctx, &sp, &client.DeleteOptions{}); err != nil {
+			if err := r.client.Delete(ctx, sp, &client.DeleteOptions{}); err != nil {
 				r.log.Error(err, "cannot delete not allowed seccomp profile")
 				continue
 			}
