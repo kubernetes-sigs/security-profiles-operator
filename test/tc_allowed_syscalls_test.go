@@ -22,6 +22,7 @@ import (
 	"path"
 	"time"
 
+	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -29,6 +30,7 @@ import (
 func (e *e2e) testCaseAllowedSyscalls(nodes []string) {
 	e.testCaseAllowedSyscallsValidation(nodes)
 	e.testCaseAllowedSyscallsChange(nodes)
+	e.testCaseAllowedSyscallsInUse(nodes)
 }
 
 func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
@@ -122,6 +124,99 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	exists := true
 	for i := 0; i < 10; i++ {
 		exists = e.existsSeccompProfile(name, "-n", namespace)
+		if !exists {
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
+	e.Falsef(exists,
+		"seccomp profile should be removed because is not allowed anymore")
+
+	// Check that the seccomp profile file was removed also form the nodes
+	for _, node := range nodes {
+		profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
+		e.execNode(node, "test", "!", "-f", profileOperatorPath)
+	}
+}
+
+func (e *e2e) testCaseAllowedSyscallsInUse(nodes []string) {
+	e.seccompOnlyTestCase()
+
+	const (
+		allowProfileName = "allow-me"
+		allowProfile     = `
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: allow-me
+spec:
+  defaultAction: "SCMP_ACT_ALLOW"
+`
+		allowPodName = "test-pod"
+		allowPod     = `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+spec:
+  containers:
+  - name: test-container
+    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+  securityContext:
+    seccompProfile:
+      type: Localhost
+      localhostProfile: operator/%s/allow-me.json
+`
+	)
+
+	profileCleanup := e.writeAndCreate(allowProfile, "allow-profile*.yaml")
+	defer profileCleanup()
+
+	// Check that the seccomp profile was allowed and installed
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
+	e.waitFor(
+		"condition=ready",
+		"--namespace", namespace,
+		"seccompprofile", allowProfileName,
+	)
+	sp := e.getSeccompProfile(allowProfileName, namespace)
+	e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+
+	// Create the pod which reference the allowed profile
+	podCleanup := e.writeAndCreate(fmt.Sprintf(allowPod, namespace), "allow-pod*.yaml")
+	defer podCleanup()
+	e.waitFor("condition=ready", "pod", allowPodName)
+
+	// Define an allowed syscalls list in the spod configuration, this should disallow the
+	// seccomp profile and trigger a deletion.
+	e.logf("Changed allowed syscalls list in spod")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}`, "--type=merge")
+	defer e.kubectlOperatorNS("patch", "spod", "spod", "--type=json", "-p", `[{"op": "remove", "path": "/spec/allowedSyscalls"}]`)
+	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+
+	// Check that the profile is not deleted while the pod is active but only mark as
+	// terminated.
+	e.logf("Ensuring profile cannot be deleted while pod is active")
+	for i := 0; i < 10; i++ {
+		sp := e.getSeccompProfile(allowProfileName, namespace)
+		conReady := sp.Status.GetCondition(v1.TypeReady)
+		if conReady.Reason == v1.ReasonDeleting {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	sp = e.getSeccompProfile(allowProfileName, namespace)
+	e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
+
+	// Remove the pod, after this point the profile should be complete cleaned-up
+	e.kubectl("delete", "pod", allowPodName)
+
+	// Wait for profile to be deleted by the operator
+	exists := true
+	for i := 0; i < 10; i++ {
+		exists = e.existsSeccompProfile(allowProfileName, "-n", namespace)
 		if !exists {
 			break
 		}
