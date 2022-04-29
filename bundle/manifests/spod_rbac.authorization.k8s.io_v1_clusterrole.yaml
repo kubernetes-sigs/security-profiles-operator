@@ -114,6 +114,7 @@ rules:
   - seccompprofiles
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
