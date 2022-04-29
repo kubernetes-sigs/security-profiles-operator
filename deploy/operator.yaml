@@ -1511,8 +1511,8 @@ rules:
   - seccompprofiles
   verbs:
   - create
-  - get
   - delete
+  - get
   - list
   - patch
   - update
