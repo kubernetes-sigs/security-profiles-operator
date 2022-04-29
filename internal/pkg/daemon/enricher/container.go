@@ -121,7 +121,7 @@ func (e *Enricher) populateContainerPodCache(
 }
 
 func (e *Enricher) populateCacheEntryForContainer(
-	ctx context.Context, targetContainerID string, pod *v1.Pod, eg *errgroup.Group,
+	_ context.Context, targetContainerID string, pod *v1.Pod, eg *errgroup.Group,
 ) {
 	eg.Go(func() (errorToRetry error) {
 		// nolint:gocritic // This is what we expect and want
@@ -168,7 +168,7 @@ func (e *Enricher) populateCacheEntryForContainer(
 			if e.labelDenials && rawContainerID == targetContainerID {
 				e.logger.Info("labeling problematic container", "containerID", containerID,
 					"podNamespace", pod.Namespace, "podName", pod.Name)
-				e.labelPodDenials(ctx, info.containerName, pod.DeepCopy(), e.logger)
+				e.labelPodDenials(context.TODO(), info.containerName, pod.DeepCopy(), e.logger)
 			}
 
 			// Update the cache
