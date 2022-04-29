@@ -43,6 +43,12 @@ spec:
           spec:
             description: SPODStatus defines the desired state of SPOD.
             properties:
+              allowedSyscalls:
+                description: AllowedSyscalls if specified, a list of system calls
+                  which are allowed in seccomp profiles.
+                items:
+                  type: string
+                type: array
               enableAppArmor:
                 description: tells the operator whether or not to enable AppArmor
                   support for this SPOD instance.
