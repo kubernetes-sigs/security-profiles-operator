@@ -23,8 +23,8 @@ import (
 	"time"
 
 	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 
+	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
