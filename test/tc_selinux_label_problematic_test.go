@@ -18,6 +18,8 @@ package e2e_test
 
 import (
 	"fmt"
+	"regexp"
+	"time"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -54,6 +56,7 @@ spec:
 	e.logf("sanity check: The 'errorlogger' workload should be blocked by SELinux")
 
 	e.logf("creating workload")
+	since := time.Now()
 	e.writeAndCreate(podWithoutPolicy, "pod-wo-policy.yml")
 
 	e.waitFor("condition=ready", "pod", "el-no-policy")
@@ -64,6 +67,9 @@ spec:
 	e.Equalf(expectedLog, log, "container should have returned a 'Permissions Denied' error")
 
 	e.logf("Should be marked as a problematic pod")
+
+	// wait for the enricher to mark the pod as problematic
+	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"labeling problematic container".*podName"="el-no-policy"`))
 
 	// Naive check label is in the pod's metadata
 	podlabels := e.kubectl("get", "pods", "el-no-policy", "-o", "jsonpath={.metadata.labels}")
