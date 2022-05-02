@@ -11,6 +11,7 @@
         "capget",
         "capset",
         "clone",
+        "clone3",
         "close",
         "connect",
         "chdir",
