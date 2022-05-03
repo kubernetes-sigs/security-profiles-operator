@@ -402,7 +402,7 @@ func (e *Enricher) dispatchAuditLine(
 }
 
 func (e *Enricher) dispatchSelinuxLine(
-	_ apimetrics.Metrics_AuditIncClient,
+	metricsClient apimetrics.Metrics_AuditIncClient,
 	nodeName string,
 	auditLine *auditLine,
 	info *containerInfo,
@@ -420,6 +420,23 @@ func (e *Enricher) dispatchSelinuxLine(
 		"tcontext", auditLine.tcontext,
 		"tclass", auditLine.tclass,
 	)
+
+	if err := e.impl.SendMetric(
+		metricsClient,
+		&apimetrics.AuditRequest{
+			Node:       nodeName,
+			Namespace:  info.namespace,
+			Pod:        info.podName,
+			Container:  info.containerName,
+			Executable: auditLine.executable,
+			SelinuxReq: &apimetrics.AuditRequest_SelinuxAuditReq{
+				Scontext: auditLine.scontext,
+				Tcontext: auditLine.tcontext,
+			},
+		},
+	); err != nil {
+		e.logger.Error(err, "unable to update metrics")
+	}
 
 	if info.recordProfile != "" {
 		avc := &apienricher.AvcResponse_SelinuxAvc{
@@ -470,17 +487,17 @@ func (e *Enricher) dispatchSeccompLine(
 		"syscallName", syscallName,
 	)
 
-	metricsType := apimetrics.AuditRequest_SECCOMP
 	if err := e.impl.SendMetric(
 		metricsClient,
 		&apimetrics.AuditRequest{
-			Type:       metricsType,
 			Node:       nodeName,
 			Namespace:  info.namespace,
 			Pod:        info.podName,
 			Container:  info.containerName,
 			Executable: auditLine.executable,
-			Syscall:    syscallName,
+			SeccompReq: &apimetrics.AuditRequest_SeccompAuditReq{
+				Syscall: syscallName,
+			},
 		},
 	); err != nil {
 		e.logger.Error(err, "unable to update metrics")

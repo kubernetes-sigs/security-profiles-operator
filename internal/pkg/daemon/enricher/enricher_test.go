@@ -100,7 +100,8 @@ func TestRun(t *testing.T) {
 				require.Equal(t, namespace, res.Namespace)
 				require.Equal(t, pod, res.Pod)
 				require.Equal(t, executable, res.Executable)
-				require.Equal(t, syscall, res.Syscall)
+				require.NotNil(t, res.SeccompReq)
+				require.Equal(t, syscall, res.SeccompReq.Syscall)
 
 				require.Equal(t, 0, mock.AddToBacklogCallCount())
 

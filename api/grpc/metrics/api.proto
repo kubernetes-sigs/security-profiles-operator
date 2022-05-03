@@ -25,17 +25,20 @@ service Metrics {
 }
 
 message AuditRequest {
-    enum Type {
-        SECCOMP = 0;
-        SELINUX = 1;
+    message SeccompAuditReq {
+        string syscall = 1;
     }
-    Type type = 1;
-    string node = 2;
-    string namespace = 3;
-    string pod = 4;
-    string container = 5;
-    string executable = 6;
-    string syscall = 7;
+    message SelinuxAuditReq {
+        string scontext = 1;
+        string tcontext = 2;
+    }
+    string node = 1;
+    string namespace = 2;
+    string pod = 3;
+    string container = 4;
+    string executable = 5;
+    SeccompAuditReq seccompReq = 6;
+    SelinuxAuditReq selinuxReq = 7;
 }
 
 message BpfRequest {
