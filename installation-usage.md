@@ -9,6 +9,7 @@
   - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
 - [Set logging verbosity](#set-logging-verbosity)
 - [Configure the SELinux type](#configure-the-selinux-type)
+- [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
 - [Create Profile](#create-profile)
   - [Apply profile to pod](#apply-profile-to-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
@@ -150,6 +151,23 @@ The `ds/spod` should now be updated by the manager with the new SELinux type, an
           seLinuxOptions:
             type: unconfined_t
 ```
+
+## Restrict the allowed syscalls in seccomp profiles
+
+The operator doesn't restrict by default the allowed syscalls in the seccomp profiles. This means that any
+syscall can be allowed in a seccomp profile installed via the operator. This can be changed by defining the 
+list of allowed syscalls in the spod configuration as follows:
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p 
+'{"spec":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}'
+```
+
+From now on, the operator will only install the seccomp profiles which have only a subset of syscalls defined
+into the allowed list. All profiles not complying with this rule, it will be rejected. 
+
+Also every time when the list of allowed syscalls is modified in the spod configuration, the operator will 
+automatically identify the already installed profiles which are not compliant and remove them.
 
 ## Create Profile
 
