@@ -62,6 +62,8 @@ const (
 	metricsLabelReason         = "reason"
 	metricsLabelSyscall        = "syscall"
 	metricsLabelProfile        = "profile"
+	metricsLabelScontext       = "scontext"
+	metricsLabelTcontext       = "tcontext"
 	metricsLabelMountNamespace = "mount_namespace"
 
 	// HandlerPath is the default path for serving metrics.
@@ -153,7 +155,8 @@ func New() *Metrics {
 				metricsLabelPod,
 				metricsLabelContainer,
 				metricsLabelExecutable,
-				metricsLabelSyscall,
+				metricsLabelScontext,
+				metricsLabelTcontext,
 			},
 		),
 		metricSelinuxProfileError: prometheus.NewCounterVec(
@@ -280,10 +283,10 @@ func (m *Metrics) IncSelinuxProfileDelete() {
 // IncSelinuxProfileAudit increments the selinux profile audit counter for the
 // provided labels.
 func (m *Metrics) IncSelinuxProfileAudit(
-	node, namespace, pod, container, executable, syscall string,
+	node, namespace, pod, container, executable, scontext, tcontext string,
 ) {
 	m.metricSelinuxProfileAudit.WithLabelValues(
-		node, namespace, pod, container, executable, syscall,
+		node, namespace, pod, container, executable, scontext, tcontext,
 	).Inc()
 }
 
