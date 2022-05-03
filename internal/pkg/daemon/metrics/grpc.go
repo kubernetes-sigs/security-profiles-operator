@@ -95,24 +95,24 @@ func (m *Metrics) AuditInc(
 			return fmt.Errorf("record syscalls: %w", err)
 		}
 
-		switch r.GetType() {
-		case api.AuditRequest_SECCOMP:
+		if r.GetSeccompReq() != nil {
 			m.IncSeccompProfileAudit(
 				r.GetNode(),
 				r.GetNamespace(),
 				r.GetPod(),
 				r.GetContainer(),
 				r.GetExecutable(),
-				r.GetSyscall(),
+				r.GetSeccompReq().GetSyscall(),
 			)
-		case api.AuditRequest_SELINUX:
+		} else if r.GetSelinuxReq() != nil {
 			m.IncSelinuxProfileAudit(
 				r.GetNode(),
 				r.GetNamespace(),
 				r.GetPod(),
 				r.GetContainer(),
 				r.GetExecutable(),
-				r.GetSyscall(),
+				r.GetSelinuxReq().GetScontext(),
+				r.GetSelinuxReq().GetTcontext(),
 			)
 		}
 	}
