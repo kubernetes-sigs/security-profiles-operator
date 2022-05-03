@@ -37,6 +37,15 @@ func ServiceMonitor() *v1.ServiceMonitor {
 				endpointFor("/metrics"),
 				endpointFor("/metrics-spod"),
 			},
+			Selector: metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "app",
+						Operator: metav1.LabelSelectorOpIn,
+						Values:   []string{config.OperatorName},
+					},
+				},
+			},
 		},
 	}
 }
