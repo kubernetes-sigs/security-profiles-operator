@@ -40,16 +40,21 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 	for _, node := range nodes {
 		// General path verification
 		e.logf("Verifying security profiles operator directory on node: %s", node)
-		statOutput := e.execNode(
-			node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath,
-		)
-		e.Contains(statOutput, "744,65535,65535")
 
-		// security-profiles-operator.json init verification
-		cm := e.getConfigMap(
-			"security-profiles-operator-profile", config.OperatorName,
-		)
-		e.verifyBaseProfileContent(node, cm)
+		// This symlink is not available on e2e-flatcar because the rootfs is mounted into
+		// the dev container where the tests are executed. This check needs to be skipped.
+		if e.nodeRootfsPrefix == "" {
+			statOutput := e.execNode(
+				node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath,
+			)
+			e.Contains(statOutput, "744,65535,65535")
+
+			// security-profiles-operator.json init verification
+			cm := e.getConfigMap(
+				"security-profiles-operator-profile", config.OperatorName,
+			)
+			e.verifyBaseProfileContent(node, cm)
+		}
 
 		// Default profile verification
 		namespace := e.getCurrentContextNamespace("security-profiles-operator")
@@ -103,7 +108,7 @@ func (e *e2e) verifyBaseProfileContent(node string, cm *v1.ConfigMap) {
 
 func (e *e2e) verifyCRDProfileContent(node string, sp *seccompprofileapi.SeccompProfile) {
 	e.logf("Verifying %s profile on node %s", sp.Name, node)
-	profilePath := sp.GetProfilePath()
+	profilePath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
 	catOutput := e.execNode(node, "cat", profilePath)
 	output := seccompprofile.OutputProfile{}
 	err := json.Unmarshal([]byte(catOutput), &output)
