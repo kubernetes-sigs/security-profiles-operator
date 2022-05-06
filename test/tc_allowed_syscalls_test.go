@@ -52,16 +52,22 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 	allowedProfileNames := []string{"profile-allowed-syscalls", "profile-block-all-syscalls"}
 	deniedProfileNames := []string{"profile-denied-syscalls", "profile-allow-all-syscalls"}
 	for _, node := range nodes {
+		// General operator path verification
 		e.logf("Verifying security profiles operator directory on node: %s", node)
-		statOutput := e.execNode(
-			node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath,
-		)
-		e.Contains(statOutput, "744,65535,65535")
+		// This symlink is not available on e2e-flatcar because the rootfs is mounted into
+		// the dev container where the tests are executed. This check needs to be skipped.
+		if e.nodeRootfsPrefix == "" {
+			statOutput := e.execNode(
+				node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath,
+			)
+			e.Contains(statOutput, "744,65535,65535")
 
-		cm := e.getConfigMap(
-			"security-profiles-operator-profile", config.OperatorName,
-		)
-		e.verifyBaseProfileContent(node, cm)
+			// security-profiles-operator.json init verification
+			cm := e.getConfigMap(
+				"security-profiles-operator-profile", config.OperatorName,
+			)
+			e.verifyBaseProfileContent(node, cm)
+		}
 
 		for _, name := range allowedProfileNames {
 			namespace := e.getCurrentContextNamespace(defaultNamespace)
