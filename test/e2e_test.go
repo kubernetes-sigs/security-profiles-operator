@@ -203,7 +203,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.run("git", "checkout", namespaceManifest)
 }
 
-func (e *e2e) deployCertManager() {
+func doDeployCertManager(e *e2e) {
 	e.logf("Deploying cert-manager")
 	e.kubectl("apply", "-f", certmanager)
 
