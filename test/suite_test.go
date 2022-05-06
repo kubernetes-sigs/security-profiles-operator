@@ -88,6 +88,7 @@ type e2e struct {
 	logger                 logr.Logger
 	execNode               func(node string, args ...string) string
 	waitForReadyPods       func()
+	deployCertManager      func()
 }
 
 func defaultWaitForReadyPods(e *e2e) {
@@ -233,6 +234,7 @@ func (e *kinde2e) SetupSuite() {
 	// Override execNode and waitForReadyPods functions
 	e.e2e.execNode = e.execNodeKind
 	e.e2e.waitForReadyPods = e.waitForReadyPodsKind
+	e.e2e.deployCertManager = e.deployCertManagerKind
 	parentCwd := e.setWorkDir()
 	buildDir := filepath.Join(parentCwd, "build")
 	e.Nil(os.MkdirAll(buildDir, 0o755))
@@ -318,6 +320,10 @@ func (e *e2e) waitForReadyPodsKind() {
 	defaultWaitForReadyPods(e)
 }
 
+func (e *e2e) deployCertManagerKind() {
+	doDeployCertManager(e)
+}
+
 func (e *openShifte2e) SetupSuite() {
 	var err error
 	e.logf("Setting up suite")
@@ -325,6 +331,7 @@ func (e *openShifte2e) SetupSuite() {
 	// Override execNode and waitForReadyPods functions
 	e.e2e.execNode = e.execNodeOCP
 	e.e2e.waitForReadyPods = e.waitForReadyPodsOCP
+	e.e2e.deployCertManager = e.deployCertManagerOCP
 	e.setWorkDir()
 
 	e.kubectlPath, err = exec.LookPath("oc")
@@ -412,6 +419,10 @@ func (e *e2e) waitForReadyPodsOCP() {
 	// ensure the cluster is up before the test runs. At least for now.
 }
 
+func (e *e2e) deployCertManagerOCP() {
+	// intentionally blank, OCP creates certs on its own
+}
+
 func (e *vanilla) SetupSuite() {
 	var err error
 	e.logf("Setting up suite")
@@ -421,6 +432,7 @@ func (e *vanilla) SetupSuite() {
 	e.e2e.execNode = e.execNodeVanilla
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.e2e.waitForReadyPods = e.waitForReadyPodsVanilla
+	e.e2e.deployCertManager = e.deployCertManagerVanilla
 	e.Nil(err)
 }
 
@@ -440,6 +452,10 @@ func (e *vanilla) execNodeVanilla(node string, args ...string) string {
 
 func (e *e2e) waitForReadyPodsVanilla() {
 	defaultWaitForReadyPods(e)
+}
+
+func (e *e2e) deployCertManagerVanilla() {
+	doDeployCertManager(e)
 }
 
 func (e *e2e) setWorkDir() string {
