@@ -22,6 +22,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/containers/common/pkg/seccomp"
 	"k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +55,11 @@ func (in *SPODSpec) DeepCopyInto(out *SPODSpec) {
 	if in.AllowedSyscalls != nil {
 		in, out := &in.AllowedSyscalls, &out.AllowedSyscalls
 		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.AllowedSeccompActions != nil {
+		in, out := &in.AllowedSeccompActions, &out.AllowedSeccompActions
+		*out = make([]seccomp.Action, len(*in))
 		copy(*out, *in)
 	}
 }
