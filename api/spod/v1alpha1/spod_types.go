@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/containers/common/pkg/seccomp"
 	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -91,6 +92,9 @@ type SPODSpec struct {
 	// in seccomp profiles.
 	// +optional
 	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`
+	// AllowedSeccompActions if specified, a list of allowed seccomp actions.
+	// +optional
+	AllowedSeccompActions []seccomp.Action `json:"allowedSeccompActions"`
 }
 
 // SPODState defines the state that the spod is in.
