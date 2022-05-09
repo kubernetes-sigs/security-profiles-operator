@@ -92,6 +92,9 @@ jobs:
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s node 127.0.0.1
           $RUN kubectl get nodes -o wide
+      - name: Set up git config
+        run: |
+          $RUN git config --global --add safe.directory /vagrant 
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-fedora.sh
 
@@ -122,6 +125,9 @@ jobs:
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s node ubuntu2110
           $RUN kubectl get nodes -o wide
+      - name: Set up git config
+        run: |
+          $RUN git config --global --add safe.directory /vagrant 
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-ubuntu.sh
 
