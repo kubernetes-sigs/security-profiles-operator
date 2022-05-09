@@ -549,7 +549,7 @@ func allowProfile(profile *OutputProfile, allowedSyscalls []string, allowedActio
 		allowedActions = allAllowedActions
 	}
 	for _, allowedAction := range allowedActions {
-		if !util.Contains(allAllowedActions, allowedAction) {
+		if !containsAction(allAllowedActions, allowedAction) {
 			return fmt.Errorf("%s: %s", errForbiddenAction, allowedAction)
 		}
 	}
@@ -566,4 +566,13 @@ func allowProfile(profile *OutputProfile, allowedSyscalls []string, allowedActio
 		}
 	}
 	return nil
+}
+
+func containsAction(actions []seccomp.Action, action seccomp.Action) bool {
+	for _, act := range actions {
+		if act == action {
+			return true
+		}
+	}
+	return false
 }

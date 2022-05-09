@@ -34,7 +34,7 @@ func NamespacedName(name, namespace string) types.NamespacedName {
 }
 
 // Contains returns true if the slice a contains string b.
-func Contains[T comparable](a []T, b T) bool {
+func Contains(a []string, b string) bool {
 	for _, s := range a {
 		if s == b {
 			return true
