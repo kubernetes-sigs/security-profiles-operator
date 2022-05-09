@@ -65,6 +65,7 @@ const (
 	errCreatingOperatorDir = "cannot create operator directory"
 	errForbiddenSyscall    = "syscall not allowed"
 	errForbiddenProfile    = "seccomp profile not allowed"
+	errForbiddenAction     = "seccomp action not allowed"
 
 	filePermissionMode os.FileMode = 0o644
 
@@ -200,7 +201,7 @@ func (r *Reconciler) handleAllowedSyscallsChanged(obj client.Object) []reconcile
 			Flags:            sp.Spec.Flags,
 			Syscalls:         sp.Spec.Syscalls,
 		}
-		if err := allowProfile(op, spod.Spec.AllowedSyscalls); err != nil {
+		if err := allowProfile(op, spod.Spec.AllowedSyscalls, spod.Spec.AllowedSeccompActions); err != nil {
 			r.log.Info(fmt.Sprintf("deleting not allowed seccomp profile %s/%s",
 				sp.GetNamespace(), sp.GetName()))
 			if err := r.client.Delete(ctx, sp, &client.DeleteOptions{}); err != nil {
@@ -511,7 +512,7 @@ func (r *Reconciler) validateProfile(ctx context.Context, profile *OutputProfile
 		return fmt.Errorf("retrieving the SPOD configuration: %w", err)
 	}
 	if len(spod.Spec.AllowedSyscalls) > 0 {
-		return allowProfile(profile, spod.Spec.AllowedSyscalls)
+		return allowProfile(profile, spod.Spec.AllowedSyscalls, spod.Spec.AllowedSeccompActions)
 	}
 	return nil
 }
@@ -533,7 +534,7 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 	return true, nil
 }
 
-func allowProfile(profile *OutputProfile, allowedSyscalls []string) error {
+func allowProfile(profile *OutputProfile, allowedSyscalls []string, allowedActions []seccomp.Action) error {
 	syscalls := map[seccomp.Action]map[string]bool{}
 	for _, call := range profile.Syscalls {
 		if _, ok := syscalls[call.Action]; !ok {
@@ -543,7 +544,15 @@ func allowProfile(profile *OutputProfile, allowedSyscalls []string) error {
 			syscalls[call.Action][name] = true
 		}
 	}
-	allowedActions := []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace}
+	allAllowedActions := []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace}
+	if len(allowedActions) == 0 {
+		allowedActions = allAllowedActions
+	}
+	for _, allowedAction := range allowedActions {
+		if !util.Contains(allAllowedActions, allowedAction) {
+			return fmt.Errorf("%s: %s", errForbiddenAction, allowedAction)
+		}
+	}
 	for _, action := range allowedActions {
 		if actionCalls, ok := syscalls[action]; ok {
 			for call := range actionCalls {
