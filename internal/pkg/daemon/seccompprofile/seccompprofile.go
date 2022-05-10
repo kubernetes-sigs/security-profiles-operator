@@ -544,7 +544,7 @@ func allowProfile(profile *OutputProfile, allowedSyscalls []string, allowedActio
 			syscalls[call.Action][name] = true
 		}
 	}
-	allAllowedActions := []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace}
+	allAllowedActions := []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace, seccomp.ActNotify}
 	if len(allowedActions) == 0 {
 		allowedActions = allAllowedActions
 	}
