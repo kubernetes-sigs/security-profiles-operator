@@ -558,8 +558,11 @@ func (e *e2e) getSpodMetrics() string {
 		}
 		output = ""
 		return fmt.Errorf("no metrics output yet")
-	}, func(err error) bool { return true }); err != nil {
-		e.Fail("unable to retrieve SPOD metrics")
+	}, func(err error) bool {
+		e.logf("retry on error: %s", err)
+		return true
+	}); err != nil {
+		e.Failf("unable to retrieve SPOD metrics", "error: %s", err)
 	}
 	return output
 }
