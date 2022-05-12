@@ -30,7 +30,7 @@ Vagrant.configure("2") do |config|
       curl -sSfL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
       echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
       apt-get update
-      KUBERNETES_VERSION=1.23.5-00
+      KUBERNETES_VERSION=1.24.0-00
       apt-get install -y \
         build-essential \
         kubelet=$KUBERNETES_VERSION \
@@ -67,6 +67,7 @@ Vagrant.configure("2") do |config|
       # Configure cluster
       export KUBECONFIG=/etc/kubernetes/admin.conf
       kubectl taint nodes --all node-role.kubernetes.io/master-
+      kubectl taint nodes --all node-role.kubernetes.io/control-plane-
     SHELL
   end
 end

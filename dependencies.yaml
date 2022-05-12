@@ -82,7 +82,7 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.23.5
+    version: 1.24.0
     refPaths:
     - path: hack/ci/install-kubernetes.sh
       match: VERSION
@@ -146,7 +146,7 @@ dependencies:
       match: VERSION
 
   - name: CRI-O
-    version: v1.23.2
+    version: v1.24.0
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: TAG
