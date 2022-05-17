@@ -47,7 +47,7 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	NewClient(ctrl.Manager) (client.Client, error)
-	ClientGet(client.Client, client.ObjectKey, client.Object) error
+	ClientGet(context.Context, client.Client, client.ObjectKey, client.Object) error
 	NewControllerManagedBy(
 		manager.Manager, string, func(obj runtime.Object) bool,
 		func(obj runtime.Object) bool, reconcile.Reconciler) error
@@ -88,9 +88,9 @@ func (*defaultImpl) NewClient(mgr ctrl.Manager) (client.Client, error) {
 }
 
 func (*defaultImpl) ClientGet(
-	c client.Client, key client.ObjectKey, obj client.Object,
+	ctx context.Context, c client.Client, key client.ObjectKey, obj client.Object,
 ) error {
-	return c.Get(context.Background(), key, obj)
+	return c.Get(ctx, key, obj)
 }
 
 func (*defaultImpl) NewControllerManagedBy(
