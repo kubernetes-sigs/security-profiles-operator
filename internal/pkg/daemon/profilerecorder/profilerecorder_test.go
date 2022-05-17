@@ -71,7 +71,10 @@ func TestSetup(t *testing.T) {
 		{ // Success
 			prepare: func(mock *profilerecorderfakes.FakeImpl) {
 				mock.ClientGetCalls(func(
-					c client.Client, key types.NamespacedName, obj client.Object,
+					ctx context.Context,
+					c client.Client,
+					key types.NamespacedName,
+					obj client.Object,
 				) error {
 					node, ok := obj.(*corev1.Node)
 					assert.True(t, ok)

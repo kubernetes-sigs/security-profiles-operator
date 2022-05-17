@@ -125,7 +125,7 @@ func (r *RecorderReconciler) Setup(
 
 	node := &corev1.Node{}
 	if err := r.ClientGet(
-		c, client.ObjectKey{Name: os.Getenv(config.NodeNameEnvKey)}, node,
+		ctx, c, client.ObjectKey{Name: os.Getenv(config.NodeNameEnvKey)}, node,
 	); err != nil {
 		return fmt.Errorf("cannot get node object: %w", err)
 	}
