@@ -52,12 +52,13 @@ type FakeImpl struct {
 		result1 *api_enricher.AvcResponse
 		result2 error
 	}
-	ClientGetStub        func(client.Client, types.NamespacedName, client.Object) error
+	ClientGetStub        func(context.Context, client.Client, types.NamespacedName, client.Object) error
 	clientGetMutex       sync.RWMutex
 	clientGetArgsForCall []struct {
-		arg1 client.Client
-		arg2 types.NamespacedName
-		arg3 client.Object
+		arg1 context.Context
+		arg2 client.Client
+		arg3 types.NamespacedName
+		arg4 client.Object
 	}
 	clientGetReturns struct {
 		result1 error
@@ -365,20 +366,21 @@ func (fake *FakeImpl) AvcsReturnsOnCall(i int, result1 *api_enricher.AvcResponse
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ClientGet(arg1 client.Client, arg2 types.NamespacedName, arg3 client.Object) error {
+func (fake *FakeImpl) ClientGet(arg1 context.Context, arg2 client.Client, arg3 types.NamespacedName, arg4 client.Object) error {
 	fake.clientGetMutex.Lock()
 	ret, specificReturn := fake.clientGetReturnsOnCall[len(fake.clientGetArgsForCall)]
 	fake.clientGetArgsForCall = append(fake.clientGetArgsForCall, struct {
-		arg1 client.Client
-		arg2 types.NamespacedName
-		arg3 client.Object
-	}{arg1, arg2, arg3})
+		arg1 context.Context
+		arg2 client.Client
+		arg3 types.NamespacedName
+		arg4 client.Object
+	}{arg1, arg2, arg3, arg4})
 	stub := fake.ClientGetStub
 	fakeReturns := fake.clientGetReturns
-	fake.recordInvocation("ClientGet", []interface{}{arg1, arg2, arg3})
+	fake.recordInvocation("ClientGet", []interface{}{arg1, arg2, arg3, arg4})
 	fake.clientGetMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3)
+		return stub(arg1, arg2, arg3, arg4)
 	}
 	if specificReturn {
 		return ret.result1
@@ -392,17 +394,17 @@ func (fake *FakeImpl) ClientGetCallCount() int {
 	return len(fake.clientGetArgsForCall)
 }
 
-func (fake *FakeImpl) ClientGetCalls(stub func(client.Client, types.NamespacedName, client.Object) error) {
+func (fake *FakeImpl) ClientGetCalls(stub func(context.Context, client.Client, types.NamespacedName, client.Object) error) {
 	fake.clientGetMutex.Lock()
 	defer fake.clientGetMutex.Unlock()
 	fake.ClientGetStub = stub
 }
 
-func (fake *FakeImpl) ClientGetArgsForCall(i int) (client.Client, types.NamespacedName, client.Object) {
+func (fake *FakeImpl) ClientGetArgsForCall(i int) (context.Context, client.Client, types.NamespacedName, client.Object) {
 	fake.clientGetMutex.RLock()
 	defer fake.clientGetMutex.RUnlock()
 	argsForCall := fake.clientGetArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4
 }
 
 func (fake *FakeImpl) ClientGetReturns(result1 error) {
