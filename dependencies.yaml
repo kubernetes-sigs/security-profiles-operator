@@ -150,3 +150,9 @@ dependencies:
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: TAG
+
+  - name: audit2rbac
+    version: v0.9.0
+    refPaths:
+    - path: hack/ci/install-audit2rbac.sh
+      match: VERSION
