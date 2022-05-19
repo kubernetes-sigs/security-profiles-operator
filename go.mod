@@ -7,7 +7,7 @@ require (
 	github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
 	github.com/aquasecurity/libbpfgo v0.2.5-libbpf-0.7.0
 	github.com/containers/common v0.48.1-0.20220510094751-400832f41771
-	github.com/crossplane/crossplane-runtime v0.14.1-0.20210713194031-85b19c28ea88
+	github.com/crossplane/crossplane-runtime v0.16.0
 	github.com/go-logr/logr v1.2.3
 	github.com/jetstack/cert-manager v1.7.2
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.5.0
@@ -103,7 +103,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sergi/go-diff v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
-	github.com/spf13/afero v1.6.0 // indirect
+	github.com/spf13/afero v1.8.0 // indirect
 	github.com/spf13/cobra v1.4.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/xanzy/go-gitlab v0.43.0 // indirect

@@ -53,6 +53,9 @@ type MockStatusUpdateFn func(ctx context.Context, obj client.Object, opts ...cli
 // A MockStatusPatchFn is used to mock client.Client's StatusUpdate implementation.
 type MockStatusPatchFn func(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
 
+// A MockSchemeFn is used to mock client.Client's Scheme implementation.
+type MockSchemeFn func() *runtime.Scheme
+
 // An ObjectFn operates on the supplied Object. You might use an ObjectFn to
 // test or update the contents of an Object.
 type ObjectFn func(obj client.Object) error
@@ -169,6 +172,13 @@ func NewMockStatusPatchFn(err error, ofn ...ObjectFn) MockStatusPatchFn {
 	}
 }
 
+// NewMockSchemeFn returns a MockSchemeFn that returns the scheme
+func NewMockSchemeFn(scheme *runtime.Scheme) MockSchemeFn {
+	return func() *runtime.Scheme {
+		return scheme
+	}
+}
+
 // MockClient implements controller-runtime's Client interface, allowing each
 // method to be overridden for testing. The controller-runtime provides a fake
 // client, but it is has surprising side effects (e.g. silently calling
@@ -183,6 +193,8 @@ type MockClient struct {
 	MockPatch        MockPatchFn
 	MockStatusUpdate MockStatusUpdateFn
 	MockStatusPatch  MockStatusPatchFn
+
+	MockScheme MockSchemeFn
 }
 
 // NewMockClient returns a MockClient that does nothing when its methods are
@@ -198,6 +210,8 @@ func NewMockClient() *MockClient {
 		MockPatch:        NewMockPatchFn(nil),
 		MockStatusUpdate: NewMockStatusUpdateFn(nil),
 		MockStatusPatch:  NewMockStatusPatchFn(nil),
+
+		MockScheme: NewMockSchemeFn(nil),
 	}
 }
 
@@ -249,9 +263,9 @@ func (c *MockClient) RESTMapper() meta.RESTMapper {
 	return nil
 }
 
-// Scheme returns the current runtime scheme.
+// Scheme calls MockClient's MockScheme function
 func (c *MockClient) Scheme() *runtime.Scheme {
-	return nil
+	return c.MockScheme()
 }
 
 // MockStatusWriter provides mock functionality for status sub-resource

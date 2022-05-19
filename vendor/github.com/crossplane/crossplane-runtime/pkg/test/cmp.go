@@ -25,13 +25,14 @@ import (
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 )
 
-// TODO(negz): Replace this if a similar option is added to cmpopts per
-// https://github.com/google/go-cmp/issues/89
-
 // EquateErrors returns true if the supplied errors are of the same type and
 // produce identical strings. This mirrors the error comparison behaviour of
 // https://github.com/go-test/deep, which most Crossplane tests targeted before
 // we switched to go-cmp.
+//
+// This differs from cmpopts.EquateErrors, which does not test for error strings
+// and instead returns whether one error 'is' (in the errors.Is sense) the
+// other.
 func EquateErrors() cmp.Option {
 	return cmp.Comparer(func(a, b error) bool {
 		if a == nil || b == nil {
