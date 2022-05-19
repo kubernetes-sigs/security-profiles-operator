@@ -55,6 +55,7 @@ Vagrant.configure("2") do |config|
       iptables -t nat -I POSTROUTING -s 127.0.0.0/8 ! -d 127.0.0.0/8 -j MASQUERADE
 
       podman load -i /vagrant/image.tar
+      /vagrant/hack/ci/install-audit2rbac.sh
       /vagrant/hack/ci/install-cri-o.sh
       /vagrant/hack/ci/install-kubernetes.sh
     SHELL

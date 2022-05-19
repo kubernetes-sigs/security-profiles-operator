@@ -94,9 +94,11 @@ jobs:
           $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
-          $RUN git config --global --add safe.directory /vagrant 
+          $RUN git config --global --add safe.directory /vagrant
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-fedora.sh
+      - name: Print generated RBAC rules
+        run: $RUN hack/ci/print-rbac.sh
 
   e2e-ubuntu:
     needs: image
@@ -127,7 +129,7 @@ jobs:
           $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
-          $RUN git config --global --add safe.directory /vagrant 
+          $RUN git config --global --add safe.directory /vagrant
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-ubuntu.sh
 
