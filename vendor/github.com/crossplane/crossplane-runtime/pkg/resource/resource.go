@@ -20,7 +20,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+	"github.com/crossplane/crossplane-runtime/pkg/errors"
 	"github.com/crossplane/crossplane-runtime/pkg/meta"
 )
 
@@ -63,6 +63,14 @@ type ProviderConfigKinds struct {
 	UsageList schema.GroupVersionKind
 }
 
+// A ConnectionSecretOwner is a Kubernetes object that owns a connection secret.
+type ConnectionSecretOwner interface {
+	Object
+
+	ConnectionSecretWriterTo
+	ConnectionDetailsPublisherTo
+}
+
 // A LocalConnectionSecretOwner may create and manage a connection secret in its
 // own namespace.
 type LocalConnectionSecretOwner interface {
@@ -70,6 +78,7 @@ type LocalConnectionSecretOwner interface {
 	metav1.Object
 
 	LocalConnectionSecretWriterTo
+	ConnectionDetailsPublisherTo
 }
 
 // A ConnectionPropagator is responsible for propagating information required to
@@ -113,15 +122,6 @@ func LocalConnectionSecretFor(o LocalConnectionSecretOwner, kind schema.GroupVer
 		Type: SecretTypeConnection,
 		Data: make(map[string][]byte),
 	}
-}
-
-// A ConnectionSecretOwner may create and manage a connection secret in an
-// arbitrary namespace.
-type ConnectionSecretOwner interface {
-	runtime.Object
-	metav1.Object
-
-	ConnectionSecretWriterTo
 }
 
 // ConnectionSecretFor creates a connection for the supplied
@@ -360,6 +360,11 @@ type errNotAllowed struct{ error }
 
 func (e errNotAllowed) NotAllowed() bool {
 	return true
+}
+
+// NewNotAllowed returns a new NotAllowed error
+func NewNotAllowed(message string) error {
+	return errNotAllowed{error: errors.New(message)}
 }
 
 // IsNotAllowed returns true if the supplied error indicates that an operation

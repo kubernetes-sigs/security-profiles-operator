@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/crossplane/crossplane-runtime/pkg/errors"
 	"github.com/crossplane/crossplane-runtime/pkg/meta"
 )
 
@@ -208,6 +208,18 @@ func (a *APIUpdatingApplicator) Apply(ctx context.Context, o client.Object, ao .
 type APIFinalizer struct {
 	client    client.Client
 	finalizer string
+}
+
+// NewNopFinalizer returns a Finalizer that does nothing.
+func NewNopFinalizer() Finalizer { return nopFinalizer{} }
+
+type nopFinalizer struct{}
+
+func (f nopFinalizer) AddFinalizer(ctx context.Context, obj Object) error {
+	return nil
+}
+func (f nopFinalizer) RemoveFinalizer(ctx context.Context, obj Object) error {
+	return nil
 }
 
 // NewAPIFinalizer returns a new APIFinalizer.

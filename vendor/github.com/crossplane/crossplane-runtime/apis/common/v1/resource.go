@@ -133,8 +133,20 @@ type ResourceSpec struct {
 	// Secret to which any connection details for this managed resource should
 	// be written. Connection details frequently include the endpoint, username,
 	// and password required to connect to the managed resource.
+	// This field is planned to be replaced in a future release in favor of
+	// PublishConnectionDetailsTo. Currently, both could be set independently
+	// and connection details would be published to both without affecting
+	// each other.
 	// +optional
 	WriteConnectionSecretToReference *SecretReference `json:"writeConnectionSecretToRef,omitempty"`
+
+	// PublishConnectionDetailsTo specifies the connection secret config which
+	// contains a name, metadata and a reference to secret store config to
+	// which any connection details for this managed resource should be written.
+	// Connection details frequently include the endpoint, username,
+	// and password required to connect to the managed resource.
+	// +optional
+	PublishConnectionDetailsTo *PublishConnectionDetailsTo `json:"publishConnectionDetailsTo,omitempty"`
 
 	// ProviderConfigReference specifies how the provider that will be used to
 	// create, observe, update, and delete this managed resource should be
@@ -239,6 +251,8 @@ type ProviderConfigUsage struct {
 
 // A TargetSpec defines the common fields of objects used for exposing
 // infrastructure to workloads that can be scheduled to.
+//
+// Deprecated.
 type TargetSpec struct {
 	// WriteConnectionSecretToReference specifies the name of a Secret, in the
 	// same namespace as this target, to which any connection details for this
@@ -256,6 +270,8 @@ type TargetSpec struct {
 }
 
 // A TargetStatus defines the observed status a target.
+//
+// Deprecated.
 type TargetStatus struct {
 	ConditionedStatus `json:",inline"`
 }

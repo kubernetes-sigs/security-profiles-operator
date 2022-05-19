@@ -30,3 +30,18 @@ const (
 	// managed resource is deleted.
 	DeletionDelete DeletionPolicy = "Delete"
 )
+
+// An UpdatePolicy determines how something should be updated - either
+// automatically (without human intervention) or manually.
+// +kubebuilder:validation:Enum=Automatic;Manual
+type UpdatePolicy string
+
+const (
+	// UpdateAutomatic means the resource should be updated automatically,
+	// without any human intervention.
+	UpdateAutomatic UpdatePolicy = "Automatic"
+
+	// UpdateManual means the resource requires human intervention to
+	// update.
+	UpdateManual UpdatePolicy = "Manual"
+)
