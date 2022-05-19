@@ -60,6 +60,13 @@ type ConnectionSecretWriterTo interface {
 	GetWriteConnectionSecretToReference() *xpv1.SecretReference
 }
 
+// A ConnectionDetailsPublisherTo may write a connection details secret to a
+// secret store
+type ConnectionDetailsPublisherTo interface {
+	SetPublishConnectionDetailsTo(r *xpv1.PublishConnectionDetailsTo)
+	GetPublishConnectionDetailsTo() *xpv1.PublishConnectionDetailsTo
+}
+
 // An Orphanable resource may specify a DeletionPolicy.
 type Orphanable interface {
 	SetDeletionPolicy(p xpv1.DeletionPolicy)
@@ -109,6 +116,20 @@ type CompositionReferencer interface {
 	GetCompositionReference() *corev1.ObjectReference
 }
 
+// A CompositionRevisionReferencer may reference a specific revision of a
+// composition of resources.
+type CompositionRevisionReferencer interface {
+	SetCompositionRevisionReference(*corev1.ObjectReference)
+	GetCompositionRevisionReference() *corev1.ObjectReference
+}
+
+// A CompositionUpdater uses a composition, and may update which revision of
+// that composition it uses.
+type CompositionUpdater interface {
+	SetCompositionUpdatePolicy(*xpv1.UpdatePolicy)
+	GetCompositionUpdatePolicy() *xpv1.UpdatePolicy
+}
+
 // A ComposedResourcesReferencer may reference the resources it composes.
 type ComposedResourcesReferencer interface {
 	SetResourceReferences([]corev1.ObjectReference)
@@ -148,6 +169,7 @@ type Managed interface {
 	ProviderReferencer
 	ProviderConfigReferencer
 	ConnectionSecretWriterTo
+	ConnectionDetailsPublisherTo
 	Orphanable
 
 	Conditioned
@@ -191,9 +213,12 @@ type Composite interface {
 
 	CompositionSelector
 	CompositionReferencer
+	CompositionUpdater
+	CompositionRevisionReferencer
 	ComposedResourcesReferencer
 	ClaimReferencer
 	ConnectionSecretWriterTo
+	ConnectionDetailsPublisherTo
 
 	Conditioned
 	ConnectionDetailsPublishedTimer
@@ -205,6 +230,7 @@ type Composed interface {
 
 	Conditioned
 	ConnectionSecretWriterTo
+	ConnectionDetailsPublisherTo
 }
 
 // A CompositeClaim for a Composite resource.
@@ -213,8 +239,11 @@ type CompositeClaim interface {
 
 	CompositionSelector
 	CompositionReferencer
+	CompositionUpdater
+	CompositionRevisionReferencer
 	CompositeResourceReferencer
 	LocalConnectionSecretWriterTo
+	ConnectionDetailsPublisherTo
 
 	Conditioned
 	ConnectionDetailsPublishedTimer

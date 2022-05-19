@@ -21,19 +21,43 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strings"
+	"time"
 
-	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+	"github.com/crossplane/crossplane-runtime/pkg/errors"
 )
 
-// AnnotationKeyExternalName is the key in the annotations map of a resource for
-// the name of the resource as it appears on provider's systems.
-const AnnotationKeyExternalName = "crossplane.io/external-name"
+const (
+	// AnnotationKeyExternalName is the key in the annotations map of a
+	// resource for the name of the resource as it appears on provider's
+	// systems.
+	AnnotationKeyExternalName = "crossplane.io/external-name"
+
+	// AnnotationKeyExternalCreatePending is the key in the annotations map
+	// of a resource that indicates the last time creation of the external
+	// resource was pending (i.e. about to happen). Its value must be an
+	// RFC3999 timestamp.
+	AnnotationKeyExternalCreatePending = "crossplane.io/external-create-pending"
+
+	// AnnotationKeyExternalCreateSucceeded is the key in the annotations
+	// map of a resource that represents the last time the external resource
+	// was created successfully. Its value must be an RFC3339 timestamp,
+	// which can be used to determine how long ago a resource was created.
+	// This is useful for eventually consistent APIs that may take some time
+	// before the API called by Observe will report that a recently created
+	// external resource exists.
+	AnnotationKeyExternalCreateSucceeded = "crossplane.io/external-create-succeeded"
+
+	// AnnotationKeyExternalCreateFailed is the key in the annotations map
+	// of a resource that indicates the last time creation of the external
+	// resource failed. Its value must be an RFC3999 timestamp.
+	AnnotationKeyExternalCreateFailed = "crossplane.io/external-create-failed"
+)
 
 // Supported resources with all of these annotations will be fully or partially
 // propagated to the named resource of the same kind, assuming it exists and
@@ -243,6 +267,90 @@ func GetExternalName(o metav1.Object) string {
 // SetExternalName sets the external name annotation of the resource.
 func SetExternalName(o metav1.Object, name string) {
 	AddAnnotations(o, map[string]string{AnnotationKeyExternalName: name})
+}
+
+// GetExternalCreatePending returns the time at which the external resource
+// was most recently pending creation.
+func GetExternalCreatePending(o metav1.Object) time.Time {
+	a := o.GetAnnotations()[AnnotationKeyExternalCreatePending]
+	t, err := time.Parse(time.RFC3339, a)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// SetExternalCreatePending sets the time at which the external resource was
+// most recently pending creation to the supplied time.
+func SetExternalCreatePending(o metav1.Object, t time.Time) {
+	AddAnnotations(o, map[string]string{AnnotationKeyExternalCreatePending: t.Format(time.RFC3339)})
+}
+
+// GetExternalCreateSucceeded returns the time at which the external resource
+// was most recently created.
+func GetExternalCreateSucceeded(o metav1.Object) time.Time {
+	a := o.GetAnnotations()[AnnotationKeyExternalCreateSucceeded]
+	t, err := time.Parse(time.RFC3339, a)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// SetExternalCreateSucceeded sets the time at which the external resource was
+// most recently created to the supplied time.
+func SetExternalCreateSucceeded(o metav1.Object, t time.Time) {
+	AddAnnotations(o, map[string]string{AnnotationKeyExternalCreateSucceeded: t.Format(time.RFC3339)})
+}
+
+// GetExternalCreateFailed returns the time at which the external resource
+// recently failed to create.
+func GetExternalCreateFailed(o metav1.Object) time.Time {
+	a := o.GetAnnotations()[AnnotationKeyExternalCreateFailed]
+	t, err := time.Parse(time.RFC3339, a)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+// SetExternalCreateFailed sets the time at which the external resource most
+// recently failed to create.
+func SetExternalCreateFailed(o metav1.Object, t time.Time) {
+	AddAnnotations(o, map[string]string{AnnotationKeyExternalCreateFailed: t.Format(time.RFC3339)})
+}
+
+// ExternalCreateIncomplete returns true if creation of the external resource
+// appears to be incomplete. We deem creation to be incomplete if the 'external
+// create pending' annotation is the newest of all tracking annotations that are
+// set (i.e. pending, succeeded, and failed).
+func ExternalCreateIncomplete(o metav1.Object) bool {
+	pending := GetExternalCreatePending(o)
+	succeeded := GetExternalCreateSucceeded(o)
+	failed := GetExternalCreateFailed(o)
+
+	// If creation never started it can't be incomplete.
+	if pending.IsZero() {
+		return false
+	}
+
+	latest := succeeded
+	if failed.After(succeeded) {
+		latest = failed
+	}
+
+	return pending.After(latest)
+}
+
+// ExternalCreateSucceededDuring returns true if creation of the external
+// resource that corresponds to the supplied managed resource succeeded within
+// the supplied duration.
+func ExternalCreateSucceededDuring(o metav1.Object, d time.Duration) bool {
+	t := GetExternalCreateSucceeded(o)
+	if t.IsZero() {
+		return false
+	}
+	return time.Since(t) < d
 }
 
 // AllowPropagation from one object to another by adding consenting annotations
