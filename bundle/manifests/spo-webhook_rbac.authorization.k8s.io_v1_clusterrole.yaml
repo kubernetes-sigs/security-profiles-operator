@@ -12,19 +12,6 @@ rules:
   - events
   verbs:
   - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

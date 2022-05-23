@@ -94,13 +94,15 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
-// Leader election
 // nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update;
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create
+// +kubebuilder:rbac:groups=coordination.k8s.io,namespace=security-profiles-operator,resources=leases,verbs=create
+// +kubebuilder:rbac:groups=coordination.k8s.io,namespace=security-profiles-operator,resourceNames=security-profiles-operator-webhook-lock,resources=leases,verbs=get;patch;update
+
+// OpenShift (This is ignored in other distros):
+// nolint:lll // required for kubebuilder
+// +kubebuilder:rbac:groups=security.openshift.io,namespace=security-profiles-operator,resources=securitycontextconstraints,verbs=use
 
 // nolint:gocritic
 func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission.Response {
