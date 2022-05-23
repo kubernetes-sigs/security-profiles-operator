@@ -62,7 +62,7 @@ dependencies:
       match: jetstack/cert-manager
 
   - name: kind
-    version: 0.12.0
+    version: 0.14.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
