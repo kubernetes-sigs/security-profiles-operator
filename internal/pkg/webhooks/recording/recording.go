@@ -66,16 +66,6 @@ func RegisterWebhook(server *webhook.Server, c client.Client) {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=delete;get;update;patch
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-
-// nolint:lll // required for kubebuilder
-// Leader election
-// +kubebuilder:rbac:groups=core,namespace="security-profiles-operator",resources=configmaps,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=coordination.k8s.io,namespace="security-profiles-operator",resources=leases,verbs=create;get;update;
-//
-// OpenShift (This is ignored in other distros):
-// +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 
 // nolint:gocritic
 func (p *podSeccompRecorder) Handle(
