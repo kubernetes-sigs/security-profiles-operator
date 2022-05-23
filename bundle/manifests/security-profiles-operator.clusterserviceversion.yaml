@@ -233,15 +233,9 @@ spec:
         - apiGroups:
           - ""
           resources:
-          - configmaps
           - events
           verbs:
           - create
-          - get
-          - list
-          - patch
-          - update
-          - watch
         - apiGroups:
           - ""
           resources:
