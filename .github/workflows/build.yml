@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
-      - uses: cachix/install-nix-action@d56f3ce9be45c562799280e8a561fbbe8f36de44 # v16
+      - uses: cachix/install-nix-action@d64e0553100205688c0fb2fa16edb0fc8663c590 # v16
       - uses: cachix/cachix-action@73e75d1a0cd4330597a571e8f9dedb41faa2fc4e # v10
         with:
           name: security-profiles-operator
@@ -49,7 +49,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # v2.4.0
-      - uses: cachix/install-nix-action@d56f3ce9be45c562799280e8a561fbbe8f36de44 # v16
+      - uses: cachix/install-nix-action@d64e0553100205688c0fb2fa16edb0fc8663c590 # v16
       - uses: cachix/cachix-action@73e75d1a0cd4330597a571e8f9dedb41faa2fc4e # v10
         with:
           name: security-profiles-operator
