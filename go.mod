@@ -36,11 +36,6 @@ require (
 	sigs.k8s.io/zeitgeist v0.3.0
 )
 
-// Every newer commit will break building via controller-tools/controller-gen
-// Wait for https://github.com/kubernetes-sigs/controller-tools/pull/648
-// and remove the allowed replacement for the gomoddirectives linter in .golangci.yml
-replace golang.org/x/sys => golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
-
 require (
 	github.com/BurntSushi/toml v1.1.0 // indirect
 	github.com/Microsoft/go-winio v0.5.2 // indirect

@@ -461,7 +461,7 @@ golang.org/x/oauth2/internal
 ## explicit
 golang.org/x/sync/errgroup
 golang.org/x/sync/singleflight
-# golang.org/x/sys v0.0.0-20220422013727-9388b58f7150 => golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
+# golang.org/x/sys v0.0.0-20220422013727-9388b58f7150
 ## explicit; go 1.17
 golang.org/x/sys/cpu
 golang.org/x/sys/execabs
@@ -986,4 +986,3 @@ sigs.k8s.io/zeitgeist/internal/github/internal
 sigs.k8s.io/zeitgeist/internal/release/regex
 sigs.k8s.io/zeitgeist/pkg/gitlab
 sigs.k8s.io/zeitgeist/upstreams
-# golang.org/x/sys => golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
