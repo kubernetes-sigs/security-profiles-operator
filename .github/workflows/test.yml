@@ -82,7 +82,7 @@ jobs:
             ~/.vagrant.d/boxes
           key: e2e-fedora-${{ hashFiles('hack/ci/Vagrantfile-fedora') }}
           restore-keys: e2e-fedora-
-      - uses: actions/download-artifact@3be87be14a055c47b01d3bd88f8fe02320a9bb60 # v2.0.10
+      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741 # v2.0.10
         with:
           name: image
           path: .
@@ -115,7 +115,7 @@ jobs:
             ~/.vagrant.d/boxes
           key: e2e-ubuntu-${{ hashFiles('hack/ci/Vagrantfile-ubuntu') }}
           restore-keys: e2e-ubuntu-
-      - uses: actions/download-artifact@3be87be14a055c47b01d3bd88f8fe02320a9bb60 # v2.0.10
+      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741 # v2.0.10
         with:
           name: image
           path: .
@@ -157,7 +157,7 @@ jobs:
         run: |
           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
           vagrant box update
-      - uses: actions/download-artifact@3be87be14a055c47b01d3bd88f8fe02320a9bb60 # v2.0.10
+      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741 # v2.0.10
         with:
           name: image
           path: .
