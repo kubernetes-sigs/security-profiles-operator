@@ -8,3 +8,11 @@ updates:
     - "release-note-none"
     - "ok-to-test"
   open-pull-requests-limit: 10
+- package-ecosystem: "github-actions"
+  directory: "/"
+  schedule:
+    interval: daily
+  open-pull-requests-limit: 10
+  labels:
+    - "release-note-none"
+    - "ok-to-test"
