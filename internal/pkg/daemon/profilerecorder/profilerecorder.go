@@ -106,11 +106,6 @@ func (r *RecorderReconciler) SchemeBuilder() *scheme.Builder {
 	return profilerecording1alpha1.SchemeBuilder
 }
 
-// nolint:lll // required for kubebuilder
-//
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
-
 // Setup is the initialization of the controller.
 func (r *RecorderReconciler) Setup(
 	ctx context.Context,
