@@ -7,14 +7,6 @@ metadata:
   name: spod
 rules:
 - apiGroups:
-  - apps
-  resources:
-  - daemonsets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - security.openshift.io
   resources:
   - securitycontextconstraints

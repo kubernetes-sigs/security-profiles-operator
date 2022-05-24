@@ -1366,14 +1366,6 @@ metadata:
   name: spod
 rules:
 - apiGroups:
-  - apps
-  resources:
-  - daemonsets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - authentication.k8s.io
   resources:
   - subjectaccessreviews
@@ -1392,7 +1384,9 @@ rules:
   - events
   verbs:
   - create
+  - get
   - patch
+  - update
 - apiGroups:
   - ""
   resources:
@@ -1554,14 +1548,6 @@ metadata:
   name: spod
   namespace: security-profiles-operator
 rules:
-- apiGroups:
-  - apps
-  resources:
-  - daemonsets
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - security.openshift.io
   resources:
