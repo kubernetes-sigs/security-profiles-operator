@@ -28,18 +28,18 @@ jobs:
 
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
-      - uses: github/codeql-action/init@a3a6c128d771b6b9bdebb1c9d0583ebd2728a108 # v1.0.24
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: github/codeql-action/init@a3a6c128d771b6b9bdebb1c9d0583ebd2728a108
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@a3a6c128d771b6b9bdebb1c9d0583ebd2728a108 # v1.0.24
-      - uses: github/codeql-action/analyze@a3a6c128d771b6b9bdebb1c9d0583ebd2728a108 # v1.0.24
+      - uses: github/codeql-action/autobuild@a3a6c128d771b6b9bdebb1c9d0583ebd2728a108
+      - uses: github/codeql-action/analyze@a3a6c128d771b6b9bdebb1c9d0583ebd2728a108
 
   coverage:
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
-      - uses: actions/setup-go@fcdc43634adb5f7ae75a9d7a9b9361790f7293e2 # v2.1.4
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: actions/setup-go@fcdc43634adb5f7ae75a9d7a9b9361790f7293e2
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install dependencies
@@ -48,7 +48,7 @@ jobs:
           sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
           sudo hack/install-libbpf.sh
       - run: make test-unit
-      - uses: codecov/codecov-action@81cd2dc8148241f03f5839d295e000b8f761e378 # v2.1.0
+      - uses: codecov/codecov-action@81cd2dc8148241f03f5839d295e000b8f761e378
         with:
           files: build/coverage.out
           flags: unittests
@@ -57,10 +57,10 @@ jobs:
   image:
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - run: make image
       - run: podman save -o image.tar security-profiles-operator
-      - uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8 # v2.2.4
+      - uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8
         with:
           name: image
           path: image.tar
@@ -75,14 +75,14 @@ jobs:
     env:
       RUN: ./hack/ci/run-fedora.sh
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
-      - uses: actions/cache@48af2dc4a9e8278b89d7fa154b955c30c6aaab09 # v2.1.7
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: actions/cache@48af2dc4a9e8278b89d7fa154b955c30c6aaab09
         with:
           path: |
             ~/.vagrant.d/boxes
           key: e2e-fedora-${{ hashFiles('hack/ci/Vagrantfile-fedora') }}
           restore-keys: e2e-fedora-
-      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741 # v2.0.10
+      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
         with:
           name: image
           path: .
@@ -110,14 +110,14 @@ jobs:
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
-      - uses: actions/cache@48af2dc4a9e8278b89d7fa154b955c30c6aaab09 # v2.1.7
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: actions/cache@48af2dc4a9e8278b89d7fa154b955c30c6aaab09
         with:
           path: |
             ~/.vagrant.d/boxes
           key: e2e-ubuntu-${{ hashFiles('hack/ci/Vagrantfile-ubuntu') }}
           restore-keys: e2e-ubuntu-
-      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741 # v2.0.10
+      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
         with:
           name: image
           path: .
@@ -143,13 +143,13 @@ jobs:
     env:
       RUN: ./hack/ci/run-flatcar.sh
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - name: Vagrant box version
         id: vagrant-box
         run: |
           echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
         shell: bash
-      - uses: actions/cache@48af2dc4a9e8278b89d7fa154b955c30c6aaab09 # v2.1.7
+      - uses: actions/cache@48af2dc4a9e8278b89d7fa154b955c30c6aaab09
         with:
           path: |
             ~/.vagrant.d/boxes
@@ -159,7 +159,7 @@ jobs:
         run: |
           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
           vagrant box update
-      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741 # v2.0.10
+      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
         with:
           name: image
           path: .
