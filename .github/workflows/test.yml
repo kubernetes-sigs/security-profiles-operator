@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
       - run: make image
       - run: podman save -o image.tar security-profiles-operator
-      - uses: actions/upload-artifact@27121b0bdffd731efa15d66772be8dc71245d074 # v2.2.4
+      - uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8 # v2.2.4
         with:
           name: image
           path: image.tar
