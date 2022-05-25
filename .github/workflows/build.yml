@@ -23,8 +23,8 @@ jobs:
   macos:
     runs-on: macos-11
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
-      - uses: actions/setup-go@fcdc43634adb5f7ae75a9d7a9b9361790f7293e2 # v2.1.4
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: actions/setup-go@fcdc43634adb5f7ae75a9d7a9b9361790f7293e2
         with:
           go-version: ${{ env.GO_VERSION }}
       - run: make test-unit
@@ -33,9 +33,9 @@ jobs:
   nix:
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
-      - uses: cachix/install-nix-action@d64e0553100205688c0fb2fa16edb0fc8663c590 # v16
-      - uses: cachix/cachix-action@73e75d1a0cd4330597a571e8f9dedb41faa2fc4e # v10
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: cachix/install-nix-action@d64e0553100205688c0fb2fa16edb0fc8663c590
+      - uses: cachix/cachix-action@73e75d1a0cd4330597a571e8f9dedb41faa2fc4e
         with:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -45,12 +45,12 @@ jobs:
   bpf-btf:
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/setup-go@fcdc43634adb5f7ae75a9d7a9b9361790f7293e2 # v2.1.4
+      - uses: actions/setup-go@fcdc43634adb5f7ae75a9d7a9b9361790f7293e2
         with:
           go-version: ${{ env.GO_VERSION }}
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
-      - uses: cachix/install-nix-action@d64e0553100205688c0fb2fa16edb0fc8663c590 # v16
-      - uses: cachix/cachix-action@73e75d1a0cd4330597a571e8f9dedb41faa2fc4e # v10
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: cachix/install-nix-action@d64e0553100205688c0fb2fa16edb0fc8663c590
+      - uses: cachix/cachix-action@73e75d1a0cd4330597a571e8f9dedb41faa2fc4e
         with:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -61,8 +61,8 @@ jobs:
   image:
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
-      - uses: redhat-actions/buildah-build@b13805753a7ac93d18d14b22f6ebdf8499a3a95e # v2.9
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: redhat-actions/buildah-build@b13805753a7ac93d18d14b22f6ebdf8499a3a95e
         id: build-image
         with:
           image: build
@@ -70,7 +70,7 @@ jobs:
           dockerfiles: |
             Dockerfile.build-image
       - if: github.ref == 'refs/heads/main'
-        uses: redhat-actions/push-to-registry@f787883d70a3cc66d399816d0385ac4aec7079f9 # v2.5
+        uses: redhat-actions/push-to-registry@f787883d70a3cc66d399816d0385ac4aec7079f9
         with:
           image: ${{ steps.build-image.outputs.image }}
           registry: quay.io/security-profiles-operator
@@ -80,8 +80,8 @@ jobs:
   ubi-image:
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v2.4.0
-      - uses: redhat-actions/buildah-build@b13805753a7ac93d18d14b22f6ebdf8499a3a95e # v2.9
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: redhat-actions/buildah-build@b13805753a7ac93d18d14b22f6ebdf8499a3a95e
         id: build-image
         with:
           image: build
