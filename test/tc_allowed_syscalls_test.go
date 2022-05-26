@@ -173,7 +173,7 @@ metadata:
 spec:
   containers:
   - name: test-container
-    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+    image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
   securityContext:
     seccompProfile:
       type: Localhost

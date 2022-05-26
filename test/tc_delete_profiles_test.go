@@ -46,7 +46,7 @@ metadata:
 spec:
   containers:
   - name: test-container
-    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+    image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
   securityContext:
     seccompProfile:
       type: Localhost
@@ -60,7 +60,7 @@ metadata:
 spec:
   containers:
   - name: test-container
-    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+    image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
     securityContext:
       seccompProfile:
         type: Localhost
@@ -81,7 +81,7 @@ spec:
         localhostProfile: operator/%s/delete-me.json
   containers:
   - name: test-container
-    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+    image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
 `
 		deletePodSecurityContextInAnnotation = `
 apiVersion: v1
@@ -93,7 +93,7 @@ metadata:
 spec:
   containers:
   - name: test-container
-    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+    image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
 `
 		deletePodName = "test-pod"
 	)
