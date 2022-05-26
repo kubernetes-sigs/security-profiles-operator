@@ -65,7 +65,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingStaticPod(
 		exampleRecordingSeccompLogsPath,
-		regexp.MustCompile(`(?m)"syscallName"="setuid"`),
+		regexp.MustCompile(`(?m)"syscallName"="listen"`),
 	)
 }
 
@@ -92,7 +92,8 @@ func (e *e2e) profileRecordingStaticSelinuxPod(recording string, waitConditions 
 	e.kubectl("delete", "pod", podName)
 
 	resourceName := selinuxRecordingName + "-nginx"
-	pathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_port_t.tcp_socket}", resourceName)
+
+	pathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", resourceName)
 	e.Contains(pathresult, "name_bind")
 
 	e.kubectl("delete", "-f", recording)
@@ -114,7 +115,7 @@ func (e *e2e) profileRecordingStaticPod(recording string, waitConditions ...*reg
 
 	resourceName := recordingName + "-nginx"
 	profile := e.retryGetSeccompProfile(resourceName)
-	e.Contains(profile, "setuid")
+	e.Contains(profile, "listen")
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "sp", resourceName)
@@ -147,7 +148,7 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingMultiContainer(
 		exampleRecordingSeccompLogsPath,
-		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="setuid"`),
+		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="listen"`),
 		regexp.MustCompile(`(?m)"container"="redis".*"syscallName"="epoll_wait"`),
 	)
 }
@@ -185,11 +186,12 @@ func (e *e2e) profileRecordingSelinuxMultiContainer(
 	e.kubectl("delete", "pod", podName)
 
 	const profileNameRedis = selinuxRecordingName + "-redis"
+
 	redispathresult := e.retryGetSelinuxJsonpath("{.spec.allow.redis_port_t.tcp_socket}", profileNameRedis)
 	e.Contains(redispathresult, "name_bind")
 
 	const profileNameNginx = selinuxRecordingName + "-nginx"
-	nginxpathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_port_t.tcp_socket}", profileNameNginx)
+	nginxpathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileNameNginx)
 	e.Contains(nginxpathresult, "name_bind")
 
 	e.kubectl("delete", "-f", recording)
@@ -258,8 +260,8 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 	e.profileRecordingDeployment(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(
-			`(?s)"container"="nginx".*"syscallName"="setuid"`+
-				`.*"container"="nginx".*"syscallName"="setuid"`),
+			`(?s)"container"="nginx".*"syscallName"="listen"`+
+				`.*"container"="nginx".*"syscallName"="listen"`),
 	)
 }
 
@@ -292,8 +294,8 @@ func (e *e2e) profileRecordingDeployment(
 	const profileName1 = recordingName + "-nginx-1"
 	profile0 := e.retryGetSeccompProfile(profileName0)
 	profile1 := e.retryGetSeccompProfile(profileName1)
-	e.Contains(profile0, "setuid")
-	e.Contains(profile1, "setuid")
+	e.Contains(profile0, "listen")
+	e.Contains(profile1, "listen")
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "sp", profileName0, profileName1)
@@ -314,9 +316,11 @@ func (e *e2e) profileRecordingSelinuxDeployment(
 
 	const profileName0 = selinuxRecordingName + "-nginx-0"
 	const profileName1 = selinuxRecordingName + "-nginx-1"
-	profile0result := e.retryGetSelinuxJsonpath("{.spec.allow.http_port_t.tcp_socket}", profileName0)
+
+	profile0result := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileName0)
 	e.Contains(profile0result, "name_bind")
-	profile1result := e.retryGetSelinuxJsonpath("{.spec.allow.http_port_t.tcp_socket}", profileName1)
+
+	profile1result := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileName1)
 	e.Contains(profile1result, "name_bind")
 
 	e.kubectl("delete", "-f", recording)
@@ -344,7 +348,7 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: quay.io/security-profiles-operator/test-nginx:1.19.1
+        image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
 `
 
 	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
@@ -395,7 +399,7 @@ metadata:
     app: alpine
 spec:
   containers:
-  - image: quay.io/security-profiles-operator/test-nginx:1.19.1
+  - image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
     name: nginx
   restartPolicy: Never
 `
@@ -431,7 +435,7 @@ metadata:
 spec:
   containers:
   - name: nginx
-    image: quay.io/security-profiles-operator/test-nginx:1.19.1
+    image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
   - name: redis
     image: quay.io/security-profiles-operator/redis:6.2.1
   restartPolicy: Never
