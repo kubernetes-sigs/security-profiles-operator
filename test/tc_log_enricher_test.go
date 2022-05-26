@@ -59,7 +59,7 @@ metadata:
   name: %s
 spec:
   containers:
-  - image: quay.io/security-profiles-operator/test-nginx:1.19.1
+  - image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
     name: %s
   securityContext:
     seccompProfile:
@@ -113,7 +113,7 @@ spec:
 		`namespace="%s",`+
 		`node=".*",`+
 		`pod="%s",`+
-		`syscall="listen"} 4`,
+		`syscall="listen"} \d+`,
 		containerName, namespace, podName,
 	), metrics)
 }

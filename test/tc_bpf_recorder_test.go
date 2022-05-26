@@ -86,7 +86,7 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 	e.kubectl("delete", "pod", podName)
 
 	profile := e.retryGetSeccompProfile(resourceName)
-	e.Contains(profile, "setuid")
+	e.Contains(profile, "listen")
 
 	e.kubectl("delete", "-f", exampleRecordingBpfPath)
 	e.kubectl("delete", "sp", resourceName)
@@ -148,7 +148,7 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: quay.io/security-profiles-operator/test-nginx:1.19.1
+        image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
 `
 	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
 	e.Nil(err)
@@ -172,8 +172,8 @@ spec:
 
 	profile0 := e.retryGetSeccompProfile(profileName0)
 	profile1 := e.retryGetSeccompProfile(profileName1)
-	e.Contains(profile0, "setuid")
-	e.Contains(profile1, "setuid")
+	e.Contains(profile0, "listen")
+	e.Contains(profile1, "listen")
 
 	e.kubectl("delete", "-f", exampleRecordingBpfPath)
 	e.Nil(os.Remove(testFile.Name()))
@@ -211,7 +211,7 @@ func (e *e2e) createRecordingTestParallelPods() (since time.Time, podNames []str
 	since = time.Now()
 
 	for i, image := range []string{
-		"quay.io/security-profiles-operator/test-nginx:1.19.1",
+		"quay.io/security-profiles-operator/test-nginx-unprivileged:1.21",
 		"quay.io/security-profiles-operator/redis:6.2.1",
 	} {
 		podName := fmt.Sprintf("my-pod-%d", i)
