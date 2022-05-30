@@ -346,6 +346,7 @@ spec:
       labels:
         app: alpine
     spec:
+      serviceAccountName: recording-sa
       containers:
       - name: nginx
         image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21

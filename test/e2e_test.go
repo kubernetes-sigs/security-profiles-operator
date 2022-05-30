@@ -57,6 +57,12 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	// Deploy the operator
 	e.deployOperator(manifest)
 
+	// On some distros (OCP), the SA needs to give additional
+	// roles to the workload, like the ability to use custom
+	// profiles for pods that are spawned by a replicating
+	// controller
+	e.setupRecordingSa()
+
 	// Retrieve the inputs for the test cases
 	nodes := e.getWorkerNodes()
 

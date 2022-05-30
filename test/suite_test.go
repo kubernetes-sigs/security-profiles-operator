@@ -89,6 +89,7 @@ type e2e struct {
 	execNode               func(node string, args ...string) string
 	waitForReadyPods       func()
 	deployCertManager      func()
+	setupRecordingSa       func()
 }
 
 func defaultWaitForReadyPods(e *e2e) {
@@ -235,6 +236,7 @@ func (e *kinde2e) SetupSuite() {
 	e.e2e.execNode = e.execNodeKind
 	e.e2e.waitForReadyPods = e.waitForReadyPodsKind
 	e.e2e.deployCertManager = e.deployCertManagerKind
+	e.e2e.setupRecordingSa = e.deployRecordingSa
 	parentCwd := e.setWorkDir()
 	buildDir := filepath.Join(parentCwd, "build")
 	e.Nil(os.MkdirAll(buildDir, 0o755))
@@ -332,6 +334,7 @@ func (e *openShifte2e) SetupSuite() {
 	e.e2e.execNode = e.execNodeOCP
 	e.e2e.waitForReadyPods = e.waitForReadyPodsOCP
 	e.e2e.deployCertManager = e.deployCertManagerOCP
+	e.e2e.setupRecordingSa = e.deployRecordingSaOcp
 	e.setWorkDir()
 
 	e.kubectlPath, err = exec.LookPath("oc")
@@ -423,6 +426,13 @@ func (e *e2e) deployCertManagerOCP() {
 	// intentionally blank, OCP creates certs on its own
 }
 
+func (e *e2e) deployRecordingSaOcp() {
+	e.deployRecordingSa()
+
+	e.kubectl("create", "-f", "test/recording_role.yaml")
+	e.kubectl("create", "-f", "test/recording_role_binding.yaml")
+}
+
 func (e *vanilla) SetupSuite() {
 	var err error
 	e.logf("Setting up suite")
@@ -433,6 +443,7 @@ func (e *vanilla) SetupSuite() {
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.e2e.waitForReadyPods = e.waitForReadyPodsVanilla
 	e.e2e.deployCertManager = e.deployCertManagerVanilla
+	e.e2e.setupRecordingSa = e.deployRecordingSa
 	e.Nil(err)
 }
 
@@ -668,4 +679,8 @@ func (e *e2e) enableLabelingPodDenials() {
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLabelPodDenialsTimeout)
+}
+
+func (e *e2e) deployRecordingSa() {
+	e.kubectl("create", "-f", "test/recording_sa.yaml")
 }
