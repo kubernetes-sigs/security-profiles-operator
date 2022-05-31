@@ -55,11 +55,11 @@ dependencies:
     version: 1.8.0
     refPaths:
     - path: test/e2e_test.go
-      match: jetstack/cert-manager
+      match: cert-manager/cert-manager
     - path: installation-usage.md
-      match: jetstack/cert-manager
+      match: cert-manager/cert-manager
     - path: hack/ci/e2e-olm.sh
-      match: jetstack/cert-manager
+      match: cert-manager/cert-manager
 
   - name: kind
     version: 0.14.0
