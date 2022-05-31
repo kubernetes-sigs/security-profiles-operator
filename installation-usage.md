@@ -56,7 +56,7 @@ cert-manager via `kubectl`, if you're **not** running on
 [OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
 ```sh
-$ kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
@@ -72,6 +72,7 @@ $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-pr
 It is also possible to install packages from [operatorhub.io](https://operatorhub.io/operator/security-profiles-operator)
 using [OLM](https://operator-framework.github.io/olm-book/). This would install the `operatohubio-catalog` in the `olm`
 namespace:
+
 ```shell
 $ kubectl get catalogsource.operators.coreos.com/operatorhubio-catalog -nolm
 ```
@@ -96,12 +97,14 @@ $ kubectl get ip,csv,sub -nsecurity-profiles-operator
 The SPO upstream also creates bundles and catalogs for both released versions
 and after every commit to the `main` branch. Provided that your cluster uses OLM
 (see above) you can install SPO using:
+
 ```sh
 $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/examples/olm/install-resources.yaml
 ```
 
 Note that on OpenShift, the OLM catalogs are deployed into the `openshift-marketplace` namespace, so you'd
 need to replace the namespaces before deploying:
+
 ```shell
 manifest=https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/examples/olm/install-resources.yaml
 $ curl $manifest | sed "s#olm#openshift-marketplace#g" | oc apply -f -
@@ -155,18 +158,18 @@ The `ds/spod` should now be updated by the manager with the new SELinux type, an
 ## Restrict the allowed syscalls in seccomp profiles
 
 The operator doesn't restrict by default the allowed syscalls in the seccomp profiles. This means that any
-syscall can be allowed in a seccomp profile installed via the operator. This can be changed by defining the 
+syscall can be allowed in a seccomp profile installed via the operator. This can be changed by defining the
 list of allowed syscalls in the spod configuration as follows:
 
 ```
-kubectl -n security-profiles-operator patch spod spod --type merge -p 
+kubectl -n security-profiles-operator patch spod spod --type merge -p
 '{"spec":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}'
 ```
 
 From now on, the operator will only install the seccomp profiles which have only a subset of syscalls defined
-into the allowed list. All profiles not complying with this rule, it will be rejected. 
+into the allowed list. All profiles not complying with this rule, it will be rejected.
 
-Also every time when the list of allowed syscalls is modified in the spod configuration, the operator will 
+Also every time when the list of allowed syscalls is modified in the spod configuration, the operator will
 automatically identify the already installed profiles which are not compliant and remove them.
 
 ## Create Profile
@@ -817,7 +820,7 @@ additional metrics are provided by the daemon, which are always prefixed with
 | `seccomp_profile_bpf_total`   | `node`, `mount_namespace`, `profile`                                                                                                                                                                       | Counter | Amount of seccomp profile bpf operations. Requires the bpf-recorder to be enabled.   |
 | `seccomp_profile_error_total` | `reason={`<br>`SeccompNotSupportedOnNode,`<br>`InvalidSeccompProfile,`<br>`CannotSaveSeccompProfile,`<br>`CannotRemoveSeccompProfile,`<br>`CannotUpdateSeccompProfile,`<br>`CannotUpdateNodeStatus`<br>`}` | Counter | Amount of seccomp profile errors.                                                    |
 | `selinux_profile_total`       | `operation={delete,update}`                                                                                                                                                                                | Counter | Amount of selinux profile operations.                                                |
-| `selinux_profile_audit_total` | `node`, `namespace`, `pod`, `container`, `executable`, `scontext`,`tcontext`                                                                                                                               | Counter | Amount of selinux profile audit operations. Requires the log-enricher to be enabled.|
+| `selinux_profile_audit_total` | `node`, `namespace`, `pod`, `container`, `executable`, `scontext`,`tcontext`                                                                                                                               | Counter | Amount of selinux profile audit operations. Requires the log-enricher to be enabled. |
 | `selinux_profile_error_total` | `reason={`<br>`CannotSaveSelinuxPolicy,`<br>`CannotUpdatePolicyStatus,`<br>`CannotRemoveSelinuxPolicy,`<br>`CannotContactSelinuxd,`<br>`CannotWritePolicyFile,`<br>`CannotGetPolicyStatus`<br>`}`          | Counter | Amount of selinux profile errors.                                                    |
 
 ### Automatic ServiceMonitor deployment
@@ -1022,6 +1025,7 @@ from running at all, other namespaces or resources wouldn't be affected.
 
 For example, to set the `binding.spo.io` webhook's configuration to ignore errors as well as restrict it
 to a subset of namespaces labeled with `spo.x-k8s.io/enable-binding=true`, create a following patch file:
+
 ```yaml
 spec:
   webhookOptions:
@@ -1032,18 +1036,21 @@ spec:
           - key: spo.x-k8s.io/enable-binding
             operator: In
             values:
-              - 'true'
+              - "true"
 ```
 
 And patch the `spod/spod` instance:
+
 ```shell
 $ kubectl -nsecurity-profiles-operator patch spod spod -p $(cat /tmp/spod-wh.patch) --type=merge
 ```
 
 To view the resulting `MutatingWebhookConfiguration`, call:
+
 ```shell
 $ kubectl -nsecurity-profiles-operator get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
 ```
+
 ## Troubleshooting
 
 Confirm that the profile is being reconciled:
