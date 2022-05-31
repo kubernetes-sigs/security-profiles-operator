@@ -17,11 +17,10 @@ GO ?= go
 GOLANGCI_LINT_VERSION = v1.45.0
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 4.5.5
-KUBERNETES_SPLIT_YAML_VERSION = 0.3.0
 OPERATOR_SDK_VERSION ?= v1.17.0
 OPM_VERSION ?= v1.19.1
 
-CONTROLLER_GEN_CMD := $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
+CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
 PROJECT := security-profiles-operator
 BUILD_DIR := build
@@ -153,12 +152,10 @@ $(BUILD_DIR)/kustomize: $(BUILD_DIR)
 	fi
 
 $(BUILD_DIR)/kubernetes-split-yaml: $(BUILD_DIR)
-	export URL=https://github.com/mogensen/kubernetes-split-yaml/releases/download/v$(KUBERNETES_SPLIT_YAML_VERSION)/kubernetes-split-yaml_$(KUBERNETES_SPLIT_YAML_VERSION)_$(OS)_amd64.tar.gz && \
-    curl -sfL $$URL | \
-        tar -C "${BUILD_DIR}" -xz
+	$(call go-build,./vendor/github.com/mogensen/kubernetes-split-yaml)
 
 .PHONY: deployments
-deployments: $(BUILD_DIR)/kustomize $(BUILD_DIR)/kubernetes-split-yaml manifests generate ## Generate the deployment files with kustomize
+deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deployment files with kustomize
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/openshift-dev.yaml
@@ -212,7 +209,7 @@ update-mocks: ## Update all generated mocks
 		tee $$BPF_IMPL >/dev/null
 
 define go-build
-	$(GO) build -o $(BUILD_DIR)/$(shell basename $(1)) $(1)
+	CGO_LDFLAGS= $(GO) build -o $(BUILD_DIR)/$(shell basename $(1)) $(1)
 	@echo > /dev/null
 endef
 
@@ -391,7 +388,7 @@ test-e2e: ## Run the end-to-end tests
 	CGO_LDFLAGS= $(GO) test -parallel 1 -timeout 80m -count=1 ./test/... -v
 
 # Generate CRD manifests
-manifests:
+manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base/crds/securityprofilesoperatordaemon.yaml"
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/secprofnodestatus/...' output:crd:stdout" "deploy/base/crds/securityprofilenodestatus.yaml"
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/seccompprofile/...' output:crd:stdout" "deploy/base/crds/seccompprofile.yaml"
