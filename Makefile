@@ -14,7 +14,7 @@
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION = v1.45.0
+GOLANGCI_LINT_VERSION = v1.46.2
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 4.5.5
 OPERATOR_SDK_VERSION ?= v1.17.0
@@ -338,7 +338,7 @@ verify-deployments: deployments ## Verify the generated deployments
 
 .PHONY: verify-go-lint
 verify-go-lint: $(BUILD_DIR)/golangci-lint ## Verify the golang code by linting
-	$(BUILD_DIR)/golangci-lint run --build-tags $(LINT_BUILDTAGS)
+	GL_DEBUG=gocritic $(BUILD_DIR)/golangci-lint run --build-tags $(LINT_BUILDTAGS)
 
 $(BUILD_DIR)/golangci-lint:
 	export \
