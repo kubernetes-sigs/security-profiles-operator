@@ -58,7 +58,7 @@ function deploy_olm() {
 function deploy_spo() {
     # cert-manager first. This should be done using dependencies in the
     # future
-    kubectl apply -f https://github.com/jetstack/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
     kubectl -ncert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # let's roll..
@@ -94,8 +94,8 @@ function check_spo_is_running() {
     # wait for spod pod to be created, kubectl wait for un-existed resource seems to exit with error
     # which is causing random test failure
     # see https://github.com/kubernetes/kubernetes/issues/83242
-    for i in $(seq 1 10); do 
-        found=$(kubectl get -nsecurity-profiles-operator pods -lname=spod 2> /dev/null)
+    for i in $(seq 1 10); do
+        found=$(kubectl get -nsecurity-profiles-operator pods -lname=spod 2>/dev/null)
         if [[ $found ]]; then
             break
         fi
