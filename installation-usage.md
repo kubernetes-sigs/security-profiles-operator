@@ -10,14 +10,17 @@
 - [Set logging verbosity](#set-logging-verbosity)
 - [Configure the SELinux type](#configure-the-selinux-type)
 - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
-- [Create Profile](#create-profile)
-  - [Apply profile to pod](#apply-profile-to-pod)
+- [Create a seccomp profile](#create-a-seccomp-profile)
+  - [Apply a seccomp profile to a pod](#apply-a-seccomp-profile-to-a-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
   - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
   - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-profilerecordings)
     - [Hook based recording](#hook-based-recording)
     - [Log enricher based recording](#log-enricher-based-recording)
     - [eBPF based recording](#ebpf-based-recording)
+- [Create a SELinux profile](#create-a-selinux-profile)
+  - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
+  - [Record a SELinux profile](#record-a-selinux-profile)
 - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
 - [Using metrics](#using-metrics)
   - [Available metrics](#available-metrics)
@@ -172,7 +175,7 @@ into the allowed list. All profiles not complying with this rule, it will be rej
 Also every time when the list of allowed syscalls is modified in the spod configuration, the operator will
 automatically identify the already installed profiles which are not compliant and remove them.
 
-## Create Profile
+## Create a seccomp profile
 
 Use the `SeccompProfile` kind to create profiles. Example:
 
@@ -195,7 +198,7 @@ run it without root G/UID. This will be done by creating a symlink from the
 rootless profile storage `/var/lib/security-profiles-operator` to the default seccomp root
 path inside of the kubelet root `/var/lib/kubelet/seccomp/operator`.
 
-### Apply profile to pod
+### Apply a seccomp profile to a pod
 
 Create a pod using one of the created profiles. On Kubernetes >= 1.19, the
 profile can be specified as part of the pod's security context:
@@ -295,8 +298,7 @@ with version 0.20.1).
 
 If you do not want to directly modify the SecurityContext of a Pod, for instance
 if you are deploying a public application, you can use the ProfileBinding
-resource to bind a security profile to a container's securityContext. Currently,
-the ProfileBinding resource can only refer to a SeccompProfile.
+resource to bind a security profile to a container's securityContext.
 
 To bind a Pod that uses an 'nginx:1.19.1' image to the 'profile-complain'
 example seccomp profile, create a ProfileBinding in the same namespace as both
@@ -324,12 +326,17 @@ $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.sec
 {"localhostProfile":"operator/default/generic/profile-complain-unsafe.json","type":"Localhost"}
 ```
 
+Binding a SELinux profile works in the same way, except you'd use the `SelinuxProfile` kind.
+`RawSelinuxProfiles` are currently not supported.
+
 ### Record profiles from workloads with `ProfileRecordings`
 
-The operator is capable of recording seccomp profiles by the usage of the
+The operator is capable of recording seccomp or SELinux profiles by the usage of the
 built-in [eBPF](https://ebpf.io) recorder, [oci-seccomp-bpf-hook][bpf-hook] or
 by evaluating the [audit][auditd] or [syslog][syslog] files. Each method has
 its pros and cons as well as separate technical requirements.
+
+Note that SELinux profiles can only be recorded using the log enricher.
 
 #### Hook based recording
 
@@ -525,7 +532,7 @@ workload via a BPF module.
 
 #### Log enricher based recording
 
-When using the log enricher for recording seccomp profiles, please ensure that
+When using the log enricher for recording seccomp or SELinux profiles, please ensure that
 the feature [is enabled within the spod](#using-the-log-enricher) configuration
 resource. The log based recording works in the same way with
 [containerd][containerd] and [CRI-O][cri-o], while using the node local logs as
@@ -595,6 +602,9 @@ NAME                   STATUS      AGE
 test-recording-nginx   Installed   15s
 test-recording-redis   Installed   15s
 ```
+
+Recording a SELinux profile would work the same, except you'd use `kind: SelinuxProfile`
+in the `ProfileRecording` object.
 
 #### eBPF based recording
 
@@ -712,6 +722,106 @@ Then the operator will reconcile the seccomp profile:
 NAME                 STATUS      AGE
 my-recording-nginx   Installed   15s
 ```
+
+## Create a SELinux Profile
+
+There are two kinds that can be used to define a SELinux profile - `SelinuxProfile` and `RawSelinuxProfile`.
+
+The default one and the one created during workload recording is `SelinuxProfile`. It is more readable
+and has several features that allow for better security hardening and better readability. The `RawSelinuxProfile`
+kind should be used mostly when there's an already existing SELinux policy (perhaps created with udica)
+that you wish to use in your cluster.
+
+In particular, the `SelinuxProfile` kind:
+- restricts the profiles to inherit from to the current namespace or a system-wide profile. Because there
+  are typically many profiles installed on the system, but only a subset should be used by cluster workloads,
+  the inheritable system profiles are listed in the `spod` instance in `spec.selinuxOptions.allowedSystemProfiles`.
+  Depending on what distribution your nodes run, the base profile might vary, on RHEL-based systems, you might
+  want to look at what profiles are shipped in the `container-selinux` RPM package.
+- performs basic validation of the permissions, classes and labels
+- adds a new keyword `@self` that describes the process using the policy. This allows to reuse a policy between
+  workloads and namespaces easily, as the "usage" of the policy (see below) is based on the name and namespace.
+
+Below is an example of a policy that can be used with a non-privileged nginx workload:
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+kind: SelinuxProfile
+metadata:
+  name: nginx-secure
+  namespace: nginx-deploy
+spec:
+  allow:
+    '@self':
+      tcp_socket:
+      - listen
+    http_cache_port_t:
+      tcp_socket:
+      - name_bind
+    node_t:
+      tcp_socket:
+      - node_bind
+  inherit:
+  - kind: System
+    name: container
+```
+
+After the policy is created, we can wait for selinuxd to install it:
+```bash
+$ kubectl wait --for=condition=ready selinuxprofile nginx-secure
+selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure condition met
+```
+
+The CIL-formatted policies are placed into an `emptyDir` owned by the SPO where you can view
+the resulting CIL policy:
+```shell
+$ kubectl exec -it -c selinuxd spod-fm55x -- sh
+sh-4.4# cat /etc/selinux.d/nginx-secure_nginx-deploy.cil
+(block nginx-secure_nginx-deploy
+(blockinherit container)
+(allow process nginx-secure_nginx-deploy.process ( tcp_socket ( listen )))
+(allow process http_cache_port_t ( tcp_socket ( name_bind )))
+(allow process node_t ( tcp_socket ( node_bind )))
+)
+```
+
+However, the binary policies are installed into the system policy store on the nodes, so you can verify
+that a policy has been installed:
+```shell
+# semodule -l | grep nginx-secure
+```
+
+### Apply a SELinux profile to a pod
+
+SELinux profiles are referenced to based on their "usage" string:
+```shell
+kubectl get selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure -nnginx-deploy -ojsonpath='{.status.usage}'
+nginx-secure_nginx-deploy.process%
+```
+
+Use this string in the workload manifest in the `.spec.containers[].securityContext.seLinuxOptions` attribute:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-secure
+  namespace: nginx-deploy
+spec:
+  containers:
+    - image: nginxinc/nginx-unprivileged:1.21
+      name: nginx
+      securityContext:
+        seLinuxOptions:
+          # NOTE: This uses an appropriate SELinux type
+          type: nginx-secure_nginx-deploy.process
+```
+
+Note that the SELinux type must exist before creating the workload.
+
+### Record a SELinux profile
+
+Please refer to the seccomp recording documentation, recording a SELinux
+profile would work the same, except you'd use `kind: SelinuxProfile`. Note
+that only the log enricher is capable of recording SELinux profiles.
 
 ## Restricting to a Single Namespace
 
