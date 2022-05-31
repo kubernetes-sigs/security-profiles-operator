@@ -11,6 +11,7 @@ require (
 	github.com/go-logr/logr v1.2.3
 	github.com/jetstack/cert-manager v1.7.2
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.5.0
+	github.com/mogensen/kubernetes-split-yaml v0.3.0
 	github.com/nxadm/tail v1.4.8
 	github.com/openshift/api v0.0.0-20220209124712-b632c5fc10c0
 	github.com/pjbgf/go-apparmor v0.0.7

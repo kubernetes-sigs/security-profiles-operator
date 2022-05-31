@@ -1,3 +1,4 @@
+//go:build tools
 // +build tools
 
 /*
@@ -23,6 +24,7 @@ package tools
 
 import (
 	_ "github.com/maxbrunsfeld/counterfeiter/v6"
+	_ "github.com/mogensen/kubernetes-split-yaml"
 	_ "google.golang.org/grpc/cmd/protoc-gen-go-grpc"
 	_ "google.golang.org/protobuf/cmd/protoc-gen-go"
 	_ "sigs.k8s.io/controller-tools/cmd/controller-gen"

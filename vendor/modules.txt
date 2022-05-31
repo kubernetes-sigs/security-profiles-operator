@@ -328,6 +328,9 @@ github.com/modern-go/concurrent
 # github.com/modern-go/reflect2 v1.0.2
 ## explicit; go 1.12
 github.com/modern-go/reflect2
+# github.com/mogensen/kubernetes-split-yaml v0.3.0
+## explicit; go 1.12
+github.com/mogensen/kubernetes-split-yaml
 # github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
 ## explicit
 github.com/munnerz/goautoneg
