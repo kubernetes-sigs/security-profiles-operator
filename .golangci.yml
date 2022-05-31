@@ -29,6 +29,7 @@ linters:
     - errchkjson
     - errname
     - errorlint
+    - execinquery
     - exhaustive
     - exportloopref
     - forcetypeassert
@@ -65,6 +66,7 @@ linters:
     - nilnil
     - noctx
     - nolintlint
+    - nosprintfhostport
     - paralleltest
     - prealloc
     - predeclared
@@ -89,12 +91,14 @@ linters:
     # - contextcheck
     # - cyclop
     # - exhaustivestruct
+    # - exhaustruct
     # - forbidigo
     # - funlen
     # - gochecknoglobals
     # - ireturn
     # - maintidx
     # - nlreturn
+    # - nonamedreturns
     # - testpackage
     # - varnamelen
     # - wrapcheck
@@ -206,8 +210,10 @@ linters-settings:
       - singleCaseSwitch
       - sloppyLen
       - stringConcatSimplify
+      - stringsCompare
       - switchTrue
       - timeExprSimplify
+      - todoCommentWithoutDetail
       - tooManyResultsChecker
       - typeAssertChain
       - typeDefFirst
