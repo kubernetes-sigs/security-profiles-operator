@@ -90,7 +90,7 @@ dependencies:
       match: KUBERNETES_VERSION
 
   - name: e2e-fedora
-    version: 35
+    version: 36
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: fedora
