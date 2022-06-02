@@ -18,7 +18,7 @@
     - [Hook based recording](#hook-based-recording)
     - [Log enricher based recording](#log-enricher-based-recording)
     - [eBPF based recording](#ebpf-based-recording)
-- [Create a SELinux profile](#create-a-selinux-profile)
+- [Create a SELinux Profile](#create-a-selinux-profile)
   - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
   - [Record a SELinux profile](#record-a-selinux-profile)
 - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
@@ -1334,8 +1334,8 @@ volumes:
 
 Please note that a common mistake when creating custom SCCs is to bind them to a wide range of users or SAs
 through the `group` attribute, e.g. the `system:authenticated` group. Make sure your SCC is only usable by
-the serviceAccount it is supposed to be used by. Please refer to the OCP documentation (https://docs.openshift.com/container-platform/4.9/authentication/managing-security-context-constraints.html)
-or this Red Hat blog post (https://cloud.redhat.com/blog/managing-sccs-in-openshift) for more information
+the serviceAccount it is supposed to be used by. Please refer to the [OCP documentation](https://docs.openshift.com/container-platform/4.9/authentication/managing-security-context-constraints.html)
+or [this Red Hat blog post](https://cloud.redhat.com/blog/managing-sccs-in-openshift) for more information
 on managing SCCs.
 
 Then we create the appropriate role:
