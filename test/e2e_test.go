@@ -66,6 +66,9 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	// Retrieve the inputs for the test cases
 	nodes := e.getWorkerNodes()
 
+	// All following operations such as create pod will be in the test namespace
+	e.kubectl("config", "set-context", "--current", "--namespace", "security-profiles-operator")
+
 	// Execute the test cases. Each test case should cleanup on its own and
 	// leave a working operator behind.
 	e.logf("testing cluster-wide operator")
