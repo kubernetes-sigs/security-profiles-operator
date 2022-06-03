@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
-      - uses: redhat-actions/buildah-build@b13805753a7ac93d18d14b22f6ebdf8499a3a95e
+      - uses: redhat-actions/buildah-build@d097e2e3d2a45b68a7c09040e3de33427bab66af
         id: build-image
         with:
           image: build
@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
-      - uses: redhat-actions/buildah-build@b13805753a7ac93d18d14b22f6ebdf8499a3a95e
+      - uses: redhat-actions/buildah-build@d097e2e3d2a45b68a7c09040e3de33427bab66af
         id: build-image
         with:
           image: build
