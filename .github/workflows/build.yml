@@ -70,7 +70,7 @@ jobs:
           dockerfiles: |
             Dockerfile.build-image
       - if: github.ref == 'refs/heads/main'
-        uses: redhat-actions/push-to-registry@f787883d70a3cc66d399816d0385ac4aec7079f9
+        uses: redhat-actions/push-to-registry@df878026e36864aa6bf9a5b7afe63637cb88ef8c
         with:
           image: ${{ steps.build-image.outputs.image }}
           registry: quay.io/security-profiles-operator
