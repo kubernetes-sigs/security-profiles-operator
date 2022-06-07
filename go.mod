@@ -33,7 +33,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.12.1
 	sigs.k8s.io/controller-tools v0.9.0
 	sigs.k8s.io/mdtoc v1.1.0
-	sigs.k8s.io/release-utils v0.6.0
+	sigs.k8s.io/release-utils v0.7.0
 	sigs.k8s.io/zeitgeist v0.3.0
 )
 
