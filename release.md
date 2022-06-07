@@ -20,6 +20,10 @@ The first PR targets this repository and:
   has to be run and the changes have to be committed.
 - changes the tag in the same way in the OLM example manifest at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
+- changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) to sed
+  `"s#k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.4.3#${CATALOG_IMG}#g"`
+  instead of
+  `"s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g"`
 
 After this PR has been merged, we have to watch out the successful build of the
 container image via the automatically triggered
@@ -43,8 +47,8 @@ To run the tool from `$GOPATH/src/sigs.k8s.io/promo-tools`, just execute:
     --fork <YOUR_GH_USERNAME> \
     --project sp-operator \
     --reviewers "" \
-    --image="" \
-    --digests="" \
+    --image "" \
+    --digests "" \
     --tag v0.x.y
 ```
 
@@ -62,10 +66,10 @@ After that, another PR against this repository has to be created, which:
 - changes the `images` `newName`/`newTag` fields in
   [./deploy/base/kustomization.yaml](deploy/base/kustomization.yaml) back to
   `gcr.io/k8s-staging-sp-operator/security-profiles-operator` (`newName`) and `latest`
-  (`newTag`).
+  (`newTag`) and runc `make bundle`
 - changes the tag in the same way in the OLM example manifest at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
-- runs `make bundle`
+- reverts the changes to [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh)
 
 The last step about the release creation is to send a release announcement to
 the [#security-profiles-operator Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator).
