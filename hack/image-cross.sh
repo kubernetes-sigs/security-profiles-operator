@@ -27,6 +27,18 @@ VERSION=v$(cat VERSION)
 QEMUVERSION=6.1.0-8
 TAGS=("$TAG" "$VERSION" latest)
 
+# Install dependencies
+apk add --no-cache gcc libc-dev
+export CGO_LDFLAGS=
+
+# Install cosign
+COSIGN_VERSION=v1.13.1
+curl -sSfL --retry 5 --retry-delay 3 -o /usr/bin/cosign \
+    https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64
+chmod +x /usr/bin/cosign
+cosign version
+export COSIGN_EXPERIMENTAL=1
+
 # Build and push the main image
 docker run --rm --privileged \
     multiarch/qemu-user-static:$QEMUVERSION --reset -p yes
@@ -46,6 +58,7 @@ for ARCH in "${ARCHES[@]}"; do
         .
     for T in "${TAGS[@]}"; do
         docker push "$IMAGE-$ARCH:$T"
+        cosign sign "$IMAGE-$ARCH:$T"
     done
 done
 
@@ -61,6 +74,7 @@ for T in "${TAGS[@]}"; do
     done
 
     docker manifest push --purge "$IMAGE:$T"
+    cosign sign "$IMAGE:$T"
 done
 
 # Build and push the bundle and catalog image
@@ -78,5 +92,6 @@ for I in "${IMAGES[@]}"; do
     for T in "${TAGS[@]}"; do
         docker tag "$I:$VERSION" "$I:$T"
         docker push "$I:$T"
+        cosign sign "$I:$T"
     done
 done

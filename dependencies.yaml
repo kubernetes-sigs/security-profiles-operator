@@ -118,7 +118,7 @@ dependencies:
       match: quay.io/brancz/kube-rbac-proxy
 
   - name: gcb-docker-gcloud
-    version: v20220617-174ad91c3a
+    version: v20221007-69e0da97ef
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
@@ -157,6 +157,8 @@ dependencies:
     version: v1.13.1
     refPaths:
     - path: hack/ci/install-cri-o.sh
+      match: COSIGN_VERSION
+    - path: hack/image-cross.sh
       match: COSIGN_VERSION
 
   - name: bom

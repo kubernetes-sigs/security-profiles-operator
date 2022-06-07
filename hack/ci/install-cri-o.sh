@@ -25,8 +25,9 @@ export GOBIN="$GOPATH/bin"
 # script will automatically verify the signatures based on their existence in
 # $PATH.
 COSIGN_VERSION=v1.13.1
-go install github.com/sigstore/cosign/cmd/cosign@$COSIGN_VERSION
-cp "$GOBIN/cosign" /usr/bin
+curl -sSfL --retry 5 --retry-delay 3 -o /usr/bin/cosign \
+    https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64
+chmod +x /usr/bin/cosign
 cosign version
 
 BOM_VERSION=v0.4.1
