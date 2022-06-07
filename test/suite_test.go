@@ -427,6 +427,11 @@ func (e *e2e) deployCertManagerOCP() {
 }
 
 func (e *e2e) deployRecordingSaOcp() {
+	// this is a kludge to help run the tests on OCP CI where there's a ephemeral namespace that goes away
+	// as the test is starting. Without explicitly setting the namespace, the OCP CI tests fail with:
+	// error when creating "test/recording_sa.yaml": namespaces "ci-op-hq1cv14k" not found
+	e.kubectl("config", "set-context", "--current", "--namespace", "security-profiles-operator")
+
 	e.deployRecordingSa()
 
 	e.kubectl("create", "-f", "test/recording_role.yaml")
