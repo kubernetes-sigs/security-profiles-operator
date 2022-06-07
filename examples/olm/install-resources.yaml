@@ -12,7 +12,7 @@ metadata:
   namespace: olm
 spec:
   sourceType: grpc
-  image: k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.4.3
+  image: gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest
 ---
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
