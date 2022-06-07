@@ -17,4 +17,4 @@ spec:
       # seccompProfile:
         # type: Localhost
         # localhostProfile: operator/security-profiles-operator/nginx-1.19.1.json
-    image: nginx:1.19.1
+    image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
