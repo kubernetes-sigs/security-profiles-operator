@@ -62,7 +62,7 @@ function deploy_spo() {
     kubectl -ncert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # let's roll..
-    sed -i "s#k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.4.3#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
+    sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
     kubectl create -f examples/olm/install-resources.yaml
 }
 
