@@ -110,7 +110,7 @@ dependencies:
       match: k8s.gcr.io/build-image/debian-base
 
   - name: nix
-    version: 2.8.1
+    version: 2.9.0
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION

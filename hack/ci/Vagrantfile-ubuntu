@@ -22,9 +22,12 @@ Vagrant.configure("2") do |config|
     sh.inline = <<~SHELL
       set -euxo pipefail
 
-      # golang
+      # Use a non-localhost DNS to avoid cluster DNS lookup loops
+      echo "nameserver 8.8.8.8" > /etc/resolv.conf
+
       GO_VERSION=1.18
-      curl -sSfL -o- https://golang.org/dl/go$GO_VERSION.linux-amd64.tar.gz | tar xfz - -C /usr/local
+      curl -sSfL -o- https://dl.google.com/go/go"$GO_VERSION".linux-amd64.tar.gz |
+        tar xfz - -C /usr/local
 
       # Kubernetes
       curl -sSfL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
