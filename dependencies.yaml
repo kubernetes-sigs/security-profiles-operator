@@ -58,6 +58,8 @@ dependencies:
       match: cert-manager/cert-manager
     - path: hack/ci/e2e-olm.sh
       match: cert-manager/cert-manager
+    - path: hack/ci/baseprofiles.sh
+      match: cert-manager/cert-manager
 
   - name: kind
     version: 0.17.0
