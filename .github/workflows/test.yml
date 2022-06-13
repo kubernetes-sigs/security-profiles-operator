@@ -167,3 +167,33 @@ jobs:
         run: |
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
           $RUN hack/ci/e2e-flatcar-dev-container.sh
+
+  baseprofiles:
+    needs: image
+    runs-on: macos-12
+    timeout-minutes: 90
+    env:
+      RUN: ./hack/ci/run-ubuntu.sh
+    steps:
+      - uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+      - uses: actions/cache@69d9d449aced6a2ede0bc19182fadc3a0a42d2b0
+        with:
+          path: |
+            ~/.vagrant.d/boxes
+          key: e2e-ubuntu-${{ hashFiles('hack/ci/Vagrantfile-ubuntu') }}
+          restore-keys: e2e-ubuntu-
+      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with:
+          name: image
+          path: .
+      - name: Boot Virtual Machine
+        run: make vagrant-up-ubuntu
+      - name: Show environment information
+        run: |
+          $RUN kubectl wait --for=condition=ready --timeout=60s node ubuntu2204
+          $RUN kubectl get nodes -o wide
+      - name: Set up git config
+        run: |
+          $RUN git config --global --add safe.directory /vagrant
+      - name: Record baseprofiles
+        run: $RUN hack/ci/baseprofiles.sh
