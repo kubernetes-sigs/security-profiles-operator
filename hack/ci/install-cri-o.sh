@@ -45,4 +45,8 @@ if [[ $ID == fedora ]]; then
     printf '[crio.runtime]\nselinux = true' >/etc/crio/crio.conf.d/30-selinux.conf
 fi
 
+if [[ $ID == ubuntu ]]; then
+    printf '[crio.runtime.runtimes.runc]\n' >/etc/crio/crio.conf.d/10-runc.conf
+fi
+
 systemctl enable --now crio.service
