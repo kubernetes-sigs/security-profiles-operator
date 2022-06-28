@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -31,7 +32,7 @@ type KernelSymbol struct {
 }
 
 /* NewKernelSymbolsMap initiates  the kernel symbol map by parsing the /proc/kallsyms file.
- * each line continas the symbol's address, segment type, name, module owner (which can be empty in case the symbol is owned by the system)
+ * each line contains the symbol's address, segment type, name, module owner (which can be empty in case the symbol is owned by the system)
  * Note: the key of the map is the symbol owner and the symbol name (with undercase between them)
  */
 func NewKernelSymbolsMap() (*KernelSymbolTable, error) {
@@ -39,7 +40,7 @@ func NewKernelSymbolsMap() (*KernelSymbolTable, error) {
 	KernelSymbols.symbolMap = make(map[string]KernelSymbol)
 	file, err := os.Open("/proc/kallsyms")
 	if err != nil {
-		return nil, fmt.Errorf("Could not open /proc/kallsyms")
+		return nil, fmt.Errorf("could not open /proc/kallsyms: %w", err)
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
@@ -54,13 +55,18 @@ func NewKernelSymbolsMap() (*KernelSymbolTable, error) {
 		if err != nil {
 			continue
 		}
-		symbolName := line[2]
 		symbolType := line[1]
+		symbolName := line[2]
+
 		symbolOwner := "system"
-		//if the line is only 3 words then the symbol is owned by the system
 		if len(line) > 3 {
+			// When a symbol is contained in a kernel module, it will be specified
+			// within square brackets, otherwise it's part of the system
 			symbolOwner = line[3]
+			symbolOwner = strings.TrimPrefix(symbolOwner, "[")
+			symbolOwner = strings.TrimSuffix(symbolOwner, "]")
 		}
+
 		symbolKey := fmt.Sprintf("%s_%s", symbolOwner, symbolName)
 		KernelSymbols.symbolMap[symbolKey] = KernelSymbol{symbolName, symbolType, symbolAddr, symbolOwner}
 	}
@@ -68,10 +74,11 @@ func NewKernelSymbolsMap() (*KernelSymbolTable, error) {
 	return &KernelSymbols, nil
 }
 
-// TextSegmentContains checks if a given address is in the kernel text segment by compare it to the kernel text segment address boundaries
+// TextSegmentContains checks if a given address is in the kernel text segment
+// by comparing it to the kernel text segment address boundaries
 func (k *KernelSymbolTable) TextSegmentContains(addr uint64) (bool, error) {
 	if !k.initialized {
-		return false, fmt.Errorf("KernelSymbolTable symbols map isnt initialized\n")
+		return false, errors.New("kernel symbols map isnt initialized")
 	}
 	stext, err := k.GetSymbolByName("system", "_stext")
 	if err != nil {
@@ -91,7 +98,7 @@ func (k *KernelSymbolTable) GetSymbolByName(owner string, name string) (*KernelS
 	if exist {
 		return &symbol, nil
 	}
-	return nil, fmt.Errorf("symbol not found")
+	return nil, fmt.Errorf("symbol not found: %s_%s", owner, name)
 }
 
 // GetSymbolByAddr returns a symbol by a given address

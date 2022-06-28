@@ -19,7 +19,7 @@ func SymbolToOffset(path, symbol string) (uint32, error) {
 
 	// Only if we failed getting both regular and dynamic symbols - then we abort.
 	if regularSymbolsErr != nil && dynamicSymbolsErr != nil {
-		return 0, fmt.Errorf("could not open symbol sections to resolve symbol offset: %w, %w", regularSymbolsErr, dynamicSymbolsErr)
+		return 0, fmt.Errorf("could not open regular or dynamic symbol sections to resolve symbol offset: %w %s", regularSymbolsErr, dynamicSymbolsErr)
 	}
 
 	// Concatenating into a single list.
