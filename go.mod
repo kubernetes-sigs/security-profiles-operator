@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/ReneKroon/ttlcache/v2 v2.11.0
 	github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
-	github.com/aquasecurity/libbpfgo v0.2.5-libbpf-0.7.0
+	github.com/aquasecurity/libbpfgo v0.3.0-libbpf-0.8.0
 	github.com/cert-manager/cert-manager v1.8.2
 	github.com/containers/common v0.48.1-0.20220510094751-400832f41771
 	github.com/crossplane/crossplane-runtime v0.16.0
