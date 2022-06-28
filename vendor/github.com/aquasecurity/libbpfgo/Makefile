@@ -5,9 +5,9 @@ SELFTEST = ./selftest
 
 CC = gcc
 CLANG = clang
+GO = go
 
-ARCH := $(shell uname -m)
-ARCH := $(subst x86_64,amd64,$(ARCH))
+ARCH := $(shell uname -m | sed 's/x86_64/amd64/g; s/aarch64/arm64/g')
 
 BTFFILE = /sys/kernel/btf/vmlinux
 BPFTOOL = $(shell which bpftool || /bin/false)
@@ -55,13 +55,13 @@ libbpfgo-dynamic: $(OUTPUT)/libbpf
 	CC=$(CLANG) \
 		CGO_CFLAGS=$(CGO_CFLAGS_DYN) \
 		CGO_LDFLAGS=$(CGO_LDFLAGS_DYN) \
-		go build .
+		$(GO) build .
 
 libbpfgo-dynamic-test: libbpfgo-test-bpf-dynamic
 	CC=$(CLANG) \
 		CGO_CFLAGS=$(CGO_CFLAGS_DYN) \
 		CGO_LDFLAGS=$(CGO_LDFLAGS_DYN) \
-		sudo -E go test .
+		sudo -E $(GO) test .
 
 # libbpf: static
 
@@ -70,7 +70,7 @@ libbpfgo-static: $(VMLINUXH) | $(LIBBPF_OBJ)
 		CGO_CFLAGS=$(CGO_CFLAGS_STATIC) \
 		CGO_LDFLAGS=$(CGO_LDFLAGS_STATIC) \
 		GOOS=linux GOARCH=$(ARCH) \
-		go build \
+		$(GO) build \
 		-tags netgo -ldflags $(CGO_EXTLDFLAGS_STATIC) \
 		.
 
@@ -80,7 +80,7 @@ libbpfgo-static-test: libbpfgo-test-bpf-static
 		CGO_CFLAGS=$(CGO_CFLAGS_STATIC) \
 		CGO_LDFLAGS=$(CGO_LDFLAGS_STATIC) \
 		GOOS=linux GOARCH=$(ARCH) \
-		go test \
+		$(GO) test \
 		-v -tags netgo -ldflags $(CGO_EXTLDFLAGS_STATIC) \
 		.
 

@@ -114,5 +114,5 @@ Please check our github milestones for an idea of the project roadmap. The gener
 
 - [How to Build eBPF Programs with libbpfgo](https://blog.aquasec.com/libbpf-ebpf-programs).
 - [selftests](./selftest) are small program using libbpfgo and might be good usage examples.
-- [tracee-ebpf](https://github.com/aquasecurity/tracee/tree/main/tracee-ebpf) is a robust consumer of this project.
+- [tracee-ebpf](https://github.com/aquasecurity/tracee/tree/main/cmd/tracee-ebpf) is a robust consumer of this project.
 - Feel free to ask questions by creating a new [Discussion](https://github.com/aquasecurity/libbpfgo/discussions), we'd love to help.
