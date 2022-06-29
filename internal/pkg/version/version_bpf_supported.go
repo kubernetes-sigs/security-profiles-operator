@@ -23,5 +23,5 @@ import "github.com/aquasecurity/libbpfgo"
 
 // libbpfVersion returns a human readable string of the libbpf version.
 func libbpfVersion() string {
-	return libbpfgo.VersionString()
+	return libbpfgo.LibbpfVersionString()
 }
