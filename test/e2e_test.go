@@ -62,12 +62,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	// Deploy the operator
 	e.deployOperator(e.operatorManifest)
 
-	// On some distros (OCP), the SA needs to give additional
-	// roles to the workload, like the ability to use custom
-	// profiles for pods that are spawned by a replicating
-	// controller
-	e.setupRecordingSa()
-
 	// Retrieve the inputs for the test cases
 	nodes := e.getWorkerNodes()
 
@@ -394,6 +388,14 @@ func (e *e2e) getCurrentContextNamespace(alt string) string {
 }
 
 func (e *e2e) writeAndCreate(manifest, filePattern string) func() {
+	return e.writeAndDo("create", manifest, filePattern)
+}
+
+func (e *e2e) writeAndApply(manifest, filePattern string) func() {
+	return e.writeAndDo("apply", manifest, filePattern)
+}
+
+func (e *e2e) writeAndDo(verb, manifest, filePattern string) func() {
 	file, err := os.CreateTemp("", filePattern)
 	fileName := file.Name()
 	e.Nil(err)
@@ -401,7 +403,7 @@ func (e *e2e) writeAndCreate(manifest, filePattern string) func() {
 	e.Nil(err)
 	err = file.Close()
 	e.Nil(err)
-	e.kubectl("create", "-f", fileName)
+	e.kubectl(verb, "-f", fileName)
 	return func() { os.Remove(fileName) }
 }
 
