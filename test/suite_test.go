@@ -99,7 +99,7 @@ type e2e struct {
 	execNode               func(node string, args ...string) string
 	waitForReadyPods       func()
 	deployCertManager      func()
-	setupRecordingSa       func()
+	setupRecordingSa       func(namespace string)
 }
 
 func defaultWaitForReadyPods(e *e2e) {
@@ -459,16 +459,15 @@ func (e *e2e) deployCertManagerOCP() {
 	// intentionally blank, OCP creates certs on its own
 }
 
-func (e *e2e) deployRecordingSaOcp() {
+func (e *e2e) deployRecordingSaOcp(namespace string) {
 	// this is a kludge to help run the tests on OCP CI where there's a ephemeral namespace that goes away
 	// as the test is starting. Without explicitly setting the namespace, the OCP CI tests fail with:
 	// error when creating "test/recording_sa.yaml": namespaces "ci-op-hq1cv14k" not found
-	e.kubectl("config", "set-context", "--current", "--namespace", "security-profiles-operator")
+	e.kubectl("config", "set-context", "--current", "--namespace", namespace)
 
-	e.deployRecordingSa()
-
-	e.kubectl("create", "-f", "test/recording_role.yaml")
-	e.kubectl("create", "-f", "test/recording_role_binding.yaml")
+	e.deployRecordingSa(namespace)
+	e.deployRecordingRole(namespace)
+	e.deployRecordingRoleBinding(namespace)
 }
 
 func (e *vanilla) SetupSuite() {
@@ -719,6 +718,66 @@ func (e *e2e) enableLabelingPodDenials() {
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLabelPodDenialsTimeout)
 }
 
-func (e *e2e) deployRecordingSa() {
-	e.kubectl("create", "-f", "test/recording_sa.yaml")
+func (e *e2e) deployRecordingSa(namespace string) {
+	saTemplate := `
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      creationTimestamp: null
+      name: recording-sa
+      namespace: %s
+`
+
+	e.applyFromTemplate(saTemplate, namespace)
+}
+
+func (e *e2e) deployRecordingRole(namespace string) {
+	roleTemplate := `
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      creationTimestamp: null
+      name: recording
+      namespace: %s
+    rules:
+    - apiGroups:
+      - security.openshift.io
+      resources:
+      - securitycontextconstraints
+      resourceNames:
+      - privileged
+      - anyuid
+      verbs:
+      - use
+`
+
+	e.applyFromTemplate(roleTemplate, namespace)
+}
+
+func (e *e2e) deployRecordingRoleBinding(namespace string) {
+	roleBindingTemplate := `
+    kind: RoleBinding
+    apiVersion: rbac.authorization.k8s.io/v1
+    metadata:
+      labels:
+        app: recording
+      name: recording
+      namespace: %s
+    subjects:
+    - kind: ServiceAccount
+      name: recording-sa
+    roleRef:
+      kind: Role
+      name: recording
+      apiGroup: rbac.authorization.k8s.io
+`
+
+	e.applyFromTemplate(roleBindingTemplate, namespace)
+}
+
+func (e *e2e) applyFromTemplate(template, namespace string) {
+	manifestFile := "templated-manifest.yaml"
+	manifest := fmt.Sprintf(template, namespace)
+	deleteSaFn := e.writeAndApply(manifest, manifestFile)
+	deleteSaFn()
 }

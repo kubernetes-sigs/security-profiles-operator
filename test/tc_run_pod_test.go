@@ -32,6 +32,9 @@ func (e *e2e) testCaseRunPod([]string) {
 	)
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
+
+	e.setupRecordingSa(namespace)
+
 	if namespace != defaultNamespace {
 		e.updateManifest(examplePodPath, "security-profiles-operator", namespace)
 		defer e.run("git", "checkout", examplePodPath)
