@@ -16,11 +16,19 @@ limitations under the License.
 
 package e2e_test
 
+import (
+	"os"
+
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/yaml"
+)
+
 func (e *e2e) testCaseRunPod([]string) {
 	e.seccompOnlyTestCase()
 	const (
 		examplePodPath = "examples/pod.yaml"
 		examplePodName = "test-pod"
+		testPodFname   = "test-pod.yaml"
 	)
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
@@ -29,9 +37,39 @@ func (e *e2e) testCaseRunPod([]string) {
 		defer e.run("git", "checkout", examplePodPath)
 	}
 
+	bs, err := os.ReadFile(examplePodPath)
+	e.Nil(err)
+
+	var testPod corev1.Pod
+	err = yaml.Unmarshal(bs, &testPod)
+	e.Nil(err)
+
+	// the example pod runs as root by default. Since this is a valid and valuable
+	// test case, but at the same time we don't want to pollute the example with OCP
+	// specific settings, let's change the pod on the fly when running on OCP.
+	if clusterType == clusterTypeOpenShift {
+		zero := int64(0)
+
+		// without anyuid, the pod can't set a custom UID
+		testPod.Annotations["openshift.io/scc"] = "anyuid"
+		// this SA allows using more privileged SCCs
+		testPod.Spec.ServiceAccountName = "recording-sa"
+		// force running as root
+		for cidx := range testPod.Spec.Containers {
+			cnt := &testPod.Spec.Containers[cidx]
+			cnt.SecurityContext = &corev1.SecurityContext{
+				RunAsUser: &zero,
+			}
+		}
+	}
+
 	e.logf("Creating the test pod: %s", examplePodPath)
-	e.kubectl("create", "-f", examplePodPath)
-	defer e.kubectl("delete", "-f", examplePodPath)
+	testPodBytes, err := yaml.Marshal(testPod)
+	e.Nil(err)
+	testPodManifest := string(testPodBytes)
+	deleteCurNsFn := e.writeAndCreate(testPodManifest, testPodFname)
+	defer e.kubectl("delete", "pods", examplePodName)
+	defer deleteCurNsFn()
 
 	e.logf("Waiting for test pod to be ready")
 	e.waitFor("condition=ready", "pod", "--all")
