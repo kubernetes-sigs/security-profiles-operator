@@ -331,6 +331,8 @@ func (e *e2e) createRecordingTestDeployment() (since time.Time, podName string) 
 	e.logf("Creating test deployment")
 	podName = "my-deployment"
 
+	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
+
 	const testDeployment = `
 apiVersion: apps/v1
 kind: Deployment
