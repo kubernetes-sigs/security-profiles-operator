@@ -699,7 +699,9 @@ metadata:
   name: security-profiles-operator
   namespace: security-profiles-operator
 spec:
-  replicas: 3
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app: security-profiles-operator
