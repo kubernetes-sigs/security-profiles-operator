@@ -733,6 +733,14 @@ spec:
           {{- toYaml .Values.resources | nindent 10 }}
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: security-profiles-operator
       tolerations:
       - effect: NoSchedule
