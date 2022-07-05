@@ -732,8 +732,7 @@ spec:
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
         securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
+          {{- toYaml .Values.securityContext | nindent 10 }}
       serviceAccountName: security-profiles-operator
       tolerations:
       - effect: NoSchedule
