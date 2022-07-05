@@ -18,11 +18,9 @@ podAnnotations: {}
 podSecurityContext: {}
   # fsGroup: 2000
 
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
 
 resources:
   limits:
