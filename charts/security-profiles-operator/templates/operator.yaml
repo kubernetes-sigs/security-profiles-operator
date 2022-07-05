@@ -728,13 +728,9 @@ spec:
               fieldPath: metadata.namespace
         image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
         imagePullPolicy: Always
-        name: security-profiles-operator
+        name: {{ .Chart.Name }}
         resources:
-          limits:
-            memory: 128Mi
-          requests:
-            cpu: 250m
-            memory: 50Mi
+          {{- toYaml .Values.resources | nindent 10 }}
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
