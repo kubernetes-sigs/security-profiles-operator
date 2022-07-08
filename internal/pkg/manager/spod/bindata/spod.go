@@ -52,7 +52,7 @@ const (
 	SelinuxdPrivateDir                         = "/var/run/selinuxd"
 	SelinuxdSocketPath                         = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath                             = SelinuxdPrivateDir + "/selinuxd.db"
-	MetricsImage                               = "quay.io/brancz/kube-rbac-proxy:v0.11.0"
+	MetricsImage                               = "quay.io/brancz/kube-rbac-proxy:v0.13.0"
 	sysKernelDebugPath                         = "/sys/kernel/debug"
 	InitContainerIDNonRootenabler              = 0
 	InitContainerIDSelinuxSharedPoliciesCopier = 1
