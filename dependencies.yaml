@@ -122,10 +122,10 @@ dependencies:
       match: quay.io/brancz/kube-rbac-proxy
 
   - name: gcb-docker-gcloud
-    version: v20211118-2f2d816b90
+    version: v20220617-174ad91c3a
     refPaths:
     - path: cloudbuild.yaml
-      match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20211118-2f2d816b90
+      match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   - name: libbpf
     version: 0.7.0
