@@ -104,13 +104,13 @@ dependencies:
       match: node
 
   - name: debian-base
-    version: sha256:aa2e259dfe202b601b2a94a8b2e1b203a0fe92a601947da3d0c510be4e54c352
+    version: sha256:9a4b40b8837c4b3e4e45716baea6e1461b7c51a3f723aeaf52e8acdcd1aa40b2
     refPaths:
     - path: Dockerfile.build-image
       match: k8s.gcr.io/build-image/debian-base
 
   - name: nix
-    version: 2.9.0
+    version: 2.9.2
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION
