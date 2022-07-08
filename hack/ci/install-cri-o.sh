@@ -15,8 +15,8 @@
 
 set -euo pipefail
 
-COMMIT_ID=db76322414a7888c7642b707e07dbb9905aa969f
-TAG=v1.24.0
+COMMIT_ID=fa262bc87353c45940931402a76f9175a4e01fa6
+TAG=v1.24.1
 
 curl "https://raw.githubusercontent.com/cri-o/cri-o/$COMMIT_ID/scripts/get" | bash -s -- -t "$TAG"
 
