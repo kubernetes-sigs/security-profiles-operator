@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# hash below relates to tag: bullseye-v1.0.0
-FROM k8s.gcr.io/build-image/debian-base@sha256:aa2e259dfe202b601b2a94a8b2e1b203a0fe92a601947da3d0c510be4e54c352
+# hash below relates to tag: bullseye-v1.4.0
+FROM k8s.gcr.io/build-image/debian-base@sha256:9a4b40b8837c4b3e4e45716baea6e1461b7c51a3f723aeaf52e8acdcd1aa40b2
 WORKDIR /work
 
 RUN apt-get update && apt-get install -y wget xz-utils libapparmor-dev
 
 ENV USER=root
 
-ARG NIX_VERSION=2.9.0
+ARG NIX_VERSION=2.9.2
 RUN wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
     tar xf nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
     groupadd -r -g 30000 nixbld && \
