@@ -18,10 +18,6 @@ podAnnotations: {}
 podSecurityContext: {}
   # fsGroup: 2000
 
-securityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
-
 resources:
   limits:
     memory: 128Mi
