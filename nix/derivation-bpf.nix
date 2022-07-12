@@ -19,7 +19,6 @@ with pkgs; buildGo118Module rec {
     glibc
     glibc.static
     libbpf
-    libelf
     zlib.static
   ];
   buildPhase = ''
