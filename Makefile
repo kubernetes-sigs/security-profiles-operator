@@ -159,6 +159,8 @@ deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deploymen
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/openshift-dev.yaml
+	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/helm -o deploy/helm/templates/static-resources.yaml
+	$(BUILD_DIR)/kustomize build --reorder=none deploy/base-crds -o deploy/helm/crds/crds.yaml
 
 .PHONY: image
 image: ## Build the container image
@@ -389,12 +391,12 @@ test-e2e: ## Run the end-to-end tests
 
 # Generate CRD manifests
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base/crds/securityprofilesoperatordaemon.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/secprofnodestatus/...' output:crd:stdout" "deploy/base/crds/securityprofilenodestatus.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/seccompprofile/...' output:crd:stdout" "deploy/base/crds/seccompprofile.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/selinuxprofile/...' output:crd:stdout" "deploy/base/crds/selinuxpolicy.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilebinding/...' output:crd:stdout" "deploy/base/crds/profilebinding.yaml"
-	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilerecording/...' output:crd:stdout" "deploy/base/crds/profilerecording.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilesoperatordaemon.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/secprofnodestatus/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilenodestatus.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/seccompprofile/...' output:crd:stdout" "deploy/base-crds/crds/seccompprofile.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/selinuxprofile/...' output:crd:stdout" "deploy/base-crds/crds/selinuxpolicy.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilebinding/...' output:crd:stdout" "deploy/base-crds/crds/profilebinding.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilerecording/...' output:crd:stdout" "deploy/base-crds/crds/profilerecording.yaml"
 
 # Generate deepcopy code
 generate:
