@@ -1,0 +1,6 @@
+apiVersion: v2
+name: security-profiles-operator
+description: "The Kubernetes Security Profiles Operator."
+type: application
+version: 0.1.0
+appVersion: "0.4.3"

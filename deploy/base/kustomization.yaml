@@ -14,18 +14,10 @@ commonLabels:
   app: security-profiles-operator
 
 resources:
-  - crds/profilebinding.yaml
-  - crds/profilerecording.yaml
-  - crds/seccompprofile.yaml
-  - crds/securityprofilenodestatus.yaml
-  - crds/securityprofilesoperatordaemon.yaml
-  - crds/selinuxpolicy.yaml
-  - crds/apparmorprofile.yaml
   - ns.yaml
   - service_account.yaml
   - role.yaml
   - role_binding.yaml
-  - manager_deployment.yaml
   - mutatingwebhookconfig.yaml
   - metrics_client.yaml
 
