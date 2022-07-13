@@ -8,7 +8,7 @@ require (
 	github.com/aquasecurity/libbpfgo v0.3.0-libbpf-0.8.0
 	github.com/cert-manager/cert-manager v1.8.2
 	github.com/containers/common v0.48.1-0.20220510094751-400832f41771
-	github.com/crossplane/crossplane-runtime v0.16.0
+	github.com/crossplane/crossplane-runtime v0.17.0
 	github.com/go-logr/logr v1.2.3
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.5.0
 	github.com/mogensen/kubernetes-split-yaml v0.3.0
