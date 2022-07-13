@@ -45,3 +45,26 @@ const (
 	// update.
 	UpdateManual UpdatePolicy = "Manual"
 )
+
+// ResolvePolicy is a type for resolve policy.
+type ResolvePolicy string
+
+// ResolutionPolicy is a type for resolution policy.
+type ResolutionPolicy string
+
+const (
+	// ResolvePolicyAlways is a resolve option.
+	// When the ResolvePolicy is set to ResolvePolicyAlways the reference will
+	// be tried to resolve for every reconcile loop.
+	ResolvePolicyAlways ResolvePolicy = "Always"
+
+	// ResolutionPolicyRequired is a resolution option.
+	// When the ResolutionPolicy is set to ResolutionPolicyRequired the execution
+	// could not continue even if the reference cannot be resolved.
+	ResolutionPolicyRequired ResolutionPolicy = "Required"
+
+	// ResolutionPolicyOptional is a resolution option.
+	// When the ReferenceResolutionPolicy is set to ReferencePolicyOptional the
+	// execution could continue even if the reference cannot be resolved.
+	ResolutionPolicyOptional ResolutionPolicy = "Optional"
+)
