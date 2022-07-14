@@ -33,7 +33,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.12.3
 	sigs.k8s.io/controller-tools v0.9.2
 	sigs.k8s.io/mdtoc v1.1.0
-	sigs.k8s.io/release-utils v0.7.1
+	sigs.k8s.io/release-utils v0.7.2
 	sigs.k8s.io/zeitgeist v0.3.0
 )
 
@@ -47,6 +47,7 @@ require (
 	github.com/aws/aws-sdk-go v1.40.21 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
+	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -100,7 +101,7 @@ require (
 	github.com/sergi/go-diff v1.2.0 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/spf13/afero v1.8.0 // indirect
-	github.com/spf13/cobra v1.4.0 // indirect
+	github.com/spf13/cobra v1.5.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/xanzy/go-gitlab v0.43.0 // indirect
 	github.com/xanzy/ssh-agent v0.3.1 // indirect
