@@ -1957,18 +1957,22 @@ metadata:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  labels:
+    app: security-profiles-operator
   name: security-profiles-operator
   namespace: security-profiles-operator
 spec:
   replicas: 3
   selector:
     matchLabels:
+      app: security-profiles-operator
       name: security-profiles-operator
   template:
     metadata:
       annotations:
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
+        app: security-profiles-operator
         name: security-profiles-operator
     spec:
       containers:
