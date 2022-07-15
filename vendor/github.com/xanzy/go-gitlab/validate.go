@@ -16,7 +16,10 @@
 
 package gitlab
 
-import "fmt"
+import (
+	"fmt"
+	"net/http"
+)
 
 // ValidateService handles communication with the validation related methods of
 // the GitLab API.
@@ -30,8 +33,10 @@ type ValidateService struct {
 //
 // GitLab API docs: https://docs.gitlab.com/ce/api/lint.html
 type LintResult struct {
-	Status string   `json:"status"`
-	Errors []string `json:"errors"`
+	Status     string   `json:"status"`
+	Errors     []string `json:"errors"`
+	Warnings   []string `json:"warnings"`
+	MergedYaml string   `json:"merged_yaml"`
 }
 
 // ProjectLintResult represents the linting results by project.
@@ -45,16 +50,22 @@ type ProjectLintResult struct {
 	MergedYaml string   `json:"merged_yaml"`
 }
 
+// LintOptions represents the available Lint() options.
+//
+// Gitlab API docs:
+// https://docs.gitlab.com/ee/api/lint.html#validate-the-ci-yaml-configuration
+type LintOptions struct {
+	Content           string `url:"content,omitempty" json:"content,omitempty"`
+	IncludeMergedYAML bool   `url:"include_merged_yaml,omitempty" json:"include_merged_yaml,omitempty"`
+	IncludeJobs       bool   `url:"include_jobs,omitempty" json:"include_jobs,omitempty"`
+}
+
 // Lint validates .gitlab-ci.yml content.
 //
-// GitLab API docs: https://docs.gitlab.com/ce/api/lint.html
-func (s *ValidateService) Lint(content string, options ...RequestOptionFunc) (*LintResult, *Response, error) {
-	var opts struct {
-		Content string `url:"content,omitempty" json:"content,omitempty"`
-	}
-	opts.Content = content
-
-	req, err := s.client.NewRequest("POST", "ci/lint", &opts, options)
+// Gitlab API docs:
+// https://docs.gitlab.com/ee/api/lint.html#validate-the-ci-yaml-configuration
+func (s *ValidateService) Lint(opts *LintOptions, options ...RequestOptionFunc) (*LintResult, *Response, error) {
+	req, err := s.client.NewRequest(http.MethodPost, "ci/lint", &opts, options)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -86,9 +97,9 @@ func (s *ValidateService) ProjectNamespaceLint(pid interface{}, opt *ProjectName
 	if err != nil {
 		return nil, nil, err
 	}
-	u := fmt.Sprintf("projects/%s/ci/lint", pathEscape(project))
+	u := fmt.Sprintf("projects/%s/ci/lint", PathEscape(project))
 
-	req, err := s.client.NewRequest("POST", u, &opt, options)
+	req, err := s.client.NewRequest(http.MethodPost, u, &opt, options)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -119,9 +130,9 @@ func (s *ValidateService) ProjectLint(pid interface{}, opt *ProjectLintOptions, 
 	if err != nil {
 		return nil, nil, err
 	}
-	u := fmt.Sprintf("projects/%s/ci/lint", pathEscape(project))
+	u := fmt.Sprintf("projects/%s/ci/lint", PathEscape(project))
 
-	req, err := s.client.NewRequest("GET", u, &opt, options)
+	req, err := s.client.NewRequest(http.MethodGet, u, &opt, options)
 	if err != nil {
 		return nil, nil, err
 	}
