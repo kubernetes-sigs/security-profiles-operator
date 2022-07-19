@@ -1,0 +1,53 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: spo-mutating-webhook-configuration
+  namespace: security-profiles-operator
+  annotations:
+    cert-manager.io/inject-ca-from: "security-profiles-operator/webhook-cert"
+webhooks:
+  - name: binding.spo.io
+    failurePolicy: Fail
+    sideEffects: None
+    rules:
+      - operations: ["CREATE", "UPDATE", "DELETE"]
+        rule:
+          apiGroups: ["*"]
+          apiVersions: ["v1"]
+          resources: ["pods"]
+    objectSelector:
+      matchExpressions: 
+        - key: name
+          operator: NotIn
+          values: ["security-profiles-operator", "security-profiles-operator-webhook"]
+    namespaceSelector: {}
+    clientConfig:
+      service:
+        namespace: "security-profiles-operator"
+        name: "webhook-service"
+        path: "/mutate-v1-pod-binding"
+      caBundle: "Cg=="
+    admissionReviewVersions: ["v1beta1"]
+  - name: recording.spo.io
+    failurePolicy: Fail
+    sideEffects: None
+    rules:
+      - operations: ["CREATE", "UPDATE", "DELETE"]
+        rule:
+          apiGroups: ["*"]
+          apiVersions: ["v1"]
+          resources: ["pods"]
+    objectSelector:
+      matchExpressions: 
+        - key: name
+          operator: NotIn
+          values: ["security-profiles-operator", "security-profiles-operator-webhook"]
+    namespaceSelector: {}
+    clientConfig:
+      service:
+        namespace: "security-profiles-operator"
+        name: "webhook-service"
+        path: "/mutate-v1-pod-recording"
+      caBundle: "Cg=="
+    admissionReviewVersions: ["v1beta1"]
