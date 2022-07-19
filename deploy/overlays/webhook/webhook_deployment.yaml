@@ -1,0 +1,66 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: security-profiles-operator-webhook
+  namespace: security-profiles-operator
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      name: security-profiles-operator-webhook
+      app: security-profiles-operator
+  template:
+    metadata:
+      annotations:
+        openshift.io/scc: privileged
+        seccomp.security.alpha.kubernetes.io/pod: runtime/default
+      labels:
+        name: security-profiles-operator-webhook
+        app: security-profiles-operator
+    spec:
+      serviceAccountName: spo-webhook
+      containers:
+        - name: security-profiles-operator
+          image: security-profiles-operator
+          args:
+          - webhook
+          imagePullPolicy: Always
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          ports:
+            - name: webhook
+              containerPort: 9443 
+              protocol: TCP
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 250m
+            limits:
+              memory: 64Mi
+          env:
+            - name: OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: cert
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+      volumes:
+        - name: cert
+          volumeSource: 
+            secret:
+              secretName: webhook-server-cert
+              defaultMode: 420
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node.kubernetes.io/not-ready"
+          operator: "Exists"
+          effect: "NoExecute"
