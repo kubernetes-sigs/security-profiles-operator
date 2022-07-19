@@ -1,0 +1,3 @@
+---
+- path: /rules/1
+  op: remove
