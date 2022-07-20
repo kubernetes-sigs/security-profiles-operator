@@ -88,7 +88,7 @@ type SPODSpec struct {
 	// related resources are statically deployed. In this case, the operator will
 	// not create or update the webhook configuration and its related resources.
 	// +optional
-	StaticWebhookConfig bool `json:"manual_webhook_config"`
+	StaticWebhookConfig bool `json:"manualWebhookConfig"`
 
 	// WebhookOpts set custom namespace selectors and failure mode for
 	// SPO's webhooks
