@@ -191,7 +191,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 		updatedSPod := foundSPOd.DeepCopy()
 		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
 		updateErr := r.handleUpdate(
-			ctx, updatedSPod, webhook, metricsService, certManagerResources,
+			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources,
 		)
 		if updateErr != nil {
 			r.record.Event(spod, event.Warning(reasonCannotUpdateSPOD, updateErr))
@@ -285,9 +285,11 @@ func (r *ReconcileSPOd) handleCreate(
 		}
 	}
 
-	r.log.Info("Deploying operator webhook")
-	if err := webhook.Create(ctx, r.client); err != nil {
-		return fmt.Errorf("creating webhook: %w", err)
+	if !cfg.Spec.StaticWebhookConfig {
+		r.log.Info("Deploying operator webhook")
+		if err := webhook.Create(ctx, r.client); err != nil {
+			return fmt.Errorf("creating webhook: %w", err)
+		}
 	}
 
 	r.log.Info("Creating operator resources")
@@ -345,6 +347,7 @@ func (r *ReconcileSPOd) handleCreate(
 
 func (r *ReconcileSPOd) handleUpdate(
 	ctx context.Context,
+	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	spodInstance *appsv1.DaemonSet,
 	webhook *bindata.Webhook,
 	metricsService *corev1.Service,
@@ -357,9 +360,11 @@ func (r *ReconcileSPOd) handleUpdate(
 		}
 	}
 
-	r.log.Info("Updating operator webhook")
-	if err := webhook.Update(ctx, r.client); err != nil {
-		return fmt.Errorf("updating webhook: %w", err)
+	if !cfg.Spec.StaticWebhookConfig {
+		r.log.Info("Updating operator webhook")
+		if err := webhook.Update(ctx, r.client); err != nil {
+			return fmt.Errorf("updating webhook: %w", err)
+		}
 	}
 
 	r.log.Info("Updating operator daemonset")
