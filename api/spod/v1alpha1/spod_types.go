@@ -84,6 +84,12 @@ type SPODSpec struct {
 	// to retrieve the container ID for a process ID. This can be helpful for
 	// nested environments, for example when using "kind".
 	HostProcVolumePath string `json:"hostProcVolumePath,omitempty"`
+	// StaticWebhookConfig indicates whether the webhook configuration and its
+	// related resources are statically deployed. In this case, the operator will
+	// not create or update the webhook configuration and its related resources.
+	// +optional
+	StaticWebhookConfig bool `json:"manual_webhook_config"`
+
 	// WebhookOpts set custom namespace selectors and failure mode for
 	// SPO's webhooks
 	// +optional
