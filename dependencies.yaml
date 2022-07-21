@@ -140,7 +140,7 @@ dependencies:
       match: VERSION
 
   - name: fedora-vmlinux
-    version: 35
+    version: 36
     refPaths:
     - path: hack/update-vmlinux
       match: VERSION
