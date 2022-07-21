@@ -12,10 +12,9 @@ webhooks:
     sideEffects: None
     rules:
       - operations: ["CREATE", "UPDATE", "DELETE"]
-        rule:
-          apiGroups: ["*"]
-          apiVersions: ["v1"]
-          resources: ["pods"]
+        apiGroups: ["*"]
+        apiVersions: ["v1"]
+        resources: ["pods"]
     objectSelector:
       matchExpressions: 
         - key: name
@@ -34,10 +33,9 @@ webhooks:
     sideEffects: None
     rules:
       - operations: ["CREATE", "UPDATE", "DELETE"]
-        rule:
-          apiGroups: ["*"]
-          apiVersions: ["v1"]
-          resources: ["pods"]
+        apiGroups: ["*"]
+        apiVersions: ["v1"]
+        resources: ["pods"]
     objectSelector:
       matchExpressions: 
         - key: name
