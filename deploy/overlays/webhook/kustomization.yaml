@@ -19,3 +19,9 @@ resources:
   - webhook_cert.yaml
   - webhook_deployment.yaml
   - webhook_service.yaml
+
+images:
+  - name: security-profiles-operator
+    newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
+    newTag: latest
+
