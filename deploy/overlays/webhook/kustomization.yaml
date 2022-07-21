@@ -9,13 +9,13 @@ bases:
 patchesStrategicMerge:
   - webhook_config.yaml
 
-resources:
-  - webhook_cert.yaml
-  - webhook_deployment.yaml
-  - webhook_service.yaml
-
 patches:
   - target:
       kind: ClusterRole
       name: security-profiles-operator
     path: role.yaml
+
+resources:
+  - webhook_cert.yaml
+  - webhook_deployment.yaml
+  - webhook_service.yaml

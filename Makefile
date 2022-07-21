@@ -161,7 +161,7 @@ deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deploymen
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/openshift-dev.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/helm -o deploy/helm/templates/static-resources.yaml
 	$(BUILD_DIR)/kustomize build --reorder=none deploy/base-crds -o deploy/helm/crds/crds.yaml
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/webhook -o deploy/webhook-operator.yaml
+	$(BUILD_DIR)/kustomize build --reorder=legacy deploy/overlays/webhook -o deploy/webhook-operator.yaml
 
 .PHONY: image
 image: ## Build the container image
