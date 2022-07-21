@@ -36,6 +36,7 @@ import (
 
 	"github.com/ReneKroon/ttlcache/v2"
 	bpf "github.com/aquasecurity/libbpfgo"
+	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
@@ -485,7 +486,21 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	}
 	b.logger.Info(fmt.Sprintf("Architecture found in btf map: %s", arch))
 
-	kernel := types.Kernel(toStringInt8(uname.Release))
+	release := toStringInt8(uname.Release)
+	version, err := semver.Parse(release)
+	if err != nil {
+		return "", fmt.Errorf("unable to parse semver for release %s: %w", release, err)
+	}
+	version.Pre = nil
+	const (
+		lowestMajor = 5
+		lowestMinor = 8
+	)
+	if version.LT(semver.Version{Major: lowestMajor, Minor: lowestMinor}) {
+		return "", fmt.Errorf("unsupported kernel version %s: at least Linux 5.8 is required", release)
+	}
+
+	kernel := types.Kernel(release)
 	btfBytes, ok := btfArch[kernel]
 	if !ok {
 		b.logger.Info(fmt.Sprintf("Kernel not found in btf map: %s", kernel))

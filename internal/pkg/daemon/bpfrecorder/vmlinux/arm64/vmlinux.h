@@ -1,1 +1,1 @@
-5.14.10-300.fc35.aarch64.vmlinux.h
+5.17.5-300.fc36.aarch64.vmlinux.h
