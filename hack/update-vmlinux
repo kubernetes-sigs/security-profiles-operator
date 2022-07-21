@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=35
+VERSION=36
 
 BASE_URL=https://dl.fedoraproject.org/pub/fedora/linux/releases/$VERSION
 ROOT_DIR=$(git rev-parse --show-toplevel)
@@ -22,6 +22,7 @@ for ARCH in "${!ARCHES[@]}"; do
     echo "Using kernel $KERNEL_URL"
 
     TEMPDIR=$(mktemp -d)
+    trap 'rm -rf $TEMPDIR' EXIT
     pushd "$TEMPDIR"
     RPM=kernel.rpm
     curl -SfL "$KERNEL_URL" -o $RPM

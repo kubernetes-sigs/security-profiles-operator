@@ -21,10 +21,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/blang/semver/v4"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 )
@@ -60,7 +63,9 @@ const (
 	btfDir      = baseDir + "btf"
 	docsFile    = "bpf-support.md"
 	docsHeader  = "The following Kernels are supported to run the BPF recorder " +
-		"beside those which already expose `/sys/kernel/btf/vmlinux`\n\n"
+		"beside those which already expose `/sys/kernel/btf/vmlinux`. " +
+		"Please note that at least a Linux kernel version 5.8 is required " +
+		"to use the bpf recorder.\n\n"
 )
 
 func main() {
@@ -159,6 +164,25 @@ func generateBtf(builder *strings.Builder) error {
 		osVersion := types.OsVersion(pathSplit[6])
 		arch := types.Arch(pathSplit[7])
 		kernel := types.Kernel(pathSplit[8][0 : len(pathSplit[8])-len(filepath.Ext(pathSplit[8]))])
+
+		// Kernel versions lower than 5.8 are not supported right now,
+		// so we skip them.
+		kernelString := strings.ReplaceAll(string(kernel), "_", "-") // underscore is not parsable
+		kernelVersion, err := semver.Parse(kernelString)
+		if err != nil {
+			return fmt.Errorf("parse kernel version %s: %w", kernelString, err)
+		}
+		// Ignore the pre otherwise the comparison will fail below
+		kernelVersion.Pre = nil
+
+		const (
+			lowestMajor = 5
+			lowestMinor = 8
+		)
+		if kernelVersion.LT(semver.Version{Major: lowestMajor, Minor: lowestMinor}) {
+			log.Printf("Skipping unsupported kernel %s", kernel)
+			return nil
+		}
 
 		if _, ok := btfs[os]; !ok {
 			btfs[os] = map[types.OsVersion]map[types.Arch]map[types.Kernel][]byte{}
