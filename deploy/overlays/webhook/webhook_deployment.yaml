@@ -14,11 +14,13 @@ spec:
     metadata:
       annotations:
         openshift.io/scc: privileged
-        seccomp.security.alpha.kubernetes.io/pod: runtime/default
       labels:
         name: security-profiles-operator-webhook
         app: security-profiles-operator
     spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: spo-webhook
       containers:
         - name: security-profiles-operator
@@ -50,10 +52,9 @@ spec:
               readOnly: true
       volumes:
         - name: cert
-          volumeSource: 
-            secret:
-              secretName: webhook-server-cert
-              defaultMode: 420
+          secret:
+            secretName: webhook-server-cert
+            defaultMode: 420
       tolerations:
         - key: "node-role.kubernetes.io/master"
           operator: "Exists"
