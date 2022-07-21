@@ -191,8 +191,8 @@ type CommonPrometheusFields struct {
 	// VolumeMounts specified will be appended to other VolumeMounts in the prometheus container,
 	// that are generated as a result of StorageSpec objects.
 	VolumeMounts []v1.VolumeMount `json:"volumeMounts,omitempty"`
-	// WebSpec defines the web command line flags when starting Prometheus.
-	Web *WebSpec `json:"web,omitempty"`
+	// Defines the web command line flags when starting Prometheus.
+	Web *PrometheusWebSpec `json:"web,omitempty"`
 	// Define resources requests and limits for single Pods.
 	Resources v1.ResourceRequirements `json:"resources,omitempty"`
 	// Define which Nodes the Pods are scheduled on.
@@ -279,8 +279,9 @@ type CommonPrometheusFields struct {
 	// Otherwise the HonorTimestamps field of the service or pod monitor applies.
 	OverrideHonorTimestamps bool `json:"overrideHonorTimestamps,omitempty"`
 	// IgnoreNamespaceSelectors if set to true will ignore NamespaceSelector
-	// settings from all PodMonitor, ServiceMonitor and Probe objects. They
-	// will only discover endpoints within their current namespace.
+	// settings from all PodMonitor, ServiceMonitor and Probe objects. They will
+	// only discover endpoints within the namespace of the PodMonitor,
+	// ServiceMonitor and Probe objects.
 	// Defaults to false.
 	IgnoreNamespaceSelectors bool `json:"ignoreNamespaceSelectors,omitempty"`
 	// EnforcedNamespaceLabel If set, a label will be added to
@@ -343,7 +344,6 @@ type CommonPrometheusFields struct {
 	HostAliases []HostAlias `json:"hostAliases,omitempty"`
 }
 
-// Prometheus defines a Prometheus deployment.
 // +genclient
 // +k8s:openapi-gen=true
 // +kubebuilder:resource:categories="prometheus-operator",shortName="prom"
@@ -351,6 +351,8 @@ type CommonPrometheusFields struct {
 // +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".spec.replicas",description="The desired replicas number of Prometheuses"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:subresource:status
+
+// Prometheus defines a Prometheus deployment.
 type Prometheus struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -379,10 +381,17 @@ type PrometheusList struct {
 // +kubebuilder:validation:Pattern:="(^0|([0-9]*[.])?[0-9]+((K|M|G|T|E|P)i?)?B)$"
 type ByteSize string
 
-// Duration is a valid time unit
-// Supported units: y, w, d, h, m, s, ms Examples: `30s`, `1m`, `1h20m15s`
+// Duration is a valid time duration that can be parsed by Prometheus model.ParseDuration() function.
+// Supported units: y, w, d, h, m, s, ms
+// Examples: `30s`, `1m`, `1h20m15s`, `15d`
 // +kubebuilder:validation:Pattern:="^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$"
 type Duration string
+
+// GoDuration is a valid time duration that can be parsed by Go's time.ParseDuration() function.
+// Supported units: h, m, s, ms
+// Examples: `45ms`, `30s`, `1m`, `1h20m15s`
+// +kubebuilder:validation:Pattern:="^(0|(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$"
+type GoDuration string
 
 // HostAlias holds the mapping between IP and hostnames that will be injected as an entry in the
 // pod's hosts file.
@@ -482,13 +491,16 @@ type PrometheusSpec struct {
 	// AllowOverlappingBlocks enables vertical compaction and vertical query merge in Prometheus.
 	// This is still experimental in Prometheus so it may change in any upcoming release.
 	AllowOverlappingBlocks bool `json:"allowOverlappingBlocks,omitempty"`
-	// EnforcedTargetLimit defines a global limit on the number of scraped
-	// targets.  This overrides any TargetLimit set per ServiceMonitor or/and
-	// PodMonitor.  It is meant to be used by admins to enforce the TargetLimit
-	// to keep the overall number of targets under the desired limit.
-	// Note that if TargetLimit is lower, that value will be taken instead,
-	// except if either value is zero, in which case the non-zero value will be
-	// used.  If both values are zero, no limit is enforced.
+	// Exemplars related settings that are runtime reloadable.
+	// It requires to enable the exemplar storage feature to be effective.
+	Exemplars *Exemplars `json:"exemplars,omitempty"`
+}
+
+type Exemplars struct {
+	// Maximum number of exemplars stored in memory for all series.
+	// If not set, Prometheus uses its default value.
+	// A value of zero or less than zero disables the storage.
+	MaxSize *int64 `json:"maxSize,omitempty"`
 }
 
 // PrometheusRuleExcludeConfig enables users to configure excluded PrometheusRule names and their namespaces
@@ -731,11 +743,17 @@ type QuerySpec struct {
 	Timeout *Duration `json:"timeout,omitempty"`
 }
 
-// WebSpec defines the query command line flags when starting Prometheus.
+// PrometheusWebSpec defines the query command line flags when starting Prometheus.
 // +k8s:openapi-gen=true
-type WebSpec struct {
+type PrometheusWebSpec struct {
 	// The prometheus web page title
 	PageTitle *string       `json:"pageTitle,omitempty"`
+	TLSConfig *WebTLSConfig `json:"tlsConfig,omitempty"`
+}
+
+// AlertmanagerWebSpec defines the query command line flags when starting Alertmanager.
+// +k8s:openapi-gen=true
+type AlertmanagerWebSpec struct {
 	TLSConfig *WebTLSConfig `json:"tlsConfig,omitempty"`
 }
 
@@ -1018,8 +1036,9 @@ type RelabelConfig struct {
 	//Replacement value against which a regex replace is performed if the
 	//regular expression matches. Regex capture groups are available. Default is '$1'
 	Replacement string `json:"replacement,omitempty"`
-	// Action to perform based on regex matching. Default is 'replace'
-	//+kubebuilder:validation:Enum=replace;keep;drop;hashmod;labelmap;labeldrop;labelkeep
+	//Action to perform based on regex matching. Default is 'replace'.
+	//uppercase and lowercase actions require Prometheus >= 2.36.
+	//+kubebuilder:validation:Enum=replace;Replace;keep;Keep;drop;Drop;hashmod;HashMod;labelmap;LabelMap;labeldrop;LabelDrop;labelkeep;LabelKeep;lowercase;Lowercase;uppercase;Uppercase
 	//+kubebuilder:default=replace
 	Action string `json:"action,omitempty"`
 }
@@ -1068,13 +1087,14 @@ type AlertmanagerEndpoints struct {
 	// can be "v1" or "v2".
 	APIVersion string `json:"apiVersion,omitempty"`
 	// Timeout is a per-target Alertmanager timeout when pushing alerts.
-	Timeout *string `json:"timeout,omitempty"`
+	Timeout *Duration `json:"timeout,omitempty"`
 }
 
-// ServiceMonitor defines monitoring for a set of services.
 // +genclient
 // +k8s:openapi-gen=true
 // +kubebuilder:resource:categories="prometheus-operator",shortName="smon"
+
+// ServiceMonitor defines monitoring for a set of services.
 type ServiceMonitor struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -1086,10 +1106,13 @@ type ServiceMonitor struct {
 // ServiceMonitorSpec contains specification parameters for a ServiceMonitor.
 // +k8s:openapi-gen=true
 type ServiceMonitorSpec struct {
-	// Chooses the label of the Kubernetes `Endpoints`.
-	// Its value will be used for the `job`-label's value of the created metrics.
+	// JobLabel selects the label from the associated Kubernetes service which will be used as the `job` label for all metrics.
 	//
-	// Default & fallback value: the name of the respective Kubernetes `Endpoint`.
+	// For example:
+	// If in `ServiceMonitor.spec.jobLabel: foo` and in `Service.metadata.labels.foo: bar`,
+	// then the `job="bar"` label is added to all metrics.
+	//
+	// If the value of this field is empty or if the label doesn't exist for the given Service, the `job` label of the metrics defaults to the name of the Kubernetes Service.
 	JobLabel string `json:"jobLabel,omitempty"`
 	// TargetLabels transfers labels from the Kubernetes `Service` onto the created metrics.
 	TargetLabels []string `json:"targetLabels,omitempty"`
@@ -1124,6 +1147,7 @@ type Endpoint struct {
 	// Name or number of the target port of the Pod behind the Service, the port must be specified with container port property. Mutually exclusive with port.
 	TargetPort *intstr.IntOrString `json:"targetPort,omitempty"`
 	// HTTP path to scrape for metrics.
+	// If empty, Prometheus uses the default value (e.g. `/metrics`).
 	Path string `json:"path,omitempty"`
 	// HTTP scheme to use for scraping.
 	Scheme string `json:"scheme,omitempty"`
@@ -1165,12 +1189,15 @@ type Endpoint struct {
 	ProxyURL *string `json:"proxyUrl,omitempty"`
 	// FollowRedirects configures whether scrape requests follow HTTP 3xx redirects.
 	FollowRedirects *bool `json:"followRedirects,omitempty"`
+	// Whether to enable HTTP2.
+	EnableHttp2 *bool `json:"enableHttp2,omitempty"`
 }
 
-// PodMonitor defines monitoring for a set of pods.
 // +genclient
 // +k8s:openapi-gen=true
 // +kubebuilder:resource:categories="prometheus-operator",shortName="pmon"
+
+// PodMonitor defines monitoring for a set of pods.
 type PodMonitor struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -1222,6 +1249,7 @@ type PodMetricsEndpoint struct {
 	// Deprecated: Use 'port' instead.
 	TargetPort *intstr.IntOrString `json:"targetPort,omitempty"`
 	// HTTP path to scrape for metrics.
+	// If empty, Prometheus uses the default value (e.g. `/metrics`).
 	Path string `json:"path,omitempty"`
 	// HTTP scheme to use for scraping.
 	Scheme string `json:"scheme,omitempty"`
@@ -1261,6 +1289,8 @@ type PodMetricsEndpoint struct {
 	ProxyURL *string `json:"proxyUrl,omitempty"`
 	// FollowRedirects configures whether scrape requests follow HTTP 3xx redirects.
 	FollowRedirects *bool `json:"followRedirects,omitempty"`
+	// Whether to enable HTTP2.
+	EnableHttp2 *bool `json:"enableHttp2,omitempty"`
 }
 
 // PodMetricsEndpointTLSConfig specifies TLS configuration parameters.
@@ -1269,10 +1299,11 @@ type PodMetricsEndpointTLSConfig struct {
 	SafeTLSConfig `json:",inline"`
 }
 
-// Probe defines monitoring for a set of static targets or ingresses.
 // +genclient
 // +k8s:openapi-gen=true
 // +kubebuilder:resource:categories="prometheus-operator",shortName="prb"
+
+// Probe defines monitoring for a set of static targets or ingresses.
 type Probe struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -1407,6 +1438,7 @@ type ProberSpec struct {
 	Scheme string `json:"scheme,omitempty"`
 	// Path to collect metrics from.
 	// Defaults to `/probe`.
+	// +kubebuilder:default:="/probe"
 	Path string `json:"path,omitempty"`
 	// Optional ProxyURL.
 	ProxyURL string `json:"proxyUrl,omitempty"`
@@ -1640,10 +1672,11 @@ type PrometheusRuleList struct {
 	Items []*PrometheusRule `json:"items"`
 }
 
-// PrometheusRule defines recording and alerting rules for a Prometheus instance
 // +genclient
 // +k8s:openapi-gen=true
 // +kubebuilder:resource:categories="prometheus-operator",shortName="promrule"
+
+// PrometheusRule defines recording and alerting rules for a Prometheus instance
 type PrometheusRule struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -1685,13 +1718,14 @@ type Rule struct {
 	Annotations map[string]string  `json:"annotations,omitempty"`
 }
 
-// Alertmanager describes an Alertmanager cluster.
 // +genclient
 // +k8s:openapi-gen=true
 // +kubebuilder:resource:categories="prometheus-operator",shortName="am"
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.version",description="The version of Alertmanager"
 // +kubebuilder:printcolumn:name="Replicas",type="integer",JSONPath=".spec.replicas",description="The desired replicas number of Alertmanagers"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+
+// Alertmanager describes an Alertmanager cluster.
 type Alertmanager struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -1768,7 +1802,8 @@ type AlertmanagerSpec struct {
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Time duration Alertmanager shall retain data for. Default is '120h',
 	// and must match the regular expression `[0-9]+(ms|s|m|h)` (milliseconds seconds minutes hours).
-	Retention string `json:"retention,omitempty"`
+	// +kubebuilder:default:="120h"
+	Retention GoDuration `json:"retention,omitempty"`
 	// Storage is the definition of how storage will be used by the Alertmanager
 	// instances.
 	Storage *StorageSpec `json:"storage,omitempty"`
@@ -1837,11 +1872,11 @@ type AlertmanagerSpec struct {
 	// [1] RFC1918: https://tools.ietf.org/html/rfc1918
 	ClusterAdvertiseAddress string `json:"clusterAdvertiseAddress,omitempty"`
 	// Interval between gossip attempts.
-	ClusterGossipInterval string `json:"clusterGossipInterval,omitempty"`
+	ClusterGossipInterval GoDuration `json:"clusterGossipInterval,omitempty"`
 	// Interval between pushpull attempts.
-	ClusterPushpullInterval string `json:"clusterPushpullInterval,omitempty"`
+	ClusterPushpullInterval GoDuration `json:"clusterPushpullInterval,omitempty"`
 	// Timeout for cluster peering.
-	ClusterPeerTimeout string `json:"clusterPeerTimeout,omitempty"`
+	ClusterPeerTimeout GoDuration `json:"clusterPeerTimeout,omitempty"`
 	// Port name used for the pods and governing service.
 	// This defaults to web
 	PortName string `json:"portName,omitempty"`
@@ -1863,6 +1898,8 @@ type AlertmanagerSpec struct {
 	// +listType=map
 	// +listMapKey=ip
 	HostAliases []HostAlias `json:"hostAliases,omitempty"`
+	// Defines the web command line flags when starting Alertmanager.
+	Web *AlertmanagerWebSpec `json:"web,omitempty"`
 	// EXPERIMENTAL: alertmanagerConfiguration specifies the global Alertmanager configuration.
 	// If defined, it takes precedence over the `configSecret` field.
 	// This field may change in future releases.
