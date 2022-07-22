@@ -182,9 +182,13 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	}
 
 	spodUpdate := spodNeedsUpdate(configuredSPOd, foundSPOd)
-	hookUpdate, err := webhook.NeedsUpdate(ctx, r.client)
-	if err != nil {
-		return reconcile.Result{}, fmt.Errorf("determining if webhook needs update: %w", err)
+
+	var hookUpdate bool
+	if !spod.Spec.StaticWebhookConfig {
+		hookUpdate, err = webhook.NeedsUpdate(ctx, r.client)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("determining if webhook needs update: %w", err)
+		}
 	}
 
 	if spodUpdate || hookUpdate {
