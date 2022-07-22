@@ -37,6 +37,8 @@ import (
 )
 
 const (
+	// ManageWebhookKey value key used in the Setup.Context for ManageWebhook value
+	ManageWebhookKey  string = "ManageWebhook"
 	selinuxdImageKey  string = "RELATED_IMAGE_SELINUXD"
 	rbacProxyImageKey string = "RELATED_IMAGE_RBAC_PROXY"
 )
@@ -86,6 +88,7 @@ func (r *ReconcileSPOd) Setup(
 func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
 	obj := bindata.DefaultSPOD.DeepCopy()
 	obj.Namespace = config.GetOperatorNamespace()
+	obj.Spec.StaticWebhookConfig = isStaticWebhook(ctx)
 
 	if err := r.client.Create(ctx, obj); err != nil && !k8serrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create SecurityProfilesOperatorDaemon object: %w", err)
@@ -94,7 +97,16 @@ func (r *ReconcileSPOd) createConfigIfNotExist(ctx context.Context) error {
 	return nil
 }
 
-func getTunables() (*daemonTunables, error) {
+func isStaticWebhook(ctx context.Context) bool {
+	v, ok := ctx.Value(ManageWebhookKey).(bool)
+	if ok {
+		return !v
+	}
+	// the webhook is by default managed by the operator
+	return false
+}
+
+func getTunables(ctx context.Context) (*daemonTunables, error) {
 	dt := &daemonTunables{}
 	dt.watchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
 
@@ -135,6 +147,8 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well
+
+	refSPOd.Spec.Stati
 	return refSPOd
 }
 
