@@ -36,9 +36,12 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
+// CtxKey type for spod context keys.
+type CtxKey string
+
 const (
-	// ManageWebhookKey value key used in the Setup.Context for ManageWebhook value
-	ManageWebhookKey  string = "ManageWebhook"
+	// ManageWebhookKey value key used in the Setup.Context for ManageWebhook value.
+	ManageWebhookKey  CtxKey = "ManageWebhook"
 	selinuxdImageKey  string = "RELATED_IMAGE_SELINUXD"
 	rbacProxyImageKey string = "RELATED_IMAGE_RBAC_PROXY"
 )
