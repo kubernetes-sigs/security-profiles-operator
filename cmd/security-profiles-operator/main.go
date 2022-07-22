@@ -331,7 +331,7 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	}
 
 	if err := setupEnabledControllers(
-		context.WithValue(ctx.Context, spod.ManageWebhookKey, manageWebhook()),
+		context.WithValue(ctx.Context, spod.ManageWebhookKey, manageWebhook(ctx)),
 		[]controller.Controller{
 			nodestatus.NewController(),
 			spod.NewController(),
