@@ -71,12 +71,13 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		Labels: map[string]string{"app": config.OperatorName},
 	},
 	Spec: spodv1alpha1.SPODSpec{
-		Verbosity:          0,
-		EnableProfiling:    false,
-		EnableSelinux:      nil,
-		EnableLogEnricher:  false,
-		EnableBpfRecorder:  false,
-		HostProcVolumePath: DefaultHostProcPath,
+		Verbosity:           0,
+		EnableProfiling:     false,
+		EnableSelinux:       nil,
+		EnableLogEnricher:   false,
+		EnableBpfRecorder:   false,
+		StaticWebhookConfig: false,
+		HostProcVolumePath:  DefaultHostProcPath,
 		SelinuxOpts: spodv1alpha1.SelinuxOptions{
 			AllowedSystemProfiles: []string{
 				"container",

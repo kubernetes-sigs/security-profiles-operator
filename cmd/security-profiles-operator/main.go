@@ -67,6 +67,7 @@ const (
 	selinuxFlag        string = "with-selinux"
 	apparmorFlag       string = "with-apparmor"
 	labelDenialsFlag   string = "label-denials"
+	webhookFlag        string = "webhook"
 	defaultWebhookPort int    = 9443
 )
 
@@ -121,6 +122,14 @@ func main() {
 			Action: func(ctx *cli.Context) error {
 				return runManager(ctx, info)
 			},
+			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:    webhookFlag,
+					Aliases: []string{"w"},
+					Value:   true,
+					Usage:   "the webhook k8s resources are managed by the operator(default true)",
+				},
+			},
 		},
 		&cli.Command{
 			Before:  initialize,
@@ -157,6 +166,12 @@ func main() {
 					Aliases: []string{"p"},
 					Value:   defaultWebhookPort,
 					Usage:   "the port on which to expose the webhook service (default 9443)",
+				},
+				&cli.BoolFlag{
+					Name:    "static",
+					Aliases: []string{"s"},
+					Value:   false,
+					Usage:   "the webhook k8s resources are statically managed (default false)",
 				},
 			},
 		},
@@ -270,6 +285,10 @@ func printInfo(component string, info *version.Info) {
 	)
 }
 
+func manageWebhook(ctx *cli.Context) bool {
+	return ctx.Bool(webhookFlag)
+}
+
 func runManager(ctx *cli.Context, info *version.Info) error {
 	printInfo("security-profiles-operator", info)
 	cfg, err := ctrl.GetConfig()
@@ -311,11 +330,13 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("add ServiceMonitor API to scheme: %w", err)
 	}
 
-	if err := setupEnabledControllers(ctx.Context, []controller.Controller{
-		nodestatus.NewController(),
-		spod.NewController(),
-		workloadannotator.NewController(),
-	}, mgr, nil); err != nil {
+	if err := setupEnabledControllers(
+		context.WithValue(ctx.Context, spod.ManageWebhookKey, manageWebhook()),
+		[]controller.Controller{
+			nodestatus.NewController(),
+			spod.NewController(),
+			workloadannotator.NewController(),
+		}, mgr, nil); err != nil {
 		return fmt.Errorf("enable controllers: %w", err)
 	}
 
