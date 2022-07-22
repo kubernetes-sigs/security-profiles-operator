@@ -106,7 +106,7 @@ func isStaticWebhook(ctx context.Context) bool {
 	return false
 }
 
-func getTunables(ctx context.Context) (*daemonTunables, error) {
+func getTunables() (*daemonTunables, error) {
 	dt := &daemonTunables{}
 	dt.watchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
 
@@ -148,7 +148,6 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well
 
-	refSPOd.Spec.Stati
 	return refSPOd
 }
 
