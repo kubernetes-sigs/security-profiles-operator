@@ -7,7 +7,7 @@ require (
 	github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
 	github.com/aquasecurity/libbpfgo v0.3.0-libbpf-0.8.0
 	github.com/blang/semver/v4 v4.0.0
-	github.com/cert-manager/cert-manager v1.8.2
+	github.com/cert-manager/cert-manager v1.9.0
 	github.com/containers/common v0.48.1-0.20220510094751-400832f41771
 	github.com/crossplane/crossplane-runtime v0.17.0
 	github.com/go-logr/logr v1.2.3
@@ -78,7 +78,7 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/gomarkdown/markdown v0.0.0-20210514010506-3b9f47219fe7 // indirect
 	github.com/google/btree v1.0.1 // indirect
-	github.com/google/gnostic v0.5.7-v3refs // indirect
+	github.com/google/gnostic v0.6.9 // indirect
 	github.com/google/go-cmp v0.5.8 // indirect
 	github.com/google/go-containerregistry v0.10.0 // indirect
 	github.com/google/go-github/v45 v45.2.0 // indirect
@@ -157,7 +157,7 @@ require (
 	k8s.io/kube-openapi v0.0.0-20220328201542-3ee0da9b0b42 // indirect
 	k8s.io/utils v0.0.0-20220713171938-56c0de1e6f5e // indirect
 	oras.land/oras-go v1.2.0 // indirect
-	sigs.k8s.io/gateway-api v0.4.1 // indirect
+	sigs.k8s.io/gateway-api v0.4.3 // indirect
 	sigs.k8s.io/json v0.0.0-20220713155537-f223a00ba0e2 // indirect
 	sigs.k8s.io/kustomize/api v0.11.4 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.13.6 // indirect
