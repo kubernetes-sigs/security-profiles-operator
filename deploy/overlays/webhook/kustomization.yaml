@@ -8,6 +8,7 @@ bases:
 
 patchesStrategicMerge:
   - webhook_config.yaml
+  - deployment.yaml
 
 patches:
   - target:
