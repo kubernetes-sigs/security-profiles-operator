@@ -99,7 +99,7 @@ metadata:
     capabilities: Basic Install
     olm.skipRange: '>=0.4.1 <0.4.4-dev'
     operatorframework.io/suggested-namespace: security-profiles-operator
-    operators.operatorframework.io/builder: operator-sdk-v1.16.0+git
+    operators.operatorframework.io/builder: operator-sdk-v1.22.2
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
   name: security-profiles-operator.v0.4.4-dev
   namespace: placeholder
@@ -376,7 +376,9 @@ spec:
           - update
         serviceAccountName: security-profiles-operator
       deployments:
-      - name: security-profiles-operator
+      - label:
+          app: security-profiles-operator
+        name: security-profiles-operator
         spec:
           replicas: 3
           selector:
@@ -470,4 +472,9 @@ spec:
   provider:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
+  relatedImages:
+  - image: quay.io/brancz/kube-rbac-proxy:v0.11.0
+    name: rbac-proxy
+  - image: quay.io/security-profiles-operator/selinuxd
+    name: selinuxd
   version: 0.4.4-dev
