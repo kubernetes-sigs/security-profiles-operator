@@ -48,6 +48,11 @@ const (
 	defaultWaitTime               = 15 * time.Second
 )
 
+type testCase struct {
+	description string
+	fn          func(nodes []string)
+}
+
 func (e *e2e) TestSecurityProfilesOperator() {
 	e.waitForReadyPods()
 
@@ -69,10 +74,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	// Execute the test cases. Each test case should cleanup on its own and
 	// leave a working operator behind.
 	e.logf("testing cluster-wide operator")
-	testCases := []struct {
-		description string
-		fn          func(nodes []string)
-	}{
+	testCases := []testCase{
 		{
 			"Seccomp: Verify default and example profiles",
 			e.testCaseDefaultAndExampleProfiles,
@@ -187,6 +189,14 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(manifest)
 	e.run("git", "checkout", manifest)
+
+	e.testNamespacedOperator(testCases, nodes)
+}
+
+func (e *e2e) testNamespacedOperator(testCases []testCase, nodes []string) {
+	if e.skipNamespacedTests {
+		return
+	}
 
 	e.logf("testing namespace operator")
 

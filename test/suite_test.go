@@ -50,6 +50,7 @@ var (
 	envSkipBuildImages              = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	envTestImage                    = os.Getenv("E2E_SPO_IMAGE")
 	spodConfig                      = os.Getenv("E2E_SPOD_CONFIG")
+	envSkipNamespacedTests          = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
 	envSelinuxTestsEnabled          = os.Getenv("E2E_TEST_SELINUX")
 	envLogEnricherTestsEnabled      = os.Getenv("E2E_TEST_LOG_ENRICHER")
 	envSeccompTestsEnabled          = os.Getenv("E2E_TEST_SECCOMP")
@@ -85,6 +86,7 @@ type e2e struct {
 	testProfileRecording   bool
 	labelPodDenialsEnabled bool
 	bpfRecorderEnabled     bool
+	skipNamespacedTests    bool
 	logger                 logr.Logger
 	execNode               func(node string, args ...string) string
 	waitForReadyPods       func()
@@ -147,6 +149,11 @@ func TestSuite(t *testing.T) {
 		labelPodDenialsEnabled = false
 	}
 
+	skipNamespacedTests, err := strconv.ParseBool(envSkipNamespacedTests)
+	if err != nil {
+		skipNamespacedTests = false
+	}
+
 	selinuxdImage := "quay.io/security-profiles-operator/selinuxd"
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, clusterTypeKind):
@@ -168,6 +175,7 @@ func TestSuite(t *testing.T) {
 				selinuxdImage:          selinuxdImage,
 				bpfRecorderEnabled:     bpfRecorderEnabled,
 				labelPodDenialsEnabled: labelPodDenialsEnabled,
+				skipNamespacedTests:    skipNamespacedTests,
 			},
 			"", "",
 		})
@@ -197,6 +205,7 @@ func TestSuite(t *testing.T) {
 				selinuxdImage:          selinuxdImage,
 				bpfRecorderEnabled:     bpfRecorderEnabled,
 				labelPodDenialsEnabled: labelPodDenialsEnabled,
+				skipNamespacedTests:    skipNamespacedTests,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -221,6 +230,7 @@ func TestSuite(t *testing.T) {
 				selinuxdImage:          selinuxdImage,
 				bpfRecorderEnabled:     bpfRecorderEnabled,
 				labelPodDenialsEnabled: labelPodDenialsEnabled,
+				skipNamespacedTests:    skipNamespacedTests,
 			},
 		})
 	default:
