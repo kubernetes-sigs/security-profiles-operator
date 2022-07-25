@@ -58,7 +58,7 @@ function deploy_olm() {
 function deploy_spo() {
     # cert-manager first. This should be done using dependencies in the
     # future
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.9.1/cert-manager.yaml
     kubectl -ncert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # let's roll..
