@@ -59,6 +59,7 @@ var (
 	envLabelPodDenialsEnabled       = os.Getenv("E2E_TEST_LABEL_POD_DENIALS")
 	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
 	nodeRootfsPrefix                = os.Getenv("NODE_ROOTFS_PREFIX")
+	operatorManifest                = os.Getenv("OPERATOR_MANIFEST")
 )
 
 const (
@@ -71,6 +72,10 @@ const (
 	containerRuntimeDocker = "docker"
 )
 
+const (
+	defaultManifest = "deploy/operator.yaml"
+)
+
 type e2e struct {
 	suite.Suite
 	containerRuntime       string
@@ -80,6 +85,7 @@ type e2e struct {
 	pullPolicy             string
 	spodConfig             string
 	nodeRootfsPrefix       string
+	operatorManifest       string
 	selinuxEnabled         bool
 	logEnricherEnabled     bool
 	testSeccomp            bool
@@ -154,6 +160,10 @@ func TestSuite(t *testing.T) {
 		skipNamespacedTests = false
 	}
 
+	if operatorManifest == "" {
+		operatorManifest = defaultManifest
+	}
+
 	selinuxdImage := "quay.io/security-profiles-operator/selinuxd"
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, clusterTypeKind):
@@ -176,6 +186,7 @@ func TestSuite(t *testing.T) {
 				bpfRecorderEnabled:     bpfRecorderEnabled,
 				labelPodDenialsEnabled: labelPodDenialsEnabled,
 				skipNamespacedTests:    skipNamespacedTests,
+				operatorManifest:       operatorManifest,
 			},
 			"", "",
 		})
@@ -206,6 +217,7 @@ func TestSuite(t *testing.T) {
 				bpfRecorderEnabled:     bpfRecorderEnabled,
 				labelPodDenialsEnabled: labelPodDenialsEnabled,
 				skipNamespacedTests:    skipNamespacedTests,
+				operatorManifest:       operatorManifest,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -231,6 +243,7 @@ func TestSuite(t *testing.T) {
 				bpfRecorderEnabled:     bpfRecorderEnabled,
 				labelPodDenialsEnabled: labelPodDenialsEnabled,
 				skipNamespacedTests:    skipNamespacedTests,
+				operatorManifest:       operatorManifest,
 			},
 		})
 	default:
