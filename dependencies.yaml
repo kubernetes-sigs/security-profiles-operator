@@ -32,7 +32,7 @@ dependencies:
       match: KUSTOMIZE_VERSION
 
   - name: operator-sdk
-    version: v1.17.0
+    version: v1.22.2
     refPaths:
     - path: Makefile
       match: OPERATOR_SDK_VERSION
