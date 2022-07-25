@@ -33,7 +33,6 @@ import (
 
 const (
 	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.9.1/cert-manager.yaml"
-	manifest          = "deploy/operator.yaml"
 	namespaceManifest = "deploy/namespace-operator.yaml"
 	testNamespace     = "test-ns"
 	defaultNamespace  = "default"
@@ -48,6 +47,7 @@ const (
 	defaultWaitTime               = 15 * time.Second
 )
 
+// testCase define a type for a e2e test case
 type testCase struct {
 	description string
 	fn          func(nodes []string)
@@ -60,7 +60,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.deployCertManager()
 
 	// Deploy the operator
-	e.deployOperator(manifest)
+	e.deployOperator(e.operatorManifest)
 
 	// On some distros (OCP), the SA needs to give additional
 	// roles to the workload, like the ability to use custom
@@ -187,13 +187,13 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	})
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
-	e.cleanupOperator(manifest)
-	e.run("git", "checkout", manifest)
+	e.cleanupOperator(e.operatorManifest)
+	e.run("git", "checkout", e.operatorManifest)
 
-	e.testNamespacedOperator(testCases, nodes)
+	e.testNamespacedOperator(namespaceManifest, testNamespace, testCases, nodes)
 }
 
-func (e *e2e) testNamespacedOperator(testCases []testCase, nodes []string) {
+func (e *e2e) testNamespacedOperator(manifest string, namespace string, testCases []testCase, nodes []string) {
 	if e.skipNamespacedTests {
 		return
 	}
@@ -204,11 +204,11 @@ func (e *e2e) testNamespacedOperator(testCases []testCase, nodes []string) {
 	testCases[5].fn = e.testCaseReDeployNamespaceOperator
 
 	// Deploy the namespace operator
-	e.kubectl("create", "namespace", testNamespace)
-	e.updateManifest(namespaceManifest, "NS_REPLACE", testNamespace)
+	e.kubectl("create", "namespace", namespace)
+	e.updateManifest(manifest, "NS_REPLACE", namespace)
 	// All following operations such as create pod will be in the test namespace
-	e.kubectl("config", "set-context", "--current", "--namespace", testNamespace)
-	e.deployOperator(namespaceManifest)
+	e.kubectl("config", "set-context", "--current", "--namespace", namespace)
+	e.deployOperator(manifest)
 
 	for _, testCase := range testCases {
 		tc := testCase
@@ -216,7 +216,7 @@ func (e *e2e) testNamespacedOperator(testCases []testCase, nodes []string) {
 			tc.fn(nodes)
 		})
 	}
-	e.run("git", "checkout", namespaceManifest)
+	e.run("git", "checkout", manifest)
 }
 
 func doDeployCertManager(e *e2e) {
