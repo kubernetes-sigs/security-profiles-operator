@@ -96,7 +96,7 @@ dependencies:
       match: fedora
 
   - name: e2e-ubuntu
-    version: ubuntu2110
+    version: ubuntu2204
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
       match: config.vm.box
