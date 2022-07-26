@@ -57,6 +57,7 @@ var (
 	envProfileRecordingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_RECORDING")
 	envBpfRecorderTestsEnabled      = os.Getenv("E2E_TEST_BPF_RECORDER")
 	envLabelPodDenialsEnabled       = os.Getenv("E2E_TEST_LABEL_POD_DENIALS")
+	envWebhookConfigTestsEnabled    = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
 	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
 	nodeRootfsPrefix                = os.Getenv("NODE_ROOTFS_PREFIX")
 	operatorManifest                = os.Getenv("OPERATOR_MANIFEST")
@@ -93,6 +94,7 @@ type e2e struct {
 	labelPodDenialsEnabled bool
 	bpfRecorderEnabled     bool
 	skipNamespacedTests    bool
+	testWebhookConfig      bool
 	logger                 logr.Logger
 	execNode               func(node string, args ...string) string
 	waitForReadyPods       func()
@@ -160,6 +162,11 @@ func TestSuite(t *testing.T) {
 		skipNamespacedTests = false
 	}
 
+	testWebhookConfig, err := strconv.ParseBool(envWebhookConfigTestsEnabled)
+	if err != nil {
+		testWebhookConfig = true
+	}
+
 	if operatorManifest == "" {
 		operatorManifest = defaultManifest
 	}
@@ -187,6 +194,7 @@ func TestSuite(t *testing.T) {
 				labelPodDenialsEnabled: labelPodDenialsEnabled,
 				skipNamespacedTests:    skipNamespacedTests,
 				operatorManifest:       operatorManifest,
+				testWebhookConfig:      testWebhookConfig,
 			},
 			"", "",
 		})
@@ -218,6 +226,7 @@ func TestSuite(t *testing.T) {
 				labelPodDenialsEnabled: labelPodDenialsEnabled,
 				skipNamespacedTests:    skipNamespacedTests,
 				operatorManifest:       operatorManifest,
+				testWebhookConfig:      testWebhookConfig,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -244,6 +253,7 @@ func TestSuite(t *testing.T) {
 				labelPodDenialsEnabled: labelPodDenialsEnabled,
 				skipNamespacedTests:    skipNamespacedTests,
 				operatorManifest:       operatorManifest,
+				testWebhookConfig:      testWebhookConfig,
 			},
 		})
 	default:

@@ -24,6 +24,9 @@ import (
 const whNamespaceSelector = `{"matchExpressions":[{"key":"prod","operator":"In","values":["true"]}]}`
 
 func (e *e2e) testCaseWebhookOptionsChange([]string) {
+	if !e.testWebhookConfig {
+		e.T().Skip("Skipping webhook config related tests")
+	}
 	e.logf("Change webhook options")
 	origOutput0 := e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
