@@ -7,7 +7,7 @@ require (
 	github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
 	github.com/aquasecurity/libbpfgo v0.3.0-libbpf-0.8.0
 	github.com/blang/semver/v4 v4.0.0
-	github.com/cert-manager/cert-manager v1.9.0
+	github.com/cert-manager/cert-manager v1.9.1
 	github.com/containers/common v0.48.1-0.20220510094751-400832f41771
 	github.com/crossplane/crossplane-runtime v0.17.0
 	github.com/go-logr/logr v1.2.3
