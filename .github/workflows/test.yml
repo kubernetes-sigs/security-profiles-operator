@@ -133,41 +133,41 @@ jobs:
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-ubuntu.sh
 
-  e2e-flatcar:
-    needs: image
+  #e2e-flatcar:
+  #  needs: image
 
-    # runs-on not set to macos-11 as vagrant currently not available and stable on macos BigSur
-    # https://github.com/actions/virtual-environments/issues/2999
-    runs-on: macos-10.15
-    timeout-minutes: 90
-    env:
-      RUN: ./hack/ci/run-flatcar.sh
-    steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
-      - name: Vagrant box version
-        id: vagrant-box
-        run: |
-          echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
-        shell: bash
-      - uses: actions/cache@0865c47f36e68161719c5b124609996bb5c40129
-        with:
-          path: |
-            ~/.vagrant.d/boxes
-          key: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
-          restore-keys: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-
-      - name: Upgrade vagrant box
-        run: |
-          ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
-          vagrant box update
-      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
-        with:
-          name: image
-          path: .
-      - name: Boot Virtual Machine
-        run: make vagrant-up-flatcar
-      - name: Show environment information
-        run: |
-          $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
-          $RUN kubectl get nodes -o wide
-      - name: Run E2E tests
-        run: $RUN hack/ci/e2e-flatcar-dev-container.sh
+  #  # runs-on not set to macos-11 as vagrant currently not available and stable on macos BigSur
+  #  # https://github.com/actions/virtual-environments/issues/2999
+  #  runs-on: macos-10.15
+  #  timeout-minutes: 90
+  #  env:
+  #    RUN: ./hack/ci/run-flatcar.sh
+  #  steps:
+  #    - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+  #    - name: Vagrant box version
+  #      id: vagrant-box
+  #      run: |
+  #        echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
+  #      shell: bash
+  #    - uses: actions/cache@0865c47f36e68161719c5b124609996bb5c40129
+  #      with:
+  #        path: |
+  #          ~/.vagrant.d/boxes
+  #        key: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
+  #        restore-keys: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-
+  #    - name: Upgrade vagrant box
+  #      run: |
+  #        ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
+  #        vagrant box update
+  #    - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
+  #      with:
+  #        name: image
+  #        path: .
+  #    - name: Boot Virtual Machine
+  #      run: make vagrant-up-flatcar
+  #    - name: Show environment information
+  #      run: |
+  #        $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
+  #        $RUN kubectl get nodes -o wide
+  #    - name: Run E2E tests
+  #      run: $RUN hack/ci/e2e-flatcar-dev-container.sh
