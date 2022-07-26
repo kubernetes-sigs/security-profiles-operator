@@ -20,10 +20,10 @@ func (e *e2e) testCaseReDeployOperator([]string) {
 	e.seccompOnlyTestCase()
 
 	// Clean up the operator
-	e.cleanupOperator(manifest)
+	e.cleanupOperator(e.operatorManifest)
 
 	// Deploy the operator again
-	e.deployOperator(manifest)
+	e.deployOperator(e.operatorManifest)
 }
 
 func (e *e2e) testCaseReDeployNamespaceOperator([]string) {
