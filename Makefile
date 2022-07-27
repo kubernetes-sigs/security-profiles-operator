@@ -474,10 +474,6 @@ bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then
 	git restore deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
 	cp deploy/bundle-test-config.yaml ./bundle/tests/scorecard/config.yaml
-	# For some reason, the profile CM is not added automatically to the
-	# bundle, but in general bundles can contain CMs, so let's add it
-	# manually
-	python hack/extract-cm.py $(BUNDLE_OPERATOR_MANIFEST) configMap security-profiles-operator-profile > ./bundle/manifests/security-profiles-operator-profile_v1_configmap.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle
 
 .PHONY: bundle-build
