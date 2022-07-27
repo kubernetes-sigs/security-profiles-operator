@@ -388,8 +388,6 @@ spec:
           strategy: {}
           template:
             metadata:
-              annotations:
-                seccomp.security.alpha.kubernetes.io/pod: runtime/default
               labels:
                 app: security-profiles-operator
                 name: security-profiles-operator
@@ -418,6 +416,9 @@ spec:
                 securityContext:
                   allowPrivilegeEscalation: false
                   readOnlyRootFilesystem: true
+              securityContext:
+                seccompProfile:
+                  type: RuntimeDefault
               serviceAccountName: security-profiles-operator
               tolerations:
               - effect: NoSchedule
