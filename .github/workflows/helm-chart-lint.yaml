@@ -1,10 +1,24 @@
-name: Lint and test helm charts
+name: helm-chart-lint
 
 on:
   push:
     branches:
       - main
   pull_request:
+
+permissions:
+  actions: none
+  checks: none
+  contents: none
+  deployments: none
+  id-token: none
+  issues: none
+  discussions: none
+  packages: none
+  pull-requests: none
+  repository-projects: none
+  security-events: none
+  statuses: none
 
 jobs:
   lint-test:
