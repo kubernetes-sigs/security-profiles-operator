@@ -1,86 +1,135 @@
 apiVersion: v1
 data:
-  security-profiles-operator.json: "{\n  \"defaultAction\": \"SCMP_ACT_ERRNO\",\n\
-    \  \"architectures\": [\"SCMP_ARCH_X86_64\", \"SCMP_ARCH_X86\", \"SCMP_ARCH_X32\"\
-    ],\n  \"syscalls\": [\n    {\n      \"names\": [\n        \"accept4\",\n     \
-    \   \"arch_prctl\",\n        \"bind\",\n        \"brk\",\n        \"capget\",\n\
-    \        \"capset\",\n        \"clone\",\n        \"clone3\",\n        \"close\"\
-    ,\n        \"connect\",\n        \"chdir\",\n        \"epoll_create1\",\n    \
-    \    \"epoll_ctl\",\n        \"epoll_pwait\",\n        \"epoll_wait\",\n     \
-    \   \"execve\",\n        \"exit\",\n        \"exit_group\",\n        \"fcntl\"\
-    ,\n        \"fchown\",\n        \"fstat\",\n        \"fstatfs\",\n        \"futex\"\
-    ,\n        \"getcwd\",\n        \"getdents64\",\n        \"getgid\",\n       \
-    \ \"getpeername\",\n        \"getpgrp\",\n        \"getpid\",\n        \"getppid\"\
-    ,\n        \"getrandom\",\n        \"getsockname\",\n        \"getsockopt\",\n\
-    \        \"gettid\",\n        \"getuid\",\n        \"inotify_add_watch\",\n  \
-    \      \"inotify_init1\",\n        \"listen\",\n        \"madvise\",\n       \
-    \ \"membarrier\",\n        \"mkdirat\",\n        \"mlock\",\n        \"mmap\"\
-    ,\n        \"mprotect\",\n        \"nanosleep\",\n        \"newfstatat\",\n  \
-    \      \"open\",\n        \"openat\",\n        \"pipe2\",\n        \"pread64\"\
-    ,\n        \"prctl\",\n        \"read\",\n        \"readlinkat\",\n        \"\
-    rt_sigaction\",\n        \"rt_sigprocmask\",\n        \"rt_sigreturn\",\n    \
-    \    \"sched_getaffinity\",\n        \"sched_yield\",\n        \"setgid\",\n \
-    \       \"setgroups\",\n        \"setsockopt\",\n        \"set_tid_address\",\n\
-    \        \"setuid\",\n        \"sigaltstack\",\n        \"socket\",\n        \"\
-    tgkill\",\n        \"uname\",\n        \"unlinkat\",\n        \"write\"\n    \
-    \  ],\n      \"action\": \"SCMP_ACT_ALLOW\"\n    }\n  ]\n}\n"
-  selinuxd.cil: "(block selinuxd\n    (blockinherit container)\n    (allow process\
-    \ process ( capability ( dac_override dac_read_search lease audit_write audit_control\
-    \ )))\n\n    (allow process default_context_t ( dir ( add_name create getattr\
-    \ ioctl lock open read remove_name rmdir search setattr write )))\n    (allow\
-    \ process default_context_t ( fifo_file ( getattr read write append ioctl lock\
-    \ open )))\n    (allow process default_context_t ( file ( append create getattr\
-    \ ioctl lock map open read rename setattr unlink write )))\n    (allow process\
-    \ default_context_t ( sock_file ( append getattr open read write )))\n    (allow\
-    \ process etc_t ( dir ( add_name create getattr ioctl lock open read remove_name\
-    \ rmdir search setattr write watch )))\n    (allow process etc_t ( fifo_file (\
-    \ getattr read write append ioctl lock open )))\n    (allow process etc_t ( file\
-    \ ( append create getattr ioctl lock map open read rename setattr unlink write\
-    \ )))\n    (allow process etc_t ( sock_file ( append getattr open read write )))\n\
-    \    (allow process file_context_t ( dir ( add_name create getattr ioctl lock\
-    \ open read remove_name rmdir search setattr write )))\n    (allow process file_context_t\
-    \ ( fifo_file ( getattr read write append ioctl lock open )))\n    (allow process\
-    \ file_context_t ( file ( append create getattr ioctl lock map open read rename\
-    \ setattr unlink write )))\n    (allow process file_context_t ( sock_file ( append\
-    \ getattr open read write )))\n    (allow process security_t ( file ( append create\
-    \ getattr ioctl lock map open read rename setattr unlink write )))\n    (allow\
-    \ process security_t ( security ( load_policy )))\n    (allow process selinux_config_t\
-    \ ( dir ( add_name create getattr ioctl lock open read remove_name rename rmdir\
-    \ search setattr write )))\n    (allow process selinux_config_t ( fifo_file (\
-    \ getattr read write append ioctl lock open )))\n    (allow process selinux_config_t\
-    \ ( file ( append create getattr ioctl lock map open read rename setattr unlink\
-    \ write )))\n    (allow process selinux_config_t ( sock_file ( append getattr\
-    \ open read write )))\n    (allow process selinux_login_config_t ( dir ( add_name\
-    \ create getattr ioctl lock open read remove_name rmdir search setattr write )))\n\
-    \    (allow process selinux_login_config_t ( fifo_file ( getattr read write append\
-    \ ioctl lock open )))\n    (allow process selinux_login_config_t ( file ( append\
-    \ create getattr ioctl lock map open read rename setattr unlink write )))\n  \
-    \  (allow process selinux_login_config_t ( sock_file ( append getattr open read\
-    \ write )))\n    (allow process semanage_read_lock_t ( dir ( add_name create getattr\
-    \ ioctl lock open read remove_name rmdir search setattr write )))\n    (allow\
-    \ process semanage_read_lock_t ( fifo_file ( getattr read write append ioctl lock\
-    \ open )))\n    (allow process semanage_read_lock_t ( file ( append create getattr\
-    \ ioctl lock map open read rename setattr unlink write )))\n    (allow process\
-    \ semanage_read_lock_t ( sock_file ( append getattr open read write )))\n    (allow\
-    \ process semanage_store_t ( dir ( add_name create getattr ioctl lock open read\
-    \ rename remove_name rmdir search setattr write )))\n    (allow process semanage_store_t\
-    \ ( fifo_file ( getattr read write append ioctl lock open )))\n    (allow process\
-    \ semanage_store_t ( file ( append create getattr ioctl lock map open read rename\
-    \ setattr unlink write )))\n    (allow process semanage_store_t ( sock_file (\
-    \ append getattr open read write )))\n    (allow process semanage_trans_lock_t\
-    \ ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search\
-    \ setattr write )))\n    (allow process semanage_trans_lock_t ( fifo_file ( getattr\
-    \ read write append ioctl lock open )))\n    (allow process semanage_trans_lock_t\
-    \ ( file ( append create getattr ioctl lock map open read rename setattr unlink\
-    \ write )))\n    (allow process semanage_trans_lock_t ( sock_file ( append getattr\
-    \ open read write )))\n    (allow process sysfs_t ( dir ( add_name create getattr\
-    \ ioctl lock open read remove_name rmdir search setattr write )))\n    (allow\
-    \ process sysfs_t ( fifo_file ( getattr read write append ioctl lock open )))\n\
-    \    (allow process sysfs_t ( file ( append create getattr ioctl lock map open\
-    \ read rename setattr unlink write )))\n    (allow process sysfs_t ( sock_file\
-    \ ( append getattr open read write )))\n)\n"
-  selinuxrecording.cil: "(block selinuxrecording\n  (blockinherit container)\n  (typepermissive\
-    \ process)\n)\n"
+  security-profiles-operator.json: |
+    {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32"],
+      "syscalls": [
+        {
+          "names": [
+            "accept4",
+            "arch_prctl",
+            "bind",
+            "brk",
+            "capget",
+            "capset",
+            "clone",
+            "clone3",
+            "close",
+            "connect",
+            "chdir",
+            "epoll_create1",
+            "epoll_ctl",
+            "epoll_pwait",
+            "epoll_wait",
+            "execve",
+            "exit",
+            "exit_group",
+            "fcntl",
+            "fchown",
+            "fstat",
+            "fstatfs",
+            "futex",
+            "getcwd",
+            "getdents64",
+            "getgid",
+            "getpeername",
+            "getpgrp",
+            "getpid",
+            "getppid",
+            "getrandom",
+            "getsockname",
+            "getsockopt",
+            "gettid",
+            "getuid",
+            "inotify_add_watch",
+            "inotify_init1",
+            "listen",
+            "madvise",
+            "membarrier",
+            "mkdirat",
+            "mlock",
+            "mmap",
+            "mprotect",
+            "nanosleep",
+            "newfstatat",
+            "open",
+            "openat",
+            "pipe2",
+            "pread64",
+            "prctl",
+            "read",
+            "readlinkat",
+            "rt_sigaction",
+            "rt_sigprocmask",
+            "rt_sigreturn",
+            "sched_getaffinity",
+            "sched_yield",
+            "setgid",
+            "setgroups",
+            "setsockopt",
+            "set_tid_address",
+            "setuid",
+            "sigaltstack",
+            "socket",
+            "tgkill",
+            "uname",
+            "unlinkat",
+            "write"
+          ],
+          "action": "SCMP_ACT_ALLOW"
+        }
+      ]
+    }
+  selinuxd.cil: |
+    (block selinuxd
+        (blockinherit container)
+        (allow process process ( capability ( dac_override dac_read_search lease audit_write audit_control )))
+
+        (allow process default_context_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+        (allow process default_context_t ( fifo_file ( getattr read write append ioctl lock open )))
+        (allow process default_context_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process default_context_t ( sock_file ( append getattr open read write )))
+        (allow process etc_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write watch )))
+        (allow process etc_t ( fifo_file ( getattr read write append ioctl lock open )))
+        (allow process etc_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process etc_t ( sock_file ( append getattr open read write )))
+        (allow process file_context_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+        (allow process file_context_t ( fifo_file ( getattr read write append ioctl lock open )))
+        (allow process file_context_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process file_context_t ( sock_file ( append getattr open read write )))
+        (allow process security_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process security_t ( security ( load_policy )))
+        (allow process selinux_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rename rmdir search setattr write )))
+        (allow process selinux_config_t ( fifo_file ( getattr read write append ioctl lock open )))
+        (allow process selinux_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process selinux_config_t ( sock_file ( append getattr open read write )))
+        (allow process selinux_login_config_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+        (allow process selinux_login_config_t ( fifo_file ( getattr read write append ioctl lock open )))
+        (allow process selinux_login_config_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process selinux_login_config_t ( sock_file ( append getattr open read write )))
+        (allow process semanage_read_lock_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+        (allow process semanage_read_lock_t ( fifo_file ( getattr read write append ioctl lock open )))
+        (allow process semanage_read_lock_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process semanage_read_lock_t ( sock_file ( append getattr open read write )))
+        (allow process semanage_store_t ( dir ( add_name create getattr ioctl lock open read rename remove_name rmdir search setattr write )))
+        (allow process semanage_store_t ( fifo_file ( getattr read write append ioctl lock open )))
+        (allow process semanage_store_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process semanage_store_t ( sock_file ( append getattr open read write )))
+        (allow process semanage_trans_lock_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+        (allow process semanage_trans_lock_t ( fifo_file ( getattr read write append ioctl lock open )))
+        (allow process semanage_trans_lock_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process semanage_trans_lock_t ( sock_file ( append getattr open read write )))
+        (allow process sysfs_t ( dir ( add_name create getattr ioctl lock open read remove_name rmdir search setattr write )))
+        (allow process sysfs_t ( fifo_file ( getattr read write append ioctl lock open )))
+        (allow process sysfs_t ( file ( append create getattr ioctl lock map open read rename setattr unlink write )))
+        (allow process sysfs_t ( sock_file ( append getattr open read write )))
+    )
+  selinuxrecording.cil: |
+    (block selinuxrecording
+      (blockinherit container)
+      (typepermissive process)
+    )
 kind: ConfigMap
 metadata:
   labels:
