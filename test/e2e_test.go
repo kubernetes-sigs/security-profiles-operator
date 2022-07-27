@@ -47,7 +47,7 @@ const (
 	defaultWaitTime               = 15 * time.Second
 )
 
-// testCase define a type for a e2e test case
+// testCase define a type for a e2e test case.
 type testCase struct {
 	description string
 	fn          func(nodes []string)
@@ -193,7 +193,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.testNamespacedOperator(namespaceManifest, testNamespace, testCases, nodes)
 }
 
-func (e *e2e) testNamespacedOperator(manifest string, namespace string, testCases []testCase, nodes []string) {
+func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []testCase, nodes []string) {
 	if e.skipNamespacedTests {
 		return
 	}
