@@ -68,9 +68,7 @@ jobs:
   e2e-fedora:
     needs: image
 
-    # runs-on not set to macos-11 as vagrant currently not available and stable on macos BigSur
-    # https://github.com/actions/virtual-environments/issues/2999
-    runs-on: macos-10.15
+    runs-on: macos-12
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-fedora.sh
@@ -103,9 +101,7 @@ jobs:
   e2e-ubuntu:
     needs: image
 
-    # runs-on not set to macos-11 as vagrant currently not available and stable on macos BigSur
-    # https://github.com/actions/virtual-environments/issues/2999
-    runs-on: macos-10.15
+    runs-on: macos-12
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
@@ -136,9 +132,7 @@ jobs:
   #e2e-flatcar:
   #  needs: image
 
-  #  # runs-on not set to macos-11 as vagrant currently not available and stable on macos BigSur
-  #  # https://github.com/actions/virtual-environments/issues/2999
-  #  runs-on: macos-10.15
+  #  runs-on: macos-12
   #  timeout-minutes: 90
   #  env:
   #    RUN: ./hack/ci/run-flatcar.sh
