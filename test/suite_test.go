@@ -95,6 +95,7 @@ type e2e struct {
 	bpfRecorderEnabled     bool
 	skipNamespacedTests    bool
 	testWebhookConfig      bool
+	singleNodeEnvironment  bool
 	logger                 logr.Logger
 	execNode               func(node string, args ...string) string
 	waitForReadyPods       func()
@@ -254,6 +255,9 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests:    skipNamespacedTests,
 				operatorManifest:       operatorManifest,
 				testWebhookConfig:      testWebhookConfig,
+				// NOTE(jaosorior): Our current vanilla jobs are
+				// single-node only.
+				singleNodeEnvironment: true,
 			},
 		})
 	default:
@@ -688,6 +692,12 @@ func (e *e2e) bpfRecorderOnlyTestCase() {
 	}
 
 	e.enableBpfRecorderInSpod()
+}
+
+func (e *e2e) singleNodeTestCase() {
+	if !e.singleNodeEnvironment {
+		e.T().Skip("Skipping test because we're in a multi-node environment.")
+	}
 }
 
 func (e *e2e) enableBpfRecorderInSpod() {
