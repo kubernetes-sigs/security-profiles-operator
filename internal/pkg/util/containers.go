@@ -25,7 +25,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/ReneKroon/ttlcache/v2"
+	"github.com/jellydator/ttlcache/v3"
 )
 
 var (
@@ -44,16 +44,11 @@ var (
 
 // ContainerIDForPID tries to find the 64 digit container ID for the provided
 // PID by using its cgroup. It supports caching via the cache argument.
-func ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
+func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error) {
 	// Check the cache first
-	if id, err := cache.Get(
-		strconv.Itoa(pid),
-	); !errors.Is(err, ttlcache.ErrNotFound) {
-		idString, ok := id.(string)
-		if !ok {
-			return "", errors.New("id is not a string")
-		}
-		return idString, nil
+	item := cache.Get(strconv.Itoa(pid))
+	if item != nil {
+		return item.Value(), nil
 	}
 
 	cgroupPath := fmt.Sprintf("/proc/%d/cgroup", pid)
@@ -76,12 +71,7 @@ func ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
 
 		if containerID := ContainerIDRegex.FindString(text); containerID != "" {
 			// Update the cache
-			if err := cache.Set(
-				strconv.Itoa(pid), containerID,
-			); err != nil {
-				return "", fmt.Errorf("update cache: %w", err)
-			}
-
+			cache.Set(strconv.Itoa(pid), containerID, ttlcache.DefaultTTL)
 			return containerID, nil
 		}
 	}

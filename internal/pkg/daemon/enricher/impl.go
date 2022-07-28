@@ -20,9 +20,8 @@ import (
 	"context"
 	"net"
 	"os"
-	"time"
 
-	"github.com/ReneKroon/ttlcache/v2"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -31,6 +30,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -40,14 +40,13 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 //counterfeiter:generate . impl
 type impl interface {
-	SetTTL(cache *ttlcache.Cache, ttl time.Duration) error
 	Getenv(key string) string
 	Dial() (*grpc.ClientConn, context.CancelFunc, error)
 	Close(*grpc.ClientConn) error
 	TailFile(filename string, config tail.Config) (*tail.Tail, error)
 	Lines(tailFile *tail.Tail) chan *tail.Line
 	Reason(tailFile *tail.Tail) error
-	ContainerIDForPID(cache *ttlcache.Cache, pid int) (string, error)
+	ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error)
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(c *rest.Config) (*kubernetes.Clientset, error)
 	ListPods(ctx context.Context, c kubernetes.Interface, nodeName string) (*v1.PodList, error)
@@ -56,16 +55,12 @@ type impl interface {
 	SendMetric(client api.Metrics_AuditIncClient, in *api.AuditRequest) error
 	Listen(string, string) (net.Listener, error)
 	Serve(*grpc.Server, net.Listener) error
-	AddToBacklog(cache *ttlcache.Cache, key string, data interface{}) error
-	GetFromBacklog(cache *ttlcache.Cache, key string) (interface{}, error)
-	FlushBacklog(cache *ttlcache.Cache, key string) error
+	AddToBacklog(cache *ttlcache.Cache[string, []*types.AuditLine], key string, value []*types.AuditLine)
+	GetFromBacklog(cache *ttlcache.Cache[string, []*types.AuditLine], key string) []*types.AuditLine
+	FlushBacklog(cache *ttlcache.Cache[string, []*types.AuditLine], key string)
 	Chown(string, int, int) error
 	Stat(string) (os.FileInfo, error)
 	RemoveAll(string) error
-}
-
-func (d *defaultImpl) SetTTL(cache *ttlcache.Cache, ttl time.Duration) error {
-	return cache.SetTTL(ttl)
 }
 
 func (d *defaultImpl) Getenv(key string) string {
@@ -94,7 +89,7 @@ func (d *defaultImpl) Reason(tailFile *tail.Tail) error {
 	return tailFile.Err()
 }
 
-func (d *defaultImpl) ContainerIDForPID(cache *ttlcache.Cache, pid int) (string, error) {
+func (d *defaultImpl) ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error) {
 	return util.ContainerIDForPID(cache, pid)
 }
 
@@ -138,21 +133,25 @@ func (d *defaultImpl) AuditInc(
 }
 
 func (d *defaultImpl) AddToBacklog(
-	cache *ttlcache.Cache, key string, value interface{},
-) error {
-	return cache.Set(key, value)
+	cache *ttlcache.Cache[string, []*types.AuditLine], key string, value []*types.AuditLine,
+) {
+	cache.Set(key, value, ttlcache.DefaultTTL)
 }
 
 func (d *defaultImpl) GetFromBacklog(
-	cache *ttlcache.Cache, key string,
-) (interface{}, error) {
-	return cache.Get(key)
+	cache *ttlcache.Cache[string, []*types.AuditLine], key string,
+) []*types.AuditLine {
+	item := cache.Get(key)
+	if item == nil {
+		return nil
+	}
+	return item.Value()
 }
 
 func (d *defaultImpl) FlushBacklog(
-	cache *ttlcache.Cache, key string,
-) error {
-	return cache.Remove(key)
+	cache *ttlcache.Cache[string, []*types.AuditLine], key string,
+) {
+	cache.Delete(key)
 }
 
 func (d *defaultImpl) SendMetric(

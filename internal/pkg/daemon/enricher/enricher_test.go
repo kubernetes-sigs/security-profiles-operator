@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/enricherfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 const (
@@ -106,15 +107,6 @@ func TestRun(t *testing.T) {
 				require.Equal(t, 0, mock.AddToBacklogCallCount())
 
 				require.Nil(t, err)
-			},
-		},
-		{ // failure on SetTTL
-			runAsync: false,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
-				mock.SetTTLReturns(errTest)
-			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NotNil(t, err)
 			},
 		},
 		{ // failure on Getenv
@@ -299,19 +291,19 @@ func TestRun(t *testing.T) {
 
 				// add something to the mock backlog
 				mock.GetFromBacklogReturns(
-					[]*auditLine{
+					[]*types.AuditLine{
 						{
-							auditType:    "selinux",
-							timestampID:  "1613173578.156:2945",
-							systemCallID: 0,
-							processID:    75593,
-							executable:   "",
-							perm:         "read",
-							scontext:     "system_u:system_r:container_t:s0:c4,c808",
-							tcontext:     "system_u:object_r:var_lib_t:s0",
-							tclass:       "lnk_file",
+							AuditType:    "selinux",
+							TimestampID:  "1613173578.156:2945",
+							SystemCallID: 0,
+							ProcessID:    75593,
+							Executable:   "",
+							Perm:         "read",
+							Scontext:     "system_u:system_r:container_t:s0:c4,c808",
+							Tcontext:     "system_u:object_r:var_lib_t:s0",
+							Tclass:       "lnk_file",
 						},
-					}, nil,
+					},
 				)
 
 				for mock.GetFromBacklogCallCount() != 1 {

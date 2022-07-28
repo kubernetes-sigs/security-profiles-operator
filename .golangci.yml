@@ -37,7 +37,7 @@ linters:
     - gochecknoinits
     - gocognit
     - goconst
-    - gocritic
+    # - gocritic # TODO: re-enable when it supports go 1.18 and generics
     - gocyclo
     - godot
     - godox
