@@ -625,6 +625,12 @@ spec:
                 description: If specified, the SELinux type tag applied to the security
                   context of SPOD.
                 type: string
+              staticWebhookConfig:
+                description: StaticWebhookConfig indicates whether the webhook configuration
+                  and its related resources are statically deployed. In this case,
+                  the operator will not create or update the webhook configuration
+                  and its related resources.
+                type: boolean
               tolerations:
                 description: If specified, the SPOD's tolerations.
                 items:
