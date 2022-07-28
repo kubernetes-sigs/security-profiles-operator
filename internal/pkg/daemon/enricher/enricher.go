@@ -25,8 +25,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/go-logr/logr"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -38,6 +38,7 @@ import (
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -49,7 +50,7 @@ const (
 
 	defaultTimeout time.Duration = time.Minute
 	maxMsgSize     int           = 16 * 1024 * 1024
-	maxCacheItems  int           = 1000
+	maxCacheItems  uint64        = 1000
 )
 
 // Enricher is the main structure of this package.
@@ -57,11 +58,11 @@ type Enricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl             impl
 	logger           logr.Logger
-	containerIDCache *ttlcache.Cache
-	infoCache        *ttlcache.Cache
+	containerIDCache *ttlcache.Cache[string, string]
+	infoCache        *ttlcache.Cache[string, *types.ContainerInfo]
 	syscalls         sync.Map
 	avcs             sync.Map
-	auditLineCache   *ttlcache.Cache
+	auditLineCache   *ttlcache.Cache[string, []*types.AuditLine]
 	clientset        kubernetes.Interface
 	labelDenials     bool
 }
@@ -85,15 +86,28 @@ func New(logger logr.Logger, labelDenials bool, impls ...impl) (*Enricher, error
 	}
 
 	return &Enricher{
-		impl:             effectiveimpl,
-		logger:           logger,
-		containerIDCache: ttlcache.NewCache(),
-		infoCache:        ttlcache.NewCache(),
-		syscalls:         sync.Map{},
-		avcs:             sync.Map{},
-		auditLineCache:   ttlcache.NewCache(),
-		labelDenials:     labelDenials,
-		clientset:        clientset,
+		impl:   effectiveimpl,
+		logger: logger,
+		containerIDCache: ttlcache.New(
+			ttlcache.WithTTL[string, string](defaultCacheTimeout),
+			ttlcache.WithCapacity[string, string](maxCacheItems),
+		),
+		infoCache: ttlcache.New(
+			ttlcache.WithTTL[string, *types.ContainerInfo](defaultCacheTimeout),
+			ttlcache.WithCapacity[string, *types.ContainerInfo](maxCacheItems),
+		),
+		syscalls: sync.Map{},
+		avcs:     sync.Map{},
+		auditLineCache: ttlcache.New(
+			ttlcache.WithTTL[string, []*types.AuditLine](defaultCacheTimeout),
+			ttlcache.WithCapacity[string, []*types.AuditLine](maxCacheItems),
+			// For the audit line cache we don't want to increase the TTL on
+			// Get calls because we want the TTLs just to quietly expire
+			// if/when the cache is full.
+			ttlcache.WithDisableTouchOnHit[string, []*types.AuditLine](),
+		),
+		labelDenials: labelDenials,
+		clientset:    clientset,
 	}, nil
 }
 
@@ -105,22 +119,9 @@ func (e *Enricher) Run() error {
 	}
 
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
-	for _, cache := range []*ttlcache.Cache{
-		e.containerIDCache,
-		e.infoCache,
-		e.auditLineCache,
-	} {
-		if err := e.impl.SetTTL(cache, defaultCacheTimeout); err != nil {
-			return fmt.Errorf("set cache timeout: %w", err)
-		}
-		cache.SetCacheSizeLimit(maxCacheItems)
-		defer cache.Close() // nolint:gocritic // this is intentional
-	}
-
-	// For the audit line cache we don't want to increase the TTL on Gets
-	// because we want the TTLs just to quietly expire if/when the cache
-	// is full
-	e.auditLineCache.SkipTTLExtensionOnHit(true)
+	go e.containerIDCache.Start()
+	go e.infoCache.Start()
+	go e.auditLineCache.Start()
 
 	nodeName := e.impl.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
@@ -202,8 +203,8 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
-		e.logger.V(config.VerboseLevel).Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.processID))
-		cID, err := e.impl.ContainerIDForPID(e.containerIDCache, auditLine.processID)
+		e.logger.V(config.VerboseLevel).Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.ProcessID))
+		cID, err := e.impl.ContainerIDForPID(e.containerIDCache, auditLine.ProcessID)
 		if errors.Is(err, os.ErrNotExist) {
 			// We're probably in container creation or removal
 			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
@@ -214,7 +215,7 @@ func (e *Enricher) Run() error {
 		if err != nil {
 			e.logger.Error(
 				err, "unable to get container ID",
-				"processID", auditLine.processID,
+				"processID", auditLine.ProcessID,
 			)
 			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
 				e.logger.Error(backlogErr, "adding line to backlog")
@@ -227,7 +228,7 @@ func (e *Enricher) Run() error {
 		if err != nil {
 			e.logger.Error(
 				err, "container ID not found in cluster",
-				"processID", auditLine.processID,
+				"processID", auditLine.ProcessID,
 				"containerID", cID,
 			)
 			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
@@ -244,7 +245,7 @@ func (e *Enricher) Run() error {
 		}
 
 		// check if there's anything in the cache for this processID
-		err = e.dispatchBacklog(metricsClient, nodeName, info, auditLine.processID)
+		err = e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
 		if err != nil {
 			e.logger.Error(
 				err, "process backlog")
@@ -308,23 +309,16 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	return conn, cancel, nil
 }
 
-func (e *Enricher) addToBacklog(line *auditLine) error {
-	strPid := strconv.Itoa(line.processID)
+func (e *Enricher) addToBacklog(line *types.AuditLine) error {
+	strPid := strconv.Itoa(line.ProcessID)
 
-	backlog, err := e.auditLineCache.Get(strPid)
-	if errors.Is(err, ttlcache.ErrNotFound) {
-		if setErr := e.impl.AddToBacklog(e.auditLineCache, strPid, []*auditLine{line}); setErr != nil {
-			return fmt.Errorf("adding the first line to the backlog: %w", setErr)
-		}
+	item := e.auditLineCache.Get(strPid)
+	if item == nil {
+		e.impl.AddToBacklog(e.auditLineCache, strPid, []*types.AuditLine{line})
 		return nil
-	} else if err != nil {
-		return fmt.Errorf("retrieving an item from the cache: %w", err)
 	}
 
-	auditBacklog, ok := backlog.([]*auditLine)
-	if !ok {
-		return errors.New("wrong type")
-	}
+	auditBacklog := item.Value()
 
 	if auditBacklog == nil {
 		// this should not happen, but let's be paranoid
@@ -339,32 +333,22 @@ func (e *Enricher) addToBacklog(line *auditLine) error {
 		return nil
 	}
 
-	if setErr := e.impl.AddToBacklog(e.auditLineCache, strPid, append(auditBacklog, line)); setErr != nil {
-		return fmt.Errorf("adding a line to the backlog: %w", setErr)
-	}
-
+	e.impl.AddToBacklog(e.auditLineCache, strPid, append(auditBacklog, line))
 	return nil
 }
 
 func (e *Enricher) dispatchBacklog(
 	metricsClient apimetrics.Metrics_AuditIncClient,
 	nodeName string,
-	info *containerInfo,
+	info *types.ContainerInfo,
 	processID int,
 ) error {
 	strPid := strconv.Itoa(processID)
 
-	backlog, err := e.impl.GetFromBacklog(e.auditLineCache, strPid)
-	if errors.Is(err, ttlcache.ErrNotFound) {
+	auditBacklog := e.impl.GetFromBacklog(e.auditLineCache, strPid)
+	if auditBacklog == nil {
 		// nothing in the cache
 		return nil
-	} else if err != nil {
-		return fmt.Errorf("retrieving backlog: %w", err)
-	}
-
-	auditBacklog, ok := backlog.([]*auditLine)
-	if !ok {
-		return errors.New("wrong type")
 	}
 
 	for i := range auditBacklog {
@@ -376,26 +360,23 @@ func (e *Enricher) dispatchBacklog(
 		}
 	}
 
-	if err := e.impl.FlushBacklog(e.auditLineCache, strPid); err != nil {
-		return fmt.Errorf("flushing backlog: %w", err)
-	}
-
+	e.impl.FlushBacklog(e.auditLineCache, strPid)
 	return nil
 }
 
 func (e *Enricher) dispatchAuditLine(
 	metricsClient apimetrics.Metrics_AuditIncClient,
 	nodeName string,
-	auditLine *auditLine,
-	info *containerInfo,
+	auditLine *types.AuditLine,
+	info *types.ContainerInfo,
 ) error {
-	switch auditLine.auditType {
-	case auditTypeSelinux:
+	switch auditLine.AuditType {
+	case types.AuditTypeSelinux:
 		e.dispatchSelinuxLine(metricsClient, nodeName, auditLine, info)
-	case auditTypeSeccomp:
+	case types.AuditTypeSeccomp:
 		e.dispatchSeccompLine(metricsClient, nodeName, auditLine, info)
 	default:
-		return fmt.Errorf("unknown audit line type %s", auditLine.auditType)
+		return fmt.Errorf("unknown audit line type %s", auditLine.AuditType)
 	}
 
 	return nil
@@ -404,53 +385,53 @@ func (e *Enricher) dispatchAuditLine(
 func (e *Enricher) dispatchSelinuxLine(
 	metricsClient apimetrics.Metrics_AuditIncClient,
 	nodeName string,
-	auditLine *auditLine,
-	info *containerInfo,
+	auditLine *types.AuditLine,
+	info *types.ContainerInfo,
 ) {
 	e.logger.Info("audit",
-		"timestamp", auditLine.timestampID,
-		"type", auditLine.auditType,
-		"profile", info.recordProfile,
+		"timestamp", auditLine.TimestampID,
+		"type", auditLine.AuditType,
+		"profile", info.RecordProfile,
 		"node", nodeName,
-		"namespace", info.namespace,
-		"pod", info.podName,
-		"container", info.containerName,
-		"perm", auditLine.perm,
-		"scontext", auditLine.scontext,
-		"tcontext", auditLine.tcontext,
-		"tclass", auditLine.tclass,
+		"namespace", info.Namespace,
+		"pod", info.PodName,
+		"container", info.ContainerName,
+		"perm", auditLine.Perm,
+		"scontext", auditLine.Scontext,
+		"tcontext", auditLine.Tcontext,
+		"tclass", auditLine.Tclass,
 	)
 
 	if err := e.impl.SendMetric(
 		metricsClient,
 		&apimetrics.AuditRequest{
 			Node:       nodeName,
-			Namespace:  info.namespace,
-			Pod:        info.podName,
-			Container:  info.containerName,
-			Executable: auditLine.executable,
+			Namespace:  info.Namespace,
+			Pod:        info.PodName,
+			Container:  info.ContainerName,
+			Executable: auditLine.Executable,
 			SelinuxReq: &apimetrics.AuditRequest_SelinuxAuditReq{
-				Scontext: auditLine.scontext,
-				Tcontext: auditLine.tcontext,
+				Scontext: auditLine.Scontext,
+				Tcontext: auditLine.Tcontext,
 			},
 		},
 	); err != nil {
 		e.logger.Error(err, "unable to update metrics")
 	}
 
-	if info.recordProfile != "" {
+	if info.RecordProfile != "" {
 		avc := &apienricher.AvcResponse_SelinuxAvc{
-			Perm:     auditLine.perm,
-			Scontext: auditLine.scontext,
-			Tcontext: auditLine.tcontext,
-			Tclass:   auditLine.tclass,
+			Perm:     auditLine.Perm,
+			Scontext: auditLine.Scontext,
+			Tcontext: auditLine.Tcontext,
+			Tclass:   auditLine.Tclass,
 		}
 		jsonBytes, err := protojson.Marshal(avc)
 		if err != nil {
 			e.logger.Error(err, "marshall protobuf")
 		}
 
-		a, _ := e.avcs.LoadOrStore(info.recordProfile, sets.NewString())
+		a, _ := e.avcs.LoadOrStore(info.RecordProfile, sets.NewString())
 		stringSet, ok := a.(sets.String)
 		if ok {
 			stringSet.Insert(string(jsonBytes))
@@ -461,29 +442,29 @@ func (e *Enricher) dispatchSelinuxLine(
 func (e *Enricher) dispatchSeccompLine(
 	metricsClient apimetrics.Metrics_AuditIncClient,
 	nodeName string,
-	auditLine *auditLine,
-	info *containerInfo,
+	auditLine *types.AuditLine,
+	info *types.ContainerInfo,
 ) {
-	syscallName, err := syscallName(auditLine.systemCallID)
+	syscallName, err := syscallName(auditLine.SystemCallID)
 	if err != nil {
 		e.logger.Info(
 			"no syscall name found for ID",
-			"syscallID", auditLine.systemCallID,
+			"syscallID", auditLine.SystemCallID,
 			"err", err.Error(),
 		)
 		return
 	}
 
 	e.logger.Info("audit",
-		"timestamp", auditLine.timestampID,
-		"type", auditLine.auditType,
+		"timestamp", auditLine.TimestampID,
+		"type", auditLine.AuditType,
 		"node", nodeName,
-		"namespace", info.namespace,
-		"pod", info.podName,
-		"container", info.containerName,
-		"executable", auditLine.executable,
-		"pid", auditLine.processID,
-		"syscallID", auditLine.systemCallID,
+		"namespace", info.Namespace,
+		"pod", info.PodName,
+		"container", info.ContainerName,
+		"executable", auditLine.Executable,
+		"pid", auditLine.ProcessID,
+		"syscallID", auditLine.SystemCallID,
 		"syscallName", syscallName,
 	)
 
@@ -491,10 +472,10 @@ func (e *Enricher) dispatchSeccompLine(
 		metricsClient,
 		&apimetrics.AuditRequest{
 			Node:       nodeName,
-			Namespace:  info.namespace,
-			Pod:        info.podName,
-			Container:  info.containerName,
-			Executable: auditLine.executable,
+			Namespace:  info.Namespace,
+			Pod:        info.PodName,
+			Container:  info.ContainerName,
+			Executable: auditLine.Executable,
 			SeccompReq: &apimetrics.AuditRequest_SeccompAuditReq{
 				Syscall: syscallName,
 			},
@@ -503,8 +484,8 @@ func (e *Enricher) dispatchSeccompLine(
 		e.logger.Error(err, "unable to update metrics")
 	}
 
-	if info.recordProfile != "" {
-		s, _ := e.syscalls.LoadOrStore(info.recordProfile, sets.NewString())
+	if info.RecordProfile != "" {
+		s, _ := e.syscalls.LoadOrStore(info.RecordProfile, sets.NewString())
 		stringSet, ok := s.(sets.String)
 		if ok {
 			stringSet.Insert(syscallName)

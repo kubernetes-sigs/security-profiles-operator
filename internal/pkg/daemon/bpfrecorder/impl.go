@@ -28,12 +28,11 @@ import (
 	"runtime"
 	"strconv"
 	"syscall"
-	"time"
 	"unsafe"
 
-	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/acobaugh/osrelease"
 	bpf "github.com/aquasecurity/libbpfgo"
+	"github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -51,7 +50,6 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 //counterfeiter:generate . impl
 type impl interface {
-	SetTTL(*ttlcache.Cache, time.Duration) error
 	Getenv(string) string
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(*rest.Config) (*kubernetes.Clientset, error)
@@ -69,7 +67,7 @@ type impl interface {
 	Uname(*syscall.Utsname) error
 	TempFile(string, string) (*os.File, error)
 	Write(*os.File, []byte) (int, error)
-	ContainerIDForPID(ttlcache.SimpleCache, int) (string, error)
+	ContainerIDForPID(*ttlcache.Cache[string, string], int) (string, error)
 	GetValue(*bpf.BPFMap, uint32) ([]byte, error)
 	DeleteKey(*bpf.BPFMap, uint32) error
 	ListPods(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
@@ -85,10 +83,6 @@ type impl interface {
 	BpfIncClient(client apimetrics.MetricsClient) (apimetrics.Metrics_BpfIncClient, error)
 	CloseGRPC(*grpc.ClientConn) error
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
-}
-
-func (d *defaultImpl) SetTTL(cache *ttlcache.Cache, ttl time.Duration) error {
-	return cache.SetTTL(ttl)
 }
 
 func (d *defaultImpl) Getenv(key string) string {
@@ -161,7 +155,7 @@ func (d *defaultImpl) Write(file *os.File, b []byte) (n int, err error) {
 	return file.Write(b)
 }
 
-func (d *defaultImpl) ContainerIDForPID(cache ttlcache.SimpleCache, pid int) (string, error) {
+func (d *defaultImpl) ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, error) {
 	return util.ContainerIDForPID(cache, pid)
 }
 

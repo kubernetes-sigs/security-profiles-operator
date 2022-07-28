@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,35 +14,35 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package enricher
+package types
 
 const (
-	auditTypeSeccomp = "seccomp"
-	auditTypeSelinux = "selinux"
+	AuditTypeSeccomp = "seccomp"
+	AuditTypeSelinux = "selinux"
 )
 
-type auditLine struct {
-	auditType string
+type AuditLine struct {
+	AuditType string
 
 	// common
-	processID   int
-	timestampID string
+	ProcessID   int
+	TimestampID string
 
 	// seccomp
-	systemCallID int32
-	executable   string
+	SystemCallID int32
+	Executable   string
 
 	// selinux
-	scontext string
-	tcontext string
-	tclass   string
-	perm     string
+	Scontext string
+	Tcontext string
+	Tclass   string
+	Perm     string
 }
 
-type containerInfo struct {
-	podName       string
-	containerName string
-	namespace     string
-	containerID   string
-	recordProfile string
+type ContainerInfo struct {
+	PodName       string
+	ContainerName string
+	Namespace     string
+	ContainerID   string
+	RecordProfile string
 }

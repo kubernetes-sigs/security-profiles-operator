@@ -22,30 +22,24 @@ import (
 	"io/fs"
 	"net"
 	"sync"
-	"time"
 
-	ttlcache "github.com/ReneKroon/ttlcache/v2"
+	ttlcache "github.com/jellydator/ttlcache/v3"
 	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	api_metrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 type FakeImpl struct {
-	AddToBacklogStub        func(*ttlcache.Cache, string, interface{}) error
+	AddToBacklogStub        func(*ttlcache.Cache[string, []*types.AuditLine], string, []*types.AuditLine)
 	addToBacklogMutex       sync.RWMutex
 	addToBacklogArgsForCall []struct {
-		arg1 *ttlcache.Cache
+		arg1 *ttlcache.Cache[string, []*types.AuditLine]
 		arg2 string
-		arg3 interface{}
-	}
-	addToBacklogReturns struct {
-		result1 error
-	}
-	addToBacklogReturnsOnCall map[int]struct {
-		result1 error
+		arg3 []*types.AuditLine
 	}
 	AuditIncStub        func(api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error)
 	auditIncMutex       sync.RWMutex
@@ -84,10 +78,10 @@ type FakeImpl struct {
 	closeReturnsOnCall map[int]struct {
 		result1 error
 	}
-	ContainerIDForPIDStub        func(*ttlcache.Cache, int) (string, error)
+	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
 	containerIDForPIDArgsForCall []struct {
-		arg1 *ttlcache.Cache
+		arg1 *ttlcache.Cache[string, string]
 		arg2 int
 	}
 	containerIDForPIDReturns struct {
@@ -112,31 +106,23 @@ type FakeImpl struct {
 		result2 context.CancelFunc
 		result3 error
 	}
-	FlushBacklogStub        func(*ttlcache.Cache, string) error
+	FlushBacklogStub        func(*ttlcache.Cache[string, []*types.AuditLine], string)
 	flushBacklogMutex       sync.RWMutex
 	flushBacklogArgsForCall []struct {
-		arg1 *ttlcache.Cache
+		arg1 *ttlcache.Cache[string, []*types.AuditLine]
 		arg2 string
 	}
-	flushBacklogReturns struct {
-		result1 error
-	}
-	flushBacklogReturnsOnCall map[int]struct {
-		result1 error
-	}
-	GetFromBacklogStub        func(*ttlcache.Cache, string) (interface{}, error)
+	GetFromBacklogStub        func(*ttlcache.Cache[string, []*types.AuditLine], string) []*types.AuditLine
 	getFromBacklogMutex       sync.RWMutex
 	getFromBacklogArgsForCall []struct {
-		arg1 *ttlcache.Cache
+		arg1 *ttlcache.Cache[string, []*types.AuditLine]
 		arg2 string
 	}
 	getFromBacklogReturns struct {
-		result1 interface{}
-		result2 error
+		result1 []*types.AuditLine
 	}
 	getFromBacklogReturnsOnCall map[int]struct {
-		result1 interface{}
-		result2 error
+		result1 []*types.AuditLine
 	}
 	GetenvStub        func(string) string
 	getenvMutex       sync.RWMutex
@@ -273,18 +259,6 @@ type FakeImpl struct {
 	serveReturnsOnCall map[int]struct {
 		result1 error
 	}
-	SetTTLStub        func(*ttlcache.Cache, time.Duration) error
-	setTTLMutex       sync.RWMutex
-	setTTLArgsForCall []struct {
-		arg1 *ttlcache.Cache
-		arg2 time.Duration
-	}
-	setTTLReturns struct {
-		result1 error
-	}
-	setTTLReturnsOnCall map[int]struct {
-		result1 error
-	}
 	StatStub        func(string) (fs.FileInfo, error)
 	statMutex       sync.RWMutex
 	statArgsForCall []struct {
@@ -316,25 +290,24 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) AddToBacklog(arg1 *ttlcache.Cache, arg2 string, arg3 interface{}) error {
+func (fake *FakeImpl) AddToBacklog(arg1 *ttlcache.Cache[string, []*types.AuditLine], arg2 string, arg3 []*types.AuditLine) {
+	var arg3Copy []*types.AuditLine
+	if arg3 != nil {
+		arg3Copy = make([]*types.AuditLine, len(arg3))
+		copy(arg3Copy, arg3)
+	}
 	fake.addToBacklogMutex.Lock()
-	ret, specificReturn := fake.addToBacklogReturnsOnCall[len(fake.addToBacklogArgsForCall)]
 	fake.addToBacklogArgsForCall = append(fake.addToBacklogArgsForCall, struct {
-		arg1 *ttlcache.Cache
+		arg1 *ttlcache.Cache[string, []*types.AuditLine]
 		arg2 string
-		arg3 interface{}
-	}{arg1, arg2, arg3})
+		arg3 []*types.AuditLine
+	}{arg1, arg2, arg3Copy})
 	stub := fake.AddToBacklogStub
-	fakeReturns := fake.addToBacklogReturns
-	fake.recordInvocation("AddToBacklog", []interface{}{arg1, arg2, arg3})
+	fake.recordInvocation("AddToBacklog", []interface{}{arg1, arg2, arg3Copy})
 	fake.addToBacklogMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3)
+		fake.AddToBacklogStub(arg1, arg2, arg3)
 	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
 }
 
 func (fake *FakeImpl) AddToBacklogCallCount() int {
@@ -343,40 +316,17 @@ func (fake *FakeImpl) AddToBacklogCallCount() int {
 	return len(fake.addToBacklogArgsForCall)
 }
 
-func (fake *FakeImpl) AddToBacklogCalls(stub func(*ttlcache.Cache, string, interface{}) error) {
+func (fake *FakeImpl) AddToBacklogCalls(stub func(*ttlcache.Cache[string, []*types.AuditLine], string, []*types.AuditLine)) {
 	fake.addToBacklogMutex.Lock()
 	defer fake.addToBacklogMutex.Unlock()
 	fake.AddToBacklogStub = stub
 }
 
-func (fake *FakeImpl) AddToBacklogArgsForCall(i int) (*ttlcache.Cache, string, interface{}) {
+func (fake *FakeImpl) AddToBacklogArgsForCall(i int) (*ttlcache.Cache[string, []*types.AuditLine], string, []*types.AuditLine) {
 	fake.addToBacklogMutex.RLock()
 	defer fake.addToBacklogMutex.RUnlock()
 	argsForCall := fake.addToBacklogArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
-}
-
-func (fake *FakeImpl) AddToBacklogReturns(result1 error) {
-	fake.addToBacklogMutex.Lock()
-	defer fake.addToBacklogMutex.Unlock()
-	fake.AddToBacklogStub = nil
-	fake.addToBacklogReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) AddToBacklogReturnsOnCall(i int, result1 error) {
-	fake.addToBacklogMutex.Lock()
-	defer fake.addToBacklogMutex.Unlock()
-	fake.AddToBacklogStub = nil
-	if fake.addToBacklogReturnsOnCall == nil {
-		fake.addToBacklogReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.addToBacklogReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
 }
 
 func (fake *FakeImpl) AuditInc(arg1 api_metrics.MetricsClient) (api_metrics.Metrics_AuditIncClient, error) {
@@ -567,11 +517,11 @@ func (fake *FakeImpl) CloseReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache, arg2 int) (string, error) {
+func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], arg2 int) (string, error) {
 	fake.containerIDForPIDMutex.Lock()
 	ret, specificReturn := fake.containerIDForPIDReturnsOnCall[len(fake.containerIDForPIDArgsForCall)]
 	fake.containerIDForPIDArgsForCall = append(fake.containerIDForPIDArgsForCall, struct {
-		arg1 *ttlcache.Cache
+		arg1 *ttlcache.Cache[string, string]
 		arg2 int
 	}{arg1, arg2})
 	stub := fake.ContainerIDForPIDStub
@@ -593,13 +543,13 @@ func (fake *FakeImpl) ContainerIDForPIDCallCount() int {
 	return len(fake.containerIDForPIDArgsForCall)
 }
 
-func (fake *FakeImpl) ContainerIDForPIDCalls(stub func(*ttlcache.Cache, int) (string, error)) {
+func (fake *FakeImpl) ContainerIDForPIDCalls(stub func(*ttlcache.Cache[string, string], int) (string, error)) {
 	fake.containerIDForPIDMutex.Lock()
 	defer fake.containerIDForPIDMutex.Unlock()
 	fake.ContainerIDForPIDStub = stub
 }
 
-func (fake *FakeImpl) ContainerIDForPIDArgsForCall(i int) (*ttlcache.Cache, int) {
+func (fake *FakeImpl) ContainerIDForPIDArgsForCall(i int) (*ttlcache.Cache[string, string], int) {
 	fake.containerIDForPIDMutex.RLock()
 	defer fake.containerIDForPIDMutex.RUnlock()
 	argsForCall := fake.containerIDForPIDArgsForCall[i]
@@ -691,24 +641,18 @@ func (fake *FakeImpl) DialReturnsOnCall(i int, result1 *grpc.ClientConn, result2
 	}{result1, result2, result3}
 }
 
-func (fake *FakeImpl) FlushBacklog(arg1 *ttlcache.Cache, arg2 string) error {
+func (fake *FakeImpl) FlushBacklog(arg1 *ttlcache.Cache[string, []*types.AuditLine], arg2 string) {
 	fake.flushBacklogMutex.Lock()
-	ret, specificReturn := fake.flushBacklogReturnsOnCall[len(fake.flushBacklogArgsForCall)]
 	fake.flushBacklogArgsForCall = append(fake.flushBacklogArgsForCall, struct {
-		arg1 *ttlcache.Cache
+		arg1 *ttlcache.Cache[string, []*types.AuditLine]
 		arg2 string
 	}{arg1, arg2})
 	stub := fake.FlushBacklogStub
-	fakeReturns := fake.flushBacklogReturns
 	fake.recordInvocation("FlushBacklog", []interface{}{arg1, arg2})
 	fake.flushBacklogMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2)
+		fake.FlushBacklogStub(arg1, arg2)
 	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
 }
 
 func (fake *FakeImpl) FlushBacklogCallCount() int {
@@ -717,47 +661,24 @@ func (fake *FakeImpl) FlushBacklogCallCount() int {
 	return len(fake.flushBacklogArgsForCall)
 }
 
-func (fake *FakeImpl) FlushBacklogCalls(stub func(*ttlcache.Cache, string) error) {
+func (fake *FakeImpl) FlushBacklogCalls(stub func(*ttlcache.Cache[string, []*types.AuditLine], string)) {
 	fake.flushBacklogMutex.Lock()
 	defer fake.flushBacklogMutex.Unlock()
 	fake.FlushBacklogStub = stub
 }
 
-func (fake *FakeImpl) FlushBacklogArgsForCall(i int) (*ttlcache.Cache, string) {
+func (fake *FakeImpl) FlushBacklogArgsForCall(i int) (*ttlcache.Cache[string, []*types.AuditLine], string) {
 	fake.flushBacklogMutex.RLock()
 	defer fake.flushBacklogMutex.RUnlock()
 	argsForCall := fake.flushBacklogArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) FlushBacklogReturns(result1 error) {
-	fake.flushBacklogMutex.Lock()
-	defer fake.flushBacklogMutex.Unlock()
-	fake.FlushBacklogStub = nil
-	fake.flushBacklogReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) FlushBacklogReturnsOnCall(i int, result1 error) {
-	fake.flushBacklogMutex.Lock()
-	defer fake.flushBacklogMutex.Unlock()
-	fake.FlushBacklogStub = nil
-	if fake.flushBacklogReturnsOnCall == nil {
-		fake.flushBacklogReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.flushBacklogReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) GetFromBacklog(arg1 *ttlcache.Cache, arg2 string) (interface{}, error) {
+func (fake *FakeImpl) GetFromBacklog(arg1 *ttlcache.Cache[string, []*types.AuditLine], arg2 string) []*types.AuditLine {
 	fake.getFromBacklogMutex.Lock()
 	ret, specificReturn := fake.getFromBacklogReturnsOnCall[len(fake.getFromBacklogArgsForCall)]
 	fake.getFromBacklogArgsForCall = append(fake.getFromBacklogArgsForCall, struct {
-		arg1 *ttlcache.Cache
+		arg1 *ttlcache.Cache[string, []*types.AuditLine]
 		arg2 string
 	}{arg1, arg2})
 	stub := fake.GetFromBacklogStub
@@ -768,9 +689,9 @@ func (fake *FakeImpl) GetFromBacklog(arg1 *ttlcache.Cache, arg2 string) (interfa
 		return stub(arg1, arg2)
 	}
 	if specificReturn {
-		return ret.result1, ret.result2
+		return ret.result1
 	}
-	return fakeReturns.result1, fakeReturns.result2
+	return fakeReturns.result1
 }
 
 func (fake *FakeImpl) GetFromBacklogCallCount() int {
@@ -779,43 +700,40 @@ func (fake *FakeImpl) GetFromBacklogCallCount() int {
 	return len(fake.getFromBacklogArgsForCall)
 }
 
-func (fake *FakeImpl) GetFromBacklogCalls(stub func(*ttlcache.Cache, string) (interface{}, error)) {
+func (fake *FakeImpl) GetFromBacklogCalls(stub func(*ttlcache.Cache[string, []*types.AuditLine], string) []*types.AuditLine) {
 	fake.getFromBacklogMutex.Lock()
 	defer fake.getFromBacklogMutex.Unlock()
 	fake.GetFromBacklogStub = stub
 }
 
-func (fake *FakeImpl) GetFromBacklogArgsForCall(i int) (*ttlcache.Cache, string) {
+func (fake *FakeImpl) GetFromBacklogArgsForCall(i int) (*ttlcache.Cache[string, []*types.AuditLine], string) {
 	fake.getFromBacklogMutex.RLock()
 	defer fake.getFromBacklogMutex.RUnlock()
 	argsForCall := fake.getFromBacklogArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) GetFromBacklogReturns(result1 interface{}, result2 error) {
+func (fake *FakeImpl) GetFromBacklogReturns(result1 []*types.AuditLine) {
 	fake.getFromBacklogMutex.Lock()
 	defer fake.getFromBacklogMutex.Unlock()
 	fake.GetFromBacklogStub = nil
 	fake.getFromBacklogReturns = struct {
-		result1 interface{}
-		result2 error
-	}{result1, result2}
+		result1 []*types.AuditLine
+	}{result1}
 }
 
-func (fake *FakeImpl) GetFromBacklogReturnsOnCall(i int, result1 interface{}, result2 error) {
+func (fake *FakeImpl) GetFromBacklogReturnsOnCall(i int, result1 []*types.AuditLine) {
 	fake.getFromBacklogMutex.Lock()
 	defer fake.getFromBacklogMutex.Unlock()
 	fake.GetFromBacklogStub = nil
 	if fake.getFromBacklogReturnsOnCall == nil {
 		fake.getFromBacklogReturnsOnCall = make(map[int]struct {
-			result1 interface{}
-			result2 error
+			result1 []*types.AuditLine
 		})
 	}
 	fake.getFromBacklogReturnsOnCall[i] = struct {
-		result1 interface{}
-		result2 error
-	}{result1, result2}
+		result1 []*types.AuditLine
+	}{result1}
 }
 
 func (fake *FakeImpl) Getenv(arg1 string) string {
@@ -1500,68 +1418,6 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) SetTTL(arg1 *ttlcache.Cache, arg2 time.Duration) error {
-	fake.setTTLMutex.Lock()
-	ret, specificReturn := fake.setTTLReturnsOnCall[len(fake.setTTLArgsForCall)]
-	fake.setTTLArgsForCall = append(fake.setTTLArgsForCall, struct {
-		arg1 *ttlcache.Cache
-		arg2 time.Duration
-	}{arg1, arg2})
-	stub := fake.SetTTLStub
-	fakeReturns := fake.setTTLReturns
-	fake.recordInvocation("SetTTL", []interface{}{arg1, arg2})
-	fake.setTTLMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) SetTTLCallCount() int {
-	fake.setTTLMutex.RLock()
-	defer fake.setTTLMutex.RUnlock()
-	return len(fake.setTTLArgsForCall)
-}
-
-func (fake *FakeImpl) SetTTLCalls(stub func(*ttlcache.Cache, time.Duration) error) {
-	fake.setTTLMutex.Lock()
-	defer fake.setTTLMutex.Unlock()
-	fake.SetTTLStub = stub
-}
-
-func (fake *FakeImpl) SetTTLArgsForCall(i int) (*ttlcache.Cache, time.Duration) {
-	fake.setTTLMutex.RLock()
-	defer fake.setTTLMutex.RUnlock()
-	argsForCall := fake.setTTLArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) SetTTLReturns(result1 error) {
-	fake.setTTLMutex.Lock()
-	defer fake.setTTLMutex.Unlock()
-	fake.SetTTLStub = nil
-	fake.setTTLReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) SetTTLReturnsOnCall(i int, result1 error) {
-	fake.setTTLMutex.Lock()
-	defer fake.setTTLMutex.Unlock()
-	fake.SetTTLStub = nil
-	if fake.setTTLReturnsOnCall == nil {
-		fake.setTTLReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.setTTLReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
 func (fake *FakeImpl) Stat(arg1 string) (fs.FileInfo, error) {
 	fake.statMutex.Lock()
 	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
@@ -1732,8 +1588,6 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.sendMetricMutex.RUnlock()
 	fake.serveMutex.RLock()
 	defer fake.serveMutex.RUnlock()
-	fake.setTTLMutex.RLock()
-	defer fake.setTTLMutex.RUnlock()
 	fake.statMutex.RLock()
 	defer fake.statMutex.RUnlock()
 	fake.tailFileMutex.RLock()
