@@ -131,7 +131,7 @@ jobs:
 
   e2e-flatcar:
    needs: image
-#
+
    runs-on: macos-12
    timeout-minutes: 90
    env:
