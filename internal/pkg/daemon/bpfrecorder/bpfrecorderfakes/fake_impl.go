@@ -27,10 +27,9 @@ import (
 	"os"
 	"sync"
 	"syscall"
-	"time"
 
-	ttlcache "github.com/ReneKroon/ttlcache/v2"
 	"github.com/aquasecurity/libbpfgo"
+	ttlcache "github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -121,10 +120,10 @@ type FakeImpl struct {
 	closeModuleArgsForCall []struct {
 		arg1 *libbpfgo.BPFMap
 	}
-	ContainerIDForPIDStub        func(ttlcache.SimpleCache, int) (string, error)
+	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
 	containerIDForPIDArgsForCall []struct {
-		arg1 ttlcache.SimpleCache
+		arg1 *ttlcache.Cache[string, string]
 		arg2 int
 	}
 	containerIDForPIDReturns struct {
@@ -377,18 +376,6 @@ type FakeImpl struct {
 		result1 error
 	}
 	serveReturnsOnCall map[int]struct {
-		result1 error
-	}
-	SetTTLStub        func(*ttlcache.Cache, time.Duration) error
-	setTTLMutex       sync.RWMutex
-	setTTLArgsForCall []struct {
-		arg1 *ttlcache.Cache
-		arg2 time.Duration
-	}
-	setTTLReturns struct {
-		result1 error
-	}
-	setTTLReturnsOnCall map[int]struct {
 		result1 error
 	}
 	StartRingBufferStub        func(*libbpfgo.RingBuffer)
@@ -875,11 +862,11 @@ func (fake *FakeImpl) CloseModuleArgsForCall(i int) *libbpfgo.BPFMap {
 	return argsForCall.arg1
 }
 
-func (fake *FakeImpl) ContainerIDForPID(arg1 ttlcache.SimpleCache, arg2 int) (string, error) {
+func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], arg2 int) (string, error) {
 	fake.containerIDForPIDMutex.Lock()
 	ret, specificReturn := fake.containerIDForPIDReturnsOnCall[len(fake.containerIDForPIDArgsForCall)]
 	fake.containerIDForPIDArgsForCall = append(fake.containerIDForPIDArgsForCall, struct {
-		arg1 ttlcache.SimpleCache
+		arg1 *ttlcache.Cache[string, string]
 		arg2 int
 	}{arg1, arg2})
 	stub := fake.ContainerIDForPIDStub
@@ -901,13 +888,13 @@ func (fake *FakeImpl) ContainerIDForPIDCallCount() int {
 	return len(fake.containerIDForPIDArgsForCall)
 }
 
-func (fake *FakeImpl) ContainerIDForPIDCalls(stub func(ttlcache.SimpleCache, int) (string, error)) {
+func (fake *FakeImpl) ContainerIDForPIDCalls(stub func(*ttlcache.Cache[string, string], int) (string, error)) {
 	fake.containerIDForPIDMutex.Lock()
 	defer fake.containerIDForPIDMutex.Unlock()
 	fake.ContainerIDForPIDStub = stub
 }
 
-func (fake *FakeImpl) ContainerIDForPIDArgsForCall(i int) (ttlcache.SimpleCache, int) {
+func (fake *FakeImpl) ContainerIDForPIDArgsForCall(i int) (*ttlcache.Cache[string, string], int) {
 	fake.containerIDForPIDMutex.RLock()
 	defer fake.containerIDForPIDMutex.RUnlock()
 	argsForCall := fake.containerIDForPIDArgsForCall[i]
@@ -2120,68 +2107,6 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) SetTTL(arg1 *ttlcache.Cache, arg2 time.Duration) error {
-	fake.setTTLMutex.Lock()
-	ret, specificReturn := fake.setTTLReturnsOnCall[len(fake.setTTLArgsForCall)]
-	fake.setTTLArgsForCall = append(fake.setTTLArgsForCall, struct {
-		arg1 *ttlcache.Cache
-		arg2 time.Duration
-	}{arg1, arg2})
-	stub := fake.SetTTLStub
-	fakeReturns := fake.setTTLReturns
-	fake.recordInvocation("SetTTL", []interface{}{arg1, arg2})
-	fake.setTTLMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) SetTTLCallCount() int {
-	fake.setTTLMutex.RLock()
-	defer fake.setTTLMutex.RUnlock()
-	return len(fake.setTTLArgsForCall)
-}
-
-func (fake *FakeImpl) SetTTLCalls(stub func(*ttlcache.Cache, time.Duration) error) {
-	fake.setTTLMutex.Lock()
-	defer fake.setTTLMutex.Unlock()
-	fake.SetTTLStub = stub
-}
-
-func (fake *FakeImpl) SetTTLArgsForCall(i int) (*ttlcache.Cache, time.Duration) {
-	fake.setTTLMutex.RLock()
-	defer fake.setTTLMutex.RUnlock()
-	argsForCall := fake.setTTLArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) SetTTLReturns(result1 error) {
-	fake.setTTLMutex.Lock()
-	defer fake.setTTLMutex.Unlock()
-	fake.SetTTLStub = nil
-	fake.setTTLReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) SetTTLReturnsOnCall(i int, result1 error) {
-	fake.setTTLMutex.Lock()
-	defer fake.setTTLMutex.Unlock()
-	fake.SetTTLStub = nil
-	if fake.setTTLReturnsOnCall == nil {
-		fake.setTTLReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.setTTLReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
 func (fake *FakeImpl) StartRingBuffer(arg1 *libbpfgo.RingBuffer) {
 	fake.startRingBufferMutex.Lock()
 	fake.startRingBufferArgsForCall = append(fake.startRingBufferArgsForCall, struct {
@@ -2598,8 +2523,6 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.sendMetricMutex.RUnlock()
 	fake.serveMutex.RLock()
 	defer fake.serveMutex.RUnlock()
-	fake.setTTLMutex.RLock()
-	defer fake.setTTLMutex.RUnlock()
 	fake.startRingBufferMutex.RLock()
 	defer fake.startRingBufferMutex.RUnlock()
 	fake.statMutex.RLock()

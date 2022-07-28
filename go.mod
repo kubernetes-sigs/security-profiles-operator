@@ -3,7 +3,6 @@ module sigs.k8s.io/security-profiles-operator
 go 1.18
 
 require (
-	github.com/ReneKroon/ttlcache/v2 v2.11.0
 	github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
 	github.com/aquasecurity/libbpfgo v0.3.0-libbpf-0.8.0
 	github.com/blang/semver/v4 v4.0.0
@@ -11,6 +10,7 @@ require (
 	github.com/containers/common v0.48.1-0.20220510094751-400832f41771
 	github.com/crossplane/crossplane-runtime v0.17.0
 	github.com/go-logr/logr v1.2.3
+	github.com/jellydator/ttlcache/v3 v3.0.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.5.0
 	github.com/mogensen/kubernetes-split-yaml v0.3.0
 	github.com/nxadm/tail v1.4.8

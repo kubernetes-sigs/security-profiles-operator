@@ -34,10 +34,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ReneKroon/ttlcache/v2"
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
+	"github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -55,7 +55,7 @@ const (
 	defaultTimeout      time.Duration = time.Minute
 	maxMsgSize          int           = 16 * 1024 * 1024
 	defaultCacheTimeout time.Duration = time.Hour
-	maxCacheItems       int           = 1000
+	maxCacheItems       uint64        = 1000
 )
 
 // BpfRecorder is the main structure of this package.
@@ -67,8 +67,8 @@ type BpfRecorder struct {
 	syscalls                 *bpf.BPFMap
 	comms                    *bpf.BPFMap
 	btfPath                  string
-	syscallNamesForIDCache   *ttlcache.Cache
-	containerIDCache         *ttlcache.Cache
+	syscallNamesForIDCache   *ttlcache.Cache[string, string]
+	containerIDCache         *ttlcache.Cache[string, string]
 	nodeName                 string
 	clientset                *kubernetes.Clientset
 	profileForContainerIDs   sync.Map
@@ -89,10 +89,16 @@ type Pid struct {
 // New returns a new BpfRecorder instance.
 func New(logger logr.Logger) *BpfRecorder {
 	return &BpfRecorder{
-		impl:                     &defaultImpl{},
-		logger:                   logger,
-		syscallNamesForIDCache:   ttlcache.NewCache(),
-		containerIDCache:         ttlcache.NewCache(),
+		impl:   &defaultImpl{},
+		logger: logger,
+		syscallNamesForIDCache: ttlcache.New(
+			ttlcache.WithTTL[string, string](defaultCacheTimeout),
+			ttlcache.WithCapacity[string, string](maxCacheItems),
+		),
+		containerIDCache: ttlcache.New(
+			ttlcache.WithTTL[string, string](defaultCacheTimeout),
+			ttlcache.WithCapacity[string, string](maxCacheItems),
+		),
 		profileForContainerIDs:   sync.Map{},
 		pidsForProfiles:          sync.Map{},
 		pidLock:                  sync.Mutex{},
@@ -104,14 +110,10 @@ func New(logger logr.Logger) *BpfRecorder {
 // Run the BpfRecorder.
 func (b *BpfRecorder) Run() error {
 	b.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
-	for _, cache := range []*ttlcache.Cache{
+	for _, cache := range []*ttlcache.Cache[string, string]{
 		b.containerIDCache, b.syscallNamesForIDCache,
 	} {
-		if err := b.SetTTL(cache, defaultCacheTimeout); err != nil {
-			return fmt.Errorf("set cache timeout: %w", err)
-		}
-		cache.SetCacheSizeLimit(maxCacheItems)
-		defer cache.Close() // nolint:gocritic // this is intentional
+		go cache.Start()
 	}
 
 	b.nodeName = b.Getenv(config.NodeNameEnvKey)
@@ -758,14 +760,9 @@ func (b *BpfRecorder) unload() {
 func (b *BpfRecorder) syscallNameForID(id int) (string, error) {
 	// Check the cache first
 	key := strconv.Itoa(id)
-	if name, err := b.syscallNamesForIDCache.Get(key); !errors.Is(
-		err, ttlcache.ErrNotFound,
-	) {
-		nameString, ok := name.(string)
-		if !ok {
-			return "", errors.New("name is not a string")
-		}
-		return nameString, nil
+	item := b.syscallNamesForIDCache.Get(key)
+	if item != nil {
+		return item.Value(), nil
 	}
 
 	name, err := b.GetName(seccomp.ScmpSyscall(id))
@@ -773,8 +770,6 @@ func (b *BpfRecorder) syscallNameForID(id int) (string, error) {
 		return "", fmt.Errorf("get syscall name for ID %d: %w", id, err)
 	}
 
-	if err := b.syscallNamesForIDCache.Set(key, name); err != nil {
-		return "", fmt.Errorf("update cache: %w", err)
-	}
+	b.syscallNamesForIDCache.Set(key, name, ttlcache.DefaultTTL)
 	return name, nil
 }

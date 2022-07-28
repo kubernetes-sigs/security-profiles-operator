@@ -78,14 +78,6 @@ func TestRun(t *testing.T) {
 				require.Nil(t, err)
 			},
 		},
-		{ // SetTTL fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.SetTTLReturns(errTest)
-			},
-			assert: func(err error) {
-				require.NotNil(t, err)
-			},
-		},
 		{ // Getenv returns nothing
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns("")

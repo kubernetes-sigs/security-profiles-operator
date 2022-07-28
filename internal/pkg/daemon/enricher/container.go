@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ReneKroon/ttlcache/v2"
 	"github.com/go-logr/logr"
+	"github.com/jellydator/ttlcache/v3"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/api/core/v1"
@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -52,30 +53,20 @@ var errContainerIDEmpty = errors.New("container ID is empty")
 
 func (e *Enricher) getContainerInfo(
 	nodeName, targetContainerID string,
-) (*containerInfo, error) {
+) (*types.ContainerInfo, error) {
 	// Check the cache first
-	if info, err := e.infoCache.Get(
-		targetContainerID,
-	); !errors.Is(err, ttlcache.ErrNotFound) {
-		cInfo, ok := info.(*containerInfo)
-		if !ok {
-			return nil, errors.New("cache value is not container info")
-		}
-		return cInfo, nil
+	item := e.infoCache.Get(targetContainerID)
+	if item != nil {
+		return item.Value(), nil
 	}
 
 	if err := e.populateContainerPodCache(nodeName, targetContainerID); err != nil {
 		return nil, fmt.Errorf("get container info for pods: %w", err)
 	}
 
-	if info, err := e.infoCache.Get(
-		targetContainerID,
-	); !errors.Is(err, ttlcache.ErrNotFound) {
-		cInfo, ok := info.(*containerInfo)
-		if !ok {
-			return nil, errors.New("cache value is not container info")
-		}
-		return cInfo, nil
+	item = e.infoCache.Get(targetContainerID)
+	if item != nil {
+		return item.Value(), nil
 	}
 
 	return nil, errors.New("no container info for container ID")
@@ -157,24 +148,22 @@ func (e *Enricher) populateCacheEntryForContainer(
 			if !ok {
 				recordProfile = pod.Annotations[config.SelinuxProfileRecordLogsAnnotationKey+containerName]
 			}
-			info := &containerInfo{
-				podName:       pod.Name,
-				containerName: containerStatus.Name,
-				namespace:     pod.Namespace,
-				containerID:   rawContainerID,
-				recordProfile: recordProfile,
+			info := &types.ContainerInfo{
+				PodName:       pod.Name,
+				ContainerName: containerStatus.Name,
+				Namespace:     pod.Namespace,
+				ContainerID:   rawContainerID,
+				RecordProfile: recordProfile,
 			}
 
 			if e.labelDenials && rawContainerID == targetContainerID {
 				e.logger.Info("labeling problematic container", "containerID", containerID,
 					"podNamespace", pod.Namespace, "podName", pod.Name)
-				e.labelPodDenials(context.TODO(), info.containerName, pod.DeepCopy(), e.logger)
+				e.labelPodDenials(context.TODO(), info.ContainerName, pod.DeepCopy(), e.logger)
 			}
 
 			// Update the cache
-			if err := e.infoCache.Set(rawContainerID, info); err != nil {
-				return fmt.Errorf("update cache: %w", err)
-			}
+			e.infoCache.Set(rawContainerID, info, ttlcache.DefaultTTL)
 		}
 
 		return errorToRetry

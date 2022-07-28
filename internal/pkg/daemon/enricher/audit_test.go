@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 func Test_isAuditLine(t *testing.T) {
@@ -80,19 +82,19 @@ func Test_extractAuditLine(t *testing.T) {
 	tests := []struct {
 		name    string
 		logLine string
-		want    *auditLine
+		want    *types.AuditLine
 		wantErr error
 	}{
 		{
 			"Should extract seccomp log lines",
 			// nolint:lll // no need to wrap
 			`audit: type=1326 audit(1612299677.115:549067): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`,
-			&auditLine{
-				auditType:    "seccomp",
-				timestampID:  "1612299677.115:549067",
-				systemCallID: 0,
-				processID:    3109464,
-				executable:   "/bin/busybox",
+			&types.AuditLine{
+				AuditType:    "seccomp",
+				TimestampID:  "1612299677.115:549067",
+				SystemCallID: 0,
+				ProcessID:    3109464,
+				Executable:   "/bin/busybox",
 			},
 			nil,
 		},
@@ -100,12 +102,12 @@ func Test_extractAuditLine(t *testing.T) {
 			"Should extract seccomp log lines",
 			// nolint:lll // no need to wrap
 			`type=SECCOMP msg=audit(1613596317.899:6461): auid=4294967295 uid=0 gid=0 ses=4294967295 subj=system_u:system_r:spc_t:s0:c284,c594 pid=2039886 comm="ls" exe="/bin/ls" sig=0 arch=c000003e syscall=3 compat=0 ip=0x7f62dce3d4c7 code=0x7ffc0000AUID="unset" UID="root" GID="root" ARCH=x86_64 SYSCALL=close`,
-			&auditLine{
-				auditType:    "seccomp",
-				timestampID:  "1613596317.899:6461",
-				systemCallID: 3,
-				processID:    2039886,
-				executable:   "/bin/ls",
+			&types.AuditLine{
+				AuditType:    "seccomp",
+				TimestampID:  "1613596317.899:6461",
+				SystemCallID: 3,
+				ProcessID:    2039886,
+				Executable:   "/bin/ls",
 			},
 			nil,
 		},
@@ -113,16 +115,16 @@ func Test_extractAuditLine(t *testing.T) {
 			"Should extract selinux log lines",
 			// nolint:lll // no need to wrap
 			`type=AVC msg=audit(1613173578.156:2945): avc:  denied  { read } for  pid=75593 comm="security-profil" name="token" dev="tmpfs" ino=612459 scontext=system_u:system_r:container_t:s0:c4,c808 tcontext=system_u:object_r:var_lib_t:s0 tclass=lnk_file permissive=0`,
-			&auditLine{
-				auditType:    "selinux",
-				timestampID:  "1613173578.156:2945",
-				systemCallID: 0,
-				processID:    75593,
-				executable:   "",
-				perm:         "read",
-				scontext:     "system_u:system_r:container_t:s0:c4,c808",
-				tcontext:     "system_u:object_r:var_lib_t:s0",
-				tclass:       "lnk_file",
+			&types.AuditLine{
+				AuditType:    "selinux",
+				TimestampID:  "1613173578.156:2945",
+				SystemCallID: 0,
+				ProcessID:    75593,
+				Executable:   "",
+				Perm:         "read",
+				Scontext:     "system_u:system_r:container_t:s0:c4,c808",
+				Tcontext:     "system_u:object_r:var_lib_t:s0",
+				Tclass:       "lnk_file",
 			},
 			nil,
 		},

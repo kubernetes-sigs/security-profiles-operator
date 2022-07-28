@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 // type IDs are defined at https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/audit.h
@@ -49,7 +51,7 @@ func isAuditLine(logLine string) bool {
 }
 
 // extractAuditLine extracts an auditline from logLine.
-func extractAuditLine(logLine string) (*auditLine, error) {
+func extractAuditLine(logLine string) (*types.AuditLine, error) {
 	if seccomp := extractSeccompLine(logLine); seccomp != nil {
 		return seccomp, nil
 	}
@@ -61,18 +63,18 @@ func extractAuditLine(logLine string) (*auditLine, error) {
 	return nil, fmt.Errorf("unsupported log line: %s", logLine)
 }
 
-func extractSeccompLine(logLine string) *auditLine {
+func extractSeccompLine(logLine string) *types.AuditLine {
 	captures := seccompLineRegex.FindStringSubmatch(logLine)
 	if len(captures) < minSeccompCapturesExpected {
 		return nil
 	}
 
-	line := auditLine{}
-	line.auditType = auditTypeSeccomp
-	line.timestampID = captures[2]
-	line.executable = captures[4]
+	line := types.AuditLine{}
+	line.AuditType = types.AuditTypeSeccomp
+	line.TimestampID = captures[2]
+	line.Executable = captures[4]
 	if v, err := strconv.Atoi(captures[3]); err == nil {
-		line.processID = v
+		line.ProcessID = v
 	}
 
 	const (
@@ -80,28 +82,28 @@ func extractSeccompLine(logLine string) *auditLine {
 		bitSize = 32
 	)
 	if v, err := strconv.ParseInt(captures[5], base, bitSize); err == nil {
-		line.systemCallID = int32(v)
+		line.SystemCallID = int32(v)
 	}
 
 	return &line
 }
 
-func extractSelinuxLine(logLine string) *auditLine {
+func extractSelinuxLine(logLine string) *types.AuditLine {
 	captures := selinuxLineRegex.FindStringSubmatch(logLine)
 	if len(captures) < minSelinuxCapturesExpected {
 		return nil
 	}
 
-	line := auditLine{}
-	line.auditType = auditTypeSelinux
-	line.timestampID = captures[1]
-	line.perm = captures[2]
+	line := types.AuditLine{}
+	line.AuditType = types.AuditTypeSelinux
+	line.TimestampID = captures[1]
+	line.Perm = captures[2]
 	if v, err := strconv.Atoi(captures[3]); err == nil {
-		line.processID = v
+		line.ProcessID = v
 	}
-	line.scontext = captures[4]
-	line.tcontext = captures[5]
-	line.tclass = captures[6]
+	line.Scontext = captures[4]
+	line.Tcontext = captures[5]
+	line.Tclass = captures[6]
 
 	return &line
 }
