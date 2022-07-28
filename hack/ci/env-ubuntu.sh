@@ -12,9 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+local_ip() {
+    ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]'
+}
+
 export PATH="/usr/local/go/bin:$PATH"
 export GOPATH="$HOME/go"
 export GOBIN="$GOPATH/bin"
+
+export KUBE_CONTAINER_RUNTIME=remote
+export KUBECONFIG=/etc/kubernetes/admin.conf
+export PATH="$GOPATH/src/k8s.io/kubernetes/_output/bin:$PATH"
+
+IP=$(local_ip)
+export KUBE_MASTER_URL=$IP
+export KUBE_MASTER_IP=$IP
+export KUBE_MASTER=$IP
 
 # Added for faster debugging with lower verbosity
 alias k=kubectl
