@@ -17,6 +17,5 @@ set -euo pipefail
 
 export E2E_CLUSTER_TYPE=vanilla
 export E2E_TEST_LOG_ENRICHER=true
-export E2E_TEST_SECCOMP=false
 
 make test-e2e
