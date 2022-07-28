@@ -27,6 +27,7 @@ const profileName = "metrics-profile"
 
 func (e *e2e) testCaseSeccompMetrics(nodes []string) {
 	e.seccompOnlyTestCase()
+	e.singleNodeTestCase()
 
 	const (
 		operationDelete = `security_profiles_operator_seccomp_profile_total{operation="delete"}`
@@ -72,6 +73,7 @@ spec:
 
 func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	e.selinuxOnlyTestCase()
+	e.singleNodeTestCase()
 
 	const (
 		operationDelete = `security_profiles_operator_selinux_profile_total{operation="delete"}`
