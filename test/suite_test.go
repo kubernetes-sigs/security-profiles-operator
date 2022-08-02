@@ -455,8 +455,13 @@ func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
 }
 
 func (e *e2e) waitForReadyPodsOCP() {
-	// intentionally blank, it is presumed a test driver or the developer
+	// intentionally not waiting for pods, it is presumed a test driver or the developer
 	// ensure the cluster is up before the test runs. At least for now.
+
+	// this is a kludge to help run the tests on OCP CI where there's a ephemeral namespace that goes away
+	// as the test is starting. Without explicitly setting the namespace, the OCP CI tests fail with:
+	// error when creating "test/recording_sa.yaml": namespaces "ci-op-hq1cv14k" not found
+	e.kubectl("config", "set-context", "--current", "--namespace", config.OperatorName)
 }
 
 func (e *e2e) deployCertManagerOCP() {
@@ -464,11 +469,6 @@ func (e *e2e) deployCertManagerOCP() {
 }
 
 func (e *e2e) deployRecordingSaOcp(namespace string) {
-	// this is a kludge to help run the tests on OCP CI where there's a ephemeral namespace that goes away
-	// as the test is starting. Without explicitly setting the namespace, the OCP CI tests fail with:
-	// error when creating "test/recording_sa.yaml": namespaces "ci-op-hq1cv14k" not found
-	e.kubectl("config", "set-context", "--current", "--namespace", namespace)
-
 	e.deployRecordingSa(namespace)
 	e.deployRecordingRole(namespace)
 	e.deployRecordingRoleBinding(namespace)
