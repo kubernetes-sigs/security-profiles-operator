@@ -106,14 +106,19 @@ spec:
 	e.Contains(output, `"syscallName"="listen"`)
 	e.Contains(output, `"syscallID"=50`)
 
-	metrics := e.getSpodMetrics()
-	e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_audit_total{`+
-		`container="%s",`+
-		`executable="/usr/sbin/nginx",`+
-		`namespace="%s",`+
-		`node=".*",`+
-		`pod="%s",`+
-		`syscall="listen"} \d+`,
-		containerName, namespace, podName,
-	), metrics)
+	if e.singleNodeEnvironment {
+		// we only run the metrics checks in a single node environment because otherwise it's a lottery
+		// which spod instance do we hit and the test is not stable
+
+		metrics := e.getSpodMetrics()
+		e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_audit_total{`+
+			`container="%s",`+
+			`executable="/usr/sbin/nginx",`+
+			`namespace="%s",`+
+			`node=".*",`+
+			`pod="%s",`+
+			`syscall="listen"} \d+`,
+			containerName, namespace, podName,
+		), metrics)
+	}
 }
