@@ -329,6 +329,7 @@ func (e *e2e) cleanupOperator(manifest string) {
 	// Clean up the operator
 	e.logf("Cleaning up operator")
 	e.kubectl("delete", "seccompprofiles", "--all", "--all-namespaces")
+	e.kubectl("delete", "selinuxprofiles", "--all", "--all-namespaces")
 	e.kubectl("delete", "--ignore-not-found", "-f", manifest)
 }
 
