@@ -520,6 +520,36 @@ func (e *e2e) setWorkDir() string {
 	return parentCwd
 }
 
+// Use the breakPoint function at a point where you want to pause a test.
+// The test will log a tempfile created bythe breakPoint() function and
+// wait for the file to be removed by the test user.
+//
+// (jhrozek): Maybe we should set a global timeout to continue?
+func (e *e2e) breakPoint() { // nolint:unused // used on demand
+	tmpfile, err := os.CreateTemp("", "testBreakpoint*.lock")
+	if err != nil {
+		e.logger.Error(err, "Can't create breakpoint file")
+		return
+	}
+	tmpfile.Close()
+
+	delChannel := make(chan struct{})
+	go func() {
+		for {
+			_, err := os.Stat(tmpfile.Name())
+			if err == nil {
+				e.logger.Info("breakpoint: File exists, waiting 5 secs", "fileName", tmpfile.Name())
+				time.Sleep(time.Second * 5)
+				continue
+			}
+			break
+		}
+		delChannel <- struct{}{}
+	}()
+
+	<-delChannel
+}
+
 func (e *e2e) run(cmd string, args ...string) string {
 	output, err := command.New(cmd, args...).RunSuccessOutput()
 	e.Nil(err)
