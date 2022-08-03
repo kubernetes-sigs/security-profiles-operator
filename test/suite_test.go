@@ -520,6 +520,31 @@ func (e *e2e) setWorkDir() string {
 	return parentCwd
 }
 
+func (e *e2e) breakPoint() {
+	tmpfile, err := os.CreateTemp("", "testBreakpoint*.lock")
+	if err != nil {
+		e.logger.Error(err, "Can't create breakpoint file")
+		return
+	}
+	tmpfile.Close()
+
+	delChannel := make(chan struct{})
+	go func() {
+		for {
+			_, err := os.Stat(tmpfile.Name())
+			if err == nil {
+				e.logger.Info("breakpoint: File exists, waiting 5 secs", "fileName", tmpfile.Name())
+				time.Sleep(time.Second * 5)
+				continue
+			}
+			break
+		}
+		delChannel <- struct{}{}
+	}()
+
+	<-delChannel
+}
+
 func (e *e2e) run(cmd string, args ...string) string {
 	output, err := command.New(cmd, args...).RunSuccessOutput()
 	e.Nil(err)
