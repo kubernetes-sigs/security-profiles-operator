@@ -49,6 +49,9 @@ spec:
 	defer profileCleanup()
 	defer e.kubectl("delete", "sp", profileName)
 
+	e.logf("Waiting for profile to be reconciled")
+	e.waitFor("condition=ready", "sp", profileName)
+
 	e.logf("Creating test pod")
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 
