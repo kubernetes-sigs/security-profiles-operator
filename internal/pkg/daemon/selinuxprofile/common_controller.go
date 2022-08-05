@@ -136,12 +136,12 @@ func (r *ReconcileSelinux) Healthz(*http.Request) error {
 	return nil
 }
 
-// nolint:lll // required for kubebuilder
+//nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles/finalizers,verbs=delete;get;update;patch
 
-// nolint:lll // required for kubebuilder
+//nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=delete;get;update;patch
@@ -453,7 +453,7 @@ func selinuxdGetRequest(url string) (*http.Response, error) {
 		},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a request to selinuxd: %w", err)
 	}

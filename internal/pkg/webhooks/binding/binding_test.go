@@ -270,7 +270,7 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
-		// nolint:dupl // test duplicates are fine
+		//nolint:dupl // test duplicates are fine
 		{ // failure on UpdateResource
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
@@ -309,7 +309,7 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
-		// nolint:dupl // test duplicates are fine
+		//nolint:dupl // test duplicates are fine
 		{ // failure on UpdateResourceStatus
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{

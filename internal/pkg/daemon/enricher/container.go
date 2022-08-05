@@ -56,7 +56,7 @@ func (e *Enricher) getContainerInfo(
 		return item.Value(), nil
 	}
 
-	if err := e.populateContainerPodCache(nodeName, targetContainerID); err != nil {
+	if err := e.populateContainerPodCache(nodeName); err != nil {
 		return nil, fmt.Errorf("get container info for pods: %w", err)
 	}
 
@@ -69,7 +69,7 @@ func (e *Enricher) getContainerInfo(
 }
 
 func (e *Enricher) populateContainerPodCache(
-	nodeName, targetContainerID string,
+	nodeName string,
 ) error {
 	containerRetryBackoff := wait.Backoff{
 		Duration: backoffDuration,
@@ -92,7 +92,7 @@ func (e *Enricher) populateContainerPodCache(
 
 			for p := range pods.Items {
 				pod := &pods.Items[p]
-				e.populateCacheEntryForContainer(ctx, targetContainerID, pod, eg)
+				e.populateCacheEntryForContainer(ctx, pod, eg)
 			}
 
 			if werr := eg.Wait(); werr != nil {
@@ -108,10 +108,10 @@ func (e *Enricher) populateContainerPodCache(
 }
 
 func (e *Enricher) populateCacheEntryForContainer(
-	_ context.Context, targetContainerID string, pod *v1.Pod, eg *errgroup.Group,
+	_ context.Context, pod *v1.Pod, eg *errgroup.Group,
 ) {
 	eg.Go(func() (errorToRetry error) {
-		// nolint:gocritic // This is what we expect and want
+		//nolint:gocritic // This is what we expect and want
 		statuses := append(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses...)
 
 		for c := range statuses {

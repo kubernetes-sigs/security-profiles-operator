@@ -64,8 +64,9 @@ type SeccompProfileSpec struct {
 	Flags []*Flag `json:"flags,omitempty"`
 }
 
-//nolint:lll // required for kubebuilder
 // +kubebuilder:validation:Enum=SCMP_ARCH_NATIVE;SCMP_ARCH_X86;SCMP_ARCH_X86_64;SCMP_ARCH_X32;SCMP_ARCH_ARM;SCMP_ARCH_AARCH64;SCMP_ARCH_MIPS;SCMP_ARCH_MIPS64;SCMP_ARCH_MIPS64N32;SCMP_ARCH_MIPSEL;SCMP_ARCH_MIPSEL64;SCMP_ARCH_MIPSEL64N32;SCMP_ARCH_PPC;SCMP_ARCH_PPC64;SCMP_ARCH_PPC64LE;SCMP_ARCH_S390;SCMP_ARCH_S390X;SCMP_ARCH_PARISC;SCMP_ARCH_PARISC64;SCMP_ARCH_RISCV64
+//
+//nolint:lll // required for kubebuilder
 type Arch string
 
 // +kubebuilder:validation:Enum=SECCOMP_FILTER_FLAG_TSYNC;SECCOMP_FILTER_FLAG_LOG;SECCOMP_FILTER_FLAG_SPEC_ALLOW
@@ -179,6 +180,6 @@ type SeccompProfileList struct {
 	Items           []SeccompProfile `json:"items"`
 }
 
-func init() { // nolint:gochecknoinits // required to init scheme
+func init() { //nolint:gochecknoinits // required to init scheme
 	SchemeBuilder.Register(&SeccompProfile{}, &SeccompProfileList{})
 }

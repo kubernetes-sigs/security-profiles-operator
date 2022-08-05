@@ -35,7 +35,7 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 		"spo-mutating-webhook-configuration",
 		"--output", "jsonpath={.webhooks[1].namespaceSelector}")
 
-	whPatch := fmt.Sprintf(`{"spec":{"webhookOptions":[{"name":"binding.spo.io","failurePolicy":"Ignore","namespaceSelector":%s}]}}`, whNamespaceSelector) // nolint:lll // very long patch line
+	whPatch := fmt.Sprintf(`{"spec":{"webhookOptions":[{"name":"binding.spo.io","failurePolicy":"Ignore","namespaceSelector":%s}]}}`, whNamespaceSelector) //nolint:lll // very long patch line
 	e.logf(whPatch)
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p", whPatch, "--type=merge")
 	time.Sleep(defaultWaitTime)

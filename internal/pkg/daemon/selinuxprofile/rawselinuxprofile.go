@@ -109,7 +109,7 @@ func newRawSelinuxProfileHandler(
 	key types.NamespacedName,
 ) (SelinuxObjectHandler, error) {
 	// Create template to wrap policies
-	// nolint:error // We ignore the error as the wrapper is static
+	//nolint:error // We ignore the error as the wrapper is static
 	tmpl, tmplerr := template.New("profileWrapper").Parse(profileWrapper)
 	if tmplerr != nil {
 		return nil, tmplerr

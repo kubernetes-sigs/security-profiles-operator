@@ -85,7 +85,7 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 	err := mount.Do(func() error {
 		// TODO: force profile content's to align with profile's name
 		path := filepath.Join(targetProfileDir, name)
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { // nolint // file permissions are fine
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint // file permissions are fine
 			return err
 		}
 
