@@ -78,6 +78,6 @@ type RawSelinuxProfileList struct {
 	Items           []SelinuxProfile `json:"items"`
 }
 
-func init() { // nolint:gochecknoinits // required to init the scheme
+func init() { //nolint:gochecknoinits // required to init the scheme
 	SchemeBuilder.Register(&RawSelinuxProfile{}, &RawSelinuxProfileList{})
 }

@@ -57,6 +57,7 @@ func Test_getEffectiveSPOd(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			//nolint:tenv // cannot use tenv after t.Parallel()
 			os.Setenv("OPERATOR_NAMESPACE", "default")
 			got := getEffectiveSPOd(&tt.dt)
 			require.Equal(t, tt.dt.selinuxdImage, got.Spec.Template.Spec.Containers[1].Image)

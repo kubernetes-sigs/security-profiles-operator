@@ -61,13 +61,13 @@ func RegisterWebhook(server *webhook.Server, c client.Client) {
 	)
 }
 
-// nolint:lll // required for kubebuilder
+//nolint:lll // required for kubebuilder
 // Security Profiles Operator Webhook RBAC permissions
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=delete;get;update;patch
 
-// nolint:gocritic
+//nolint:gocritic
 func (p *podSeccompRecorder) Handle(
 	ctx context.Context,
 	req admission.Request,

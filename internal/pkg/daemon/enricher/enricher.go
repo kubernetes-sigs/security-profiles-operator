@@ -239,12 +239,7 @@ func (e *Enricher) Run() error {
 		}
 
 		// check if there's anything in the cache for this processID
-		err = e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
-		if err != nil {
-			e.logger.Error(
-				err, "process backlog")
-			continue
-		}
+		e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
 	}
 
 	return fmt.Errorf("enricher failed: %w", e.impl.Reason(tailFile))
@@ -336,13 +331,13 @@ func (e *Enricher) dispatchBacklog(
 	nodeName string,
 	info *types.ContainerInfo,
 	processID int,
-) error {
+) {
 	strPid := strconv.Itoa(processID)
 
 	auditBacklog := e.impl.GetFromBacklog(e.auditLineCache, strPid)
 	if auditBacklog == nil {
 		// nothing in the cache
-		return nil
+		return
 	}
 
 	for i := range auditBacklog {
@@ -355,7 +350,6 @@ func (e *Enricher) dispatchBacklog(
 	}
 
 	e.impl.FlushBacklog(e.auditLineCache, strPid)
-	return nil
 }
 
 func (e *Enricher) dispatchAuditLine(

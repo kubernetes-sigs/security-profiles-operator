@@ -249,7 +249,7 @@ func TestReconcile(t *testing.T) {
 				assert.Nil(t, err)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// BPF GoArchToSeccompArch fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
@@ -288,7 +288,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// BPF CreateOrUpdate fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
@@ -327,7 +327,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// BPF DialBpfRecorder fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
@@ -468,7 +468,7 @@ func TestReconcile(t *testing.T) {
 				assert.Nil(t, err)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// BPF SyscallsForProfile fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
@@ -702,7 +702,7 @@ func TestReconcile(t *testing.T) {
 				emptySyncMap(&sut.podsToWatch)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// log seccomp success record
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
@@ -729,7 +729,7 @@ func TestReconcile(t *testing.T) {
 				assert.Nil(t, retryErr)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// log seccomp success record
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
@@ -983,7 +983,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// logs seccomp failed CreateOrUpdate
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
@@ -1019,7 +1019,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// logs seccomp failed GoArchToSeccompArch
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
@@ -1055,7 +1055,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// logs seccomp failed Syscalls
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
@@ -1151,7 +1151,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// logs seccomp DialEnricher fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
@@ -1390,7 +1390,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // nolint:dupl // test duplicates are fine
+		{ //nolint:dupl // test duplicates are fine
 			// logs selinux failed Avcs
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
