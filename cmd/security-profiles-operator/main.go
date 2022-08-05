@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	_ "net/http/pprof" // nolint:gosec // required for profiling
+	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
 	"strings"
 	"time"
@@ -456,7 +456,7 @@ func runBPFRecorder(_ *cli.Context, info *version.Info) error {
 	return bpfrecorder.New(ctrl.Log.WithName(component)).Run()
 }
 
-func runLogEnricher(clictx *cli.Context, info *version.Info) error {
+func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	const component = "log-enricher"
 	printInfo(component, info)
 

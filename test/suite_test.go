@@ -41,8 +41,8 @@ import (
 const (
 	kindVersion      = "v0.14.0"
 	kindImage        = "kindest/node:v1.23.4@sha256:0e34f0d0fd448aa2f2819cfd74e99fe5793a6e4938b328f657c8e3f81ee0dfb9"
-	kindDarwinSHA512 = "d85adec9a4ebdee086a5971b540970e0be01ebf5304092d006fdc226d7cc1b0f4d26abc8384ffcd4277f1580d0b98ef7e2e1c2e4ccae351cfae3722578412a44" // nolint:lll // full length SHA
-	kindLinuxSHA512  = "068ad6bc6506f8b90e38e0e8288a5d8cd83eac6b5bcb7ba972256241a64f9d335dcd2a70e8a08eab129816b0cf3bc722988601da603638d4a4933ded5ee6d763" // nolint:lll // full length SHA
+	kindDarwinSHA512 = "d85adec9a4ebdee086a5971b540970e0be01ebf5304092d006fdc226d7cc1b0f4d26abc8384ffcd4277f1580d0b98ef7e2e1c2e4ccae351cfae3722578412a44" //nolint:lll // full length SHA
+	kindLinuxSHA512  = "068ad6bc6506f8b90e38e0e8288a5d8cd83eac6b5bcb7ba972256241a64f9d335dcd2a70e8a08eab129816b0cf3bc722988601da603638d4a4933ded5ee6d763" //nolint:lll // full length SHA
 )
 
 var (
@@ -127,7 +127,7 @@ type vanilla struct {
 // We're unable to use parallel tests because of our usage of testify/suite.
 // See https://github.com/stretchr/testify/issues/187
 //
-// nolint:paralleltest // should not run in parallel
+//nolint:paralleltest // should not run in parallel
 func TestSuite(t *testing.T) {
 	fmt.Printf("cluster-type: %s\n", clusterType)
 	fmt.Printf("container-runtime: %s\n", containerRuntime)
@@ -305,7 +305,7 @@ func (e *kinde2e) SetupTest() {
 	e.logf("Deploying the cluster")
 	e.clusterName = fmt.Sprintf("spo-e2e-%d", time.Now().Unix())
 
-	cmd := exec.Command( // nolint:gosec // fine in tests
+	cmd := exec.Command( //nolint:gosec // fine in tests
 		e.kindPath, "create", "cluster",
 		"--name="+e.clusterName,
 		"--image="+kindImage,
@@ -525,7 +525,7 @@ func (e *e2e) setWorkDir() string {
 // wait for the file to be removed by the test user.
 //
 // (jhrozek): Maybe we should set a global timeout to continue?
-func (e *e2e) breakPoint() { // nolint:unused // used on demand
+func (e *e2e) breakPoint() { //nolint:unused // used on demand
 	tmpfile, err := os.CreateTemp("", "testBreakpoint*.lock")
 	if err != nil {
 		e.logger.Error(err, "Can't create breakpoint file")
@@ -629,7 +629,7 @@ func (e *e2e) getSpodMetrics() string {
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
 	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))] // nolint:gosec // fine in tests
+		b[i] = letters[rand.Intn(len(letters))] //nolint:gosec // fine in tests
 	}
 	// Sometimes the metrics command does not output anything in CI. We fix
 	// that by retrying the metrics retrieval several times.

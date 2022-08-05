@@ -144,10 +144,10 @@ spec:
 	} {
 		e.logf("> > Running test case for deleted profiles and pods: %s", testCase.description)
 		profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
-		defer profileCleanup() // nolint:gocritic // TODO: is this intentional?
+		defer profileCleanup() //nolint:gocritic // TODO: is this intentional?
 		e.waitFor("condition=ready", "seccompprofile", deleteProfileName)
 		podCleanup := e.writeAndCreate(fmt.Sprintf(testCase.podManifest, namespace), "delete-pod*.yaml")
-		defer podCleanup() // nolint:gocritic // TODO: is this intention?
+		defer podCleanup() //nolint:gocritic // TODO: is this intention?
 		e.waitFor("condition=ready", "pod", deletePodName)
 		e.logf("Ensuring profile cannot be deleted while pod is active")
 		e.kubectl("delete", "seccompprofile", deleteProfileName, "--wait=0")
