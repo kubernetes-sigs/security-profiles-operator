@@ -9,6 +9,7 @@ metadata:
 webhooks:
   - name: binding.spo.io
     failurePolicy: Fail
+    timeoutSeconds: 5
     sideEffects: None
     rules:
       - operations: ["CREATE", "UPDATE", "DELETE"]
@@ -30,6 +31,7 @@ webhooks:
     admissionReviewVersions: ["v1beta1"]
   - name: recording.spo.io
     failurePolicy: Fail
+    timeoutSeconds: 5
     sideEffects: None
     rules:
       - operations: ["CREATE", "UPDATE", "DELETE"]
