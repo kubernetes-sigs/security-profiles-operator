@@ -2140,6 +2140,7 @@ webhooks:
     resources:
     - pods
   sideEffects: None
+  timeoutSeconds: 5
 - admissionReviewVersions:
   - v1beta1
   clientConfig:
@@ -2170,3 +2171,4 @@ webhooks:
     resources:
     - pods
   sideEffects: None
+  timeoutSeconds: 5
