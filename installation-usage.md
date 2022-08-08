@@ -7,6 +7,7 @@
 - [Install operator](#install-operator)
   - [Installation using OLM from operatorhub.io](#installation-using-olm-from-operatorhubio)
   - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
+  - [Installation using helm](#installation-using-helm)
 - [Set logging verbosity](#set-logging-verbosity)
 - [Configure the SELinux type](#configure-the-selinux-type)
 - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
@@ -114,6 +115,22 @@ need to replace the namespaces before deploying:
 ```shell
 manifest=https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/examples/olm/install-resources.yaml
 $ curl $manifest | sed "s#olm#openshift-marketplace#g" | oc apply -f -
+```
+
+### Installation using helm
+
+A helm chart is also available for installation. The chart is attached to each
+[GitHub release](https://github.com/kubernetes-sigs/security-profiles-operator/releases)
+as an artifact, and can be installed by executing the following shell commands:
+
+```shell
+# Install cert-manager if it is not already installed (TODO: The helm
+# chart might do this one day - see issue 1062 for details):
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
+# Install the chart from a release URL (note: helm also allows users to
+# specify a file path instead of a URL, if desired):
+helm install security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.5.0/security-profiles-operator-0.1.0.tgz
 ```
 
 ## Set logging verbosity
