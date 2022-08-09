@@ -309,7 +309,7 @@ func (p *podSeccompRecorder) addPod(
 		profileRecording.Status.ActiveWorkloads, podName,
 	)
 
-	if err := p.impl.UpdateResource(
+	if err := p.impl.UpdateResourceStatus(
 		ctx, p.log, profileRecording, "profilerecording status",
 	); err != nil {
 		return fmt.Errorf("update resource on adding pod: %w", err)
@@ -335,7 +335,7 @@ func (p *podSeccompRecorder) removePod(
 	}
 	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
 
-	if err := p.impl.UpdateResource(
+	if err := p.impl.UpdateResourceStatus(
 		ctx, p.log, profileRecording, "profilerecording status",
 	); err != nil {
 		return fmt.Errorf("update resource on removing pod: %w", err)
