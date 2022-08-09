@@ -74,7 +74,7 @@ func (d *defaultImpl) UpdateResourceStatus(
 	object client.Object,
 	name string,
 ) error {
-	return utils.UpdateResource(ctx, logger, d.client.Status(), object, name)
+	return utils.UpdateResourceStatus(ctx, logger, d.client.Status(), object, name)
 }
 
 func (d *defaultImpl) SetDecoder(decoder *admission.Decoder) {
