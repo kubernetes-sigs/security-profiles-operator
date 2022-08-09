@@ -45,9 +45,27 @@ func RemoveIfExists(list []string, item string) []string {
 }
 
 // UpdateResource tries to update the provided object by using the
-// client.StatusWriter. If the update fails, it automatically logs to the
+// client.Writer. If the update fails, it automatically logs to the
 // provided logger.
 func UpdateResource(
+	ctx context.Context,
+	logger logr.Logger,
+	c client.Writer,
+	object client.Object,
+	name string,
+) error {
+	if err := c.Update(ctx, object); err != nil {
+		msg := fmt.Sprintf("failed to update resource %s", name)
+		logger.Error(err, msg)
+		return fmt.Errorf("%s: %w", msg, err)
+	}
+	return nil
+}
+
+// UpdateResourceStatus tries to update the provided object by using the
+// client.StatusWriter. If the update fails, it automatically logs to the
+// provided logger.
+func UpdateResourceStatus(
 	ctx context.Context,
 	logger logr.Logger,
 	c client.StatusWriter,

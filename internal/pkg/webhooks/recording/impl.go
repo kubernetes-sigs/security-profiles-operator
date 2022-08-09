@@ -42,6 +42,7 @@ type defaultImpl struct {
 type impl interface {
 	ListProfileRecordings(context.Context, ...client.ListOption) (*v1alpha1.ProfileRecordingList, error)
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
+	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
 	SetDecoder(*admission.Decoder)
 	DecodePod(admission.Request) (*corev1.Pod, error)
 	LabelSelectorAsSelector(*metav1.LabelSelector) (labels.Selector, error)
@@ -64,7 +65,16 @@ func (d *defaultImpl) UpdateResource(
 	object client.Object,
 	name string,
 ) error {
-	return utils.UpdateResource(ctx, logger, d.client.Status(), object, name)
+	return utils.UpdateResource(ctx, logger, d.client, object, name)
+}
+
+func (d *defaultImpl) UpdateResourceStatus(
+	ctx context.Context,
+	logger logr.Logger,
+	object client.Object,
+	name string,
+) error {
+	return utils.UpdateResourceStatus(ctx, logger, d.client.Status(), object, name)
 }
 
 func (d *defaultImpl) SetDecoder(decoder *admission.Decoder) {
