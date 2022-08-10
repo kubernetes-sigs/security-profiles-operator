@@ -81,14 +81,6 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 	return nil
 }
 
-func NewStatusReconciler(cli client.Client, log logr.Logger, record event.Recorder) *StatusReconciler {
-	return &StatusReconciler{
-		client: cli,
-		log:    log,
-		record: record,
-	}
-}
-
 // Security Profiles Operator RBAC permissions to manage SelinuxProfile
 // nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch
