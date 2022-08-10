@@ -114,7 +114,7 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 	defer cancel()
 
 	logger := r.log.WithValues("nodeStatus", req.Name, "namespace", req.Namespace)
-	logger.Info("Reconciling node status")
+	logger.V(config.VerboseLevel).Info("Reconciling node status")
 
 	// get the status to be reconciled
 	instance := &statusv1alpha1.SecurityProfileNodeStatus{}
@@ -186,7 +186,7 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 	for i := range nodeStatusList.Items {
 		lowestCommonState = statusv1alpha1.LowerOfTwoStates(lowestCommonState, nodeStatusList.Items[i].Status)
 	}
-	logger.Info("Setting the status to", "Status", lowestCommonState)
+	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", lowestCommonState)
 
 	return r.reconcileStatus(ctx, prof, lowestCommonState, lprof)
 }
@@ -275,7 +275,7 @@ func (r *StatusReconciler) reconcileStatus(
 		outStatus.SetConditions(rcommonv1.Unavailable())
 	}
 
-	l.Info("Updating status")
+	l.V(config.VerboseLevel).Info("Updating status")
 	if updateErr := r.client.Status().Update(ctx, pCopy); updateErr != nil {
 		return reconcile.Result{}, fmt.Errorf("updating policy status: %w", updateErr)
 	}
