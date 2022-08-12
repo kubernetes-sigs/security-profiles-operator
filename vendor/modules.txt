@@ -508,7 +508,7 @@ github.com/openshift/api/config/v1
 # github.com/peterbourgon/diskv v2.0.1+incompatible
 ## explicit
 github.com/peterbourgon/diskv
-# github.com/pjbgf/go-apparmor v0.0.7
+# github.com/pjbgf/go-apparmor v0.0.8
 ## explicit; go 1.17
 github.com/pjbgf/go-apparmor/pkg/apparmor
 github.com/pjbgf/go-apparmor/pkg/hostop

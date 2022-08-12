@@ -16,7 +16,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"unsafe"
+
+	"github.com/go-logr/logr"
 )
 
 const (
@@ -26,15 +29,80 @@ const (
 var (
 	findAppArmorParser sync.Once
 	appArmorParserPath string
+
+	aaExtensionsNotAvailableErr  = errors.New("appArmor extensions to the system are not available")
+	aaDisabledAtBootErr          = errors.New("appArmor is available on the system but has been disabled at boot")
+	aaInterfaceUnavailableErr    = errors.New("appArmor is available but the interface is not available")
+	aaInsufficientMemoryErr      = errors.New("insufficient memory was available")
+	aaPermissionDeniedErr        = errors.New("missing sufficient permissions to determine if AppArmor is enabled")
+	aaCannotCompleteOperationErr = errors.New("could not complete operation")
+	aaAccessToPathDeniedErr      = errors.New("access to the required paths was denied")
+	aaFSNotFoundErr              = errors.New("appArmor filesystem mount could not be found")
 )
 
-// Enforceable checks whether AppArmor is installed, enabled and that
-// policies are enforceable.
-func (a *AppArmor) Enforceable() bool {
-	return aaModuleLoaded() && aaParserInstalled()
+type AppArmor struct {
+	logger logr.Logger
 }
 
-// DeletePolicy removes an AppArmor policy from the kernel.
+func (a *AppArmor) WithLogger(logger logr.Logger) aa {
+	a.logger = logger
+	return a
+}
+
+func (a *AppArmor) Enabled() (bool, error) {
+	e := C.aa_is_enabled()
+	if e == 0 {
+		return true, nil
+	}
+
+	switch syscall.Errno(e) {
+	case syscall.ENOSYS:
+		return false, aaExtensionsNotAvailableErr
+	case syscall.ECANCELED:
+		return false, aaDisabledAtBootErr
+	case syscall.ENOENT:
+		return false, aaInterfaceUnavailableErr
+	case syscall.ENOMEM:
+		return false, aaInsufficientMemoryErr
+	case syscall.EPERM:
+		return false, aaPermissionDeniedErr
+	case syscall.EACCES:
+		return false, aaPermissionDeniedErr
+	default:
+		return false, fmt.Errorf("checking appArmor status: %w", aaCannotCompleteOperationErr)
+	}
+}
+
+func (a *AppArmor) Enforceable() (bool, error) {
+	enabled, err := a.Enabled()
+	if err != nil {
+		return false, err
+	}
+
+	return enabled && aaParserInstalled(), nil
+}
+
+func (a *AppArmor) AppArmorFS() (string, error) {
+	aaFS := C.CString("")
+	defer C.free(unsafe.Pointer(aaFS))
+
+	e := C.aa_find_mountpoint(&aaFS)
+	if e == 0 {
+		return C.GoString(aaFS), nil
+	}
+
+	switch syscall.Errno(e) {
+	case syscall.ENOENT:
+		return C.GoString(aaFS), aaFSNotFoundErr
+	case syscall.ENOMEM:
+		return C.GoString(aaFS), aaInsufficientMemoryErr
+	case syscall.EACCES:
+		return C.GoString(aaFS), aaAccessToPathDeniedErr
+	default:
+		return C.GoString(aaFS), fmt.Errorf("appArmor mount point: %w", aaCannotCompleteOperationErr)
+	}
+}
+
 func (a *AppArmor) DeletePolicy(policyName string) error {
 	if ok, err := hasEnoughPrivileges(); !ok {
 		return err
@@ -60,7 +128,6 @@ func (a *AppArmor) DeletePolicy(policyName string) error {
 	return err
 }
 
-// LoadPolicy loads an AppArmor policy into the kernel.
 func (a *AppArmor) LoadPolicy(fileName string) error {
 	if ok, err := hasEnoughPrivileges(); !ok {
 		return err
@@ -145,12 +212,6 @@ func hasEnoughPrivileges() (bool, error) {
 	}
 
 	return false, errors.New(errMessage)
-}
-
-// moduleLoaded checks whether the AppArmor module is loaded into the kernel.
-func aaModuleLoaded() bool {
-	_, err := os.Stat(modulePath)
-	return err == nil
 }
 
 // aaParserInstalled checks whether apparmor_parser is installed.

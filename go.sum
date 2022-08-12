@@ -1139,8 +1139,8 @@ github.com/peterbourgon/diskv v2.0.1+incompatible h1:UBdAOUP5p4RWqPBg048CAvpKN+v
 github.com/peterbourgon/diskv v2.0.1+incompatible/go.mod h1:uqqh8zWWbv1HBMNONnaR/tNboyR3/BZd58JJSHlUSCU=
 github.com/phayes/checkstyle v0.0.0-20170904204023-bfd46e6a821d/go.mod h1:3OzsM7FXDQlpCiw2j81fOmAwQLnZnLGXVKUzeKQXIAw=
 github.com/phayes/freeport v0.0.0-20220201140144-74d24b5ae9f5 h1:Ii+DKncOVM8Cu1Hc+ETb5K+23HdAMvESYE3ZJ5b5cMI=
-github.com/pjbgf/go-apparmor v0.0.7 h1:HEs8iA7tAMNEWz52LSJWzyltqU1BbVYFNkE/QRYAmLc=
-github.com/pjbgf/go-apparmor v0.0.7/go.mod h1:W7d9MAttSsMLmuRfrdAMBRQDn7UlR5UN2UWmOMwtXuk=
+github.com/pjbgf/go-apparmor v0.0.8 h1:4pgHE1vdrcd9/VyxEoEqHc5OgGTV/fpsai0Mygv4nks=
+github.com/pjbgf/go-apparmor v0.0.8/go.mod h1:W7d9MAttSsMLmuRfrdAMBRQDn7UlR5UN2UWmOMwtXuk=
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.8.1-0.20171018195549-f15c970de5b7/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
