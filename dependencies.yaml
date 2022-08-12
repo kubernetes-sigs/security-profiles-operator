@@ -168,3 +168,9 @@ dependencies:
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: BOM_VERSION
+
+  - name: spo-current-release
+    version: v0.4.3
+    refPaths:
+    - path: installation-usage.md
+      match: ^helm install security-profiles-operator
