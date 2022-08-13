@@ -359,8 +359,10 @@ func (e *e2e) getSeccompProfileNodeStatus(
 	)
 	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
-	e.Equal(len(secpolNodeStatusList.Items), 1)
-	return &secpolNodeStatusList.Items[0]
+	if e.Equal(len(secpolNodeStatusList.Items), 1) {
+		return &secpolNodeStatusList.Items[0]
+	}
+	return nil
 }
 
 func (e *e2e) getAllSeccompProfileNodeStatuses(
