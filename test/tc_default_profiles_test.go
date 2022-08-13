@@ -68,7 +68,9 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 			e.verifyCRDProfileContent(node, sp)
 
 			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
-			e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+			if e.NotNil(spns) {
+				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+			}
 		}
 
 		// Example profile verification
@@ -83,7 +85,9 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 			e.verifyCRDProfileContent(node, sp)
 
 			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
-			e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+			if e.NotNil(spns) {
+				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+			}
 		}
 	}
 }
