@@ -1,5 +1,5 @@
-//go:build linux
-// +build linux
+//go:build linux && apparmor
+// +build linux,apparmor
 
 package apparmor
 
@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -39,6 +40,21 @@ var (
 	aaAccessToPathDeniedErr      = errors.New("access to the required paths was denied")
 	aaFSNotFoundErr              = errors.New("appArmor filesystem mount could not be found")
 )
+
+var goOS = func() string {
+	return runtime.GOOS
+}
+
+// NewAppArmor creates a new instance of the apparmor API.
+func NewAppArmor() aa {
+	if goOS() == "linux" {
+		return &AppArmor{
+			logger: logr.Discard(),
+		}
+	}
+
+	return &unsupported{}
+}
 
 type AppArmor struct {
 	logger logr.Logger
