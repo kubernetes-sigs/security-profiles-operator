@@ -80,7 +80,9 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 			e.verifyCRDProfileContent(node, sp)
 
 			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
-			e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+			if e.NotNil(spns) {
+				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+			}
 		}
 
 		for _, name := range deniedProfileNames {
@@ -119,7 +121,9 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 		e.verifyCRDProfileContent(node, sp)
 
 		spns := e.getSeccompProfileNodeStatus(name, namespace, node)
-		e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+		if e.NotNil(spns) {
+			e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+		}
 	}
 
 	// Remove a syscall form allowed syscall list in order to invalidate the seccomp profile. The operator
