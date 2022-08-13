@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package hostop
 
 import (
@@ -70,10 +73,14 @@ func HostPidNamespace() (bool, error) {
 
 	if scanner.Scan() {
 		line := scanner.Text()
-		exec := strings.Split(line, " ")[0]
-		for _, hostExec := range hostIdentifierExec {
-			if exec == hostExec {
-				return true, nil
+		split := strings.Split(line, " ")
+
+		if len(split) > 0 {
+			exec := split[0]
+			for _, hostExec := range hostIdentifierExec {
+				if exec == hostExec {
+					return true, nil
+				}
 			}
 		}
 	}
