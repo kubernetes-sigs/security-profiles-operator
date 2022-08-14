@@ -22,6 +22,7 @@ export E2E_TEST_SELINUX=false
 export E2E_TEST_LOG_ENRICHER=false
 export E2E_TEST_BPF_RECORDER=true
 export E2E_TEST_PROFILE_RECORDING=false
+export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}
 
 export HOSTFS_DEV_MOUNT_PATH="/hostfs"
 export NODE_ROOTFS_PREFIX=$HOSTFS_DEV_MOUNT_PATH
@@ -38,4 +39,8 @@ export PATH="$HOSTFS_DEV_MOUNT_PATH/opt/bin:$PATH"
 export KUBECONFIG=$HOSTFS_DEV_MOUNT_PATH/etc/kubernetes/admin.conf
 alias k=kubectl
 
-make test-e2e
+if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then
+    make test-flaky-e2e
+else
+    make test-e2e
+fi
