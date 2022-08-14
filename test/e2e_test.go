@@ -188,9 +188,12 @@ func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []tes
 	}
 
 	e.logf("testing namespace operator")
-
-	// Use namespace manifests for redeploy test
-	testCases[5].fn = e.testCaseReDeployNamespaceOperator
+	for _, tc := range testCases {
+		// Replace re-deploy the operator with a namespaced alternative.
+		if tc.description == "Seccomp: Re-deploy the operator" {
+			tc.fn = e.testCaseReDeployNamespaceOperator
+		}
+	}
 
 	// Deploy the namespace operator
 	e.kubectl("create", "namespace", namespace)
