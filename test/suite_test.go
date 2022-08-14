@@ -50,6 +50,7 @@ var (
 	envSkipBuildImages              = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	envTestImage                    = os.Getenv("E2E_SPO_IMAGE")
 	spodConfig                      = os.Getenv("E2E_SPOD_CONFIG")
+	envSkipFlakyTests               = os.Getenv("E2E_SKIP_FLAKY_TESTS")
 	envSkipNamespacedTests          = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
 	envSelinuxTestsEnabled          = os.Getenv("E2E_TEST_SELINUX")
 	envLogEnricherTestsEnabled      = os.Getenv("E2E_TEST_LOG_ENRICHER")
@@ -92,6 +93,7 @@ type e2e struct {
 	testProfileRecording  bool
 	bpfRecorderEnabled    bool
 	skipNamespacedTests   bool
+	skipFlakyTests        bool
 	testWebhookConfig     bool
 	singleNodeEnvironment bool
 	logger                logr.Logger
@@ -157,6 +159,11 @@ func TestSuite(t *testing.T) {
 		skipNamespacedTests = false
 	}
 
+	skipFlakyTests, err := strconv.ParseBool(envSkipFlakyTests)
+	if err != nil {
+		skipFlakyTests = true
+	}
+
 	testWebhookConfig, err := strconv.ParseBool(envWebhookConfigTestsEnabled)
 	if err != nil {
 		testWebhookConfig = true
@@ -189,6 +196,7 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests:  skipNamespacedTests,
 				operatorManifest:     operatorManifest,
 				testWebhookConfig:    testWebhookConfig,
+				skipFlakyTests:       skipFlakyTests,
 			},
 			"", "",
 		})
@@ -220,6 +228,7 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests:  skipNamespacedTests,
 				operatorManifest:     operatorManifest,
 				testWebhookConfig:    testWebhookConfig,
+				skipFlakyTests:       skipFlakyTests,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -246,6 +255,7 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests:  skipNamespacedTests,
 				operatorManifest:     operatorManifest,
 				testWebhookConfig:    testWebhookConfig,
+				skipFlakyTests:       skipFlakyTests,
 				// NOTE(jaosorior): Our current vanilla jobs are
 				// single-node only.
 				singleNodeEnvironment: true,

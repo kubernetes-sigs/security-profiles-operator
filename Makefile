@@ -388,7 +388,15 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	CGO_LDFLAGS= $(GO) test -parallel 1 -timeout 80m -count=1 ./test/... -v
+	CGO_LDFLAGS= \
+	E2E_SKIP_FLAKY_TESTS=true \
+	$(GO) test -parallel 1 -timeout 60m -count=1 ./test/... -v
+
+.PHONY: test-flaky-e2e
+test-flaky-e2e: ## Only run the flaky end-to-end tests
+	CGO_LDFLAGS= \
+	E2E_SKIP_FLAKY_TESTS=false \
+	$(GO) test -parallel 1 -testify.m '^(TestSecurityProfilesOperator_Flaky)$$' -timeout 20m -count=1 ./test/... -v
 
 # Generate CRD manifests
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
