@@ -89,10 +89,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseDeleteProfiles,
 		},
 		{
-			"Seccomp: Metrics",
-			e.testCaseSeccompMetrics,
-		},
-		{
 			"Seccomp: Re-deploy the operator",
 			e.testCaseReDeployOperator,
 		},
@@ -132,12 +128,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		})
 	}
 
-	// TODO(jaosorior): Re-introduce this to the namespaced tests once we
-	// fix the issue with the certs.
-	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
-		e.testCaseSeccompProfileBinding(nodes)
-	})
-
 	e.Run("cluster-wide: Selinux: Verify profile binding", func() {
 		e.testCaseSelinuxProfileBinding(nodes)
 	})
@@ -149,26 +139,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseProfileRecordingDeploymentHook()
 	})
 
-	e.Run("cluster-wide: Seccomp: Verify profile recording logs", func() {
-		e.testCaseProfileRecordingStaticPodLogs()
-		e.testCaseProfileRecordingMultiContainerLogs()
-		e.testCaseProfileRecordingSpecificContainerLogs()
-		e.testCaseProfileRecordingDeploymentLogs()
-	})
-
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogs()
 		e.testCaseProfileRecordingMultiContainerSELinuxLogs()
 		e.testCaseProfileRecordingSelinuxDeploymentLogs()
-	})
-
-	e.Run("cluster-wide: Seccomp: Verify profile recording bpf", func() {
-		e.testCaseBpfRecorderKubectlRun()
-		e.testCaseBpfRecorderStaticPod()
-		e.testCaseBpfRecorderMultiContainer()
-		e.testCaseBpfRecorderDeployment()
-		e.testCaseBpfRecorderParallel()
-		e.testCaseBpfRecorderSelectContainer()
 	})
 
 	e.Run("cluster-wide: Same profile in multiple namespaces", func() {
