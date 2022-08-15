@@ -568,7 +568,7 @@ github.com/spf13/pflag
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
 github.com/stretchr/testify/suite
-# github.com/urfave/cli/v2 v2.11.1
+# github.com/urfave/cli/v2 v2.11.2
 ## explicit; go 1.18
 github.com/urfave/cli/v2
 # github.com/vbatts/tar-split v0.11.2
