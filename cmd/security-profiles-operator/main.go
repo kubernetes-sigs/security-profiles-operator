@@ -66,7 +66,6 @@ const (
 	jsonFlag           string = "json"
 	selinuxFlag        string = "with-selinux"
 	apparmorFlag       string = "with-apparmor"
-	labelDenialsFlag   string = "label-denials"
 	webhookFlag        string = "webhook"
 	defaultWebhookPort int    = 9443
 )
@@ -188,13 +187,6 @@ func main() {
 			Name:    "log-enricher",
 			Aliases: []string{"l"},
 			Usage:   "run the audit's log enricher",
-			Flags: []cli.Flag{
-				&cli.BoolFlag{
-					Name:  labelDenialsFlag,
-					Usage: "whether to label problematic pods or not",
-					Value: false,
-				},
-			},
 			Action: func(ctx *cli.Context) error {
 				return runLogEnricher(ctx, info)
 			},
@@ -468,7 +460,7 @@ func runLogEnricher(clictx *cli.Context, info *version.Info) error {
 	const component = "log-enricher"
 	printInfo(component, info)
 
-	e, err := enricher.New(ctrl.Log.WithName(component), clictx.Bool(labelDenialsFlag))
+	e, err := enricher.New(ctrl.Log.WithName(component))
 	if err != nil {
 		return fmt.Errorf("building log enricher: %w", err)
 	}

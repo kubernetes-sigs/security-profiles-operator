@@ -64,11 +64,10 @@ type Enricher struct {
 	avcs             sync.Map
 	auditLineCache   *ttlcache.Cache[string, []*types.AuditLine]
 	clientset        kubernetes.Interface
-	labelDenials     bool
 }
 
 // New returns a new Enricher instance.
-func New(logger logr.Logger, labelDenials bool, impls ...impl) (*Enricher, error) {
+func New(logger logr.Logger, impls ...impl) (*Enricher, error) {
 	var effectiveimpl impl
 	if len(impls) == 0 {
 		effectiveimpl = &defaultImpl{}
@@ -106,18 +105,13 @@ func New(logger logr.Logger, labelDenials bool, impls ...impl) (*Enricher, error
 			// if/when the cache is full.
 			ttlcache.WithDisableTouchOnHit[string, []*types.AuditLine](),
 		),
-		labelDenials: labelDenials,
-		clientset:    clientset,
+		clientset: clientset,
 	}, nil
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
 // Kubernetes data (namespace, pod and container).
 func (e *Enricher) Run() error {
-	if e.labelDenials {
-		e.logger.Info("Labeling problematic containers is enabled")
-	}
-
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
 	go e.containerIDCache.Start()
 	go e.infoCache.Start()

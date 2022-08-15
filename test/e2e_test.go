@@ -39,12 +39,11 @@ const (
 	// NOTE(jaosorior): We should be able to decrease this once we
 	// migrate to a single daemonset-based implementation for the
 	// SELinux pieces.
-	defaultSelinuxOpTimeout       = "360s"
-	defaultLogEnricherOpTimeout   = defaultSelinuxOpTimeout
-	defaultBpfRecorderOpTimeout   = defaultSelinuxOpTimeout
-	defaultLabelPodDenialsTimeout = defaultSelinuxOpTimeout
-	defaultWaitTimeout            = "180s"
-	defaultWaitTime               = 15 * time.Second
+	defaultSelinuxOpTimeout     = "360s"
+	defaultLogEnricherOpTimeout = defaultSelinuxOpTimeout
+	defaultBpfRecorderOpTimeout = defaultSelinuxOpTimeout
+	defaultWaitTimeout          = "180s"
+	defaultWaitTime             = 15 * time.Second
 )
 
 // testCase define a type for a e2e test case.
@@ -100,10 +99,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		{
 			"Log Enricher",
 			e.testCaseLogEnricher,
-		},
-		{
-			"SELinux: label problematic pod",
-			e.testCaseSelinuxLabelPodDenials,
 		},
 		{
 			"SELinux: base case (install policy, run pod and delete)",
