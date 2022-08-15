@@ -21,12 +21,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/api/core/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -40,8 +38,6 @@ const (
 	backoffDuration  = 500 * time.Millisecond
 	backoffFactor    = 1.5
 	backoffSteps     = 10
-
-	problematicContainerLabelKey = "spo.x-k8s.io/had-denials"
 )
 
 var errContainerIDEmpty = errors.New("container ID is empty")
@@ -49,7 +45,7 @@ var errContainerIDEmpty = errors.New("container ID is empty")
 // NOTE(jaosorior): Should this actually be namespace-scoped?
 //
 // Cluster scoped
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 func (e *Enricher) getContainerInfo(
 	nodeName, targetContainerID string,
@@ -156,12 +152,6 @@ func (e *Enricher) populateCacheEntryForContainer(
 				RecordProfile: recordProfile,
 			}
 
-			if e.labelDenials && rawContainerID == targetContainerID {
-				e.logger.Info("labeling problematic container", "containerID", containerID,
-					"podNamespace", pod.Namespace, "podName", pod.Name)
-				e.labelPodDenials(context.TODO(), info.ContainerName, pod.DeepCopy(), e.logger)
-			}
-
 			// Update the cache
 			e.infoCache.Set(rawContainerID, info, ttlcache.DefaultTTL)
 		}
@@ -186,37 +176,4 @@ func (e *Enricher) handleContainerIDEmpty(podName, containerName string, contain
 		"container ID not found with container state: %v",
 		containerStatus.State,
 	)
-}
-
-func (e *Enricher) labelPodDenials(
-	ctx context.Context, containerName string, pod *v1.Pod, l logr.Logger,
-) {
-	// verify if we need to label or if the label is already there
-	if labels := pod.GetLabels(); labels != nil {
-		if _, ok := labels[problematicContainerLabelKey]; ok {
-			return
-		}
-	}
-
-	containerRetryBackoff := wait.Backoff{
-		Duration: backoffDuration,
-		Factor:   backoffFactor,
-		Steps:    backoffSteps,
-	}
-
-	if err := util.RetryEx(
-		&containerRetryBackoff,
-		func() (retryErr error) {
-			return e.impl.LabelPodDenials(ctx, e.clientset, pod)
-		},
-		func(inErr error) bool {
-			return !kerrors.IsNotFound(inErr)
-		},
-	); err != nil {
-		l.Error(
-			err, "unable to patch container to mark it as problematic",
-			"pod.Namespace", pod.GetNamespace(), "pod.Name", pod.GetName(),
-			"containerName", containerName,
-		)
-	}
 }
