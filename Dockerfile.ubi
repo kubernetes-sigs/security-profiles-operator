@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # hash below referred to `:36` tag
-FROM registry.fedoraproject.org/fedora-minimal@sha256:b4b4e7b6d82e0b3650039e1eb27b13594cd82133f7b6b2b05244865f95c0f10f AS build
+FROM registry.fedoraproject.org/fedora-minimal@sha256:b676cdd0fdefe33124325082d070c39558f1966a63dfd1193681a7900707d332 AS build
 USER root
 WORKDIR /work
 
@@ -33,7 +33,7 @@ ARG BPF_ENABLED=0
 RUN make
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:16da4d4c5cb289433305050a06834b7328769f8a5257ad5b4a5006465a0379ff
+FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:6e79406e33049907e875cb65a31ee2f0575f47afa0f06e3a2a9316b01ee379eb
 ARG version
 USER root
 
