@@ -19,6 +19,7 @@ package recording
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -40,6 +41,7 @@ type defaultImpl struct {
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 //counterfeiter:generate . impl
 type impl interface {
+	GetProfileRecording(ctx context.Context, name, namespace string) (*v1alpha1.ProfileRecording, error)
 	ListProfileRecordings(context.Context, ...client.ListOption) (*v1alpha1.ProfileRecordingList, error)
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
 	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
@@ -47,6 +49,17 @@ type impl interface {
 	DecodePod(admission.Request) (*corev1.Pod, error)
 	LabelSelectorAsSelector(*metav1.LabelSelector) (labels.Selector, error)
 	GetOperatorNamespace() string
+}
+
+func (d *defaultImpl) GetProfileRecording(
+	ctx context.Context, name, namespace string,
+) (*v1alpha1.ProfileRecording, error) {
+	profileRecording := &v1alpha1.ProfileRecording{}
+	prName := types.NamespacedName{Name: name, Namespace: namespace}
+	if err := d.client.Get(ctx, prName, profileRecording); err != nil {
+		return nil, fmt.Errorf("get profile recording: %w", err)
+	}
+	return profileRecording, nil
 }
 
 func (d *defaultImpl) ListProfileRecordings(

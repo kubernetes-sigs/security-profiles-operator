@@ -28,6 +28,7 @@ import (
 	"github.com/go-logr/logr"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -119,21 +120,32 @@ func (p *podSeccompRecorder) Handle(
 
 		if req.Operation == admissionv1.Delete {
 			p.cleanupReplicas(podName)
-			if err := p.removePod(ctx, podName, &item); err != nil {
+			if err := util.Retry(func() error {
+				if err := p.removePod(ctx, podName, item.Name, item.Namespace); err != nil {
+					return fmt.Errorf("removing pod tracking: %w", err)
+				}
+				return nil
+			}, kerrors.IsConflict); err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 			continue
 		}
 
 		if selector.Matches(podLabels) {
-			podChanged, err = p.updatePod(pod, &item)
+			podChanged, err = p.updatePod(pod, podName, &item)
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 		}
 
 		if podChanged {
-			if err := p.addPod(ctx, podName, &item); err != nil {
+			if err := util.Retry(func() error {
+				if err := p.addPod(ctx, podName, item.Name, item.Namespace); err != nil {
+					return fmt.Errorf("adding pod tracking: %w", err)
+				}
+
+				return nil
+			}, kerrors.IsConflict); err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 		}
@@ -164,6 +176,7 @@ func (p *podSeccompRecorder) shouldRecordContainer(containerName string,
 
 func (p *podSeccompRecorder) updatePod(
 	pod *corev1.Pod,
+	podName string,
 	profileRecording *profilerecordingv1alpha1.ProfileRecording,
 ) (podChanged bool, err error) {
 	// Collect containers as references to not copy them during modification
@@ -219,7 +232,7 @@ func (p *podSeccompRecorder) updatePod(
 				errors.New("existing annotation"),
 				fmt.Sprintf(
 					"workload %s already has annotation %s (not mutating to %s).",
-					pod.Name,
+					podName,
 					existingValue,
 					value,
 				),
@@ -303,8 +316,16 @@ func (p *podSeccompRecorder) cleanupReplicas(podName string) {
 func (p *podSeccompRecorder) addPod(
 	ctx context.Context,
 	podName string,
-	profileRecording *profilerecordingv1alpha1.ProfileRecording,
+	recordingName string,
+	namespace string,
 ) error {
+	// we Get the recording again because remove is used in a retry loop
+	// to handle conflicts, we want to get the most recent one
+	profileRecording, err := p.impl.GetProfileRecording(ctx, recordingName, namespace)
+	if err != nil {
+		return fmt.Errorf("cannot retrieve profilerecording: %w", err)
+	}
+
 	profileRecording.Status.ActiveWorkloads = utils.AppendIfNotExists(
 		profileRecording.Status.ActiveWorkloads, podName,
 	)
@@ -325,8 +346,16 @@ func (p *podSeccompRecorder) addPod(
 func (p *podSeccompRecorder) removePod(
 	ctx context.Context,
 	podName string,
-	profileRecording *profilerecordingv1alpha1.ProfileRecording,
+	recordingName string,
+	namespace string,
 ) error {
+	// we Get the recording again because remove is used in a retry loop
+	// to handle conflicts, we want to get the most recent one
+	profileRecording, err := p.impl.GetProfileRecording(ctx, recordingName, namespace)
+	if err != nil {
+		return fmt.Errorf("cannot retrieve profilerecording: %w", err)
+	}
+
 	newActiveWorkloads := []string{}
 	for _, activeWorkload := range profileRecording.Status.ActiveWorkloads {
 		if !strings.HasPrefix(podName, activeWorkload) {
