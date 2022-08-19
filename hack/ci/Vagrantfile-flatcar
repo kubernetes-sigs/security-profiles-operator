@@ -126,7 +126,7 @@ Vagrant.configure("2") do |config|
       kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 
       # Install CNI
-      kubectl create -f https://docs.projectcalico.org/manifests/tigera-operator.yaml
+      kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.24.0/manifests/tigera-operator.yaml
       kubectl apply -f /vagrant/hack/ci/flatcar-cni-plugin.yaml
     SHELL
   end
