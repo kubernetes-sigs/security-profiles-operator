@@ -12,3 +12,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: spod
+  namespace: security-profiles-operator

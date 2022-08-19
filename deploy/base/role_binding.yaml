@@ -52,6 +52,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: spod
+  namespace: security-profiles-operator
 roleRef:
   kind: Role
   name: spod
