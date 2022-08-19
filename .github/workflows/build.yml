@@ -82,7 +82,7 @@ jobs:
             type=ref,event=branch
             type=sha,format=long
       - name: Build (and push if needed)
-        uses: docker/build-push-action@965c6a410d446a30e95d35052c67d6eded60dad6
+        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
         with:
           context: .
           file: Dockerfile.build-image
