@@ -177,6 +177,6 @@ jobs:
         run: $RUN hack/ci/e2e-flatcar-dev-container.sh
       - name: Run Flaky E2E tests
         continue-on-error: true
-        run: $RUN hack/ci/e2e-ubuntu.sh
+        run: $RUN hack/ci/e2e-flatcar-dev-container.sh
         env:
           E2E_TEST_FLAKY_TESTS_ONLY: true
