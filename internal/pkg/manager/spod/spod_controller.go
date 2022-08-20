@@ -565,8 +565,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.InitContainers[i].Env = append(templateSpec.InitContainers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
 
 		// Update the SELinux type tag when is defined in the configuration
-		if cfg.Spec.SelinuxTypeTag != "" {
-			templateSpec.InitContainers[i].SecurityContext.SELinuxOptions.Type = cfg.Spec.SelinuxTypeTag
+		if cfg.Spec.EnableSelinux != nil && *cfg.Spec.EnableSelinux {
+			configureSeLinuxTag(templateSpec.InitContainers[i].SecurityContext, cfg.Spec.SelinuxTypeTag)
 		}
 	}
 
@@ -586,8 +586,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			enableContainerProfiling(templateSpec, i)
 		}
 		// Update the SELinux type tag when is defined in the configuration
-		if cfg.Spec.SelinuxTypeTag != "" {
-			templateSpec.Containers[i].SecurityContext.SELinuxOptions.Type = cfg.Spec.SelinuxTypeTag
+		if cfg.Spec.EnableSelinux != nil && *cfg.Spec.EnableSelinux {
+			configureSeLinuxTag(templateSpec.Containers[i].SecurityContext, cfg.Spec.SelinuxTypeTag)
 		}
 	}
 
@@ -596,6 +596,17 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
 
 	return newSPOd
+}
+
+func configureSeLinuxTag(secContext *corev1.SecurityContext, seLinuxTag string) {
+	if secContext == nil {
+		return
+	}
+	if secContext.SELinuxOptions == nil {
+		secContext.SELinuxOptions = &corev1.SELinuxOptions{}
+	}
+
+	secContext.SELinuxOptions.Type = seLinuxTag
 }
 
 func verbosityEnv(value uint) corev1.EnvVar {
