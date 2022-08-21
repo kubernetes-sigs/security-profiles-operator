@@ -18,7 +18,6 @@ package v1alpha2
 
 import (
 	"context"
-	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,9 +31,11 @@ const (
 	AllowSelf = "@self"
 )
 
-// Ensure SelinuxProfile implements the StatusBaseUser and SecurityProfileBase interfaces
-var _ profilebasev1alpha1.StatusBaseUser = &SelinuxProfile{}
-var _ profilebasev1alpha1.SecurityProfileBase = &SelinuxProfile{}
+// Ensure SelinuxProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
+var (
+	_ profilebasev1alpha1.StatusBaseUser      = &SelinuxProfile{}
+	_ profilebasev1alpha1.SecurityProfileBase = &SelinuxProfile{}
+)
 
 type PolicyRef struct {
 	// The Kind of the policy that this inherits from.

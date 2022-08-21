@@ -1335,6 +1335,8 @@ rules:
   - seccompprofiles
   verbs:
   - create
+  - delete
+  - deletecollection
   - get
   - list
   - patch
@@ -1398,6 +1400,8 @@ rules:
   - selinuxprofiles
   verbs:
   - create
+  - delete
+  - deletecollection
   - get
   - list
   - patch
