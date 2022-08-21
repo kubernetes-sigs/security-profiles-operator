@@ -18,7 +18,6 @@ package v1beta1
 
 import (
 	"context"
-	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
@@ -31,9 +30,11 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
-// Ensure SeccompProfile implements the StatusBaseUser and SecurityProfileBase interfaces
-var _ profilebase.StatusBaseUser = &SeccompProfile{}
-var _ profilebase.SecurityProfileBase = &SeccompProfile{}
+// Ensure SeccompProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
+var (
+	_ profilebase.StatusBaseUser      = &SeccompProfile{}
+	_ profilebase.SecurityProfileBase = &SeccompProfile{}
+)
 
 const (
 	extJSON = ".json"

@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/selinuxprofile"
 	nodestatus "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/nodestatus"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
@@ -333,6 +334,7 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 			nodestatus.NewController(),
 			spod.NewController(),
 			workloadannotator.NewController(),
+			recordingmerger.NewController(),
 		}, mgr, nil); err != nil {
 		return fmt.Errorf("enable controllers: %w", err)
 	}
