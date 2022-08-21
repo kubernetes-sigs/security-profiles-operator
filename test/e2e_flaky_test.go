@@ -66,6 +66,7 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 		e.testCaseProfileRecordingMultiContainerLogs()
 		e.testCaseProfileRecordingSpecificContainerLogs()
 		e.testCaseProfileRecordingDeploymentLogs()
+		e.testCaseRecordingFinalizers()
 	})
 
 	e.Run("cluster-wide: Seccomp: Verify profile recording bpf", func() {

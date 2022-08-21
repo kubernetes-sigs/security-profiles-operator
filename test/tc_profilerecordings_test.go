@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"time"
 )
 
@@ -274,6 +275,62 @@ func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
 		regexp.MustCompile(`(?s)"perm"="listen"`+
 			`.*"perm"="listen"`),
 	)
+}
+
+func (e *e2e) testCaseRecordingFinalizers() {
+	e.logEnricherOnlyTestCase()
+
+	const recordingName = "test-recording"
+
+	e.logf("Creating recording for static pod test")
+	e.kubectl("create", "-f", exampleRecordingSeccompLogsPath)
+
+	since, podName := e.createRecordingTestPod()
+	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen"`))
+
+	// Check that the recording's status contains the resource. Retry to avoid
+	// test races.
+	e.logf("Testing that profile binding has pod reference")
+	if err := spoutil.Retry(func() error {
+		output := e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.status.activeWorkloads[0]}")
+		fmt.Println(output)
+		if output != podName {
+			return fmt.Errorf("pod name %s not found in status", podName)
+		}
+		return nil
+	}, func(err error) bool {
+		return true
+	}); err != nil {
+		e.Fail("failed to find pod name in status")
+	}
+
+	// Check that the recording's finalizer is present. Don't retry anymore, the finalizer
+	// must be added at this point
+	output := e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.metadata.finalizers[0]}")
+	e.Equal("active-seccomp-profile-recording-lock", output)
+
+	// Attempt to delete the resource, should not be possible
+	e.kubectl("delete", "--wait=false", "profilerecording", recordingName)
+	output = e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.metadata.deletionTimestamp}")
+	e.NotEmpty(output)
+
+	isDeleted := make(chan bool)
+	go func() {
+		e.waitFor("delete", "profilerecording", recordingName)
+		isDeleted <- true
+	}()
+
+	// Delete the pod and check that the resource is removed
+	e.kubectl("delete", "pod", podName)
+
+	// Wait a bit for the recording to be actually deleted
+	<-isDeleted
+
+	resourceName := recordingName + "-nginx"
+	profile := e.retryGetSeccompProfile(resourceName)
+	e.Contains(profile, "listen")
+
+	e.kubectl("delete", "sp", resourceName)
 }
 
 func (e *e2e) profileRecordingDeployment(
