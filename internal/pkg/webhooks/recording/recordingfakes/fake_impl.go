@@ -96,6 +96,21 @@ type FakeImpl struct {
 		result1 *v1alpha1.ProfileRecordingList
 		result2 error
 	}
+	ListRecordedPodsStub        func(context.Context, string, *v1a.LabelSelector) (*v1.PodList, error)
+	listRecordedPodsMutex       sync.RWMutex
+	listRecordedPodsArgsForCall []struct {
+		arg1 context.Context
+		arg2 string
+		arg3 *v1a.LabelSelector
+	}
+	listRecordedPodsReturns struct {
+		result1 *v1.PodList
+		result2 error
+	}
+	listRecordedPodsReturnsOnCall map[int]struct {
+		result1 *v1.PodList
+		result2 error
+	}
 	SetDecoderStub        func(*admission.Decoder)
 	setDecoderMutex       sync.RWMutex
 	setDecoderArgsForCall []struct {
@@ -445,6 +460,72 @@ func (fake *FakeImpl) ListProfileRecordingsReturnsOnCall(i int, result1 *v1alpha
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) ListRecordedPods(arg1 context.Context, arg2 string, arg3 *v1a.LabelSelector) (*v1.PodList, error) {
+	fake.listRecordedPodsMutex.Lock()
+	ret, specificReturn := fake.listRecordedPodsReturnsOnCall[len(fake.listRecordedPodsArgsForCall)]
+	fake.listRecordedPodsArgsForCall = append(fake.listRecordedPodsArgsForCall, struct {
+		arg1 context.Context
+		arg2 string
+		arg3 *v1a.LabelSelector
+	}{arg1, arg2, arg3})
+	stub := fake.ListRecordedPodsStub
+	fakeReturns := fake.listRecordedPodsReturns
+	fake.recordInvocation("ListRecordedPods", []interface{}{arg1, arg2, arg3})
+	fake.listRecordedPodsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ListRecordedPodsCallCount() int {
+	fake.listRecordedPodsMutex.RLock()
+	defer fake.listRecordedPodsMutex.RUnlock()
+	return len(fake.listRecordedPodsArgsForCall)
+}
+
+func (fake *FakeImpl) ListRecordedPodsCalls(stub func(context.Context, string, *v1a.LabelSelector) (*v1.PodList, error)) {
+	fake.listRecordedPodsMutex.Lock()
+	defer fake.listRecordedPodsMutex.Unlock()
+	fake.ListRecordedPodsStub = stub
+}
+
+func (fake *FakeImpl) ListRecordedPodsArgsForCall(i int) (context.Context, string, *v1a.LabelSelector) {
+	fake.listRecordedPodsMutex.RLock()
+	defer fake.listRecordedPodsMutex.RUnlock()
+	argsForCall := fake.listRecordedPodsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) ListRecordedPodsReturns(result1 *v1.PodList, result2 error) {
+	fake.listRecordedPodsMutex.Lock()
+	defer fake.listRecordedPodsMutex.Unlock()
+	fake.ListRecordedPodsStub = nil
+	fake.listRecordedPodsReturns = struct {
+		result1 *v1.PodList
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ListRecordedPodsReturnsOnCall(i int, result1 *v1.PodList, result2 error) {
+	fake.listRecordedPodsMutex.Lock()
+	defer fake.listRecordedPodsMutex.Unlock()
+	fake.ListRecordedPodsStub = nil
+	if fake.listRecordedPodsReturnsOnCall == nil {
+		fake.listRecordedPodsReturnsOnCall = make(map[int]struct {
+			result1 *v1.PodList
+			result2 error
+		})
+	}
+	fake.listRecordedPodsReturnsOnCall[i] = struct {
+		result1 *v1.PodList
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) SetDecoder(arg1 *admission.Decoder) {
 	fake.setDecoderMutex.Lock()
 	fake.setDecoderArgsForCall = append(fake.setDecoderArgsForCall, struct {
@@ -618,6 +699,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.labelSelectorAsSelectorMutex.RUnlock()
 	fake.listProfileRecordingsMutex.RLock()
 	defer fake.listProfileRecordingsMutex.RUnlock()
+	fake.listRecordedPodsMutex.RLock()
+	defer fake.listRecordedPodsMutex.RUnlock()
 	fake.setDecoderMutex.RLock()
 	defer fake.setDecoderMutex.RUnlock()
 	fake.updateResourceMutex.RLock()
