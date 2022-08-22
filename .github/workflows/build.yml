@@ -96,7 +96,7 @@ jobs:
       - name: Run container image vulnerability scanner
         uses: aquasecurity/trivy-action@d63413b0a4a4482237085319f7f4a1ce99a8f2ac
         with:
-          image-ref: ${{ steps.meta.outputs.tags[0] }}
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'
           # TODO(jaosorior): Fix this once we bump the NixOS dependencies.
           exit-code: '0'
@@ -144,7 +144,7 @@ jobs:
       - name: Run container image vulnerability scanner
         uses: aquasecurity/trivy-action@d63413b0a4a4482237085319f7f4a1ce99a8f2ac
         with:
-          image-ref: ${{ steps.meta.outputs.tags[0] }}
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
