@@ -77,7 +77,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            quay.io/security-profiles-operator/security-profiles-operator
+            quay.io/security-profiles-operator/build
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -124,7 +124,7 @@ jobs:
         uses: docker/metadata-action@69f6fc9d46f2f8bf0d5491e4aabe0bb8c6a4678a
         with:
           images: |
-            quay.io/security-profiles-operator/security-profiles-operator
+            quay.io/security-profiles-operator/build
           flavor: |
             suffix=-ubi
           tags: |
