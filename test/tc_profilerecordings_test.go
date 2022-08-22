@@ -20,8 +20,9 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"time"
+
+	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -259,6 +260,16 @@ func (e *e2e) testCaseProfileRecordingDeploymentHook() {
 func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingDeployment(
+		exampleRecordingSeccompLogsPath,
+		regexp.MustCompile(
+			`(?s)"container"="nginx".*"syscallName"="listen"`+
+				`.*"container"="nginx".*"syscallName"="listen"`),
+	)
+}
+
+func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
+	e.logEnricherOnlyTestCase()
+	e.profileRecordingScaleDeployment(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(
 			`(?s)"container"="nginx".*"syscallName"="listen"`+
@@ -540,4 +551,36 @@ spec:
 	e.Nil(os.Remove(testPodFile.Name()))
 
 	return since, podName
+}
+
+// tests that scaling the deployment allows to record all replicas
+// independent of what happens with the deployment.
+func (e *e2e) profileRecordingScaleDeployment(
+	recording string, waitConditions ...*regexp.Regexp,
+) {
+	e.logf("Creating recording for deployment test")
+	e.kubectl("create", "-f", recording)
+
+	since, deployName := e.createRecordingTestDeployment()
+
+	if waitConditions != nil {
+		e.waitForEnricherLogs(since, waitConditions...)
+	}
+
+	e.kubectl("scale", "deploy", "--replicas=5", deployName)
+	e.waitFor("condition=available", "deploy", deployName)
+	// wait for the pods to be ready as per the readinessProbe
+	e.kubectl("rollout", "status", "deploy", deployName)
+
+	e.kubectl("delete", "deploy", deployName)
+
+	// check the expected number of policies was created
+	for i := 0; i < 5; i++ {
+		recordedProfileName := fmt.Sprintf("%s-nginx-%d", recordingName, i)
+		profile := e.retryGetSeccompProfile(recordedProfileName)
+		e.Contains(profile, "listen")
+		e.kubectl("delete", "sp", recordedProfileName)
+	}
+
+	e.kubectl("delete", "-f", recording)
 }
