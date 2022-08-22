@@ -19,12 +19,12 @@ package recording
 import (
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -43,6 +43,7 @@ type defaultImpl struct {
 type impl interface {
 	GetProfileRecording(ctx context.Context, name, namespace string) (*v1alpha1.ProfileRecording, error)
 	ListProfileRecordings(context.Context, ...client.ListOption) (*v1alpha1.ProfileRecordingList, error)
+	ListRecordedPods(ctx context.Context, inNs string, selector *metav1.LabelSelector) (*corev1.PodList, error)
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
 	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
 	SetDecoder(*admission.Decoder)
@@ -70,6 +71,30 @@ func (d *defaultImpl) ListProfileRecordings(
 		return nil, fmt.Errorf("list profile recordings: %w", err)
 	}
 	return profileRecordings, nil
+}
+
+func (d *defaultImpl) ListRecordedPods(
+	ctx context.Context,
+	inNs string,
+	selector *metav1.LabelSelector,
+) (*corev1.PodList, error) {
+	podList := &corev1.PodList{}
+
+	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
+	if err != nil {
+		return nil, fmt.Errorf("get profile recording: %w", err)
+	}
+
+	opts := client.ListOptions{
+		LabelSelector: labelSelector,
+		Namespace:     inNs,
+	}
+
+	if err := d.client.List(ctx, podList, &opts); err != nil {
+		return nil, fmt.Errorf("list recorded pods: %w", err)
+	}
+
+	return podList, nil
 }
 
 func (d *defaultImpl) UpdateResource(

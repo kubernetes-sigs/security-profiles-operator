@@ -67,6 +67,7 @@ func RegisterWebhook(server *webhook.Server, c client.Client) {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 //nolint:gocritic
 func (p *podSeccompRecorder) Handle(
@@ -118,34 +119,30 @@ func (p *podSeccompRecorder) Handle(
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
 
-		if req.Operation == admissionv1.Delete {
-			p.cleanupReplicas(podName)
-			if err := util.Retry(func() error {
-				if err := p.removePod(ctx, podName, item.Name, item.Namespace); err != nil {
-					return fmt.Errorf("removing pod tracking: %w", err)
-				}
-				return nil
-			}, kerrors.IsConflict); err != nil {
-				return admission.Errored(http.StatusInternalServerError, err)
+		recordedPods, err := p.impl.ListRecordedPods(ctx, req.Namespace, &item.Spec.PodSelector)
+		if err != nil {
+			p.log.Error(
+				err, "Could not list pods for this recording",
+			)
+			return admission.Errored(http.StatusInternalServerError, err)
+		}
+
+		if err := util.Retry(func() error {
+			if err := p.setRecordingReferences(ctx, req.Operation,
+				&item, selector,
+				podName, podLabels,
+				recordedPods); err != nil {
+				return fmt.Errorf("adding pod tracking: %w", err)
 			}
-			continue
+
+			return nil
+		}, kerrors.IsConflict); err != nil {
+			return admission.Errored(http.StatusInternalServerError, err)
 		}
 
 		if selector.Matches(podLabels) {
 			podChanged, err = p.updatePod(pod, podName, &item)
 			if err != nil {
-				return admission.Errored(http.StatusInternalServerError, err)
-			}
-		}
-
-		if podChanged {
-			if err := util.Retry(func() error {
-				if err := p.addPod(ctx, podName, item.Name, item.Namespace); err != nil {
-					return fmt.Errorf("adding pod tracking: %w", err)
-				}
-
-				return nil
-			}, kerrors.IsConflict); err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
 		}
@@ -193,15 +190,9 @@ func (p *podSeccompRecorder) updatePod(
 	}
 
 	// Handle replicas by tracking them
-	replica := ""
-	if pod.Name == "" && pod.GenerateName != "" {
-		v, _ := p.replicas.LoadOrStore(pod.GenerateName, uint(0))
-		replica = fmt.Sprintf("-%d", v)
-		vUint, ok := v.(uint)
-		if !ok {
-			return false, errors.New("replicas value is not an uint")
-		}
-		p.replicas.Store(pod.GenerateName, vUint+1)
+	replica, err := p.getReplica(pod, profileRecording)
+	if err != nil {
+		return false, err
 	}
 
 	for i := range ctrs {
@@ -299,13 +290,19 @@ func (p *podSeccompRecorder) updateSelinuxSecurityContext(
 	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile
 }
 
-func (p *podSeccompRecorder) cleanupReplicas(podName string) {
+func replicaKey(recordingName, podName string) string {
+	return fmt.Sprintf("%s/%s", recordingName, podName)
+}
+
+func (p *podSeccompRecorder) cleanupReplicas(recordingName, podName string) {
+	rKey := replicaKey(recordingName, podName)
+
 	p.replicas.Range(func(key, _ interface{}) bool {
 		keyString, ok := key.(string)
 		if !ok {
 			return false
 		}
-		if strings.HasPrefix(podName, keyString) {
+		if strings.HasPrefix(rKey, keyString) {
 			p.replicas.Delete(key)
 			return false
 		}
@@ -313,69 +310,131 @@ func (p *podSeccompRecorder) cleanupReplicas(podName string) {
 	})
 }
 
-func (p *podSeccompRecorder) addPod(
+func (p *podSeccompRecorder) getReplica(
+	pod *corev1.Pod,
+	profileRecording *profilerecordingv1alpha1.ProfileRecording,
+) (string, error) {
+	replica := ""
+	if pod.Name == "" && pod.GenerateName != "" {
+		rKey := replicaKey(profileRecording.Name, pod.GenerateName)
+
+		v, _ := p.replicas.LoadOrStore(rKey, uint(0))
+		replica = fmt.Sprintf("-%d", v)
+		vUint, ok := v.(uint)
+		if !ok {
+			return "", errors.New("replicas value is not an uint")
+		}
+		p.replicas.Store(rKey, vUint+1)
+	}
+
+	return replica, nil
+}
+
+func (p *podSeccompRecorder) setRecordingReferences(
 	ctx context.Context,
+	op admissionv1.Operation,
+	profileRecording *profilerecordingv1alpha1.ProfileRecording,
+	selector labels.Selector,
 	podName string,
-	recordingName string,
-	namespace string,
+	podLabels labels.Set,
+	recordedPods *corev1.PodList,
 ) error {
 	// we Get the recording again because remove is used in a retry loop
 	// to handle conflicts, we want to get the most recent one
-	profileRecording, err := p.impl.GetProfileRecording(ctx, recordingName, namespace)
-	if err != nil {
+	profileRecording, err := p.impl.GetProfileRecording(ctx, profileRecording.Name, profileRecording.Namespace)
+	if kerrors.IsNotFound(err) {
+		// this can happen if the profile recording is deleted while we're reconciling
+		// just return without doing anything
+		return nil
+	} else if err != nil {
 		return fmt.Errorf("cannot retrieve profilerecording: %w", err)
 	}
 
-	profileRecording.Status.ActiveWorkloads = utils.AppendIfNotExists(
-		profileRecording.Status.ActiveWorkloads, podName,
-	)
-
-	if err := p.impl.UpdateResourceStatus(
-		ctx, p.log, profileRecording, "profilerecording status",
-	); err != nil {
-		return fmt.Errorf("update resource on adding pod: %w", err)
+	if err := p.setActiveWorkloads(ctx, op, profileRecording, selector, podName, podLabels, recordedPods); err != nil {
+		return fmt.Errorf("cannot set active workloads: %w", err)
 	}
 
-	if !controllerutil.ContainsFinalizer(profileRecording, finalizer) {
-		controllerutil.AddFinalizer(profileRecording, finalizer)
+	return p.setFinalizers(ctx, op, profileRecording, selector, podName, podLabels, recordedPods)
+}
+
+func (p *podSeccompRecorder) setActiveWorkloads(
+	ctx context.Context,
+	op admissionv1.Operation,
+	profileRecording *profilerecordingv1alpha1.ProfileRecording,
+	selector labels.Selector,
+	podName string,
+	podLabels labels.Set,
+	recordedPods *corev1.PodList,
+) error {
+	newActiveWorkloads := []string{}
+
+	for _, pod := range recordedPods.Items {
+		newActiveWorkloads = append(newActiveWorkloads, pod.Name)
+	}
+
+	if op == admissionv1.Delete {
+		newActiveWorkloads = utils.RemoveIfExists(newActiveWorkloads, podName)
+	} else {
+		if selector.Matches(podLabels) {
+			newActiveWorkloads = utils.AppendIfNotExists(newActiveWorkloads, podName)
+		}
+	}
+
+	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
+
+	return p.impl.UpdateResourceStatus(ctx, p.log, profileRecording, "profilerecording status")
+}
+
+func (p *podSeccompRecorder) setFinalizers(
+	ctx context.Context,
+	op admissionv1.Operation,
+	profileRecording *profilerecordingv1alpha1.ProfileRecording,
+	selector labels.Selector,
+	podName string,
+	podLabels labels.Set,
+	recordedPods *corev1.PodList,
+) error {
+	if anyPodMatch(op, selector, podLabels, podName, recordedPods) {
+		if !controllerutil.ContainsFinalizer(profileRecording, finalizer) {
+			controllerutil.AddFinalizer(profileRecording, finalizer)
+		}
+	} else {
+		if controllerutil.ContainsFinalizer(profileRecording, finalizer) {
+			controllerutil.RemoveFinalizer(profileRecording, finalizer)
+			p.cleanupReplicas(profileRecording.Name, podName)
+		}
 	}
 
 	return p.impl.UpdateResource(ctx, p.log, profileRecording, "profilerecording")
 }
 
-func (p *podSeccompRecorder) removePod(
-	ctx context.Context,
+func anyPodMatch(
+	op admissionv1.Operation,
+	selector labels.Selector,
+	podLabels labels.Set,
 	podName string,
-	recordingName string,
-	namespace string,
-) error {
-	// we Get the recording again because remove is used in a retry loop
-	// to handle conflicts, we want to get the most recent one
-	profileRecording, err := p.impl.GetProfileRecording(ctx, recordingName, namespace)
-	if err != nil {
-		return fmt.Errorf("cannot retrieve profilerecording: %w", err)
-	}
+	foundPods *corev1.PodList,
+) bool {
+	if len(foundPods.Items) > 0 {
+		if op != admissionv1.Delete {
+			return true
+		}
 
-	newActiveWorkloads := []string{}
-	for _, activeWorkload := range profileRecording.Status.ActiveWorkloads {
-		if !strings.HasPrefix(podName, activeWorkload) {
-			newActiveWorkloads = append(newActiveWorkloads, activeWorkload)
+		for _, pod := range foundPods.Items {
+			if podName == pod.Name {
+				continue
+			}
+			// if we ever get here, then we are deleting but we encountered
+			// a pod different than the one we're deleting, so there are still pods
+			return true
 		}
 	}
-	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
 
-	if err := p.impl.UpdateResourceStatus(
-		ctx, p.log, profileRecording, "profilerecording status",
-	); err != nil {
-		return fmt.Errorf("update resource on removing pod: %w", err)
+	if op != admissionv1.Delete && selector.Matches(podLabels) {
+		return true
 	}
 
-	if len(profileRecording.Status.ActiveWorkloads) == 0 &&
-		controllerutil.ContainsFinalizer(profileRecording, finalizer) {
-		controllerutil.RemoveFinalizer(profileRecording, finalizer)
-	}
-
-	return p.impl.UpdateResource(ctx, p.log, profileRecording, "profilerecording")
+	return false
 }
 
 func (p *podSeccompRecorder) InjectDecoder(decoder *admission.Decoder) error {
