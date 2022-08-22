@@ -80,6 +80,8 @@ jobs:
             quay.io/security-profiles-operator/security-profiles-operator
           tags: |
             type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
             type=sha,format=long
       - name: Build (and push if needed)
         uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
@@ -127,6 +129,8 @@ jobs:
             suffix=-ubi
           tags: |
             type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
             type=sha,format=long
       # TODO(jaosorior): Push UBI image too
       - name: Build
