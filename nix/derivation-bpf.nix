@@ -1,5 +1,5 @@
 { pkgs, buildGoModule, arch ? "x86" }:
-with pkgs; buildGo118Module rec {
+with pkgs; buildGo119Module rec {
   name = "security-profiles-operator";
   src = builtins.filterSource
     (path: type: !(type == "directory" && baseNameOf path == "build")) ./..;
@@ -15,7 +15,10 @@ with pkgs; buildGo118Module rec {
     which
   ];
   buildInputs = [
-    (libseccomp.overrideAttrs (x: { dontDisableStatic = true; }))
+    (libseccomp.overrideAttrs (x: {
+      doCheck = false;
+      dontDisableStatic = true;
+    }))
     glibc
     glibc.static
     libbpf
