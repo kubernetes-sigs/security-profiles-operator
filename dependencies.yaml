@@ -176,5 +176,9 @@ dependencies:
       match: ^.*
     - path: bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
       match: "^  name: security-profiles-operator"
+    - path: deploy/helm/Chart.yaml
+      match: "^appVersion: "
+    - path: deploy/helm/Chart.yaml
+      match: "^version: "
     - path: installation-usage.md
       match: ^helm install security-profiles-operator
