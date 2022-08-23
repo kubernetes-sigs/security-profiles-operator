@@ -352,6 +352,13 @@ spec:
       containers:
       - name: nginx
         image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+              port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
 `
 
 	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
@@ -404,6 +411,13 @@ spec:
   containers:
   - image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
     name: nginx
+    ports:
+      - containerPort: 8080
+    readinessProbe:
+      tcpSocket:
+          port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 5
   restartPolicy: Never
 `
 	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
@@ -439,8 +453,18 @@ spec:
   containers:
   - name: nginx
     image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+    readinessProbe:
+      tcpSocket:
+          port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 5
   - name: redis
     image: quay.io/security-profiles-operator/redis:6.2.1
+    readinessProbe:
+      tcpSocket:
+          port: 6379
+      initialDelaySeconds: 5
+      periodSeconds: 5
   restartPolicy: Never
 `
 	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
