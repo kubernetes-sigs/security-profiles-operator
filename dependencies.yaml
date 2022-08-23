@@ -1,6 +1,6 @@
 dependencies:
   - name: go
-    version: 1.18
+    version: 1.19
     refPaths:
     - path: .github/workflows/build.yml
       match: GO_VERSION
@@ -11,6 +11,8 @@ dependencies:
     - path: hack/ci/Vagrantfile-fedora
       match: GO_VERSION
     - path: hack/ci/Vagrantfile-ubuntu
+      match: GO_VERSION
+    - path: hack/ci/Vagrantfile-flatcar
       match: GO_VERSION
 
   - name: golangci-lint
