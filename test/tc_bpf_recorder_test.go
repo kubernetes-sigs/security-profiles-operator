@@ -149,6 +149,13 @@ spec:
       containers:
       - name: nginx
         image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+              port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
 `
 	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
 	e.Nil(err)
