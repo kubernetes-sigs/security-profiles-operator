@@ -39,6 +39,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -545,68 +546,83 @@ func toStringByte(array []byte) string {
 
 func (b *BpfRecorder) processEvents(events chan []byte) {
 	b.logger.Info("Processing events")
+
+	// Allow up to 1000 goroutines to run in parallel
+	const workers = 1000
+	sem := semaphore.NewWeighted(workers)
+
 	for event := range events {
-		func() {
-			// Newly arrived PIDs
-			const eventLen = 16
-			if len(event) != eventLen {
-				b.logger.Info("Invalid event length", "len", len(event))
-				return
-			}
-
-			pid := binary.LittleEndian.Uint32(event)
-			mntns := binary.LittleEndian.Uint64(event[8:])
-
-			// Filter out non-containers
-			if mntns == b.systemMountNamespace {
-				b.logger.V(config.VerboseLevel).Info(
-					"Skipping PID, because it's on the system mount namespace",
-					"pid", pid, "mntns", mntns,
-				)
-				return
-			}
-
-			// Blocking from syscall retrieval when PIDs are currently being analyzed
-			b.pidLock.Lock()
-			defer b.pidLock.Unlock()
-
-			// Short path via the mount namespace
-			if profile, exist := b.profileForMountNamespace.Load(mntns); exist {
-				b.logger.Info(
-					"Using short path via tracked mount namespace",
-					"pid", pid, "mntns", mntns, "profile", profile,
-				)
-				b.trackProfileForPid(pid, mntns, profile)
-				return
-			}
-
-			// Regular container ID retrieval via the cgroup
-			containerID, err := b.ContainerIDForPID(b.containerIDCache, int(pid))
-			if err != nil {
-				b.logger.V(config.VerboseLevel).Info(
-					"No container ID found for PID",
-					"pid", pid, "err", err.Error(),
-				)
-				return
-			}
-
-			b.logger.V(config.VerboseLevel).Info(
-				"Found container for PID", "pid", pid, "containerID", containerID,
-			)
-			if err := b.findContainerID(containerID); err != nil {
-				b.logger.Error(err, "unable to find container ID in cluster")
-				return
-			}
-
-			if profile, exist := b.profileForContainerIDs.LoadAndDelete(containerID); exist {
-				b.logger.Info(
-					"Saving PID for profile",
-					"pid", pid, "mntns", mntns, "profile", profile,
-				)
-				b.trackProfileForPid(pid, mntns, profile)
-				b.profileForMountNamespace.Store(mntns, profile)
-			}
+		if err := sem.Acquire(context.Background(), 1); err != nil {
+			b.logger.Error(err, "Unable to acquire semaphore, stopping event processor")
+			break
+		}
+		eventCopy := event
+		go func() {
+			b.handleEvent(eventCopy)
+			sem.Release(1)
 		}()
+	}
+}
+
+func (b *BpfRecorder) handleEvent(event []byte) {
+	// Newly arrived PIDs
+	const eventLen = 16
+	if len(event) != eventLen {
+		b.logger.Info("Invalid event length", "len", len(event))
+		return
+	}
+
+	pid := binary.LittleEndian.Uint32(event)
+	mntns := binary.LittleEndian.Uint64(event[8:])
+
+	// Filter out non-containers
+	if mntns == b.systemMountNamespace {
+		b.logger.V(config.VerboseLevel).Info(
+			"Skipping PID, because it's on the system mount namespace",
+			"pid", pid, "mntns", mntns,
+		)
+		return
+	}
+
+	// Blocking from syscall retrieval when PIDs are currently being analyzed
+	b.pidLock.Lock()
+	defer b.pidLock.Unlock()
+
+	// Short path via the mount namespace
+	if profile, exist := b.profileForMountNamespace.Load(mntns); exist {
+		b.logger.Info(
+			"Using short path via tracked mount namespace",
+			"pid", pid, "mntns", mntns, "profile", profile,
+		)
+		b.trackProfileForPid(pid, mntns, profile)
+		return
+	}
+
+	// Regular container ID retrieval via the cgroup
+	containerID, err := b.ContainerIDForPID(b.containerIDCache, int(pid))
+	if err != nil {
+		b.logger.V(config.VerboseLevel).Info(
+			"No container ID found for PID",
+			"pid", pid, "err", err.Error(),
+		)
+		return
+	}
+
+	b.logger.V(config.VerboseLevel).Info(
+		"Found container for PID", "pid", pid, "containerID", containerID,
+	)
+	if err := b.findContainerID(containerID); err != nil {
+		b.logger.Error(err, "unable to find container ID in cluster")
+		return
+	}
+
+	if profile, exist := b.profileForContainerIDs.LoadAndDelete(containerID); exist {
+		b.logger.Info(
+			"Saving PID for profile",
+			"pid", pid, "mntns", mntns, "profile", profile,
+		)
+		b.trackProfileForPid(pid, mntns, profile)
+		b.profileForMountNamespace.Store(mntns, profile)
 	}
 }
 
