@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording"
@@ -263,7 +264,11 @@ func initProfiling(ctx *cli.Context) {
 			endpoint := fmt.Sprintf(":%d", port)
 
 			ctrl.Log.Info("Starting profiling server", "endpoint", endpoint)
-			if err := http.ListenAndServe(endpoint, nil); err != nil {
+			server := &http.Server{
+				Addr:              endpoint,
+				ReadHeaderTimeout: util.DefaultReadHeaderTimeout,
+			}
+			if err := server.ListenAndServe(); err != nil {
 				ctrl.Log.Error(err, "unable to run profiling server")
 			}
 		}()

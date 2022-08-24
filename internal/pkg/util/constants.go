@@ -16,7 +16,10 @@ limitations under the License.
 
 package util
 
+import "time"
+
 const (
 	ErrGetProfile                = "cannot get security profile"
 	HasActivePodsFinalizerString = "in-use-by-active-pods"
+	DefaultReadHeaderTimeout     = 3 * time.Second
 )
