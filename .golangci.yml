@@ -20,7 +20,6 @@ linters:
     - bidichk
     - bodyclose
     - containedctx
-    - deadcode
     - decorder
     - depguard
     - dogsled
@@ -55,7 +54,6 @@ linters:
     - gosimple
     - govet
     - grouper
-    - ifshort
     - importas
     - ineffassign
     - lll
@@ -72,11 +70,11 @@ linters:
     - prealloc
     - predeclared
     - promlinter
+    - reassign
     - revive
     - rowserrcheck
     - sqlclosecheck
     - staticcheck
-    - structcheck
     - stylecheck
     - tagliatelle
     - tenv
@@ -87,7 +85,6 @@ linters:
     - unparam
     - unused
     - usestdlibvars
-    - varcheck
     - wastedassign
     - whitespace
     # - contextcheck
@@ -96,11 +93,12 @@ linters:
     # - forbidigo
     # - funlen
     # - gochecknoglobals
+    # - interfacebloat
     # - ireturn
+    # - logrlint
     # - maintidx
     # - nlreturn
     # - nonamedreturns
-    # - nosnakecase
     # - testpackage
     # - varnamelen
     # - wrapcheck
@@ -214,6 +212,7 @@ linters-settings:
       - stringConcatSimplify
       - stringsCompare
       - switchTrue
+      - timeCmpSimplify
       - timeExprSimplify
       - todoCommentWithoutDetail
       - tooManyResultsChecker

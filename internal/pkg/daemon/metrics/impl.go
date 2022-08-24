@@ -20,6 +20,8 @@ import (
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 type defaultImpl struct{}
@@ -36,5 +38,10 @@ func (d *defaultImpl) Register(c prometheus.Collector) error {
 }
 
 func (d *defaultImpl) ListenAndServe(addr string, handler http.Handler) error {
-	return http.ListenAndServe(addr, handler)
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: util.DefaultReadHeaderTimeout,
+	}
+	return server.ListenAndServe()
 }
