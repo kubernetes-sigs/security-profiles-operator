@@ -31,7 +31,7 @@ jobs:
       - run: make verify-go-lint
 
   nix:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - uses: cachix/install-nix-action@d64e0553100205688c0fb2fa16edb0fc8663c590
@@ -43,7 +43,7 @@ jobs:
       - run: make nix nix-arm64
 
   bpf-btf:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/setup-go@268d8c0ca0432bb2cf416faae41297df9d262d7f
         with:
@@ -59,7 +59,7 @@ jobs:
       - run: make verify-btf
 
   image:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - name: Set up Docker Buildx
@@ -106,7 +106,7 @@ jobs:
           timeout: 10m
 
   ubi-image:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
       - name: Set up Docker Buildx
