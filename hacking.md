@@ -228,8 +228,6 @@ source file:
    use the `oci-seccomp-bpf-hook`.
 - `E2E_TEST_BPF_RECORDER` - Whether to test recording of seccomp profiles
    using our eBPF recorder. Currently, enabled for Fedora only.
-- `E2E_TEST_LABEL_POD_DENIALS` - Whether to test that pods which trigger policy
-   denials are labeled. Currently, enabled for Fedora only.
 
 ### Running the Fedora or Ubuntu e2e tests on a local VM
 Some e2e tests, especially the SELinux based ones require a VM,
