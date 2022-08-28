@@ -224,8 +224,6 @@ source file:
    record seccomp or SELinux profiles by tailing the `audit.log`.
 - `E2E_TEST_SECCOMP` - Whether to run seccomp related e2e tests. Our CI
    tests the seccomp tests in the kind-based prow target only.
-- `E2E_TEST_PROFILE_RECORDING` - Whether to run profile recording tests that
-   use the `oci-seccomp-bpf-hook`.
 - `E2E_TEST_BPF_RECORDER` - Whether to test recording of seccomp profiles
    using our eBPF recorder. Currently, enabled for Fedora only.
 
@@ -286,7 +284,6 @@ E2E_SPO_IMAGE=image-registry.openshift-image-registry.svc:5000/openshift/securit
 E2E_CLUSTER_TYPE=openshift \
 E2E_SKIP_BUILD_IMAGES=true \
 E2E_TEST_SECCOMP=false \
-E2E_TEST_PROFILE_RECORDING=false \
 E2E_TEST_BPF_RECORDER=false \
 E2E_TEST_LOG_ENRICHER=false \
 E2E_TEST_SELINUX=true \

@@ -132,13 +132,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseSelinuxProfileBinding(nodes)
 	})
 
-	e.Run("cluster-wide: Seccomp: Verify profile recording hook", func() {
-		e.testCaseProfileRecordingStaticPodHook()
-		e.testCaseProfileRecordingKubectlRunHook()
-		e.testCaseProfileRecordingMultiContainerHook()
-		e.testCaseProfileRecordingDeploymentHook()
-	})
-
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogs()
 		e.testCaseProfileRecordingMultiContainerSELinuxLogs()
