@@ -144,7 +144,7 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileRecordingSpec{
 								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
-								Recorder: v1alpha1.ProfileRecorderHook,
+								Recorder: v1alpha1.ProfileRecorderBpf,
 							},
 						},
 					},
@@ -156,7 +156,7 @@ func TestHandle(t *testing.T) {
 					},
 					Spec: v1alpha1.ProfileRecordingSpec{
 						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
-						Recorder: v1alpha1.ProfileRecorderLogs,
+						Recorder: v1alpha1.ProfileRecorderBpf,
 					},
 				}, nil)
 				mock.ListRecordedPodsReturns(&corev1.PodList{
@@ -219,7 +219,7 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileRecordingSpec{
 								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
-								Recorder: v1alpha1.ProfileRecorderHook,
+								Recorder: v1alpha1.ProfileRecorderBpf,
 							},
 						},
 					},
@@ -320,9 +320,13 @@ func TestHandle(t *testing.T) {
 				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
 					Items: []v1alpha1.ProfileRecording{
 						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "my-little-profile-recording",
+								Namespace: "test-ns",
+							},
 							Spec: v1alpha1.ProfileRecordingSpec{
 								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
-								Recorder: v1alpha1.ProfileRecorderHook,
+								Recorder: v1alpha1.ProfileRecorderLogs,
 							},
 						},
 					},
@@ -342,7 +346,14 @@ func TestHandle(t *testing.T) {
 				}, nil)
 				pod := testPod.DeepCopy()
 				pod.Annotations = map[string]string{
-					"io.containers.trace-syscall/container": "of:/some/path.json",
+					"io.containers.trace-logs/container": "my-little-profile-recording-container-0-1661693966",
+				}
+				localhostProfile := "operator//log-enricher-trace.json"
+				pod.Spec.SecurityContext = &corev1.PodSecurityContext{
+					SeccompProfile: &corev1.SeccompProfile{
+						Type:             corev1.SeccompProfileTypeLocalhost,
+						LocalhostProfile: &localhostProfile,
+					},
 				}
 				mock.DecodePodReturns(pod, nil)
 				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)

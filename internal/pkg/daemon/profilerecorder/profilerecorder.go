@@ -18,12 +18,10 @@ package profilerecorder
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -183,8 +181,7 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 	}
 
 	for key := range p.Annotations {
-		if strings.HasPrefix(key, config.SeccompProfileRecordHookAnnotationKey) ||
-			strings.HasPrefix(key, config.SelinuxProfileRecordLogsAnnotationKey) ||
+		if strings.HasPrefix(key, config.SelinuxProfileRecordLogsAnnotationKey) ||
 			strings.HasPrefix(key, config.SeccompProfileRecordLogsAnnotationKey) ||
 			strings.HasPrefix(key, config.SeccompProfileRecordBpfAnnotationKey) {
 			return true
@@ -221,15 +218,6 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			return reconcile.Result{}, nil
 		}
 
-		hookProfiles, err := parseHookAnnotations(pod.Annotations)
-		if err != nil {
-			// Malformed annotations could be set by users directly, which is
-			// why we are ignoring them.
-			logger.Info("Ignoring because unable to parse hook annotation", "error", err)
-			r.record.Event(pod, event.Warning(reasonAnnotationParsing, err))
-			return reconcile.Result{}, nil
-		}
-
 		logProfiles, err := parseLogAnnotations(pod.Annotations)
 		if err != nil {
 			// Malformed annotations could be set by users directly, which is
@@ -250,10 +238,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 
 		var profiles []profileToCollect
 		var recorder profilerecording1alpha1.ProfileRecorder
-		if len(hookProfiles) > 0 { //nolint:gocritic
-			profiles = hookProfiles
-			recorder = profilerecording1alpha1.ProfileRecorderHook
-		} else if len(logProfiles) > 0 {
+		if len(logProfiles) > 0 {
 			profiles = logProfiles
 			recorder = profilerecording1alpha1.ProfileRecorderLogs
 		} else if len(bpfProfiles) > 0 {
@@ -264,7 +249,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			profiles = bpfProfiles
 			recorder = profilerecording1alpha1.ProfileRecorderBpf
 		} else {
-			logger.Info("No hook, log or bpf annotations found on pod")
+			logger.Info("No log or bpf annotations found on pod")
 			return reconcile.Result{}, nil
 		}
 
@@ -351,14 +336,6 @@ func (r *RecorderReconciler) collectProfile(
 		return errors.New("type assert pod to watch")
 	}
 
-	if podToWatch.recorder == profilerecording1alpha1.ProfileRecorderHook {
-		if err := r.collectLocalProfiles(
-			ctx, name, podToWatch.profiles,
-		); err != nil {
-			return fmt.Errorf("collect local profile: %w", err)
-		}
-	}
-
 	if podToWatch.recorder == profilerecording1alpha1.ProfileRecorderLogs {
 		if err := r.collectLogProfiles(
 			ctx, name, podToWatch.profiles,
@@ -376,60 +353,6 @@ func (r *RecorderReconciler) collectProfile(
 	}
 
 	r.podsToWatch.Delete(n)
-	return nil
-}
-
-func (r *RecorderReconciler) collectLocalProfiles(
-	ctx context.Context,
-	name types.NamespacedName,
-	profiles []profileToCollect,
-) error {
-	for _, prf := range profiles {
-		profilePath := prf.name
-		if prf.kind != profilerecording1alpha1.ProfileRecordingKindSeccompProfile {
-			return errors.New("only seccomp profiles supported via a hook")
-		}
-
-		r.log.Info("Collecting profile", "path", profilePath)
-
-		data, err := r.ReadFile(profilePath)
-		if err != nil {
-			r.log.Error(err, "Failed to read profile")
-			return fmt.Errorf("read profile: %w", err)
-		}
-
-		// Remove the file extension and timestamp
-		profileName, err := extractProfileName(filepath.Base(profilePath))
-		if err != nil {
-			return fmt.Errorf("extract profile name: %w", err)
-		}
-
-		profile := &seccompprofileapi.SeccompProfile{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      profileName,
-				Namespace: name.Namespace,
-			},
-		}
-		res, err := r.CreateOrUpdate(ctx, r.client, profile,
-			func() error {
-				if err := json.Unmarshal(data, &profile.Spec); err != nil {
-					return fmt.Errorf("unmarshal profile spec JSON: %w", err)
-				}
-				return nil
-			},
-		)
-		if err != nil {
-			r.log.Error(err, "Cannot create seccompprofile resource")
-			r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
-			return fmt.Errorf("create seccompProfile resource: %w", err)
-		}
-		r.log.Info("Created/updated profile", "action", res, "name", profileName)
-		r.record.Event(
-			profile,
-			event.Normal(reasonProfileCreated, "seccomp profile created"),
-		)
-	}
-
 	return nil
 }
 
@@ -715,45 +638,6 @@ func extractProfileName(s string) (string, error) {
 		return "", fmt.Errorf("malformed profile path: %s", s)
 	}
 	return s[:lastIndex], nil
-}
-
-// parseHookAnnotations parses the provided annotations and extracts the
-// mandatory output files for the hook recorder.
-func parseHookAnnotations(annotations map[string]string) (res []profileToCollect, err error) {
-	const prefix = "of:"
-
-	for key, value := range annotations {
-		if !strings.HasPrefix(key, config.SeccompProfileRecordHookAnnotationKey) {
-			continue
-		}
-
-		if !strings.HasPrefix(value, prefix) {
-			return nil, fmt.Errorf(
-				"%s: must start with %q prefix", errInvalidAnnotation, prefix,
-			)
-		}
-
-		outputFile := strings.TrimSpace(strings.TrimPrefix(value, prefix))
-		if !filepath.IsAbs(outputFile) {
-			return nil, fmt.Errorf(
-				"%s: output file path must be absolute: %q",
-				errInvalidAnnotation, outputFile,
-			)
-		}
-
-		if !strings.HasPrefix(outputFile, config.ProfileRecordingOutputPath) {
-			// Ignoring profile outside standard output path, it may be
-			// user-defined
-			continue
-		}
-
-		res = append(res, profileToCollect{
-			kind: profilerecording1alpha1.ProfileRecordingKindSeccompProfile,
-			name: outputFile,
-		})
-	}
-
-	return res, nil
 }
 
 // parseLogAnnotations parses the provided annotations and extracts the

@@ -20,7 +20,6 @@ export OPERATOR_MANIFEST="deploy/webhook-operator.yaml"
 export E2E_TEST_SELINUX=true
 export E2E_TEST_LOG_ENRICHER=true
 export E2E_TEST_BPF_RECORDER=true
-export E2E_TEST_PROFILE_RECORDING=true
 export E2E_SKIP_NAMESPACED_TESTS=true
 export E2E_TEST_SECCOMP=true
 export E2E_TEST_WEBHOOK_CONFIG=false

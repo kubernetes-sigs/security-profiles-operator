@@ -203,19 +203,6 @@ type FakeImpl struct {
 	newControllerManagedByReturnsOnCall map[int]struct {
 		result1 error
 	}
-	ReadFileStub        func(string) ([]byte, error)
-	readFileMutex       sync.RWMutex
-	readFileArgsForCall []struct {
-		arg1 string
-	}
-	readFileReturns struct {
-		result1 []byte
-		result2 error
-	}
-	readFileReturnsOnCall map[int]struct {
-		result1 []byte
-		result2 error
-	}
 	ResetAvcsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) error
 	resetAvcsMutex       sync.RWMutex
 	resetAvcsArgsForCall []struct {
@@ -1062,70 +1049,6 @@ func (fake *FakeImpl) NewControllerManagedByReturnsOnCall(i int, result1 error) 
 	}{result1}
 }
 
-func (fake *FakeImpl) ReadFile(arg1 string) ([]byte, error) {
-	fake.readFileMutex.Lock()
-	ret, specificReturn := fake.readFileReturnsOnCall[len(fake.readFileArgsForCall)]
-	fake.readFileArgsForCall = append(fake.readFileArgsForCall, struct {
-		arg1 string
-	}{arg1})
-	stub := fake.ReadFileStub
-	fakeReturns := fake.readFileReturns
-	fake.recordInvocation("ReadFile", []interface{}{arg1})
-	fake.readFileMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) ReadFileCallCount() int {
-	fake.readFileMutex.RLock()
-	defer fake.readFileMutex.RUnlock()
-	return len(fake.readFileArgsForCall)
-}
-
-func (fake *FakeImpl) ReadFileCalls(stub func(string) ([]byte, error)) {
-	fake.readFileMutex.Lock()
-	defer fake.readFileMutex.Unlock()
-	fake.ReadFileStub = stub
-}
-
-func (fake *FakeImpl) ReadFileArgsForCall(i int) string {
-	fake.readFileMutex.RLock()
-	defer fake.readFileMutex.RUnlock()
-	argsForCall := fake.readFileArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) ReadFileReturns(result1 []byte, result2 error) {
-	fake.readFileMutex.Lock()
-	defer fake.readFileMutex.Unlock()
-	fake.ReadFileStub = nil
-	fake.readFileReturns = struct {
-		result1 []byte
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) ReadFileReturnsOnCall(i int, result1 []byte, result2 error) {
-	fake.readFileMutex.Lock()
-	defer fake.readFileMutex.Unlock()
-	fake.ReadFileStub = nil
-	if fake.readFileReturnsOnCall == nil {
-		fake.readFileReturnsOnCall = make(map[int]struct {
-			result1 []byte
-			result2 error
-		})
-	}
-	fake.readFileReturnsOnCall[i] = struct {
-		result1 []byte
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeImpl) ResetAvcs(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.AvcRequest) error {
 	fake.resetAvcsMutex.Lock()
 	ret, specificReturn := fake.resetAvcsReturnsOnCall[len(fake.resetAvcsArgsForCall)]
@@ -1535,8 +1458,6 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.newClientMutex.RUnlock()
 	fake.newControllerManagedByMutex.RLock()
 	defer fake.newControllerManagedByMutex.RUnlock()
-	fake.readFileMutex.RLock()
-	defer fake.readFileMutex.RUnlock()
 	fake.resetAvcsMutex.RLock()
 	defer fake.resetAvcsMutex.RUnlock()
 	fake.resetSyscallsMutex.RLock()

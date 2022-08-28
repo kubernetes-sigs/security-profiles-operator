@@ -46,21 +46,20 @@ const (
 )
 
 var (
-	clusterType                     = os.Getenv("E2E_CLUSTER_TYPE")
-	envSkipBuildImages              = os.Getenv("E2E_SKIP_BUILD_IMAGES")
-	envTestImage                    = os.Getenv("E2E_SPO_IMAGE")
-	spodConfig                      = os.Getenv("E2E_SPOD_CONFIG")
-	envSkipFlakyTests               = os.Getenv("E2E_SKIP_FLAKY_TESTS")
-	envSkipNamespacedTests          = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
-	envSelinuxTestsEnabled          = os.Getenv("E2E_TEST_SELINUX")
-	envLogEnricherTestsEnabled      = os.Getenv("E2E_TEST_LOG_ENRICHER")
-	envSeccompTestsEnabled          = os.Getenv("E2E_TEST_SECCOMP")
-	envProfileRecordingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_RECORDING")
-	envBpfRecorderTestsEnabled      = os.Getenv("E2E_TEST_BPF_RECORDER")
-	envWebhookConfigTestsEnabled    = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
-	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
-	nodeRootfsPrefix                = os.Getenv("NODE_ROOTFS_PREFIX")
-	operatorManifest                = os.Getenv("OPERATOR_MANIFEST")
+	clusterType                  = os.Getenv("E2E_CLUSTER_TYPE")
+	envSkipBuildImages           = os.Getenv("E2E_SKIP_BUILD_IMAGES")
+	envTestImage                 = os.Getenv("E2E_SPO_IMAGE")
+	spodConfig                   = os.Getenv("E2E_SPOD_CONFIG")
+	envSkipFlakyTests            = os.Getenv("E2E_SKIP_FLAKY_TESTS")
+	envSkipNamespacedTests       = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
+	envSelinuxTestsEnabled       = os.Getenv("E2E_TEST_SELINUX")
+	envLogEnricherTestsEnabled   = os.Getenv("E2E_TEST_LOG_ENRICHER")
+	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
+	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
+	envWebhookConfigTestsEnabled = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
+	containerRuntime             = os.Getenv("CONTAINER_RUNTIME")
+	nodeRootfsPrefix             = os.Getenv("NODE_ROOTFS_PREFIX")
+	operatorManifest             = os.Getenv("OPERATOR_MANIFEST")
 )
 
 const (
@@ -90,7 +89,6 @@ type e2e struct {
 	selinuxEnabled        bool
 	logEnricherEnabled    bool
 	testSeccomp           bool
-	testProfileRecording  bool
 	bpfRecorderEnabled    bool
 	skipNamespacedTests   bool
 	skipFlakyTests        bool
@@ -145,10 +143,6 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		testSeccomp = true
 	}
-	testProfileRecording, err := strconv.ParseBool(envProfileRecordingTestsEnabled)
-	if err != nil {
-		testProfileRecording = false
-	}
 	bpfRecorderEnabled, err := strconv.ParseBool(envBpfRecorderTestsEnabled)
 	if err != nil {
 		bpfRecorderEnabled = false
@@ -181,22 +175,21 @@ func TestSuite(t *testing.T) {
 		}
 		suite.Run(t, &kinde2e{
 			e2e{
-				logger:               klogr.New(),
-				pullPolicy:           "Never",
-				testImage:            testImage,
-				spodConfig:           spodConfig,
-				containerRuntime:     containerRuntime,
-				nodeRootfsPrefix:     nodeRootfsPrefix,
-				selinuxEnabled:       selinuxEnabled,
-				logEnricherEnabled:   logEnricherEnabled,
-				testSeccomp:          testSeccomp,
-				testProfileRecording: testProfileRecording,
-				selinuxdImage:        selinuxdImage,
-				bpfRecorderEnabled:   bpfRecorderEnabled,
-				skipNamespacedTests:  skipNamespacedTests,
-				operatorManifest:     operatorManifest,
-				testWebhookConfig:    testWebhookConfig,
-				skipFlakyTests:       skipFlakyTests,
+				logger:              klogr.New(),
+				pullPolicy:          "Never",
+				testImage:           testImage,
+				spodConfig:          spodConfig,
+				containerRuntime:    containerRuntime,
+				nodeRootfsPrefix:    nodeRootfsPrefix,
+				selinuxEnabled:      selinuxEnabled,
+				logEnricherEnabled:  logEnricherEnabled,
+				testSeccomp:         testSeccomp,
+				selinuxdImage:       selinuxdImage,
+				bpfRecorderEnabled:  bpfRecorderEnabled,
+				skipNamespacedTests: skipNamespacedTests,
+				operatorManifest:    operatorManifest,
+				testWebhookConfig:   testWebhookConfig,
+				skipFlakyTests:      skipFlakyTests,
 			},
 			"", "",
 		})
@@ -214,21 +207,20 @@ func TestSuite(t *testing.T) {
 				logger: klogr.New(),
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
-				pullPolicy:           "Always",
-				testImage:            testImage,
-				spodConfig:           spodConfig,
-				containerRuntime:     containerRuntime,
-				nodeRootfsPrefix:     nodeRootfsPrefix,
-				selinuxEnabled:       selinuxEnabled,
-				logEnricherEnabled:   logEnricherEnabled,
-				testSeccomp:          testSeccomp,
-				testProfileRecording: testProfileRecording,
-				selinuxdImage:        selinuxdImage,
-				bpfRecorderEnabled:   bpfRecorderEnabled,
-				skipNamespacedTests:  skipNamespacedTests,
-				operatorManifest:     operatorManifest,
-				testWebhookConfig:    testWebhookConfig,
-				skipFlakyTests:       skipFlakyTests,
+				pullPolicy:          "Always",
+				testImage:           testImage,
+				spodConfig:          spodConfig,
+				containerRuntime:    containerRuntime,
+				nodeRootfsPrefix:    nodeRootfsPrefix,
+				selinuxEnabled:      selinuxEnabled,
+				logEnricherEnabled:  logEnricherEnabled,
+				testSeccomp:         testSeccomp,
+				selinuxdImage:       selinuxdImage,
+				bpfRecorderEnabled:  bpfRecorderEnabled,
+				skipNamespacedTests: skipNamespacedTests,
+				operatorManifest:    operatorManifest,
+				testWebhookConfig:   testWebhookConfig,
+				skipFlakyTests:      skipFlakyTests,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -240,22 +232,21 @@ func TestSuite(t *testing.T) {
 		selinuxdImage = "quay.io/security-profiles-operator/selinuxd-fedora"
 		suite.Run(t, &vanilla{
 			e2e{
-				logger:               klogr.New(),
-				pullPolicy:           "Never",
-				testImage:            testImage,
-				spodConfig:           spodConfig,
-				containerRuntime:     containerRuntime,
-				nodeRootfsPrefix:     nodeRootfsPrefix,
-				selinuxEnabled:       selinuxEnabled,
-				logEnricherEnabled:   logEnricherEnabled,
-				testSeccomp:          testSeccomp,
-				testProfileRecording: testProfileRecording,
-				selinuxdImage:        selinuxdImage,
-				bpfRecorderEnabled:   bpfRecorderEnabled,
-				skipNamespacedTests:  skipNamespacedTests,
-				operatorManifest:     operatorManifest,
-				testWebhookConfig:    testWebhookConfig,
-				skipFlakyTests:       skipFlakyTests,
+				logger:              klogr.New(),
+				pullPolicy:          "Never",
+				testImage:           testImage,
+				spodConfig:          spodConfig,
+				containerRuntime:    containerRuntime,
+				nodeRootfsPrefix:    nodeRootfsPrefix,
+				selinuxEnabled:      selinuxEnabled,
+				logEnricherEnabled:  logEnricherEnabled,
+				testSeccomp:         testSeccomp,
+				selinuxdImage:       selinuxdImage,
+				bpfRecorderEnabled:  bpfRecorderEnabled,
+				skipNamespacedTests: skipNamespacedTests,
+				operatorManifest:    operatorManifest,
+				testWebhookConfig:   testWebhookConfig,
+				skipFlakyTests:      skipFlakyTests,
 				// NOTE(jaosorior): Our current vanilla jobs are
 				// single-node only.
 				singleNodeEnvironment: true,
@@ -707,12 +698,6 @@ func (e *e2e) enableLogEnricherInSpod() {
 func (e *e2e) seccompOnlyTestCase() {
 	if !e.testSeccomp {
 		e.T().Skip("Skipping Seccomp-related test")
-	}
-}
-
-func (e *e2e) profileRecordingTestCase() {
-	if !e.testProfileRecording {
-		e.T().Skip("Skipping Profile-Recording-related test")
 	}
 }
 
