@@ -26,7 +26,6 @@ import (
 )
 
 const (
-	exampleRecordingHookPath                         = "examples/profilerecording-hook.yaml"
 	exampleRecordingSeccompLogsPath                  = "examples/profilerecording-seccomp-logs.yaml"
 	exampleRecordingSeccompSpecificContainerLogsPath = "examples/profilerecording-seccomp-specific-container-logs.yaml"
 	exampleRecordingSelinuxLogsPath                  = "examples/profilerecording-selinux-logs.yaml"
@@ -56,11 +55,6 @@ func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp)
 
 		time.Sleep(3 * time.Second)
 	}
-}
-
-func (e *e2e) testCaseProfileRecordingStaticPodHook() {
-	e.profileRecordingTestCase()
-	e.profileRecordingStaticPod(exampleRecordingHookPath)
 }
 
 func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
@@ -121,29 +115,6 @@ func (e *e2e) profileRecordingStaticPod(recording string, waitConditions ...*reg
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "sp", resourceName)
-}
-
-func (e *e2e) testCaseProfileRecordingKubectlRunHook() {
-	e.profileRecordingTestCase()
-
-	e.logf("Creating recording for kubectl run test")
-	e.kubectl("create", "-f", exampleRecordingHookPath)
-
-	e.logf("Creating test pod")
-	e.kubectlRun("--labels=app=alpine", "fedora", "--", "echo", "test")
-
-	resourceName := recordingName + "-fedora"
-	profile := e.retryGetSeccompProfile(resourceName)
-	e.Contains(profile, "prctl")
-	e.NotContains(profile, "mkdir")
-
-	e.kubectl("delete", "-f", exampleRecordingHookPath)
-	e.kubectl("delete", "sp", resourceName)
-}
-
-func (e *e2e) testCaseProfileRecordingMultiContainerHook() {
-	e.profileRecordingTestCase()
-	e.profileRecordingMultiContainer(exampleRecordingHookPath)
 }
 
 func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
@@ -250,11 +221,6 @@ func (e *e2e) profileRecordingSpecificContainer(
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "sp", profileNameNginx)
-}
-
-func (e *e2e) testCaseProfileRecordingDeploymentHook() {
-	e.profileRecordingTestCase()
-	e.profileRecordingDeployment(exampleRecordingHookPath)
 }
 
 func (e *e2e) testCaseProfileRecordingDeploymentLogs() {

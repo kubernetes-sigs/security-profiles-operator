@@ -81,11 +81,6 @@ const (
 	// DefaultProfilingPort is the start port where the profiling endpoint runs.
 	DefaultProfilingPort = 6060
 
-	// SeccompProfileRecordHookAnnotationKey is the annotation on a Pod that
-	// triggers the oci-seccomp-bpf-hook to trace the syscalls of a Pod and
-	// created a seccomp profile.
-	SeccompProfileRecordHookAnnotationKey = "io.containers.trace-syscall/"
-
 	// SeccompProfileRecordLogsAnnotationKey is the annotation on a Pod that
 	// triggers the internal log enricher to trace the syscalls of a Pod and
 	// created a seccomp profile.

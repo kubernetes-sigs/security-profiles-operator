@@ -103,7 +103,6 @@ spec:
                 description: Recorder to be used.
                 enum:
                 - bpf
-                - hook
                 - logs
                 type: string
             required:

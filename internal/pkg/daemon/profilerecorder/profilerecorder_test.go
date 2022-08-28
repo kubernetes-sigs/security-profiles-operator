@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"sync"
 	"testing"
 	"time"
 
@@ -139,15 +138,6 @@ func TestReconcile(t *testing.T) {
 			Namespace: "namespace",
 			Name:      "name",
 		},
-	}
-
-	emptySyncMap := func(m *sync.Map) {
-		cnt := 0
-		m.Range(func(_, _ interface{}) bool {
-			cnt++
-			return true
-		})
-		assert.Zero(t, cnt)
 	}
 
 	for _, tc := range []struct {
@@ -604,102 +594,12 @@ func TestReconcile(t *testing.T) {
 				assert.Nil(t, err)
 			},
 		},
-		{ // parseHookAnnotations failed
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: "",
-						},
-					},
-				}, nil)
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
-			},
-		},
 		{ // failure GetPod (error reading pod)
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				assert.NotNil(t, err)
-			},
-		},
-		{ // hook success record
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: "of:" + config.ProfileRecordingOutputPath + "/file.json",
-						},
-					},
-				}, nil)
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
-				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
-				assert.True(t, ok)
-				pod, ok := v.(podToWatch)
-				assert.True(t, ok)
-				assert.Equal(t, recordingapi.ProfileRecorderHook, pod.recorder)
-				assert.Len(t, pod.profiles, 1)
-				assert.Equal(t, recordingapi.ProfileRecordingKindSeccompProfile, pod.profiles[0].kind)
-				assert.Contains(t, pod.profiles[0].name, "file.json")
-				assert.Contains(t, pod.profiles[0].name, config.ProfileRecordingOutputPath)
-				// already tracking
-				_, retryErr := sut.Reconcile(context.Background(), testRequest)
-				assert.Nil(t, retryErr)
-			},
-		},
-		{ // hook record failed no output file
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: "of:",
-						},
-					},
-				}, nil)
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
-				emptySyncMap(&sut.podsToWatch)
-			},
-		},
-		{ // hook record failed no absolute path
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: "of:relative/path",
-						},
-					},
-				}, nil)
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
-				emptySyncMap(&sut.podsToWatch)
-			},
-		},
-		{ // hook record failed wrong output path
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodPending},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: "of:/wrong/output/path",
-						},
-					},
-				}, nil)
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
-				emptySyncMap(&sut.podsToWatch)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -754,154 +654,6 @@ func TestReconcile(t *testing.T) {
 				// already tracking
 				_, retryErr := sut.Reconcile(context.Background(), testRequest)
 				assert.Nil(t, retryErr)
-			},
-		},
-		{ // hook success collect
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
-				value := podToWatch{
-					recorder: recordingapi.ProfileRecorderHook,
-					profiles: []profileToCollect{
-						{
-							kind: recordingapi.ProfileRecordingKindSeccompProfile,
-							name: profileName,
-						},
-					},
-				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
-
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: profileName,
-						},
-					},
-				}, nil)
-				mock.ReadFileReturns([]byte("{}"), nil)
-				mock.CreateOrUpdateCalls(func(
-					ctx context.Context,
-					c client.Client,
-					obj client.Object,
-					f controllerutil.MutateFn,
-				) (controllerutil.OperationResult, error) {
-					err := f()
-					assert.Nil(t, err)
-					return "", nil
-				})
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
-			},
-		},
-		{ // hook collect failed CreateOrUpdate
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				profileName := fmt.Sprintf("profile-%d", time.Now().Unix())
-				value := podToWatch{
-					recorder: recordingapi.ProfileRecorderHook,
-					profiles: []profileToCollect{
-						{
-							kind: recordingapi.ProfileRecordingKindSeccompProfile,
-							name: profileName,
-						},
-					},
-				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
-
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: profileName,
-						},
-					},
-				}, nil)
-				mock.CreateOrUpdateReturns("", errTest)
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
-			},
-		},
-		{ // hook collect failed extractProfileName
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				const profileName = "profile"
-				value := podToWatch{
-					recorder: recordingapi.ProfileRecorderHook,
-					profiles: []profileToCollect{
-						{
-							kind: recordingapi.ProfileRecordingKindSeccompProfile,
-							name: profileName,
-						},
-					},
-				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
-
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: profileName,
-						},
-					},
-				}, nil)
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
-			},
-		},
-		{ // hook collect failed ReadFile
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				const profileName = "profile"
-				value := podToWatch{
-					recorder: recordingapi.ProfileRecorderHook,
-					profiles: []profileToCollect{
-						{
-							kind: recordingapi.ProfileRecordingKindSeccompProfile,
-							name: profileName,
-						},
-					},
-				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
-
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: profileName,
-						},
-					},
-				}, nil)
-				mock.ReadFileReturns(nil, errTest)
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
-			},
-		},
-		{ // hook collect failed wrong kind
-			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				const profileName = "profile"
-				value := podToWatch{
-					recorder: recordingapi.ProfileRecorderHook,
-					profiles: []profileToCollect{
-						{
-							kind: "wrong",
-							name: profileName,
-						},
-					},
-				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
-
-				mock.GetPodReturns(&corev1.Pod{
-					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							config.SeccompProfileRecordHookAnnotationKey: profileName,
-						},
-					},
-				}, nil)
-			},
-			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
 			},
 		},
 		{ // logs seccomp success collect
@@ -1486,18 +1238,6 @@ func TestIsPodWithTraceAnnotation(t *testing.T) {
 		prepare func(*RecorderReconciler) apiruntime.Object
 		assert  func(bool)
 	}{
-		{ // success seccomp hook
-			prepare: func(sut *RecorderReconciler) apiruntime.Object {
-				return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						config.SeccompProfileRecordHookAnnotationKey: "",
-					},
-				}}
-			},
-			assert: func(res bool) {
-				assert.True(t, res)
-			},
-		},
 		{ // success selinux logs
 			prepare: func(sut *RecorderReconciler) apiruntime.Object {
 				return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
