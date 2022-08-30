@@ -15,8 +15,8 @@
 
 set -euo pipefail
 
-COMMIT_ID=a2e57f2ddc89bff6b4f275e6f33b0235c41d64f8
-TAG=v1.24.1
+COMMIT_ID=315a0cb5b0abd15619384d7da7f3941714afcb8e
+TAG=v1.25.0
 
 export PATH=$PATH:/usr/local/go/bin
 export GOPATH="$HOME/go"
@@ -25,7 +25,7 @@ export GOBIN="$GOPATH/bin"
 # We need cosign as well as the bom tool here because the CRI-O installation
 # script will automatically verify the signatures based on their existence in
 # $PATH.
-COSIGN_VERSION=v1.9.0
+COSIGN_VERSION=v1.11.1
 go install github.com/sigstore/cosign/cmd/cosign@$COSIGN_VERSION
 cp "$GOBIN/cosign" /usr/bin
 cosign version

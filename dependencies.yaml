@@ -148,7 +148,7 @@ dependencies:
       match: VERSION
 
   - name: CRI-O
-    version: v1.24.1
+    version: v1.25.0
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: TAG
@@ -160,7 +160,7 @@ dependencies:
       match: VERSION
 
   - name: cosign
-    version: v1.9.0
+    version: v1.11.1
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: COSIGN_VERSION
