@@ -9,8 +9,8 @@ with pkgs; buildGo119Module rec {
   nativeBuildInputs = with buildPackages; [
     bpftool
     git
-    llvmPackages_13.clang-unwrapped
-    llvm_13
+    llvmPackages_14.clang-unwrapped
+    llvm_14
     pkg-config
     which
   ];
