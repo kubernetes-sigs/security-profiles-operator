@@ -184,3 +184,11 @@ dependencies:
       match: "^version: "
     - path: installation-usage.md
       match: ^helm install security-profiles-operator
+
+  - name: clang
+    version: 14
+    refPaths:
+    - path: nix/derivation-bpf.nix
+      match: llvmPackages_\d+.clang-unwrapped
+    - path: nix/derivation-bpf.nix
+      match: llvm_\d+
