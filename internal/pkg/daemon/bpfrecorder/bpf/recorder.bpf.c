@@ -11,14 +11,14 @@
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, MAX_ENTRIES);
     __type(key, u32);                 // PID
     __type(value, u8[MAX_SYSCALLS]);  // syscall IDs
 } syscalls SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, MAX_ENTRIES);
     __type(key, u32);                   // PID
     __type(value, char[MAX_COMM_LEN]);  // command name
