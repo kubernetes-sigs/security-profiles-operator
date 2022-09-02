@@ -37,10 +37,10 @@ github.com/acobaugh/osrelease
 # github.com/acomagu/bufpipe v1.0.3
 ## explicit; go 1.12
 github.com/acomagu/bufpipe
-# github.com/aquasecurity/libbpfgo v0.3.0-libbpf-0.8.0
+# github.com/aquasecurity/libbpfgo v0.4.0-libbpf-1.0.0
 ## explicit; go 1.18
 github.com/aquasecurity/libbpfgo
-github.com/aquasecurity/libbpfgo/helpers
+github.com/aquasecurity/libbpfgo/helpers/rwarray
 # github.com/aws/aws-sdk-go v1.44.90
 ## explicit; go 1.11
 github.com/aws/aws-sdk-go/aws
