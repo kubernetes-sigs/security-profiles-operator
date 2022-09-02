@@ -16,3 +16,11 @@ updates:
   labels:
     - "release-note-none"
     - "ok-to-test"
+- package-ecosystem: docker
+  directory: "/"
+  schedule:
+    interval: weekly
+  labels:
+    - "release-note-none"
+    - "ok-to-test"
+  open-pull-requests-limit: 10
