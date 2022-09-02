@@ -2,6 +2,7 @@ BASEDIR = $(abspath ./)
 
 OUTPUT = ./output
 SELFTEST = ./selftest
+HELPERS = ./helpers
 
 CC = gcc
 CLANG = clang
@@ -130,7 +131,7 @@ define FOREACH
 	SELFTESTERR=0; \
 	for DIR in $(SELFTESTS); do \
 	      echo "INFO: entering $$DIR..."; \
-		$(MAKE) -j8 -C $$DIR $(1) || SELFTESTERR=1; \
+		$(MAKE) -j1 -C $$DIR $(1) || SELFTESTERR=1; \
 	done; \
 	if [ $$SELFTESTERR -eq 1 ]; then \
 		exit 1; \
@@ -161,6 +162,23 @@ selftest-dynamic-run:
 
 selftest-clean:
 	$(call FOREACH, clean)
+
+# helpers test
+
+.PHONY: helpers-test-run
+.PHONY: helpers-test-static-run
+.PHONY: helpers-test-dynamic-run
+
+helpers-test-run: helpers-test-static-run
+
+helpers-test-static-run: libbpfgo-static
+	CC=$(CLANG) \
+		CGO_CFLAGS=$(CGO_CFLAGS_STATIC) \
+		CGO_LDFLAGS=$(CGO_LDFLAGS_STATIC) \
+		sudo -E $(GO) test -v $(HELPERS)/...
+
+helpers-test-dynamic-run: libbpfgo-dynamic
+	sudo $(GO) test -v $(HELPERS)/...
 
 # output
 
