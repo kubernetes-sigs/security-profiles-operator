@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # hash below relates to tag: bullseye-v1.4.0
-FROM k8s.gcr.io/build-image/debian-base@sha256:9a4b40b8837c4b3e4e45716baea6e1461b7c51a3f723aeaf52e8acdcd1aa40b2
+FROM k8s.gcr.io/build-image/debian-base@sha256:e6e8c911b1566556ae105d3600df04c600241f43b06d22c73592ebb446d60c49
 WORKDIR /work
 
 RUN apt-get update && apt-get install -y wget xz-utils libapparmor-dev
