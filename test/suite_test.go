@@ -600,7 +600,6 @@ func (e *e2e) kubectlRun(args ...string) string {
 	return e.kubectl(
 		append([]string{
 			"run",
-			"--timeout=5m",
 			"--pod-running-timeout=5m",
 			"--rm",
 			"-i",
