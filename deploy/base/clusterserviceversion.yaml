@@ -5,6 +5,7 @@ metadata:
   annotations:
     alm-examples: '[]'
     capabilities: Basic Install
+    categories: Security
     olm.skipRange: '>=0.4.1 <0.4.2-dev'
     operatorframework.io/suggested-namespace: security-profiles-operator
   name: security-profiles-operator.v0.0.0
