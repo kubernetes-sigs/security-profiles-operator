@@ -22,8 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
-	"sync"
 
 	"github.com/go-logr/logr"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -46,8 +44,7 @@ const finalizer = "active-seccomp-profile-recording-lock"
 
 type podSeccompRecorder struct {
 	impl
-	log      logr.Logger
-	replicas sync.Map
+	log logr.Logger
 }
 
 func RegisterWebhook(server *webhook.Server, c client.Client) {
@@ -189,16 +186,10 @@ func (p *podSeccompRecorder) updatePod(
 		}
 	}
 
-	// Handle replicas by tracking them
-	replica, err := p.getReplica(pod, profileRecording)
-	if err != nil {
-		return false, err
-	}
-
 	for i := range ctrs {
 		ctr := ctrs[i]
 
-		key, value, err := profileRecording.CtrAnnotation(replica, ctr.Name)
+		key, value, err := profileRecording.CtrAnnotation(ctr.Name)
 		if err != nil {
 			return false, err
 		}
@@ -290,46 +281,6 @@ func (p *podSeccompRecorder) updateSelinuxSecurityContext(
 	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile
 }
 
-func replicaKey(recordingName, podName string) string {
-	return fmt.Sprintf("%s/%s", recordingName, podName)
-}
-
-func (p *podSeccompRecorder) cleanupReplicas(recordingName, podName string) {
-	rKey := replicaKey(recordingName, podName)
-
-	p.replicas.Range(func(key, _ interface{}) bool {
-		keyString, ok := key.(string)
-		if !ok {
-			return false
-		}
-		if strings.HasPrefix(rKey, keyString) {
-			p.replicas.Delete(key)
-			return false
-		}
-		return true
-	})
-}
-
-func (p *podSeccompRecorder) getReplica(
-	pod *corev1.Pod,
-	profileRecording *profilerecordingv1alpha1.ProfileRecording,
-) (string, error) {
-	replica := ""
-	if pod.Name == "" && pod.GenerateName != "" {
-		rKey := replicaKey(profileRecording.Name, pod.GenerateName)
-
-		v, _ := p.replicas.LoadOrStore(rKey, uint(0))
-		replica = fmt.Sprintf("-%d", v)
-		vUint, ok := v.(uint)
-		if !ok {
-			return "", errors.New("replicas value is not an uint")
-		}
-		p.replicas.Store(rKey, vUint+1)
-	}
-
-	return replica, nil
-}
-
 func (p *podSeccompRecorder) setRecordingReferences(
 	ctx context.Context,
 	op admissionv1.Operation,
@@ -401,7 +352,6 @@ func (p *podSeccompRecorder) setFinalizers(
 	} else {
 		if controllerutil.ContainsFinalizer(profileRecording, finalizer) {
 			controllerutil.RemoveFinalizer(profileRecording, finalizer)
-			p.cleanupReplicas(profileRecording.Name, podName)
 		}
 	}
 

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -322,17 +323,17 @@ func (e *e2e) profileRecordingDeployment(
 		e.waitForEnricherLogs(since, waitConditions...)
 	}
 
+	suffixes := e.getPodSuffixesByLabel("app=alpine")
 	e.kubectl("delete", "deploy", deployName)
 
-	const profileName0 = recordingName + "-nginx-0"
-	const profileName1 = recordingName + "-nginx-1"
-	profile0 := e.retryGetSeccompProfile(profileName0)
-	profile1 := e.retryGetSeccompProfile(profileName1)
-	e.Contains(profile0, "listen")
-	e.Contains(profile1, "listen")
+	for _, sfx := range suffixes {
+		recordedProfileName := recordingName + "-nginx-" + sfx
+		profile := e.retryGetSeccompProfile(recordedProfileName)
+		e.Contains(profile, "listen")
+		e.kubectl("delete", "sp", recordedProfileName)
+	}
 
 	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", "sp", profileName0, profileName1)
 }
 
 func (e *e2e) profileRecordingSelinuxDeployment(
@@ -346,24 +347,24 @@ func (e *e2e) profileRecordingSelinuxDeployment(
 		e.waitForEnricherLogs(since, waitConditions...)
 	}
 
+	suffixes := e.getPodSuffixesByLabel("app=alpine")
 	e.kubectl("delete", "deploy", deployName)
 
-	const profileName0 = selinuxRecordingName + "-nginx-0"
-	const profileName1 = selinuxRecordingName + "-nginx-1"
+	fmt.Println(e.kubectl("get", "sp"))
 
-	profile0result := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileName0)
-	e.Contains(profile0result, "name_bind")
-
-	profile1result := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileName1)
-	e.Contains(profile1result, "name_bind")
+	for _, sfx := range suffixes {
+		recordedProfileName := selinuxRecordingName + "-nginx-" + sfx
+		profileResult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", recordedProfileName)
+		e.Contains(profileResult, "name_bind")
+		e.kubectl("delete", "selinuxprofile", recordedProfileName)
+	}
 
 	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", "selinuxprofile", profileName0, profileName1)
 }
 
-func (e *e2e) createRecordingTestDeployment() (since time.Time, podName string) {
+func (e *e2e) createRecordingTestDeployment() (since time.Time, deployName string) {
 	e.logf("Creating test deployment")
-	podName = "my-deployment"
+	deployName = "my-deployment"
 
 	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
 
@@ -405,12 +406,11 @@ spec:
 	since = time.Now()
 	e.kubectl("create", "-f", testFile.Name())
 
-	const deployName = "my-deployment"
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
 	e.Nil(os.Remove(testFile.Name()))
 
-	return since, podName
+	return since, deployName
 }
 
 func (e *e2e) retryGetProfile(kind string, args ...string) string {
@@ -538,15 +538,28 @@ func (e *e2e) profileRecordingScaleDeployment(
 	// wait for the pods to be ready as per the readinessProbe
 	e.kubectl("rollout", "status", "deploy", deployName)
 
+	suffixes := e.getPodSuffixesByLabel("app=alpine")
 	e.kubectl("delete", "deploy", deployName)
 
 	// check the expected number of policies was created
-	for i := 0; i < 5; i++ {
-		recordedProfileName := fmt.Sprintf("%s-nginx-%d", recordingName, i)
+	for _, sfx := range suffixes {
+		recordedProfileName := recordingName + "-nginx-" + sfx
 		profile := e.retryGetSeccompProfile(recordedProfileName)
 		e.Contains(profile, "listen")
 		e.kubectl("delete", "sp", recordedProfileName)
 	}
 
 	e.kubectl("delete", "-f", recording)
+}
+
+func (e *e2e) getPodSuffixesByLabel(label string) []string { //nolint:unparam // it's better to keep the param around
+	suffixes := make([]string, 0)
+	podNamesString := e.kubectl("get", "pods", "-l", label, "-o", "jsonpath={.items[*].metadata.name}")
+	podNames := strings.Fields(podNamesString)
+	for _, podName := range podNames {
+		suffixIdx := strings.LastIndex(podName, "-")
+		suffixes = append(suffixes, podName[suffixIdx+1:])
+	}
+
+	return suffixes
 }

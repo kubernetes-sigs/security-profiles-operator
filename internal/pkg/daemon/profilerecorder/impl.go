@@ -18,6 +18,7 @@ package profilerecorder
 
 import (
 	"context"
+
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"google.golang.org/grpc"
