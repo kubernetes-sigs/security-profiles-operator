@@ -3,6 +3,7 @@ apiVersion: v1
 kind: Namespace
 metadata:
     name: security-profiles-operator
+    openshift.io/cluster-monitoring: "true"
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
