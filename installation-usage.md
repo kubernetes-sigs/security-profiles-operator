@@ -1,11 +1,12 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
   - [Installation using OLM from operatorhub.io](#installation-using-olm-from-operatorhubio)
+    - [OpenShift](#openshift)
+    - [Other Kubernetes distributions](#other-kubernetes-distributions)
   - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
   - [Installation using helm](#installation-using-helm)
 - [Set logging verbosity](#set-logging-verbosity)
@@ -77,12 +78,31 @@ $ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/security-pr
 ### Installation using OLM from operatorhub.io
 
 It is also possible to install packages from [operatorhub.io](https://operatorhub.io/operator/security-profiles-operator)
-using [OLM](https://operator-framework.github.io/olm-book/). This would install the `operatohubio-catalog` in the `olm`
-namespace:
+using [OLM](https://operator-framework.github.io/olm-book/).
 
-```shell
-$ kubectl get catalogsource.operators.coreos.com/operatorhubio-catalog -nolm
+#### OpenShift
+
+To be able to use the OperatorHub.io resources in OpenShift, create a new
+`CatalogResource` like this:
+
+```yaml
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: operatorhubio
+  namespace: openshift-marketplace
+spec:
+  displayName: Community Operators
+  image: quay.io/operator-framework/upstream-community-operators:latest
+  publisher: OperatorHub.io
+  sourceType: grpc
 ```
+
+After that, the Security Profiles Operator should then be installable via OperatorHub.
+
+![openshift installation](doc/img/openshift-install.png)
+
+#### Other Kubernetes distributions
 
 To install SPO, first make sure that OLM
 itself is [installed](https://operator-framework.github.io/olm-book/docs/install-olm.html). Then install
