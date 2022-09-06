@@ -19,6 +19,7 @@ package e2e_test
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 )
@@ -38,7 +39,7 @@ const (
 func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 	e.logf("List node statuses for a policy with a very long name")
 
-	e.logf("creating policy")
+	e.logf("Creating policy")
 	deleteFn := e.writeAndCreate(longNamePolicy, "longname-policy.yml")
 	defer deleteFn()
 
@@ -49,12 +50,25 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 	id := e.getSeccompPolicyID(policyName)
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	selector := fmt.Sprintf("spo.x-k8s.io/profile-id=%s", id)
-	seccompProfileNodeStatusJSON := e.kubectl(
-		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
-	)
-	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
-	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
-	if len(nodes) > len(secpolNodeStatusList.Items) {
-		e.Fail("Couldn't list statuses for nodes")
+
+	const maxTries = 10
+	for i := 0; i < maxTries; i++ {
+		e.logf("Comparing node status items with node length (try %d)", i+1)
+
+		seccompProfileNodeStatusJSON := e.kubectl(
+			"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+		)
+
+		secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
+		e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
+
+		if len(nodes) == len(secpolNodeStatusList.Items) {
+			e.logf("Node status successfully reconciled")
+			return
+		}
+
+		time.Sleep(3 * time.Second)
 	}
+
+	e.Fail("Node status has not been reconciled successfully")
 }
