@@ -172,8 +172,15 @@ func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []tes
 	// Deploy the namespace operator
 	e.kubectl("create", "namespace", namespace)
 	e.updateManifest(manifest, "NS_REPLACE", namespace)
+
 	// All following operations such as create pod will be in the test namespace
+	// at the same time, let's re-set the context to allow subsequent test runs
+	curNs := e.getCurrentContextNamespace(config.OperatorName)
 	e.kubectl("config", "set-context", "--current", "--namespace", namespace)
+	defer func() {
+		e.kubectl("config", "set-context", "--current", "--namespace", curNs)
+	}()
+
 	e.deployOperator(manifest)
 
 	for _, testCase := range testCases {
@@ -182,7 +189,9 @@ func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []tes
 			tc.fn(nodes)
 		})
 	}
+	e.cleanupOperator(e.operatorManifest)
 	e.run("git", "checkout", manifest)
+	e.kubectl("delete", "namespace", namespace)
 }
 
 func doDeployCertManager(e *e2e) {
