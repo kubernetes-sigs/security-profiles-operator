@@ -16,11 +16,17 @@ limitations under the License.
 
 package e2e_test
 
+import "sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+
 func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 	if e.skipFlakyTests {
 		e.T().Skip("Skipping flaky tests")
 		return
 	}
+
+	// If we ran the non-flaky tests before, we would have ran them with the
+	// context set to the test-ns namespace. Reset the context.
+	e.kubectl("config", "set-context", "--current", "--namespace", config.OperatorName)
 
 	e.waitForReadyPods()
 
