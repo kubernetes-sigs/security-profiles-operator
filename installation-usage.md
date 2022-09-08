@@ -453,6 +453,12 @@ test-recording-redis   Installed   15s
 Recording a SELinux profile would work the same, except you'd use `kind: SelinuxProfile`
 in the `ProfileRecording` object.
 
+Please note that log based recording does not have any effect if the recorded container
+is privileged, that is, the container's security context sets `privileged: true`. This
+is because privileged containers are not subject to SELinux or seccomp policies at all
+and the log based recording makes use of a special seccomp or SELinux profile respectively
+to record the syscalls or SELinux events.
+
 #### eBPF based recording
 
 The operator also supports an [eBPF](https://ebpf.io) based recorder. This
