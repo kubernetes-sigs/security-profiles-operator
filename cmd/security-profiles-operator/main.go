@@ -514,7 +514,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	setupLog.Info("registering webhooks")
 	hookserver := mgr.GetWebhookServer()
 	binding.RegisterWebhook(hookserver, mgr.GetClient())
-	recording.RegisterWebhook(hookserver, mgr.GetClient())
+	recording.RegisterWebhook(hookserver, mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
 
 	sigHandler := ctrl.SetupSignalHandler()
 	setupLog.Info("starting webhook")

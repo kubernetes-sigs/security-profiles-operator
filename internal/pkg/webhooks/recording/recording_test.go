@@ -36,6 +36,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording/recordingfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 var (
@@ -499,7 +500,7 @@ func TestHandle(t *testing.T) {
 		mock := &recordingfakes.FakeImpl{}
 		tc.prepare(mock)
 
-		recorder := podSeccompRecorder{impl: mock, log: logr.Discard()}
+		recorder := podSeccompRecorder{impl: mock, log: logr.Discard(), record: utils.NewSafeRecorder(nil)}
 		resp := recorder.Handle(context.Background(), tc.request)
 		tc.assert(resp)
 	}
