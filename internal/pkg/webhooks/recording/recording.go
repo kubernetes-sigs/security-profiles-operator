@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -44,16 +45,18 @@ const finalizer = "active-seccomp-profile-recording-lock"
 
 type podSeccompRecorder struct {
 	impl
-	log logr.Logger
+	log    logr.Logger
+	record *utils.SafeRecorder
 }
 
-func RegisterWebhook(server *webhook.Server, c client.Client) {
+func RegisterWebhook(server *webhook.Server, rec record.EventRecorder, c client.Client) {
 	server.Register(
 		"/mutate-v1-pod-recording",
 		&webhook.Admission{
 			Handler: &podSeccompRecorder{
-				impl: &defaultImpl{client: c},
-				log:  logf.Log.WithName("recording"),
+				impl:   &defaultImpl{client: c},
+				log:    logf.Log.WithName("recording"),
+				record: utils.NewSafeRecorder(rec),
 			},
 		},
 	)
@@ -194,6 +197,8 @@ func (p *podSeccompRecorder) updatePod(
 			return false, err
 		}
 
+		p.warnEventIfContainerPrivileged(profileRecording, ctr, pod)
+
 		p.updateSecurityContext(ctr, profileRecording)
 		existingValue, ok := pod.GetAnnotations()[key]
 		if !ok {
@@ -236,9 +241,9 @@ func (p *podSeccompRecorder) updateSecurityContext(
 
 	switch pr.Spec.Kind {
 	case profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile:
-		p.updateSeccompSecurityContext(ctr)
+		p.updateSeccompSecurityContext(ctr, pr)
 	case profilerecordingv1alpha1.ProfileRecordingKindSelinuxProfile:
-		p.updateSelinuxSecurityContext(ctr)
+		p.updateSelinuxSecurityContext(ctr, pr)
 	}
 
 	p.log.Info(fmt.Sprintf(
@@ -249,6 +254,7 @@ func (p *podSeccompRecorder) updateSecurityContext(
 
 func (p *podSeccompRecorder) updateSeccompSecurityContext(
 	ctr *corev1.Container,
+	pr *profilerecordingv1alpha1.ProfileRecording,
 ) {
 	if ctr.SecurityContext == nil {
 		ctr.SecurityContext = &corev1.SecurityContext{}
@@ -256,6 +262,11 @@ func (p *podSeccompRecorder) updateSeccompSecurityContext(
 
 	if ctr.SecurityContext.SeccompProfile == nil {
 		ctr.SecurityContext.SeccompProfile = &corev1.SeccompProfile{}
+	} else {
+		p.record.Eventf(pr,
+			corev1.EventTypeWarning,
+			"SecurityContextAlreadySet",
+			"Container %s had SecurityContext already set, the profile recorder overwrote it", ctr.Name)
 	}
 
 	ctr.SecurityContext.SeccompProfile.Type = corev1.SeccompProfileTypeLocalhost
@@ -269,6 +280,7 @@ func (p *podSeccompRecorder) updateSeccompSecurityContext(
 
 func (p *podSeccompRecorder) updateSelinuxSecurityContext(
 	ctr *corev1.Container,
+	pr *profilerecordingv1alpha1.ProfileRecording,
 ) {
 	if ctr.SecurityContext == nil {
 		ctr.SecurityContext = &corev1.SecurityContext{}
@@ -276,6 +288,11 @@ func (p *podSeccompRecorder) updateSelinuxSecurityContext(
 
 	if ctr.SecurityContext.SELinuxOptions == nil {
 		ctr.SecurityContext.SELinuxOptions = &corev1.SELinuxOptions{}
+	} else {
+		p.record.Eventf(pr,
+			corev1.EventTypeWarning,
+			"SecurityContextAlreadySet",
+			"Container %s had SecurityContext already set, the profile recorder overwrote it", ctr.Name)
 	}
 
 	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile
@@ -390,4 +407,23 @@ func anyPodMatch(
 func (p *podSeccompRecorder) InjectDecoder(decoder *admission.Decoder) error {
 	p.impl.SetDecoder(decoder)
 	return nil
+}
+
+func (p *podSeccompRecorder) warnEventIfContainerPrivileged(
+	profileRecording *profilerecordingv1alpha1.ProfileRecording,
+	ctr *corev1.Container,
+	pod *corev1.Pod,
+) {
+	if profileRecording.Spec.Recorder != profilerecordingv1alpha1.ProfileRecorderLogs {
+		return
+	}
+
+	if ctr.SecurityContext == nil || ctr.SecurityContext.Privileged == nil || !*ctr.SecurityContext.Privileged {
+		return
+	}
+
+	p.record.Eventf(profileRecording,
+		corev1.EventTypeWarning,
+		"PrivilegedContainer",
+		"Container %s in pod %s is privileged, cannot use log-based profile recording", ctr.Name, pod.Name)
 }
