@@ -19,6 +19,7 @@ package e2e_test
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
@@ -49,7 +50,9 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 	e.logf("List all node statuses for policy by ID")
 	id := e.getSeccompPolicyID(policyName)
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	selector := fmt.Sprintf("spo.x-k8s.io/profile-id=%s", id)
+	selector := fmt.Sprintf(
+		"spo.x-k8s.io/profile-id in (%s),spo.x-k8s.io/node-name in (%s)",
+		id, strings.Join(nodes, ","))
 
 	const maxTries = 10
 	for i := 0; i < maxTries; i++ {
