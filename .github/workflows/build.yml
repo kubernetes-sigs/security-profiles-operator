@@ -58,7 +58,7 @@ jobs:
       - run: make verify-bpf
       - run: make verify-btf
 
-  image:
+  build-image:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
@@ -104,6 +104,49 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           timeout: 10m
+
+  operator-image:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@dc7b9719a96d48369863986a06765841d7ea23f6
+      - name: Login to Quay
+        uses: docker/login-action@49ed152c8eca782a232dede0303416e8f356c37b
+        with:
+          registry: quay.io/security-profiles-operator
+          username: security-profiles-operator+github
+          password: ${{ secrets.QUAY_TOKEN }}
+        if: github.ref == 'refs/heads/main'
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            quay.io/security-profiles-operator/spo
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=ref,event=tag
+            type=sha,format=long
+      - name: Build
+        uses: docker/build-push-action@c84f38281176d4c9cdb1626ffafcd6b3911b5d94
+        with:
+          context: .
+          file: Dockerfile
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          load: true
+      - name: Run container image vulnerability scanner
+        uses: aquasecurity/trivy-action@d63413b0a4a4482237085319f7f4a1ce99a8f2ac
+        with:
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
 
   ubi-image:
     runs-on: ubuntu-22.04
