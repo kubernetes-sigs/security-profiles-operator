@@ -15,7 +15,6 @@
 
 set -euo pipefail
 
-COMMIT_ID=315a0cb5b0abd15619384d7da7f3941714afcb8e
 TAG=v1.25.0
 
 export PATH=$PATH:/usr/local/go/bin
@@ -35,9 +34,8 @@ go install sigs.k8s.io/bom/cmd/bom@$BOM_VERSION
 cp "$GOBIN/bom" /usr/bin
 bom version
 
-# TODO: switch "$COMMIT_ID" back to "$TAG" when CRI-O v1.25.0 is released.
-curl -sSfL --retry 5 --retry-delay 3 "https://raw.githubusercontent.com/cri-o/cri-o/$COMMIT_ID/scripts/get" |
-    bash -s -- -t "$COMMIT_ID"
+curl -sSfL --retry 5 --retry-delay 3 "https://raw.githubusercontent.com/cri-o/cri-o/$TAG/scripts/get" |
+    bash -s -- -t "$TAG"
 
 . /etc/os-release
 
