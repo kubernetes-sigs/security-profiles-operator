@@ -368,6 +368,8 @@ func (e *e2e) createRecordingTestDeployment() (since time.Time, deployName strin
 
 	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
 
+	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
+
 	const testDeployment = `
 apiVersion: apps/v1
 kind: Deployment
