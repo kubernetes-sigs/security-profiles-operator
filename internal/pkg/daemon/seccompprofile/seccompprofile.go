@@ -402,6 +402,11 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 
+	if sp.IsPartial() {
+		l.Info("Profile is partial, skipping")
+		return reconcile.Result{}, nil
+	}
+
 	updated, err := r.save(profilePath, profileContent)
 	if err != nil {
 		l.Error(err, "cannot save profile into disk")
