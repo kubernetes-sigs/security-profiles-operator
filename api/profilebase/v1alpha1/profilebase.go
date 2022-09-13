@@ -17,12 +17,61 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
+	"fmt"
+
 	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 )
+
+const ProfilePartialLabel = "spo.x-k8s.io/partial"
+
+type SecurityProfileBase interface {
+	client.Object
+
+	ListProfilesByRecording(ctx context.Context, cli client.Client, recording string) ([]metav1.Object, error)
+	IsPartial() bool
+}
+
+func IsPartial(obj metav1.Object) bool {
+	_, ok := obj.GetLabels()[ProfilePartialLabel]
+	return ok
+}
+
+func ListProfilesByRecording(
+	ctx context.Context,
+	cli client.Client,
+	recordingName string,
+	recordingNamespace string,
+	list client.ObjectList,
+) ([]metav1.Object, error) {
+	if err := cli.List(
+		ctx,
+		list,
+		client.InNamespace(recordingNamespace),
+		client.MatchingLabels{v1alpha1.ProfileToRecordingLabel: recordingName}); err != nil {
+		return nil, fmt.Errorf("listing recorded profiles for %s: %w", recordingName, err)
+	}
+
+	recProfiles := make([]metav1.Object, 0)
+	if err := meta.EachListItem(list, func(obj runtime.Object) error {
+		if prf, ok := obj.(metav1.Object); ok {
+			recProfiles = append(recProfiles, prf)
+			return nil
+		}
+		return fmt.Errorf("object %T is not a metav1.Object", obj)
+	}); err != nil {
+		return nil, fmt.Errorf("iterating over partial profiles: %w", err)
+	}
+
+	return recProfiles, nil
+}
 
 // StatusBase contains common attributes for a profile's status.
 type StatusBase struct {
