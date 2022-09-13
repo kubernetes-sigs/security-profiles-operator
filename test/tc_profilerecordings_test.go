@@ -20,11 +20,13 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
+
+	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
-	exampleRecordingHookPath                         = "examples/profilerecording-hook.yaml"
 	exampleRecordingSeccompLogsPath                  = "examples/profilerecording-seccomp-logs.yaml"
 	exampleRecordingSeccompSpecificContainerLogsPath = "examples/profilerecording-seccomp-specific-container-logs.yaml"
 	exampleRecordingSelinuxLogsPath                  = "examples/profilerecording-selinux-logs.yaml"
@@ -54,11 +56,6 @@ func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp)
 
 		time.Sleep(3 * time.Second)
 	}
-}
-
-func (e *e2e) testCaseProfileRecordingStaticPodHook() {
-	e.profileRecordingTestCase()
-	e.profileRecordingStaticPod(exampleRecordingHookPath)
 }
 
 func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
@@ -119,29 +116,6 @@ func (e *e2e) profileRecordingStaticPod(recording string, waitConditions ...*reg
 
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "sp", resourceName)
-}
-
-func (e *e2e) testCaseProfileRecordingKubectlRunHook() {
-	e.profileRecordingTestCase()
-
-	e.logf("Creating recording for kubectl run test")
-	e.kubectl("create", "-f", exampleRecordingHookPath)
-
-	e.logf("Creating test pod")
-	e.kubectlRun("--labels=app=alpine", "fedora", "--", "echo", "test")
-
-	resourceName := recordingName + "-fedora"
-	profile := e.retryGetSeccompProfile(resourceName)
-	e.Contains(profile, "prctl")
-	e.NotContains(profile, "mkdir")
-
-	e.kubectl("delete", "-f", exampleRecordingHookPath)
-	e.kubectl("delete", "sp", resourceName)
-}
-
-func (e *e2e) testCaseProfileRecordingMultiContainerHook() {
-	e.profileRecordingTestCase()
-	e.profileRecordingMultiContainer(exampleRecordingHookPath)
 }
 
 func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
@@ -250,14 +224,19 @@ func (e *e2e) profileRecordingSpecificContainer(
 	e.kubectl("delete", "sp", profileNameNginx)
 }
 
-func (e *e2e) testCaseProfileRecordingDeploymentHook() {
-	e.profileRecordingTestCase()
-	e.profileRecordingDeployment(exampleRecordingHookPath)
-}
-
 func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 	e.logEnricherOnlyTestCase()
 	e.profileRecordingDeployment(
+		exampleRecordingSeccompLogsPath,
+		regexp.MustCompile(
+			`(?s)"container"="nginx".*"syscallName"="listen"`+
+				`.*"container"="nginx".*"syscallName"="listen"`),
+	)
+}
+
+func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
+	e.logEnricherOnlyTestCase()
+	e.profileRecordingScaleDeployment(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(
 			`(?s)"container"="nginx".*"syscallName"="listen"`+
@@ -276,6 +255,62 @@ func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
 	)
 }
 
+func (e *e2e) testCaseRecordingFinalizers() {
+	e.logEnricherOnlyTestCase()
+
+	const recordingName = "test-recording"
+
+	e.logf("Creating recording for static pod test")
+	e.kubectl("create", "-f", exampleRecordingSeccompLogsPath)
+
+	since, podName := e.createRecordingTestPod()
+	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen"`))
+
+	// Check that the recording's status contains the resource. Retry to avoid
+	// test races.
+	e.logf("Testing that profile binding has pod reference")
+	if err := spoutil.Retry(func() error {
+		output := e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.status.activeWorkloads[0]}")
+		fmt.Println(output)
+		if output != podName {
+			return fmt.Errorf("pod name %s not found in status", podName)
+		}
+		return nil
+	}, func(err error) bool {
+		return true
+	}); err != nil {
+		e.Fail("failed to find pod name in status")
+	}
+
+	// Check that the recording's finalizer is present. Don't retry anymore, the finalizer
+	// must be added at this point
+	output := e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.metadata.finalizers[0]}")
+	e.Equal("active-seccomp-profile-recording-lock", output)
+
+	// Attempt to delete the resource, should not be possible
+	e.kubectl("delete", "--wait=false", "profilerecording", recordingName)
+	output = e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.metadata.deletionTimestamp}")
+	e.NotEmpty(output)
+
+	isDeleted := make(chan bool)
+	go func() {
+		e.waitFor("delete", "profilerecording", recordingName)
+		isDeleted <- true
+	}()
+
+	// Delete the pod and check that the resource is removed
+	e.kubectl("delete", "pod", podName)
+
+	// Wait a bit for the recording to be actually deleted
+	<-isDeleted
+
+	resourceName := recordingName + "-nginx"
+	profile := e.retryGetSeccompProfile(resourceName)
+	e.Contains(profile, "listen")
+
+	e.kubectl("delete", "sp", resourceName)
+}
+
 func (e *e2e) profileRecordingDeployment(
 	recording string, waitConditions ...*regexp.Regexp,
 ) {
@@ -288,17 +323,17 @@ func (e *e2e) profileRecordingDeployment(
 		e.waitForEnricherLogs(since, waitConditions...)
 	}
 
+	suffixes := e.getPodSuffixesByLabel("app=alpine")
 	e.kubectl("delete", "deploy", deployName)
 
-	const profileName0 = recordingName + "-nginx-0"
-	const profileName1 = recordingName + "-nginx-1"
-	profile0 := e.retryGetSeccompProfile(profileName0)
-	profile1 := e.retryGetSeccompProfile(profileName1)
-	e.Contains(profile0, "listen")
-	e.Contains(profile1, "listen")
+	for _, sfx := range suffixes {
+		recordedProfileName := recordingName + "-nginx-" + sfx
+		profile := e.retryGetSeccompProfile(recordedProfileName)
+		e.Contains(profile, "listen")
+		e.kubectl("delete", "sp", recordedProfileName)
+	}
 
 	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", "sp", profileName0, profileName1)
 }
 
 func (e *e2e) profileRecordingSelinuxDeployment(
@@ -312,24 +347,26 @@ func (e *e2e) profileRecordingSelinuxDeployment(
 		e.waitForEnricherLogs(since, waitConditions...)
 	}
 
+	suffixes := e.getPodSuffixesByLabel("app=alpine")
 	e.kubectl("delete", "deploy", deployName)
 
-	const profileName0 = selinuxRecordingName + "-nginx-0"
-	const profileName1 = selinuxRecordingName + "-nginx-1"
+	fmt.Println(e.kubectl("get", "sp"))
 
-	profile0result := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileName0)
-	e.Contains(profile0result, "name_bind")
-
-	profile1result := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileName1)
-	e.Contains(profile1result, "name_bind")
+	for _, sfx := range suffixes {
+		recordedProfileName := selinuxRecordingName + "-nginx-" + sfx
+		profileResult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", recordedProfileName)
+		e.Contains(profileResult, "name_bind")
+		e.kubectl("delete", "selinuxprofile", recordedProfileName)
+	}
 
 	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", "selinuxprofile", profileName0, profileName1)
 }
 
-func (e *e2e) createRecordingTestDeployment() (since time.Time, podName string) {
+func (e *e2e) createRecordingTestDeployment() (since time.Time, deployName string) {
 	e.logf("Creating test deployment")
-	podName = "my-deployment"
+	deployName = "my-deployment"
+
+	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
 
 	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
 
@@ -352,6 +389,13 @@ spec:
       containers:
       - name: nginx
         image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+              port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
 `
 
 	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
@@ -364,12 +408,11 @@ spec:
 	since = time.Now()
 	e.kubectl("create", "-f", testFile.Name())
 
-	const deployName = "my-deployment"
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
 	e.Nil(os.Remove(testFile.Name()))
 
-	return since, podName
+	return since, deployName
 }
 
 func (e *e2e) retryGetProfile(kind string, args ...string) string {
@@ -404,6 +447,13 @@ spec:
   containers:
   - image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
     name: nginx
+    ports:
+      - containerPort: 8080
+    readinessProbe:
+      tcpSocket:
+          port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 5
   restartPolicy: Never
 `
 	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
@@ -439,8 +489,18 @@ spec:
   containers:
   - name: nginx
     image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+    readinessProbe:
+      tcpSocket:
+          port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 5
   - name: redis
     image: quay.io/security-profiles-operator/redis:6.2.1
+    readinessProbe:
+      tcpSocket:
+          port: 6379
+      initialDelaySeconds: 5
+      periodSeconds: 5
   restartPolicy: Never
 `
 	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
@@ -459,4 +519,49 @@ spec:
 	e.Nil(os.Remove(testPodFile.Name()))
 
 	return since, podName
+}
+
+// tests that scaling the deployment allows to record all replicas
+// independent of what happens with the deployment.
+func (e *e2e) profileRecordingScaleDeployment(
+	recording string, waitConditions ...*regexp.Regexp,
+) {
+	e.logf("Creating recording for deployment test")
+	e.kubectl("create", "-f", recording)
+
+	since, deployName := e.createRecordingTestDeployment()
+
+	if waitConditions != nil {
+		e.waitForEnricherLogs(since, waitConditions...)
+	}
+
+	e.kubectl("scale", "deploy", "--replicas=5", deployName)
+	e.waitFor("condition=available", "deploy", deployName)
+	// wait for the pods to be ready as per the readinessProbe
+	e.kubectl("rollout", "status", "deploy", deployName)
+
+	suffixes := e.getPodSuffixesByLabel("app=alpine")
+	e.kubectl("delete", "deploy", deployName)
+
+	// check the expected number of policies was created
+	for _, sfx := range suffixes {
+		recordedProfileName := recordingName + "-nginx-" + sfx
+		profile := e.retryGetSeccompProfile(recordedProfileName)
+		e.Contains(profile, "listen")
+		e.kubectl("delete", "sp", recordedProfileName)
+	}
+
+	e.kubectl("delete", "-f", recording)
+}
+
+func (e *e2e) getPodSuffixesByLabel(label string) []string { //nolint:unparam // it's better to keep the param around
+	suffixes := make([]string, 0)
+	podNamesString := e.kubectl("get", "pods", "-l", label, "-o", "jsonpath={.items[*].metadata.name}")
+	podNames := strings.Fields(podNamesString)
+	for _, podName := range podNames {
+		suffixIdx := strings.LastIndex(podName, "-")
+		suffixes = append(suffixes, podName[suffixIdx+1:])
+	}
+
+	return suffixes
 }

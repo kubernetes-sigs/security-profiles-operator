@@ -5,51 +5,49 @@ package libbpfgo
 
 #include <errno.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include <sys/resource.h>
+#include <sys/syscall.h>
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 
-#ifndef MAX_ERRNO
-#define MAX_ERRNO           4095
-#define IS_ERR_VALUE(x)     ((x) >= (unsigned long)-MAX_ERRNO)
 
-static inline bool IS_ERR(const void *ptr)
-{
-    return IS_ERR_VALUE((unsigned long)ptr);
-}
-
-static inline bool IS_ERR_OR_NULL(const void *ptr)
-{
-    return !ptr || IS_ERR_VALUE((unsigned long)ptr);
-}
-
-static inline long PTR_ERR(const void *ptr)
-{
-    return (long) ptr;
-}
-#endif
-
-int libbpf_print_fn(enum libbpf_print_level level, const char *format,
+int libbpf_print_fn(enum libbpf_print_level level,
+                    const char *format,
                     va_list args)
 {
-    if (level != LIBBPF_WARN)
-        return 0;
+	if (level != LIBBPF_WARN)
+		return 0;
+
+	va_list check;
+	va_copy(check, args);
+	char *str = va_arg(check, char *);
 
 	// BUG: https://github.com/aquasecurity/tracee/issues/1676
 
-	va_list check; va_copy(check, args);
-	char *str = va_arg(check, char *);
 	if (strstr(str, "Exclusivity flag on") != NULL) {
 		va_end(check);
 		return 0;
 	}
-	va_end(check);
 
-    return vfprintf(stderr, format, args);
+	// AttachCgroupLegacy() will first try AttachCgroup() and it
+	// might fail. This is not an error and is the best way of
+	// probing for eBPF cgroup attachment link existence.
+
+	str = va_arg(check, char *);
+	if (strstr(str, "cgroup") != NULL) {
+		str = va_arg(check, char *);
+		if (strstr(str, "Invalid argument") != NULL)
+			return 0;
+	}
+
+	return vfprintf(stderr, format, args);
 }
 
-void set_print_fn() {
+void set_print_fn()
+{
     libbpf_set_print(libbpf_print_fn);
 }
 
@@ -63,7 +61,7 @@ struct ring_buffer * init_ring_buf(int map_fd, uintptr_t ctx)
 
     rb = ring_buffer__new(map_fd, ringbufferCallback, (void*)ctx, NULL);
     if (!rb) {
-        fprintf(stderr, "Failed to initialize ring buffer\n");
+        fprintf(stderr, "Failed to initialize ring buffer: %s\n", strerror(errno));
         return NULL;
     }
 
@@ -79,12 +77,41 @@ struct perf_buffer * init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx)
 
     pb = perf_buffer__new(map_fd, page_cnt, perfCallback, perfLostCallback,
                           (void *) ctx, &pb_opts);
-    if (libbpf_get_error(pb)) {
-        fprintf(stderr, "Failed to initialize perf buffer!\n");
+    if (!pb) {
+        fprintf(stderr, "Failed to initialize perf buffer: %s\n", strerror(errno));
         return NULL;
     }
 
     return pb;
+}
+
+int bpf_prog_attach_cgroup_legacy(
+	int prog_fd,          // eBPF program file descriptor
+	int target_fd,        // cgroup directory file descriptor
+	int type)             // BPF_CGROUP_INET_{INGRESS,EGRESS}, ...
+{
+	union bpf_attr attr;
+	memset(&attr, 0, sizeof(attr));
+	attr.target_fd = target_fd;
+	attr.attach_bpf_fd = prog_fd;
+	attr.attach_type = type;
+	attr.attach_flags = BPF_F_ALLOW_MULTI; // or BPF_F_ALLOW_OVERRIDE
+
+	return syscall(__NR_bpf, BPF_PROG_ATTACH, &attr, sizeof(attr));
+}
+
+int bpf_prog_detach_cgroup_legacy(
+	int prog_fd,          // eBPF program file descriptor
+	int target_fd,        // cgroup directory file descriptor
+	int type)             // BPF_CGROUP_INET_{INGRESS,EGRESS}, ...
+{
+	union bpf_attr attr;
+	memset(&attr, 0, sizeof(attr));
+	attr.target_fd = target_fd;
+	attr.attach_bpf_fd = prog_fd;
+	attr.attach_type = type;
+
+	return syscall(__NR_bpf, BPF_PROG_DETACH, &attr, sizeof(attr));
 }
 */
 import "C"
@@ -93,11 +120,12 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
 
-	"github.com/aquasecurity/libbpfgo/helpers"
+	"github.com/aquasecurity/libbpfgo/helpers/rwarray"
 )
 
 const (
@@ -237,27 +265,53 @@ const (
 	Uretprobe
 	Tracing
 	XDP
+	Cgroup
+	CgroupLegacy
+	Netns
 )
+
+type BPFLinkLegacy struct {
+	attachType BPFAttachType
+	cgroupDir  string
+}
 
 type BPFLink struct {
 	link      *C.struct_bpf_link
 	prog      *BPFProg
 	linkType  LinkType
 	eventName string
+	legacy    *BPFLinkLegacy // if set, this is a fake BPFLink
+}
+
+func (l *BPFLink) DestroyLegacy(linkType LinkType) error {
+	switch l.linkType {
+	case CgroupLegacy:
+		return l.prog.DetachCgroupLegacy(
+			l.legacy.cgroupDir,
+			l.legacy.attachType,
+		)
+	}
+	return fmt.Errorf("unable to destroy legacy link")
 }
 
 func (l *BPFLink) Destroy() error {
-	ret := C.bpf_link__destroy(l.link)
-	if ret < 0 {
+	if l.legacy != nil {
+		return l.DestroyLegacy(l.linkType)
+	}
+	if ret := C.bpf_link__destroy(l.link); ret < 0 {
 		return syscall.Errno(-ret)
 	}
 	l.link = nil
-
 	return nil
 }
 
-func (l *BPFLink) GetFd() int {
+func (l *BPFLink) FileDescriptor() int {
 	return int(C.bpf_link__fd(l.link))
+}
+
+// Deprecated: use BPFLink.FileDescriptor() instead.
+func (l *BPFLink) GetFd() int {
+	return l.FileDescriptor()
 }
 
 func (l *BPFLink) Pin(pinPath string) error {
@@ -298,30 +352,6 @@ type RingBuffer struct {
 	stop   chan struct{}
 	closed bool
 	wg     sync.WaitGroup
-}
-
-// BPF is using locked memory for BPF maps and various other things.
-// By default, this limit is very low - increase to avoid failures
-func bumpMemlockRlimit() error {
-	var rLimit syscall.Rlimit
-	rLimit.Max = 512 << 20 /* 512 MBs */
-	rLimit.Cur = 512 << 20 /* 512 MBs */
-	err := syscall.Setrlimit(C.RLIMIT_MEMLOCK, &rLimit)
-	if err != nil {
-		return fmt.Errorf("error setting rlimit: %v", err)
-	}
-	return nil
-}
-
-func errptrError(ptr unsafe.Pointer, format string, args ...interface{}) error {
-	negErrno := C.PTR_ERR(ptr)
-	errno := syscall.Errno(-int64(negErrno))
-	if errno == 0 {
-		return fmt.Errorf(format, args...)
-	}
-
-	args = append(args, errno.Error())
-	return fmt.Errorf(format+": %v", args...)
 }
 
 type NewModuleArgs struct {
@@ -378,9 +408,7 @@ func SetStrictMode(mode LibbpfStrictMode) {
 
 func NewModuleFromFileArgs(args NewModuleArgs) (*Module, error) {
 	C.set_print_fn()
-	if err := bumpMemlockRlimit(); err != nil {
-		return nil, err
-	}
+
 	opts := C.struct_bpf_object_open_opts{}
 	opts.sz = C.sizeof_struct_bpf_object_open_opts
 
@@ -401,9 +429,9 @@ func NewModuleFromFileArgs(args NewModuleArgs) (*Module, error) {
 		defer C.free(unsafe.Pointer(kConfigFile))
 	}
 
-	obj := C.bpf_object__open_file(bpfFile, &opts)
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(obj)) {
-		return nil, errptrError(unsafe.Pointer(obj), "failed to open BPF object %s", args.BPFObjPath)
+	obj, errno := C.bpf_object__open_file(bpfFile, &opts)
+	if obj == nil {
+		return nil, fmt.Errorf("failed to open BPF object at path %s: %w", args.BPFObjPath, errno)
 	}
 
 	return &Module{
@@ -421,9 +449,7 @@ func NewModuleFromBuffer(bpfObjBuff []byte, bpfObjName string) (*Module, error) 
 
 func NewModuleFromBufferArgs(args NewModuleArgs) (*Module, error) {
 	C.set_print_fn()
-	if err := bumpMemlockRlimit(); err != nil {
-		return nil, err
-	}
+
 	if args.BTFObjPath == "" {
 		args.BTFObjPath = "/sys/kernel/btf/vmlinux"
 	}
@@ -443,9 +469,9 @@ func NewModuleFromBufferArgs(args NewModuleArgs) (*Module, error) {
 		defer C.free(unsafe.Pointer(kConfigFile))
 	}
 
-	obj := C.bpf_object__open_mem(bpfBuff, bpfBuffSize, &opts)
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(obj)) {
-		return nil, errptrError(unsafe.Pointer(obj), "failed to open BPF object %s: %v", args.BPFObjName, args.BPFObjBuff[:20])
+	obj, errno := C.bpf_object__open_mem(bpfBuff, bpfBuffSize, &opts)
+	if obj == nil {
+		return nil, fmt.Errorf("failed to open BPF object %s: %w", args.BPFObjName, errno)
 	}
 
 	C.free(bpfBuff)
@@ -466,7 +492,7 @@ func (m *Module) Close() {
 	}
 	for _, link := range m.links {
 		if link.link != nil {
-			C.bpf_link__destroy(link.link)
+			link.Destroy()
 		}
 	}
 	C.bpf_object__close(m.obj)
@@ -475,7 +501,7 @@ func (m *Module) Close() {
 func (m *Module) BPFLoadObject() error {
 	ret := C.bpf_object__load(m.obj)
 	if ret != 0 {
-		return fmt.Errorf("failed to load BPF object")
+		return fmt.Errorf("failed to load BPF object: %w", syscall.Errno(-ret))
 	}
 
 	return nil
@@ -579,30 +605,30 @@ func (b *BPFMap) SetType(mapType MapType) error {
 
 func (b *BPFMap) Pin(pinPath string) error {
 	path := C.CString(pinPath)
-	ret, errC := C.bpf_map__pin(b.bpfMap, path)
+	ret := C.bpf_map__pin(b.bpfMap, path)
 	C.free(unsafe.Pointer(path))
 	if ret != 0 {
-		return fmt.Errorf("failed to pin map %s to path %s: %w", b.name, pinPath, errC)
+		return fmt.Errorf("failed to pin map %s to path %s: %w", b.name, pinPath, syscall.Errno(-ret))
 	}
 	return nil
 }
 
 func (b *BPFMap) Unpin(pinPath string) error {
 	path := C.CString(pinPath)
-	ret, errC := C.bpf_map__unpin(b.bpfMap, path)
+	ret := C.bpf_map__unpin(b.bpfMap, path)
 	C.free(unsafe.Pointer(path))
 	if ret != 0 {
-		return fmt.Errorf("failed to unpin map %s from path %s: %w", b.name, pinPath, errC)
+		return fmt.Errorf("failed to unpin map %s from path %s: %w", b.name, pinPath, syscall.Errno(-ret))
 	}
 	return nil
 }
 
 func (b *BPFMap) SetPinPath(pinPath string) error {
 	path := C.CString(pinPath)
-	ret, errC := C.bpf_map__set_pin_path(b.bpfMap, path)
+	ret := C.bpf_map__set_pin_path(b.bpfMap, path)
 	C.free(unsafe.Pointer(path))
 	if ret != 0 {
-		return fmt.Errorf("failed to set pin for map %s to path %s: %w", b.name, pinPath, errC)
+		return fmt.Errorf("failed to set pin for map %s to path %s: %w", b.name, pinPath, syscall.Errno(-ret))
 	}
 	return nil
 }
@@ -613,9 +639,9 @@ func (b *BPFMap) SetPinPath(pinPath string) error {
 // Note: for ring buffer and perf buffer, maxEntries is the
 // capacity in bytes.
 func (b *BPFMap) Resize(maxEntries uint32) error {
-	ret, errC := C.bpf_map__set_max_entries(b.bpfMap, C.uint(maxEntries))
+	ret := C.bpf_map__set_max_entries(b.bpfMap, C.uint(maxEntries))
 	if ret != 0 {
-		return fmt.Errorf("failed to resize map %s to %v: %w", b.name, maxEntries, errC)
+		return fmt.Errorf("failed to resize map %s to %v: %w", b.name, maxEntries, syscall.Errno(-ret))
 	}
 	return nil
 }
@@ -628,21 +654,31 @@ func (b *BPFMap) GetMaxEntries() uint32 {
 	return uint32(maxEntries)
 }
 
-func (b *BPFMap) GetFd() int {
-	return int(b.fd)
+func (b *BPFMap) FileDescriptor() int {
+	return int(C.bpf_map__fd(b.bpfMap))
 }
 
+// Deprecated: use BPFMap.FileDescriptor() instead.
+func (b *BPFMap) GetFd() int {
+	return b.FileDescriptor()
+}
+
+// Deprecated: use BPFMap.Name() instead.
 func (b *BPFMap) GetName() string {
-	return b.name
+	return b.Name()
 }
 
 func (b *BPFMap) GetModule() *Module {
 	return b.module
 }
 
+func (b *BPFMap) PinPath() string {
+	return C.GoString(C.bpf_map__pin_path(b.bpfMap))
+}
+
+// Deprecated: use BPFMap.PinPath() instead.
 func (b *BPFMap) GetPinPath() string {
-	pinPathGo := C.GoString(C.bpf_map__get_pin_path(b.bpfMap))
-	return pinPathGo
+	return b.PinPath()
 }
 
 func (b *BPFMap) IsPinned() bool {
@@ -659,9 +695,9 @@ func (b *BPFMap) ValueSize() int {
 }
 
 func (b *BPFMap) SetValueSize(size uint32) error {
-	errC := C.bpf_map__set_value_size(b.bpfMap, C.uint(size))
-	if errC != 0 {
-		return fmt.Errorf("could not set map value size: %w", syscall.Errno(-errC))
+	ret := C.bpf_map__set_value_size(b.bpfMap, C.uint(size))
+	if ret != 0 {
+		return fmt.Errorf("could not set map value size: %w", syscall.Errno(-ret))
 	}
 	return nil
 }
@@ -704,9 +740,9 @@ func (b *BPFMap) GetValueFlags(key unsafe.Pointer, flags MapFlag) ([]byte, error
 // number of CPUs
 func (b *BPFMap) GetValueReadInto(key unsafe.Pointer, value *[]byte) error {
 	valuePtr := unsafe.Pointer(&(*value)[0])
-	errC := C.bpf_map__lookup_elem(b.bpfMap, key, C.ulong(b.KeySize()), valuePtr, C.ulong(len(*value)), 0)
-	if errC != 0 {
-		return fmt.Errorf("failed to lookup value %v in map %s: %w", key, b.name, syscall.Errno(-errC))
+	ret := C.bpf_map__lookup_elem(b.bpfMap, key, C.ulong(b.KeySize()), valuePtr, C.ulong(len(*value)), 0)
+	if ret != 0 {
+		return fmt.Errorf("failed to lookup value %v in map %s: %w", key, b.name, syscall.Errno(-ret))
 	}
 	return nil
 }
@@ -740,11 +776,11 @@ func bpfMapBatchOptsToC(batchOpts *BPFMapBatchOpts) *C.struct_bpf_map_batch_opts
 // Once the first iteration is complete you can provide the last key seen in the previous iteration as the startKey for the next iteration
 // and repeat until nextKey is nil.
 //
-// The last argument, count, is the number of keys to lookup. Passing an argument that greater than the number of keys
-// in the map will cause the function to return a syscall.EPERM as an error.
+// The last argument, count, is the number of keys to lookup. The kernel will update it with the count of the elements that were
+// retrieved.
 //
-// The API can return partial results even though an error is returned.
-// In this case the keys that were successfully retrieved until an error occurred will be in the result slice.
+// The API can return partial results even though an -1 is returned. In this case, errno will be set to `ENOENT` and the values slice and count
+// will be filled in with the elements that were read. See the inline comment in `GetValueAndDeleteBatch` for more context.
 func (b *BPFMap) GetValueBatch(keys unsafe.Pointer, startKey, nextKey unsafe.Pointer, count uint32) ([][]byte, error) {
 	var (
 		values    = make([]byte, b.ValueSize()*int(count))
@@ -758,19 +794,16 @@ func (b *BPFMap) GetValueBatch(keys unsafe.Pointer, startKey, nextKey unsafe.Poi
 		Flags:     C.BPF_ANY,
 	}
 
-	errC := C.bpf_map_lookup_batch(b.fd, startKey, nextKey, keys, valuesPtr, &countC, bpfMapBatchOptsToC(opts))
-	if errC != 0 {
-		sc := syscall.Errno(-errC)
-		if sc != syscall.EFAULT {
-			if uint32(countC) != count {
-				return collectBatchValues(values, uint32(countC), b.ValueSize()),
-					fmt.Errorf("failed to retrieve ALL elements in map %s, fetched (%d/%d): %w", b.name, uint32(countC), count, sc)
-			}
-		}
-		return nil, fmt.Errorf("failed to batch lookup values %v in map %s: %w", keys, b.name, syscall.Errno(-errC))
+	ret, errC := C.bpf_map_lookup_batch(b.fd, startKey, nextKey, keys, valuesPtr, &countC, bpfMapBatchOptsToC(opts))
+	processed := uint32(countC)
+
+	if ret != 0 && errC != syscall.ENOENT {
+		return nil, fmt.Errorf("failed to batch get value %v in map %s: ret %d (err: %s)", keys, b.name, ret, errC)
 	}
 
-	return collectBatchValues(values, count, b.ValueSize()), nil
+	// Either some or all entries were read.
+	// ret = -1 && errno == syscall.ENOENT indicates a partial read.
+	return collectBatchValues(values, processed, b.ValueSize()), nil
 }
 
 // GetValueAndDeleteBatch allows for batch lookup and deletion of elements where each element is deleted after being retrieved from the map.
@@ -878,7 +911,8 @@ func (b *BPFMap) UpdateBatch(keys, values unsafe.Pointer, count uint32) error {
 // DeleteKeyBatch allows for batch deletion of multiple elements in the map.
 //
 // `count` number of keys will be deleted from the map. Passing an argument that greater than the number of keys
-// in the map will cause the function to return a syscall.EPERM as an error.
+// in the map will cause the function to delete fewer keys than requested. See the inline comment in
+// `GetValueAndDeleteBatch` for more context.
 func (b *BPFMap) DeleteKeyBatch(keys unsafe.Pointer, count uint32) error {
 	countC := C.uint(count)
 
@@ -888,17 +922,13 @@ func (b *BPFMap) DeleteKeyBatch(keys unsafe.Pointer, count uint32) error {
 		Flags:     C.BPF_ANY,
 	}
 
-	errC := C.bpf_map_delete_batch(b.fd, keys, &countC, bpfMapBatchOptsToC(opts))
-	if errC != 0 {
-		sc := syscall.Errno(-errC)
-		if sc != syscall.EFAULT {
-			if uint32(countC) != count {
-				return fmt.Errorf("failed to batch delete ALL keys from map %s, deleted (%d/%d): %w", b.name, uint32(countC), count, sc)
-			}
-		}
-		return fmt.Errorf("failed to batch delete keys from map %s: %w", b.name, syscall.Errno(-errC))
+	ret, errC := C.bpf_map_delete_batch(b.fd, keys, &countC, bpfMapBatchOptsToC(opts))
+
+	if ret != 0 && errC != syscall.ENOENT {
+		return fmt.Errorf("failed to batch delete keys %v in map %s: ret %d (err: %s)", keys, b.name, ret, errC)
 	}
 
+	// ret = -1 && errno == syscall.ENOENT indicates a partial deletion.
 	return nil
 }
 
@@ -927,12 +957,11 @@ func (b *BPFMap) DeleteKey(key unsafe.Pointer) error {
 //
 // For example:
 //
-//  key := 1
-//  value := []byte{'a', 'b', 'c'}
-//  keyPtr := unsafe.Pointer(&key)
-//  valuePtr := unsafe.Pointer(&value[0])
-//  bpfmap.Update(keyPtr, valuePtr)
-//
+// key := 1
+// value := []byte{'a', 'b', 'c'}
+// keyPtr := unsafe.Pointer(&key)
+// valuePtr := unsafe.Pointer(&value[0])
+// bpfmap.Update(keyPtr, valuePtr)
 func (b *BPFMap) Update(key, value unsafe.Pointer) error {
 	return b.UpdateValueFlags(key, value, MapFlagUpdateAny)
 }
@@ -1034,7 +1063,7 @@ func (it *BPFMapIterator) Next() bool {
 	nextPtr := unsafe.Pointer(&next[0])
 
 	errC, err := C.bpf_map_get_next_key(it.b.fd, prevPtr, nextPtr)
-	if errno, ok := err.(syscall.Errno); errC == -1 && ok && errno == C.ENOENT {
+	if errno, ok := err.(syscall.Errno); errC == -2 && ok && errno == C.ENOENT {
 		return false
 	}
 	if err != nil {
@@ -1061,10 +1090,10 @@ func (it *BPFMapIterator) Err() error {
 
 func (m *Module) GetProgram(progName string) (*BPFProg, error) {
 	cs := C.CString(progName)
-	prog, errC := C.bpf_object__find_program_by_name(m.obj, cs)
+	prog, errno := C.bpf_object__find_program_by_name(m.obj, cs)
 	C.free(unsafe.Pointer(cs))
 	if prog == nil {
-		return nil, fmt.Errorf("failed to find BPF program %s: %w", progName, errC)
+		return nil, fmt.Errorf("failed to find BPF program %s: %w", progName, errno)
 	}
 
 	return &BPFProg{
@@ -1074,8 +1103,13 @@ func (m *Module) GetProgram(progName string) (*BPFProg, error) {
 	}, nil
 }
 
-func (p *BPFProg) GetFd() int {
+func (p *BPFProg) FileDescriptor() int {
 	return int(C.bpf_program__fd(p.prog))
+}
+
+// Deprecated: use BPFProg.FileDescriptor() instead.
+func (p *BPFProg) GetFd() int {
+	return p.FileDescriptor()
 }
 
 func (p *BPFProg) Pin(path string) error {
@@ -1086,10 +1120,10 @@ func (p *BPFProg) Pin(path string) error {
 	}
 
 	cs := C.CString(absPath)
-	ret, errC := C.bpf_program__pin(p.prog, cs)
+	ret := C.bpf_program__pin(p.prog, cs)
 	C.free(unsafe.Pointer(cs))
 	if ret != 0 {
-		return fmt.Errorf("failed to pin program %s to %s: %w", p.name, path, errC)
+		return fmt.Errorf("failed to pin program %s to %s: %w", p.name, path, syscall.Errno(-ret))
 	}
 	p.pinnedPath = absPath
 	return nil
@@ -1097,10 +1131,10 @@ func (p *BPFProg) Pin(path string) error {
 
 func (p *BPFProg) Unpin(path string) error {
 	cs := C.CString(path)
-	ret, errC := C.bpf_program__unpin(p.prog, cs)
+	ret := C.bpf_program__unpin(p.prog, cs)
 	C.free(unsafe.Pointer(cs))
 	if ret != 0 {
-		return fmt.Errorf("failed to unpin program %s to %s: %w", p.name, path, errC)
+		return fmt.Errorf("failed to unpin program %s to %s: %w", p.name, path, syscall.Errno(-ret))
 	}
 	p.pinnedPath = ""
 	return nil
@@ -1110,18 +1144,31 @@ func (p *BPFProg) GetModule() *Module {
 	return p.module
 }
 
+func (p *BPFProg) Name() string {
+	return C.GoString(C.bpf_program__name(p.prog))
+}
+
+// Deprecated: use BPFProg.Name() instead.
 func (p *BPFProg) GetName() string {
-	return p.name
+	return p.Name()
 }
 
+func (p *BPFProg) SectionName() string {
+	return C.GoString(C.bpf_program__section_name(p.prog))
+}
+
+// Deprecated: use BPFProg.SectionName() instead.
 func (p *BPFProg) GetSectionName() string {
-	cs := C.bpf_program__section_name(p.prog)
-	gs := C.GoString(cs)
-	return gs
+	return p.SectionName()
 }
 
+func (p *BPFProg) PinPath() string {
+	return p.pinnedPath // There's no LIBBPF_API for bpf program
+}
+
+// Deprecated: use BPFProg.PinPath() instead.
 func (p *BPFProg) GetPinPath() string {
-	return p.pinnedPath
+	return p.PinPath()
 }
 
 // BPFProgType is an enum as defined in https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/bpf.h
@@ -1161,6 +1208,8 @@ const (
 	BPFProgTypeSkLookup
 	BPFProgTypeSyscall
 )
+
+func (b BPFProgType) Value() uint64 { return uint64(b) }
 
 func (b BPFProgType) String() (str string) {
 	x := map[BPFProgType]string{
@@ -1253,14 +1302,14 @@ const (
 )
 
 func (p *BPFProg) GetType() BPFProgType {
-	return BPFProgType(C.bpf_program__get_type(p.prog))
+	return BPFProgType(C.bpf_program__type(p.prog))
 }
 
 func (p *BPFProg) SetAutoload(autoload bool) error {
 	cbool := C.bool(autoload)
-	ret, errC := C.bpf_program__set_autoload(p.prog, cbool)
+	ret := C.bpf_program__set_autoload(p.prog, cbool)
 	if ret != 0 {
-		return fmt.Errorf("failed to set bpf program autoload: %w", errC)
+		return fmt.Errorf("failed to set bpf program autoload: %w", syscall.Errno(-ret))
 	}
 	return nil
 }
@@ -1270,7 +1319,7 @@ func (p *BPFProg) SetAutoload(autoload bool) error {
 // via the SEC() such as `SEC("fentry/some_kernel_func")`
 func (p *BPFProg) AttachGeneric() (*BPFLink, error) {
 	link, errno := C.bpf_program__attach(p.prog)
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
+	if link == nil {
 		return nil, fmt.Errorf("failed to attach program: %w", errno)
 	}
 	bpfLink := &BPFLink{
@@ -1286,10 +1335,10 @@ func (p *BPFProg) AttachGeneric() (*BPFLink, error) {
 // the BPF program to. To attach to a kernel function specify attachProgFD as 0
 func (p *BPFProg) SetAttachTarget(attachProgFD int, attachFuncName string) error {
 	cs := C.CString(attachFuncName)
-	ret, errC := C.bpf_program__set_attach_target(p.prog, C.int(attachProgFD), cs)
+	ret := C.bpf_program__set_attach_target(p.prog, C.int(attachProgFD), cs)
 	C.free(unsafe.Pointer(cs))
 	if ret != 0 {
-		return fmt.Errorf("failed to set attach target for program %s %s %w", p.name, attachFuncName, errC)
+		return fmt.Errorf("failed to set attach target for program %s %s %w", p.name, attachFuncName, syscall.Errno(-ret))
 	}
 	return nil
 }
@@ -1302,14 +1351,118 @@ func (p *BPFProg) SetAttachType(attachType BPFAttachType) {
 	C.bpf_program__set_expected_attach_type(p.prog, C.enum_bpf_attach_type(int(attachType)))
 }
 
+// getCgroupDirFD returns a file descriptor for a given cgroup2 directory path
+func getCgroupDirFD(cgroupV2DirPath string) (int, error) {
+	const (
+		O_DIRECTORY int = 0200000
+		O_RDONLY    int = 00
+	)
+	fd, err := syscall.Open(cgroupV2DirPath, O_DIRECTORY|O_RDONLY, 0)
+	if fd < 0 {
+		return 0, fmt.Errorf("failed to open cgroupv2 directory path %s: %w", cgroupV2DirPath, err)
+	}
+	return fd, nil
+}
+
+// AttachCgroup attaches the BPFProg to a cgroup described by given fd.
+func (p *BPFProg) AttachCgroup(cgroupV2DirPath string) (*BPFLink, error) {
+	cgroupDirFD, err := getCgroupDirFD(cgroupV2DirPath)
+	if err != nil {
+		return nil, err
+	}
+	defer syscall.Close(cgroupDirFD)
+
+	link, errno := C.bpf_program__attach_cgroup(p.prog, C.int(cgroupDirFD))
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach cgroup on cgroupv2 %s to program %s: %w", cgroupV2DirPath, p.name, errno)
+	}
+
+	// dirName will be used in bpfLink.eventName. eventName follows a format
+	// convention and is used to better identify link types and what they are
+	// linked with in case of errors or similar needs. Having eventName as:
+	// cgroup-progName-/sys/fs/cgroup/unified/ would look weird so replace it
+	// to be cgroup-progName-sys-fs-cgroup-unified instead.
+	dirName := strings.ReplaceAll(cgroupV2DirPath[1:], "/", "-")
+	bpfLink := &BPFLink{
+		link:      link,
+		prog:      p,
+		linkType:  Cgroup,
+		eventName: fmt.Sprintf("cgroup-%s-%s", p.name, dirName),
+	}
+	p.module.links = append(p.module.links, bpfLink)
+	return bpfLink, nil
+}
+
+// AttachCgroupLegacy attaches the BPFProg to a cgroup described by the given
+// fd. It first tries to use the most recent attachment method and, if that does
+// not work, instead of failing, it tries the legacy way: to attach the cgroup
+// eBPF program without previously creating a link. This allows attaching cgroup
+// eBPF ingress/egress in older kernels. Note: the first attempt error message
+// is filtered out inside libbpf_print_fn() as it is actually a feature probe
+// attempt as well.
+//
+// Related kernel commit: https://github.com/torvalds/linux/commit/af6eea57437a
+func (p *BPFProg) AttachCgroupLegacy(cgroupV2DirPath string, attachType BPFAttachType) (*BPFLink, error) {
+	bpfLink, err := p.AttachCgroup(cgroupV2DirPath)
+	if err == nil {
+		return bpfLink, nil
+	}
+	// Try the legacy attachment method before fully failing
+	cgroupDirFD, err := getCgroupDirFD(cgroupV2DirPath)
+	if err != nil {
+		return nil, err
+	}
+	defer syscall.Close(cgroupDirFD)
+	progFD := C.bpf_program__fd(p.prog)
+	ret := C.bpf_prog_attach_cgroup_legacy(progFD, C.int(cgroupDirFD), C.int(attachType))
+	if ret < 0 {
+		return nil, fmt.Errorf("failed to attach (legacy) program %s to cgroupv2 %s", p.name, cgroupV2DirPath)
+	}
+	dirName := strings.ReplaceAll(cgroupV2DirPath[1:], "/", "-")
+
+	bpfLinkLegacy := &BPFLinkLegacy{
+		attachType: attachType,
+		cgroupDir:  cgroupV2DirPath,
+	}
+	fakeBpfLink := &BPFLink{
+		link:      nil, // detach/destroy made with progfd
+		prog:      p,
+		eventName: fmt.Sprintf("cgroup-%s-%s", p.name, dirName),
+		// info bellow needed for detach (there isn't a real ebpf link)
+		linkType: CgroupLegacy,
+		legacy:   bpfLinkLegacy,
+	}
+	return fakeBpfLink, nil
+}
+
+// DetachCgroupLegacy detaches the BPFProg from a cgroup described by the given
+// fd. This is needed because in legacy attachment there is no BPFLink, just a
+// fake one (kernel did not support it, nor libbpf). This function should be
+// called by the (*BPFLink)->Destroy() function, since BPFLink is emulated (so
+// users don´t need to distinguish between regular and legacy cgroup
+// detachments).
+func (p *BPFProg) DetachCgroupLegacy(cgroupV2DirPath string, attachType BPFAttachType) error {
+	cgroupDirFD, err := getCgroupDirFD(cgroupV2DirPath)
+	if err != nil {
+		return err
+	}
+	defer syscall.Close(cgroupDirFD)
+	progFD := C.bpf_program__fd(p.prog)
+	ret := C.bpf_prog_detach_cgroup_legacy(progFD, C.int(cgroupDirFD), C.int(attachType))
+	if ret < 0 {
+		return fmt.Errorf("failed to detach (legacy) program %s from cgroupv2 %s", p.name, cgroupV2DirPath)
+	}
+	return nil
+}
+
 func (p *BPFProg) AttachXDP(deviceName string) (*BPFLink, error) {
 	iface, err := net.InterfaceByName(deviceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find device by name %s: %w", deviceName, err)
 	}
-	link := C.bpf_program__attach_xdp(p.prog, C.int(iface.Index))
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
-		return nil, errptrError(unsafe.Pointer(link), "failed to attach xdp on device %s to program %s", deviceName, p.name)
+	link, errno := C.bpf_program__attach_xdp(p.prog, C.int(iface.Index))
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach xdp on device %s to program %s: %w", deviceName, p.name, errno)
 	}
 
 	bpfLink := &BPFLink{
@@ -1325,11 +1478,11 @@ func (p *BPFProg) AttachXDP(deviceName string) (*BPFLink, error) {
 func (p *BPFProg) AttachTracepoint(category, name string) (*BPFLink, error) {
 	tpCategory := C.CString(category)
 	tpName := C.CString(name)
-	link := C.bpf_program__attach_tracepoint(p.prog, tpCategory, tpName)
+	link, errno := C.bpf_program__attach_tracepoint(p.prog, tpCategory, tpName)
 	C.free(unsafe.Pointer(tpCategory))
 	C.free(unsafe.Pointer(tpName))
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
-		return nil, errptrError(unsafe.Pointer(link), "failed to attach tracepoint %s to program %s", name, p.name)
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach tracepoint %s to program %s: %w", name, p.name, errno)
 	}
 
 	bpfLink := &BPFLink{
@@ -1344,10 +1497,10 @@ func (p *BPFProg) AttachTracepoint(category, name string) (*BPFLink, error) {
 
 func (p *BPFProg) AttachRawTracepoint(tpEvent string) (*BPFLink, error) {
 	cs := C.CString(tpEvent)
-	link := C.bpf_program__attach_raw_tracepoint(p.prog, cs)
+	link, errno := C.bpf_program__attach_raw_tracepoint(p.prog, cs)
 	C.free(unsafe.Pointer(cs))
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
-		return nil, errptrError(unsafe.Pointer(link), "failed to attach raw tracepoint %s to program %s", tpEvent, p.name)
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach raw tracepoint %s to program %s: %w", tpEvent, p.name, errno)
 	}
 
 	bpfLink := &BPFLink{
@@ -1360,10 +1513,25 @@ func (p *BPFProg) AttachRawTracepoint(tpEvent string) (*BPFLink, error) {
 	return bpfLink, nil
 }
 
+func (p *BPFProg) AttachLSM() (*BPFLink, error) {
+	link, errno := C.bpf_program__attach_lsm(p.prog)
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach lsm to program %s: %w", p.name, errno)
+	}
+
+	bpfLink := &BPFLink{
+		link:     link,
+		prog:     p,
+		linkType: LSM,
+	}
+	p.module.links = append(p.module.links, bpfLink)
+	return bpfLink, nil
+}
+
 func (p *BPFProg) AttachPerfEvent(fd int) (*BPFLink, error) {
-	link := C.bpf_program__attach_perf_event(p.prog, C.int(fd))
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
-		return nil, errptrError(unsafe.Pointer(link), "failed to attach perf event to program %s", p.name)
+	link, errno := C.bpf_program__attach_perf_event(p.prog, C.int(fd))
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach perf event to program %s: %w", p.name, errno)
 	}
 
 	bpfLink := &BPFLink{
@@ -1385,16 +1553,28 @@ func (p *BPFProg) AttachKretprobe(kp string) (*BPFLink, error) {
 	return doAttachKprobe(p, kp, true)
 }
 
-func (p *BPFProg) AttachLSM() (*BPFLink, error) {
-	link := C.bpf_program__attach_lsm(p.prog)
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
-		return nil, errptrError(unsafe.Pointer(link), "failed to attach lsm to program %s", p.name)
+func (p *BPFProg) AttachNetns(networkNamespacePath string) (*BPFLink, error) {
+	const O_RDONLY int = 00
+	fd, err := syscall.Open(networkNamespacePath, O_RDONLY, 0)
+	if fd < 0 {
+		return nil, fmt.Errorf("failed to open network namespace path %s: %w", networkNamespacePath, err)
+	}
+	link, errno := C.bpf_program__attach_netns(p.prog, C.int(fd))
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach network namespace on %s to program %s: %w", networkNamespacePath, p.name, errno)
 	}
 
+	// fileName will be used in bpfLink.eventName. eventName follows a format
+	// convention and is used to better identify link types and what they are
+	// linked with in case of errors or similar needs. Having eventName as:
+	// netns-progName-/proc/self/ns/net would look weird so replace it
+	// to be netns-progName-proc-self-ns-net instead.
+	fileName := strings.ReplaceAll(networkNamespacePath[1:], "/", "-")
 	bpfLink := &BPFLink{
-		link:     link,
-		prog:     p,
-		linkType: LSM,
+		link:      link,
+		prog:      p,
+		linkType:  Netns,
+		eventName: fmt.Sprintf("netns-%s-%s", p.name, fileName),
 	}
 	p.module.links = append(p.module.links, bpfLink)
 	return bpfLink, nil
@@ -1403,10 +1583,10 @@ func (p *BPFProg) AttachLSM() (*BPFLink, error) {
 func doAttachKprobe(prog *BPFProg, kp string, isKretprobe bool) (*BPFLink, error) {
 	cs := C.CString(kp)
 	cbool := C.bool(isKretprobe)
-	link := C.bpf_program__attach_kprobe(prog.prog, cbool, cs)
+	link, errno := C.bpf_program__attach_kprobe(prog.prog, cbool, cs)
 	C.free(unsafe.Pointer(cs))
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
-		return nil, errptrError(unsafe.Pointer(link), "failed to attach %s k(ret)probe to program %s", kp, prog.name)
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach %s k(ret)probe to program %s: %w", kp, prog.name, errno)
 	}
 
 	kpType := Kprobe
@@ -1455,10 +1635,10 @@ func doAttachUprobe(prog *BPFProg, isUretprobe bool, pid int, path string, offse
 	pathCString := C.CString(path)
 	offsetCsizet := C.size_t(offset)
 
-	link := C.bpf_program__attach_uprobe(prog.prog, retCBool, pidCint, pathCString, offsetCsizet)
+	link, errno := C.bpf_program__attach_uprobe(prog.prog, retCBool, pidCint, pathCString, offsetCsizet)
 	C.free(unsafe.Pointer(pathCString))
-	if C.IS_ERR_OR_NULL(unsafe.Pointer(link)) {
-		return nil, errptrError(unsafe.Pointer(link), "failed to attach u(ret)probe to program %s:%d with pid %d, ", path, offset, pid)
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach u(ret)probe to program %s:%d with pid %d: %w ", path, offset, pid, errno)
 	}
 
 	upType := Uprobe
@@ -1475,7 +1655,7 @@ func doAttachUprobe(prog *BPFProg, isUretprobe bool, pid int, path string, offse
 	return bpfLink, nil
 }
 
-var eventChannels = helpers.NewRWArray(maxEventChannels)
+var eventChannels = rwarray.NewRWArray(maxEventChannels)
 
 func (m *Module) InitRingBuf(mapName string, eventsChan chan []byte) (*RingBuffer, error) {
 	bpfMap, err := m.GetMap(mapName)

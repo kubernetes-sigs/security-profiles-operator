@@ -39,12 +39,11 @@ const (
 	// NOTE(jaosorior): We should be able to decrease this once we
 	// migrate to a single daemonset-based implementation for the
 	// SELinux pieces.
-	defaultSelinuxOpTimeout       = "360s"
-	defaultLogEnricherOpTimeout   = defaultSelinuxOpTimeout
-	defaultBpfRecorderOpTimeout   = defaultSelinuxOpTimeout
-	defaultLabelPodDenialsTimeout = defaultSelinuxOpTimeout
-	defaultWaitTimeout            = "180s"
-	defaultWaitTime               = 15 * time.Second
+	defaultSelinuxOpTimeout     = "360s"
+	defaultLogEnricherOpTimeout = defaultSelinuxOpTimeout
+	defaultBpfRecorderOpTimeout = defaultSelinuxOpTimeout
+	defaultWaitTimeout          = "180s"
+	defaultWaitTime             = 15 * time.Second
 )
 
 // testCase define a type for a e2e test case.
@@ -90,20 +89,12 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseDeleteProfiles,
 		},
 		{
-			"Seccomp: Metrics",
-			e.testCaseSeccompMetrics,
-		},
-		{
 			"Seccomp: Re-deploy the operator",
 			e.testCaseReDeployOperator,
 		},
 		{
 			"Log Enricher",
 			e.testCaseLogEnricher,
-		},
-		{
-			"SELinux: label problematic pod",
-			e.testCaseSelinuxLabelPodDenials,
 		},
 		{
 			"SELinux: base case (install policy, run pod and delete)",
@@ -137,43 +128,14 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		})
 	}
 
-	// TODO(jaosorior): Re-introduce this to the namespaced tests once we
-	// fix the issue with the certs.
-	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
-		e.testCaseSeccompProfileBinding(nodes)
-	})
-
 	e.Run("cluster-wide: Selinux: Verify profile binding", func() {
 		e.testCaseSelinuxProfileBinding(nodes)
-	})
-
-	e.Run("cluster-wide: Seccomp: Verify profile recording hook", func() {
-		e.testCaseProfileRecordingStaticPodHook()
-		e.testCaseProfileRecordingKubectlRunHook()
-		e.testCaseProfileRecordingMultiContainerHook()
-		e.testCaseProfileRecordingDeploymentHook()
-	})
-
-	e.Run("cluster-wide: Seccomp: Verify profile recording logs", func() {
-		e.testCaseProfileRecordingStaticPodLogs()
-		e.testCaseProfileRecordingMultiContainerLogs()
-		e.testCaseProfileRecordingSpecificContainerLogs()
-		e.testCaseProfileRecordingDeploymentLogs()
 	})
 
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogs()
 		e.testCaseProfileRecordingMultiContainerSELinuxLogs()
 		e.testCaseProfileRecordingSelinuxDeploymentLogs()
-	})
-
-	e.Run("cluster-wide: Seccomp: Verify profile recording bpf", func() {
-		e.testCaseBpfRecorderKubectlRun()
-		e.testCaseBpfRecorderStaticPod()
-		e.testCaseBpfRecorderMultiContainer()
-		e.testCaseBpfRecorderDeployment()
-		e.testCaseBpfRecorderParallel()
-		e.testCaseBpfRecorderSelectContainer()
 	})
 
 	e.Run("cluster-wide: Same profile in multiple namespaces", func() {
@@ -193,15 +155,25 @@ func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []tes
 	}
 
 	e.logf("testing namespace operator")
-
-	// Use namespace manifests for redeploy test
-	testCases[5].fn = e.testCaseReDeployNamespaceOperator
+	for _, tc := range testCases {
+		// Replace re-deploy the operator with a namespaced alternative.
+		if tc.description == "Seccomp: Re-deploy the operator" {
+			tc.fn = e.testCaseReDeployNamespaceOperator
+		}
+	}
 
 	// Deploy the namespace operator
 	e.kubectl("create", "namespace", namespace)
 	e.updateManifest(manifest, "NS_REPLACE", namespace)
+
 	// All following operations such as create pod will be in the test namespace
+	// at the same time, let's re-set the context to allow subsequent test runs
+	curNs := e.getCurrentContextNamespace(config.OperatorName)
 	e.kubectl("config", "set-context", "--current", "--namespace", namespace)
+	defer func() {
+		e.kubectl("config", "set-context", "--current", "--namespace", curNs)
+	}()
+
 	e.deployOperator(manifest)
 
 	for _, testCase := range testCases {
@@ -210,7 +182,9 @@ func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []tes
 			tc.fn(nodes)
 		})
 	}
+	e.cleanupOperator(e.operatorManifest)
 	e.run("git", "checkout", manifest)
+	e.kubectl("delete", "namespace", namespace)
 }
 
 func doDeployCertManager(e *e2e) {
@@ -364,8 +338,10 @@ func (e *e2e) getSeccompProfileNodeStatus(
 	)
 	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
-	e.Equal(len(secpolNodeStatusList.Items), 1)
-	return &secpolNodeStatusList.Items[0]
+	if e.Equal(len(secpolNodeStatusList.Items), 1) {
+		return &secpolNodeStatusList.Items[0]
+	}
+	return nil
 }
 
 func (e *e2e) getAllSeccompProfileNodeStatuses(

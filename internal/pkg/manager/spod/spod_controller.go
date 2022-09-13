@@ -84,7 +84,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 }
 
 // Security Profiles Operator RBAC permissions to manage its own configuration
-// nolint:lll // required for kubebuilder
+//nolint:lll // required for kubebuilder
 //
 // Used for event generation:
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create
@@ -336,7 +336,7 @@ func (r *ReconcileSPOd) handleCreate(
 	if err := r.client.Create(
 		ctx, bindata.ServiceMonitor(),
 	); err != nil {
-		// nolint:gocritic
+		//nolint:gocritic
 		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
 		} else if errors.IsAlreadyExists(err) {
@@ -503,10 +503,6 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	if cfg.Spec.EnableLogEnricher {
 		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher]
 		ctr.Image = image
-
-		if cfg.Spec.LabelPodDenials {
-			ctr.Args = []string{"log-enricher", "--label-denials"}
-		}
 
 		if useCustomHostProc {
 			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)

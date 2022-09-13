@@ -287,8 +287,6 @@ rules:
   verbs:
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
@@ -450,6 +448,14 @@ rules:
   - events
   verbs:
   - create
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

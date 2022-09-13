@@ -1,6 +1,6 @@
 dependencies:
   - name: go
-    version: 1.18
+    version: 1.19
     refPaths:
     - path: .github/workflows/build.yml
       match: GO_VERSION
@@ -12,9 +12,11 @@ dependencies:
       match: GO_VERSION
     - path: hack/ci/Vagrantfile-ubuntu
       match: GO_VERSION
+    - path: hack/ci/Vagrantfile-flatcar
+      match: GO_VERSION
 
   - name: golangci-lint
-    version: 1.46.2
+    version: 1.49.0
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -62,13 +64,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.14.0
+    version: 0.15.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.23.4
+    version: 1.25.0
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -82,7 +84,7 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.24.3
+    version: 1.25.0
     refPaths:
     - path: hack/ci/install-kubernetes.sh
       match: VERSION
@@ -104,7 +106,7 @@ dependencies:
       match: node
 
   - name: debian-base
-    version: sha256:9a4b40b8837c4b3e4e45716baea6e1461b7c51a3f723aeaf52e8acdcd1aa40b2
+    version: sha256:e6e8c911b1566556ae105d3600df04c600241f43b06d22c73592ebb446d60c49
     refPaths:
     - path: Dockerfile.build-image
       match: k8s.gcr.io/build-image/debian-base
@@ -128,7 +130,7 @@ dependencies:
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   - name: libbpf
-    version: 0.8.0
+    version: 1.0.0
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
@@ -146,7 +148,7 @@ dependencies:
       match: VERSION
 
   - name: CRI-O
-    version: v1.24.1
+    version: v1.25.0
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: TAG
@@ -158,7 +160,7 @@ dependencies:
       match: VERSION
 
   - name: cosign
-    version: v1.9.0
+    version: v1.11.1
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: COSIGN_VERSION
@@ -168,3 +170,25 @@ dependencies:
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: BOM_VERSION
+
+  - name: spo-current
+    version: 0.4.4-dev
+    refPaths:
+    - path: VERSION
+      match: ^.*
+    - path: bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
+      match: "^  name: security-profiles-operator"
+    - path: deploy/helm/Chart.yaml
+      match: "^appVersion: "
+    - path: deploy/helm/Chart.yaml
+      match: "^version: "
+    - path: installation-usage.md
+      match: ^helm install security-profiles-operator
+
+  - name: clang
+    version: 14
+    refPaths:
+    - path: nix/derivation-bpf.nix
+      match: llvmPackages_\d+.clang-unwrapped
+    - path: nix/derivation-bpf.nix
+      match: llvm_\d+

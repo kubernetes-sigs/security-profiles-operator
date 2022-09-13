@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	_ "net/http/pprof" // nolint:gosec // required for profiling
+	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
 	"strings"
 	"time"
@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording"
@@ -66,7 +67,6 @@ const (
 	jsonFlag           string = "json"
 	selinuxFlag        string = "with-selinux"
 	apparmorFlag       string = "with-apparmor"
-	labelDenialsFlag   string = "label-denials"
 	webhookFlag        string = "webhook"
 	defaultWebhookPort int    = 9443
 )
@@ -188,13 +188,6 @@ func main() {
 			Name:    "log-enricher",
 			Aliases: []string{"l"},
 			Usage:   "run the audit's log enricher",
-			Flags: []cli.Flag{
-				&cli.BoolFlag{
-					Name:  labelDenialsFlag,
-					Usage: "whether to label problematic pods or not",
-					Value: false,
-				},
-			},
 			Action: func(ctx *cli.Context) error {
 				return runLogEnricher(ctx, info)
 			},
@@ -271,7 +264,11 @@ func initProfiling(ctx *cli.Context) {
 			endpoint := fmt.Sprintf(":%d", port)
 
 			ctrl.Log.Info("Starting profiling server", "endpoint", endpoint)
-			if err := http.ListenAndServe(endpoint, nil); err != nil {
+			server := &http.Server{
+				Addr:              endpoint,
+				ReadHeaderTimeout: util.DefaultReadHeaderTimeout,
+			}
+			if err := server.ListenAndServe(); err != nil {
 				ctrl.Log.Error(err, "unable to run profiling server")
 			}
 		}()
@@ -464,11 +461,11 @@ func runBPFRecorder(_ *cli.Context, info *version.Info) error {
 	return bpfrecorder.New(ctrl.Log.WithName(component)).Run()
 }
 
-func runLogEnricher(clictx *cli.Context, info *version.Info) error {
+func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	const component = "log-enricher"
 	printInfo(component, info)
 
-	e, err := enricher.New(ctrl.Log.WithName(component), clictx.Bool(labelDenialsFlag))
+	e, err := enricher.New(ctrl.Log.WithName(component))
 	if err != nil {
 		return fmt.Errorf("building log enricher: %w", err)
 	}
@@ -517,7 +514,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	setupLog.Info("registering webhooks")
 	hookserver := mgr.GetWebhookServer()
 	binding.RegisterWebhook(hookserver, mgr.GetClient())
-	recording.RegisterWebhook(hookserver, mgr.GetClient())
+	recording.RegisterWebhook(hookserver, mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
 
 	sigHandler := ctrl.SetupSignalHandler()
 	setupLog.Info("starting webhook")

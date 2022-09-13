@@ -5,7 +5,7 @@ on:
       - main
   pull_request:
 env:
-  GO_VERSION: '1.18'
+  GO_VERSION: '1.19'
 permissions:
   actions: none
   checks: none
@@ -26,20 +26,20 @@ jobs:
       # write security-events is required by all codeql-action workflows
       security-events: write
 
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
-      - uses: github/codeql-action/init@0c670bbf0414f39666df6ce8e718ec5662c21e03
+      - uses: actions/checkout@v3
+      - uses: github/codeql-action/init@b398f525a5587552e573b247ac661067fafa920b
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@0c670bbf0414f39666df6ce8e718ec5662c21e03
-      - uses: github/codeql-action/analyze@0c670bbf0414f39666df6ce8e718ec5662c21e03
+      - uses: github/codeql-action/autobuild@b398f525a5587552e573b247ac661067fafa920b
+      - uses: github/codeql-action/analyze@b398f525a5587552e573b247ac661067fafa920b
 
   coverage:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
-      - uses: actions/setup-go@84cbf8094393cdc5fe1fe1671ff2647332956b1a
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@268d8c0ca0432bb2cf416faae41297df9d262d7f
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install dependencies
@@ -55,9 +55,9 @@ jobs:
           verbose: true
 
   image:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      - uses: actions/checkout@v3
       - run: make image
       - run: podman save -o image.tar security-profiles-operator
       - uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8
@@ -73,8 +73,8 @@ jobs:
     env:
       RUN: ./hack/ci/run-fedora.sh
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
-      - uses: actions/cache@0865c47f36e68161719c5b124609996bb5c40129
+      - uses: actions/checkout@v3
+      - uses: actions/cache@fd5de65bc895cf536527842281bea11763fefd77
         with:
           path: |
             ~/.vagrant.d/boxes
@@ -95,6 +95,11 @@ jobs:
           $RUN git config --global --add safe.directory /vagrant
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-fedora.sh
+      - name: Run Flaky E2E tests
+        continue-on-error: true
+        run: |
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-fedora.sh"
+          $RUN hack/ci/e2e-fedora.sh
       - name: Print generated RBAC rules
         run: $RUN hack/ci/print-rbac.sh
 
@@ -106,8 +111,8 @@ jobs:
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
-      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
-      - uses: actions/cache@0865c47f36e68161719c5b124609996bb5c40129
+      - uses: actions/checkout@v3
+      - uses: actions/cache@fd5de65bc895cf536527842281bea11763fefd77
         with:
           path: |
             ~/.vagrant.d/boxes
@@ -128,6 +133,11 @@ jobs:
           $RUN git config --global --add safe.directory /vagrant
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-ubuntu.sh
+      - name: Run Flaky E2E tests
+        continue-on-error: true
+        run: |
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-ubuntu.sh"
+          $RUN hack/ci/e2e-ubuntu.sh
 
   e2e-flatcar:
    needs: image
@@ -137,31 +147,36 @@ jobs:
    env:
      RUN: ./hack/ci/run-flatcar.sh
    steps:
-     - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
-     - name: Vagrant box version
-       id: vagrant-box
-       run: |
-         echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
-       shell: bash
-     - uses: actions/cache@0865c47f36e68161719c5b124609996bb5c40129
-       with:
-         path: |
-           ~/.vagrant.d/boxes
-         key: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
-         restore-keys: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-
-     - name: Upgrade vagrant box
-       run: |
-         ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
-         vagrant box update
-     - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
-       with:
-         name: image
-         path: .
-     - name: Boot Virtual Machine
-       run: make vagrant-up-flatcar
-     - name: Show environment information
-       run: |
-         $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
-         $RUN kubectl get nodes -o wide
-     - name: Run E2E tests
-       run: $RUN hack/ci/e2e-flatcar-dev-container.sh
+      - uses: actions/checkout@v3
+      - name: Vagrant box version
+        id: vagrant-box
+        run: |
+          echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
+        shell: bash
+      - uses: actions/cache@fd5de65bc895cf536527842281bea11763fefd77
+        with:
+          path: |
+            ~/.vagrant.d/boxes
+          key: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
+          restore-keys: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-
+      - name: Upgrade vagrant box
+        run: |
+          ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
+          vagrant box update
+      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
+        with:
+          name: image
+          path: .
+      - name: Boot Virtual Machine
+        run: make vagrant-up-flatcar
+      - name: Show environment information
+        run: |
+          $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
+          $RUN kubectl get nodes -o wide
+      - name: Run E2E tests
+        run: $RUN hack/ci/e2e-flatcar-dev-container.sh
+      - name: Run Flaky E2E tests
+        continue-on-error: true
+        run: |
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
+          $RUN hack/ci/e2e-flatcar-dev-container.sh

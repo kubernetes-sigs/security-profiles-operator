@@ -72,7 +72,7 @@ func lengthName(maxLen int, hashPrefix, format string, a ...interface{}) (string
 func dnsLengthName(hashPrefix, format string, a ...interface{}) string {
 	const maxDNSLen = 63
 
-	// nolint:errcheck // (jhrozek): I think it makes sense to make the utility
+	//nolint:errcheck // (jhrozek): I think it makes sense to make the utility
 	// 					  function return error, but here I think it's OK to
 	// 					  just ignore
 	name, _ := lengthName(maxDNSLen, hashPrefix, format, a...)

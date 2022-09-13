@@ -6,14 +6,14 @@ Vagrant.configure("2") do |config|
   config.vm.box_check_update = true
   config.vm.box_url = "https://lts.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json"
   memory = 8192
-  cpus = 4 
+  cpus = 4
 
   config.vm.provider :virtualbox do |v|
      v.customize [
       "modifyvm", :id,
       "--memory", memory,
       "--paravirtprovider", "default",
-      "--cpus", cpus 
+      "--cpus", cpus
     ]
     v.check_guest_additions = false
     v.functional_vboxsf = false
@@ -53,12 +53,12 @@ Vagrant.configure("2") do |config|
       systemctl enable --now containerd
       systemctl restart containerd.service
 
-      # Import the test image of security profiles operator 
+      # Import the test image of security profiles operator
       ctr -n=k8s.io image import /vagrant/image.tar
       crictl --runtime-endpoint="unix:///run/containerd/containerd.sock" images
 
       # Install Go
-      GO_VERSION=1.18
+      GO_VERSION=1.19
       mkdir /opt/go
       curl -sSfL -o- https://golang.org/dl/go$GO_VERSION.linux-amd64.tar.gz | tar xfz - -C /opt
 
@@ -68,7 +68,7 @@ Vagrant.configure("2") do |config|
       br_netfilter
       EOF
 
-      # Setup Networking 
+      # Setup Networking
       cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
       net.bridge.bridge-nf-call-iptables  = 1
       net.ipv4.ip_forward                 = 1
@@ -122,11 +122,10 @@ Vagrant.configure("2") do |config|
       export KUBECONFIG=/etc/kubernetes/admin.conf
 
       # Configure cluster
-      kubectl taint nodes --all node-role.kubernetes.io/master-
       kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 
       # Install CNI
-      kubectl create -f https://docs.projectcalico.org/manifests/tigera-operator.yaml
+      kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.24.0/manifests/tigera-operator.yaml
       kubectl apply -f /vagrant/hack/ci/flatcar-cni-plugin.yaml
     SHELL
   end

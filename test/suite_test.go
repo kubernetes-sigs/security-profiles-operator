@@ -39,28 +39,27 @@ import (
 )
 
 const (
-	kindVersion      = "v0.14.0"
-	kindImage        = "kindest/node:v1.23.4@sha256:0e34f0d0fd448aa2f2819cfd74e99fe5793a6e4938b328f657c8e3f81ee0dfb9"
-	kindDarwinSHA512 = "d85adec9a4ebdee086a5971b540970e0be01ebf5304092d006fdc226d7cc1b0f4d26abc8384ffcd4277f1580d0b98ef7e2e1c2e4ccae351cfae3722578412a44" // nolint:lll // full length SHA
-	kindLinuxSHA512  = "068ad6bc6506f8b90e38e0e8288a5d8cd83eac6b5bcb7ba972256241a64f9d335dcd2a70e8a08eab129816b0cf3bc722988601da603638d4a4933ded5ee6d763" // nolint:lll // full length SHA
+	kindVersion      = "v0.15.0"
+	kindImage        = "kindest/node:v1.25.0@sha256:428aaa17ec82ccde0131cb2d1ca6547d13cf5fdabcc0bbecf749baa935387cbf"
+	kindDarwinSHA512 = "f9b4e1ef345d831c19014cce1db42949ff68452590759b4802d183063e5280dfb1c92fd9626d9c952c60d9e440e9872c97525bd9a3b4ba53e43c00762d1e9980" //nolint:lll // full length SHA
+	kindLinuxSHA512  = "9c397eb7cc64f7fb0ac8d686ebf3836aaf485a1a480baa23b91a5167aa1d30b16a730de32910f9463d2028e01d56412bbfb3e9afdaa94b7eb19eef21c650e973" //nolint:lll // full length SHA
 )
 
 var (
-	clusterType                     = os.Getenv("E2E_CLUSTER_TYPE")
-	envSkipBuildImages              = os.Getenv("E2E_SKIP_BUILD_IMAGES")
-	envTestImage                    = os.Getenv("E2E_SPO_IMAGE")
-	spodConfig                      = os.Getenv("E2E_SPOD_CONFIG")
-	envSkipNamespacedTests          = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
-	envSelinuxTestsEnabled          = os.Getenv("E2E_TEST_SELINUX")
-	envLogEnricherTestsEnabled      = os.Getenv("E2E_TEST_LOG_ENRICHER")
-	envSeccompTestsEnabled          = os.Getenv("E2E_TEST_SECCOMP")
-	envProfileRecordingTestsEnabled = os.Getenv("E2E_TEST_PROFILE_RECORDING")
-	envBpfRecorderTestsEnabled      = os.Getenv("E2E_TEST_BPF_RECORDER")
-	envLabelPodDenialsEnabled       = os.Getenv("E2E_TEST_LABEL_POD_DENIALS")
-	envWebhookConfigTestsEnabled    = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
-	containerRuntime                = os.Getenv("CONTAINER_RUNTIME")
-	nodeRootfsPrefix                = os.Getenv("NODE_ROOTFS_PREFIX")
-	operatorManifest                = os.Getenv("OPERATOR_MANIFEST")
+	clusterType                  = os.Getenv("E2E_CLUSTER_TYPE")
+	envSkipBuildImages           = os.Getenv("E2E_SKIP_BUILD_IMAGES")
+	envTestImage                 = os.Getenv("E2E_SPO_IMAGE")
+	spodConfig                   = os.Getenv("E2E_SPOD_CONFIG")
+	envSkipFlakyTests            = os.Getenv("E2E_SKIP_FLAKY_TESTS")
+	envSkipNamespacedTests       = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
+	envSelinuxTestsEnabled       = os.Getenv("E2E_TEST_SELINUX")
+	envLogEnricherTestsEnabled   = os.Getenv("E2E_TEST_LOG_ENRICHER")
+	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
+	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
+	envWebhookConfigTestsEnabled = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
+	containerRuntime             = os.Getenv("CONTAINER_RUNTIME")
+	nodeRootfsPrefix             = os.Getenv("NODE_ROOTFS_PREFIX")
+	operatorManifest             = os.Getenv("OPERATOR_MANIFEST")
 )
 
 const (
@@ -79,28 +78,27 @@ const (
 
 type e2e struct {
 	suite.Suite
-	containerRuntime       string
-	kubectlPath            string
-	testImage              string
-	selinuxdImage          string
-	pullPolicy             string
-	spodConfig             string
-	nodeRootfsPrefix       string
-	operatorManifest       string
-	selinuxEnabled         bool
-	logEnricherEnabled     bool
-	testSeccomp            bool
-	testProfileRecording   bool
-	labelPodDenialsEnabled bool
-	bpfRecorderEnabled     bool
-	skipNamespacedTests    bool
-	testWebhookConfig      bool
-	singleNodeEnvironment  bool
-	logger                 logr.Logger
-	execNode               func(node string, args ...string) string
-	waitForReadyPods       func()
-	deployCertManager      func()
-	setupRecordingSa       func(namespace string)
+	containerRuntime      string
+	kubectlPath           string
+	testImage             string
+	selinuxdImage         string
+	pullPolicy            string
+	spodConfig            string
+	nodeRootfsPrefix      string
+	operatorManifest      string
+	selinuxEnabled        bool
+	logEnricherEnabled    bool
+	testSeccomp           bool
+	bpfRecorderEnabled    bool
+	skipNamespacedTests   bool
+	skipFlakyTests        bool
+	testWebhookConfig     bool
+	singleNodeEnvironment bool
+	logger                logr.Logger
+	execNode              func(node string, args ...string) string
+	waitForReadyPods      func()
+	deployCertManager     func()
+	setupRecordingSa      func(namespace string)
 }
 
 func defaultWaitForReadyPods(e *e2e) {
@@ -127,7 +125,7 @@ type vanilla struct {
 // We're unable to use parallel tests because of our usage of testify/suite.
 // See https://github.com/stretchr/testify/issues/187
 //
-// nolint:paralleltest // should not run in parallel
+//nolint:paralleltest // should not run in parallel
 func TestSuite(t *testing.T) {
 	fmt.Printf("cluster-type: %s\n", clusterType)
 	fmt.Printf("container-runtime: %s\n", containerRuntime)
@@ -145,22 +143,19 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		testSeccomp = true
 	}
-	testProfileRecording, err := strconv.ParseBool(envProfileRecordingTestsEnabled)
-	if err != nil {
-		testProfileRecording = false
-	}
 	bpfRecorderEnabled, err := strconv.ParseBool(envBpfRecorderTestsEnabled)
 	if err != nil {
 		bpfRecorderEnabled = false
-	}
-	labelPodDenialsEnabled, err := strconv.ParseBool(envLabelPodDenialsEnabled)
-	if err != nil {
-		labelPodDenialsEnabled = false
 	}
 
 	skipNamespacedTests, err := strconv.ParseBool(envSkipNamespacedTests)
 	if err != nil {
 		skipNamespacedTests = false
+	}
+
+	skipFlakyTests, err := strconv.ParseBool(envSkipFlakyTests)
+	if err != nil {
+		skipFlakyTests = true
 	}
 
 	testWebhookConfig, err := strconv.ParseBool(envWebhookConfigTestsEnabled)
@@ -180,22 +175,21 @@ func TestSuite(t *testing.T) {
 		}
 		suite.Run(t, &kinde2e{
 			e2e{
-				logger:                 klogr.New(),
-				pullPolicy:             "Never",
-				testImage:              testImage,
-				spodConfig:             spodConfig,
-				containerRuntime:       containerRuntime,
-				nodeRootfsPrefix:       nodeRootfsPrefix,
-				selinuxEnabled:         selinuxEnabled,
-				logEnricherEnabled:     logEnricherEnabled,
-				testSeccomp:            testSeccomp,
-				testProfileRecording:   testProfileRecording,
-				selinuxdImage:          selinuxdImage,
-				bpfRecorderEnabled:     bpfRecorderEnabled,
-				labelPodDenialsEnabled: labelPodDenialsEnabled,
-				skipNamespacedTests:    skipNamespacedTests,
-				operatorManifest:       operatorManifest,
-				testWebhookConfig:      testWebhookConfig,
+				logger:              klogr.New(),
+				pullPolicy:          "Never",
+				testImage:           testImage,
+				spodConfig:          spodConfig,
+				containerRuntime:    containerRuntime,
+				nodeRootfsPrefix:    nodeRootfsPrefix,
+				selinuxEnabled:      selinuxEnabled,
+				logEnricherEnabled:  logEnricherEnabled,
+				testSeccomp:         testSeccomp,
+				selinuxdImage:       selinuxdImage,
+				bpfRecorderEnabled:  bpfRecorderEnabled,
+				skipNamespacedTests: skipNamespacedTests,
+				operatorManifest:    operatorManifest,
+				testWebhookConfig:   testWebhookConfig,
+				skipFlakyTests:      skipFlakyTests,
 			},
 			"", "",
 		})
@@ -213,21 +207,20 @@ func TestSuite(t *testing.T) {
 				logger: klogr.New(),
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
-				pullPolicy:             "Always",
-				testImage:              testImage,
-				spodConfig:             spodConfig,
-				containerRuntime:       containerRuntime,
-				nodeRootfsPrefix:       nodeRootfsPrefix,
-				selinuxEnabled:         selinuxEnabled,
-				logEnricherEnabled:     logEnricherEnabled,
-				testSeccomp:            testSeccomp,
-				testProfileRecording:   testProfileRecording,
-				selinuxdImage:          selinuxdImage,
-				bpfRecorderEnabled:     bpfRecorderEnabled,
-				labelPodDenialsEnabled: labelPodDenialsEnabled,
-				skipNamespacedTests:    skipNamespacedTests,
-				operatorManifest:       operatorManifest,
-				testWebhookConfig:      testWebhookConfig,
+				pullPolicy:          "Always",
+				testImage:           testImage,
+				spodConfig:          spodConfig,
+				containerRuntime:    containerRuntime,
+				nodeRootfsPrefix:    nodeRootfsPrefix,
+				selinuxEnabled:      selinuxEnabled,
+				logEnricherEnabled:  logEnricherEnabled,
+				testSeccomp:         testSeccomp,
+				selinuxdImage:       selinuxdImage,
+				bpfRecorderEnabled:  bpfRecorderEnabled,
+				skipNamespacedTests: skipNamespacedTests,
+				operatorManifest:    operatorManifest,
+				testWebhookConfig:   testWebhookConfig,
+				skipFlakyTests:      skipFlakyTests,
 			},
 			skipBuildImages,
 			skipPushImages,
@@ -239,22 +232,21 @@ func TestSuite(t *testing.T) {
 		selinuxdImage = "quay.io/security-profiles-operator/selinuxd-fedora"
 		suite.Run(t, &vanilla{
 			e2e{
-				logger:                 klogr.New(),
-				pullPolicy:             "Never",
-				testImage:              testImage,
-				spodConfig:             spodConfig,
-				containerRuntime:       containerRuntime,
-				nodeRootfsPrefix:       nodeRootfsPrefix,
-				selinuxEnabled:         selinuxEnabled,
-				logEnricherEnabled:     logEnricherEnabled,
-				testSeccomp:            testSeccomp,
-				testProfileRecording:   testProfileRecording,
-				selinuxdImage:          selinuxdImage,
-				bpfRecorderEnabled:     bpfRecorderEnabled,
-				labelPodDenialsEnabled: labelPodDenialsEnabled,
-				skipNamespacedTests:    skipNamespacedTests,
-				operatorManifest:       operatorManifest,
-				testWebhookConfig:      testWebhookConfig,
+				logger:              klogr.New(),
+				pullPolicy:          "Never",
+				testImage:           testImage,
+				spodConfig:          spodConfig,
+				containerRuntime:    containerRuntime,
+				nodeRootfsPrefix:    nodeRootfsPrefix,
+				selinuxEnabled:      selinuxEnabled,
+				logEnricherEnabled:  logEnricherEnabled,
+				testSeccomp:         testSeccomp,
+				selinuxdImage:       selinuxdImage,
+				bpfRecorderEnabled:  bpfRecorderEnabled,
+				skipNamespacedTests: skipNamespacedTests,
+				operatorManifest:    operatorManifest,
+				testWebhookConfig:   testWebhookConfig,
+				skipFlakyTests:      skipFlakyTests,
 				// NOTE(jaosorior): Our current vanilla jobs are
 				// single-node only.
 				singleNodeEnvironment: true,
@@ -304,7 +296,7 @@ func (e *kinde2e) SetupTest() {
 	e.logf("Deploying the cluster")
 	e.clusterName = fmt.Sprintf("spo-e2e-%d", time.Now().Unix())
 
-	cmd := exec.Command( // nolint:gosec // fine in tests
+	cmd := exec.Command( //nolint:gosec // fine in tests
 		e.kindPath, "create", "cluster",
 		"--name="+e.clusterName,
 		"--image="+kindImage,
@@ -462,7 +454,6 @@ func (e *e2e) waitForReadyPodsOCP() {
 	// as the test is starting. Without explicitly setting the namespace, the OCP CI tests fail with:
 	// error when creating "test/recording_sa.yaml": namespaces "ci-op-hq1cv14k" not found
 	e.kubectl("config", "set-context", "--current", "--namespace", config.OperatorName)
-
 }
 
 func (e *e2e) deployCertManagerOCP() {
@@ -520,7 +511,12 @@ func (e *e2e) setWorkDir() string {
 	return parentCwd
 }
 
-func (e *e2e) breakPoint() {
+// Use the breakPoint function at a point where you want to pause a test.
+// The test will log a tempfile created bythe breakPoint() function and
+// wait for the file to be removed by the test user.
+//
+// (jhrozek): Maybe we should set a global timeout to continue?
+func (e *e2e) breakPoint() { //nolint:unused // used on demand
 	tmpfile, err := os.CreateTemp("", "testBreakpoint*.lock")
 	if err != nil {
 		e.logger.Error(err, "Can't create breakpoint file")
@@ -595,7 +591,6 @@ func (e *e2e) kubectlRun(args ...string) string {
 	return e.kubectl(
 		append([]string{
 			"run",
-			"--timeout=5m",
 			"--pod-running-timeout=5m",
 			"--rm",
 			"-i",
@@ -624,7 +619,7 @@ func (e *e2e) getSpodMetrics() string {
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
 	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))] // nolint:gosec // fine in tests
+		b[i] = letters[rand.Intn(len(letters))] //nolint:gosec // fine in tests
 	}
 	// Sometimes the metrics command does not output anything in CI. We fix
 	// that by retrying the metrics retrieval several times.
@@ -706,12 +701,6 @@ func (e *e2e) seccompOnlyTestCase() {
 	}
 }
 
-func (e *e2e) profileRecordingTestCase() {
-	if !e.testProfileRecording {
-		e.T().Skip("Skipping Profile-Recording-related test")
-	}
-}
-
 func (e *e2e) bpfRecorderOnlyTestCase() {
 	if !e.bpfRecorderEnabled {
 		e.T().Skip("Skipping bpf recorder related test")
@@ -734,24 +723,6 @@ func (e *e2e) enableBpfRecorderInSpod() {
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
-}
-
-func (e *e2e) labelPodDenialsOnlyTestCase() {
-	if !e.labelPodDenialsEnabled {
-		e.T().Skip("Skipping label-denials-pod related test")
-	}
-
-	e.enableLabelingPodDenials()
-}
-
-func (e *e2e) enableLabelingPodDenials() {
-	e.logf("Enable labeling problematic pods in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"labelPodDenials": true}}`, "--type=merge")
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLabelPodDenialsTimeout)
 }
 
 func (e *e2e) deployRecordingSa(namespace string) {

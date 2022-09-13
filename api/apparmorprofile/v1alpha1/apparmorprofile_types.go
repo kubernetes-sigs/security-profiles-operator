@@ -73,7 +73,7 @@ type AppArmorProfileList struct {
 	Items           []AppArmorProfile `json:"items"`
 }
 
-func init() { // nolint:gochecknoinits // required to init the scheme
+func init() { //nolint:gochecknoinits // required to init the scheme
 	SchemeBuilder.Register(&AppArmorProfile{}, &AppArmorProfileList{})
 }
 

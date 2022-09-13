@@ -15,11 +15,11 @@ issues:
 linters:
   disable-all: true
   enable:
+    - asasalint
     - asciicheck
     - bidichk
     - bodyclose
     - containedctx
-    - deadcode
     - decorder
     - depguard
     - dogsled
@@ -37,7 +37,7 @@ linters:
     - gochecknoinits
     - gocognit
     - goconst
-    # - gocritic # TODO: re-enable when it supports go 1.18 and generics
+    # - gocritic # TODO: re-enable when it supports go >1.18 and generics
     - gocyclo
     - godot
     - godox
@@ -54,7 +54,6 @@ linters:
     - gosimple
     - govet
     - grouper
-    - ifshort
     - importas
     - ineffassign
     - lll
@@ -71,11 +70,11 @@ linters:
     - prealloc
     - predeclared
     - promlinter
+    - reassign
     - revive
     - rowserrcheck
     - sqlclosecheck
     - staticcheck
-    - structcheck
     - stylecheck
     - tagliatelle
     - tenv
@@ -85,17 +84,18 @@ linters:
     - unconvert
     - unparam
     - unused
-    - varcheck
+    - usestdlibvars
     - wastedassign
     - whitespace
     # - contextcheck
     # - cyclop
-    # - exhaustivestruct
     # - exhaustruct
     # - forbidigo
     # - funlen
     # - gochecknoglobals
+    # - interfacebloat
     # - ireturn
+    # - logrlint
     # - maintidx
     # - nlreturn
     # - nonamedreturns
@@ -212,6 +212,7 @@ linters-settings:
       - stringConcatSimplify
       - stringsCompare
       - switchTrue
+      - timeCmpSimplify
       - timeExprSimplify
       - todoCommentWithoutDetail
       - tooManyResultsChecker

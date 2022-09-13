@@ -182,7 +182,6 @@ spec:
                 description: Recorder to be used.
                 enum:
                 - bpf
-                - hook
                 - logs
                 type: string
             required:
@@ -599,12 +598,6 @@ spec:
                   as bpf-recorder to retrieve the container ID for a process ID. This
                   can be helpful for nested environments, for example when using "kind".
                 type: string
-              labelPodDenials:
-                description: tells the operator whether or not to apply labels to
-                  pods that present security policy-related denials. Note that this
-                  will be done cluster-wide. Note that this currently requires the
-                  log enricher to be enabled.
-                type: boolean
               selinuxOptions:
                 description: Defines options specific to the SELinux functionality
                   of the SecurityProfilesOperator
@@ -1087,6 +1080,7 @@ kind: Namespace
 metadata:
   labels:
     app: security-profiles-operator
+    openshift.io/cluster-monitoring: "true"
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/warn: privileged
@@ -1410,8 +1404,6 @@ rules:
   verbs:
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
@@ -1578,6 +1570,14 @@ rules:
   verbs:
   - create
 - apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - profilebindings
@@ -1743,6 +1743,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: spod
+  namespace: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -18,12 +18,15 @@ set -euo pipefail
 export E2E_CLUSTER_TYPE=vanilla
 export E2E_TEST_SELINUX=true
 export E2E_TEST_LOG_ENRICHER=true
-export E2E_TEST_LABEL_POD_DENIALS=true
 export E2E_TEST_BPF_RECORDER=true
-export E2E_TEST_PROFILE_RECORDING=true
+export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}
 
 # These are already tested in the standard e2e test.
 # No need to test them here.
 export E2E_TEST_SECCOMP=false
 
-make test-e2e
+if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then
+    make test-flaky-e2e
+else
+    make test-e2e
+fi

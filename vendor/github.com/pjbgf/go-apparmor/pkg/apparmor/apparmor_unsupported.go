@@ -1,16 +1,8 @@
-//go:build !linux
-// +build !linux
+//go:build !linux || !apparmor
+// +build !linux !apparmor
 
 package apparmor
 
-func Enforceable() bool {
-	return false
-}
-
-func DeletePolicy(policyName string) error {
-	return fmt.Errof("not supported")
-}
-
-func LoadPolicy(fileName string) error {
-	return fmt.Errof("not supported")
+func NewAppArmor() aa {
+	return &unsupported{}
 }

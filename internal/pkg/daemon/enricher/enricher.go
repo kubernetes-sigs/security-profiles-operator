@@ -64,11 +64,10 @@ type Enricher struct {
 	avcs             sync.Map
 	auditLineCache   *ttlcache.Cache[string, []*types.AuditLine]
 	clientset        kubernetes.Interface
-	labelDenials     bool
 }
 
 // New returns a new Enricher instance.
-func New(logger logr.Logger, labelDenials bool, impls ...impl) (*Enricher, error) {
+func New(logger logr.Logger, impls ...impl) (*Enricher, error) {
 	var effectiveimpl impl
 	if len(impls) == 0 {
 		effectiveimpl = &defaultImpl{}
@@ -106,18 +105,13 @@ func New(logger logr.Logger, labelDenials bool, impls ...impl) (*Enricher, error
 			// if/when the cache is full.
 			ttlcache.WithDisableTouchOnHit[string, []*types.AuditLine](),
 		),
-		labelDenials: labelDenials,
-		clientset:    clientset,
+		clientset: clientset,
 	}, nil
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
 // Kubernetes data (namespace, pod and container).
 func (e *Enricher) Run() error {
-	if e.labelDenials {
-		e.logger.Info("Labeling problematic containers is enabled")
-	}
-
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
 	go e.containerIDCache.Start()
 	go e.infoCache.Start()
@@ -245,12 +239,7 @@ func (e *Enricher) Run() error {
 		}
 
 		// check if there's anything in the cache for this processID
-		err = e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
-		if err != nil {
-			e.logger.Error(
-				err, "process backlog")
-			continue
-		}
+		e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
 	}
 
 	return fmt.Errorf("enricher failed: %w", e.impl.Reason(tailFile))
@@ -342,13 +331,13 @@ func (e *Enricher) dispatchBacklog(
 	nodeName string,
 	info *types.ContainerInfo,
 	processID int,
-) error {
+) {
 	strPid := strconv.Itoa(processID)
 
 	auditBacklog := e.impl.GetFromBacklog(e.auditLineCache, strPid)
 	if auditBacklog == nil {
 		// nothing in the cache
-		return nil
+		return
 	}
 
 	for i := range auditBacklog {
@@ -361,7 +350,6 @@ func (e *Enricher) dispatchBacklog(
 	}
 
 	e.impl.FlushBacklog(e.auditLineCache, strPid)
-	return nil
 }
 
 func (e *Enricher) dispatchAuditLine(

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -35,7 +36,6 @@ const (
 type ProfileRecorder string
 
 const (
-	ProfileRecorderHook ProfileRecorder = "hook"
 	ProfileRecorderLogs ProfileRecorder = "logs"
 	ProfileRecorderBpf  ProfileRecorder = "bpf"
 )
@@ -47,7 +47,7 @@ type ProfileRecordingSpec struct {
 	Kind ProfileRecordingKind `json:"kind"`
 
 	// Recorder to be used.
-	// +kubebuilder:validation:Enum=bpf;hook;logs
+	// +kubebuilder:validation:Enum=bpf;logs
 	Recorder ProfileRecorder `json:"recorder"`
 
 	// PodSelector selects the pods to record. This field follows standard
@@ -80,17 +80,12 @@ type ProfileRecording struct {
 	Status ProfileRecordingStatus `json:"status,omitempty"`
 }
 
-func (pr *ProfileRecording) CtrAnnotation(replica, ctrName string) (key, value string, err error) {
-	ctrReplicaName := ctrName
-	if replica != "" {
-		ctrReplicaName += replica
-	}
-
+func (pr *ProfileRecording) CtrAnnotation(ctrName string) (key, value string, err error) {
 	switch pr.Spec.Kind {
 	case ProfileRecordingKindSeccompProfile:
-		return pr.ctrAnnotationSeccomp(ctrReplicaName, ctrName)
+		return pr.ctrAnnotationSeccomp(ctrName)
 	case ProfileRecordingKindSelinuxProfile:
-		return pr.ctrAnnotationSelinux(ctrReplicaName, ctrName)
+		return pr.ctrAnnotationSelinux(ctrName)
 	}
 
 	return "", "", fmt.Errorf(
@@ -106,38 +101,26 @@ func (pr *ProfileRecording) IsKindSupported() bool {
 	return false
 }
 
-func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrReplicaName, ctrName string) (key, value string, err error) {
+func (pr *ProfileRecording) ctrAnnotationValue(ctrName string) string {
+	const nonceSize = 5
+
+	return fmt.Sprintf(
+		"%s_%s_%s_%d",
+		pr.GetName(),
+		ctrName,
+		utilrand.String(nonceSize),
+		time.Now().Unix(),
+	)
+}
+
+func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrName string) (key, value string, err error) {
 	var annotationPrefix string
 
 	switch pr.Spec.Recorder {
-	case ProfileRecorderHook:
-		annotationPrefix = config.SeccompProfileRecordHookAnnotationKey
-		value = fmt.Sprintf(
-			"of:%s/%s-%s-%d.json",
-			config.ProfileRecordingOutputPath,
-			pr.GetName(),
-			ctrReplicaName,
-			time.Now().Unix(),
-		)
-
 	case ProfileRecorderLogs:
 		annotationPrefix = config.SeccompProfileRecordLogsAnnotationKey
-		value = fmt.Sprintf(
-			"%s-%s-%d",
-			pr.GetName(),
-			ctrReplicaName,
-			time.Now().Unix(),
-		)
-
 	case ProfileRecorderBpf:
 		annotationPrefix = config.SeccompProfileRecordBpfAnnotationKey
-		value = fmt.Sprintf(
-			"%s-%s-%d",
-			pr.GetName(),
-			ctrReplicaName,
-			time.Now().Unix(),
-		)
-
 	default:
 		return "", "", fmt.Errorf(
 			"invalid recorder: %s", pr.Spec.Recorder,
@@ -145,23 +128,16 @@ func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrReplicaName, ctrName string)
 	}
 
 	key = annotationPrefix + ctrName
+	value = pr.ctrAnnotationValue(ctrName)
 	return key, value, err
 }
 
-func (pr *ProfileRecording) ctrAnnotationSelinux(ctrReplicaName, ctrName string) (key, value string, err error) {
+func (pr *ProfileRecording) ctrAnnotationSelinux(ctrName string) (key, value string, err error) {
 	var annotationPrefix string
 
 	switch pr.Spec.Recorder {
 	case ProfileRecorderLogs:
 		annotationPrefix = config.SelinuxProfileRecordLogsAnnotationKey
-		value = fmt.Sprintf(
-			"%s-%s-%d",
-			pr.GetName(),
-			ctrReplicaName,
-			time.Now().Unix(),
-		)
-
-	case ProfileRecorderHook:
 	case ProfileRecorderBpf:
 	default:
 		return "", "", fmt.Errorf(
@@ -169,6 +145,7 @@ func (pr *ProfileRecording) ctrAnnotationSelinux(ctrReplicaName, ctrName string)
 		)
 	}
 
+	value = pr.ctrAnnotationValue(ctrName)
 	key = annotationPrefix + ctrName
 	return
 }
@@ -182,6 +159,6 @@ type ProfileRecordingList struct {
 	Items           []ProfileRecording `json:"items"`
 }
 
-func init() { // nolint:gochecknoinits // required to init the scheme
+func init() { //nolint:gochecknoinits // required to init the scheme
 	SchemeBuilder.Register(&ProfileRecording{}, &ProfileRecordingList{})
 }

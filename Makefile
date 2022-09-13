@@ -14,7 +14,7 @@
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION = v1.46.2
+GOLANGCI_LINT_VERSION = v1.49.0
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 4.5.5
 OPERATOR_SDK_VERSION ?= v1.22.2
@@ -246,7 +246,7 @@ define vagrant-up
 	ln -sf hack/ci/Vagrantfile-$(1) Vagrantfile
 	# Retry in case provisioning failed because of some temporarily unavailable
 	# remote resource (like the VM image)
-	vagrant up || vagrant up || vagrant up
+	vagrant up
 endef
 
 .PHONY: vagrant-up-fedora
@@ -388,7 +388,15 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 
 .PHONY: test-e2e
 test-e2e: ## Run the end-to-end tests
-	CGO_LDFLAGS= $(GO) test -parallel 1 -timeout 80m -count=1 ./test/... -v
+	CGO_LDFLAGS= \
+	E2E_SKIP_FLAKY_TESTS=true \
+	$(GO) test -parallel 1 -timeout 60m -count=1 ./test/... -v
+
+.PHONY: test-flaky-e2e
+test-flaky-e2e: ## Only run the flaky end-to-end tests
+	CGO_LDFLAGS= \
+	E2E_SKIP_FLAKY_TESTS=false \
+	$(GO) test -parallel 1 -timeout 20m -count=1 ./test/... -v -testify.m '^(TestSecurityProfilesOperator_Flaky)$$'
 
 # Generate CRD manifests
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize

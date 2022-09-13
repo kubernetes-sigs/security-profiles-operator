@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -40,12 +41,26 @@ type defaultImpl struct {
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 //counterfeiter:generate . impl
 type impl interface {
+	GetProfileRecording(ctx context.Context, name, namespace string) (*v1alpha1.ProfileRecording, error)
 	ListProfileRecordings(context.Context, ...client.ListOption) (*v1alpha1.ProfileRecordingList, error)
+	ListRecordedPods(ctx context.Context, inNs string, selector *metav1.LabelSelector) (*corev1.PodList, error)
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
+	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
 	SetDecoder(*admission.Decoder)
 	DecodePod(admission.Request) (*corev1.Pod, error)
 	LabelSelectorAsSelector(*metav1.LabelSelector) (labels.Selector, error)
 	GetOperatorNamespace() string
+}
+
+func (d *defaultImpl) GetProfileRecording(
+	ctx context.Context, name, namespace string,
+) (*v1alpha1.ProfileRecording, error) {
+	profileRecording := &v1alpha1.ProfileRecording{}
+	prName := types.NamespacedName{Name: name, Namespace: namespace}
+	if err := d.client.Get(ctx, prName, profileRecording); err != nil {
+		return nil, fmt.Errorf("get profile recording: %w", err)
+	}
+	return profileRecording, nil
 }
 
 func (d *defaultImpl) ListProfileRecordings(
@@ -58,13 +73,46 @@ func (d *defaultImpl) ListProfileRecordings(
 	return profileRecordings, nil
 }
 
+func (d *defaultImpl) ListRecordedPods(
+	ctx context.Context,
+	inNs string,
+	selector *metav1.LabelSelector,
+) (*corev1.PodList, error) {
+	podList := &corev1.PodList{}
+
+	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
+	if err != nil {
+		return nil, fmt.Errorf("get profile recording: %w", err)
+	}
+
+	opts := client.ListOptions{
+		LabelSelector: labelSelector,
+		Namespace:     inNs,
+	}
+
+	if err := d.client.List(ctx, podList, &opts); err != nil {
+		return nil, fmt.Errorf("list recorded pods: %w", err)
+	}
+
+	return podList, nil
+}
+
 func (d *defaultImpl) UpdateResource(
 	ctx context.Context,
 	logger logr.Logger,
 	object client.Object,
 	name string,
 ) error {
-	return utils.UpdateResource(ctx, logger, d.client.Status(), object, name)
+	return utils.UpdateResource(ctx, logger, d.client, object, name)
+}
+
+func (d *defaultImpl) UpdateResourceStatus(
+	ctx context.Context,
+	logger logr.Logger,
+	object client.Object,
+	name string,
+) error {
+	return utils.UpdateResourceStatus(ctx, logger, d.client.Status(), object, name)
 }
 
 func (d *defaultImpl) SetDecoder(decoder *admission.Decoder) {
@@ -75,7 +123,7 @@ func (d *defaultImpl) GetOperatorNamespace() string {
 	return config.GetOperatorNamespace()
 }
 
-// nolint:gocritic
+//nolint:gocritic
 func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
 	pod := &corev1.Pod{}
 	if err := d.decoder.Decode(req, pod); err != nil {

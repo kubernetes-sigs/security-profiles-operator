@@ -97,6 +97,7 @@ metadata:
         }
       ]
     capabilities: Basic Install
+    categories: Security
     olm.skipRange: '>=0.4.1 <0.4.4-dev'
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.operatorframework.io/builder: operator-sdk-v1.22.2

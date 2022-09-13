@@ -18,7 +18,6 @@ package profilerecorder
 
 import (
 	"context"
-	"os"
 
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
@@ -67,7 +66,6 @@ type impl interface {
 		context.Context, client.Client, client.Object, controllerutil.MutateFn,
 	) (controllerutil.OperationResult, error)
 	GoArchToSeccompArch(string) (seccomp.Arch, error)
-	ReadFile(string) ([]byte, error)
 	Syscalls(
 		context.Context, enricherapi.EnricherClient, *enricherapi.SyscallsRequest,
 	) (*enricherapi.SyscallsResponse, error)
@@ -171,10 +169,6 @@ func (*defaultImpl) CreateOrUpdate(
 
 func (*defaultImpl) GoArchToSeccompArch(goArch string) (seccomp.Arch, error) {
 	return seccomp.GoArchToSeccompArch(goArch)
-}
-
-func (*defaultImpl) ReadFile(filename string) ([]byte, error) {
-	return os.ReadFile(filename)
 }
 
 func (*defaultImpl) Syscalls(

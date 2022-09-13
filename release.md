@@ -71,5 +71,10 @@ After that, another PR against this repository has to be created, which:
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
 - reverts the changes to [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh)
 
+Create a new pull requrest in the OperatorHub.io [community
+operators](https://github.com/k8s-operatorhub/community-operators) repository to
+add the new version like in [this
+PR](https://github.com/k8s-operatorhub/community-operators/pull/1672).
+
 The last step about the release creation is to send a release announcement to
 the [#security-profiles-operator Slack channel](https://kubernetes.slack.com/messages/security-profiles-operator).

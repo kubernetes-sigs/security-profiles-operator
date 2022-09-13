@@ -27,13 +27,16 @@ import (
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording/recordingfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 var (
@@ -102,6 +105,19 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
+				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-little-profile-recording",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.ProfileRecordingSpec{
+						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
+						Recorder: v1alpha1.ProfileRecorderLogs,
+					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
+				}, nil)
 				mock.GetOperatorNamespaceReturns("test-ns")
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
@@ -129,10 +145,23 @@ func TestHandle(t *testing.T) {
 						{
 							Spec: v1alpha1.ProfileRecordingSpec{
 								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
-								Recorder: v1alpha1.ProfileRecorderHook,
+								Recorder: v1alpha1.ProfileRecorderBpf,
 							},
 						},
 					},
+				}, nil)
+				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-little-profile-recording",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.ProfileRecordingSpec{
+						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
+						Recorder: v1alpha1.ProfileRecorderBpf,
+					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
 				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
@@ -164,11 +193,63 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
+				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-little-profile-recording",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.ProfileRecordingSpec{
+						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
+						Recorder: v1alpha1.ProfileRecorderLogs,
+					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
+				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.AdmissionResponse.Allowed)
 				require.Empty(t, resp.Patches)
+			},
+		},
+		{ // success although GetProfile returns IsNotFound
+			prepare: func(mock *recordingfakes.FakeImpl) {
+				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
+					Items: []v1alpha1.ProfileRecording{
+						{
+							Spec: v1alpha1.ProfileRecordingSpec{
+								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
+								Recorder: v1alpha1.ProfileRecorderBpf,
+							},
+						},
+					},
+				}, nil)
+				mock.GetProfileRecordingReturns(nil,
+					kerrors.NewNotFound(
+						schema.GroupResource{},
+						"my-little-profile-recording"),
+				)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.Nil(t, err)
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.AdmissionResponse.Allowed)
+				require.Len(t, resp.Patches, 1)
 			},
 		},
 		{ // failure LabelSelectorAsSelector
@@ -181,6 +262,9 @@ func TestHandle(t *testing.T) {
 							},
 						},
 					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
 				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.LabelSelectorAsSelectorReturns(nil, errTest)
@@ -199,6 +283,19 @@ func TestHandle(t *testing.T) {
 							},
 						},
 					},
+				}, nil)
+				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-little-profile-recording",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.ProfileRecordingSpec{
+						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
+						Recorder: v1alpha1.ProfileRecorderLogs,
+					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
 				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
@@ -224,16 +321,40 @@ func TestHandle(t *testing.T) {
 				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
 					Items: []v1alpha1.ProfileRecording{
 						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "my-little-profile-recording",
+								Namespace: "test-ns",
+							},
 							Spec: v1alpha1.ProfileRecordingSpec{
 								Kind:     v1alpha1.ProfileRecordingKindSeccompProfile,
-								Recorder: v1alpha1.ProfileRecorderHook,
+								Recorder: v1alpha1.ProfileRecorderLogs,
 							},
 						},
 					},
 				}, nil)
+				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-little-profile-recording",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.ProfileRecordingSpec{
+						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
+						Recorder: v1alpha1.ProfileRecorderLogs,
+					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
+				}, nil)
 				pod := testPod.DeepCopy()
 				pod.Annotations = map[string]string{
-					"io.containers.trace-syscall/container": "of:/some/path.json",
+					"io.containers.trace-logs/container": "my-little-profile-recording-container-0-1661693966",
+				}
+				localhostProfile := "operator//log-enricher-trace.json"
+				pod.Spec.SecurityContext = &corev1.PodSecurityContext{
+					SeccompProfile: &corev1.SeccompProfile{
+						Type:             corev1.SeccompProfileTypeLocalhost,
+						LocalhostProfile: &localhostProfile,
+					},
 				}
 				mock.DecodePodReturns(pod, nil)
 				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
@@ -268,6 +389,19 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
+				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-little-profile-recording",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.ProfileRecordingSpec{
+						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
+						Recorder: v1alpha1.ProfileRecorderLogs,
+					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
+				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
 			},
@@ -280,6 +414,7 @@ func TestHandle(t *testing.T) {
 				require.True(t, resp.AdmissionResponse.Allowed)
 			},
 		},
+		//nolint: dupl // golint flags this as a dup of the below, but here we're testing failure of UpdateResource
 		{ // failure pod deleted on UpdateResource
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
@@ -294,9 +429,63 @@ func TestHandle(t *testing.T) {
 						},
 					},
 				}, nil)
+				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-little-profile-recording",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.ProfileRecordingSpec{
+						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
+						Recorder: v1alpha1.ProfileRecorderLogs,
+					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
+				}, nil)
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
 				mock.UpdateResourceReturns(errTest)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Operation: admissionv1.Delete,
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
+			},
+		},
+		//nolint: dupl // golint flags this as a dup of above, but here we're testing failure of UpdateResourceStatus
+		{ // failure on UpdateResourceStatus
+			prepare: func(mock *recordingfakes.FakeImpl) {
+				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
+					Items: []v1alpha1.ProfileRecording{
+						{
+							Spec: v1alpha1.ProfileRecordingSpec{
+								Kind: v1alpha1.ProfileRecordingKindSeccompProfile,
+							},
+							Status: v1alpha1.ProfileRecordingStatus{
+								ActiveWorkloads: []string{"1", "2", "3"},
+							},
+						},
+					},
+				}, nil)
+				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-little-profile-recording",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.ProfileRecordingSpec{
+						Kind:     v1alpha1.ProfileRecordingKindSelinuxProfile,
+						Recorder: v1alpha1.ProfileRecorderLogs,
+					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
+				mock.UpdateResourceStatusReturns(errTest)
 			},
 			request: admission.Request{
 				AdmissionRequest: admissionv1.AdmissionRequest{
@@ -311,7 +500,7 @@ func TestHandle(t *testing.T) {
 		mock := &recordingfakes.FakeImpl{}
 		tc.prepare(mock)
 
-		recorder := podSeccompRecorder{impl: mock, log: logr.Discard()}
+		recorder := podSeccompRecorder{impl: mock, log: logr.Discard(), record: utils.NewSafeRecorder(nil)}
 		resp := recorder.Handle(context.Background(), tc.request)
 		tc.assert(resp)
 	}

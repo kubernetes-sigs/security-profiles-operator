@@ -50,7 +50,6 @@ type impl interface {
 	InClusterConfig() (*rest.Config, error)
 	NewForConfig(c *rest.Config) (*kubernetes.Clientset, error)
 	ListPods(ctx context.Context, c kubernetes.Interface, nodeName string) (*v1.PodList, error)
-	LabelPodDenials(ctx context.Context, c kubernetes.Interface, pod *v1.Pod) error
 	AuditInc(client api.MetricsClient) (api.Metrics_AuditIncClient, error)
 	SendMetric(client api.Metrics_AuditIncClient, in *api.AuditRequest) error
 	Listen(string, string) (net.Listener, error)
@@ -109,21 +108,6 @@ func (d *defaultImpl) ListPods(
 	return c.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 		FieldSelector: "spec.nodeName=" + nodeName,
 	})
-}
-
-func (d *defaultImpl) LabelPodDenials(
-	ctx context.Context, c kubernetes.Interface, pod *v1.Pod,
-) error {
-	labels := pod.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-	labels[problematicContainerLabelKey] = ""
-	pod.SetLabels(labels)
-	_, err := c.CoreV1().Pods(pod.GetNamespace()).Update(
-		ctx, pod, metav1.UpdateOptions{},
-	)
-	return err
 }
 
 func (d *defaultImpl) AuditInc(

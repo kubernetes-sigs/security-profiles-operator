@@ -3,6 +3,7 @@ kind: Namespace
 metadata:
   labels:
     app: security-profiles-operator
+    openshift.io/cluster-monitoring: "true"
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/warn: privileged
@@ -326,8 +327,6 @@ rules:
   verbs:
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
@@ -494,6 +493,14 @@ rules:
   verbs:
   - create
 - apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
   - profilebindings
@@ -659,6 +666,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: spod
+  namespace: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

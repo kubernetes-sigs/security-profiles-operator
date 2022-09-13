@@ -2,7 +2,9 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-    name: security-profiles-operator
+  name: security-profiles-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"
 ---
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup

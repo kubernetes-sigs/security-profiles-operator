@@ -69,10 +69,6 @@ type SPODSpec struct {
 	// tells the operator whether or not to enable AppArmor support for this
 	// SPOD instance.
 	EnableAppArmor bool `json:"enableAppArmor,omitempty"`
-	// tells the operator whether or not to apply labels to pods that present
-	// security policy-related denials. Note that this will be done cluster-wide.
-	// Note that this currently requires the log enricher to be enabled.
-	LabelPodDenials bool `json:"labelPodDenials,omitempty"`
 	// If specified, the SPOD's tolerations.
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
@@ -180,6 +176,6 @@ func (s *SPODStatus) StateRunning() {
 	s.ConditionedStatus.SetConditions(rcommonv1.Available())
 }
 
-func init() { // nolint:gochecknoinits // required to init the scheme
+func init() { //nolint:gochecknoinits // required to init the scheme
 	SchemeBuilder.Register(&SecurityProfilesOperatorDaemon{}, &SecurityProfilesOperatorDaemonList{})
 }

@@ -92,11 +92,14 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 	e.kubectl("delete", "sp", resourceName)
 
 	metrics := e.getSpodMetrics()
+	// we don't use resource name here, because the metrics are tracked by the annotation name which contains
+	// underscores instead of dashes
+	metricName := recordingName + "_nginx"
 	e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_bpf_total{`+
 		`mount_namespace=".*",`+
 		`node=".*",`+
-		`profile="%s-.*"} \d+`,
-		resourceName,
+		`profile="%s_.*"} \d+`,
+		metricName,
 	), metrics)
 }
 
@@ -149,6 +152,13 @@ spec:
       containers:
       - name: nginx
         image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+              port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
 `
 	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
 	e.Nil(err)
@@ -163,9 +173,12 @@ spec:
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
 
+	suffixes := e.getPodSuffixesByLabel("app=alpine")
+	e.Len(suffixes, 2)
+
 	since := time.Now()
-	const profileName0 = recordingName + "-nginx-0"
-	const profileName1 = recordingName + "-nginx-1"
+	profileName0 := recordingName + "-nginx-" + suffixes[0]
+	profileName1 := recordingName + "-nginx-" + suffixes[1]
 	e.waitForBpfRecorderLogs(since, profileName0, profileName1)
 
 	e.kubectl("delete", "deploy", deployName)

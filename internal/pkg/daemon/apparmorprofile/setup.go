@@ -38,6 +38,8 @@ func (r *Reconciler) Setup(
 	r.metrics = met
 	r.manager = NewAppArmorProfileManager(r.log)
 
+	r.logNodeInfo()
+
 	// Register the regular reconciler to manage AppArmorProfiles
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("apparmorprofile").

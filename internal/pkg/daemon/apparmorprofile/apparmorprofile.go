@@ -26,6 +26,8 @@ import (
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
+	aa "github.com/pjbgf/go-apparmor/pkg/apparmor"
+	"github.com/pjbgf/go-apparmor/pkg/hostop"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -94,7 +96,7 @@ func (r *Reconciler) Healthz(*http.Request) error {
 }
 
 // Security Profiles Operator RBAC permissions to manage AppArmorProfile
-// nolint:lll // required for kubebuilder
+//nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/finalizers,verbs=delete;get;update;patch
@@ -270,4 +272,34 @@ func (r *Reconciler) handleDeletion(sp *v1alpha1.AppArmorProfile) error {
 	r.log.Info(fmt.Sprintf("removed profile %s", sp.GetProfileName()))
 	r.metrics.IncAppArmorProfileDelete()
 	return nil
+}
+
+func (r *Reconciler) logNodeInfo() {
+	r.log.Info("detecting apparmor support...")
+
+	mount := hostop.NewMountHostOp().WithLogger(r.log)
+	aa := aa.NewAppArmor().WithLogger(r.log)
+
+	err := mount.Do(func() error {
+		enabled, err := aa.Enabled()
+		r.log.Info(fmt.Sprintf("apparmor enabled: %s", ok(enabled, err)))
+
+		fsPath, err := aa.AppArmorFS()
+		r.log.Info(fmt.Sprintf("apparmor fs: %s (%v)", fsPath, err))
+
+		enforceable, err := aa.Enforceable()
+		r.log.Info(fmt.Sprintf("apparmor enforceable: %s", ok(enforceable, err)))
+
+		return nil
+	})
+	if err != nil {
+		r.log.Error(err, "mounting host")
+	}
+}
+
+func ok(ok bool, err error) string {
+	if ok {
+		return "OK"
+	}
+	return fmt.Sprintf("NOT OK (%v)", err)
 }
