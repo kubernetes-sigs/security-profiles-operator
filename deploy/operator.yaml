@@ -131,6 +131,14 @@ spec:
                 - SeccompProfile
                 - SelinuxProfile
                 type: string
+              mergeStrategy:
+                default: none
+                description: Whether or how to merge recorded profiles. Can be one
+                  of "none" or "containers". Default is "none".
+                enum:
+                - none
+                - containers
+                type: string
               podSelector:
                 description: PodSelector selects the pods to record. This field follows
                   standard label selector semantics. An empty podSelector matches
