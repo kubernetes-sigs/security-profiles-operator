@@ -17,13 +17,17 @@ limitations under the License.
 package v1alpha2
 
 import (
+	"context"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 )
 
-// Ensure SelinuxProfile implements the StatusBaseUser interface.
+// Ensure RawSelinuxProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
 var _ profilebasev1alpha1.StatusBaseUser = &RawSelinuxProfile{}
+var _ profilebasev1alpha1.SecurityProfileBase = &RawSelinuxProfile{}
 
 // RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
 type RawSelinuxProfileSpec struct {
@@ -67,6 +71,18 @@ func (sp *RawSelinuxProfile) GetPolicyName() string {
 // SELinux module.
 func (sp *RawSelinuxProfile) GetPolicyUsage() string {
 	return sp.GetPolicyName() + ".process"
+}
+
+func (sp *RawSelinuxProfile) ListProfilesByRecording(
+	ctx context.Context,
+	cli client.Client,
+	recording string,
+) ([]metav1.Object, error) {
+	return profilebasev1alpha1.ListProfilesByRecording(ctx, cli, recording, sp.Namespace, &RawSelinuxProfileList{})
+}
+
+func (sp *RawSelinuxProfile) IsPartial() bool {
+	return profilebasev1alpha1.IsPartial(sp)
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

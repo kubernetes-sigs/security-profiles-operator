@@ -47,6 +47,16 @@ const (
 	ProfileMergeContainers ProfileMergeStrategy = "containers"
 )
 
+const (
+	// ProfileToRecordingLabel is the name of the ProfileRecording CR that produced this profile.
+	ProfileToRecordingLabel = "spo.x-k8s.io/recording-id"
+	// ProfileToContainerLabel is the name of the container that produced this profile.
+	ProfileToContainerLabel = "spo.x-k8s.io/container-id"
+	// RecordingHasUnmergedProfiles is a finalizer that indicates that the recording has partial policies. Its
+	// main use is to hold off the deletion of the recording until all partial profiles are merged.
+	RecordingHasUnmergedProfiles = "spo.x-k8s.io/has-unmerged-profiles"
+)
+
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
 type ProfileRecordingSpec struct {
 	// Kind of object to be recorded.

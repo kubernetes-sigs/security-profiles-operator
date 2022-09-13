@@ -17,7 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 )
@@ -26,8 +29,9 @@ const (
 	profilePrefix string = "spo-"
 )
 
-// Ensure AppArmorProfile implements the StatusBaseUser interface.
+// Ensure AppArmorProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
 var _ profilebasev1alpha1.StatusBaseUser = &AppArmorProfile{}
+var _ profilebasev1alpha1.SecurityProfileBase = &AppArmorProfile{}
 
 // AppArmorProfileSpec defines the desired state of AppArmorProfile.
 type AppArmorProfileSpec struct {
@@ -62,6 +66,18 @@ func (sp *AppArmorProfile) DeepCopyToStatusBaseIf() profilebasev1alpha1.StatusBa
 }
 
 func (sp *AppArmorProfile) SetImplementationStatus() {
+}
+
+func (sp *AppArmorProfile) ListProfilesByRecording(
+	ctx context.Context,
+	cli client.Client,
+	recording string,
+) ([]metav1.Object, error) {
+	return profilebasev1alpha1.ListProfilesByRecording(ctx, cli, recording, sp.Namespace, &AppArmorProfileList{})
+}
+
+func (sp *AppArmorProfile) IsPartial() bool {
+	return profilebasev1alpha1.IsPartial(sp)
 }
 
 // +kubebuilder:object:root=true
