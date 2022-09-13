@@ -40,6 +40,13 @@ const (
 	ProfileRecorderBpf  ProfileRecorder = "bpf"
 )
 
+type ProfileMergeStrategy string
+
+const (
+	ProfileMergeNone       ProfileMergeStrategy = "none"
+	ProfileMergeContainers ProfileMergeStrategy = "containers"
+)
+
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
 type ProfileRecordingSpec struct {
 	// Kind of object to be recorded.
@@ -49,6 +56,13 @@ type ProfileRecordingSpec struct {
 	// Recorder to be used.
 	// +kubebuilder:validation:Enum=bpf;logs
 	Recorder ProfileRecorder `json:"recorder"`
+
+	// Whether or how to merge recorded profiles. Can be one of "none" or "containers".
+	// Default is "none".
+	// +optional
+	// +kubebuilder:default="none"
+	// +kubebuilder:validation:Enum=none;containers
+	MergeStrategy ProfileMergeStrategy `json:"mergeStrategy"`
 
 	// PodSelector selects the pods to record. This field follows standard
 	// label selector semantics. An empty podSelector matches all pods in this
