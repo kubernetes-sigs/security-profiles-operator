@@ -265,6 +265,9 @@ func (r *StatusReconciler) reconcileStatus(
 	case statusv1alpha1.ProfileStateError:
 		outStatus.Status = statusv1alpha1.ProfileStateError
 		outStatus.SetConditions(rcommonv1.Unavailable())
+	case statusv1alpha1.ProfileStatePartial:
+		outStatus.Status = statusv1alpha1.ProfileStatePartial
+		outStatus.SetConditions(rcommonv1.Unavailable())
 	}
 
 	l.V(config.VerboseLevel).Info("Updating status")
