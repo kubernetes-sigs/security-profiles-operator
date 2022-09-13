@@ -29,32 +29,33 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
+const (
+	partialProfileFinalizer = "spo.x-k8s.io/partial-profile-finalizer"
+)
+
 type StatusClient struct {
-	pol             client.Object
+	pol             profilebase.SecurityProfileBase
 	nodeName        string
 	finalizerString string
 	client          client.Client
 }
 
-func NewForProfile(pol client.Object, c client.Client) (*StatusClient, error) {
+func NewForProfile(pol profilebase.SecurityProfileBase, c client.Client) (*StatusClient, error) {
 	nodeName, ok := os.LookupEnv(config.NodeNameEnvKey)
-	finalizerString := nodeName + "-deleted"
 	if !ok {
 		return nil, errors.New("cannot determine node name")
-	}
-	// Make sure the length of finalizer is not longer than 63 characters
-	if len(nodeName)+len("-deleted") > validation.DNS1123LabelMaxLength {
-		finalizerString = nodeName[:validation.DNS1123LabelMaxLength-len("-deleted")] + "-deleted"
 	}
 	return &StatusClient{
 		pol:             pol,
 		nodeName:        nodeName,
-		finalizerString: finalizerString,
+		finalizerString: getFinalizerString(pol, nodeName),
 		client:          c,
 	}, nil
 }
@@ -128,7 +129,12 @@ func (nsf *StatusClient) statusObj(
 }
 
 func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
-	s := nsf.statusObj(secprofnodestatusv1alpha1.ProfileStatePending)
+	state := secprofnodestatusv1alpha1.ProfileStatePending
+	if nsf.pol.IsPartial() {
+		state = secprofnodestatusv1alpha1.ProfileStatePartial
+	}
+	s := nsf.statusObj(state)
+
 	if setCtrlErr := controllerutil.SetControllerReference(nsf.pol, s, nsf.client.Scheme()); setCtrlErr != nil {
 		return fmt.Errorf("cannot set node status owner reference: %s: %w", nsf.pol.GetName(), setCtrlErr)
 	}
@@ -142,6 +148,14 @@ func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
 
 func (nsf *StatusClient) Remove(ctx context.Context, c client.Client) error {
 	// if finalizer exists, remove it
+	if nsf.pol.IsPartial() {
+		// list other profiles that are recorded by the same profileRecording
+		// if there are no other profiles, remove the finalizer from the profileRecording
+		if err := handleRecordingFinalizer(ctx, nsf.client, nsf.pol); err != nil {
+			return fmt.Errorf("cannot remove node status/finalizer from seccomp profile: %w", err)
+		}
+	}
+
 	if err := nsf.removeFinalizer(ctx); err != nil {
 		return fmt.Errorf("cannot remove finalizer for %s: %w", nsf.pol.GetName(), err)
 	}
@@ -226,4 +240,78 @@ func (nsf *StatusClient) Matches(
 		return false, fmt.Errorf("getting node status for matching: %w", err)
 	}
 	return status.Status == polState, nil
+}
+
+func getFinalizerString(pol profilebase.SecurityProfileBase, nodeName string) string {
+	if pol.IsPartial() {
+		return partialProfileFinalizer
+	}
+
+	finalizerString := nodeName + "-deleted"
+	// Make sure the length of finalizer is not longer than 63 characters
+	if len(nodeName)+len("-deleted") > validation.DNS1123LabelMaxLength {
+		finalizerString = nodeName[:validation.DNS1123LabelMaxLength-len("-deleted")] + "-deleted"
+	}
+	return finalizerString
+}
+
+func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profilebase.SecurityProfileBase) error {
+	// if this policy was not recorded, we don't need to do anything. This also covers the upgrade
+	// case because the finalizer is only added when the policy is recorded with the new version
+	polLabels := pol.GetLabels()
+	if polLabels == nil || polLabels[v1alpha1.ProfileToRecordingLabel] == "" {
+		return nil
+	}
+
+	// if there are other policies recorded by the same recording, we don't need to do anything either
+	otherPolicies, err := pol.ListProfilesByRecording(ctx, c, polLabels[v1alpha1.ProfileToRecordingLabel])
+	if err != nil {
+		return fmt.Errorf("listing profiles by recording: %w", err)
+	}
+
+	hasOthers := false
+	for i := range otherPolicies {
+		otherPol := otherPolicies[i]
+		labels := otherPol.GetLabels()
+		if labels == nil {
+			continue
+		}
+
+		if !otherPol.GetDeletionTimestamp().IsZero() { // object is being deleted, don't count it
+			continue
+		}
+
+		if _, ok := labels[profilebase.ProfilePartialLabel]; !ok { // not partial, don't count it
+			continue
+		}
+
+		if n := otherPol.GetName(); len(n) > 0 {
+			// we have a partial profile that is not being deleted and is not the current one
+			if n != pol.GetName() {
+				hasOthers = true
+				break
+			}
+		}
+	}
+
+	// if there are other recordings, keep the finalizer
+	if hasOthers {
+		return nil
+	}
+
+	profilerecording := &v1alpha1.ProfileRecording{}
+	recordingName := util.NamespacedName(polLabels[v1alpha1.ProfileToRecordingLabel], pol.GetNamespace())
+	err = c.Get(ctx, recordingName, profilerecording)
+	if kerrors.IsNotFound(err) {
+		return nil // should not happen, but if it does, we don't need to do anything
+	} else if err != nil {
+		return fmt.Errorf("getting profile recording: %w", err)
+	}
+
+	// no other recordings, remove the finalizer
+	if !controllerutil.ContainsFinalizer(profilerecording, v1alpha1.RecordingHasUnmergedProfiles) {
+		return nil
+	}
+	controllerutil.RemoveFinalizer(profilerecording, v1alpha1.RecordingHasUnmergedProfiles)
+	return c.Update(ctx, profilerecording)
 }

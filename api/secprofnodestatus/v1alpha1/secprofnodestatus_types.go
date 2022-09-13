@@ -27,6 +27,8 @@ type ProfileState string
 
 const (
 	// The profile is pending installation.
+	ProfileStatePartial ProfileState = "Partial"
+	// The profile is pending installation.
 	ProfileStatePending ProfileState = "Pending"
 	// The profile is being installed.
 	ProfileStateInProgress ProfileState = "InProgress"
@@ -63,9 +65,10 @@ func LowerOfTwoStates(currentLowest, candidate ProfileState) ProfileState {
 	orderedStates := make(map[ProfileState]int)
 	orderedStates[ProfileStateError] = 0       // error must always have the lowest index
 	orderedStates[ProfileStateTerminating] = 1 // If one is set as terminating; all the statuses will end here too
-	orderedStates[ProfileStatePending] = 2
-	orderedStates[ProfileStateInProgress] = 3
-	orderedStates[ProfileStateInstalled] = 4
+	orderedStates[ProfileStatePartial] = 2
+	orderedStates[ProfileStatePending] = 3
+	orderedStates[ProfileStateInProgress] = 4
+	orderedStates[ProfileStateInstalled] = 5
 
 	if orderedStates[currentLowest] > orderedStates[candidate] {
 		return candidate

@@ -489,6 +489,7 @@ func (r *Reconciler) reconcileDeletion(
 		r.record.Event(sp, event.Warning(reasonCannotUpdateStatus, err))
 		return ctrl.Result{}, fmt.Errorf("deleting node status/finalizer for deleted SeccompProfile: %w", err)
 	}
+
 	return ctrl.Result{}, nil
 }
 
