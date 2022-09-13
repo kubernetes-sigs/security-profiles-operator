@@ -7,6 +7,7 @@
 #define MAX_ENTRIES 8 * 1024
 #define MAX_SYSCALLS 1024
 #define MAX_COMM_LEN 64
+#define MAX_MNTNS_LEN 1
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
@@ -23,6 +24,13 @@ struct {
     __type(key, u32);                   // PID
     __type(value, char[MAX_COMM_LEN]);  // command name
 } comms SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_MNTNS_LEN);
+    __type(key, u32);                   // PID
+    __type(value, u64);                 // mntns ID
+} system_mntns SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -48,6 +56,13 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     struct task_struct * task = (struct task_struct *)bpf_get_current_task();
     u64 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
     if (mntns == 0) {
+        return 0;
+    }
+    // Filter mntns by hostmntns to exclude host processes
+    u32 hostPid = 1;
+    u64 * host_mntns;
+    host_mntns = bpf_map_lookup_elem(&system_mntns, &hostPid);
+    if (host_mntns != NULL && *host_mntns == mntns) {
         return 0;
     }
 

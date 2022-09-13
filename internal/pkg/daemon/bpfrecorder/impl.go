@@ -69,6 +69,7 @@ type impl interface {
 	Write(*os.File, []byte) (int, error)
 	ContainerIDForPID(*ttlcache.Cache[string, string], int) (string, error)
 	GetValue(*bpf.BPFMap, uint32) ([]byte, error)
+	UpdateValue(*bpf.BPFMap, uint32, []byte) error
 	DeleteKey(*bpf.BPFMap, uint32) error
 	ListPods(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
 	GetName(seccomp.ScmpSyscall) (string, error)
@@ -164,6 +165,13 @@ func (d *defaultImpl) GetValue(m *bpf.BPFMap, key uint32) ([]byte, error) {
 		return nil, errors.New("provided bpf map is nil")
 	}
 	return m.GetValue(unsafe.Pointer(&key))
+}
+
+func (d *defaultImpl) UpdateValue(m *bpf.BPFMap, key uint32, value []byte) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
 }
 
 func (d *defaultImpl) DeleteKey(m *bpf.BPFMap, key uint32) error {
