@@ -433,6 +433,19 @@ type FakeImpl struct {
 	unmarshalReturnsOnCall map[int]struct {
 		result1 error
 	}
+	UpdateValueStub        func(*libbpfgo.BPFMap, uint32, []byte) error
+	updateValueMutex       sync.RWMutex
+	updateValueArgsForCall []struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint32
+		arg3 []byte
+	}
+	updateValueReturns struct {
+		result1 error
+	}
+	updateValueReturnsOnCall map[int]struct {
+		result1 error
+	}
 	WriteStub        func(*os.File, []byte) (int, error)
 	writeMutex       sync.RWMutex
 	writeArgsForCall []struct {
@@ -2396,6 +2409,74 @@ func (fake *FakeImpl) UnmarshalReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) UpdateValue(arg1 *libbpfgo.BPFMap, arg2 uint32, arg3 []byte) error {
+	var arg3Copy []byte
+	if arg3 != nil {
+		arg3Copy = make([]byte, len(arg3))
+		copy(arg3Copy, arg3)
+	}
+	fake.updateValueMutex.Lock()
+	ret, specificReturn := fake.updateValueReturnsOnCall[len(fake.updateValueArgsForCall)]
+	fake.updateValueArgsForCall = append(fake.updateValueArgsForCall, struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint32
+		arg3 []byte
+	}{arg1, arg2, arg3Copy})
+	stub := fake.UpdateValueStub
+	fakeReturns := fake.updateValueReturns
+	fake.recordInvocation("UpdateValue", []interface{}{arg1, arg2, arg3Copy})
+	fake.updateValueMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) UpdateValueCallCount() int {
+	fake.updateValueMutex.RLock()
+	defer fake.updateValueMutex.RUnlock()
+	return len(fake.updateValueArgsForCall)
+}
+
+func (fake *FakeImpl) UpdateValueCalls(stub func(*libbpfgo.BPFMap, uint32, []byte) error) {
+	fake.updateValueMutex.Lock()
+	defer fake.updateValueMutex.Unlock()
+	fake.UpdateValueStub = stub
+}
+
+func (fake *FakeImpl) UpdateValueArgsForCall(i int) (*libbpfgo.BPFMap, uint32, []byte) {
+	fake.updateValueMutex.RLock()
+	defer fake.updateValueMutex.RUnlock()
+	argsForCall := fake.updateValueArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) UpdateValueReturns(result1 error) {
+	fake.updateValueMutex.Lock()
+	defer fake.updateValueMutex.Unlock()
+	fake.UpdateValueStub = nil
+	fake.updateValueReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) UpdateValueReturnsOnCall(i int, result1 error) {
+	fake.updateValueMutex.Lock()
+	defer fake.updateValueMutex.Unlock()
+	fake.UpdateValueStub = nil
+	if fake.updateValueReturnsOnCall == nil {
+		fake.updateValueReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.updateValueReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) Write(arg1 *os.File, arg2 []byte) (int, error) {
 	var arg2Copy []byte
 	if arg2 != nil {
@@ -2533,6 +2614,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.unameMutex.RUnlock()
 	fake.unmarshalMutex.RLock()
 	defer fake.unmarshalMutex.RUnlock()
+	fake.updateValueMutex.RLock()
+	defer fake.updateValueMutex.RUnlock()
 	fake.writeMutex.RLock()
 	defer fake.writeMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
