@@ -17,19 +17,23 @@ limitations under the License.
 package v1beta1
 
 import (
+	"context"
+	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/containers/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
-// Ensure SeccompProfile implements the StatusBaseUser interface.
+// Ensure SeccompProfile implements the StatusBaseUser and SecurityProfileBase interfaces
 var _ profilebase.StatusBaseUser = &SeccompProfile{}
+var _ profilebase.SecurityProfileBase = &SeccompProfile{}
 
 const (
 	extJSON = ".json"
@@ -169,6 +173,18 @@ func (sp *SeccompProfile) GetProfileOperatorPath() string {
 		filepath.Base(sp.GetNamespace()),
 		filepath.Base(pfile),
 	)
+}
+
+func (sp *SeccompProfile) ListProfilesByRecording(
+	ctx context.Context,
+	cli client.Client,
+	recording string,
+) ([]metav1.Object, error) {
+	return profilebase.ListProfilesByRecording(ctx, cli, recording, sp.Namespace, &SeccompProfileList{})
+}
+
+func (sp *SeccompProfile) IsPartial() bool {
+	return profilebase.IsPartial(sp)
 }
 
 // +kubebuilder:object:root=true
