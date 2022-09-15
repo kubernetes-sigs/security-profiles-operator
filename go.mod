@@ -22,8 +22,8 @@ require (
 	github.com/seccomp/libseccomp-golang v0.9.2-0.20210429002308-3879420cc921
 	github.com/stretchr/testify v1.8.0
 	github.com/urfave/cli/v2 v2.16.3
-	golang.org/x/net v0.0.0-20220826154423-83b083e8dc8b
-	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
+	golang.org/x/net v0.0.0-20220909164309-bea034e7d591
+	golang.org/x/sync v0.0.0-20220907140024-f12130a52804
 	google.golang.org/grpc v1.49.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.2.0
 	google.golang.org/protobuf v1.28.1
