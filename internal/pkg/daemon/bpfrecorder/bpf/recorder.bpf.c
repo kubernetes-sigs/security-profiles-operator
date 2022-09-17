@@ -54,7 +54,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     // Update the command name if required
     char comm[MAX_COMM_LEN];
     bpf_get_current_comm(comm, sizeof(comm));
-    if (bpf_map_lookup_elem(&comms, &comm) == NULL) {
+    if (bpf_map_lookup_elem(&comms, &pid) == NULL) {
         bpf_map_update_elem(&comms, &pid, &comm, BPF_ANY);
     }
 
