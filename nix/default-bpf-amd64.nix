@@ -1,1 +1,4 @@
-(import ./nixpkgs.nix { }).callPackage ./derivation-bpf.nix { }
+(import ./nixpkgs.nix {
+  overlays = [ (import ./overlay.nix) ];
+}).callPackage ./derivation-bpf.nix
+{ }

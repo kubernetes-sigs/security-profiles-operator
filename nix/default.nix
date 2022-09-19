@@ -1,1 +1,4 @@
-(import ./nixpkgs.nix { }).callPackage ./derivation.nix { }
+(import ./nixpkgs.nix {
+  overlays = [ (import ./overlay.nix) ];
+}).callPackage ./derivation.nix
+{ }
