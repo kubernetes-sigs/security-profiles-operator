@@ -12,15 +12,12 @@ with pkgs; buildGo119Module rec {
     which
   ];
   buildInputs = [
-    (libseccomp.overrideAttrs (x: {
-      doCheck = false;
-      dontDisableStatic = true;
-    }))
     elfutils
     glibc
     glibc.static
     libapparmor
     libbpf
+    libseccomp
     zlib.static
   ];
   buildPhase = ''
