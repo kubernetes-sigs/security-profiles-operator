@@ -427,7 +427,7 @@ func TestReconcile(t *testing.T) {
 		},
 		{ // BPF SyscallsForProfile returns not found
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
-				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{

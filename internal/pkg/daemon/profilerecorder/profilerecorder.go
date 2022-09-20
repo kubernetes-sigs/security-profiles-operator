@@ -39,11 +39,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	bpfrecorderapi "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
@@ -52,6 +54,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
 const (
@@ -104,6 +107,9 @@ func (r *RecorderReconciler) Name() string {
 func (r *RecorderReconciler) SchemeBuilder() *scheme.Builder {
 	return profilerecording1alpha1.SchemeBuilder
 }
+
+//nolint:lll // required for kubebuilder
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings,verbs=get;list;watch;update;patch
 
 // Setup is the initialization of the controller.
 func (r *RecorderReconciler) Setup(
@@ -376,7 +382,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 	podName types.NamespacedName,
 	profiles []profileToCollect,
 ) error {
-	r.log.Info("Checking checking if enricher is enabled")
+	r.log.Info("Checking if enricher is enabled")
 
 	spod, err := r.getSPOD()
 	if err != nil {
@@ -396,18 +402,22 @@ func (r *RecorderReconciler) collectLogProfiles(
 	enricherClient := enricherapi.NewEnricherClient(conn)
 
 	for _, prf := range profiles {
-		profileNamespacedName, err := profileIDToName(replicaSuffix, podName.Namespace, prf.name)
+		parsedProfileAnnotation, err := parseProfileAnnotation(prf.name)
 		if err != nil {
-			return fmt.Errorf("converting profile id to name: %w", err)
+			return fmt.Errorf("parse profile raw annotation: %w", err)
 		}
+
+		profileNamespacedName := createProfileName(
+			parsedProfileAnnotation.cntName, replicaSuffix,
+			podName.Namespace, parsedProfileAnnotation.profileName)
 
 		r.log.Info("Collecting profile", "name", profileNamespacedName, "kind", prf.kind)
 
 		switch prf.kind {
 		case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
-			err = r.collectLogSeccompProfile(ctx, enricherClient, profileNamespacedName, prf.name)
+			err = r.collectLogSeccompProfile(ctx, enricherClient, parsedProfileAnnotation, profileNamespacedName, prf.name)
 		case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
-			err = r.collectLogSelinuxProfile(ctx, enricherClient, profileNamespacedName, prf.name)
+			err = r.collectLogSelinuxProfile(ctx, enricherClient, parsedProfileAnnotation, profileNamespacedName, prf.name)
 		default:
 			err = fmt.Errorf("unrecognized kind %s", prf.kind)
 		}
@@ -423,9 +433,28 @@ func (r *RecorderReconciler) collectLogProfiles(
 func (r *RecorderReconciler) collectLogSeccompProfile(
 	ctx context.Context,
 	enricherClient enricherapi.EnricherClient,
+	parsedProfileName *parsedAnnotation,
 	profileNamespacedName types.NamespacedName,
 	profileID string,
 ) error {
+	labels, err := profileLabels(
+		ctx,
+		r,
+		parsedProfileName.profileName,
+		parsedProfileName.cntName,
+		profileNamespacedName.Namespace)
+	if err != nil {
+		return fmt.Errorf("creating profile labels: %w", err)
+	}
+
+	// Do this BEFORE reading the syscalls to hopefully minimize the
+	// race window in case reading the syscalls failed. In that case we just reconcile
+	// back here and loop through again
+	err = r.setRecordingFinalizers(ctx, labels, parsedProfileName.profileName, profileNamespacedName.Namespace)
+	if err != nil {
+		return fmt.Errorf("setting finalizer on profilerecording: %w", err)
+	}
+
 	// Retrieve the syscalls for the recording
 	request := &enricherapi.SyscallsRequest{Profile: profileID}
 	response, err := r.Syscalls(ctx, enricherClient, request)
@@ -451,6 +480,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      profileNamespacedName.Name,
 			Namespace: profileNamespacedName.Namespace,
+			Labels:    labels,
 		},
 		Spec: profileSpec,
 	}
@@ -484,9 +514,28 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 func (r *RecorderReconciler) collectLogSelinuxProfile(
 	ctx context.Context,
 	enricherClient enricherapi.EnricherClient,
+	parsedProfileName *parsedAnnotation,
 	profileNamespacedName types.NamespacedName,
 	profileID string,
 ) error {
+	labels, err := profileLabels(
+		ctx,
+		r,
+		parsedProfileName.profileName,
+		parsedProfileName.cntName,
+		profileNamespacedName.Namespace)
+	if err != nil {
+		return fmt.Errorf("creating profile labels: %w", err)
+	}
+
+	// Do this BEFORE reading the syscalls to hopefully minimize the
+	// race window in case reading the syscalls failed. In that case we just reconcile
+	// back here and loop through again
+	err = r.setRecordingFinalizers(ctx, labels, parsedProfileName.profileName, profileNamespacedName.Namespace)
+	if err != nil {
+		return fmt.Errorf("setting finalizer on profilerecording: %w", err)
+	}
+
 	// Retrieve the syscalls for the recording
 	request := &enricherapi.AvcRequest{Profile: profileID}
 	response, err := r.Avcs(ctx, enricherClient, request)
@@ -507,6 +556,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      profileNamespacedName.Name,
 			Namespace: profileNamespacedName.Namespace,
+			Labels:    labels,
 		},
 		Spec: selinuxProfileSpec,
 	}
@@ -575,6 +625,33 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	defer cancel()
 
 	for _, profile := range profiles {
+		parsedProfileName, err := parseProfileAnnotation(profile.name)
+		if err != nil {
+			return fmt.Errorf("parse profile raw annotation: %w", err)
+		}
+
+		profileNamespacedName := createProfileName(
+			parsedProfileName.cntName, replicaSuffix,
+			podName.Namespace, parsedProfileName.profileName)
+
+		labels, err := profileLabels(
+			ctx,
+			r,
+			parsedProfileName.profileName,
+			parsedProfileName.cntName,
+			profileNamespacedName.Namespace)
+		if err != nil {
+			return fmt.Errorf("creating profile labels: %w", err)
+		}
+
+		// Do this BEFORE reading the syscalls to hopefully minimize the
+		// race window in case reading the syscalls failed. In that case we just reconcile
+		// back here and loop through again
+		err = r.setRecordingFinalizers(ctx, labels, parsedProfileName.profileName, profileNamespacedName.Namespace)
+		if err != nil {
+			return fmt.Errorf("setting finalizer on profilerecording: %w", err)
+		}
+
 		r.log.Info("Collecting BPF profile", "name", profile.name, "kind", profile.kind)
 		response, err := r.SyscallsForProfile(
 			ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profile.name},
@@ -605,16 +682,11 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			}},
 		}
 
-		// Remove the timestamp
-		profileNamespacedName, err := profileIDToName(replicaSuffix, podName.Namespace, profile.name)
-		if err != nil {
-			return fmt.Errorf("converting profile id to name: %w", err)
-		}
-
 		profile := &seccompprofileapi.SeccompProfile{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      profileNamespacedName.Name,
 				Namespace: profileNamespacedName.Namespace,
+				Labels:    labels,
 			},
 			Spec: profileSpec,
 		}
@@ -679,15 +751,6 @@ func createProfileName(cntName, replicaSuffix, namespace, profileName string) ty
 		Name:      name,
 		Namespace: namespace,
 	}
-}
-
-func profileIDToName(replicaSuffix, namespace, profileID string) (types.NamespacedName, error) {
-	parsedProfileName, err := parseProfileAnnotation(profileID)
-	if err != nil {
-		return types.NamespacedName{}, fmt.Errorf("parse profile raw annotation: %w", err)
-	}
-
-	return createProfileName(parsedProfileName.cntName, replicaSuffix, namespace, parsedProfileName.profileName), nil
 }
 
 // parseLogAnnotations parses the provided annotations and extracts the
@@ -854,4 +917,80 @@ func (r *RecorderReconciler) goArchToSeccompArch(goarch string) (seccompprofilea
 		return "", fmt.Errorf("convert golang to seccomp arch: %w", err)
 	}
 	return seccompprofileapi.Arch(seccompArch), nil
+}
+
+func profilePartial(
+	ctx context.Context, r *RecorderReconciler, profileName, namespace string,
+) (bool, error) {
+	recorder := profilerecording1alpha1.ProfileRecording{}
+	err := r.ClientGet(
+		ctx, r.client, client.ObjectKey{Name: profileName, Namespace: namespace}, &recorder)
+	if kerrors.IsNotFound(err) {
+		// in case the recording disappeared, we consider the profiles ready and let
+		// the admin deal with them
+		return true, err
+	} else if err != nil {
+		return false, err
+	}
+
+	var profilePartial bool
+	switch recorder.Spec.MergeStrategy {
+	case profilerecording1alpha1.ProfileMergeNone:
+		profilePartial = false
+	case profilerecording1alpha1.ProfileMergeContainers:
+		profilePartial = true
+	}
+	return profilePartial, nil
+}
+
+func profileLabels(
+	ctx context.Context, r *RecorderReconciler, recordingName, cntName, namespace string,
+) (map[string]string, error) {
+	labels := map[string]string{
+		profilerecording1alpha1.ProfileToRecordingLabel: recordingName,
+		profilerecording1alpha1.ProfileToContainerLabel: cntName,
+	}
+
+	partial, err := profilePartial(ctx, r, recordingName, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	if partial {
+		labels[profilebase.ProfilePartialLabel] = "true"
+	}
+
+	return labels, nil
+}
+
+func (r *RecorderReconciler) setRecordingFinalizers(
+	ctx context.Context,
+	labels map[string]string,
+	profileRecordingName, namespace string,
+) error {
+	_, ok := labels[profilebase.ProfilePartialLabel]
+	if !ok {
+		return nil
+	}
+
+	recording := profilerecording1alpha1.ProfileRecording{}
+	if err := r.client.Get(
+		ctx,
+		types.NamespacedName{
+			Name:      profileRecordingName,
+			Namespace: namespace,
+		},
+		&recording); err != nil {
+		return fmt.Errorf("get recording: %w", err)
+	}
+
+	if !controllerutil.ContainsFinalizer(&recording, profilerecording1alpha1.RecordingHasUnmergedProfiles) {
+		controllerutil.AddFinalizer(&recording, profilerecording1alpha1.RecordingHasUnmergedProfiles)
+	}
+
+	if err := utils.UpdateResource(ctx, r.log, r.client, &recording, recording.Kind); err != nil {
+		return fmt.Errorf("update recording: %w", err)
+	}
+
+	return nil
 }
