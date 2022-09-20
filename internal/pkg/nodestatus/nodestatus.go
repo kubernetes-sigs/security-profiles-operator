@@ -33,6 +33,11 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
+const (
+	// finalizer name length limit.
+	finalizerNameLenLimit = 63
+)
+
 type StatusClient struct {
 	pol             client.Object
 	nodeName        string
@@ -42,13 +47,18 @@ type StatusClient struct {
 
 func NewForProfile(pol client.Object, c client.Client) (*StatusClient, error) {
 	nodeName, ok := os.LookupEnv(config.NodeNameEnvKey)
+	finalizerString := nodeName + "-deleted"
 	if !ok {
 		return nil, errors.New("cannot determine node name")
+	}
+	// Make sure the length of finalizer is not longer than 63 characters
+	if len(nodeName)+len("-deleted") > finalizerNameLenLimit {
+		finalizerString = nodeName[:finalizerNameLenLimit-len("-deleted")] + "-deleted"
 	}
 	return &StatusClient{
 		pol:             pol,
 		nodeName:        nodeName,
-		finalizerString: nodeName + "-delete",
+		finalizerString: finalizerString,
 		client:          c,
 	}, nil
 }
