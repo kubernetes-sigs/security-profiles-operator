@@ -142,6 +142,12 @@ type CompositeResourceReferencer interface {
 	GetResourceReference() *corev1.ObjectReference
 }
 
+// An EnvironmentConfigReferencer references a list of EnvironmentConfigs.
+type EnvironmentConfigReferencer interface {
+	SetEnvironmentConfigReferences([]corev1.ObjectReference)
+	GetEnvironmentConfigReferences() []corev1.ObjectReference
+}
+
 // A UserCounter can count how many users it has.
 type UserCounter interface {
 	SetUsers(i int64)
@@ -216,6 +222,7 @@ type Composite interface {
 	CompositionUpdater
 	CompositionRevisionReferencer
 	ComposedResourcesReferencer
+	EnvironmentConfigReferencer
 	ClaimReferencer
 	ConnectionSecretWriterTo
 	ConnectionDetailsPublisherTo
