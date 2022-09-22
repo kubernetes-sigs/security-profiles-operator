@@ -49,7 +49,7 @@ func (m errMissingRef) MissingReference() bool { return true }
 // IsMissingReference returns true if an error indicates that a managed
 // resource is missing a required reference..
 func IsMissingReference(err error) bool {
-	_, ok := err.(interface {
+	_, ok := err.(interface { //nolint: errorlint // Skip errorlint for interface type
 		MissingReference() bool
 	})
 	return ok

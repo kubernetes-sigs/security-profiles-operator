@@ -25,7 +25,7 @@ import (
 )
 
 type adder interface {
-	Add(item interface{})
+	Add(item any)
 }
 
 // EnqueueRequestForProviderConfig enqueues a reconcile.Request for a referenced

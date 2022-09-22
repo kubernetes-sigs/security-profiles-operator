@@ -52,7 +52,7 @@ func Is(err, target error) bool { return errors.Is(err, target) }
 // by repeatedly calling Unwrap.
 //
 // An error matches target if the error's concrete value is assignable to the
-// value pointed to by target, or if the error has a method As(interface{}) bool
+// value pointed to by target, or if the error has a method As(any) bool
 // such that As(target) returns true. In the latter case, the As method is
 // responsible for setting target.
 //
@@ -61,7 +61,7 @@ func Is(err, target error) bool { return errors.Is(err, target) }
 //
 // As panics if target is not a non-nil pointer to either a type that implements
 // error, or to any interface type.
-func As(err error, target interface{}) bool { return errors.As(err, target) }
+func As(err error, target any) bool { return errors.As(err, target) }
 
 // Unwrap returns the result of calling the Unwrap method on err, if err's type
 // contains an Unwrap method returning error. Otherwise, Unwrap returns nil.
@@ -75,7 +75,7 @@ func Unwrap(err error) error { return errors.Unwrap(err) }
 // invalid to include more than one %w verb or to supply it with an operand that
 // does not implement the error interface. The %w verb is otherwise a synonym
 // for %v.
-func Errorf(format string, a ...interface{}) error { return fmt.Errorf(format, a...) }
+func Errorf(format string, a ...any) error { return fmt.Errorf(format, a...) }
 
 // WithMessage annotates err with a new message. If err is nil, WithMessage
 // returns nil.
@@ -88,7 +88,7 @@ func WithMessage(err error, message string) error {
 
 // WithMessagef annotates err with the format specifier. If err is nil,
 // WithMessagef returns nil.
-func WithMessagef(err error, format string, args ...interface{}) error {
+func WithMessagef(err error, format string, args ...any) error {
 	if err == nil {
 		return nil
 	}
@@ -101,7 +101,7 @@ func Wrap(err error, message string) error {
 }
 
 // Wrapf is an alias for WithMessagef
-func Wrapf(err error, format string, args ...interface{}) error {
+func Wrapf(err error, format string, args ...any) error {
 	return WithMessagef(err, format, args...)
 }
 

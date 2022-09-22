@@ -8,7 +8,7 @@ require (
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cert-manager/cert-manager v1.9.1
 	github.com/containers/common v0.48.1-0.20220510094751-400832f41771
-	github.com/crossplane/crossplane-runtime v0.17.0
+	github.com/crossplane/crossplane-runtime v0.18.0
 	github.com/go-logr/logr v1.2.3
 	github.com/jellydator/ttlcache/v3 v3.0.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.5.0

@@ -210,7 +210,7 @@ func IgnoreNotFound(err error) error {
 
 // IsAPIError returns true if the given error's type is of Kubernetes API error.
 func IsAPIError(err error) bool {
-	_, ok := err.(kerrors.APIStatus)
+	_, ok := err.(kerrors.APIStatus) //nolint: errorlint // we assert against the kerrors.APIStatus Interface which does not implement the error interface
 	return ok
 }
 
@@ -300,7 +300,7 @@ func (e errNotControllable) NotControllable() bool {
 // resource is not controllable - i.e. that it another resource is not and may
 // not become its controller reference.
 func IsNotControllable(err error) bool {
-	_, ok := err.(interface {
+	_, ok := err.(interface { //nolint: errorlint // Skip errorlint for interface type
 		NotControllable() bool
 	})
 	return ok
@@ -370,7 +370,7 @@ func NewNotAllowed(message string) error {
 // IsNotAllowed returns true if the supplied error indicates that an operation
 // was not allowed.
 func IsNotAllowed(err error) bool {
-	_, ok := err.(interface {
+	_, ok := err.(interface { //nolint: errorlint // Skip errorlint for interface type
 		NotAllowed() bool
 	})
 	return ok
