@@ -20,6 +20,7 @@
   - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-profilerecordings)
     - [Log enricher based recording](#log-enricher-based-recording)
     - [eBPF based recording](#ebpf-based-recording)
+    - [Merging per-container profile instances](#merging-per-container-profile-instances)
 - [Create a SELinux Profile](#create-a-selinux-profile)
   - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
   - [Record a SELinux profile](#record-a-selinux-profile)
@@ -591,6 +592,116 @@ Then the operator will reconcile the seccomp profile:
 > kubectl get sp
 NAME                 STATUS      AGE
 my-recording-nginx   Installed   15s
+```
+
+#### Merging per-container profile instances
+
+By default, each container instance will be recorded into a separate
+profile. This is mostly visible when recording pods managed by a replicating
+controller (Deployment, DaemonSet, etc.). A realistic example might
+be a workload being recorded in a test environment where the recorded
+Deployment consists of several replicas, only one of which is receiving
+the test traffic. After the recording is complete, only the container that
+was receiving the traffic would have container all the syscalls that were
+actually used.
+
+In this case, it might be useful to merge the per-container profiles
+into a single profile. This can be done by setting the `mergeStrategy`
+attribute to `containers` in the `ProfileRecording`. Note that the following
+example uses a `SeccompProfile` as the `kind` but the same applies to
+`SelinuxProfile` as well.
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileRecording
+metadata:
+  # The name of the Recording is the same as the resulting `SeccompProfile` CRD
+  # after reconciliation.
+  name: test-recording
+spec:
+  kind: SeccompProfile
+  recorder: logs
+  mergeStrategy: containers
+  podSelector:
+    matchLabels:
+      app: sp-record
+```
+
+Create your workload:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deploy
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sp-record
+  template:
+    metadata:
+      labels:
+        app: sp-record
+    spec:
+      serviceAccountName: spo-record-sa
+      containers:
+      - name: nginx-record
+        image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+        ports:
+        - containerPort: 8080
+```
+
+You'll see that the deployment spawns three replicas. To test the merging feature, you
+can perform an action in one of the pods, for example:
+```bash
+> kubectl exec nginx-deploy-65bcbb956f-gmbrj -- bash -c "mknod /tmp/foo p"
+```
+Note that this is a silly example, but shows the feature in action.
+
+To record the individual profiles, delete the deployment:
+```bash
+> kubectl delete deployment nginx-deploy
+```
+
+The profiles will be reconciled, one per container. Note that the profiles are marked as
+"partial" and the spod deamon instances do not reconcile the profiles.
+```bash
+> kubectl get sp -lspo.x-k8s.io/recording-id=test-recording --show-labels
+NAME                                STATUS    AGE     LABELS
+test-recording-nginx-record-gmbrj   Partial   2m50s   spo.x-k8s.io/container-id=sp-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-sp-record-gmbrj,spo.x-k8s.io/recording-id=test-recording
+test-recording-nginx-record-lclnb   Partial   2m50s   spo.x-k8s.io/container-id=sp-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-sp-record-lclnb,spo.x-k8s.io/recording-id=test-recording
+test-recording-nginx-record-wdv2r   Partial   2m50s   spo.x-k8s.io/container-id=sp-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-sp-record-wdv2r,spo.x-k8s.io/recording-id=test-recording
+```
+
+Inspecting the first partial profile, which corresponds to the pod where we ran the extra command
+shows that mknod is allowed:
+```bash
+> kubectl get sp test-recording-nginx-record-gmbrj -o yaml | grep mknod
+  - mknod
+```
+On the other hand the others do not:
+```bash
+> kubectl get sp test-recording-nginx-record-lclnb -o yaml | grep mknod
+> kubectl get sp test-recording-nginx-record-wdv2r -o yaml | grep mknod
+```
+
+To merge the profiles, delete the profile recording to indicate that
+you are finished with recording the workload. This would trigger the
+merge operation done by the controller and the resulting profile will be
+reconciled by the controller as seen from the `Installed` state:
+```bash
+> kubectl delete profilerecording test-recording
+profilerecording.security-profiles-operator.x-k8s.io "test-recording" deleted
+> kubectl get sp -lspo.x-k8s.io/recording-id=test-recording
+NAME                          STATUS      AGE
+test-recording-nginx-record   Installed   17m
+```
+
+The resulting profile will contain all the syscalls that were used by any of the containers,
+including the `mknod` syscall:
+```bash
+> kubectl get sp test-recording-nginx-record -o yaml | grep mknod
+  - mknod
 ```
 
 ## Create a SELinux Profile
