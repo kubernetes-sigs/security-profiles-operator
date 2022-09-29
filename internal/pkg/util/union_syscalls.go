@@ -23,7 +23,12 @@ import (
 )
 
 func UnionSyscalls(baseSyscalls, appliedSyscalls []*seccompprofile.Syscall) []*seccompprofile.Syscall {
-	allSyscalls := make(map[seccomp.Action]map[string]bool)
+	longestLen := len(baseSyscalls)
+	if len(appliedSyscalls) > longestLen {
+		longestLen = len(appliedSyscalls)
+	}
+
+	allSyscalls := make(map[seccomp.Action]map[string]bool, longestLen)
 	for _, b := range baseSyscalls {
 		allSyscalls[b.Action] = make(map[string]bool)
 		for _, n := range b.Names {
@@ -38,7 +43,7 @@ func UnionSyscalls(baseSyscalls, appliedSyscalls []*seccompprofile.Syscall) []*s
 			allSyscalls[s.Action][n] = true
 		}
 	}
-	finalSyscalls := make([]*seccompprofile.Syscall, 0, len(appliedSyscalls)+len(baseSyscalls))
+	finalSyscalls := make([]*seccompprofile.Syscall, 0, longestLen)
 	for action, names := range allSyscalls {
 		syscall := seccompprofile.Syscall{
 			Action: action,
