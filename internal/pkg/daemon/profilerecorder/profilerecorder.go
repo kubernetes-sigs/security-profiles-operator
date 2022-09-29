@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -70,6 +71,8 @@ const (
 
 	seContextRequiredParts = 3
 )
+
+var errNameNotValid = errors.New("recording name is not valid DNS1123 subdomain, check profileRecording events")
 
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
@@ -208,7 +211,12 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	pod, err := r.GetPod(ctx, r.client, req.NamespacedName)
 	if err != nil {
 		if kerrors.IsNotFound(err) {
-			if err := r.collectProfile(ctx, req.NamespacedName); err != nil {
+			collErr := r.collectProfile(ctx, req.NamespacedName)
+			if errors.Is(collErr, errNameNotValid) {
+				logger.Error(collErr, "cannot collect profile")
+				// not reconcilable, no need to requeue
+				return reconcile.Result{}, nil
+			} else if collErr != nil {
 				return reconcile.Result{}, fmt.Errorf("collect profile for removed pod: %w", err)
 			}
 			return reconcile.Result{}, nil
@@ -279,7 +287,12 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	}
 
 	if pod.Status.Phase == corev1.PodSucceeded {
-		if err := r.collectProfile(ctx, req.NamespacedName); err != nil {
+		collErr := r.collectProfile(ctx, req.NamespacedName)
+		if errors.Is(collErr, errNameNotValid) {
+			logger.Error(collErr, "cannot collect profile")
+			// not reconcilable, no need to requeue
+			return reconcile.Result{}, nil
+		} else if collErr != nil {
 			return reconcile.Result{}, fmt.Errorf("collect profile for succeeded pod: %w", err)
 		}
 	}
@@ -946,6 +959,11 @@ func profilePartial(
 func profileLabels(
 	ctx context.Context, r *RecorderReconciler, recordingName, cntName, namespace string,
 ) (map[string]string, error) {
+	errs := validation.IsDNS1123Label(recordingName)
+	if len(errs) > 0 {
+		return nil, errNameNotValid
+	}
+
 	labels := map[string]string{
 		profilerecording1alpha1.ProfileToRecordingLabel: recordingName,
 		profilerecording1alpha1.ProfileToContainerLabel: cntName,
