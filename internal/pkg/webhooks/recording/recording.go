@@ -22,12 +22,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-logr/logr"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -145,6 +147,10 @@ func (p *podSeccompRecorder) Handle(
 			if err != nil {
 				return admission.Errored(http.StatusInternalServerError, err)
 			}
+
+			// for any matched pod, check the name of the recording in case the recording
+			// is mergeable - in that case, the recording name will be used as a label
+			p.warnEventIfNameTooLong(&item)
 		}
 	}
 
@@ -426,4 +432,22 @@ func (p *podSeccompRecorder) warnEventIfContainerPrivileged(
 		corev1.EventTypeWarning,
 		"PrivilegedContainer",
 		"Container %s in pod %s is privileged, cannot use log-based profile recording", ctr.Name, pod.Name)
+}
+
+// warnEventIfNameTooLong warns the user if the name of the profile recording is too long or otherwise does
+// not conform to the Kubernetes naming conventions for labels.
+func (p *podSeccompRecorder) warnEventIfNameTooLong(
+	profileRecording *profilerecordingv1alpha1.ProfileRecording,
+) {
+	errs := validation.IsDNS1123Label(profileRecording.Name)
+	if len(errs) == 0 {
+		return
+	}
+
+	p.record.Eventf(profileRecording,
+		corev1.EventTypeWarning,
+		"NameNotDNSLabel",
+		"The recording name %s is not a DNS1123 label and can't be used as a label: %s",
+		profileRecording.Name,
+		strings.Join(errs, ","))
 }
