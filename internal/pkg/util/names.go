@@ -23,6 +23,7 @@ import (
 	"io"
 
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -70,12 +71,10 @@ func lengthName(maxLen int, hashPrefix, format string, a ...interface{}) (string
 }
 
 func dnsLengthName(hashPrefix, format string, a ...interface{}) string {
-	const maxDNSLen = 63
-
 	//nolint:errcheck // (jhrozek): I think it makes sense to make the utility
 	// 					  function return error, but here I think it's OK to
 	// 					  just ignore
-	name, _ := lengthName(maxDNSLen, hashPrefix, format, a...)
+	name, _ := lengthName(validation.DNS1123LabelMaxLength, hashPrefix, format, a...)
 	return name
 }
 
