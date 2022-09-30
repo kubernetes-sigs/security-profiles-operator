@@ -31,6 +31,7 @@ jobs:
       - run: mkdir -p build
       - id: package
         run: |
+          helm dep up deploy/helm
           helm_output="$(helm package -d build deploy/helm)"
           tgz_path="${helm_output##*saved it to: }"
           echo "helm chart tgz path: '${tgz_path}'"
