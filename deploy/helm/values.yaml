@@ -37,3 +37,6 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+cert-manager:
+  enabled: false

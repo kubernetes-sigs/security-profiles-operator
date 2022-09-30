@@ -4,3 +4,8 @@ description: "The Kubernetes Security Profiles Operator."
 type: application
 version: "0.4.4-dev"
 appVersion: "0.4.4-dev"
+dependencies:
+  - name: cert-manager
+    version: v1.9.1
+    repository: https://charts.jetstack.io
+    condition: cert-manager.enabled
