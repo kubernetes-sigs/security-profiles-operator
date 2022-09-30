@@ -25,17 +25,13 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
-)
-
-const (
-	// finalizer name length limit.
-	finalizerNameLenLimit = 63
 )
 
 type StatusClient struct {
@@ -52,8 +48,8 @@ func NewForProfile(pol client.Object, c client.Client) (*StatusClient, error) {
 		return nil, errors.New("cannot determine node name")
 	}
 	// Make sure the length of finalizer is not longer than 63 characters
-	if len(nodeName)+len("-deleted") > finalizerNameLenLimit {
-		finalizerString = nodeName[:finalizerNameLenLimit-len("-deleted")] + "-deleted"
+	if len(nodeName)+len("-deleted") > validation.DNS1123LabelMaxLength {
+		finalizerString = nodeName[:validation.DNS1123LabelMaxLength-len("-deleted")] + "-deleted"
 	}
 	return &StatusClient{
 		pol:             pol,
