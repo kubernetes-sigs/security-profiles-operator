@@ -9,6 +9,7 @@
     - [Other Kubernetes distributions](#other-kubernetes-distributions)
   - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
   - [Installation using helm](#installation-using-helm)
+  - [Installation on AKS](#installation-on-aks)
 - [Set logging verbosity](#set-logging-verbosity)
 - [Configure the SELinux type](#configure-the-selinux-type)
 - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
@@ -150,6 +151,22 @@ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernete
 # Install the chart from a release URL (note: helm also allows users to
 # specify a file path instead of a URL, if desired):
 helm install security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.4.4-dev/security-profiles-operator-0.4.4-dev.tgz
+```
+
+### Installation on AKS
+In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview), it is recommended to [configure webhook](#configuring-webhooks) to respect the [control-plane](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks) label as follows:
+
+```sh
+$ kubectl -nsecurity-profiles-operator patch spod spod  --type=merge \
+    -p='{"spec":{"webhookOptions":[{"name":"binding.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}},{"name":"recording.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}}]}}'
+```
+
+Afterwards, validate spod has been patched successfully by ensuring the `RUNNING` state:
+
+```sh
+$ kubectl -nsecurity-profiles-operator get spod spod
+NAME   STATE
+spod   RUNNING
 ```
 
 ## Set logging verbosity
