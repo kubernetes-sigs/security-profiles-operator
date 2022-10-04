@@ -69,7 +69,9 @@ type SeccompProfileSpec struct {
 //nolint:lll // required for kubebuilder
 type Arch string
 
-// +kubebuilder:validation:Enum=SECCOMP_FILTER_FLAG_TSYNC;SECCOMP_FILTER_FLAG_LOG;SECCOMP_FILTER_FLAG_SPEC_ALLOW
+// +kubebuilder:validation:Enum=SECCOMP_FILTER_FLAG_TSYNC;SECCOMP_FILTER_FLAG_LOG;SECCOMP_FILTER_FLAG_SPEC_ALLOW;SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV
+//
+//nolint:lll // required for kubebuilder
 type Flag string
 
 // Syscall defines a syscall in seccomp.
