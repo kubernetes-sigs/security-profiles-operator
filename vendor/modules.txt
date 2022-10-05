@@ -41,7 +41,7 @@ github.com/acomagu/bufpipe
 ## explicit; go 1.18
 github.com/aquasecurity/libbpfgo
 github.com/aquasecurity/libbpfgo/helpers/rwarray
-# github.com/aws/aws-sdk-go v1.44.110
+# github.com/aws/aws-sdk-go v1.44.111
 ## explicit; go 1.11
 github.com/aws/aws-sdk-go/aws
 github.com/aws/aws-sdk-go/aws/awserr
@@ -1297,7 +1297,7 @@ sigs.k8s.io/structured-merge-diff/v4/value
 # sigs.k8s.io/yaml v1.3.0
 ## explicit; go 1.12
 sigs.k8s.io/yaml
-# sigs.k8s.io/zeitgeist v0.3.3
+# sigs.k8s.io/zeitgeist v0.3.5
 ## explicit; go 1.19
 sigs.k8s.io/zeitgeist
 sigs.k8s.io/zeitgeist/commands
