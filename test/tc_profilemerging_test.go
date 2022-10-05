@@ -45,6 +45,8 @@ const (
 
 func (e *e2e) testSeccompBpfProfileMerging() {
 	e.bpfRecorderOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.profileMergingTest(
 		"bpf",
@@ -59,6 +61,8 @@ func (e *e2e) testSeccompBpfProfileMerging() {
 
 func (e *e2e) testSeccompLogsProfileMerging() {
 	e.logEnricherOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.profileMergingTest(
 		"logs",
@@ -73,6 +77,8 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 func (e *e2e) testSelinuxLogsProfileMerging() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.profileMergingTest(
 		"logs",
