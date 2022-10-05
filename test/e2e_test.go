@@ -129,13 +129,15 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	}
 
 	e.Run("cluster-wide: Selinux: Verify profile binding", func() {
-		e.testCaseSelinuxProfileBinding(nodes)
+		e.testCaseSelinuxProfileBinding()
+		e.testCaseSelinuxProfileBindingNsNotEnabled()
 	})
 
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogs()
 		e.testCaseProfileRecordingMultiContainerSELinuxLogs()
 		e.testCaseProfileRecordingSelinuxDeploymentLogs()
+		e.testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled()
 	})
 
 	e.Run("cluster-wide: Same profile in multiple namespaces", func() {

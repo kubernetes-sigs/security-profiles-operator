@@ -76,6 +76,13 @@ const (
 	defaultManifest = "deploy/operator.yaml"
 )
 
+const (
+	nsBindingEnabled    = "spo-binding-enabled"
+	nsBindingDisabled   = "spo-binding-disabled"
+	nsRecordingEnabled  = "spo-recording-enabled"
+	nsRecordingDisabled = "spo-recording-disabled"
+)
+
 type e2e struct {
 	suite.Suite
 	containerRuntime      string
@@ -787,4 +794,43 @@ func (e *e2e) applyFromTemplate(template, namespace string) {
 	manifest := fmt.Sprintf(template, namespace)
 	deleteSaFn := e.writeAndApply(manifest, manifestFile)
 	deleteSaFn()
+}
+
+func (e *e2e) enableBindingHookInNs(ns string) {
+	e.labelNs(ns, "spo.x-k8s.io/enable-binding")
+}
+
+func (e *e2e) enableRecordingHookInNs(ns string) {
+	e.labelNs(ns, "spo.x-k8s.io/enable-recording")
+}
+
+func (e *e2e) labelNs(namespace, label string) {
+	e.kubectl("label", "ns", namespace, "--overwrite", label+"=")
+}
+
+func (e *e2e) switchToNs(ns string) func() {
+	nsManifest := fmt.Sprintf(`
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: %s`, ns)
+
+	e.logf("creating ns %s", ns)
+	deleteFn := e.writeAndApply(nsManifest, fmt.Sprintf("%s.yml", ns))
+	defer deleteFn()
+
+	e.logf("switching to ns %s", ns)
+	curNs := e.getCurrentContextNamespace(config.OperatorName)
+	e.kubectl("config", "set-context", "--current", "--namespace", ns)
+	return func() {
+		e.logf("switching back to to ns %s", curNs)
+		e.kubectl("config", "set-context", "--current", "--namespace", curNs)
+	}
+}
+
+//nolint:unparam // Even though we pass the same ns currently, it is still cleaner to pass it as a parameter
+func (e *e2e) switchToRecordingNs(ns string) func() {
+	retFunc := e.switchToNs(ns)
+	e.enableRecordingHookInNs(ns)
+	return retFunc
 }

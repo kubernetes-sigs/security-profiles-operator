@@ -21,11 +21,66 @@ import (
 	"strings"
 )
 
-func (e *e2e) testCaseSelinuxProfileBinding([]string) {
+const (
+	selinuxTestProfileName = "testpolicy"
+	selinuxBindingName     = "profile-binding-selinux"
+	testPodName            = "selinux-profile-test-pod"
+)
+
+func (e *e2e) testCaseSelinuxProfileBinding() {
 	e.selinuxOnlyTestCase()
-	const selinuxTestProfileName = "testpolicy"
-	const selinuxBindingName = "profile-binding-selinux"
-	const testPodName = "selinux-profile-test-pod"
+
+	cleanup := e.profileBindingTestPrep(nsBindingEnabled, true)
+	defer cleanup()
+
+	e.logf("the workload should not have errored")
+	log := e.kubectl("logs", testPodName, "-c", "errorloggerbinding")
+	e.Emptyf(log, "container should not have returned a 'Permissions Denied' error")
+
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
+
+	e.logf("Getting selinux profile usage")
+	selinuxUsage := e.getSELinuxPolicyUsage(selinuxTestProfileName)
+
+	e.logf("Testing that pod has securityContext")
+	output := e.kubectl(
+		"get", "pod", testPodName,
+		"--output", "jsonpath={.spec.initContainers[0].securityContext.seLinuxOptions.type}",
+	)
+	e.Equal(selinuxUsage, output)
+
+	e.logf("Testing that profile binding has pod reference")
+	output = e.kubectl("get", "profilebinding", selinuxBindingName, "--output", "jsonpath={.status.activeWorkloads[0]}")
+	e.Equal(fmt.Sprintf("%s/%s", namespace, testPodName), output)
+	output = e.kubectl("get", "profilebinding", selinuxBindingName, "--output", "jsonpath={.metadata.finalizers[0]}")
+	e.Equal("active-workload-lock", output)
+
+	e.logf("Testing that profile has pod reference")
+	output = e.kubectl("get", "selinuxprofile", selinuxTestProfileName,
+		"--output", "jsonpath={.status.activeWorkloads[0]}")
+
+	e.Equal(fmt.Sprintf("%s/%s", namespace, testPodName), output)
+	output = e.kubectl("get", "selinuxprofile", selinuxTestProfileName,
+		"--output", "jsonpath={.metadata.finalizers[*]}")
+
+	e.Contains(output, "in-use-by-active-pods")
+}
+
+func (e *e2e) testCaseSelinuxProfileBindingNsNotEnabled() {
+	e.selinuxOnlyTestCase()
+
+	cleanup := e.profileBindingTestPrep(nsBindingDisabled, false)
+	defer cleanup()
+
+	e.logf("the workload should have errored")
+	log := e.kubectl("logs", testPodName, "-c", "errorloggerbinding")
+	e.NotEmptyf(log, "container should have returned a 'Permissions Denied' error")
+}
+
+func (e *e2e) profileBindingTestPrep(
+	ns string,
+	labelNs bool,
+) func() {
 	selinuxTestProfile := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
 kind: SelinuxProfile
@@ -99,21 +154,23 @@ spec:
       type: Directory
 `, testPodName)
 
+	restoreNs := e.switchToNs(ns)
+	if labelNs {
+		e.enableBindingHookInNs(ns)
+	}
+
 	e.logf("creating policy")
 	e.writeAndCreate(selinuxTestProfile, "selinuxProfile-test.yml")
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", selinuxTestProfileName)
-	defer e.kubectl("delete", "selinuxprofile", selinuxTestProfileName)
 
 	e.logf("Creating test profile binding")
 	e.writeAndCreate(selinuxBinding, "selinuxPolicyBinding-test.yml")
-	defer e.kubectl("delete", "profilebinding", selinuxBindingName)
 
 	e.logf("Creating test pod")
 	e.writeAndCreate(testPod, "selinuxBindingPod-test.yml")
-	defer e.kubectl("delete", "pod", testPodName)
 
 	output := e.kubectl("get", "pod", testPodName)
 	for strings.Contains(output, "ContainerCreating") {
@@ -121,36 +178,10 @@ spec:
 	}
 
 	e.waitFor("condition=ready", "pod", testPodName)
-
-	e.logf("the workload should not have errored")
-	log := e.kubectl("logs", testPodName, "-c", "errorloggerbinding")
-	e.Emptyf(log, "container should not have returned a 'Permissions Denied' error")
-
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
-
-	e.logf("Getting selinux profile usage")
-	selinuxUsage := e.getSELinuxPolicyUsage(selinuxTestProfileName)
-
-	e.logf("Testing that pod has securityContext")
-	output = e.kubectl(
-		"get", "pod", testPodName,
-		"--output", "jsonpath={.spec.initContainers[0].securityContext.seLinuxOptions.type}",
-	)
-	e.Equal(selinuxUsage, output)
-
-	e.logf("Testing that profile binding has pod reference")
-	output = e.kubectl("get", "profilebinding", selinuxBindingName, "--output", "jsonpath={.status.activeWorkloads[0]}")
-	e.Equal(fmt.Sprintf("%s/%s", namespace, testPodName), output)
-	output = e.kubectl("get", "profilebinding", selinuxBindingName, "--output", "jsonpath={.metadata.finalizers[0]}")
-	e.Equal("active-workload-lock", output)
-
-	e.logf("Testing that profile has pod reference")
-	output = e.kubectl("get", "selinuxprofile", selinuxTestProfileName,
-		"--output", "jsonpath={.status.activeWorkloads[0]}")
-
-	e.Equal(fmt.Sprintf("%s/%s", namespace, testPodName), output)
-	output = e.kubectl("get", "selinuxprofile", selinuxTestProfileName,
-		"--output", "jsonpath={.metadata.finalizers[*]}")
-
-	e.Contains(output, "in-use-by-active-pods")
+	return func() {
+		defer restoreNs()
+		defer e.kubectl("delete", "selinuxprofile", selinuxTestProfileName)
+		defer e.kubectl("delete", "profilebinding", selinuxBindingName)
+		defer e.kubectl("delete", "pod", testPodName)
+	}
 }
