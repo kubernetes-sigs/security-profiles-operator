@@ -17,6 +17,7 @@
 - [Create a seccomp profile](#create-a-seccomp-profile)
   - [Apply a seccomp profile to a pod](#apply-a-seccomp-profile-to-a-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
+  - [Label namespaces for binding and recording](#label-namespaces-for-binding-and-recording)
   - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
   - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-profilerecordings)
     - [Log enricher based recording](#log-enricher-based-recording)
@@ -368,6 +369,26 @@ If you're not using runc but the alternative
 [crun](https://github.com/containers/crun), then you can do the same by using
 the [corresponding example profile](./examples/baseprofile-crun.yaml) (tested
 with version 0.20.1).
+
+### Label namespaces for binding and recording
+
+The next two sections describe how to bind a security profile to a container
+image and how to record a security profile from a running container. Both
+operations require the one of two SPO's webhooks to take action on the workload
+and in order for the webhooks to be able to reconcile the workload, the namespaces
+must be labeled appropriately.
+
+The expected labels are `spo.x-k8s.io/enable-binding` for the binding
+webhook and `spo.x-k8s.io/enable-recording` for the recording webhook by
+default. The labels can be set with a simple `kubectl label` command:
+
+```sh
+$ kubectl label ns spo-test spo.x-k8s.io/enable-recording=
+```
+
+Note that the labels' values are not important, only their presence matters.
+In addition, the namespace selector is configurable and the webhook configuration
+is described in the [configuring webhooks](#configuring-webhooks) section.
 
 ### Bind workloads to profiles with ProfileBindings
 

@@ -66,47 +66,18 @@ var (
 			},
 		},
 	}
-
-	emptySelector = metav1.LabelSelector{}
-
-	ocpWebhookOpts = []spodv1alpha1.WebhookOptions{
-		{
-			Name:          "binding.spo.io",
-			FailurePolicy: &failurePolicy,
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "openshift.io/run-level",
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"0", "1"},
-					},
-				},
-			},
-		},
-		{
-			Name:          "recording.spo.io",
-			FailurePolicy: &failurePolicy,
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "openshift.io/run-level",
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"0", "1"},
-					},
-				},
-			},
-		},
-	}
 )
 
 const (
-	webhookName        = config.OperatorName + "-webhook"
-	webhookConfigName  = "spo-mutating-webhook-configuration"
-	serviceAccountName = "spo-webhook"
-	certsMountPath     = "/tmp/k8s-webhook-server/serving-certs"
-	containerPort      = 9443
-	serviceName        = "webhook-service"
-	webhookServerCert  = "webhook-server-cert"
+	webhookName                 = config.OperatorName + "-webhook"
+	webhookConfigName           = "spo-mutating-webhook-configuration"
+	serviceAccountName          = "spo-webhook"
+	certsMountPath              = "/tmp/k8s-webhook-server/serving-certs"
+	containerPort               = 9443
+	serviceName                 = "webhook-service"
+	webhookServerCert           = "webhook-server-cert"
+	webhookEnableBindingLabel   = "spo.x-k8s.io/enable-binding"
+	webhookEnableRecordingLabel = "spo.x-k8s.io/enable-recording"
 )
 
 type Webhook struct {
@@ -156,8 +127,7 @@ func GetWebhook(
 			openshiftCertAnnotation: webhookServerCert,
 		}
 
-		// first apply the distro-specific opts
-		applyWebhookOptions(cfg, ocpWebhookOpts)
+		// if there's any OCP specific webhook opts, apply them here
 	}
 
 	// then apply the user-specified opts
@@ -398,12 +368,19 @@ var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 	},
 	Webhooks: []admissionregv1.MutatingWebhook{
 		{
-			Name:              "binding.spo.io",
-			FailurePolicy:     &failurePolicy,
-			SideEffects:       &sideEffects,
-			Rules:             rules,
-			ObjectSelector:    &objectSelector,
-			NamespaceSelector: &emptySelector,
+			Name:           "binding.spo.io",
+			FailurePolicy:  &failurePolicy,
+			SideEffects:    &sideEffects,
+			Rules:          rules,
+			ObjectSelector: &objectSelector,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      webhookEnableBindingLabel,
+						Operator: metav1.LabelSelectorOpExists,
+					},
+				},
+			},
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{
@@ -414,12 +391,19 @@ var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 			AdmissionReviewVersions: admissionReviewVersions,
 		},
 		{
-			Name:              "recording.spo.io",
-			FailurePolicy:     &failurePolicy,
-			SideEffects:       &sideEffects,
-			Rules:             rules,
-			ObjectSelector:    &objectSelector,
-			NamespaceSelector: &emptySelector,
+			Name:           "recording.spo.io",
+			FailurePolicy:  &failurePolicy,
+			SideEffects:    &sideEffects,
+			Rules:          rules,
+			ObjectSelector: &objectSelector,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      webhookEnableRecordingLabel,
+						Operator: metav1.LabelSelectorOpExists,
+					},
+				},
+			},
 			ClientConfig: admissionregv1.WebhookClientConfig{
 				CABundle: caBundle,
 				Service: &admissionregv1.ServiceReference{

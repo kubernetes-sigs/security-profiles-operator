@@ -57,6 +57,10 @@ spec:
   restartPolicy: Never
 `
 
+	restoreNs := e.switchToNs(nsBindingEnabled)
+	defer restoreNs()
+	e.enableBindingHookInNs(nsBindingEnabled)
+
 	e.kubectl("create", "-f", exampleProfilePath)
 	defer e.kubectl("delete", "-f", exampleProfilePath)
 

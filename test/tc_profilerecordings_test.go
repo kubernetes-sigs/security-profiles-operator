@@ -60,6 +60,9 @@ func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp)
 
 func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 	e.logEnricherOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
+
 	e.profileRecordingStaticPod(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(`(?m)"syscallName"="listen"`),
@@ -69,11 +72,29 @@ func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogs() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.profileRecordingStaticSelinuxPod(
 		exampleRecordingSelinuxLogsPath,
 		regexp.MustCompile(`(?m)"perm"="listen"`),
 	)
+}
+
+func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled() {
+	e.logEnricherOnlyTestCase()
+	e.selinuxOnlyTestCase()
+	restoreNs := e.switchToNs(nsRecordingDisabled)
+	defer restoreNs()
+
+	e.logf("Creating SELinux recording for static pod test")
+	e.kubectl("create", "-f", exampleRecordingSelinuxLogsPath)
+	defer e.kubectl("delete", "-f", exampleRecordingSelinuxLogsPath)
+
+	_, podName := e.createRecordingTestPod()
+	defer e.kubectl("delete", "pod", podName)
+	output := e.kubectl("get", "pod", "-oyaml", podName)
+	e.NotContains(output, "selinuxrecording.process")
 }
 
 func (e *e2e) profileRecordingStaticSelinuxPod(recording string, waitConditions ...*regexp.Regexp) {
@@ -120,6 +141,8 @@ func (e *e2e) profileRecordingStaticPod(recording string, waitConditions ...*reg
 
 func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 	e.logEnricherOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 	e.profileRecordingMultiContainer(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="listen"`),
@@ -129,6 +152,8 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 
 func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 	e.logEnricherOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 	e.profileRecordingSpecificContainer(exampleRecordingSeccompSpecificContainerLogsPath,
 		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="epoll_wait"`),
 	)
@@ -137,6 +162,8 @@ func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 func (e *e2e) testCaseProfileRecordingMultiContainerSELinuxLogs() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.profileRecordingSelinuxMultiContainer(
 		exampleRecordingSelinuxLogsPath,
@@ -226,6 +253,8 @@ func (e *e2e) profileRecordingSpecificContainer(
 
 func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 	e.logEnricherOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 	e.profileRecordingDeployment(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(
@@ -236,6 +265,8 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 
 func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
 	e.logEnricherOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 	e.profileRecordingScaleDeployment(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(
@@ -247,6 +278,8 @@ func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
 func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.profileRecordingSelinuxDeployment(
 		exampleRecordingSelinuxLogsPath,
@@ -257,6 +290,8 @@ func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
 
 func (e *e2e) testCaseRecordingFinalizers() {
 	e.logEnricherOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	const recordingName = "test-recording"
 
