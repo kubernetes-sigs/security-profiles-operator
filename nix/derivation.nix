@@ -16,7 +16,7 @@ with pkgs; buildGo119Module rec {
     glibc
     glibc.static
     libapparmor
-    libbpf
+    libbpf_1
     libseccomp
     zlib.static
   ];
