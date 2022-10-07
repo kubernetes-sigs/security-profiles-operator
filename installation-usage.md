@@ -25,6 +25,8 @@
   - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
   - [Record a SELinux profile](#record-a-selinux-profile)
 - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
+  - [Restricting to a Single Namespace with upstream deployment manifests](#restricting-to-a-single-namespace-with-upstream-deployment-manifests)
+  - [Restricting to a Single Namespace when installing using OLM](#restricting-to-a-single-namespace-when-installing-using-olm)
 - [Using metrics](#using-metrics)
   - [Available metrics](#available-metrics)
   - [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
@@ -812,11 +814,27 @@ RBAC permissions required by the operator's ServiceAccount. To modify the
 operator deployment to run in a single namespace, use the
 `namespace-operator.yaml` manifest with your namespace of choice:
 
+### Restricting to a Single Namespace with upstream deployment manifests
 ```sh
 NAMESPACE=<your-namespace>
 
 curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
 ```
+
+### Restricting to a Single Namespace when installing using OLM
+Since restricting the operator to a single namespace amounts to setting the `RESTRICT_TO_NAMESPACE`
+environment variable, the easiest way to set that (or any other variable for SPO) is by editing the
+`Subscription` object and setting the `spec.config.env` field:
+```yaml
+  spec:
+    config:
+      env:
+      - name: RESTRICT_TO_NAMESPACE
+        value: <your-namespace>
+```
+OLM would then take care of updating the operator `Deployment` object with the new environment variable.
+Please refer to the [OLM documentation](https://github.com/operator-framework/operator-lifecycle-manager/blob/master/doc/design/subscription-config.md#res)
+for more details on tuning the operator's configuration with the `Subscription` objects.
 
 ## Using metrics
 
