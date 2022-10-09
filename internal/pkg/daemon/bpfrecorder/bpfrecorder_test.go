@@ -519,54 +519,6 @@ func TestSyscallsForProfile(t *testing.T) {
 		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl)
 		assert  func(*BpfRecorder, *api.SyscallsResponse, error)
 	}{
-		{ // Success
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
-				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, []Pid{
-					{id: 42, comm: "sh", mntns: 1337},
-					{id: 43, comm: "bash", mntns: 1338},
-				})
-				mock.GetValueReturns([]byte{0, 0, 0, 1, 1, 1}, nil)
-				mock.GetNameReturnsOnCall(0, "syscall_a", nil)
-				mock.GetNameReturnsOnCall(1, "syscall_b", nil)
-				mock.GetNameReturnsOnCall(2, "syscall_c", nil)
-				mock.GetNameReturnsOnCall(3, "syscall_a", nil)
-				mock.GetNameReturnsOnCall(4, "syscall_b", nil)
-				mock.GetNameReturnsOnCall(5, "syscall_c", nil)
-				mock.DeleteKeyReturnsOnCall(0, errTest)
-			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.Nil(t, err)
-				require.Len(t, resp.Syscalls, 3)
-				require.Equal(t, "syscall_a", resp.Syscalls[0])
-				require.Equal(t, "syscall_b", resp.Syscalls[1])
-				require.Equal(t, "syscall_c", resp.Syscalls[2])
-			},
-		},
-		{ // Success with unable to resolve syscall name
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
-				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, []Pid{
-					{id: 42, comm: "sh", mntns: 1337},
-					{id: 43, comm: "bash", mntns: 1338},
-				})
-				mock.GetValueReturns([]byte{0, 1, 1}, nil)
-				mock.GetNameReturnsOnCall(0, "", errTest)
-				mock.GetNameReturnsOnCall(1, "syscall_a", nil)
-				mock.GetNameReturnsOnCall(2, "syscall_b", nil)
-				mock.GetNameReturnsOnCall(3, "syscall_a", nil)
-			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.Nil(t, err)
-				require.Len(t, resp.Syscalls, 2)
-				require.Equal(t, "syscall_a", resp.Syscalls[0])
-				require.Equal(t, "syscall_b", resp.Syscalls[1])
-			},
-		},
 		{ // recorder not running
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
@@ -581,42 +533,6 @@ func TestSyscallsForProfile(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
 				require.NotNil(t, err)
-			},
-		},
-		{ // result not a PID type
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
-				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, "wrong")
-			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.NotNil(t, err)
-			},
-		},
-		{ // PID slice empty
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
-				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, []Pid{})
-			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.NotNil(t, err)
-			},
-		},
-		{ // no syscall found for PID
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
-				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, []Pid{
-					{id: 42, comm: "sh", mntns: 1337},
-				})
-				mock.GetValueReturns(nil, errTest)
-			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.Nil(t, err)
 			},
 		},
 	} {
@@ -700,29 +616,6 @@ func TestProcessEvents(t *testing.T) {
 					time.Sleep(100 * time.Millisecond)
 				}
 				require.Equal(t, "profile.json", profile)
-			},
-		},
-		{ // Success short path
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
-				mntns := binary.LittleEndian.Uint64([]byte{1, 0, 0, 0, 0, 0, 0, 0})
-				sut.profileForMountNamespace.Store(mntns, "profile.json")
-				return []byte{
-					1, 0, 0, 0, 0, 0, 0, 0,
-					1, 0, 0, 0, 0, 0, 0, 0,
-				}
-			},
-			assert: func(sut *BpfRecorder, logger *Logger) {
-				success := false
-				for i := 0; i < 100; i++ {
-					logger.mutex.RLock()
-					success = util.Contains(logger.messages, "Using short path via tracked mount namespace")
-					logger.mutex.RUnlock()
-					if success {
-						break
-					}
-					time.Sleep(100 * time.Millisecond)
-				}
-				require.True(t, success)
 			},
 		},
 		{ // invalid event length

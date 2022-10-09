@@ -12,11 +12,11 @@
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ENTRIES);
-    __type(key, u32);                 // PID
+    __type(key, u64);                 // mntns
     __type(value, u8[MAX_SYSCALLS]);  // syscall IDs
-} syscalls SEC(".maps");
+} mntns_syscalls SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -31,6 +31,13 @@ struct {
     __type(key, u32);                   // PID
     __type(value, u64);                 // mntns ID
 } system_mntns SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, u64);                   // mntns id
+    __type(value, u8);                  // is mntns record
+} mntns_record SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -69,18 +76,38 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     // Update the command name if required
     char comm[MAX_COMM_LEN];
     bpf_get_current_comm(comm, sizeof(comm));
-    if (bpf_map_lookup_elem(&comms, &comm) == NULL) {
+    if (bpf_map_lookup_elem(&comms, &pid) == NULL) {
         bpf_map_update_elem(&comms, &pid, &comm, BPF_ANY);
     }
 
     // Update the syscalls
-    u8 * const syscall_value = bpf_map_lookup_elem(&syscalls, &pid);
-    if (syscall_value) {
-        syscall_value[syscall_id] = 1;
+    u8 * const mntns_syscall_value = bpf_map_lookup_elem(&mntns_syscalls, &mntns);
+    if (mntns_syscall_value) {
+        mntns_syscall_value[syscall_id] = 1;
+        u8 * isRecord;
+        isRecord = bpf_map_lookup_elem(&mntns_record, &mntns);
+        if (isRecord == NULL) {
+            // New element, throw event
+            struct event_t * event_again =
+                    bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
+            if (!event_again) {
+                // Not enough space within the ringbuffer
+                return 0;
+            }
+            event_again->pid = pid;
+            event_again->mntns = mntns;
+            bpf_ringbuf_submit(event_again, 0);
+            bpf_printk("send event again pid: %d , mntns: %u, comm: %s\n", pid, mntns, comm);
+            return 0;
+        } else {
+            bpf_printk("mntns_record not send mntns: %u, isRecord: %u\n", mntns, *isRecord);
+            return 0;
+        }
     } else {
+
         // New element, throw event
         struct event_t * event =
-            bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
+                bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
         if (!event) {
             // Not enough space within the ringbuffer
             return 0;
@@ -90,12 +117,13 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         event->mntns = mntns;
 
         bpf_ringbuf_submit(event, 0);
-
+        bpf_printk("send event bpf_ringbuf_submit pid: %d , mntns: %u, comm: %s\n", pid, mntns, comm);
         static const char init[MAX_SYSCALLS];
-        bpf_map_update_elem(&syscalls, &pid, &init, BPF_ANY);
+        bpf_map_update_elem(&mntns_syscalls, &mntns, &init, BPF_ANY);
 
-        u8 * const value = bpf_map_lookup_elem(&syscalls, &pid);
+        u8 * const value = bpf_map_lookup_elem(&mntns_syscalls, &mntns);
         if (!value) {
+            bpf_printk("bpf_map_lookup_elem failed pid: %d , mntns: %u, comm: %s\n", pid, mntns, comm);
             // Should not happen, we updated the element straight ahead
             return 0;
         }

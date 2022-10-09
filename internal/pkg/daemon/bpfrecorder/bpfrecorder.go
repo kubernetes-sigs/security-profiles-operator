@@ -70,15 +70,15 @@ type BpfRecorder struct {
 	syscalls                 *bpf.BPFMap
 	comms                    *bpf.BPFMap
 	mntns                    *bpf.BPFMap
+	record                   *bpf.BPFMap
 	btfPath                  string
 	syscallNamesForIDCache   *ttlcache.Cache[string, string]
 	containerIDCache         *ttlcache.Cache[string, string]
 	nodeName                 string
 	clientset                *kubernetes.Clientset
-	profileForContainerIDs   sync.Map
-	pidsForProfiles          sync.Map
-	pidLock                  sync.Mutex
 	profileForMountNamespace sync.Map
+	mntnsForProfile          sync.Map
+	mntnsLock                sync.Mutex
 	systemMountNamespace     uint64
 	loadUnloadMutex          sync.RWMutex
 	metricsClient            apimetrics.Metrics_BpfIncClient
@@ -103,10 +103,9 @@ func New(logger logr.Logger) *BpfRecorder {
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, string](maxCacheItems),
 		),
-		profileForContainerIDs:   sync.Map{},
-		pidsForProfiles:          sync.Map{},
-		pidLock:                  sync.Mutex{},
+		mntnsLock:                sync.Mutex{},
 		profileForMountNamespace: sync.Map{},
+		mntnsForProfile:          sync.Map{},
 		loadUnloadMutex:          sync.RWMutex{},
 	}
 }
@@ -286,7 +285,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 	// this race by retrying, but with a more loose backoff strategy than
 	// retrying to retrieve the in-cluster container ID.
 	var (
-		res   interface{}
+		mntns interface{}
 		exist bool
 		try   = -1
 	)
@@ -297,13 +296,14 @@ func (b *BpfRecorder) SyscallsForProfile(
 				"Looking up PID for profile", "try", try, "profile", r.Name,
 			)
 
-			b.pidLock.Lock()
-			res, exist = b.pidsForProfiles.LoadAndDelete(r.Name)
-			b.pidLock.Unlock()
-
+			b.mntnsLock.Lock()
+			mntns, exist = b.mntnsForProfile.LoadAndDelete(r.Name)
 			if !exist {
 				return ErrNotFound
 			}
+			b.profileForMountNamespace.Delete(mntns.(uint64))
+			b.mntnsLock.Unlock()
+
 			return nil
 		},
 		func(error) bool { return true },
@@ -311,58 +311,47 @@ func (b *BpfRecorder) SyscallsForProfile(
 		return nil, ErrNotFound
 	}
 
-	pids, ok := res.([]Pid)
-	if !ok {
-		return nil, errors.New("result it not a pid type")
+	b.loadUnloadMutex.RLock()
+	//get syscall from ebpf syscalls map by mntns
+	syscalls, err := b.GetValue64(b.syscalls, mntns.(uint64))
+	b.loadUnloadMutex.RUnlock()
+	if err != nil {
+		b.logger.Error(err, "no syscalls found for mntns", "mntns", mntns.(uint64))
+		return nil, ErrNotFound
 	}
-	b.logger.Info(fmt.Sprintf("Got PIDs for the profile: %+v", pids))
-	if len(pids) == 0 {
-		return nil, fmt.Errorf("PID slice is empty")
-	}
-
-	result := []string{}
-	for _, pid := range pids {
-		b.profileForMountNamespace.Delete(pid.mntns)
-
-		b.loadUnloadMutex.RLock()
-		syscalls, err := b.GetValue(b.syscalls, pid.id)
-		b.loadUnloadMutex.RUnlock()
-		if err != nil {
-			b.logger.Error(err, "no syscalls found for PID", "pid", pid.id)
-			continue
-		}
-
-		for id, set := range syscalls {
-			if set == 1 {
-				name, err := b.syscallNameForID(id)
-				if err != nil {
-					b.logger.Error(err, "unable to convert syscall ID")
-					continue
-				}
-
-				b.logger.V(config.VerboseLevel).Info(
-					"Got syscall",
-					"comm", pid.comm, "pid", pid.id, "name", name,
-				)
-				result = append(result, name)
-			}
-		}
-	}
+	result := b.getSyscallName(syscalls)
+	b.logger.Info("collect syscalls for profile success", "profile", r.Name, "mntns", mntns.(uint64), "syscall size", len(result), "syscalls", result)
 
 	// Cleanup hashmaps
 	b.logger.Info("Cleaning up BPF hashmaps")
-	for _, pid := range pids {
-		b.loadUnloadMutex.Lock()
-		if err := b.DeleteKey(b.comms, pid.id); err != nil {
-			b.logger.Error(err, "unable to cleanup comms map", "pid", pid.id)
-		}
-		b.loadUnloadMutex.Unlock()
+	b.loadUnloadMutex.Lock()
+	if err := b.DeleteKey64(b.syscalls, mntns.(uint64)); err != nil {
+		b.logger.Error(err, "unable to cleanup mntns syscall map", "mntns", mntns.(uint64))
 	}
+	if err := b.DeleteKey64(b.record, mntns.(uint64)); err != nil {
+		b.logger.Error(err, "unable to cleanup mntns syscall map", "mntns", mntns.(uint64))
+	}
+	b.loadUnloadMutex.Unlock()
 
 	return &api.SyscallsResponse{
 		Syscalls: sortUnique(result),
 		GoArch:   runtime.GOARCH,
 	}, nil
+}
+
+func (b *BpfRecorder) getSyscallName(syscalls []byte) []string {
+	result := []string{}
+	for id, set := range syscalls {
+		if set == 1 {
+			name, err := b.syscallNameForID(id)
+			if err != nil {
+				b.logger.Error(err, "unable to convert syscall ID")
+				continue
+			}
+			result = append(result, name)
+		}
+	}
+	return result
 }
 
 func sortUnique(input []string) (res []string) {
@@ -416,7 +405,7 @@ func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
 	}
 
 	b.logger.Info("Getting syscalls map")
-	syscalls, err := b.GetMap(module, "syscalls")
+	syscalls, err := b.GetMap(module, "mntns_syscalls")
 	if err != nil {
 		return fmt.Errorf("get syscalls map: %w", err)
 	}
@@ -429,8 +418,16 @@ func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
 	b.logger.Info("Getting system_mntns map")
 	mntns, err := b.GetMap(module, "system_mntns")
 	if err != nil {
-		return fmt.Errorf("get mntns_map: %w", err)
+		return fmt.Errorf("get mntns map: %w", err)
 	}
+	b.logger.Info("Getting mntns_record map")
+	record, err := b.GetMap(module, "mntns_record")
+	if err != nil {
+		return fmt.Errorf("get record map: %w", err)
+	}
+
+	// Update mntns to system_mntns
+	b.updateSystemMntns(mntns)
 
 	events := make(chan []byte)
 	ringbuffer, err := b.InitRingBuf(module, "events", events)
@@ -442,9 +439,7 @@ func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
 	b.syscalls = syscalls
 	b.comms = comms
 	b.mntns = mntns
-
-	// Update mntns to system_mntns
-	b.updateSystemMntns()
+	b.record = record
 
 	if startEventProcessor {
 		go b.processEvents(events)
@@ -577,12 +572,23 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 	}
 }
 
-func (b *BpfRecorder) updateSystemMntns() {
+func (b *BpfRecorder) updateSystemMntns(bpfMap *bpf.BPFMap) {
 	mntnsByte := make([]byte, defaultByteNum)
 	binary.LittleEndian.PutUint64(mntnsByte, b.systemMountNamespace)
-	err := b.UpdateValue(b.mntns, defaultHostPid, mntnsByte)
+	err := b.UpdateValue(bpfMap, defaultHostPid, mntnsByte)
 	if err != nil {
 		b.logger.Error(err, "update system_mntns map failed")
+	}
+}
+
+func (b *BpfRecorder) updateRecord(mntns uint64) {
+	b.logger.Info("update mntns to mntns_record map", "mntns", mntns)
+	var record uint8 = 1
+	b.loadUnloadMutex.Lock()
+	err := b.UpdateValue8(b.record, mntns, record)
+	b.loadUnloadMutex.Unlock()
+	if err != nil {
+		b.logger.Error(err, "update mntns_record map failed")
 	}
 }
 
@@ -598,16 +604,15 @@ func (b *BpfRecorder) handleEvent(event []byte) {
 	mntns := binary.LittleEndian.Uint64(event[8:])
 
 	// Blocking from syscall retrieval when PIDs are currently being analyzed
-	b.pidLock.Lock()
-	defer b.pidLock.Unlock()
+	b.mntnsLock.Lock()
+	defer b.mntnsLock.Unlock()
 
 	// Short path via the mount namespace
 	if profile, exist := b.profileForMountNamespace.Load(mntns); exist {
 		b.logger.Info(
-			"Using short path via tracked mount namespace",
+			"Skipping PID, because it has already on the mount namespace",
 			"pid", pid, "mntns", mntns, "profile", profile,
 		)
-		b.trackProfileForPid(pid, mntns, profile)
 		return
 	}
 
@@ -620,23 +625,16 @@ func (b *BpfRecorder) handleEvent(event []byte) {
 		)
 		return
 	}
+	b.updateRecord(mntns)
 
 	b.logger.V(config.VerboseLevel).Info(
 		"Found container for PID", "pid", pid, "containerID", containerID,
 	)
-	if err := b.findContainerID(containerID); err != nil {
+	if err := b.findContainerID(containerID, mntns); err != nil {
 		b.logger.Error(err, "unable to find container ID in cluster")
 		return
 	}
 
-	if profile, exist := b.profileForContainerIDs.LoadAndDelete(containerID); exist {
-		b.logger.Info(
-			"Saving PID for profile",
-			"pid", pid, "mntns", mntns, "profile", profile,
-		)
-		b.trackProfileForPid(pid, mntns, profile)
-		b.profileForMountNamespace.Store(mntns, profile)
-	}
 }
 
 func (b *BpfRecorder) findSystemMountNamespace() (uint64, error) {
@@ -657,40 +655,17 @@ func (b *BpfRecorder) findSystemMountNamespace() (uint64, error) {
 	return uint64(ns), nil
 }
 
-func (b *BpfRecorder) trackProfileForPid(pid uint32, mntns uint64, profile interface{}) {
-	comm := b.commForPid(pid)
-
-	profileString, ok := profile.(string)
-	if ok {
-		if err := b.SendMetric(b.metricsClient, &apimetrics.BpfRequest{
-			Node:           b.nodeName,
-			Profile:        profileString,
-			MountNamespace: mntns,
-		}); err != nil {
-			b.logger.Error(err, "Unable to update metrics")
-		}
-	}
-
-	pids, _ := b.pidsForProfiles.LoadOrStore(profile, []Pid{})
-	pidList, ok := pids.([]Pid)
-	if ok {
-		b.pidsForProfiles.Store(profile, append(
-			pidList, Pid{id: pid, comm: comm, mntns: mntns}),
-		)
+func (b *BpfRecorder) trackProfileForMntns(mntns uint64, profile string) {
+	if err := b.SendMetric(b.metricsClient, &apimetrics.BpfRequest{
+		Node:           b.nodeName,
+		Profile:        profile,
+		MountNamespace: mntns,
+	}); err != nil {
+		b.logger.Error(err, "Unable to update metrics")
 	}
 }
 
-func (b *BpfRecorder) commForPid(pid uint32) string {
-	b.loadUnloadMutex.RLock()
-	rawComm, err := b.GetValue(b.comms, pid)
-	b.loadUnloadMutex.RUnlock()
-	if err != nil {
-		b.logger.Error(err, "unable to get command name for PID", "pid", pid)
-	}
-	return toStringByte(rawComm)
-}
-
-func (b *BpfRecorder) findContainerID(id string) error {
+func (b *BpfRecorder) findContainerID(id string, mntns uint64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
@@ -746,22 +721,19 @@ func (b *BpfRecorder) findContainerID(id string) error {
 
 					key := config.SeccompProfileRecordBpfAnnotationKey + containerName
 					if profile, ok := pod.Annotations[key]; ok {
-						b.logger.V(config.VerboseLevel).Info(
-							"Found profile to record",
-							"profile", profile,
-							"containerID", containerID,
-							"containerName", containerName,
-						)
-						b.profileForContainerIDs.Store(containerID, profile)
-					}
-
-					if containerID == id {
-						b.logger.Info(
-							"Found container ID in cluster",
-							"containerID", containerID,
-							"containerName", containerName,
-						)
-						return nil
+						if containerID == id {
+							b.logger.V(config.VerboseLevel).Info(
+								"Found profile to record",
+								"profile", profile,
+								"containerID", containerID,
+								"containerName", containerName,
+								"mntns", mntns,
+							)
+							b.mntnsForProfile.Store(profile, mntns)
+							b.profileForMountNamespace.Store(mntns, profile)
+							b.trackProfileForMntns(mntns, profile)
+							return nil
+						}
 					}
 				}
 			}
@@ -782,6 +754,8 @@ func (b *BpfRecorder) unload() {
 	b.CloseModule(b.syscalls)
 	b.syscalls = nil
 	b.comms = nil
+	b.mntns = nil
+	b.record = nil
 	os.RemoveAll(b.btfPath)
 	b.loadUnloadMutex.Unlock()
 }
