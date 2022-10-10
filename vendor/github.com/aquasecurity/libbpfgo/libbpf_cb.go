@@ -10,13 +10,13 @@ import (
 
 //export perfCallback
 func perfCallback(ctx unsafe.Pointer, cpu C.int, data unsafe.Pointer, size C.int) {
-	pb := eventChannels.Get(uint(uintptr(ctx))).(*PerfBuffer)
+	pb := eventChannels.get(uint(uintptr(ctx))).(*PerfBuffer)
 	pb.eventsChan <- C.GoBytes(data, size)
 }
 
 //export perfLostCallback
 func perfLostCallback(ctx unsafe.Pointer, cpu C.int, cnt C.ulonglong) {
-	pb := eventChannels.Get(uint(uintptr(ctx))).(*PerfBuffer)
+	pb := eventChannels.get(uint(uintptr(ctx))).(*PerfBuffer)
 	if pb.lostChan != nil {
 		pb.lostChan <- uint64(cnt)
 	}
@@ -24,7 +24,7 @@ func perfLostCallback(ctx unsafe.Pointer, cpu C.int, cnt C.ulonglong) {
 
 //export ringbufferCallback
 func ringbufferCallback(ctx unsafe.Pointer, data unsafe.Pointer, size C.int) C.int {
-	ch := eventChannels.Get(uint(uintptr(ctx))).(chan []byte)
+	ch := eventChannels.get(uint(uintptr(ctx))).(chan []byte)
 	ch <- C.GoBytes(data, size)
 	return C.int(0)
 }

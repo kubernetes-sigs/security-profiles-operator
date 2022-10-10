@@ -114,6 +114,20 @@ libbpfgo does not yet have a regular schedule for cutting releases. There has no
 
 *Note*: some distributions might have local changes to their libbpf package and their version might include backports and/or fixes differently than upstream versions. In those cases we recommend that libbpfgo is used statically compiled.
 
+## Contributing
+
+To better receive you, libbpfgo makes available GNU Makefile rules for vagrant machines (amd64/arm64) that can be used to compile and test on Linux and Darwin hosts:
+
+| Makefile Rule     | Description                                         |
+|-------------------|-----------------------------------------------------|
+| vagrant-up        | starts and provisions the vagrant environment       |
+| vagrant-ssh       | connects to machine via SSH                         |
+| vagrant-halt      | stops the vagrant machine                           |
+| vagrant-destroy   | stops and deletes all traces of the vagrant machine |
+
+Once connected to the vagrant box you are ready to [build](#building) libbpfgo (e.g. `make libbpfgo-static`).
+
+For further information, check [Vagrantfile.md](./docs/Vagrantfile.md).
 
 ## Learn more
 
