@@ -30,10 +30,10 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	e.logf("Change webhook options")
 	origOutput0 := e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[1].namespaceSelector}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"binding.spo.io\")].namespaceSelector}")
 	origOutput1 := e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[1].namespaceSelector}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"recording.spo.io\")].namespaceSelector}")
 
 	whPatch := fmt.Sprintf(`{"spec":{"webhookOptions":[{"name":"binding.spo.io","failurePolicy":"Ignore","namespaceSelector":%s}]}}`, whNamespaceSelector) //nolint:lll // very long patch line
 	e.logf(whPatch)
@@ -43,21 +43,21 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	// check the configured hook
 	output := e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[0].failurePolicy}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"binding.spo.io\")].failurePolicy}")
 	e.Equal("Ignore", output)
 	output = e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[0].namespaceSelector}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"binding.spo.io\")].namespaceSelector}")
 	e.Equal(whNamespaceSelector, output)
 
 	// check the other hook did not change
 	output = e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[1].failurePolicy}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"recording.spo.io\")].failurePolicy}")
 	e.Equal("Fail", output)
 	output = e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[1].namespaceSelector}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"recording.spo.io\")].namespaceSelector}")
 	e.Equal(origOutput1, output)
 
 	// go back to defaults
@@ -67,21 +67,21 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	// check we are back to defaults
 	output = e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[0].failurePolicy}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"binding.spo.io\")].failurePolicy}")
 	e.Equal("Fail", output)
 
 	output = e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[0].namespaceSelector}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"binding.spo.io\")].namespaceSelector}")
 	e.Equal(origOutput0, output)
 
 	output = e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[1].failurePolicy}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"recording.spo.io\")].failurePolicy}")
 	e.Equal("Fail", output)
 
 	output = e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
-		"--output", "jsonpath={.webhooks[1].namespaceSelector}")
+		"--output", "jsonpath={.webhooks[?(@.name==\"recording.spo.io\")].namespaceSelector}")
 	e.Equal(origOutput1, output)
 }
