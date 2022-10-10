@@ -1,3 +1,7 @@
+
+.ONESHELL:
+SHELL = /bin/bash
+
 BASEDIR = $(abspath ./)
 
 OUTPUT = ./output
@@ -7,8 +11,11 @@ HELPERS = ./helpers
 CC = gcc
 CLANG = clang
 GO = go
+VAGRANT = vagrant
+CLANG_FMT = clang-format
 
-ARCH := $(shell uname -m | sed 's/x86_64/amd64/g; s/aarch64/arm64/g')
+HOSTOS = $(shell uname)
+ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/g; s/aarch64/arm64/g')
 
 BTFFILE = /sys/kernel/btf/vmlinux
 BPFTOOL = $(shell which bpftool || /bin/false)
@@ -31,7 +38,7 @@ CGO_CFLAGS_STATIC = "-I$(abspath $(OUTPUT))"
 CGO_LDFLAGS_STATIC = "-lelf -lz $(LIBBPF_OBJ)"
 CGO_EXTLDFLAGS_STATIC = '-w -extldflags "-static"'
 
-CGO_CFGLAGS_DYN = "-I. -I/usr/include/"
+CGO_CFLAGS_DYN = "-I. -I/usr/include/"
 CGO_LDFLAGS_DYN = "-lelf -lz -lbpf"
 
 # default == shared lib from OS package
@@ -95,14 +102,17 @@ $(VMLINUXH): $(OUTPUT)
 		echo "ERROR: kernel does not seem to support BTF"; \
 		exit 1; \
 	fi
-	@if [ ! -f $(VMLINUXH) ]; then \
-		if [ ! $(BPFTOOL) ]; then \
-			echo "ERROR: could not find bpftool"; \
-			exit 1; \
-		fi; \
-		echo "INFO: generating $(VMLINUXH) from $(BTFFILE)"; \
-		$(BPFTOOL) btf dump file $(BTFFILE) format c > $(VMLINUXH); \
-	fi
+	@if [ ! $(BPFTOOL) ]; then \
+		echo "ERROR: could not find bpftool"; \
+		exit 1; \
+	fi;
+
+	@echo "INFO: generating $(VMLINUXH) from $(BTFFILE)"; \
+	if ! $(BPFTOOL) btf dump file $(BTFFILE) format c > $(VMLINUXH); then \
+		echo "ERROR: could not create $(VMLINUXH)"; \
+		rm -f "$(VMLINUXH)"; \
+		exit 1; \
+	fi;
 
 # static libbpf generation for the git submodule
 
@@ -179,6 +189,54 @@ helpers-test-static-run: libbpfgo-static
 
 helpers-test-dynamic-run: libbpfgo-dynamic
 	sudo $(GO) test -v $(HELPERS)/...
+
+# vagrant
+
+VAGRANT_DIR = $(abspath ./builder)
+
+.PHONY: vagrant-up
+.PHONY: vagrant-destroy
+.PHONY: vagrant-halt
+.PHONY: vagrant-ssh
+
+vagrant-up: .vagrant-up
+vagrant-destroy: .vagrant-destroy
+vagrant-halt: .vagrant-halt
+vagrant-ssh: .vagrant-ssh
+
+.vagrant-%:
+	VAGRANT_VAGRANTFILE=$(VAGRANT_DIR)/Vagrantfile-ubuntu \
+		ARCH=$(ARCH) \
+		HOSTOS=$(HOSTOS) \
+		$(VAGRANT) $*
+
+# fmt-check
+
+fmt-check:
+	@errors=0
+	echo "Checking C and eBPF files and headers formatting..."
+	$(CLANG_FMT) --dry-run -i ./libbpfgo.h > /tmp/check-c-fmt 2>&1
+	clangfmtamount=$$(cat /tmp/check-c-fmt | wc -l)
+	if [[ $$clangfmtamount -ne 0 ]]; then
+		head -n30 /tmp/check-c-fmt
+		errors=1
+	fi
+	rm -f /tmp/check-c-fmt
+#
+	if [[ $$errors -ne 0 ]]; then
+		echo
+		echo "Please fix formatting errors above!"
+		echo "Use: $(MAKE) fmt-fix target".
+		echo
+		exit 1
+	fi
+
+
+# fmt-fix
+
+fmt-fix:
+	@echo "Fixing C and eBPF files and headers formatting..."
+	$(CLANG_FMT) -i --verbose ./libbpfgo.h
 
 # output
 

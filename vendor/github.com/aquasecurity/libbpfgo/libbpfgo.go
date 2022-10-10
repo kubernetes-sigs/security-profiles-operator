@@ -2,117 +2,7 @@ package libbpfgo
 
 /*
 #cgo LDFLAGS: -lelf -lz
-
-#include <errno.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/resource.h>
-#include <sys/syscall.h>
-
-#include <bpf/bpf.h>
-#include <bpf/libbpf.h>
-
-
-int libbpf_print_fn(enum libbpf_print_level level,
-                    const char *format,
-                    va_list args)
-{
-	if (level != LIBBPF_WARN)
-		return 0;
-
-	va_list check;
-	va_copy(check, args);
-	char *str = va_arg(check, char *);
-
-	// BUG: https://github.com/aquasecurity/tracee/issues/1676
-
-	if (strstr(str, "Exclusivity flag on") != NULL) {
-		va_end(check);
-		return 0;
-	}
-
-	// AttachCgroupLegacy() will first try AttachCgroup() and it
-	// might fail. This is not an error and is the best way of
-	// probing for eBPF cgroup attachment link existence.
-
-	str = va_arg(check, char *);
-	if (strstr(str, "cgroup") != NULL) {
-		str = va_arg(check, char *);
-		if (strstr(str, "Invalid argument") != NULL)
-			return 0;
-	}
-
-	return vfprintf(stderr, format, args);
-}
-
-void set_print_fn()
-{
-    libbpf_set_print(libbpf_print_fn);
-}
-
-extern void perfCallback(void *ctx, int cpu, void *data, __u32 size);
-extern void perfLostCallback(void *ctx, int cpu, __u64 cnt);
-extern int ringbufferCallback(void *ctx, void *data, size_t size);
-
-struct ring_buffer * init_ring_buf(int map_fd, uintptr_t ctx)
-{
-    struct ring_buffer *rb = NULL;
-
-    rb = ring_buffer__new(map_fd, ringbufferCallback, (void*)ctx, NULL);
-    if (!rb) {
-        fprintf(stderr, "Failed to initialize ring buffer: %s\n", strerror(errno));
-        return NULL;
-    }
-
-    return rb;
-}
-
-struct perf_buffer * init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx)
-{
-    struct perf_buffer_opts pb_opts = {};
-    struct perf_buffer *pb = NULL;
-
-    pb_opts.sz = sizeof(struct perf_buffer_opts);
-
-    pb = perf_buffer__new(map_fd, page_cnt, perfCallback, perfLostCallback,
-                          (void *) ctx, &pb_opts);
-    if (!pb) {
-        fprintf(stderr, "Failed to initialize perf buffer: %s\n", strerror(errno));
-        return NULL;
-    }
-
-    return pb;
-}
-
-int bpf_prog_attach_cgroup_legacy(
-	int prog_fd,          // eBPF program file descriptor
-	int target_fd,        // cgroup directory file descriptor
-	int type)             // BPF_CGROUP_INET_{INGRESS,EGRESS}, ...
-{
-	union bpf_attr attr;
-	memset(&attr, 0, sizeof(attr));
-	attr.target_fd = target_fd;
-	attr.attach_bpf_fd = prog_fd;
-	attr.attach_type = type;
-	attr.attach_flags = BPF_F_ALLOW_MULTI; // or BPF_F_ALLOW_OVERRIDE
-
-	return syscall(__NR_bpf, BPF_PROG_ATTACH, &attr, sizeof(attr));
-}
-
-int bpf_prog_detach_cgroup_legacy(
-	int prog_fd,          // eBPF program file descriptor
-	int target_fd,        // cgroup directory file descriptor
-	int type)             // BPF_CGROUP_INET_{INGRESS,EGRESS}, ...
-{
-	union bpf_attr attr;
-	memset(&attr, 0, sizeof(attr));
-	attr.target_fd = target_fd;
-	attr.attach_bpf_fd = prog_fd;
-	attr.attach_type = type;
-
-	return syscall(__NR_bpf, BPF_PROG_DETACH, &attr, sizeof(attr));
-}
+#include "libbpfgo.h"
 */
 import "C"
 
@@ -124,8 +14,6 @@ import (
 	"sync"
 	"syscall"
 	"unsafe"
-
-	"github.com/aquasecurity/libbpfgo/helpers/rwarray"
 )
 
 const (
@@ -453,30 +341,26 @@ func NewModuleFromBufferArgs(args NewModuleArgs) (*Module, error) {
 	if args.BTFObjPath == "" {
 		args.BTFObjPath = "/sys/kernel/btf/vmlinux"
 	}
-	btfFile := C.CString(args.BTFObjPath)
-	bpfName := C.CString(args.BPFObjName)
-	bpfBuff := unsafe.Pointer(C.CBytes(args.BPFObjBuff))
-	bpfBuffSize := C.size_t(len(args.BPFObjBuff))
 
-	opts := C.struct_bpf_object_open_opts{}
-	opts.object_name = bpfName
-	opts.sz = C.sizeof_struct_bpf_object_open_opts
-	opts.btf_custom_path = btfFile // instruct libbpf to use user provided kernel BTF file
+	CBTFFilePath := C.CString(args.BTFObjPath)
+	CKconfigPath := C.CString(args.KConfigFilePath)
+	CBPFObjName := C.CString(args.BPFObjName)
+	CBPFBuff := unsafe.Pointer(C.CBytes(args.BPFObjBuff))
+	CBPFBuffSize := C.size_t(len(args.BPFObjBuff))
 
-	if len(args.KConfigFilePath) > 2 {
-		kConfigFile := C.CString(args.KConfigFilePath)
-		opts.kconfig = kConfigFile // instruct libbpf to use user provided KConfigFile
-		defer C.free(unsafe.Pointer(kConfigFile))
+	if len(args.KConfigFilePath) <= 2 {
+		C.free(unsafe.Pointer(CKconfigPath))
+		CKconfigPath = nil
 	}
 
-	obj, errno := C.bpf_object__open_mem(bpfBuff, bpfBuffSize, &opts)
+	obj, errno := C.open_bpf_object(CBTFFilePath, CKconfigPath, CBPFObjName, CBPFBuff, CBPFBuffSize)
 	if obj == nil {
 		return nil, fmt.Errorf("failed to open BPF object %s: %w", args.BPFObjName, errno)
 	}
 
-	C.free(bpfBuff)
-	C.free(unsafe.Pointer(bpfName))
-	C.free(unsafe.Pointer(btfFile))
+	C.free(CBPFBuff)
+	C.free(unsafe.Pointer(CBPFObjName))
+	C.free(unsafe.Pointer(CBTFFilePath))
 
 	return &Module{
 		obj: obj,
@@ -1655,7 +1539,7 @@ func doAttachUprobe(prog *BPFProg, isUretprobe bool, pid int, path string, offse
 	return bpfLink, nil
 }
 
-var eventChannels = rwarray.NewRWArray(maxEventChannels)
+var eventChannels = newRWArray(maxEventChannels)
 
 func (m *Module) InitRingBuf(mapName string, eventsChan chan []byte) (*RingBuffer, error) {
 	bpfMap, err := m.GetMap(mapName)
@@ -1667,7 +1551,7 @@ func (m *Module) InitRingBuf(mapName string, eventsChan chan []byte) (*RingBuffe
 		return nil, fmt.Errorf("events channel can not be nil")
 	}
 
-	slot := eventChannels.Put(eventsChan)
+	slot := eventChannels.put(eventsChan)
 	if slot == -1 {
 		return nil, fmt.Errorf("max ring buffers reached")
 	}
@@ -1701,7 +1585,7 @@ func (rb *RingBuffer) Stop() {
 		// may have stopped at this point. Failure to drain it will
 		// result in a deadlock: the channel will fill up and the poll
 		// goroutine will block in the callback.
-		eventChan := eventChannels.Get(rb.slot).(chan []byte)
+		eventChan := eventChannels.get(rb.slot).(chan []byte)
 		go func() {
 			for range eventChan {
 			}
@@ -1725,7 +1609,7 @@ func (rb *RingBuffer) Close() {
 	}
 	rb.Stop()
 	C.ring_buffer__free(rb.rb)
-	eventChannels.Remove(rb.slot)
+	eventChannels.remove(rb.slot)
 	rb.closed = true
 }
 
@@ -1772,14 +1656,14 @@ func (m *Module) InitPerfBuf(mapName string, eventsChan chan []byte, lostChan ch
 		lostChan:   lostChan,
 	}
 
-	slot := eventChannels.Put(perfBuf)
+	slot := eventChannels.put(perfBuf)
 	if slot == -1 {
 		return nil, fmt.Errorf("max number of ring/perf buffers reached")
 	}
 
 	pb := C.init_perf_buf(bpfMap.fd, C.int(pageCnt), C.uintptr_t(slot))
 	if pb == nil {
-		eventChannels.Remove(uint(slot))
+		eventChannels.remove(uint(slot))
 		return nil, fmt.Errorf("failed to initialize perf buffer")
 	}
 
@@ -1836,7 +1720,7 @@ func (pb *PerfBuffer) Close() {
 	}
 	pb.Stop()
 	C.perf_buffer__free(pb.pb)
-	eventChannels.Remove(pb.slot)
+	eventChannels.remove(pb.slot)
 	pb.closed = true
 }
 
