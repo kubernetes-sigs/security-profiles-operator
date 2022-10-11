@@ -40,6 +40,23 @@ const (
 	ProfileRecorderBpf  ProfileRecorder = "bpf"
 )
 
+type ProfileMergeStrategy string
+
+const (
+	ProfileMergeNone       ProfileMergeStrategy = "none"
+	ProfileMergeContainers ProfileMergeStrategy = "containers"
+)
+
+const (
+	// ProfileToRecordingLabel is the name of the ProfileRecording CR that produced this profile.
+	ProfileToRecordingLabel = "spo.x-k8s.io/recording-id"
+	// ProfileToContainerLabel is the name of the container that produced this profile.
+	ProfileToContainerLabel = "spo.x-k8s.io/container-id"
+	// RecordingHasUnmergedProfiles is a finalizer that indicates that the recording has partial policies. Its
+	// main use is to hold off the deletion of the recording until all partial profiles are merged.
+	RecordingHasUnmergedProfiles = "spo.x-k8s.io/has-unmerged-profiles"
+)
+
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
 type ProfileRecordingSpec struct {
 	// Kind of object to be recorded.
@@ -49,6 +66,13 @@ type ProfileRecordingSpec struct {
 	// Recorder to be used.
 	// +kubebuilder:validation:Enum=bpf;logs
 	Recorder ProfileRecorder `json:"recorder"`
+
+	// Whether or how to merge recorded profiles. Can be one of "none" or "containers".
+	// Default is "none".
+	// +optional
+	// +kubebuilder:default="none"
+	// +kubebuilder:validation:Enum=none;containers
+	MergeStrategy ProfileMergeStrategy `json:"mergeStrategy"`
 
 	// PodSelector selects the pods to record. This field follows standard
 	// label selector semantics. An empty podSelector matches all pods in this

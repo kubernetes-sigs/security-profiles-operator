@@ -8,6 +8,8 @@ metadata:
 spec:
   kind: SeccompProfile
   recorder: logs
+  # uncomment to merge recordings of the same containers
+  # mergeStrategy: containers
   podSelector:
     matchLabels:
       app: alpine

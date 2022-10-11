@@ -15,6 +15,15 @@ const (
 	helpAlias = "h"
 )
 
+// this instance is to avoid recursion in the ShowCommandHelp which can
+// add a help command again
+var helpCommandDontUse = &Command{
+	Name:      helpName,
+	Aliases:   []string{helpAlias},
+	Usage:     "Shows a list of commands or help for one command",
+	ArgsUsage: "[command]",
+}
+
 var helpCommand = &Command{
 	Name:      helpName,
 	Aliases:   []string{helpAlias},
@@ -22,26 +31,43 @@ var helpCommand = &Command{
 	ArgsUsage: "[command]",
 	Action: func(cCtx *Context) error {
 		args := cCtx.Args()
-		if args.Present() {
-			return ShowCommandHelp(cCtx, args.First())
+		argsPresent := args.First() != ""
+		firstArg := args.First()
+
+		// This action can be triggered by a "default" action of a command
+		// or via cmd.Run when cmd == helpCmd. So we have following possibilities
+		//
+		// 1 $ app
+		// 2 $ app help
+		// 3 $ app foo
+		// 4 $ app help foo
+		// 5 $ app foo help
+
+		// Case 4. when executing a help command set the context to parent
+		// to allow resolution of subsequent args. This will transform
+		// $ app help foo
+		//     to
+		// $ app foo
+		// which will then be handled as case 3
+		if cCtx.Command.Name == helpName || cCtx.Command.Name == helpAlias {
+			cCtx = cCtx.parentContext
 		}
 
-		_ = ShowAppHelp(cCtx)
-		return nil
-	},
-}
-
-var helpSubcommand = &Command{
-	Name:      helpName,
-	Aliases:   []string{helpAlias},
-	Usage:     "Shows a list of commands or help for one command",
-	ArgsUsage: "[command]",
-	Action: func(cCtx *Context) error {
-		args := cCtx.Args()
-		if args.Present() {
-			return ShowCommandHelp(cCtx, args.First())
+		// Case 4. $ app hello foo
+		// foo is the command for which help needs to be shown
+		if argsPresent {
+			return ShowCommandHelp(cCtx, firstArg)
 		}
 
+		// Case 1 & 2
+		// Special case when running help on main app itself as opposed to indivdual
+		// commands/subcommands
+		if cCtx.parentContext.App == nil {
+			_ = ShowAppHelp(cCtx)
+			return nil
+		}
+
+		// Case 3, 5
 		return ShowSubcommandHelp(cCtx)
 	},
 }
@@ -212,9 +238,19 @@ func ShowCommandHelp(ctx *Context, command string) error {
 
 	for _, c := range ctx.App.Commands {
 		if c.HasName(command) {
+			if !ctx.App.HideHelpCommand && !c.HasName(helpName) && len(c.Subcommands) != 0 {
+				c.Subcommands = append(c.Subcommands, helpCommandDontUse)
+			}
+			if !ctx.App.HideHelp && HelpFlag != nil {
+				c.appendFlag(HelpFlag)
+			}
 			templ := c.CustomHelpTemplate
 			if templ == "" {
-				templ = CommandHelpTemplate
+				if len(c.Subcommands) == 0 {
+					templ = CommandHelpTemplate
+				} else {
+					templ = SubcommandHelpTemplate
+				}
 			}
 
 			HelpPrinter(ctx.App.Writer, templ, c)
@@ -322,6 +358,17 @@ func printHelpCustom(out io.Writer, templ string, data interface{}, customFuncs 
 
 	w := tabwriter.NewWriter(out, 1, 8, 2, ' ', 0)
 	t := template.Must(template.New("help").Funcs(funcMap).Parse(templ))
+	t.New("helpNameTemplate").Parse(helpNameTemplate)
+	t.New("usageTemplate").Parse(usageTemplate)
+	t.New("descriptionTemplate").Parse(descriptionTemplate)
+	t.New("visibleCommandTemplate").Parse(visibleCommandTemplate)
+	t.New("copyrightTemplate").Parse(copyrightTemplate)
+	t.New("versionTemplate").Parse(versionTemplate)
+	t.New("visibleFlagCategoryTemplate").Parse(visibleFlagCategoryTemplate)
+	t.New("visibleFlagTemplate").Parse(visibleFlagTemplate)
+	t.New("visibleGlobalFlagCategoryTemplate").Parse(strings.Replace(visibleFlagCategoryTemplate, "OPTIONS", "GLOBAL OPTIONS", -1))
+	t.New("authorsTemplate").Parse(authorsTemplate)
+	t.New("visibleCommandCategoryTemplate").Parse(visibleCommandCategoryTemplate)
 
 	err := t.Execute(w, data)
 	if err != nil {
@@ -432,25 +479,28 @@ func nindent(spaces int, v string) string {
 }
 
 func wrap(input string, offset int, wrapAt int) string {
-	var sb strings.Builder
+	var ss []string
 
 	lines := strings.Split(input, "\n")
 
 	padding := strings.Repeat(" ", offset)
 
 	for i, line := range lines {
-		if i != 0 {
-			sb.WriteString(padding)
-		}
+		if line == "" {
+			ss = append(ss, line)
+		} else {
+			wrapped := wrapLine(line, offset, wrapAt, padding)
+			if i == 0 {
+				ss = append(ss, wrapped)
+			} else {
+				ss = append(ss, padding+wrapped)
 
-		sb.WriteString(wrapLine(line, offset, wrapAt, padding))
+			}
 
-		if i != len(lines)-1 {
-			sb.WriteString("\n")
 		}
 	}
 
-	return sb.String()
+	return strings.Join(ss, "\n")
 }
 
 func wrapLine(input string, offset int, wrapAt int, padding string) string {

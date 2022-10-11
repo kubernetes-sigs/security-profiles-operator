@@ -252,6 +252,11 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return reconcile.Result{}, nil
 	}
 
+	if sp.IsPartial() {
+		l.Info("Profile is partial, skipping")
+		return reconcile.Result{}, nil
+	}
+
 	err = r.reconcilePolicyFile(sp, oh, l)
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotWritePolicyFile)

@@ -19,6 +19,8 @@ package v1alpha2
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+
+	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 )
 
 const (
@@ -29,6 +31,7 @@ const (
 type SelinuxProfileObject interface {
 	metav1.Object
 	runtime.Object
+	profilebase.SecurityProfileBase
 	GetPolicyName() string
 	GetPolicyUsage() string
 }

@@ -7,7 +7,7 @@ with pkgs; buildGo119Module rec {
   doCheck = false;
   outputs = [ "out" ];
   nativeBuildInputs = with buildPackages; [
-    bpftool
+    bpftools
     git
     llvmPackages_14.clang-unwrapped
     llvm_14
@@ -15,13 +15,10 @@ with pkgs; buildGo119Module rec {
     which
   ];
   buildInputs = [
-    (libseccomp.overrideAttrs (x: {
-      doCheck = false;
-      dontDisableStatic = true;
-    }))
     glibc
     glibc.static
-    libbpf
+    libbpf_1
+    libseccomp
     zlib.static
   ];
   buildPhase = ''

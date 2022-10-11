@@ -165,8 +165,12 @@ func (c *Command) Run(ctx *Context) (err error) {
 		}
 	}
 
+	if err = runFlagActions(cCtx, c.Flags); err != nil {
+		return err
+	}
+
 	if c.Action == nil {
-		c.Action = helpSubcommand.Action
+		c.Action = helpCommand.Action
 	}
 
 	cCtx.Command = c
@@ -280,7 +284,7 @@ func (c *Command) startApp(ctx *Context) error {
 	if c.Action != nil {
 		app.Action = c.Action
 	} else {
-		app.Action = helpSubcommand.Action
+		app.Action = helpCommand.Action
 	}
 	app.OnUsageError = c.OnUsageError
 
@@ -291,10 +295,21 @@ func (c *Command) startApp(ctx *Context) error {
 	return app.RunAsSubcommand(ctx)
 }
 
+// VisibleCommands returns a slice of the Commands with Hidden=false
+func (c *Command) VisibleCommands() []*Command {
+	var ret []*Command
+	for _, command := range c.Subcommands {
+		if !command.Hidden {
+			ret = append(ret, command)
+		}
+	}
+	return ret
+}
+
 // VisibleFlagCategories returns a slice containing all the visible flag categories with the flags they contain
 func (c *Command) VisibleFlagCategories() []VisibleFlagCategory {
 	if c.flagCategories == nil {
-		return []VisibleFlagCategory{}
+		c.flagCategories = newFlagCategoriesFromFlags(c.Flags)
 	}
 	return c.flagCategories.VisibleCategories()
 }

@@ -29,11 +29,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
-      - uses: github/codeql-action/init@b398f525a5587552e573b247ac661067fafa920b
+      - uses: github/codeql-action/init@807578363a7869ca324a79039e6db9c843e0e100
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@b398f525a5587552e573b247ac661067fafa920b
-      - uses: github/codeql-action/analyze@b398f525a5587552e573b247ac661067fafa920b
+      - uses: github/codeql-action/autobuild@807578363a7869ca324a79039e6db9c843e0e100
+      - uses: github/codeql-action/analyze@807578363a7869ca324a79039e6db9c843e0e100
 
   coverage:
     runs-on: ubuntu-22.04
@@ -48,7 +48,7 @@ jobs:
           sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
           sudo hack/install-libbpf.sh
       - run: make test-unit
-      - uses: codecov/codecov-action@81cd2dc8148241f03f5839d295e000b8f761e378
+      - uses: codecov/codecov-action@d9f34f8cd5cb3b3eb79b3e4b5dae3a16df499a70
         with:
           files: build/coverage.out
           flags: unittests
@@ -74,12 +74,11 @@ jobs:
       RUN: ./hack/ci/run-fedora.sh
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/cache@fd5de65bc895cf536527842281bea11763fefd77
+      - uses: actions/cache@56461b9eb0f8438fd15c7a9968e3c9ebb18ceff1
         with:
           path: |
             ~/.vagrant.d/boxes
           key: e2e-fedora-${{ hashFiles('hack/ci/Vagrantfile-fedora') }}
-          restore-keys: e2e-fedora-
       - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
         with:
           name: image
@@ -112,12 +111,11 @@ jobs:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/cache@fd5de65bc895cf536527842281bea11763fefd77
+      - uses: actions/cache@56461b9eb0f8438fd15c7a9968e3c9ebb18ceff1
         with:
           path: |
             ~/.vagrant.d/boxes
           key: e2e-ubuntu-${{ hashFiles('hack/ci/Vagrantfile-ubuntu') }}
-          restore-keys: e2e-ubuntu-
       - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
         with:
           name: image
@@ -153,12 +151,11 @@ jobs:
         run: |
           echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
         shell: bash
-      - uses: actions/cache@fd5de65bc895cf536527842281bea11763fefd77
+      - uses: actions/cache@56461b9eb0f8438fd15c7a9968e3c9ebb18ceff1
         with:
           path: |
             ~/.vagrant.d/boxes
           key: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
-          restore-keys: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-
       - name: Upgrade vagrant box
         run: |
           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile

@@ -47,6 +47,13 @@ spec:
   - image: quay.io/security-profiles-operator/test-hello-world:latest
     name: hello
     resources: {}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      runAsUser: 1000
+      runAsNonRoot: true
   restartPolicy: Never
 `
 

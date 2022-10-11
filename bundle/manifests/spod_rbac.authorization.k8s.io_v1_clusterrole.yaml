@@ -75,6 +75,16 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - profilerecordings
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
   - rawselinuxprofiles
   verbs:
   - create

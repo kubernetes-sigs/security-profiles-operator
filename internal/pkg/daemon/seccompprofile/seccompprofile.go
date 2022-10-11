@@ -293,33 +293,6 @@ type OutputProfile struct {
 	Flags            []*seccompprofileapi.Flag    `json:"flags,omitempty"`
 }
 
-func unionSyscalls(baseSyscalls, appliedSyscalls []*seccompprofileapi.Syscall) []*seccompprofileapi.Syscall {
-	allSyscalls := make(map[seccomp.Action]map[string]bool)
-	for _, b := range baseSyscalls {
-		allSyscalls[b.Action] = make(map[string]bool)
-		for _, n := range b.Names {
-			allSyscalls[b.Action][n] = true
-		}
-	}
-	for _, s := range appliedSyscalls {
-		if _, ok := allSyscalls[s.Action]; !ok {
-			allSyscalls[s.Action] = make(map[string]bool)
-		}
-		for _, n := range s.Names {
-			allSyscalls[s.Action][n] = true
-		}
-	}
-	finalSyscalls := make([]*seccompprofileapi.Syscall, 0, len(appliedSyscalls)+len(baseSyscalls))
-	for action, names := range allSyscalls {
-		syscall := seccompprofileapi.Syscall{Action: action}
-		for n := range names {
-			syscall.Names = append(syscall.Names, n)
-		}
-		finalSyscalls = append(finalSyscalls, &syscall)
-	}
-	return finalSyscalls
-}
-
 func (r *Reconciler) mergeBaseProfile(
 	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
 ) (OutputProfile, error) {
@@ -343,7 +316,7 @@ func (r *Reconciler) mergeBaseProfile(
 		r.record.Event(sp, event.Warning(reasonInvalidSeccompProfile, err))
 		return op, fmt.Errorf("merging base profile: %w", err)
 	}
-	op.Syscalls = unionSyscalls(baseProfile.Spec.Syscalls, sp.Spec.Syscalls)
+	op.Syscalls = util.UnionSyscalls(baseProfile.Spec.Syscalls, sp.Spec.Syscalls)
 	return op, nil
 }
 
@@ -400,6 +373,11 @@ func (r *Reconciler) reconcileSeccompProfile(
 		}
 		l.Info("Created an initial status for this node")
 		return reconcile.Result{RequeueAfter: wait}, nil
+	}
+
+	if sp.IsPartial() {
+		l.Info("Profile is partial, skipping")
+		return reconcile.Result{}, nil
 	}
 
 	updated, err := r.save(profilePath, profileContent)
@@ -489,6 +467,7 @@ func (r *Reconciler) reconcileDeletion(
 		r.record.Event(sp, event.Warning(reasonCannotUpdateStatus, err))
 		return ctrl.Result{}, fmt.Errorf("deleting node status/finalizer for deleted SeccompProfile: %w", err)
 	}
+
 	return ctrl.Result{}, nil
 }
 

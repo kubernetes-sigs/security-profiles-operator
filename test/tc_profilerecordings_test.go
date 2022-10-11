@@ -287,27 +287,13 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	output := e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.metadata.finalizers[0]}")
 	e.Equal("active-seccomp-profile-recording-lock", output)
 
-	// Attempt to delete the resource, should not be possible
-	e.kubectl("delete", "--wait=false", "profilerecording", recordingName)
-	output = e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.metadata.deletionTimestamp}")
-	e.NotEmpty(output)
-
-	isDeleted := make(chan bool)
-	go func() {
-		e.waitFor("delete", "profilerecording", recordingName)
-		isDeleted <- true
-	}()
-
 	// Delete the pod and check that the resource is removed
 	e.kubectl("delete", "pod", podName)
-
-	// Wait a bit for the recording to be actually deleted
-	<-isDeleted
 
 	resourceName := recordingName + "-nginx"
 	profile := e.retryGetSeccompProfile(resourceName)
 	e.Contains(profile, "listen")
-
+	e.kubectl("delete", "-f", exampleRecordingSeccompLogsPath)
 	e.kubectl("delete", "sp", resourceName)
 }
 

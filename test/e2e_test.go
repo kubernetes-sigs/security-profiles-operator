@@ -142,6 +142,12 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseSameProfileMultipleNs()
 	})
 
+	e.Run("cluster-wide: profile merging", func() {
+		e.testSeccompBpfProfileMerging()
+		e.testSeccompLogsProfileMerging()
+		e.testSelinuxLogsProfileMerging()
+	})
+
 	// Clean up cluster-wide deployment to prepare for namespace deployment
 	e.cleanupOperator(e.operatorManifest)
 	e.run("git", "checkout", e.operatorManifest)

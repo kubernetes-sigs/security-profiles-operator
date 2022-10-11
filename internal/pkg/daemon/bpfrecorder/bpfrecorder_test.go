@@ -725,30 +725,6 @@ func TestProcessEvents(t *testing.T) {
 				require.True(t, success)
 			},
 		},
-		{ // system mount namespace
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
-				mntns := binary.LittleEndian.Uint64([]byte{1, 0, 0, 0, 0, 0, 0, 0})
-				sut.systemMountNamespace = mntns
-				sut.profileForMountNamespace.Store(mntns, "profile.json")
-				return []byte{
-					1, 0, 0, 0, 0, 0, 0, 0,
-					1, 0, 0, 0, 0, 0, 0, 0,
-				}
-			},
-			assert: func(sut *BpfRecorder, logger *Logger) {
-				success := false
-				for i := 0; i < 100; i++ {
-					logger.mutex.RLock()
-					success = util.Contains(logger.messages, "Skipping PID, because it's on the system mount namespace")
-					logger.mutex.RUnlock()
-					if success {
-						break
-					}
-					time.Sleep(100 * time.Millisecond)
-				}
-				require.True(t, success)
-			},
-		},
 		{ // invalid event length
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
 				return []byte{1, 0, 0}

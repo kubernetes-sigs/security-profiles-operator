@@ -9,6 +9,7 @@
     - [Other Kubernetes distributions](#other-kubernetes-distributions)
   - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
   - [Installation using helm](#installation-using-helm)
+  - [Installation on AKS](#installation-on-aks)
 - [Set logging verbosity](#set-logging-verbosity)
 - [Configure the SELinux type](#configure-the-selinux-type)
 - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
@@ -19,10 +20,13 @@
   - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-profilerecordings)
     - [Log enricher based recording](#log-enricher-based-recording)
     - [eBPF based recording](#ebpf-based-recording)
+    - [Merging per-container profile instances](#merging-per-container-profile-instances)
 - [Create a SELinux Profile](#create-a-selinux-profile)
   - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
   - [Record a SELinux profile](#record-a-selinux-profile)
 - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
+  - [Restricting to a Single Namespace with upstream deployment manifests](#restricting-to-a-single-namespace-with-upstream-deployment-manifests)
+  - [Restricting to a Single Namespace when installing using OLM](#restricting-to-a-single-namespace-when-installing-using-olm)
 - [Using metrics](#using-metrics)
   - [Available metrics](#available-metrics)
   - [Automatic ServiceMonitor deployment](#automatic-servicemonitor-deployment)
@@ -150,6 +154,22 @@ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernete
 # Install the chart from a release URL (note: helm also allows users to
 # specify a file path instead of a URL, if desired):
 helm install security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.4.4-dev/security-profiles-operator-0.4.4-dev.tgz
+```
+
+### Installation on AKS
+In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview), it is recommended to [configure webhook](#configuring-webhooks) to respect the [control-plane](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks) label as follows:
+
+```sh
+$ kubectl -nsecurity-profiles-operator patch spod spod  --type=merge \
+    -p='{"spec":{"webhookOptions":[{"name":"binding.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}},{"name":"recording.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}}]}}'
+```
+
+Afterwards, validate spod has been patched successfully by ensuring the `RUNNING` state:
+
+```sh
+$ kubectl -nsecurity-profiles-operator get spod spod
+NAME   STATE
+spod   RUNNING
 ```
 
 ## Set logging verbosity
@@ -576,6 +596,116 @@ NAME                 STATUS      AGE
 my-recording-nginx   Installed   15s
 ```
 
+#### Merging per-container profile instances
+
+By default, each container instance will be recorded into a separate
+profile. This is mostly visible when recording pods managed by a replicating
+controller (Deployment, DaemonSet, etc.). A realistic example might
+be a workload being recorded in a test environment where the recorded
+Deployment consists of several replicas, only one of which is receiving
+the test traffic. After the recording is complete, only the container that
+was receiving the traffic would have container all the syscalls that were
+actually used.
+
+In this case, it might be useful to merge the per-container profiles
+into a single profile. This can be done by setting the `mergeStrategy`
+attribute to `containers` in the `ProfileRecording`. Note that the following
+example uses a `SeccompProfile` as the `kind` but the same applies to
+`SelinuxProfile` as well.
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileRecording
+metadata:
+  # The name of the Recording is the same as the resulting `SeccompProfile` CRD
+  # after reconciliation.
+  name: test-recording
+spec:
+  kind: SeccompProfile
+  recorder: logs
+  mergeStrategy: containers
+  podSelector:
+    matchLabels:
+      app: sp-record
+```
+
+Create your workload:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deploy
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sp-record
+  template:
+    metadata:
+      labels:
+        app: sp-record
+    spec:
+      serviceAccountName: spo-record-sa
+      containers:
+      - name: nginx-record
+        image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+        ports:
+        - containerPort: 8080
+```
+
+You'll see that the deployment spawns three replicas. To test the merging feature, you
+can perform an action in one of the pods, for example:
+```bash
+> kubectl exec nginx-deploy-65bcbb956f-gmbrj -- bash -c "mknod /tmp/foo p"
+```
+Note that this is a silly example, but shows the feature in action.
+
+To record the individual profiles, delete the deployment:
+```bash
+> kubectl delete deployment nginx-deploy
+```
+
+The profiles will be reconciled, one per container. Note that the profiles are marked as
+"partial" and the spod deamon instances do not reconcile the profiles.
+```bash
+> kubectl get sp -lspo.x-k8s.io/recording-id=test-recording --show-labels
+NAME                                STATUS    AGE     LABELS
+test-recording-nginx-record-gmbrj   Partial   2m50s   spo.x-k8s.io/container-id=sp-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-sp-record-gmbrj,spo.x-k8s.io/recording-id=test-recording
+test-recording-nginx-record-lclnb   Partial   2m50s   spo.x-k8s.io/container-id=sp-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-sp-record-lclnb,spo.x-k8s.io/recording-id=test-recording
+test-recording-nginx-record-wdv2r   Partial   2m50s   spo.x-k8s.io/container-id=sp-record,spo.x-k8s.io/partial=true,spo.x-k8s.io/profile-id=SeccompProfile-test-recording-sp-record-wdv2r,spo.x-k8s.io/recording-id=test-recording
+```
+
+Inspecting the first partial profile, which corresponds to the pod where we ran the extra command
+shows that mknod is allowed:
+```bash
+> kubectl get sp test-recording-nginx-record-gmbrj -o yaml | grep mknod
+  - mknod
+```
+On the other hand the others do not:
+```bash
+> kubectl get sp test-recording-nginx-record-lclnb -o yaml | grep mknod
+> kubectl get sp test-recording-nginx-record-wdv2r -o yaml | grep mknod
+```
+
+To merge the profiles, delete the profile recording to indicate that
+you are finished with recording the workload. This would trigger the
+merge operation done by the controller and the resulting profile will be
+reconciled by the controller as seen from the `Installed` state:
+```bash
+> kubectl delete profilerecording test-recording
+profilerecording.security-profiles-operator.x-k8s.io "test-recording" deleted
+> kubectl get sp -lspo.x-k8s.io/recording-id=test-recording
+NAME                          STATUS      AGE
+test-recording-nginx-record   Installed   17m
+```
+
+The resulting profile will contain all the syscalls that were used by any of the containers,
+including the `mknod` syscall:
+```bash
+> kubectl get sp test-recording-nginx-record -o yaml | grep mknod
+  - mknod
+```
+
 ## Create a SELinux Profile
 
 There are two kinds that can be used to define a SELinux profile - `SelinuxProfile` and `RawSelinuxProfile`.
@@ -684,11 +814,27 @@ RBAC permissions required by the operator's ServiceAccount. To modify the
 operator deployment to run in a single namespace, use the
 `namespace-operator.yaml` manifest with your namespace of choice:
 
+### Restricting to a Single Namespace with upstream deployment manifests
 ```sh
 NAMESPACE=<your-namespace>
 
 curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/namespace-operator.yaml | sed "s/NS_REPLACE/$NAMESPACE/g" | kubectl apply -f -
 ```
+
+### Restricting to a Single Namespace when installing using OLM
+Since restricting the operator to a single namespace amounts to setting the `RESTRICT_TO_NAMESPACE`
+environment variable, the easiest way to set that (or any other variable for SPO) is by editing the
+`Subscription` object and setting the `spec.config.env` field:
+```yaml
+  spec:
+    config:
+      env:
+      - name: RESTRICT_TO_NAMESPACE
+        value: <your-namespace>
+```
+OLM would then take care of updating the operator `Deployment` object with the new environment variable.
+Please refer to the [OLM documentation](https://github.com/operator-framework/operator-lifecycle-manager/blob/master/doc/design/subscription-config.md#res)
+for more details on tuning the operator's configuration with the `Subscription` objects.
 
 ## Using metrics
 

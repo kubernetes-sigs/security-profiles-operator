@@ -62,6 +62,10 @@ func (f *GenericFlag) Apply(set *flag.FlagSet) error {
 	}
 
 	for _, name := range f.Names() {
+		if f.Destination != nil {
+			set.Var(f.Destination, name, f.Usage)
+			continue
+		}
 		set.Var(f.Value, name, f.Usage)
 	}
 
@@ -71,6 +75,15 @@ func (f *GenericFlag) Apply(set *flag.FlagSet) error {
 // Get returns the flag’s value in the given Context.
 func (f *GenericFlag) Get(ctx *Context) interface{} {
 	return ctx.Generic(f.Name)
+}
+
+// RunAction executes flag action if set
+func (f *GenericFlag) RunAction(c *Context) error {
+	if f.Action != nil {
+		return f.Action(c, c.Generic(f.Name))
+	}
+
+	return nil
 }
 
 // Generic looks up the value of a local GenericFlag, returns

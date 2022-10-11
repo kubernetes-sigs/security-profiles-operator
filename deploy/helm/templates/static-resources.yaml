@@ -141,6 +141,22 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - profilerecordings
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilerecordings/finalizers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
   - rawselinuxprofiles
   verbs:
   - create
@@ -172,6 +188,8 @@ rules:
   - seccompprofiles
   verbs:
   - create
+  - delete
+  - deletecollection
   - get
   - list
   - patch
@@ -235,6 +253,8 @@ rules:
   - selinuxprofiles
   verbs:
   - create
+  - delete
+  - deletecollection
   - get
   - list
   - patch
@@ -356,6 +376,16 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilerecordings
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:

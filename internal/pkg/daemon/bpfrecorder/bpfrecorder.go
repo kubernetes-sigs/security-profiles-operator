@@ -57,6 +57,8 @@ const (
 	maxMsgSize          int           = 16 * 1024 * 1024
 	defaultCacheTimeout time.Duration = time.Hour
 	maxCacheItems       uint64        = 1000
+	defaultHostPid      uint32        = 1
+	defaultByteNum      int           = 8
 )
 
 // BpfRecorder is the main structure of this package.
@@ -67,6 +69,7 @@ type BpfRecorder struct {
 	startRequests            int64
 	syscalls                 *bpf.BPFMap
 	comms                    *bpf.BPFMap
+	mntns                    *bpf.BPFMap
 	btfPath                  string
 	syscallNamesForIDCache   *ttlcache.Cache[string, string]
 	containerIDCache         *ttlcache.Cache[string, string]
@@ -423,6 +426,11 @@ func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
 	if err != nil {
 		return fmt.Errorf("get comms map: %w", err)
 	}
+	b.logger.Info("Getting system_mntns map")
+	mntns, err := b.GetMap(module, "system_mntns")
+	if err != nil {
+		return fmt.Errorf("get mntns_map: %w", err)
+	}
 
 	events := make(chan []byte)
 	ringbuffer, err := b.InitRingBuf(module, "events", events)
@@ -433,6 +441,11 @@ func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
 
 	b.syscalls = syscalls
 	b.comms = comms
+	b.mntns = mntns
+
+	// Update mntns to system_mntns
+	b.updateSystemMntns()
+
 	if startEventProcessor {
 		go b.processEvents(events)
 	}
@@ -564,6 +577,15 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 	}
 }
 
+func (b *BpfRecorder) updateSystemMntns() {
+	mntnsByte := make([]byte, defaultByteNum)
+	binary.LittleEndian.PutUint64(mntnsByte, b.systemMountNamespace)
+	err := b.UpdateValue(b.mntns, defaultHostPid, mntnsByte)
+	if err != nil {
+		b.logger.Error(err, "update system_mntns map failed")
+	}
+}
+
 func (b *BpfRecorder) handleEvent(event []byte) {
 	// Newly arrived PIDs
 	const eventLen = 16
@@ -574,15 +596,6 @@ func (b *BpfRecorder) handleEvent(event []byte) {
 
 	pid := binary.LittleEndian.Uint32(event)
 	mntns := binary.LittleEndian.Uint64(event[8:])
-
-	// Filter out non-containers
-	if mntns == b.systemMountNamespace {
-		b.logger.V(config.VerboseLevel).Info(
-			"Skipping PID, because it's on the system mount namespace",
-			"pid", pid, "mntns", mntns,
-		)
-		return
-	}
 
 	// Blocking from syscall retrieval when PIDs are currently being analyzed
 	b.pidLock.Lock()
