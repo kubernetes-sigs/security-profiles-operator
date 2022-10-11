@@ -234,6 +234,19 @@ into the allowed list. All profiles not complying with this rule, it will be rej
 Also every time when the list of allowed syscalls is modified in the spod configuration, the operator will
 automatically identify the already installed profiles which are not compliant and remove them.
 
+## Constrain spod scheduling
+
+You can constrain the spod scheduling via the spod configuration by setting either the `tolerations` or `affinity`.
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p
+'{"spec":{"tolerations": [{...}]}}'
+```
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p
+'{"spec":{"affinity": {...}}}'
+```
 ## Create a seccomp profile
 
 Use the `SeccompProfile` kind to create profiles. Example:
