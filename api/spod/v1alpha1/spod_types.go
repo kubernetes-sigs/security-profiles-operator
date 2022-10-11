@@ -97,6 +97,9 @@ type SPODSpec struct {
 	// AllowedSeccompActions if specified, a list of allowed seccomp actions.
 	// +optional
 	AllowedSeccompActions []seccomp.Action `json:"allowedSeccompActions"`
+	// If specified, the SPOD's affinity.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.

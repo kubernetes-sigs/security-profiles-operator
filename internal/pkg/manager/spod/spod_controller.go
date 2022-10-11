@@ -586,6 +586,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	}
 
 	templateSpec.Tolerations = cfg.Spec.Tolerations
+	templateSpec.Affinity = cfg.Spec.Affinity
 
 	return newSPOd
 }
