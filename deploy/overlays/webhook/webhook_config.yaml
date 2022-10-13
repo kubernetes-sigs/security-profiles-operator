@@ -21,7 +21,10 @@ webhooks:
         - key: name
           operator: NotIn
           values: ["security-profiles-operator", "security-profiles-operator-webhook"]
-    namespaceSelector: {}
+    namespaceSelector:
+      matchExpressions:
+        - key: spo.x-k8s.io/enable-binding
+          operator: Exists
     clientConfig:
       service:
         namespace: "security-profiles-operator"
@@ -43,7 +46,10 @@ webhooks:
         - key: name
           operator: NotIn
           values: ["security-profiles-operator", "security-profiles-operator-webhook"]
-    namespaceSelector: {}
+    namespaceSelector:
+      matchExpressions:
+        - key: spo.x-k8s.io/enable-recording
+          operator: Exists
     clientConfig:
       service:
         namespace: "security-profiles-operator"
