@@ -42,7 +42,7 @@ spec:
             description: SPODStatus defines the desired state of SPOD.
             properties:
               affinity:
-                description: If specified, the SPOD's affinity.
+                description: Affinity if specified, the SPOD's affinity.
                 properties:
                   nodeAffinity:
                     description: Describes node affinity scheduling rules for the
@@ -908,6 +908,21 @@ spec:
                   as bpf-recorder to retrieve the container ID for a process ID. This
                   can be helpful for nested environments, for example when using "kind".
                 type: string
+              imagePullSecrets:
+                description: ImagePullSecrets if defined, list of references to secrets
+                  in the security-profiles-operator's namespace to use for pulling
+                  the images from SPOD pod from a private registry.
+                items:
+                  description: LocalObjectReference contains enough information to
+                    let you locate the referenced object inside the same namespace.
+                  properties:
+                    name:
+                      description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        TODO: Add other useful fields. apiVersion, kind, uid?'
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                type: array
               selinuxOptions:
                 description: Defines options specific to the SELinux functionality
                   of the SecurityProfilesOperator
