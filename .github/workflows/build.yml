@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
-      - uses: cachix/install-nix-action@d64e0553100205688c0fb2fa16edb0fc8663c590
+      - uses: cachix/install-nix-action@daddc62a2e67d1decb56e028c9fa68344b9b7c2a
       - uses: cachix/cachix-action@75d46f58e6608ffed5276b4aa8de78d300911526
         with:
           name: security-profiles-operator
@@ -49,7 +49,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - uses: actions/checkout@v3
-      - uses: cachix/install-nix-action@d64e0553100205688c0fb2fa16edb0fc8663c590
+      - uses: cachix/install-nix-action@daddc62a2e67d1decb56e028c9fa68344b9b7c2a
       - uses: cachix/cachix-action@75d46f58e6608ffed5276b4aa8de78d300911526
         with:
           name: security-profiles-operator
