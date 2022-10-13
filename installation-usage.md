@@ -194,6 +194,11 @@ The daemon should now indicate that it's using the new logging verbosity:
 I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 ```
 
+## Pull images from private registry
+
+The container images from spod pod can be pulled from a private registry. This can be achived by defining the `imagePullSecrets`
+inside of the SPOD configuration.
+
 ## Configure the SELinux type
 
 The operator uses by default the `spc_t` SELinux type in the security context of the daemon pod. This can be easily
