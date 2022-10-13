@@ -587,6 +587,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	templateSpec.Tolerations = cfg.Spec.Tolerations
 	templateSpec.Affinity = cfg.Spec.Affinity
+	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
 
 	return newSPOd
 }

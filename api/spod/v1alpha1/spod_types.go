@@ -97,9 +97,14 @@ type SPODSpec struct {
 	// AllowedSeccompActions if specified, a list of allowed seccomp actions.
 	// +optional
 	AllowedSeccompActions []seccomp.Action `json:"allowedSeccompActions"`
-	// If specified, the SPOD's affinity.
+	// Affinity if specified, the SPOD's affinity.
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+
+	// ImagePullSecrets if defined, list of references to secrets in the security-profiles-operator's
+	// namespace to use for pulling the images from SPOD pod from a private registry.
+	// +optional
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.
