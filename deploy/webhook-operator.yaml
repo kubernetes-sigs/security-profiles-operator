@@ -2989,7 +2989,10 @@ webhooks:
       path: /mutate-v1-pod-binding
   failurePolicy: Fail
   name: binding.spo.io
-  namespaceSelector: {}
+  namespaceSelector:
+    matchExpressions:
+    - key: spo.x-k8s.io/enable-binding
+      operator: Exists
   objectSelector:
     matchExpressions:
     - key: name
@@ -3020,7 +3023,10 @@ webhooks:
       path: /mutate-v1-pod-recording
   failurePolicy: Fail
   name: recording.spo.io
-  namespaceSelector: {}
+  namespaceSelector:
+    matchExpressions:
+    - key: spo.x-k8s.io/enable-recording
+      operator: Exists
   objectSelector:
     matchExpressions:
     - key: name
