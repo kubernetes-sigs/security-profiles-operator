@@ -74,7 +74,7 @@ jobs:
       RUN: ./hack/ci/run-fedora.sh
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/cache@56461b9eb0f8438fd15c7a9968e3c9ebb18ceff1
+      - uses: actions/cache@9b0c1fce7a93df8e3bb8926b0d6e9d89e92f20a7
         with:
           path: |
             ~/.vagrant.d/boxes
@@ -111,7 +111,7 @@ jobs:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/cache@56461b9eb0f8438fd15c7a9968e3c9ebb18ceff1
+      - uses: actions/cache@9b0c1fce7a93df8e3bb8926b0d6e9d89e92f20a7
         with:
           path: |
             ~/.vagrant.d/boxes
@@ -151,7 +151,7 @@ jobs:
         run: |
           echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
         shell: bash
-      - uses: actions/cache@56461b9eb0f8438fd15c7a9968e3c9ebb18ceff1
+      - uses: actions/cache@9b0c1fce7a93df8e3bb8926b0d6e9d89e92f20a7
         with:
           path: |
             ~/.vagrant.d/boxes
