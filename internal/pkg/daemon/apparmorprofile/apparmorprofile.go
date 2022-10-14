@@ -277,15 +277,12 @@ func (r *Reconciler) handleDeletion(sp *v1alpha1.AppArmorProfile) error {
 func (r *Reconciler) logNodeInfo() {
 	r.log.Info("detecting apparmor support...")
 
-	mount := hostop.NewMountHostOp().WithLogger(r.log)
-	a := aa.NewAppArmor().WithLogger(r.log)
+	mount := hostop.NewMountHostOp(hostop.WithLogger(r.log), hostop.WithAssumeContainer())
+	a := aa.NewAppArmor(aa.WithLogger(r.log))
 
 	err := mount.Do(func() error {
 		enabled, err := a.Enabled()
 		r.log.Info(fmt.Sprintf("apparmor enabled: %s", ok(enabled, err)))
-
-		fsPath, err := a.AppArmorFS()
-		r.log.Info(fmt.Sprintf("apparmor fs: %s (%v)", fsPath, err))
 
 		enforceable, err := a.Enforceable()
 		r.log.Info(fmt.Sprintf("apparmor enforceable: %s", ok(enforceable, err)))
