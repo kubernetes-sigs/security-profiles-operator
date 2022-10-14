@@ -79,8 +79,8 @@ func (a *aaProfileManager) CustomResourceTypeName() string {
 }
 
 func loadProfile(logger logr.Logger, name, content string) (bool, error) {
-	mount := hostop.NewMountHostOp().WithLogger(logger)
-	a := aa.NewAppArmor().WithLogger(logger)
+	mount := hostop.NewMountHostOp(hostop.WithLogger(logger), hostop.WithAssumeContainer())
+	a := aa.NewAppArmor(aa.WithLogger(logger))
 
 	err := mount.Do(func() error {
 		// TODO: force profile content's to align with profile's name
@@ -96,8 +96,8 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 }
 
 func removeProfile(logger logr.Logger, profileName string) error {
-	mount := hostop.NewMountHostOp().WithLogger(logger)
-	a := aa.NewAppArmor().WithLogger(logger)
+	mount := hostop.NewMountHostOp(hostop.WithLogger(logger), hostop.WithAssumeContainer())
+	a := aa.NewAppArmor(aa.WithLogger(logger))
 
 	err := mount.Do(func() error {
 		if err := a.DeletePolicy(profileName); err != nil {
