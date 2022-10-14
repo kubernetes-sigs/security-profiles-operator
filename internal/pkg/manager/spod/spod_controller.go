@@ -547,6 +547,9 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			"--with-apparmor=true")
 
+		// Remove AppArmor constraints to be able to manage AppArmor.
+		newSPOd.ObjectMeta.Annotations["container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"] = "unconfined"
+
 		// HostPID is required for AppArmor when trying to get access to the host ns
 		templateSpec.HostPID = true
 	}
