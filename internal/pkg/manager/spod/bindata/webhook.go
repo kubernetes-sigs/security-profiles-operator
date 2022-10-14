@@ -185,6 +185,10 @@ func applyWebhookOptions(cfg *admissionregv1.MutatingWebhookConfiguration, opts 
 			if userOpt.NamespaceSelector != nil {
 				hook.NamespaceSelector = userOpt.NamespaceSelector
 			}
+
+			if userOpt.ObjectSelector != nil {
+				hook.ObjectSelector = userOpt.ObjectSelector
+			}
 		}
 	}
 }
@@ -244,6 +248,18 @@ func webhookNeedsUpdate(existing, configured *admissionregv1.MutatingWebhook) bo
 	if existing.NamespaceSelector != nil &&
 		configured.NamespaceSelector != nil &&
 		!reflect.DeepEqual(*existing.NamespaceSelector, *configured.NamespaceSelector) {
+		return true
+	}
+
+	if existing.ObjectSelector == nil && configured.ObjectSelector != nil ||
+		existing.ObjectSelector != nil && configured.ObjectSelector == nil {
+		// comparing pointers, not values
+		return true
+	}
+
+	if existing.ObjectSelector != nil &&
+		configured.ObjectSelector != nil &&
+		!reflect.DeepEqual(*existing.ObjectSelector, *configured.ObjectSelector) {
 		return true
 	}
 

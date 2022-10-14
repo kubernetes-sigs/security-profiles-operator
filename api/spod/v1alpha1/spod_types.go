@@ -44,6 +44,9 @@ type WebhookOptions struct {
 	// NamespaceSelector sets webhook's namespace selector
 	// +optional
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+	// ObjectSelector sets webhook's object selector
+	// +optional
+	ObjectSelector *metav1.LabelSelector `json:"objectSelector,omitempty"`
 }
 
 // SPODStatus defines the desired state of SPOD.
