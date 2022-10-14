@@ -95,11 +95,16 @@ func GetWebhook(
 	pullPolicy corev1.PullPolicy,
 	caInjectType CAInjectType,
 	tolerations []corev1.Toleration,
+	imagePullSecrets []corev1.LocalObjectReference,
 ) *Webhook {
 	deployment := webhookDeployment.DeepCopy()
 	deployment.Namespace = namespace
 	if len(tolerations) > 0 {
 		deployment.Spec.Template.Spec.Tolerations = tolerations
+	}
+
+	if len(imagePullSecrets) > 0 {
+		deployment.Spec.Template.Spec.ImagePullSecrets = imagePullSecrets
 	}
 
 	ctr := &deployment.Spec.Template.Spec.Containers[0]
