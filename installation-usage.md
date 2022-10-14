@@ -11,6 +11,7 @@
   - [Installation using helm](#installation-using-helm)
   - [Installation on AKS](#installation-on-aks)
 - [Set logging verbosity](#set-logging-verbosity)
+- [Pull images from private registry](#pull-images-from-private-registry)
 - [Configure the SELinux type](#configure-the-selinux-type)
 - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
 - [Constrain spod scheduling](#constrain-spod-scheduling)
