@@ -1161,16 +1161,20 @@ security_profiles_operator_seccomp_profile_audit_total{container="log-container"
 Both profile binding and profile recording make use of webhooks. Their configuration (an instance of
 `MutatingWebhookConfiguration` CR) is managed by SPO itself and not part of the deployed YAML manifests.
 While the defaults should be acceptable for the majority of users and the webhooks do nothing unless an
-instance of either `ProfileBinding` or `ProfileRecording` exists in a namespace, it might still be useful
-to configure the webhooks.
+instance of either `ProfileBinding` or `ProfileRecording` exists in a namespace and in addition the
+namespace must be labeled with either `spo.x-k8s.io/enable-binding` or `spo.x-k8s.io/enable-recording`
+respectively by default, it might still be useful to configure the webhooks.
 
-In order to change webhook's configuration, the `spod` CR exposes an object `webhookOptions` that allows
-the `failurePolicy` and the `namespaceSelector` to be set. This way you can set the webhooks to "soft-fail"
-or restrict them to a subset of a namespaces so that even if the webhooks had a bug that would prevent them
-from running at all, other namespaces or resources wouldn't be affected.
+In order to change webhook's configuration, the `spod` CR exposes an object
+`webhookOptions` that allows the `failurePolicy`, `namespaceSelector`
+and `objectSelector` to be set. This way you can set the webhooks to
+"soft-fail" or restrict them to a subset of a namespaces and inside those namespaces
+select only a subset of object matching the `objectSelector` so that even
+if the webhooks had a bug that would prevent them from running at all,
+other namespaces or resources wouldn't be affected.
 
 For example, to set the `binding.spo.io` webhook's configuration to ignore errors as well as restrict it
-to a subset of namespaces labeled with `spo.x-k8s.io/enable-binding=true`, create a following patch file:
+to a subset of namespaces labeled with `spo.x-k8s.io/bind-here=true`, create a following patch file:
 
 ```yaml
 spec:
@@ -1179,7 +1183,7 @@ spec:
       failurePolicy: Ignore
       namespaceSelector:
         matchExpressions:
-          - key: spo.x-k8s.io/enable-binding
+          - key: spo.x-k8s.io/bind-here
             operator: In
             values:
               - "true"
