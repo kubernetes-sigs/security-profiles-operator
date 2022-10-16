@@ -1054,6 +1054,12 @@ If all requirements are met, then the feature can be enabled by patching the
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
+Alternatively, make sure the operator deployment sets the `ENABLE_LOG_ENRICHER` variable,
+to `true`, either by setting the environment variable in the deployment or by enabling
+the variable trough a `Subscription` resource, when installing the operator using OLM
+(see [Restricting the operator to specific nodes](#restricting-the-operator-to-specific-nodes)
+for an example of setting another variable).
+
 Now the operator will take care of re-deploying the `spod` DaemonSet and the
 enricher should listening on new changes to the audit logs:
 
