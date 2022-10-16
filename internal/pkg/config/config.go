@@ -67,6 +67,9 @@ const (
 	// VerbosityEnvKey is the environment variable key for the logging verbosity.
 	VerbosityEnvKey = "SPO_VERBOSITY"
 
+	// EnableLogEnricherEnvKey is the environment variable key for enabling the log enricher.
+	EnableLogEnricherEnvKey = "ENABLE_LOG_ENRICHER"
+
 	// VerboseLevel is the increased verbosity log level.
 	VerboseLevel = 1
 

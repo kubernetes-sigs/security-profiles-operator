@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
@@ -499,8 +501,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.HostPID = true
 	}
 
-	// Log enricher parameters
-	if cfg.Spec.EnableLogEnricher {
+	// Log enricher parameters. The spod setting takes precedence over the env var.
+	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
+	if err != nil {
+		enableLogEnricherEnv = false
+	}
+	if cfg.Spec.EnableLogEnricher || enableLogEnricherEnv {
 		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher]
 		ctr.Image = image
 
