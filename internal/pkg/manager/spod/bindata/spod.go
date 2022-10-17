@@ -45,6 +45,7 @@ var (
 	metricsCertPath                 = "/var/run/secrets/metrics"
 	metricsServerCert               = "metrics-server-cert"
 	openshiftCertAnnotation         = "service.beta.openshift.io/serving-cert-secret-name"
+	localSeccompProfilePath         = "localhost/security-profiles-operator.json"
 )
 
 const (
@@ -125,9 +126,7 @@ var Manifest = &appsv1.DaemonSet{
 		Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"openshift.io/scc":             "privileged",
-					corev1.SeccompPodAnnotationKey: corev1.SeccompProfileRuntimeDefault,
-					corev1.SeccompContainerAnnotationKeyPrefix + config.OperatorName: "localhost/security-profiles-operator.json",
+					"openshift.io/scc": "privileged",
 				},
 				Labels: map[string]string{
 					"app":  config.OperatorName,
@@ -136,6 +135,11 @@ var Manifest = &appsv1.DaemonSet{
 			},
 			Spec: corev1.PodSpec{
 				ServiceAccountName: config.SPOdServiceAccount,
+				SecurityContext: &corev1.PodSecurityContext{
+					SeccompProfile: &corev1.SeccompProfile{
+						Type: corev1.SeccompProfileTypeRuntimeDefault,
+					},
+				},
 				InitContainers: []corev1.Container{
 					{
 						Name:            "non-root-enabler",
@@ -296,6 +300,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(jaosorior): Use a more restricted selinux type
 								Type: "spc_t",
+							},
+							SeccompProfile: &corev1.SeccompProfile{
+								Type:             corev1.SeccompProfileTypeLocalhost,
+								LocalhostProfile: &localSeccompProfilePath,
 							},
 						},
 						Resources: corev1.ResourceRequirements{
