@@ -45,7 +45,7 @@ var (
 	metricsCertPath                 = "/var/run/secrets/metrics"
 	metricsServerCert               = "metrics-server-cert"
 	openshiftCertAnnotation         = "service.beta.openshift.io/serving-cert-secret-name"
-	localSeccompProfilePath         = "localhost/security-profiles-operator.json"
+	localSeccompProfilePath         = "security-profiles-operator.json"
 )
 
 const (
