@@ -31,10 +31,8 @@ function build_and_push_packages() {
     OPERATOR_MANIFEST=deploy/operator-ci.yaml
 
     # Create a manifest with local image
-    pushd deploy/base
-    kustomize edit set image security-profiles-operator=$IMG
-    popd
-    kustomize build --reorder=none deploy/overlays/cluster -o ${OPERATOR_MANIFEST}
+    cp deploy/operator.yaml ${OPERATOR_MANIFEST}
+    sed -i "s#k8s.gcr.io/security-profiles-operator/security-profiles-operator.*\$#${IMG}#" ${OPERATOR_MANIFEST}
 
     # this is a kludge, we need to make sure kustomize can be overwritten
     rm -f build/kustomize
@@ -62,7 +60,7 @@ function deploy_spo() {
     kubectl -ncert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # let's roll..
-    sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
+    sed -i "s#k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.5.0#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
     kubectl create -f examples/olm/install-resources.yaml
 }
 

@@ -13,17 +13,21 @@ The first PR targets this repository and:
 
 - bumps the [`VERSION`](VERSION) file to the target version
 - changes the `images` `newName`/`newTag` fields of
-  [./deploy/base/kustomization.yaml](deploy/base/kustomization.yaml) from
-  `gcr.io/k8s-staging-sp-operator/security-profiles-operator` to
+  [./deploy/kustomize-deployment/kustomization.yaml](deploy/kustomize-deployment/kustomization.yaml)
+  from `gcr.io/k8s-staging-sp-operator/security-profiles-operator` to
   `k8s.gcr.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
   corresponding tag (`newTag`). After that the make target `make bundle`
   has to be run and the changes have to be committed.
-- changes the tag in the same way in the OLM example manifest at
+- changes the `image` in the `CatalogSource` in the same way at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
 - changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) to sed
-  `"s#k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.4.3#${CATALOG_IMG}#g"`
+  `"s#k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.0.0#${CATALOG_IMG}#g"`
   instead of
   `"s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g"`
+  (please note to change the version `v0.0.0` to the upcoming release)
+- updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
+  well as its linked files. Run `make verify-dependencies` to verify the
+  results.
 
 After this PR has been merged, we have to watch out the successful build of the
 container image via the automatically triggered
@@ -64,9 +68,9 @@ After that, another PR against this repository has to be created, which:
 - bumps the [`VERSION`](VERSION) file to the next minor version, but now including the
   suffix `-dev`, for example `1.0.0-dev`.
 - changes the `images` `newName`/`newTag` fields in
-  [./deploy/base/kustomization.yaml](deploy/base/kustomization.yaml) back to
-  `gcr.io/k8s-staging-sp-operator/security-profiles-operator` (`newName`) and `latest`
-  (`newTag`) and runc `make bundle`
+  [./deploy/kustomize-deployment/kustomization.yaml](deploy/kustomize-deployment/kustomization.yaml)
+  back to `gcr.io/k8s-staging-sp-operator/security-profiles-operator`
+  (`newName`) and `latest` (`newTag`) and runc `make bundle`
 - changes the tag in the same way in the OLM example manifest at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
 - reverts the changes to [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh)
