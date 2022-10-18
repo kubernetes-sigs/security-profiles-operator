@@ -74,6 +74,9 @@ After that, another PR against this repository has to be created, which:
 - changes the tag in the same way in the OLM example manifest at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
 - reverts the changes to [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh)
+- updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
+  well as its linked files. Run `make verify-dependencies` to verify the
+  results.
 
 Create a new pull requrest in the OperatorHub.io [community
 operators](https://github.com/k8s-operatorhub/community-operators) repository to
