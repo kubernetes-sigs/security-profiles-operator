@@ -57,6 +57,8 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
 
 func (e *e2e) testCaseBpfRecorderKubectlRun() {
 	e.bpfRecorderOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.logf("Creating bpf recording for kubectl run test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
@@ -74,6 +76,8 @@ func (e *e2e) testCaseBpfRecorderKubectlRun() {
 
 func (e *e2e) testCaseBpfRecorderStaticPod() {
 	e.bpfRecorderOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.logf("Creating bpf recording for static pod test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
@@ -105,6 +109,8 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 
 func (e *e2e) testCaseBpfRecorderMultiContainer() {
 	e.bpfRecorderOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.logf("Creating bpf recording for multi container test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
@@ -129,6 +135,8 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 
 func (e *e2e) testCaseBpfRecorderDeployment() {
 	e.bpfRecorderOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.logf("Creating bpf recording for deployment test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
@@ -195,6 +203,8 @@ spec:
 
 func (e *e2e) testCaseBpfRecorderParallel() {
 	e.bpfRecorderOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.logf("Creating bpf recording for parallel test")
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
@@ -264,6 +274,8 @@ spec:
 
 func (e *e2e) testCaseBpfRecorderSelectContainer() {
 	e.bpfRecorderOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
 
 	e.logf("Creating bpf recording for specific container test")
 	e.kubectl("create", "-f", exampleRecordingBpfSpecificContainerPath)

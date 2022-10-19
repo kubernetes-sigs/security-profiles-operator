@@ -44,6 +44,9 @@ type WebhookOptions struct {
 	// NamespaceSelector sets webhook's namespace selector
 	// +optional
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+	// ObjectSelector sets webhook's object selector
+	// +optional
+	ObjectSelector *metav1.LabelSelector `json:"objectSelector,omitempty"`
 }
 
 // SPODStatus defines the desired state of SPOD.
@@ -85,7 +88,6 @@ type SPODSpec struct {
 	// not create or update the webhook configuration and its related resources.
 	// +optional
 	StaticWebhookConfig bool `json:"staticWebhookConfig"`
-
 	// WebhookOpts set custom namespace selectors and failure mode for
 	// SPO's webhooks
 	// +optional
@@ -97,6 +99,13 @@ type SPODSpec struct {
 	// AllowedSeccompActions if specified, a list of allowed seccomp actions.
 	// +optional
 	AllowedSeccompActions []seccomp.Action `json:"allowedSeccompActions"`
+	// Affinity if specified, the SPOD's affinity.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// ImagePullSecrets if defined, list of references to secrets in the security-profiles-operator's
+	// namespace to use for pulling the images from SPOD pod from a private registry.
+	// +optional
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.

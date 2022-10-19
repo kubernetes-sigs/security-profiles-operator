@@ -11,11 +11,14 @@
   - [Installation using helm](#installation-using-helm)
   - [Installation on AKS](#installation-on-aks)
 - [Set logging verbosity](#set-logging-verbosity)
+- [Pull images from private registry](#pull-images-from-private-registry)
 - [Configure the SELinux type](#configure-the-selinux-type)
 - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
+- [Constrain spod scheduling](#constrain-spod-scheduling)
 - [Create a seccomp profile](#create-a-seccomp-profile)
   - [Apply a seccomp profile to a pod](#apply-a-seccomp-profile-to-a-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
+  - [Label namespaces for binding and recording](#label-namespaces-for-binding-and-recording)
   - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
   - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-profilerecordings)
     - [Log enricher based recording](#log-enricher-based-recording)
@@ -58,6 +61,8 @@ The feature scope of the security-profiles-operator is right now limited to:
   ([@saschagrunert](https://github.com/saschagrunert) and [@hasheddan](https://github.com/hasheddan))
 - [Enhancing Kubernetes with the Security Profiles Operator](https://youtu.be/xisAIB3kOJo)
   ([@cmurphy](https://github.com/cmurphy) and [@saschagrunert](https://github.com/saschagrunert))
+- [Securing Kubernetes Applications by Crafting Custom Seccomp Profiles](https://youtu.be/alx38YdvvzA)
+  ([@saschagrunert](https://github.com/saschagrunert))
 
 ## Install operator
 
@@ -153,7 +158,7 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/
 kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 # Install the chart from a release URL (note: helm also allows users to
 # specify a file path instead of a URL, if desired):
-helm install security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.4.4-dev/security-profiles-operator-0.4.4-dev.tgz
+helm install security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.5.0/security-profiles-operator-0.5.0.tgz
 ```
 
 ### Installation on AKS
@@ -189,6 +194,11 @@ The daemon should now indicate that it's using the new logging verbosity:
 > k logs --selector name=spod security-profiles-operator | head -n1
 I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 ```
+
+## Pull images from private registry
+
+The container images from spod pod can be pulled from a private registry. This can be achived by defining the `imagePullSecrets`
+inside of the SPOD configuration.
 
 ## Configure the SELinux type
 
@@ -234,6 +244,19 @@ into the allowed list. All profiles not complying with this rule, it will be rej
 Also every time when the list of allowed syscalls is modified in the spod configuration, the operator will
 automatically identify the already installed profiles which are not compliant and remove them.
 
+## Constrain spod scheduling
+
+You can constrain the spod scheduling via the spod configuration by setting either the `tolerations` or `affinity`.
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p
+'{"spec":{"tolerations": [{...}]}}'
+```
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p
+'{"spec":{"affinity": {...}}}'
+```
 ## Create a seccomp profile
 
 Use the `SeccompProfile` kind to create profiles. Example:
@@ -352,6 +375,26 @@ If you're not using runc but the alternative
 [crun](https://github.com/containers/crun), then you can do the same by using
 the [corresponding example profile](./examples/baseprofile-crun.yaml) (tested
 with version 0.20.1).
+
+### Label namespaces for binding and recording
+
+The next two sections describe how to bind a security profile to a container
+image and how to record a security profile from a running container. Both
+operations require the one of two SPO's webhooks to take action on the workload
+and in order for the webhooks to be able to reconcile the workload, the namespaces
+must be labeled appropriately.
+
+The expected labels are `spo.x-k8s.io/enable-binding` for the binding
+webhook and `spo.x-k8s.io/enable-recording` for the recording webhook by
+default. The labels can be set with a simple `kubectl label` command:
+
+```sh
+$ kubectl label ns spo-test spo.x-k8s.io/enable-recording=
+```
+
+Note that the labels' values are not important, only their presence matters.
+In addition, the namespace selector is configurable and the webhook configuration
+is described in the [configuring webhooks](#configuring-webhooks) section.
 
 ### Bind workloads to profiles with ProfileBindings
 
@@ -1017,6 +1060,12 @@ If all requirements are met, then the feature can be enabled by patching the
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
+Alternatively, make sure the operator deployment sets the `ENABLE_LOG_ENRICHER` variable,
+to `true`, either by setting the environment variable in the deployment or by enabling
+the variable trough a `Subscription` resource, when installing the operator using OLM
+(see [Restricting the operator to specific nodes](#restricting-the-operator-to-specific-nodes)
+for an example of setting another variable).
+
 Now the operator will take care of re-deploying the `spod` DaemonSet and the
 enricher should listening on new changes to the audit logs:
 
@@ -1124,16 +1173,20 @@ security_profiles_operator_seccomp_profile_audit_total{container="log-container"
 Both profile binding and profile recording make use of webhooks. Their configuration (an instance of
 `MutatingWebhookConfiguration` CR) is managed by SPO itself and not part of the deployed YAML manifests.
 While the defaults should be acceptable for the majority of users and the webhooks do nothing unless an
-instance of either `ProfileBinding` or `ProfileRecording` exists in a namespace, it might still be useful
-to configure the webhooks.
+instance of either `ProfileBinding` or `ProfileRecording` exists in a namespace and in addition the
+namespace must be labeled with either `spo.x-k8s.io/enable-binding` or `spo.x-k8s.io/enable-recording`
+respectively by default, it might still be useful to configure the webhooks.
 
-In order to change webhook's configuration, the `spod` CR exposes an object `webhookOptions` that allows
-the `failurePolicy` and the `namespaceSelector` to be set. This way you can set the webhooks to "soft-fail"
-or restrict them to a subset of a namespaces so that even if the webhooks had a bug that would prevent them
-from running at all, other namespaces or resources wouldn't be affected.
+In order to change webhook's configuration, the `spod` CR exposes an object
+`webhookOptions` that allows the `failurePolicy`, `namespaceSelector`
+and `objectSelector` to be set. This way you can set the webhooks to
+"soft-fail" or restrict them to a subset of a namespaces and inside those namespaces
+select only a subset of object matching the `objectSelector` so that even
+if the webhooks had a bug that would prevent them from running at all,
+other namespaces or resources wouldn't be affected.
 
 For example, to set the `binding.spo.io` webhook's configuration to ignore errors as well as restrict it
-to a subset of namespaces labeled with `spo.x-k8s.io/enable-binding=true`, create a following patch file:
+to a subset of namespaces labeled with `spo.x-k8s.io/bind-here=true`, create a following patch file:
 
 ```yaml
 spec:
@@ -1142,7 +1195,7 @@ spec:
       failurePolicy: Ignore
       namespaceSelector:
         matchExpressions:
-          - key: spo.x-k8s.io/enable-binding
+          - key: spo.x-k8s.io/bind-here
             operator: In
             values:
               - "true"
