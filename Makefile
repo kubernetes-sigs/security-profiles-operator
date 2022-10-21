@@ -477,6 +477,8 @@ OLM_EXAMPLES := \
 .PHONY: bundle
 bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then validate generated files.
 	sed -i "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
+	sed -i "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
+	sed -i "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
 	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	git restore deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
@@ -519,17 +521,17 @@ BUNDLE_IMGS ?= $(BUNDLE_IMG)
 # The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
 CATALOG_IMG ?= $(PROJECT)-catalog:v$(VERSION)
 
-# Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMGS to that image.
-ifneq ($(origin CATALOG_BASE_IMG), undefined)
-FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
-endif
-
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
-# This recipe invokes 'opm' in 'semver' bundle add mode. For more information on add modes, see:
-# https://github.com/operator-framework/community-operators/blob/7f1438c/docs/packaging-operator.md#updating-your-existing-operator
+# This target uses the file-based catalog format (https://olm.operatorframework.io/docs/reference/file-based-catalogs/)
 .PHONY: catalog-build
 catalog-build: opm ## Build a catalog image.
-	$(OPM) $(OPM_EXTRA_ARGS) index add --container-tool $(CONTAINER_RUNTIME) --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
+	$(eval TMP_DIR := $(shell mktemp -d))
+	$(eval CATALOG_DOCKERFILE := $(TMP_DIR).Dockerfile)
+	cp deploy/catalog-preamble.json $(TMP_DIR)/security-profiles-operator-catalog.json
+	$(OPM) render $(BUNDLE_IMGS) >> $(TMP_DIR)/security-profiles-operator-catalog.json
+	$(OPM) generate dockerfile $(TMP_DIR)
+	$(CONTAINER_RUNTIME) build -f $(CATALOG_DOCKERFILE) -t $(CATALOG_IMG)
+	rm -rf $(TMP_DIR) $(CATALOG_DOCKERFILE)
 
 # Push the catalog image.
 .PHONY: catalog-push
