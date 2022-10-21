@@ -45,7 +45,7 @@ var (
 	metricsCertPath                 = "/var/run/secrets/metrics"
 	metricsServerCert               = "metrics-server-cert"
 	openshiftCertAnnotation         = "service.beta.openshift.io/serving-cert-secret-name"
-	localSeccompProfilePath         = "security-profiles-operator.json"
+	localSeccompProfilePath         = LocalSeccompProfilePath
 )
 
 const (
@@ -64,6 +64,7 @@ const (
 	ContainerIDMetrics                         = 4
 	DefaultHostProcPath                        = "/proc"
 	MetricsContainerName                       = "metrics"
+	LocalSeccompProfilePath                    = "security-profiles-operator.json"
 )
 
 var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
