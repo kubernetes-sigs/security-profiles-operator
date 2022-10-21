@@ -4,7 +4,7 @@
 Vagrant.configure("2") do |config|
   config.vm.box = "flatcar-lts"
   config.vm.box_check_update = true
-  config.vm.box_url = "https://lts.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json"
+  config.vm.box_url = "https://lts.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.box"
   memory = 8192
   cpus = 4
 
