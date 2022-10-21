@@ -18,11 +18,14 @@ package spod
 
 import (
 	"os"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
 func Test_getEffectiveSPOd(t *testing.T) {
@@ -73,6 +76,69 @@ func Test_getEffectiveSPOd(t *testing.T) {
 			if tt.nsIsSet && !found {
 				t.Errorf("%s env variable wasn't set", config.RestrictNamespaceEnvKey)
 			}
+		})
+	}
+}
+
+func Test_getSeccompLocalhostProfile(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		nodes *corev1.NodeList
+		want  string
+	}{
+		{
+			name: "Should return local seccomp profile for cri-o runtime",
+			nodes: &corev1.NodeList{
+				Items: []corev1.Node{
+					{
+						Status: corev1.NodeStatus{
+							NodeInfo: corev1.NodeSystemInfo{
+								ContainerRuntimeVersion: "cri-o://1.2.3",
+							},
+						},
+					},
+				},
+			},
+			want: path.Join("localhost", bindata.LocalSeccompProfilePath),
+		},
+		{
+			name: "Should return local seccomp profile for docker runtime",
+			nodes: &corev1.NodeList{
+				Items: []corev1.Node{
+					{
+						Status: corev1.NodeStatus{
+							NodeInfo: corev1.NodeSystemInfo{
+								ContainerRuntimeVersion: "docker://1.2.3",
+							},
+						},
+					},
+				},
+			},
+			want: bindata.LocalSeccompProfilePath,
+		},
+		{
+			name: "Should return local seccomp profile for containerd runtime",
+			nodes: &corev1.NodeList{
+				Items: []corev1.Node{
+					{
+						Status: corev1.NodeStatus{
+							NodeInfo: corev1.NodeSystemInfo{
+								ContainerRuntimeVersion: "containerd://1.2.3",
+							},
+						},
+					},
+				},
+			},
+			want: bindata.LocalSeccompProfilePath,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := getSeccompLocalhostProfile(tt.nodes)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
