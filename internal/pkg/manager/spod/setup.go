@@ -154,7 +154,8 @@ func getSeccompLocalhostProfile(nodes *corev1.NodeList) string {
 		containerRuntime = parts[0]
 	}
 	// cri-o expects the local seccomp profile to be prefixed with 'localhost'
-	// see for more details: https://github.com/cri-o/cri-o/blob/1e6fd9c520d03d47835d1d4c3209e0f77c38f542/internal/config/seccomp/seccomp.go#L240
+	// see for more details:
+	// https://github.com/cri-o/cri-o/blob/1e6fd9c520d03d47835d1d4c3209e0f77c38f542/internal/config/seccomp/seccomp.go#L240
 	if containerRuntime == "cri-o" {
 		return path.Join("localhost", bindata.LocalSeccompProfilePath)
 	}
