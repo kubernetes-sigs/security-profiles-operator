@@ -10,35 +10,33 @@ package apparmor
 // #include <sys/apparmor.h>
 import "C"
 import (
-	"errors"
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
-	"syscall"
 	"unsafe"
 
 	"github.com/go-logr/logr"
 )
 
 const (
+	defaultPoliciesDir = "/etc/apparmor.d"
+
 	modulePath string = "/sys/module/apparmor"
+	// enabledFile is the path to the file that indicates whether apparmor is enabled.
+	enabledFile string = "/sys/module/apparmor/parameters/enabled"
+
+	// profilesPath stores the path to the file which contains all loaded profiles.
+	profilesPath string = "/sys/kernel/security/apparmor/profiles"
 )
 
 var (
 	findAppArmorParser sync.Once
 	appArmorParserPath string
-
-	aaExtensionsNotAvailableErr  = errors.New("appArmor extensions to the system are not available")
-	aaDisabledAtBootErr          = errors.New("appArmor is available on the system but has been disabled at boot")
-	aaInterfaceUnavailableErr    = errors.New("appArmor is available but the interface is not available")
-	aaInsufficientMemoryErr      = errors.New("insufficient memory was available")
-	aaPermissionDeniedErr        = errors.New("missing sufficient permissions to determine if AppArmor is enabled")
-	aaCannotCompleteOperationErr = errors.New("could not complete operation")
-	aaAccessToPathDeniedErr      = errors.New("access to the required paths was denied")
-	aaFSNotFoundErr              = errors.New("appArmor filesystem mount could not be found")
 )
 
 var goOS = func() string {
@@ -46,47 +44,33 @@ var goOS = func() string {
 }
 
 // NewAppArmor creates a new instance of the apparmor API.
-func NewAppArmor() aa {
+func NewAppArmor(opts ...AppArmorOption) aa {
 	if goOS() == "linux" {
-		return &AppArmor{
+		o := &appArmorOpts{
 			logger: logr.Discard(),
 		}
+		o.applyOpts(opts...)
+
+		return &AppArmor{opts: o}
 	}
 
 	return &unsupported{}
 }
 
 type AppArmor struct {
-	logger logr.Logger
-}
-
-func (a *AppArmor) WithLogger(logger logr.Logger) aa {
-	a.logger = logger
-	return a
+	opts *appArmorOpts
 }
 
 func (a *AppArmor) Enabled() (bool, error) {
-	e := C.aa_is_enabled()
-	if e == 0 {
+	f, err := os.ReadFile(enabledFile)
+	if err != nil {
+		return false, fmt.Errorf("cannot read file %s: %w", enabledFile, err)
+	}
+	if strings.Contains(string(f), "Y") {
 		return true, nil
 	}
 
-	switch syscall.Errno(e) {
-	case syscall.ENOSYS:
-		return false, aaExtensionsNotAvailableErr
-	case syscall.ECANCELED:
-		return false, aaDisabledAtBootErr
-	case syscall.ENOENT:
-		return false, aaInterfaceUnavailableErr
-	case syscall.ENOMEM:
-		return false, aaInsufficientMemoryErr
-	case syscall.EPERM:
-		return false, aaPermissionDeniedErr
-	case syscall.EACCES:
-		return false, aaPermissionDeniedErr
-	default:
-		return false, fmt.Errorf("checking appArmor status: %w", aaCannotCompleteOperationErr)
-	}
+	return false, nil
 }
 
 func (a *AppArmor) Enforceable() (bool, error) {
@@ -98,33 +82,8 @@ func (a *AppArmor) Enforceable() (bool, error) {
 	return enabled && aaParserInstalled(), nil
 }
 
-func (a *AppArmor) AppArmorFS() (string, error) {
-	aaFS := C.CString("")
-	defer C.free(unsafe.Pointer(aaFS))
-
-	e := C.aa_find_mountpoint(&aaFS)
-	if e == 0 {
-		return C.GoString(aaFS), nil
-	}
-
-	switch syscall.Errno(e) {
-	case syscall.ENOENT:
-		return C.GoString(aaFS), aaFSNotFoundErr
-	case syscall.ENOMEM:
-		return C.GoString(aaFS), aaInsufficientMemoryErr
-	case syscall.EACCES:
-		return C.GoString(aaFS), aaAccessToPathDeniedErr
-	default:
-		return C.GoString(aaFS), fmt.Errorf("appArmor mount point: %w", aaCannotCompleteOperationErr)
-	}
-}
-
 func (a *AppArmor) DeletePolicy(policyName string) error {
-	if ok, err := hasEnoughPrivileges(); !ok {
-		return err
-	}
-
-	a.logger.V(2).Info(fmt.Sprintf("policy name: %s", policyName))
+	a.opts.logger.V(2).Info(fmt.Sprintf("policy name: %s", policyName))
 
 	var kernel_interface *C.aa_kernel_interface
 
@@ -140,21 +99,16 @@ func (a *AppArmor) DeletePolicy(policyName string) error {
 		err = fmt.Errorf("call aa_kernel_interface_remove_policy")
 	}
 	C.aa_kernel_interface_unref(kernel_interface)
-
 	return err
 }
 
 func (a *AppArmor) LoadPolicy(fileName string) error {
-	if ok, err := hasEnoughPrivileges(); !ok {
-		return err
-	}
-
 	parserPath := appArmorParser()
 	if len(parserPath) == 0 {
 		return fmt.Errorf("cannot find apparmor_parser")
 	}
 
-	a.logger.V(2).Info(fmt.Sprintf("policy file: %s", fileName))
+	a.opts.logger.V(2).Info(fmt.Sprintf("policy file: %s", fileName))
 	fileName, err := filepath.Abs(fileName)
 	if err != nil {
 		return fmt.Errorf("cannot get abs from file")
@@ -166,12 +120,12 @@ func (a *AppArmor) LoadPolicy(fileName string) error {
 	}
 	defer func() {
 		if err := fd.Close(); err != nil {
-			a.logger.V(1).Info(fmt.Sprintf("closing file: %s", err))
+			a.opts.logger.V(1).Info(fmt.Sprintf("closing file: %s", err))
 		}
 	}()
 
 	cmd := exec.Command(parserPath, fileName, "-o", fd.Name())
-	a.logger.V(2).Info(fmt.Sprintf("transform policy into binary: %s", cmd.Args))
+	a.opts.logger.V(2).Info(fmt.Sprintf("transform policy into binary: %s", cmd.Args))
 
 	err = cmd.Run()
 	if err != nil {
@@ -197,6 +151,24 @@ func (a *AppArmor) LoadPolicy(fileName string) error {
 	return err
 }
 
+func (a *AppArmor) PolicyLoaded(policyName string) (bool, error) {
+	readFile, err := os.Open(profilesPath)
+	if err != nil {
+		return false, fmt.Errorf("cannot open file %s: %w", profilesPath, err)
+	}
+
+	s := bufio.NewScanner(readFile)
+	for s.Scan() {
+		// profiles will be in the format "profile-name (mode: complain/enforce)":
+		// sample-profile (enforce)
+		if strings.HasPrefix(s.Text(), policyName+" (") {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func appArmorParser() string {
 	findAppArmorParser.Do(func() {
 		locations := []string{
@@ -211,23 +183,6 @@ func appArmorParser() string {
 		}
 	})
 	return appArmorParserPath
-}
-
-func hasEnoughPrivileges() (bool, error) {
-	euid := os.Geteuid()
-	uid := os.Getuid()
-
-	if uid == 0 && euid == 0 {
-		return true, nil
-	}
-
-	filename := filepath.Base(os.Args[0])
-	errMessage := fmt.Sprintf("%s must run as root", filename)
-	if euid == 0 {
-		return false, errors.New("setuid is not supported")
-	}
-
-	return false, errors.New(errMessage)
 }
 
 // aaParserInstalled checks whether apparmor_parser is installed.
