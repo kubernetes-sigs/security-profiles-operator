@@ -39,14 +39,6 @@ dependencies:
     - path: Makefile
       match: OPERATOR_SDK_VERSION
 
-  - name: opm
-    version: 1.19.1
-    refPaths:
-    - path: Makefile
-      match: OPM_VERSION
-    - path: hack/image-cross.sh
-      match: OPM_VERSION
-
   - name: olm
     version: v0.18.2
     refPaths:
