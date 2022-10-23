@@ -17,7 +17,7 @@ GO ?= go
 GOLANGCI_LINT_VERSION = v1.49.0
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 4.5.5
-OPERATOR_SDK_VERSION ?= v1.22.2
+OPERATOR_SDK_VERSION ?= v1.25.0
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
@@ -528,7 +528,7 @@ catalog-build: opm ## Build a catalog image.
 	$(eval TMP_DIR := $(shell mktemp -d))
 	$(eval CATALOG_DOCKERFILE := $(TMP_DIR).Dockerfile)
 	cp deploy/catalog-preamble.json $(TMP_DIR)/security-profiles-operator-catalog.json
-	$(OPM) render $(BUNDLE_IMGS) >> $(TMP_DIR)/security-profiles-operator-catalog.json
+	$(OPM) $(OPM_EXTRA_ARGS) render $(BUNDLE_IMGS) >> $(TMP_DIR)/security-profiles-operator-catalog.json
 	$(OPM) generate dockerfile $(TMP_DIR)
 	$(CONTAINER_RUNTIME) build -f $(CATALOG_DOCKERFILE) -t $(CATALOG_IMG)
 	rm -rf $(TMP_DIR) $(CATALOG_DOCKERFILE)
