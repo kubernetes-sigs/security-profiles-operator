@@ -45,7 +45,7 @@ function build_and_push_packages() {
     podman push --tls-verify=false ${BUNDLE_IMG}
 
     # create catalog image, push catalog
-    make catalog-build OPM_EXTRA_ARGS=" --skip-tls" BUNDLE_IMGS=${BUNDLE_IMG} CATALOG_IMG=${CATALOG_IMG}
+    make catalog-build OPM_EXTRA_ARGS=" --use-http" BUNDLE_IMGS=${BUNDLE_IMG} CATALOG_IMG=${CATALOG_IMG}
     podman push --tls-verify=false ${CATALOG_IMG}
 }
 

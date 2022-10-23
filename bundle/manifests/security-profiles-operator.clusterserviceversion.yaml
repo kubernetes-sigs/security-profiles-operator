@@ -100,7 +100,7 @@ metadata:
     categories: Security
     olm.skipRange: '>=0.4.1 <0.5.1-dev'
     operatorframework.io/suggested-namespace: security-profiles-operator
-    operators.operatorframework.io/builder: operator-sdk-v1.22.2
+    operators.operatorframework.io/builder: operator-sdk-v1.25.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
   name: security-profiles-operator.v0.5.1-dev
   namespace: placeholder
