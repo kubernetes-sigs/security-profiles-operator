@@ -27,6 +27,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -98,7 +99,8 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 
 // Security Profiles Operator RBAC permissions to manage Node Statuses
 //nolint:lll // required for kubebuilder
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilenodestatuses,verbs=get;list;watch;delete
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 // Reconcile reconciles a NodeStatus.
 func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -167,11 +169,26 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 	// make sure we have all the statuses already
 	hasStatuses := len(nodeStatusList.Items)
 	wantsStatuses := spodDS.Status.DesiredNumberScheduled
-	if wantsStatuses != int32(hasStatuses) {
+	if wantsStatuses > int32(hasStatuses) {
 		logger.Info("Not updating policy: not all statuses are ready",
 			"has", hasStatuses, "wants", wantsStatuses)
 		// Don't reconcile again, let's just wait for another update
 		return reconcile.Result{}, nil
+	} else if wantsStatuses < int32(hasStatuses) {
+		// this happens when nodes are removed from the cluster
+		logger.Info("Removing extra statuses", "has", hasStatuses, "wants", wantsStatuses)
+		nodeName, err := r.removeStatusForDeletedNode(ctx, nodeStatusList, lprof)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("cannot remove extra statuses: %w", err)
+		}
+		if nodeName != "" {
+			// remove the deleted node finalizer string from the profile
+			logger.Info("Removing finalizer from profile", "profile", prof.GetName(), "node", nodeName)
+			if err := util.RemoveFinalizer(ctx, r.client, prof, util.GetFinalizerNodeString(nodeName)); err != nil {
+				return reconcile.Result{}, fmt.Errorf("cannot remove finalizer from profile: %w", err)
+			}
+		}
+		return reconcile.Result{Requeue: true}, nil
 	}
 
 	lowestCommonState := statusv1alpha1.LowestState
@@ -181,6 +198,27 @@ func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (
 	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", lowestCommonState)
 
 	return r.reconcileStatus(ctx, prof, lowestCommonState, lprof)
+}
+
+// removeStatusForDeletedNode removes the status for a node that has been deleted.
+func (r *StatusReconciler) removeStatusForDeletedNode(ctx context.Context,
+	nodeStatusList *statusv1alpha1.SecurityProfileNodeStatusList, logger logr.Logger,
+) (string, error) {
+	for i := range nodeStatusList.Items {
+		nodeName := nodeStatusList.Items[i].NodeName
+		node := &v1.Node{}
+		if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
+			if util.IsNotFoundOrConflict(err) {
+				logger.Info("Removing node status for removed node", "node", nodeName)
+				if err := r.client.Delete(ctx, &nodeStatusList.Items[i]); err != nil {
+					return "", fmt.Errorf("cannot delete node status: %w", err)
+				}
+				return nodeName, nil
+			}
+			return "", fmt.Errorf("cannot get node: %w", err)
+		}
+	}
+	return "", nil
 }
 
 func (r *StatusReconciler) getDS(ctx context.Context, namespace string, l logr.Logger) (*appsv1.DaemonSet, error) {
