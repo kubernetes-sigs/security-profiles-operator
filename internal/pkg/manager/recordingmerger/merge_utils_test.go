@@ -153,7 +153,7 @@ func TestMergeProfiles(t *testing.T) {
 								},
 							},
 							Allow: selinuxprofileapi.Allow{
-								"label_foo": {"oc_bar2": {"do_bar2"}, "oc_baz2": {"do_baz2"}},
+								"label_foo": {"oc_bar": {"do_bar"}, "oc_bar2": {"do_bar2"}, "oc_baz2": {"do_baz2"}},
 								"label_aaa": {"oc_aaa": {"do_aaa"}, "oc_bbb": {"do_bbb"}},
 							},
 						},

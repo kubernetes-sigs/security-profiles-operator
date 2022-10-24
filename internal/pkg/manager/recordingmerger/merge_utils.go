@@ -185,8 +185,19 @@ func addAllow(union, additional selinuxprofileapi.Allow) selinuxprofileapi.Allow
 		if _, ok := union[labelKey]; !ok {
 			union[labelKey] = make(map[selinuxprofileapi.ObjectClassKey]selinuxprofileapi.PermissionSet)
 		}
+
 		for objClass, perms := range permMap {
-			union[labelKey][objClass] = append(union[labelKey][objClass], perms...)
+			allPerms := map[string]bool{}
+			for _, havePerm := range union[labelKey][objClass] {
+				allPerms[havePerm] = true
+			}
+
+			for _, newPerm := range perms {
+				_, ok := allPerms[newPerm]
+				if !ok {
+					union[labelKey][objClass] = append(union[labelKey][objClass], newPerm)
+				}
+			}
 		}
 	}
 
