@@ -119,6 +119,9 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // OpenShift (This is ignored in other distros):
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
+//
+// Needed to detect which runtime is active
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;get
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
