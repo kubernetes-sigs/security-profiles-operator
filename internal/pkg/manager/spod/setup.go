@@ -67,6 +67,7 @@ func (r *ReconcileSPOd) Setup(
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
 	r.record = mgr.GetEventRecorderFor(r.Name())
+	r.clientReader = mgr.GetAPIReader()
 
 	dt, err := r.getTunables(ctx)
 	if err != nil {
@@ -134,7 +135,7 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 	dt.rbacProxyImage = rbacProxyImage
 
 	nodeList := corev1.NodeList{}
-	err := r.client.List(ctx, &nodeList)
+	err := r.clientReader.List(ctx, &nodeList)
 	if err != nil {
 		return dt, fmt.Errorf("listing cluster nodes: %w", err)
 	}
