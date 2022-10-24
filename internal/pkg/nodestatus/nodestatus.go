@@ -25,7 +25,6 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -246,12 +245,7 @@ func getFinalizerString(pol profilebase.SecurityProfileBase, nodeName string) st
 	if pol.IsPartial() {
 		return partialProfileFinalizer
 	}
-
-	finalizerString := nodeName + "-deleted"
-	// Make sure the length of finalizer is not longer than 63 characters
-	if len(nodeName)+len("-deleted") > validation.DNS1123LabelMaxLength {
-		finalizerString = nodeName[:validation.DNS1123LabelMaxLength-len("-deleted")] + "-deleted"
-	}
+	finalizerString := util.GetFinalizerNodeString(nodeName)
 	return finalizerString
 }
 
