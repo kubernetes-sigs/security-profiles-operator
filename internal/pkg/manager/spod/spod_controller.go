@@ -64,7 +64,10 @@ var _ reconcile.Reconciler = &ReconcileSPOd{}
 type ReconcileSPOd struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client         client.Client
+	client client.Client
+	// clientReader reads object directly from api-server, this is useful when
+	// the cache is not ready (e.g. when listing the cluster nodes).
+	clientReader   client.Reader
 	scheme         *runtime.Scheme
 	baseSPOd       *appsv1.DaemonSet
 	record         record.EventRecorder
