@@ -7,6 +7,10 @@ package libbpfgo
 import "C"
 
 import (
+	"bytes"
+	"debug/elf"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -42,6 +46,8 @@ type Module struct {
 	links    []*BPFLink
 	perfBufs []*PerfBuffer
 	ringBufs []*RingBuffer
+	elf      *elf.File
+	loaded   bool
 }
 
 type BPFMap struct {
@@ -295,6 +301,10 @@ func SetStrictMode(mode LibbpfStrictMode) {
 }
 
 func NewModuleFromFileArgs(args NewModuleArgs) (*Module, error) {
+	f, err := elf.Open(args.BPFObjPath)
+	if err != nil {
+		return nil, err
+	}
 	C.set_print_fn()
 
 	opts := C.struct_bpf_object_open_opts{}
@@ -324,6 +334,7 @@ func NewModuleFromFileArgs(args NewModuleArgs) (*Module, error) {
 
 	return &Module{
 		obj: obj,
+		elf: f,
 	}, nil
 }
 
@@ -336,6 +347,10 @@ func NewModuleFromBuffer(bpfObjBuff []byte, bpfObjName string) (*Module, error) 
 }
 
 func NewModuleFromBufferArgs(args NewModuleArgs) (*Module, error) {
+	f, err := elf.NewFile(bytes.NewReader(args.BPFObjBuff))
+	if err != nil {
+		return nil, err
+	}
 	C.set_print_fn()
 
 	if args.BTFObjPath == "" {
@@ -364,6 +379,7 @@ func NewModuleFromBufferArgs(args NewModuleArgs) (*Module, error) {
 
 	return &Module{
 		obj: obj,
+		elf: f,
 	}, nil
 }
 
@@ -387,8 +403,48 @@ func (m *Module) BPFLoadObject() error {
 	if ret != 0 {
 		return fmt.Errorf("failed to load BPF object: %w", syscall.Errno(-ret))
 	}
+	m.loaded = true
+	m.elf.Close()
 
 	return nil
+}
+
+// InitGlobalVariable sets global variables (defined in .data or .rodata)
+// in bpf code. It must be called before the BPF object is loaded.
+func (m *Module) InitGlobalVariable(name string, value interface{}) error {
+	if m.loaded {
+		return errors.New("must be called before the BPF object is loaded")
+	}
+	s, err := getGlobalVariableSymbol(m.elf, name)
+	if err != nil {
+		return err
+	}
+	bpfMap, err := m.GetMap(s.sectionName)
+	if err != nil {
+		return err
+	}
+
+	// get current value
+	currMapValue := bpfMap.getInitialValue()
+
+	// generate new value
+	newMapValue := make([]byte, bpfMap.ValueSize())
+	copy(newMapValue, currMapValue)
+	data := bytes.NewBuffer(nil)
+	if err := binary.Write(data, s.byteOrder, value); err != nil {
+		return err
+	}
+	varValue := data.Bytes()
+	start := s.offset
+	end := s.offset + len(varValue)
+	if len(varValue) > s.size || end > bpfMap.ValueSize() {
+		return errors.New("invalid value")
+	}
+	copy(newMapValue[start:end], varValue)
+
+	// save new value
+	err = bpfMap.setInitialValue(unsafe.Pointer(&newMapValue[0]))
+	return err
 }
 
 // BPFMapCreateOpts mirrors the C structure bpf_map_create_opts
@@ -629,6 +685,22 @@ func (b *BPFMap) GetValueReadInto(key unsafe.Pointer, value *[]byte) error {
 		return fmt.Errorf("failed to lookup value %v in map %s: %w", key, b.name, syscall.Errno(-ret))
 	}
 	return nil
+}
+
+func (b *BPFMap) setInitialValue(value unsafe.Pointer) error {
+	sz := b.ValueSize()
+	ret := C.bpf_map__set_initial_value(b.bpfMap, value, C.ulong(sz))
+	if ret != 0 {
+		return fmt.Errorf("failed to set inital value for map %s: %w", b.name, syscall.Errno(-ret))
+	}
+	return nil
+}
+
+func (b *BPFMap) getInitialValue() []byte {
+	value := make([]byte, b.ValueSize())
+	valuePtr := unsafe.Pointer(&value[0])
+	C.get_internal_map_init_value(b.bpfMap, valuePtr)
+	return value
 }
 
 // BPFMapBatchOpts mirrors the C structure bpf_map_batch_opts.
