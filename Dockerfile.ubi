@@ -41,6 +41,11 @@ LABEL name="Security Profiles Operator" \
       version=$version \
       description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, SELinux or AppArmor profiles and apply them to Kubernetes' workloads."
 
+RUN true \
+    && microdnf upgrade libksba \
+    && microdnf clean all \
+    && true
+
 COPY --from=build /work/build/security-profiles-operator /usr/bin/
 
 ENTRYPOINT ["/usr/bin/security-profiles-operator"]
