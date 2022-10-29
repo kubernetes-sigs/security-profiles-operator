@@ -48,8 +48,12 @@ const (
 
 func (a *aaProfileManager) Enabled() bool {
 	checkHostSupport.Do(func() {
-		mount := hostop.NewMountHostOp(hostop.WithLogger(a.logger), hostop.WithAssumeContainer())
-		a := aa.NewAppArmor(aa.WithLogger(a.logger))
+		l := logr.Discard
+		if a.logger != nil {
+			l = a.logger
+		}
+		mount := hostop.NewMountHostOp(hostop.WithLogger(l), hostop.WithAssumeContainer())
+		a := aa.NewAppArmor(aa.WithLogger(l))
 
 		mount.Do(func() (err error) {
 			hostSupportsAppArmor, err = a.Enabled()
@@ -82,8 +86,13 @@ func (a *aaProfileManager) CustomResourceTypeName() string {
 }
 
 func loadProfile(logger logr.Logger, name, content string) (bool, error) {
-	mount := hostop.NewMountHostOp(hostop.WithLogger(logger), hostop.WithAssumeContainer())
-	a := aa.NewAppArmor(aa.WithLogger(logger))
+	l := logr.Discard
+	if a.logger != nil {
+		l = a.logger
+	}
+
+	mount := hostop.NewMountHostOp(hostop.WithLogger(l), hostop.WithAssumeContainer())
+	a := aa.NewAppArmor(aa.WithLogger(l))
 
 	err := mount.Do(func() error {
 		path := filepath.Join(targetProfileDir, name)
@@ -109,8 +118,13 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 }
 
 func removeProfile(logger logr.Logger, profileName string) error {
-	mount := hostop.NewMountHostOp(hostop.WithLogger(logger), hostop.WithAssumeContainer())
-	a := aa.NewAppArmor(aa.WithLogger(logger))
+	l := logr.Discard
+	if a.logger != nil {
+		l = a.logger
+	}
+
+	mount := hostop.NewMountHostOp(hostop.WithLogger(l), hostop.WithAssumeContainer())
+	a := aa.NewAppArmor(aa.WithLogger(l))
 
 	err := mount.Do(func() error {
 		loaded, err := a.PolicyLoaded(profileName)
@@ -119,7 +133,7 @@ func removeProfile(logger logr.Logger, profileName string) error {
 		}
 
 		if !loaded {
-			logger.Info("profile is not loaded into host: skipping deletion", "profile-name", profileName)
+			l.Info("profile is not loaded into host: skipping deletion", "profile-name", profileName)
 			return nil
 		}
 
