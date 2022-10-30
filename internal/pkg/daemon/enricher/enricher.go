@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -408,21 +409,23 @@ func (e *Enricher) dispatchSelinuxLine(
 	}
 
 	if info.RecordProfile != "" {
-		avc := &apienricher.AvcResponse_SelinuxAvc{
-			Perm:     auditLine.Perm,
-			Scontext: auditLine.Scontext,
-			Tcontext: auditLine.Tcontext,
-			Tclass:   auditLine.Tclass,
-		}
-		jsonBytes, err := protojson.Marshal(avc)
-		if err != nil {
-			e.logger.Error(err, "marshall protobuf")
-		}
+		for _, perm := range strings.Split(auditLine.Perm, " ") {
+			avc := &apienricher.AvcResponse_SelinuxAvc{
+				Perm:     perm,
+				Scontext: auditLine.Scontext,
+				Tcontext: auditLine.Tcontext,
+				Tclass:   auditLine.Tclass,
+			}
+			jsonBytes, err := protojson.Marshal(avc)
+			if err != nil {
+				e.logger.Error(err, "marshall protobuf")
+			}
 
-		a, _ := e.avcs.LoadOrStore(info.RecordProfile, sets.NewString())
-		stringSet, ok := a.(sets.String)
-		if ok {
-			stringSet.Insert(string(jsonBytes))
+			a, _ := e.avcs.LoadOrStore(info.RecordProfile, sets.NewString())
+			stringSet, ok := a.(sets.String)
+			if ok {
+				stringSet.Insert(string(jsonBytes))
+			}
 		}
 	}
 }
