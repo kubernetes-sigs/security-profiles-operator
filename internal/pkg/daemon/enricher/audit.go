@@ -30,7 +30,7 @@ var (
 		`(type=SECCOMP|audit:.+type=1326).+audit\((.+)\).+pid=(\b\d+\b).+exe="(.+)".+syscall=(\b\d+\b).*`,
 	)
 	selinuxLineRegex = regexp.MustCompile(
-		`type=AVC.+audit\((.+)\).+{ (\w+) }.+pid=(\b\d+\b).*scontext=(.+) tcontext=(.+) tclass=(\b\w+\b).*`,
+		`type=AVC.+audit\((.+)\).+{ (.+) }.+pid=(\b\d+\b).*scontext=(.+) tcontext=(.+) tclass=(\b\w+\b).*`,
 	)
 )
 

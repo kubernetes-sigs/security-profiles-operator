@@ -66,6 +66,12 @@ func Test_isAuditLine(t *testing.T) {
 			`type=AVC msg=audit(1613173578.156:2945): avc:  denied  { read } for  pid=75593 comm="security-profil" name="token" dev="tmpfs" ino=612459 scontext=system_u:system_r:container_t:s0:c4,c808 tcontext=system_u:object_r:var_lib_t:s0 tclass=lnk_file permissive=0`,
 			true,
 		},
+		{
+			"Should extract selinux log lines with multiple permissions",
+			//nolint:lll // no need to wrap
+			`type=AVC msg=audit(1666691794.882:1434): avc:  denied  { read write open } for  pid=94509 comm="aide" path="/hostroot/etc/kubernetes/aide.log.new" dev="nvme0n1p4" ino=167774224 scontext=system_u:system_r:selinuxrecording.process:s0:c218,c875 tcontext=system_u:object_r:kubernetes_file_t:s0 tclass=file permissive=1`,
+			true,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -125,6 +131,23 @@ func Test_extractAuditLine(t *testing.T) {
 				Scontext:     "system_u:system_r:container_t:s0:c4,c808",
 				Tcontext:     "system_u:object_r:var_lib_t:s0",
 				Tclass:       "lnk_file",
+			},
+			nil,
+		},
+		{
+			"Should extract selinux log lines with multiple permissions",
+			//nolint:lll // no need to wrap
+			`type=AVC msg=audit(1666691794.882:1434): avc:  denied  { read write open } for  pid=94509 comm="aide" path="/hostroot/etc/kubernetes/aide.log.new" dev="nvme0n1p4" ino=167774224 scontext=system_u:system_r:selinuxrecording.process:s0:c218,c875 tcontext=system_u:object_r:kubernetes_file_t:s0 tclass=file permissive=1`,
+			&types.AuditLine{
+				AuditType:    "selinux",
+				TimestampID:  "1666691794.882:1434",
+				SystemCallID: 0,
+				ProcessID:    94509,
+				Executable:   "",
+				Perm:         "read write open",
+				Scontext:     "system_u:system_r:selinuxrecording.process:s0:c218,c875",
+				Tcontext:     "system_u:object_r:kubernetes_file_t:s0",
+				Tclass:       "file",
 			},
 			nil,
 		},
