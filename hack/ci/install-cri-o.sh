@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-TAG=v1.25.0
+TAG=v1.25.1
 
 export PATH=$PATH:/usr/local/go/bin
 export GOPATH="$HOME/go"
