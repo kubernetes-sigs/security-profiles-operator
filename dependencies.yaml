@@ -140,7 +140,7 @@ dependencies:
       match: VERSION
 
   - name: CRI-O
-    version: v1.25.0
+    version: v1.25.1
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: TAG
