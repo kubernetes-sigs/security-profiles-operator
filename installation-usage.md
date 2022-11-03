@@ -41,6 +41,9 @@
 - [Notes on OpenShift and SCCs](#notes-on-openshift-and-sccs)
   - [SELinux recording should allow <code>seLinuxContext: RunAsAny</code>](#selinux-recording-should-allow-selinuxcontext-runasany)
   - [Replicating controllers and SCCs](#replicating-controllers-and-sccs)
+- [Create an AppArmor profile](#create-an-apparmor-profile)
+  - [Apply an AppArmor profile to a pod](#apply-an-apparmor-profile-to-a-pod)
+  - [Known limitations](#known-limitations)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
 
@@ -1435,6 +1438,63 @@ spec:
 Note that we don't specify the SELinux type at all in the workload, that's handled by the SCC instead.
 When the pods are created through the deployment and its `ReplicaSet`, they should be
 running with the appropriate profile.
+
+
+## Create an AppArmor profile
+
+Ensure that the Daemon has AppArmor enabled:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"apparmorenabled":"true"}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
+Use the `AppArmorProfile` kind to create AppArmor profiles. Example:
+```yaml
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: AppArmorProfile
+metadata:
+  name: test-profile
+  annotations:
+    description: Block writing to any files in the disk.
+spec:
+  policy: |
+    #include <tunables/global>
+
+    profile test-profile flags=(attach_disconnected) {
+      #include <abstractions/base>
+
+      file,
+
+      # Deny all file writes.
+      deny /** w,
+    }
+```
+
+Note that the name of the profile inside `spec.policy` matches the `metadata.name`,
+this is currently a requirement as mentioned within the known limitations below.
+
+Based on the policy above, an AppArmor profile `test-profile` will be created and
+loaded in all nodes within the cluster.
+
+### Apply an AppArmor profile to a pod
+
+Once the AppArmor profile is created and loaded in all cluster nodes,
+you can restrict Pod's access with the annotation:
+
+`container.apparmor.security.beta.kubernetes.io/<container_name>: test-profile`
+
+When [AppArmor becomes GA](https://github.com/kubernetes/enhancements/pull/3298) a new field within SecurityContext will be created to replace the annotations above.
+For up-to-date information on how to use AppArmor in Kubernetes, refer to the [official documentation](https://kubernetes.io/docs/tutorials/security/apparmor/).
+
+### Known limitations
+
+- The name set for the AppArmorProfile CRD must match the policy name
+defined within `spec.policy`. Otherwise the reconciler will fail as it
+won't be able to confirm the policy was correctly loaded.
+- The reconciler will simply load the profiles across the cluster. If an
+existing profile with the same name exists, it will be replaced.
 
 ## Uninstalling
 
