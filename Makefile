@@ -572,3 +572,13 @@ do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 # Deploy for development into OpenShift
 .PHONY: deploy-openshift-dev
 deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev
+
+
+# Deploy the operator into the current kubectl context. 
+.PHONY: deploy
+deploy:
+	mkdir -p build/deploy && cp deploy/operator.yaml build/deploy/
+	sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest#$(IMAGE)#g" build/deploy/operator.yaml
+	sed -i "s#replicas: 3#replicas: 1#g" build/deploy/operator.yaml
+	kubectl apply -f build/deploy/operator.yaml
+	kubectl apply -f examples/config.yaml
