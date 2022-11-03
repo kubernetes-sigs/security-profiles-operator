@@ -8,6 +8,10 @@ approvers:
   - saschagrunert
   - JAORMX
   - jhrozek
+  - sheriff-rh
+  - Vincent056
+  - xiaojiey
+  - Wiharris
 emeritus_approvers:
   - cmurphy
   - hasheddan
