@@ -24,12 +24,12 @@ export GOBIN="$GOPATH/bin"
 # We need cosign as well as the bom tool here because the CRI-O installation
 # script will automatically verify the signatures based on their existence in
 # $PATH.
-COSIGN_VERSION=v1.11.1
+COSIGN_VERSION=v1.13.1
 go install github.com/sigstore/cosign/cmd/cosign@$COSIGN_VERSION
 cp "$GOBIN/cosign" /usr/bin
 cosign version
 
-BOM_VERSION=v0.3.0
+BOM_VERSION=v0.4.1
 go install sigs.k8s.io/bom/cmd/bom@$BOM_VERSION
 cp "$GOBIN/bom" /usr/bin
 bom version

@@ -152,13 +152,13 @@ dependencies:
       match: VERSION
 
   - name: cosign
-    version: v1.11.1
+    version: v1.13.1
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: COSIGN_VERSION
 
   - name: bom
-    version: v0.3.0
+    version: v0.4.1
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: BOM_VERSION
