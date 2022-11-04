@@ -530,7 +530,7 @@ catalog-build: opm ## Build a catalog image.
 	cp deploy/catalog-preamble.json $(TMP_DIR)/security-profiles-operator-catalog.json
 	$(OPM) $(OPM_EXTRA_ARGS) render $(BUNDLE_IMGS) >> $(TMP_DIR)/security-profiles-operator-catalog.json
 	$(OPM) generate dockerfile $(TMP_DIR)
-	$(CONTAINER_RUNTIME) build -f $(CATALOG_DOCKERFILE) -t $(CATALOG_IMG)
+	$(CONTAINER_RUNTIME) build -f $(CATALOG_DOCKERFILE) -t $(CATALOG_IMG) $(shell dirname $(TMP_DIR))
 	rm -rf $(TMP_DIR) $(CATALOG_DOCKERFILE)
 
 # Push the catalog image.
