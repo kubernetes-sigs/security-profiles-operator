@@ -36,7 +36,6 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/atomic"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -73,7 +72,6 @@ type Reconciler struct {
 	log     logr.Logger
 	record  event.Recorder
 	metrics *metrics.Metrics
-	ready   atomic.Bool
 	manager ProfileManager
 }
 
@@ -89,8 +87,12 @@ func (r *Reconciler) SchemeBuilder() *scheme.Builder {
 
 // Healthz is the liveness probe endpoint of the controller.
 func (r *Reconciler) Healthz(*http.Request) error {
-	if !r.ready.Get() {
-		return errors.New("not ready")
+	return r.checkAppArmor()
+}
+
+func (r *Reconciler) checkAppArmor() error {
+	if !r.manager.Enabled() {
+		return fmt.Errorf("node %q does not support apparmor", os.Getenv(config.NodeNameEnvKey))
 	}
 	return nil
 }
@@ -103,11 +105,6 @@ func (r *Reconciler) Healthz(*http.Request) error {
 
 // Reconcile reconciles a AppArmorProfile.
 func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
-	// Mark the controller as ready if the first reconcile has been finished
-	if !r.ready.Get() {
-		defer func() { r.ready.Set(true) }()
-	}
-
 	logger := r.log.WithValues("apparmorprofile", req.Name, "namespace", req.Namespace)
 	logger.Info("Reconciling AppArmorProfile")
 
