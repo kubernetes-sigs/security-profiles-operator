@@ -45,7 +45,7 @@ type WarningHandlerOptions struct {
 	// AllowDuplicateLogs does not deduplicate the to-be
 	// logged surfaced warnings messages. See
 	// log.WarningHandlerOptions for considerations
-	// regarding deduplication
+	// regarding deuplication
 	AllowDuplicateLogs bool
 }
 
@@ -88,12 +88,13 @@ func newClient(config *rest.Config, options Options) (*client, error) {
 		// is log.KubeAPIWarningLogger with deduplication enabled.
 		// See log.KubeAPIWarningLoggerOptions for considerations
 		// regarding deduplication.
-		config = rest.CopyConfig(config)
-		config.WarningHandler = log.NewKubeAPIWarningLogger(
-			logger,
-			log.KubeAPIWarningLoggerOptions{
-				Deduplicate: !options.Opts.AllowDuplicateLogs,
-			},
+		rest.SetDefaultWarningHandler(
+			log.NewKubeAPIWarningLogger(
+				logger,
+				log.KubeAPIWarningLoggerOptions{
+					Deduplicate: !options.Opts.AllowDuplicateLogs,
+				},
+			),
 		)
 	}
 
@@ -240,16 +241,16 @@ func (c *client) Patch(ctx context.Context, obj Object, patch Patch, opts ...Pat
 }
 
 // Get implements client.Client.
-func (c *client) Get(ctx context.Context, key ObjectKey, obj Object, opts ...GetOption) error {
+func (c *client) Get(ctx context.Context, key ObjectKey, obj Object) error {
 	switch obj.(type) {
 	case *unstructured.Unstructured:
-		return c.unstructuredClient.Get(ctx, key, obj, opts...)
+		return c.unstructuredClient.Get(ctx, key, obj)
 	case *metav1.PartialObjectMetadata:
 		// Metadata only object should always preserve the GVK coming in from the caller.
 		defer c.resetGroupVersionKind(obj, obj.GetObjectKind().GroupVersionKind())
-		return c.metadataClient.Get(ctx, key, obj, opts...)
+		return c.metadataClient.Get(ctx, key, obj)
 	default:
-		return c.typedClient.Get(ctx, key, obj, opts...)
+		return c.typedClient.Get(ctx, key, obj)
 	}
 }
 

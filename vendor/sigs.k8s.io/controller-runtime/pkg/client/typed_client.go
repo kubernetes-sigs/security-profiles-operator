@@ -132,17 +132,14 @@ func (c *typedClient) Patch(ctx context.Context, obj Object, patch Patch, opts .
 }
 
 // Get implements client.Client.
-func (c *typedClient) Get(ctx context.Context, key ObjectKey, obj Object, opts ...GetOption) error {
+func (c *typedClient) Get(ctx context.Context, key ObjectKey, obj Object) error {
 	r, err := c.cache.getResource(obj)
 	if err != nil {
 		return err
 	}
-	getOpts := GetOptions{}
-	getOpts.ApplyOptions(opts)
 	return r.Get().
 		NamespaceIfScoped(key.Namespace, r.isNamespaced()).
 		Resource(r.resource()).
-		VersionedParams(getOpts.AsGetOptions(), c.paramCodec).
 		Name(key.Name).Do(ctx).Into(obj)
 }
 

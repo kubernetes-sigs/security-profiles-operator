@@ -17,6 +17,7 @@ limitations under the License.
 package apiutil
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -144,7 +145,7 @@ func (drm *dynamicRESTMapper) init() (err error) {
 // checkAndReload attempts to call the given callback, which is assumed to be dependent
 // on the data in the restmapper.
 //
-// If the callback returns an error matching meta.IsNoMatchErr, it will attempt to reload
+// If the callback returns an error that matches the given error, it will attempt to reload
 // the RESTMapper's data and re-call the callback once that's occurred.
 // If the callback returns any other error, the function will return immediately regardless.
 //
@@ -153,7 +154,7 @@ func (drm *dynamicRESTMapper) init() (err error) {
 // the callback.
 // It's thread-safe, and worries about thread-safety for the callback (so the callback does
 // not need to attempt to lock the restmapper).
-func (drm *dynamicRESTMapper) checkAndReload(checkNeedsReload func() error) error {
+func (drm *dynamicRESTMapper) checkAndReload(needsReloadErr error, checkNeedsReload func() error) error {
 	// first, check the common path -- data is fresh enough
 	// (use an IIFE for the lock's defer)
 	err := func() error {
@@ -163,7 +164,10 @@ func (drm *dynamicRESTMapper) checkAndReload(checkNeedsReload func() error) erro
 		return checkNeedsReload()
 	}()
 
-	needsReload := meta.IsNoMatchError(err)
+	// NB(directxman12): `Is` and `As` have a confusing relationship --
+	// `Is` is like `== or does this implement .Is`, whereas `As` says
+	// `can I type-assert into`
+	needsReload := errors.As(err, &needsReloadErr)
 	if !needsReload {
 		return err
 	}
@@ -174,7 +178,7 @@ func (drm *dynamicRESTMapper) checkAndReload(checkNeedsReload func() error) erro
 
 	// ... and double-check that we didn't reload in the meantime
 	err = checkNeedsReload()
-	needsReload = meta.IsNoMatchError(err)
+	needsReload = errors.As(err, &needsReloadErr)
 	if !needsReload {
 		return err
 	}
@@ -202,7 +206,7 @@ func (drm *dynamicRESTMapper) KindFor(resource schema.GroupVersionResource) (sch
 		return schema.GroupVersionKind{}, err
 	}
 	var gvk schema.GroupVersionKind
-	err := drm.checkAndReload(func() error {
+	err := drm.checkAndReload(&meta.NoResourceMatchError{}, func() error {
 		var err error
 		gvk, err = drm.staticMapper.KindFor(resource)
 		return err
@@ -215,7 +219,7 @@ func (drm *dynamicRESTMapper) KindsFor(resource schema.GroupVersionResource) ([]
 		return nil, err
 	}
 	var gvks []schema.GroupVersionKind
-	err := drm.checkAndReload(func() error {
+	err := drm.checkAndReload(&meta.NoResourceMatchError{}, func() error {
 		var err error
 		gvks, err = drm.staticMapper.KindsFor(resource)
 		return err
@@ -229,7 +233,7 @@ func (drm *dynamicRESTMapper) ResourceFor(input schema.GroupVersionResource) (sc
 	}
 
 	var gvr schema.GroupVersionResource
-	err := drm.checkAndReload(func() error {
+	err := drm.checkAndReload(&meta.NoResourceMatchError{}, func() error {
 		var err error
 		gvr, err = drm.staticMapper.ResourceFor(input)
 		return err
@@ -242,7 +246,7 @@ func (drm *dynamicRESTMapper) ResourcesFor(input schema.GroupVersionResource) ([
 		return nil, err
 	}
 	var gvrs []schema.GroupVersionResource
-	err := drm.checkAndReload(func() error {
+	err := drm.checkAndReload(&meta.NoResourceMatchError{}, func() error {
 		var err error
 		gvrs, err = drm.staticMapper.ResourcesFor(input)
 		return err
@@ -255,7 +259,7 @@ func (drm *dynamicRESTMapper) RESTMapping(gk schema.GroupKind, versions ...strin
 		return nil, err
 	}
 	var mapping *meta.RESTMapping
-	err := drm.checkAndReload(func() error {
+	err := drm.checkAndReload(&meta.NoKindMatchError{}, func() error {
 		var err error
 		mapping, err = drm.staticMapper.RESTMapping(gk, versions...)
 		return err
@@ -268,7 +272,7 @@ func (drm *dynamicRESTMapper) RESTMappings(gk schema.GroupKind, versions ...stri
 		return nil, err
 	}
 	var mappings []*meta.RESTMapping
-	err := drm.checkAndReload(func() error {
+	err := drm.checkAndReload(&meta.NoKindMatchError{}, func() error {
 		var err error
 		mappings, err = drm.staticMapper.RESTMappings(gk, versions...)
 		return err
@@ -281,7 +285,7 @@ func (drm *dynamicRESTMapper) ResourceSingularizer(resource string) (string, err
 		return "", err
 	}
 	var singular string
-	err := drm.checkAndReload(func() error {
+	err := drm.checkAndReload(&meta.NoResourceMatchError{}, func() error {
 		var err error
 		singular, err = drm.staticMapper.ResourceSingularizer(resource)
 		return err
