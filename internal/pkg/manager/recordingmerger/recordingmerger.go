@@ -210,7 +210,7 @@ func (r *PolicyMergeReconciler) mergeSeccompProfiles(
 
 func createUpdateSeccompProfile(
 	ctx context.Context,
-	client client.Client,
+	cl client.Client,
 	profileRecording *profilerecording1alpha1.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
@@ -225,7 +225,7 @@ func createUpdateSeccompProfile(
 	}
 	mergedSpec := mergedProf.Spec.DeepCopy()
 	mergedSp.Spec = *mergedSpec
-	return controllerutil.CreateOrUpdate(ctx, client, mergedSp,
+	return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
 		func() error {
 			mergedSp.Spec = *mergedSpec
 			return nil
@@ -247,7 +247,7 @@ func (r *PolicyMergeReconciler) mergeSelinuxProfiles(
 
 func createUpdateSelinuxProfile(
 	ctx context.Context,
-	client client.Client,
+	cl client.Client,
 	profileRecording *profilerecording1alpha1.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
@@ -263,7 +263,7 @@ func createUpdateSelinuxProfile(
 
 	mergedSpec := mergedProf.Spec.DeepCopy()
 	mergedSp.Spec = *mergedSpec
-	return controllerutil.CreateOrUpdate(ctx, client, mergedSp,
+	return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
 		func() error {
 			mergedSp.Spec = *mergedSpec
 			return nil
