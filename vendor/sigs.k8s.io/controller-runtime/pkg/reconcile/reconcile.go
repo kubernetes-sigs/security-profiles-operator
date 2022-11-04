@@ -61,24 +61,24 @@ Deleting Kubernetes objects) or external Events (GitHub Webhooks, polling extern
 
 Example reconcile Logic:
 
-* Read an object and all the Pods it owns.
-* Observe that the object spec specifies 5 replicas but actual cluster contains only 1 Pod replica.
-* Create 4 Pods and set their OwnerReferences to the object.
+	* Read an object and all the Pods it owns.
+	* Observe that the object spec specifies 5 replicas but actual cluster contains only 1 Pod replica.
+	* Create 4 Pods and set their OwnerReferences to the object.
 
 reconcile may be implemented as either a type:
 
-	type reconciler struct {}
+	type reconcile struct {}
 
-	func (reconciler) Reconcile(ctx context.Context, o reconcile.Request) (reconcile.Result, error) {
+	func (reconcile) reconcile(controller.Request) (controller.Result, error) {
 		// Implement business logic of reading and writing objects here
-		return reconcile.Result{}, nil
+		return controller.Result{}, nil
 	}
 
 Or as a function:
 
-	reconcile.Func(func(ctx context.Context, o reconcile.Request) (reconcile.Result, error) {
+	controller.Func(func(o controller.Request) (controller.Result, error) {
 		// Implement business logic of reading and writing objects here
-		return reconcile.Result{}, nil
+		return controller.Result{}, nil
 	})
 
 Reconciliation is level-based, meaning action isn't driven off changes in individual Events, but instead is
