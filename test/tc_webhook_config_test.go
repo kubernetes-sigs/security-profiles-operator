@@ -92,7 +92,7 @@ func (e *e2e) getAllWebhookAttributes() []*whConfigOutput {
 }
 
 func (e *e2e) getWebhookAttribute(hook, attr string) string {
-	jsonPath := fmt.Sprintf("{.webhooks[?(@.name==\"%s\")].%s}", hook, attr)
+	jsonPath := fmt.Sprintf("{.webhooks[?(@.name==%q)].%s}", hook, attr)
 	return e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
 		"--output", "jsonpath="+jsonPath)

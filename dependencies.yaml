@@ -16,7 +16,7 @@ dependencies:
       match: GO_VERSION
 
   - name: golangci-lint
-    version: 1.49.0
+    version: 1.50.1
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
