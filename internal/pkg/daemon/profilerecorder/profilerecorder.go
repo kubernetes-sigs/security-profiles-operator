@@ -251,8 +251,12 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			return reconcile.Result{}, nil
 		}
 
-		var profiles []profileToCollect
-		var recorder profilerecording1alpha1.ProfileRecorder
+		var (
+			profiles []profileToCollect
+			recorder profilerecording1alpha1.ProfileRecorder
+		)
+
+		//nolint:gocritic // should be intentionally no switch
 		if len(logProfiles) > 0 {
 			profiles = logProfiles
 			recorder = profilerecording1alpha1.ProfileRecorderLogs

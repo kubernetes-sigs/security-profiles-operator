@@ -278,16 +278,16 @@ func (r *Reconciler) logNodeInfo() {
 	r.log.Info("detecting apparmor support...")
 
 	mount := hostop.NewMountHostOp().WithLogger(r.log)
-	aa := aa.NewAppArmor().WithLogger(r.log)
+	a := aa.NewAppArmor().WithLogger(r.log)
 
 	err := mount.Do(func() error {
-		enabled, err := aa.Enabled()
+		enabled, err := a.Enabled()
 		r.log.Info(fmt.Sprintf("apparmor enabled: %s", ok(enabled, err)))
 
-		fsPath, err := aa.AppArmorFS()
+		fsPath, err := a.AppArmorFS()
 		r.log.Info(fmt.Sprintf("apparmor fs: %s (%v)", fsPath, err))
 
-		enforceable, err := aa.Enforceable()
+		enforceable, err := a.Enforceable()
 		r.log.Info(fmt.Sprintf("apparmor enforceable: %s", ok(enforceable, err)))
 
 		return nil

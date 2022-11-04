@@ -24,6 +24,7 @@ linters:
     - depguard
     - dogsled
     - dupl
+    - dupword
     - durationcheck
     - errcheck
     - errchkjson
@@ -37,7 +38,7 @@ linters:
     - gochecknoinits
     - gocognit
     - goconst
-    # - gocritic # TODO: re-enable when it supports go >1.18 and generics
+    - gocritic
     - gocyclo
     - godot
     - godox
@@ -57,6 +58,7 @@ linters:
     - importas
     - ineffassign
     - lll
+    - loggercheck
     - makezero
     - misspell
     - nakedret
@@ -78,6 +80,7 @@ linters:
     - stylecheck
     - tagliatelle
     - tenv
+    - testableexamples
     - thelper
     - tparallel
     - typecheck
@@ -95,7 +98,6 @@ linters:
     # - gochecknoglobals
     # - interfacebloat
     # - ireturn
-    # - logrlint
     # - maintidx
     # - nlreturn
     # - nonamedreturns

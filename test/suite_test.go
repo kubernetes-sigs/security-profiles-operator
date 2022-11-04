@@ -823,7 +823,7 @@ metadata:
 	curNs := e.getCurrentContextNamespace(config.OperatorName)
 	e.kubectl("config", "set-context", "--current", "--namespace", ns)
 	return func() {
-		e.logf("switching back to to ns %s", curNs)
+		e.logf("switching back to ns %s", curNs)
 		e.kubectl("config", "set-context", "--current", "--namespace", curNs)
 	}
 }

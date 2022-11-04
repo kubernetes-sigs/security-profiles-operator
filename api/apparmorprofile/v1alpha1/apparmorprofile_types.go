@@ -29,9 +29,11 @@ const (
 	profilePrefix string = "spo-"
 )
 
-// Ensure AppArmorProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
-var _ profilebasev1alpha1.StatusBaseUser = &AppArmorProfile{}
-var _ profilebasev1alpha1.SecurityProfileBase = &AppArmorProfile{}
+var (
+	// Ensure AppArmorProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
+	_ profilebasev1alpha1.StatusBaseUser      = &AppArmorProfile{}
+	_ profilebasev1alpha1.SecurityProfileBase = &AppArmorProfile{}
+)
 
 // AppArmorProfileSpec defines the desired state of AppArmorProfile.
 type AppArmorProfileSpec struct {
