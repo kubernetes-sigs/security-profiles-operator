@@ -162,6 +162,14 @@ spec:
         - apiGroups:
           - ""
           resources:
+          - nodes
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - ""
+          resources:
           - services
           verbs:
           - create
@@ -335,6 +343,7 @@ spec:
           resources:
           - securityprofilenodestatuses
           verbs:
+          - delete
           - get
           - list
           - watch

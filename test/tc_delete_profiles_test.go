@@ -34,11 +34,27 @@ apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: delete-me
+  finalizers: [fake-node-deleted]
 spec:
   defaultAction: "SCMP_ACT_ALLOW"
 `
-		deleteProfileName = "delete-me"
-		deletePod         = `
+		deleteProfileName  = "delete-me"
+		fakeNodeStatusName = "delete-me-fake-node"
+		fakeNodeStatus     = `
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: SecurityProfileNodeStatus
+metadata:
+  name: delete-me-fake-node
+  labels:
+    spo.x-k8s.io/node-name: fake-node
+    spo.x-k8s.io/profile-id: SeccompProfile-delete-me
+    spo.x-k8s.io/profile-kind: SeccompProfile
+    spo.x-k8s.io/profile-state: Installed
+nodeName: fake-node
+spec: {}
+status: Installed
+`
+		deletePod = `
 apiVersion: v1
 kind: Pod
 metadata:
@@ -113,6 +129,9 @@ spec:
 	for _, node := range nodes {
 		e.execNode(node, "test", "-f", profileOperatorPath)
 	}
+	e.logf("Create fake node status for profile")
+	e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
+	time.Sleep(time.Second)
 	e.logf("Verifying profile deleted")
 	e.kubectl("delete", "seccompprofile", deleteProfileName)
 	time.Sleep(time.Second)
@@ -146,6 +165,8 @@ spec:
 		profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 		defer profileCleanup() //nolint:gocritic // TODO: is this intentional?
 		e.waitFor("condition=ready", "seccompprofile", deleteProfileName)
+		e.logf("Create fake node status for profile")
+		e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
 		podCleanup := e.writeAndCreate(fmt.Sprintf(testCase.podManifest, namespace), "delete-pod*.yaml")
 		defer podCleanup() //nolint:gocritic // TODO: is this intention?
 		e.waitFor("condition=ready", "pod", deletePodName)
