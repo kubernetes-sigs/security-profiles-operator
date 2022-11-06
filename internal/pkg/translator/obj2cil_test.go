@@ -190,6 +190,75 @@ func TestObject2CIL(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Test errorlogger translation with permissive mode",
+			profile: &selxv1alpha2.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo-permissive",
+					Namespace: "bar",
+				},
+				Spec: selxv1alpha2.SelinuxProfileSpec{
+					Permissive: true,
+					Inherit: []selxv1alpha2.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selxv1alpha2.Allow{
+						"var_log_t": {
+							"dir": []string{
+								"open",
+								"read",
+								"getattr",
+								"lock",
+								"search",
+								"ioctl",
+								"add_name",
+								"remove_name",
+								"write",
+							},
+							"file": []string{
+								"getattr",
+								"read",
+								"write",
+								"append",
+								"ioctl",
+								"lock",
+								"map",
+								"open",
+								"create",
+							},
+							"sock_file": []string{
+								"getattr",
+								"read",
+								"write",
+								"append",
+								"open",
+							},
+						},
+					},
+				},
+			},
+			wantMatches: []string{
+				"\\(block foo-permissive_bar",
+				"\\(blockinherit container\\)",
+				"\\(typepermissive process\\)",
+				// We match on several lines since we don't care about the order
+				"\\(allow process var_log_t \\( dir \\(.*open.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( dir \\(.*read.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( dir \\(.*remove_name.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( dir \\(.*write.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( file \\(.*getattr.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( file \\(.*map.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( file \\(.*create.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( sock_file \\(.*getattr.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( sock_file \\(.*append.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( sock_file \\(.*open.*\\)\\)\\)\n",
+			},
+			inheritsys: []string{
+				"container",
+			},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt

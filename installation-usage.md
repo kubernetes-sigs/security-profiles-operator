@@ -26,6 +26,7 @@
     - [Merging per-container profile instances](#merging-per-container-profile-instances)
 - [Create a SELinux Profile](#create-a-selinux-profile)
   - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
+  - [Make a SELinux profile permissive](#make-a-selinux-profile-permissive)
   - [Record a SELinux profile](#record-a-selinux-profile)
 - [Restricting to a Single Namespace](#restricting-to-a-single-namespace)
   - [Restricting to a Single Namespace with upstream deployment manifests](#restricting-to-a-single-namespace-with-upstream-deployment-manifests)
@@ -849,6 +850,15 @@ spec:
 ```
 
 Note that the SELinux type must exist before creating the workload.
+
+### Make a SELinux profile permissive
+
+Similarly to how a `SeccompProfile` might have a default action `SCMP_ACT_LOG`
+which would merely log violations of the policy, but not actually block the
+container from executing, a `SelinuxProfile` can be marked as "permissive"
+by setting `.spec.permissive` to `true`. This mode might be useful e.g. when
+the policy is known or suspected to be incomplete and you'd prefer to just
+watch for subsequent AVC denials after deploying the policy.
 
 ### Record a SELinux profile
 
