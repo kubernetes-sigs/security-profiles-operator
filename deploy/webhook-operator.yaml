@@ -1925,6 +1925,11 @@ spec:
                   - name
                   type: object
                 type: array
+              permissive:
+                default: false
+                description: Permissive, when true will cause the SELinux profile
+                  to only log violations instead of enforcing them.
+                type: boolean
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.

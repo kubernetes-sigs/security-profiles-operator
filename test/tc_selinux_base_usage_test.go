@@ -61,6 +61,42 @@ spec:
         - open
 `
 
+	// this is the equivalent of errorloggerPolicy but with several calls removed. The idea is to
+	// ensure that the workload will fail if the policy in incomplete. Allows setting the permissive
+	// flag as needed.
+	errorloggerIncompletePolFmt = `
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+kind: SelinuxProfile
+metadata:
+  name: errorlogger-incomplete-%s
+spec:
+  permissive: %s
+  allow:
+    var_log_t:
+      dir:
+        - getattr
+        - lock
+        - search
+        - ioctl
+        - add_name
+        - remove_name
+        - write
+      file:
+        - getattr
+        - read
+        - ioctl
+        - lock
+        - map
+        - open
+        - create
+      sock_file:
+        - getattr
+        - read
+        - write
+        - append
+        - open
+`
+
 	//nolint:lll // full yaml
 	podWithPolicyFmt = `
 apiVersion: v1
@@ -129,6 +165,80 @@ func (e *e2e) testCaseSelinuxBaseUsage(nodes []string) {
 
 	e.logf("assert policy was removed")
 	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
+}
+
+func (e *e2e) testCaseSelinuxIncompletePolicy() {
+	e.selinuxOnlyTestCase()
+	enforcingProfileName := "errorlogger-incomplete-enforcing"
+
+	e.logf("The 'errorlogger' workload should error out with a wrong policy")
+
+	e.logf("creating incomplete policy")
+	removeFn := e.writeAndCreate(
+		fmt.Sprintf(errorloggerIncompletePolFmt, "enforcing", "false"),
+		"errorlogger-policy-incomplete-enforcing.yml")
+	defer removeFn()
+
+	// Let's wait for the policy to be processed
+	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+		"--for", "condition=ready", "selinuxprofile", enforcingProfileName)
+
+	e.logf("creating workload - it should become ready, but fail")
+	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage(enforcingProfileName))
+	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-policy.yml")
+
+	// note: this would have been much nicer with kubectl wait --jsonpath, but I found it racy incase the status
+	// doesn't exist yet. So we're using a loop instead.
+	var exitCode string
+	for i := 0; i < 10; i++ {
+		exitCode = e.kubectl("get", "pods", "errorlogger",
+			"-o", "jsonpath={.status.containerStatuses[0].state.terminated.exitCode}")
+		if exitCode == "1" {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if exitCode != "1" {
+		e.Fail("The pod should have failed, but it didn't")
+	}
+
+	log := e.kubectl("logs", "errorlogger", "-c", "errorlogger")
+	e.Contains(log, "Permission denied")
+
+	e.logf("removing workload")
+	e.kubectl("delete", "pod", "errorlogger")
+
+	e.logf("removing policy")
+	e.kubectl("delete", "selinuxprofile", enforcingProfileName)
+}
+
+func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
+	e.selinuxOnlyTestCase()
+	permissiveProfileName := "errorlogger-incomplete-permissive"
+
+	e.logf("The 'errorlogger' workload should run fine with a wrong policy in permissive mode")
+
+	e.logf("creating incomplete policy")
+	removeFn := e.writeAndCreate(
+		fmt.Sprintf(errorloggerIncompletePolFmt, "permissive", "true"),
+		"errorlogger-policy-incomplete-permissive.yml")
+	defer removeFn()
+
+	// Let's wait for the policy to be processed
+	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+		"--for", "condition=ready", "selinuxprofile", permissiveProfileName)
+
+	e.logf("creating workload - it should become ready, but fail")
+	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage(permissiveProfileName))
+	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-permissive-policy.yml")
+
+	e.waitFor("condition=ready", "pod", "errorlogger")
+
+	e.logf("removing workload")
+	e.kubectl("delete", "pod", "errorlogger")
+
+	e.logf("removing policy")
+	e.kubectl("delete", "selinuxprofile", permissiveProfileName)
 }
 
 func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, nodeIterations int, sleep time.Duration) {

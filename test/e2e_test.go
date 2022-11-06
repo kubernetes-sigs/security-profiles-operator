@@ -133,6 +133,11 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseSelinuxProfileBindingNsNotEnabled()
 	})
 
+	e.Run("cluster-wide: Selinux: Verify the policy can be marked as permissive", func() {
+		e.testCaseSelinuxIncompletePolicy()
+		e.testCaseSelinuxIncompletePermissivePolicy()
+	})
+
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogs()
 		e.testCaseProfileRecordingMultiContainerSELinuxLogs()

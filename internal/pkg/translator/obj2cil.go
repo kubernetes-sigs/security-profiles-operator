@@ -26,6 +26,10 @@ import (
 	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 )
 
+const (
+	typePermissive = "(typepermissive process)"
+)
+
 func Object2CIL(
 	systemInherits []string,
 	objInherits []selxv1alpha2.SelinuxProfileObject,
@@ -38,6 +42,10 @@ func Object2CIL(
 	}
 	for _, inherit := range objInherits {
 		cilbuilder.WriteString(getCILInheritline(inherit.GetPolicyUsage()))
+	}
+	if sp.Spec.Permissive {
+		cilbuilder.WriteString(typePermissive)
+		cilbuilder.WriteString("\n")
 	}
 	for ttype, tclassMap := range sp.Spec.Allow {
 		for tclass, perms := range tclassMap {
