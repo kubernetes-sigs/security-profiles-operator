@@ -16,7 +16,7 @@ GO ?= go
 
 GOLANGCI_LINT_VERSION = v1.50.1
 REPO_INFRA_VERSION = v0.2.5
-KUSTOMIZE_VERSION = 4.5.5
+KUSTOMIZE_VERSION = 4.5.7
 OPERATOR_SDK_VERSION ?= v1.25.0
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
