@@ -345,6 +345,10 @@ $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spe
 }
 ```
 
+Note that a security profile that is in use by existing pods cannot be
+deleted unless the pods exit or are removed - the profile deletion is
+protected by finalizers.
+
 ### Base syscalls for a container runtime
 
 An example of the minimum required syscalls for a runtime such as
