@@ -11,7 +11,7 @@ metadata:
             "annotations": {
               "description": "Block writing to any files in the disk."
             },
-            "name": "apparmorprofile-sample"
+            "name": "test-profile"
           },
           "spec": {
             "policy": "#include \u003ctunables/global\u003e\n\nprofile test-profile flags=(attach_disconnected) {\n  #include \u003cabstractions/base\u003e\n\n  file,\n\n  # Deny all file writes.\n  deny /** w,\n}\n"

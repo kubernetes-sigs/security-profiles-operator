@@ -47,6 +47,8 @@ import (
 const (
 	reasonCannotCreateSPOD event.Reason = "CannotCreateSPOD"
 	reasonCannotUpdateSPOD event.Reason = "CannotUpdateSPOD"
+
+	appArmorAnnotation = "container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"
 )
 
 // NewController returns a new empty controller instance.
@@ -548,7 +550,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-apparmor=true")
 
 		// Remove AppArmor constraints to be able to manage AppArmor.
-		newSPOd.ObjectMeta.Annotations["container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"] = "unconfined"
+		if newSPOd.ObjectMeta.Annotations == nil {
+			newSPOd.ObjectMeta.Annotations = make(map[string]string)
+		}
+		newSPOd.ObjectMeta.Annotations[appArmorAnnotation] = "unconfined"
 
 		// HostPID is required for AppArmor when trying to get access to the host ns
 		templateSpec.HostPID = true
