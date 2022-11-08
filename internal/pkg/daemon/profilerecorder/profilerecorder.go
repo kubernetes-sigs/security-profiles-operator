@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/containers/common/pkg/seccomp"
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
@@ -38,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -64,10 +65,10 @@ const (
 
 	errInvalidAnnotation = "invalid Annotation"
 
-	reasonProfileRecording      event.Reason = "SeccompProfileRecording"
-	reasonProfileCreated        event.Reason = "SeccompProfileCreated"
-	reasonProfileCreationFailed event.Reason = "CannotCreateSeccompProfile"
-	reasonAnnotationParsing     event.Reason = "SeccompAnnotationParsing"
+	reasonProfileRecording      string = "SeccompProfileRecording"
+	reasonProfileCreated        string = "SeccompProfileCreated"
+	reasonProfileCreationFailed string = "CannotCreateSeccompProfile"
+	reasonAnnotationParsing     string = "SeccompAnnotationParsing"
 
 	seContextRequiredParts = 3
 )
@@ -85,7 +86,7 @@ type RecorderReconciler struct {
 	impl
 	client        client.Client
 	log           logr.Logger
-	record        event.Recorder
+	record        record.EventRecorder
 	nodeAddresses []string
 	podsToWatch   sync.Map
 }
@@ -149,7 +150,7 @@ func (r *RecorderReconciler) Setup(
 
 	r.client = r.ManagerGetClient(mgr)
 	r.nodeAddresses = nodeAddresses
-	r.record = event.NewAPIRecorder(r.ManagerGetEventRecorderFor(mgr, name))
+	r.record = r.ManagerGetEventRecorderFor(mgr, name)
 
 	return r.NewControllerManagedBy(
 		mgr, name, r.isPodWithTraceAnnotation, r.isPodOnLocalNode, r,
@@ -238,7 +239,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			// Malformed annotations could be set by users directly, which is
 			// why we are ignoring them.
 			logger.Info("Ignoring because unable to parse log annotation", "error", err)
-			r.record.Event(pod, event.Warning(reasonAnnotationParsing, err))
+			r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing, err.Error())
 			return reconcile.Result{}, nil
 		}
 
@@ -247,7 +248,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			// Malformed annotations could be set by users directly, which is
 			// why we are ignoring them.
 			logger.Info("Ignoring because unable to parse bpf annotation", "error", err)
-			r.record.Event(pod, event.Warning(reasonAnnotationParsing, err))
+			r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing, err.Error())
 			return reconcile.Result{}, nil
 		}
 
@@ -287,7 +288,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			req.NamespacedName.String(),
 			podToWatch{baseName, recorder, profiles},
 		)
-		r.record.Event(pod, event.Normal(reasonProfileRecording, "Recording profiles"))
+		r.record.Event(pod, util.EventTypeNormal, reasonProfileRecording, "Recording profiles")
 	}
 
 	if pod.Status.Phase == corev1.PodSucceeded {
@@ -510,15 +511,12 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	)
 	if err != nil {
 		r.log.Error(err, "Cannot create seccompprofile resource")
-		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("create seccompProfile resource: %w", err)
 	}
 
 	r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName.Name)
-	r.record.Event(
-		profile,
-		event.Normal(reasonProfileCreated, "seccomp profile created"),
-	)
+	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
 
 	// Reset the syscalls for further recordings
 	if err := r.ResetSyscalls(ctx, enricherClient, request); err != nil {
@@ -581,7 +579,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	selinuxProfileSpec.Allow, err = r.formatSelinuxProfile(profile, response)
 	if err != nil {
 		r.log.Error(err, "Cannot format selinuxprofile")
-		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("format selinuxprofile resource: %w", err)
 	}
 	r.log.Info("Created", "profile", profile)
@@ -594,14 +592,11 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	)
 	if err != nil {
 		r.log.Error(err, "Cannot create selinuxprofile resource")
-		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("create selinuxprofile resource: %w", err)
 	}
 	r.log.Info("Created/updated selinux profile", "action", res, "name", profileNamespacedName)
-	r.record.Event(
-		profile,
-		event.Normal(reasonProfileCreated, "selinuxprofile profile created"),
-	)
+	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "selinuxprofile profile created")
 
 	// Reset the selinuxprofile for further recordings
 	if err := r.ResetAvcs(ctx, enricherClient, request); err != nil {
@@ -716,15 +711,12 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		)
 		if err != nil {
 			r.log.Error(err, "Cannot create seccompprofile resource")
-			r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+			r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 			return fmt.Errorf("create seccompProfile resource: %w", err)
 		}
 
 		r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName)
-		r.record.Event(
-			profile,
-			event.Normal(reasonProfileCreated, "seccomp profile created"),
-		)
+		r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
 	}
 
 	if err := r.stopBpfRecorder(); err != nil {

@@ -23,7 +23,6 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -42,11 +42,12 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
-	reasonCannotCreateSPOD event.Reason = "CannotCreateSPOD"
-	reasonCannotUpdateSPOD event.Reason = "CannotUpdateSPOD"
+	reasonCannotCreateSPOD string = "CannotCreateSPOD"
+	reasonCannotUpdateSPOD string = "CannotUpdateSPOD"
 
 	appArmorAnnotation = "container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"
 )
@@ -66,7 +67,7 @@ type ReconcileSPOd struct {
 	client         client.Client
 	scheme         *runtime.Scheme
 	baseSPOd       *appsv1.DaemonSet
-	record         event.Recorder
+	record         record.EventRecorder
 	log            logr.Logger
 	watchNamespace string
 	namespace      string
@@ -177,7 +178,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 				ctx, spod, configuredSPOd, webhook, metricsService, certManagerResources,
 			)
 			if createErr != nil {
-				r.record.Event(spod, event.Warning(reasonCannotCreateSPOD, createErr))
+				r.record.Event(spod, util.EventTypeWarning, reasonCannotCreateSPOD, createErr.Error())
 				return reconcile.Result{}, createErr
 			}
 			return r.handleCreatingStatus(ctx, spod, logger)
@@ -202,7 +203,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources,
 		)
 		if updateErr != nil {
-			r.record.Event(spod, event.Warning(reasonCannotUpdateSPOD, updateErr))
+			r.record.Event(spod, util.EventTypeWarning, reasonCannotUpdateSPOD, updateErr.Error())
 			return reconcile.Result{}, updateErr
 		}
 		return r.handleUpdatingStatus(ctx, spod, logger)
