@@ -1,3 +1,6 @@
+//go:build apparmor
+// +build apparmor
+
 /*
 Copyright 2021 The Kubernetes Authors.
 
@@ -29,18 +32,7 @@ import (
 	sec "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 )
 
-var (
-	errInvalidCRD = errors.New("invalid CRD kind")
-	errNotEnabled = errors.New("apparmor not enabled in this build")
-)
-
-func adjustExpectedErr(errWhenEnabled error) error {
-	aa := aaProfileManager{}
-	if aa.Enabled() {
-		return errWhenEnabled
-	}
-	return errNotEnabled
-}
+var errInvalidCRD = errors.New("invalid CRD kind")
 
 func TestInstallProfile(t *testing.T) {
 	t.Parallel()
@@ -56,7 +48,7 @@ func TestInstallProfile(t *testing.T) {
 			name:    "invalid profile CRD",
 			sut:     aaProfileManager{},
 			profile: &sec.SeccompProfile{},
-			wantErr: adjustExpectedErr(errInvalidCRD),
+			wantErr: errInvalidCRD,
 		},
 		{
 			name:    "valid profile CRD",
@@ -92,7 +84,7 @@ func TestRemoveProfile(t *testing.T) {
 			name:    "invalid profile CRD",
 			sut:     aaProfileManager{},
 			profile: &sec.SeccompProfile{},
-			wantErr: adjustExpectedErr(errInvalidCRD),
+			wantErr: errInvalidCRD,
 		},
 		{
 			name: "valid profile CRD",
