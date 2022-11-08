@@ -19,7 +19,6 @@ package apparmorprofile
 import (
 	"context"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
@@ -34,7 +33,7 @@ func (r *Reconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor("apparmorprofile"))
+	r.record = mgr.GetEventRecorderFor("apparmorprofile")
 	r.metrics = met
 	r.manager = NewAppArmorProfileManager(r.log)
 

@@ -24,10 +24,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	aa "github.com/pjbgf/go-apparmor/pkg/apparmor"
 	"github.com/pjbgf/go-apparmor/pkg/hostop"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -52,13 +52,12 @@ const (
 	errGetProfile         = "cannot get profile"
 	errAppArmorProfileNil = "apparmor profile cannot be nil"
 
-	reasonAppArmorNotSupported event.Reason = "AppArmorNotSupportedOnNode"
-	reasonCannotUpdateStatus   event.Reason = "CannotUpdateNodeStatus"
-	reasonCannotLoadProfile    event.Reason = "CannotLoadAppArmorProfile"
-	reasonCannotUnloadProfile  event.Reason = "CannotUnloadAppArmorProfile"
-	reasonCannotUpdateProfile  event.Reason = "CannotUpdateAppArmorProfile"
-
-	reasonLoadedAppArmorProfile event.Reason = "LoadedAppArmorProfile"
+	reasonAppArmorNotSupported  string = "AppArmorNotSupportedOnNode"
+	reasonCannotUpdateStatus    string = "CannotUpdateNodeStatus"
+	reasonCannotLoadProfile     string = "CannotLoadAppArmorProfile"
+	reasonCannotUnloadProfile   string = "CannotUnloadAppArmorProfile"
+	reasonCannotUpdateProfile   string = "CannotUpdateAppArmorProfile"
+	reasonLoadedAppArmorProfile string = "LoadedAppArmorProfile"
 )
 
 // NewController returns a new empty controller instance.
@@ -70,7 +69,7 @@ func NewController() controller.Controller {
 type Reconciler struct {
 	client  client.Client
 	log     logr.Logger
-	record  event.Recorder
+	record  record.EventRecorder
 	metrics *metrics.Metrics
 	manager ProfileManager
 }
@@ -117,9 +116,13 @@ func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconc
 		logger.Error(err, fmt.Sprintf("node %q does not support apparmor", os.Getenv(config.NodeNameEnvKey)))
 		if r.record != nil {
 			r.metrics.IncAppArmorProfileError(reasonAppArmorNotSupported)
-			r.record.Event(&v1alpha1.AppArmorProfile{},
-				event.Warning(reasonAppArmorNotSupported, err, os.Getenv(config.NodeNameEnvKey),
-					"node does not support apparmor"))
+			r.record.AnnotatedEventf(
+				&v1alpha1.AppArmorProfile{},
+				map[string]string{os.Getenv(config.NodeNameEnvKey): "node does not support apparmor"},
+				util.EventTypeWarning,
+				reasonAppArmorNotSupported,
+				err.Error(),
+			)
 		}
 
 		// Do not requeue (will be requeued if a change to the object is
@@ -175,7 +178,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	if err != nil {
 		l.Error(err, "cannot load profile into node")
 		r.metrics.IncAppArmorProfileError(reasonCannotLoadProfile)
-		r.record.Event(sp, event.Warning(reasonCannotLoadProfile, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotLoadProfile, err.Error())
 		return reconcile.Result{}, fmt.Errorf("cannot load profile into node: %w", err)
 	}
 
@@ -193,7 +196,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInstalled); err != nil {
 		l.Error(err, "cannot update node status")
 		r.metrics.IncAppArmorProfileError(reasonCannotUpdateStatus)
-		r.record.Event(sp, event.Warning(reasonCannotUpdateStatus, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdateStatus, err.Error())
 		return reconcile.Result{}, fmt.Errorf("updating status in AppArmorProfile reconciler: %w", err)
 	}
 
@@ -205,7 +208,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	if updated {
 		evstr := fmt.Sprintf("Successfully loaded profile into node %s", os.Getenv(config.NodeNameEnvKey))
 		r.metrics.IncAppArmorProfileUpdate()
-		r.record.Event(sp, event.Normal(reasonLoadedAppArmorProfile, evstr))
+		r.record.Event(sp, util.EventTypeNormal, reasonLoadedAppArmorProfile, evstr)
 	}
 	return reconcile.Result{}, nil
 }
@@ -233,7 +236,7 @@ func (r *Reconciler) reconcileDeletion(
 			if err := nsc.SetNodeStatus(ctx, statusv1alpha1.ProfileStateTerminating); err != nil {
 				r.log.Error(err, "cannot update AppArmorProfile status")
 				r.metrics.IncAppArmorProfileError(reasonCannotUpdateProfile)
-				r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
+				r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdateProfile, err.Error())
 				return reconcile.Result{}, fmt.Errorf("updating status for deleted AppArmorProfile: %w", err)
 			}
 			return reconcile.Result{Requeue: true, RequeueAfter: wait}, nil
@@ -248,14 +251,14 @@ func (r *Reconciler) reconcileDeletion(
 	if err := r.handleDeletion(sp); err != nil {
 		r.log.Error(err, "cannot delete profile")
 		r.metrics.IncAppArmorProfileError(reasonCannotUnloadProfile)
-		r.record.Event(sp, event.Warning(reasonCannotUnloadProfile, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotUnloadProfile, err.Error())
 		return ctrl.Result{}, fmt.Errorf("handling file deletion for deleted AppArmorProfile: %w", err)
 	}
 
 	if err := nsc.Remove(ctx, r.client); err != nil {
 		r.log.Error(err, "cannot remove node status/finalizer from apparmor profile")
 		r.metrics.IncAppArmorProfileError(reasonCannotUpdateStatus)
-		r.record.Event(sp, event.Warning(reasonCannotUpdateStatus, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdateStatus, err.Error())
 		return ctrl.Result{}, fmt.Errorf("deleting node status/finalizer for deleted AppArmorProfile: %w", err)
 	}
 	return ctrl.Result{}, nil

@@ -20,13 +20,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/test"
 	_ "github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -70,7 +70,7 @@ func TestReconcile(t *testing.T) {
 					MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
 				},
 				log:     log.Log,
-				record:  event.NewNopRecorder(),
+				record:  record.NewFakeRecorder(10),
 				manager: NewAppArmorProfileManager(log.Log),
 				metrics: metrics.New(),
 			},
@@ -87,7 +87,7 @@ func TestReconcile(t *testing.T) {
 					MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
 				},
 				log:     log.Log,
-				record:  event.NewNopRecorder(),
+				record:  record.NewFakeRecorder(10),
 				manager: &FakeProfileManager{enabled: false},
 				metrics: metrics.New(),
 			},
