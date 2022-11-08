@@ -23,10 +23,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	errors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
@@ -54,7 +54,7 @@ func NewController() controller.Controller {
 type PodReconciler struct {
 	client client.Client
 	log    logr.Logger
-	record event.Recorder
+	record record.EventRecorder
 }
 
 // Name returns the name of the controller.

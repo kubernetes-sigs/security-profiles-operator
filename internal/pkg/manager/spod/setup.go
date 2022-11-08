@@ -22,13 +22,13 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -63,7 +63,7 @@ func (r *ReconcileSPOd) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(r.Name()))
+	r.record = mgr.GetEventRecorderFor(r.Name())
 
 	dt, err := getTunables()
 	if err != nil {
@@ -84,7 +84,12 @@ func (r *ReconcileSPOd) Setup(
 		Named(r.Name()).
 		For(&spodv1alpha1.SecurityProfilesOperatorDaemon{}).
 		Owns(&appsv1.DaemonSet{}).
-		WithEventFilter(resource.NewPredicates(isInOperatorNamespace)).
+		WithEventFilter(predicate.Funcs{
+			CreateFunc:  func(e event.CreateEvent) bool { return isInOperatorNamespace(e.Object) },
+			DeleteFunc:  func(e event.DeleteEvent) bool { return isInOperatorNamespace(e.Object) },
+			UpdateFunc:  func(e event.UpdateEvent) bool { return isInOperatorNamespace(e.ObjectNew) },
+			GenericFunc: func(e event.GenericEvent) bool { return isInOperatorNamespace(e.Object) },
+		}).
 		Complete(r)
 }
 

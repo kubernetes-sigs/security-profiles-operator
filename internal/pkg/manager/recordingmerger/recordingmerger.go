@@ -18,13 +18,12 @@ package recordingmerger
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -46,10 +45,10 @@ const (
 	errNoPartialProfiles  = "no partial profiles to merge"
 	errEmptyMergedProfile = "merged profile is empty"
 
-	reasonCannotMergeKind    event.Reason = "KindNotSupportedForMerge"
-	reasonCannotCreateUpdate event.Reason = "CannotCreateUpdateMergedProfile"
-	reasonMergedEmptyProfile event.Reason = "MergedEmptyProfile"
-	reasonNoPartialProfiles  event.Reason = "NoPartialProfiles"
+	reasonCannotMergeKind    string = "KindNotSupportedForMerge"
+	reasonCannotCreateUpdate string = "CannotCreateUpdateMergedProfile"
+	reasonMergedEmptyProfile string = "MergedEmptyProfile"
+	reasonNoPartialProfiles  string = "NoPartialProfiles"
 )
 
 // NewController returns a new empty controller instance.
@@ -61,7 +60,7 @@ func NewController() controller.Controller {
 type PolicyMergeReconciler struct {
 	client client.Client
 	log    logr.Logger
-	record event.Recorder
+	record record.EventRecorder
 }
 
 // Name returns the name of the controller.
@@ -128,7 +127,7 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 		err = r.mergeSelinuxProfiles(ctx, profileRecording)
 	default:
 		err = fmt.Errorf("%s: %s", errCannotMergeKind, profileRecording.Spec.Kind)
-		r.record.Event(profileRecording, event.Warning(reasonCannotMergeKind, err))
+		r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotMergeKind, err.Error())
 	}
 
 	if err != nil {
@@ -151,12 +150,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	}
 
 	if len(partialProfiles) == 0 {
-		r.record.Event(profileRecording,
-			event.Warning(
-				reasonNoPartialProfiles,
-				errors.New(errNoPartialProfiles),
-			),
-		)
+		r.record.Event(profileRecording, util.EventTypeWarning, reasonNoPartialProfiles, errNoPartialProfiles)
 		r.log.Info(errNoPartialProfiles)
 		return nil
 	}
@@ -167,12 +161,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	}
 
 	if mergedProfile == nil {
-		r.record.Event(profileRecording,
-			event.Warning(
-				reasonMergedEmptyProfile,
-				errors.New(errEmptyMergedProfile),
-			),
-		)
+		r.record.Event(profileRecording, util.EventTypeWarning, reasonMergedEmptyProfile, errEmptyMergedProfile)
 		r.log.Info(errEmptyMergedProfile)
 		return nil
 	}
@@ -180,7 +169,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	mergedRecordingName := mergedProfileName(profileRecording.Name, partialProfiles[0])
 	res, err := createUpdateMergedProfile(ctx, r.client, profileRecording, mergedRecordingName, mergedProfile)
 	if err != nil {
-		r.record.Event(profileRecording, event.Warning(reasonCannotCreateUpdate, err))
+		r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotCreateUpdate, err.Error())
 		return fmt.Errorf("cannot create or update merged profile: action:  %w", err)
 	}
 	r.log.Info("Created/updated profile", "action", res, "name", mergedRecordingName)
