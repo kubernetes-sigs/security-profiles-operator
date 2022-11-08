@@ -48,10 +48,10 @@ const (
 
 func (a *aaProfileManager) Enabled() bool {
 	checkHostSupport.Do(func() {
-		mount := hostop.NewMountHostOp(hostop.WithLogger(a.logger), hostop.WithAssumeContainer())
-		a := aa.NewAppArmor(aa.WithLogger(a.logger))
+		mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
+		a := aa.NewAppArmor()
 
-		mount.Do(func() (err error) {
+		_ = mount.Do(func() (err error) { //nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
 			hostSupportsAppArmor, err = a.Enabled()
 			return
 		})
@@ -82,8 +82,8 @@ func (a *aaProfileManager) CustomResourceTypeName() string {
 }
 
 func loadProfile(logger logr.Logger, name, content string) (bool, error) {
-	mount := hostop.NewMountHostOp(hostop.WithLogger(logger), hostop.WithAssumeContainer())
-	a := aa.NewAppArmor(aa.WithLogger(logger))
+	mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
+	a := aa.NewAppArmor()
 
 	err := mount.Do(func() error {
 		path := filepath.Join(targetProfileDir, name)
@@ -100,7 +100,7 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 			return fmt.Errorf("cannot check policy status: %w", err)
 		}
 		if !loaded {
-			return fmt.Errorf("policy %q is not loaded", name)
+			return fmt.Errorf("policy %q is not loaded: AppArmorProfile name must match defined policy", name)
 		}
 		return nil
 	})
@@ -109,8 +109,8 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 }
 
 func removeProfile(logger logr.Logger, profileName string) error {
-	mount := hostop.NewMountHostOp(hostop.WithLogger(logger), hostop.WithAssumeContainer())
-	a := aa.NewAppArmor(aa.WithLogger(logger))
+	mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
+	a := aa.NewAppArmor()
 
 	err := mount.Do(func() error {
 		loaded, err := a.PolicyLoaded(profileName)
