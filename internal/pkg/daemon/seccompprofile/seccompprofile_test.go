@@ -25,7 +25,6 @@ import (
 	"testing"
 
 	"github.com/containers/common/pkg/seccomp"
-	"github.com/crossplane/crossplane-runtime/pkg/test"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,6 +39,7 @@ import (
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func TestReconcile(t *testing.T) {
@@ -59,8 +59,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ProfileNotFound",
 			rec: &Reconciler{
-				client: &test.MockClient{
-					MockGet: test.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
+				client: &util.MockClient{
+					MockGet: util.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
 				},
 				log:     log.Log,
 				metrics: metrics.New(),
@@ -72,8 +72,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ErrGetProfileIfSeccompEnabled",
 			rec: &Reconciler{
-				client: &test.MockClient{
-					MockGet: test.NewMockGetFn(errOops),
+				client: &util.MockClient{
+					MockGet: util.NewMockGetFn(errOops),
 				},
 				record:  record.NewFakeRecorder(10),
 				log:     log.Log,
@@ -91,10 +91,10 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "GotProfile",
 			rec: &Reconciler{
-				client: &test.MockClient{
-					MockGet:          test.NewMockGetFn(nil),
-					MockUpdate:       test.NewMockUpdateFn(nil),
-					MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
+				client: &util.MockClient{
+					MockGet:          util.NewMockGetFn(nil),
+					MockUpdate:       util.NewMockUpdateFn(nil),
+					MockStatusUpdate: util.NewMockStatusUpdateFn(nil),
 				},
 				log:     log.Log,
 				record:  record.NewFakeRecorder(10),
