@@ -210,7 +210,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	}
 
 	if foundSPOd.Status.NumberReady == foundSPOd.Status.DesiredNumberScheduled {
-		condready := spod.Status.GetCondition("Ready")
+		condready := spod.Status.GetReadyCondition()
 		// Don't pollute the logs. Let's only update when needed.
 		if condready.Status != corev1.ConditionTrue {
 			return r.handleRunningStatus(ctx, spod, logger)
