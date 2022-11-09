@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -28,6 +27,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 )
 
 const ProfilePartialLabel = "spo.x-k8s.io/partial"
@@ -75,8 +75,8 @@ func ListProfilesByRecording(
 
 // StatusBase contains common attributes for a profile's status.
 type StatusBase struct {
-	rcommonv1.ConditionedStatus `json:",inline"`
-	Status                      secprofnodestatusv1alpha1.ProfileState `json:"status,omitempty"`
+	spodv1alpha1.ConditionedStatus `json:",inline"`
+	Status                         secprofnodestatusv1alpha1.ProfileState `json:"status,omitempty"`
 }
 
 type StatusBaseUser interface {

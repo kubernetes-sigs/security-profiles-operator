@@ -1,5 +1,5 @@
 /*
-Copyright 2019 The Crossplane Authors.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package test
+package util
 
 import (
 	"context"
@@ -24,10 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ client.Client = &MockClient{}
-
 // A MockGetFn is used to mock client.Client's Get implementation.
-type MockGetFn func(ctx context.Context, key client.ObjectKey, obj client.Object) error
+type MockGetFn func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 
 // A MockListFn is used to mock client.Client's List implementation.
 type MockListFn func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error
@@ -51,7 +49,9 @@ type MockPatchFn func(ctx context.Context, obj client.Object, patch client.Patch
 type MockStatusUpdateFn func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error
 
 // A MockStatusPatchFn is used to mock client.Client's StatusUpdate implementation.
-type MockStatusPatchFn func(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
+type MockStatusPatchFn func(
+	ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption,
+) error
 
 // A MockSchemeFn is used to mock client.Client's Scheme implementation.
 type MockSchemeFn func() *runtime.Scheme
@@ -66,7 +66,7 @@ type ObjectListFn func(obj client.ObjectList) error
 
 // NewMockGetFn returns a MockGetFn that returns the supplied error.
 func NewMockGetFn(err error, ofn ...ObjectFn) MockGetFn {
-	return func(_ context.Context, _ client.ObjectKey, obj client.Object) error {
+	return func(_ context.Context, _ client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 		for _, fn := range ofn {
 			if err := fn(obj); err != nil {
 				return err
@@ -172,7 +172,7 @@ func NewMockStatusPatchFn(err error, ofn ...ObjectFn) MockStatusPatchFn {
 	}
 }
 
-// NewMockSchemeFn returns a MockSchemeFn that returns the scheme
+// NewMockSchemeFn returns a MockSchemeFn that returns the scheme.
 func NewMockSchemeFn(scheme *runtime.Scheme) MockSchemeFn {
 	return func() *runtime.Scheme {
 		return scheme
@@ -216,7 +216,7 @@ func NewMockClient() *MockClient {
 }
 
 // Get calls MockClient's MockGet function.
-func (c *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
+func (c *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 	return c.MockGet(ctx, key, obj)
 }
 
@@ -246,11 +246,13 @@ func (c *MockClient) Update(ctx context.Context, obj client.Object, opts ...clie
 }
 
 // Patch calls MockClient's MockPatch function.
-func (c *MockClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+func (c *MockClient) Patch(
+	ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption,
+) error {
 	return c.MockPatch(ctx, obj, patch, opts...)
 }
 
-// Status returns status writer for status sub-resource
+// Status returns status writer for status sub-resource.
 func (c *MockClient) Status() client.StatusWriter {
 	return &MockStatusWriter{
 		MockUpdate: c.MockStatusUpdate,
@@ -263,23 +265,25 @@ func (c *MockClient) RESTMapper() meta.RESTMapper {
 	return nil
 }
 
-// Scheme calls MockClient's MockScheme function
+// Scheme calls MockClient's MockScheme function.
 func (c *MockClient) Scheme() *runtime.Scheme {
 	return c.MockScheme()
 }
 
-// MockStatusWriter provides mock functionality for status sub-resource
+// MockStatusWriter provides mock functionality for status sub-resource.
 type MockStatusWriter struct {
 	MockUpdate MockStatusUpdateFn
 	MockPatch  MockStatusPatchFn
 }
 
-// Update status sub-resource
+// Update status sub-resource.
 func (m *MockStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 	return m.MockUpdate(ctx, obj, opts...)
 }
 
-// Patch mocks the patch method
-func (m *MockStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+// Patch mocks the patch method.
+func (m *MockStatusWriter) Patch(
+	ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption,
+) error {
 	return m.MockPatch(ctx, obj, patch, opts...)
 }
