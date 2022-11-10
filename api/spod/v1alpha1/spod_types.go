@@ -308,6 +308,11 @@ type SPODSpec struct {
 	// namespace to use for pulling the images from SPOD pod from a private registry.
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+
+	// DaemonResourceRequirements if defined, overwrites the default resoruce requirements
+	// of SPOD daemon.
+	// +optinal
+	DaemonResourceRequirements corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.
