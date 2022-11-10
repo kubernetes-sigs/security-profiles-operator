@@ -7,7 +7,7 @@ images:
     newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
     newTag: latest
     # For images to be released:
-    # newName: k8s.gcr.io/security-profiles-operator/security-profiles-operator
+    # newName: registry.k8s.io/security-profiles-operator/security-profiles-operator
     # newTag: v0.5.1
 
 commonLabels:
