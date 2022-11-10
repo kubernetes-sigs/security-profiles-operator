@@ -66,6 +66,7 @@ import (
 
 const (
 	jsonFlag           string = "json"
+	recordingFlag      string = "with-recording"
 	selinuxFlag        string = "with-selinux"
 	apparmorFlag       string = "with-apparmor"
 	webhookFlag        string = "webhook"
@@ -149,6 +150,11 @@ func main() {
 				&cli.BoolFlag{
 					Name:  apparmorFlag,
 					Usage: "Listen for AppArmor API resources",
+					Value: false,
+				},
+				&cli.BoolFlag{
+					Name:  recordingFlag,
+					Usage: "Listen for ProfileRecording API recources",
 					Value: false,
 				},
 			},
@@ -379,7 +385,10 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 	controllers := []controller.Controller{
 		seccompprofile.NewController(),
-		profilerecorder.NewController(),
+	}
+
+	if ctx.Bool(recordingFlag) {
+		controllers = append(controllers, profilerecorder.NewController())
 	}
 
 	if ctx.Bool(selinuxFlag) {
