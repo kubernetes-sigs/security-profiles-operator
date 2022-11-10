@@ -507,6 +507,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// HostPID is required for the log-enricher and bpf recorder
 		// and is used to access cgroup files to map Process IDs to Pod IDs
 		templateSpec.HostPID = true
+
+		// Enable profile recording controller which is disabled by default
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+			"--with-recording=true")
 	}
 
 	// Log enricher parameters. The spod setting takes precedence over the env var.
