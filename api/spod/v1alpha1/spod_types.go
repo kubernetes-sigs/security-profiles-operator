@@ -312,7 +312,7 @@ type SPODSpec struct {
 	// DaemonResourceRequirements if defined, overwrites the default resoruce requirements
 	// of SPOD daemon.
 	// +optinal
-	DaemonResourceRequirements corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
+	DaemonResourceRequirements *corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.

@@ -472,6 +472,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		}
 	}
 
+	// Overwrite the SPOD's default resoruce requirements
+	if cfg.Spec.DaemonResourceRequirements != nil {
+		templateSpec.Containers[bindata.ContainerIDDaemon].Resources = *cfg.Spec.DaemonResourceRequirements
+	}
+
 	// SELinux parameters
 	enableSelinux := (cfg.Spec.EnableSelinux != nil && *cfg.Spec.EnableSelinux) ||
 		// enable SELinux support per default in OpenShift
