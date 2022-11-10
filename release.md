@@ -15,13 +15,13 @@ The first PR targets this repository and:
 - changes the `images` `newName`/`newTag` fields of
   [./deploy/kustomize-deployment/kustomization.yaml](deploy/kustomize-deployment/kustomization.yaml)
   from `gcr.io/k8s-staging-sp-operator/security-profiles-operator` to
-  `k8s.gcr.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
+  `registry.k8s.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
   corresponding tag (`newTag`). After that the make target `make bundle`
   has to be run and the changes have to be committed.
 - changes the `image` in the `CatalogSource` in the same way at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
 - changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) to sed
-  `"s#k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.0.0#${CATALOG_IMG}#g"`
+  `"s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.0.0#${CATALOG_IMG}#g"`
   instead of
   `"s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g"`
   (please note to change the version `v0.0.0` to the upcoming release)

@@ -101,7 +101,7 @@ dependencies:
     version: sha256:e6e8c911b1566556ae105d3600df04c600241f43b06d22c73592ebb446d60c49
     refPaths:
     - path: Dockerfile.build-image
-      match: k8s.gcr.io/build-image/debian-base
+      match: registry.k8s.io/build-image/debian-base
 
   - name: nix
     version: 2.9.2
