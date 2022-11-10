@@ -21,7 +21,7 @@ require (
 	github.com/prometheus/client_model v0.3.0
 	github.com/seccomp/libseccomp-golang v0.9.2-0.20210429002308-3879420cc921
 	github.com/stretchr/testify v1.8.1
-	github.com/urfave/cli/v2 v2.23.4
+	github.com/urfave/cli/v2 v2.23.5
 	golang.org/x/net v0.0.0-20220921155015-db77216a4ee9
 	golang.org/x/sync v0.0.0-20220923202941-7f9b1623fab7
 	google.golang.org/grpc v1.50.1
@@ -43,7 +43,7 @@ replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.12.3
 
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
-	github.com/BurntSushi/toml v1.1.0 // indirect
+	github.com/BurntSushi/toml v1.2.1 // indirect
 	github.com/Masterminds/semver/v3 v3.1.1 // indirect
 	github.com/Microsoft/go-winio v0.5.2 // indirect
 	github.com/ProtonMail/go-crypto v0.0.0-20220407094043-a94812496cf5 // indirect
