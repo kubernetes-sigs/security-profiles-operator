@@ -1411,7 +1411,7 @@ spec:
                 type: array
               daemonResourceRequirements:
                 description: DaemonResourceRequirements if defined, overwrites the
-                  default resoruce requirements of SPOD daemon.
+                  default resource requirements of SPOD daemon.
                 properties:
                   limits:
                     additionalProperties:
