@@ -231,6 +231,16 @@ The `ds/spod` should now be updated by the manager with the new SELinux type, an
             type: unconfined_t
 ```
 
+## Customise the daemon resource requirements
+
+The default resource requirements of the daemon container can be adjusted in the SPOD configuration in the
+`daemonResourceRequirements` filed as follows:
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p
+'{"spec":{"daemonResourceRequirements": {"requests": {"memory": "256Mi", "cpu": "250m"}, "limits": {"memory": "512Mi", "cpu": "500m"}}}}'
+```
+
 ## Restrict the allowed syscalls in seccomp profiles
 
 The operator doesn't restrict by default the allowed syscalls in the seccomp profiles. This means that any
