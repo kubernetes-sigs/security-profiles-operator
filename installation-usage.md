@@ -25,6 +25,7 @@
     - [Log enricher based recording](#log-enricher-based-recording)
     - [eBPF based recording](#ebpf-based-recording)
     - [Merging per-container profile instances](#merging-per-container-profile-instances)
+    - [Disable profile recording](#disable-profile-recording)
 - [Create a SELinux Profile](#create-a-selinux-profile)
   - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
   - [Make a SELinux profile permissive](#make-a-selinux-profile-permissive)
@@ -767,6 +768,16 @@ including the `mknod` syscall:
 > kubectl get sp test-recording-nginx-record -o yaml | grep mknod
   - mknod
 ```
+
+#### Disable profile recording
+
+Profile recorder controller along with the corresponding sidecar container is disabled
+when neither `enableBpfRecorder` nor `enableLogEnricher` is set in the SPOD configuration, and
+automatically enabled when either one of them is on.
+
+Also, when running the daemon in standalone mode is possible to switch on the profile recorder
+controller by providing the `with-recording` command line argument or setting the `ENABLE_RECORDING`
+environment variable.
 
 ## Create a SELinux Profile
 
