@@ -13,6 +13,7 @@
 - [Set logging verbosity](#set-logging-verbosity)
 - [Pull images from private registry](#pull-images-from-private-registry)
 - [Configure the SELinux type](#configure-the-selinux-type)
+- [Customise the daemon resource requirements](#customise-the-daemon-resource-requirements)
 - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
 - [Constrain spod scheduling](#constrain-spod-scheduling)
 - [Create a seccomp profile](#create-a-seccomp-profile)
