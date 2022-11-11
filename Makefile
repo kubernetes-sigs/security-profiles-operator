@@ -200,15 +200,6 @@ update-go-mod: ## Cleanup, vendor and verify go modules
 .PHONY: update-mocks
 update-mocks: ## Update all generated mocks
 	$(GO) generate ./...
-	for f in $(shell find . -path ./vendor -prune -false -o -name fake_*.go); do \
-		cp hack/boilerplate/boilerplate.generatego.txt tmp ;\
-		cat $$f >> tmp ;\
-		mv tmp $$f ;\
-	done
-	export BPF_IMPL=internal/pkg/daemon/bpfrecorder/bpfrecorderfakes/fake_impl.go && \
-	printf "//go:build linux && !no_bpf\n// +build linux,!no_bpf\n\n" | \
-		cat - $$BPF_IMPL | \
-		tee $$BPF_IMPL >/dev/null
 
 define go-build
 	CGO_LDFLAGS= $(GO) build -o $(BUILD_DIR)/$(shell basename $(1)) $(1)

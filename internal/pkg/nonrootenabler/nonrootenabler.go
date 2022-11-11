@@ -98,7 +98,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger) error {
 	return nil
 }
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	MkdirAll(path string, perm os.FileMode) error
