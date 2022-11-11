@@ -472,7 +472,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		}
 	}
 
-	// Overwrite the SPOD's default resoruce requirements
+	// Overwrite the SPOD's default resource requirements
 	if cfg.Spec.DaemonResourceRequirements != nil {
 		templateSpec.Containers[bindata.ContainerIDDaemon].Resources = *cfg.Spec.DaemonResourceRequirements
 	}
