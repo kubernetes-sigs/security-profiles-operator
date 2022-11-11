@@ -8,10 +8,12 @@ issues:
       linters:
         - dupl
         - gofumpt
-        - lll
     - linters:
         - goerr113
       text: do not define dynamic errors, use wrapped static errors instead
+    - linters:
+        -lll
+      source: "^//go:generate " # exclude lll issues for long lines with go:generate
 linters:
   disable-all: true
   enable:
