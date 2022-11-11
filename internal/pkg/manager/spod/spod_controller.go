@@ -499,6 +499,10 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath
 	volume, mount := bindata.CustomHostProcVolume(cfg.Spec.HostProcVolumePath)
 
+	// Disable profile recording controller by default
+	templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+		"--with-recording=false")
 	if cfg.Spec.EnableLogEnricher || cfg.Spec.EnableBpfRecorder {
 		if useCustomHostProc {
 			templateSpec.Volumes = append(templateSpec.Volumes, volume)
