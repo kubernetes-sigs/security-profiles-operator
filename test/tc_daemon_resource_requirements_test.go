@@ -28,10 +28,10 @@ func (e *e2e) testCaseResourceRequirementsChange([]string) {
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
 
-	updatedResourcesInSPODDS = e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
+	updatedResourcesInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 
-	e.Contains(updateResourcesInSPODDS, "256Mi")
-	e.Contains(updateResourcesInSPODDS, "250m")
-	e.Contains(updateResourcesInSPODDS, "512Mi")
-	e.Contains(updateResourcesInSPODDS, "500m")
+	e.Contains(updatedResourcesInSPODDS, "256Mi")
+	e.Contains(updatedResourcesInSPODDS, "250m")
+	e.Contains(updatedResourcesInSPODDS, "512Mi")
+	e.Contains(updatedResourcesInSPODDS, "500m")
 }
