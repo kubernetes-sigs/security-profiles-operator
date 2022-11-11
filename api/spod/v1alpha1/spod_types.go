@@ -311,7 +311,7 @@ type SPODSpec struct {
 
 	// DaemonResourceRequirements if defined, overwrites the default resource requirements
 	// of SPOD daemon.
-	// +optinal
+	// +optional
 	DaemonResourceRequirements *corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
 }
 
