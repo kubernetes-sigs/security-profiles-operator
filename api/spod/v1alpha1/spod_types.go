@@ -309,7 +309,7 @@ type SPODSpec struct {
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 
-	// DaemonResourceRequirements if defined, overwrites the default resoruce requirements
+	// DaemonResourceRequirements if defined, overwrites the default resource requirements
 	// of SPOD daemon.
 	// +optinal
 	DaemonResourceRequirements *corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
