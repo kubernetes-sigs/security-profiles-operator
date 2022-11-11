@@ -113,6 +113,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseVerbosityChange,
 		},
 		{
+			"SPOD: Change resource requirements",
+			e.testCaseResourceRequirementsChange,
+		},
+		{
 			"Seccomp: make sure statuses for profiles with long names can be listed",
 			e.testCaseLongSeccompProfileName,
 		},
