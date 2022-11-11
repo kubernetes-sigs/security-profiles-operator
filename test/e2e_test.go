@@ -124,6 +124,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"SPOD: Change webhook config",
 			e.testCaseWebhookOptionsChange,
 		},
+		{
+			"SPOD: Enable profile recorder",
+			e.testCaseSPODEnableProfileRecorder,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase
