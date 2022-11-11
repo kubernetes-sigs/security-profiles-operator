@@ -70,6 +70,9 @@ const (
 	// EnableLogEnricherEnvKey is the environment variable key for enabling the log enricher.
 	EnableLogEnricherEnvKey = "ENABLE_LOG_ENRICHER"
 
+	// EnableRecordingEnvKey is the environment variable key to enabeling profile recording.
+	EnableRecordingEnvKey = "ENABLE_RECORDING"
+
 	// VerboseLevel is the increased verbosity log level.
 	VerboseLevel = 1
 
