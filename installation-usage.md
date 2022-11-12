@@ -1505,6 +1505,16 @@ defined within `spec.policy`. Otherwise the reconciler will fail as it
 won't be able to confirm the policy was correctly loaded.
 - The reconciler will simply load the profiles across the cluster. If an
 existing profile with the same name exists, it will be replaced.
+- The SPO does not validate the profile contents. Invalid profiles
+will error when loading into the kernel. The error can be found on the spod
+pod and the message will roughly look like:
+```
+E1112 08:35:24.072544    8668 controller.go:326]  "msg"="Reconciler error" "error"="cannot load profile into node: running action: exit status 1" "appArmorProfile"={"name":"<NAME_OF_PROFILE>","namespace":"security-profiles-operator"} "controller"="apparmorprofile" "controllerGroup"="security-profiles-operator.x-k8s.io" "controllerKind"="AppArmorProfile" "name"="<NAME_OF_PROFILE>" "namespace"="security-profiles-operator" "reconcileID"="035a4edd-cdd9-4c35-a1be-924939538ce4"
+```.
+- Restrictive profiles may block sub processes to be created, or a container from
+successfully loading. In such cases, the denied rules may not show up in the
+log-enricher logs, as SPO may fail to find the running process to correlate to the
+pod information. To work around the issue, set the AppArmor profile to complain mode.
 
 ## Uninstalling
 

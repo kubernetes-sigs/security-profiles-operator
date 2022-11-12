@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
@@ -32,11 +33,16 @@ var (
 	selinuxLineRegex = regexp.MustCompile(
 		`type=AVC.+audit\((.+)\).+{ (.+) }.+pid=(\b\d+\b).*scontext=(.+) tcontext=(.+) tclass=(\b\w+\b).*`,
 	)
+	apparmorLineRegex = regexp.MustCompile(
+		//nolint:lll // no need to wrap regex
+		`(type=APPARMOR|audit:.+type=1400).+audit\((.+)\).+apparmor="(.+)".+operation="([a-zA-Z0-9\/\-\_]+)"\s(?:info.+)?profile="(.+)".+name="(.+)".+pid=(\b\d+\b).+comm="([a-zA-Z0-9\/\-\_]+)"\s?(.*)?`,
+	)
 )
 
 var (
-	minSeccompCapturesExpected = 5
-	minSelinuxCapturesExpected = 7
+	minSeccompCapturesExpected  = 5
+	minSelinuxCapturesExpected  = 7
+	minAppArmorCapturesExpected = 9
 )
 
 // isAuditLine checks whether logLine is a supported audit line.
@@ -47,7 +53,12 @@ func isAuditLine(logLine string) bool {
 	}
 
 	captures = selinuxLineRegex.FindStringSubmatch(logLine)
-	return len(captures) >= minSelinuxCapturesExpected
+	if len(captures) >= minSelinuxCapturesExpected {
+		return true
+	}
+
+	captures = apparmorLineRegex.FindStringSubmatch(logLine)
+	return len(captures) >= minAppArmorCapturesExpected
 }
 
 // extractAuditLine extracts an auditline from logLine.
@@ -58,6 +69,10 @@ func extractAuditLine(logLine string) (*types.AuditLine, error) {
 
 	if selinux := extractSelinuxLine(logLine); selinux != nil {
 		return selinux, nil
+	}
+
+	if apparmor := extractApparmorLine(logLine); apparmor != nil {
+		return apparmor, nil
 	}
 
 	return nil, fmt.Errorf("unsupported log line: %s", logLine)
@@ -105,5 +120,29 @@ func extractSelinuxLine(logLine string) *types.AuditLine {
 	line.Tcontext = captures[5]
 	line.Tclass = captures[6]
 
+	return &line
+}
+
+func extractApparmorLine(logLine string) *types.AuditLine {
+	captures := apparmorLineRegex.FindStringSubmatch(logLine)
+	if len(captures) < minAppArmorCapturesExpected {
+		return nil
+	}
+
+	line := types.AuditLine{}
+	line.AuditType = types.AuditTypeApparmor
+	line.TimestampID = captures[2]
+	line.Apparmor = captures[3]
+	line.Operation = captures[4]
+	line.Profile = captures[5]
+	line.Name = captures[6]
+	line.Executable = captures[8]
+	if v, err := strconv.Atoi(captures[7]); err == nil {
+		line.ProcessID = v
+	}
+
+	if len(captures) > minAppArmorCapturesExpected {
+		line.ExtraInfo = strings.ReplaceAll(captures[9], "\"", "'")
+	}
 	return &line
 }
