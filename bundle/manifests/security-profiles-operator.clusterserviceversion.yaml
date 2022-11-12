@@ -427,7 +427,7 @@ spec:
                 - manager
                 env:
                 - name: RELATED_IMAGE_RBAC_PROXY
-                  value: quay.io/brancz/kube-rbac-proxy:v0.11.0
+                  value: quay.io/brancz/kube-rbac-proxy:v0.13.1
                 - name: RELATED_IMAGE_SELINUXD
                   value: quay.io/security-profiles-operator/selinuxd
                 - name: OPERATOR_NAMESPACE
@@ -504,7 +504,7 @@ spec:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
   relatedImages:
-  - image: quay.io/brancz/kube-rbac-proxy:v0.11.0
+  - image: quay.io/brancz/kube-rbac-proxy:v0.13.1
     name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd
