@@ -77,6 +77,7 @@ ifeq ($(BPF_ENABLED), 1)
 CGO_LDFLAGS := $(CGO_LDFLAGS) -lelf -lz -lbpf
 else
 BUILDTAGS := $(BUILDTAGS) no_bpf
+LINT_BUILDTAGS := $(LINT_BUILDTAGS),no_bpf
 endif
 
 export CGO_LDFLAGS
