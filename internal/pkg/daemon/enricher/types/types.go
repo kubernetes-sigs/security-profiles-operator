@@ -17,8 +17,9 @@ limitations under the License.
 package types
 
 const (
-	AuditTypeSeccomp = "seccomp"
-	AuditTypeSelinux = "selinux"
+	AuditTypeSeccomp  = "seccomp"
+	AuditTypeSelinux  = "selinux"
+	AuditTypeApparmor = "apparmor"
 )
 
 type AuditLine struct {
@@ -37,6 +38,17 @@ type AuditLine struct {
 	Tcontext string
 	Tclass   string
 	Perm     string
+
+	// apparmor
+	Apparmor  string
+	Operation string
+	// Profile is the name of the AppArmor profile under which the operation took place.
+	Profile string
+	// Name is what the operation wanted to access.
+	Name string
+	// ExtraInfo may contain addition information such as:
+	// requested_mask, denied_mask, fsuid=65534, ouid and target.
+	ExtraInfo string
 }
 
 type ContainerInfo struct {

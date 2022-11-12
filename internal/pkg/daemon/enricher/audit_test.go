@@ -17,6 +17,7 @@ limitations under the License.
 package enricher
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,18 @@ func Test_isAuditLine(t *testing.T) {
 			"Should extract selinux log lines with multiple permissions",
 			//nolint:lll // no need to wrap
 			`type=AVC msg=audit(1666691794.882:1434): avc:  denied  { read write open } for  pid=94509 comm="aide" path="/hostroot/etc/kubernetes/aide.log.new" dev="nvme0n1p4" ino=167774224 scontext=system_u:system_r:selinuxrecording.process:s0:c218,c875 tcontext=system_u:object_r:kubernetes_file_t:s0 tclass=file permissive=1`,
+			true,
+		},
+		{
+			"Should identify AppArmor log lines",
+			//nolint:lll // no need to wrap
+			`audit: type=1400 audit(1668191154.949:64): apparmor="DENIED" operation="exec" profile="profile-name" name="/usr/local/bin/sample-app" pid=4166 comm="tini"`,
+			true,
+		},
+		{
+			"Should identify AppArmor long log lines",
+			//nolint:lll // no need to wrap
+			`audit: type=1400 audit(1668191154.949:64): apparmor="DENIED" operation="exec" profile="profile-name" name="/usr/local/bin/sample-app" pid=4166 comm="tini" requested_mask="x" denied_mask="x" fsuid=65534 ouid=0`,
 			true,
 		},
 	}
@@ -150,6 +163,45 @@ func Test_extractAuditLine(t *testing.T) {
 				Tclass:       "file",
 			},
 			nil,
+		},
+		{
+			"Should extract apparmor log lines",
+			//nolint:lll // no need to wrap
+			`audit: type=1400 audit(1668191154.949:64): apparmor="DENIED" operation="exec" profile="profile-name" name="/usr/local/bin/sample-app" pid=4166 comm="tini"`,
+			&types.AuditLine{
+				AuditType:   "apparmor",
+				TimestampID: "1668191154.949:64",
+				ProcessID:   4166,
+				Apparmor:    "DENIED",
+				Operation:   "exec",
+				Profile:     "profile-name",
+				Name:        "/usr/local/bin/sample-app",
+				Executable:  "tini",
+			},
+			nil,
+		},
+		{
+			"Should extract apparmor long log lines",
+			//nolint:lll // no need to wrap
+			`audit: type=1400 audit(1668191154.949:64): apparmor="DENIED" operation="exec" profile="profile-name" name="/usr/local/bin/sample-app" pid=4166 comm="tini" requested_mask="x" denied_mask="x" fsuid=65534 ouid=0`,
+			&types.AuditLine{
+				AuditType:   "apparmor",
+				TimestampID: "1668191154.949:64",
+				ProcessID:   4166,
+				Apparmor:    "DENIED",
+				Operation:   "exec",
+				Profile:     "profile-name",
+				Name:        "/usr/local/bin/sample-app",
+				Executable:  "tini",
+				ExtraInfo:   "requested_mask='x' denied_mask='x' fsuid=65534 ouid=0",
+			},
+			nil,
+		},
+		{
+			"Should not extract suppressed lines",
+			`[ 3683.829070] kauditd_printk_skb: 1 callbacks suppressed`,
+			nil,
+			fmt.Errorf("unsupported log line: %s", `[ 3683.829070] kauditd_printk_skb: 1 callbacks suppressed`),
 		},
 	}
 	for _, tt := range tests {

@@ -364,6 +364,8 @@ func (e *Enricher) dispatchAuditLine(
 		e.dispatchSelinuxLine(metricsClient, nodeName, auditLine, info)
 	case types.AuditTypeSeccomp:
 		e.dispatchSeccompLine(metricsClient, nodeName, auditLine, info)
+	case types.AuditTypeApparmor:
+		e.dispatchApparmorLine(nodeName, auditLine, info)
 	default:
 		return fmt.Errorf("unknown audit line type %s", auditLine.AuditType)
 	}
@@ -482,6 +484,33 @@ func (e *Enricher) dispatchSeccompLine(
 			stringSet.Insert(syscallName)
 		}
 	}
+}
+
+func (e *Enricher) dispatchApparmorLine(
+	nodeName string,
+	auditLine *types.AuditLine,
+	info *types.ContainerInfo,
+) {
+	values := []interface{}{
+		"timestamp", auditLine.TimestampID,
+		"type", auditLine.AuditType,
+		"node", nodeName,
+		"namespace", info.Namespace,
+		"pod", info.PodName,
+		"container", info.ContainerName,
+		"executable", auditLine.Executable,
+		"pid", auditLine.ProcessID,
+		"apparmor", auditLine.Apparmor,
+		"operation", auditLine.Operation,
+		"profile", auditLine.Profile,
+		"name", auditLine.Name,
+	}
+
+	if auditLine.ExtraInfo != "" {
+		values = append(values, "extra", auditLine.ExtraInfo)
+	}
+
+	e.logger.Info("audit", values...)
 }
 
 // logFilePath returns either the path to the audit logs or falls back to
