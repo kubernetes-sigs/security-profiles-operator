@@ -113,6 +113,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseVerbosityChange,
 		},
 		{
+			"AppArmor: base case (install policy, run pod and delete)",
+			e.testCaseAppArmorBaseUsage,
+		},
+		{
 			"Seccomp: make sure statuses for profiles with long names can be listed",
 			e.testCaseLongSeccompProfileName,
 		},
