@@ -83,20 +83,16 @@ func Test_getEffectiveSPOd(t *testing.T) {
 func Test_getSeccompLocalhostProfile(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
-		nodes *corev1.NodeList
-		want  string
+		name string
+		node *corev1.Node
+		want string
 	}{
 		{
 			name: "Should return local seccomp profile for cri-o runtime",
-			nodes: &corev1.NodeList{
-				Items: []corev1.Node{
-					{
-						Status: corev1.NodeStatus{
-							NodeInfo: corev1.NodeSystemInfo{
-								ContainerRuntimeVersion: "cri-o://1.2.3",
-							},
-						},
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						ContainerRuntimeVersion: "cri-o://1.2.3",
 					},
 				},
 			},
@@ -104,14 +100,10 @@ func Test_getSeccompLocalhostProfile(t *testing.T) {
 		},
 		{
 			name: "Should return local seccomp profile for docker runtime",
-			nodes: &corev1.NodeList{
-				Items: []corev1.Node{
-					{
-						Status: corev1.NodeStatus{
-							NodeInfo: corev1.NodeSystemInfo{
-								ContainerRuntimeVersion: "docker://1.2.3",
-							},
-						},
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						ContainerRuntimeVersion: "docker://1.2.3",
 					},
 				},
 			},
@@ -119,14 +111,10 @@ func Test_getSeccompLocalhostProfile(t *testing.T) {
 		},
 		{
 			name: "Should return local seccomp profile for containerd runtime",
-			nodes: &corev1.NodeList{
-				Items: []corev1.Node{
-					{
-						Status: corev1.NodeStatus{
-							NodeInfo: corev1.NodeSystemInfo{
-								ContainerRuntimeVersion: "containerd://1.2.3",
-							},
-						},
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						ContainerRuntimeVersion: "containerd://1.2.3",
 					},
 				},
 			},
@@ -137,7 +125,7 @@ func Test_getSeccompLocalhostProfile(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := getSeccompLocalhostProfile(tt.nodes)
+			got := getSeccompLocalhostProfile(tt.node)
 			require.Equal(t, tt.want, got)
 		})
 	}
