@@ -29,6 +29,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -134,20 +135,20 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 	}
 	dt.rbacProxyImage = rbacProxyImage
 
-	nodeList := corev1.NodeList{}
-	err := r.clientReader.List(ctx, &nodeList)
+	node := &corev1.Node{}
+	objectKey := client.ObjectKey{Name: os.Getenv(config.NodeNameEnvKey)}
+	err := r.clientReader.Get(ctx, objectKey, node)
 	if err != nil {
 		return dt, fmt.Errorf("listing cluster nodes: %w", err)
 	}
-	dt.seccompLocalhostProfile = getSeccompLocalhostProfile(&nodeList)
+	dt.seccompLocalhostProfile = getSeccompLocalhostProfile(node)
 	return dt, nil
 }
 
-func getSeccompLocalhostProfile(nodes *corev1.NodeList) string {
-	if len(nodes.Items) == 0 {
+func getSeccompLocalhostProfile(node *corev1.Node) string {
+	if node == nil {
 		return bindata.LocalSeccompProfilePath
 	}
-	node := nodes.Items[0]
 	containerRuntimeVersion := node.Status.NodeInfo.ContainerRuntimeVersion
 	parts := strings.Split(containerRuntimeVersion, ":")
 	containerRuntime := ""
