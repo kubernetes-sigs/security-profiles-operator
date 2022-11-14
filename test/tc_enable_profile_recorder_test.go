@@ -30,6 +30,7 @@ func (e *e2e) testCaseSPODEnableProfileRecorder(nodes []string) {
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
 
 	e.logf("assert profile recorder is disabled in the spod DS when log enricher is disabled")
 	selinuxDisabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
@@ -45,6 +46,7 @@ func (e *e2e) testCaseSPODEnableProfileRecorder(nodes []string) {
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
 
 	e.logf("assert profile recorder is disabled in the spod DS when bpf recorder is disabled")
 	selinuxDisabledInSPODDS = e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
