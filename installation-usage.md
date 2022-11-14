@@ -234,8 +234,8 @@ The `ds/spod` should now be updated by the manager with the new SELinux type, an
 
 ## Customise the daemon resource requirements
 
-The default resource requirements of the daemon container can be adjusted in the SPOD configuration in the
-`daemonResourceRequirements` filed as follows:
+The default resource requirements of the daemon container can be adjusted by using the field `daemonResourceRequirements`
+from the SPOD configuration as follows:
 
 ```
 kubectl -n security-profiles-operator patch spod spod --type merge -p
