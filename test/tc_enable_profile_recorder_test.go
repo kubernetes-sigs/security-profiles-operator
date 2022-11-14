@@ -34,7 +34,7 @@ func (e *e2e) testCaseSPODEnableProfileRecorder(nodes []string) {
 
 	e.logf("assert profile recorder is disabled in the spod DS when log enricher is disabled")
 	selinuxDisabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
-	e.NotContains(selinuxDisabledInSPODDS, "--with-recording=false")
+	e.Contains(selinuxDisabledInSPODDS, "--with-recording=false")
 
 	e.enableBpfRecorderInSpod()
 	e.logf("assert profile recorder is enabled in the spod DS when bpf recorder is enabled")
@@ -50,5 +50,5 @@ func (e *e2e) testCaseSPODEnableProfileRecorder(nodes []string) {
 
 	e.logf("assert profile recorder is disabled in the spod DS when bpf recorder is disabled")
 	selinuxDisabledInSPODDS = e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
-	e.NotContains(selinuxDisabledInSPODDS, "--with-recording=false")
+	e.Contains(selinuxDisabledInSPODDS, "--with-recording=false")
 }
