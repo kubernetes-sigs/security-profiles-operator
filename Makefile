@@ -89,11 +89,18 @@ GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
 	-X $(GO_PROJECT)/internal/pkg/version.buildDate=$(BUILD_DATE) \
 	-X $(GO_PROJECT)/internal/pkg/version.version=$(VERSION)
+STATIC_LINK ?= yes
+ifeq ($(STATIC_LINK), yes)
+  EXTLDFLAGS := -extldflags "-static"
+else
+  EXTLDFLAGS :=
+endif
+
 LINKMODE_EXTERNAL ?= yes
 ifeq ($(LINKMODE_EXTERNAL), yes)
-  LDFLAGS := -s -w -linkmode external -extldflags "-static" $(LDVARS)
+  LDFLAGS := -s -w -linkmode external $(EXTLDFLAGS) $(LDVARS)
 else
-  LDFLAGS := -s -w -extldflags "-static" $(LDVARS)
+  LDFLAGS := -s -w $(EXTLDFLAGS) $(LDVARS)
 endif
 
 export CONTAINER_RUNTIME ?= $(if $(shell which podman 2>/dev/null),podman,docker)
