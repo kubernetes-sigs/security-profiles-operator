@@ -500,9 +500,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	volume, mount := bindata.CustomHostProcVolume(cfg.Spec.HostProcVolumePath)
 
 	// Disable profile recording controller by default
-	templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
-		templateSpec.Containers[bindata.ContainerIDDaemon].Args,
-		"--with-recording=false")
+	enableRecording := false
 	if cfg.Spec.EnableLogEnricher || cfg.Spec.EnableBpfRecorder {
 		if useCustomHostProc {
 			templateSpec.Volumes = append(templateSpec.Volumes, volume)
@@ -513,10 +511,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.HostPID = true
 
 		// Enable profile recording controller which is disabled by default
-		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
-			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
-			"--with-recording=true")
+		enableRecording = true
 	}
+	templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+		fmt.Sprintf("--with-recording=%t", enableRecording))
 
 	// Log enricher parameters. The spod setting takes precedence over the env var.
 	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
