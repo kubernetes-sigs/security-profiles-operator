@@ -15,6 +15,9 @@ issues:
     - linters:
         - lll
       source: "^//go:generate " # exclude lll issues for long lines with go:generate
+    - linters:
+        - paralleltest
+      path: internal/pkg/config/config_test.go
 linters:
   disable-all: true
   enable:
