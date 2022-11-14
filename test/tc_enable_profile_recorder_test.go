@@ -16,8 +16,6 @@ limitations under the License.
 
 package e2e_test
 
-import "time"
-
 func (e *e2e) testCaseSPODEnableProfileRecorder(nodes []string) {
 	e.enableLogEnricherInSpod()
 
@@ -25,30 +23,8 @@ func (e *e2e) testCaseSPODEnableProfileRecorder(nodes []string) {
 	profileRecorderEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	e.Contains(profileRecorderEnabledInSPODDS, "--with-recording=true")
 
-	e.logf("Disable log enricher from SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableLogEnricher": false}}`, "--type=merge")
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
-
-	e.logf("assert profile recorder is disabled in the spod DS when log enricher is disabled")
-	selinuxDisabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
-	e.Contains(selinuxDisabledInSPODDS, "--with-recording=false")
-
 	e.enableBpfRecorderInSpod()
 	e.logf("assert profile recorder is enabled in the spod DS when bpf recorder is enabled")
 	profileRecorderEnabledInSPODDS = e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	e.Contains(profileRecorderEnabledInSPODDS, "--with-recording=true")
-
-	e.logf("Disable bpf recorder from SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableBpfRecorder": false}}`, "--type=merge")
-
-	time.Sleep(defaultWaitTime)
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
-
-	e.logf("assert profile recorder is disabled in the spod DS when bpf recorder is disabled")
-	selinuxDisabledInSPODDS = e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
-	e.Contains(selinuxDisabledInSPODDS, "--with-recording=false")
 }
