@@ -29,11 +29,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
-      - uses: github/codeql-action/init@c3b6fce4ee2ca25bc1066aa3bf73962fda0e8898
+      - uses: github/codeql-action/init@4238421316c33d73aeea2801274dd286f157c2bb
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@c3b6fce4ee2ca25bc1066aa3bf73962fda0e8898
-      - uses: github/codeql-action/analyze@c3b6fce4ee2ca25bc1066aa3bf73962fda0e8898
+      - uses: github/codeql-action/autobuild@4238421316c33d73aeea2801274dd286f157c2bb
+      - uses: github/codeql-action/analyze@4238421316c33d73aeea2801274dd286f157c2bb
 
   coverage:
     runs-on: ubuntu-22.04
