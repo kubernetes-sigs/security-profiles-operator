@@ -64,8 +64,10 @@ endif
 
 ifneq ($(shell uname -s), Darwin)
 OS := linux
+SED ?= sed -i
 else
 OS := darwin
+SED ?= sed -i ''
 endif
 
 ifeq ($(APPARMOR_ENABLED), 1)
@@ -468,15 +470,9 @@ OLM_EXAMPLES := \
 
 .PHONY: bundle
 bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then validate generated files.
-ifeq ($(shell uname -s), Darwin)
-	sed -i '' "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
-	sed -i '' "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
-	sed -i '' "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
-else
-	sed -i "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
-	sed -i "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
-	sed -i "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
-endif
+	$(SED) "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
+	$(SED) "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
+	$(SED) "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
 	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	git restore deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
@@ -576,7 +572,7 @@ deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev
 .PHONY: deploy
 deploy:
 	mkdir -p build/deploy && cp deploy/operator.yaml build/deploy/
-	sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest#$(IMAGE)#g" build/deploy/operator.yaml
-	sed -i "s#replicas: 3#replicas: 1#g" build/deploy/operator.yaml
+	$(SED) "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest#$(IMAGE)#g" build/deploy/operator.yaml
+	$(SED) "s#replicas: 3#replicas: 1#g" build/deploy/operator.yaml
 	kubectl apply -f build/deploy/operator.yaml
 	kubectl apply -f examples/config.yaml
