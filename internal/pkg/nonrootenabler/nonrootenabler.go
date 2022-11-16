@@ -19,6 +19,7 @@ package nonrootenabler
 import (
 	"fmt"
 	"os"
+	"path"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/release-utils/util"
@@ -43,7 +44,7 @@ func (n *NonRootEnabler) SetImpl(i impl) {
 }
 
 // Run executes the NonRootEnabler and returns an error if anything fails.
-func (n *NonRootEnabler) Run(logger logr.Logger) error {
+func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 	const dirPermissions os.FileMode = 0o744
 
 	logger.Info("Ensuring seccomp root path: " + config.KubeletSeccompRootPath)
@@ -88,9 +89,13 @@ func (n *NonRootEnabler) Run(logger logr.Logger) error {
 		return fmt.Errorf("change operator root permissions: %w", err)
 	}
 
-	logger.Info("Copying profiles into root path")
+	kubeletSeccompRootPath := config.KubeletSeccompRootPath
+	if runtime == "cri-o" {
+		kubeletSeccompRootPath = path.Join(kubeletSeccompRootPath, "localhost")
+	}
+	logger.Info("Copying profiles into root path: " + kubeletSeccompRootPath)
 	if err := n.impl.CopyDirContentsLocal(
-		"/opt/spo-profiles", config.KubeletSeccompRootPath,
+		"/opt/spo-profiles", kubeletSeccompRootPath,
 	); err != nil {
 		return fmt.Errorf("copy local security profiles: %w", err)
 	}
