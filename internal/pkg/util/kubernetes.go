@@ -26,7 +26,7 @@ import (
 )
 
 // GetSeccompLocalhostProfilePath returns the path of local seccomp profile
-// acording to the runtime.
+// according to the runtime.
 func GetSeccompLocalhostProfilePath(node *corev1.Node) string {
 	containerRuntime := GetContainerRuntime(node)
 	// cri-o expects the local seccomp profile to be prefixed with 'localhost'

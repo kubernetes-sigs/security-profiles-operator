@@ -116,8 +116,8 @@ type impl interface {
 
 type defaultImpl struct{}
 
-func (*defaultImpl) MkdirAll(path string, perm os.FileMode) error {
-	return os.MkdirAll(path, perm)
+func (*defaultImpl) MkdirAll(dirPath string, perm os.FileMode) error {
+	return os.MkdirAll(dirPath, perm)
 }
 
 func (*defaultImpl) Chmod(name string, perm os.FileMode) error {
