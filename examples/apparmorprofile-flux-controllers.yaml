@@ -1,0 +1,75 @@
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: AppArmorProfile
+metadata:
+  name: flux-controllers
+  namespace: security-profiles-operator
+  annotations:
+    description: AppArmor profile for the Flux Controllers.
+spec:
+  policy: |
+    #include <tunables/global>
+
+    profile flux-controllers flags=(attach_disconnected, mediate_deleted) {
+      include <abstractions/base>
+      include <abstractions/ssl_certs>
+      include <abstractions/gnupg>
+      include <abstractions/user-tmp>
+
+      # Allow udp/tcp, ipv4 and ipv6.
+      network inet stream,
+      network inet6 stream,
+      network tcp,
+      network udp, 
+
+      # Controller binaries.
+      /usr/local/bin/{source,helm,kustomize,image-automation,image-reflector,notification}-controller mrix,
+
+      # gpg is needed by kustomize-controller when using GPG decryption.
+      /usr/bin/gpg{,-agent} mrix,
+
+      # Some controllers are started via tini.
+      /sbin/tini mrix,
+
+      # git is needed by kustomize-controller when using remote bases.
+      /usr/bin/git mrix,
+
+      # Data storage locations.
+      # /data is used as artifact storage and base for File Server.
+      /data/ rwk,
+      /data/** rwk,
+
+      # Access to Kubernetes service account tokens.
+      /run/secrets/kubernetes.io/serviceaccount/** r,
+
+      /etc/{group,passwd,hosts} r,
+      /etc/{nsswitch,resolv}.conf r,
+
+      /proc/sys/net/core/somaxconn r,
+      /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+
+      # Deny raw and packet level network access.
+      deny network raw,
+      deny network packet,
+
+      # Allow read access to its own process files.
+      @{PROC}/@{pid}/ r,
+      @{PROC}/@{pid}/** r,
+
+      # The denied capabilities below will take precedence over any capabilities
+      # given at pod-level or by default from the container runtime.
+      deny capability net_bind_service, # not needed for ports above 1024.
+      deny capability audit_control,
+      deny capability dac_override,
+      deny capability sys_chroot,
+      deny capability sys_boot,
+      deny capability sys_module,
+      deny capability sys_admin,
+      deny capability sys_ptrace,
+      deny capability syslog,
+      deny capability net_raw,
+      deny capability net_admin,
+      deny capability mac_admin,
+      deny capability mac_override,
+      deny capability mknod,
+    }
