@@ -21,8 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +35,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // CtxKey type for spod context keys.
@@ -57,6 +56,7 @@ type daemonTunables struct {
 	logEnricherImage        string
 	watchNamespace          string
 	seccompLocalhostProfile string
+	containerRuntime        string
 }
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -136,32 +136,18 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 	dt.rbacProxyImage = rbacProxyImage
 
 	node := &corev1.Node{}
-	objectKey := client.ObjectKey{Name: os.Getenv(config.NodeNameEnvKey)}
-	err := r.clientReader.Get(ctx, objectKey, node)
-	if err != nil {
-		return dt, fmt.Errorf("listing cluster nodes: %w", err)
+	nodeName := os.Getenv(config.NodeNameEnvKey)
+	if nodeName != "" {
+		objectKey := client.ObjectKey{Name: nodeName}
+		err := r.clientReader.Get(ctx, objectKey, node)
+		if err != nil {
+			return dt, fmt.Errorf("getting cluster node object: %w", err)
+		}
 	}
-	dt.seccompLocalhostProfile = getSeccompLocalhostProfile(node)
-	return dt, nil
-}
+	dt.seccompLocalhostProfile = util.GetSeccompLocalhostProfilePath(node)
+	dt.containerRuntime = util.GetContainerRuntime(node)
 
-func getSeccompLocalhostProfile(node *corev1.Node) string {
-	if node == nil {
-		return bindata.LocalSeccompProfilePath
-	}
-	containerRuntimeVersion := node.Status.NodeInfo.ContainerRuntimeVersion
-	parts := strings.Split(containerRuntimeVersion, ":")
-	containerRuntime := ""
-	if len(parts) > 0 {
-		containerRuntime = parts[0]
-	}
-	// cri-o expects the local seccomp profile to be prefixed with 'localhost'
-	// see for more details:
-	// https://github.com/cri-o/cri-o/blob/1e6fd9c520d03d47835d1d4c3209e0f77c38f542/internal/config/seccomp/seccomp.go#L240
-	if containerRuntime == "cri-o" {
-		return path.Join("localhost", bindata.LocalSeccompProfilePath)
-	}
-	return bindata.LocalSeccompProfilePath
+	return dt, nil
 }
 
 func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
@@ -178,6 +164,9 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 	if dt.seccompLocalhostProfile != "" {
 		daemon.SecurityContext.SeccompProfile.LocalhostProfile = &dt.seccompLocalhostProfile
 	}
+
+	nonRootEnabler := &refSPOd.Spec.Template.Spec.InitContainers[0]
+	nonRootEnabler.Args = append(nonRootEnabler.Args, "--runtime="+dt.containerRuntime)
 
 	selinuxd := &refSPOd.Spec.Template.Spec.Containers[1]
 	selinuxd.Image = dt.selinuxdImage
