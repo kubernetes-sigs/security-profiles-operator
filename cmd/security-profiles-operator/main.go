@@ -190,6 +190,14 @@ func main() {
 			Action: func(ctx *cli.Context) error {
 				return runNonRootEnabler(ctx, info)
 			},
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:    "runtime",
+					Aliases: []string{"r"},
+					Value:   "",
+					Usage:   "the container runtime in the cluster (values: cri-o, containerd, docker)",
+				},
+			},
 		},
 		&cli.Command{
 			Before:  initialize,
@@ -484,10 +492,11 @@ func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	return e.Run()
 }
 
-func runNonRootEnabler(_ *cli.Context, info *version.Info) error {
+func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 	const component = "non-root-enabler"
 	printInfo(component, info)
-	return nonrootenabler.New().Run(ctrl.Log.WithName(component))
+	runtime := ctx.String("runtime")
+	return nonrootenabler.New().Run(ctrl.Log.WithName(component), runtime)
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {

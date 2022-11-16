@@ -89,7 +89,7 @@ func TestRun(t *testing.T) {
 		tc.prepare(mock)
 		sut.SetImpl(mock)
 
-		err := sut.Run(logr.Discard())
+		err := sut.Run(logr.Discard(), "")
 		if tc.shouldError {
 			require.NotNil(t, err)
 		} else {
