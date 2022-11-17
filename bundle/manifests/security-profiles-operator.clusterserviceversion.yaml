@@ -98,13 +98,13 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
-    olm.skipRange: '>=0.4.1 <0.5.1-dev'
+    olm.skipRange: '>=0.4.1 <0.6.0'
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
       Container Platform", "OpenShift Platform Plus"]'
     operators.operatorframework.io/builder: operator-sdk-v1.25.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
-  name: security-profiles-operator.v0.5.1-dev
+  name: security-profiles-operator.v0.6.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -440,7 +440,7 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
-                image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
+                image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.6.0
                 imagePullPolicy: Always
                 name: security-profiles-operator
                 resources:
@@ -514,4 +514,4 @@ spec:
     name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd
-  version: 0.5.1-dev
+  version: 0.6.0
