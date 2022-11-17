@@ -20,19 +20,26 @@ import (
 	"path"
 	"strings"
 
+	"golang.org/x/mod/semver"
 	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
+const kubeVersionWithFields = "v1.23.0"
+
 // GetSeccompLocalhostProfilePath returns the path of local seccomp profile
 // according to the runtime.
 func GetSeccompLocalhostProfilePath(node *corev1.Node) string {
 	containerRuntime := GetContainerRuntime(node)
-	// cri-o expects the local seccomp profile to be prefixed with 'localhost'
+	kubeVersion := GetVersion(node)
+	// cri-o expects the local seccomp profile to be prefixed with 'localhost' when seccomp is set up
+	// from path (older Kubernetes version).
 	// see for more details:
 	// https://github.com/cri-o/cri-o/blob/1e6fd9c520d03d47835d1d4c3209e0f77c38f542/internal/config/seccomp/seccomp.go#L240
-	if containerRuntime == "cri-o" {
+	//
+	// Note: the newer Kubernetes versions set up the seccomp from fields and it doen't require this fix.
+	if containerRuntime == "cri-o" && semver.Compare(kubeVersion, kubeVersionWithFields) == -1 {
 		return path.Join("localhost", bindata.LocalSeccompProfilePath)
 	}
 	return bindata.LocalSeccompProfilePath
@@ -50,4 +57,13 @@ func GetContainerRuntime(node *corev1.Node) string {
 		containerRuntime = parts[0]
 	}
 	return containerRuntime
+}
+
+// GetVersion returns the version of the kubelet running on the node.
+func GetVersion(node *corev1.Node) string {
+	if node == nil {
+		return ""
+	}
+
+	return node.Status.NodeInfo.KubeletVersion
 }
