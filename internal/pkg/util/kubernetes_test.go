@@ -165,5 +165,4 @@ func TestGetVersion(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
-
 }
