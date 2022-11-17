@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/mod/semver"
 	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
@@ -35,15 +36,28 @@ func TestGetSeccompLocalhostProfilePath(t *testing.T) {
 		want string
 	}{
 		{
-			name: "Should return local seccomp profile for cri-o runtime",
+			name: "Should prefix with localhost the seccomp profile for cri-o runtime for older version",
 			node: &corev1.Node{
 				Status: corev1.NodeStatus{
 					NodeInfo: corev1.NodeSystemInfo{
 						ContainerRuntimeVersion: "cri-o://1.2.3",
+						KubeletVersion:          "v1.22.3",
 					},
 				},
 			},
 			want: path.Join("localhost", bindata.LocalSeccompProfilePath),
+		},
+		{
+			name: "Should not prefix with localhost the seccomp profile for cri-o runtime for newer version",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						ContainerRuntimeVersion: "cri-o://1.2.3",
+						KubeletVersion:          "v1.24.0",
+					},
+				},
+			},
+			want: bindata.LocalSeccompProfilePath,
 		},
 		{
 			name: "Should return local seccomp profile for docker runtime",
@@ -121,4 +135,35 @@ func TestGetContainerRuntime(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestGetVersion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		node *corev1.Node
+		want string
+	}{
+		{
+			name: "Should return the corect version",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						KubeletVersion: "v1.25.3",
+					},
+				},
+			},
+			want: "v1.25.3",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := util.GetVersion(tt.node)
+			require.True(t, semver.IsValid(got), "sould return a valid version")
+			require.Equal(t, tt.want, got)
+		})
+	}
+
 }
