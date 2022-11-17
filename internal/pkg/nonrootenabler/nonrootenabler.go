@@ -19,7 +19,6 @@ package nonrootenabler
 import (
 	"fmt"
 	"os"
-	"path"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/release-utils/util"
@@ -46,6 +45,8 @@ func (n *NonRootEnabler) SetImpl(i impl) {
 // Run executes the NonRootEnabler and returns an error if anything fails.
 func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 	const dirPermissions os.FileMode = 0o744
+
+	logger.Info("Container runtime:" + runtime)
 
 	logger.Info("Ensuring seccomp root path: " + config.KubeletSeccompRootPath)
 	if err := n.impl.MkdirAll(
@@ -90,9 +91,6 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 	}
 
 	kubeletSeccompRootPath := config.KubeletSeccompRootPath
-	if runtime == "cri-o" {
-		kubeletSeccompRootPath = path.Join(kubeletSeccompRootPath, "localhost")
-	}
 	logger.Info("Copying profiles into root path: " + kubeletSeccompRootPath)
 	if err := n.impl.CopyDirContentsLocal(
 		"/opt/spo-profiles", kubeletSeccompRootPath,
@@ -116,8 +114,8 @@ type impl interface {
 
 type defaultImpl struct{}
 
-func (*defaultImpl) MkdirAll(dirPath string, perm os.FileMode) error {
-	return os.MkdirAll(dirPath, perm)
+func (*defaultImpl) MkdirAll(path string, perm os.FileMode) error {
+	return os.MkdirAll(path, perm)
 }
 
 func (*defaultImpl) Chmod(name string, perm os.FileMode) error {
