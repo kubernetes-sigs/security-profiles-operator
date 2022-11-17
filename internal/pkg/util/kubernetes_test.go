@@ -111,7 +111,7 @@ func TestGetContainerRuntime(t *testing.T) {
 			want: "cri-o",
 		},
 		{
-			name: "should return docker runtime",
+			name: "Should return docker runtime",
 			node: &corev1.Node{
 				Status: corev1.NodeStatus{
 					NodeInfo: corev1.NodeSystemInfo{
@@ -161,7 +161,7 @@ func TestGetVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := util.GetVersion(tt.node)
-			require.True(t, semver.IsValid(got), "sould return a valid version")
+			require.True(t, semver.IsValid(got), "should return a valid version")
 			require.Equal(t, tt.want, got)
 		})
 	}
