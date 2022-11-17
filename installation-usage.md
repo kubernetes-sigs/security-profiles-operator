@@ -332,7 +332,8 @@ spec:
 ```
 
 You can find the profile path of the seccomp profile by checking the
-`seccompProfile.localhostProfile` attribute:
+`seccompProfile.localhostProfile` attribute (remember to use the `wide`
+output mode):
 
 ```sh
 $ kubectl --namespace my-namespace get seccompprofile profile1 --output wide
