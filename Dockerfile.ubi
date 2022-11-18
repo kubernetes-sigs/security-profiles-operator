@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# hash below referred to `:36` tag
-FROM registry.fedoraproject.org/fedora-minimal@sha256:b676cdd0fdefe33124325082d070c39558f1966a63dfd1193681a7900707d332 AS build
+# go-toolset uses RH's Go fork which uses OpenSSL for FIPS-certified crypto
+# if this is not desirable, pass -tags no_openssl to SPO build
+# see https://access.redhat.com/documentation/en-us/red_hat_developer_tools/2018.4/html/using_go_toolset/chap-changes
+# for more details
+
+# hash below referred to latest
+FROM registry.access.redhat.com/ubi8/go-toolset@sha256:5c33798716db98ce485d606451bef1dd7a6eb3b1422a67cbd10eacc870eb2de5 as build
 USER root
 WORKDIR /work
 
-RUN microdnf install -y \
-        git \
-        glibc-static \
-        golang-bin \
-        make \
-        libseccomp-static
+RUN dnf install -y \
+        libseccomp-devel
 
 ADD . /work
 RUN mkdir -p build
@@ -30,12 +31,18 @@ RUN mkdir -p build
 ARG APPARMOR_ENABLED=0
 ARG BPF_ENABLED=0
 
+# OCP in FIPS mode doesn't like statically linked SPO
+ARG STATIC_LINK=no
+
 RUN make
 
 # hash below referred to latest
 FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:9a9149dbba8dc5a961dfec460018c245b49da0f52e9934e1a70dd4d42f9fc5b7
 ARG version
 USER root
+
+RUN microdnf install -y \
+        libseccomp
 
 LABEL name="Security Profiles Operator" \
       version=$version \
