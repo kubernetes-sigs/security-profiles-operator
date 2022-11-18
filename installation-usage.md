@@ -1250,7 +1250,7 @@ $ kubectl -nsecurity-profiles-operator patch spod spod -p $(cat /tmp/spod-wh.pat
 To view the resulting `MutatingWebhookConfiguration`, call:
 
 ```shell
-$ kubectl -nsecurity-profiles-operator get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
+$ kubectl get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
 ```
 
 ## Troubleshooting
