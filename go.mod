@@ -6,7 +6,7 @@ require (
 	github.com/acobaugh/osrelease v0.0.0-20181218015638-a93a0a55a249
 	github.com/aquasecurity/libbpfgo v0.4.4-libbpf-1.0.1
 	github.com/blang/semver/v4 v4.0.0
-	github.com/cert-manager/cert-manager v1.10.0
+	github.com/cert-manager/cert-manager v1.10.1
 	github.com/containers/common v0.48.1-0.20220510094751-400832f41771
 	github.com/go-logr/logr v1.2.3
 	github.com/jellydator/ttlcache/v3 v3.0.0
