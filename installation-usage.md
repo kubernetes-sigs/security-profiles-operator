@@ -1362,15 +1362,23 @@ to use an SCC that allows the webhook to inject this permissive type into it. Th
 by using any SCC that uses `seLinuxContext: RunAsAny`, including the `privileged` SCC shipped
 by default with OpenShift.
 
+In addition, the namespace must be labeled with
+`pod-security.kubernetes.io/enforce: privileged` if your cluster enables the
+[Pod Security Admission](https://kubernetes.io/docs/concepts/security/pod-security-admission/)
+because only the `privileged`
+[Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/#privileged)
+allows running with a custom SELinux policy. In contrast, even the `restricted` Pod Security Standard
+allows the use of `Localhost` seccomp profiles.
+
 ### Replicating controllers and SCCs
 
-When deploying security policies (both SELinux and seccomp) for replicating controllers (deployments,
+When deploying SELinux policies for replicating controllers (deployments,
 daemonsets, ...), note that the pods that these controllers spawn are not running with the identity
 of the user who creates the workload. Unless a `ServiceAccount` is selected, this means that the pods
-might fall back to using one of the secure but restricted SCCs which don't allow to use a custom security
+might fall back to using one of the secure but restricted SCCs which don't allow to use a custom SELinux
 policy.
 
-One option is to use an SCC with `seLinuxContext: RunAsAny` and/or `seccompProfiles: [*]`, but it's
+One option is to use an SCC with `seLinuxContext: RunAsAny`, but it's
 more secure to only restrict your workloads to the security profiles they should be using.
 
 Taking the SELinux policy we recorded earlier for an nginx deployment as an
