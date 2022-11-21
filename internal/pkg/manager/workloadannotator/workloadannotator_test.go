@@ -110,6 +110,47 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			want: []string{profilePath},
 		},
 		{
+			name: "SeccompProfileRuntimeDefaultForPod",
+			pod: corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
+					SecurityContext: &corev1.PodSecurityContext{
+						SeccompProfile: &corev1.SeccompProfile{
+							Type: "RuntimeDefault",
+						},
+					},
+				},
+			},
+			want: []string{},
+		},
+		{
+			name: "SeccompProfileLocalhostNoSlash",
+			pod: corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
+					SecurityContext: &corev1.PodSecurityContext{
+						SeccompProfile: &corev1.SeccompProfile{
+							Type:             "Localhost",
+							LocalhostProfile: &[]string{"mariadb-seccomp-profile.json"}[0],
+						},
+					},
+				},
+			},
+			want: []string{},
+		},
+		{
+			name: "SeccompProfileInAnnotationNoSlash",
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{corev1.SeccompPodAnnotationKey: "localhost/mariadb-seccomp-profile.json"},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "container1", Image: "testimage"}},
+				},
+			},
+			want: []string{},
+		},
+		{
 			name: "SeccompProfileInPodAndContainerAndAnnotation",
 			pod: corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
