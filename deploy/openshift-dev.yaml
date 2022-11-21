@@ -2965,7 +2965,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.6.0
+        image: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest
         imagePullPolicy: Always
         name: security-profiles-operator
         resources:
