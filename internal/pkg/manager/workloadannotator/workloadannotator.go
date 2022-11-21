@@ -43,6 +43,7 @@ const (
 	linkedPodsKey     = ".metadata.activeWorkloads"
 	StatusToProfLabel = "spo.x-k8s.io/profile-id"
 	reconcileTimeout  = 1 * time.Minute
+	pathParts         = 3
 )
 
 // NewController returns a new empty controller instance.
@@ -119,6 +120,9 @@ func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (rec
 	// pod is being created or updated so ensure it is linked to a seccomp/selinux profile
 	for _, profileIndex := range getSeccompProfilesFromPod(pod) {
 		profileElements := strings.Split(profileIndex, "/")
+		if len(profileElements) != pathParts {
+			continue
+		}
 		profileNamespace := profileElements[1]
 		profileName := strings.TrimSuffix(profileElements[2], ".json")
 		seccompProfile := &seccompprofileapi.SeccompProfile{}
@@ -263,7 +267,11 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 	annotation, hasAnnotation := pod.GetAnnotations()[corev1.SeccompPodAnnotationKey]
 	if hasAnnotation && strings.HasPrefix(annotation, "localhost/") {
 		profileString := strings.TrimPrefix(annotation, "localhost/")
-		if !util.Contains(profiles, profileString) {
+		spCheck := &corev1.SeccompProfile{
+			Type:             "Localhost",
+			LocalhostProfile: &profileString,
+		}
+		if !util.Contains(profiles, profileString) && isOperatorSeccompProfile(spCheck) {
 			profiles = append(profiles, profileString)
 		}
 	}
@@ -311,7 +319,6 @@ func isOperatorSeccompProfile(sp *corev1.SeccompProfile) bool {
 	if !strings.HasSuffix(*sp.LocalhostProfile, ".json") {
 		return false
 	}
-	const pathParts = 3
 	return len(strings.Split(*sp.LocalhostProfile, "/")) == pathParts
 }
 
