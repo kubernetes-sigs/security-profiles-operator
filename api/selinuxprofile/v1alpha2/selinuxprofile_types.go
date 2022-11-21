@@ -57,6 +57,11 @@ type SelinuxProfileSpec struct {
 	// +optional
 	// +kubebuilder:default={{kind:"System",name:"container"}}
 	Inherit []PolicyRef `json:"inherit,omitempty"`
+	// Permissive, when true will cause the SELinux profile to only
+	// log violations instead of enforcing them.
+	// +optional
+	// +kubebuilder:default=false
+	Permissive bool `json:"permissive,omitempty"`
 	// Defines the allow policy for the profile
 	Allow Allow `json:"allow,omitempty"`
 }
