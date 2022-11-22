@@ -14,6 +14,8 @@ dependencies:
       match: GO_VERSION
     - path: hack/ci/Vagrantfile-flatcar
       match: GO_VERSION
+    - path: Makefile
+      match: CI_IMAGE
 
   - name: golangci-lint
     version: 1.50.1

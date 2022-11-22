@@ -18,6 +18,7 @@ GOLANGCI_LINT_VERSION = v1.50.1
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 4.5.7
 OPERATOR_SDK_VERSION ?= v1.25.0
+CI_IMAGE ?= golang:1.19
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
@@ -300,6 +301,19 @@ update-bpf: $(BUILD_DIR) ## Build and update all generated BPF code with nix
 .PHONY: verify
 verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks ## Run all verification targets
 
+.PHONY: verify-in-a-container
+verify-in-a-container: ## Run all verification targets in a container
+	export WORKDIR=/go/src/sigs.k8s.io/security-profiles-operator && \
+	$(CONTAINER_RUNTIME) run -it \
+		-v $(shell pwd):$$WORKDIR \
+		-v $(shell go env GOCACHE):/root/.cache/go-build \
+		-v $(shell go env GOMODCACHE):/go/pkg/mod \
+		-e GOCACHE=/root/.cache/go-build \
+		-e GOMODCACHE=/go/pkg/mod \
+		-w $$WORKDIR \
+		$(CI_IMAGE) \
+		hack/pull-security-profiles-operator-verify
+
 .PHONY: verify-boilerplate
 verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
 	$(BUILD_DIR)/verify_boilerplate.py \
@@ -575,7 +589,7 @@ do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev
 
 
-# Deploy the operator into the current kubectl context. 
+# Deploy the operator into the current kubectl context.
 .PHONY: deploy
 deploy:
 	mkdir -p build/deploy && cp deploy/operator.yaml build/deploy/
