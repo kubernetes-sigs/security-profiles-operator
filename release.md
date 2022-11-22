@@ -9,7 +9,8 @@ The overall process should not take longer than a couple of minutes, but it is
 required to have one of the repository [owners](./OWNERS) at hand to be able to
 merge the PRs.
 
-The first PR targets this repository and:
+Run the `./hack/release.sh x.y.z` script by replacing the appropriate version.
+The script basically:
 
 - bumps the [`VERSION`](VERSION) file to the target version
 - changes the `images` `newName`/`newTag` fields of
@@ -28,6 +29,8 @@ The first PR targets this repository and:
 - updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
+
+Create a new PR from the proposed changes and wait for the CI to succeed.
 
 After this PR has been merged, we have to watch out the successful build of the
 container image via the automatically triggered
