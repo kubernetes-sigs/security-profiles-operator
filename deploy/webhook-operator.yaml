@@ -2961,6 +2961,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: WATCH_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.annotations['olm.targetNamespaces']
         - name: NODE_NAME
           valueFrom:
             fieldRef:
