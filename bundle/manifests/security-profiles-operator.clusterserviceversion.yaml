@@ -98,6 +98,7 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
+    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.6.0
     olm.skipRange: '>=0.4.1 <0.6.1-dev'
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
@@ -514,4 +515,5 @@ spec:
     name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd
+  replaces: security-profiles-operator.v0.5.0
   version: 0.6.1-dev

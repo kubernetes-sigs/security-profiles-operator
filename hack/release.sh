@@ -56,4 +56,14 @@ for FILE in "${FILES[@]}"; do
     sed -i "s;$PREVIOUS_VERSION;$VERSION;g" "$FILE"
 done
 
+# Update operatorhub replacement
+FILE=deploy/base/clusterserviceversion.yaml
+OPERATOR_VERSION=$(curl -sSfL --retry 5 --retry-delay 3 "https://operatorhub.io/api/operator?packageName=security-profiles-operator" |
+    jq -r .operator.name)
+sed -i 's;replaces:.*;replaces: '"$OPERATOR_VERSION"';g' $FILE
+sed -i 's;containerImage:.*;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' $FILE
+
+# Build bundle
 make bundle
+
+echo "Done. Commit the changes to a new branch and create a PR from it"
