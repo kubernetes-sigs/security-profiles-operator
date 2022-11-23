@@ -17,7 +17,7 @@ The script basically:
   [./deploy/kustomize-deployment/kustomization.yaml](deploy/kustomize-deployment/kustomization.yaml)
   from `gcr.io/k8s-staging-sp-operator/security-profiles-operator` to
   `registry.k8s.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
-  corresponding tag (`newTag`). After that the make target `make bundle`
+  corresponding tag (`newTag`).
   has to be run and the changes have to be committed.
 - changes the `image` in the `CatalogSource` in the same way at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
@@ -29,6 +29,10 @@ The script basically:
 - updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
+- updates [./deploy/base/clusterserviceversion.yaml](./deploy/base/clusterserviceversion.yaml)
+  to change `replaces` to the latest available version on OperatorHub as well as
+  update the `containerImage`.
+- runs `make bundle`
 
 Create a new PR from the proposed changes and wait for the CI to succeed.
 
