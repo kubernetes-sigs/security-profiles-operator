@@ -2934,6 +2934,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: WATCH_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.annotations['olm.targetNamespaces']
         image: k8s.gcr.io/security-profiles-operator/security-profiles-operator:v0.5.0
         imagePullPolicy: Always
         name: security-profiles-operator

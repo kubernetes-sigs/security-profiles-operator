@@ -42,6 +42,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.annotations['olm.targetNamespaces']
       tolerations:
         - key: "node-role.kubernetes.io/master"
           operator: "Exists"
