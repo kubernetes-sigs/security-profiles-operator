@@ -24,9 +24,6 @@ kind: OperatorGroup
 metadata:
   name: security-profiles-operator
   namespace: security-profiles-operator
-spec:
-  targetNamespaces:
-  - security-profiles-operator
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
