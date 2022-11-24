@@ -19,12 +19,6 @@ spec:
   sourceType: grpc
   image: gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest
 ---
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: security-profiles-operator
-  namespace: security-profiles-operator
----
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -36,3 +30,9 @@ spec:
   source: security-profiles-operator
   #sourceNamespace: openshift-marketplace on OCP
   sourceNamespace: olm
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: security-profiles-operator
+  namespace: security-profiles-operator
