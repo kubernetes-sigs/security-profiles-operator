@@ -489,12 +489,14 @@ OLM_EXAMPLES := \
 	examples/seccompprofile.yaml \
 	examples/selinuxprofile.yaml
 
+BUNDLE_SA_OPTS ?= --extra-service-accounts security-profiles-operator,spod,spo-webhook
+
 .PHONY: bundle
 bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then validate generated files.
 	$(SED) "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
 	$(SED) "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
 	$(SED) "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
-	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
+	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite $(BUNDLE_SA_OPTS) --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	git restore deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
 	cp deploy/bundle-test-config.yaml ./bundle/tests/scorecard/config.yaml
