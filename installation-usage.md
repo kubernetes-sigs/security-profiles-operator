@@ -694,6 +694,10 @@ To use the recorder, enable it by patching the `spod` configuration:
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
+Alternatively, make sure the operator deployment sets the `ENABLE_BPF_RECORDER`
+environment variable to `true`. This method can be easier to set up during
+installation than patching the `spod`.
+
 We can verify that the recorder is up and running after the spod rollout has
 been finished:
 
@@ -912,7 +916,9 @@ including the `mknod` syscall:
 
 Profile recorder controller along with the corresponding sidecar container is disabled
 when neither `enableBpfRecorder` nor `enableLogEnricher` is set in the SPOD configuration, and
-automatically enabled when either one of them is on.
+automatically enabled when either one of them is on. The same applies when either
+the BPF recorder of the log enricher are enabled using the environment variables
+`ENABLE_BPF_RECORDER` or `ENABLE_LOG_ENRICHER` respectively.
 
 Also, when running the daemon in standalone mode is possible to switch on the profile recorder
 controller by providing the `with-recording` command line argument or setting the `ENABLE_RECORDING`
