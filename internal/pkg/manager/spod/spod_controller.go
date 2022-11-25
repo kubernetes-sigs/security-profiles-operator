@@ -526,7 +526,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	// Disable profile recording controller by default
 	enableRecording := false
-	if cfg.Spec.EnableLogEnricher || cfg.Spec.EnableBpfRecorder {
+	if isLogEnricherEnabled(cfg) || isBpfRecorderEnabled(cfg) {
 		if useCustomHostProc {
 			templateSpec.Volumes = append(templateSpec.Volumes, volume)
 		}
@@ -542,12 +542,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 		fmt.Sprintf("--with-recording=%t", enableRecording))
 
-	// Log enricher parameters. The spod setting takes precedence over the env var.
-	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
-	if err != nil {
-		enableLogEnricherEnv = false
-	}
-	if cfg.Spec.EnableLogEnricher || enableLogEnricherEnv {
+	if isLogEnricherEnabled(cfg) {
 		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher]
 		ctr.Image = image
 
@@ -556,10 +551,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		}
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
+		// pass the log enricher env var to the daemon as the profile recorder is otherwise disabled
+		addEnvVar(templateSpec, config.EnableLogEnricherEnvKey)
 	}
 
 	// Bpf recorder parameters
-	if cfg.Spec.EnableBpfRecorder {
+	if isBpfRecorderEnabled(cfg) {
 		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder]
 		ctr.Image = image
 
@@ -568,6 +565,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		}
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
+		// pass the bpf recorder env var to the daemon as the profile recorder is otherwise disabled
+		addEnvVar(templateSpec, config.EnableBpfRecorderEnvKey)
 	}
 
 	// AppArmor parameters
@@ -659,6 +658,40 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	templateSpec.PriorityClassName = cfg.Spec.PriorityClassName
 
 	return newSPOd
+}
+
+func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
+	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
+	if err != nil {
+		enableLogEnricherEnv = false
+	}
+
+	return cfg.Spec.EnableLogEnricher || enableLogEnricherEnv
+}
+
+func isBpfRecorderEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
+	enableBpfRecorderEnv, err := strconv.ParseBool(os.Getenv(config.EnableBpfRecorderEnvKey))
+	if err != nil {
+		enableBpfRecorderEnv = false
+	}
+
+	return cfg.Spec.EnableBpfRecorder || enableBpfRecorderEnv
+}
+
+func addEnvVar(templateSpec *corev1.PodSpec, envVarKey string) {
+	envValue, err := strconv.ParseBool(os.Getenv(envVarKey))
+	if err != nil {
+		envValue = false
+	}
+
+	envVar := corev1.EnvVar{
+		Name:  envVarKey,
+		Value: fmt.Sprint(envValue),
+	}
+
+	templateSpec.Containers[bindata.ContainerIDDaemon].Env = append(
+		templateSpec.Containers[bindata.ContainerIDDaemon].Env,
+		envVar)
 }
 
 func configureSeLinuxTag(secContext *corev1.SecurityContext, seLinuxTag string) {

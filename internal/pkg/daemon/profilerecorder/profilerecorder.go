@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -317,7 +318,11 @@ func (r *RecorderReconciler) getBpfRecorderClient(
 		return nil, nil, fmt.Errorf("getting SPOD config: %w", err)
 	}
 
-	if !spod.Spec.EnableBpfRecorder {
+	enableBpfRecorderEnv, err := strconv.ParseBool(os.Getenv(config.EnableBpfRecorderEnvKey))
+	if err != nil {
+		enableBpfRecorderEnv = false
+	}
+	if !spod.Spec.EnableBpfRecorder && !enableBpfRecorderEnv {
 		return nil, nil, errors.New("bpf recorder is not enabled")
 	}
 
@@ -411,7 +416,11 @@ func (r *RecorderReconciler) collectLogProfiles(
 		return fmt.Errorf("getting SPOD config: %w", err)
 	}
 
-	if !spod.Spec.EnableLogEnricher {
+	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
+	if err != nil {
+		enableLogEnricherEnv = false
+	}
+	if !spod.Spec.EnableLogEnricher && !enableLogEnricherEnv {
 		return errors.New("log enricher not enabled")
 	}
 
