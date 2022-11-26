@@ -7,26 +7,16 @@ on:
 env:
   GO_VERSION: '1.19'
   KIND_IMG_TAG: v1.25.3
-permissions:
-  actions: none
-  checks: none
-  contents: none
-  deployments: none
-  id-token: none
-  issues: none
-  discussions: none
-  packages: none
-  pull-requests: none
-  repository-projects: none
-  security-events: none
-  statuses: none
+
+permissions: {}
+
 jobs:
   main:
     name: tests
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8 # v3.1.0
 
     - name: Download binaries
       run: |
