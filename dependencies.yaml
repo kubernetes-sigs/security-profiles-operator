@@ -129,12 +129,6 @@ dependencies:
     - path: hack/install-libbpf.sh
       match: VERSION
 
-  - name: libelf
-    version: 0.185
-    refPaths:
-    - path: hack/install-libelf.sh
-      match: VERSION
-
   - name: fedora-vmlinux
     version: 37
     refPaths:
