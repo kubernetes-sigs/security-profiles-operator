@@ -592,8 +592,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// Set the logging verbosity
 		templateSpec.InitContainers[i].Env = append(templateSpec.InitContainers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
 
-		// Update the SELinux type tag when is defined in the configuration
-		if cfg.Spec.EnableSelinux != nil && *cfg.Spec.EnableSelinux {
+		// Update the SELinux type tag only when AppArmor is not enabled this is to prevent a crash.
+		// The SELinux type tag needs to be configured independent of EnableSelinux flag, because the
+		// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
+		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
+		// even though SELinux is disabled in order to get the containers to start.
+		if !cfg.Spec.EnableAppArmor {
 			configureSeLinuxTag(templateSpec.InitContainers[i].SecurityContext, cfg.Spec.SelinuxTypeTag)
 		}
 	}
@@ -613,8 +617,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		if cfg.Spec.EnableProfiling {
 			enableContainerProfiling(templateSpec, i)
 		}
-		// Update the SELinux type tag when is defined in the configuration
-		if cfg.Spec.EnableSelinux != nil && *cfg.Spec.EnableSelinux {
+		// Update the SELinux type tag only when AppArmor is not enabled this is to prevent a crash.
+		// The SELinux type tag needs to be configured independent of EnableSelinux flag, because the
+		// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
+		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
+		// even though SELinux is disabled in order to get the containers to start.
+		if !cfg.Spec.EnableAppArmor {
 			configureSeLinuxTag(templateSpec.Containers[i].SecurityContext, cfg.Spec.SelinuxTypeTag)
 		}
 	}
