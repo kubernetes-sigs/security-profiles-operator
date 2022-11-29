@@ -491,7 +491,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	if enableSelinux {
 		templateSpec.InitContainers = append(
 			templateSpec.InitContainers,
-			r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.ContainerIDSelinuxd])
+			r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDSelinuxSharedPoliciesCopier])
 		templateSpec.Containers = append(
 			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd])
