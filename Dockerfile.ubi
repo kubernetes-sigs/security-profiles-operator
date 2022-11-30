@@ -37,9 +37,12 @@ ARG STATIC_LINK=no
 RUN make
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:33931dce809712888d1a8061bfa676963f517daca993984afed3251bc1fb5987
+FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:4ed971a5564d2cfedf750793da53ef6f1fdf295263f1cc31d703aa8acf6d02cf
 ARG version
 USER root
+
+# Temporary until UBI is upgraded to make Trivy happy
+RUN microdnf upgrade -y krb5-libs
 
 RUN microdnf install -y \
         libseccomp
