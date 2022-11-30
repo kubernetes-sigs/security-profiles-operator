@@ -349,10 +349,14 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 }
 
 func setControllerOptionsForNamespaces(opts *ctrl.Options) {
-	namespace := os.Getenv(config.RestrictNamespaceEnvKey)
+	namespace, ok := os.LookupEnv(config.RestrictNamespaceEnvKey)
+	if !ok {
+		namespace = os.Getenv("WATCH_NAMESPACE")
+	}
 
 	// listen globally
 	if namespace == "" {
+		setupLog.Info("watching all namespaces")
 		opts.Namespace = namespace
 		return
 	}
@@ -370,9 +374,11 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 	// Adding "" adds cluster namespaced resources
 	if strings.Contains(namespace, ",") {
 		opts.NewCache = cache.MultiNamespacedCacheBuilder(namespaceList)
+		setupLog.Info("watching multiple namespaces", "namespaces", namespaceList)
 	} else {
 		// listen to a specific namespace only
 		opts.Namespace = namespace
+		setupLog.Info("watching single namespace", "namespace", namespace)
 	}
 }
 

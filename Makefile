@@ -18,7 +18,6 @@ GOLANGCI_LINT_VERSION = v1.49.0
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 4.5.5
 OPERATOR_SDK_VERSION ?= v1.22.2
-OPM_VERSION ?= v1.19.1
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
@@ -482,10 +481,12 @@ OLM_EXAMPLES := \
 	examples/seccompprofile.yaml \
 	examples/selinuxprofile.yaml
 
+BUNDLE_SA_OPTS ?= --extra-service-accounts security-profiles-operator,spod,spo-webhook
+
 .PHONY: bundle
 bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then validate generated files.
 	sed -i "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
-	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
+	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite $(BUNDLE_SA_OPTS) --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	git restore deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
 	cp deploy/bundle-test-config.yaml ./bundle/tests/scorecard/config.yaml
@@ -512,7 +513,7 @@ ifeq (,$(shell which opm 2>/dev/null))
 	set -e ;\
 	mkdir -p $(dir $(OPM)) ;\
 	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
+	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPERATOR_SDK_VERSION)/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
 	}
 else
