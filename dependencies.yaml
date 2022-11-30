@@ -105,6 +105,18 @@ dependencies:
     - path: Dockerfile.build-image
       match: registry.k8s.io/build-image/debian-base
 
+  - name: ubi8-minimal
+    version: sha256:4ed971a5564d2cfedf750793da53ef6f1fdf295263f1cc31d703aa8acf6d02cf
+    refPaths:
+    - path: Dockerfile.ubi
+      match: registry.access.redhat.com/ubi8/ubi-minimal
+
+  - name: ubi8-go-toolset
+    version: sha256:5c33798716db98ce485d606451bef1dd7a6eb3b1422a67cbd10eacc870eb2de5
+    refPaths:
+    - path: Dockerfile.ubi
+      match: registry.access.redhat.com/ubi8/go-toolset
+
   - name: nix
     version: 2.9.2
     refPaths:
