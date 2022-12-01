@@ -65,10 +65,10 @@ const (
 
 	errInvalidAnnotation = "invalid Annotation"
 
-	reasonProfileRecording      string = "SeccompProfileRecording"
-	reasonProfileCreated        string = "SeccompProfileCreated"
-	reasonProfileCreationFailed string = "CannotCreateSeccompProfile"
-	reasonAnnotationParsing     string = "SeccompAnnotationParsing"
+	reasonProfileRecording      string = "ProfileRecording"
+	reasonProfileCreated        string = "ProfileCreated"
+	reasonProfileCreationFailed string = "CannotCreateProfile"
+	reasonAnnotationParsing     string = "AnnotationParsing"
 
 	seContextRequiredParts = 3
 )
