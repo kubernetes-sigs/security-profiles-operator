@@ -484,7 +484,7 @@ BUNDLE_IMG ?= $(PROJECT)-bundle:v$(VERSION)
 BUNDLE_OPERATOR_MANIFEST ?= deploy/operator.yaml
 
 # These examples are added to the alm-examples annotation and subsequently
-# displayed in the UI
+# displayed in the UI. Keep the separator last.
 OLM_EXAMPLES := \
 	examples/apparmorprofile.yaml \
 	examples/config.yaml \
@@ -492,7 +492,8 @@ OLM_EXAMPLES := \
 	examples/profilebinding.yaml \
 	examples/rawselinuxprofile.yaml \
 	examples/seccompprofile.yaml \
-	examples/selinuxprofile.yaml
+	examples/selinuxprofile.yaml \
+	deploy/separator.yaml
 
 BUNDLE_SA_OPTS ?= --extra-service-accounts security-profiles-operator,spod,spo-webhook
 
