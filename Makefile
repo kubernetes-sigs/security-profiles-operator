@@ -299,7 +299,7 @@ update-bpf: $(BUILD_DIR) ## Build and update all generated BPF code with nix
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-format ## Run all verification targets
 
 .PHONY: verify-in-a-container
 verify-in-a-container: ## Run all verification targets in a container
@@ -389,6 +389,11 @@ verify-bpf: update-bpf ## Verify the generated bpf code
 .PHONY: verify-btf
 verify-btf: update-btf ## Verify the generated btf code
 	git diff
+
+.PHONY: verify-format
+verify-format: ## Verify the code format
+	clang-format -i $(shell find . -type f -name '*.c' -or -name '*.proto' | grep -v ./vendor)
+	hack/tree-status
 
 # Test targets
 

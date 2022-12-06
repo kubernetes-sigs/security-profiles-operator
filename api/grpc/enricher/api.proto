@@ -20,33 +20,29 @@ package api_enricher;
 option go_package = "/api_enricher";
 
 service Enricher {
-    rpc Syscalls(SyscallsRequest) returns (SyscallsResponse) {}
-    rpc ResetSyscalls(SyscallsRequest) returns (EmptyResponse) {}
-    rpc Avcs(AvcRequest) returns (AvcResponse) {}
-    rpc ResetAvcs(AvcRequest) returns (EmptyResponse) {}
+  rpc Syscalls(SyscallsRequest) returns (SyscallsResponse) {}
+  rpc ResetSyscalls(SyscallsRequest) returns (EmptyResponse) {}
+  rpc Avcs(AvcRequest) returns (AvcResponse) {}
+  rpc ResetAvcs(AvcRequest) returns (EmptyResponse) {}
 }
 
-message SyscallsRequest {
-    string profile = 1;
-}
+message SyscallsRequest { string profile = 1; }
 
 message SyscallsResponse {
-    repeated string syscalls = 1;
-    string go_arch = 2;
+  repeated string syscalls = 1;
+  string go_arch = 2;
 }
 
-message AvcRequest {
-    string profile = 1;
-}
+message AvcRequest { string profile = 1; }
 
 message AvcResponse {
-    message SelinuxAvc {
-        string perm = 1;
-        string scontext = 2;
-        string tcontext = 3;
-        string tclass = 4;
-    }
-    repeated SelinuxAvc avc = 1;
+  message SelinuxAvc {
+    string perm = 1;
+    string scontext = 2;
+    string tcontext = 3;
+    string tclass = 4;
+  }
+  repeated SelinuxAvc avc = 1;
 }
 
 message EmptyResponse {}

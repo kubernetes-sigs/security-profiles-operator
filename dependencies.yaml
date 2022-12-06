@@ -192,6 +192,8 @@ dependencies:
       match: llvmPackages_\d+.clang-unwrapped
     - path: nix/derivation-bpf.nix
       match: llvm_\d+
+    - path: hack/pull-security-profiles-operator-verify
+      match: CLANG_VERSION
 
   - name: btfhub
     version: 12d2b6bb4664b6b1d15076f8090dcb0e55696d34
