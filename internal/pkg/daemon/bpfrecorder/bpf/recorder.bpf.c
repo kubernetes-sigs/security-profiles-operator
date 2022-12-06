@@ -28,8 +28,8 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_MNTNS_LEN);
-    __type(key, u32);                   // PID
-    __type(value, u64);                 // mntns ID
+    __type(key, u32);    // PID
+    __type(value, u64);  // mntns ID
 } system_mntns SEC(".maps");
 
 struct {
