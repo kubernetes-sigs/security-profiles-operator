@@ -1,0 +1,12 @@
+- op: add
+  path: /subjects/0
+  value:
+    kind: ServiceAccount
+    name: prometheus-k8s
+    namespace: openshift-monitoring
+- op: replace
+  path: /subjects/1
+  value:
+    kind: ServiceAccount
+    name: default
+    namespace: openshift-security-profiles
