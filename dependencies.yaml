@@ -106,13 +106,13 @@ dependencies:
       match: registry.k8s.io/build-image/debian-base
 
   - name: ubi8-minimal
-    version: sha256:4ed971a5564d2cfedf750793da53ef6f1fdf295263f1cc31d703aa8acf6d02cf
+    version: sha256:6910799b75ad41f00891978575a0d955be2f800c51b955af73926e7ab59a41c3
     refPaths:
     - path: Dockerfile.ubi
       match: registry.access.redhat.com/ubi8/ubi-minimal
 
   - name: ubi8-go-toolset
-    version: sha256:5c33798716db98ce485d606451bef1dd7a6eb3b1422a67cbd10eacc870eb2de5
+    version: sha256:3527fd9db5fb0b01e9e155f8a3b6b50b660c04eb9aa082e3e7fd373bbb0f3fbf
     refPaths:
     - path: Dockerfile.ubi
       match: registry.access.redhat.com/ubi8/go-toolset
