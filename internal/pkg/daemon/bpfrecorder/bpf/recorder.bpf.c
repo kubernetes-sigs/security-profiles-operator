@@ -38,7 +38,7 @@ struct {
 } events SEC(".maps");
 
 struct event_t {
-    u64 pid;
+    u32 pid;
     u64 mntns;
 };
 
