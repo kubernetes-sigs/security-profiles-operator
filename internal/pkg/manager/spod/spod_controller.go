@@ -24,6 +24,7 @@ import (
 	"strconv"
 
 	"github.com/go-logr/logr"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -171,6 +172,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	webhook := bindata.GetWebhook(r.log, r.namespace, spod.Spec.WebhookOpts, image,
 		pullPolicy, caInjectType, spod.Spec.Tolerations, spod.Spec.ImagePullSecrets)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
+	serviceMonitor := bindata.ServiceMonitor(caInjectType)
 
 	var certManagerResources *bindata.CertManagerResources
 	if caInjectType == bindata.CAInjectTypeCertManager {
@@ -181,7 +183,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	if err := r.client.Get(ctx, spodKey, foundSPOd); err != nil {
 		if errors.IsNotFound(err) {
 			createErr := r.handleCreate(
-				ctx, spod, configuredSPOd, webhook, metricsService, certManagerResources,
+				ctx, spod, configuredSPOd, webhook, metricsService, certManagerResources, serviceMonitor,
 			)
 			if createErr != nil {
 				r.record.Event(spod, util.EventTypeWarning, reasonCannotCreateSPOD, createErr.Error())
@@ -206,7 +208,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 		updatedSPod := foundSPOd.DeepCopy()
 		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
 		updateErr := r.handleUpdate(
-			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources,
+			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources, serviceMonitor,
 		)
 		if updateErr != nil {
 			r.record.Event(spod, util.EventTypeWarning, reasonCannotUpdateSPOD, updateErr.Error())
@@ -292,6 +294,7 @@ func (r *ReconcileSPOd) handleCreate(
 	webhook *bindata.Webhook,
 	metricsService *corev1.Service,
 	certManagerResources *bindata.CertManagerResources,
+	serviceMonitor *monitoringv1.ServiceMonitor,
 ) error {
 	if certManagerResources != nil {
 		r.log.Info("Deploying cert manager resources")
@@ -345,7 +348,7 @@ func (r *ReconcileSPOd) handleCreate(
 
 	r.log.Info("Deploying operator service monitor")
 	if err := r.client.Create(
-		ctx, bindata.ServiceMonitor(),
+		ctx, serviceMonitor,
 	); err != nil {
 		//nolint:gocritic
 		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
@@ -367,6 +370,7 @@ func (r *ReconcileSPOd) handleUpdate(
 	webhook *bindata.Webhook,
 	metricsService *corev1.Service,
 	certManagerResources *bindata.CertManagerResources,
+	serviceMonitor *monitoringv1.ServiceMonitor,
 ) error {
 	if certManagerResources != nil {
 		r.log.Info("Updating cert manager resources")
@@ -430,7 +434,7 @@ func (r *ReconcileSPOd) handleUpdate(
 
 	r.log.Info("Updating operator service monitor")
 	if err := r.client.Patch(
-		ctx, bindata.ServiceMonitor(), client.Merge,
+		ctx, serviceMonitor, client.Merge,
 	); err != nil {
 		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")

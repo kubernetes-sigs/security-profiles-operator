@@ -18,6 +18,7 @@ package bindata
 
 import (
 	"fmt"
+	"strings"
 
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -28,7 +29,7 @@ import (
 
 // ServiceMonitor returns the default ServiceMonitor for automatic metrics
 // retrieval via the prometheus operator.
-func ServiceMonitor() *v1.ServiceMonitor {
+func ServiceMonitor(caInjectType CAInjectType) *v1.ServiceMonitor {
 	return &v1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "security-profiles-operator-monitor",
@@ -36,8 +37,8 @@ func ServiceMonitor() *v1.ServiceMonitor {
 		},
 		Spec: v1.ServiceMonitorSpec{
 			Endpoints: []v1.Endpoint{
-				endpointFor("/metrics"),
-				endpointFor("/metrics-spod"),
+				endpointFor("/metrics", caInjectType),
+				endpointFor("/metrics-spod", caInjectType),
 			},
 			Selector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -53,8 +54,8 @@ func ServiceMonitor() *v1.ServiceMonitor {
 }
 
 // endpointFor provides a standard endpoint for the given URL path.
-func endpointFor(path string) v1.Endpoint {
-	return v1.Endpoint{
+func endpointFor(path string, caInjectType CAInjectType) v1.Endpoint {
+	ep := v1.Endpoint{
 		Path:     path,
 		Interval: "10s",
 		Port:     "https",
@@ -79,4 +80,24 @@ func endpointFor(path string) v1.Endpoint {
 			},
 		},
 	}
+
+	if isOpenShiftSystemInstalled(caInjectType) {
+		ep.TLSConfig = &v1.TLSConfig{
+			CAFile: "/etc/prometheus/configmaps/serving-certs-ca-bundle/service-ca.crt",
+			SafeTLSConfig: v1.SafeTLSConfig{
+				ServerName: fmt.Sprintf("metrics.%s.svc", config.GetOperatorNamespace()),
+			},
+		}
+	}
+	return ep
+}
+
+// isOpenShiftSystemInstalled returns true if the cluster type if openshift
+// and the namespace starts with the openshift- prefix which indicates that
+// the operator is installed via the openshift catalog and not e.g. upstream
+// releases. In this case, we don't want the user to enable the user monitoring
+// configMap, but rather everything work OOTB.
+func isOpenShiftSystemInstalled(caInjectType CAInjectType) bool {
+	return caInjectType == CAInjectTypeOpenShift &&
+		strings.HasPrefix(config.GetOperatorNamespace(), "openshift-")
 }
