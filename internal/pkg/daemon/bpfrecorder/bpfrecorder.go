@@ -20,6 +20,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -587,15 +588,18 @@ func (b *BpfRecorder) updateSystemMntns() {
 }
 
 func (b *BpfRecorder) handleEvent(event []byte) {
-	// Newly arrived PIDs
-	const eventLen = 16
-	if len(event) != eventLen {
-		b.logger.Info("Invalid event length", "len", len(event))
+	e := struct {
+		Pid   uint32
+		Mntns uint64
+	}{}
+
+	if err := binary.Read(bytes.NewReader(event), binary.LittleEndian, &e); err != nil {
+		b.logger.Error(err, "Unable to read event")
 		return
 	}
 
-	pid := binary.LittleEndian.Uint32(event)
-	mntns := binary.LittleEndian.Uint64(event[8:])
+	pid := e.Pid
+	mntns := e.Mntns
 
 	// Blocking from syscall retrieval when PIDs are currently being analyzed
 	b.pidLock.Lock()
