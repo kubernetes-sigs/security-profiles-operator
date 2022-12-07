@@ -682,7 +682,7 @@ func TestProcessEvents(t *testing.T) {
 					},
 				}}}, nil)
 				return []byte{
-					1, 0, 0, 0, 0, 0, 0, 0,
+					1, 0, 0, 0,
 					1, 0, 0, 0, 0, 0, 0, 0,
 				}
 			},
@@ -707,7 +707,7 @@ func TestProcessEvents(t *testing.T) {
 				mntns := binary.LittleEndian.Uint64([]byte{1, 0, 0, 0, 0, 0, 0, 0})
 				sut.profileForMountNamespace.Store(mntns, "profile.json")
 				return []byte{
-					1, 0, 0, 0, 0, 0, 0, 0,
+					1, 0, 0, 0,
 					1, 0, 0, 0, 0, 0, 0, 0,
 				}
 			},
@@ -733,7 +733,7 @@ func TestProcessEvents(t *testing.T) {
 				success := false
 				for i := 0; i < 100; i++ {
 					logger.mutex.RLock()
-					success = util.Contains(logger.messages, "Invalid event length")
+					success = util.Contains(logger.messages, "Unable to read event")
 					logger.mutex.RUnlock()
 					if success {
 						break
@@ -748,7 +748,7 @@ func TestProcessEvents(t *testing.T) {
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				mock.ListPodsReturns(nil, errTest)
 				return []byte{
-					1, 0, 0, 0, 0, 0, 0, 0,
+					1, 0, 0, 0,
 					1, 0, 0, 0, 0, 0, 0, 0,
 				}
 			},
