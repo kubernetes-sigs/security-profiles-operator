@@ -17,6 +17,8 @@ limitations under the License.
 package bindata
 
 import (
+	"fmt"
+
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,7 +67,7 @@ func endpointFor(path string) v1.Endpoint {
 		},
 		TLSConfig: &v1.TLSConfig{
 			SafeTLSConfig: v1.SafeTLSConfig{
-				ServerName: "metrics.security-profiles-operator.svc",
+				ServerName: fmt.Sprintf("metrics.%s.svc", config.GetOperatorNamespace()),
 				CA: v1.SecretOrConfigMap{
 					Secret: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
