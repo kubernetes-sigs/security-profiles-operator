@@ -73,10 +73,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseDefaultAndExampleProfiles,
 		},
 		{
-			"Seccomp: Run a test pod",
-			e.testCaseRunPod,
-		},
-		{
 			"Seccomp: Verify base profile merge",
 			e.testCaseBaseProfile,
 		},

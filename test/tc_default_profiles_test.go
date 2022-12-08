@@ -32,7 +32,6 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 	e.seccompOnlyTestCase()
 	const exampleProfilePath = "examples/seccompprofile.yaml"
 	exampleProfileNames := [3]string{"profile-allow-unsafe", "profile-complain-unsafe", "profile-block-all"}
-	defaultProfileNames := [1]string{"nginx-1.19.1"}
 	e.kubectl("create", "-f", exampleProfilePath)
 	defer e.kubectl("delete", "-f", exampleProfilePath)
 
@@ -56,25 +55,8 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 			e.verifyBaseProfileContent(node, cm)
 		}
 
-		// Default profile verification
-		namespace := e.getCurrentContextNamespace("security-profiles-operator")
-		for _, name := range defaultProfileNames {
-			e.waitFor(
-				"condition=ready",
-				"--namespace", namespace,
-				"seccompprofile", name,
-			)
-			sp := e.getSeccompProfile(name, namespace)
-			e.verifyCRDProfileContent(node, sp)
-
-			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
-			if e.NotNil(spns) {
-				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
-			}
-		}
-
 		// Example profile verification
-		namespace = e.getCurrentContextNamespace(defaultNamespace)
+		namespace := e.getCurrentContextNamespace(defaultNamespace)
 		for _, name := range exampleProfileNames {
 			e.waitFor(
 				"condition=ready",
