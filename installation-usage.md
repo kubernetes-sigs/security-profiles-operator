@@ -1029,8 +1029,9 @@ resource within its namespace. This monitor allows automatic metrics discovery
 within the cluster, which is pointing to the right service, TLS certificates as
 well as bearer token secret.
 
-When running on OpenShift, then the only configuration to be done is enabling
-user workloads by applying the following config map:
+When running on OpenShift and deploying upstream manifests or upstream OLM
+bundles, then the only configuration to be done is enabling user workloads
+by applying the following config map:
 
 ```yaml
 apiVersion: v1
@@ -1042,6 +1043,11 @@ data:
   config.yaml: |
     enableUserWorkload: true
 ```
+
+Note that the above is not needed when deploying the Security Profiles Operator
+on OpenShift from the Red Hat catalog, in that case, the Security Profiles
+Operator should be auto-configured and Prometheus should be able to scrape
+metrics automatically.
 
 After that, the Security Profiles Operator can be deployed or updated, which
 will reconcile the `ServiceMonitor` into the cluster:
