@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package sets has generic set and specified sets. Generic set will
-// replace specified ones over time. And specific ones are deprecated.
-package sets
+package internal
+
+// Used by tests to selectively disable experimental JSON unmarshaler
+var UseOptimizedJSONUnmarshaling bool = true
