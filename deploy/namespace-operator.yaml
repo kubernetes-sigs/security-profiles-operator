@@ -2093,7 +2093,7 @@ rules:
   - apps
   resources:
   - daemonsets/finalizers
-  - deployments
+  - deployments/finalizers
   verbs:
   - delete
   - get

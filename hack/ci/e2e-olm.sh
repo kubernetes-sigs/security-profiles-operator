@@ -383,6 +383,12 @@ deploy_spo_in_custom_ns spo-lives-here || rv=1
 check_spo_is_running spo-lives-here || rv=1
 kubectl get csv -A --show-labels
 smoke_test_custom || rv=1
+
+# unrelated but valid test - check that a service monitor was deployed and is deleted when the deployment goes away
+kubectl -nspo-lives-here servicemonitor security-profiles-operator-monitor || exit 1
+kubectl -nspo-lives-here delete deploy security-profiles-operator
+kubectl -nspo-lives-here servicemonitor security-profiles-operator-monitor && exit 1
+
 teardown_spo custom
 
 exit $rv

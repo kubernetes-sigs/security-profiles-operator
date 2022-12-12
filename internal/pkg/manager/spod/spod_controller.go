@@ -101,7 +101,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // Operand:
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets,verbs=get;list;watch;create;update;patch
-// +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets/finalizers,verbs=delete;get;update;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments/finalizers;daemonsets/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=issuers;certificates,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update
@@ -172,7 +172,10 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 	webhook := bindata.GetWebhook(r.log, r.namespace, spod.Spec.WebhookOpts, image,
 		pullPolicy, caInjectType, spod.Spec.Tolerations, spod.Spec.ImagePullSecrets)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
-	serviceMonitor := bindata.ServiceMonitor(caInjectType)
+	serviceMonitor, err := bindata.ServiceMonitor(foundDeployment, r.scheme, caInjectType)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("get service monitor: %w", err)
+	}
 
 	var certManagerResources *bindata.CertManagerResources
 	if caInjectType == bindata.CAInjectTypeCertManager {

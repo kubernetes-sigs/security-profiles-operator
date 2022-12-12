@@ -23,14 +23,20 @@ import (
 	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
 // ServiceMonitor returns the default ServiceMonitor for automatic metrics
 // retrieval via the prometheus operator.
-func ServiceMonitor(caInjectType CAInjectType) *v1.ServiceMonitor {
-	return &v1.ServiceMonitor{
+func ServiceMonitor(
+	owner metav1.Object,
+	scheme *runtime.Scheme,
+	caInjectType CAInjectType,
+) (*v1.ServiceMonitor, error) {
+	sm := &v1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "security-profiles-operator-monitor",
 			Namespace: config.GetOperatorNamespace(),
@@ -51,6 +57,12 @@ func ServiceMonitor(caInjectType CAInjectType) *v1.ServiceMonitor {
 			},
 		},
 	}
+
+	if err := controllerutil.SetControllerReference(owner, sm, scheme); err != nil {
+		return nil, fmt.Errorf("failed to mark ServiceMonitor as owned by the operator deployment: %w", err)
+	}
+
+	return sm, nil
 }
 
 // endpointFor provides a standard endpoint for the given URL path.
