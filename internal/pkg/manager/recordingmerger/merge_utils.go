@@ -71,12 +71,14 @@ func mergeProfiles(profiles []mergeableProfile) (mergeableProfile, error) {
 	return base, nil
 }
 
+type perContainerMergeableProfiles map[string][]mergeableProfile
+
 func listPartialProfiles(
 	ctx context.Context,
 	cli client.Client,
 	list client.ObjectList,
 	recording *profilerecording1alpha1.ProfileRecording,
-) ([]mergeableProfile, error) {
+) (perContainerMergeableProfiles, error) {
 	if err := cli.List(
 		ctx,
 		list,
@@ -88,7 +90,7 @@ func listPartialProfiles(
 		return nil, fmt.Errorf("listing partial profiles for %s: %w", recording.Name, err)
 	}
 
-	partialProfiles := make([]mergeableProfile, 0)
+	partialProfiles := make(perContainerMergeableProfiles)
 	if err := meta.EachListItem(list, func(obj runtime.Object) error {
 		clientObj, ok := obj.(client.Object)
 		if !ok {
@@ -100,13 +102,26 @@ func listPartialProfiles(
 			return fmt.Errorf("failed to create mergeable profile for %s: %w", clientObj.GetName(), err)
 		}
 
-		partialProfiles = append(partialProfiles, partialPrf)
+		containerID := getContainerID(clientObj)
+		if containerID == "" {
+			// todo: log
+			return nil
+		}
+		partialProfiles[containerID] = append(partialProfiles[containerID], partialPrf)
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("iterating over partial profiles: %w", err)
 	}
 
 	return partialProfiles, nil
+}
+
+func getContainerID(prf client.Object) string {
+	labels := prf.GetLabels()
+	if labels == nil {
+		return ""
+	}
+	return labels[profilerecording1alpha1.ProfileToContainerLabel]
 }
 
 func deletePartialProfiles(
