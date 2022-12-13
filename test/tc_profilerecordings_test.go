@@ -384,13 +384,6 @@ func (e *e2e) profileRecordingSelinuxDeployment(
 }
 
 func (e *e2e) createRecordingTestDeployment() (since time.Time, deployName string) {
-	e.logf("Creating test deployment")
-	deployName = "my-deployment"
-
-	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
-
-	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
-
 	const testDeployment = `
 apiVersion: apps/v1
 kind: Deployment
@@ -418,10 +411,18 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 5
 `
+	return e.createRecordingTestDeploymentFromManifest(testDeployment)
+}
+
+func (e *e2e) createRecordingTestDeploymentFromManifest(manifest string) (since time.Time, deployName string) {
+	e.logf("Creating test deployment")
+	deployName = "my-deployment"
+
+	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
 
 	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
 	e.Nil(err)
-	_, err = testFile.WriteString(testDeployment)
+	_, err = testFile.WriteString(manifest)
 	e.Nil(err)
 	err = testFile.Close()
 	e.Nil(err)
