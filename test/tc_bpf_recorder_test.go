@@ -119,6 +119,7 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 
 	const profileNameRedis = recordingName + "-redis"
 	const profileNameNginx = recordingName + "-nginx"
+	const profileNameInit = recordingName + "-init"
 	e.waitForBpfRecorderLogs(since, profileNameRedis, profileNameNginx)
 
 	e.kubectl("delete", "pod", podName)
@@ -129,8 +130,11 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "close")
 
+	profileInit := e.retryGetSeccompProfile(profileNameInit)
+	e.Contains(profileInit, "write")
+
 	e.kubectl("delete", "-f", exampleRecordingBpfPath)
-	e.kubectl("delete", "sp", profileNameRedis, profileNameNginx)
+	e.kubectl("delete", "sp", profileNameRedis, profileNameNginx, profileNameInit)
 }
 
 func (e *e2e) testCaseBpfRecorderDeployment() {
@@ -292,6 +296,10 @@ func (e *e2e) testCaseBpfRecorderSelectContainer() {
 
 	const profileNameRedis = recordingName + "-redis"
 	exists := e.existsSeccompProfile(profileNameRedis)
+	e.False(exists)
+
+	const profileNameInit = recordingName + "-init"
+	exists = e.existsSeccompProfile(profileNameInit)
 	e.False(exists)
 
 	e.kubectl("delete", "-f", exampleRecordingBpfSpecificContainerPath)
