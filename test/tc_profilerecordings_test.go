@@ -195,6 +195,10 @@ func (e *e2e) profileRecordingSelinuxMultiContainer(
 	nginxpathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileNameNginx)
 	e.Contains(nginxpathresult, "name_bind")
 
+	const profileNameInit = recordingName + "-init"
+	exists := e.existsSelinuxProfile(profileNameInit)
+	e.False(exists)
+
 	e.kubectl("delete", "-f", recording)
 	e.kubectl("delete", "selinuxprofile", profileNameRedis, profileNameNginx)
 }
@@ -221,8 +225,12 @@ func (e *e2e) profileRecordingMultiContainer(
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "close")
 
+	const profileNameInit = recordingName + "-init"
+	profileInit := e.retryGetSeccompProfile(profileNameInit)
+	e.Contains(profileInit, "write")
+
 	e.kubectl("delete", "-f", recording)
-	e.kubectl("delete", "sp", profileNameRedis, profileNameNginx)
+	e.kubectl("delete", "sp", profileNameRedis, profileNameNginx, profileNameInit)
 }
 
 func (e *e2e) profileRecordingSpecificContainer(
@@ -245,6 +253,10 @@ func (e *e2e) profileRecordingSpecificContainer(
 
 	const profileNameRedis = recordingName + "-redis"
 	exists := e.existsSeccompProfile(profileNameRedis)
+	e.False(exists)
+
+	const profileNameInit = recordingName + "-init"
+	exists = e.existsSeccompProfile(profileNameInit)
 	e.False(exists)
 
 	e.kubectl("delete", "-f", recording)
@@ -458,6 +470,10 @@ func (e *e2e) existsSeccompProfile(args ...string) bool {
 	return e.exists(append([]string{"sp"}, args...)...)
 }
 
+func (e *e2e) existsSelinuxProfile(args ...string) bool {
+	return e.exists(append([]string{"selinuxprofile"}, args...)...)
+}
+
 func (e *e2e) retryGetSelinuxJsonpath(jsonpath string, args ...string) string {
 	jsonpatharg := fmt.Sprintf("jsonpath=%s", jsonpath)
 	return e.retryGet(append([]string{"selinuxprofile", "-o", jsonpatharg}, args...)...)
@@ -518,6 +534,9 @@ metadata:
   labels:
     app: alpine
 spec:
+  initContainers:
+  - image: quay.io/security-profiles-operator/test-hello-world:latest
+    name: init
   containers:
   - name: nginx
     image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21

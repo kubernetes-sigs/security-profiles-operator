@@ -29,7 +29,8 @@ import (
 
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/go-logr/logr"
-	"google.golang.org/grpc/status"
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +55,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
@@ -479,6 +481,14 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	request := &enricherapi.SyscallsRequest{Profile: profileID}
 	response, err := r.Syscalls(ctx, enricherClient, request)
 	if err != nil {
+		if grpcstatus.Convert(err).Code() == grpccodes.NotFound &&
+			grpcstatus.Convert(err).Message() == enricher.ErrorNoSyscalls {
+			if err := r.ResetSyscalls(ctx, enricherClient, request); err != nil {
+				return fmt.Errorf("reset syscalls for profile %s: %w", profileNamespacedName, err)
+			}
+			r.log.Info("No syscalls found, resetting profile", "profileID", profileID)
+			return nil
+		}
 		return fmt.Errorf("retrieve syscalls for profile %s: %w", profileID, err)
 	}
 
@@ -557,6 +567,14 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	request := &enricherapi.AvcRequest{Profile: profileID}
 	response, err := r.Avcs(ctx, enricherClient, request)
 	if err != nil {
+		if grpcstatus.Convert(err).Code() == grpccodes.NotFound &&
+			grpcstatus.Convert(err).Message() == enricher.ErrorNoAvcs {
+			if err := r.ResetAvcs(ctx, enricherClient, request); err != nil {
+				return fmt.Errorf("reset selinuxprofile for profile %s: %w", profileNamespacedName, err)
+			}
+			r.log.Info("No AVCs found, resetting profile", "profileID", profileID)
+			return nil
+		}
 		return fmt.Errorf("retrieve avcs for profile %s: %w", profileID, err)
 	}
 
@@ -674,7 +692,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			// Recording was not found for this profile, this might be an init container
 			// which is not longer active. Let's skip here and keep processing the
 			// next profile.
-			if status.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
+			if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
 				r.log.Error(err, "Recorded profile not found", "name", profile.name)
 				continue
 			} else {

@@ -22,10 +22,19 @@ import (
 	"fmt"
 	"runtime"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
+)
+
+const (
+	// ErrorNoSyscalls is returned when no syscalls are recorded for a profile.
+	ErrorNoSyscalls = "no syscalls recorded for profile"
+	// ErrorNoAvcs is returned when no AVCs are recorded for a profile.
+	ErrorNoAvcs = "no avcs recorded for profile"
 )
 
 // Syscalls returns the syscalls for a provided profile.
@@ -34,9 +43,8 @@ func (e *Enricher) Syscalls(
 ) (*api.SyscallsResponse, error) {
 	syscalls, ok := e.syscalls.Load(r.GetProfile())
 	if !ok {
-		return nil, fmt.Errorf(
-			"no syscalls recorded for profile: %v", r.GetProfile(),
-		)
+		st := status.New(codes.NotFound, ErrorNoSyscalls)
+		return nil, st.Err()
 	}
 	stringSet, ok := syscalls.(sets.Set[string])
 	if !ok {
@@ -62,9 +70,8 @@ func (e *Enricher) Avcs(
 ) (*api.AvcResponse, error) {
 	avcs, ok := e.avcs.Load(r.GetProfile())
 	if !ok {
-		return nil, fmt.Errorf(
-			"no avcs recorded for profile: %v", r.GetProfile(),
-		)
+		st := status.New(codes.NotFound, ErrorNoAvcs)
+		return nil, st.Err()
 	}
 
 	avcList := make([]*api.AvcResponse_SelinuxAvc, 0)
