@@ -26,7 +26,8 @@ import (
 )
 
 const (
-	containerName             = "nginx"
+	containerNameNginx        = "nginx"
+	containerNameRedis        = "redis"
 	mergeProfileRecordingName = "test-profile-merging"
 	profileRecordingTemplate  = `
     apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
@@ -94,6 +95,42 @@ func (e *e2e) profileMergingTest(
 	recordedMethod, recorderKind, resource, trigger, commonAction, triggeredAction string,
 	conditions ...*regexp.Regexp,
 ) {
+	const testDeploymentMultiContainer = `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-deployment
+spec:
+  selector:
+    matchLabels:
+      app: alpine
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: alpine
+    spec:
+      serviceAccountName: recording-sa
+      containers:
+      - name: redis
+        image: quay.io/security-profiles-operator/redis:6.2.1
+        ports:
+        - containerPort: 6379
+        readinessProbe:
+          tcpSocket:
+              port: 6379
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      - name: nginx
+        image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+              port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+`
 	e.logf("Creating a profile recording with merge strategy 'containers'")
 	deleteManifestFn := createTemplatedProfileRecording(e, &profileRecTmplMetadata{
 		name:          mergeProfileRecordingName,
@@ -105,7 +142,7 @@ func (e *e2e) profileMergingTest(
 	})
 	defer deleteManifestFn()
 
-	since, deployName := e.createRecordingTestDeployment()
+	since, deployName := e.createRecordingTestDeploymentFromManifest(testDeploymentMultiContainer)
 	suffixes := e.getPodSuffixesByLabel("app=alpine")
 
 	switch recordedMethod {
@@ -115,7 +152,7 @@ func (e *e2e) profileMergingTest(
 	case "bpf":
 		profileNames := make([]string, 0)
 		for _, sfx := range suffixes {
-			profileNames = append(profileNames, mergeProfileRecordingName+"-"+containerName+"-"+sfx)
+			profileNames = append(profileNames, mergeProfileRecordingName+"-"+containerNameNginx+"-"+sfx)
 		}
 		e.waitForBpfRecorderLogs(since, profileNames...)
 
@@ -126,37 +163,40 @@ func (e *e2e) profileMergingTest(
 	podNamesString := e.kubectl("get", "pods", "-l", "app=alpine", "-o", "jsonpath={.items[*].metadata.name}")
 	onePodName := strings.Fields(podNamesString)[0]
 	e.kubectl(
-		"exec", onePodName, "--", "bash", "-c", trigger,
+		"exec", "-c", containerNameNginx, onePodName, "--", "bash", "-c", trigger,
 	)
 
 	e.kubectl("delete", "deploy", deployName)
 
 	// check that the policies are partial
 	for _, sfx := range suffixes {
-		recordedProfileName := mergeProfileRecordingName + "-" + containerName + "-" + sfx
-		e.logf("Checking that the recorded profile %s is partial", recordedProfileName)
+		for _, containerName := range []string{containerNameNginx, containerNameRedis} {
+			recordedProfileName := mergeProfileRecordingName + "-" + containerName + "-" + sfx
+			e.logf("Checking that the recorded profile %s is partial", recordedProfileName)
 
-		profile := e.retryGetProfile(resource, recordedProfileName)
-		e.Contains(profile, v1alpha1.ProfilePartialLabel)
-		e.Contains(profile, commonAction)
+			profile := e.retryGetProfile(resource, recordedProfileName)
+			e.Contains(profile, v1alpha1.ProfilePartialLabel)
+			e.Contains(profile, commonAction)
 
-		if strings.HasSuffix(onePodName, sfx) {
-			// check the policy from the first container, it should contain the triggered action
-			e.Contains(profile, triggeredAction)
-		} else {
-			// the others should not
-			e.NotContains(profile, triggeredAction)
+			if containerName == containerNameNginx {
+				if strings.HasSuffix(onePodName, sfx) {
+					// check the policy from the first container, it should contain the triggered action
+					e.Contains(profile, triggeredAction)
+				} else {
+					// the others should not
+					e.NotContains(profile, triggeredAction)
+				}
+			}
 		}
 	}
 
 	// delete the recording, this triggers the merge
 	e.kubectl("delete", "profilerecording", mergeProfileRecordingName)
 
-	// the partial policies should be gone, instead one policy should be created. Retry a couple of times
-	// because removing the partial policies is not atomic. In prod you'd probably list the profiles
-	// and check the absence of the partial label.
+	// the partial policies should be gone, instead one policy should be created for each container.
+	// Retry a couple of times because removing the partial policies is not atomic. In prod you'd probably list the
+	// profiles and check the absence of the partial label.
 	policiesRecorded := make([]string, 0)
-	mergedProfileName := fmt.Sprintf("%s-%s", mergeProfileRecordingName, containerName)
 	for i := 0; i < 3; i++ {
 		policiesRecordedString := e.kubectl("get", resource,
 			"-l", "spo.x-k8s.io/recording-id="+mergeProfileRecordingName,
@@ -167,14 +207,17 @@ func (e *e2e) profileMergingTest(
 			continue
 		}
 	}
-	e.Len(policiesRecorded, 1)
-	e.Equal(mergedProfileName, policiesRecorded[0])
+	e.Len(policiesRecorded, 2)
+	mergedProfileNginx := fmt.Sprintf("%s-%s", mergeProfileRecordingName, containerNameNginx)
+	mergedProfileRedis := fmt.Sprintf("%s-%s", mergeProfileRecordingName, containerNameRedis)
+	e.Contains(policiesRecorded, mergedProfileNginx)
+	e.Contains(policiesRecorded, mergedProfileRedis)
 
-	// the result should contain the triggered action
-	mergedProfile := e.retryGetProfile(resource, mergedProfileName)
+	// the result for the nginx container should contain the triggered action
+	mergedProfile := e.retryGetProfile(resource, mergedProfileNginx)
 	e.Contains(mergedProfile, triggeredAction)
 	e.Contains(mergedProfile, commonAction)
-	e.kubectl("delete", resource, mergedProfileName)
+	e.kubectl("delete", resource, mergedProfileNginx, mergedProfileRedis)
 }
 
 type profileRecTmplMetadata struct {
