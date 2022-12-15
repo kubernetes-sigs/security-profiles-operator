@@ -63,6 +63,7 @@ spec:
 
 	e.kubectl("create", "-f", exampleProfilePath)
 	defer e.kubectl("delete", "-f", exampleProfilePath)
+	e.waitFor("condition=ready", "seccompprofile", "profile-allow-unsafe")
 
 	e.logf("Creating test profile binding")
 	testBindingFile, err := os.CreateTemp("", "hello-binding*.yaml")
