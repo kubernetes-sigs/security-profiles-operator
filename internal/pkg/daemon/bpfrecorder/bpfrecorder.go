@@ -704,8 +704,10 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 
 			for p := range pods.Items {
 				pod := &pods.Items[p]
-				for c := range pod.Status.ContainerStatuses {
-					containerStatus := pod.Status.ContainerStatuses[c]
+				//nolint:gocritic // We explicitly do not want to append to the same slice
+				statuses := append(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses...)
+				for c := range statuses {
+					containerStatus := statuses[c]
 					fullContainerID := containerStatus.ContainerID
 					containerName := containerStatus.Name
 
