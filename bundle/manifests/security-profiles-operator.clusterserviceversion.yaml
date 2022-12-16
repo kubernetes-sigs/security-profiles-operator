@@ -99,6 +99,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     olm.skipRange: '>=0.4.1 <0.5.0'
+    operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.operatorframework.io/builder: operator-sdk-v1.22.2
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
