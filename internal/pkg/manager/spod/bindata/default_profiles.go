@@ -24,21 +24,27 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
+// DefaultLogEnricherProfile returns the default seccomp profile for log enricher.
+func DefaultLogEnricherProfile() *seccompprofileapi.SeccompProfile {
+	namespace := config.GetOperatorNamespace()
+	labels := map[string]string{"app": config.OperatorName}
+	return &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      config.LogEnricherProfile,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Spec: seccompprofileapi.SeccompProfileSpec{
+			DefaultAction: seccomp.ActLog,
+		},
+	}
+}
+
 // DefaultProfiles returns the default profiles deployed by the operator.
 func DefaultProfiles() []*seccompprofileapi.SeccompProfile {
 	namespace := config.GetOperatorNamespace()
 	labels := map[string]string{"app": config.OperatorName}
 	return []*seccompprofileapi.SeccompProfile{
-		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      config.LogEnricherProfile,
-				Namespace: namespace,
-				Labels:    labels,
-			},
-			Spec: seccompprofileapi.SeccompProfileSpec{
-				DefaultAction: seccomp.ActLog,
-			},
-		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "nginx-1.19.1",
