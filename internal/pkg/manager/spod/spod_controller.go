@@ -272,6 +272,14 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 	return reconcile.Result{}, nil
 }
 
+func (r *ReconcileSPOd) defaultProfiles(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) []*seccompprofileapi.SeccompProfile {
+	defaultProfiles := bindata.DefaultProfiles()
+	if cfg.Spec.EnableLogEnricher {
+		defaultProfiles = append(defaultProfiles, bindata.DefaultLogEnricherProfile())
+	}
+	return defaultProfiles
+}
+
 func (r *ReconcileSPOd) handleRunningStatus(
 	ctx context.Context,
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
@@ -324,7 +332,7 @@ func (r *ReconcileSPOd) handleCreate(
 	}
 
 	r.log.Info("Deploying operator default profiles")
-	for _, profile := range bindata.DefaultProfiles() {
+	for _, profile := range r.defaultProfiles(cfg) {
 		// Adapt the namespace if we watch only a single one
 		if r.watchNamespace != "" {
 			profile.Namespace = r.watchNamespace
@@ -392,7 +400,7 @@ func (r *ReconcileSPOd) handleUpdate(
 	}
 
 	r.log.Info("Updating operator default profiles")
-	for _, profile := range bindata.DefaultProfiles() {
+	for _, profile := range r.defaultProfiles(cfg) {
 		// Adapt the namespace if we watch only a single one
 		if r.watchNamespace != "" {
 			profile.Namespace = r.watchNamespace
