@@ -272,7 +272,8 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileSPOd) defaultProfiles(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) []*seccompprofileapi.SeccompProfile {
+func (r *ReconcileSPOd) defaultProfiles(
+	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) []*seccompprofileapi.SeccompProfile {
 	defaultProfiles := bindata.DefaultProfiles()
 	if cfg.Spec.EnableLogEnricher {
 		defaultProfiles = append(defaultProfiles, bindata.DefaultLogEnricherProfile())
