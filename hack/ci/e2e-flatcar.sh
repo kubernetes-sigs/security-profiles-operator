@@ -38,6 +38,9 @@ export PATH="$HOSTFS_DEV_MOUNT_PATH/opt/bin:$PATH"
 export KUBECONFIG=$HOSTFS_DEV_MOUNT_PATH/etc/kubernetes/admin.conf
 alias k=kubectl
 
+# Configure git to consider the mounted host filesystem as safe
+git config --global --add safe.directory "/hostfs/vagrant"
+
 if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then
     make test-flaky-e2e
 else
