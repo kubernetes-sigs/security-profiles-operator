@@ -43,8 +43,8 @@ CGO_LDFLAGS_DYN = "-lelf -lz -lbpf"
 
 # default == shared lib from OS package
 
-all: libbpfgo-dynamic
-test: libbpfgo-dynamic-test
+all: libbpfgo-static
+test: libbpfgo-static-test
 
 # libbpfgo test object
 
