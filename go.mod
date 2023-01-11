@@ -9,7 +9,7 @@ require (
 	github.com/cert-manager/cert-manager v1.10.1
 	github.com/containers/common v0.50.1
 	github.com/go-logr/logr v1.2.3
-	github.com/jellydator/ttlcache/v3 v3.0.0
+	github.com/jellydator/ttlcache/v3 v3.0.1
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.5.0
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
 	github.com/nxadm/tail v1.4.8
