@@ -424,8 +424,8 @@ func (e *Enricher) dispatchSelinuxLine(
 				e.logger.Error(err, "marshall protobuf")
 			}
 
-			a, _ := e.avcs.LoadOrStore(info.RecordProfile, sets.NewString())
-			stringSet, ok := a.(sets.String)
+			a, _ := e.avcs.LoadOrStore(info.RecordProfile, sets.New[string]())
+			stringSet, ok := a.(sets.Set[string])
 			if ok {
 				stringSet.Insert(string(jsonBytes))
 			}
@@ -479,8 +479,8 @@ func (e *Enricher) dispatchSeccompLine(
 	}
 
 	if info.RecordProfile != "" {
-		s, _ := e.syscalls.LoadOrStore(info.RecordProfile, sets.NewString())
-		stringSet, ok := s.(sets.String)
+		s, _ := e.syscalls.LoadOrStore(info.RecordProfile, sets.New[string]())
+		stringSet, ok := s.(sets.Set[string])
 		if ok {
 			stringSet.Insert(syscallName)
 		}

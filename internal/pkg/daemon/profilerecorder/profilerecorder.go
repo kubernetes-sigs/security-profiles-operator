@@ -218,7 +218,7 @@ func (r *RecorderReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 				// not reconcilable, no need to requeue
 				return reconcile.Result{}, nil
 			} else if collErr != nil {
-				return reconcile.Result{}, fmt.Errorf("collect profile for removed pod: %w", err)
+				return reconcile.Result{}, fmt.Errorf("collect profile for removed pod: %w", collErr)
 			}
 			return reconcile.Result{}, nil
 		}
@@ -820,7 +820,7 @@ func parseBpfAnnotations(annotations map[string]string) (res []profileToCollect,
 }
 
 type seProfileBuilder struct {
-	permMap       map[string]sets.String
+	permMap       map[string]sets.Set[string]
 	usageCtx      string
 	policyBuilder selxv1alpha2.Allow
 	log           logr.Logger
@@ -830,7 +830,7 @@ type seProfileBuilder struct {
 
 func newSeProfileBuilder(usageCtx string, log logr.Logger) *seProfileBuilder {
 	return &seProfileBuilder{
-		permMap:       make(map[string]sets.String),
+		permMap:       make(map[string]sets.Set[string]),
 		usageCtx:      usageCtx,
 		policyBuilder: make(selxv1alpha2.Allow),
 		log:           log,
@@ -866,7 +866,7 @@ func (sb *seProfileBuilder) addAvc(avc *enricherapi.AvcResponse_SelinuxAvc) erro
 	if ok {
 		perms.Insert(avc.Perm)
 	} else {
-		sb.permMap[key] = sets.NewString(avc.Perm)
+		sb.permMap[key] = sets.New(avc.Perm)
 	}
 	return nil
 }
@@ -883,7 +883,7 @@ func (sb *seProfileBuilder) Format() (selxv1alpha2.Allow, error) {
 	return sb.policyBuilder, nil
 }
 
-func (sb *seProfileBuilder) writeLineFromKeyVal(key string, val sets.String) error {
+func (sb *seProfileBuilder) writeLineFromKeyVal(key string, val sets.Set[string]) error {
 	tclass, setype := sb.targetClassCtx(key)
 	if tclass == "" || setype == "" {
 		return errors.New("empty context or class")
@@ -896,7 +896,7 @@ func (sb *seProfileBuilder) writeLineFromKeyVal(key string, val sets.String) err
 	}
 
 	typePerms := sb.policyBuilder[selxv1alpha2.LabelKey(setype)]
-	l := val.List()
+	l := val.UnsortedList()
 	sort.Strings(l)
 	typePerms[selxv1alpha2.ObjectClassKey(tclass)] = selxv1alpha2.PermissionSet(l)
 	return nil
