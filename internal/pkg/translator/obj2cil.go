@@ -85,7 +85,7 @@ func getCILAllowLine(
 	if ttype == selxv1alpha2.AllowSelf {
 		ttypeFinal = sp.GetPolicyUsage()
 	}
-	uniquePerms := sets.NewString(perms...).List()
+	uniquePerms := sets.New(perms...).UnsortedList()
 	sort.Strings(uniquePerms)
 	return fmt.Sprintf("(allow process %s ( %s ( %s )))\n", ttypeFinal, tclass, strings.Join(uniquePerms, " "))
 }

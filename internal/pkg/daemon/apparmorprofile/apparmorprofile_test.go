@@ -65,9 +65,9 @@ func TestReconcile(t *testing.T) {
 			name: "GotProfile",
 			rec: &Reconciler{
 				client: &util.MockClient{
-					MockGet:          util.NewMockGetFn(nil),
-					MockUpdate:       util.NewMockUpdateFn(nil),
-					MockStatusUpdate: util.NewMockStatusUpdateFn(nil),
+					MockGet:                     util.NewMockGetFn(nil),
+					MockUpdate:                  util.NewMockUpdateFn(nil),
+					MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
 				},
 				log:     log.Log,
 				record:  record.NewFakeRecorder(10),
@@ -82,9 +82,9 @@ func TestReconcile(t *testing.T) {
 			name: "NotEnabled",
 			rec: &Reconciler{
 				client: &util.MockClient{
-					MockGet:          util.NewMockGetFn(nil),
-					MockUpdate:       util.NewMockUpdateFn(nil),
-					MockStatusUpdate: util.NewMockStatusUpdateFn(nil),
+					MockGet:                     util.NewMockGetFn(nil),
+					MockUpdate:                  util.NewMockUpdateFn(nil),
+					MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
 				},
 				log:     log.Log,
 				record:  record.NewFakeRecorder(10),
