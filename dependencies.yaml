@@ -200,3 +200,11 @@ dependencies:
     refPaths:
     - path: hack/update-btf
       match: BTFHUB_COMMIT
+
+  - name: flatcar
+    version: 3446.1.0
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: flatcar_production_vagrant
+    - path: hack/ci/Vagrantfile-flatcar
+      match: flatcar_developer_container
