@@ -109,6 +109,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseVerbosityChange,
 		},
 		{
+			"SPOD: Change profiling",
+			e.testCaseProfilingChange,
+		},
+		{
 			"SPOD: Change resource requirements",
 			e.testCaseResourceRequirementsChange,
 		},
