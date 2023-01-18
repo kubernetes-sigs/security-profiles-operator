@@ -64,6 +64,11 @@ const (
 	ContainerIDMetrics                         = 4
 	DefaultHostProcPath                        = "/proc"
 	MetricsContainerName                       = "metrics"
+	SelinuxContainerNmae                       = "selinuxd"
+	LogEnricherContainerName                   = "log-enricher"
+	BpfRecorderContainerName                   = "bpf-recorder"
+	NonRootEnablerContainerName                = "non-root-enabler"
+	SelinuxPoliciesCopierContainerName         = "selinux-shared-policies-copier"
 	LocalSeccompProfilePath                    = "security-profiles-operator.json"
 )
 
@@ -143,7 +148,7 @@ var Manifest = &appsv1.DaemonSet{
 				},
 				InitContainers: []corev1.Container{
 					{
-						Name:            "non-root-enabler",
+						Name:            NonRootEnablerContainerName,
 						Args:            []string{"non-root-enabler"},
 						ImagePullPolicy: corev1.PullAlways,
 						VolumeMounts: []corev1.VolumeMount{
@@ -187,7 +192,7 @@ var Manifest = &appsv1.DaemonSet{
 						},
 					},
 					{
-						Name:  "selinux-shared-policies-copier",
+						Name:  SelinuxPoliciesCopierContainerName,
 						Image: "quay.io/security-profiles-operator/selinuxd",
 						// Primes the volume mount under /etc/selinux.d with the
 						// shared policies shipped by selinuxd and makes sure the volume mount
@@ -372,7 +377,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 					{
-						Name:  "selinuxd",
+						Name:  SelinuxContainerNmae,
 						Image: "quay.io/security-profiles-operator/selinuxd",
 						Args: []string{
 							"daemon",
@@ -429,7 +434,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 					{
-						Name:            "log-enricher",
+						Name:            LogEnricherContainerName,
 						Args:            []string{"log-enricher"},
 						ImagePullPolicy: corev1.PullAlways,
 						VolumeMounts: []corev1.VolumeMount{
@@ -481,7 +486,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 					{
-						Name:            "bpf-recorder",
+						Name:            BpfRecorderContainerName,
 						Args:            []string{"bpf-recorder"},
 						ImagePullPolicy: corev1.PullAlways,
 						VolumeMounts: []corev1.VolumeMount{
