@@ -1624,6 +1624,13 @@ spec:
                 description: tells the operator whether or not to enable log enrichment
                   support for this SPOD instance.
                 type: boolean
+              enableMemoryOptimization:
+                description: EnableMemoryOptimization enables memory optimization
+                  in the controller running inside of SPOD instance and watching for
+                  pods in the cluster. This will make the controller loading in the
+                  cache memory only the pods labelled explicitly for profile recording
+                  with 'spo.x-k8s.io/enable-recording=true'.
+                type: boolean
               enableProfiling:
                 description: EnableProfiling tells the operator whether or not to
                   enable profiling support for this SPOD instance.
