@@ -113,6 +113,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseProfilingChange,
 		},
 		{
+			"SPOD: Enable memory optimiztaion",
+			e.testCaseMemOptmEnable,
+		},
+		{
 			"SPOD: Change resource requirements",
 			e.testCaseResourceRequirementsChange,
 		},
