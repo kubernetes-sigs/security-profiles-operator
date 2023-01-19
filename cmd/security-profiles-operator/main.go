@@ -73,6 +73,7 @@ const (
 	selinuxFlag        string = "with-selinux"
 	apparmorFlag       string = "with-apparmor"
 	webhookFlag        string = "webhook"
+	memOptimFlag       string = "with-mem-optim"
 	defaultWebhookPort int    = 9443
 )
 
@@ -160,6 +161,11 @@ func main() {
 					Usage:   "Listen for ProfileRecording API recources",
 					Value:   false,
 					EnvVars: []string{config.EnableRecordingEnvKey},
+				},
+				&cli.BoolFlag{
+					Name:  memOptimFlag,
+					Usage: "Enable memory optimization by watching only labeled pods",
+					Value: false,
 				},
 			},
 		},
@@ -422,6 +428,24 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 	return controllers
 }
 
+// newMemoryOptimizedCache creates a memory optimized cache for daemon controller.
+// This will load into cache memory only the pods objects which are labeled for recording.
+func newMemoryOptimizedCache(ctx *cli.Context) cache.NewCacheFunc {
+	if ctx.Bool(memOptimFlag) {
+		return cache.BuilderWithOptions(cache.Options{
+			Resync: &sync,
+			SelectorsByObject: cache.SelectorsByObject{
+				&corev1.Pod{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						bindata.EnableRecordingLabel: "true",
+					}),
+				},
+			},
+		})
+	}
+	return nil
+}
+
 func runDaemon(ctx *cli.Context, info *version.Info) error {
 	// security-profiles-operator-daemon
 	printInfo("spod", info)
@@ -441,16 +465,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	ctrlOpts := ctrl.Options{
 		SyncPeriod:             &sync,
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
-		NewCache: cache.BuilderWithOptions(cache.Options{
-			Resync: &sync,
-			SelectorsByObject: cache.SelectorsByObject{
-				&corev1.Pod{}: {
-					Label: labels.SelectorFromSet(labels.Set{
-						bindata.EnableRecordingLabel: "true",
-					}),
-				},
-			},
-		}),
+		NewCache:               newMemoryOptimizedCache(ctx),
 	}
 
 	setControllerOptionsForNamespaces(&ctrlOpts)
