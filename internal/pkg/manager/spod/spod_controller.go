@@ -592,6 +592,13 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.HostPID = true
 	}
 
+	// Enable memory optimization for spod controller
+	if cfg.Spec.EnableMemoryOptimization {
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+			"--with-mem-optim=true")
+	}
+
 	// Metrics parameters
 	templateSpec.Containers = append(
 		templateSpec.Containers,
