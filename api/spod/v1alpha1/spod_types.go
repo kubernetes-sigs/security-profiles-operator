@@ -258,6 +258,11 @@ type SPODSpec struct {
 	// EnableProfiling tells the operator whether or not to enable profiling
 	// support for this SPOD instance.
 	EnableProfiling bool `json:"enableProfiling,omitempty"`
+	// EnableMemoryOptimization enables memory optimization in the controller
+	// running inside of SPOD instance and watching for pods in the cluster.
+	// This will make the controller loading in the cache memory only the pods
+	// labled explicitly for profile recording with 'spo.x-k8s.io/enable-recording=true'.
+	EnableMemoryOptimization bool `json:"enableMemoryOptimization,omitempty"`
 	// tells the operator whether or not to enable SELinux support for this
 	// SPOD instance.
 	EnableSelinux *bool `json:"enableSelinux,omitempty"`
