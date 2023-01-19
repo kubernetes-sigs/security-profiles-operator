@@ -69,15 +69,22 @@ var (
 )
 
 const (
-	webhookName                 = config.OperatorName + "-webhook"
-	webhookConfigName           = "spo-mutating-webhook-configuration"
-	serviceAccountName          = "spo-webhook"
-	certsMountPath              = "/tmp/k8s-webhook-server/serving-certs"
-	containerPort               = 9443
-	serviceName                 = "webhook-service"
-	webhookServerCert           = "webhook-server-cert"
-	webhookEnableBindingLabel   = "spo.x-k8s.io/enable-binding"
-	webhookEnableRecordingLabel = "spo.x-k8s.io/enable-recording"
+	// EnableRecordingLabel this label can be applied to a namespace or a pod
+	// in order to enable profile recording.
+	EnableRecordingLabel = "spo.x-k8s.io/enable-recording"
+	// EnableBindingLabel this label can be applied to a namespace in order to
+	// enable profile binding.
+	EnableBindingLabel = "spo.x-k8s.io/enable-binding"
+)
+
+const (
+	webhookName        = config.OperatorName + "-webhook"
+	webhookConfigName  = "spo-mutating-webhook-configuration"
+	serviceAccountName = "spo-webhook"
+	certsMountPath     = "/tmp/k8s-webhook-server/serving-certs"
+	containerPort      = 9443
+	serviceName        = "webhook-service"
+	webhookServerCert  = "webhook-server-cert"
 )
 
 type Webhook struct {
@@ -397,7 +404,7 @@ var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key:      webhookEnableBindingLabel,
+						Key:      EnableBindingLabel,
 						Operator: metav1.LabelSelectorOpExists,
 					},
 				},
@@ -420,7 +427,7 @@ var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key:      webhookEnableRecordingLabel,
+						Key:      EnableRecordingLabel,
 						Operator: metav1.LabelSelectorOpExists,
 					},
 				},

@@ -32,6 +32,8 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/urfave/cli/v2"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -56,6 +58,7 @@ import (
 	nodestatus "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -438,6 +441,16 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	ctrlOpts := ctrl.Options{
 		SyncPeriod:             &sync,
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
+		NewCache: cache.BuilderWithOptions(cache.Options{
+			Resync: &sync,
+			SelectorsByObject: cache.SelectorsByObject{
+				&corev1.Pod{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						bindata.EnableRecordingLabel: "true",
+					}),
+				},
+			},
+		}),
 	}
 
 	setControllerOptionsForNamespaces(&ctrlOpts)
