@@ -16,6 +16,7 @@
 - [Customise the daemon resource requirements](#customise-the-daemon-resource-requirements)
 - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
 - [Constrain spod scheduling](#constrain-spod-scheduling)
+- [Enable memory optimization in spod](#enable-memory-optimization-in-spod)
 - [Create a seccomp profile](#create-a-seccomp-profile)
   - [Apply a seccomp profile to a pod](#apply-a-seccomp-profile-to-a-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
