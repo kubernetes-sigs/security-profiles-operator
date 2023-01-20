@@ -27,9 +27,9 @@ require (
 	google.golang.org/grpc v1.52.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.2.0
 	google.golang.org/protobuf v1.28.1
-	k8s.io/api v0.25.4
-	k8s.io/apimachinery v0.25.5
-	k8s.io/client-go v0.25.4
+	k8s.io/api v0.26.1
+	k8s.io/apimachinery v0.26.1
+	k8s.io/client-go v0.26.1
 	k8s.io/klog/v2 v2.80.1
 	sigs.k8s.io/controller-runtime v0.13.1
 	sigs.k8s.io/controller-tools v0.10.0
@@ -60,7 +60,7 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-metrics v0.0.1 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/emicklei/go-restful/v3 v3.8.0 // indirect
+	github.com/emicklei/go-restful/v3 v3.9.0 // indirect
 	github.com/emirpasic/gods v1.12.0 // indirect
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
@@ -152,7 +152,7 @@ require (
 	k8s.io/apiextensions-apiserver v0.25.4 // indirect
 	k8s.io/cli-runtime v0.25.2 // indirect
 	k8s.io/component-base v0.25.4 // indirect
-	k8s.io/kube-openapi v0.0.0-20220803164354-a70c9af30aea // indirect
+	k8s.io/kube-openapi v0.0.0-20221012153701-172d655c2280 // indirect
 	k8s.io/utils v0.0.0-20221108210102-8e77b1f39fe2 // indirect
 	oras.land/oras-go v1.2.0 // indirect
 	sigs.k8s.io/gateway-api v0.5.0 // indirect
