@@ -278,6 +278,34 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p
 kubectl -n security-profiles-operator patch spod spod --type merge -p
 '{"spec":{"affinity": {...}}}'
 ```
+
+## Enable memory optimization in spod
+
+The controller running inside of spod daemon process is watching all pods available in the cluster when profile recording
+is enabled. It will perform some pre-filtering before the reconciliation to select only the pods running on local
+node as well as pods annotated for recording, but this operation takes place after all pods objects are loaded
+into the cache memory of the informer. This can lead to very high memory usage in large clusters with 1000s of pods, resulting
+in spod daemon running out of memory or crashing.
+
+In order to prevent this situation, the spod daemon can be configured to only load into the cache memory the pods explicitly
+labeled for profile recording. This can be achieved by enabling memory optimization as follows:
+
+```
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableMemoryOptimization":true}}'
+```
+
+If you want now to record a security profile for a pod, this pod needs to be explicitly labeled with `spo.x-k8s.io/enable-recording`,
+as follows:
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-recording-pod
+  labels:
+    spo.x-k8s.io/enable-recording: "true"
+```
+
 ## Create a seccomp profile
 
 Use the `SeccompProfile` kind to create profiles. Example:
