@@ -16,17 +16,11 @@ limitations under the License.
 
 package e2e_test
 
-import (
-	"time"
-)
-
 func (e *e2e) testCaseMemOptmEnable([]string) {
 	e.logf("Change memory optimization in spod")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableMemoryOptimization": true}}`, "--type=merge")
-	time.Sleep(defaultWaitTime)
 
-	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+	e.enableMemoryOptimization()
+	defer e.disableMemoryOptimization()
 
 	e.waitForSpod()
 	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "name=spod")

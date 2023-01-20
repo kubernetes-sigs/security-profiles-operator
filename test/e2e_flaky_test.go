@@ -68,6 +68,7 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 		e.testCaseProfileRecordingDeploymentLogs()
 		e.testCaseRecordingFinalizers()
 		e.testCaseProfileRecordingDeploymentScaleUpDownLogs()
+		e.testCaseProfileRecordingWithMemoryOptimization()
 	})
 
 	e.Run("cluster-wide: Seccomp: Verify profile recording bpf", func() {
@@ -77,6 +78,7 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 		e.testCaseBpfRecorderDeployment()
 		e.testCaseBpfRecorderParallel()
 		e.testCaseBpfRecorderSelectContainer()
+		e.testCaseBpfRecorderWithMemoryOptimization()
 	})
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment

@@ -721,6 +721,24 @@ func (e *e2e) enableBpfRecorderInSpod() {
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
 }
 
+func (e *e2e) enableMemoryOptimization() {
+	e.logf("Enable memory optimization in SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableMemoryOptimization": true}}`, "--type=merge")
+	time.Sleep(defaultWaitTime)
+
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+}
+
+func (e *e2e) disableMemoryOptimization() {
+	e.logf("Enable memory optimization in SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableMemoryOptimization": false}}`, "--type=merge")
+	time.Sleep(defaultWaitTime)
+
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+}
+
 func (e *e2e) deployRecordingSa(namespace string) {
 	saTemplate := `
     apiVersion: v1
