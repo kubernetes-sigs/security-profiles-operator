@@ -44,7 +44,7 @@ sed -i 's;image: .*;image: registry.k8s.io/security-profiles-operator/security-p
 # Update e2e tests
 # shellcheck disable=SC2016
 sed -i 's;gcr.io/k8s-staging-sp-operator.*;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"'#${CATALOG_IMG}#g" examples/olm/install-resources.yaml;g' hack/ci/e2e-olm.sh
-sed -i 's;gcr.io/;registry.k8s.io/;g' test/e2e_test.go
+sed -i 's;gcr.io/k8s-staging-sp-operator/;registry.k8s.io/;g' test/e2e_test.go
 
 # Update dependencies.yaml
 FILES=(
