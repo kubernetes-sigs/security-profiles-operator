@@ -862,7 +862,11 @@ data:
             "tgkill",
             "uname",
             "unlinkat",
-            "write"
+            "write",
+            "munmap",
+            "time",
+            "set_robust_list",
+            "getrlimit"
           ],
           "action": "SCMP_ACT_ALLOW"
         }
