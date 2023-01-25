@@ -6,6 +6,14 @@ spoImage:
   repository: k8s-staging-sp-operator/security-profiles-operator
   tag: latest
 
+enableSelinux: false
+enableLogEnricher: false
+enableAppArmor: false
+enableBpfRecorder: false
+enableProfiling: false
+verbosity: 0
+
+
 nameOverride: ""
 fullnameOverride: ""
 
