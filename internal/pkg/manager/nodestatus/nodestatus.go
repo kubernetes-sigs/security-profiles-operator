@@ -103,8 +103,8 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 // Reconcile reconciles a NodeStatus.
-func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	logger := r.log.WithValues("nodeStatus", req.Name, "namespace", req.Namespace)

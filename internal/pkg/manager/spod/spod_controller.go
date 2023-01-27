@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/go-logr/logr"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -47,6 +48,9 @@ import (
 )
 
 const (
+	// default reconcile timeout.
+	reconcileTimeout = 1 * time.Minute
+
 	reasonCannotCreateSPOD string = "CannotCreateSPOD"
 	reasonCannotUpdateSPOD string = "CannotUpdateSPOD"
 
@@ -126,8 +130,10 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
-func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
-	ctx := context.Background()
+func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 	// Fetch the ConfigMap instance
 	spod := &spodv1alpha1.SecurityProfilesOperatorDaemon{}

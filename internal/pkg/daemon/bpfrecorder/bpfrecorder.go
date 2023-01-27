@@ -242,6 +242,7 @@ func (b *BpfRecorder) Start(
 ) (*api.EmptyResponse, error) {
 	if b.startRequests == 0 {
 		b.logger.Info("Starting bpf recorder")
+		//nolint:contextcheck // no context intended here
 		if err := b.load(true); err != nil {
 			return nil, fmt.Errorf("load bpf: %w", err)
 		}

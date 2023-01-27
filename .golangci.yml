@@ -26,6 +26,7 @@ linters:
     - bidichk
     - bodyclose
     - containedctx
+    - contextcheck
     - decorder
     - depguard
     - dogsled
@@ -96,7 +97,6 @@ linters:
     - usestdlibvars
     - wastedassign
     - whitespace
-    # - contextcheck
     # - cyclop
     # - exhaustruct
     # - forbidigo
