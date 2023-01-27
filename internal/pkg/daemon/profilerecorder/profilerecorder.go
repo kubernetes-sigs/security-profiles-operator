@@ -157,8 +157,8 @@ func (r *RecorderReconciler) Setup(
 	)
 }
 
-func (r *RecorderReconciler) getSPOD() (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+func (r *RecorderReconciler) getSPOD(ctx context.Context) (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 	return r.GetSPOD(ctx, r.client)
 }
@@ -203,10 +203,10 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 }
 
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *RecorderReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("pod", req.Name, "namespace", req.Namespace)
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	pod, err := r.GetPod(ctx, r.client, req.NamespacedName)
@@ -262,7 +262,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			profiles = logProfiles
 			recorder = profilerecording1alpha1.ProfileRecorderLogs
 		} else if len(bpfProfiles) > 0 {
-			if err := r.startBpfRecorder(); err != nil {
+			if err := r.startBpfRecorder(ctx); err != nil {
 				logger.Error(err, "unable to start bpf recorder")
 				return reconcile.Result{}, err
 			}
@@ -305,10 +305,12 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	return reconcile.Result{}, nil
 }
 
-func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderClient, context.CancelFunc, error) {
+func (r *RecorderReconciler) getBpfRecorderClient(
+	ctx context.Context,
+) (bpfrecorderapi.BpfRecorderClient, context.CancelFunc, error) {
 	r.log.Info("Checking if bpf recorder is enabled")
 
-	spod, err := r.getSPOD()
+	spod, err := r.getSPOD(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting SPOD config: %w", err)
 	}
@@ -327,28 +329,28 @@ func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderC
 	return bpfRecorderClient, cancel, nil
 }
 
-func (r *RecorderReconciler) startBpfRecorder() error {
-	recorderClient, cancel, err := r.getBpfRecorderClient()
+func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
+	recorderClient, cancel, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
 	defer cancel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	ctx, cancel = context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 	r.log.Info("Starting BPF recorder on node")
 	return r.StartBpfRecorder(ctx, recorderClient)
 }
 
-func (r *RecorderReconciler) stopBpfRecorder() error {
-	recorderClient, cancel, err := r.getBpfRecorderClient()
+func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
+	recorderClient, cancel1, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
-	defer cancel()
+	defer cancel1()
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
-	defer cancel()
+	ctx, cancel2 := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel2()
 	r.log.Info("Stopping BPF recorder on node")
 	return r.StopBpfRecorder(ctx, recorderClient)
 }
@@ -402,7 +404,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 ) error {
 	r.log.Info("Checking if enricher is enabled")
 
-	spod, err := r.getSPOD()
+	spod, err := r.getSPOD(ctx)
 	if err != nil {
 		return fmt.Errorf("getting SPOD config: %w", err)
 	}
@@ -630,7 +632,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	podName types.NamespacedName,
 	profiles []profileToCollect,
 ) error {
-	recorderClient, cancel, err := r.getBpfRecorderClient()
+	recorderClient, cancel, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
@@ -719,7 +721,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
 	}
 
-	if err := r.stopBpfRecorder(); err != nil {
+	if err := r.stopBpfRecorder(ctx); err != nil {
 		r.log.Error(err, "Unable to stop bpf recorder")
 		return fmt.Errorf("stop bpf recorder: %w", err)
 	}

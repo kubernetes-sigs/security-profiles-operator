@@ -207,7 +207,8 @@ func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
 }
 
 func (nsf *StatusClient) SetNodeStatus(
-	ctx context.Context, polState secprofnodestatusv1alpha1.ProfileState,
+	ctx context.Context,
+	polState secprofnodestatusv1alpha1.ProfileState,
 ) error {
 	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
 	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)

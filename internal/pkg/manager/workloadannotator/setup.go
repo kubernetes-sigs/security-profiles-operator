@@ -60,7 +60,7 @@ func (r *PodReconciler) Setup(
 		if !ok {
 			return []string{}
 		}
-		return getSelinuxProfilesFromPod(r, pod)
+		return getSelinuxProfilesFromPod(ctx, r, pod)
 	}); err != nil {
 		return fmt.Errorf("creating pod index: %w", err)
 	}
@@ -118,7 +118,7 @@ func hasSelinuxProfile(r *PodReconciler, obj runtime.Object) bool {
 		return false
 	}
 
-	return len(getSelinuxProfilesFromPod(r, pod)) > 0
+	return len(getSelinuxProfilesFromPod(context.TODO(), r, pod)) > 0
 }
 
 func (r *PodReconciler) hasValidProfile(obj runtime.Object) bool {
