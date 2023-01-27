@@ -190,6 +190,12 @@ var Manifest = &appsv1.DaemonSet{
 								corev1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
 							},
 						},
+						Env: []corev1.EnvVar{
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
+							},
+						},
 					},
 					{
 						Name:  SelinuxPoliciesCopierContainerName,
@@ -264,6 +270,12 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								// libsemanage is very resource hungry...
 								corev1.ResourceMemory:           resource.MustParse("1024Mi"),
 								corev1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
+							},
+						},
+						Env: []corev1.EnvVar{
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
 							},
 						},
 					},
@@ -344,6 +356,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								// Note that this will be set per SPOD instance
 								Name:  config.SPOdNameEnvKey,
 								Value: config.SPOdName,
+							},
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
 							},
 						},
 						Ports: []corev1.ContainerPort{
@@ -432,6 +448,12 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								corev1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
 							},
 						},
+						Env: []corev1.EnvVar{
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
+							},
+						},
 					},
 					{
 						Name:            LogEnricherContainerName,
@@ -482,6 +504,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 										FieldPath: "spec.nodeName",
 									},
 								},
+							},
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
 							},
 						},
 					},
@@ -537,6 +563,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 										FieldPath: "spec.nodeName",
 									},
 								},
+							},
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
 							},
 						},
 					},
