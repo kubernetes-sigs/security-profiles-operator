@@ -10,6 +10,7 @@
   - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
   - [Installation using helm](#installation-using-helm)
   - [Installation on AKS](#installation-on-aks)
+- [Configure a custom kubelet root directory](#configure-a-custom-kubelet-root-directory)
 - [Set logging verbosity](#set-logging-verbosity)
 - [Pull images from private registry](#pull-images-from-private-registry)
 - [Configure the SELinux type](#configure-the-selinux-type)
@@ -188,6 +189,12 @@ $ kubectl -nsecurity-profiles-operator get spod spod
 NAME   STATE
 spod   RUNNING
 ```
+
+## Configure a custom kubelet root directory
+
+You can configure a custom kubelet root directory in case your cluster is not using the default `/var/lib/kubelet` path.
+You can achieve this by setting the environment variable `KUBELET_DIR` in the operator deployment. This environment variable will
+be then set in the manager container as well as it will be propagated into the containers part of spod daemonset.
 
 ## Set logging verbosity
 
