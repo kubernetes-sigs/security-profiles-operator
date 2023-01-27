@@ -44,6 +44,9 @@ const (
 	// UserRootless is the user which runs the operator.
 	UserRootless = 65535
 
+	// DefaultKubeletPath specifies the default kubelet path.
+	DefaultKubeletPath = "/var/lib/kubelet"
+
 	// KubeletSeccompRootPath specifies the path where all kubelet seccomp
 	// profiles are stored.
 	KubeletSeccompRootPath = "/var/lib/kubelet/seccomp"
@@ -83,6 +86,9 @@ const (
 	// ProfilingPortEnvKey is the environment variable key for choosing the
 	// profiling port.
 	ProfilingPortEnvKey = "SPO_PROFILING_PORT"
+
+	// KubeletDirEnvKey is the environment variable key for custom kubelet directory.
+	KubeletDirEnvKey = "KUBELET_DIR"
 
 	// DefaultProfilingPort is the start port where the profiling endpoint runs.
 	DefaultProfilingPort = 6060
@@ -154,4 +160,14 @@ func TryToGetOperatorNamespace() (string, error) {
 		return "", ErrPodNamespaceEnvNotFound
 	}
 	return operatorNS, nil
+}
+
+// KubeletDir returns the kubelet directory either form an environment variable
+// when is set or the default Kubernetes path.
+func KubeletDir() string {
+	kubeletDir := env.Default(KubeletDirEnvKey, "")
+	if kubeletDir == "" {
+		return DefaultKubeletPath
+	}
+	return kubeletDir
 }
