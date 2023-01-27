@@ -48,13 +48,13 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 
 	logger.Info("Container runtime:" + runtime)
 
-	logger.Info("Ensuring seccomp root path: " + config.KubeletSeccompRootPath)
+	logger.Info("Ensuring seccomp root path: " + config.KubeletSeccompRootPath())
 	if err := n.impl.MkdirAll(
-		config.KubeletSeccompRootPath, dirPermissions,
+		config.KubeletSeccompRootPath(), dirPermissions,
 	); err != nil {
 		return fmt.Errorf(
 			"create seccomp root path %s: %w",
-			config.KubeletSeccompRootPath, err,
+			config.KubeletSeccompRootPath(), err,
 		)
 	}
 
@@ -64,7 +64,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 	); err != nil {
 		return fmt.Errorf(
 			"create operator root path %s: %w",
-			config.KubeletSeccompRootPath, err,
+			config.KubeletSeccompRootPath(), err,
 		)
 	}
 
@@ -74,10 +74,10 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 		return fmt.Errorf("change operator root path permissions: %w", err)
 	}
 
-	if _, err := n.impl.Stat(config.ProfilesRootPath); os.IsNotExist(err) {
+	if _, err := n.impl.Stat(config.ProfilesRootPath()); os.IsNotExist(err) {
 		logger.Info("Linking profiles root path")
 		if err := n.impl.Symlink(
-			config.OperatorRoot, config.ProfilesRootPath,
+			config.OperatorRoot, config.ProfilesRootPath(),
 		); err != nil {
 			return fmt.Errorf("link profiles root path: %w", err)
 		}
@@ -91,9 +91,9 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 	}
 
 	kubeletSeccompRootPath := config.KubeletSeccompRootPath
-	logger.Info("Copying profiles into root path: " + kubeletSeccompRootPath)
+	logger.Info("Copying profiles into root path: " + kubeletSeccompRootPath())
 	if err := n.impl.CopyDirContentsLocal(
-		"/opt/spo-profiles", kubeletSeccompRootPath,
+		"/opt/spo-profiles", kubeletSeccompRootPath(),
 	); err != nil {
 		return fmt.Errorf("copy local security profiles: %w", err)
 	}

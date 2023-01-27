@@ -276,7 +276,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "host-operator-volume",
-								MountPath: config.ProfilesRootPath,
+								MountPath: config.ProfilesRootPath(),
 							},
 							{
 								Name:      "selinux-drop-dir",

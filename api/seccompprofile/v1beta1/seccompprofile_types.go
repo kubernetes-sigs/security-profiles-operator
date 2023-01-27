@@ -149,7 +149,7 @@ func (sp *SeccompProfile) DeepCopyToStatusBaseIf() profilebase.StatusBaseUser {
 
 func (sp *SeccompProfile) SetImplementationStatus() {
 	profilePath := sp.GetProfilePath()
-	sp.Status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath+"/")
+	sp.Status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath()+"/")
 }
 
 func (sp *SeccompProfile) GetProfileFile() string {
@@ -163,7 +163,7 @@ func (sp *SeccompProfile) GetProfileFile() string {
 func (sp *SeccompProfile) GetProfilePath() string {
 	pfile := sp.GetProfileFile()
 	return path.Join(
-		config.ProfilesRootPath,
+		config.ProfilesRootPath(),
 		filepath.Base(sp.GetNamespace()),
 		filepath.Base(pfile),
 	)
