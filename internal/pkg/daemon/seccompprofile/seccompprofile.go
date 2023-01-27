@@ -259,10 +259,10 @@ func (r *Reconciler) checkSeccomp() error {
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 
 // Reconcile reconciles a SeccompProfile.
-func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	if err := r.checkSeccomp(); err != nil {

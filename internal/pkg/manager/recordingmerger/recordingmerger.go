@@ -86,8 +86,8 @@ func (r *PolicyMergeReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch;delete;deletecollection
 
 // Reconcile reconciles a NodeStatus.
-func (r *PolicyMergeReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+func (r *PolicyMergeReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	logger := r.log.WithValues("profileRecording", req.Name, "namespace", req.Namespace)
