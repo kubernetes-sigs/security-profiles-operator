@@ -47,14 +47,6 @@ const (
 	// DefaultKubeletPath specifies the default kubelet path.
 	DefaultKubeletPath = "/var/lib/kubelet"
 
-	// KubeletSeccompRootPath specifies the path where all kubelet seccomp
-	// profiles are stored.
-	KubeletSeccompRootPath = "/var/lib/kubelet/seccomp"
-
-	// ProfilesRootPath specifies the path where the operator stores seccomp
-	// profiles.
-	ProfilesRootPath = KubeletSeccompRootPath + "/operator"
-
 	// NodeNameEnvKey is the default environment variable key for retrieving
 	// the name of the current node.
 	NodeNameEnvKey = "NODE_NAME"
@@ -170,4 +162,16 @@ func KubeletDir() string {
 		return DefaultKubeletPath
 	}
 	return kubeletDir
+}
+
+// KubeletSeccompRootPath specifies the path where all kubelet seccomp
+// profiles are stored.
+func KubeletSeccompRootPath() string {
+	return KubeletDir() + "/seccomp"
+}
+
+// ProfilesRootPath specifies the path where the operator stores seccomp
+// profiles.
+func ProfilesRootPath() string {
+	return KubeletSeccompRootPath() + "/operator"
 }
