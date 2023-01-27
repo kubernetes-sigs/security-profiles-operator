@@ -44,7 +44,7 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		// the dev container where the tests are executed. This check needs to be skipped.
 		if e.nodeRootfsPrefix == "" {
 			statOutput := e.execNode(
-				node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath,
+				node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath(),
 			)
 			e.Contains(statOutput, "744,65535,65535")
 
