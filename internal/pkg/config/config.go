@@ -19,6 +19,7 @@ package config
 import (
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 
 	"sigs.k8s.io/release-utils/env"
@@ -167,11 +168,11 @@ func KubeletDir() string {
 // KubeletSeccompRootPath specifies the path where all kubelet seccomp
 // profiles are stored.
 func KubeletSeccompRootPath() string {
-	return KubeletDir() + "/seccomp"
+	return path.Join(KubeletDir() + "seccomp")
 }
 
 // ProfilesRootPath specifies the path where the operator stores seccomp
 // profiles.
 func ProfilesRootPath() string {
-	return KubeletSeccompRootPath() + "/operator"
+	return path.Join(KubeletSeccompRootPath() + "operator")
 }
