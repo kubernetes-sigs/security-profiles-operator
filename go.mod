@@ -20,7 +20,7 @@ require (
 	github.com/prometheus/client_model v0.3.0
 	github.com/seccomp/libseccomp-golang v0.10.0
 	github.com/stretchr/testify v1.8.1
-	github.com/urfave/cli/v2 v2.24.1
+	github.com/urfave/cli/v2 v2.24.2
 	golang.org/x/mod v0.7.0
 	golang.org/x/net v0.5.0
 	golang.org/x/sync v0.1.0
