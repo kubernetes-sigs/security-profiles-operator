@@ -168,11 +168,11 @@ func KubeletDir() string {
 // KubeletSeccompRootPath specifies the path where all kubelet seccomp
 // profiles are stored.
 func KubeletSeccompRootPath() string {
-	return path.Join(KubeletDir() + "seccomp")
+	return path.Join(KubeletDir(), "seccomp")
 }
 
 // ProfilesRootPath specifies the path where the operator stores seccomp
 // profiles.
 func ProfilesRootPath() string {
-	return path.Join(KubeletSeccompRootPath() + "operator")
+	return path.Join(KubeletSeccompRootPath(), "operator")
 }
