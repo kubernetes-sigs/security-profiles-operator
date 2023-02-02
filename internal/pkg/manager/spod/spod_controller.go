@@ -526,8 +526,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		volume, mount := bindata.CustomHostKubeletVolume(config.KubeletDir())
 		templateSpec.Volumes = append(templateSpec.Volumes, volume)
 
-		templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].VolumeMounts =
-			append(templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].VolumeMounts, mount)
+		templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].VolumeMounts = append(
+			templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].VolumeMounts, mount)
 	}
 
 	// Custom host proc volume
