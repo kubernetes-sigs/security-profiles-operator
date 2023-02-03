@@ -611,11 +611,11 @@ const (
 )
 
 func (e *e2e) getSpodMetrics() string {
-	rand := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
 	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))] //nolint:gosec // fine in tests
+		b[i] = letters[r.Intn(len(letters))]
 	}
 	// Sometimes the metrics command does not output anything in CI. We fix
 	// that by retrying the metrics retrieval several times.
