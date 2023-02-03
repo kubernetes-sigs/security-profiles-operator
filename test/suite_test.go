@@ -611,7 +611,7 @@ const (
 )
 
 func (e *e2e) getSpodMetrics() string {
-	rand.Seed(time.Now().UnixNano())
+	rand := rand.New(rand.NewSource(time.Now().UnixNano()))
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
 	for i := range b {
