@@ -7,7 +7,6 @@ apt-get install -y \
     libapparmor-dev \
     libelf-dev \
     libseccomp-dev \
-    python3 \
     software-properties-common
 
 ./hack/install-libbpf.sh
