@@ -65,8 +65,8 @@ const (
 )
 
 type sePolStatus struct {
-	Msg    string
-	Status sePolStatusType
+	Msg    string          `json:"msg"`
+	Status sePolStatusType `json:"status"`
 }
 
 const (

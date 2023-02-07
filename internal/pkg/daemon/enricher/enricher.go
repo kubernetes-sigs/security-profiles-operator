@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -170,7 +171,7 @@ func (e *Enricher) Run() error {
 			Follow: true,
 			Location: &tail.SeekInfo{
 				Offset: 0,
-				Whence: os.SEEK_END,
+				Whence: io.SeekEnd,
 			},
 		},
 	)
