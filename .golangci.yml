@@ -42,6 +42,8 @@ linters:
     - exportloopref
     - forcetypeassert
     - gci
+    - ginkgolinter
+    - gocheckcompilerdirectives
     - gochecknoinits
     - gocognit
     - goconst
@@ -68,6 +70,7 @@ linters:
     - loggercheck
     - makezero
     - misspell
+    - musttag
     - nakedret
     - nestif
     - nilerr
