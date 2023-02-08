@@ -24,7 +24,7 @@ TAG=${TAG:-$(git describe --tags --always --dirty)}
 
 ARCHES=(amd64 arm64)
 VERSION=v$(cat VERSION)
-QEMUVERSION=6.1.0-8
+QEMUVERSION=7.2.0-1
 TAGS=("$TAG" "$VERSION" latest)
 
 # Build and push the main image
