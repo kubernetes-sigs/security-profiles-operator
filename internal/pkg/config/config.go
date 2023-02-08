@@ -126,6 +126,10 @@ const (
 
 	// GRPCServerSocketBpfRecorder is the socket path for the GRPC bpf recorder server.
 	GRPCServerSocketBpfRecorder = "/var/run/grpc/bpf-recorder.sock"
+
+	// DefaultSpoProfilePath default path from where the security profiles are copied
+	// by non-root enabler.
+	DefaultSpoProfilePath = "/opt/spo-profiles"
 )
 
 // ProfileRecordingOutputPath is the path where the recorded profiles will be
