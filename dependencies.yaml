@@ -72,7 +72,7 @@ dependencies:
       match: KIND_IMG_TAG
 
   - name: qemu
-    version: 6.1.0-8
+    version: 7.2.0-1
     refPaths:
     - path: hack/image-cross.sh
       match: QEMUVERSION
