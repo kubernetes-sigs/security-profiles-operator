@@ -64,11 +64,10 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 	); err != nil {
 		return fmt.Errorf(
 			"create operator root path %s: %w",
-			config.KubeletSeccompRootPath(), err,
+			config.OperatorRoot, err,
 		)
 	}
 
-	// In case the directory already existed
 	logger.Info("Setting operator root permissions")
 	if err := n.impl.Chmod(config.OperatorRoot, dirPermissions); err != nil {
 		return fmt.Errorf("change operator root path permissions: %w", err)
@@ -93,7 +92,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 	kubeletSeccompRootPath := config.KubeletSeccompRootPath
 	logger.Info("Copying profiles into root path: " + kubeletSeccompRootPath())
 	if err := n.impl.CopyDirContentsLocal(
-		"/opt/spo-profiles", kubeletSeccompRootPath(),
+		config.DefaultSpoProfilePath, kubeletSeccompRootPath(),
 	); err != nil {
 		return fmt.Errorf("copy local security profiles: %w", err)
 	}
