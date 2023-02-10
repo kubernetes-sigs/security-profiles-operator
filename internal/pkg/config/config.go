@@ -39,6 +39,9 @@ const (
 	// from within the daemon.
 	SPOdNameEnvKey = "SPOD_NAME"
 
+	// HostRoot define the host files root mount path
+	HostRoot = "/host"
+
 	// OperatorRoot is the root directory of the operator.
 	OperatorRoot = "/var/lib/security-profiles-operator"
 
