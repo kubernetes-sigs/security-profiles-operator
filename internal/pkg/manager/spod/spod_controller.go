@@ -520,16 +520,6 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-selinux=true")
 	}
 
-	// Mount the kubelet custom directory into non-root-enabler container if is different
-	// than Kubernetes default kubelet directory. This is required in order to set it up for daemon.
-	if config.KubeletDir() != config.DefaultKubeletPath {
-		volume, mount := bindata.CustomHostKubeletVolume(config.KubeletDir())
-		templateSpec.Volumes = append(templateSpec.Volumes, volume)
-
-		templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].VolumeMounts = append(
-			templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].VolumeMounts, mount)
-	}
-
 	// Custom host proc volume
 	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath
 	volume, mount := bindata.CustomHostProcVolume(cfg.Spec.HostProcVolumePath)

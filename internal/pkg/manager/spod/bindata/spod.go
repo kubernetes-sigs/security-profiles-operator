@@ -162,6 +162,10 @@ var Manifest = &appsv1.DaemonSet{
 								ReadOnly:  true,
 							},
 							{
+								Name:      "host-root-volume",
+								MountPath: config.HostRoot,
+							},
+							{
 								Name:      "metrics-cert-volume",
 								MountPath: metricsCertPath,
 							},
@@ -744,6 +748,15 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						Name: "grpc-server-volume",
 						VolumeSource: corev1.VolumeSource{
 							EmptyDir: &corev1.EmptyDirVolumeSource{},
+						},
+					},
+					{
+						Name: "host-root-volume",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/",
+								Type: &hostPathDirectory,
+							},
 						},
 					},
 				},
