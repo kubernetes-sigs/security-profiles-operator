@@ -17,7 +17,9 @@ limitations under the License.
 package nonrootenabler
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 
@@ -44,12 +46,13 @@ func (n *NonRootEnabler) SetImpl(i impl) {
 }
 
 // Run executes the NonRootEnabler and returns an error if anything fails.
-func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
+func (n *NonRootEnabler) Run(logger logr.Logger, runtime string, kubeletDir string) error {
 	const dirPermissions os.FileMode = 0o744
+	const filePermissions os.FileMode = 0o644
 
 	logger.Info("Container runtime:" + runtime)
 
-	kubeleteSeccompDir := path.Join(config.HostRoot, config.KubeletSeccompRootPath())
+	kubeleteSeccompDir := path.Join(config.HostRoot, kubeletDir, config.SeccompProfilesFolder)
 	logger.Info("Ensuring seccomp root path: " + kubeleteSeccompDir)
 	if err := n.impl.MkdirAll(
 		kubeleteSeccompDir, dirPermissions,
@@ -75,14 +78,30 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime string) error {
 		return fmt.Errorf("change operator root path permissions: %w", err)
 	}
 
-	kubeletProfileDir := path.Join(config.HostRoot, config.ProfilesRootPath())
-	if _, err := n.impl.Stat(kubeletProfileDir); os.IsNotExist(err) {
+	kubeletOperatorDir := path.Join(config.HostRoot, kubeletDir, config.OperatorProfilesFolder)
+	if _, err := n.impl.Stat(kubeletOperatorDir); os.IsNotExist(err) {
 		logger.Info("Linking profiles root path")
 		if err := n.impl.Symlink(
-			config.OperatorRoot, kubeletProfileDir,
+			config.OperatorRoot, kubeletOperatorDir,
 		); err != nil {
 			return fmt.Errorf("link profiles root path: %w", err)
 		}
+	}
+
+	logger.Info("Saving kubelet configuration")
+	kubeletCfg := config.KubeletConfig{
+		KubeletDir: kubeletDir,
+	}
+	cfg, err := json.Marshal(kubeletCfg)
+	if err != nil {
+		return fmt.Errorf("marshaling kubelet config: %w", err)
+	}
+	if err := n.impl.SaveKubeletConfig(
+		config.KubeletConfigFilePath(),
+		cfg,
+		filePermissions,
+	); err != nil {
+		return fmt.Errorf("saving kubelet config: %w", err)
 	}
 
 	logger.Info("Setting operator root user and group")
@@ -111,6 +130,7 @@ type impl interface {
 	Symlink(oldname, newname string) error
 	Chown(name string, uid, gid int) error
 	CopyDirContentsLocal(src, dst string) error
+	SaveKubeletConfig(filename string, config []byte, perm os.FileMode) error
 }
 
 type defaultImpl struct{}
@@ -137,4 +157,8 @@ func (*defaultImpl) Chown(name string, uid, gid int) error {
 
 func (*defaultImpl) CopyDirContentsLocal(src, dst string) error {
 	return util.CopyDirContentsLocal(src, dst)
+}
+
+func (*defaultImpl) SaveKubeletConfig(filename string, config []byte, perm os.FileMode) error {
+	return ioutil.WriteFile(filename, config, perm)
 }
