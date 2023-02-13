@@ -17,7 +17,10 @@ limitations under the License.
 package config
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -42,6 +45,14 @@ const (
 	// HostRoot define the host files root mount path
 	HostRoot = "/host"
 
+	// SeccompProfilesFolder defines the folder name where the seccomp
+	// profiles are stored.
+	SeccompProfilesFolder = "seccomp"
+
+	// OperatorProfilesFolder defines the folder name where the operator
+	// profiles are stored.
+	OperatorProfilesFolder = "operator"
+
 	// OperatorRoot is the root directory of the operator.
 	OperatorRoot = "/var/lib/security-profiles-operator"
 
@@ -50,6 +61,12 @@ const (
 
 	// DefaultKubeletPath specifies the default kubelet path.
 	DefaultKubeletPath = "/var/lib/kubelet"
+
+	// KubeletConfigFile specifies the name of the kubelet config file
+	// which contains various configuration parameters of the kubelet.
+	// This configuration file is created by the non-root enabler container
+	// during the deamon initialization.
+	KubeletConfigFile = "kubelet-config.json"
 
 	// NodeNameEnvKey is the default environment variable key for retrieving
 	// the name of the current node.
@@ -104,6 +121,12 @@ const (
 	// created a selinux profile.
 	SelinuxProfileRecordLogsAnnotationKey = "io.containers.trace-avcs/"
 
+	// KubeletDirNodeLabelKey is the label on a Node that specifies
+	// a custom kubelet root directory configured for this node. The directory
+	// path is provided in the following format folder-subfolder-subfolder
+	// which translates to /folder/subfolder/subfolder.
+	KubeletDirNodeLabelKey = "kubelet.kubernetes.io/directory-location"
+
 	// HealthProbePort is the port where the liveness probe will be served.
 	HealthProbePort = 8085
 
@@ -142,6 +165,12 @@ var ProfileRecordingOutputPath = filepath.Join(os.TempDir(), "security-profiles-
 
 var ErrPodNamespaceEnvNotFound = errors.New("the env variable OPERATOR_NAMESPACE hasn't been set")
 
+// KubeletConfig stores various configuration parameters of the kubelet
+type KubeletConfig struct {
+	// KubeletDir kubelet root directory path
+	KubeletDir string `json:"kubeletDir,omitempty"`
+}
+
 // GetOperatorNamespace gets the namespace that the operator is currently running on.
 // Failure to get the namespace results in a panic.
 func GetOperatorNamespace() string {
@@ -162,9 +191,13 @@ func TryToGetOperatorNamespace() (string, error) {
 	return operatorNS, nil
 }
 
-// KubeletDir returns the kubelet directory either form an environment variable
+// KubeletDir returns the kubelet directory either form a config file, an environment variable
 // when is set or the default Kubernetes path.
 func KubeletDir() string {
+	cfg, err := GetKubeletConfigFromFile()
+	if err == nil {
+		return cfg.KubeletDir
+	}
 	kubeletDir := env.Default(KubeletDirEnvKey, "")
 	if kubeletDir == "" {
 		return DefaultKubeletPath
@@ -175,11 +208,29 @@ func KubeletDir() string {
 // KubeletSeccompRootPath specifies the path where all kubelet seccomp
 // profiles are stored.
 func KubeletSeccompRootPath() string {
-	return path.Join(KubeletDir(), "seccomp")
+	return path.Join(KubeletDir(), SeccompProfilesFolder)
 }
 
 // ProfilesRootPath specifies the path where the operator stores seccomp
 // profiles.
 func ProfilesRootPath() string {
-	return path.Join(KubeletSeccompRootPath(), "operator")
+	return path.Join(KubeletSeccompRootPath(), OperatorProfilesFolder)
+}
+
+// KubeletConfigFilePath returns the kubelet config file path
+func KubeletConfigFilePath() string {
+	return path.Join(OperatorRoot, KubeletConfigFile)
+}
+
+// GetKubeletConfigFromFile reads the kubelet config from file
+func GetKubeletConfigFromFile() (*KubeletConfig, error) {
+	cfg, err := ioutil.ReadFile(KubeletConfigFilePath())
+	if err != nil {
+		return nil, fmt.Errorf("reading kubelet config: %w", err)
+	}
+	kubeletCfg := &KubeletConfig{}
+	if err := json.Unmarshal(cfg, kubeletCfg); err != nil {
+		return nil, fmt.Errorf("parsing kubelet config: %w", err)
+	}
+	return kubeletCfg, nil
 }

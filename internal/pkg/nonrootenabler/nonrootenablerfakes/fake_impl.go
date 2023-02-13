@@ -72,6 +72,19 @@ type FakeImpl struct {
 	mkdirAllReturnsOnCall map[int]struct {
 		result1 error
 	}
+	SaveKubeletConfigStub        func(string, []byte, fs.FileMode) error
+	saveKubeletConfigMutex       sync.RWMutex
+	saveKubeletConfigArgsForCall []struct {
+		arg1 string
+		arg2 []byte
+		arg3 fs.FileMode
+	}
+	saveKubeletConfigReturns struct {
+		result1 error
+	}
+	saveKubeletConfigReturnsOnCall map[int]struct {
+		result1 error
+	}
 	StatStub        func(string) (fs.FileInfo, error)
 	statMutex       sync.RWMutex
 	statArgsForCall []struct {
@@ -350,6 +363,74 @@ func (fake *FakeImpl) MkdirAllReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) SaveKubeletConfig(arg1 string, arg2 []byte, arg3 fs.FileMode) error {
+	var arg2Copy []byte
+	if arg2 != nil {
+		arg2Copy = make([]byte, len(arg2))
+		copy(arg2Copy, arg2)
+	}
+	fake.saveKubeletConfigMutex.Lock()
+	ret, specificReturn := fake.saveKubeletConfigReturnsOnCall[len(fake.saveKubeletConfigArgsForCall)]
+	fake.saveKubeletConfigArgsForCall = append(fake.saveKubeletConfigArgsForCall, struct {
+		arg1 string
+		arg2 []byte
+		arg3 fs.FileMode
+	}{arg1, arg2Copy, arg3})
+	stub := fake.SaveKubeletConfigStub
+	fakeReturns := fake.saveKubeletConfigReturns
+	fake.recordInvocation("SaveKubeletConfig", []interface{}{arg1, arg2Copy, arg3})
+	fake.saveKubeletConfigMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) SaveKubeletConfigCallCount() int {
+	fake.saveKubeletConfigMutex.RLock()
+	defer fake.saveKubeletConfigMutex.RUnlock()
+	return len(fake.saveKubeletConfigArgsForCall)
+}
+
+func (fake *FakeImpl) SaveKubeletConfigCalls(stub func(string, []byte, fs.FileMode) error) {
+	fake.saveKubeletConfigMutex.Lock()
+	defer fake.saveKubeletConfigMutex.Unlock()
+	fake.SaveKubeletConfigStub = stub
+}
+
+func (fake *FakeImpl) SaveKubeletConfigArgsForCall(i int) (string, []byte, fs.FileMode) {
+	fake.saveKubeletConfigMutex.RLock()
+	defer fake.saveKubeletConfigMutex.RUnlock()
+	argsForCall := fake.saveKubeletConfigArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) SaveKubeletConfigReturns(result1 error) {
+	fake.saveKubeletConfigMutex.Lock()
+	defer fake.saveKubeletConfigMutex.Unlock()
+	fake.SaveKubeletConfigStub = nil
+	fake.saveKubeletConfigReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) SaveKubeletConfigReturnsOnCall(i int, result1 error) {
+	fake.saveKubeletConfigMutex.Lock()
+	defer fake.saveKubeletConfigMutex.Unlock()
+	fake.SaveKubeletConfigStub = nil
+	if fake.saveKubeletConfigReturnsOnCall == nil {
+		fake.saveKubeletConfigReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.saveKubeletConfigReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) Stat(arg1 string) (fs.FileInfo, error) {
 	fake.statMutex.Lock()
 	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
@@ -487,6 +568,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.copyDirContentsLocalMutex.RUnlock()
 	fake.mkdirAllMutex.RLock()
 	defer fake.mkdirAllMutex.RUnlock()
+	fake.saveKubeletConfigMutex.RLock()
+	defer fake.saveKubeletConfigMutex.RUnlock()
 	fake.statMutex.RLock()
 	defer fake.statMutex.RUnlock()
 	fake.symlinkMutex.RLock()
