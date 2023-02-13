@@ -196,6 +196,16 @@ You can configure a custom kubelet root directory in case your cluster is not us
 You can achieve this by setting the environment variable `KUBELET_DIR` in the operator deployment. This environment variable will
 be then set in the manager container as well as it will be propagated into the containers part of spod daemonset.
 
+Furthermore, you can configure a custom kubelet root directory for each node or a pool of worker nodes inside the cluster. This
+can be achieved by applying the following label on each node object which has a custom path:
+
+```
+kubelet.kubernetes.io/directory-location: mnt-resource-kubelet
+```
+
+Where the value of the label is the kubelet root directory path, by replacing `/` with `-`. For example the value above is translated
+by the operator from `mnt-resource-kubelet` into path `/mnt/resource/kubelet`.
+
 ## Set logging verbosity
 
 The operator supports the default logging verbosity of `0` and an enhanced `1`.
