@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -42,7 +41,7 @@ const (
 	// from within the daemon.
 	SPOdNameEnvKey = "SPOD_NAME"
 
-	// HostRoot define the host files root mount path
+	// HostRoot define the host files root mount path.
 	HostRoot = "/host"
 
 	// SeccompProfilesFolder defines the folder name where the seccomp
@@ -165,7 +164,7 @@ var ProfileRecordingOutputPath = filepath.Join(os.TempDir(), "security-profiles-
 
 var ErrPodNamespaceEnvNotFound = errors.New("the env variable OPERATOR_NAMESPACE hasn't been set")
 
-// KubeletConfig stores various configuration parameters of the kubelet
+// KubeletConfig stores various configuration parameters of the kubelet.
 type KubeletConfig struct {
 	// KubeletDir kubelet root directory path
 	KubeletDir string `json:"kubeletDir,omitempty"`
@@ -217,14 +216,14 @@ func ProfilesRootPath() string {
 	return path.Join(KubeletSeccompRootPath(), OperatorProfilesFolder)
 }
 
-// KubeletConfigFilePath returns the kubelet config file path
+// KubeletConfigFilePath returns the kubelet config file path.
 func KubeletConfigFilePath() string {
 	return path.Join(OperatorRoot, KubeletConfigFile)
 }
 
-// GetKubeletConfigFromFile reads the kubelet config from file
+// GetKubeletConfigFromFile reads the kubelet config from file.
 func GetKubeletConfigFromFile() (*KubeletConfig, error) {
-	cfg, err := ioutil.ReadFile(KubeletConfigFilePath())
+	cfg, err := os.ReadFile(KubeletConfigFilePath())
 	if err != nil {
 		return nil, fmt.Errorf("reading kubelet config: %w", err)
 	}

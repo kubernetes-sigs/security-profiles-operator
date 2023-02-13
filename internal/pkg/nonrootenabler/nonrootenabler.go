@@ -19,7 +19,6 @@ package nonrootenabler
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 
@@ -46,7 +45,7 @@ func (n *NonRootEnabler) SetImpl(i impl) {
 }
 
 // Run executes the NonRootEnabler and returns an error if anything fails.
-func (n *NonRootEnabler) Run(logger logr.Logger, runtime string, kubeletDir string) error {
+func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string) error {
 	const dirPermissions os.FileMode = 0o744
 	const filePermissions os.FileMode = 0o644
 
@@ -124,19 +123,19 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime string, kubeletDir stri
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	MkdirAll(path string, perm os.FileMode) error
+	MkdirAll(dirpath string, perm os.FileMode) error
 	Chmod(name string, mode os.FileMode) error
 	Stat(name string) (os.FileInfo, error)
 	Symlink(oldname, newname string) error
 	Chown(name string, uid, gid int) error
 	CopyDirContentsLocal(src, dst string) error
-	SaveKubeletConfig(filename string, config []byte, perm os.FileMode) error
+	SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error
 }
 
 type defaultImpl struct{}
 
-func (*defaultImpl) MkdirAll(path string, perm os.FileMode) error {
-	return os.MkdirAll(path, perm)
+func (*defaultImpl) MkdirAll(dirpath string, perm os.FileMode) error {
+	return os.MkdirAll(dirpath, perm)
 }
 
 func (*defaultImpl) Chmod(name string, perm os.FileMode) error {
@@ -159,6 +158,6 @@ func (*defaultImpl) CopyDirContentsLocal(src, dst string) error {
 	return util.CopyDirContentsLocal(src, dst)
 }
 
-func (*defaultImpl) SaveKubeletConfig(filename string, config []byte, perm os.FileMode) error {
-	return ioutil.WriteFile(filename, config, perm)
+func (*defaultImpl) SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error {
+	return os.WriteFile(filename, kubeletConfig, perm)
 }
