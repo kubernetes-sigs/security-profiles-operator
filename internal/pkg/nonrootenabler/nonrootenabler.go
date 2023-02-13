@@ -77,7 +77,12 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string) err
 		return fmt.Errorf("change operator root path permissions: %w", err)
 	}
 
-	kubeletOperatorDir := path.Join(config.HostRoot, kubeletDir, config.OperatorProfilesFolder)
+	kubeletOperatorDir := path.Join(
+		config.HostRoot,
+		kubeletDir,
+		config.SeccompProfilesFolder,
+		config.OperatorProfilesFolder,
+	)
 	if _, err := n.impl.Stat(kubeletOperatorDir); os.IsNotExist(err) {
 		logger.Info("Linking profiles root path")
 		if err := n.impl.Symlink(
