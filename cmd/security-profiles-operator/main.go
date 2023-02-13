@@ -530,7 +530,20 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 	const component = "non-root-enabler"
 	printInfo(component, info)
 	runtime := ctx.String("runtime")
-	return nonrootenabler.New().Run(ctrl.Log.WithName(component), runtime)
+
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return fmt.Errorf("getting config: %w", err)
+	}
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{})
+	if err != nil {
+		return fmt.Errorf("creating manager: %w", err)
+	}
+	kubeletDir, err := util.GetKubeletDirFromNodeLabel(ctx.Context, mgr.GetAPIReader())
+	if err != nil {
+		kubeletDir = config.KubeletDir()
+	}
+	return nonrootenabler.New().Run(ctrl.Log.WithName(component), runtime, kubeletDir)
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {

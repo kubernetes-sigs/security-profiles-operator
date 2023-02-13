@@ -17,12 +17,17 @@ limitations under the License.
 package util
 
 import (
+	"context"
+	"fmt"
+	"os"
 	"path"
 	"strings"
 
 	"golang.org/x/mod/semver"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
@@ -66,4 +71,24 @@ func GetVersion(node *corev1.Node) string {
 	}
 
 	return node.Status.NodeInfo.KubeletVersion
+}
+
+// GetKubeletDirFromNodeLabel parses the kubelet directory path from the current node labels.
+func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, error) {
+	nodeName := os.Getenv(config.NodeNameEnvKey)
+	if nodeName == "" {
+		return "", fmt.Errorf("no node name found in environment variable %q", config.NodeNameEnvKey)
+	}
+
+	node := &corev1.Node{}
+	objectKey := client.ObjectKey{Name: nodeName}
+	err := c.Get(ctx, objectKey, node)
+	if err != nil {
+		return "", fmt.Errorf("getting node object for %s: %w", nodeName, err)
+	}
+
+	if kubeletDir, ok := node.Labels[config.KubeletDirNodeLabelKey]; ok {
+		return strings.ReplaceAll(kubeletDir, "-", "/"), nil
+	}
+	return "", fmt.Errorf("no %s label found on node %s", config.KubeletDirNodeLabelKey, nodeName)
 }

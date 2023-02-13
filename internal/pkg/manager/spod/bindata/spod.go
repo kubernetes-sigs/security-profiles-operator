@@ -196,6 +196,14 @@ var Manifest = &appsv1.DaemonSet{
 						},
 						Env: []corev1.EnvVar{
 							{
+								Name: config.NodeNameEnvKey,
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
+										FieldPath: "spec.nodeName",
+									},
+								},
+							},
+							{
 								Name:  config.KubeletDirEnvKey,
 								Value: config.KubeletDir(),
 							},
