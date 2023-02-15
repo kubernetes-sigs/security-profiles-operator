@@ -212,3 +212,9 @@ dependencies:
       match: flatcar_production_vagrant
     - path: hack/ci/Vagrantfile-flatcar
       match: flatcar_developer_container
+
+  - name: zeitgeist
+    version: 0.3.5
+    refPaths:
+      - path: Makefile
+        match: ZEITGEIST_VERSION

@@ -18,6 +18,7 @@ GOLANGCI_LINT_VERSION = v1.51.1
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 5.0.0
 OPERATOR_SDK_VERSION ?= v1.25.0
+ZEITGEIST_VERSION = v0.3.5
 CI_IMAGE ?= golang:1.20
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
@@ -373,7 +374,9 @@ verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 	$(BUILD_DIR)/zeitgeist validate --local-only --base-path . --config dependencies.yaml
 
 $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
-	$(call go-build,./vendor/sigs.k8s.io/zeitgeist)
+	curl -sSfL -o $(BUILD_DIR)/zeitgeist \
+		https://github.com/kubernetes-sigs/zeitgeist/releases/download/$(ZEITGEIST_VERSION)/zeitgeist_$(ZEITGEIST_VERSION:v%=%)_linux_amd64
+	chmod +x $(BUILD_DIR)/zeitgeist
 
 .PHONY: verify-toc
 verify-toc: update-toc ## Verify the table of contents for the documentation
