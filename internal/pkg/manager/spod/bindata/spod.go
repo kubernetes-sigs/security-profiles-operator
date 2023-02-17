@@ -70,6 +70,7 @@ const (
 	NonRootEnablerContainerName                = "non-root-enabler"
 	SelinuxPoliciesCopierContainerName         = "selinux-shared-policies-copier"
 	LocalSeccompProfilePath                    = "security-profiles-operator.json"
+	DefaultPriorityClassName                   = "system-node-critical"
 )
 
 var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
@@ -85,6 +86,7 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		EnableBpfRecorder:   false,
 		StaticWebhookConfig: false,
 		HostProcVolumePath:  DefaultHostProcPath,
+		PriorityClassName:   DefaultPriorityClassName,
 		SelinuxOpts: spodv1alpha1.SelinuxOptions{
 			AllowedSystemProfiles: []string{
 				"container",
