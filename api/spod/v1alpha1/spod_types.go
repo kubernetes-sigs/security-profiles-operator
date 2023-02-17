@@ -318,6 +318,11 @@ type SPODSpec struct {
 	// of SPOD daemon.
 	// +optional
 	DaemonResourceRequirements *corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
+
+	// PriorityClassName if defined, indicates the spod pod priority class.
+	// +optional
+	// +kubebuilder:default="system-node-critical"
+	PriorityClassName string `json:"priorityClassName,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.

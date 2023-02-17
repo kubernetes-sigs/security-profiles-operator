@@ -957,6 +957,11 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
+              priorityClassName:
+                default: system-node-critical
+                description: PriorityClassName if defined, indicates the spod pod
+                  priority class.
+                type: string
               selinuxOptions:
                 description: Defines options specific to the SELinux functionality
                   of the SecurityProfilesOperator
