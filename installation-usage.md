@@ -11,6 +11,7 @@
   - [Installation using helm](#installation-using-helm)
   - [Installation on AKS](#installation-on-aks)
 - [Configure a custom kubelet root directory](#configure-a-custom-kubelet-root-directory)
+- [Set a custom priority class name for spod daemon pod](#set-a-custom-priority-class-name-for-spod-daemon-pod)
 - [Set logging verbosity](#set-logging-verbosity)
 - [Pull images from private registry](#pull-images-from-private-registry)
 - [Configure the SELinux type](#configure-the-selinux-type)
@@ -205,6 +206,20 @@ kubelet.kubernetes.io/directory-location: mnt-resource-kubelet
 
 Where the value of the label is the kubelet root directory path, by replacing `/` with `-`. For example the value above is translated
 by the operator from `mnt-resource-kubelet` into path `/mnt/resource/kubelet`.
+
+## Set a custom priority class name for spod daemon pod
+
+The default priority class name of the spod daemon pod is set to `system-node-critical`. A custom priority class name can be configured
+in the SPOD configuration by setting a value in the `priorityClassName` filed.
+
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"priorityClassName":"my-priority-class"}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
+This is useful in situations when the spod deamon pod remains in `Pending` state, because there isn't enough capacity on the related
+node to be scheduled.
 
 ## Set logging verbosity
 
