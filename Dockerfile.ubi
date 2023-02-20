@@ -49,6 +49,7 @@ LABEL name="Security Profiles Operator" \
       description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, SELinux or AppArmor profiles and apply them to Kubernetes' workloads."
 
 COPY --from=build /work/build/security-profiles-operator /usr/bin/
+COPY --from=build /work/build/spoc /usr/bin/
 
 ENTRYPOINT ["/usr/bin/security-profiles-operator"]
 
