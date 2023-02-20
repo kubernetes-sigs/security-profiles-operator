@@ -2,6 +2,8 @@ dependencies:
   - name: go
     version: 1.20
     refPaths:
+    - path: go.mod
+      match: go
     - path: .github/workflows/build.yml
       match: GO_VERSION
     - path: .github/workflows/test.yml
@@ -118,7 +120,7 @@ dependencies:
       match: registry.access.redhat.com/ubi8/go-toolset
 
   - name: nix
-    version: 2.12.0
+    version: 2.13.2
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION
@@ -190,7 +192,7 @@ dependencies:
       match: ^helm install security-profiles-operator
 
   - name: clang
-    version: 14
+    version: 15
     refPaths:
     - path: nix/derivation-bpf.nix
       match: llvmPackages_\d+.clang-unwrapped
