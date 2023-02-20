@@ -31,6 +31,7 @@ LABEL name="Security Profiles Operator" \
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=make /work/result/security-profiles-operator /
+COPY --from=make /work/result/spoc /
 
 USER 65535:65535
 

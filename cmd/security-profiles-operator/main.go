@@ -21,7 +21,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
@@ -46,6 +45,7 @@ import (
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/cmd"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
@@ -83,43 +83,13 @@ var (
 )
 
 func main() {
-	app := cli.NewApp()
+	app, info := cmd.DefaultApp()
 	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Security Profiles Operator"
 	app.Description = "The Security Profiles Operator makes it easier for cluster admins " +
 		"to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
 
-	info, err := version.Get()
-	if err != nil {
-		log.Fatal(err)
-	}
-	app.Version = info.Version
-
-	app.Commands = cli.Commands{
-		&cli.Command{
-			Name:    "version",
-			Aliases: []string{"v"},
-			Usage:   "display detailed version information",
-			Flags: []cli.Flag{
-				&cli.BoolFlag{
-					Name:    jsonFlag,
-					Aliases: []string{"j"},
-					Usage:   "print JSON instead of text",
-				},
-			},
-			Action: func(c *cli.Context) error {
-				res := info.String()
-				if c.Bool(jsonFlag) {
-					j, err := info.JSONString()
-					if err != nil {
-						return fmt.Errorf("unable to generate JSON from version info: %w", err)
-					}
-					res = j
-				}
-				print(res)
-				return nil
-			},
-		},
+	app.Commands = append(app.Commands,
 		&cli.Command{
 			Before:  initialize,
 			Name:    "manager",
@@ -226,7 +196,8 @@ func main() {
 				return runBPFRecorder(ctx, info)
 			},
 		},
-	}
+	)
+
 	app.Flags = []cli.Flag{
 		&cli.UintFlag{
 			Name:    "verbosity",

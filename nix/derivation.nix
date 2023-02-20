@@ -24,6 +24,6 @@ with pkgs; buildGo119Module rec {
     make WITH_BPF=1
   '';
   installPhase = ''
-    install -Dm755 -t $out build/security-profiles-operator
+    install -Dm755 -t $out build/security-profiles-operator build/spoc
   '';
 }

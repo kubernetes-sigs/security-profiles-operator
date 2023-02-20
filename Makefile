@@ -24,6 +24,7 @@ CI_IMAGE ?= golang:1.20
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
 PROJECT := security-profiles-operator
+CLI_BINARY := spoc
 BUILD_DIR := build
 
 APPARMOR_ENABLED ?= 1
@@ -125,7 +126,7 @@ DOCKERFILE ?= Dockerfile
 
 # Utility targets
 
-all: $(BUILD_DIR)/$(PROJECT) ## Build the security-profiles-operator binary
+all: $(BUILD_DIR)/$(PROJECT) $(BUILD_DIR)/$(CLI_BINARY) ## Build the project binaries
 
 .PHONY: help
 help:  ## Display this help
@@ -147,8 +148,15 @@ help:  ## Display this help
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
+define go-build-spo
+	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/$(1)
+endef
+
 $(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
-	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/security-profiles-operator
+	$(call go-build-spo,$(PROJECT))
+
+$(BUILD_DIR)/$(CLI_BINARY): $(BUILD_DIR) $(BUILD_FILES)
+	$(call go-build-spo,$(CLI_BINARY))
 
 .PHONY: clean
 clean: ## Clean the build directory
