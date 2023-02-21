@@ -24,6 +24,7 @@ import (
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -68,6 +69,7 @@ import (
 )
 
 const (
+	spocCmd            string = "spoc"
 	jsonFlag           string = "json"
 	recordingFlag      string = "with-recording"
 	selinuxFlag        string = "with-selinux"
@@ -195,6 +197,13 @@ func main() {
 			Action: func(ctx *cli.Context) error {
 				return runBPFRecorder(ctx, info)
 			},
+		},
+		&cli.Command{
+			Name:     spocCmd,
+			Aliases:  []string{"s"},
+			Usage:    "run the CLI",
+			Action:   runCLI,
+			HideHelp: true,
 		},
 	)
 
@@ -585,6 +594,24 @@ func setupEnabledControllers(
 				return fmt.Errorf("add readiness check to controller: %w", err)
 			}
 		}
+	}
+
+	return nil
+}
+
+// runCLI wraps the SPO CLI by using $PATH for searching the spoc executable.
+func runCLI(_ *cli.Context) error {
+	const minArgs = 2
+	if len(os.Args) < minArgs {
+		return errors.New("not enough arguments provided")
+	}
+	//nolint:gosec // it's intentional to pass all other args here
+	c := exec.Command(spocCmd, os.Args[minArgs:]...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+
+	if err := c.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 	}
 
 	return nil
