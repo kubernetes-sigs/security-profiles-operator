@@ -34,5 +34,6 @@ COPY --from=make /work/result/security-profiles-operator /
 COPY --from=make /work/result/spoc /
 
 USER 65535:65535
+ENV PATH=/
 
 ENTRYPOINT ["/security-profiles-operator"]
