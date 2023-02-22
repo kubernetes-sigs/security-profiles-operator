@@ -104,6 +104,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseSelinuxBaseUsage,
 		},
 		{
+			"SELinux: base case (install policy, run pod and delete) for the raw CR",
+			e.testCaseRawSelinuxBaseUsage,
+		},
+		{
 			"SELinux: non-default template",
 			e.testCaseSelinuxNonDefaultTemplate,
 		},
@@ -430,19 +434,19 @@ func (e *e2e) writeAndDo(verb, manifest, filePattern string) func() {
 	return func() { os.Remove(fileName) }
 }
 
-func (e *e2e) getSELinuxPolicyName(policy string) string {
-	usageStr := e.getSELinuxPolicyUsage(policy)
+func (e *e2e) getSELinuxPolicyName(kind, policy string) string {
+	usageStr := e.getSELinuxPolicyUsage(kind, policy)
 	// Udica (the library that helps out generate SELinux policies),
 	// adds .process in the end of the usage. So we need to remove it
 	// to get the module name
 	return strings.TrimSuffix(usageStr, ".process")
 }
 
-func (e *e2e) getSELinuxPolicyUsage(policy string) string {
+func (e *e2e) getSELinuxPolicyUsage(kind, policy string) string {
 	ns := e.getCurrentContextNamespace(defaultNamespace)
 	// This describes the usage string, which is not necessarily
 	// the name of the policy in the node
-	return e.kubectl("get", "selinuxprofile", "-n", ns, policy, "-o", "jsonpath={.status.usage}")
+	return e.kubectl("get", kind, "-n", ns, policy, "-o", "jsonpath={.status.usage}")
 }
 
 func (e *e2e) sliceContainsString(slice []string, s string) bool {

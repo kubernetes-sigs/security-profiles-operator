@@ -40,7 +40,7 @@ func (e *e2e) testCaseSelinuxProfileBinding() {
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 
 	e.logf("Getting selinux profile usage")
-	selinuxUsage := e.getSELinuxPolicyUsage(selinuxTestProfileName)
+	selinuxUsage := e.getSELinuxPolicyUsage("selinuxprofile", selinuxTestProfileName)
 
 	e.logf("Testing that pod has securityContext")
 	output := e.kubectl(

@@ -92,7 +92,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", "errorlogger")
 
-	rawPolicyName := e.getSELinuxPolicyName("errorlogger")
+	rawPolicyName := e.getSELinuxPolicyName("selinuxprofile", "errorlogger")
 	e.logf("assert errorlogger policy is installed")
 	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
 
