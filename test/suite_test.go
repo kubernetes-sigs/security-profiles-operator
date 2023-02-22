@@ -665,6 +665,9 @@ func (e *e2e) enableSelinuxInSpod() {
 	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
 		e.logf("Enable selinux in SPOD")
 		e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
+		e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+			`{"spec":{"selinuxOptions":{"allowedSystemProfiles":["container","net_container"]}}}`,
+			"--type=merge")
 
 		time.Sleep(defaultWaitTime)
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")

@@ -97,6 +97,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseSelinuxBaseUsage,
 		},
 		{
+			"SELinux: non-default template",
+			e.testCaseSelinuxNonDefaultTemplate,
+		},
+		{
 			"SELinux: Metrics (update, delete)",
 			e.testCaseSelinuxMetrics,
 		},
