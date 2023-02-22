@@ -61,6 +61,19 @@ spec:
         - open
 `
 
+	rawErrorloggerPolicy = `
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+kind: RawSelinuxProfile
+metadata:
+  name: raw-errorlogger
+spec:
+  policy: |
+    (blockinherit container)
+    (allow process var_log_t ( dir ( open read getattr lock search ioctl add_name remove_name write )))
+    (allow process var_log_t ( file ( getattr read write append ioctl lock map open create  )))
+    (allow process var_log_t ( sock_file ( getattr read write append open  )))
+`
+
 	// this is the equivalent of errorloggerPolicy but with several calls removed. The idea is to
 	// ensure that the workload will fail if the policy in incomplete. Allows setting a parameter
 	// as needed.
@@ -139,28 +152,37 @@ spec:
 )
 
 func (e *e2e) testCaseSelinuxBaseUsage(nodes []string) {
+	e.selinuxBaseUsage("selinuxprofile", errorloggerPolicy, "errorlogger", nodes)
+}
+
+func (e *e2e) testCaseRawSelinuxBaseUsage(nodes []string) {
+	e.selinuxBaseUsage("rawselinuxprofile", rawErrorloggerPolicy, "raw-errorlogger", nodes)
+}
+
+func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 	e.selinuxOnlyTestCase()
 
 	e.logf("The 'errorlogger' workload should be able to use SELinux policy")
 
 	e.logf("creating policy")
-	e.writeAndCreate(errorloggerPolicy, "errorlogger-policy.yml")
+	rmFn := e.writeAndCreate(policy, "errorlogger-policy.yml")
+	defer rmFn()
 
 	// Let's wait for the policy to be processed
 	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
-		"--for", "condition=ready", "selinuxprofile", "errorlogger")
+		"--for", "condition=ready", kind, polName)
 
-	rawPolicyName := e.getSELinuxPolicyName("errorlogger")
+	rawPolicyName := e.getSELinuxPolicyName(kind, polName)
 
 	e.logf("assert policy is installed")
 	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
 
 	e.logf("creating workload")
 
-	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage("errorlogger"))
+	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage(kind, polName))
 	e.writeAndCreate(podWithPolicy, "pod-w-policy.yml")
 
-	e.waitFor("condition=ready", "pod", "errorlogger")
+	e.waitFor("condition=ready", "pod", polName)
 
 	e.logf("the workload should be running")
 	podWithPolicyPhase := e.kubectl(
@@ -175,7 +197,7 @@ func (e *e2e) testCaseSelinuxBaseUsage(nodes []string) {
 	e.kubectl("delete", "pod", "errorlogger")
 
 	e.logf("removing policy")
-	e.kubectl("delete", "selinuxprofile", "errorlogger")
+	e.kubectl("delete", kind, polName)
 
 	e.logf("assert policy was removed")
 	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
@@ -198,7 +220,7 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 		"--for", "condition=ready", "selinuxprofile", enforcingProfileName)
 
 	e.logf("creating workload - it should become ready, but fail")
-	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage(enforcingProfileName))
+	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage("selinuxprofile", enforcingProfileName))
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-policy.yml")
 
 	// note: this would have been much nicer with kubectl wait --jsonpath, but I found it racy incase the status
@@ -240,7 +262,7 @@ func (e *e2e) testCaseSelinuxNonDefaultTemplate(nodes []string) {
 	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", netContainerPolicyName)
 
-	rawPolicyName := e.getSELinuxPolicyName(netContainerPolicyName)
+	rawPolicyName := e.getSELinuxPolicyName("selinuxprofile", netContainerPolicyName)
 
 	e.logf("assert policy is installed")
 	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
@@ -263,7 +285,7 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 		"--for", "condition=ready", "selinuxprofile", permissiveProfileName)
 
 	e.logf("creating workload - it should become ready, but fail")
-	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage(permissiveProfileName))
+	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage("selinuxprofile", permissiveProfileName))
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-permissive-policy.yml")
 
 	e.waitFor("condition=ready", "pod", "errorlogger")
@@ -292,7 +314,7 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 		"--for", "condition=ready=false", "selinuxprofile", disabledProfileName)
 
 	e.logf("creating workload - it should not even become ready")
-	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage(disabledProfileName))
+	podWithPolicy := fmt.Sprintf(podWithPolicyFmt, e.getSELinuxPolicyUsage("selinuxprofile", disabledProfileName))
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-disabled-policy.yml")
 
 	var exitCode string
@@ -332,7 +354,7 @@ func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, node
 		if missingPolName != "" {
 			if i == nodeIterations-1 {
 				e.Fail(fmt.Sprintf(
-					"The SelinuxProfile errorlogger wasn't found in the %s node with the name %s",
+					"The SelinuxProfile wasn't found in the %s node with the name %s",
 					missingPolName, policy,
 				))
 			} else {
@@ -358,7 +380,7 @@ func (e *e2e) assertSelinuxPolicyIsRemoved(nodes []string, policy string, nodeIt
 		if missingPolName != "" {
 			if i == nodeIterations-1 {
 				e.Fail(fmt.Sprintf(
-					"The SelinuxProfile errorlogger was found in the %s node with the name %s",
+					"The SelinuxProfile was found in the %s node with the name %s",
 					missingPolName, policy,
 				))
 			} else {
