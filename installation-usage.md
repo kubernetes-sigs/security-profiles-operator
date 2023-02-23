@@ -170,14 +170,16 @@ A helm chart is also available for installation. The chart is attached to each
 [GitHub release](https://github.com/kubernetes-sigs/security-profiles-operator/releases)
 as an artifact, and can be installed by executing the following shell commands:
 
+You may also specify a different target namespace with `--namespace mynamespace` or `--namespace mynamespace --create-namespace` if it still doesn't exist.
 ```shell
 # Install cert-manager if it is not already installed (TODO: The helm
 # chart might do this one day - see issue 1062 for details):
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
 kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
+
 # Install the chart from a release URL (note: helm also allows users to
 # specify a file path instead of a URL, if desired):
-helm install security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.6.1-dev/security-profiles-operator-0.6.1-dev.tgz
+helm install --namespace security-profiles-operator security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.6.1-dev/security-profiles-operator-0.6.1-dev.tgz
 ```
 
 ### Installation on AKS

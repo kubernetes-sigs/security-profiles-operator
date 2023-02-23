@@ -1,3 +1,74 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app: security-profiles-operator
+    openshift.io/cluster-monitoring: "true"
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+  name: security-profiles-operator
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: apparmorprofiles.security-profiles-operator.x-k8s.io
+spec:
+  group: security-profiles-operator.x-k8s.io
+  names:
+    kind: AppArmorProfile
+    listKind: AppArmorProfileList
+    plural: apparmorprofiles
+    shortNames:
+    - aa
+    singular: apparmorprofile
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: AppArmorProfile is the Schema for the apparmorprofiles API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AppArmorProfileSpec defines the desired state of AppArmorProfile
+            properties:
+              policy:
+                type: string
+            required:
+            - policy
+            type: object
+          status:
+            description: AppArmorProfileStatus defines the observed state of AppArmorProfile
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -216,6 +287,111 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.11.3
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: rawselinuxprofiles.security-profiles-operator.x-k8s.io
+spec:
+  group: security-profiles-operator.x-k8s.io
+  names:
+    kind: RawSelinuxProfile
+    listKind: RawSelinuxProfileList
+    plural: rawselinuxprofiles
+    singular: rawselinuxprofile
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.usage
+      name: Usage
+      type: string
+    - jsonPath: .status.status
+      name: State
+      type: string
+    name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
+            properties:
+              policy:
+                type: string
+            type: object
+          status:
+            description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
+            properties:
+              activeWorkloads:
+                items:
+                  type: string
+                type: array
+              conditions:
+                description: Conditions of the resource.
+                items:
+                  description: A Condition that may apply to a resource.
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is the last time this condition
+                        transitioned from one status to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: A Message containing details about this condition's
+                        last transition from one status to another, if any.
+                      type: string
+                    reason:
+                      description: A Reason for this condition's last transition from
+                        one status to another.
+                      type: string
+                    status:
+                      description: Status of this condition; is it currently True,
+                        False, or Unknown?
+                      type: string
+                    type:
+                      description: Type of this condition. At most one of each condition
+                        type may apply to a resource at any point in time.
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              status:
+                description: ProfileState defines the state that the profile is in.
+                  A profile in this context refers to a SeccompProfile or a SELinux
+                  profile, the states are shared between them as well as the management
+                  API.
+                type: string
+              usage:
+                description: Represents the string that the SelinuxProfile object
+                  can be referenced as in a pod seLinuxOptions section.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
   labels:
     app: security-profiles-operator
@@ -1976,83 +2152,20 @@ spec:
     subresources:
       status: {}
 ---
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: v0.8.0
-  creationTimestamp: null
-  labels:
-    app: security-profiles-operator
-  name: apparmorprofiles.security-profiles-operator.x-k8s.io
-spec:
-  group: security-profiles-operator.x-k8s.io
-  names:
-    kind: AppArmorProfile
-    listKind: AppArmorProfileList
-    plural: apparmorprofiles
-    shortNames:
-    - aa
-    singular: apparmorprofile
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    schema:
-      openAPIV3Schema:
-        description: AppArmorProfile is the Schema for the apparmorprofiles API
-        properties:
-          apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-            type: string
-          kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-            type: string
-          metadata:
-            type: object
-          spec:
-            description: AppArmorProfileSpec defines the desired state of AppArmorProfile
-            properties:
-              policy:
-                type: string
-            required:
-            - policy
-            type: object
-          status:
-            description: AppArmorProfileStatus defines the observed state of AppArmorProfile
-            type: object
-        type: object
-    served: true
-    storage: true
-    subresources:
-      status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    app: security-profiles-operator
-    openshift.io/cluster-monitoring: "true"
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/warn: privileged
-  name: security-profiles-operator
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator
+  namespace: security-profiles-operator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-webhook
   namespace: security-profiles-operator
 ---
 apiVersion: v1
@@ -2063,13 +2176,77 @@ metadata:
   name: spod
   namespace: security-profiles-operator
 ---
-apiVersion: v1
-kind: ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
 metadata:
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - get
+  - update
+- apiGroups:
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
   labels:
     app: security-profiles-operator
   name: spo-webhook
   namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+- apiGroups:
+  - coordination.k8s.io
+  resourceNames:
+  - security-profiles-operator-webhook-lock
+  resources:
+  - leases
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  labels:
+    app: security-profiles-operator
+  name: spod
+  namespace: security-profiles-operator
+rules:
+- apiGroups:
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -2326,28 +2503,112 @@ rules:
   - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-metrics-client
+rules:
+- nonResourceURLs:
+  - /metrics
+  - /metrics-spod
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
 metadata:
   creationTimestamp: null
   labels:
     app: security-profiles-operator
-  name: security-profiles-operator
-  namespace: security-profiles-operator
+  name: spo-webhook
 rules:
 - apiGroups:
-  - coordination.k8s.io
+  - ""
   resources:
-  - leases
+  - events
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilebindings
   verbs:
   - create
   - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilebindings/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
   - update
 - apiGroups:
-  - security.openshift.io
+  - security-profiles-operator.x-k8s.io
   resources:
-  - securitycontextconstraints
+  - profilebindings/status
   verbs:
-  - use
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilerecordings
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilerecordings/finalizers
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilerecordings/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - seccompprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - selinuxprofiles
+  verbs:
+  - get
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -2540,165 +2801,6 @@ rules:
   - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  creationTimestamp: null
-  labels:
-    app: security-profiles-operator
-  name: spod
-  namespace: security-profiles-operator
-rules:
-- apiGroups:
-  - security.openshift.io
-  resources:
-  - securitycontextconstraints
-  verbs:
-  - use
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  creationTimestamp: null
-  labels:
-    app: security-profiles-operator
-  name: spo-webhook
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - events
-  verbs:
-  - create
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilebindings
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilebindings/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilebindings/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilerecordings
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilerecordings/finalizers
-  verbs:
-  - delete
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - profilerecordings/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - seccompprofiles
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - selinuxprofiles
-  verbs:
-  - get
-  - list
-  - watch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  creationTimestamp: null
-  labels:
-    app: security-profiles-operator
-  name: spo-webhook
-  namespace: security-profiles-operator
-rules:
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-- apiGroups:
-  - coordination.k8s.io
-  resourceNames:
-  - security-profiles-operator-webhook-lock
-  resources:
-  - leases
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - security.openshift.io
-  resources:
-  - securitycontextconstraints
-  verbs:
-  - use
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: security-profiles-operator
-  namespace: security-profiles-operator
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: security-profiles-operator
-subjects:
-- kind: ServiceAccount
-  name: security-profiles-operator
-  namespace: security-profiles-operator
----
-apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   labels:
@@ -2714,20 +2816,19 @@ subjects:
   name: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   labels:
     app: security-profiles-operator
-  name: spod
+  name: spo-webhook
   namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: spod
+  kind: Role
+  name: spo-webhook
 subjects:
 - kind: ServiceAccount
-  name: spod
-  namespace: security-profiles-operator
+  name: spo-webhook
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -2750,6 +2851,22 @@ kind: ClusterRoleBinding
 metadata:
   labels:
     app: security-profiles-operator
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: security-profiles-operator
+subjects:
+- kind: ServiceAccount
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: security-profiles-operator
   name: spo-webhook
   namespace: security-profiles-operator
 roleRef:
@@ -2762,39 +2879,20 @@ subjects:
   namespace: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   labels:
     app: security-profiles-operator
-  name: spo-webhook
+  name: spod
   namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: spo-webhook
+  kind: ClusterRole
+  name: spod
 subjects:
 - kind: ServiceAccount
-  name: spo-webhook
----
-apiVersion: admissionregistration.k8s.io/v1
-kind: MutatingWebhookConfiguration
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: spo-mutating-webhook-configuration
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  labels:
-    app: security-profiles-operator
-  name: spo-metrics-client
-rules:
-- nonResourceURLs:
-  - /metrics
-  - /metrics-spod
-  verbs:
-  - get
+  name: spod
+  namespace: security-profiles-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -2810,17 +2908,6 @@ subjects:
 - kind: ServiceAccount
   name: default
   namespace: security-profiles-operator
----
-apiVersion: v1
-kind: Secret
-metadata:
-  annotations:
-    kubernetes.io/service-account.name: default
-  labels:
-    app: security-profiles-operator
-  name: metrics-token
-  namespace: security-profiles-operator
-type: kubernetes.io/service-account-token
 ---
 apiVersion: v1
 data:
@@ -2964,7 +3051,18 @@ metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator-profile
+  namespace: '{{ .Release.Namespace }}'
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  annotations:
+    kubernetes.io/service-account.name: default
+  labels:
+    app: security-profiles-operator
+  name: metrics-token
   namespace: security-profiles-operator
+type: kubernetes.io/service-account-token
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -3034,3 +3132,10 @@ spec:
       - effect: NoExecute
         key: node.kubernetes.io/not-ready
         operator: Exists
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  labels:
+    app: security-profiles-operator
+  name: spo-mutating-webhook-configuration
