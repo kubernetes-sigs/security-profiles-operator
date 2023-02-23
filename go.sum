@@ -226,6 +226,8 @@ github.com/kr/pretty v0.3.0 h1:WgNl7dwNpEZ6jJ9k1snq4pZsg7DOEN8hP9Xw0Tsjwk0=
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
+github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de h1:9TO3cAIGXtEhnIaL+V+BEER86oLrvS+kWobKpbJuye0=
+github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de/go.mod h1:zAbeS9B/r2mtpb6U+EI2rYA5OAXxsYw6wTamcNW+zcE=
 github.com/mailru/easyjson v0.0.0-20190614124828-94de47d64c63/go.mod h1:C1wdFJiN94OJF2b5HbByQZoLdCWB1Yqtg26g4irojpc=
 github.com/mailru/easyjson v0.0.0-20190626092158-b2ccc519800e/go.mod h1:C1wdFJiN94OJF2b5HbByQZoLdCWB1Yqtg26g4irojpc=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
@@ -702,6 +704,8 @@ k8s.io/apiextensions-apiserver v0.25.4 h1:7hu9pF+xikxQuQZ7/30z/qxIPZc2J1lFElPtr7
 k8s.io/apiextensions-apiserver v0.25.4/go.mod h1:bkSGki5YBoZWdn5pWtNIdGvDrrsRWlmnvl9a+tAw5vQ=
 k8s.io/apimachinery v0.25.5 h1:SQomYHvv+aO43qdu3QKRf9YuI0oI8w3RrOQ1qPbAUGY=
 k8s.io/apimachinery v0.25.5/go.mod h1:1S2i1QHkmxc8+EZCIxe/fX5hpldVXk4gvnJInMEb8D4=
+k8s.io/cli-runtime v0.25.2 h1:XOx+SKRjBpYMLY/J292BHTkmyDffl/qOx3YSuFZkTuc=
+k8s.io/cli-runtime v0.25.2/go.mod h1:OQx3+/0st6x5YpkkJQlEWLC73V0wHsOFMC1/roxV8Oc=
 k8s.io/client-go v0.25.4 h1:3RNRDffAkNU56M/a7gUfXaEzdhZlYhoW8dgViGy5fn8=
 k8s.io/client-go v0.25.4/go.mod h1:8trHCAC83XKY0wsBIpbirZU4NTUpbuhc2JnI7OruGZw=
 k8s.io/component-base v0.25.4 h1:n1bjg9Yt+G1C0WnIDJmg2fo6wbEU1UGMRiQSjmj7hNQ=

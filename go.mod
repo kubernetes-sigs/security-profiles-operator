@@ -29,6 +29,7 @@ require (
 	google.golang.org/protobuf v1.28.1
 	k8s.io/api v0.25.4
 	k8s.io/apimachinery v0.25.5
+	k8s.io/cli-runtime v0.25.2
 	k8s.io/client-go v0.25.4
 	k8s.io/klog/v2 v2.90.0
 	sigs.k8s.io/controller-runtime v0.13.1
@@ -64,6 +65,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
