@@ -9,6 +9,11 @@ issues:
         - dupl
         - gofumpt
         - lll
+    - path: internal/pkg/cli/recorder/generated.go
+      linters:
+        - dupl
+        - gofumpt
+        - lll
     - linters:
         - goerr113
       text: do not define dynamic errors, use wrapped static errors instead
