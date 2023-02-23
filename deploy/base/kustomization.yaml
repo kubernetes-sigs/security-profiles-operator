@@ -1,24 +1,25 @@
----
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-commonLabels:
-  app: security-profiles-operator
 
 resources:
-  - ns.yaml
-  - service_account.yaml
-  - role.yaml
-  - role_binding.yaml
-  - mutatingwebhookconfig.yaml
-  - metrics_client.yaml
+- ns.yaml
+- service_account.yaml
+- role.yaml
+- role_binding.yaml
+- mutatingwebhookconfig.yaml
+- metrics_client.yaml
 
 configMapGenerator:
-  - name: security-profiles-operator-profile
-    files:
-      - profiles/security-profiles-operator.json
-      - profiles/selinuxd.cil
-      - profiles/selinuxrecording.cil
+- files:
+  - profiles/security-profiles-operator.json
+  - profiles/selinuxd.cil
+  - profiles/selinuxrecording.cil
+  name: security-profiles-operator-profile
 
 generatorOptions:
   disableNameSuffixHash: true
+labels:
+- includeSelectors: true
+  pairs:
+    app: security-profiles-operator

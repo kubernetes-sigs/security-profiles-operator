@@ -1,18 +1,21 @@
----
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-commonLabels:
-  app: security-profiles-operator
+sortOptions:
+  order: fifo
 
 resources:
-  - crds/profilebinding.yaml
-  - crds/profilerecording.yaml
-  - crds/seccompprofile.yaml
-  - crds/securityprofilenodestatus.yaml
-  - crds/securityprofilesoperatordaemon.yaml
-  - crds/selinuxpolicy.yaml
-  - crds/apparmorprofile.yaml
+- crds/profilebinding.yaml
+- crds/profilerecording.yaml
+- crds/seccompprofile.yaml
+- crds/securityprofilenodestatus.yaml
+- crds/securityprofilesoperatordaemon.yaml
+- crds/selinuxpolicy.yaml
+- crds/apparmorprofile.yaml
 
 generatorOptions:
   disableNameSuffixHash: true
+labels:
+- includeSelectors: true
+  pairs:
+    app: security-profiles-operator

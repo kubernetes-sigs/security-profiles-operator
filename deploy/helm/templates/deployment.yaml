@@ -5,7 +5,7 @@ metadata:
     app: security-profiles-operator
     {{- include "security-profiles-operator.labels" . | nindent 4 }}
   name: security-profiles-operator
-  namespace: security-profiles-operator
+  namespace: {{ .Release.Namespace }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}

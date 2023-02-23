@@ -1,18 +1,20 @@
 # This is a OpenShift-specific deployment. It is not meant for consumption by
 # upstream users but rather as a base for downstream OCP packaging. For pure
 # upstream deployments, please use deploy/operator.yaml
----
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-bases:
-  - ../cluster
 
-patchesJson6902:
-  - target:
-      kind: ClusterRole
-      name: spo-metrics-client
-    path: service_discovery_rules.yaml
-  - target:
-      kind: ClusterRoleBinding
-      name: spo-metrics-client
-    path: bind_monitoring_sa.yaml
+sortOptions:
+  order: fifo
+
+resources:
+- ../cluster
+patches:
+- path: service_discovery_rules.yaml
+  target:
+    kind: ClusterRole
+    name: spo-metrics-client
+- path: bind_monitoring_sa.yaml
+  target:
+    kind: ClusterRoleBinding
+    name: spo-metrics-client

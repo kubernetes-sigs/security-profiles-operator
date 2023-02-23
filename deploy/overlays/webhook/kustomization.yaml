@@ -1,28 +1,26 @@
 # This is the namespaced deployment, which only watches configMaps for one
 # namespace.
----
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-bases:
-  - ../cluster
 
-patchesStrategicMerge:
-  - webhook_config.yaml
-  - deployment.yaml
+sortOptions:
+  order: legacy
 
 patches:
-  - target:
-      kind: ClusterRole
-      name: security-profiles-operator
-    path: role.yaml
+- path: role.yaml
+  target:
+    kind: ClusterRole
+    name: security-profiles-operator
+- path: webhook_config.yaml
+- path: deployment.yaml
 
 resources:
-  - webhook_cert.yaml
-  - webhook_deployment.yaml
-  - webhook_service.yaml
+- webhook_cert.yaml
+- webhook_deployment.yaml
+- webhook_service.yaml
+- ../cluster
 
 images:
-  - name: security-profiles-operator
-    newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
-    newTag: latest
-
+- name: security-profiles-operator
+  newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
+  newTag: latest
