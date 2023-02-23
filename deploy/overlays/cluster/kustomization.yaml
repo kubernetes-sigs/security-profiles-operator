@@ -1,16 +1,16 @@
 # This is the cluster wide security-profiles-operator deployment, which listens for
 # configMaps on all namespaces
----
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-bases:
-  - ../../base-crds
-  - ../../base
-  - ../../kustomize-deployment
-
-patchesJson6902:
-  - target:
-      version: v1
-      kind: ConfigMap
-      name: security-profiles-operator-profile
-    path: operator-profile.yaml
+sortOptions:
+  order: fifo
+resources:
+- ../../base-crds
+- ../../base
+- ../../kustomize-deployment
+patches:
+- path: operator-profile.yaml
+  target:
+    kind: ConfigMap
+    name: security-profiles-operator-profile
+    version: v1

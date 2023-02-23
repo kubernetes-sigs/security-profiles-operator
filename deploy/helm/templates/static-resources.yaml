@@ -7,7 +7,7 @@ metadata:
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/warn: privileged
-  name: security-profiles-operator
+  name: '{{ .Release.Namespace }}'
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -15,7 +15,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -23,7 +23,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spod
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -31,7 +31,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spo-webhook
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -294,7 +294,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 rules:
 - apiGroups:
   - coordination.k8s.io
@@ -508,7 +508,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spod
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 rules:
 - apiGroups:
   - security.openshift.io
@@ -619,7 +619,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spo-webhook
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 rules:
 - apiGroups:
   - coordination.k8s.io
@@ -650,7 +650,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -658,7 +658,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: security-profiles-operator
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -666,7 +666,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -674,6 +674,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -681,7 +682,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spod
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -689,7 +690,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: spod
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -697,7 +698,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spod
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -705,7 +706,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: spod
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -713,7 +714,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spo-webhook
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -721,7 +722,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: spo-webhook
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -729,7 +730,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spo-webhook
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -737,6 +738,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: spo-webhook
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
@@ -764,6 +766,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spo-metrics-client
+  namespace: '{{ .Release.Namespace }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -771,7 +774,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: default
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: v1
 kind: Secret
@@ -781,7 +784,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: metrics-token
-  namespace: security-profiles-operator
+  namespace: '{{ .Release.Namespace }}'
 type: kubernetes.io/service-account-token
 ---
 apiVersion: v1
@@ -926,4 +929,3 @@ metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator-profile
-  namespace: security-profiles-operator
