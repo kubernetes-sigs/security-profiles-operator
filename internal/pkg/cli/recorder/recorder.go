@@ -21,7 +21,6 @@ package recorder
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -30,25 +29,21 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
-	"syscall"
 	"unsafe"
 
-	"github.com/acobaugh/osrelease"
-	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/containers/common/pkg/seccomp"
+	"github.com/go-logr/logr"
 	libseccomp "github.com/seccomp/libseccomp-golang"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/printers"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 )
 
 // Recorder is the main structure of this package.
 type Recorder struct {
-	btfPath string
-	pids    *bpf.BPFMap
+	bpfRecorder *bpfrecorder.BpfRecorder
 }
 
 // New returns a new Recorder instance.
@@ -67,10 +62,11 @@ func (r *Recorder) Run(filename string, args ...string) error {
 		return errors.New("no command provided")
 	}
 
-	if err := r.load(); err != nil {
+	r.bpfRecorder = bpfrecorder.New(logr.New(&LogSink{}))
+	if err := r.bpfRecorder.Load(false); err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	defer r.unload()
+	defer r.bpfRecorder.Unload()
 
 	cmdName := args[0]
 	cmd := exec.Command(cmdName, args[1:]...)
@@ -107,138 +103,10 @@ func (r *Recorder) Run(filename string, args ...string) error {
 	return nil
 }
 
-func (r *Recorder) load() (err error) {
-	log.Print("Loading bpf module")
-	r.btfPath, err = r.findBtfPath()
-	if err != nil {
-		return fmt.Errorf("find btf: %w", err)
-	}
-
-	bpfObject, ok := bpfObjects[runtime.GOARCH]
-	if !ok {
-		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
-	}
-
-	module, err := bpf.NewModuleFromBufferArgs(bpf.NewModuleArgs{
-		BPFObjBuff: bpfObject,
-		BPFObjName: "cli_recorder.bpf.o",
-		BTFObjPath: r.btfPath,
-	})
-	if err != nil {
-		return fmt.Errorf("bpf module: %w", err)
-	}
-
-	log.Print("Loading bpf object from module")
-	if err := module.BPFLoadObject(); err != nil {
-		return fmt.Errorf("bpf object: %w", err)
-	}
-
-	const programName = "sys_enter"
-	log.Print("Getting bpf program " + programName)
-	program, err := module.GetProgram(programName)
-	if err != nil {
-		return fmt.Errorf("get %s program: %w", programName, err)
-	}
-
-	log.Print("Attaching bpf tracepoint")
-	if _, err := program.AttachTracepoint("raw_syscalls", programName); err != nil {
-		return fmt.Errorf("attach tracepoint: %w", err)
-	}
-
-	log.Print("Getting pids map")
-	r.pids, err = module.GetMap("pids")
-	if err != nil {
-		return fmt.Errorf("get syscalls map: %w", err)
-	}
-
-	log.Print("Module successfully loaded")
-	return nil
-}
-
-func (r *Recorder) unload() {
-	log.Print("Unloading bpf module")
-	r.pids.GetModule().Close()
-	os.RemoveAll(r.btfPath)
-}
-
-func (r *Recorder) findBtfPath() (string, error) {
-	// Use the system btf if possible
-	if _, err := os.Stat("/sys/kernel/btf/vmlinux"); err == nil {
-		log.Print("Using system btf file")
-		return "", nil
-	}
-
-	log.Print("Trying to find matching in-memory btf")
-
-	btf := types.Btf{}
-	if err := json.Unmarshal([]byte(btfJSON), &btf); err != nil {
-		return "", fmt.Errorf("unmarshal btf JSON: %w", err)
-	}
-
-	res, err := osrelease.Read()
-	if err != nil {
-		return "", fmt.Errorf("read os-release file: %w", err)
-	}
-
-	osID := types.Os(res["ID"])
-	btfOs, ok := btf[osID]
-	if !ok {
-		log.Printf("OS not found in btf map: %s", osID)
-		return "", nil
-	}
-	log.Printf("OS found in btf map: %s", osID)
-
-	osVersion := types.OsVersion(res["VERSION_ID"])
-	btfOsVersion, ok := btfOs[osVersion]
-	if !ok {
-		log.Printf("OS version not found in btf map: %s", osVersion)
-		return "", nil
-	}
-	log.Printf("OS version found in btf map: %s", osVersion)
-
-	uname := syscall.Utsname{}
-	if err := syscall.Uname(&uname); err != nil {
-		return "", fmt.Errorf("uname syscall failed: %w", err)
-	}
-
-	arch := types.Arch(util.ToStringInt8(uname.Machine))
-	btfArch, ok := btfOsVersion[arch]
-	if !ok {
-		log.Printf("Architecture not found in btf map: %s", arch)
-		return "", nil
-	}
-	log.Printf("Architecture found in btf map: %s", arch)
-
-	release := util.ToStringInt8(uname.Release)
-	kernel := types.Kernel(release)
-	btfBytes, ok := btfArch[kernel]
-	if !ok {
-		log.Printf("Kernel not found in btf map: %s", kernel)
-		return "", nil
-	}
-	log.Printf("Kernel found in btf map: %s", kernel)
-
-	file, err := os.CreateTemp(
-		"",
-		fmt.Sprintf("spo-btf-%s-%s-%s-%s", osID, osVersion, arch, kernel),
-	)
-	if err != nil {
-		return "", fmt.Errorf("create temp file: %w", err)
-	}
-	defer file.Close()
-
-	if _, err := file.Write(btfBytes); err != nil {
-		return "", fmt.Errorf("write BTF: %w", err)
-	}
-
-	log.Printf("Wrote BTF to file: %s", file.Name())
-	return file.Name(), nil
-}
-
 func (r *Recorder) processData(pid uint32, cmdName, filename string) error {
 	log.Printf("Processing recorded data")
 
-	iterator := r.pids.Iterator()
+	iterator := r.bpfRecorder.Syscalls().Iterator()
 	for iterator.Next() {
 		currentPid := binary.LittleEndian.Uint32(iterator.Key())
 
@@ -247,7 +115,7 @@ func (r *Recorder) processData(pid uint32, cmdName, filename string) error {
 		}
 		log.Print("Found PID in bpf map")
 
-		syscallsValue, err := r.pids.GetValue(unsafe.Pointer(&currentPid))
+		syscallsValue, err := r.bpfRecorder.Syscalls().GetValue(unsafe.Pointer(&currentPid))
 		if err != nil {
 			return fmt.Errorf("get syscalls from pids map: %w", err)
 		}
