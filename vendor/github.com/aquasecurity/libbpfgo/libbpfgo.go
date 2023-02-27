@@ -1334,8 +1334,8 @@ func (p *BPFProg) SetAttachType(attachType BPFAttachType) {
 // getCgroupDirFD returns a file descriptor for a given cgroup2 directory path
 func getCgroupDirFD(cgroupV2DirPath string) (int, error) {
 	const (
-		O_DIRECTORY int = 0200000
-		O_RDONLY    int = 00
+		O_DIRECTORY int = syscall.O_DIRECTORY
+		O_RDONLY    int = syscall.O_RDONLY
 	)
 	fd, err := syscall.Open(cgroupV2DirPath, O_DIRECTORY|O_RDONLY, 0)
 	if fd < 0 {
@@ -1534,8 +1534,7 @@ func (p *BPFProg) AttachKretprobe(kp string) (*BPFLink, error) {
 }
 
 func (p *BPFProg) AttachNetns(networkNamespacePath string) (*BPFLink, error) {
-	const O_RDONLY int = 00
-	fd, err := syscall.Open(networkNamespacePath, O_RDONLY, 0)
+	fd, err := syscall.Open(networkNamespacePath, syscall.O_RDONLY, 0)
 	if fd < 0 {
 		return nil, fmt.Errorf("failed to open network namespace path %s: %w", networkNamespacePath, err)
 	}
