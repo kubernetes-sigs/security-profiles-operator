@@ -81,16 +81,16 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         // New element, throw event
         struct event_t * event =
             bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
-        if (!event) {
-            // Not enough space within the ringbuffer
-            return 0;
+
+        if (event) {
+            // We have enough space in the ringbuffer, submit event
+            event->pid = pid;
+            event->mntns = mntns;
+
+            bpf_ringbuf_submit(event, 0);
         }
 
-        event->pid = pid;
-        event->mntns = mntns;
-
-        bpf_ringbuf_submit(event, 0);
-
+        // Still update the syscalls, even if the ringbuffer is full.
         static const char init[MAX_SYSCALLS];
         bpf_map_update_elem(&syscalls, &pid, &init, BPF_ANY);
 

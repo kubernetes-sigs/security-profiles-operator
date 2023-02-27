@@ -34,7 +34,6 @@ BPFTOOL ?= bpftool
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
 BPF_PATH := internal/pkg/daemon/bpfrecorder/bpf
-CLI_BPF_PATH := internal/pkg/cli/recorder/bpf
 ARCH ?= $(shell uname -m | \
 	sed 's/x86_64/x86/' | \
 	sed 's/aarch64/arm64/' | \
@@ -290,16 +289,6 @@ $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
 		-o $@
 	$(LLVM_STRIP) -g $@
 
-$(BUILD_DIR)/cli_recorder.bpf.o: $(BUILD_DIR) ## Build the CLI BPF module
-	$(CLANG) -g -O2 \
-		-target bpf \
-		-D__TARGET_ARCH_$(ARCH) \
-		$(CFLAGS) \
-		-I ./internal/pkg/daemon/bpfrecorder/vmlinux/$(ARCH) \
-		-c $(CLI_BPF_PATH)/recorder.bpf.c \
-		-o $@
-	$(LLVM_STRIP) -g $@
-
 .PHONY: update-vmlinux
 update-vmlinux: ## Generate the vmlinux.h required for building the BPF modules.
 	./hack/update-vmlinux
@@ -313,11 +302,9 @@ update-bpf: $(BUILD_DIR) ## Build and update all generated BPF code with nix
 	for arch in amd64 arm64; do \
 		nix-build nix/default-bpf-$$arch.nix ;\
 		cp -f result/recorder.bpf.o $(BUILD_DIR)/recorder.bpf.o.$$arch ;\
-		cp -f result/cli_recorder.bpf.o $(BUILD_DIR)/cli_recorder.bpf.o.$$arch ;\
 	done
-	chmod 0644 $(BUILD_DIR)/*recorder.bpf.o.*
+	chmod 0644 $(BUILD_DIR)/recorder.bpf.o.*
 	$(GO) run ./internal/pkg/daemon/bpfrecorder/generate
-	$(GO) run ./internal/pkg/cli/recorder/generate
 
 # Verification targets
 
