@@ -38,8 +38,9 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				mock.CommandRunReturns(1, nil)
 				mock.IteratorNextReturnsOnCall(0, true)
-				mock.IteratorKeyReturnsOnCall(0, []byte{1, 0, 0, 0})
+				mock.IteratorKeyReturnsOnCall(0, []byte{1, 0, 0, 0, 0, 0, 0, 0})
 				mock.SyscallsGetValueReturns([]byte{1}, nil)
+				mock.FindProcMountNamespaceReturns(1, nil)
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {

@@ -146,6 +146,18 @@ type FakeImpl struct {
 	deleteKeyReturnsOnCall map[int]struct {
 		result1 error
 	}
+	DeleteKey64Stub        func(*libbpfgo.BPFMap, uint64) error
+	deleteKey64Mutex       sync.RWMutex
+	deleteKey64ArgsForCall []struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint64
+	}
+	deleteKey64Returns struct {
+		result1 error
+	}
+	deleteKey64ReturnsOnCall map[int]struct {
+		result1 error
+	}
 	DialMetricsStub        func() (*grpc.ClientConn, context.CancelFunc, error)
 	dialMetricsMutex       sync.RWMutex
 	dialMetricsArgsForCall []struct {
@@ -212,6 +224,20 @@ type FakeImpl struct {
 		result2 error
 	}
 	getValueReturnsOnCall map[int]struct {
+		result1 []byte
+		result2 error
+	}
+	GetValue64Stub        func(*libbpfgo.BPFMap, uint64) ([]byte, error)
+	getValue64Mutex       sync.RWMutex
+	getValue64ArgsForCall []struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint64
+	}
+	getValue64Returns struct {
+		result1 []byte
+		result2 error
+	}
+	getValue64ReturnsOnCall map[int]struct {
 		result1 []byte
 		result2 error
 	}
@@ -457,6 +483,19 @@ type FakeImpl struct {
 		result1 error
 	}
 	updateValueReturnsOnCall map[int]struct {
+		result1 error
+	}
+	UpdateValue64Stub        func(*libbpfgo.BPFMap, uint64, []byte) error
+	updateValue64Mutex       sync.RWMutex
+	updateValue64ArgsForCall []struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint64
+		arg3 []byte
+	}
+	updateValue64Returns struct {
+		result1 error
+	}
+	updateValue64ReturnsOnCall map[int]struct {
 		result1 error
 	}
 	WriteStub        func(*os.File, []byte) (int, error)
@@ -1015,6 +1054,68 @@ func (fake *FakeImpl) DeleteKeyReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) DeleteKey64(arg1 *libbpfgo.BPFMap, arg2 uint64) error {
+	fake.deleteKey64Mutex.Lock()
+	ret, specificReturn := fake.deleteKey64ReturnsOnCall[len(fake.deleteKey64ArgsForCall)]
+	fake.deleteKey64ArgsForCall = append(fake.deleteKey64ArgsForCall, struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint64
+	}{arg1, arg2})
+	stub := fake.DeleteKey64Stub
+	fakeReturns := fake.deleteKey64Returns
+	fake.recordInvocation("DeleteKey64", []interface{}{arg1, arg2})
+	fake.deleteKey64Mutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) DeleteKey64CallCount() int {
+	fake.deleteKey64Mutex.RLock()
+	defer fake.deleteKey64Mutex.RUnlock()
+	return len(fake.deleteKey64ArgsForCall)
+}
+
+func (fake *FakeImpl) DeleteKey64Calls(stub func(*libbpfgo.BPFMap, uint64) error) {
+	fake.deleteKey64Mutex.Lock()
+	defer fake.deleteKey64Mutex.Unlock()
+	fake.DeleteKey64Stub = stub
+}
+
+func (fake *FakeImpl) DeleteKey64ArgsForCall(i int) (*libbpfgo.BPFMap, uint64) {
+	fake.deleteKey64Mutex.RLock()
+	defer fake.deleteKey64Mutex.RUnlock()
+	argsForCall := fake.deleteKey64ArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) DeleteKey64Returns(result1 error) {
+	fake.deleteKey64Mutex.Lock()
+	defer fake.deleteKey64Mutex.Unlock()
+	fake.DeleteKey64Stub = nil
+	fake.deleteKey64Returns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) DeleteKey64ReturnsOnCall(i int, result1 error) {
+	fake.deleteKey64Mutex.Lock()
+	defer fake.deleteKey64Mutex.Unlock()
+	fake.DeleteKey64Stub = nil
+	if fake.deleteKey64ReturnsOnCall == nil {
+		fake.deleteKey64ReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.deleteKey64ReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) DialMetrics() (*grpc.ClientConn, context.CancelFunc, error) {
 	fake.dialMetricsMutex.Lock()
 	ret, specificReturn := fake.dialMetricsReturnsOnCall[len(fake.dialMetricsArgsForCall)]
@@ -1328,6 +1429,71 @@ func (fake *FakeImpl) GetValueReturnsOnCall(i int, result1 []byte, result2 error
 		})
 	}
 	fake.getValueReturnsOnCall[i] = struct {
+		result1 []byte
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetValue64(arg1 *libbpfgo.BPFMap, arg2 uint64) ([]byte, error) {
+	fake.getValue64Mutex.Lock()
+	ret, specificReturn := fake.getValue64ReturnsOnCall[len(fake.getValue64ArgsForCall)]
+	fake.getValue64ArgsForCall = append(fake.getValue64ArgsForCall, struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint64
+	}{arg1, arg2})
+	stub := fake.GetValue64Stub
+	fakeReturns := fake.getValue64Returns
+	fake.recordInvocation("GetValue64", []interface{}{arg1, arg2})
+	fake.getValue64Mutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetValue64CallCount() int {
+	fake.getValue64Mutex.RLock()
+	defer fake.getValue64Mutex.RUnlock()
+	return len(fake.getValue64ArgsForCall)
+}
+
+func (fake *FakeImpl) GetValue64Calls(stub func(*libbpfgo.BPFMap, uint64) ([]byte, error)) {
+	fake.getValue64Mutex.Lock()
+	defer fake.getValue64Mutex.Unlock()
+	fake.GetValue64Stub = stub
+}
+
+func (fake *FakeImpl) GetValue64ArgsForCall(i int) (*libbpfgo.BPFMap, uint64) {
+	fake.getValue64Mutex.RLock()
+	defer fake.getValue64Mutex.RUnlock()
+	argsForCall := fake.getValue64ArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) GetValue64Returns(result1 []byte, result2 error) {
+	fake.getValue64Mutex.Lock()
+	defer fake.getValue64Mutex.Unlock()
+	fake.GetValue64Stub = nil
+	fake.getValue64Returns = struct {
+		result1 []byte
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetValue64ReturnsOnCall(i int, result1 []byte, result2 error) {
+	fake.getValue64Mutex.Lock()
+	defer fake.getValue64Mutex.Unlock()
+	fake.GetValue64Stub = nil
+	if fake.getValue64ReturnsOnCall == nil {
+		fake.getValue64ReturnsOnCall = make(map[int]struct {
+			result1 []byte
+			result2 error
+		})
+	}
+	fake.getValue64ReturnsOnCall[i] = struct {
 		result1 []byte
 		result2 error
 	}{result1, result2}
@@ -2553,6 +2719,74 @@ func (fake *FakeImpl) UpdateValueReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) UpdateValue64(arg1 *libbpfgo.BPFMap, arg2 uint64, arg3 []byte) error {
+	var arg3Copy []byte
+	if arg3 != nil {
+		arg3Copy = make([]byte, len(arg3))
+		copy(arg3Copy, arg3)
+	}
+	fake.updateValue64Mutex.Lock()
+	ret, specificReturn := fake.updateValue64ReturnsOnCall[len(fake.updateValue64ArgsForCall)]
+	fake.updateValue64ArgsForCall = append(fake.updateValue64ArgsForCall, struct {
+		arg1 *libbpfgo.BPFMap
+		arg2 uint64
+		arg3 []byte
+	}{arg1, arg2, arg3Copy})
+	stub := fake.UpdateValue64Stub
+	fakeReturns := fake.updateValue64Returns
+	fake.recordInvocation("UpdateValue64", []interface{}{arg1, arg2, arg3Copy})
+	fake.updateValue64Mutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) UpdateValue64CallCount() int {
+	fake.updateValue64Mutex.RLock()
+	defer fake.updateValue64Mutex.RUnlock()
+	return len(fake.updateValue64ArgsForCall)
+}
+
+func (fake *FakeImpl) UpdateValue64Calls(stub func(*libbpfgo.BPFMap, uint64, []byte) error) {
+	fake.updateValue64Mutex.Lock()
+	defer fake.updateValue64Mutex.Unlock()
+	fake.UpdateValue64Stub = stub
+}
+
+func (fake *FakeImpl) UpdateValue64ArgsForCall(i int) (*libbpfgo.BPFMap, uint64, []byte) {
+	fake.updateValue64Mutex.RLock()
+	defer fake.updateValue64Mutex.RUnlock()
+	argsForCall := fake.updateValue64ArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) UpdateValue64Returns(result1 error) {
+	fake.updateValue64Mutex.Lock()
+	defer fake.updateValue64Mutex.Unlock()
+	fake.UpdateValue64Stub = nil
+	fake.updateValue64Returns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) UpdateValue64ReturnsOnCall(i int, result1 error) {
+	fake.updateValue64Mutex.Lock()
+	defer fake.updateValue64Mutex.Unlock()
+	fake.UpdateValue64Stub = nil
+	if fake.updateValue64ReturnsOnCall == nil {
+		fake.updateValue64ReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.updateValue64ReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) Write(arg1 *os.File, arg2 []byte) (int, error) {
 	var arg2Copy []byte
 	if arg2 != nil {
@@ -2644,6 +2878,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.containerIDForPIDMutex.RUnlock()
 	fake.deleteKeyMutex.RLock()
 	defer fake.deleteKeyMutex.RUnlock()
+	fake.deleteKey64Mutex.RLock()
+	defer fake.deleteKey64Mutex.RUnlock()
 	fake.dialMetricsMutex.RLock()
 	defer fake.dialMetricsMutex.RUnlock()
 	fake.getMapMutex.RLock()
@@ -2654,6 +2890,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.getProgramMutex.RUnlock()
 	fake.getValueMutex.RLock()
 	defer fake.getValueMutex.RUnlock()
+	fake.getValue64Mutex.RLock()
+	defer fake.getValue64Mutex.RUnlock()
 	fake.getenvMutex.RLock()
 	defer fake.getenvMutex.RUnlock()
 	fake.goArchMutex.RLock()
@@ -2694,6 +2932,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.unmarshalMutex.RUnlock()
 	fake.updateValueMutex.RLock()
 	defer fake.updateValueMutex.RUnlock()
+	fake.updateValue64Mutex.RLock()
+	defer fake.updateValue64Mutex.RUnlock()
 	fake.writeMutex.RLock()
 	defer fake.writeMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}

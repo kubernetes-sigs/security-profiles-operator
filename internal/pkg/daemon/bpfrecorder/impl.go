@@ -69,8 +69,11 @@ type impl interface {
 	Write(*os.File, []byte) (int, error)
 	ContainerIDForPID(*ttlcache.Cache[string, string], int) (string, error)
 	GetValue(*bpf.BPFMap, uint32) ([]byte, error)
+	GetValue64(*bpf.BPFMap, uint64) ([]byte, error)
 	UpdateValue(*bpf.BPFMap, uint32, []byte) error
+	UpdateValue64(*bpf.BPFMap, uint64, []byte) error
 	DeleteKey(*bpf.BPFMap, uint32) error
+	DeleteKey64(*bpf.BPFMap, uint64) error
 	ListPods(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
 	GetName(seccomp.ScmpSyscall) (string, error)
 	RemoveAll(string) error
@@ -168,6 +171,13 @@ func (d *defaultImpl) GetValue(m *bpf.BPFMap, key uint32) ([]byte, error) {
 	return m.GetValue(unsafe.Pointer(&key))
 }
 
+func (d *defaultImpl) GetValue64(m *bpf.BPFMap, key uint64) ([]byte, error) {
+	if m == nil {
+		return nil, errors.New("provided bpf map is nil")
+	}
+	return m.GetValue(unsafe.Pointer(&key))
+}
+
 func (d *defaultImpl) UpdateValue(m *bpf.BPFMap, key uint32, value []byte) error {
 	if m == nil {
 		return errors.New("provided bpf map is nil")
@@ -175,7 +185,21 @@ func (d *defaultImpl) UpdateValue(m *bpf.BPFMap, key uint32, value []byte) error
 	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
 }
 
+func (d *defaultImpl) UpdateValue64(m *bpf.BPFMap, key uint64, value []byte) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
+}
+
 func (d *defaultImpl) DeleteKey(m *bpf.BPFMap, key uint32) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+	return m.DeleteKey(unsafe.Pointer(&key))
+}
+
+func (d *defaultImpl) DeleteKey64(m *bpf.BPFMap, key uint64) error {
 	if m == nil {
 		return errors.New("provided bpf map is nil")
 	}

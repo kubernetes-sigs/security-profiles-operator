@@ -44,6 +44,7 @@ type impl interface {
 	UnloadBpfRecorder(*bpfrecorder.BpfRecorder)
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
+	FindProcMountNamespace(*bpfrecorder.BpfRecorder, uint32) (uint32, error)
 	SyscallsIterator(*bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator
 	IteratorNext(*libbpfgo.BPFMapIterator) bool
 	IteratorKey(*libbpfgo.BPFMapIterator) []byte
@@ -58,7 +59,7 @@ type impl interface {
 }
 
 func (*defaultImpl) LoadBpfRecorder(b *bpfrecorder.BpfRecorder) error {
-	return b.Load(false)
+	return b.Load(true)
 }
 
 func (*defaultImpl) UnloadBpfRecorder(b *bpfrecorder.BpfRecorder) {
@@ -67,6 +68,10 @@ func (*defaultImpl) UnloadBpfRecorder(b *bpfrecorder.BpfRecorder) {
 
 func (*defaultImpl) CommandRun(cmd *command.Command) (uint32, error) {
 	return cmd.Run()
+}
+
+func (*defaultImpl) FindProcMountNamespace(b *bpfrecorder.BpfRecorder, pid uint32) (uint32, error) {
+	return b.FindProcMountNamespace(pid)
 }
 
 func (*defaultImpl) CommandWait(cmd *command.Command) error {
@@ -85,8 +90,8 @@ func (*defaultImpl) IteratorKey(it *libbpfgo.BPFMapIterator) []byte {
 	return it.Key()
 }
 
-func (*defaultImpl) SyscallsGetValue(b *bpfrecorder.BpfRecorder, pid uint32) ([]byte, error) {
-	return b.Syscalls().GetValue(unsafe.Pointer(&pid))
+func (*defaultImpl) SyscallsGetValue(b *bpfrecorder.BpfRecorder, mntns uint32) ([]byte, error) {
+	return b.Syscalls().GetValue(unsafe.Pointer(&mntns))
 }
 
 func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {
