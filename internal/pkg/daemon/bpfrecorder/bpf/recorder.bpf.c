@@ -42,6 +42,10 @@ struct event_t {
     u64 mntns;
 };
 
+const volatile char filter_name[MAX_COMM_LEN] = {};
+
+static inline bool is_filtered(char * comm);
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int sys_enter(struct trace_event_raw_sys_enter * args)
 {
@@ -67,10 +71,15 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     }
 
     // Update the command name if required
-    char comm[MAX_COMM_LEN];
+    char comm[MAX_COMM_LEN] = {};
     bpf_get_current_comm(comm, sizeof(comm));
     if (bpf_map_lookup_elem(&comms, &pid) == NULL) {
         bpf_map_update_elem(&comms, &pid, &comm, BPF_ANY);
+    }
+
+    // Filter per program name if requested
+    if (is_filtered(comm)) {
+        return 0;
     }
 
     // Update the syscalls
@@ -103,4 +112,27 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     }
 
     return 0;
+}
+
+static inline bool is_filtered(char * comm)
+{
+    // No filter set
+    if (filter_name[0] == 0) {
+        return false;
+    }
+
+    // We cannot use __builtin_memcmp() until llvm bug
+    // https://llvm.org/bugs/show_bug.cgi?id=26218 got resolved
+    for (int i = 0; i < MAX_COMM_LEN; i++) {
+        if (comm[i] != filter_name[i]) {
+            return true;
+        }
+
+        // Stop searching when comm is done
+        if (comm[i] == 0) {
+            break;
+        }
+    }
+
+    return false;
 }

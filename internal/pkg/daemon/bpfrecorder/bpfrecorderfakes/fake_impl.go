@@ -248,6 +248,19 @@ type FakeImpl struct {
 		result1 *rest.Config
 		result2 error
 	}
+	InitGlobalVariableStub        func(*libbpfgo.Module, string, interface{}) error
+	initGlobalVariableMutex       sync.RWMutex
+	initGlobalVariableArgsForCall []struct {
+		arg1 *libbpfgo.Module
+		arg2 string
+		arg3 interface{}
+	}
+	initGlobalVariableReturns struct {
+		result1 error
+	}
+	initGlobalVariableReturnsOnCall map[int]struct {
+		result1 error
+	}
 	InitRingBufStub        func(*libbpfgo.Module, string, chan []byte) (*libbpfgo.RingBuffer, error)
 	initRingBufMutex       sync.RWMutex
 	initRingBufArgsForCall []struct {
@@ -1490,6 +1503,69 @@ func (fake *FakeImpl) InClusterConfigReturnsOnCall(i int, result1 *rest.Config, 
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) InitGlobalVariable(arg1 *libbpfgo.Module, arg2 string, arg3 interface{}) error {
+	fake.initGlobalVariableMutex.Lock()
+	ret, specificReturn := fake.initGlobalVariableReturnsOnCall[len(fake.initGlobalVariableArgsForCall)]
+	fake.initGlobalVariableArgsForCall = append(fake.initGlobalVariableArgsForCall, struct {
+		arg1 *libbpfgo.Module
+		arg2 string
+		arg3 interface{}
+	}{arg1, arg2, arg3})
+	stub := fake.InitGlobalVariableStub
+	fakeReturns := fake.initGlobalVariableReturns
+	fake.recordInvocation("InitGlobalVariable", []interface{}{arg1, arg2, arg3})
+	fake.initGlobalVariableMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) InitGlobalVariableCallCount() int {
+	fake.initGlobalVariableMutex.RLock()
+	defer fake.initGlobalVariableMutex.RUnlock()
+	return len(fake.initGlobalVariableArgsForCall)
+}
+
+func (fake *FakeImpl) InitGlobalVariableCalls(stub func(*libbpfgo.Module, string, interface{}) error) {
+	fake.initGlobalVariableMutex.Lock()
+	defer fake.initGlobalVariableMutex.Unlock()
+	fake.InitGlobalVariableStub = stub
+}
+
+func (fake *FakeImpl) InitGlobalVariableArgsForCall(i int) (*libbpfgo.Module, string, interface{}) {
+	fake.initGlobalVariableMutex.RLock()
+	defer fake.initGlobalVariableMutex.RUnlock()
+	argsForCall := fake.initGlobalVariableArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) InitGlobalVariableReturns(result1 error) {
+	fake.initGlobalVariableMutex.Lock()
+	defer fake.initGlobalVariableMutex.Unlock()
+	fake.InitGlobalVariableStub = nil
+	fake.initGlobalVariableReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) InitGlobalVariableReturnsOnCall(i int, result1 error) {
+	fake.initGlobalVariableMutex.Lock()
+	defer fake.initGlobalVariableMutex.Unlock()
+	fake.InitGlobalVariableStub = nil
+	if fake.initGlobalVariableReturnsOnCall == nil {
+		fake.initGlobalVariableReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.initGlobalVariableReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) InitRingBuf(arg1 *libbpfgo.Module, arg2 string, arg3 chan []byte) (*libbpfgo.RingBuffer, error) {
 	fake.initRingBufMutex.Lock()
 	ret, specificReturn := fake.initRingBufReturnsOnCall[len(fake.initRingBufArgsForCall)]
@@ -2584,6 +2660,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.goArchMutex.RUnlock()
 	fake.inClusterConfigMutex.RLock()
 	defer fake.inClusterConfigMutex.RUnlock()
+	fake.initGlobalVariableMutex.RLock()
+	defer fake.initGlobalVariableMutex.RUnlock()
 	fake.initRingBufMutex.RLock()
 	defer fake.initRingBufMutex.RUnlock()
 	fake.listPodsMutex.RLock()

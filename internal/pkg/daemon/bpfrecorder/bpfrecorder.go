@@ -83,6 +83,7 @@ type BpfRecorder struct {
 	systemMountNamespace     uint64
 	loadUnloadMutex          sync.RWMutex
 	metricsClient            apimetrics.Metrics_BpfIncClient
+	programNameFilter        string
 }
 
 type Pid struct {
@@ -116,6 +117,11 @@ func New(logger logr.Logger) *BpfRecorder {
 // data.
 func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 	return b.syscalls
+}
+
+// FilterProgramName can be used to filter on a specific program name.
+func (b *BpfRecorder) FilterProgramName(filter string) {
+	b.programNameFilter = filter
 }
 
 // Run the BpfRecorder.
@@ -405,6 +411,14 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 	})
 	if err != nil {
 		return fmt.Errorf("load bpf module: %w", err)
+	}
+
+	if b.programNameFilter != "" {
+		if err := b.InitGlobalVariable(
+			module, "filter_name", []byte(b.programNameFilter),
+		); err != nil {
+			return fmt.Errorf("init global variable: %w", err)
+		}
 	}
 
 	b.logger.Info("Loading bpf object from module")
