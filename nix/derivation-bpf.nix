@@ -24,9 +24,9 @@ with pkgs; buildGo120Module rec {
   buildPhase = ''
     export CFLAGS=$NIX_CFLAGS_COMPILE
     export ARCH=${arch}
-    make build/recorder.bpf.o build/cli_recorder.bpf.o
+    make build/recorder.bpf.o
   '';
   installPhase = ''
-    install -Dm644 -t $out build/recorder.bpf.o build/cli_recorder.bpf.o
+    install -Dm644 -t $out build/recorder.bpf.o
   '';
 }

@@ -112,6 +112,12 @@ func New(logger logr.Logger) *BpfRecorder {
 	}
 }
 
+// Syscalls returns the bpf map containing the PID (key) to syscalls (value)
+// data.
+func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
+	return b.syscalls
+}
+
 // Run the BpfRecorder.
 func (b *BpfRecorder) Run() error {
 	b.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
@@ -181,10 +187,10 @@ func (b *BpfRecorder) Run() error {
 	b.logger.Info("Got system mount namespace: " + fmt.Sprint(b.systemMountNamespace))
 
 	b.logger.Info("Doing BPF load/unload self-test")
-	if err := b.load(false); err != nil {
+	if err := b.Load(false); err != nil {
 		return fmt.Errorf("load self-test: %w", err)
 	}
-	b.unload()
+	b.Unload()
 
 	b.logger.Info("Starting GRPC API server")
 	grpcServer := grpc.NewServer(
@@ -243,7 +249,7 @@ func (b *BpfRecorder) Start(
 	if b.startRequests == 0 {
 		b.logger.Info("Starting bpf recorder")
 		//nolint:contextcheck // no context intended here
-		if err := b.load(true); err != nil {
+		if err := b.Load(true); err != nil {
 			return nil, fmt.Errorf("load bpf: %w", err)
 		}
 	} else {
@@ -265,7 +271,7 @@ func (b *BpfRecorder) Stop(
 	atomic.AddInt64(&b.startRequests, -1)
 	if b.startRequests == 0 {
 		b.logger.Info("Stopping bpf recorder")
-		b.unload()
+		b.Unload()
 	} else {
 		b.logger.Info("Not stopping because another recording is in progress")
 	}
@@ -379,7 +385,8 @@ func sortUnique(input []string) (res []string) {
 	return res
 }
 
-func (b *BpfRecorder) load(startEventProcessor bool) (err error) {
+// Load prestarts the bpf recorder.
+func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 	b.logger.Info("Loading bpf module")
 	b.btfPath, err = b.findBtfPath()
 	if err != nil {
@@ -496,7 +503,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 		return "", fmt.Errorf("uname syscall failed: %w", err)
 	}
 
-	arch := types.Arch(util.ToStringInt8(uname.Machine))
+	arch := types.Arch(toStringInt8(uname.Machine))
 	btfArch, ok := btfOsVersion[arch]
 	if !ok {
 		b.logger.Info(fmt.Sprintf("Architecture not found in btf map: %s", arch))
@@ -504,7 +511,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	}
 	b.logger.Info(fmt.Sprintf("Architecture found in btf map: %s", arch))
 
-	release := util.ToStringInt8(uname.Release)
+	release := toStringInt8(uname.Release)
 	version, err := semver.Parse(release)
 	if err != nil {
 		return "", fmt.Errorf("unable to parse semver for release %s: %w", release, err)
@@ -541,6 +548,22 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 
 	b.logger.Info(fmt.Sprintf("Wrote BTF to file: %s", file.Name()))
 	return file.Name(), nil
+}
+
+func toStringInt8(array [65]int8) string {
+	var buf [65]byte
+	for i, b := range array {
+		buf[i] = byte(b)
+	}
+	return toStringByte(buf[:])
+}
+
+func toStringByte(array []byte) string {
+	str := string(array)
+	if i := strings.Index(str, "\x00"); i != -1 {
+		str = str[:i]
+	}
+	return str
 }
 
 func (b *BpfRecorder) processEvents(events chan []byte) {
@@ -676,7 +699,7 @@ func (b *BpfRecorder) commForPid(pid uint32) string {
 	if err != nil {
 		b.logger.Error(err, "unable to get command name for PID", "pid", pid)
 	}
-	return util.ToStringByte(rawComm)
+	return toStringByte(rawComm)
 }
 
 func (b *BpfRecorder) findContainerID(id string) error {
@@ -765,7 +788,8 @@ func (b *BpfRecorder) findContainerID(id string) error {
 	return nil
 }
 
-func (b *BpfRecorder) unload() {
+// Unload can be used to reset the bpf recorder.
+func (b *BpfRecorder) Unload() {
 	b.logger.Info("Unloading bpf module")
 	b.loadUnloadMutex.Lock()
 	b.CloseModule(b.syscalls)
