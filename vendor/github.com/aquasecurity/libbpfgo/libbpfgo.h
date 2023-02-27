@@ -14,47 +14,32 @@
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+#include <linux/bpf.h> // uapi
+
+extern void loggerCallback(enum libbpf_print_level level, char *output);
 
 int libbpf_print_fn(enum libbpf_print_level level, // libbpf print level
                     const char *format,            // format used for the msg
                     va_list args) {                // args used by format
 
-  if (level != LIBBPF_WARN)
-    return 0;
-
-  int ret;
-  char str[300];
+  int ret = 0;
+  char *out;
   va_list check;
 
+  out = (char *)calloc(1, 300);
+  if (!out)
+    return -ENOMEM;
+
   va_copy(check, args);
-  ret = vsnprintf(str, sizeof(str), format, check);
-  va_end(args);
+  ret = vsnprintf(out, 300, format, check);
+  va_end(check);
 
-  if (ret <= 0) {
-    goto done;
-  }
+  if (ret > 0)
+    loggerCallback(level, out);
 
-  // BUG: https:/github.com/aquasecurity/tracee/issues/1676
-  if (strstr(str, "Exclusivity flag on") != NULL) {
-    return 0;
-  }
+  free(out);
 
-  // BUG: https://github.com/aquasecurity/tracee/issues/2446
-  if (strstr(str, "failed to create kprobe") != NULL) {
-    if (strstr(str, "trace_check_map_func_compatibility") != NULL)
-      return 0;
-  }
-
-  // AttachCgroupLegacy() will first try AttachCgroup() and it might fail. This
-  // is not an error and is the best way of probing for eBPF cgroup attachment
-  // link existence.
-  if (strstr(str, "cgroup") != NULL) {
-    if (strstr(str, "Invalid argument") != NULL)
-      return 0;
-  }
-
-done:
-  return vfprintf(stderr, format, args);
+  return ret;
 }
 
 void set_print_fn() { libbpf_set_print(libbpf_print_fn); }
