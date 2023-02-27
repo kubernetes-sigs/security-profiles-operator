@@ -671,7 +671,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profile.name},
 		)
 		if err != nil {
-			// PID was not found for this profile, this might be an init container
+			// Recording was not found for this profile, this might be an init container
 			// which is not longer active. Let's skip here and keep processing the
 			// next profile.
 			if status.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {

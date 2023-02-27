@@ -41,7 +41,7 @@ message AuditRequest {
 
 message BpfRequest {
   string node = 1;
-  uint64 mount_namespace = 2;
+  uint32 mount_namespace = 2;
   string profile = 3;
 }
 

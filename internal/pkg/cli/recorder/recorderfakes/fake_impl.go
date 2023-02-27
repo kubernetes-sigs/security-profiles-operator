@@ -78,6 +78,20 @@ type FakeImpl struct {
 		result1 *os.File
 		result2 error
 	}
+	FindProcMountNamespaceStub        func(*bpfrecorder.BpfRecorder, uint32) (uint32, error)
+	findProcMountNamespaceMutex       sync.RWMutex
+	findProcMountNamespaceArgsForCall []struct {
+		arg1 *bpfrecorder.BpfRecorder
+		arg2 uint32
+	}
+	findProcMountNamespaceReturns struct {
+		result1 uint32
+		result2 error
+	}
+	findProcMountNamespaceReturnsOnCall map[int]struct {
+		result1 uint32
+		result2 error
+	}
 	GetNameStub        func(seccomp.ScmpSyscall) (string, error)
 	getNameMutex       sync.RWMutex
 	getNameArgsForCall []struct {
@@ -429,6 +443,71 @@ func (fake *FakeImpl) CreateReturnsOnCall(i int, result1 *os.File, result2 error
 	}
 	fake.createReturnsOnCall[i] = struct {
 		result1 *os.File
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) FindProcMountNamespace(arg1 *bpfrecorder.BpfRecorder, arg2 uint32) (uint32, error) {
+	fake.findProcMountNamespaceMutex.Lock()
+	ret, specificReturn := fake.findProcMountNamespaceReturnsOnCall[len(fake.findProcMountNamespaceArgsForCall)]
+	fake.findProcMountNamespaceArgsForCall = append(fake.findProcMountNamespaceArgsForCall, struct {
+		arg1 *bpfrecorder.BpfRecorder
+		arg2 uint32
+	}{arg1, arg2})
+	stub := fake.FindProcMountNamespaceStub
+	fakeReturns := fake.findProcMountNamespaceReturns
+	fake.recordInvocation("FindProcMountNamespace", []interface{}{arg1, arg2})
+	fake.findProcMountNamespaceMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) FindProcMountNamespaceCallCount() int {
+	fake.findProcMountNamespaceMutex.RLock()
+	defer fake.findProcMountNamespaceMutex.RUnlock()
+	return len(fake.findProcMountNamespaceArgsForCall)
+}
+
+func (fake *FakeImpl) FindProcMountNamespaceCalls(stub func(*bpfrecorder.BpfRecorder, uint32) (uint32, error)) {
+	fake.findProcMountNamespaceMutex.Lock()
+	defer fake.findProcMountNamespaceMutex.Unlock()
+	fake.FindProcMountNamespaceStub = stub
+}
+
+func (fake *FakeImpl) FindProcMountNamespaceArgsForCall(i int) (*bpfrecorder.BpfRecorder, uint32) {
+	fake.findProcMountNamespaceMutex.RLock()
+	defer fake.findProcMountNamespaceMutex.RUnlock()
+	argsForCall := fake.findProcMountNamespaceArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) FindProcMountNamespaceReturns(result1 uint32, result2 error) {
+	fake.findProcMountNamespaceMutex.Lock()
+	defer fake.findProcMountNamespaceMutex.Unlock()
+	fake.FindProcMountNamespaceStub = nil
+	fake.findProcMountNamespaceReturns = struct {
+		result1 uint32
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) FindProcMountNamespaceReturnsOnCall(i int, result1 uint32, result2 error) {
+	fake.findProcMountNamespaceMutex.Lock()
+	defer fake.findProcMountNamespaceMutex.Unlock()
+	fake.FindProcMountNamespaceStub = nil
+	if fake.findProcMountNamespaceReturnsOnCall == nil {
+		fake.findProcMountNamespaceReturnsOnCall = make(map[int]struct {
+			result1 uint32
+			result2 error
+		})
+	}
+	fake.findProcMountNamespaceReturnsOnCall[i] = struct {
+		result1 uint32
 		result2 error
 	}{result1, result2}
 }
@@ -1110,6 +1189,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.commandWaitMutex.RUnlock()
 	fake.createMutex.RLock()
 	defer fake.createMutex.RUnlock()
+	fake.findProcMountNamespaceMutex.RLock()
+	defer fake.findProcMountNamespaceMutex.RUnlock()
 	fake.getNameMutex.RLock()
 	defer fake.getNameMutex.RUnlock()
 	fake.goArchToSeccompArchMutex.RLock()

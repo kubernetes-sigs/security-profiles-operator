@@ -71,32 +71,36 @@ func (r *Recorder) Run() error {
 		return fmt.Errorf("run command: %w", err)
 	}
 
+	mntns, err := r.FindProcMountNamespace(r.bpfRecorder, pid)
+	if err != nil {
+		return fmt.Errorf("finding mntns for command PID %d: %w", pid, err)
+	}
+
 	if err := r.CommandWait(cmd); err != nil {
 		log.Printf("Command did not exit successfully: %v", err)
 	}
 
-	if err := r.processData(pid); err != nil {
+	if err := r.processData(mntns); err != nil {
 		return fmt.Errorf("build profile: %w", err)
 	}
 
 	return nil
 }
 
-func (r *Recorder) processData(pid uint32) error {
+func (r *Recorder) processData(mntns uint32) error {
 	log.Printf("Processing recorded data")
 
 	it := r.SyscallsIterator(r.bpfRecorder)
 	for r.IteratorNext(it) {
-		currentPid := binary.LittleEndian.Uint32(r.IteratorKey(it))
-
-		if currentPid != pid {
+		currentMntns := binary.LittleEndian.Uint32(r.IteratorKey(it))
+		if currentMntns != mntns {
 			continue
 		}
-		log.Print("Found PID in bpf map")
+		log.Print("Found process mntns in bpf map")
 
-		syscallsValue, err := r.SyscallsGetValue(r.bpfRecorder, currentPid)
+		syscallsValue, err := r.SyscallsGetValue(r.bpfRecorder, currentMntns)
 		if err != nil {
-			return fmt.Errorf("get syscalls from pids map: %w", err)
+			return fmt.Errorf("get syscalls from bpf map: %w", err)
 		}
 
 		syscalls := []string{}
@@ -119,7 +123,7 @@ func (r *Recorder) processData(pid uint32) error {
 		return nil
 	}
 
-	return fmt.Errorf("find PID %d in bpf data map", pid)
+	return fmt.Errorf("find mntns %d in bpf data map", mntns)
 }
 
 func (r *Recorder) buildProfile(names []string) error {
