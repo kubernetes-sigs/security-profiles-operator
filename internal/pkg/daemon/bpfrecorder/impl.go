@@ -84,6 +84,7 @@ type impl interface {
 	BpfIncClient(client apimetrics.MetricsClient) (apimetrics.Metrics_BpfIncClient, error)
 	CloseGRPC(*grpc.ClientConn) error
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
+	InitGlobalVariable(*bpf.Module, string, interface{}) error
 }
 
 func (d *defaultImpl) Getenv(key string) string {
@@ -240,4 +241,8 @@ func (d *defaultImpl) SendMetric(
 	in *apimetrics.BpfRequest,
 ) error {
 	return client.Send(in)
+}
+
+func (d *defaultImpl) InitGlobalVariable(module *bpf.Module, name string, value interface{}) error {
+	return module.InitGlobalVariable(name, value)
 }

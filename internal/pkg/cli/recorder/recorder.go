@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"unsafe"
@@ -55,6 +56,7 @@ func New(options *Options) *Recorder {
 // Run the Recorder.
 func (r *Recorder) Run() error {
 	r.bpfRecorder = bpfrecorder.New(logr.New(&LogSink{}))
+	r.bpfRecorder.FilterProgramName(r.options.command)
 	if err := r.bpfRecorder.Load(false); err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
@@ -186,7 +188,7 @@ func (r *Recorder) buildProfileCRD(spec *seccompprofileapi.SeccompProfileSpec) e
 			APIVersion: seccompprofileapi.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: r.options.command,
+			Name: filepath.Base(r.options.command),
 		},
 		Spec: *spec,
 	}

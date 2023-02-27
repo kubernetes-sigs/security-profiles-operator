@@ -197,6 +197,16 @@ func TestRun(t *testing.T) {
 				require.NotNil(t, err)
 			},
 		},
+		{ // load:InitGlobalVariable fails
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.GetenvReturns(node)
+				mock.GoArchReturns(validGoArch)
+				mock.InitGlobalVariableReturns(errTest)
+			},
+			assert: func(err error) {
+				require.NotNil(t, err)
+			},
+		},
 		{ // load:BPFLoadObject fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
@@ -405,6 +415,7 @@ func TestRun(t *testing.T) {
 		tc.prepare(mock)
 
 		sut := New(logr.Discard())
+		sut.FilterProgramName("test")
 		sut.impl = mock
 
 		err := sut.Run()
