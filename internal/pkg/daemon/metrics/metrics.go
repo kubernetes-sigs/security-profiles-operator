@@ -254,7 +254,7 @@ func (m *Metrics) IncSeccompProfileAudit(
 // IncSeccompProfileBpf increments the seccomp profile bpf counter for the
 // provided labels.
 func (m *Metrics) IncSeccompProfileBpf(
-	node, profile string, mountNamespace uint64,
+	node, profile string, mountNamespace uint32,
 ) {
 	m.metricSeccompProfileBpf.WithLabelValues(
 		node, fmt.Sprint(mountNamespace), profile,

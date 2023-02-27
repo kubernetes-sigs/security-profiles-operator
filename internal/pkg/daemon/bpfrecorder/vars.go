@@ -18,5 +18,5 @@ package bpfrecorder
 
 import "errors"
 
-// ErrNotFound is the GRPC error if no recording PID could be found.
-var ErrNotFound = errors.New("no PID found for profile")
+// ErrNotFound is the GRPC error if no recorded profile found.
+var ErrNotFound = errors.New("no recorded profile found")

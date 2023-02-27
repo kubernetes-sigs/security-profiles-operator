@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -59,6 +60,8 @@ var (
 		'3', '.', '1', '0', '.', '0', '-', '1', '0', '6', '2', '.', '1',
 		'.', '1', '.', 'e', 'l', '7', '.', 'x', '8', '6', '_', '6', '4',
 	}
+
+	mntns uint32 = 1337
 )
 
 func TestRun(t *testing.T) {
@@ -535,11 +538,8 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, []Pid{
-					{id: 42, comm: "sh", mntns: 1337},
-					{id: 43, comm: "bash", mntns: 1338},
-				})
-				mock.GetValueReturns([]byte{0, 0, 0, 1, 1, 1}, nil)
+				sut.profileToMntnsCache.Set(profile, mntns, ttlcache.NoTTL)
+				mock.GetValueReturns([]byte{0, 1, 1, 1}, nil)
 				mock.GetNameReturnsOnCall(0, "syscall_a", nil)
 				mock.GetNameReturnsOnCall(1, "syscall_b", nil)
 				mock.GetNameReturnsOnCall(2, "syscall_c", nil)
@@ -561,11 +561,8 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, []Pid{
-					{id: 42, comm: "sh", mntns: 1337},
-					{id: 43, comm: "bash", mntns: 1338},
-				})
-				mock.GetValueReturns([]byte{0, 1, 1}, nil)
+				sut.profileToMntnsCache.Set(profile, mntns, ttlcache.NoTTL)
+				mock.GetValueReturns([]byte{1, 1, 1}, nil)
 				mock.GetNameReturnsOnCall(0, "", errTest)
 				mock.GetNameReturnsOnCall(1, "syscall_a", nil)
 				mock.GetNameReturnsOnCall(2, "syscall_b", nil)
@@ -594,40 +591,36 @@ func TestSyscallsForProfile(t *testing.T) {
 				require.NotNil(t, err)
 			},
 		},
-		{ // result not a PID type
+		{ // no syscall found for profile
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, "wrong")
-			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.NotNil(t, err)
-			},
-		},
-		{ // PID slice empty
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
-				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, []Pid{})
-			},
-			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.NotNil(t, err)
-			},
-		},
-		{ // no syscall found for PID
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				mock.GoArchReturns(validGoArch)
-				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
-				sut.pidsForProfiles.Store(profile, []Pid{
-					{id: 42, comm: "sh", mntns: 1337},
-				})
+				sut.profileToMntnsCache.Set(profile, mntns, ttlcache.NoTTL)
 				mock.GetValueReturns(nil, errTest)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // Failed to clean syscalls map
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				mock.GoArchReturns(validGoArch)
+				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
+				sut.profileToMntnsCache.Set(profile, mntns, ttlcache.NoTTL)
+				mock.GetValueReturns([]byte{1, 1, 1}, nil)
+				mock.GetNameReturnsOnCall(0, "syscall_a", nil)
+				mock.GetNameReturnsOnCall(1, "syscall_b", nil)
+				mock.GetNameReturnsOnCall(2, "syscall_c", nil)
+				mock.DeleteKeyReturns(errTest)
+			},
+			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				require.Nil(t, err)
+				require.Len(t, resp.Syscalls, 3)
+				require.Equal(t, "syscall_a", resp.Syscalls[0])
+				require.Equal(t, "syscall_b", resp.Syscalls[1])
+				require.Equal(t, "syscall_c", resp.Syscalls[2])
 			},
 		},
 	} {
@@ -694,46 +687,21 @@ func TestProcessEvents(t *testing.T) {
 				}}}, nil)
 				return []byte{
 					1, 0, 0, 0,
-					1, 0, 0, 0, 0, 0, 0, 0,
+					1, 0, 1, 0,
 				}
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
-				mntns := binary.LittleEndian.Uint64([]byte{1, 0, 0, 0, 0, 0, 0, 0})
-				var (
-					ok      bool
-					profile interface{}
-				)
+				mntns := binary.LittleEndian.Uint32([]byte{1, 0, 1, 0})
+				var foundMntns uint32
 				for i := 0; i < 100; i++ {
-					profile, ok = sut.profileForMountNamespace.Load(mntns)
-					if ok {
+					item := sut.profileToMntnsCache.Get("profile.json")
+					if item != nil {
+						foundMntns = item.Value()
 						break
 					}
 					time.Sleep(100 * time.Millisecond)
 				}
-				require.Equal(t, "profile.json", profile)
-			},
-		},
-		{ // Success short path
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
-				mntns := binary.LittleEndian.Uint64([]byte{1, 0, 0, 0, 0, 0, 0, 0})
-				sut.profileForMountNamespace.Store(mntns, "profile.json")
-				return []byte{
-					1, 0, 0, 0,
-					1, 0, 0, 0, 0, 0, 0, 0,
-				}
-			},
-			assert: func(sut *BpfRecorder, logger *Logger) {
-				success := false
-				for i := 0; i < 100; i++ {
-					logger.mutex.RLock()
-					success = util.Contains(logger.messages, "Using short path via tracked mount namespace")
-					logger.mutex.RUnlock()
-					if success {
-						break
-					}
-					time.Sleep(100 * time.Millisecond)
-				}
-				require.True(t, success)
+				require.Equal(t, mntns, foundMntns)
 			},
 		},
 		{ // invalid event length
@@ -754,20 +722,42 @@ func TestProcessEvents(t *testing.T) {
 				require.True(t, success)
 			},
 		},
-		{ // unable to find container ID
+		{ // unable to find container ID for PID
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
-				mock.ContainerIDForPIDReturns(containerID, nil)
-				mock.ListPodsReturns(nil, errTest)
+				mock.ContainerIDForPIDReturns(containerID, errTest)
 				return []byte{
 					1, 0, 0, 0,
-					1, 0, 0, 0, 0, 0, 0, 0,
+					1, 1, 0, 0,
 				}
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
 				success := false
 				for i := 0; i < 100; i++ {
 					logger.mutex.RLock()
-					success = util.Contains(logger.messages, "unable to find container ID in cluster")
+					success = util.Contains(logger.messages, "No container ID found for PID")
+					logger.mutex.RUnlock()
+					if success {
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+				require.True(t, success)
+			},
+		},
+		{ // unable to find profile in cluster for container ID
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
+				mock.ContainerIDForPIDReturns(containerID, nil)
+				mock.ListPodsReturns(nil, errTest)
+				return []byte{
+					1, 0, 0, 0,
+					1, 0, 1, 0,
+				}
+			},
+			assert: func(sut *BpfRecorder, logger *Logger) {
+				success := false
+				for i := 0; i < 100; i++ {
+					logger.mutex.RLock()
+					success = util.Contains(logger.messages, "Unable to find profile in cluster for container ID")
 					logger.mutex.RUnlock()
 					if success {
 						break
