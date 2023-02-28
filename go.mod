@@ -14,7 +14,7 @@ require (
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
 	github.com/nxadm/tail v1.4.8
 	github.com/openshift/api v0.0.0-20221205111557-f2fbb1d1cd5e
-	github.com/pjbgf/go-apparmor v0.1.1
+	github.com/pjbgf/go-apparmor v0.1.2
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.62.0
 	github.com/prometheus/client_golang v1.14.0
 	github.com/prometheus/client_model v0.3.0
