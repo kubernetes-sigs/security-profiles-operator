@@ -7,7 +7,6 @@ with pkgs; buildGo120Module rec {
   doCheck = false;
   outputs = [ "out" ];
   nativeBuildInputs = with buildPackages; [
-    bpftools
     git
     llvmPackages_15.clang-unwrapped
     llvm_15
