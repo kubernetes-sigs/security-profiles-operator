@@ -29,6 +29,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"unsafe"
 
@@ -40,6 +41,7 @@ import (
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // Recorder is the main structure of this package.
@@ -142,6 +144,18 @@ func (r *Recorder) buildProfile(names []string) error {
 	if err != nil {
 		return fmt.Errorf("get seccomp arch: %w", err)
 	}
+
+	if len(r.options.baseSyscalls) > 0 {
+		diff := []string{}
+		for _, syscall := range r.options.baseSyscalls {
+			if !util.Contains(names, syscall) {
+				names = append(names, syscall)
+				diff = append(diff, syscall)
+			}
+		}
+		log.Printf("Adding base syscalls: %s", strings.Join(diff, ", "))
+	}
+	sort.Strings(names)
 
 	spec := seccompprofileapi.SeccompProfileSpec{
 		DefaultAction: seccomp.ActErrno,

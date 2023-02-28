@@ -25,17 +25,19 @@ import (
 
 // Options define all possible options for the recorder.
 type Options struct {
-	typ        Type
-	outputFile string
-	command    string
-	args       []string
+	typ          Type
+	outputFile   string
+	baseSyscalls []string
+	command      string
+	args         []string
 }
 
 // Default returns a default options instance.
 func Default() *Options {
 	return &Options{
-		typ:        TypeSeccomp,
-		outputFile: DefaultOutputFile,
+		typ:          TypeSeccomp,
+		outputFile:   DefaultOutputFile,
+		baseSyscalls: DefaultBaseSyscalls,
 	}
 }
 
@@ -55,6 +57,13 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	}
 	if options.typ != TypeSeccomp && options.typ != TypeRawSeccomp {
 		return nil, fmt.Errorf("unsupported %s: %s", FlagType, options.typ)
+	}
+
+	if ctx.IsSet(FlagBaseSyscalls) {
+		options.baseSyscalls = ctx.StringSlice(FlagBaseSyscalls)
+	}
+	if ctx.IsSet(FlagNoBaseSyscalls) {
+		options.baseSyscalls = nil
 	}
 
 	args := ctx.Args().Slice()

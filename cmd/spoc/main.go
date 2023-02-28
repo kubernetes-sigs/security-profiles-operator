@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/urfave/cli/v2"
 
@@ -55,6 +56,18 @@ func main() {
 						recorder.TypeSeccomp,
 						recorder.TypeRawSeccomp,
 					),
+				},
+				&cli.StringSliceFlag{
+					Name:    recorder.FlagBaseSyscalls,
+					Aliases: []string{"b"},
+					Usage: "base syscalls to be included in every profile " +
+						"to ensure compatibility with OCI runtimes like runc and crun",
+					DefaultText: strings.Join(recorder.DefaultBaseSyscalls, ", "),
+				},
+				&cli.BoolFlag{
+					Name:    recorder.FlagNoBaseSyscalls,
+					Aliases: []string{"n"},
+					Usage:   "do not add any base syscalls at all",
 				},
 			},
 		},
