@@ -21,7 +21,7 @@ package recorder
 
 import (
 	"encoding/binary"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -43,33 +43,25 @@ import (
 
 // Recorder is the main structure of this package.
 type Recorder struct {
+	options     *Options
 	bpfRecorder *bpfrecorder.BpfRecorder
 }
 
 // New returns a new Recorder instance.
-func New() *Recorder {
-	return &Recorder{}
+func New(options *Options) *Recorder {
+	return &Recorder{options: options}
 }
 
-// Run the Recorder with the provided command args and put the resulting
-// profile to the path of filename.
-func (r *Recorder) Run(filename string, args ...string) error {
-	if filename == "" {
-		return errors.New("no filename provided")
-	}
-
-	if len(args) == 0 {
-		return errors.New("no command provided")
-	}
-
+// Run the Recorder.
+func (r *Recorder) Run() error {
 	r.bpfRecorder = bpfrecorder.New(logr.New(&LogSink{}))
 	if err := r.bpfRecorder.Load(false); err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
 	defer r.bpfRecorder.Unload()
 
-	cmdName := args[0]
-	cmd := exec.Command(cmdName, args[1:]...)
+	//nolint:gosec // passing the args is intentional here
+	cmd := exec.Command(r.options.command, r.options.args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -96,14 +88,14 @@ func (r *Recorder) Run(filename string, args ...string) error {
 		log.Printf("Command not exited successfully: %v", err)
 	}
 
-	if err := r.processData(pid, cmdName, filename); err != nil {
+	if err := r.processData(pid); err != nil {
 		return fmt.Errorf("build profile: %w", err)
 	}
 
 	return nil
 }
 
-func (r *Recorder) processData(pid uint32, cmdName, filename string) error {
+func (r *Recorder) processData(pid uint32) error {
 	log.Printf("Processing recorded data")
 
 	iterator := r.bpfRecorder.Syscalls().Iterator()
@@ -133,7 +125,7 @@ func (r *Recorder) processData(pid uint32, cmdName, filename string) error {
 		}
 
 		log.Printf("Got syscalls: %s", strings.Join(syscalls, ", "))
-		if err := r.buildProfile(cmdName, filename, syscalls); err != nil {
+		if err := r.buildProfile(syscalls); err != nil {
 			return fmt.Errorf("build profile: %w", err)
 		}
 
@@ -143,33 +135,63 @@ func (r *Recorder) processData(pid uint32, cmdName, filename string) error {
 	return fmt.Errorf("find PID %d in bpf data map", pid)
 }
 
-func (r *Recorder) buildProfile(name, filename string, syscalls []string) error {
+func (r *Recorder) buildProfile(names []string) error {
 	arch, err := r.goArchToSeccompArch(runtime.GOARCH)
 	if err != nil {
 		return fmt.Errorf("get seccomp arch: %w", err)
 	}
 
-	profileSpec := seccompprofileapi.SeccompProfileSpec{
+	spec := seccompprofileapi.SeccompProfileSpec{
 		DefaultAction: seccomp.ActErrno,
 		Architectures: []seccompprofileapi.Arch{arch},
 		Syscalls: []*seccompprofileapi.Syscall{{
 			Action: seccomp.ActAllow,
-			Names:  syscalls,
+			Names:  names,
 		}},
 	}
 
+	defer func() {
+		log.Printf("Wrote seccomp profile to: %s", r.options.outputFile)
+	}()
+
+	if r.options.typ == TypeRawSeccomp {
+		return r.buildProfileRaw(&spec)
+	}
+
+	return r.buildProfileCRD(&spec)
+}
+
+func (r *Recorder) buildProfileRaw(spec *seccompprofileapi.SeccompProfileSpec) error {
+	if r.options.outputFile == DefaultOutputFile {
+		r.options.outputFile = strings.ReplaceAll(r.options.outputFile, ".yaml", ".json")
+	}
+
+	data, err := json.MarshalIndent(spec, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal JSON profile: %w", err)
+	}
+
+	const defaultMode os.FileMode = 0o644
+	if err := os.WriteFile(r.options.outputFile, data, defaultMode); err != nil {
+		return fmt.Errorf("write JSON file: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Recorder) buildProfileCRD(spec *seccompprofileapi.SeccompProfileSpec) error {
 	profile := &seccompprofileapi.SeccompProfile{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "SeccompProfile",
 			APIVersion: seccompprofileapi.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name: r.options.command,
 		},
-		Spec: profileSpec,
+		Spec: *spec,
 	}
 
-	file, err := os.Create(filename)
+	file, err := os.Create(r.options.outputFile)
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
@@ -180,7 +202,6 @@ func (r *Recorder) buildProfile(name, filename string, syscalls []string) error 
 		return fmt.Errorf("print YAML: %w", err)
 	}
 
-	log.Printf("Wrote seccomp profile to: %s", filename)
 	return nil
 }
 
