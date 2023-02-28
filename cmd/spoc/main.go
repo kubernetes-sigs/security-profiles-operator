@@ -20,21 +20,12 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/urfave/cli/v2"
 
 	"sigs.k8s.io/security-profiles-operator/cmd"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
 )
-
-const (
-	outputFileFlag = "output-file"
-	typeFlag       = "type"
-	typeSeccomp    = "seccomp"
-)
-
-var defaultOutputFile = filepath.Join(os.TempDir(), "profile.yaml")
 
 func main() {
 	app, _ := cmd.DefaultApp()
@@ -49,17 +40,21 @@ func main() {
 			ArgsUsage: "COMMAND",
 			Flags: []cli.Flag{
 				&cli.StringFlag{
-					Name:        outputFileFlag,
+					Name:        recorder.FlagOutputFile,
 					Aliases:     []string{"o"},
 					Usage:       "the output file path for the recorded profile",
-					DefaultText: defaultOutputFile,
+					DefaultText: recorder.DefaultOutputFile,
 					TakesFile:   true,
 				},
 				&cli.StringFlag{
-					Name:        typeFlag,
-					Aliases:     []string{"t"},
-					Usage:       "the record type",
-					DefaultText: typeSeccomp,
+					Name:    recorder.FlagType,
+					Aliases: []string{"t"},
+					Usage:   "the record type",
+					DefaultText: fmt.Sprintf(
+						"%s [alternative: %s]",
+						recorder.TypeSeccomp,
+						recorder.TypeRawSeccomp,
+					),
 				},
 			},
 		},
@@ -72,17 +67,12 @@ func main() {
 
 // runRecord runs the `spoc record` subcommand.
 func runRecord(ctx *cli.Context) error {
-	outputFile := defaultOutputFile
-	if ctx.IsSet(outputFileFlag) {
-		outputFile = ctx.String(outputFileFlag)
+	options, err := recorder.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
 	}
 
-	recordType := ctx.String(typeFlag)
-	if ctx.IsSet(typeFlag) && recordType != typeSeccomp {
-		return fmt.Errorf("unsupported record type %q", recordType)
-	}
-
-	if err := recorder.New().Run(outputFile, ctx.Args().Slice()...); err != nil {
+	if err := recorder.New(options).Run(); err != nil {
 		return fmt.Errorf("run recorder: %w", err)
 	}
 

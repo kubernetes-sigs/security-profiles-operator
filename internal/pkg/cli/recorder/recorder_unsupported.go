@@ -29,12 +29,11 @@ var errUnsupported = errors.New("binary got compiled without bpf recorder suppor
 type Recorder struct{}
 
 // New returns a new Recorder instance.
-func New() *Recorder {
+func New(*Options) *Recorder {
 	return &Recorder{}
 }
 
-// Run the Recorder with the provided command args and put the resulting
-// profile to the path of filename.
-func (r *Recorder) Run(string, ...string) error {
+// Run the Recorder.
+func (r *Recorder) Run() error {
 	return errUnsupported
 }
