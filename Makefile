@@ -30,7 +30,6 @@ BUILD_DIR := build
 APPARMOR_ENABLED ?= 1
 BPF_ENABLED ?= 1
 
-BPFTOOL ?= bpftool
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
 BPF_PATH := internal/pkg/daemon/bpfrecorder/bpf
