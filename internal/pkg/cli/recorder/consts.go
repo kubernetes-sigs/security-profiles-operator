@@ -27,6 +27,14 @@ const (
 
 	// FlagType is the flag for defining the recorder type.
 	FlagType string = "type"
+
+	// FlagBaseSyscalls are the syscalls included in every seccomp profile to
+	// ensure compatibility with OCI runtimes like runc and crun.
+	FlagBaseSyscalls string = "base-syscalls"
+
+	// FlagNoBaseSyscalls can be used to indicate that no base syscalls should
+	// be added at all.
+	FlagNoBaseSyscalls string = "no-base-syscalls"
 )
 
 // Type is the enum for all available recorder types.
@@ -42,5 +50,82 @@ const (
 	TypeRawSeccomp Type = "raw-seccomp"
 )
 
-// DefaultOutputFile defines the default output location for the recorder.
-var DefaultOutputFile = filepath.Join(os.TempDir(), "profile.yaml")
+var (
+	// DefaultOutputFile defines the default output location for the recorder.
+	DefaultOutputFile = filepath.Join(os.TempDir(), "profile.yaml")
+
+	// DefaultBaseSyscalls are the syscalls included in every seccomp profile
+	// to ensure compatibility with OCI runtimes like runc and crun.
+	//
+	// Please note that the syscalls may vary depending on which container
+	// runtime we choose.
+	DefaultBaseSyscalls = []string{
+		"access",
+		"arch_prctl",
+		"brk",
+		"capget",
+		"capset",
+		"chdir",
+		"close",
+		"close_range",
+		"dup2",
+		"dup3",
+		"epoll_ctl",
+		"epoll_pwait",
+		"execve",
+		"exit_group",
+		"faccessat2",
+		"fchdir",
+		"fchown",
+		"fcntl",
+		"fstat",
+		"fstatfs",
+		"futex",
+		"getcwd",
+		"getdents64",
+		"getegid",
+		"geteuid",
+		"getgid",
+		"getpid",
+		"getppid",
+		"getrandom",
+		"getuid",
+		"ioctl",
+		"lseek",
+		"mmap",
+		"mount",
+		"mprotect",
+		"nanosleep",
+		"newfstatat",
+		"openat",
+		"openat2",
+		"pivot_root",
+		"prctl",
+		"prlimit64",
+		"pselect6",
+		"read",
+		"readlink",
+		"rseq",
+		"rt_sigaction",
+		"rt_sigprocmask",
+		"rt_sigreturn",
+		"select",
+		"set_robust_list",
+		"set_tid_address",
+		"setgid",
+		"setgroups",
+		"sethostname",
+		"setresgid",
+		"setresuid",
+		"setsid",
+		"setuid",
+		"stat",
+		"statfs",
+		"statx",
+		"tgkill",
+		"umask",
+		"umount2",
+		"uname",
+		"write",
+	}
+)
