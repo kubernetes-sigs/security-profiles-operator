@@ -175,8 +175,8 @@ github.com/opencontainers/runtime-spec/specs-go
 # github.com/openshift/api v0.0.0-20221205111557-f2fbb1d1cd5e
 ## explicit; go 1.18
 github.com/openshift/api/config/v1
-# github.com/pjbgf/go-apparmor v0.1.1
-## explicit; go 1.18
+# github.com/pjbgf/go-apparmor v0.1.2
+## explicit; go 1.20
 github.com/pjbgf/go-apparmor/pkg/apparmor
 github.com/pjbgf/go-apparmor/pkg/hostop
 # github.com/pkg/errors v0.9.1
