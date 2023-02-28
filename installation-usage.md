@@ -1,7 +1,6 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
@@ -171,6 +170,7 @@ A helm chart is also available for installation. The chart is attached to each
 as an artifact, and can be installed by executing the following shell commands:
 
 You may also specify a different target namespace with `--namespace mynamespace` or `--namespace mynamespace --create-namespace` if it still doesn't exist.
+
 ```shell
 # Install cert-manager if it is not already installed (TODO: The helm
 # chart might do this one day - see issue 1062 for details):
