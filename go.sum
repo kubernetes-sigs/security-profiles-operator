@@ -269,8 +269,8 @@ github.com/opencontainers/runtime-tools v0.9.1-0.20221014010322-58c91d646d86 h1:
 github.com/opencontainers/selinux v1.10.2 h1:NFy2xCsjn7+WspbfZkUd5zyVeisV7VFbPSP96+8/ha4=
 github.com/openshift/api v0.0.0-20221205111557-f2fbb1d1cd5e h1:a0EWi14QFqKNzQUrML8K800Ko+dttLPuMGQOCVIDCDY=
 github.com/openshift/api v0.0.0-20221205111557-f2fbb1d1cd5e/go.mod h1:OW9hi5XDXOQWm/kRqUww6RVxZSf0nqrS4heerSmHBC4=
-github.com/pjbgf/go-apparmor v0.1.1 h1:u3Bb54lWtLL9Jyjl8APWvum1xGtLO+kO5Acqa1Lnvxc=
-github.com/pjbgf/go-apparmor v0.1.1/go.mod h1:lZ+cD1dDL7+7NSNs3ajngYg32rASU98m1xdL7PhRiUM=
+github.com/pjbgf/go-apparmor v0.1.2 h1:FvMwkThr/XjL3PLAmzpW+p+OcaUWWi92hRi9uc7BdQg=
+github.com/pjbgf/go-apparmor v0.1.2/go.mod h1:k4hKHV2RPt9Z1zvg9Y6nMjTgUyIMoKNdCwNsl2qURds=
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
