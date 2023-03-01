@@ -126,9 +126,11 @@ dependencies:
       match: registry.access.redhat.com/ubi8/go-toolset
 
   - name: nix
-    version: 2.13.2
+    version: 2.13.3
     refPaths:
     - path: Dockerfile.build-image
+      match: NIX_VERSION
+    - path: .github/workflows/build.yml
       match: NIX_VERSION
 
   - name: kube-rbac-proxy
