@@ -21,16 +21,13 @@ package recorder
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"unsafe"
 
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/go-logr/logr"
@@ -44,30 +41,30 @@ import (
 
 // Recorder is the main structure of this package.
 type Recorder struct {
+	impl
 	options     *Options
 	bpfRecorder *bpfrecorder.BpfRecorder
 }
 
 // New returns a new Recorder instance.
 func New(options *Options) *Recorder {
-	return &Recorder{options: options}
+	return &Recorder{
+		impl:    &defaultImpl{},
+		options: options,
+	}
 }
 
 // Run the Recorder.
 func (r *Recorder) Run() error {
 	r.bpfRecorder = bpfrecorder.New(logr.New(&LogSink{}))
 	r.bpfRecorder.FilterProgramName(r.options.command)
-	if err := r.bpfRecorder.Load(false); err != nil {
+	if err := r.LoadBpfRecorder(r.bpfRecorder); err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	defer r.bpfRecorder.Unload()
+	defer r.UnloadBpfRecorder(r.bpfRecorder)
 
-	//nolint:gosec // passing the args is intentional here
-	cmd := exec.Command(r.options.command, r.options.args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
+	cmd := r.Command(r.options.command, r.options.args...)
+	if err := r.CmdStart(cmd); err != nil {
 		return fmt.Errorf("start command: %w", err)
 	}
 
@@ -83,10 +80,10 @@ func (r *Recorder) Run() error {
 		}
 	}()
 
-	pid := uint32(cmd.Process.Pid)
+	pid := r.CmdPid(cmd)
 	log.Printf("Running command with PID: %d", pid)
 
-	if err := cmd.Wait(); err != nil {
+	if err := r.CmdWait(cmd); err != nil {
 		log.Printf("Command not exited successfully: %v", err)
 	}
 
@@ -100,16 +97,16 @@ func (r *Recorder) Run() error {
 func (r *Recorder) processData(pid uint32) error {
 	log.Printf("Processing recorded data")
 
-	iterator := r.bpfRecorder.Syscalls().Iterator()
-	for iterator.Next() {
-		currentPid := binary.LittleEndian.Uint32(iterator.Key())
+	it := r.SyscallsIterator(r.bpfRecorder)
+	for r.IteratorNext(it) {
+		currentPid := binary.LittleEndian.Uint32(r.IteratorKey(it))
 
 		if currentPid != pid {
 			continue
 		}
 		log.Print("Found PID in bpf map")
 
-		syscallsValue, err := r.bpfRecorder.Syscalls().GetValue(unsafe.Pointer(&currentPid))
+		syscallsValue, err := r.SyscallsGetValue(r.bpfRecorder, currentPid)
 		if err != nil {
 			return fmt.Errorf("get syscalls from pids map: %w", err)
 		}
@@ -117,7 +114,7 @@ func (r *Recorder) processData(pid uint32) error {
 		syscalls := []string{}
 		for id, found := range syscallsValue {
 			if found != 0 {
-				name, err := libseccomp.ScmpSyscall(id).GetName()
+				name, err := r.GetName(libseccomp.ScmpSyscall(id))
 				if err != nil {
 					return fmt.Errorf("get syscall name for id %d: %w", id, err)
 				}
@@ -168,13 +165,13 @@ func (r *Recorder) buildProfileRaw(spec *seccompprofileapi.SeccompProfileSpec) e
 		r.options.outputFile = strings.ReplaceAll(r.options.outputFile, ".yaml", ".json")
 	}
 
-	data, err := json.MarshalIndent(spec, "", "  ")
+	data, err := r.MarshalIndent(spec, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal JSON profile: %w", err)
 	}
 
 	const defaultMode os.FileMode = 0o644
-	if err := os.WriteFile(r.options.outputFile, data, defaultMode); err != nil {
+	if err := r.WriteFile(r.options.outputFile, data, defaultMode); err != nil {
 		return fmt.Errorf("write JSON file: %w", err)
 	}
 
@@ -193,14 +190,14 @@ func (r *Recorder) buildProfileCRD(spec *seccompprofileapi.SeccompProfileSpec) e
 		Spec: *spec,
 	}
 
-	file, err := os.Create(r.options.outputFile)
+	file, err := r.Create(r.options.outputFile)
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
-	defer file.Close()
+	defer r.CloseFile(file)
 
 	printer := printers.YAMLPrinter{}
-	if err := printer.PrintObj(profile, file); err != nil {
+	if err := r.PrintObj(printer, profile, file); err != nil {
 		return fmt.Errorf("print YAML: %w", err)
 	}
 
@@ -208,7 +205,7 @@ func (r *Recorder) buildProfileCRD(spec *seccompprofileapi.SeccompProfileSpec) e
 }
 
 func (r *Recorder) goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, error) {
-	seccompArch, err := seccomp.GoArchToSeccompArch(goarch)
+	seccompArch, err := r.GoArchToSeccompArch(goarch)
 	if err != nil {
 		return "", fmt.Errorf("convert golang to seccomp arch: %w", err)
 	}
