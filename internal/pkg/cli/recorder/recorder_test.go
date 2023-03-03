@@ -20,27 +20,41 @@ limitations under the License.
 package recorder
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/containers/common/pkg/seccomp"
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder/recorderfakes"
 )
 
+var errTest = errors.New("test")
+
 func TestRun(t *testing.T) {
 	t.Parallel()
 
+	defaultMock := func(mock *recorderfakes.FakeImpl) {
+		mock.FindProcMountNamespaceReturns(1, nil)
+		mock.IteratorNextReturnsOnCall(0, true)
+		mock.IteratorKeyReturnsOnCall(0, []byte{1, 0, 0, 0, 0, 0, 0, 0})
+		mock.SyscallsGetValueReturns([]byte{1}, nil)
+	}
+
 	for _, tc := range []struct {
+		name    string
 		prepare func(*recorderfakes.FakeImpl) *Options
 		assert  func(*recorderfakes.FakeImpl, error)
 	}{
-		{ // Success
+		{
+			name: "success seccomp CRD",
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				mock.CommandRunReturns(1, nil)
 				mock.IteratorNextReturnsOnCall(0, true)
 				mock.IteratorKeyReturnsOnCall(0, []byte{1, 0, 0, 0, 0, 0, 0, 0})
 				mock.SyscallsGetValueReturns([]byte{1}, nil)
 				mock.FindProcMountNamespaceReturns(1, nil)
+				defaultMock(mock)
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -48,14 +62,184 @@ func TestRun(t *testing.T) {
 				require.Equal(t, 1, mock.PrintObjCallCount())
 			},
 		},
+		{
+			name: "success seccomp CRD with error on CmdWait",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.CommandWaitReturns(errTest)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.Nil(t, err)
+				require.Equal(t, 1, mock.PrintObjCallCount())
+			},
+		},
+		{
+			name: "success seccomp CRD with non matching mount namespace",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				mock.FindProcMountNamespaceReturns(1, nil)
+				mock.IteratorNextReturnsOnCall(0, true)
+				mock.IteratorKeyReturnsOnCall(0, []byte{2, 0, 0, 0, 0, 0, 0, 0})
+				mock.IteratorNextReturnsOnCall(1, true)
+				mock.IteratorKeyReturnsOnCall(1, []byte{1, 0, 0, 0, 0, 0, 0, 0})
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.Nil(t, err)
+				require.Equal(t, 1, mock.PrintObjCallCount())
+			},
+		},
+		{
+			name: "success raw seccomp profile",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				options := Default()
+				options.typ = TypeRawSeccomp
+				return options
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.Nil(t, err)
+				require.Equal(t, 1, mock.WriteFileCallCount())
+			},
+		},
+		{
+			name: "failure seccomp CRD on Create",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.CreateReturns(nil, errTest)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure seccomp CRD on PrintObj",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.PrintObjReturns(errTest)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure raw seccomp profile on WriteFile",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.WriteFileReturns(errTest)
+				options := Default()
+				options.typ = TypeRawSeccomp
+				return options
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure raw seccomp profile on MarshalIndent",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.MarshalIndentReturns(nil, errTest)
+				options := Default()
+				options.typ = TypeRawSeccomp
+				return options
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure seccomp on GoArchToSeccompArch",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.GoArchToSeccompArchReturns(seccomp.Arch(""), errTest)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure seccomp on SyscallsGetValue",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.SyscallsGetValueReturns(nil, errTest)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure seccomp on GetName",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.GetNameReturns("", errTest)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure seccomp find mount namespace",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				mock.FindProcMountNamespaceReturns(1, nil)
+				mock.FindProcMountNamespaceReturns(1, nil)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "failure seccomp on FindProcMountNamespace",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				mock.FindProcMountNamespaceReturns(1, nil)
+				mock.FindProcMountNamespaceReturns(0, errTest)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure seccomp on CmdStart",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				mock.CommandRunReturns(0, errTest)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
+			name: "failure seccomp on LoadBpfRecorder",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				mock.LoadBpfRecorderReturns(errTest)
+				return Default()
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
 	} {
-		mock := &recorderfakes.FakeImpl{}
-		options := tc.prepare(mock)
+		prepare := tc.prepare
+		assert := tc.assert
 
-		sut := New(options)
-		sut.impl = mock
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		err := sut.Run()
-		tc.assert(mock, err)
+			mock := &recorderfakes.FakeImpl{}
+			options := prepare(mock)
+
+			sut := New(options)
+			sut.impl = mock
+
+			err := sut.Run()
+			assert(mock, err)
+		})
 	}
 }
