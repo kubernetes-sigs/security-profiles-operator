@@ -2935,7 +2935,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator-profile
-  namespace: '{{ .Release.Namespace }}'
+  namespace: security-profiles-operator
 ---
 apiVersion: v1
 kind: Secret

@@ -179,7 +179,7 @@ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernete
 
 # Install the chart from a release URL (note: helm also allows users to
 # specify a file path instead of a URL, if desired):
-helm install --namespace security-profiles-operator security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.6.1-dev/security-profiles-operator-0.6.1-dev.tgz
+helm install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.6.1-dev/security-profiles-operator-0.6.1-dev.tgz
 ```
 
 ### Installation on AKS
