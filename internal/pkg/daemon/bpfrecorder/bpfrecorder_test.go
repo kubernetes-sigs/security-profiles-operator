@@ -166,7 +166,7 @@ func TestRun(t *testing.T) {
 		{ // Atoi fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
-				mock.AtoiReturns(0, errTest)
+				mock.ParseUintReturns(0, errTest)
 			},
 			assert: func(err error) {
 				require.NotNil(t, err)

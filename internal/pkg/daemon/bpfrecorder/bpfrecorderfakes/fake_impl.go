@@ -39,19 +39,6 @@ import (
 )
 
 type FakeImpl struct {
-	AtoiStub        func(string) (int, error)
-	atoiMutex       sync.RWMutex
-	atoiArgsForCall []struct {
-		arg1 string
-	}
-	atoiReturns struct {
-		result1 int
-		result2 error
-	}
-	atoiReturnsOnCall map[int]struct {
-		result1 int
-		result2 error
-	}
 	AttachTracepointStub        func(*libbpfgo.BPFProg, string, string) (*libbpfgo.BPFLink, error)
 	attachTracepointMutex       sync.RWMutex
 	attachTracepointArgsForCall []struct {
@@ -357,6 +344,19 @@ type FakeImpl struct {
 		result1 *libbpfgo.Module
 		result2 error
 	}
+	ParseUintStub        func(string) (uint32, error)
+	parseUintMutex       sync.RWMutex
+	parseUintArgsForCall []struct {
+		arg1 string
+	}
+	parseUintReturns struct {
+		result1 uint32
+		result2 error
+	}
+	parseUintReturnsOnCall map[int]struct {
+		result1 uint32
+		result2 error
+	}
 	ReadOSReleaseStub        func() (map[string]string, error)
 	readOSReleaseMutex       sync.RWMutex
 	readOSReleaseArgsForCall []struct {
@@ -514,70 +514,6 @@ type FakeImpl struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
-}
-
-func (fake *FakeImpl) Atoi(arg1 string) (int, error) {
-	fake.atoiMutex.Lock()
-	ret, specificReturn := fake.atoiReturnsOnCall[len(fake.atoiArgsForCall)]
-	fake.atoiArgsForCall = append(fake.atoiArgsForCall, struct {
-		arg1 string
-	}{arg1})
-	stub := fake.AtoiStub
-	fakeReturns := fake.atoiReturns
-	fake.recordInvocation("Atoi", []interface{}{arg1})
-	fake.atoiMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) AtoiCallCount() int {
-	fake.atoiMutex.RLock()
-	defer fake.atoiMutex.RUnlock()
-	return len(fake.atoiArgsForCall)
-}
-
-func (fake *FakeImpl) AtoiCalls(stub func(string) (int, error)) {
-	fake.atoiMutex.Lock()
-	defer fake.atoiMutex.Unlock()
-	fake.AtoiStub = stub
-}
-
-func (fake *FakeImpl) AtoiArgsForCall(i int) string {
-	fake.atoiMutex.RLock()
-	defer fake.atoiMutex.RUnlock()
-	argsForCall := fake.atoiArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) AtoiReturns(result1 int, result2 error) {
-	fake.atoiMutex.Lock()
-	defer fake.atoiMutex.Unlock()
-	fake.AtoiStub = nil
-	fake.atoiReturns = struct {
-		result1 int
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) AtoiReturnsOnCall(i int, result1 int, result2 error) {
-	fake.atoiMutex.Lock()
-	defer fake.atoiMutex.Unlock()
-	fake.AtoiStub = nil
-	if fake.atoiReturnsOnCall == nil {
-		fake.atoiReturnsOnCall = make(map[int]struct {
-			result1 int
-			result2 error
-		})
-	}
-	fake.atoiReturnsOnCall[i] = struct {
-		result1 int
-		result2 error
-	}{result1, result2}
 }
 
 func (fake *FakeImpl) AttachTracepoint(arg1 *libbpfgo.BPFProg, arg2 string, arg3 string) (*libbpfgo.BPFLink, error) {
@@ -2057,6 +1993,70 @@ func (fake *FakeImpl) NewModuleFromBufferArgsReturnsOnCall(i int, result1 *libbp
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) ParseUint(arg1 string) (uint32, error) {
+	fake.parseUintMutex.Lock()
+	ret, specificReturn := fake.parseUintReturnsOnCall[len(fake.parseUintArgsForCall)]
+	fake.parseUintArgsForCall = append(fake.parseUintArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.ParseUintStub
+	fakeReturns := fake.parseUintReturns
+	fake.recordInvocation("ParseUint", []interface{}{arg1})
+	fake.parseUintMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ParseUintCallCount() int {
+	fake.parseUintMutex.RLock()
+	defer fake.parseUintMutex.RUnlock()
+	return len(fake.parseUintArgsForCall)
+}
+
+func (fake *FakeImpl) ParseUintCalls(stub func(string) (uint32, error)) {
+	fake.parseUintMutex.Lock()
+	defer fake.parseUintMutex.Unlock()
+	fake.ParseUintStub = stub
+}
+
+func (fake *FakeImpl) ParseUintArgsForCall(i int) string {
+	fake.parseUintMutex.RLock()
+	defer fake.parseUintMutex.RUnlock()
+	argsForCall := fake.parseUintArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) ParseUintReturns(result1 uint32, result2 error) {
+	fake.parseUintMutex.Lock()
+	defer fake.parseUintMutex.Unlock()
+	fake.ParseUintStub = nil
+	fake.parseUintReturns = struct {
+		result1 uint32
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ParseUintReturnsOnCall(i int, result1 uint32, result2 error) {
+	fake.parseUintMutex.Lock()
+	defer fake.parseUintMutex.Unlock()
+	fake.ParseUintStub = nil
+	if fake.parseUintReturnsOnCall == nil {
+		fake.parseUintReturnsOnCall = make(map[int]struct {
+			result1 uint32
+			result2 error
+		})
+	}
+	fake.parseUintReturnsOnCall[i] = struct {
+		result1 uint32
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) ReadOSRelease() (map[string]string, error) {
 	fake.readOSReleaseMutex.Lock()
 	ret, specificReturn := fake.readOSReleaseReturnsOnCall[len(fake.readOSReleaseArgsForCall)]
@@ -2860,8 +2860,6 @@ func (fake *FakeImpl) WriteReturnsOnCall(i int, result1 int, result2 error) {
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.atoiMutex.RLock()
-	defer fake.atoiMutex.RUnlock()
 	fake.attachTracepointMutex.RLock()
 	defer fake.attachTracepointMutex.RUnlock()
 	fake.bPFLoadObjectMutex.RLock()
@@ -2910,6 +2908,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.newForConfigMutex.RUnlock()
 	fake.newModuleFromBufferArgsMutex.RLock()
 	defer fake.newModuleFromBufferArgsMutex.RUnlock()
+	fake.parseUintMutex.RLock()
+	defer fake.parseUintMutex.RUnlock()
 	fake.readOSReleaseMutex.RLock()
 	defer fake.readOSReleaseMutex.RUnlock()
 	fake.readlinkMutex.RLock()
