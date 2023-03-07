@@ -82,7 +82,7 @@ type impl interface {
 	StartRingBuffer(*bpf.RingBuffer)
 	GoArch() string
 	Readlink(string) (string, error)
-	Atoi(string) (int, error)
+	ParseUint(string) (uint32, error)
 	DialMetrics() (*grpc.ClientConn, context.CancelFunc, error)
 	BpfIncClient(client apimetrics.MetricsClient) (apimetrics.Metrics_BpfIncClient, error)
 	CloseGRPC(*grpc.ClientConn) error
@@ -242,8 +242,9 @@ func (d *defaultImpl) Readlink(name string) (string, error) {
 	return os.Readlink(name)
 }
 
-func (d *defaultImpl) Atoi(s string) (int, error) {
-	return strconv.Atoi(s)
+func (d *defaultImpl) ParseUint(s string) (uint32, error) {
+	value, err := strconv.ParseUint(s, 10, 32)
+	return uint32(value), err
 }
 
 func (d *defaultImpl) DialMetrics() (*grpc.ClientConn, context.CancelFunc, error) {

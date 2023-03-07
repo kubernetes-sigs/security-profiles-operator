@@ -648,12 +648,12 @@ func (b *BpfRecorder) FindProcMountNamespace(pid uint32) (uint32, error) {
 	stripped := strings.TrimPrefix(res, "mnt:[")
 	stripped = strings.TrimSuffix(stripped, "]")
 
-	ns, err := b.Atoi(stripped)
+	ns, err := b.ParseUint(stripped)
 	if err != nil {
 		return 0, fmt.Errorf("convert namespace to integer: %w", err)
 	}
 
-	return uint32(ns), nil
+	return ns, nil
 }
 
 func (b *BpfRecorder) trackProfileMetric(mntns uint32, profile string) {
