@@ -1,6 +1,7 @@
 # Installation and Usage
 
 <!-- toc -->
+
 - [Features](#features)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
@@ -176,6 +177,7 @@ helm install security-profiles-operator https://github.com/kubernetes-sigs/secur
 ```
 
 ### Installation on AKS
+
 In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview), it is recommended to [configure webhook](#configuring-webhooks) to respect the [control-plane](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks) label as follows:
 
 ```sh
@@ -211,7 +213,6 @@ by the operator from `mnt-resource-kubelet` into path `/mnt/resource/kubelet`.
 
 The default priority class name of the spod daemon pod is set to `system-node-critical`. A custom priority class name can be configured
 in the SPOD configuration by setting a value in the `priorityClassName` filed.
-
 
 ```
 > kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"priorityClassName":"my-priority-class"}}'
@@ -760,6 +761,7 @@ spec:
 ```
 
 Create your workload:
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -777,26 +779,30 @@ spec:
     spec:
       serviceAccountName: spo-record-sa
       containers:
-      - name: nginx-record
-        image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
-        ports:
-        - containerPort: 8080
+        - name: nginx-record
+          image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+          ports:
+            - containerPort: 8080
 ```
 
 You'll see that the deployment spawns three replicas. To test the merging feature, you
 can perform an action in one of the pods, for example:
+
 ```bash
 > kubectl exec nginx-deploy-65bcbb956f-gmbrj -- bash -c "mknod /tmp/foo p"
 ```
+
 Note that this is a silly example, but shows the feature in action.
 
 To record the individual profiles, delete the deployment:
+
 ```bash
 > kubectl delete deployment nginx-deploy
 ```
 
 The profiles will be reconciled, one per container. Note that the profiles are marked as
 "partial" and the spod deamon instances do not reconcile the profiles.
+
 ```bash
 > kubectl get sp -lspo.x-k8s.io/recording-id=test-recording --show-labels
 NAME                                STATUS    AGE     LABELS
@@ -807,11 +813,14 @@ test-recording-nginx-record-wdv2r   Partial   2m50s   spo.x-k8s.io/container-id=
 
 Inspecting the first partial profile, which corresponds to the pod where we ran the extra command
 shows that mknod is allowed:
+
 ```bash
 > kubectl get sp test-recording-nginx-record-gmbrj -o yaml | grep mknod
   - mknod
 ```
+
 On the other hand the others do not:
+
 ```bash
 > kubectl get sp test-recording-nginx-record-lclnb -o yaml | grep mknod
 > kubectl get sp test-recording-nginx-record-wdv2r -o yaml | grep mknod
@@ -821,6 +830,7 @@ To merge the profiles, delete the profile recording to indicate that
 you are finished with recording the workload. This would trigger the
 merge operation done by the controller and the resulting profile will be
 reconciled by the controller as seen from the `Installed` state:
+
 ```bash
 > kubectl delete profilerecording test-recording
 profilerecording.security-profiles-operator.x-k8s.io "test-recording" deleted
@@ -831,6 +841,7 @@ test-recording-nginx-record   Installed   17m
 
 The resulting profile will contain all the syscalls that were used by any of the containers,
 including the `mknod` syscall:
+
 ```bash
 > kubectl get sp test-recording-nginx-record -o yaml | grep mknod
   - mknod
@@ -856,6 +867,7 @@ kind should be used mostly when there's an already existing SELinux policy (perh
 that you wish to use in your cluster.
 
 In particular, the `SelinuxProfile` kind:
+
 - restricts the profiles to inherit from to the current namespace or a system-wide profile. Because there
   are typically many profiles installed on the system, but only a subset should be used by cluster workloads,
   the inheritable system profiles are listed in the `spod` instance in `spec.selinuxOptions.allowedSystemProfiles`.
@@ -866,6 +878,7 @@ In particular, the `SelinuxProfile` kind:
   workloads and namespaces easily, as the "usage" of the policy (see below) is based on the name and namespace.
 
 Below is an example of a policy that can be used with a non-privileged nginx workload:
+
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
 kind: SelinuxProfile
@@ -874,21 +887,22 @@ metadata:
   namespace: nginx-deploy
 spec:
   allow:
-    '@self':
+    "@self":
       tcp_socket:
-      - listen
+        - listen
     http_cache_port_t:
       tcp_socket:
-      - name_bind
+        - name_bind
     node_t:
       tcp_socket:
-      - node_bind
+        - node_bind
   inherit:
-  - kind: System
-    name: container
+    - kind: System
+      name: container
 ```
 
 After the policy is created, we can wait for selinuxd to install it:
+
 ```bash
 $ kubectl wait --for=condition=ready selinuxprofile nginx-secure
 selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure condition met
@@ -896,6 +910,7 @@ selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure condition met
 
 The CIL-formatted policies are placed into an `emptyDir` owned by the SPO where you can view
 the resulting CIL policy:
+
 ```shell
 $ kubectl exec -it -c selinuxd spod-fm55x -- sh
 sh-4.4# cat /etc/selinux.d/nginx-secure_nginx-deploy.cil
@@ -909,6 +924,7 @@ sh-4.4# cat /etc/selinux.d/nginx-secure_nginx-deploy.cil
 
 However, the binary policies are installed into the system policy store on the nodes, so you can verify
 that a policy has been installed:
+
 ```shell
 # semodule -l | grep nginx-secure
 ```
@@ -916,12 +932,14 @@ that a policy has been installed:
 ### Apply a SELinux profile to a pod
 
 SELinux profiles are referenced to based on their "usage" string:
+
 ```shell
 kubectl get selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure -nnginx-deploy -ojsonpath='{.status.usage}'
 nginx-secure_nginx-deploy.process%
 ```
 
 Use this string in the workload manifest in the `.spec.containers[].securityContext.seLinuxOptions` attribute:
+
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -964,6 +982,7 @@ operator deployment to run in a single namespace, use the
 `namespace-operator.yaml` manifest with your namespace of choice:
 
 ### Restricting to a Single Namespace with upstream deployment manifests
+
 ```sh
 NAMESPACE=<your-namespace>
 
@@ -971,16 +990,19 @@ curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operato
 ```
 
 ### Restricting to a Single Namespace when installing using OLM
+
 Since restricting the operator to a single namespace amounts to setting the `RESTRICT_TO_NAMESPACE`
 environment variable, the easiest way to set that (or any other variable for SPO) is by editing the
 `Subscription` object and setting the `spec.config.env` field:
+
 ```yaml
-  spec:
-    config:
-      env:
+spec:
+  config:
+    env:
       - name: RESTRICT_TO_NAMESPACE
         value: <your-namespace>
 ```
+
 OLM would then take care of updating the operator `Deployment` object with the new environment variable.
 Please refer to the [OLM documentation](https://github.com/operator-framework/operator-lifecycle-manager/blob/master/doc/design/subscription-config.md#res)
 for more details on tuning the operator's configuration with the `Subscription` objects.
@@ -1458,6 +1480,7 @@ example, we might create the following SCC which is based on the `restricted`
 SCC shipped in OpenShift, just allows our SELinux policy to be used.
 Note that we'll be deploying in the `nginx-secure` namespace, as you can
 see from the ServiceAccount name we are putting into the `users` array.
+
 ```yaml
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
@@ -1478,10 +1501,10 @@ fsGroup:
 priority: null
 readOnlyRootFilesystem: false
 requiredDropCapabilities:
-- KILL
-- MKNOD
-- SETUID
-- SETGID
+  - KILL
+  - MKNOD
+  - SETUID
+  - SETGID
 runAsUser:
   type: MustRunAsRange
 seLinuxContext:
@@ -1491,14 +1514,14 @@ seLinuxContext:
 supplementalGroups:
   type: RunAsAny
 users:
-- system:serviceaccount:nginx-secure:nginx-sa
+  - system:serviceaccount:nginx-secure:nginx-sa
 volumes:
-- configMap
-- downwardAPI
-- emptyDir
-- persistentVolumeClaim
-- projected
-- secret
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret
 ```
 
 Please note that a common mistake when creating custom SCCs is to bind them to a wide range of users or SAs
@@ -1508,6 +1531,7 @@ or [this Red Hat blog post](https://cloud.redhat.com/blog/managing-sccs-in-opens
 on managing SCCs.
 
 Then we create the appropriate role:
+
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -1515,18 +1539,20 @@ metadata:
   name: nginx
   namespace: nginx-secure
 rules:
-- apiGroups:
-  - security.openshift.io
-  resources:
-  - securitycontextconstraints
-  resourceNames:
-  - nginx-secure
-  verbs:
-  - use
+  - apiGroups:
+      - security.openshift.io
+    resources:
+      - securitycontextconstraints
+    resourceNames:
+      - nginx-secure
+    verbs:
+      - use
 ```
+
 and finally a role binding and the SA.
 
 With all that set up, we can finally create our deployment:
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -1544,14 +1570,13 @@ spec:
     spec:
       serviceAccountName: nginx-sa
       containers:
-      - name: nginx
-        image: nginxinc/nginx-unprivileged:1.21
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.21
 ```
 
 Note that we don't specify the SELinux type at all in the workload, that's handled by the SCC instead.
 When the pods are created through the deployment and its `ReplicaSet`, they should be
 running with the appropriate profile.
-
 
 ## Create an AppArmor profile
 
@@ -1563,6 +1588,7 @@ securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
 Use the `AppArmorProfile` kind to create AppArmor profiles. Example:
+
 ```yaml
 ---
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
@@ -1604,20 +1630,20 @@ For up-to-date information on how to use AppArmor in Kubernetes, refer to the [o
 ### Known limitations
 
 - The name set for the AppArmorProfile CRD must match the policy name
-defined within `spec.policy`. Otherwise the reconciler will fail as it
-won't be able to confirm the policy was correctly loaded.
+  defined within `spec.policy`. Otherwise the reconciler will fail as it
+  won't be able to confirm the policy was correctly loaded.
 - The reconciler will simply load the profiles across the cluster. If an
-existing profile with the same name exists, it will be replaced.
+  existing profile with the same name exists, it will be replaced.
 - The SPO does not validate the profile contents. Invalid profiles
-will error when loading into the kernel. The error can be found on the spod
-pod and the message will roughly look like:
-```
-E1112 08:35:24.072544    8668 controller.go:326]  "msg"="Reconciler error" "error"="cannot load profile into node: running action: exit status 1" "appArmorProfile"={"name":"<NAME_OF_PROFILE>","namespace":"security-profiles-operator"} "controller"="apparmorprofile" "controllerGroup"="security-profiles-operator.x-k8s.io" "controllerKind"="AppArmorProfile" "name"="<NAME_OF_PROFILE>" "namespace"="security-profiles-operator" "reconcileID"="035a4edd-cdd9-4c35-a1be-924939538ce4"
-```.
+  will error when loading into the kernel. The error can be found on the spod
+  pod and the message will roughly look like:
+  ```
+  E1112 08:35:24.072544    8668 controller.go:326]  "msg"="Reconciler error" "error"="cannot load profile into node: running action: exit status 1" "appArmorProfile"={"name":"<NAME_OF_PROFILE>","namespace":"security-profiles-operator"} "controller"="apparmorprofile" "controllerGroup"="security-profiles-operator.x-k8s.io" "controllerKind"="AppArmorProfile" "name"="<NAME_OF_PROFILE>" "namespace"="security-profiles-operator" "reconcileID"="035a4edd-cdd9-4c35-a1be-924939538ce4"
+  ```
 - Restrictive profiles may block sub processes to be created, or a container from
-successfully loading. In such cases, the denied rules may not show up in the
-log-enricher logs, as SPO may fail to find the running process to correlate to the
-pod information. To work around the issue, set the AppArmor profile to complain mode.
+  successfully loading. In such cases, the denied rules may not show up in the
+  log-enricher logs, as SPO may fail to find the running process to correlate to the
+  pod information. To work around the issue, set the AppArmor profile to complain mode.
 
 ## Uninstalling
 
