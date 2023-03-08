@@ -176,7 +176,7 @@ dependencies:
       match: VERSION
 
   - name: cosign
-    version: v1.13.1
+    version: v2.0.0
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: COSIGN_VERSION
