@@ -3,6 +3,7 @@ kind: SecurityProfilesOperatorDaemon
 metadata:
   labels:
     app: security-profiles-operator
+    {{- include "security-profiles-operator.labels" . | nindent 4 }}
   name: spod
   namespace: {{ .Release.Namespace }}
 spec:
