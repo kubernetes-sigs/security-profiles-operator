@@ -9,6 +9,7 @@
     - [Other Kubernetes distributions](#other-kubernetes-distributions)
   - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
   - [Installation using helm](#installation-using-helm)
+    - [Troubleshooting and maintenance](#troubleshooting-and-maintenance)
   - [Installation on AKS](#installation-on-aks)
 - [Configure a custom kubelet root directory](#configure-a-custom-kubelet-root-directory)
 - [Set a custom priority class name for spod daemon pod](#set-a-custom-priority-class-name-for-spod-daemon-pod)
@@ -177,10 +178,57 @@ You may also specify a different target namespace with `--namespace mynamespace`
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
 kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
-# Install the chart from a release URL (note: helm also allows users to
-# specify a file path instead of a URL, if desired):
+# Create the namespace beforehand
+export spo_ns=security-profiles-operator
+kubectl create ns $spo_ns
+
+# Label and annotate the ns to make it manageable by helm 
+kubectl label ns $spo_ns \
+  app=security-profiles-operator \
+  pod-security.kubernetes.io/audit=privileged \
+  pod-security.kubernetes.io/enforce=privileged \
+  pod-security.kubernetes.io/warn=privileged \
+  app.kubernetes.io/managed-by=Helm \
+  --overwrite=true
+
+kubectl annotate ns $spo_ns \
+  "meta.helm.sh/release-name"="security-profiles-operator" \
+  "meta.helm.sh/release-namespace"="$spo_ns" \
+  --overwrite
+
+# Install the chart from the release URL (or a file path if desired)
 helm install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.6.1-dev/security-profiles-operator-0.6.1-dev.tgz
+# Or update it with 
+# helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.6.1-dev/security-profiles-operator-0.6.1-dev.tgz
 ```
+
+#### Troubleshooting and maintenance  
+
+These CRDs are not templated, but will be installed by default when running a helm install for the chart.  
+There is no support at this time for upgrading or deleting CRDs using Helm. [[docs](https://helm.sh/docs/chart_best_practices/custom_resource_definitions/)]
+
+To remove everything or to do a new installation from scratch be sure to remove them first
+
+```shell
+# Check in which ns is your release
+helm list --all --all-namespaces
+
+# Set here the target namespace to clean
+export spo_ns=spo
+
+# WARNING: following command will DELETE every CRD related to this project
+kubectl get crds --no-headers |grep security-profiles-operator |cut -d' ' -f1 |xargs kubectl delete crd
+kubectl get -n $spo_ns crds --no-headers |grep security-profiles-operator |cut -d' ' -f1 |xargs kubectl delete -n $spo_ns crd
+
+# Uninstall the chart release from the namespace
+helm uninstall --namespace $spo_ns security-profiles-operator
+# WARNING: Delete the namespace 
+kubectl delete ns $spo_ns
+
+# Install it again
+helm upgrade --install --create-namespace --namespace $spo_ns security-profiles-operator deploy/helm/
+```
+
 
 ### Installation on AKS
 

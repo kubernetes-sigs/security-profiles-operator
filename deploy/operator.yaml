@@ -2688,7 +2688,6 @@ metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator
-  namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -2719,7 +2718,6 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spod
-  namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -2751,7 +2749,6 @@ metadata:
   labels:
     app: security-profiles-operator
   name: spo-webhook
-  namespace: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -2964,7 +2961,7 @@ metadata:
   labels:
     app: security-profiles-operator
   name: security-profiles-operator-profile
-  namespace: '{{ .Release.Namespace }}'
+  namespace: security-profiles-operator
 ---
 apiVersion: apps/v1
 kind: Deployment

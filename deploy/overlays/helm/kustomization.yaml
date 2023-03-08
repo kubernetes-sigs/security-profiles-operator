@@ -9,10 +9,15 @@ sortOptions:
 resources:
 - ../../base
 patches:
-- path: operator-profile.yaml
+  # Target all namespaced resources present in the project.
+- patch: |
+    - op: replace
+      path: /metadata/namespace
+      value: "{{ .Release.Namespace }}"
   target:
-    kind: (ServiceAccount|Role|ClusterRoleBinding|RoleBinding|Secret)
+    kind: (AppArmorProfile|Binding|Certificate|CertificateRequest|ConfigMap|ControllerRevision|DaemonSet|Deployment|Ingress|Issuer|ProfileBinding|ProfileRecording|RawSelinuxProfile|Role|RoleBinding|SeccompProfile|Secret|SecurityProfileNodeStatus|SecurityProfilesOperatorDaemon|SelinuxProfile|Service|ServiceAccount)
 
+  # Replace the namespace into the roles bindings associations.
 - patch: |
     - op: replace
       path: /subjects/0/namespace
@@ -20,9 +25,45 @@ patches:
   target:
     kind: (ClusterRoleBinding|RoleBinding)
 
+  # Replace the namespace name into the namespace resource.
+  # Remove unused openshift label
 - patch: |
     - op: replace
       path: /metadata/name
       value: "{{ .Release.Namespace }}"
+    - op: remove
+      path:  "/metadata/labels/openshift.io~1cluster-monitoring"
+      value: "true"
   target:
     kind: Namespace
+
+# TODO: get webhook deployment replicas from values file
+- patch: |
+    - op: replace
+      path: /spec/replicas
+      value: "{{ .Values.replicaCount }}"
+  target:
+    kind: Deployment
+    name: security-profiles-operator-webhook
+
+# Labels and Annotations
+# Kustomize doesn't support adding items as first child to a list, like:
+# - op: add
+#    path: /metadata/labels
+#    value: "{{- include \"security-profiles-operator.labels\" . | nindent 4 }}"
+# So values will be hardcoded.
+- patch: |-
+    - op: add
+      path:  "/metadata/labels/helm.sh~1chart"
+      value: "security-profiles-operator"
+    - op: add
+      path:  "/metadata/labels/app.kubernetes.io~1managed-by"
+      value: "Helm"
+    - op: add
+      path:  "/metadata/annotations/meta.helm.sh~1release-name"
+      value: "security-profiles-operator"
+    - op: add
+      path:  "/metadata/annotations/meta.helm.sh~1release-namespace"
+      value: "{{ .Release.Namespace }}"
+  target:
+    kind: (ClusterRole|ClusterRoleBinding|ConfigMap|MutatingWebhookConfiguration|Namespace|Role|RoleBinding|Secret|ServiceAccount)

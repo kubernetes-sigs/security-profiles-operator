@@ -74,7 +74,7 @@ Vagrant.configure("2") do |config|
         seccomp \
         libseccomp-dev \
         apparmor-easyprof apparmor-notify apparmor-utils \
-        libapparmor-dev \                                     # sys/apparmor.h, aalogparse/aalogparse.h, /sys/apparmor_private.h
+        libapparmor-dev \
         libelf-dev zlib1g-dev \
         >/dev/null
       set -x
