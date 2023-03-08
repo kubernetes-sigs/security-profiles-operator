@@ -31,6 +31,13 @@ Create chart name and version as used by the chart label.
 {{- end }}
 
 {{/*
+Common annotations
+*/}}
+{{- define "security-profiles-operator.annotations" -}}
+meta.helm.sh/release-name: {{ include "security-profiles-operator.name" . }}
+{{- end }}
+
+{{/*
 Common labels
 */}}
 {{- define "security-profiles-operator.labels" -}}
@@ -47,7 +54,7 @@ Selector labels
 */}}
 {{- define "security-profiles-operator.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "security-profiles-operator.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/instance: {{ include "security-profiles-operator.name" . }}
 {{- end }}
 
 {{/*

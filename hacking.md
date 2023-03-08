@@ -318,7 +318,7 @@ Example:
 
 A full process of building, pushing it to a registry and deploying it into a cluster:
 
-```yaml
+```sh
 export IMAGE=<registry-and-image-name>:<label>
 
 APPARMOR_ENABLED=true make image
@@ -326,7 +326,11 @@ docker push "${IMAGE}"
 
 make deploy
 
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"apparmorenabled":"true"}}'
+SPO_NS=security-profiles-operator
+kubectl -n $SPO_NS patch spod spod --type=merge -p '{"spec":{"enableAppArmor":true}}'
+
+kubectl -n $SPO_NS patch deploy security-profiles-operator --type=merge -p '{"spec": {"template": {"spec": {"containers": [{"name":"security-profiles-operator", "image": "'$IMAGE'"}]}}}}'
 
 kubectl apply -f examples/apparmorprofile.yaml
+kubectl apply -f examples/pod-apparmor.yaml
 ```

@@ -3,7 +3,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: security-profiles-operator
-  namespace: security-profiles-operator
 subjects:
 - kind: ServiceAccount
   name: security-profiles-operator
@@ -32,7 +31,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: spod
-  namespace: security-profiles-operator
 subjects:
 - kind: ServiceAccount
   name: spod
@@ -62,7 +60,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: spo-webhook
-  namespace: security-profiles-operator
 subjects:
 - kind: ServiceAccount
   name: spo-webhook
