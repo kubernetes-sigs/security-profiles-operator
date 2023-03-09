@@ -164,10 +164,28 @@ dependencies:
       match: VERSION
 
   - name: CRI-O
-    version: v1.26.1
+    version: v1.26.2
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: TAG
+
+  - name: crun
+    version: v1.8.1
+    refPaths:
+    - path: examples/baseprofile-crun.yaml
+      match: name
+    - path: test/tc_base_profiles_test.go
+      match: baseProfileNameCrun
+
+  - name: runc
+    version: v1.1.4
+    refPaths:
+    - path: examples/baseprofile-runc.yaml
+      match: name
+    - path: test/tc_base_profiles_test.go
+      match: baseProfileNameRunc
+    - path: installation-usage.md
+      match: baseProfileName
 
   - name: audit2rbac
     version: v0.9.0

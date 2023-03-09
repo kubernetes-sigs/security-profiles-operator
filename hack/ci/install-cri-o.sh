@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-TAG=v1.26.1
+TAG=v1.26.2
 
 curl_retry() {
     curl -sSfL --retry 5 --retry-delay 3 "$@"
@@ -36,7 +36,7 @@ curl_retry -o /usr/bin/bom \
 chmod +x /usr/bin/bom
 bom version
 
-curl_retry "https://raw.githubusercontent.com/cri-o/cri-o/main/scripts/get" |
+curl_retry "https://raw.githubusercontent.com/cri-o/cri-o/$TAG/scripts/get" |
     bash -s -- -t "$TAG"
 
 . /etc/os-release
