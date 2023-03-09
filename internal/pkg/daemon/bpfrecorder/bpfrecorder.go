@@ -49,6 +49,7 @@ import (
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/bimap"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -67,21 +68,21 @@ const (
 type BpfRecorder struct {
 	api.UnimplementedBpfRecorderServer
 	impl
-	logger                    logr.Logger
-	startRequests             int64
-	syscalls                  *bpf.BPFMap
-	mntns                     *bpf.BPFMap
-	btfPath                   string
-	syscallIDtoNameCache      *ttlcache.Cache[string, string]
-	pidToContainerIDCache     *ttlcache.Cache[string, string]
-	containerIDtoProfileCache *ttlcache.Cache[string, string]
-	profileToMntnsCache       *ttlcache.Cache[string, uint32]
-	nodeName                  string
-	clientset                 *kubernetes.Clientset
-	systemMountNamespace      uint32
-	loadUnloadMutex           sync.RWMutex
-	metricsClient             apimetrics.Metrics_BpfIncClient
-	programNameFilter         string
+	logger                  logr.Logger
+	startRequests           int64
+	syscalls                *bpf.BPFMap
+	mntns                   *bpf.BPFMap
+	btfPath                 string
+	syscallIDtoNameCache    *ttlcache.Cache[string, string]
+	pidToContainerIDCache   *ttlcache.Cache[string, string]
+	mntnsToContainerIDMap   *bimap.BiMap[uint32, string]
+	containerIDToProfileMap *bimap.BiMap[string, string]
+	nodeName                string
+	clientset               *kubernetes.Clientset
+	systemMountNamespace    uint32
+	loadUnloadMutex         sync.RWMutex
+	metricsClient           apimetrics.Metrics_BpfIncClient
+	programNameFilter       string
 }
 
 // New returns a new BpfRecorder instance.
@@ -97,15 +98,9 @@ func New(logger logr.Logger) *BpfRecorder {
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, string](maxCacheItems),
 		),
-		containerIDtoProfileCache: ttlcache.New(
-			ttlcache.WithTTL[string, string](defaultCacheTimeout),
-			ttlcache.WithCapacity[string, string](maxCacheItems),
-		),
-		profileToMntnsCache: ttlcache.New(
-			ttlcache.WithTTL[string, uint32](defaultCacheTimeout),
-			ttlcache.WithCapacity[string, uint32](maxCacheItems),
-		),
-		loadUnloadMutex: sync.RWMutex{},
+		mntnsToContainerIDMap:   bimap.New[uint32, string](),
+		containerIDToProfileMap: bimap.New[string, string](),
+		loadUnloadMutex:         sync.RWMutex{},
 	}
 }
 
@@ -126,12 +121,6 @@ func (b *BpfRecorder) Run() error {
 	for _, cache := range []*ttlcache.Cache[string, string]{
 		b.pidToContainerIDCache,
 		b.syscallIDtoNameCache,
-		b.containerIDtoProfileCache,
-	} {
-		go cache.Start()
-	}
-	for _, cache := range []*ttlcache.Cache[string, uint32]{
-		b.profileToMntnsCache,
 	} {
 		go cache.Start()
 	}
@@ -311,15 +300,14 @@ func (b *BpfRecorder) SyscallsForProfile(
 			try++
 			b.logger.Info("Looking up mount namespace for profile", "try", try, "profile", r.Name)
 
-			item := b.profileToMntnsCache.Get(r.Name)
-			if item != nil {
-				mntns = item.Value()
+			if foundMntns, ok := b.getMntnsForProfile(r.Name); ok {
+				mntns = foundMntns
 				b.logger.Info("Found mount namespace for profile", "mntns", mntns, "profile", r.Name)
+				b.deleteContainerIDFromCache(r.Name)
 				return nil
 			}
 
 			b.logger.Info("No mount namespace found for profile", "profile", r.Name)
-
 			return ErrNotFound
 		},
 		func(error) bool { return true },
@@ -348,6 +336,22 @@ func (b *BpfRecorder) SyscallsForProfile(
 		Syscalls: sortUnique(syscallNames),
 		GoArch:   runtime.GOARCH,
 	}, nil
+}
+
+func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
+	if containerID, ok := b.containerIDToProfileMap.GetBackwards(profile); ok {
+		if mntns, ok := b.mntnsToContainerIDMap.GetBackwards(containerID); ok {
+			return mntns, true
+		}
+	}
+	return 0, false
+}
+
+func (b *BpfRecorder) deleteContainerIDFromCache(profile string) {
+	if containerID, ok := b.containerIDToProfileMap.GetBackwards(profile); ok {
+		b.containerIDToProfileMap.Delete(containerID)
+		b.mntnsToContainerIDMap.DeleteBackwards(containerID)
+	}
 }
 
 func (b *BpfRecorder) convertSyscallIDsToNames(syscalls []byte) []string {
@@ -614,6 +618,7 @@ func (b *BpfRecorder) handleEvent(event []byte) {
 		)
 		return
 	}
+	b.mntnsToContainerIDMap.Insert(mntns, containerID)
 
 	b.logger.V(config.VerboseLevel).Info(
 		"Found container ID for PID", "pid", pid,
@@ -627,11 +632,9 @@ func (b *BpfRecorder) handleEvent(event []byte) {
 	}
 
 	b.logger.Info(
-		"Found profile for container ID", "containerID", containerID,
+		"Found profile in cluster for container ID", "containerID", containerID,
 		"pid", pid, "mntns", mntns, "profile", profile,
 	)
-
-	b.profileToMntnsCache.Set(profile, mntns, ttlcache.NoTTL)
 
 	b.trackProfileMetric(mntns, profile)
 }
@@ -667,9 +670,7 @@ func (b *BpfRecorder) trackProfileMetric(mntns uint32, profile string) {
 }
 
 func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
-	item := b.containerIDtoProfileCache.Get(id)
-	if item != nil {
-		profile := item.Value()
+	if profile, ok := b.containerIDToProfileMap.Get(id); ok {
 		b.logger.Info("Found profile in cache", "containerID", id, "profile", profile)
 		return profile, nil
 	}
@@ -708,29 +709,22 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 					fullContainerID := containerStatus.ContainerID
 					containerName := containerStatus.Name
 
-					// It's possible that the container ID is not yet set, but
-					// we cannot be sure since we have to test against the
-					// `id`.
+					// The container ID is not yet available in the container status of the pod.
+					// This container can be skipped for now, the status will be checked again later.
 					if fullContainerID == "" {
 						b.logger.Info(
 							"Container ID not yet available in cluster",
+							"containerID", id,
 							"podName", pod.Name,
 							"containerName", containerName,
 						)
 						continue
 					}
 
-					b.logger.V(config.VerboseLevel).Info(
-						"Found full Container ID in cluster",
-						"id", fullContainerID,
-						"podName", pod.Name,
-						"containerName", containerName,
-					)
-
 					containerID := util.ContainerIDRegex.FindString(fullContainerID)
 					if containerID == "" {
 						b.logger.Error(err,
-							"Unable to parse container ID from full container ID",
+							"Unable to parse container ID from container status available in pod",
 							"fullContainerID", fullContainerID,
 							"podName", pod.Name,
 							"containerName", containerName,
@@ -740,47 +734,47 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 
 					b.logger.V(config.VerboseLevel).Info(
 						"Found Container ID in cluser",
-						"id", containerID,
+						"containerID", containerID,
 						"podName", pod.Name,
 						"containerName", containerName,
 					)
 
 					key := config.SeccompProfileRecordBpfAnnotationKey + containerName
 					profile, ok := pod.Annotations[key]
-					if ok {
+					if ok && profile != "" {
 						b.logger.Info(
 							"Cache this profile found in cluster",
 							"profile", profile,
 							"containerID", containerID,
+							"podName", pod.Name,
 							"containerName", containerName,
 						)
-						b.containerIDtoProfileCache.Set(id, profile, ttlcache.DefaultTTL)
+						b.containerIDToProfileMap.Insert(containerID, profile)
 					}
 
+					// Stop looking for this container ID regadless of a profile was found or not.
 					if containerID == id {
-						b.logger.Info(
-							"Found profile in cluster",
-							"profile", profile,
-							"containerID", containerID,
-							"containerName", containerName,
-						)
 						return nil
 					}
 				}
 			}
-			return fmt.Errorf("container ID %s not found in cluster", id)
+			return fmt.Errorf("container ID not found in cluster: %s", id)
 		},
 		func(error) bool { return true },
 	); err != nil {
-		return "", fmt.Errorf("finding container ID %s: %w", id, err)
+		return "", fmt.Errorf("searching container ID %s: %w", id, err)
 	}
 
-	item = b.containerIDtoProfileCache.Get(id)
-	if item != nil {
-		return item.Value(), nil
+	if profile, ok := b.containerIDToProfileMap.Get(id); ok {
+		b.logger.Info(
+			"Found profile in cluster for container ID",
+			"profile", profile,
+			"containerID", id,
+		)
+		return profile, nil
 	}
 
-	return "", fmt.Errorf("container ID %s not found", id)
+	return "", fmt.Errorf("container ID not found: %s", id)
 }
 
 // Unload can be used to reset the bpf recorder.

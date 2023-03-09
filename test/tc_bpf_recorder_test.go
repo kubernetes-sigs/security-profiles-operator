@@ -40,7 +40,7 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
 
 		matches := 0
 		for _, profile := range profiles {
-			pattern := fmt.Sprintf(`Found profile for container ID.+%s`, profile)
+			pattern := fmt.Sprintf(`Found profile in cluster for container ID.+%s`, profile)
 			testRegex := regexp.MustCompile(pattern)
 			if testRegex.MatchString(logs) {
 				matches++

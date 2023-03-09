@@ -31,7 +31,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/jellydator/ttlcache/v3"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -538,7 +537,8 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
-				sut.profileToMntnsCache.Set(profile, mntns, ttlcache.NoTTL)
+				sut.containerIDToProfileMap.Insert(containerID, profile)
+				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				mock.GetValueReturns([]byte{0, 1, 1, 1}, nil)
 				mock.GetNameReturnsOnCall(0, "syscall_a", nil)
 				mock.GetNameReturnsOnCall(1, "syscall_b", nil)
@@ -561,7 +561,8 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
-				sut.profileToMntnsCache.Set(profile, mntns, ttlcache.NoTTL)
+				sut.containerIDToProfileMap.Insert(containerID, profile)
+				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				mock.GetValueReturns([]byte{1, 1, 1}, nil)
 				mock.GetNameReturnsOnCall(0, "", errTest)
 				mock.GetNameReturnsOnCall(1, "syscall_a", nil)
@@ -596,7 +597,8 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
-				sut.profileToMntnsCache.Set(profile, mntns, ttlcache.NoTTL)
+				sut.containerIDToProfileMap.Insert(containerID, profile)
+				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				mock.GetValueReturns(nil, errTest)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
@@ -608,7 +610,8 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
-				sut.profileToMntnsCache.Set(profile, mntns, ttlcache.NoTTL)
+				sut.containerIDToProfileMap.Insert(containerID, profile)
+				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				mock.GetValueReturns([]byte{1, 1, 1}, nil)
 				mock.GetNameReturnsOnCall(0, "syscall_a", nil)
 				mock.GetNameReturnsOnCall(1, "syscall_b", nil)
@@ -694,10 +697,11 @@ func TestProcessEvents(t *testing.T) {
 				mntns := binary.LittleEndian.Uint32([]byte{1, 0, 1, 0})
 				var foundMntns uint32
 				for i := 0; i < 100; i++ {
-					item := sut.profileToMntnsCache.Get("profile.json")
-					if item != nil {
-						foundMntns = item.Value()
-						break
+					if containerID, ok := sut.containerIDToProfileMap.GetBackwards("profile.json"); ok {
+						if actualMntns, ok := sut.mntnsToContainerIDMap.GetBackwards(containerID); ok {
+							foundMntns = actualMntns
+							break
+						}
 					}
 					time.Sleep(100 * time.Millisecond)
 				}
