@@ -7,7 +7,6 @@
 #define MAX_ENTRIES 8 * 1024
 #define MAX_SYSCALLS 1024
 #define MAX_COMM_LEN 64
-#define MAX_MNTNS_LEN 1
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
@@ -20,7 +19,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, MAX_MNTNS_LEN);
+    __uint(max_entries, MAX_ENTRIES);
     __type(key, u32);    // PID
     __type(value, u32);  // mntns ID
 } pid_mntns SEC(".maps");
@@ -72,30 +71,33 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         return 0;
     }
 
+    // Notify the userspace when a new PID is found. This will allow
+    // the userspace to look up the container ID from cgroups of the
+    // process. And using the container ID, it will search futher the
+    // security profile assigned to this container in the cluster.
+    u32 * current_pid_mntns = NULL;
+    current_pid_mntns = bpf_map_lookup_elem(&pid_mntns, &pid);
+    if (current_pid_mntns == NULL) {
+        struct event_t * event =
+            bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
+        if (event) {
+            bpf_printk("send event pid: %u, mntns: %u, comm: %s\n",
+                pid, mntns, comm);
+
+            event->pid = pid;
+            event->mntns = mntns;
+            bpf_ringbuf_submit(event, 0);
+
+            bpf_map_update_elem(&pid_mntns, &pid, &mntns, BPF_ANY);
+        }
+    }
+
     // Record the syscall for this mntns
     u8 * const mntns_syscall_value =
         bpf_map_lookup_elem(&mntns_syscalls, &mntns);
     if (mntns_syscall_value) {
         mntns_syscall_value[syscall_id] = 1;
     } else {
-        struct event_t * event =
-            bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
-        if (!event) {
-            bpf_printk("allocate event failed pid: %u, mntns: %u, comm: %s\n",
-                       pid, mntns, comm);
-            return 0;
-        }
-        // Notify the the userspace that the recording is starting for this
-        // mntns. This is requried only once in order to allow the userspace
-        // to lookup the profile name inside of the cluster and to associate
-        // it with this mntns.
-        event->pid = pid;
-        event->mntns = mntns;
-        bpf_ringbuf_submit(event, 0);
-
-        bpf_printk("send event pid: %u, mntns: %u, comm: %s\n", pid, mntns,
-                   comm);
-
         // Initialise the syscalls recording buffer and record this syscall.
         static const char init[MAX_SYSCALLS];
         bpf_map_update_elem(&mntns_syscalls, &mntns, &init, BPF_ANY);
