@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -121,7 +122,7 @@ func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 
 // FilterProgramName can be used to filter on a specific program name.
 func (b *BpfRecorder) FilterProgramName(filter string) {
-	b.programNameFilter = filter
+	b.programNameFilter = filepath.Base(filter)
 }
 
 // Run the BpfRecorder.
