@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"os/exec"
 	"unsafe"
 
 	"github.com/aquasecurity/libbpfgo"
@@ -32,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/printers"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 )
 
@@ -42,10 +42,8 @@ type defaultImpl struct{}
 type impl interface {
 	LoadBpfRecorder(*bpfrecorder.BpfRecorder) error
 	UnloadBpfRecorder(*bpfrecorder.BpfRecorder)
-	Command(string, ...string) *exec.Cmd
-	CmdStart(*exec.Cmd) error
-	CmdPid(*exec.Cmd) uint32
-	CmdWait(*exec.Cmd) error
+	CommandRun(*command.Command) (uint32, error)
+	CommandWait(*command.Command) error
 	SyscallsIterator(*bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator
 	IteratorNext(*libbpfgo.BPFMapIterator) bool
 	IteratorKey(*libbpfgo.BPFMapIterator) []byte
@@ -67,22 +65,11 @@ func (*defaultImpl) UnloadBpfRecorder(b *bpfrecorder.BpfRecorder) {
 	b.Unload()
 }
 
-func (*defaultImpl) Command(name string, arg ...string) *exec.Cmd {
-	cmd := exec.Command(name, arg...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd
+func (*defaultImpl) CommandRun(cmd *command.Command) (uint32, error) {
+	return cmd.Run()
 }
 
-func (*defaultImpl) CmdStart(cmd *exec.Cmd) error {
-	return cmd.Start()
-}
-
-func (*defaultImpl) CmdPid(cmd *exec.Cmd) uint32 {
-	return uint32(cmd.Process.Pid)
-}
-
-func (*defaultImpl) CmdWait(cmd *exec.Cmd) error {
+func (*defaultImpl) CommandWait(cmd *command.Command) error {
 	return cmd.Wait()
 }
 
