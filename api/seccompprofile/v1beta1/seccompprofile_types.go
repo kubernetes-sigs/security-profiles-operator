@@ -36,9 +36,7 @@ var (
 	_ profilebase.SecurityProfileBase = &SeccompProfile{}
 )
 
-const (
-	extJSON = ".json"
-)
+const ExtJSON = ".json"
 
 // SeccompProfileSpec defines the desired state of SeccompProfile.
 type SeccompProfileSpec struct {
@@ -154,8 +152,8 @@ func (sp *SeccompProfile) SetImplementationStatus() {
 
 func (sp *SeccompProfile) GetProfileFile() string {
 	pfile := sp.GetName()
-	if !strings.HasSuffix(pfile, extJSON) {
-		pfile = sp.GetName() + extJSON
+	if !strings.HasSuffix(pfile, ExtJSON) {
+		pfile = sp.GetName() + ExtJSON
 	}
 	return pfile
 }

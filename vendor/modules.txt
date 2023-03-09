@@ -28,9 +28,15 @@ github.com/cespare/xxhash/v2
 # github.com/containers/common v0.51.0
 ## explicit; go 1.17
 github.com/containers/common/pkg/seccomp
+# github.com/coreos/go-systemd/v22 v22.5.0
+## explicit; go 1.12
+github.com/coreos/go-systemd/v22/dbus
 # github.com/cpuguy83/go-md2man/v2 v2.0.2
 ## explicit; go 1.11
 github.com/cpuguy83/go-md2man/v2/md2man
+# github.com/cyphar/filepath-securejoin v0.2.3
+## explicit; go 1.13
+github.com/cyphar/filepath-securejoin
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
 github.com/davecgh/go-spew/spew
@@ -66,6 +72,9 @@ github.com/go-openapi/swag
 # github.com/gobuffalo/flect v0.3.0
 ## explicit; go 1.16
 github.com/gobuffalo/flect
+# github.com/godbus/dbus/v5 v5.1.0
+## explicit; go 1.12
+github.com/godbus/dbus/v5
 # github.com/gogo/protobuf v1.3.2
 ## explicit; go 1.15
 github.com/gogo/protobuf/proto
@@ -150,6 +159,9 @@ github.com/maxbrunsfeld/counterfeiter/v6/generator
 github.com/mmarkdown/mmark/mast
 github.com/mmarkdown/mmark/mast/reference
 github.com/mmarkdown/mmark/mparser
+# github.com/moby/sys/mountinfo v0.6.2
+## explicit; go 1.16
+github.com/moby/sys/mountinfo
 # github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
 ## explicit
 github.com/modern-go/concurrent
@@ -169,7 +181,18 @@ github.com/nxadm/tail/ratelimiter
 github.com/nxadm/tail/util
 github.com/nxadm/tail/watch
 github.com/nxadm/tail/winfile
-# github.com/opencontainers/runtime-spec v1.0.3-0.20220825212826-86290f6a00fb
+# github.com/opencontainers/runc v1.1.4
+## explicit; go 1.16
+github.com/opencontainers/runc/libcontainer/cgroups
+github.com/opencontainers/runc/libcontainer/configs
+github.com/opencontainers/runc/libcontainer/devices
+github.com/opencontainers/runc/libcontainer/seccomp
+github.com/opencontainers/runc/libcontainer/seccomp/patchbpf
+github.com/opencontainers/runc/libcontainer/specconv
+github.com/opencontainers/runc/libcontainer/user
+github.com/opencontainers/runc/libcontainer/userns
+github.com/opencontainers/runc/libcontainer/utils
+# github.com/opencontainers/runtime-spec v1.1.0-rc.1
 ## explicit
 github.com/opencontainers/runtime-spec/specs-go
 # github.com/openshift/api v0.0.0-20221205111557-f2fbb1d1cd5e
@@ -241,6 +264,7 @@ golang.org/x/mod/module
 golang.org/x/mod/semver
 # golang.org/x/net v0.8.0
 ## explicit; go 1.17
+golang.org/x/net/bpf
 golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/http/httpguts

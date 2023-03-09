@@ -26,6 +26,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/cmd"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner"
 )
 
 func main() {
@@ -36,8 +37,8 @@ func main() {
 		&cli.Command{
 			Name:      "record",
 			Aliases:   []string{"r"},
-			Usage:     "run the recorder",
-			Action:    runRecord,
+			Usage:     "run a command and record the security profile",
+			Action:    record,
 			ArgsUsage: "COMMAND",
 			Flags: []cli.Flag{
 				&cli.StringFlag{
@@ -71,6 +72,28 @@ func main() {
 				},
 			},
 		},
+		&cli.Command{
+			Name:      "run",
+			Aliases:   []string{"x"},
+			Usage:     "run a command using a security profile",
+			Action:    run,
+			ArgsUsage: "COMMAND",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:        runner.FlagType,
+					Aliases:     []string{"t"},
+					Usage:       "the run type",
+					DefaultText: string(runner.TypeSeccomp),
+				},
+				&cli.StringFlag{
+					Name:      runner.FlagProfile,
+					Aliases:   []string{"p"},
+					Usage:     "the profile to be used",
+					Required:  true,
+					TakesFile: true,
+				},
+			},
+		},
 	)
 
 	if err := app.Run(os.Args); err != nil {
@@ -78,8 +101,8 @@ func main() {
 	}
 }
 
-// runRecord runs the `spoc record` subcommand.
-func runRecord(ctx *cli.Context) error {
+// record runs the `spoc record` subcommand.
+func record(ctx *cli.Context) error {
 	options, err := recorder.FromContext(ctx)
 	if err != nil {
 		return fmt.Errorf("build options: %w", err)
@@ -87,6 +110,20 @@ func runRecord(ctx *cli.Context) error {
 
 	if err := recorder.New(options).Run(); err != nil {
 		return fmt.Errorf("run recorder: %w", err)
+	}
+
+	return nil
+}
+
+// run runs the `spoc run` subcommand.
+func run(ctx *cli.Context) error {
+	options, err := runner.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
+	}
+
+	if err := runner.New(options).Run(); err != nil {
+		return fmt.Errorf("launch runner: %w", err)
 	}
 
 	return nil

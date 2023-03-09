@@ -21,23 +21,25 @@ import (
 	"fmt"
 
 	"github.com/urfave/cli/v2"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 )
 
 // Options define all possible options for the recorder.
 type Options struct {
-	typ          Type
-	outputFile   string
-	baseSyscalls []string
-	command      string
-	args         []string
+	commandOptions *command.Options
+	typ            Type
+	outputFile     string
+	baseSyscalls   []string
 }
 
 // Default returns a default options instance.
 func Default() *Options {
 	return &Options{
-		typ:          TypeSeccomp,
-		outputFile:   DefaultOutputFile,
-		baseSyscalls: DefaultBaseSyscalls,
+		commandOptions: command.Default(),
+		typ:            TypeSeccomp,
+		outputFile:     DefaultOutputFile,
+		baseSyscalls:   DefaultBaseSyscalls,
 	}
 }
 
@@ -66,12 +68,11 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 		options.baseSyscalls = nil
 	}
 
-	args := ctx.Args().Slice()
-	if len(args) == 0 {
-		return nil, errors.New("no command provided")
+	commandOptions, err := command.FromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get command options: %w", err)
 	}
-	options.command = args[0]
-	options.args = args[1:]
+	options.commandOptions = commandOptions
 
 	return options, nil
 }

@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -37,6 +36,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -59,34 +59,20 @@ func New(options *Options) *Recorder {
 // Run the Recorder.
 func (r *Recorder) Run() error {
 	r.bpfRecorder = bpfrecorder.New(logr.New(&LogSink{}))
-	r.bpfRecorder.FilterProgramName(r.options.command)
+	r.bpfRecorder.FilterProgramName(r.options.commandOptions.Command())
 	if err := r.LoadBpfRecorder(r.bpfRecorder); err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
 	defer r.UnloadBpfRecorder(r.bpfRecorder)
 
-	cmd := r.Command(r.options.command, r.options.args...)
-	if err := r.CmdStart(cmd); err != nil {
-		return fmt.Errorf("start command: %w", err)
+	cmd := command.New(r.options.commandOptions)
+	pid, err := r.CommandRun(cmd)
+	if err != nil {
+		return fmt.Errorf("run command: %w", err)
 	}
 
-	// Allow to interrupt
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	go func() {
-		<-c
-		log.Printf("Got interrupted, terminating process")
-
-		if err := cmd.Process.Signal(os.Interrupt); err != nil {
-			log.Printf("Unable to terminate process: %v", err)
-		}
-	}()
-
-	pid := r.CmdPid(cmd)
-	log.Printf("Running command with PID: %d", pid)
-
-	if err := r.CmdWait(cmd); err != nil {
-		log.Printf("Command not exited successfully: %v", err)
+	if err := r.CommandWait(cmd); err != nil {
+		log.Printf("Command did not exit successfully: %v", err)
 	}
 
 	if err := r.processData(pid); err != nil {
@@ -199,7 +185,7 @@ func (r *Recorder) buildProfileCRD(spec *seccompprofileapi.SeccompProfileSpec) e
 			APIVersion: seccompprofileapi.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: filepath.Base(r.options.command),
+			Name: filepath.Base(r.options.commandOptions.Command()),
 		},
 		Spec: *spec,
 	}

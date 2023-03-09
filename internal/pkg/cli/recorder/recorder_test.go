@@ -36,7 +36,7 @@ func TestRun(t *testing.T) {
 	}{
 		{ // Success
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
-				mock.CmdPidReturns(1)
+				mock.CommandRunReturns(1, nil)
 				mock.IteratorNextReturnsOnCall(0, true)
 				mock.IteratorKeyReturnsOnCall(0, []byte{1, 0, 0, 0})
 				mock.SyscallsGetValueReturns([]byte{1}, nil)
