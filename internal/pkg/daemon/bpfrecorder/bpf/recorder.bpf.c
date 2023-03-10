@@ -81,8 +81,8 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         struct event_t * event =
             bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
         if (event) {
-            bpf_printk("send event pid: %u, mntns: %u, comm: %s\n",
-                pid, mntns, comm);
+            bpf_printk("send event pid: %u, mntns: %u, comm: %s\n", pid, mntns,
+                       comm);
 
             event->pid = pid;
             event->mntns = mntns;
