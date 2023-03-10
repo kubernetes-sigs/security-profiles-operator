@@ -51,6 +51,9 @@
 - [Create an AppArmor profile](#create-an-apparmor-profile)
   - [Apply an AppArmor profile to a pod](#apply-an-apparmor-profile-to-a-pod)
   - [Known limitations](#known-limitations)
+- [Command Line Interface (CLI)](#command-line-interface-cli)
+  - [Record seccomp profiles for a command](#record-seccomp-profiles-for-a-command)
+  - [Run commands with seccomp profiles](#run-commands-with-seccomp-profiles)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
 
@@ -64,6 +67,7 @@ The feature scope of the security-profiles-operator is right now limited to:
 - Synchronize seccomp profiles across all worker nodes.
 - Validates if a node supports seccomp and do not synchronize if not.
 - Providing metrics endpoints
+- Providing a Command Line Interface `spoc` for use cases not including Kubernetes.
 
 ## Tutorials and Demos
 
@@ -1644,6 +1648,152 @@ For up-to-date information on how to use AppArmor in Kubernetes, refer to the [o
   successfully loading. In such cases, the denied rules may not show up in the
   log-enricher logs, as SPO may fail to find the running process to correlate to the
   pod information. To work around the issue, set the AppArmor profile to complain mode.
+
+## Command Line Interface (CLI)
+
+The Seucrity Profiles Operator CLI `spoc` aims to support use cases where
+Kubernetes is not available at all (for example in edge scenarios). It targets
+to provide re-used functionality from the operator itself, especially for
+development and testing environments. In the future, we plan to extend the CLI
+to interact with the operator itself.
+
+For now, the CLI is able to:
+
+- Record seccomp profiles for a command in YAML (CRD) and JSON (OCI) format.
+- Run commands with applied seccomp profiles in both formats.
+
+`spoc` can be retrieved either by downloading the statically linked binary
+directly from the [available releases][releases], or by running it within the
+official container images:
+
+```console
+> podman run -it gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest spoc
+NAME:
+   spoc - Security Profiles Operator CLI
+
+USAGE:
+   spoc [global options] command [command options] [arguments...]
+
+COMMANDS:
+   version, v  display detailed version information
+   record, r   run a command and record the security profile
+   run, x      run a command using a security profile
+   help, h     Shows a list of commands or help for one command
+```
+
+<!-- TODO: add thoughts about required privileges to run spoc in containers -->
+
+[releases]: https://github.com/kubernetes-sigs/security-profiles-operator/releases/latest
+
+### Record seccomp profiles for a command
+
+To record a seccomp profile via `spoc`, run the corresponding subcommand
+followed by any command and arguments:
+
+```console
+> sudo spoc record echo test
+2023/03/10 10:09:09 Loading bpf module
+…
+2023/03/10 10:09:13 Adding base syscalls: capget, capset, chdir, …
+2023/03/10 10:09:13 Wrote seccomp profile to: /tmp/profile.yaml
+2023/03/10 10:09:13 Unloading bpf module
+```
+
+Now the seccomp profile should be written in the CRD format:
+
+```console
+> cat /tmp/profile.yaml
+```
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: echo
+spec:
+  architectures:
+    - SCMP_ARCH_X86_64
+  defaultAction: SCMP_ACT_ERRNO
+  syscalls:
+    - action: SCMP_ACT_ALLOW
+      names:
+        - access
+        - …
+        - write
+status: {}
+```
+
+The output file path can be specified as well by using `spoc record
+-o/--output-file`.
+
+We can see that `spoc` automatically adds required base syscalls for OCI
+container runtimes to ensure compatibility with them to allow using the profile
+within Kubernetes. This behavior can be disabled by using `spoc record
+-n/--no-base-syscalls`, or by specifying custom syscalls via `spoc record
+-b/--base-syscalls`.
+
+It is also possible to change the format to JSON via `spoc record -t/--type
+raw-seccomp`:
+
+```console
+> sudo spoc record -t raw-seccomp echo test
+…
+2023/03/10 10:15:17 Wrote seccomp profile to: /tmp/profile.json
+2023/03/10 10:15:17 Unloading bpf module
+```
+
+```console
+> jq . /tmp/profile.json
+```
+
+```json
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "architectures": ["SCMP_ARCH_X86_64"],
+  "syscalls": [
+    {
+      "names": ["access", "…", "write"],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}
+```
+
+All commands are interruptable by using Ctrl^C, while `spoc record` will still
+write the resulting seccomp profile after process terminating.
+
+### Run commands with seccomp profiles
+
+If we now want to test the resulting profile, then `spoc` is able to run any
+command by using seccomp profiles via `spoc run`:
+
+```console
+> sudo spoc run -p /tmp/profile.yaml echo test
+2023/03/10 10:20:00 Reading file /tmp/profile.json
+2023/03/10 10:20:00 Setting up seccomp
+2023/03/10 10:20:00 Load seccomp profile
+2023/03/10 10:20:00 Running command with PID: 567625
+test
+```
+
+If we now modify the profile, for example by forbidding `chmod`:
+
+```console
+> jq 'del(.syscalls[0].names[] | select(. | contains("chmod")))' /tmp/profile.json > /tmp/profile-chmod.json
+```
+
+Then running `chmod` via `spoc run` will now throw an error, because the syscall
+is not allowed any more:
+
+```console
+> sudo spoc run -p /tmp/profile-chmod.json chmod +x /tmp/profile-chmod.json
+2023/03/10 10:25:38 Reading file /tmp/profile-chmod.json
+2023/03/10 10:25:38 Setting up seccomp
+2023/03/10 10:25:38 Load seccomp profile
+2023/03/10 10:25:38 Running command with PID: 594242
+chmod: changing permissions of '/tmp/profile-chmod.json': Operation not permitted
+2023/03/10 10:25:38 Command did not exit successfully: exit status 1
+```
 
 ## Uninstalling
 
