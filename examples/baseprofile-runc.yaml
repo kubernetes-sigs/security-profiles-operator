@@ -46,6 +46,7 @@ spec:
         - nanosleep
         - newfstatat
         - openat
+        - openat2
         - pipe2
         - pivot_root
         - prctl
@@ -73,4 +74,5 @@ spec:
         - umount2
         - unlinkat
         - unshare
+        - utimensat
         - write
