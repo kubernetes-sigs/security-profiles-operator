@@ -197,13 +197,23 @@ image-arm64: ## Build the container image for arm64
 image-cross: ## Build and push the container image manifest
 	hack/image-cross.sh
 
+define nix-build-to
+	nix-build nix/default-$(1).nix
+	mkdir -p $(BUILD_DIR)/$(1)
+	cp -f result/* $(BUILD_DIR)/$(1)
+endef
+
 .PHONY: nix
-nix: ## Build the binary via nix for the current system
-	nix-build nix
+nix: nix-amd64 nix-arm64 ## Build all binaries via nix and create a build.tar.gz
+	tar cvfz build.tar.gz -C $(BUILD_DIR) amd64 arm64
+
+.PHONY: nix-amd64
+nix-amd64: ## Build the binary via nix for amd64
+	$(call nix-build-to,amd64)
 
 .PHONY: nix-arm64
 nix-arm64: ## Build the binary via nix for arm64
-	nix-build nix/default-arm64.nix
+	$(call nix-build-to,arm64)
 
 .PHONY: update-nixpkgs
 update-nixpkgs: ## Update the pinned nixpkgs to the latest master
