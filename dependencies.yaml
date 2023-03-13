@@ -68,7 +68,7 @@ dependencies:
       match: kindVersion
 
   - name: kind-image
-    version: 1.25.3
+    version: 1.26.2
     refPaths:
     - path: test/suite_test.go
       match: kindImage
