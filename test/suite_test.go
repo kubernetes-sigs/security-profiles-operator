@@ -40,7 +40,7 @@ import (
 
 const (
 	kindVersion      = "v0.17.0"
-	kindImage        = "kindest/node:v1.25.3@sha256:f52781bc0d7a19fb6c405c2af83abfeb311f130707a0e219175677e366cc45d1"
+	kindImage        = "kindest/node:v1.26.2@sha256:228590084990838f9f0418ee2c10d2648367286906358a97a47968fb151079c0"
 	kindDarwinSHA512 = "40ebb37b74b88d71854f73bc8d505e5cfb7ad14952657f0f9f46605632f2611277d09e8b00d05e95d10f913bd31d816131a3e26e7f34a6f2e50297d146f15050" //nolint:lll // full length SHA
 	kindLinuxSHA512  = "ae9b8ad431157c47bd034552e6b1656e46aa4033e96f25d5ff5d539308f17b2b003d25e02656f461d3eeed4e3ba0507b8523f6fa9180b59f37a5f083f62e5560" //nolint:lll // full length SHA
 )
