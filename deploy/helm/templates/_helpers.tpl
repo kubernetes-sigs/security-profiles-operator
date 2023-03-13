@@ -53,6 +53,8 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 Selector labels
 */}}
 {{- define "security-profiles-operator.selectorLabels" -}}
+app: security-profiles-operator
+name: security-profiles-operator
 app.kubernetes.io/name: {{ include "security-profiles-operator.name" . }}
 app.kubernetes.io/instance: {{ include "security-profiles-operator.name" . }}
 {{- end }}
