@@ -17,7 +17,7 @@ patches:
   target:
     kind: (AppArmorProfile|Binding|Certificate|CertificateRequest|ConfigMap|ControllerRevision|DaemonSet|Deployment|Ingress|Issuer|ProfileBinding|ProfileRecording|RawSelinuxProfile|Role|RoleBinding|SeccompProfile|Secret|SecurityProfileNodeStatus|SecurityProfilesOperatorDaemon|SelinuxProfile|Service|ServiceAccount)
 
-  # Replace the namespace into the roles bindings associations.
+  # Replace the namespace into the role binding associations.
 - patch: |
     - op: replace
       path: /subjects/0/namespace
