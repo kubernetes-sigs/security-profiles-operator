@@ -208,7 +208,7 @@ helm install security-profiles-operator --namespace security-profiles-operator h
 These CRDs are not templated, but will be installed by default when running a helm install for the chart.  
 There is no support at this time for upgrading or deleting CRDs using Helm. [[docs](https://helm.sh/docs/chart_best_practices/custom_resource_definitions/)]
 
-To remove everything or to do a new installation from scratch be sure to remove them first
+To remove everything or to do a new installation from scratch be sure to remove them first.
 
 ```shell
 # Check in which ns is your release
