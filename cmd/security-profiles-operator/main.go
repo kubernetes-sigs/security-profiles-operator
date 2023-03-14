@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"k8s.io/client-go/rest"
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
@@ -412,16 +413,20 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 // This will load into cache memory only the pods objects which are labeled for recording.
 func newMemoryOptimizedCache(ctx *cli.Context) cache.NewCacheFunc {
 	if ctx.Bool(memOptimFlag) {
-		return cache.BuilderWithOptions(cache.Options{
-			Resync: &sync,
-			SelectorsByObject: cache.SelectorsByObject{
+		return func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
+			opts.Resync = &sync
+			opts.SelectorsByObject = cache.SelectorsByObject{
 				&corev1.Pod{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						bindata.EnableRecordingLabel: "true",
 					}),
 				},
-			},
-		})
+			}
+			opts.DefaultSelector = cache.ObjectSelector{
+				Label: labels.Everything(),
+			}
+			return cache.New(config, opts)
+		}
 	}
 	return nil
 }
