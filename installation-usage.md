@@ -182,7 +182,8 @@ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernete
 export spo_ns=security-profiles-operator
 kubectl create ns $spo_ns
 
-# Label and annotate the ns to make it manageable by helm 
+# Label and annotate the ns to make it manageable by helm. Ensure it is
+# running on the privileged Pod Security Standard.
 kubectl label ns $spo_ns \
   app=security-profiles-operator \
   pod-security.kubernetes.io/audit=privileged \
