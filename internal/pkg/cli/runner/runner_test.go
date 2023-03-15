@@ -23,9 +23,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/nxadm/tail"
 	"github.com/stretchr/testify/require"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner/runnerfakes"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 var errTest = errors.New("test")
@@ -131,6 +133,143 @@ func TestRun(t *testing.T) {
 
 			err := sut.Run()
 			assert(err)
+		})
+	}
+}
+
+func TestStartEnricher(t *testing.T) {
+	const testPid = 123
+
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		prepare func(*runnerfakes.FakeImpl, chan *tail.Line)
+		assert  func(*runnerfakes.FakeImpl, chan *tail.Line)
+	}{
+		{
+			name: "success with seccomp line",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.LinesReturns(lineChan)
+				mock.IsAuditLineReturns(true)
+				mock.ExtractAuditLineReturns(
+					&types.AuditLine{
+						AuditType: types.AuditTypeSeccomp,
+						ProcessID: testPid,
+					}, nil)
+				mock.PidLoadReturns(testPid)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				lineChan <- &tail.Line{}
+				require.Equal(t, 1, mock.GetNameCallCount())
+			},
+		},
+		{
+			name: "success with seccomp line but unidentified syscall number",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.LinesReturns(lineChan)
+				mock.IsAuditLineReturns(true)
+				mock.ExtractAuditLineReturns(
+					&types.AuditLine{
+						AuditType: types.AuditTypeSeccomp,
+						ProcessID: testPid,
+					}, nil)
+				mock.PidLoadReturns(testPid)
+				mock.GetNameReturns("", errTest)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				lineChan <- &tail.Line{}
+			},
+		},
+		{
+			name: "success with AppArmor line",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.LinesReturns(lineChan)
+				mock.IsAuditLineReturns(true)
+				mock.ExtractAuditLineReturns(
+					&types.AuditLine{
+						AuditType: types.AuditTypeApparmor,
+						ProcessID: testPid,
+					}, nil)
+				mock.PidLoadReturns(testPid)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				lineChan <- &tail.Line{}
+			},
+		},
+		{
+			name: "success with SELinux line",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.LinesReturns(lineChan)
+				mock.IsAuditLineReturns(true)
+				mock.ExtractAuditLineReturns(
+					&types.AuditLine{
+						AuditType: types.AuditTypeSelinux,
+						ProcessID: testPid,
+					}, nil)
+				mock.PidLoadReturns(testPid)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				lineChan <- &tail.Line{}
+			},
+		},
+		{
+			name: "failure on ExtractAuditLine",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.LinesReturns(lineChan)
+				mock.IsAuditLineReturns(true)
+				mock.ExtractAuditLineReturns(nil, errTest)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				lineChan <- &tail.Line{}
+				require.Zero(t, mock.PidLoadCallCount())
+			},
+		},
+		{
+			name: "failure on IsAuditLine",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.LinesReturns(lineChan)
+				mock.IsAuditLineReturns(false)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				lineChan <- &tail.Line{}
+				require.Zero(t, mock.PidLoadCallCount())
+			},
+		},
+		{
+			name: "failure on Lines",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.LinesReturns(lineChan)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				lineChan <- &tail.Line{Err: errTest}
+				require.Zero(t, mock.PidLoadCallCount())
+			},
+		},
+		{
+			name: "failure on TailFile",
+			prepare: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				mock.TailFileReturns(nil, errTest)
+			},
+			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
+				require.Zero(t, mock.LinesCallCount())
+			},
+		},
+	} {
+		prepare := tc.prepare
+		assert := tc.assert
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mock := &runnerfakes.FakeImpl{}
+			lineChan := make(chan *tail.Line)
+			prepare(mock, lineChan)
+
+			sut := New(Default())
+			sut.impl = mock
+
+			go sut.startEnricher()
+			assert(mock, lineChan)
 		})
 	}
 }

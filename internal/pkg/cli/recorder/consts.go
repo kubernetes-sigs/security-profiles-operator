@@ -16,10 +16,7 @@ limitations under the License.
 
 package recorder
 
-import (
-	"os"
-	"path/filepath"
-)
+import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 
 const (
 	// FlagOutputFile is the flag for defining the output file location.
@@ -52,7 +49,7 @@ const (
 
 var (
 	// DefaultOutputFile defines the default output location for the recorder.
-	DefaultOutputFile = filepath.Join(os.TempDir(), "profile.yaml")
+	DefaultOutputFile = cli.DefaultFile
 
 	// DefaultBaseSyscalls are the syscalls included in every seccomp profile
 	// to ensure compatibility with OCI runtimes like runc and crun.

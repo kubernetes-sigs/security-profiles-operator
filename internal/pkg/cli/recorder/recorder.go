@@ -96,7 +96,7 @@ func (r *Recorder) processData(mntns uint32) error {
 		if currentMntns != mntns {
 			continue
 		}
-		log.Print("Found process mntns in bpf map")
+		log.Printf("Found process mntns %d in bpf map", mntns)
 
 		syscallsValue, err := r.SyscallsGetValue(r.bpfRecorder, currentMntns)
 		if err != nil {

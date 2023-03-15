@@ -22,14 +22,19 @@ package runner
 import (
 	"encoding/json"
 	"os"
+	"sync/atomic"
 
+	"github.com/nxadm/tail"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/seccomp"
 	"github.com/opencontainers/runc/libcontainer/specconv"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	libseccomp "github.com/seccomp/libseccomp-golang"
 	"sigs.k8s.io/yaml"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 type defaultImpl struct{}
@@ -45,6 +50,12 @@ type impl interface {
 	InitSeccomp(*configs.Seccomp) (int, error)
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
+	TailFile(string, tail.Config) (*tail.Tail, error)
+	Lines(*tail.Tail) chan *tail.Line
+	IsAuditLine(string) bool
+	ExtractAuditLine(string) (*types.AuditLine, error)
+	GetName(libseccomp.ScmpSyscall) (string, error)
+	PidLoad() uint32
 }
 
 func (*defaultImpl) ReadFile(name string) ([]byte, error) {
@@ -77,4 +88,28 @@ func (*defaultImpl) CommandRun(cmd *command.Command) (uint32, error) {
 
 func (*defaultImpl) CommandWait(cmd *command.Command) error {
 	return cmd.Wait()
+}
+
+func (*defaultImpl) TailFile(filename string, config tail.Config) (*tail.Tail, error) {
+	return tail.TailFile(filename, config)
+}
+
+func (*defaultImpl) Lines(tailFile *tail.Tail) chan *tail.Line {
+	return tailFile.Lines
+}
+
+func (*defaultImpl) IsAuditLine(line string) bool {
+	return enricher.IsAuditLine(line)
+}
+
+func (*defaultImpl) ExtractAuditLine(line string) (*types.AuditLine, error) {
+	return enricher.ExtractAuditLine(line)
+}
+
+func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {
+	return s.GetName()
+}
+
+func (*defaultImpl) PidLoad() uint32 {
+	return atomic.LoadUint32(&pid)
 }

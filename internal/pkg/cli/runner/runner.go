@@ -21,13 +21,19 @@ package runner
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"path/filepath"
+	"sync/atomic"
 
+	"github.com/nxadm/tail"
 	"github.com/opencontainers/runtime-spec/specs-go"
+	libseccomp "github.com/seccomp/libseccomp-golang"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
 // Runner is the main structure of this package.
@@ -43,6 +49,9 @@ func New(options *Options) *Runner {
 		options: options,
 	}
 }
+
+// pid is the process ID used for enricher filtering.
+var pid uint32
 
 // Run the Runner.
 func (r *Runner) Run() error {
@@ -70,6 +79,8 @@ func (r *Runner) Run() error {
 		return fmt.Errorf("unmarshal JSON profile: %w", err)
 	}
 
+	go r.startEnricher()
+
 	log.Print("Setting up seccomp")
 	libConfig, err := r.SetupSeccomp(runtimeSpecConfig)
 	if err != nil {
@@ -82,13 +93,95 @@ func (r *Runner) Run() error {
 	}
 
 	cmd := command.New(r.options.commandOptions)
-	if _, err := r.CommandRun(cmd); err != nil {
+	newPid, err := r.CommandRun(cmd)
+	if err != nil {
 		return fmt.Errorf("run command: %w", err)
 	}
+	atomic.StoreUint32(&pid, newPid)
 
 	if err := r.CommandWait(cmd); err != nil {
 		return fmt.Errorf("wait for command: %w", err)
 	}
 
 	return nil
+}
+
+func (r *Runner) startEnricher() {
+	log.Print("Starting audit log enricher")
+	filePath := enricher.LogFilePath()
+
+	tailFile, err := r.TailFile(
+		filePath,
+		tail.Config{
+			ReOpen: true,
+			Follow: true,
+			Location: &tail.SeekInfo{
+				Offset: 0,
+				Whence: io.SeekEnd,
+			},
+		},
+	)
+	if err != nil {
+		log.Printf("Unable to tail file: %v", err)
+		return
+	}
+
+	log.Printf("Enricher reading from file %s", filePath)
+	for l := range r.Lines(tailFile) {
+		if l.Err != nil {
+			log.Printf("Enricher failed to tail: %v", l.Err)
+			break
+		}
+
+		line := l.Text
+		if !r.IsAuditLine(line) {
+			continue
+		}
+
+		auditLine, err := r.ExtractAuditLine(line)
+		if err != nil {
+			log.Printf("Unable to extract audit line: %v", err)
+			continue
+		}
+
+		currentPid := r.PidLoad()
+		if currentPid != 0 && auditLine.ProcessID == int(currentPid) {
+			r.printAuditLine(auditLine)
+		}
+	}
+}
+
+func (r *Runner) printAuditLine(line *types.AuditLine) {
+	switch line.AuditType {
+	case types.AuditTypeSelinux:
+		r.printSelinuxLine(line)
+	case types.AuditTypeSeccomp:
+		r.printSeccompLine(line)
+	case types.AuditTypeApparmor:
+		r.printApparmorLine(line)
+	}
+}
+
+func (r *Runner) printSelinuxLine(line *types.AuditLine) {
+	log.Printf(
+		"SELinux: perm: %s, scontext: %s, tcontext: %s, tclass: %s",
+		line.Perm, line.Scontext, line.Tcontext, line.Tclass,
+	)
+}
+
+func (r *Runner) printSeccompLine(line *types.AuditLine) {
+	syscallName, err := r.GetName(libseccomp.ScmpSyscall(line.SystemCallID))
+	if err != nil {
+		log.Printf("Unable to get syscall name for id %d: %v", line.SystemCallID, err)
+		return
+	}
+
+	log.Printf("Seccomp: %s (%d)", syscallName, line.SystemCallID)
+}
+
+func (r *Runner) printApparmorLine(line *types.AuditLine) {
+	log.Printf(
+		"AppArmor: %s, operation: %s, profile: %s, name: %s, extra: %s",
+		line.Apparmor, line.Operation, line.Profile, line.Name, line.ExtraInfo,
+	)
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package runner
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/urfave/cli/v2"
@@ -36,13 +37,20 @@ func Default() *Options {
 	return &Options{
 		commandOptions: command.Default(),
 		typ:            TypeSeccomp,
+		profile:        DefaultInputFile,
 	}
 }
 
 // FromContext can be used to create Options from an CLI context.
 func FromContext(ctx *cli.Context) (*Options, error) {
 	options := Default()
-	options.profile = ctx.String(FlagProfile)
+
+	if ctx.IsSet(FlagProfile) {
+		options.profile = ctx.String(FlagProfile)
+	}
+	if options.profile == "" {
+		return nil, errors.New("no profile provided")
+	}
 
 	if ctx.IsSet(FlagType) {
 		options.typ = Type(ctx.String(FlagType))
