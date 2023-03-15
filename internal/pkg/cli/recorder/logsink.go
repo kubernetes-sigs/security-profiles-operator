@@ -17,7 +17,9 @@ limitations under the License.
 package recorder
 
 import (
+	"fmt"
 	"log"
+	"strings"
 
 	"github.com/go-logr/logr"
 )
@@ -39,14 +41,40 @@ func (*LogSink) Enabled(level int) bool {
 // The level argument is provided for optional logging.  This method will
 // only be called when Enabled(level) is true. See Logger.Info for more
 // details.
-func (*LogSink) Info(level int, msg string, keysAndValues ...interface{}) {
-	log.Print(msg)
+func (l *LogSink) Info(level int, msg string, keysAndValues ...interface{}) {
+	l.Print(msg, nil, keysAndValues...)
 }
 
 // Error logs an error, with the given message and key/value pairs as
 // context.  See Logger.Error for more details.
-func (*LogSink) Error(err error, msg string, keysAndValues ...interface{}) {
-	log.Print(msg)
+func (l *LogSink) Error(err error, msg string, keysAndValues ...interface{}) {
+	l.Print(msg, err, keysAndValues...)
+}
+
+func (*LogSink) Print(msg string, err error, keysAndValues ...interface{}) {
+	builder := strings.Builder{}
+	builder.WriteString(msg)
+
+	if err != nil {
+		builder.WriteString(fmt.Sprintf(", err: %v", err))
+	}
+
+	for i, kv := range keysAndValues {
+		if i == 0 {
+			builder.WriteString(" (")
+		}
+		builder.WriteString(fmt.Sprintf("%v", kv))
+		//nolint:gocritic // this is intentionally an else-if-chain
+		if i%2 == 0 {
+			builder.WriteRune('=')
+		} else if i == len(keysAndValues)-1 {
+			builder.WriteRune(')')
+		} else {
+			builder.WriteString(", ")
+		}
+	}
+
+	log.Print(builder.String())
 }
 
 // WithValues returns a new LogSink with additional key/value pairs.  See

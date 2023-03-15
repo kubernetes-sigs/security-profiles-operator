@@ -90,7 +90,7 @@ func Test_isAuditLine(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := isAuditLine(tt.logLine)
+			got := IsAuditLine(tt.logLine)
 			require.Equal(t, tt.want, got)
 		})
 	}
@@ -208,7 +208,7 @@ func Test_extractAuditLine(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, gotErr := extractAuditLine(tt.logLine)
+			got, gotErr := ExtractAuditLine(tt.logLine)
 
 			require.Equal(t, tt.want, got)
 			require.Equal(t, tt.wantErr, gotErr)
