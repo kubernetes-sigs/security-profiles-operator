@@ -16,6 +16,11 @@ limitations under the License.
 
 package runner
 
+import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+
+// DefaultInputFile defines the default input location for the runner.
+var DefaultInputFile = cli.DefaultFile
+
 const (
 	// FlagType is the flag for defining the profile type.
 	FlagType string = "type"

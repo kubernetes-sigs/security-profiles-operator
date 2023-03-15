@@ -161,7 +161,7 @@ func (e *Enricher) Run() error {
 	}
 
 	// Use auditd logs as main source or syslog as fallback.
-	filePath := logFilePath()
+	filePath := LogFilePath()
 
 	// If the file does not exist, then tail will wait for it to appear
 	tailFile, err := e.impl.TailFile(
@@ -188,14 +188,14 @@ func (e *Enricher) Run() error {
 
 		line := l.Text
 		e.logger.V(config.VerboseLevel).Info("Got line: " + line)
-		if !isAuditLine(line) {
+		if !IsAuditLine(line) {
 			e.logger.V(config.VerboseLevel).Info("Not an audit line")
 			continue
 		}
 
-		auditLine, err := extractAuditLine(line)
+		auditLine, err := ExtractAuditLine(line)
 		if err != nil {
-			e.logger.Error(err, "extract seccomp details from audit line")
+			e.logger.Error(err, "extract audit line")
 			continue
 		}
 
@@ -514,9 +514,9 @@ func (e *Enricher) dispatchApparmorLine(
 	e.logger.Info("audit", values...)
 }
 
-// logFilePath returns either the path to the audit logs or falls back to
+// LogFilePath returns either the path to the audit logs or falls back to
 // syslog if the audit log path does not exist.
-func logFilePath() string {
+func LogFilePath() string {
 	filePath := config.SyslogLogPath
 	if rutil.Exists(config.AuditLogPath) {
 		filePath = config.AuditLogPath

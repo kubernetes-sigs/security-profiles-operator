@@ -45,8 +45,8 @@ var (
 	minAppArmorCapturesExpected = 9
 )
 
-// isAuditLine checks whether logLine is a supported audit line.
-func isAuditLine(logLine string) bool {
+// IsAuditLine checks whether logLine is a supported audit line.
+func IsAuditLine(logLine string) bool {
 	captures := seccompLineRegex.FindStringSubmatch(logLine)
 	if len(captures) >= minSeccompCapturesExpected {
 		return true
@@ -61,8 +61,8 @@ func isAuditLine(logLine string) bool {
 	return len(captures) >= minAppArmorCapturesExpected
 }
 
-// extractAuditLine extracts an auditline from logLine.
-func extractAuditLine(logLine string) (*types.AuditLine, error) {
+// ExtractAuditLine extracts an auditline from logLine.
+func ExtractAuditLine(logLine string) (*types.AuditLine, error) {
 	if seccomp := extractSeccompLine(logLine); seccomp != nil {
 		return seccomp, nil
 	}
