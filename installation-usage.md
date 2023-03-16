@@ -69,6 +69,11 @@ The feature scope of the security-profiles-operator is right now limited to:
 - Providing metrics endpoints
 - Providing a Command Line Interface `spoc` for use cases not including Kubernetes.
 
+
+## Architecture
+
+![Architecture](doc/architecture.svg)
+
 ## Tutorials and Demos
 
 - [Using the EBPF Superpowers To Generate Kubernetes Security Policies](https://youtu.be/3dysej_Ydcw)
