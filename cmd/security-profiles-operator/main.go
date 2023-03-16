@@ -504,11 +504,7 @@ func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	const component = "log-enricher"
 	printInfo(component, info)
 
-	e, err := enricher.New(ctrl.Log.WithName(component))
-	if err != nil {
-		return fmt.Errorf("building log enricher: %w", err)
-	}
-	return e.Run()
+	return enricher.New(ctrl.Log.WithName(component)).Run()
 }
 
 func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {

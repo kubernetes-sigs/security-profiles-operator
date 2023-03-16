@@ -83,7 +83,7 @@ func (e *Enricher) populateContainerPodCache(
 	return util.RetryEx(
 		&containerRetryBackoff,
 		func() (retryErr error) {
-			pods, err := e.impl.ListPods(ctxwithTimeout, e.clientset, nodeName)
+			pods, err := e.ListPods(ctxwithTimeout, e.clientset, nodeName)
 			if err != nil {
 				return fmt.Errorf("list node %s's pods: %w", nodeName, err)
 			}
