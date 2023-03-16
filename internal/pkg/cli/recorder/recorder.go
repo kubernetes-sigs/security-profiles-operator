@@ -36,6 +36,7 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -58,7 +59,7 @@ func New(options *Options) *Recorder {
 
 // Run the Recorder.
 func (r *Recorder) Run() error {
-	r.bpfRecorder = bpfrecorder.New(logr.New(&LogSink{}))
+	r.bpfRecorder = bpfrecorder.New(logr.New(&cli.LogSink{}))
 	r.bpfRecorder.FilterProgramName(r.options.commandOptions.Command())
 	if err := r.LoadBpfRecorder(r.bpfRecorder); err != nil {
 		return fmt.Errorf("load: %w", err)

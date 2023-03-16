@@ -2,8 +2,8 @@
 *.swp
 .idea
 .vagrant
+/build
 Vagrantfile
-build
 build.tar.gz
 image.tar
 result
