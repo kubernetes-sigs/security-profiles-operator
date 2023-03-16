@@ -1,64 +1,56 @@
 flowchart LR
     U("<img src='https://super.so/icon/dark/user.svg'; width='25'/>User")
-    subgraph Node1
+    subgraph Node
         FS1[(FileSystem)]
         P1[Pod]
         D1[Daemon]
-        R1[Recorder]
+        R1[eBpfRecorder]
+        E1[LogEnricher]
+        M1[Metrics]
+
         D1 -.->|install profile|FS1
         P1 -.-> |use profile|FS1
         D1 --> |gRPC: record profile| R1
+        D1 --> |gRPC: record profile| E1
+        D1 --> |gRPC: update metric| M1
         R1 --> |record profile| P1
+        E1 --> |record profile| P1
         D1 -->|get/watch| P1
-    end
-    subgraph Node2
-        FS2[(FileSystem)]
-        P2[Pod]
-        D2[Daemon]
-        R2[Recorder]
-        D2 -.->|install profile|FS2
-        P2 -.-> |use profile|FS2
-        D2 --> |gRPC: record profile| R2
-        R2 --> |record profile| P2
-        D2 -->|get/watch| P2
     end
     
     Recording[/ProfileRecording<br> CR/]
     Config[/SPOD CR/]
+    Profile[/SeccompProfile CR<br>SelinuxProfile CR <br> ApparmorProfile CR/]
+    Binding[ProfileBinding CR]
     W[Webhook]
     M[Manager]
     D[Daemonset]
 
-    U -->|create|Config
-    U -->|create|Recording
     U -->|deploy|M
-
+    U -->|deploy|W
+    U -->|update|Config
+    U -->|create|Recording
+    U -->|create/update/get/delete|Profile
 
     W -.->|watch| Recording
-    W -->|add annotations<br>profile binding| P1
-    W -->|add annotations<br>profile binding| P2
+    W -->|add annotations| P1
 
     M -.->|watch|Config
     M -->|create/update|D
-    M -->|create|W
-    U -->|deploy|W
+    M -->|create<br>when not preset|W
 
     D -.->|start|D1
-    D -.->|start|D2
     D1 -.->|watch|Config
-    D2 -.->|watch|Config
     D1-.->|get/update|Recording
-    D2-.->|get/update|Recording
-
-
-    Profile[/SeccompProfile CR<br>SelinuxProfile CR <br> ApparmorProfile CR/]
     D1 -->|create/update/watch|Profile
-    D2 -->|create/update/watch|Profile
-    U -->|create/update/get|Profile
+
+    W-->|get|Binding
+    W-->|get|Profile
+    W-->|add SecurityContext<br>when profile binding is defined|P1
 
   classDef green fill:#9f6,stroke:#333,stroke-width:2px;
   classDef orange fill:#f96,stroke:#333,stroke-width:4px;
   classDef purple fill:#f9f,stroke:#333,stroke-width:4px
-  class W,M,D,D1,D2,R1,R2 green
+  class W,M,D,D1,D2,R1,R2,E1,M1 green
   class U orange
   class P1,P2 purple
