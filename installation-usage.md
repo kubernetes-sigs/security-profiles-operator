@@ -2,6 +2,7 @@
 
 <!-- toc -->
 - [Features](#features)
+- [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
   - [Installation using OLM from operatorhub.io](#installation-using-olm-from-operatorhubio)
