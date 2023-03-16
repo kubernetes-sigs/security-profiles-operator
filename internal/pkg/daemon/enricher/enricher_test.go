@@ -323,8 +323,8 @@ func TestRun(t *testing.T) {
 		mock := &enricherfakes.FakeImpl{}
 		tc.prepare(mock, lineChan)
 
-		sut, ebuildErr := New(logr.Discard(), mock)
-		require.NoError(t, ebuildErr)
+		sut := New(logr.Discard())
+		sut.impl = mock
 
 		var err error
 		if tc.runAsync {
