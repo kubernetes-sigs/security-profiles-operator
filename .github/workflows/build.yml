@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-12
     steps:
       - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
-      - uses: actions/setup-go@6edd4406fa81c3da01a34fa6f6343087c207a568
+      - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
         with:
           go-version: ${{ env.GO_VERSION }}
       - run: make test-unit
@@ -42,7 +42,7 @@ jobs:
   bpf:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/setup-go@6edd4406fa81c3da01a34fa6f6343087c207a568
+      - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
         with:
           go-version: ${{ env.GO_VERSION }}
       - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
