@@ -2,7 +2,7 @@
 *_test.go
 test/
 .git/
-build/
+/build/
 _output
 examples/
 hack/

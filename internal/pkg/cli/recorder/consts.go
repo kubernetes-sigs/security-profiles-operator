@@ -20,7 +20,7 @@ import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 
 const (
 	// FlagOutputFile is the flag for defining the output file location.
-	FlagOutputFile string = "output-file"
+	FlagOutputFile string = cli.FlagOutputFile
 
 	// FlagType is the flag for defining the recorder type.
 	FlagType string = "type"

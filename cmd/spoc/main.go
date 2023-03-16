@@ -25,11 +25,15 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"sigs.k8s.io/security-profiles-operator/cmd"
+	spocli "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/puller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/pusher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner"
 )
 
 func main() {
+	log.SetFlags(log.Lmicroseconds)
 	app, _ := cmd.DefaultApp()
 	app.Usage = "Security Profiles Operator CLI"
 
@@ -94,6 +98,61 @@ func main() {
 				},
 			},
 		},
+		&cli.Command{
+			Name:      "push",
+			Aliases:   []string{"p"},
+			Usage:     "push a profile to a container registry",
+			Action:    push,
+			ArgsUsage: "FILE",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:        pusher.FlagProfile,
+					Aliases:     []string{"f"},
+					Usage:       "the profile to be used",
+					DefaultText: pusher.DefaultInputFile,
+					TakesFile:   true,
+				},
+				&cli.StringSliceFlag{
+					Name:    pusher.FlagAnnotations,
+					Aliases: []string{"a"},
+					Usage:   "the annotations to be set in `KEY:VALUE` format",
+				},
+				&cli.StringFlag{
+					Name:    pusher.FlagUsername,
+					Aliases: []string{"u"},
+					EnvVars: []string{"USERNAME"},
+					Usage: fmt.Sprintf(
+						"the username for registry authentication, use $%s for defining a password",
+						spocli.EnvKeyPassword,
+					),
+				},
+			},
+		},
+		&cli.Command{
+			Name:      "pull",
+			Aliases:   []string{"l"},
+			Usage:     "pull a profile from a container registry",
+			Action:    pull,
+			ArgsUsage: "IMAGE",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:        puller.FlagOutputFile,
+					Aliases:     []string{"o"},
+					Usage:       "the output file to store the profile",
+					DefaultText: puller.DefaultOutputFile,
+					TakesFile:   true,
+				},
+				&cli.StringFlag{
+					Name:    puller.FlagUsername,
+					Aliases: []string{"u"},
+					EnvVars: []string{"USERNAME"},
+					Usage: fmt.Sprintf(
+						"the username for registry authentication, use $%s for defining a password",
+						spocli.EnvKeyPassword,
+					),
+				},
+			},
+		},
 	)
 
 	if err := app.Run(os.Args); err != nil {
@@ -124,6 +183,34 @@ func run(ctx *cli.Context) error {
 
 	if err := runner.New(options).Run(); err != nil {
 		return fmt.Errorf("launch runner: %w", err)
+	}
+
+	return nil
+}
+
+// pull runs the `spoc push` subcommand.
+func push(ctx *cli.Context) error {
+	options, err := pusher.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
+	}
+
+	if err := pusher.New(options).Run(); err != nil {
+		return fmt.Errorf("run pusher: %w", err)
+	}
+
+	return nil
+}
+
+// pull runs the `spoc pull` subcommand.
+func pull(ctx *cli.Context) error {
+	options, err := puller.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
+	}
+
+	if err := puller.New(options).Run(); err != nil {
+		return fmt.Errorf("run puller: %w", err)
 	}
 
 	return nil

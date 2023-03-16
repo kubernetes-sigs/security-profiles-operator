@@ -21,5 +21,21 @@ import (
 	"path/filepath"
 )
 
+const (
+	// FlagProfile is the flag for defining the input file location.
+	FlagProfile string = "profile"
+
+	// FlagOutputFile is the flag for defining the output file location.
+	FlagOutputFile string = "output-file"
+
+	// FlagUsername is the flag for defining the username for registry
+	// authentication.
+	FlagUsername string = "username"
+
+	// EnvKeyPassword is the environment variable key for defining the password
+	// for registry authentication.
+	EnvKeyPassword string = "PASSWORD"
+)
+
 // DefaultFile defines the default input and output location for profiles.
 var DefaultFile = filepath.Join(os.TempDir(), "profile.yaml")
