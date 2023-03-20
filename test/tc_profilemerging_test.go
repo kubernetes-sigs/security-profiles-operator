@@ -114,6 +114,8 @@ spec:
       containers:
       - name: redis
         image: quay.io/security-profiles-operator/redis:6.2.1
+        ports:
+        - containerPort: 6379
         readinessProbe:
           tcpSocket:
               port: 6379

@@ -158,17 +158,24 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	for cntName, cntPartialProfiles := range partialProfiles {
 		r.log.Info("Merging profiles for container", "container", cntName)
 
-	if mergedProfile == nil {
-		r.record.Event(profileRecording, util.EventTypeWarning, reasonMergedEmptyProfile, errEmptyMergedProfile)
-		r.log.Info(errEmptyMergedProfile)
-		return nil
-	}
+		mergedProfile, err := mergeProfiles(cntPartialProfiles)
+		if err != nil {
+			return fmt.Errorf("cannot merge partial profiles: %w", err)
+		}
 
-	mergedRecordingName := mergedProfileName(profileRecording.Name, partialProfiles[0])
-	res, err := createUpdateMergedProfile(ctx, r.client, profileRecording, mergedRecordingName, mergedProfile)
-	if err != nil {
-		r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotCreateUpdate, err.Error())
-		return fmt.Errorf("cannot create or update merged profile: action:  %w", err)
+		if mergedProfile == nil {
+			r.record.Event(profileRecording, util.EventTypeWarning, reasonMergedEmptyProfile, errEmptyMergedProfile)
+			r.log.Info(errEmptyMergedProfile)
+			return nil
+		}
+
+		mergedRecordingName := mergedProfileName(profileRecording.Name, cntPartialProfiles[0])
+		res, err := createUpdateMergedProfile(ctx, r.client, profileRecording, mergedRecordingName, mergedProfile)
+		if err != nil {
+			r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotCreateUpdate, err.Error())
+			return fmt.Errorf("cannot create or update merged profile: action:  %w", err)
+		}
+		r.log.Info("Created/updated profile", "action", res, "name", mergedRecordingName)
 	}
 
 	return deletePartialProfiles(ctx, r.client, profileItem, profileRecording)
