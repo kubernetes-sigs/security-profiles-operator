@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -57,7 +58,7 @@ const (
 // Enricher is the main structure of this package.
 type Enricher struct {
 	apienricher.UnimplementedEnricherServer
-	impl             impl
+	impl
 	logger           logr.Logger
 	containerIDCache *ttlcache.Cache[string, string]
 	infoCache        *ttlcache.Cache[string, *types.ContainerInfo]
@@ -68,25 +69,9 @@ type Enricher struct {
 }
 
 // New returns a new Enricher instance.
-func New(logger logr.Logger, impls ...impl) (*Enricher, error) {
-	var effectiveimpl impl
-	if len(impls) == 0 {
-		effectiveimpl = &defaultImpl{}
-	} else {
-		effectiveimpl = impls[0]
-	}
-	clusterConfig, err := effectiveimpl.InClusterConfig()
-	if err != nil {
-		return nil, fmt.Errorf("get in-cluster config: %w", err)
-	}
-
-	clientset, err := effectiveimpl.NewForConfig(clusterConfig)
-	if err != nil {
-		return nil, fmt.Errorf("load in-cluster config: %w", err)
-	}
-
+func New(logger logr.Logger) *Enricher {
 	return &Enricher{
-		impl:   effectiveimpl,
+		impl:   &defaultImpl{},
 		logger: logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
@@ -106,19 +91,28 @@ func New(logger logr.Logger, impls ...impl) (*Enricher, error) {
 			// if/when the cache is full.
 			ttlcache.WithDisableTouchOnHit[string, []*types.AuditLine](),
 		),
-		clientset: clientset,
-	}, nil
+	}
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
 // Kubernetes data (namespace, pod and container).
 func (e *Enricher) Run() error {
+	clusterConfig, err := e.InClusterConfig()
+	if err != nil {
+		return fmt.Errorf("get in-cluster config: %w", err)
+	}
+
+	e.clientset, err = e.NewForConfig(clusterConfig)
+	if err != nil {
+		return fmt.Errorf("load in-cluster config: %w", err)
+	}
+
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
 	go e.containerIDCache.Start()
 	go e.infoCache.Start()
 	go e.auditLineCache.Start()
 
-	nodeName := e.impl.Getenv(config.NodeNameEnvKey)
+	nodeName := e.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		e.logger.Error(err, "unable to run enricher")
@@ -135,16 +129,16 @@ func (e *Enricher) Run() error {
 	)
 
 	if err := util.Retry(func() (err error) {
-		conn, cancel, err = e.impl.Dial()
+		conn, cancel, err = e.Dial()
 		if err != nil {
 			return fmt.Errorf("connecting to local GRPC server: %w", err)
 		}
 		client := apimetrics.NewMetricsClient(conn)
 
-		metricsClient, err = e.impl.AuditInc(client)
+		metricsClient, err = e.AuditInc(client)
 		if err != nil {
 			cancel()
-			e.impl.Close(conn)
+			e.Close(conn)
 			return fmt.Errorf("create metrics audit client: %w", err)
 		}
 
@@ -153,24 +147,24 @@ func (e *Enricher) Run() error {
 		return fmt.Errorf("connect to local GRPC server: %w", err)
 	}
 	defer cancel()
-	defer e.impl.Close(conn)
+	defer e.Close(conn)
 
 	if err := e.startGrpcServer(); err != nil {
 		return fmt.Errorf("start GRPC server: %w", err)
 	}
 
 	// Use auditd logs as main source or syslog as fallback.
-	filePath := logFilePath()
+	filePath := LogFilePath()
 
 	// If the file does not exist, then tail will wait for it to appear
-	tailFile, err := e.impl.TailFile(
+	tailFile, err := e.TailFile(
 		filePath,
 		tail.Config{
 			ReOpen: true,
 			Follow: true,
 			Location: &tail.SeekInfo{
 				Offset: 0,
-				Whence: os.SEEK_END,
+				Whence: io.SeekEnd,
 			},
 		},
 	)
@@ -179,7 +173,7 @@ func (e *Enricher) Run() error {
 	}
 
 	e.logger.Info("Reading from file " + filePath)
-	for l := range e.impl.Lines(tailFile) {
+	for l := range e.Lines(tailFile) {
 		if l.Err != nil {
 			e.logger.Error(l.Err, "failed to tail")
 			continue
@@ -187,19 +181,19 @@ func (e *Enricher) Run() error {
 
 		line := l.Text
 		e.logger.V(config.VerboseLevel).Info("Got line: " + line)
-		if !isAuditLine(line) {
+		if !IsAuditLine(line) {
 			e.logger.V(config.VerboseLevel).Info("Not an audit line")
 			continue
 		}
 
-		auditLine, err := extractAuditLine(line)
+		auditLine, err := ExtractAuditLine(line)
 		if err != nil {
-			e.logger.Error(err, "extract seccomp details from audit line")
+			e.logger.Error(err, "extract audit line")
 			continue
 		}
 
 		e.logger.V(config.VerboseLevel).Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.ProcessID))
-		cID, err := e.impl.ContainerIDForPID(e.containerIDCache, auditLine.ProcessID)
+		cID, err := e.ContainerIDForPID(e.containerIDCache, auditLine.ProcessID)
 		if errors.Is(err, os.ErrNotExist) {
 			// We're probably in container creation or removal
 			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
@@ -243,24 +237,24 @@ func (e *Enricher) Run() error {
 		e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
 	}
 
-	return fmt.Errorf("enricher failed: %w", e.impl.Reason(tailFile))
+	return fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
 }
 
 func (e *Enricher) startGrpcServer() error {
 	e.logger.Info("Starting GRPC server API")
 
-	if _, err := e.impl.Stat(config.GRPCServerSocketEnricher); err == nil {
-		if err := e.impl.RemoveAll(config.GRPCServerSocketEnricher); err != nil {
+	if _, err := e.Stat(config.GRPCServerSocketEnricher); err == nil {
+		if err := e.RemoveAll(config.GRPCServerSocketEnricher); err != nil {
 			return fmt.Errorf("remove GRPC socket file: %w", err)
 		}
 	}
 
-	listener, err := e.impl.Listen("unix", config.GRPCServerSocketEnricher)
+	listener, err := e.Listen("unix", config.GRPCServerSocketEnricher)
 	if err != nil {
 		return fmt.Errorf("create listener: %w", err)
 	}
 
-	if err := e.impl.Chown(
+	if err := e.Chown(
 		config.GRPCServerSocketEnricher,
 		config.UserRootless,
 		config.UserRootless,
@@ -275,7 +269,7 @@ func (e *Enricher) startGrpcServer() error {
 	apienricher.RegisterEnricherServer(grpcServer, e)
 
 	go func() {
-		if err := e.impl.Serve(grpcServer, listener); err != nil {
+		if err := e.Serve(grpcServer, listener); err != nil {
 			e.logger.Error(err, "unable to run GRPC server")
 		}
 	}()
@@ -304,7 +298,7 @@ func (e *Enricher) addToBacklog(line *types.AuditLine) error {
 
 	item := e.auditLineCache.Get(strPid)
 	if item == nil {
-		e.impl.AddToBacklog(e.auditLineCache, strPid, []*types.AuditLine{line})
+		e.AddToBacklog(e.auditLineCache, strPid, []*types.AuditLine{line})
 		return nil
 	}
 
@@ -323,7 +317,7 @@ func (e *Enricher) addToBacklog(line *types.AuditLine) error {
 		return nil
 	}
 
-	e.impl.AddToBacklog(e.auditLineCache, strPid, append(auditBacklog, line))
+	e.AddToBacklog(e.auditLineCache, strPid, append(auditBacklog, line))
 	return nil
 }
 
@@ -335,7 +329,7 @@ func (e *Enricher) dispatchBacklog(
 ) {
 	strPid := strconv.Itoa(processID)
 
-	auditBacklog := e.impl.GetFromBacklog(e.auditLineCache, strPid)
+	auditBacklog := e.GetFromBacklog(e.auditLineCache, strPid)
 	if auditBacklog == nil {
 		// nothing in the cache
 		return
@@ -350,7 +344,7 @@ func (e *Enricher) dispatchBacklog(
 		}
 	}
 
-	e.impl.FlushBacklog(e.auditLineCache, strPid)
+	e.FlushBacklog(e.auditLineCache, strPid)
 }
 
 func (e *Enricher) dispatchAuditLine(
@@ -364,6 +358,8 @@ func (e *Enricher) dispatchAuditLine(
 		e.dispatchSelinuxLine(metricsClient, nodeName, auditLine, info)
 	case types.AuditTypeSeccomp:
 		e.dispatchSeccompLine(metricsClient, nodeName, auditLine, info)
+	case types.AuditTypeApparmor:
+		e.dispatchApparmorLine(nodeName, auditLine, info)
 	default:
 		return fmt.Errorf("unknown audit line type %s", auditLine.AuditType)
 	}
@@ -391,7 +387,7 @@ func (e *Enricher) dispatchSelinuxLine(
 		"tclass", auditLine.Tclass,
 	)
 
-	if err := e.impl.SendMetric(
+	if err := e.SendMetric(
 		metricsClient,
 		&apimetrics.AuditRequest{
 			Node:       nodeName,
@@ -421,8 +417,8 @@ func (e *Enricher) dispatchSelinuxLine(
 				e.logger.Error(err, "marshall protobuf")
 			}
 
-			a, _ := e.avcs.LoadOrStore(info.RecordProfile, sets.NewString())
-			stringSet, ok := a.(sets.String)
+			a, _ := e.avcs.LoadOrStore(info.RecordProfile, sets.New[string]())
+			stringSet, ok := a.(sets.Set[string])
 			if ok {
 				stringSet.Insert(string(jsonBytes))
 			}
@@ -459,7 +455,7 @@ func (e *Enricher) dispatchSeccompLine(
 		"syscallName", syscallName,
 	)
 
-	if err := e.impl.SendMetric(
+	if err := e.SendMetric(
 		metricsClient,
 		&apimetrics.AuditRequest{
 			Node:       nodeName,
@@ -476,17 +472,44 @@ func (e *Enricher) dispatchSeccompLine(
 	}
 
 	if info.RecordProfile != "" {
-		s, _ := e.syscalls.LoadOrStore(info.RecordProfile, sets.NewString())
-		stringSet, ok := s.(sets.String)
+		s, _ := e.syscalls.LoadOrStore(info.RecordProfile, sets.New[string]())
+		stringSet, ok := s.(sets.Set[string])
 		if ok {
 			stringSet.Insert(syscallName)
 		}
 	}
 }
 
-// logFilePath returns either the path to the audit logs or falls back to
+func (e *Enricher) dispatchApparmorLine(
+	nodeName string,
+	auditLine *types.AuditLine,
+	info *types.ContainerInfo,
+) {
+	values := []interface{}{
+		"timestamp", auditLine.TimestampID,
+		"type", auditLine.AuditType,
+		"node", nodeName,
+		"namespace", info.Namespace,
+		"pod", info.PodName,
+		"container", info.ContainerName,
+		"executable", auditLine.Executable,
+		"pid", auditLine.ProcessID,
+		"apparmor", auditLine.Apparmor,
+		"operation", auditLine.Operation,
+		"profile", auditLine.Profile,
+		"name", auditLine.Name,
+	}
+
+	if auditLine.ExtraInfo != "" {
+		values = append(values, "extra", auditLine.ExtraInfo)
+	}
+
+	e.logger.Info("audit", values...)
+}
+
+// LogFilePath returns either the path to the audit logs or falls back to
 // syslog if the audit log path does not exist.
-func logFilePath() string {
+func LogFilePath() string {
 	filePath := config.SyslogLogPath
 	if rutil.Exists(config.AuditLogPath) {
 		filePath = config.AuditLogPath

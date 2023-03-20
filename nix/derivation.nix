@@ -1,5 +1,5 @@
 { pkgs, buildGoModule }:
-with pkgs; buildGo119Module rec {
+with pkgs; buildGo120Module rec {
   name = "security-profiles-operator";
   src = builtins.filterSource
     (path: type: !(type == "directory" && baseNameOf path == "build")) ./..;
@@ -24,6 +24,6 @@ with pkgs; buildGo119Module rec {
     make WITH_BPF=1
   '';
   installPhase = ''
-    install -Dm755 -t $out build/security-profiles-operator
+    install -Dm755 -t $out build/security-profiles-operator build/spoc
   '';
 }

@@ -25,14 +25,13 @@ import (
 	"testing"
 
 	"github.com/containers/common/pkg/seccomp"
-	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/crossplane/crossplane-runtime/pkg/test"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	kevent "sigs.k8s.io/controller-runtime/pkg/event"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -40,6 +39,7 @@ import (
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func TestReconcile(t *testing.T) {
@@ -59,8 +59,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ProfileNotFound",
 			rec: &Reconciler{
-				client: &test.MockClient{
-					MockGet: test.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
+				client: &util.MockClient{
+					MockGet: util.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
 				},
 				log:     log.Log,
 				metrics: metrics.New(),
@@ -72,10 +72,10 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ErrGetProfileIfSeccompEnabled",
 			rec: &Reconciler{
-				client: &test.MockClient{
-					MockGet: test.NewMockGetFn(errOops),
+				client: &util.MockClient{
+					MockGet: util.NewMockGetFn(errOops),
 				},
-				record:  event.NewNopRecorder(),
+				record:  record.NewFakeRecorder(10),
 				log:     log.Log,
 				metrics: metrics.New(),
 			},
@@ -91,13 +91,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "GotProfile",
 			rec: &Reconciler{
-				client: &test.MockClient{
-					MockGet:          test.NewMockGetFn(nil),
-					MockUpdate:       test.NewMockUpdateFn(nil),
-					MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
+				client: &util.MockClient{
+					MockGet:                     util.NewMockGetFn(nil),
+					MockUpdate:                  util.NewMockUpdateFn(nil),
+					MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
 				},
 				log:     log.Log,
-				record:  event.NewNopRecorder(),
+				record:  record.NewFakeRecorder(10),
 				save:    func(_ string, _ []byte) (bool, error) { return false, nil },
 				metrics: metrics.New(),
 			},
@@ -210,7 +210,7 @@ func TestGetProfilePath(t *testing.T) {
 	}{
 		{
 			name: "AppendNamespaceAndProfile",
-			want: path.Join(config.ProfilesRootPath, "config-namespace", "file.json"),
+			want: path.Join(config.ProfilesRootPath(), "config-namespace", "file.json"),
 			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
@@ -220,7 +220,7 @@ func TestGetProfilePath(t *testing.T) {
 		},
 		{
 			name: "BlockTraversalAtProfileName",
-			want: path.Join(config.ProfilesRootPath, "ns", "file.json"),
+			want: path.Join(config.ProfilesRootPath(), "ns", "file.json"),
 			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "../../../../../file.json",
@@ -230,7 +230,7 @@ func TestGetProfilePath(t *testing.T) {
 		},
 		{
 			name: "BlockTraversalAtTargetName",
-			want: path.Join(config.ProfilesRootPath, "ns", "file.json"),
+			want: path.Join(config.ProfilesRootPath(), "ns", "file.json"),
 			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
@@ -240,7 +240,7 @@ func TestGetProfilePath(t *testing.T) {
 		},
 		{
 			name: "BlockTraversalAtSPNamespace",
-			want: path.Join(config.ProfilesRootPath, "ns", "file.json"),
+			want: path.Join(config.ProfilesRootPath(), "ns", "file.json"),
 			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file.json",
@@ -250,7 +250,7 @@ func TestGetProfilePath(t *testing.T) {
 		},
 		{
 			name: "AppendExtension",
-			want: path.Join(config.ProfilesRootPath, "config-namespace", "file.json"),
+			want: path.Join(config.ProfilesRootPath(), "config-namespace", "file.json"),
 			sp: &seccompprofileapi.SeccompProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "file",
@@ -455,17 +455,17 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 
 	cases := []struct {
 		name  string
-		event kevent.UpdateEvent
+		event event.UpdateEvent
 		want  bool
 	}{
 		{
 			name:  "NilObjects",
-			event: kevent.UpdateEvent{},
+			event: event.UpdateEvent{},
 			want:  false,
 		},
 		{
 			name: "FailedOldObjectAssertion",
-			event: kevent.UpdateEvent{
+			event: event.UpdateEvent{
 				ObjectOld: &seccompprofileapi.SeccompProfile{},
 				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{},
 			},
@@ -473,7 +473,7 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 		},
 		{
 			name: "FailedNewObjectAssertion",
-			event: kevent.UpdateEvent{
+			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{},
 				ObjectNew: &seccompprofileapi.SeccompProfile{},
 			},
@@ -481,7 +481,7 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 		},
 		{
 			name: "DiffAllowedSyscallsLen",
-			event: kevent.UpdateEvent{
+			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
 						AllowedSyscalls: []string{"a"},
@@ -497,7 +497,7 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 		},
 		{
 			name: "DiffAllowedSyscalls",
-			event: kevent.UpdateEvent{
+			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
 						AllowedSyscalls: []string{"a", "c"},
@@ -513,7 +513,7 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 		},
 		{
 			name: "SameAllowedSyscalls",
-			event: kevent.UpdateEvent{
+			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
 						AllowedSyscalls: []string{"a", "b"},
@@ -529,7 +529,7 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 		},
 		{
 			name: "SameAllowedSyscallsOtherOrder",
-			event: kevent.UpdateEvent{
+			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
 						AllowedSyscalls: []string{"b", "a"},

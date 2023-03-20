@@ -414,7 +414,7 @@ func TestHandle(t *testing.T) {
 				require.True(t, resp.AdmissionResponse.Allowed)
 			},
 		},
-		//nolint: dupl // golint flags this as a dup of the below, but here we're testing failure of UpdateResource
+		//nolint:dupl // golint flags this as a dup of the below, but here we're testing failure of UpdateResource
 		{ // failure pod deleted on UpdateResource
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
@@ -455,7 +455,7 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
-		//nolint: dupl // golint flags this as a dup of above, but here we're testing failure of UpdateResourceStatus
+		//nolint:dupl // golint flags this as a dup of above, but here we're testing failure of UpdateResourceStatus
 		{ // failure on UpdateResourceStatus
 			prepare: func(mock *recordingfakes.FakeImpl) {
 				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{

@@ -126,7 +126,7 @@ func (i *Info) String() string {
 		value := v.FieldByName(field.Name)
 
 		valueString := ""
-		//nolint:exhaustive // we ignore missing switch cases on purpose
+		//nolint:exhaustive,nolintlint // we ignore missing switch cases on purpose
 		switch field.Type.Kind() {
 		case reflect.Bool:
 			valueString = fmt.Sprint(value.Bool())

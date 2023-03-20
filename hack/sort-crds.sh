@@ -23,7 +23,7 @@ delete_temp_dir() {
         rm -rf "${TEMP}"
     fi
 }
-# trap delete_temp_dir EXIT
+trap delete_temp_dir EXIT
 
 cat <<EOF > "${TEMP}/kustomization.yaml"
 resources:

@@ -305,3 +305,32 @@ on a high level, this needs to be done:
    comparison, the `kind` test driver uses `docker` to execute commands on
    "nodes" and waits for all pods in all namespaces before running the tests.
  - Instantiate the structure in the switch-case statement in `TestSuite`.
+
+## Building the operator image with support for AppArmor
+
+The AppArmor functionality is conditionally built based on a compilation tag,
+to enable it an environment variable `APPARMOR_ENABLED` must be used and set to
+`true`. By default, this is set to `false`.
+
+Example:
+
+`APPARMOR_ENABLED=true make image`
+
+A full process of building, pushing it to a registry and deploying it into a cluster:
+
+```sh
+export IMAGE=<registry-and-image-name>:<label>
+
+APPARMOR_ENABLED=true make image
+docker push "${IMAGE}"
+
+make deploy
+
+SPO_NS=security-profiles-operator
+kubectl -n $SPO_NS patch spod spod --type=merge -p '{"spec":{"enableAppArmor":true}}'
+
+kubectl -n $SPO_NS patch deploy security-profiles-operator --type=merge -p '{"spec": {"template": {"spec": {"containers": [{"name":"security-profiles-operator", "image": "'$IMAGE'"}]}}}}'
+
+kubectl apply -f examples/apparmorprofile.yaml
+kubectl apply -f examples/pod-apparmor.yaml
+```

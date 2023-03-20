@@ -20,31 +20,29 @@ package api_metrics;
 option go_package = "/api_metrics";
 
 service Metrics {
-    rpc AuditInc(stream AuditRequest) returns (EmptyResponse) {}
-    rpc BpfInc(stream BpfRequest) returns (EmptyResponse) {}
+  rpc AuditInc(stream AuditRequest) returns (EmptyResponse) {}
+  rpc BpfInc(stream BpfRequest) returns (EmptyResponse) {}
 }
 
 message AuditRequest {
-    message SeccompAuditReq {
-        string syscall = 1;
-    }
-    message SelinuxAuditReq {
-        string scontext = 1;
-        string tcontext = 2;
-    }
-    string node = 1;
-    string namespace = 2;
-    string pod = 3;
-    string container = 4;
-    string executable = 5;
-    SeccompAuditReq seccompReq = 6;
-    SelinuxAuditReq selinuxReq = 7;
+  message SeccompAuditReq { string syscall = 1; }
+  message SelinuxAuditReq {
+    string scontext = 1;
+    string tcontext = 2;
+  }
+  string node = 1;
+  string namespace = 2;
+  string pod = 3;
+  string container = 4;
+  string executable = 5;
+  SeccompAuditReq seccompReq = 6;
+  SelinuxAuditReq selinuxReq = 7;
 }
 
 message BpfRequest {
-    string node = 1;
-    uint64 mount_namespace = 2;
-    string profile = 3;
+  string node = 1;
+  uint32 mount_namespace = 2;
+  string profile = 3;
 }
 
 message EmptyResponse {}

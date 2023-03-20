@@ -45,7 +45,8 @@ function build_and_push_packages() {
 
     # Create a manifest with local image
     cp deploy/operator.yaml ${OPERATOR_MANIFEST}
-    sed -i "s#k8s.gcr.io/security-profiles-operator/security-profiles-operator.*\$#${IMG}#" ${OPERATOR_MANIFEST}
+    sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator.*\$#${IMG}#" ${OPERATOR_MANIFEST}
+    grep ${IMG} ${OPERATOR_MANIFEST} || exit 1
 
     # this is a kludge, we need to make sure kustomize can be overwritten
     rm -f build/kustomize
@@ -58,7 +59,7 @@ function build_and_push_packages() {
     podman push --tls-verify=false ${BUNDLE_IMG}
 
     # create catalog image, push catalog
-    make catalog-build OPM_EXTRA_ARGS=" --skip-tls" BUNDLE_IMGS=${BUNDLE_IMG} CATALOG_IMG=${CATALOG_IMG}
+    make catalog-build OPM_EXTRA_ARGS=" --use-http" BUNDLE_IMGS=${BUNDLE_IMG} CATALOG_IMG=${CATALOG_IMG}
     podman push --tls-verify=false ${CATALOG_IMG}
 }
 
@@ -68,11 +69,11 @@ function deploy_deps() {
 
     # cert-manager first. This should be done using dependencies in the
     # future
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.9.1/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml
     kubectl -ncert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # All installation methods run off the same catalog
-    sed -i "s#k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.5.0#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
+    sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
 
 }
 

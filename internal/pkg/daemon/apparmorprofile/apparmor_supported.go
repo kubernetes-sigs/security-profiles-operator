@@ -21,6 +21,7 @@ package apparmorprofile
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -46,12 +47,14 @@ const (
 )
 
 func (a *aaProfileManager) Enabled() bool {
-	// checks for host support once - to refresh the spod will need to be re-spawned
 	checkHostSupport.Do(func() {
-		// TODO(pjbgf): check for host support and apparmor-utils
+		mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
+		a := aa.NewAppArmor()
 
-		// assumes that if the apparmor daemon is enabled, the host supports it.
-		hostSupportsAppArmor = true
+		_ = mount.Do(func() (err error) { //nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
+			hostSupportsAppArmor, err = a.Enabled()
+			return
+		})
 	})
 
 	return hostSupportsAppArmor
@@ -79,27 +82,47 @@ func (a *aaProfileManager) CustomResourceTypeName() string {
 }
 
 func loadProfile(logger logr.Logger, name, content string) (bool, error) {
-	mount := hostop.NewMountHostOp().WithLogger(logger)
-	a := aa.NewAppArmor().WithLogger(logger)
+	mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
+	a := aa.NewAppArmor()
 
 	err := mount.Do(func() error {
-		// TODO: force profile content's to align with profile's name
 		path := filepath.Join(targetProfileDir, name)
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint // file permissions are fine
 			return err
 		}
 
-		return a.LoadPolicy(path)
+		if err := a.LoadPolicy(path); err != nil {
+			return err
+		}
+
+		loaded, err := a.PolicyLoaded(name)
+		if err != nil {
+			return fmt.Errorf("cannot check policy status: %w", err)
+		}
+		if !loaded {
+			return fmt.Errorf("policy %q is not loaded: AppArmorProfile name must match defined policy", name)
+		}
+		return nil
 	})
 
 	return err != nil, err
 }
 
 func removeProfile(logger logr.Logger, profileName string) error {
-	mount := hostop.NewMountHostOp().WithLogger(logger)
-	a := aa.NewAppArmor().WithLogger(logger)
+	mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
+	a := aa.NewAppArmor()
 
 	err := mount.Do(func() error {
+		loaded, err := a.PolicyLoaded(profileName)
+		if err != nil {
+			return fmt.Errorf("cannot check policy status: %w", err)
+		}
+
+		if !loaded {
+			logger.Info("profile is not loaded into host: skipping deletion", "profile-name", profileName)
+			return nil
+		}
+
 		if err := a.DeletePolicy(profileName); err != nil {
 			return err
 		}

@@ -4,5 +4,6 @@
 .vagrant
 Vagrantfile
 build
+build.tar.gz
 image.tar
 result

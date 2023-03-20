@@ -35,7 +35,7 @@ spec:
               memory: 128Mi
           env:
             - name: RELATED_IMAGE_RBAC_PROXY
-              value: quay.io/brancz/kube-rbac-proxy:v0.11.0
+              value: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
             - name: RELATED_IMAGE_SELINUXD
               value: quay.io/security-profiles-operator/selinuxd
             - name: OPERATOR_NAMESPACE
@@ -47,6 +47,12 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.annotations['olm.targetNamespaces']
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: KUBELET_DIR
+              value: "/var/lib/kubelet"
       tolerations:
         - key: "node-role.kubernetes.io/master"
           operator: "Exists"

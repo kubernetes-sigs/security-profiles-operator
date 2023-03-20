@@ -28,14 +28,14 @@ import (
 	"time"
 
 	"github.com/containers/common/pkg/seccomp"
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	kevent "sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -73,15 +73,14 @@ const (
 	// https://github.com/golang/go/issues/22323#issuecomment-340568811
 	dirPermissionMode os.FileMode = 0o744
 
-	reasonSeccompNotSupported   event.Reason = "SeccompNotSupportedOnNode"
-	reasonInvalidSeccompProfile event.Reason = "InvalidSeccompProfile"
-	reasonCannotSaveProfile     event.Reason = "CannotSaveSeccompProfile"
-	reasonCannotRemoveProfile   event.Reason = "CannotRemoveSeccompProfile"
-	reasonCannotUpdateProfile   event.Reason = "CannotUpdateSeccompProfile"
-	reasonCannotUpdateStatus    event.Reason = "CannotUpdateNodeStatus"
-	reasonProfileNotAllowed     event.Reason = "ProfileNotAllowed"
-
-	reasonSavedProfile event.Reason = "SavedSeccompProfile"
+	reasonSeccompNotSupported   string = "SeccompNotSupportedOnNode"
+	reasonInvalidSeccompProfile string = "InvalidSeccompProfile"
+	reasonCannotSaveProfile     string = "CannotSaveSeccompProfile"
+	reasonCannotRemoveProfile   string = "CannotRemoveSeccompProfile"
+	reasonCannotUpdateProfile   string = "CannotUpdateSeccompProfile"
+	reasonCannotUpdateStatus    string = "CannotUpdateNodeStatus"
+	reasonProfileNotAllowed     string = "ProfileNotAllowed"
+	reasonSavedProfile          string = "SavedSeccompProfile"
 )
 
 // NewController returns a new empty controller instance.
@@ -95,7 +94,7 @@ type saver func(string, []byte) (bool, error)
 type Reconciler struct {
 	client  client.Client
 	log     logr.Logger
-	record  event.Recorder
+	record  record.EventRecorder
 	save    saver
 	metrics *metrics.Metrics
 }
@@ -116,7 +115,7 @@ type AllowedSyscallsChangedPredicate struct {
 }
 
 // Update implements default update event filter for checking SPOD's AllowedSyscalls change.
-func (AllowedSyscallsChangedPredicate) Update(e kevent.UpdateEvent) bool {
+func (AllowedSyscallsChangedPredicate) Update(e event.UpdateEvent) bool {
 	if e.ObjectOld == nil || e.ObjectNew == nil {
 		return false
 	}
@@ -155,7 +154,7 @@ func (r *Reconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor("profile"))
+	r.record = mgr.GetEventRecorderFor("profile")
 	r.save = saveProfileOnDisk
 	r.metrics = met
 
@@ -231,9 +230,12 @@ func (r *Reconciler) checkSeccomp() error {
 		err = fmt.Errorf("node %q: %w", os.Getenv(config.NodeNameEnvKey), err)
 		if r.record != nil {
 			r.metrics.IncSeccompProfileError(reasonSeccompNotSupported)
-			r.record.Event(&seccompprofileapi.SeccompProfile{},
-				event.Warning(reasonSeccompNotSupported, err, os.Getenv(config.NodeNameEnvKey),
-					"node does not support seccomp"))
+			r.record.AnnotatedEventf(
+				&seccompprofileapi.SeccompProfile{},
+				map[string]string{os.Getenv(config.NodeNameEnvKey): "node does not support seccomp"},
+				util.EventTypeWarning,
+				reasonSeccompNotSupported,
+				err.Error())
 		}
 		return err
 	}
@@ -257,10 +259,10 @@ func (r *Reconciler) checkSeccomp() error {
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 
 // Reconcile reconciles a SeccompProfile.
-func (r *Reconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	if err := r.checkSeccomp(); err != nil {
@@ -313,7 +315,7 @@ func (r *Reconciler) mergeBaseProfile(
 		ctx, util.NamespacedName(baseProfileName, sp.GetNamespace()), baseProfile); err != nil {
 		l.Error(err, "cannot retrieve base profile "+baseProfileName)
 		r.metrics.IncSeccompProfileError(reasonInvalidSeccompProfile)
-		r.record.Event(sp, event.Warning(reasonInvalidSeccompProfile, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonInvalidSeccompProfile, err.Error())
 		return op, fmt.Errorf("merging base profile: %w", err)
 	}
 	op.Syscalls = util.UnionSyscalls(baseProfile.Spec.Syscalls, sp.Spec.Syscalls)
@@ -346,7 +348,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if err := r.validateProfile(ctx, &outputProfile); err != nil {
 		l.Error(err, "validate profile")
 		r.metrics.IncSeccompProfileError(reasonProfileNotAllowed)
-		r.record.Event(sp, event.Warning(reasonProfileNotAllowed, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonProfileNotAllowed, err.Error())
 		return reconcile.Result{Requeue: false}, fmt.Errorf("validating profile: %w", err)
 	}
 
@@ -354,7 +356,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if err != nil {
 		l.Error(err, "cannot validate profile "+profileName)
 		r.metrics.IncSeccompProfileError(reasonInvalidSeccompProfile)
-		r.record.Event(sp, event.Warning(reasonInvalidSeccompProfile, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonInvalidSeccompProfile, err.Error())
 		return reconcile.Result{}, fmt.Errorf("cannot validate profile: %w", err)
 	}
 
@@ -384,13 +386,13 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if err != nil {
 		l.Error(err, "cannot save profile into disk")
 		r.metrics.IncSeccompProfileError(reasonCannotSaveProfile)
-		r.record.Event(sp, event.Warning(reasonCannotSaveProfile, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotSaveProfile, err.Error())
 		return reconcile.Result{}, fmt.Errorf("cannot save profile into disk: %w", err)
 	}
 	if updated {
 		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
 		r.metrics.IncSeccompProfileUpdate()
-		r.record.Event(sp, event.Normal(reasonSavedProfile, evstr))
+		r.record.Event(sp, util.EventTypeNormal, reasonSavedProfile, evstr)
 	}
 
 	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, statusv1alpha1.ProfileStateInstalled)
@@ -407,7 +409,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInstalled); err != nil {
 		l.Error(err, "cannot update node status")
 		r.metrics.IncSeccompProfileError(reasonCannotUpdateStatus)
-		r.record.Event(sp, event.Warning(reasonCannotUpdateStatus, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdateStatus, err.Error())
 		return reconcile.Result{}, fmt.Errorf("updating status in SeccompProfile reconciler: %w", err)
 	}
 
@@ -442,7 +444,7 @@ func (r *Reconciler) reconcileDeletion(
 			if err := nsc.SetNodeStatus(ctx, statusv1alpha1.ProfileStateTerminating); err != nil {
 				r.log.Error(err, "cannot update SeccompProfile status")
 				r.metrics.IncSeccompProfileError(reasonCannotUpdateProfile)
-				r.record.Event(sp, event.Warning(reasonCannotUpdateProfile, err))
+				r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdateProfile, err.Error())
 				return reconcile.Result{}, fmt.Errorf("updating status for deleted SeccompProfile: %w", err)
 			}
 			return reconcile.Result{Requeue: true, RequeueAfter: wait}, nil
@@ -457,14 +459,14 @@ func (r *Reconciler) reconcileDeletion(
 	if err := r.handleDeletion(sp); err != nil {
 		r.log.Error(err, "cannot delete profile")
 		r.metrics.IncSeccompProfileError(reasonCannotRemoveProfile)
-		r.record.Event(sp, event.Warning(reasonCannotRemoveProfile, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotRemoveProfile, err.Error())
 		return ctrl.Result{}, fmt.Errorf("handling file deletion for deleted SeccompProfile: %w", err)
 	}
 
 	if err := nsc.Remove(ctx, r.client); err != nil {
 		r.log.Error(err, "cannot remove node status/finalizer from seccomp profile")
 		r.metrics.IncSeccompProfileError(reasonCannotUpdateStatus)
-		r.record.Event(sp, event.Warning(reasonCannotUpdateStatus, err))
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdateStatus, err.Error())
 		return ctrl.Result{}, fmt.Errorf("deleting node status/finalizer for deleted SeccompProfile: %w", err)
 	}
 

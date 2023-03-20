@@ -17,8 +17,11 @@ limitations under the License.
 package config
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 
 	"sigs.k8s.io/release-utils/env"
@@ -38,19 +41,31 @@ const (
 	// from within the daemon.
 	SPOdNameEnvKey = "SPOD_NAME"
 
+	// HostRoot define the host files root mount path.
+	HostRoot = "/host"
+
+	// SeccompProfilesFolder defines the folder name where the seccomp
+	// profiles are stored.
+	SeccompProfilesFolder = "seccomp"
+
+	// OperatorProfilesFolder defines the folder name where the operator
+	// profiles are stored.
+	OperatorProfilesFolder = "operator"
+
 	// OperatorRoot is the root directory of the operator.
 	OperatorRoot = "/var/lib/security-profiles-operator"
 
 	// UserRootless is the user which runs the operator.
 	UserRootless = 65535
 
-	// KubeletSeccompRootPath specifies the path where all kubelet seccomp
-	// profiles are stored.
-	KubeletSeccompRootPath = "/var/lib/kubelet/seccomp"
+	// DefaultKubeletPath specifies the default kubelet path.
+	DefaultKubeletPath = "/var/lib/kubelet"
 
-	// ProfilesRootPath specifies the path where the operator stores seccomp
-	// profiles.
-	ProfilesRootPath = KubeletSeccompRootPath + "/operator"
+	// KubeletConfigFile specifies the name of the kubelet config file
+	// which contains various configuration parameters of the kubelet.
+	// This configuration file is created by the non-root enabler container
+	// during the deamon initialization.
+	KubeletConfigFile = "kubelet-config.json"
 
 	// NodeNameEnvKey is the default environment variable key for retrieving
 	// the name of the current node.
@@ -70,6 +85,9 @@ const (
 	// EnableLogEnricherEnvKey is the environment variable key for enabling the log enricher.
 	EnableLogEnricherEnvKey = "ENABLE_LOG_ENRICHER"
 
+	// EnableRecordingEnvKey is the environment variable key to enabeling profile recording.
+	EnableRecordingEnvKey = "ENABLE_RECORDING"
+
 	// VerboseLevel is the increased verbosity log level.
 	VerboseLevel = 1
 
@@ -80,6 +98,9 @@ const (
 	// ProfilingPortEnvKey is the environment variable key for choosing the
 	// profiling port.
 	ProfilingPortEnvKey = "SPO_PROFILING_PORT"
+
+	// KubeletDirEnvKey is the environment variable key for custom kubelet directory.
+	KubeletDirEnvKey = "KUBELET_DIR"
 
 	// DefaultProfilingPort is the start port where the profiling endpoint runs.
 	DefaultProfilingPort = 6060
@@ -98,6 +119,12 @@ const (
 	// triggers the internal log enricher to trace the AVC denials of a Pod and
 	// created a selinux profile.
 	SelinuxProfileRecordLogsAnnotationKey = "io.containers.trace-avcs/"
+
+	// KubeletDirNodeLabelKey is the label on a Node that specifies
+	// a custom kubelet root directory configured for this node. The directory
+	// path is provided in the following format folder-subfolder-subfolder
+	// which translates to /folder/subfolder/subfolder.
+	KubeletDirNodeLabelKey = "kubelet.kubernetes.io/directory-location"
 
 	// HealthProbePort is the port where the liveness probe will be served.
 	HealthProbePort = 8085
@@ -124,6 +151,10 @@ const (
 
 	// GRPCServerSocketBpfRecorder is the socket path for the GRPC bpf recorder server.
 	GRPCServerSocketBpfRecorder = "/var/run/grpc/bpf-recorder.sock"
+
+	// DefaultSpoProfilePath default path from where the security profiles are copied
+	// by non-root enabler.
+	DefaultSpoProfilePath = "/opt/spo-profiles"
 )
 
 // ProfileRecordingOutputPath is the path where the recorded profiles will be
@@ -132,6 +163,12 @@ const (
 var ProfileRecordingOutputPath = filepath.Join(os.TempDir(), "security-profiles-operator-recordings")
 
 var ErrPodNamespaceEnvNotFound = errors.New("the env variable OPERATOR_NAMESPACE hasn't been set")
+
+// KubeletConfig stores various configuration parameters of the kubelet.
+type KubeletConfig struct {
+	// KubeletDir kubelet root directory path
+	KubeletDir string `json:"kubeletDir,omitempty"`
+}
 
 // GetOperatorNamespace gets the namespace that the operator is currently running on.
 // Failure to get the namespace results in a panic.
@@ -151,4 +188,48 @@ func TryToGetOperatorNamespace() (string, error) {
 		return "", ErrPodNamespaceEnvNotFound
 	}
 	return operatorNS, nil
+}
+
+// KubeletDir returns the kubelet directory either form a config file, an environment variable
+// when is set or the default Kubernetes path.
+func KubeletDir() string {
+	cfg, err := GetKubeletConfigFromFile()
+	if err == nil {
+		return cfg.KubeletDir
+	}
+	kubeletDir := env.Default(KubeletDirEnvKey, "")
+	if kubeletDir == "" {
+		return DefaultKubeletPath
+	}
+	return kubeletDir
+}
+
+// KubeletSeccompRootPath specifies the path where all kubelet seccomp
+// profiles are stored.
+func KubeletSeccompRootPath() string {
+	return path.Join(KubeletDir(), SeccompProfilesFolder)
+}
+
+// ProfilesRootPath specifies the path where the operator stores seccomp
+// profiles.
+func ProfilesRootPath() string {
+	return path.Join(KubeletSeccompRootPath(), OperatorProfilesFolder)
+}
+
+// KubeletConfigFilePath returns the kubelet config file path.
+func KubeletConfigFilePath() string {
+	return path.Join(OperatorRoot, KubeletConfigFile)
+}
+
+// GetKubeletConfigFromFile reads the kubelet config from file.
+func GetKubeletConfigFromFile() (*KubeletConfig, error) {
+	cfg, err := os.ReadFile(KubeletConfigFilePath())
+	if err != nil {
+		return nil, fmt.Errorf("reading kubelet config: %w", err)
+	}
+	kubeletCfg := &KubeletConfig{}
+	if err := json.Unmarshal(cfg, kubeletCfg); err != nil {
+		return nil, fmt.Errorf("parsing kubelet config: %w", err)
+	}
+	return kubeletCfg, nil
 }

@@ -17,12 +17,214 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"sort"
+
 	"github.com/containers/common/pkg/seccomp"
-	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+// A ConditionType represents a condition a resource could be in.
+type ConditionType string
+
+// Condition types.
+const (
+	// TypeReady resources are believed to be ready to handle work.
+	TypeReady ConditionType = "Ready"
+)
+
+// A ConditionReason represents the reason a resource is in a condition.
+type ConditionReason string
+
+// Reasons a resource is or is not ready.
+const (
+	ReasonAvailable   ConditionReason = "Available"
+	ReasonUnavailable ConditionReason = "Unavailable"
+	ReasonCreating    ConditionReason = "Creating"
+	ReasonDeleting    ConditionReason = "Deleting"
+	ReasonPending     ConditionReason = "Pending"
+	ReasonUpdating    ConditionReason = "Updating"
+)
+
+// A Condition that may apply to a resource.
+type Condition struct {
+	// Type of this condition. At most one of each condition type may apply to
+	// a resource at any point in time.
+	Type ConditionType `json:"type"`
+
+	// Status of this condition; is it currently True, False, or Unknown?
+	Status corev1.ConditionStatus `json:"status"`
+
+	// LastTransitionTime is the last time this condition transitioned from one
+	// status to another.
+	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+
+	// A Reason for this condition's last transition from one status to another.
+	Reason ConditionReason `json:"reason"`
+
+	// A Message containing details about this condition's last transition from
+	// one status to another, if any.
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
+// Equal returns true if the condition is identical to the supplied condition,
+// ignoring the LastTransitionTime.
+//
+//nolint:gocritic // just a few bytes too heavy
+func (c Condition) Equal(other Condition) bool {
+	return c.Type == other.Type &&
+		c.Status == other.Status &&
+		c.Reason == other.Reason &&
+		c.Message == other.Message
+}
+
+// A ConditionedStatus reflects the observed status of a resource. Only one
+// condition of each type may exist.
+type ConditionedStatus struct {
+	// Conditions of the resource.
+	// +optional
+	Conditions []Condition `json:"conditions,omitempty"`
+}
+
+// GetCondition returns the condition for the given ConditionType if exists,
+// otherwise returns an unknown condition.
+func (s *ConditionedStatus) GetReadyCondition() Condition {
+	for _, c := range s.Conditions {
+		if c.Type == TypeReady {
+			return c
+		}
+	}
+
+	return Condition{
+		Type:   TypeReady,
+		Status: corev1.ConditionUnknown,
+	}
+}
+
+// SetConditions sets the supplied conditions, replacing any existing conditions
+// of the same type. This is a no-op if all supplied conditions are identical,
+// ignoring the last transition time, to those already set.
+func (s *ConditionedStatus) SetConditions(c ...Condition) {
+	for _, new := range c {
+		exists := false
+		for i, existing := range s.Conditions {
+			if existing.Type != new.Type {
+				continue
+			}
+
+			if existing.Equal(new) {
+				exists = true
+				continue
+			}
+
+			s.Conditions[i] = new
+			exists = true
+		}
+		if !exists {
+			s.Conditions = append(s.Conditions, new)
+		}
+	}
+}
+
+// Equal returns true if the status is identical to the supplied status,
+// ignoring the LastTransitionTimes and order of statuses.
+func (s *ConditionedStatus) Equal(other *ConditionedStatus) bool {
+	if s == nil || other == nil {
+		return s == nil && other == nil
+	}
+
+	if len(other.Conditions) != len(s.Conditions) {
+		return false
+	}
+
+	sc := make([]Condition, len(s.Conditions))
+	copy(sc, s.Conditions)
+
+	oc := make([]Condition, len(other.Conditions))
+	copy(oc, other.Conditions)
+
+	// We should not have more than one condition of each type.
+	sort.Slice(sc, func(i, j int) bool { return sc[i].Type < sc[j].Type })
+	sort.Slice(oc, func(i, j int) bool { return oc[i].Type < oc[j].Type })
+
+	for i := range sc {
+		if !sc[i].Equal(oc[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Creating returns a condition that indicates the resource is currently
+// being created.
+func Creating() Condition {
+	return Condition{
+		Type:               TypeReady,
+		Status:             corev1.ConditionFalse,
+		LastTransitionTime: metav1.Now(),
+		Reason:             ReasonCreating,
+	}
+}
+
+// Deleting returns a condition that indicates the resource is currently
+// being deleted.
+func Deleting() Condition {
+	return Condition{
+		Type:               TypeReady,
+		Status:             corev1.ConditionFalse,
+		LastTransitionTime: metav1.Now(),
+		Reason:             ReasonDeleting,
+	}
+}
+
+// Available returns a condition that indicates the resource is
+// currently observed to be available for use.
+func Available() Condition {
+	return Condition{
+		Type:               TypeReady,
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             ReasonAvailable,
+	}
+}
+
+// Unavailable returns a condition that indicates the resource is not
+// currently available for use. Unavailable should be set only when Crossplane
+// expects the resource to be available but knows it is not, for example
+// because its API reports it is unhealthy.
+func Unavailable() Condition {
+	return Condition{
+		Type:               TypeReady,
+		Status:             corev1.ConditionFalse,
+		LastTransitionTime: metav1.Now(),
+		Reason:             ReasonUnavailable,
+	}
+}
+
+// Pending returns a condition that indicates the resource is currently
+// observed to be waiting for creating.
+func Pending() Condition {
+	return Condition{
+		Type:               TypeReady,
+		Status:             corev1.ConditionFalse,
+		LastTransitionTime: metav1.Now(),
+		Reason:             ReasonPending,
+	}
+}
+
+// Updating returns a condition that indicates the resource is currently
+// observed to be updating.
+func Updating() Condition {
+	return Condition{
+		Type:               TypeReady,
+		Status:             corev1.ConditionFalse,
+		LastTransitionTime: metav1.Now(),
+		Reason:             ReasonUpdating,
+	}
+}
 
 // SelinuxOptions defines options specific to the SELinux
 // functionality of the SecurityProfilesOperator.
@@ -56,6 +258,11 @@ type SPODSpec struct {
 	// EnableProfiling tells the operator whether or not to enable profiling
 	// support for this SPOD instance.
 	EnableProfiling bool `json:"enableProfiling,omitempty"`
+	// EnableMemoryOptimization enables memory optimization in the controller
+	// running inside of SPOD instance and watching for pods in the cluster.
+	// This will make the controller loading in the cache memory only the pods
+	// labelled explicitly for profile recording with 'spo.x-k8s.io/enable-recording=true'.
+	EnableMemoryOptimization bool `json:"enableMemoryOptimization,omitempty"`
 	// tells the operator whether or not to enable SELinux support for this
 	// SPOD instance.
 	EnableSelinux *bool `json:"enableSelinux,omitempty"`
@@ -106,6 +313,16 @@ type SPODSpec struct {
 	// namespace to use for pulling the images from SPOD pod from a private registry.
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+
+	// DaemonResourceRequirements if defined, overwrites the default resource requirements
+	// of SPOD daemon.
+	// +optional
+	DaemonResourceRequirements *corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
+
+	// PriorityClassName if defined, indicates the spod pod priority class.
+	// +optional
+	// +kubebuilder:default="system-node-critical"
+	PriorityClassName string `json:"priorityClassName,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.
@@ -126,7 +343,7 @@ const (
 
 // SPODStatus defines the observed state of SPOD.
 type SPODStatus struct {
-	rcommonv1.ConditionedStatus `json:",inline"`
+	ConditionedStatus `json:",inline"`
 	// Represents the state that the policy is in. Can be:
 	// PENDING, IN-PROGRESS, RUNNING or ERROR
 	State SPODState `json:"state,omitempty"`
@@ -157,32 +374,22 @@ type SecurityProfilesOperatorDaemonList struct {
 
 func (s *SPODStatus) StatePending() {
 	s.State = SPODStatePending
-	s.ConditionedStatus.SetConditions(rcommonv1.Condition{
-		Type:               rcommonv1.TypeReady,
-		Status:             corev1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
-		Reason:             "Pending",
-	})
+	s.ConditionedStatus.SetConditions(Pending())
 }
 
 func (s *SPODStatus) StateCreating() {
 	s.State = SPODStateCreating
-	s.ConditionedStatus.SetConditions(rcommonv1.Creating())
+	s.ConditionedStatus.SetConditions(Creating())
 }
 
 func (s *SPODStatus) StateUpdating() {
 	s.State = SPODStateUpdating
-	s.ConditionedStatus.SetConditions(rcommonv1.Condition{
-		Type:               rcommonv1.TypeReady,
-		Status:             corev1.ConditionFalse,
-		LastTransitionTime: metav1.Now(),
-		Reason:             "Updating",
-	})
+	s.ConditionedStatus.SetConditions(Updating())
 }
 
 func (s *SPODStatus) StateRunning() {
 	s.State = SPODStateRunning
-	s.ConditionedStatus.SetConditions(rcommonv1.Available())
+	s.ConditionedStatus.SetConditions(Available())
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme

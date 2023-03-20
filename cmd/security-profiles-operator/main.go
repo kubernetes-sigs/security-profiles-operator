@@ -21,10 +21,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -32,6 +32,9 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/urfave/cli/v2"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -44,6 +47,7 @@ import (
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/cmd"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
@@ -56,6 +60,7 @@ import (
 	nodestatus "sigs.k8s.io/security-profiles-operator/internal/pkg/manager/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/workloadannotator"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -65,10 +70,13 @@ import (
 )
 
 const (
+	spocCmd            string = "spoc"
 	jsonFlag           string = "json"
+	recordingFlag      string = "with-recording"
 	selinuxFlag        string = "with-selinux"
 	apparmorFlag       string = "with-apparmor"
 	webhookFlag        string = "webhook"
+	memOptimFlag       string = "with-mem-optim"
 	defaultWebhookPort int    = 9443
 )
 
@@ -78,43 +86,13 @@ var (
 )
 
 func main() {
-	app := cli.NewApp()
+	app, info := cmd.DefaultApp()
 	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Security Profiles Operator"
 	app.Description = "The Security Profiles Operator makes it easier for cluster admins " +
 		"to manage their seccomp or AppArmor profiles and apply them to Kubernetes' workloads."
 
-	info, err := version.Get()
-	if err != nil {
-		log.Fatal(err)
-	}
-	app.Version = info.Version
-
-	app.Commands = cli.Commands{
-		&cli.Command{
-			Name:    "version",
-			Aliases: []string{"v"},
-			Usage:   "display detailed version information",
-			Flags: []cli.Flag{
-				&cli.BoolFlag{
-					Name:    jsonFlag,
-					Aliases: []string{"j"},
-					Usage:   "print JSON instead of text",
-				},
-			},
-			Action: func(c *cli.Context) error {
-				res := info.String()
-				if c.Bool(jsonFlag) {
-					j, err := info.JSONString()
-					if err != nil {
-						return fmt.Errorf("unable to generate JSON from version info: %w", err)
-					}
-					res = j
-				}
-				print(res)
-				return nil
-			},
-		},
+	app.Commands = append(app.Commands,
 		&cli.Command{
 			Before:  initialize,
 			Name:    "manager",
@@ -151,6 +129,17 @@ func main() {
 					Usage: "Listen for AppArmor API resources",
 					Value: false,
 				},
+				&cli.BoolFlag{
+					Name:    recordingFlag,
+					Usage:   "Listen for ProfileRecording API recources",
+					Value:   false,
+					EnvVars: []string{config.EnableRecordingEnvKey},
+				},
+				&cli.BoolFlag{
+					Name:  memOptimFlag,
+					Usage: "Enable memory optimization by watching only labeled pods",
+					Value: false,
+				},
 			},
 		},
 		&cli.Command{
@@ -183,6 +172,14 @@ func main() {
 			Action: func(ctx *cli.Context) error {
 				return runNonRootEnabler(ctx, info)
 			},
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:    "runtime",
+					Aliases: []string{"r"},
+					Value:   "",
+					Usage:   "the container runtime in the cluster (values: cri-o, containerd, docker)",
+				},
+			},
 		},
 		&cli.Command{
 			Before:  initialize,
@@ -202,7 +199,15 @@ func main() {
 				return runBPFRecorder(ctx, info)
 			},
 		},
-	}
+		&cli.Command{
+			Name:     spocCmd,
+			Aliases:  []string{"s"},
+			Usage:    "run the CLI",
+			Action:   runCLI,
+			HideHelp: true,
+		},
+	)
+
 	app.Flags = []cli.Flag{
 		&cli.UintFlag{
 			Name:    "verbosity",
@@ -385,7 +390,10 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 	controllers := []controller.Controller{
 		seccompprofile.NewController(),
-		profilerecorder.NewController(),
+	}
+
+	if ctx.Bool(recordingFlag) {
+		controllers = append(controllers, profilerecorder.NewController())
 	}
 
 	if ctx.Bool(selinuxFlag) {
@@ -399,6 +407,28 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 	}
 
 	return controllers
+}
+
+// newMemoryOptimizedCache creates a memory optimized cache for daemon controller.
+// This will load into cache memory only the pods objects which are labeled for recording.
+func newMemoryOptimizedCache(ctx *cli.Context) cache.NewCacheFunc {
+	if ctx.Bool(memOptimFlag) {
+		return func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
+			opts.Resync = &sync
+			opts.SelectorsByObject = cache.SelectorsByObject{
+				&corev1.Pod{}: {
+					Label: labels.SelectorFromSet(labels.Set{
+						bindata.EnableRecordingLabel: "true",
+					}),
+				},
+			}
+			opts.DefaultSelector = cache.ObjectSelector{
+				Label: labels.Everything(),
+			}
+			return cache.New(config, opts)
+		}
+	}
+	return nil
 }
 
 func runDaemon(ctx *cli.Context, info *version.Info) error {
@@ -420,6 +450,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	ctrlOpts := ctrl.Options{
 		SyncPeriod:             &sync,
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
+		NewCache:               newMemoryOptimizedCache(ctx),
 	}
 
 	setControllerOptionsForNamespaces(&ctrlOpts)
@@ -473,17 +504,27 @@ func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	const component = "log-enricher"
 	printInfo(component, info)
 
-	e, err := enricher.New(ctrl.Log.WithName(component))
-	if err != nil {
-		return fmt.Errorf("building log enricher: %w", err)
-	}
-	return e.Run()
+	return enricher.New(ctrl.Log.WithName(component)).Run()
 }
 
-func runNonRootEnabler(_ *cli.Context, info *version.Info) error {
+func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 	const component = "non-root-enabler"
 	printInfo(component, info)
-	return nonrootenabler.New().Run(ctrl.Log.WithName(component))
+	runtime := ctx.String("runtime")
+
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return fmt.Errorf("getting config: %w", err)
+	}
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{})
+	if err != nil {
+		return fmt.Errorf("creating manager: %w", err)
+	}
+	kubeletDir, err := util.GetKubeletDirFromNodeLabel(ctx.Context, mgr.GetAPIReader())
+	if err != nil {
+		kubeletDir = config.KubeletDir()
+	}
+	return nonrootenabler.New().Run(ctrl.Log.WithName(component), runtime, kubeletDir)
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {
@@ -554,6 +595,24 @@ func setupEnabledControllers(
 				return fmt.Errorf("add readiness check to controller: %w", err)
 			}
 		}
+	}
+
+	return nil
+}
+
+// runCLI wraps the SPO CLI by using $PATH for searching the spoc executable.
+func runCLI(_ *cli.Context) error {
+	const minArgs = 2
+	if len(os.Args) < minArgs {
+		return errors.New("not enough arguments provided")
+	}
+	//nolint:gosec // it's intentional to pass all other args here
+	c := exec.Command(spocCmd, os.Args[minArgs:]...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+
+	if err := c.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 	}
 
 	return nil

@@ -4,20 +4,18 @@
 package hostop
 
 import (
-	logr "github.com/go-logr/logr"
+	"errors"
 )
+
+var Unsupported = errors.New("hostop is not supported")
 
 type mountHostOp struct {
 }
 
-func NewMountHostOp() HostOp {
+func NewMountHostOp(opts ...HostOpOption) HostOp {
 	return &mountHostOp{}
 }
 
-func (m *mountHostOp) WithLogger(logger logr.Logger) HostOp {
-	return m
-}
-
 func (m *mountHostOp) Do(action func() error) error {
-	return nil
+	return Unsupported
 }

@@ -20,19 +20,17 @@ package api_bpfrecorder;
 option go_package = "/api_bpfrecorder";
 
 service BpfRecorder {
-    rpc Start(EmptyRequest) returns (EmptyResponse) {}
-    rpc Stop(EmptyRequest) returns (EmptyResponse) {}
-    rpc SyscallsForProfile(ProfileRequest) returns (SyscallsResponse) {}
+  rpc Start(EmptyRequest) returns (EmptyResponse) {}
+  rpc Stop(EmptyRequest) returns (EmptyResponse) {}
+  rpc SyscallsForProfile(ProfileRequest) returns (SyscallsResponse) {}
 }
 
 message EmptyRequest {}
 message EmptyResponse {}
 
-message ProfileRequest {
-    string name = 1;
-}
+message ProfileRequest { string name = 1; }
 
 message SyscallsResponse {
-    repeated string syscalls = 1;
-    string go_arch = 2;
+  repeated string syscalls = 1;
+  string go_arch = 2;
 }

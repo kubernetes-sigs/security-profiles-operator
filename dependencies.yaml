@@ -1,7 +1,9 @@
 dependencies:
   - name: go
-    version: 1.19
+    version: 1.20
     refPaths:
+    - path: go.mod
+      match: go
     - path: .github/workflows/build.yml
       match: GO_VERSION
     - path: .github/workflows/test.yml
@@ -14,9 +16,11 @@ dependencies:
       match: GO_VERSION
     - path: hack/ci/Vagrantfile-flatcar
       match: GO_VERSION
+    - path: Makefile
+      match: CI_IMAGE
 
   - name: golangci-lint
-    version: 1.49.0
+    version: 1.51.1
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -28,13 +32,13 @@ dependencies:
       match: REPO_INFRA_VERSION
 
   - name: kustomize
-    version: 4.5.5
+    version: 5.0.0
     refPaths:
     - path: Makefile
       match: KUSTOMIZE_VERSION
 
   - name: operator-sdk
-    version: v1.22.2
+    version: v1.25.0
     refPaths:
     - path: Makefile
       match: OPERATOR_SDK_VERSION
@@ -46,7 +50,7 @@ dependencies:
       match: OLM_VERSION
 
   - name: cert-manager
-    version: 1.9.1
+    version: 1.11.0
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -54,15 +58,17 @@ dependencies:
       match: cert-manager/cert-manager
     - path: hack/ci/e2e-olm.sh
       match: cert-manager/cert-manager
+    - path: hack/ci/baseprofiles.sh
+      match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.15.0
+    version: 0.17.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.25.0
+    version: 1.26.2
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -70,13 +76,13 @@ dependencies:
       match: KIND_IMG_TAG
 
   - name: qemu
-    version: 6.1.0-8
+    version: 7.2.0-1
     refPaths:
     - path: hack/image-cross.sh
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.25.0
+    version: 1.26.2
     refPaths:
     - path: hack/ci/install-kubernetes.sh
       match: VERSION
@@ -97,23 +103,47 @@ dependencies:
     - path: .github/workflows/test.yml
       match: node
 
-  - name: debian-base
-    version: sha256:e6e8c911b1566556ae105d3600df04c600241f43b06d22c73592ebb446d60c49
+  - name: debian-base-digest
+    version: sha256:3fcf9bcc4949392155cde1f96591ba3eda092f4735a9cc856bf526d71f48af47
     refPaths:
     - path: Dockerfile.build-image
-      match: k8s.gcr.io/build-image/debian-base
+      match: registry.k8s.io/build-image/debian-base
+
+  - name: debian-base
+    version: bullseye-v1.4.3
+    refPaths:
+    - path: Dockerfile.build-image
+      match: tag
+
+  - name: ubi8-minimal
+    version: sha256:65a240ad8bd3f2fff3e18a22ebadc40da0b145616231fc1e16251f3c6dee087a
+    refPaths:
+    - path: Dockerfile.ubi
+      match: registry.access.redhat.com/ubi8/ubi-minimal
+
+  - name: ubi8-go-toolset
+    version: sha256:160ff3bc88c4921f7b602f56b6115fe8bc99212f81f1d5acf5c259210d0261f3
+    refPaths:
+    - path: Dockerfile.ubi
+      match: registry.access.redhat.com/ubi8/go-toolset
 
   - name: nix
-    version: 2.9.2
+    version: 2.13.3
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION
+    - path: .github/workflows/build.yml
+      match: NIX_VERSION
 
   - name: kube-rbac-proxy
-    version: 0.13.0
+    version: 0.13.1
     refPaths:
     - path: internal/pkg/manager/spod/bindata/spod.go
-      match: quay.io/brancz/kube-rbac-proxy
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/kustomize-deployment/manager_deployment.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/helm/templates/deployment.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
 
   - name: gcb-docker-gcloud
     version: v20220617-174ad91c3a
@@ -122,28 +152,40 @@ dependencies:
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   - name: libbpf
-    version: 1.0.0
+    version: 1.0.1
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
 
-  - name: libelf
-    version: 0.185
-    refPaths:
-    - path: hack/install-libelf.sh
-      match: VERSION
-
   - name: fedora-vmlinux
-    version: 36
+    version: 37
     refPaths:
     - path: hack/update-vmlinux
       match: VERSION
 
   - name: CRI-O
-    version: v1.25.0
+    version: v1.26.2
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: TAG
+
+  - name: crun
+    version: v1.8.1
+    refPaths:
+    - path: examples/baseprofile-crun.yaml
+      match: name
+    - path: test/tc_base_profiles_test.go
+      match: baseProfileNameCrun
+
+  - name: runc
+    version: v1.1.4
+    refPaths:
+    - path: examples/baseprofile-runc.yaml
+      match: name
+    - path: test/tc_base_profiles_test.go
+      match: baseProfileNameRunc
+    - path: installation-usage.md
+      match: baseProfileName
 
   - name: audit2rbac
     version: v0.9.0
@@ -152,19 +194,19 @@ dependencies:
       match: VERSION
 
   - name: cosign
-    version: v1.11.1
+    version: v2.0.0
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: COSIGN_VERSION
 
   - name: bom
-    version: v0.3.0
+    version: v0.4.1
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: BOM_VERSION
 
   - name: spo-current
-    version: 0.5.0
+    version: 0.6.1-dev
     refPaths:
     - path: VERSION
       match: ^.*
@@ -178,9 +220,31 @@ dependencies:
       match: ^helm install security-profiles-operator
 
   - name: clang
-    version: 14
+    version: 15
     refPaths:
     - path: nix/derivation-bpf.nix
       match: llvmPackages_\d+.clang-unwrapped
     - path: nix/derivation-bpf.nix
       match: llvm_\d+
+    - path: hack/pull-security-profiles-operator-verify
+      match: CLANG_VERSION
+
+  - name: btfhub
+    version: 12d2b6bb4664b6b1d15076f8090dcb0e55696d34
+    refPaths:
+    - path: hack/update-btf
+      match: BTFHUB_COMMIT
+
+  - name: flatcar
+    version: 3446.1.0
+    refPaths:
+    - path: hack/ci/Vagrantfile-flatcar
+      match: flatcar_production_vagrant
+    - path: hack/ci/Vagrantfile-flatcar
+      match: flatcar_developer_container
+
+  - name: zeitgeist
+    version: 0.3.5
+    refPaths:
+      - path: Makefile
+        match: ZEITGEIST_VERSION

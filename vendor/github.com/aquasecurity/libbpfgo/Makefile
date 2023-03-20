@@ -13,14 +13,11 @@ CLANG = clang
 GO = go
 VAGRANT = vagrant
 CLANG_FMT = clang-format
+GIT = $(shell which git || /bin/false)
 
 HOSTOS = $(shell uname)
 ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/g; s/aarch64/arm64/g')
 
-BTFFILE = /sys/kernel/btf/vmlinux
-BPFTOOL = $(shell which bpftool || /bin/false)
-GIT = $(shell which git || /bin/false)
-VMLINUXH = $(OUTPUT)/vmlinux.h
 
 # libbpf
 
@@ -43,8 +40,18 @@ CGO_LDFLAGS_DYN = "-lelf -lz -lbpf"
 
 # default == shared lib from OS package
 
-all: libbpfgo-dynamic
-test: libbpfgo-dynamic-test
+all: libbpfgo-static
+test: libbpfgo-static-test
+
+# libbpf uapi
+
+.PHONY: libbpf-uapi
+
+libbpf-uapi: $(LIBBPF_SRC)
+# UAPI headers can be installed by a different package so they're not installed
+# in by (libbpf) install rule.
+	UAPIDIR=$(LIBBPF_DESTDIR) \
+		$(MAKE) -C $(LIBBPF_SRC) install_uapi_headers
 
 # libbpfgo test object
 
@@ -73,7 +80,7 @@ libbpfgo-dynamic-test: libbpfgo-test-bpf-dynamic
 
 # libbpf: static
 
-libbpfgo-static: $(VMLINUXH) | $(LIBBPF_OBJ)
+libbpfgo-static: libbpf-uapi $(LIBBPF_OBJ) 
 	CC=$(CLANG) \
 		CGO_CFLAGS=$(CGO_CFLAGS_STATIC) \
 		CGO_LDFLAGS=$(CGO_LDFLAGS_STATIC) \
@@ -91,28 +98,6 @@ libbpfgo-static-test: libbpfgo-test-bpf-static
 		$(GO) test \
 		-v -tags netgo -ldflags $(CGO_EXTLDFLAGS_STATIC) \
 		.
-
-# vmlinux header file
-
-.PHONY: vmlinuxh
-vmlinuxh: $(VMLINUXH)
-
-$(VMLINUXH): $(OUTPUT)
-	@if [ ! -f $(BTFFILE) ]; then \
-		echo "ERROR: kernel does not seem to support BTF"; \
-		exit 1; \
-	fi
-	@if [ ! $(BPFTOOL) ]; then \
-		echo "ERROR: could not find bpftool"; \
-		exit 1; \
-	fi;
-
-	@echo "INFO: generating $(VMLINUXH) from $(BTFFILE)"; \
-	if ! $(BPFTOOL) btf dump file $(BTFFILE) format c > $(VMLINUXH); then \
-		echo "ERROR: could not create $(VMLINUXH)"; \
-		rm -f "$(VMLINUXH)"; \
-		exit 1; \
-	fi;
 
 # static libbpf generation for the git submodule
 
@@ -185,7 +170,7 @@ helpers-test-static-run: libbpfgo-static
 	CC=$(CLANG) \
 		CGO_CFLAGS=$(CGO_CFLAGS_STATIC) \
 		CGO_LDFLAGS=$(CGO_LDFLAGS_STATIC) \
-		sudo -E $(GO) test -v $(HELPERS)/...
+		sudo -E env PATH=$(PATH) $(GO) test -v $(HELPERS)/...
 
 helpers-test-dynamic-run: libbpfgo-dynamic
 	sudo $(GO) test -v $(HELPERS)/...

@@ -25,15 +25,15 @@ Vagrant.configure("2") do |config|
       # Use a non-localhost DNS to avoid cluster DNS lookup loops
       echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
-      GO_VERSION=1.19
+      GO_VERSION=1.20
       curl -sSfL -o- https://dl.google.com/go/go"$GO_VERSION".linux-amd64.tar.gz |
         tar xfz - -C /usr/local
 
       # Kubernetes
-      curl -sSfL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
-      echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
+      curl -fsSLo /etc/apt/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      echo "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
       apt-get update
-      KUBERNETES_VERSION=1.25.0-00
+      KUBERNETES_VERSION=1.26.2-00
       apt-get install -y \
         build-essential \
         kubelet=$KUBERNETES_VERSION \
@@ -49,10 +49,6 @@ Vagrant.configure("2") do |config|
 
       podman load -i /vagrant/image.tar
       /vagrant/hack/ci/install-cri-o.sh
-
-      # Disable IPv6 in bridge plugin config
-      CNI_CONFIG=/etc/cni/net.d/10-crio-bridge.conf
-      jq 'del(.ipam.routes[1], .ipam.ranges[1])' $CNI_CONFIG | sponge $CNI_CONFIG
 
       # Setup cluster
       IP=`ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]'`

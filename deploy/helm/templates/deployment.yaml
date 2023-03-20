@@ -2,39 +2,37 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app: security-profiles-operator
     {{- include "security-profiles-operator.labels" . | nindent 4 }}
   name: security-profiles-operator
-  namespace: security-profiles-operator
+  namespace: {{ .Release.Namespace }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      app: security-profiles-operator
-      name: security-profiles-operator
+      {{- include "security-profiles-operator.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
         seccomp.security.alpha.kubernetes.io/pod: runtime/default
+        {{- include "security-profiles-operator.annotations" . | nindent 8 }}
       labels:
-        app: security-profiles-operator
-        name: security-profiles-operator
+        {{- include "security-profiles-operator.selectorLabels" . | nindent 8 }}
     spec:
       containers:
       - args:
         - manager
         env:
         - name: RELATED_IMAGE_RBAC_PROXY
-          value: quay.io/brancz/kube-rbac-proxy:v0.11.0
+          value: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
         - name: RELATED_IMAGE_SELINUXD
           value: quay.io/security-profiles-operator/selinuxd
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
+        image: {{ .Values.spoImage.registry }}/{{ .Values.spoImage.repository }}:{{ .Values.spoImage.tag }}
         imagePullPolicy: Always
         name: {{ .Chart.Name }}
         resources:
@@ -42,6 +40,11 @@ spec:
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: security-profiles-operator
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -50,7 +53,6 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: security-profiles-operator
       tolerations:
       - effect: NoSchedule
         key: node-role.kubernetes.io/master
@@ -61,3 +63,6 @@ spec:
       - effect: NoExecute
         key: node.kubernetes.io/not-ready
         operator: Exists
+      {{- with .Values.tolerations }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}

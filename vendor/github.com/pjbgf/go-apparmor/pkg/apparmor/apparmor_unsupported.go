@@ -3,6 +3,6 @@
 
 package apparmor
 
-func NewAppArmor() aa {
+func NewAppArmor(opts ...AppArmorOption) aa {
 	return &unsupported{}
 }

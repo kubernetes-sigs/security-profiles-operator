@@ -342,16 +342,15 @@ func (p *podSeccompRecorder) setActiveWorkloads(
 ) error {
 	newActiveWorkloads := []string{}
 
-	for _, pod := range recordedPods.Items {
+	for i := range recordedPods.Items {
+		pod := recordedPods.Items[i]
 		newActiveWorkloads = append(newActiveWorkloads, pod.Name)
 	}
 
 	if op == admissionv1.Delete {
 		newActiveWorkloads = utils.RemoveIfExists(newActiveWorkloads, podName)
-	} else {
-		if selector.Matches(podLabels) {
-			newActiveWorkloads = utils.AppendIfNotExists(newActiveWorkloads, podName)
-		}
+	} else if selector.Matches(podLabels) {
+		newActiveWorkloads = utils.AppendIfNotExists(newActiveWorkloads, podName)
 	}
 
 	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
@@ -393,10 +392,13 @@ func anyPodMatch(
 			return true
 		}
 
-		for _, pod := range foundPods.Items {
+		for i := range foundPods.Items {
+			pod := foundPods.Items[i]
+
 			if podName == pod.Name {
 				continue
 			}
+
 			// if we ever get here, then we are deleting but we encountered
 			// a pod different than the one we're deleting, so there are still pods
 			return true

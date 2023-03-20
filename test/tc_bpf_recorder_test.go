@@ -40,7 +40,7 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
 
 		matches := 0
 		for _, profile := range profiles {
-			pattern := fmt.Sprintf(`Using short path via tracked mount namespace.+%s`, profile)
+			pattern := fmt.Sprintf(`Found profile in cluster for container ID.+%s`, profile)
 			testRegex := regexp.MustCompile(pattern)
 			if testRegex.MatchString(logs) {
 				matches++
@@ -304,4 +304,41 @@ func (e *e2e) testCaseBpfRecorderSelectContainer() {
 
 	e.kubectl("delete", "-f", exampleRecordingBpfSpecificContainerPath)
 	e.kubectl("delete", "sp", profileNameNginx)
+}
+
+func (e *e2e) testCaseBpfRecorderWithMemoryOptimization() {
+	e.bpfRecorderOnlyTestCase()
+
+	e.enableMemoryOptimization()
+	defer e.disableMemoryOptimization()
+
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
+
+	e.logf("Creating bpf recording for static pod test")
+	e.kubectl("create", "-f", exampleRecordingBpfPath)
+
+	since, podName := e.createRecordingTestPod()
+
+	resourceName := recordingName + "-nginx"
+	e.waitForBpfRecorderLogs(since, resourceName)
+
+	e.kubectl("delete", "pod", podName)
+
+	profile := e.retryGetSeccompProfile(resourceName)
+	e.Contains(profile, "listen")
+
+	e.kubectl("delete", "-f", exampleRecordingBpfPath)
+	e.kubectl("delete", "sp", resourceName)
+
+	metrics := e.getSpodMetrics()
+	// we don't use resource name here, because the metrics are tracked by the annotation name which contains
+	// underscores instead of dashes
+	metricName := recordingName + "_nginx"
+	e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_bpf_total{`+
+		`mount_namespace=".*",`+
+		`node=".*",`+
+		`profile="%s_.*"} \d+`,
+		metricName,
+	), metrics)
 }

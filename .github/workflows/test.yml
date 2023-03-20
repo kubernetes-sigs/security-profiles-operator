@@ -5,20 +5,10 @@ on:
       - main
   pull_request:
 env:
-  GO_VERSION: '1.19'
-permissions:
-  actions: none
-  checks: none
-  contents: none
-  deployments: none
-  id-token: none
-  issues: none
-  discussions: none
-  packages: none
-  pull-requests: none
-  repository-projects: none
-  security-events: none
-  statuses: none
+  GO_VERSION: '1.20'
+
+permissions: {}
+
 jobs:
   analyze:
     permissions:
@@ -28,18 +18,18 @@ jobs:
 
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: github/codeql-action/init@807578363a7869ca324a79039e6db9c843e0e100
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: github/codeql-action/init@168b99b3c22180941ae7dbdd5f5c9678ede476ba
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@807578363a7869ca324a79039e6db9c843e0e100
-      - uses: github/codeql-action/analyze@807578363a7869ca324a79039e6db9c843e0e100
+      - uses: github/codeql-action/autobuild@168b99b3c22180941ae7dbdd5f5c9678ede476ba
+      - uses: github/codeql-action/analyze@168b99b3c22180941ae7dbdd5f5c9678ede476ba
 
   coverage:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@268d8c0ca0432bb2cf416faae41297df9d262d7f
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install dependencies
@@ -57,10 +47,10 @@ jobs:
   image:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
       - run: make image
       - run: podman save -o image.tar security-profiles-operator
-      - uses: actions/upload-artifact@3cea5372237819ed00197afe530f5a7ea3e805c8
+      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
         with:
           name: image
           path: image.tar
@@ -73,13 +63,13 @@ jobs:
     env:
       RUN: ./hack/ci/run-fedora.sh
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/cache@9b0c1fce7a93df8e3bb8926b0d6e9d89e92f20a7
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
         with:
           path: |
             ~/.vagrant.d/boxes
           key: e2e-fedora-${{ hashFiles('hack/ci/Vagrantfile-fedora') }}
-      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
+      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with:
           name: image
           path: .
@@ -110,13 +100,13 @@ jobs:
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/cache@9b0c1fce7a93df8e3bb8926b0d6e9d89e92f20a7
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
         with:
           path: |
             ~/.vagrant.d/boxes
           key: e2e-ubuntu-${{ hashFiles('hack/ci/Vagrantfile-ubuntu') }}
-      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
+      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with:
           name: image
           path: .
@@ -145,13 +135,13 @@ jobs:
    env:
      RUN: ./hack/ci/run-flatcar.sh
    steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
       - name: Vagrant box version
         id: vagrant-box
         run: |
           echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
         shell: bash
-      - uses: actions/cache@9b0c1fce7a93df8e3bb8926b0d6e9d89e92f20a7
+      - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
         with:
           path: |
             ~/.vagrant.d/boxes
@@ -160,7 +150,7 @@ jobs:
         run: |
           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
           vagrant box update
-      - uses: actions/download-artifact@fb598a63ae348fa914e94cd0ff38f362e927b741
+      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with:
           name: image
           path: .
@@ -177,3 +167,33 @@ jobs:
         run: |
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
           $RUN hack/ci/e2e-flatcar-dev-container.sh
+
+  baseprofiles:
+    needs: image
+    runs-on: macos-12
+    timeout-minutes: 90
+    env:
+      RUN: ./hack/ci/run-ubuntu.sh
+    steps:
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
+        with:
+          path: |
+            ~/.vagrant.d/boxes
+          key: e2e-ubuntu-${{ hashFiles('hack/ci/Vagrantfile-ubuntu') }}
+          restore-keys: e2e-ubuntu-
+      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with:
+          name: image
+          path: .
+      - name: Boot Virtual Machine
+        run: make vagrant-up-ubuntu
+      - name: Show environment information
+        run: |
+          $RUN kubectl wait --for=condition=ready --timeout=60s node ubuntu2204
+          $RUN kubectl get nodes -o wide
+      - name: Set up git config
+        run: |
+          $RUN git config --global --add safe.directory /vagrant
+      - name: Record baseprofiles
+        run: $RUN hack/ci/baseprofiles.sh

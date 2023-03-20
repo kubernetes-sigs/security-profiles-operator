@@ -17,12 +17,12 @@ limitations under the License.
 package config
 
 import (
-	"os"
 	"testing"
 )
 
 func TestGetOperatorNamespace(t *testing.T) {
-	t.Parallel()
+	// Note: this test cannot run in parallel because environment variables
+	// are global resulting in random failures.
 	tests := []struct {
 		name    string
 		want    string
@@ -42,12 +42,7 @@ func TestGetOperatorNamespace(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if tt.wantErr {
-				os.Unsetenv("OPERATOR_NAMESPACE")
-			} else {
-				os.Setenv("OPERATOR_NAMESPACE", tt.want)
-			}
+			t.Setenv("OPERATOR_NAMESPACE", tt.want)
 			got, err := TryToGetOperatorNamespace()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetOperatorNamespace() error = %v, wantErr %v", err, tt.wantErr)

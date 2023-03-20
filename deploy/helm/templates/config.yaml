@@ -1,0 +1,14 @@
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: SecurityProfilesOperatorDaemon
+metadata:
+  labels:
+    {{- include "security-profiles-operator.labels" . | nindent 4 }}
+  name: spod
+  namespace: {{ .Release.Namespace }}
+spec:
+  enableSelinux: {{ .Values.enableSelinux }}
+  enableLogEnricher: {{ .Values.enableLogEnricher }}
+  enableAppArmor: {{ .Values.enableAppArmor }}
+  enableBpfRecorder: {{ .Values.enableBpfRecorder }}
+  enableProfiling: {{ .Values.enableProfiling }}
+  verbosity: {{ .Values.verbosity }}

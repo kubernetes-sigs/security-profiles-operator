@@ -97,6 +97,20 @@ spec:
         - open
 `
 
+	netContainerPolicy = `
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
+kind: SelinuxProfile
+metadata:
+  name: net-container-policy
+spec:
+  inherit:
+    - name: net_container
+  allow:
+    var_run_t:
+      sock_file:
+        - write
+`
+
 	//nolint:lll // full yaml
 	podWithPolicyFmt = `
 apiVersion: v1
@@ -210,6 +224,26 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 
 	e.logf("removing policy")
 	e.kubectl("delete", "selinuxprofile", enforcingProfileName)
+}
+
+func (e *e2e) testCaseSelinuxNonDefaultTemplate(nodes []string) {
+	const netContainerPolicyName = "net-container-policy"
+
+	e.selinuxOnlyTestCase()
+
+	e.logf("Should be able to install a policy using a different template than container")
+	e.logf("creating policy")
+
+	rmFn := e.writeAndCreate(netContainerPolicy, "net-container-policy.yml")
+	defer rmFn()
+
+	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
+		"--for", "condition=ready", "selinuxprofile", netContainerPolicyName)
+
+	rawPolicyName := e.getSELinuxPolicyName(netContainerPolicyName)
+
+	e.logf("assert policy is installed")
+	e.assertSelinuxPolicyIsInstalled(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
 }
 
 func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {

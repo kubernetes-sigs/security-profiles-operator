@@ -5,26 +5,17 @@ on:
       - main
   pull_request:
 env:
-  GO_VERSION: '1.19'
-permissions:
-  actions: none
-  checks: none
-  contents: none
-  deployments: none
-  id-token: none
-  issues: none
-  discussions: none
-  packages: none
-  pull-requests: none
-  repository-projects: none
-  security-events: none
-  statuses: none
+  GO_VERSION: '1.20'
+  NIX_VERSION: '2.13.3'
+
+permissions: {}
+
 jobs:
   macos:
     runs-on: macos-12
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@268d8c0ca0432bb2cf416faae41297df9d262d7f
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
         with:
           go-version: ${{ env.GO_VERSION }}
       - run: make test-unit
@@ -33,38 +24,45 @@ jobs:
   nix:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
-      - uses: cachix/install-nix-action@daddc62a2e67d1decb56e028c9fa68344b9b7c2a
-      - uses: cachix/cachix-action@75d46f58e6608ffed5276b4aa8de78d300911526
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: cachix/install-nix-action@29bd9290ef037a3ecbdafe83cbd2185e9dd0fa0a
+        with:
+          install_url: https://releases.nixos.org/nix/nix-${{ env.NIX_VERSION }}/install
+      - uses: cachix/cachix-action@6a9a34cdd93d0ae4b4b59fd678660efb08109f2f
         with:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
           pushFilter: security-profiles-operator
-      - run: make nix nix-arm64
+      - run: make nix
+      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
+        with:
+          name: build
+          path: build.tar.gz
 
-  bpf-btf:
+  bpf:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/setup-go@268d8c0ca0432bb2cf416faae41297df9d262d7f
+      - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
         with:
           go-version: ${{ env.GO_VERSION }}
-      - uses: actions/checkout@v3
-      - uses: cachix/install-nix-action@daddc62a2e67d1decb56e028c9fa68344b9b7c2a
-      - uses: cachix/cachix-action@75d46f58e6608ffed5276b4aa8de78d300911526
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: cachix/install-nix-action@29bd9290ef037a3ecbdafe83cbd2185e9dd0fa0a
+        with:
+          install_url: https://releases.nixos.org/nix/nix-${{ env.NIX_VERSION }}/install
+      - uses: cachix/cachix-action@6a9a34cdd93d0ae4b4b59fd678660efb08109f2f
         with:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
           pushFilter: security-profiles-operator
       - run: make verify-bpf
-      - run: make verify-btf
 
   build-image:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@95cb08cb2672c73d4ffd2f422e6d11953d2a9c70
+        uses: docker/setup-buildx-action@4b4e9c3e2d4531116a6f8ba8e71fc6e2cb6e6c8c
       - name: Login to Quay
         uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
         with:
@@ -74,7 +72,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
       - name: Image metadata
         id: meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@507c2f2dc502c992ad446e3d7a5dfbe311567a96 # v4.3.0
         with:
           images: |
             quay.io/security-profiles-operator/build
@@ -84,7 +82,7 @@ jobs:
             type=ref,event=tag
             type=sha,format=long
       - name: Build (and push if needed)
-        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
         with:
           context: .
           file: Dockerfile.build-image
@@ -94,7 +92,7 @@ jobs:
           # Only load on PR builds
           load: ${{ github.ref != 'refs/heads/main' }}
       - name: Run container image vulnerability scanner
-        uses: aquasecurity/trivy-action@d63413b0a4a4482237085319f7f4a1ce99a8f2ac
+        uses: aquasecurity/trivy-action@1f0aa582c8c8f5f7639610d6d38baddfea4fdcee
         with:
           image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'
@@ -108,10 +106,10 @@ jobs:
   operator-image:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@95cb08cb2672c73d4ffd2f422e6d11953d2a9c70
+        uses: docker/setup-buildx-action@4b4e9c3e2d4531116a6f8ba8e71fc6e2cb6e6c8c
       - name: Login to Quay
         uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
         with:
@@ -121,7 +119,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
       - name: Image metadata
         id: meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@507c2f2dc502c992ad446e3d7a5dfbe311567a96 # v4.3.0
         with:
           images: |
             quay.io/security-profiles-operator/spo
@@ -131,7 +129,7 @@ jobs:
             type=ref,event=tag
             type=sha,format=long
       - name: Build
-        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
         with:
           context: .
           file: Dockerfile
@@ -139,7 +137,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           load: true
       - name: Run container image vulnerability scanner
-        uses: aquasecurity/trivy-action@d63413b0a4a4482237085319f7f4a1ce99a8f2ac
+        uses: aquasecurity/trivy-action@1f0aa582c8c8f5f7639610d6d38baddfea4fdcee
         with:
           image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'
@@ -151,10 +149,10 @@ jobs:
   ubi-image:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@95cb08cb2672c73d4ffd2f422e6d11953d2a9c70
+        uses: docker/setup-buildx-action@4b4e9c3e2d4531116a6f8ba8e71fc6e2cb6e6c8c
       - name: Login to Quay
         uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
         with:
@@ -164,7 +162,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
       - name: Image metadata
         id: meta
-        uses: docker/metadata-action@69f6fc9d46f2f8bf0d5491e4aabe0bb8c6a4678a
+        uses: docker/metadata-action@507c2f2dc502c992ad446e3d7a5dfbe311567a96
         with:
           images: |
             quay.io/security-profiles-operator/build
@@ -177,7 +175,7 @@ jobs:
             type=sha,format=long
       # TODO(jaosorior): Push UBI image too
       - name: Build
-        uses: docker/build-push-action@c56af957549030174b10d6867f20e78cfd7debc5
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
         with:
           context: .
           file: Dockerfile.ubi
@@ -185,7 +183,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           load: true
       - name: Run container image vulnerability scanner
-        uses: aquasecurity/trivy-action@d63413b0a4a4482237085319f7f4a1ce99a8f2ac
+        uses: aquasecurity/trivy-action@1f0aa582c8c8f5f7639610d6d38baddfea4fdcee
         with:
           image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'

@@ -52,8 +52,8 @@ Here's the feature parity status across them:
 |----------------------------------|---------|---------|----------|
 |                      Profile CRD |   Yes   |   Yes   |    Yes   |
 |                   ProfileBinding |   Yes   |   No    |    No    |
-|       Deploy profiles into nodes |   Yes   |   Yes   |    WIP   |
-| Remove profiles no longer in use |   Yes   |   Yes   |    WIP   |
+|       Deploy profiles into nodes |   Yes   |   Yes   |    Yes   |
+| Remove profiles no longer in use |   Yes   |   Yes   |    Yes   |
 |   Profile Auto-generation (logs) |   Yes   |   WIP   |    No    |
 |   Profile Auto-generation (ebpf) |   Yes   |   No    |    No    |
 |             Audit log enrichment |   Yes   |   WIP   |    Yes   |

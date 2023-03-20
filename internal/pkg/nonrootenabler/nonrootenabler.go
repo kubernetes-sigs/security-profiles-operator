@@ -17,8 +17,10 @@ limitations under the License.
 package nonrootenabler
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/release-utils/util"
@@ -43,16 +45,20 @@ func (n *NonRootEnabler) SetImpl(i impl) {
 }
 
 // Run executes the NonRootEnabler and returns an error if anything fails.
-func (n *NonRootEnabler) Run(logger logr.Logger) error {
+func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string) error {
 	const dirPermissions os.FileMode = 0o744
+	const filePermissions os.FileMode = 0o644
 
-	logger.Info("Ensuring seccomp root path: " + config.KubeletSeccompRootPath)
+	logger.Info("Container runtime:" + runtime)
+
+	kubeleteSeccompDir := path.Join(config.HostRoot, kubeletDir, config.SeccompProfilesFolder)
+	logger.Info("Ensuring seccomp root path: " + kubeleteSeccompDir)
 	if err := n.impl.MkdirAll(
-		config.KubeletSeccompRootPath, dirPermissions,
+		kubeleteSeccompDir, dirPermissions,
 	); err != nil {
 		return fmt.Errorf(
 			"create seccomp root path %s: %w",
-			config.KubeletSeccompRootPath, err,
+			kubeleteSeccompDir, err,
 		)
 	}
 
@@ -62,23 +68,44 @@ func (n *NonRootEnabler) Run(logger logr.Logger) error {
 	); err != nil {
 		return fmt.Errorf(
 			"create operator root path %s: %w",
-			config.KubeletSeccompRootPath, err,
+			config.OperatorRoot, err,
 		)
 	}
 
-	// In case the directory already existed
 	logger.Info("Setting operator root permissions")
 	if err := n.impl.Chmod(config.OperatorRoot, dirPermissions); err != nil {
 		return fmt.Errorf("change operator root path permissions: %w", err)
 	}
 
-	if _, err := n.impl.Stat(config.ProfilesRootPath); os.IsNotExist(err) {
+	kubeletOperatorDir := path.Join(
+		config.HostRoot,
+		kubeletDir,
+		config.SeccompProfilesFolder,
+		config.OperatorProfilesFolder,
+	)
+	if _, err := n.impl.Stat(kubeletOperatorDir); os.IsNotExist(err) {
 		logger.Info("Linking profiles root path")
 		if err := n.impl.Symlink(
-			config.OperatorRoot, config.ProfilesRootPath,
+			config.OperatorRoot, kubeletOperatorDir,
 		); err != nil {
 			return fmt.Errorf("link profiles root path: %w", err)
 		}
+	}
+
+	logger.Info("Saving kubelet configuration")
+	kubeletCfg := config.KubeletConfig{
+		KubeletDir: kubeletDir,
+	}
+	cfg, err := json.Marshal(kubeletCfg)
+	if err != nil {
+		return fmt.Errorf("marshaling kubelet config: %w", err)
+	}
+	if err := n.impl.SaveKubeletConfig(
+		config.KubeletConfigFilePath(),
+		cfg,
+		filePermissions,
+	); err != nil {
+		return fmt.Errorf("saving kubelet config: %w", err)
 	}
 
 	logger.Info("Setting operator root user and group")
@@ -88,9 +115,9 @@ func (n *NonRootEnabler) Run(logger logr.Logger) error {
 		return fmt.Errorf("change operator root permissions: %w", err)
 	}
 
-	logger.Info("Copying profiles into root path")
+	logger.Info("Copying profiles into root path: " + kubeleteSeccompDir)
 	if err := n.impl.CopyDirContentsLocal(
-		"/opt/spo-profiles", config.KubeletSeccompRootPath,
+		config.DefaultSpoProfilePath, kubeleteSeccompDir,
 	); err != nil {
 		return fmt.Errorf("copy local security profiles: %w", err)
 	}
@@ -98,21 +125,22 @@ func (n *NonRootEnabler) Run(logger logr.Logger) error {
 	return nil
 }
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	MkdirAll(path string, perm os.FileMode) error
+	MkdirAll(dirpath string, perm os.FileMode) error
 	Chmod(name string, mode os.FileMode) error
 	Stat(name string) (os.FileInfo, error)
 	Symlink(oldname, newname string) error
 	Chown(name string, uid, gid int) error
 	CopyDirContentsLocal(src, dst string) error
+	SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error
 }
 
 type defaultImpl struct{}
 
-func (*defaultImpl) MkdirAll(path string, perm os.FileMode) error {
-	return os.MkdirAll(path, perm)
+func (*defaultImpl) MkdirAll(dirpath string, perm os.FileMode) error {
+	return os.MkdirAll(dirpath, perm)
 }
 
 func (*defaultImpl) Chmod(name string, perm os.FileMode) error {
@@ -133,4 +161,8 @@ func (*defaultImpl) Chown(name string, uid, gid int) error {
 
 func (*defaultImpl) CopyDirContentsLocal(src, dst string) error {
 	return util.CopyDirContentsLocal(src, dst)
+}
+
+func (*defaultImpl) SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error {
+	return os.WriteFile(filename, kubeletConfig, perm)
 }

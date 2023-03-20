@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.9.1/cert-manager.yaml"
+	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml"
 	namespaceManifest = "deploy/namespace-operator.yaml"
 	testNamespace     = "test-ns"
 	defaultNamespace  = "default"
@@ -73,10 +73,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseDefaultAndExampleProfiles,
 		},
 		{
-			"Seccomp: Run a test pod",
-			e.testCaseRunPod,
-		},
-		{
 			"Seccomp: Verify base profile merge",
 			e.testCaseBaseProfile,
 		},
@@ -101,6 +97,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseSelinuxBaseUsage,
 		},
 		{
+			"SELinux: non-default template",
+			e.testCaseSelinuxNonDefaultTemplate,
+		},
+		{
 			"SELinux: Metrics (update, delete)",
 			e.testCaseSelinuxMetrics,
 		},
@@ -113,12 +113,28 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseVerbosityChange,
 		},
 		{
+			"SPOD: Change profiling",
+			e.testCaseProfilingChange,
+		},
+		{
+			"SPOD: Enable memory optimiztaion",
+			e.testCaseMemOptmEnable,
+		},
+		{
+			"SPOD: Change resource requirements",
+			e.testCaseResourceRequirementsChange,
+		},
+		{
 			"Seccomp: make sure statuses for profiles with long names can be listed",
 			e.testCaseLongSeccompProfileName,
 		},
 		{
 			"SPOD: Change webhook config",
 			e.testCaseWebhookOptionsChange,
+		},
+		{
+			"SPOD: Enable profile recorder",
+			e.testCaseSPODEnableProfileRecorder,
 		},
 	}
 	for _, testCase := range testCases {
@@ -273,8 +289,8 @@ func (e *e2e) deployOperator(manifest string) {
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
 	e.updateManifest(manifest, "imagePullPolicy: Always", fmt.Sprintf("imagePullPolicy: %s", e.pullPolicy))
-	e.updateManifest(manifest, "image: .*gcr.io/.*", fmt.Sprintf("image: %s", e.testImage))
-	e.updateManifest(manifest, "value: .*gcr.io/.*", fmt.Sprintf("value: %s", e.testImage))
+	e.updateManifest(manifest, "image: .*gcr.io/k8s-staging-sp-operator/.*", fmt.Sprintf("image: %s", e.testImage))
+	e.updateManifest(manifest, "value: .*gcr.io/k8s-staging-sp-operator/.*", fmt.Sprintf("value: %s", e.testImage))
 	e.updateManifest(manifest, "value: .*quay.io/.*/selinuxd.*", fmt.Sprintf("value: %s", e.selinuxdImage))
 	if e.selinuxEnabled {
 		e.updateManifest(manifest, "enableSelinux: false", "enableSelinux: true")

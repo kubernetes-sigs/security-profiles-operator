@@ -91,7 +91,17 @@ func main() {
 	app.Flags = appFlags
 	app.Action = func(c *cli.Context) error {
 
-		handleFile(c, c.Args().Get(0))
+		outdir := c.String("outdir")
+		templateSel := c.String("template_sel")
+		outfileTemplate := c.String(templateSel)
+		filters := &Filters{
+			name:      c.String("name_re"),
+			namespace: c.String("namespace_re"),
+			kind:      c.String("kind_re"),
+			filename:  c.String("file_re"),
+		}
+
+		handleFile(c.Args().Get(0), outdir, outfileTemplate, filters)
 		return nil
 	}
 
@@ -103,12 +113,12 @@ func main() {
 
 func outFile(outdir string, t *template.Template, filters *Filters, m *KubernetesAPI) (string, error) {
 
-	// Setup  m.X. "extended" template-convienent fields
 	ns := m.Metadata.Namespace
-	if m.Metadata.Namespace == "" {
+	if ns == "" {
 		ns = "_no_ns_"
 	}
 
+	// Setup  m.X. "extended" template-convienent fields
 	m.X.Outdir = outdir
 	m.X.NS = ns
 	m.X.ShortKind = getShortName(m.Kind)
@@ -153,16 +163,7 @@ func outFile(outdir string, t *template.Template, filters *Filters, m *Kubernete
 	return filename, nil
 }
 
-func handleFile(c *cli.Context, file string) {
-	outdir := c.String("outdir")
-	templateSel := c.String("template_sel")
-	outfileTemplate := c.String(templateSel)
-	filters := &Filters{
-		name:      c.String("name_re"),
-		namespace: c.String("namespace_re"),
-		kind:      c.String("kind_re"),
-		filename:  c.String("file_re"),
-	}
+func handleFile(file, outdir, outfileTemplate string, filters *Filters) {
 
 	tpl, err := template.New("outfile").Parse(outfileTemplate)
 	if err != nil {
@@ -176,6 +177,7 @@ func handleFile(c *cli.Context, file string) {
 		m, err := getYamlInfo(fileContent)
 		if err != nil {
 			log.Warnf("Ignoring %v", err)
+			continue
 		}
 
 		filename, err := outFile(outdir, tpl, filters, m)

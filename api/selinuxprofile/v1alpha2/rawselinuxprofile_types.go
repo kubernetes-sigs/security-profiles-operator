@@ -25,9 +25,11 @@ import (
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 )
 
-// Ensure RawSelinuxProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
-var _ profilebasev1alpha1.StatusBaseUser = &RawSelinuxProfile{}
-var _ profilebasev1alpha1.SecurityProfileBase = &RawSelinuxProfile{}
+var (
+	// Ensure RawSelinuxProfile implements the StatusBaseUser and SecurityProfileBase interfaces.
+	_ profilebasev1alpha1.StatusBaseUser      = &RawSelinuxProfile{}
+	_ profilebasev1alpha1.SecurityProfileBase = &RawSelinuxProfile{}
+)
 
 // RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
 type RawSelinuxProfileSpec struct {

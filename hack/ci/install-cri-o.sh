@@ -15,26 +15,28 @@
 
 set -euo pipefail
 
-TAG=v1.25.0
+TAG=v1.26.2
 
-export PATH=$PATH:/usr/local/go/bin
-export GOPATH="$HOME/go"
-export GOBIN="$GOPATH/bin"
+curl_retry() {
+    curl -sSfL --retry 5 --retry-delay 3 "$@"
+}
 
 # We need cosign as well as the bom tool here because the CRI-O installation
 # script will automatically verify the signatures based on their existence in
 # $PATH.
-COSIGN_VERSION=v1.11.1
-go install github.com/sigstore/cosign/cmd/cosign@$COSIGN_VERSION
-cp "$GOBIN/cosign" /usr/bin
+COSIGN_VERSION=v2.0.0
+curl_retry -o /usr/bin/cosign \
+    https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64
+chmod +x /usr/bin/cosign
 cosign version
 
-BOM_VERSION=v0.3.0
-go install sigs.k8s.io/bom/cmd/bom@$BOM_VERSION
-cp "$GOBIN/bom" /usr/bin
+BOM_VERSION=v0.4.1
+curl_retry -o /usr/bin/bom \
+    https://github.com/kubernetes-sigs/bom/releases/download/$BOM_VERSION/bom-linux-amd64
+chmod +x /usr/bin/bom
 bom version
 
-curl -sSfL --retry 5 --retry-delay 3 "https://raw.githubusercontent.com/cri-o/cri-o/$TAG/scripts/get" |
+curl_retry "https://raw.githubusercontent.com/cri-o/cri-o/$TAG/scripts/get" |
     bash -s -- -t "$TAG"
 
 . /etc/os-release
@@ -43,6 +45,10 @@ if [[ $ID == fedora ]]; then
     mkdir -p /var/lib/kubelet
     chcon -R -u system_u -r object_r -t var_lib_t /var/lib/kubelet
     printf '[crio.runtime]\nselinux = true' >/etc/crio/crio.conf.d/30-selinux.conf
+fi
+
+if [[ $ID == ubuntu ]]; then
+    printf '[crio.runtime.runtimes.runc]\n' >/etc/crio/crio.conf.d/10-runc.conf
 fi
 
 systemctl enable --now crio.service

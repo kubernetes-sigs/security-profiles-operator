@@ -130,7 +130,7 @@ spec:
           periodSeconds: 5
 `
 	e.logf("Creating a profile recording with merge strategy 'containers'")
-	deleteManifestFn := createTemplatedProfileRecording(e, profileRecTmplMetadata{
+	deleteManifestFn := createTemplatedProfileRecording(e, &profileRecTmplMetadata{
 		name:          mergeProfileRecordingName,
 		recorderKind:  recorderKind,
 		recorder:      recordedMethod,
@@ -142,15 +142,19 @@ spec:
 
 	since, deployName := e.createRecordingTestDeploymentFromManifest(testDeploymentMultiContainer)
 	suffixes := e.getPodSuffixesByLabel("app=alpine")
-	if recordedMethod == "logs" {
+
+	switch recordedMethod {
+	case "logs":
 		e.waitForEnricherLogs(since, conditions...)
-	} else if recordedMethod == "bpf" {
+
+	case "bpf":
 		profileNames := make([]string, 0)
 		for _, sfx := range suffixes {
 			profileNames = append(profileNames, mergeProfileRecordingName+"-"+containerNameNginx+"-"+sfx)
 		}
 		e.waitForBpfRecorderLogs(since, profileNames...)
-	} else {
+
+	default:
 		e.Failf("unknown recorded method %s", recordedMethod)
 	}
 
@@ -218,7 +222,7 @@ type profileRecTmplMetadata struct {
 	name, recorderKind, recorder, mergeStrategy, labelKey, labelValue string
 }
 
-func createTemplatedProfileRecording(e *e2e, metadata profileRecTmplMetadata) func() {
+func createTemplatedProfileRecording(e *e2e, metadata *profileRecTmplMetadata) func() {
 	manifest := fmt.Sprintf(profileRecordingTemplate,
 		metadata.name, metadata.recorderKind, metadata.recorder,
 		metadata.mergeStrategy, metadata.labelKey, metadata.labelValue)

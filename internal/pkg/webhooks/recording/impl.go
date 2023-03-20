@@ -38,7 +38,7 @@ type defaultImpl struct {
 	decoder *admission.Decoder
 }
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	GetProfileRecording(ctx context.Context, name, namespace string) (*v1alpha1.ProfileRecording, error)

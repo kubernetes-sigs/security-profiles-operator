@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -255,7 +254,7 @@ func (m *Metrics) IncSeccompProfileAudit(
 // IncSeccompProfileBpf increments the seccomp profile bpf counter for the
 // provided labels.
 func (m *Metrics) IncSeccompProfileBpf(
-	node, profile string, mountNamespace uint64,
+	node, profile string, mountNamespace uint32,
 ) {
 	m.metricSeccompProfileBpf.WithLabelValues(
 		node, fmt.Sprint(mountNamespace), profile,
@@ -264,8 +263,8 @@ func (m *Metrics) IncSeccompProfileBpf(
 
 // IncSeccompProfileError increments the seccomp profile error counter for the
 // provided reason.
-func (m *Metrics) IncSeccompProfileError(reason event.Reason) {
-	m.metricSeccompProfileError.WithLabelValues(string(reason)).Inc()
+func (m *Metrics) IncSeccompProfileError(reason string) {
+	m.metricSeccompProfileError.WithLabelValues(reason).Inc()
 }
 
 // IncSelinuxProfileUpdate increments the selinux profile update counter.
@@ -292,8 +291,8 @@ func (m *Metrics) IncSelinuxProfileAudit(
 
 // IncSelinuxProfileError increments the selinux profile error counter for the
 // provided reason.
-func (m *Metrics) IncSelinuxProfileError(reason event.Reason) {
-	m.metricSelinuxProfileError.WithLabelValues(string(reason)).Inc()
+func (m *Metrics) IncSelinuxProfileError(reason string) {
+	m.metricSelinuxProfileError.WithLabelValues(reason).Inc()
 }
 
 // IncAppArmorProfileUpdate increments the apparmor profile update counter.
@@ -320,6 +319,6 @@ func (m *Metrics) IncAppArmorProfileAudit(
 
 // IncAppArmorProfileError increments the apparmor profile error counter for the
 // provided reason.
-func (m *Metrics) IncAppArmorProfileError(reason event.Reason) {
-	m.metricAppArmorProfileError.WithLabelValues(string(reason)).Inc()
+func (m *Metrics) IncAppArmorProfileError(reason string) {
+	m.metricAppArmorProfileError.WithLabelValues(reason).Inc()
 }

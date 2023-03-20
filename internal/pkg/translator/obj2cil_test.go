@@ -259,6 +259,48 @@ func TestObject2CIL(t *testing.T) {
 				"container",
 			},
 		},
+		{
+			name: "Test translation with another template than container",
+			profile: &selxv1alpha2.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo",
+					Namespace: "bar",
+				},
+				Spec: selxv1alpha2.SelinuxProfileSpec{
+					Inherit: []selxv1alpha2.PolicyRef{
+						{
+							Name: "net_container",
+						},
+					},
+					Allow: selxv1alpha2.Allow{
+						"var_log_t": {
+							"dir": []string{
+								"open",
+							},
+							"file": []string{
+								"getattr",
+							},
+							"sock_file": []string{
+								"getattr",
+							},
+						},
+					},
+				},
+			},
+			wantMatches: []string{
+				"\\(block foo_bar",
+				"\\(blockinherit container\\)",
+				"\\(blockinherit net_container\\)",
+				// We match on several lines since we don't care about the order
+				"\\(allow process var_log_t \\( dir \\(.*open.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( file \\(.*getattr.*\\)\\)\\)\n",
+				"\\(allow process var_log_t \\( sock_file \\(.*getattr.*\\)\\)\\)\n",
+			},
+			inheritsys: []string{
+				"container",
+				"net_container",
+			},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt

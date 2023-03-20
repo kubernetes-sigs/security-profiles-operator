@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=36
+VERSION=37
 
 BASE_URL=https://dl.fedoraproject.org/pub/fedora/linux/releases/$VERSION
 ROOT_DIR=$(git rev-parse --show-toplevel)

@@ -1,5 +1,5 @@
 { pkgs, buildGoModule, arch ? "x86" }:
-with pkgs; buildGo119Module rec {
+with pkgs; buildGo120Module rec {
   name = "security-profiles-operator";
   src = builtins.filterSource
     (path: type: !(type == "directory" && baseNameOf path == "build")) ./..;
@@ -7,10 +7,9 @@ with pkgs; buildGo119Module rec {
   doCheck = false;
   outputs = [ "out" ];
   nativeBuildInputs = with buildPackages; [
-    bpftools
     git
-    llvmPackages_14.clang-unwrapped
-    llvm_14
+    llvmPackages_15.clang-unwrapped
+    llvm_15
     pkg-config
     which
   ];

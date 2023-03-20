@@ -23,10 +23,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	errors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
@@ -55,7 +55,7 @@ func NewController() controller.Controller {
 type PodReconciler struct {
 	client client.Client
 	log    logr.Logger
-	record event.Recorder
+	record record.EventRecorder
 }
 
 // Name returns the name of the controller.
@@ -77,10 +77,10 @@ func (r *PodReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile reacts to pod events and updates SeccompProfiles or SelinuxProfiles if in use or no longer in use by a pod.
-func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("pod", req.Name, "namespace", req.Namespace)
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	podID := req.Namespace + "/" + req.Name
@@ -137,7 +137,7 @@ func (r *PodReconciler) Reconcile(_ context.Context, req reconcile.Request) (rec
 	}
 
 	// pod is being created or updated so ensure it is linked to a selinux profile
-	for _, profileIndex := range getSelinuxProfilesFromPod(r, pod) {
+	for _, profileIndex := range getSelinuxProfilesFromPod(ctx, r, pod) {
 		profileSuffix := "_" + pod.GetNamespace() + ".process"
 		profileName := strings.TrimSuffix(profileIndex, profileSuffix)
 
@@ -280,12 +280,12 @@ func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
 
 // getSelinuxProfilesFromPod returns a slice of strings representing selinux profiles required by the pod.
 // It looks first at the pod spec level, then in each container.
-func getSelinuxProfilesFromPod(r *PodReconciler, pod *corev1.Pod) []string {
+func getSelinuxProfilesFromPod(ctx context.Context, r *PodReconciler, pod *corev1.Pod) []string {
 	profiles := []string{}
 	// try to get profile from pod securityContext
 	sc := pod.Spec.SecurityContext
 	if sc != nil {
-		if isOperatorSelinuxType(r, sc.SELinuxOptions, pod.GetNamespace()) {
+		if isOperatorSelinuxType(ctx, r, sc.SELinuxOptions, pod.GetNamespace()) {
 			profiles = append(profiles, sc.SELinuxOptions.Type)
 		}
 	}
@@ -295,7 +295,7 @@ func getSelinuxProfilesFromPod(r *PodReconciler, pod *corev1.Pod) []string {
 	for i := range containers {
 		sc := containers[i].SecurityContext
 		if sc != nil {
-			if isOperatorSelinuxType(r, sc.SELinuxOptions, pod.GetNamespace()) {
+			if isOperatorSelinuxType(ctx, r, sc.SELinuxOptions, pod.GetNamespace()) {
 				profileString := containers[i].SecurityContext.SELinuxOptions.Type
 				if !util.Contains(profiles, profileString) {
 					profiles = append(profiles, profileString)
@@ -325,7 +325,7 @@ func isOperatorSeccompProfile(sp *corev1.SeccompProfile) bool {
 // isOperatorSelinuxType checks whether Selinux Type is created by the operator.
 // Selinux Type controlled by the operator has the form
 // "selinuxprofilename_namespace.process".
-func isOperatorSelinuxType(r *PodReconciler, se *corev1.SELinuxOptions, ns string) bool {
+func isOperatorSelinuxType(ctx context.Context, r *PodReconciler, se *corev1.SELinuxOptions, ns string) bool {
 	if se == nil {
 		return false
 	}
@@ -337,7 +337,7 @@ func isOperatorSelinuxType(r *PodReconciler, se *corev1.SELinuxOptions, ns strin
 
 	if selinuxProfileName != se.Type {
 		selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
-		err := r.client.Get(context.TODO(), util.NamespacedName(strings.TrimSuffix(se.Type, suffix), ns), selinuxProfile)
+		err := r.client.Get(ctx, util.NamespacedName(strings.TrimSuffix(se.Type, suffix), ns), selinuxProfile)
 		if err != nil {
 			return false
 		}

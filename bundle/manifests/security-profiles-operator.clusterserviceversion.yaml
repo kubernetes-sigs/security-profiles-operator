@@ -11,7 +11,7 @@ metadata:
             "annotations": {
               "description": "Block writing to any files in the disk."
             },
-            "name": "apparmorprofile-sample"
+            "name": "test-profile"
           },
           "spec": {
             "policy": "#include \u003ctunables/global\u003e\n\nprofile test-profile flags=(attach_disconnected) {\n  #include \u003cabstractions/base\u003e\n\n  file,\n\n  # Deny all file writes.\n  deny /** w,\n}\n"
@@ -44,6 +44,20 @@ metadata:
               }
             },
             "recorder": "bpf"
+          }
+        },
+        {
+          "apiVersion": "security-profiles-operator.x-k8s.io/v1alpha1",
+          "kind": "ProfileBinding",
+          "metadata": {
+            "name": "profile-binding"
+          },
+          "spec": {
+            "image": "nginx:1.19.1",
+            "profileRef": {
+              "kind": "SeccompProfile",
+              "name": "profile-allow-unsafe"
+            }
           }
         },
         {
@@ -94,18 +108,148 @@ metadata:
           "spec": {
             "defaultAction": "SCMP_ACT_ALLOW"
           }
+        },
+        {
+          "apiVersion": "security-profiles-operator.x-k8s.io/v1beta1",
+          "kind": "SeccompProfile",
+          "metadata": {
+            "annotations": {
+              "description": "Enables complain mode whilst blocking high-risk syscalls. Some essential syscalls are allowed to decrease log noise."
+            },
+            "name": "profile-complain-block-high-risk"
+          },
+          "spec": {
+            "architectures": [
+              "SCMP_ARCH_X86_64"
+            ],
+            "defaultAction": "SCMP_ACT_LOG",
+            "syscalls": [
+              {
+                "action": "SCMP_ACT_ALLOW",
+                "names": [
+                  "exit",
+                  "exit_group",
+                  "futex",
+                  "nanosleep"
+                ]
+              },
+              {
+                "action": "SCMP_ACT_ERRNO",
+                "names": [
+                  "acct",
+                  "add_key",
+                  "bpf",
+                  "clock_adjtime",
+                  "clock_settime",
+                  "create_module",
+                  "delete_module",
+                  "finit_module",
+                  "get_kernel_syms",
+                  "get_mempolicy",
+                  "init_module",
+                  "ioperm",
+                  "iopl",
+                  "kcmp",
+                  "kexec_file_load",
+                  "kexec_load",
+                  "keyctl",
+                  "lookup_dcookie",
+                  "mbind",
+                  "mount",
+                  "move_pages",
+                  "name_to_handle_at",
+                  "nfsservctl",
+                  "open_by_handle_at",
+                  "perf_event_open",
+                  "personality",
+                  "pivot_root",
+                  "process_vm_readv",
+                  "process_vm_writev",
+                  "ptrace",
+                  "query_module",
+                  "quotactl",
+                  "reboot",
+                  "request_key",
+                  "set_mempolicy",
+                  "setns",
+                  "settimeofday",
+                  "stime",
+                  "swapoff",
+                  "swapon",
+                  "_sysctl",
+                  "sysfs",
+                  "umount2",
+                  "umount",
+                  "unshare",
+                  "uselib",
+                  "userfaultfd",
+                  "ustat",
+                  "vm86old",
+                  "vm86"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "apiVersion": "security-profiles-operator.x-k8s.io/v1alpha2",
+          "kind": "SelinuxProfile",
+          "metadata": {
+            "name": "errorlogger"
+          },
+          "spec": {
+            "allow": {
+              "var_log_t": {
+                "dir": [
+                  "open",
+                  "read",
+                  "getattr",
+                  "lock",
+                  "search",
+                  "ioctl",
+                  "add_name",
+                  "remove_name",
+                  "write"
+                ],
+                "file": [
+                  "getattr",
+                  "read",
+                  "write",
+                  "append",
+                  "ioctl",
+                  "lock",
+                  "map",
+                  "open",
+                  "create"
+                ],
+                "sock_file": [
+                  "getattr",
+                  "read",
+                  "write",
+                  "append",
+                  "open"
+                ]
+              }
+            },
+            "inherit": [
+              {
+                "name": "container"
+              }
+            ]
+          }
         }
       ]
     capabilities: Basic Install
     categories: Security
-    olm.skipRange: '>=0.4.1 <0.5.2'
+    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.6.0
+    olm.skipRange: '>=0.4.1 <0.6.1-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/suggested-namespace: security-profiles-operator
-    operators.operatorframework.io/builder: operator-sdk-v1.22.2
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
       Container Platform", "OpenShift Platform Plus"]'
+    operators.operatorframework.io/builder: operator-sdk-v1.25.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
-  name: security-profiles-operator.v0.5.2
+  name: security-profiles-operator.v0.6.1-dev
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -701,7 +845,7 @@ spec:
                 - manager
                 env:
                 - name: RELATED_IMAGE_RBAC_PROXY
-                  value: quay.io/brancz/kube-rbac-proxy:v0.11.0
+                  value: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
                 - name: RELATED_IMAGE_SELINUXD
                   value: quay.io/security-profiles-operator/selinuxd
                 - name: OPERATOR_NAMESPACE
@@ -712,7 +856,13 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.annotations['olm.targetNamespaces']
-                image: k8s.gcr.io/security-profiles-operator/security-profiles-operator:v0.5.0
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: KUBELET_DIR
+                  value: /var/lib/kubelet
+                image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
                 imagePullPolicy: Always
                 name: security-profiles-operator
                 resources:
@@ -814,8 +964,9 @@ spec:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
   relatedImages:
-  - image: quay.io/brancz/kube-rbac-proxy:v0.11.0
+  - image: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
     name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd
-  version: 0.5.2
+  replaces: security-profiles-operator.v0.5.0
+  version: 0.6.1-dev

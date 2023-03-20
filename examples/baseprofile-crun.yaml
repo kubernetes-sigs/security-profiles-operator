@@ -2,53 +2,61 @@
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  name: crun-v0.20.1
+  name: crun-v1.8.1
 spec:
   defaultAction: SCMP_ACT_ERRNO
   architectures:
-  - SCMP_ARCH_X86_64
+    - SCMP_ARCH_X86_64
   syscalls:
-  - action: SCMP_ACT_ALLOW
-    names:
-    - access
-    - arch_prctl
-    - brk
-    - capset
-    - chdir
-    - close
-    - close_range
-    - dup2
-    - execve
-    - exit_group
-    - fchdir
-    - fstat
-    - getcwd
-    - getegid
-    - geteuid
-    - getgid
-    - getpid
-    - getppid
-    - getuid
-    - ioctl
-    - lseek
-    - mmap
-    - mount
-    - mprotect
-    - openat
-    - openat2
-    - pivot_root
-    - prctl
-    - read
-    - rt_sigaction
-    - rt_sigprocmask
-    - select
-    - set_tid_address
-    - sethostname
-    - setresgid
-    - setresuid
-    - setsid
-    - stat
-    - statx
-    - umask
-    - umount2
-    - write
+    - action: SCMP_ACT_ALLOW
+      names:
+        - access
+        - arch_prctl
+        - brk
+        - capset
+        - chdir
+        - chmod
+        - chown
+        - close
+        - close_range
+        - dup2
+        - execve
+        - exit_group
+        - fchdir
+        - fchown
+        - fstatfs
+        - getegid
+        - geteuid
+        - getgid
+        - getuid
+        - ioctl
+        - lseek
+        - mkdirat
+        - mknodat
+        - mmap
+        - mount
+        - mprotect
+        - nanosleep
+        - newfstatat
+        - openat
+        - openat2
+        - pivot_root
+        - prctl
+        - pselect6
+        - read
+        - readlink
+        - rt_sigaction
+        - rt_sigprocmask
+        - set_tid_address
+        - setgroups
+        - sethostname
+        - setns
+        - setresgid
+        - setresuid
+        - setsid
+        - statx
+        - symlinkat
+        - umask
+        - umount2
+        - unshare
+        - write

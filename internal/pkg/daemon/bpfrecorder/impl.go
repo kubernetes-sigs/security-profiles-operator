@@ -47,7 +47,7 @@ import (
 
 type defaultImpl struct{}
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.bpf.txt
 //counterfeiter:generate . impl
 type impl interface {
 	Getenv(string) string
@@ -69,8 +69,11 @@ type impl interface {
 	Write(*os.File, []byte) (int, error)
 	ContainerIDForPID(*ttlcache.Cache[string, string], int) (string, error)
 	GetValue(*bpf.BPFMap, uint32) ([]byte, error)
+	GetValue64(*bpf.BPFMap, uint64) ([]byte, error)
 	UpdateValue(*bpf.BPFMap, uint32, []byte) error
+	UpdateValue64(*bpf.BPFMap, uint64, []byte) error
 	DeleteKey(*bpf.BPFMap, uint32) error
+	DeleteKey64(*bpf.BPFMap, uint64) error
 	ListPods(context.Context, *kubernetes.Clientset, string) (*v1.PodList, error)
 	GetName(seccomp.ScmpSyscall) (string, error)
 	RemoveAll(string) error
@@ -79,11 +82,12 @@ type impl interface {
 	StartRingBuffer(*bpf.RingBuffer)
 	GoArch() string
 	Readlink(string) (string, error)
-	Atoi(string) (int, error)
+	ParseUint(string) (uint32, error)
 	DialMetrics() (*grpc.ClientConn, context.CancelFunc, error)
 	BpfIncClient(client apimetrics.MetricsClient) (apimetrics.Metrics_BpfIncClient, error)
 	CloseGRPC(*grpc.ClientConn) error
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
+	InitGlobalVariable(*bpf.Module, string, interface{}) error
 }
 
 func (d *defaultImpl) Getenv(key string) string {
@@ -167,6 +171,13 @@ func (d *defaultImpl) GetValue(m *bpf.BPFMap, key uint32) ([]byte, error) {
 	return m.GetValue(unsafe.Pointer(&key))
 }
 
+func (d *defaultImpl) GetValue64(m *bpf.BPFMap, key uint64) ([]byte, error) {
+	if m == nil {
+		return nil, errors.New("provided bpf map is nil")
+	}
+	return m.GetValue(unsafe.Pointer(&key))
+}
+
 func (d *defaultImpl) UpdateValue(m *bpf.BPFMap, key uint32, value []byte) error {
 	if m == nil {
 		return errors.New("provided bpf map is nil")
@@ -174,7 +185,21 @@ func (d *defaultImpl) UpdateValue(m *bpf.BPFMap, key uint32, value []byte) error
 	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
 }
 
+func (d *defaultImpl) UpdateValue64(m *bpf.BPFMap, key uint64, value []byte) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
+}
+
 func (d *defaultImpl) DeleteKey(m *bpf.BPFMap, key uint32) error {
+	if m == nil {
+		return errors.New("provided bpf map is nil")
+	}
+	return m.DeleteKey(unsafe.Pointer(&key))
+}
+
+func (d *defaultImpl) DeleteKey64(m *bpf.BPFMap, key uint64) error {
 	if m == nil {
 		return errors.New("provided bpf map is nil")
 	}
@@ -217,8 +242,9 @@ func (d *defaultImpl) Readlink(name string) (string, error) {
 	return os.Readlink(name)
 }
 
-func (d *defaultImpl) Atoi(s string) (int, error) {
-	return strconv.Atoi(s)
+func (d *defaultImpl) ParseUint(s string) (uint32, error) {
+	value, err := strconv.ParseUint(s, 10, 32)
+	return uint32(value), err
 }
 
 func (d *defaultImpl) DialMetrics() (*grpc.ClientConn, context.CancelFunc, error) {
@@ -240,4 +266,8 @@ func (d *defaultImpl) SendMetric(
 	in *apimetrics.BpfRequest,
 ) error {
 	return client.Send(in)
+}
+
+func (d *defaultImpl) InitGlobalVariable(module *bpf.Module, name string, value interface{}) error {
+	return module.InitGlobalVariable(name, value)
 }

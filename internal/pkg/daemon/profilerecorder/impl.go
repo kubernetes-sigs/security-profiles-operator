@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"github.com/containers/common/pkg/seccomp"
-	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -28,6 +27,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -42,7 +42,7 @@ import (
 
 type defaultImpl struct{}
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
 	NewClient(ctrl.Manager) (client.Client, error)
@@ -100,10 +100,12 @@ func (*defaultImpl) NewControllerManagedBy(
 ) error {
 	return ctrl.NewControllerManagedBy(m).
 		Named(name).
-		WithEventFilter(predicate.And(
-			resource.NewPredicates(p1),
-			resource.NewPredicates(p2),
-		)).
+		WithEventFilter(predicate.Funcs{
+			CreateFunc:  func(e event.CreateEvent) bool { return p1(e.Object) && p2(e.Object) },
+			DeleteFunc:  func(e event.DeleteEvent) bool { return p1(e.Object) && p2(e.Object) },
+			UpdateFunc:  func(e event.UpdateEvent) bool { return p1(e.ObjectNew) && p2(e.ObjectNew) },
+			GenericFunc: func(e event.GenericEvent) bool { return p1(e.Object) && p2(e.Object) },
+		}).
 		For(&corev1.Pod{}).
 		Complete(r)
 }

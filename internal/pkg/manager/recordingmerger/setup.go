@@ -19,7 +19,6 @@ package recordingmerger
 import (
 	"context"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
@@ -34,7 +33,7 @@ func (r *PolicyMergeReconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(r.Name()))
+	r.record = mgr.GetEventRecorderFor(r.Name())
 
 	// Register a special reconciler for status events
 	return ctrl.NewControllerManagedBy(mgr).

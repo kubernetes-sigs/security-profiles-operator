@@ -5,28 +5,18 @@ on:
       - main
   pull_request:
 env:
-  GO_VERSION: '1.19'
-  KIND_IMG_TAG: v1.25.0
-permissions:
-  actions: none
-  checks: none
-  contents: none
-  deployments: none
-  id-token: none
-  issues: none
-  discussions: none
-  packages: none
-  pull-requests: none
-  repository-projects: none
-  security-events: none
-  statuses: none
+  GO_VERSION: '1.20'
+  KIND_IMG_TAG: v1.26.2
+
+permissions: {}
+
 jobs:
   main:
     name: tests
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
 
     - name: Download binaries
       run: |
@@ -35,7 +25,7 @@ jobs:
         make operator-sdk
         make opm
 
-    - uses: actions/setup-go@268d8c0ca0432bb2cf416faae41297df9d262d7f
+    - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
       with:
         go-version: ${{ env.GO_VERSION }}
     - name: Install dependencies

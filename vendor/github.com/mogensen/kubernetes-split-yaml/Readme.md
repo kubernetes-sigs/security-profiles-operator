@@ -3,6 +3,7 @@
 [![Build Status](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fmogensen%2Fkubernetes-split-yaml%2Fbadge%3Fref%3Dmaster&style=flat)](https://actions-badge.atrox.dev/mogensen/kubernetes-split-yaml/goto?ref=master)
 [![Go Report Card](https://goreportcard.com/badge/github.com/mogensen/kubernetes-split-yaml)](https://goreportcard.com/report/github.com/mogensen/kubernetes-split-yaml)
 [![codecov](https://codecov.io/gh/mogensen/kubernetes-split-yaml/branch/master/graph/badge.svg)](https://codecov.io/gh/mogensen/kubernetes-split-yaml)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fmogensen%2Fkubernetes-split-yaml.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fmogensen%2Fkubernetes-split-yaml?ref=badge_shield)
 
 Split the 'giant yaml file' into one file pr kubernetes resource
 
@@ -47,3 +48,6 @@ Please make sure to update tests as appropriate.
 
 ## License
 [MIT](https://choosealicense.com/licenses/mit/)
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fmogensen%2Fkubernetes-split-yaml.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fmogensen%2Fkubernetes-split-yaml?ref=badge_large)
