@@ -112,8 +112,12 @@ func (a *Artifact) Push(file, to, username, password string, annotations map[str
 	defer cancel()
 
 	a.logger.Info("Adding profile to store: " + file)
+	absPath, err := a.FilepathAbs(file)
+	if err != nil {
+		return fmt.Errorf("get absoluate file path: %w", err)
+	}
 	fileDescriptor, err := a.StoreAdd(
-		ctx, store, defaultProfileYAML, "", file,
+		ctx, store, defaultProfileYAML, "", absPath,
 	)
 	if err != nil {
 		return fmt.Errorf("add profile to store: %w", err)
