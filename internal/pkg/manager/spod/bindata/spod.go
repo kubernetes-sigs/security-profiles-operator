@@ -49,6 +49,8 @@ var (
 )
 
 const (
+	HomeDirectory                              = "/home"
+	TempDirectory                              = "/tmp"
 	SelinuxDropDirectory                       = "/etc/selinux.d"
 	SelinuxdPrivateDir                         = "/var/run/selinuxd"
 	SelinuxdSocketPath                         = SelinuxdPrivateDir + "/selinuxd.sock"
@@ -320,6 +322,14 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Name:      "grpc-server-volume",
 								MountPath: filepath.Dir(config.GRPCServerSocketMetrics),
 							},
+							{
+								Name:      "home-volume",
+								MountPath: HomeDirectory,
+							},
+							{
+								Name:      "tmp-volume",
+								MountPath: TempDirectory,
+							},
 						},
 						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &falsely,
@@ -374,6 +384,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							{
 								Name:  config.KubeletDirEnvKey,
 								Value: config.KubeletDir(),
+							},
+							{
+								Name:  "HOME",
+								Value: HomeDirectory,
 							},
 						},
 						Ports: []corev1.ContainerPort{
@@ -541,7 +555,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							},
 							{
 								Name:      "tmp-volume",
-								MountPath: "/tmp",
+								MountPath: TempDirectory,
 							},
 							{
 								Name:      "grpc-server-volume",
@@ -767,6 +781,12 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Path: "/",
 								Type: &hostPathDirectory,
 							},
+						},
+					},
+					{
+						Name: "home-volume",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
 				},

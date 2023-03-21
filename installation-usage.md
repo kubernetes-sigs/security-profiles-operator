@@ -24,6 +24,7 @@
 - [Create a seccomp profile](#create-a-seccomp-profile)
   - [Apply a seccomp profile to a pod](#apply-a-seccomp-profile-to-a-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
+    - [OCI Artifact support for base profiles](#oci-artifact-support-for-base-profiles)
   - [Label namespaces for binding and recording](#label-namespaces-for-binding-and-recording)
   - [Bind workloads to profiles with ProfileBindings](#bind-workloads-to-profiles-with-profilebindings)
   - [Record profiles from workloads with <code>ProfileRecordings</code>](#record-profiles-from-workloads-with-profilerecordings)
@@ -55,6 +56,8 @@
 - [Command Line Interface (CLI)](#command-line-interface-cli)
   - [Record seccomp profiles for a command](#record-seccomp-profiles-for-a-command)
   - [Run commands with seccomp profiles](#run-commands-with-seccomp-profiles)
+  - [Pull security profiles from OCI registries](#pull-security-profiles-from-oci-registries)
+  - [Push security profiles to OCI registries](#push-security-profiles-to-oci-registries)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
 
@@ -69,7 +72,6 @@ The feature scope of the security-profiles-operator is right now limited to:
 - Validates if a node supports seccomp and do not synchronize if not.
 - Providing metrics endpoints
 - Providing a Command Line Interface `spoc` for use cases not including Kubernetes.
-
 
 ## Architecture
 
@@ -205,11 +207,11 @@ kubectl annotate ns $spo_ns \
 
 # Install the chart from the release URL (or a file path if desired)
 helm install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.7.1/security-profiles-operator-0.7.1.tgz
-# Or update it with 
+# Or update it with
 # helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.7.1/security-profiles-operator-0.7.1.tgz
 ```
 
-#### Troubleshooting and maintenance  
+#### Troubleshooting and maintenance
 
 These CRDs are not templated, but will be installed by default when running a helm install for the chart.  
 There is no support at this time for upgrading or deleting CRDs using Helm. [[docs](https://helm.sh/docs/chart_best_practices/custom_resource_definitions/)]
@@ -229,13 +231,12 @@ kubectl get -n $spo_ns crds --no-headers |grep security-profiles-operator |cut -
 
 # Uninstall the chart release from the namespace
 helm uninstall --namespace $spo_ns security-profiles-operator
-# WARNING: Delete the namespace 
+# WARNING: Delete the namespace
 kubectl delete ns $spo_ns
 
 # Install it again
 helm upgrade --install --create-namespace --namespace $spo_ns security-profiles-operator deploy/helm/
 ```
-
 
 ### Installation on AKS
 
@@ -524,6 +525,61 @@ If you're not using runc but the alternative
 [crun](https://github.com/containers/crun), then you can do the same by using
 the [corresponding example profile](./examples/baseprofile-crun.yaml) (tested
 with version 0.20.1).
+
+#### OCI Artifact support for base profiles
+
+The operator supports pulling base profiles from container registries supporting
+OCI artifacts, which are right now:
+
+- [CNCF Distribution](https://github.com/distribution/distribution)
+- [Azure Container Registry](https://aka.ms/acr)
+- [Amazon Elastic Container Registry](https://aws.amazon.com/ecr)
+- [Google Artifact Registry](https://cloud.google.com/artifact-registry)
+- [GitHub Packages container registry](https://docs.github.com/en/packages/guides/about-github-container-registry)
+- [Bundle Bar](https://bundle.bar/docs/supported-clients/oras)
+- [Docker Hub](https://hub.docker.com)
+- [Zot Registry](https://zotregistry.io)
+
+To use that feature, just prefix the `baseProfileName` with `oci://`, like:
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  namespace: my-namespace
+  name: profile1
+spec:
+  defaultAction: SCMP_ACT_ERRNO
+  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.4
+```
+
+The resulting profile `profile1` will then contain all base syscalls from the
+remote `runc` profile. It is also possible to reference the base profile by its
+SHA256, like `oci://ghcr.io/security-profiles/runc@sha256:380…`. Please note
+that all profiles must be signed using [sigstore (cosign)](https://github.com/sigstore/cosign)
+signatures, otherwise the Security Profiles Operator will reject them.
+
+The operator internally caches pulled artifacts up to 24 hours for 1000
+profiles, means that they will be refreshed after that time period, if the stack
+is full or the operator daemon gets restarted. It is also possible to define
+additional `baseProfileName` for existing base profiles, so the operator will
+recursively resolve them up to a level of 15 stacked profiles.
+
+Because the resulting syscalls may hidden to the user, we additionally annotate
+the seccomp profile with the final results:
+
+```console
+> kubectl describe seccompprofile profile1
+Name:         profile1
+Namespace:    security-profiles-operator
+Labels:       spo.x-k8s.io/profile-id=SeccompProfile-profile1
+Annotations:  syscalls:
+                [{"names":["arch_prctl","brk","capget","capset","chdir","clone","close","dup3","epoll_create1","epoll_ctl","epoll_pwait","execve","exit_gr...
+API Version:  security-profiles-operator.x-k8s.io/v1beta1
+```
+
+We provide all available base profiles as part of the ["Security Profiles"
+GitHub organization](https://github.com/orgs/security-profiles/packages).
 
 ### Label namespaces for binding and recording
 
@@ -1857,6 +1913,77 @@ is not allowed any more:
 chmod: changing permissions of '/tmp/profile-chmod.json': Operation not permitted
 2023/03/10 10:25:38 Command did not exit successfully: exit status 1
 ```
+
+### Pull security profiles from OCI registries
+
+The `spoc` client is able to pull security profiles from OCI artifact compatible
+registries. To do that, just run `spoc pull`:
+
+```console
+> spoc pull ghcr.io/security-profiles/runc:v1.1.4
+16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.4
+16:32:29.795610 Verifying signature
+
+Verification for ghcr.io/security-profiles/runc:v1.1.4 --
+The following checks were performed on each of these signatures:
+  - Existence of the claims in the transparency log was verified offline
+  - The code-signing certificate was verified using trusted certificate authority certificates
+
+[{"critical":{"identity":{"docker-reference":"ghcr.io/security-profiles/runc"},…}}]
+16:32:33.208695 Creating file store in: /tmp/pull-3199397214
+16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.1.4
+16:32:33.208718 Creating repository for ghcr.io/security-profiles/runc
+16:32:33.208742 Using tag: v1.1.4
+16:32:33.208743 Copying profile from repository
+16:32:34.119652 Reading profile
+16:32:34.119677 Trying to unmarshal seccomp profile
+16:32:34.120114 Got SeccompProfile: runc-v1.1.4
+16:32:34.120119 Saving profile in: /tmp/profile.yaml
+```
+
+The profile can be now found in `/tmp/profile.yaml` or the specified output file
+`--output-file` / `-o`. If username and password authentication is required,
+either use the `--username`, `-u` flag or export the `USERNAME` environment
+variable. To set the password, export the `PASSWORD` environment variable.
+
+### Push security profiles to OCI registries
+
+The `spoc` client is also able to push security profiles from OCI artifact
+compatible registries. To do that, just run `spoc push`:
+
+```
+> export USERNAME=my-user
+> export PASSWORD=my-pass
+> spoc push -f ./examples/baseprofile-crun.yaml ghcr.io/security-profiles/crun:v1.8.1
+16:35:43.899886 Pushing profile ./examples/baseprofile-crun.yaml to: ghcr.io/security-profiles/crun:v1.8.1
+16:35:43.899939 Creating file store in: /tmp/push-3618165827
+16:35:43.899947 Adding profile to store: ./examples/baseprofile-crun.yaml
+16:35:43.900061 Packing files
+16:35:43.900282 Verifying reference: ghcr.io/security-profiles/crun:v1.8.1
+16:35:43.900310 Using tag: v1.8.1
+16:35:43.900313 Creating repository for ghcr.io/security-profiles/crun
+16:35:43.900319 Using username and password
+16:35:43.900321 Copying profile to repository
+16:35:46.976108 Signing container image
+Generating ephemeral keys...
+Retrieving signed certificate...
+
+        Note that there may be personally identifiable information associated with this signed artifact.
+        This may include the email address associated with the account with which you authenticate.
+        This information will be used for signing this artifact and will be stored in public transparency logs and cannot be removed later.
+
+By typing 'y', you attest that you grant (or have permission to grant) and agree to have this information stored permanently in transparency logs.
+Your browser will now be opened to:
+https://oauth2.sigstore.dev/auth/auth?access_type=…
+Successfully verified SCT...
+tlog entry created with index: 16520520
+Pushing signature to: ghcr.io/security-profiles/crun
+```
+
+We can specify an username and password in the same way as for `spoc pull`.
+Please also note that signing is always required for push and pull. It is
+possible to add custom annotations to the security profile by using the
+`--annotations` / `-a` flag multiple times in `KEY:VALUE` format.
 
 ## Uninstalling
 
