@@ -223,8 +223,8 @@ func (a *Artifact) Push(file, to, username, password string, annotations map[str
 }
 
 // Pull a profile from a remote location.
-func (a *Artifact) Pull(from, username, password string) (*PullResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+func (a *Artifact) Pull(c context.Context, from, username, password string) (*PullResult, error) {
+	ctx, cancel := context.WithTimeout(c, defaultTimeout)
 	defer cancel()
 
 	a.logger.Info("Verifying signature")

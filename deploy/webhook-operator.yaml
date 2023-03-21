@@ -466,8 +466,10 @@ spec:
                   type: string
                 type: array
               baseProfileName:
-                description: name of base profile (in the same namespace) what will
-                  be unioned into this profile
+                description: BaseProfileName is the name of base profile (in the same
+                  namespace) that will be unioned into this profile. Base profiles
+                  can be references as remote OCI artifacts as well when prefixed
+                  with `oci://`.
                 type: string
               defaultAction:
                 description: the default action for seccomp
@@ -2796,7 +2798,12 @@ data:
   security-profiles-operator.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
-      "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_X86", "SCMP_ARCH_X32", "SCMP_ARCH_AARCH64"],
+      "architectures": [
+        "SCMP_ARCH_X86_64",
+        "SCMP_ARCH_X86",
+        "SCMP_ARCH_X32",
+        "SCMP_ARCH_AARCH64"
+      ],
       "syscalls": [
         {
           "names": [
@@ -2821,8 +2828,10 @@ data:
             "exit_group",
             "fchown",
             "fcntl",
+            "flock",
             "fstat",
             "fstatfs",
+            "fsync",
             "futex",
             "getcwd",
             "getdents64",
@@ -2840,6 +2849,7 @@ data:
             "inotify_add_watch",
             "inotify_init1",
             "listen",
+            "lseek",
             "madvise",
             "membarrier",
             "mkdirat",
@@ -2854,8 +2864,12 @@ data:
             "pipe2",
             "prctl",
             "pread64",
+            "prlimit64",
             "read",
+            "readlink",
             "readlinkat",
+            "renameat",
+            "rseq",
             "rt_sigaction",
             "rt_sigprocmask",
             "rt_sigreturn",

@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,20 +23,15 @@ import (
 	"time"
 )
 
-const (
-	baseProfileNameRunc = "runc-v1.1.4"
-	baseProfileNameCrun = "crun-v1.8.1"
-)
-
-func (e *e2e) testCaseBaseProfile([]string) {
+func (e *e2e) testCaseBaseProfileOCI([]string) {
 	e.seccompOnlyTestCase()
 
-	baseProfilePath := "examples/baseprofile-runc.yaml"
-	baseProfileName := baseProfileNameRunc
+	baseProfileName := "oci://ghcr.io/security-profiles/"
 
 	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {
-		baseProfilePath = "examples/baseprofile-crun.yaml"
-		baseProfileName = baseProfileNameCrun
+		baseProfileName += strings.ReplaceAll(baseProfileNameCrun, "-", ":")
+	} else {
+		baseProfileName += strings.ReplaceAll(baseProfileNameRunc, "-", ":")
 	}
 
 	helloProfile := fmt.Sprintf(`
@@ -70,13 +65,12 @@ spec:
       localhostProfile: operator/%s/hello.json
   restartPolicy: OnFailure
 `
-	e.kubectl("create", "-f", baseProfilePath)
-	defer e.kubectl("delete", "-f", baseProfilePath)
 
 	e.logf("Creating hello profile")
 	helloProfileFile, err := os.CreateTemp("", "hello-profile*.yaml")
 	e.Nil(err)
 	defer os.Remove(helloProfileFile.Name())
+
 	_, err = helloProfileFile.WriteString(helloProfile)
 	e.Nil(err)
 	err = helloProfileFile.Close()
@@ -85,9 +79,7 @@ spec:
 	defer e.kubectl("delete", "-f", helloProfileFile.Name())
 
 	e.logf("Waiting for profile to be reconciled")
-	e.kubectlOperatorNS("logs", "-l", "name=spod")
 	e.waitFor("condition=ready", "sp", "hello")
-	e.kubectlOperatorNS("logs", "-l", "name=spod")
 
 	e.logf("Creating hello-world pod")
 	helloPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
