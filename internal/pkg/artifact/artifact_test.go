@@ -135,6 +135,15 @@ func TestPush(t *testing.T) {
 			},
 		},
 		{
+			name: "failure on FilepathAbs",
+			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.FilepathAbsReturns("", errTest)
+			},
+			assert: func(err error) {
+				require.ErrorIs(t, err, errTest)
+			},
+		},
+		{
 			name: "failure on StoreAdd",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.StoreAddReturns(ocispec.Descriptor{}, errTest)
