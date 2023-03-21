@@ -64,7 +64,7 @@ const (
 	ContainerIDMetrics                         = 4
 	DefaultHostProcPath                        = "/proc"
 	MetricsContainerName                       = "metrics"
-	SelinuxContainerNmae                       = "selinuxd"
+	SelinuxContainerName                       = "selinuxd"
 	LogEnricherContainerName                   = "log-enricher"
 	BpfRecorderContainerName                   = "bpf-recorder"
 	NonRootEnablerContainerName                = "non-root-enabler"
@@ -407,7 +407,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 					{
-						Name:  SelinuxContainerNmae,
+						Name:  SelinuxContainerName,
 						Image: "quay.io/security-profiles-operator/selinuxd",
 						Args: []string{
 							"daemon",
