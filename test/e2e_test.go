@@ -77,6 +77,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseBaseProfile,
 		},
 		{
+			"Seccomp: Verify base profile merge from OCI registry",
+			e.testCaseBaseProfileOCI,
+		},
+		{
 			"Seccomp: Allowed syscalls",
 			e.testCaseAllowedSyscalls,
 		},

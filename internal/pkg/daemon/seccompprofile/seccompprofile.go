@@ -25,10 +25,12 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/go-logr/logr"
+	"github.com/jellydator/ttlcache/v3"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -45,6 +47,7 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
@@ -75,28 +78,40 @@ const (
 
 	reasonSeccompNotSupported   string = "SeccompNotSupportedOnNode"
 	reasonInvalidSeccompProfile string = "InvalidSeccompProfile"
+	reasonCannotPullProfile     string = "CannotPullSeccompProfile"
 	reasonCannotSaveProfile     string = "CannotSaveSeccompProfile"
 	reasonCannotRemoveProfile   string = "CannotRemoveSeccompProfile"
 	reasonCannotUpdateProfile   string = "CannotUpdateSeccompProfile"
 	reasonCannotUpdateStatus    string = "CannotUpdateNodeStatus"
 	reasonProfileNotAllowed     string = "ProfileNotAllowed"
 	reasonSavedProfile          string = "SavedSeccompProfile"
+
+	defaultCacheTimeout time.Duration = 24 * time.Hour
+	maxCacheItems       uint64        = 1000
 )
 
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
-	return &Reconciler{}
+	return &Reconciler{
+		impl: &defaultImpl{},
+		baseProfiles: ttlcache.New(
+			ttlcache.WithTTL[string, *seccompprofileapi.SeccompProfile](defaultCacheTimeout),
+			ttlcache.WithCapacity[string, *seccompprofileapi.SeccompProfile](maxCacheItems),
+		),
+	}
 }
 
 type saver func(string, []byte) (bool, error)
 
 // A Reconciler reconciles seccomp profiles.
 type Reconciler struct {
-	client  client.Client
-	log     logr.Logger
-	record  record.EventRecorder
-	save    saver
-	metrics *metrics.Metrics
+	impl
+	client       client.Client
+	log          logr.Logger
+	record       record.EventRecorder
+	save         saver
+	metrics      *metrics.Metrics
+	baseProfiles *ttlcache.Cache[string, *seccompprofileapi.SeccompProfile]
 }
 
 // Name returns the name of the controller.
@@ -280,20 +295,106 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 func (r *Reconciler) mergeBaseProfile(
 	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
 ) (*seccompprofileapi.SeccompProfile, error) {
+	// Recursively resolve the syscalls
+	finalSyscalls, err := r.resolveSyscallsForProfile(ctx, sp, sp.Spec.Syscalls, l, 0)
+	if err != nil {
+		return nil, fmt.Errorf("resolve syscalls: %w", err)
+	}
+
+	// Update the final syscalls in the profile for visibility
+	scBytes, err := json.Marshal(finalSyscalls)
+	if err != nil {
+		return nil, fmt.Errorf("marshal syscalls to JSON: %w", err)
+	}
+	jsonSyscalls := string(scBytes)
+
+	const key = "syscalls"
+	if sp.Annotations[key] != jsonSyscalls {
+		l.Info("Updating syscall annotations", "profile", sp.Name)
+
+		if sp.Annotations == nil {
+			sp.Annotations = make(map[string]string)
+		}
+
+		sp.Annotations[key] = jsonSyscalls
+
+		if err := r.client.Update(ctx, sp); err != nil {
+			return nil, fmt.Errorf("update seccomp profile annotations: %w", err)
+		}
+	}
+
+	sp.Spec.Syscalls = finalSyscalls
+	return sp, nil
+}
+
+// resolveSyscallsForProfile recursively resolves the syscalls for base
+// profiles up to a depth level of 15 is also caches the results when pulling
+// from OCI artifacts.
+func (r *Reconciler) resolveSyscallsForProfile(
+	ctx context.Context,
+	sp *seccompprofileapi.SeccompProfile,
+	inputSyscalls []*seccompprofileapi.Syscall,
+	l logr.Logger,
+	level uint8,
+) ([]*seccompprofileapi.Syscall, error) {
+	const maxLevel = 15
+	if level >= maxLevel {
+		return nil, fmt.Errorf(
+			"max recursion level of %d is reached for resolving base profiles",
+			maxLevel,
+		)
+	}
+
 	baseProfileName := sp.Spec.BaseProfileName
 	if baseProfileName == "" {
-		return sp, nil
+		// No base profile at all
+		return inputSyscalls, nil
 	}
+
 	baseProfile := &seccompprofileapi.SeccompProfile{}
-	if err := r.client.Get(
-		ctx, util.NamespacedName(baseProfileName, sp.GetNamespace()), baseProfile); err != nil {
-		l.Error(err, "cannot retrieve base profile "+baseProfileName)
-		r.metrics.IncSeccompProfileError(reasonInvalidSeccompProfile)
-		r.record.Event(sp, util.EventTypeWarning, reasonInvalidSeccompProfile, err.Error())
-		return nil, fmt.Errorf("merging base profile: %w", err)
+
+	if strings.HasPrefix(baseProfileName, config.OCIProfilePrefix) {
+		// Pull remote base profile from an OCI artifact registry
+		from := strings.TrimPrefix(baseProfileName, config.OCIProfilePrefix)
+
+		item := r.baseProfiles.Get(from)
+		if item != nil {
+			l.Info("Using cached base profile", "baseProfile", from)
+			baseProfile = item.Value()
+		} else {
+			l.Info("Pulling base profile: " + from)
+			res, err := r.Pull(ctx, l, from, "", "")
+			if err != nil {
+				l.Error(err, "cannot pull base profile "+baseProfileName)
+				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)
+				r.RecordEvent(r.record, sp, util.EventTypeWarning, reasonCannotPullProfile, err.Error())
+				return nil, fmt.Errorf("retrieve base profile %s from OCI registry: %w", from, err)
+			}
+
+			resType := r.PullResultType(res)
+			if resType != artifact.PullResultTypeSeccompProfile {
+				return nil, fmt.Errorf("pull result type %s is not a seccomp profile", resType)
+			}
+			baseProfile = r.PullResultSeccompProfile(res)
+			r.baseProfiles.Set(from, baseProfile, ttlcache.DefaultTTL)
+		}
+	} else {
+		// Local base profile
+		profile, err := r.ClientGetProfile(
+			ctx, r.client, util.NamespacedName(baseProfileName, sp.GetNamespace()),
+		)
+		if err != nil {
+			l.Error(err, "cannot retrieve base profile "+baseProfileName)
+			r.IncSeccompProfileError(r.metrics, reasonInvalidSeccompProfile)
+			r.RecordEvent(r.record, sp, util.EventTypeWarning, reasonInvalidSeccompProfile, err.Error())
+			return nil, fmt.Errorf("merging base profile: %w", err)
+		}
+
+		baseProfile = profile
 	}
-	sp.Spec.Syscalls = util.UnionSyscalls(baseProfile.Spec.Syscalls, sp.Spec.Syscalls)
-	return sp, nil
+
+	newSyscalls := util.UnionSyscalls(baseProfile.Spec.Syscalls, inputSyscalls)
+	return r.resolveSyscallsForProfile(ctx, baseProfile, newSyscalls, l, level+1)
 }
 
 func (r *Reconciler) reconcileSeccompProfile(

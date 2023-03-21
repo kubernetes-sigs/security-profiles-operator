@@ -17,6 +17,8 @@ limitations under the License.
 package util
 
 import (
+	"sort"
+
 	"github.com/containers/common/pkg/seccomp"
 
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
@@ -51,6 +53,7 @@ func UnionSyscalls(baseSyscalls, appliedSyscalls []*seccompprofile.Syscall) []*s
 		for n := range names {
 			syscall.Names = append(syscall.Names, n)
 		}
+		sort.Strings(syscall.Names)
 		finalSyscalls = append(finalSyscalls, &syscall)
 	}
 	return finalSyscalls

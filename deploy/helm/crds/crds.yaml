@@ -290,8 +290,10 @@ spec:
                   type: string
                 type: array
               baseProfileName:
-                description: name of base profile (in the same namespace) what will
-                  be unioned into this profile
+                description: BaseProfileName is the name of base profile (in the same
+                  namespace) that will be unioned into this profile. Base profiles
+                  can be references as remote OCI artifacts as well when prefixed
+                  with `oci://`.
                 type: string
               defaultAction:
                 description: the default action for seccomp
