@@ -167,6 +167,10 @@ EOT
 
     echo "Diffing output, while ignoring flaky syscalls 'rt_sigreturn', 'sched_yield' and 'tgkill'"
     git diff --exit-code -U0 -I rt_sigreturn -I sched_yield -I tgkill examples
+
+    echo "Verifying that profile is available in the GitHub container registry"
+    cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' \
+        "ghcr.io/security-profiles/$RUNTIME:v$VERSION"
 }
 
 install_yq
