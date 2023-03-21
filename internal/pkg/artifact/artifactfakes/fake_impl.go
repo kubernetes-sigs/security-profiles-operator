@@ -87,6 +87,19 @@ type FakeImpl struct {
 		result1 *file.Store
 		result2 error
 	}
+	FilepathAbsStub        func(string) (string, error)
+	filepathAbsMutex       sync.RWMutex
+	filepathAbsArgsForCall []struct {
+		arg1 string
+	}
+	filepathAbsReturns struct {
+		result1 string
+		result2 error
+	}
+	filepathAbsReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
+	}
 	MkdirTempStub        func(string, string) (string, error)
 	mkdirTempMutex       sync.RWMutex
 	mkdirTempArgsForCall []struct {
@@ -497,6 +510,70 @@ func (fake *FakeImpl) FileNewReturnsOnCall(i int, result1 *file.Store, result2 e
 	}
 	fake.fileNewReturnsOnCall[i] = struct {
 		result1 *file.Store
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) FilepathAbs(arg1 string) (string, error) {
+	fake.filepathAbsMutex.Lock()
+	ret, specificReturn := fake.filepathAbsReturnsOnCall[len(fake.filepathAbsArgsForCall)]
+	fake.filepathAbsArgsForCall = append(fake.filepathAbsArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.FilepathAbsStub
+	fakeReturns := fake.filepathAbsReturns
+	fake.recordInvocation("FilepathAbs", []interface{}{arg1})
+	fake.filepathAbsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) FilepathAbsCallCount() int {
+	fake.filepathAbsMutex.RLock()
+	defer fake.filepathAbsMutex.RUnlock()
+	return len(fake.filepathAbsArgsForCall)
+}
+
+func (fake *FakeImpl) FilepathAbsCalls(stub func(string) (string, error)) {
+	fake.filepathAbsMutex.Lock()
+	defer fake.filepathAbsMutex.Unlock()
+	fake.FilepathAbsStub = stub
+}
+
+func (fake *FakeImpl) FilepathAbsArgsForCall(i int) string {
+	fake.filepathAbsMutex.RLock()
+	defer fake.filepathAbsMutex.RUnlock()
+	argsForCall := fake.filepathAbsArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) FilepathAbsReturns(result1 string, result2 error) {
+	fake.filepathAbsMutex.Lock()
+	defer fake.filepathAbsMutex.Unlock()
+	fake.FilepathAbsStub = nil
+	fake.filepathAbsReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) FilepathAbsReturnsOnCall(i int, result1 string, result2 error) {
+	fake.filepathAbsMutex.Lock()
+	defer fake.filepathAbsMutex.Unlock()
+	fake.FilepathAbsStub = nil
+	if fake.filepathAbsReturnsOnCall == nil {
+		fake.filepathAbsReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.filepathAbsReturnsOnCall[i] = struct {
+		result1 string
 		result2 error
 	}{result1, result2}
 }
@@ -1235,6 +1312,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.fileCloseMutex.RUnlock()
 	fake.fileNewMutex.RLock()
 	defer fake.fileNewMutex.RUnlock()
+	fake.filepathAbsMutex.RLock()
+	defer fake.filepathAbsMutex.RUnlock()
 	fake.mkdirTempMutex.RLock()
 	defer fake.mkdirTempMutex.RUnlock()
 	fake.newRepositoryMutex.RLock()

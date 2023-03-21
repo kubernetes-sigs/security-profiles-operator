@@ -19,6 +19,7 @@ package artifact
 import (
 	"context"
 	"os"
+	"path/filepath"
 
 	ggcrname "github.com/google/go-containerregistry/pkg/name"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -42,6 +43,7 @@ type impl interface {
 	RemoveAll(string) error
 	FileNew(string) (*file.Store, error)
 	FileClose(*file.Store) error
+	FilepathAbs(string) (string, error)
 	NewRepository(string) (*remote.Repository, error)
 	Copy(context.Context, oras.ReadOnlyTarget, string, oras.Target, string, oras.CopyOptions) (ocispec.Descriptor, error)
 	ReadFile(string) ([]byte, error)
@@ -72,6 +74,10 @@ func (*defaultImpl) FileNew(workingDir string) (*file.Store, error) {
 
 func (*defaultImpl) FileClose(store *file.Store) error {
 	return store.Close()
+}
+
+func (*defaultImpl) FilepathAbs(path string) (string, error) {
+	return filepath.Abs(path)
 }
 
 func (*defaultImpl) NewRepository(reference string) (*remote.Repository, error) {
