@@ -204,9 +204,9 @@ kubectl annotate ns $spo_ns \
   --overwrite
 
 # Install the chart from the release URL (or a file path if desired)
-helm install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.7.0/security-profiles-operator-0.7.0.tgz
+helm install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.7.1-dev/security-profiles-operator-0.7.1-dev.tgz
 # Or update it with 
-# helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.7.0/security-profiles-operator-0.7.0.tgz
+# helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.7.1-dev/security-profiles-operator-0.7.1-dev.tgz
 ```
 
 #### Troubleshooting and maintenance  
