@@ -25,18 +25,6 @@ patches:
   target:
     kind: (ClusterRoleBinding|RoleBinding)
 
-  # Replace the namespace name into the namespace resource.
-  # Remove unused openshift label
-- patch: |
-    - op: replace
-      path: /metadata/name
-      value: "{{ .Release.Namespace }}"
-    - op: remove
-      path:  "/metadata/labels/openshift.io~1cluster-monitoring"
-      value: "true"
-  target:
-    kind: Namespace
-
 # TODO: get webhook deployment replicas from values file
 - patch: |
     - op: replace
@@ -67,3 +55,6 @@ patches:
       value: "{{ .Release.Namespace }}"
   target:
     kind: (ClusterRole|ClusterRoleBinding|ConfigMap|MutatingWebhookConfiguration|Namespace|Role|RoleBinding|Secret|ServiceAccount)
+
+# Remove the namespace resource.
+- path: delete-ns.yaml
