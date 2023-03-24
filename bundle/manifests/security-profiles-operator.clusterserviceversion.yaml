@@ -241,15 +241,15 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
-    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.7.0
-    olm.skipRange: '>=0.4.1 <0.7.1-dev'
+    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.7.1
+    olm.skipRange: '>=0.4.1 <0.7.1'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
       Container Platform", "OpenShift Platform Plus"]'
     operators.operatorframework.io/builder: operator-sdk-v1.25.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
-  name: security-profiles-operator.v0.7.1-dev
+  name: security-profiles-operator.v0.7.1
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -862,7 +862,7 @@ spec:
                       fieldPath: spec.nodeName
                 - name: KUBELET_DIR
                   value: /var/lib/kubelet
-                image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
+                image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.7.1
                 imagePullPolicy: Always
                 name: security-profiles-operator
                 resources:
@@ -968,5 +968,5 @@ spec:
     name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd
-  replaces: security-profiles-operator.v0.6.0
-  version: 0.7.1-dev
+  replaces: security-profiles-operator.v0.7.0
+  version: 0.7.1
