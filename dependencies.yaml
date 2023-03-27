@@ -206,7 +206,7 @@ dependencies:
       match: BOM_VERSION
 
   - name: spo-current
-    version: 0.7.1
+    version: 0.7.2-dev
     refPaths:
     - path: VERSION
       match: ^.*
@@ -216,8 +216,6 @@ dependencies:
       match: "^appVersion: "
     - path: deploy/helm/Chart.yaml
       match: "^version: "
-    - path: installation-usage.md
-      match: ^helm install security-profiles-operator
 
   - name: clang
     version: 15
