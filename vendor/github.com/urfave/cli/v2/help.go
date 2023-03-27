@@ -60,7 +60,7 @@ var helpCommand = &Command{
 		}
 
 		// Case 1 & 2
-		// Special case when running help on main app itself as opposed to indivdual
+		// Special case when running help on main app itself as opposed to individual
 		// commands/subcommands
 		if cCtx.parentContext.App == nil {
 			_ = ShowAppHelp(cCtx)
@@ -188,7 +188,7 @@ func printFlagSuggestions(lastArg string, flags []Flag, writer io.Writer) {
 			// this will get total count utf8 letters in flag name
 			count := utf8.RuneCountInString(name)
 			if count > 2 {
-				count = 2 // resuse this count to generate single - or -- in flag completion
+				count = 2 // reuse this count to generate single - or -- in flag completion
 			}
 			// if flag name has more than one utf8 letter and last argument in cli has -- prefix then
 			// skip flag completion for short flags example -v or -x
@@ -227,7 +227,7 @@ func DefaultCompleteWithFlags(cmd *Command) func(cCtx *Context) {
 			return
 		}
 
-		printCommandSuggestions(cCtx.App.Commands, cCtx.App.Writer)
+		printCommandSuggestions(cCtx.Command.Subcommands, cCtx.App.Writer)
 	}
 }
 
@@ -246,7 +246,7 @@ func ShowCommandHelp(ctx *Context, command string) error {
 	}
 	for _, c := range commands {
 		if c.HasName(command) {
-			if !ctx.App.HideHelpCommand && !c.HasName(helpName) && len(c.Subcommands) != 0 {
+			if !ctx.App.HideHelpCommand && !c.HasName(helpName) && len(c.Subcommands) != 0 && c.Command(helpName) == nil {
 				c.Subcommands = append(c.Subcommands, helpCommandDontUse)
 			}
 			if !ctx.App.HideHelp && HelpFlag != nil {
@@ -308,15 +308,15 @@ func printVersion(cCtx *Context) {
 
 // ShowCompletions prints the lists of commands within a given context
 func ShowCompletions(cCtx *Context) {
-	a := cCtx.App
-	if a != nil && a.BashComplete != nil {
-		a.BashComplete(cCtx)
+	c := cCtx.Command
+	if c != nil && c.BashComplete != nil {
+		c.BashComplete(cCtx)
 	}
 }
 
 // ShowCommandCompletions prints the custom completions for a given command
 func ShowCommandCompletions(ctx *Context, command string) {
-	c := ctx.App.Command(command)
+	c := ctx.Command.Command(command)
 	if c != nil {
 		if c.BashComplete != nil {
 			c.BashComplete(ctx)
@@ -453,22 +453,13 @@ func checkCompletions(cCtx *Context) bool {
 
 	if args := cCtx.Args(); args.Present() {
 		name := args.First()
-		if cmd := cCtx.App.Command(name); cmd != nil {
+		if cmd := cCtx.Command.Command(name); cmd != nil {
 			// let the command handle the completion
 			return false
 		}
 	}
 
 	ShowCompletions(cCtx)
-	return true
-}
-
-func checkCommandCompletions(c *Context, name string) bool {
-	if !c.shellComplete {
-		return false
-	}
-
-	ShowCommandCompletions(c, name)
 	return true
 }
 

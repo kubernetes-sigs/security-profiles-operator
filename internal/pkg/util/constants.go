@@ -23,3 +23,8 @@ const (
 	HasActivePodsFinalizerString = "in-use-by-active-pods"
 	DefaultReadHeaderTimeout     = 3 * time.Second
 )
+
+const (
+	EventTypeNormal  string = "Normal"
+	EventTypeWarning string = "Warning"
+)

@@ -316,12 +316,21 @@ type App struct {
 	// cli.go uses text/template to render templates. You can
 	// render custom help text by setting this variable.
 	CustomAppHelpTemplate string
+	// SliceFlagSeparator is used to customize the separator for SliceFlag, the default is ","
+	SliceFlagSeparator string
+	// DisableSliceFlagSeparator is used to disable SliceFlagSeparator, the default is false
+	DisableSliceFlagSeparator bool
 	// Boolean to enable short-option handling so user can combine several
 	// single-character bool arguments into one
 	// i.e. foobar -o -v -> foobar -ov
 	UseShortOptionHandling bool
 	// Enable suggestions for commands and flags
 	Suggest bool
+	// Allows global flags set by libraries which use flag.XXXVar(...) directly
+	// to be parsed through this library
+	AllowExtFlags bool
+	// Treat all flags as normal arguments if true
+	SkipFlagParsing bool
 
 	// Has unexported fields.
 }
@@ -445,6 +454,8 @@ type BoolFlag struct {
 	EnvVars []string
 
 	Count *int
+
+	DisableDefaultText bool
 
 	Action func(*Context, bool) error
 	// Has unexported fields.
@@ -841,7 +852,7 @@ func Exit(message interface{}, exitCode int) ExitCoder
 
     This is the simplest way to trigger a non-zero exit code for an App
     without having to call os.Exit manually. During testing, this behavior
-    can be avoided by overiding the ExitErrHandler function on an App or the
+    can be avoided by overriding the ExitErrHandler function on an App or the
     package-global OsExiter function.
 
 func NewExitError(message interface{}, exitCode int) ExitCoder
@@ -872,18 +883,20 @@ var BashCompletionFlag Flag = &BoolFlag{
     BashCompletionFlag enables bash-completion for all commands and subcommands
 
 var HelpFlag Flag = &BoolFlag{
-	Name:    "help",
-	Aliases: []string{"h"},
-	Usage:   "show help",
+	Name:               "help",
+	Aliases:            []string{"h"},
+	Usage:              "show help",
+	DisableDefaultText: true,
 }
     HelpFlag prints the help for all commands and subcommands. Set to nil to
     disable the flag. The subcommand will still be added unless HideHelp or
     HideHelpCommand is set to true.
 
 var VersionFlag Flag = &BoolFlag{
-	Name:    "version",
-	Aliases: []string{"v"},
-	Usage:   "print the version",
+	Name:               "version",
+	Aliases:            []string{"v"},
+	Usage:              "print the version",
+	DisableDefaultText: true,
 }
     VersionFlag prints the version for the application
 
@@ -1025,6 +1038,8 @@ func (f *Float64Slice) String() string
 func (f *Float64Slice) Value() []float64
     Value returns the slice of float64s set by this flag
 
+func (f *Float64Slice) WithSeparatorSpec(spec separatorSpec)
+
 type Float64SliceFlag struct {
 	Name string
 
@@ -1099,6 +1114,8 @@ func (f *Float64SliceFlag) String() string
 
 func (f *Float64SliceFlag) TakesValue() bool
     TakesValue returns true if the flag takes a value, otherwise false
+
+func (f *Float64SliceFlag) WithSeparatorSpec(spec separatorSpec)
 
 type Generic interface {
 	Set(value string) error
@@ -1266,6 +1283,8 @@ func (i *Int64Slice) String() string
 func (i *Int64Slice) Value() []int64
     Value returns the slice of ints set by this flag
 
+func (i *Int64Slice) WithSeparatorSpec(spec separatorSpec)
+
 type Int64SliceFlag struct {
 	Name string
 
@@ -1340,6 +1359,8 @@ func (f *Int64SliceFlag) String() string
 
 func (f *Int64SliceFlag) TakesValue() bool
     TakesValue returns true of the flag takes a value, otherwise false
+
+func (f *Int64SliceFlag) WithSeparatorSpec(spec separatorSpec)
 
 type IntFlag struct {
 	Name string
@@ -1436,6 +1457,8 @@ func (i *IntSlice) String() string
 func (i *IntSlice) Value() []int
     Value returns the slice of ints set by this flag
 
+func (i *IntSlice) WithSeparatorSpec(spec separatorSpec)
+
 type IntSliceFlag struct {
 	Name string
 
@@ -1510,6 +1533,8 @@ func (f *IntSliceFlag) String() string
 
 func (f *IntSliceFlag) TakesValue() bool
     TakesValue returns true of the flag takes a value, otherwise false
+
+func (f *IntSliceFlag) WithSeparatorSpec(spec separatorSpec)
 
 type InvalidFlagAccessFunc func(*Context, string)
     InvalidFlagAccessFunc is executed when an invalid flag is accessed from the
@@ -1779,6 +1804,8 @@ func (s *StringSlice) String() string
 func (s *StringSlice) Value() []string
     Value returns the slice of strings set by this flag
 
+func (s *StringSlice) WithSeparatorSpec(spec separatorSpec)
+
 type StringSliceFlag struct {
 	Name string
 
@@ -1800,6 +1827,8 @@ type StringSliceFlag struct {
 	TakesFile bool
 
 	Action func(*Context, []string) error
+
+	KeepSpace bool
 	// Has unexported fields.
 }
     StringSliceFlag is a flag with type *StringSlice
@@ -1855,6 +1884,8 @@ func (f *StringSliceFlag) String() string
 
 func (f *StringSliceFlag) TakesValue() bool
     TakesValue returns true of the flag takes a value, otherwise false
+
+func (f *StringSliceFlag) WithSeparatorSpec(spec separatorSpec)
 
 type SuggestCommandFunc func(commands []*Command, provided string) string
 
@@ -2050,6 +2081,8 @@ func (i *Uint64Slice) String() string
 func (i *Uint64Slice) Value() []uint64
     Value returns the slice of ints set by this flag
 
+func (i *Uint64Slice) WithSeparatorSpec(spec separatorSpec)
+
 type Uint64SliceFlag struct {
 	Name string
 
@@ -2115,6 +2148,8 @@ func (f *Uint64SliceFlag) String() string
 
 func (f *Uint64SliceFlag) TakesValue() bool
     TakesValue returns true of the flag takes a value, otherwise false
+
+func (f *Uint64SliceFlag) WithSeparatorSpec(spec separatorSpec)
 
 type UintFlag struct {
 	Name string
@@ -2211,6 +2246,8 @@ func (i *UintSlice) String() string
 func (i *UintSlice) Value() []uint
     Value returns the slice of ints set by this flag
 
+func (i *UintSlice) WithSeparatorSpec(spec separatorSpec)
+
 type UintSliceFlag struct {
 	Name string
 
@@ -2276,6 +2313,8 @@ func (f *UintSliceFlag) String() string
 
 func (f *UintSliceFlag) TakesValue() bool
     TakesValue returns true of the flag takes a value, otherwise false
+
+func (f *UintSliceFlag) WithSeparatorSpec(spec separatorSpec)
 
 type VisibleFlag interface {
 	Flag
@@ -2404,6 +2443,9 @@ func (f *Float64SliceFlag) Apply(set *flag.FlagSet) error
     Apply saves the flagSet for later usage calls, then calls the wrapped
     Float64SliceFlag.Apply
 
+func (f *Float64SliceFlag) ApplyInputSourceValue(cCtx *cli.Context, isc InputSourceContext) error
+    ApplyInputSourceValue applies a Float64Slice value if required
+
 type GenericFlag struct {
 	*cli.GenericFlag
 	// Has unexported fields.
@@ -2425,11 +2467,16 @@ type InputSourceContext interface {
 	Source() string
 
 	Int(name string) (int, error)
+	Int64(name string) (int64, error)
+	Uint(name string) (uint, error)
+	Uint64(name string) (uint64, error)
 	Duration(name string) (time.Duration, error)
 	Float64(name string) (float64, error)
 	String(name string) (string, error)
 	StringSlice(name string) ([]string, error)
 	IntSlice(name string) ([]int, error)
+	Int64Slice(name string) ([]int64, error)
+	Float64Slice(name string) ([]float64, error)
 	Generic(name string) (cli.Generic, error)
 	Bool(name string) (bool, error)
 
@@ -2473,6 +2520,8 @@ func (f *Int64Flag) Apply(set *flag.FlagSet) error
     Apply saves the flagSet for later usage calls, then calls the wrapped
     Int64Flag.Apply
 
+func (f *Int64Flag) ApplyInputSourceValue(cCtx *cli.Context, isc InputSourceContext) error
+
 type Int64SliceFlag struct {
 	*cli.Int64SliceFlag
 	// Has unexported fields.
@@ -2486,6 +2535,9 @@ func NewInt64SliceFlag(fl *cli.Int64SliceFlag) *Int64SliceFlag
 func (f *Int64SliceFlag) Apply(set *flag.FlagSet) error
     Apply saves the flagSet for later usage calls, then calls the wrapped
     Int64SliceFlag.Apply
+
+func (f *Int64SliceFlag) ApplyInputSourceValue(cCtx *cli.Context, isc InputSourceContext) error
+    ApplyInputSourceValue applies a Int64Slice value if required
 
 type IntFlag struct {
 	*cli.IntFlag
@@ -2540,12 +2592,23 @@ func (fsm *MapInputSource) Duration(name string) (time.Duration, error)
 func (fsm *MapInputSource) Float64(name string) (float64, error)
     Float64 returns an float64 from the map if it exists otherwise returns 0
 
+func (fsm *MapInputSource) Float64Slice(name string) ([]float64, error)
+    Float64Slice returns an []float64 from the map if it exists otherwise
+    returns nil
+
 func (fsm *MapInputSource) Generic(name string) (cli.Generic, error)
     Generic returns an cli.Generic from the map if it exists otherwise returns
     nil
 
 func (fsm *MapInputSource) Int(name string) (int, error)
     Int returns an int from the map if it exists otherwise returns 0
+
+func (fsm *MapInputSource) Int64(name string) (int64, error)
+    Int64 returns an int64 from the map if it exists otherwise returns 0
+
+func (fsm *MapInputSource) Int64Slice(name string) ([]int64, error)
+    Int64Slice returns an []int64 from the map if it exists otherwise returns
+    nil
 
 func (fsm *MapInputSource) IntSlice(name string) ([]int, error)
     IntSlice returns an []int from the map if it exists otherwise returns nil
@@ -2560,6 +2623,12 @@ func (fsm *MapInputSource) String(name string) (string, error)
 func (fsm *MapInputSource) StringSlice(name string) ([]string, error)
     StringSlice returns an []string from the map if it exists otherwise returns
     nil
+
+func (fsm *MapInputSource) Uint(name string) (uint, error)
+    Int64 returns an int64 from the map if it exists otherwise returns 0
+
+func (fsm *MapInputSource) Uint64(name string) (uint64, error)
+    UInt64 returns an uint64 from the map if it exists otherwise returns 0
 
 type PathFlag struct {
 	*cli.PathFlag
@@ -2626,6 +2695,8 @@ func (f *Uint64Flag) Apply(set *flag.FlagSet) error
     Apply saves the flagSet for later usage calls, then calls the wrapped
     Uint64Flag.Apply
 
+func (f *Uint64Flag) ApplyInputSourceValue(cCtx *cli.Context, isc InputSourceContext) error
+
 type UintFlag struct {
 	*cli.UintFlag
 	// Has unexported fields.
@@ -2639,4 +2710,6 @@ func NewUintFlag(fl *cli.UintFlag) *UintFlag
 func (f *UintFlag) Apply(set *flag.FlagSet) error
     Apply saves the flagSet for later usage calls, then calls the wrapped
     UintFlag.Apply
+
+func (f *UintFlag) ApplyInputSourceValue(cCtx *cli.Context, isc InputSourceContext) error
 

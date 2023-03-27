@@ -1,6 +1,10 @@
 #ifndef __LIBBPF_GO_H__
 #define __LIBBPF_GO_H__
 
+#ifdef __powerpc64__
+#define __SANE_USERSPACE_TYPES__ 1
+#endif
+
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,42 +14,32 @@
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+#include <linux/bpf.h> // uapi
 
-int libbpf_print_fn(enum libbpf_print_level level, const char *format,
-                    va_list args) {
-  if (level != LIBBPF_WARN)
-    return 0;
+extern void loggerCallback(enum libbpf_print_level level, char *output);
 
-  // NOTE: va_list args is managed in libbpf caller
-  // however, these copies must be matched with va_end() in this function
-  va_list exclusivity_check, cgroup_check;
-  va_copy(exclusivity_check, args);
-  va_copy(cgroup_check, args);
+int libbpf_print_fn(enum libbpf_print_level level, // libbpf print level
+                    const char *format,            // format used for the msg
+                    va_list args) {                // args used by format
 
-  // BUG: https://github.com/aquasecurity/tracee/issues/1676
+  int ret = 0;
+  char *out;
+  va_list check;
 
-  char *str = va_arg(exclusivity_check, char *);
-  if (strstr(str, "Exclusivity flag on") != NULL) {
-    va_end(exclusivity_check);
-    return 0;
-  }
-  va_end(exclusivity_check);
+  out = (char *)calloc(1, 300);
+  if (!out)
+    return -ENOMEM;
 
-  // AttachCgroupLegacy() will first try AttachCgroup() and it
-  // might fail. This is not an error and is the best way of
-  // probing for eBPF cgroup attachment link existence.
+  va_copy(check, args);
+  ret = vsnprintf(out, 300, format, check);
+  va_end(check);
 
-  str = va_arg(cgroup_check, char *);
-  if (strstr(str, "cgroup") != NULL) {
-    str = va_arg(cgroup_check, char *);
-    if (strstr(str, "Invalid argument") != NULL) {
-      va_end(cgroup_check);
-      return 0;
-    }
-  }
-  va_end(cgroup_check);
+  if (ret > 0)
+    loggerCallback(level, out);
 
-  return vfprintf(stderr, format, args);
+  free(out);
+
+  return ret;
 }
 
 void set_print_fn() { libbpf_set_print(libbpf_print_fn); }
@@ -84,6 +78,13 @@ struct perf_buffer *init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx) {
   }
 
   return pb;
+}
+
+void get_internal_map_init_value(struct bpf_map *map, void *value) {
+  size_t psize;
+  const void *data;
+  data = bpf_map__initial_value(map, &psize);
+  memcpy(value, data, psize);
 }
 
 int bpf_prog_attach_cgroup_legacy(

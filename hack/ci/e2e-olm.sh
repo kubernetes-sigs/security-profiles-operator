@@ -45,7 +45,8 @@ function build_and_push_packages() {
 
     # Create a manifest with local image
     cp deploy/operator.yaml ${OPERATOR_MANIFEST}
-    sed -i "s#k8s.gcr.io/security-profiles-operator/security-profiles-operator.*\$#${IMG}#" ${OPERATOR_MANIFEST}
+    sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator.*\$#${IMG}#" ${OPERATOR_MANIFEST}
+    grep ${IMG} ${OPERATOR_MANIFEST} || exit 1
 
     # this is a kludge, we need to make sure kustomize can be overwritten
     rm -f build/kustomize
@@ -58,7 +59,7 @@ function build_and_push_packages() {
     podman push --tls-verify=false ${BUNDLE_IMG}
 
     # create catalog image, push catalog
-    make catalog-build OPM_EXTRA_ARGS=" --skip-tls" BUNDLE_IMGS=${BUNDLE_IMG} CATALOG_IMG=${CATALOG_IMG}
+    make catalog-build OPM_EXTRA_ARGS=" --use-http" BUNDLE_IMGS=${BUNDLE_IMG} CATALOG_IMG=${CATALOG_IMG}
     podman push --tls-verify=false ${CATALOG_IMG}
 }
 
@@ -68,11 +69,11 @@ function deploy_deps() {
 
     # cert-manager first. This should be done using dependencies in the
     # future
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.9.1/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml
     kubectl -ncert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # All installation methods run off the same catalog
-    sed -i "s#k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.5.0#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
+    sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
 
 }
 
@@ -123,6 +124,56 @@ cat $manifests
 kubectl create -f $manifests
 }
 
+function deploy_spo_with_variable() {
+    variable=$1
+    manifests=examples/olm/$variable-install-resources.yaml
+
+cat << EOF > $manifests
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security-profiles-operator
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: security-profiles-operator
+  namespace: olm
+spec:
+  sourceType: grpc
+  image: $CATALOG_IMG
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: security-profiles-operator-sub
+  namespace: security-profiles-operator
+spec:
+  config:
+    env:
+    - name: $variable
+      value: "true"
+  channel: stable
+  name: security-profiles-operator
+  source: security-profiles-operator
+  sourceNamespace: olm
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+EOF
+
+    echo "Installing manifest with $variable enabled"
+    cat $manifests
+
+    kubectl create -f $manifests
+}
+
 function deploy_spo() {
     installation_method=$1
     manifests=examples/olm/$installation_method-install-resources.yaml
@@ -153,6 +204,7 @@ function deploy_spo() {
     # let's roll..
     kubectl create -f $manifests
 }
+
 
 function check_spo_is_running() {
     ns=$1
@@ -359,6 +411,22 @@ function teardown_spo() {
     kubectl delete -f $manifests
 }
 
+function check_spod_property() {
+    what=$1
+
+    for i in $(seq 1 5); do
+        kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what
+        found=$?
+        if [ $found -ne 0 ]; then
+            sleep 3
+        else
+            break
+        fi
+    done
+
+    kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what || return 1
+}
+
 # The actual script begins here
 build_and_push_spo
 build_and_push_packages
@@ -382,6 +450,24 @@ deploy_spo_in_custom_ns spo-lives-here || rv=1
 check_spo_is_running spo-lives-here || rv=1
 kubectl get csv -A --show-labels
 smoke_test_custom || rv=1
+
+# This is actually part of the next test, but saves us one deployment..
+echo "Checking that there's no profilerecording by default"
+kubectl -nspo-lives-here get ds spod -oyaml | grep with-recording=false || exit 1
+
 teardown_spo custom
+
+# Test that deploying with ENABLE_BPF/ENABLE_LOG_ENRICHER enables the profilerecorder
+echo "Testing SPO deployment with ENABLE_LOG_ENRICHER"
+deploy_spo_with_variable ENABLE_LOG_ENRICHER || rv=1
+check_spo_is_running security-profiles-operator || rv=1
+check_spod_property with-recording=true
+teardown_spo ENABLE_LOG_ENRICHER
+
+echo "Testing SPO deployment with ENABLE_BPF_RECORDER"
+deploy_spo_with_variable ENABLE_BPF_RECORDER || rv=1
+check_spo_is_running security-profiles-operator || rv=1
+check_spod_property with-recording=true
+teardown_spo ENABLE_BPF_RECORDER
 
 exit $rv

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -20,6 +21,7 @@ var (
 	errInvalidActionType    = NewExitError("ERROR invalid Action type. "+
 		fmt.Sprintf("Must be `func(*Context`)` or `func(*Context) error).  %s", contactSysadmin)+
 		fmt.Sprintf("See %s", appActionDeprecationURL), 2)
+	ignoreFlagPrefix = "test." // this is to ignore test flags when adding flags from other packages
 
 	SuggestFlag               SuggestFlagFunc    = suggestFlag
 	SuggestCommand            SuggestCommandFunc = suggestCommand
@@ -103,14 +105,24 @@ type App struct {
 	// cli.go uses text/template to render templates. You can
 	// render custom help text by setting this variable.
 	CustomAppHelpTemplate string
+	// SliceFlagSeparator is used to customize the separator for SliceFlag, the default is ","
+	SliceFlagSeparator string
+	// DisableSliceFlagSeparator is used to disable SliceFlagSeparator, the default is false
+	DisableSliceFlagSeparator bool
 	// Boolean to enable short-option handling so user can combine several
 	// single-character bool arguments into one
 	// i.e. foobar -o -v -> foobar -ov
 	UseShortOptionHandling bool
 	// Enable suggestions for commands and flags
 	Suggest bool
+	// Allows global flags set by libraries which use flag.XXXVar(...) directly
+	// to be parsed through this library
+	AllowExtFlags bool
+	// Treat all flags as normal arguments if true
+	SkipFlagParsing bool
 
-	didSetup bool
+	didSetup  bool
+	separator separatorSpec
 
 	rootCommand *Command
 }
@@ -195,6 +207,26 @@ func (a *App) Setup() {
 		a.ErrWriter = os.Stderr
 	}
 
+	if a.AllowExtFlags {
+		// add global flags added by other packages
+		flag.VisitAll(func(f *flag.Flag) {
+			// skip test flags
+			if !strings.HasPrefix(f.Name, ignoreFlagPrefix) {
+				a.Flags = append(a.Flags, &extFlag{f})
+			}
+		})
+	}
+
+	if len(a.SliceFlagSeparator) != 0 {
+		a.separator.customized = true
+		a.separator.sep = a.SliceFlagSeparator
+	}
+
+	if a.DisableSliceFlagSeparator {
+		a.separator.customized = true
+		a.separator.disabled = true
+	}
+
 	var newCommands []*Command
 
 	for _, c := range a.Commands {
@@ -202,8 +234,8 @@ func (a *App) Setup() {
 		if c.HelpName != "" {
 			cname = c.HelpName
 		}
+		c.separator = a.separator
 		c.HelpName = fmt.Sprintf("%s %s", a.HelpName, cname)
-
 		c.flagCategories = newFlagCategoriesFromFlags(c.Flags)
 		newCommands = append(newCommands, c)
 	}
@@ -229,14 +261,7 @@ func (a *App) Setup() {
 	}
 	sort.Sort(a.categories.(*commandCategories))
 
-	a.flagCategories = newFlagCategories()
-	for _, fl := range a.Flags {
-		if cf, ok := fl.(CategorizableFlag); ok {
-			if cf.GetCategory() != "" {
-				a.flagCategories.AddFlag(cf.GetCategory(), cf)
-			}
-		}
-	}
+	a.flagCategories = newFlagCategoriesFromFlags(a.Flags)
 
 	if a.Metadata == nil {
 		a.Metadata = make(map[string]interface{})
@@ -264,12 +289,14 @@ func (a *App) newRootCommand() *Command {
 		HelpName:               a.HelpName,
 		CustomHelpTemplate:     a.CustomAppHelpTemplate,
 		categories:             a.categories,
+		SkipFlagParsing:        a.SkipFlagParsing,
 		isRoot:                 true,
+		separator:              a.separator,
 	}
 }
 
 func (a *App) newFlagSet() (*flag.FlagSet, error) {
-	return flagSet(a.Name, a.Flags)
+	return flagSet(a.Name, a.Flags, a.separator)
 }
 
 func (a *App) useShortOptionHandling() bool {

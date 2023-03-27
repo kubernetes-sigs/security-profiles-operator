@@ -22,8 +22,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -43,11 +44,17 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
-	reasonCannotCreateSPOD event.Reason = "CannotCreateSPOD"
-	reasonCannotUpdateSPOD event.Reason = "CannotUpdateSPOD"
+	// default reconcile timeout.
+	reconcileTimeout = 1 * time.Minute
+
+	reasonCannotCreateSPOD string = "CannotCreateSPOD"
+	reasonCannotUpdateSPOD string = "CannotUpdateSPOD"
+
+	appArmorAnnotation = "container.seccomp.security.alpha.kubernetes.io/security-profiles-operator"
 )
 
 // NewController returns a new empty controller instance.
@@ -62,10 +69,13 @@ var _ reconcile.Reconciler = &ReconcileSPOd{}
 type ReconcileSPOd struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client         client.Client
+	client client.Client
+	// clientReader reads object directly from api-server, this is useful when
+	// the cache is not ready (e.g. when listing the cluster nodes).
+	clientReader   client.Reader
 	scheme         *runtime.Scheme
 	baseSPOd       *appsv1.DaemonSet
-	record         event.Recorder
+	record         record.EventRecorder
 	log            logr.Logger
 	watchNamespace string
 	namespace      string
@@ -114,11 +124,16 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // OpenShift (This is ignored in other distros):
 // +kubebuilder:rbac:groups=security.openshift.io,namespace="security-profiles-operator",resources=securitycontextconstraints,verbs=use
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
+//
+// Needed to detect which runtime is active
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;get
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
-func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
-	ctx := context.Background()
+func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
 	logger := r.log.WithValues("profile", req.Name, "namespace", req.Namespace)
 	// Fetch the ConfigMap instance
 	spod := &spodv1alpha1.SecurityProfilesOperatorDaemon{}
@@ -177,7 +192,7 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 				ctx, spod, configuredSPOd, webhook, metricsService, certManagerResources, serviceMonitor,
 			)
 			if createErr != nil {
-				r.record.Event(spod, event.Warning(reasonCannotCreateSPOD, createErr))
+				r.record.Event(spod, util.EventTypeWarning, reasonCannotCreateSPOD, createErr.Error())
 				return reconcile.Result{}, createErr
 			}
 			return r.handleCreatingStatus(ctx, spod, logger)
@@ -202,14 +217,14 @@ func (r *ReconcileSPOd) Reconcile(_ context.Context, req reconcile.Request) (rec
 			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources, serviceMonitor,
 		)
 		if updateErr != nil {
-			r.record.Event(spod, event.Warning(reasonCannotUpdateSPOD, updateErr))
+			r.record.Event(spod, util.EventTypeWarning, reasonCannotUpdateSPOD, updateErr.Error())
 			return reconcile.Result{}, updateErr
 		}
 		return r.handleUpdatingStatus(ctx, spod, logger)
 	}
 
 	if foundSPOd.Status.NumberReady == foundSPOd.Status.DesiredNumberScheduled {
-		condready := spod.Status.GetCondition("Ready")
+		condready := spod.Status.GetReadyCondition()
 		// Don't pollute the logs. Let's only update when needed.
 		if condready.Status != corev1.ConditionTrue {
 			return r.handleRunningStatus(ctx, spod, logger)
@@ -261,6 +276,15 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 		return reconcile.Result{}, fmt.Errorf("updating spod status to 'updating': %w", updateErr)
 	}
 	return reconcile.Result{}, nil
+}
+
+func (r *ReconcileSPOd) defaultProfiles(
+	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
+) (defaultProfiles []*seccompprofileapi.SeccompProfile) {
+	if cfg.Spec.EnableLogEnricher {
+		defaultProfiles = append(defaultProfiles, bindata.DefaultLogEnricherProfile())
+	}
+	return defaultProfiles
 }
 
 func (r *ReconcileSPOd) handleRunningStatus(
@@ -315,7 +339,7 @@ func (r *ReconcileSPOd) handleCreate(
 	}
 
 	r.log.Info("Deploying operator default profiles")
-	for _, profile := range bindata.DefaultProfiles() {
+	for _, profile := range r.defaultProfiles(cfg) {
 		// Adapt the namespace if we watch only a single one
 		if r.watchNamespace != "" {
 			profile.Namespace = r.watchNamespace
@@ -383,7 +407,7 @@ func (r *ReconcileSPOd) handleUpdate(
 	}
 
 	r.log.Info("Updating operator default profiles")
-	for _, profile := range bindata.DefaultProfiles() {
+	for _, profile := range r.defaultProfiles(cfg) {
 		// Adapt the namespace if we watch only a single one
 		if r.watchNamespace != "" {
 			profile.Namespace = r.watchNamespace
@@ -473,6 +497,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		}
 	}
 
+	// Overwrite the SPOD's default resource requirements
+	if cfg.Spec.DaemonResourceRequirements != nil {
+		templateSpec.Containers[bindata.ContainerIDDaemon].Resources = *cfg.Spec.DaemonResourceRequirements
+	}
+
 	// SELinux parameters
 	enableSelinux := (cfg.Spec.EnableSelinux != nil && *cfg.Spec.EnableSelinux) ||
 		// enable SELinux support per default in OpenShift
@@ -481,7 +510,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	if enableSelinux {
 		templateSpec.InitContainers = append(
 			templateSpec.InitContainers,
-			r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.ContainerIDSelinuxd])
+			r.baseSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDSelinuxSharedPoliciesCopier])
 		templateSpec.Containers = append(
 			templateSpec.Containers,
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd])
@@ -495,7 +524,9 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath
 	volume, mount := bindata.CustomHostProcVolume(cfg.Spec.HostProcVolumePath)
 
-	if cfg.Spec.EnableLogEnricher || cfg.Spec.EnableBpfRecorder {
+	// Disable profile recording controller by default
+	enableRecording := false
+	if isLogEnricherEnabled(cfg) || isBpfRecorderEnabled(cfg) {
 		if useCustomHostProc {
 			templateSpec.Volumes = append(templateSpec.Volumes, volume)
 		}
@@ -503,14 +534,15 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// HostPID is required for the log-enricher and bpf recorder
 		// and is used to access cgroup files to map Process IDs to Pod IDs
 		templateSpec.HostPID = true
-	}
 
-	// Log enricher parameters. The spod setting takes precedence over the env var.
-	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
-	if err != nil {
-		enableLogEnricherEnv = false
+		// Enable profile recording controller which is disabled by default
+		enableRecording = true
 	}
-	if cfg.Spec.EnableLogEnricher || enableLogEnricherEnv {
+	templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+		fmt.Sprintf("--with-recording=%t", enableRecording))
+
+	if isLogEnricherEnabled(cfg) {
 		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher]
 		ctr.Image = image
 
@@ -519,10 +551,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		}
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
+		// pass the log enricher env var to the daemon as the profile recorder is otherwise disabled
+		addEnvVar(templateSpec, config.EnableLogEnricherEnvKey)
 	}
 
 	// Bpf recorder parameters
-	if cfg.Spec.EnableBpfRecorder {
+	if isBpfRecorderEnabled(cfg) {
 		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder]
 		ctr.Image = image
 
@@ -531,6 +565,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		}
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
+		// pass the bpf recorder env var to the daemon as the profile recorder is otherwise disabled
+		addEnvVar(templateSpec, config.EnableBpfRecorderEnvKey)
 	}
 
 	// AppArmor parameters
@@ -551,8 +587,21 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			"--with-apparmor=true")
 
+		// Remove AppArmor constraints to be able to manage AppArmor.
+		if newSPOd.ObjectMeta.Annotations == nil {
+			newSPOd.ObjectMeta.Annotations = make(map[string]string)
+		}
+		newSPOd.ObjectMeta.Annotations[appArmorAnnotation] = "unconfined"
+
 		// HostPID is required for AppArmor when trying to get access to the host ns
 		templateSpec.HostPID = true
+	}
+
+	// Enable memory optimization for spod controller
+	if cfg.Spec.EnableMemoryOptimization {
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+			"--with-mem-optim=true")
 	}
 
 	// Metrics parameters
@@ -568,9 +617,13 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// Set the logging verbosity
 		templateSpec.InitContainers[i].Env = append(templateSpec.InitContainers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
 
-		// Update the SELinux type tag when is defined in the configuration
-		if cfg.Spec.SelinuxTypeTag != "" {
-			templateSpec.InitContainers[i].SecurityContext.SELinuxOptions.Type = cfg.Spec.SelinuxTypeTag
+		// Update the SELinux type tag only when AppArmor is not enabled this is to prevent a crash.
+		// The SELinux type tag needs to be configured independent of EnableSelinux flag, because the
+		// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
+		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
+		// even though SELinux is disabled in order to get the containers to start.
+		if !cfg.Spec.EnableAppArmor {
+			configureSeLinuxTag(templateSpec.InitContainers[i].SecurityContext, cfg.Spec.SelinuxTypeTag)
 		}
 	}
 
@@ -589,17 +642,67 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		if cfg.Spec.EnableProfiling {
 			enableContainerProfiling(templateSpec, i)
 		}
-		// Update the SELinux type tag when is defined in the configuration
-		if cfg.Spec.SelinuxTypeTag != "" {
-			templateSpec.Containers[i].SecurityContext.SELinuxOptions.Type = cfg.Spec.SelinuxTypeTag
+		// Update the SELinux type tag only when AppArmor is not enabled this is to prevent a crash.
+		// The SELinux type tag needs to be configured independent of EnableSelinux flag, because the
+		// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
+		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
+		// even though SELinux is disabled in order to get the containers to start.
+		if !cfg.Spec.EnableAppArmor {
+			configureSeLinuxTag(templateSpec.Containers[i].SecurityContext, cfg.Spec.SelinuxTypeTag)
 		}
 	}
 
 	templateSpec.Tolerations = cfg.Spec.Tolerations
 	templateSpec.Affinity = cfg.Spec.Affinity
 	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
+	templateSpec.PriorityClassName = cfg.Spec.PriorityClassName
 
 	return newSPOd
+}
+
+func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
+	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
+	if err != nil {
+		enableLogEnricherEnv = false
+	}
+
+	return cfg.Spec.EnableLogEnricher || enableLogEnricherEnv
+}
+
+func isBpfRecorderEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
+	enableBpfRecorderEnv, err := strconv.ParseBool(os.Getenv(config.EnableBpfRecorderEnvKey))
+	if err != nil {
+		enableBpfRecorderEnv = false
+	}
+
+	return cfg.Spec.EnableBpfRecorder || enableBpfRecorderEnv
+}
+
+func addEnvVar(templateSpec *corev1.PodSpec, envVarKey string) {
+	envValue, err := strconv.ParseBool(os.Getenv(envVarKey))
+	if err != nil {
+		envValue = false
+	}
+
+	envVar := corev1.EnvVar{
+		Name:  envVarKey,
+		Value: fmt.Sprint(envValue),
+	}
+
+	templateSpec.Containers[bindata.ContainerIDDaemon].Env = append(
+		templateSpec.Containers[bindata.ContainerIDDaemon].Env,
+		envVar)
+}
+
+func configureSeLinuxTag(secContext *corev1.SecurityContext, seLinuxTag string) {
+	if secContext == nil {
+		return
+	}
+	if secContext.SELinuxOptions == nil {
+		secContext.SELinuxOptions = &corev1.SELinuxOptions{}
+	}
+
+	secContext.SELinuxOptions.Type = seLinuxTag
 }
 
 func verbosityEnv(value uint) corev1.EnvVar {
@@ -610,8 +713,9 @@ func verbosityEnv(value uint) corev1.EnvVar {
 }
 
 func enableContainerProfiling(templateSpec *corev1.PodSpec, cID int) {
-	switch cID {
-	case bindata.ContainerIDSelinuxd:
+	containerName := templateSpec.Containers[cID].Name
+	switch containerName {
+	case bindata.SelinuxContainerNmae:
 		templateSpec.Containers[cID].Args = append(
 			templateSpec.Containers[cID].Args,
 			profilingArgsSelinuxd()...,

@@ -18,13 +18,12 @@ package recordingmerger
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -46,10 +45,10 @@ const (
 	errNoPartialProfiles  = "no partial profiles to merge"
 	errEmptyMergedProfile = "merged profile is empty"
 
-	reasonCannotMergeKind    event.Reason = "KindNotSupportedForMerge"
-	reasonCannotCreateUpdate event.Reason = "CannotCreateUpdateMergedProfile"
-	reasonMergedEmptyProfile event.Reason = "MergedEmptyProfile"
-	reasonNoPartialProfiles  event.Reason = "NoPartialProfiles"
+	reasonCannotMergeKind    string = "KindNotSupportedForMerge"
+	reasonCannotCreateUpdate string = "CannotCreateUpdateMergedProfile"
+	reasonMergedEmptyProfile string = "MergedEmptyProfile"
+	reasonNoPartialProfiles  string = "NoPartialProfiles"
 )
 
 // NewController returns a new empty controller instance.
@@ -61,7 +60,7 @@ func NewController() controller.Controller {
 type PolicyMergeReconciler struct {
 	client client.Client
 	log    logr.Logger
-	record event.Recorder
+	record record.EventRecorder
 }
 
 // Name returns the name of the controller.
@@ -87,8 +86,8 @@ func (r *PolicyMergeReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch;create;update;patch;delete;deletecollection
 
 // Reconcile reconciles a NodeStatus.
-func (r *PolicyMergeReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+func (r *PolicyMergeReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	logger := r.log.WithValues("profileRecording", req.Name, "namespace", req.Namespace)
@@ -128,7 +127,7 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 		err = r.mergeSelinuxProfiles(ctx, profileRecording)
 	default:
 		err = fmt.Errorf("%s: %s", errCannotMergeKind, profileRecording.Spec.Kind)
-		r.record.Event(profileRecording, event.Warning(reasonCannotMergeKind, err))
+		r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotMergeKind, err.Error())
 	}
 
 	if err != nil {
@@ -151,12 +150,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	}
 
 	if len(partialProfiles) == 0 {
-		r.record.Event(profileRecording,
-			event.Warning(
-				reasonNoPartialProfiles,
-				errors.New(errNoPartialProfiles),
-			),
-		)
+		r.record.Event(profileRecording, util.EventTypeWarning, reasonNoPartialProfiles, errNoPartialProfiles)
 		r.log.Info(errNoPartialProfiles)
 		return nil
 	}
@@ -170,12 +164,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 		}
 
 		if mergedProfile == nil {
-			r.record.Event(profileRecording,
-				event.Warning(
-					reasonMergedEmptyProfile,
-					errors.New(errEmptyMergedProfile),
-				),
-			)
+			r.record.Event(profileRecording, util.EventTypeWarning, reasonMergedEmptyProfile, errEmptyMergedProfile)
 			r.log.Info(errEmptyMergedProfile)
 			return nil
 		}
@@ -183,7 +172,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 		mergedRecordingName := mergedProfileName(profileRecording.Name, cntPartialProfiles[0])
 		res, err := createUpdateMergedProfile(ctx, r.client, profileRecording, mergedRecordingName, mergedProfile)
 		if err != nil {
-			r.record.Event(profileRecording, event.Warning(reasonCannotCreateUpdate, err))
+			r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotCreateUpdate, err.Error())
 			return fmt.Errorf("cannot create or update merged profile: action:  %w", err)
 		}
 		r.log.Info("Created/updated profile", "action", res, "name", mergedRecordingName)
@@ -214,7 +203,7 @@ func (r *PolicyMergeReconciler) mergeSeccompProfiles(
 
 func createUpdateSeccompProfile(
 	ctx context.Context,
-	client client.Client,
+	cl client.Client,
 	profileRecording *profilerecording1alpha1.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
@@ -229,7 +218,7 @@ func createUpdateSeccompProfile(
 	}
 	mergedSpec := mergedProf.Spec.DeepCopy()
 	mergedSp.Spec = *mergedSpec
-	return controllerutil.CreateOrUpdate(ctx, client, mergedSp,
+	return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
 		func() error {
 			mergedSp.Spec = *mergedSpec
 			return nil
@@ -251,7 +240,7 @@ func (r *PolicyMergeReconciler) mergeSelinuxProfiles(
 
 func createUpdateSelinuxProfile(
 	ctx context.Context,
-	client client.Client,
+	cl client.Client,
 	profileRecording *profilerecording1alpha1.ProfileRecording,
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
@@ -267,7 +256,7 @@ func createUpdateSelinuxProfile(
 
 	mergedSpec := mergedProf.Spec.DeepCopy()
 	mergedSp.Spec = *mergedSpec
-	return controllerutil.CreateOrUpdate(ctx, client, mergedSp,
+	return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
 		func() error {
 			mergedSp.Spec = *mergedSpec
 			return nil

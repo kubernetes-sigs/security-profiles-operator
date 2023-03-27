@@ -22,18 +22,20 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 // CtxKey type for spod context keys.
@@ -49,10 +51,12 @@ const (
 // daemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type daemonTunables struct {
-	selinuxdImage    string
-	rbacProxyImage   string
-	logEnricherImage string
-	watchNamespace   string
+	selinuxdImage           string
+	rbacProxyImage          string
+	logEnricherImage        string
+	watchNamespace          string
+	seccompLocalhostProfile string
+	containerRuntime        string
 }
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -63,9 +67,10 @@ func (r *ReconcileSPOd) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(r.Name()))
+	r.record = mgr.GetEventRecorderFor(r.Name())
+	r.clientReader = mgr.GetAPIReader()
 
-	dt, err := getTunables()
+	dt, err := r.getTunables(ctx)
 	if err != nil {
 		return fmt.Errorf("get tunables: %w", err)
 	}
@@ -84,7 +89,12 @@ func (r *ReconcileSPOd) Setup(
 		Named(r.Name()).
 		For(&spodv1alpha1.SecurityProfilesOperatorDaemon{}).
 		Owns(&appsv1.DaemonSet{}).
-		WithEventFilter(resource.NewPredicates(isInOperatorNamespace)).
+		WithEventFilter(predicate.Funcs{
+			CreateFunc:  func(e event.CreateEvent) bool { return isInOperatorNamespace(e.Object) },
+			DeleteFunc:  func(e event.DeleteEvent) bool { return isInOperatorNamespace(e.Object) },
+			UpdateFunc:  func(e event.UpdateEvent) bool { return isInOperatorNamespace(e.ObjectNew) },
+			GenericFunc: func(e event.GenericEvent) bool { return isInOperatorNamespace(e.Object) },
+		}).
 		Complete(r)
 }
 
@@ -109,7 +119,7 @@ func isStaticWebhook(ctx context.Context) bool {
 	return false
 }
 
-func getTunables() (*daemonTunables, error) {
+func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error) {
 	dt := &daemonTunables{}
 	dt.watchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
 
@@ -124,6 +134,19 @@ func getTunables() (*daemonTunables, error) {
 		return dt, errors.New("invalid rbac proxy image")
 	}
 	dt.rbacProxyImage = rbacProxyImage
+
+	node := &corev1.Node{}
+	nodeName := os.Getenv(config.NodeNameEnvKey)
+	if nodeName != "" {
+		objectKey := client.ObjectKey{Name: nodeName}
+		err := r.clientReader.Get(ctx, objectKey, node)
+		if err != nil {
+			return dt, fmt.Errorf("getting cluster node object: %w", err)
+		}
+	}
+	dt.seccompLocalhostProfile = util.GetSeccompLocalhostProfilePath(node)
+	dt.containerRuntime = util.GetContainerRuntime(node)
+
 	return dt, nil
 }
 
@@ -138,6 +161,12 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 			Value: dt.watchNamespace,
 		})
 	}
+	if dt.seccompLocalhostProfile != "" {
+		daemon.SecurityContext.SeccompProfile.LocalhostProfile = &dt.seccompLocalhostProfile
+	}
+
+	nonRootEnabler := &refSPOd.Spec.Template.Spec.InitContainers[0]
+	nonRootEnabler.Args = append(nonRootEnabler.Args, "--runtime="+dt.containerRuntime)
 
 	selinuxd := &refSPOd.Spec.Template.Spec.Containers[1]
 	selinuxd.Image = dt.selinuxdImage

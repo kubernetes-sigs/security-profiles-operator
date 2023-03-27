@@ -20,12 +20,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/crossplane/crossplane-runtime/pkg/resource"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
@@ -41,7 +41,7 @@ func (r *PodReconciler) Setup(
 	const name = "pods"
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	r.record = event.NewAPIRecorder(mgr.GetEventRecorderFor(name))
+	r.record = mgr.GetEventRecorderFor(name)
 
 	// Index Pods using seccomp profiles
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, spOwnerKey, func(rawObj client.Object) []string {
@@ -60,7 +60,7 @@ func (r *PodReconciler) Setup(
 		if !ok {
 			return []string{}
 		}
-		return getSelinuxProfilesFromPod(r, pod)
+		return getSelinuxProfilesFromPod(ctx, r, pod)
 	}); err != nil {
 		return fmt.Errorf("creating pod index: %w", err)
 	}
@@ -94,7 +94,12 @@ func (r *PodReconciler) Setup(
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(name).
 		For(&corev1.Pod{}).
-		WithEventFilter(resource.NewPredicates(r.hasValidProfile)).
+		WithEventFilter(predicate.Funcs{
+			CreateFunc:  func(e event.CreateEvent) bool { return r.hasValidProfile(e.Object) },
+			DeleteFunc:  func(e event.DeleteEvent) bool { return r.hasValidProfile(e.Object) },
+			UpdateFunc:  func(e event.UpdateEvent) bool { return r.hasValidProfile(e.ObjectNew) },
+			GenericFunc: func(e event.GenericEvent) bool { return r.hasValidProfile(e.Object) },
+		}).
 		Complete(r)
 }
 
@@ -113,7 +118,7 @@ func hasSelinuxProfile(r *PodReconciler, obj runtime.Object) bool {
 		return false
 	}
 
-	return len(getSelinuxProfilesFromPod(r, pod)) > 0
+	return len(getSelinuxProfilesFromPod(context.TODO(), r, pod)) > 0
 }
 
 func (r *PodReconciler) hasValidProfile(obj runtime.Object) bool {

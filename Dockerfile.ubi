@@ -18,7 +18,7 @@
 # for more details
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi8/go-toolset@sha256:5c33798716db98ce485d606451bef1dd7a6eb3b1422a67cbd10eacc870eb2de5 as build
+FROM registry.access.redhat.com/ubi8/go-toolset@sha256:160ff3bc88c4921f7b602f56b6115fe8bc99212f81f1d5acf5c259210d0261f3 as build
 USER root
 WORKDIR /work
 
@@ -37,7 +37,7 @@ ARG STATIC_LINK=no
 RUN make
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:9a9149dbba8dc5a961dfec460018c245b49da0f52e9934e1a70dd4d42f9fc5b7
+FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:65a240ad8bd3f2fff3e18a22ebadc40da0b145616231fc1e16251f3c6dee087a
 ARG version
 USER root
 
@@ -49,6 +49,7 @@ LABEL name="Security Profiles Operator" \
       description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, SELinux or AppArmor profiles and apply them to Kubernetes' workloads."
 
 COPY --from=build /work/build/security-profiles-operator /usr/bin/
+COPY --from=build /work/build/spoc /usr/bin/
 
 ENTRYPOINT ["/usr/bin/security-profiles-operator"]
 

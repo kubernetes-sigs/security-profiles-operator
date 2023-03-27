@@ -18,6 +18,7 @@ package gitlab
 
 import (
 	"net/http"
+	"time"
 
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 )
@@ -75,6 +76,32 @@ func WithCustomRetry(checkRetry retryablehttp.CheckRetry) ClientOptionFunc {
 	}
 }
 
+// WithCustomRetryMax can be used to configure a custom maximum number of retries.
+func WithCustomRetryMax(retryMax int) ClientOptionFunc {
+	return func(c *Client) error {
+		c.client.RetryMax = retryMax
+		return nil
+	}
+}
+
+// WithCustomRetryWaitMinMax can be used to configure a custom minimum and
+// maximum time to wait between retries.
+func WithCustomRetryWaitMinMax(waitMin, waitMax time.Duration) ClientOptionFunc {
+	return func(c *Client) error {
+		c.client.RetryWaitMin = waitMin
+		c.client.RetryWaitMax = waitMax
+		return nil
+	}
+}
+
+// WithErrorHandler can be used to configure a custom error handler.
+func WithErrorHandler(handler retryablehttp.ErrorHandler) ClientOptionFunc {
+	return func(c *Client) error {
+		c.client.ErrorHandler = handler
+		return nil
+	}
+}
+
 // WithHTTPClient can be used to configure a custom HTTP client.
 func WithHTTPClient(httpClient *http.Client) ClientOptionFunc {
 	return func(c *Client) error {
@@ -103,6 +130,14 @@ func WithResponseLogHook(hook retryablehttp.ResponseLogHook) ClientOptionFunc {
 func WithoutRetries() ClientOptionFunc {
 	return func(c *Client) error {
 		c.disableRetries = true
+		return nil
+	}
+}
+
+// WithRequestOptions can be used to configure default request options applied to every request.
+func WithRequestOptions(options ...RequestOptionFunc) ClientOptionFunc {
+	return func(c *Client) error {
+		c.defaultRequestOptions = append(c.defaultRequestOptions, options...)
 		return nil
 	}
 }

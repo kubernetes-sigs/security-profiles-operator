@@ -22,9 +22,8 @@ import (
 	"path"
 	"time"
 
-	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -58,7 +57,7 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 		// the dev container where the tests are executed. This check needs to be skipped.
 		if e.nodeRootfsPrefix == "" {
 			statOutput := e.execNode(
-				node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath,
+				node, "stat", "-L", "-c", `%a,%u,%g`, config.ProfilesRootPath(),
 			)
 			e.Contains(statOutput, "744,65535,65535")
 
@@ -219,8 +218,8 @@ spec:
 	e.logf("Ensuring profile cannot be deleted while pod is active")
 	for i := 0; i < 10; i++ {
 		sp := e.getSeccompProfile(allowProfileName, namespace)
-		conReady := sp.Status.GetCondition(v1.TypeReady)
-		if conReady.Reason == v1.ReasonDeleting {
+		conReady := sp.Status.GetReadyCondition()
+		if conReady.Reason == spodv1alpha1.ReasonDeleting {
 			break
 		}
 		time.Sleep(time.Second)

@@ -21,9 +21,8 @@ import (
 	"path"
 	"time"
 
-	v1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 )
 
 func (e *e2e) testCaseDeleteProfiles(nodes []string) {
@@ -177,8 +176,8 @@ spec:
 		// TODO(jhrozek): deleting manifests as Ready=False, reason=Deleting, can we wait in a nicer way?
 		for i := 0; i < 10; i++ {
 			sp := e.getSeccompProfile(deleteProfileName, namespace)
-			conReady := sp.Status.GetCondition(v1.TypeReady)
-			if conReady.Reason == v1.ReasonDeleting {
+			conReady := sp.Status.GetReadyCondition()
+			if conReady.Reason == spodv1alpha1.ReasonDeleting {
 				break
 			}
 			time.Sleep(time.Second)

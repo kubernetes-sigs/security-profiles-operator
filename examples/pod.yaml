@@ -2,13 +2,6 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: test-pod
-  annotations:
-    # Use the default nginx profile
-    seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/security-profiles-operator/nginx-1.19.1.json'
-    # Or one example within this directory
-    # Please note the syntax:
-    # `localhost/operator/{namespace}/{profile-name}`
-    # seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/default/profile-allow-unsafe.json'
 spec:
   containers:
   - name: test-container
@@ -16,5 +9,5 @@ spec:
     # securityContext:
       # seccompProfile:
         # type: Localhost
-        # localhostProfile: operator/security-profiles-operator/nginx-1.19.1.json
-    image: nginx:1.19.1
+        # localhostProfile: operator/security-profiles-operator/nginx-1.23.2.json
+    image: nginx:1.23.2

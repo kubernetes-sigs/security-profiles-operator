@@ -46,12 +46,12 @@ func (e *Enricher) Syscalls(
 		st := status.New(codes.NotFound, ErrorNoSyscalls)
 		return nil, st.Err()
 	}
-	stringSet, ok := syscalls.(sets.String)
+	stringSet, ok := syscalls.(sets.Set[string])
 	if !ok {
 		return nil, errors.New("syscalls are no string set")
 	}
 	return &api.SyscallsResponse{
-		Syscalls: stringSet.List(),
+		Syscalls: stringSet.UnsortedList(),
 		GoArch:   runtime.GOARCH,
 	}, nil
 }
@@ -75,11 +75,11 @@ func (e *Enricher) Avcs(
 	}
 
 	avcList := make([]*api.AvcResponse_SelinuxAvc, 0)
-	stringSet, ok := avcs.(sets.String)
+	stringSet, ok := avcs.(sets.Set[string])
 	if !ok {
 		return nil, errors.New("avcs are no string set")
 	}
-	jsonList := stringSet.List()
+	jsonList := stringSet.UnsortedList()
 	for i := range jsonList {
 		avc := &api.AvcResponse_SelinuxAvc{}
 		err := protojson.Unmarshal([]byte(jsonList[i]), avc)

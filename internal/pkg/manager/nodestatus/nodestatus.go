@@ -23,8 +23,6 @@ import (
 	"net/http"
 	"time"
 
-	rcommonv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -32,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
@@ -40,6 +39,7 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -64,7 +64,7 @@ func NewController() controller.Controller {
 type StatusReconciler struct {
 	client client.Client
 	log    logr.Logger
-	record event.Recorder
+	record record.EventRecorder
 }
 
 // Name returns the name of the controller.
@@ -103,8 +103,8 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 // Reconcile reconciles a NodeStatus.
-func (r *StatusReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	logger := r.log.WithValues("nodeStatus", req.Name, "namespace", req.Namespace)
@@ -290,22 +290,22 @@ func (r *StatusReconciler) reconcileStatus(
 	switch state {
 	case statusv1alpha1.ProfileStatePending, "":
 		outStatus.Status = statusv1alpha1.ProfileStatePending
-		outStatus.SetConditions(rcommonv1.Creating())
+		outStatus.SetConditions(spodv1alpha1.Creating())
 	case statusv1alpha1.ProfileStateInProgress:
-		outStatus.SetConditions(rcommonv1.Creating())
+		outStatus.SetConditions(spodv1alpha1.Creating())
 		outStatus.Status = statusv1alpha1.ProfileStateInProgress
 	case statusv1alpha1.ProfileStateInstalled:
 		outStatus.Status = statusv1alpha1.ProfileStateInstalled
-		outStatus.SetConditions(rcommonv1.Available())
+		outStatus.SetConditions(spodv1alpha1.Available())
 	case statusv1alpha1.ProfileStateTerminating:
 		outStatus.Status = statusv1alpha1.ProfileStateTerminating
-		outStatus.SetConditions(rcommonv1.Deleting())
+		outStatus.SetConditions(spodv1alpha1.Deleting())
 	case statusv1alpha1.ProfileStateError:
 		outStatus.Status = statusv1alpha1.ProfileStateError
-		outStatus.SetConditions(rcommonv1.Unavailable())
+		outStatus.SetConditions(spodv1alpha1.Unavailable())
 	case statusv1alpha1.ProfileStatePartial:
 		outStatus.Status = statusv1alpha1.ProfileStatePartial
-		outStatus.SetConditions(rcommonv1.Unavailable())
+		outStatus.SetConditions(spodv1alpha1.Unavailable())
 	}
 
 	l.V(config.VerboseLevel).Info("Updating status")

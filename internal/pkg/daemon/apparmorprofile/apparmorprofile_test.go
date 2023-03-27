@@ -20,18 +20,18 @@ import (
 	"context"
 	"testing"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/crossplane/crossplane-runtime/pkg/test"
 	_ "github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func TestReconcile(t *testing.T) {
@@ -50,8 +50,8 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "ProfileNotFound",
 			rec: &Reconciler{
-				client: &test.MockClient{
-					MockGet: test.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
+				client: &util.MockClient{
+					MockGet: util.NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, name)),
 				},
 				log:     log.Log,
 				metrics: metrics.New(),
@@ -64,13 +64,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "GotProfile",
 			rec: &Reconciler{
-				client: &test.MockClient{
-					MockGet:          test.NewMockGetFn(nil),
-					MockUpdate:       test.NewMockUpdateFn(nil),
-					MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
+				client: &util.MockClient{
+					MockGet:                     util.NewMockGetFn(nil),
+					MockUpdate:                  util.NewMockUpdateFn(nil),
+					MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
 				},
 				log:     log.Log,
-				record:  event.NewNopRecorder(),
+				record:  record.NewFakeRecorder(10),
 				manager: NewAppArmorProfileManager(log.Log),
 				metrics: metrics.New(),
 			},
@@ -81,13 +81,13 @@ func TestReconcile(t *testing.T) {
 		{
 			name: "NotEnabled",
 			rec: &Reconciler{
-				client: &test.MockClient{
-					MockGet:          test.NewMockGetFn(nil),
-					MockUpdate:       test.NewMockUpdateFn(nil),
-					MockStatusUpdate: test.NewMockStatusUpdateFn(nil),
+				client: &util.MockClient{
+					MockGet:                     util.NewMockGetFn(nil),
+					MockUpdate:                  util.NewMockUpdateFn(nil),
+					MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
 				},
 				log:     log.Log,
-				record:  event.NewNopRecorder(),
+				record:  record.NewFakeRecorder(10),
 				manager: &FakeProfileManager{enabled: false},
 				metrics: metrics.New(),
 			},

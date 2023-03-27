@@ -23,12 +23,12 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/containers/common/pkg/seccomp"
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -39,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -57,6 +58,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
 )
 
@@ -66,10 +68,10 @@ const (
 
 	errInvalidAnnotation = "invalid Annotation"
 
-	reasonProfileRecording      event.Reason = "SeccompProfileRecording"
-	reasonProfileCreated        event.Reason = "SeccompProfileCreated"
-	reasonProfileCreationFailed event.Reason = "CannotCreateSeccompProfile"
-	reasonAnnotationParsing     event.Reason = "SeccompAnnotationParsing"
+	reasonProfileRecording      string = "ProfileRecording"
+	reasonProfileCreated        string = "ProfileCreated"
+	reasonProfileCreationFailed string = "CannotCreateProfile"
+	reasonAnnotationParsing     string = "AnnotationParsing"
 
 	seContextRequiredParts = 3
 )
@@ -87,7 +89,7 @@ type RecorderReconciler struct {
 	impl
 	client        client.Client
 	log           logr.Logger
-	record        event.Recorder
+	record        record.EventRecorder
 	nodeAddresses []string
 	podsToWatch   sync.Map
 }
@@ -151,15 +153,15 @@ func (r *RecorderReconciler) Setup(
 
 	r.client = r.ManagerGetClient(mgr)
 	r.nodeAddresses = nodeAddresses
-	r.record = event.NewAPIRecorder(r.ManagerGetEventRecorderFor(mgr, name))
+	r.record = r.ManagerGetEventRecorderFor(mgr, name)
 
 	return r.NewControllerManagedBy(
 		mgr, name, r.isPodWithTraceAnnotation, r.isPodOnLocalNode, r,
 	)
 }
 
-func (r *RecorderReconciler) getSPOD() (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+func (r *RecorderReconciler) getSPOD(ctx context.Context) (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 	return r.GetSPOD(ctx, r.client)
 }
@@ -204,10 +206,10 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 }
 
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *RecorderReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("pod", req.Name, "namespace", req.Namespace)
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	pod, err := r.GetPod(ctx, r.client, req.NamespacedName)
@@ -219,7 +221,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 				// not reconcilable, no need to requeue
 				return reconcile.Result{}, nil
 			} else if collErr != nil {
-				return reconcile.Result{}, fmt.Errorf("collect profile for removed pod: %w", err)
+				return reconcile.Result{}, fmt.Errorf("collect profile for removed pod: %w", collErr)
 			}
 			return reconcile.Result{}, nil
 		}
@@ -240,7 +242,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			// Malformed annotations could be set by users directly, which is
 			// why we are ignoring them.
 			logger.Info("Ignoring because unable to parse log annotation", "error", err)
-			r.record.Event(pod, event.Warning(reasonAnnotationParsing, err))
+			r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing, err.Error())
 			return reconcile.Result{}, nil
 		}
 
@@ -249,17 +251,21 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			// Malformed annotations could be set by users directly, which is
 			// why we are ignoring them.
 			logger.Info("Ignoring because unable to parse bpf annotation", "error", err)
-			r.record.Event(pod, event.Warning(reasonAnnotationParsing, err))
+			r.record.Event(pod, util.EventTypeWarning, reasonAnnotationParsing, err.Error())
 			return reconcile.Result{}, nil
 		}
 
-		var profiles []profileToCollect
-		var recorder profilerecording1alpha1.ProfileRecorder
+		var (
+			profiles []profileToCollect
+			recorder profilerecording1alpha1.ProfileRecorder
+		)
+
+		//nolint:gocritic // should be intentionally no switch
 		if len(logProfiles) > 0 {
 			profiles = logProfiles
 			recorder = profilerecording1alpha1.ProfileRecorderLogs
 		} else if len(bpfProfiles) > 0 {
-			if err := r.startBpfRecorder(); err != nil {
+			if err := r.startBpfRecorder(ctx); err != nil {
 				logger.Error(err, "unable to start bpf recorder")
 				return reconcile.Result{}, err
 			}
@@ -285,7 +291,7 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 			req.NamespacedName.String(),
 			podToWatch{baseName, recorder, profiles},
 		)
-		r.record.Event(pod, event.Normal(reasonProfileRecording, "Recording profiles"))
+		r.record.Event(pod, util.EventTypeNormal, reasonProfileRecording, "Recording profiles")
 	}
 
 	if pod.Status.Phase == corev1.PodSucceeded {
@@ -302,15 +308,21 @@ func (r *RecorderReconciler) Reconcile(_ context.Context, req reconcile.Request)
 	return reconcile.Result{}, nil
 }
 
-func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderClient, context.CancelFunc, error) {
+func (r *RecorderReconciler) getBpfRecorderClient(
+	ctx context.Context,
+) (bpfrecorderapi.BpfRecorderClient, context.CancelFunc, error) {
 	r.log.Info("Checking if bpf recorder is enabled")
 
-	spod, err := r.getSPOD()
+	spod, err := r.getSPOD(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting SPOD config: %w", err)
 	}
 
-	if !spod.Spec.EnableBpfRecorder {
+	enableBpfRecorderEnv, err := strconv.ParseBool(os.Getenv(config.EnableBpfRecorderEnvKey))
+	if err != nil {
+		enableBpfRecorderEnv = false
+	}
+	if !spod.Spec.EnableBpfRecorder && !enableBpfRecorderEnv {
 		return nil, nil, errors.New("bpf recorder is not enabled")
 	}
 
@@ -324,28 +336,28 @@ func (r *RecorderReconciler) getBpfRecorderClient() (bpfrecorderapi.BpfRecorderC
 	return bpfRecorderClient, cancel, nil
 }
 
-func (r *RecorderReconciler) startBpfRecorder() error {
-	recorderClient, cancel, err := r.getBpfRecorderClient()
+func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
+	recorderClient, cancel, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
 	defer cancel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	ctx, cancel = context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 	r.log.Info("Starting BPF recorder on node")
 	return r.StartBpfRecorder(ctx, recorderClient)
 }
 
-func (r *RecorderReconciler) stopBpfRecorder() error {
-	recorderClient, cancel, err := r.getBpfRecorderClient()
+func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
+	recorderClient, cancel1, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
-	defer cancel()
+	defer cancel1()
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
-	defer cancel()
+	ctx, cancel2 := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel2()
 	r.log.Info("Stopping BPF recorder on node")
 	return r.StopBpfRecorder(ctx, recorderClient)
 }
@@ -399,12 +411,16 @@ func (r *RecorderReconciler) collectLogProfiles(
 ) error {
 	r.log.Info("Checking if enricher is enabled")
 
-	spod, err := r.getSPOD()
+	spod, err := r.getSPOD(ctx)
 	if err != nil {
 		return fmt.Errorf("getting SPOD config: %w", err)
 	}
 
-	if !spod.Spec.EnableLogEnricher {
+	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
+	if err != nil {
+		enableLogEnricherEnv = false
+	}
+	if !spod.Spec.EnableLogEnricher && !enableLogEnricherEnv {
 		return errors.New("log enricher not enabled")
 	}
 
@@ -516,15 +532,12 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	)
 	if err != nil {
 		r.log.Error(err, "Cannot create seccompprofile resource")
-		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("create seccompProfile resource: %w", err)
 	}
 
 	r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName.Name)
-	r.record.Event(
-		profile,
-		event.Normal(reasonProfileCreated, "seccomp profile created"),
-	)
+	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
 
 	// Reset the syscalls for further recordings
 	if err := r.ResetSyscalls(ctx, enricherClient, request); err != nil {
@@ -595,7 +608,7 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	selinuxProfileSpec.Allow, err = r.formatSelinuxProfile(profile, response)
 	if err != nil {
 		r.log.Error(err, "Cannot format selinuxprofile")
-		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("format selinuxprofile resource: %w", err)
 	}
 	r.log.Info("Created", "profile", profile)
@@ -608,14 +621,11 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 	)
 	if err != nil {
 		r.log.Error(err, "Cannot create selinuxprofile resource")
-		r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("create selinuxprofile resource: %w", err)
 	}
 	r.log.Info("Created/updated selinux profile", "action", res, "name", profileNamespacedName)
-	r.record.Event(
-		profile,
-		event.Normal(reasonProfileCreated, "selinuxprofile profile created"),
-	)
+	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "selinuxprofile profile created")
 
 	// Reset the selinuxprofile for further recordings
 	if err := r.ResetAvcs(ctx, enricherClient, request); err != nil {
@@ -649,7 +659,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	podName types.NamespacedName,
 	profiles []profileToCollect,
 ) error {
-	recorderClient, cancel, err := r.getBpfRecorderClient()
+	recorderClient, cancel, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
@@ -688,7 +698,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profile.name},
 		)
 		if err != nil {
-			// PID was not found for this profile, this might be an init container
+			// Recording was not found for this profile, this might be an init container
 			// which is not longer active. Let's skip here and keep processing the
 			// next profile.
 			if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
@@ -730,18 +740,15 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		)
 		if err != nil {
 			r.log.Error(err, "Cannot create seccompprofile resource")
-			r.record.Event(profile, event.Warning(reasonProfileCreationFailed, err))
+			r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 			return fmt.Errorf("create seccompProfile resource: %w", err)
 		}
 
 		r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName)
-		r.record.Event(
-			profile,
-			event.Normal(reasonProfileCreated, "seccomp profile created"),
-		)
+		r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
 	}
 
-	if err := r.stopBpfRecorder(); err != nil {
+	if err := r.stopBpfRecorder(ctx); err != nil {
 		r.log.Error(err, "Unable to stop bpf recorder")
 		return fmt.Errorf("stop bpf recorder: %w", err)
 	}
@@ -840,7 +847,7 @@ func parseBpfAnnotations(annotations map[string]string) (res []profileToCollect,
 }
 
 type seProfileBuilder struct {
-	permMap       map[string]sets.String
+	permMap       map[string]sets.Set[string]
 	usageCtx      string
 	policyBuilder selxv1alpha2.Allow
 	log           logr.Logger
@@ -850,7 +857,7 @@ type seProfileBuilder struct {
 
 func newSeProfileBuilder(usageCtx string, log logr.Logger) *seProfileBuilder {
 	return &seProfileBuilder{
-		permMap:       make(map[string]sets.String),
+		permMap:       make(map[string]sets.Set[string]),
 		usageCtx:      usageCtx,
 		policyBuilder: make(selxv1alpha2.Allow),
 		log:           log,
@@ -886,7 +893,7 @@ func (sb *seProfileBuilder) addAvc(avc *enricherapi.AvcResponse_SelinuxAvc) erro
 	if ok {
 		perms.Insert(avc.Perm)
 	} else {
-		sb.permMap[key] = sets.NewString(avc.Perm)
+		sb.permMap[key] = sets.New(avc.Perm)
 	}
 	return nil
 }
@@ -903,7 +910,7 @@ func (sb *seProfileBuilder) Format() (selxv1alpha2.Allow, error) {
 	return sb.policyBuilder, nil
 }
 
-func (sb *seProfileBuilder) writeLineFromKeyVal(key string, val sets.String) error {
+func (sb *seProfileBuilder) writeLineFromKeyVal(key string, val sets.Set[string]) error {
 	tclass, setype := sb.targetClassCtx(key)
 	if tclass == "" || setype == "" {
 		return errors.New("empty context or class")
@@ -916,7 +923,7 @@ func (sb *seProfileBuilder) writeLineFromKeyVal(key string, val sets.String) err
 	}
 
 	typePerms := sb.policyBuilder[selxv1alpha2.LabelKey(setype)]
-	l := val.List()
+	l := val.UnsortedList()
 	sort.Strings(l)
 	typePerms[selxv1alpha2.ObjectClassKey(tclass)] = selxv1alpha2.PermissionSet(l)
 	return nil

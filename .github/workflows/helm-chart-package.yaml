@@ -3,29 +3,20 @@ on:
   pull_request:
   release:
     types: [published]
+    
 permissions:
-  actions: none
-  checks: none
   contents: write
-  deployments: none
-  id-token: none
-  issues: none
-  discussions: none
-  packages: none
-  pull-requests: none
-  repository-projects: none
-  security-events: none
-  statuses: none
+
 jobs:
   helm-package:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
         with:
           fetch-depth: 0
       - name: Set up Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # v3.5
         with:
           version: v3.8.1
       - run: mkdir -p build
@@ -37,12 +28,12 @@ jobs:
           [ ! -f "${tgz_path}" ] && echo "failed to find helm chart from 'helm package' stdout" && exit 1
           echo "::set-output name=helm_tgz_path::${tgz_path}"
           echo "::set-output name=helm_tgz_name::${tgz_path##*/}"
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
         with:
           name: ${{ steps.package.outputs.helm_tgz_name}}
           path: ${{ steps.package.outputs.helm_tgz_path}}
           if-no-files-found: error
-      - uses: actions/upload-release-asset@v1
+      - uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1.0.2
         if: github.event_name == 'release'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -2,6 +2,7 @@
 
 <!-- toc -->
 - [Features](#features)
+- [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
 - [Install operator](#install-operator)
   - [Installation using OLM from operatorhub.io](#installation-using-olm-from-operatorhubio)
@@ -9,12 +10,17 @@
     - [Other Kubernetes distributions](#other-kubernetes-distributions)
   - [Installation using OLM using upstream catalog and bundle](#installation-using-olm-using-upstream-catalog-and-bundle)
   - [Installation using helm](#installation-using-helm)
+    - [Troubleshooting and maintenance](#troubleshooting-and-maintenance)
   - [Installation on AKS](#installation-on-aks)
+- [Configure a custom kubelet root directory](#configure-a-custom-kubelet-root-directory)
+- [Set a custom priority class name for spod daemon pod](#set-a-custom-priority-class-name-for-spod-daemon-pod)
 - [Set logging verbosity](#set-logging-verbosity)
 - [Pull images from private registry](#pull-images-from-private-registry)
 - [Configure the SELinux type](#configure-the-selinux-type)
+- [Customise the daemon resource requirements](#customise-the-daemon-resource-requirements)
 - [Restrict the allowed syscalls in seccomp profiles](#restrict-the-allowed-syscalls-in-seccomp-profiles)
 - [Constrain spod scheduling](#constrain-spod-scheduling)
+- [Enable memory optimization in spod](#enable-memory-optimization-in-spod)
 - [Create a seccomp profile](#create-a-seccomp-profile)
   - [Apply a seccomp profile to a pod](#apply-a-seccomp-profile-to-a-pod)
   - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
@@ -24,6 +30,7 @@
     - [Log enricher based recording](#log-enricher-based-recording)
     - [eBPF based recording](#ebpf-based-recording)
     - [Merging per-container profile instances](#merging-per-container-profile-instances)
+    - [Disable profile recording](#disable-profile-recording)
 - [Create a SELinux Profile](#create-a-selinux-profile)
   - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
   - [Make a SELinux profile permissive](#make-a-selinux-profile-permissive)
@@ -42,6 +49,12 @@
 - [Notes on OpenShift and SCCs](#notes-on-openshift-and-sccs)
   - [SELinux recording should allow <code>seLinuxContext: RunAsAny</code>](#selinux-recording-should-allow-selinuxcontext-runasany)
   - [Replicating controllers and SCCs](#replicating-controllers-and-sccs)
+- [Create an AppArmor profile](#create-an-apparmor-profile)
+  - [Apply an AppArmor profile to a pod](#apply-an-apparmor-profile-to-a-pod)
+  - [Known limitations](#known-limitations)
+- [Command Line Interface (CLI)](#command-line-interface-cli)
+  - [Record seccomp profiles for a command](#record-seccomp-profiles-for-a-command)
+  - [Run commands with seccomp profiles](#run-commands-with-seccomp-profiles)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
 
@@ -55,15 +68,26 @@ The feature scope of the security-profiles-operator is right now limited to:
 - Synchronize seccomp profiles across all worker nodes.
 - Validates if a node supports seccomp and do not synchronize if not.
 - Providing metrics endpoints
+- Providing a Command Line Interface `spoc` for use cases not including Kubernetes.
+
+
+## Architecture
+
+![Architecture](doc/architecture.svg)
 
 ## Tutorials and Demos
 
-- [Introduction to Seccomp and the Kubernetes Seccomp Operator](https://youtu.be/exg_zrg16SI)
-  ([@saschagrunert](https://github.com/saschagrunert) and [@hasheddan](https://github.com/hasheddan))
-- [Enhancing Kubernetes with the Security Profiles Operator](https://youtu.be/xisAIB3kOJo)
-  ([@cmurphy](https://github.com/cmurphy) and [@saschagrunert](https://github.com/saschagrunert))
+- [Using the EBPF Superpowers To Generate Kubernetes Security Policies](https://youtu.be/3dysej_Ydcw)
+  from [@mauriciovasquezbernal](https://github.com/mauriciovasquezbernal) and [@alban](https://github.com/alban) - Oct 2022
+
 - [Securing Kubernetes Applications by Crafting Custom Seccomp Profiles](https://youtu.be/alx38YdvvzA)
-  ([@saschagrunert](https://github.com/saschagrunert))
+  from [@saschagrunert](https://github.com/saschagrunert) - May 2022
+
+- [Enhancing Kubernetes with the Security Profiles Operator](https://youtu.be/xisAIB3kOJo)
+  from [@cmurphy](https://github.com/cmurphy) and [@saschagrunert](https://github.com/saschagrunert) - Oct 2021
+
+- [Introduction to Seccomp and the Kubernetes Seccomp Operator](https://youtu.be/exg_zrg16SI)
+  from [@saschagrunert](https://github.com/saschagrunert) and [@hasheddan](https://github.com/hasheddan) - Aug 2020
 
 ## Install operator
 
@@ -73,7 +97,7 @@ cert-manager via `kubectl`, if you're **not** running on
 [OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
 ```sh
-$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.9.1/cert-manager.yaml
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
@@ -152,17 +176,69 @@ A helm chart is also available for installation. The chart is attached to each
 [GitHub release](https://github.com/kubernetes-sigs/security-profiles-operator/releases)
 as an artifact, and can be installed by executing the following shell commands:
 
+You may also specify a different target namespace with `--namespace mynamespace` or `--namespace mynamespace --create-namespace` if it still doesn't exist.
+
 ```shell
 # Install cert-manager if it is not already installed (TODO: The helm
 # chart might do this one day - see issue 1062 for details):
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
 kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
-# Install the chart from a release URL (note: helm also allows users to
-# specify a file path instead of a URL, if desired):
-helm install security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.5.0/security-profiles-operator-0.5.0.tgz
+
+# Create the namespace beforehand
+export spo_ns=security-profiles-operator
+kubectl create ns $spo_ns
+
+# Label and annotate the ns to make it manageable by helm. Ensure it is
+# running on the privileged Pod Security Standard.
+kubectl label ns $spo_ns \
+  app=security-profiles-operator \
+  pod-security.kubernetes.io/audit=privileged \
+  pod-security.kubernetes.io/enforce=privileged \
+  pod-security.kubernetes.io/warn=privileged \
+  app.kubernetes.io/managed-by=Helm \
+  --overwrite=true
+
+kubectl annotate ns $spo_ns \
+  "meta.helm.sh/release-name"="security-profiles-operator" \
+  "meta.helm.sh/release-namespace"="$spo_ns" \
+  --overwrite
+
+# Install the chart from the release URL (or a file path if desired)
+helm install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.6.1-dev/security-profiles-operator-0.6.1-dev.tgz
+# Or update it with 
+# helm upgrade --install security-profiles-operator --namespace security-profiles-operator https://github.com/kubernetes-sigs/security-profiles-operator/releases/download/v0.6.1-dev/security-profiles-operator-0.6.1-dev.tgz
 ```
 
+#### Troubleshooting and maintenance  
+
+These CRDs are not templated, but will be installed by default when running a helm install for the chart.  
+There is no support at this time for upgrading or deleting CRDs using Helm. [[docs](https://helm.sh/docs/chart_best_practices/custom_resource_definitions/)]
+
+To remove everything or to do a new installation from scratch be sure to remove them first.
+
+```shell
+# Check in which ns is your release
+helm list --all --all-namespaces
+
+# Set here the target namespace to clean
+export spo_ns=spo
+
+# WARNING: following command will DELETE every CRD related to this project
+kubectl get crds --no-headers |grep security-profiles-operator |cut -d' ' -f1 |xargs kubectl delete crd
+kubectl get -n $spo_ns crds --no-headers |grep security-profiles-operator |cut -d' ' -f1 |xargs kubectl delete -n $spo_ns crd
+
+# Uninstall the chart release from the namespace
+helm uninstall --namespace $spo_ns security-profiles-operator
+# WARNING: Delete the namespace 
+kubectl delete ns $spo_ns
+
+# Install it again
+helm upgrade --install --create-namespace --namespace $spo_ns security-profiles-operator deploy/helm/
+```
+
+
 ### Installation on AKS
+
 In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/products/kubernetes-service/#overview), it is recommended to [configure webhook](#configuring-webhooks) to respect the [control-plane](https://learn.microsoft.com/en-us/azure/aks/faq#can-i-use-admission-controller-webhooks-on-aks) label as follows:
 
 ```sh
@@ -177,6 +253,35 @@ $ kubectl -nsecurity-profiles-operator get spod spod
 NAME   STATE
 spod   RUNNING
 ```
+
+## Configure a custom kubelet root directory
+
+You can configure a custom kubelet root directory in case your cluster is not using the default `/var/lib/kubelet` path.
+You can achieve this by setting the environment variable `KUBELET_DIR` in the operator deployment. This environment variable will
+be then set in the manager container as well as it will be propagated into the containers part of spod daemonset.
+
+Furthermore, you can configure a custom kubelet root directory for each node or a pool of worker nodes inside the cluster. This
+can be achieved by applying the following label on each node object which has a custom path:
+
+```
+kubelet.kubernetes.io/directory-location: mnt-resource-kubelet
+```
+
+Where the value of the label is the kubelet root directory path, by replacing `/` with `-`. For example the value above is translated
+by the operator from `mnt-resource-kubelet` into path `/mnt/resource/kubelet`.
+
+## Set a custom priority class name for spod daemon pod
+
+The default priority class name of the spod daemon pod is set to `system-node-critical`. A custom priority class name can be configured
+in the SPOD configuration by setting a value in the `priorityClassName` filed.
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"priorityClassName":"my-priority-class"}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
+This is useful in situations when the spod deamon pod remains in `Pending` state, because there isn't enough capacity on the related
+node to be scheduled.
 
 ## Set logging verbosity
 
@@ -228,6 +333,16 @@ The `ds/spod` should now be updated by the manager with the new SELinux type, an
             type: unconfined_t
 ```
 
+## Customise the daemon resource requirements
+
+The default resource requirements of the daemon container can be adjusted by using the field `daemonResourceRequirements`
+from the SPOD configuration as follows:
+
+```
+kubectl -n security-profiles-operator patch spod spod --type merge -p
+'{"spec":{"daemonResourceRequirements": {"requests": {"memory": "256Mi", "cpu": "250m"}, "limits": {"memory": "512Mi", "cpu": "500m"}}}}'
+```
+
 ## Restrict the allowed syscalls in seccomp profiles
 
 The operator doesn't restrict by default the allowed syscalls in the seccomp profiles. This means that any
@@ -258,6 +373,34 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p
 kubectl -n security-profiles-operator patch spod spod --type merge -p
 '{"spec":{"affinity": {...}}}'
 ```
+
+## Enable memory optimization in spod
+
+The controller running inside of spod daemon process is watching all pods available in the cluster when profile recording
+is enabled. It will perform some pre-filtering before the reconciliation to select only the pods running on local
+node as well as pods annotated for recording, but this operation takes place after all pods objects are loaded
+into the cache memory of the informer. This can lead to very high memory usage in large clusters with 1000s of pods, resulting
+in spod daemon running out of memory or crashing.
+
+In order to prevent this situation, the spod daemon can be configured to only load into the cache memory the pods explicitly
+labeled for profile recording. This can be achieved by enabling memory optimization as follows:
+
+```
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableMemoryOptimization":true}}'
+```
+
+If you want now to record a security profile for a pod, this pod needs to be explicitly labeled with `spo.x-k8s.io/enable-recording`,
+as follows:
+
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-recording-pod
+  labels:
+    spo.x-k8s.io/enable-recording: "true"
+```
+
 ## Create a seccomp profile
 
 Use the `SeccompProfile` kind to create profiles. Example:
@@ -317,7 +460,8 @@ spec:
 ```
 
 You can find the profile path of the seccomp profile by checking the
-`seccompProfile.localhostProfile` attribute:
+`seccompProfile.localhostProfile` attribute (remember to use the `wide`
+output mode):
 
 ```sh
 $ kubectl --namespace my-namespace get seccompprofile profile1 --output wide
@@ -346,6 +490,10 @@ $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spe
 }
 ```
 
+Note that a security profile that is in use by existing pods cannot be
+deleted unless the pods exit or are removed - the profile deletion is
+protected by finalizers.
+
 ### Base syscalls for a container runtime
 
 An example of the minimum required syscalls for a runtime such as
@@ -365,7 +513,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.0.0
+  baseProfileName: runc-v1.1.4
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -546,6 +694,10 @@ To use the recorder, enable it by patching the `spod` configuration:
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
+Alternatively, make sure the operator deployment sets the `ENABLE_BPF_RECORDER`
+environment variable to `true`. This method can be easier to set up during
+installation than patching the `spod`.
+
 We can verify that the recorder is up and running after the spod rollout has
 been finished:
 
@@ -674,6 +826,7 @@ spec:
 ```
 
 Create your workload:
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -691,26 +844,30 @@ spec:
     spec:
       serviceAccountName: spo-record-sa
       containers:
-      - name: nginx-record
-        image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
-        ports:
-        - containerPort: 8080
+        - name: nginx-record
+          image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+          ports:
+            - containerPort: 8080
 ```
 
 You'll see that the deployment spawns three replicas. To test the merging feature, you
 can perform an action in one of the pods, for example:
+
 ```bash
 > kubectl exec nginx-deploy-65bcbb956f-gmbrj -- bash -c "mknod /tmp/foo p"
 ```
+
 Note that this is a silly example, but shows the feature in action.
 
 To record the individual profiles, delete the deployment:
+
 ```bash
 > kubectl delete deployment nginx-deploy
 ```
 
 The profiles will be reconciled, one per container. Note that the profiles are marked as
 "partial" and the spod deamon instances do not reconcile the profiles.
+
 ```bash
 > kubectl get sp -lspo.x-k8s.io/recording-id=test-recording --show-labels
 NAME                                STATUS    AGE     LABELS
@@ -721,11 +878,14 @@ test-recording-nginx-record-wdv2r   Partial   2m50s   spo.x-k8s.io/container-id=
 
 Inspecting the first partial profile, which corresponds to the pod where we ran the extra command
 shows that mknod is allowed:
+
 ```bash
 > kubectl get sp test-recording-nginx-record-gmbrj -o yaml | grep mknod
   - mknod
 ```
+
 On the other hand the others do not:
+
 ```bash
 > kubectl get sp test-recording-nginx-record-lclnb -o yaml | grep mknod
 > kubectl get sp test-recording-nginx-record-wdv2r -o yaml | grep mknod
@@ -735,6 +895,7 @@ To merge the profiles, delete the profile recording to indicate that
 you are finished with recording the workload. This would trigger the
 merge operation done by the controller and the resulting profile will be
 reconciled by the controller as seen from the `Installed` state:
+
 ```bash
 > kubectl delete profilerecording test-recording
 profilerecording.security-profiles-operator.x-k8s.io "test-recording" deleted
@@ -745,10 +906,23 @@ test-recording-nginx-record   Installed   17m
 
 The resulting profile will contain all the syscalls that were used by any of the containers,
 including the `mknod` syscall:
+
 ```bash
 > kubectl get sp test-recording-nginx-record -o yaml | grep mknod
   - mknod
 ```
+
+#### Disable profile recording
+
+Profile recorder controller along with the corresponding sidecar container is disabled
+when neither `enableBpfRecorder` nor `enableLogEnricher` is set in the SPOD configuration, and
+automatically enabled when either one of them is on. The same applies when either
+the BPF recorder of the log enricher are enabled using the environment variables
+`ENABLE_BPF_RECORDER` or `ENABLE_LOG_ENRICHER` respectively.
+
+Also, when running the daemon in standalone mode is possible to switch on the profile recorder
+controller by providing the `with-recording` command line argument or setting the `ENABLE_RECORDING`
+environment variable.
 
 ## Create a SELinux Profile
 
@@ -760,6 +934,7 @@ kind should be used mostly when there's an already existing SELinux policy (perh
 that you wish to use in your cluster.
 
 In particular, the `SelinuxProfile` kind:
+
 - restricts the profiles to inherit from to the current namespace or a system-wide profile. Because there
   are typically many profiles installed on the system, but only a subset should be used by cluster workloads,
   the inheritable system profiles are listed in the `spod` instance in `spec.selinuxOptions.allowedSystemProfiles`.
@@ -770,6 +945,7 @@ In particular, the `SelinuxProfile` kind:
   workloads and namespaces easily, as the "usage" of the policy (see below) is based on the name and namespace.
 
 Below is an example of a policy that can be used with a non-privileged nginx workload:
+
 ```yaml
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
 kind: SelinuxProfile
@@ -778,21 +954,22 @@ metadata:
   namespace: nginx-deploy
 spec:
   allow:
-    '@self':
+    "@self":
       tcp_socket:
-      - listen
+        - listen
     http_cache_port_t:
       tcp_socket:
-      - name_bind
+        - name_bind
     node_t:
       tcp_socket:
-      - node_bind
+        - node_bind
   inherit:
-  - kind: System
-    name: container
+    - kind: System
+      name: container
 ```
 
 After the policy is created, we can wait for selinuxd to install it:
+
 ```bash
 $ kubectl wait --for=condition=ready selinuxprofile nginx-secure
 selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure condition met
@@ -800,6 +977,7 @@ selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure condition met
 
 The CIL-formatted policies are placed into an `emptyDir` owned by the SPO where you can view
 the resulting CIL policy:
+
 ```shell
 $ kubectl exec -it -c selinuxd spod-fm55x -- sh
 sh-4.4# cat /etc/selinux.d/nginx-secure_nginx-deploy.cil
@@ -813,6 +991,7 @@ sh-4.4# cat /etc/selinux.d/nginx-secure_nginx-deploy.cil
 
 However, the binary policies are installed into the system policy store on the nodes, so you can verify
 that a policy has been installed:
+
 ```shell
 # semodule -l | grep nginx-secure
 ```
@@ -820,12 +999,14 @@ that a policy has been installed:
 ### Apply a SELinux profile to a pod
 
 SELinux profiles are referenced to based on their "usage" string:
+
 ```shell
 kubectl get selinuxprofile.security-profiles-operator.x-k8s.io/nginx-secure -nnginx-deploy -ojsonpath='{.status.usage}'
 nginx-secure_nginx-deploy.process%
 ```
 
 Use this string in the workload manifest in the `.spec.containers[].securityContext.seLinuxOptions` attribute:
+
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -868,6 +1049,7 @@ operator deployment to run in a single namespace, use the
 `namespace-operator.yaml` manifest with your namespace of choice:
 
 ### Restricting to a Single Namespace with upstream deployment manifests
+
 ```sh
 NAMESPACE=<your-namespace>
 
@@ -875,16 +1057,19 @@ curl https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operato
 ```
 
 ### Restricting to a Single Namespace when installing using OLM
+
 Since restricting the operator to a single namespace amounts to setting the `RESTRICT_TO_NAMESPACE`
 environment variable, the easiest way to set that (or any other variable for SPO) is by editing the
 `Subscription` object and setting the `spec.config.env` field:
+
 ```yaml
-  spec:
-    config:
-      env:
+spec:
+  config:
+    env:
       - name: RESTRICT_TO_NAMESPACE
         value: <your-namespace>
 ```
+
 OLM would then take care of updating the operator `Deployment` object with the new environment variable.
 Please refer to the [OLM documentation](https://github.com/operator-framework/operator-lifecycle-manager/blob/master/doc/design/subscription-config.md#res)
 for more details on tuning the operator's configuration with the `Subscription` objects.
@@ -1226,7 +1411,7 @@ $ kubectl -nsecurity-profiles-operator patch spod spod -p $(cat /tmp/spod-wh.pat
 To view the resulting `MutatingWebhookConfiguration`, call:
 
 ```shell
-$ kubectl -nsecurity-profiles-operator get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
+$ kubectl get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
 ```
 
 ## Troubleshooting
@@ -1362,6 +1547,7 @@ example, we might create the following SCC which is based on the `restricted`
 SCC shipped in OpenShift, just allows our SELinux policy to be used.
 Note that we'll be deploying in the `nginx-secure` namespace, as you can
 see from the ServiceAccount name we are putting into the `users` array.
+
 ```yaml
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
@@ -1382,10 +1568,10 @@ fsGroup:
 priority: null
 readOnlyRootFilesystem: false
 requiredDropCapabilities:
-- KILL
-- MKNOD
-- SETUID
-- SETGID
+  - KILL
+  - MKNOD
+  - SETUID
+  - SETGID
 runAsUser:
   type: MustRunAsRange
 seLinuxContext:
@@ -1395,14 +1581,14 @@ seLinuxContext:
 supplementalGroups:
   type: RunAsAny
 users:
-- system:serviceaccount:nginx-secure:nginx-sa
+  - system:serviceaccount:nginx-secure:nginx-sa
 volumes:
-- configMap
-- downwardAPI
-- emptyDir
-- persistentVolumeClaim
-- projected
-- secret
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret
 ```
 
 Please note that a common mistake when creating custom SCCs is to bind them to a wide range of users or SAs
@@ -1412,6 +1598,7 @@ or [this Red Hat blog post](https://cloud.redhat.com/blog/managing-sccs-in-opens
 on managing SCCs.
 
 Then we create the appropriate role:
+
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -1419,18 +1606,20 @@ metadata:
   name: nginx
   namespace: nginx-secure
 rules:
-- apiGroups:
-  - security.openshift.io
-  resources:
-  - securitycontextconstraints
-  resourceNames:
-  - nginx-secure
-  verbs:
-  - use
+  - apiGroups:
+      - security.openshift.io
+    resources:
+      - securitycontextconstraints
+    resourceNames:
+      - nginx-secure
+    verbs:
+      - use
 ```
+
 and finally a role binding and the SA.
 
 With all that set up, we can finally create our deployment:
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -1448,13 +1637,226 @@ spec:
     spec:
       serviceAccountName: nginx-sa
       containers:
-      - name: nginx
-        image: nginxinc/nginx-unprivileged:1.21
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.21
 ```
 
 Note that we don't specify the SELinux type at all in the workload, that's handled by the SCC instead.
 When the pods are created through the deployment and its `ReplicaSet`, they should be
 running with the appropriate profile.
+
+## Create an AppArmor profile
+
+Ensure that the Daemon has AppArmor enabled:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"apparmorenabled":"true"}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
+Use the `AppArmorProfile` kind to create AppArmor profiles. Example:
+
+```yaml
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: AppArmorProfile
+metadata:
+  name: test-profile
+  annotations:
+    description: Block writing to any files in the disk.
+spec:
+  policy: |
+    #include <tunables/global>
+
+    profile test-profile flags=(attach_disconnected) {
+      #include <abstractions/base>
+
+      file,
+
+      # Deny all file writes.
+      deny /** w,
+    }
+```
+
+Note that the name of the profile inside `spec.policy` matches the `metadata.name`,
+this is currently a requirement as mentioned within the known limitations below.
+
+Based on the policy above, an AppArmor profile `test-profile` will be created and
+loaded in all nodes within the cluster.
+
+### Apply an AppArmor profile to a pod
+
+Once the AppArmor profile is created and loaded in all cluster nodes,
+you can restrict Pod's access with the annotation:
+
+`container.apparmor.security.beta.kubernetes.io/<container_name>: test-profile`
+
+When [AppArmor becomes GA](https://github.com/kubernetes/enhancements/pull/3298) a new field within SecurityContext will be created to replace the annotations above.
+For up-to-date information on how to use AppArmor in Kubernetes, refer to the [official documentation](https://kubernetes.io/docs/tutorials/security/apparmor/).
+
+### Known limitations
+
+- The name set for the AppArmorProfile CRD must match the policy name
+  defined within `spec.policy`. Otherwise the reconciler will fail as it
+  won't be able to confirm the policy was correctly loaded.
+- The reconciler will simply load the profiles across the cluster. If an
+  existing profile with the same name exists, it will be replaced.
+- The SPO does not validate the profile contents. Invalid profiles
+  will error when loading into the kernel. The error can be found on the spod
+  pod and the message will roughly look like:
+  ```
+  E1112 08:35:24.072544    8668 controller.go:326]  "msg"="Reconciler error" "error"="cannot load profile into node: running action: exit status 1" "appArmorProfile"={"name":"<NAME_OF_PROFILE>","namespace":"security-profiles-operator"} "controller"="apparmorprofile" "controllerGroup"="security-profiles-operator.x-k8s.io" "controllerKind"="AppArmorProfile" "name"="<NAME_OF_PROFILE>" "namespace"="security-profiles-operator" "reconcileID"="035a4edd-cdd9-4c35-a1be-924939538ce4"
+  ```
+- Restrictive profiles may block sub processes to be created, or a container from
+  successfully loading. In such cases, the denied rules may not show up in the
+  log-enricher logs, as SPO may fail to find the running process to correlate to the
+  pod information. To work around the issue, set the AppArmor profile to complain mode.
+
+## Command Line Interface (CLI)
+
+The Seucrity Profiles Operator CLI `spoc` aims to support use cases where
+Kubernetes is not available at all (for example in edge scenarios). It targets
+to provide re-used functionality from the operator itself, especially for
+development and testing environments. In the future, we plan to extend the CLI
+to interact with the operator itself.
+
+For now, the CLI is able to:
+
+- Record seccomp profiles for a command in YAML (CRD) and JSON (OCI) format.
+- Run commands with applied seccomp profiles in both formats.
+
+`spoc` can be retrieved either by downloading the statically linked binary
+directly from the [available releases][releases], or by running it within the
+official container images:
+
+```console
+> podman run -it gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest spoc
+NAME:
+   spoc - Security Profiles Operator CLI
+
+USAGE:
+   spoc [global options] command [command options] [arguments...]
+
+COMMANDS:
+   version, v  display detailed version information
+   record, r   run a command and record the security profile
+   run, x      run a command using a security profile
+   help, h     Shows a list of commands or help for one command
+```
+
+<!-- TODO: add thoughts about required privileges to run spoc in containers -->
+
+[releases]: https://github.com/kubernetes-sigs/security-profiles-operator/releases/latest
+
+### Record seccomp profiles for a command
+
+To record a seccomp profile via `spoc`, run the corresponding subcommand
+followed by any command and arguments:
+
+```console
+> sudo spoc record echo test
+2023/03/10 10:09:09 Loading bpf module
+…
+2023/03/10 10:09:13 Adding base syscalls: capget, capset, chdir, …
+2023/03/10 10:09:13 Wrote seccomp profile to: /tmp/profile.yaml
+2023/03/10 10:09:13 Unloading bpf module
+```
+
+Now the seccomp profile should be written in the CRD format:
+
+```console
+> cat /tmp/profile.yaml
+```
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: echo
+spec:
+  architectures:
+    - SCMP_ARCH_X86_64
+  defaultAction: SCMP_ACT_ERRNO
+  syscalls:
+    - action: SCMP_ACT_ALLOW
+      names:
+        - access
+        - …
+        - write
+status: {}
+```
+
+The output file path can be specified as well by using `spoc record
+-o/--output-file`.
+
+We can see that `spoc` automatically adds required base syscalls for OCI
+container runtimes to ensure compatibility with them to allow using the profile
+within Kubernetes. This behavior can be disabled by using `spoc record
+-n/--no-base-syscalls`, or by specifying custom syscalls via `spoc record
+-b/--base-syscalls`.
+
+It is also possible to change the format to JSON via `spoc record -t/--type
+raw-seccomp`:
+
+```console
+> sudo spoc record -t raw-seccomp echo test
+…
+2023/03/10 10:15:17 Wrote seccomp profile to: /tmp/profile.json
+2023/03/10 10:15:17 Unloading bpf module
+```
+
+```console
+> jq . /tmp/profile.json
+```
+
+```json
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "architectures": ["SCMP_ARCH_X86_64"],
+  "syscalls": [
+    {
+      "names": ["access", "…", "write"],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}
+```
+
+All commands are interruptable by using Ctrl^C, while `spoc record` will still
+write the resulting seccomp profile after process terminating.
+
+### Run commands with seccomp profiles
+
+If we now want to test the resulting profile, then `spoc` is able to run any
+command by using seccomp profiles via `spoc run`:
+
+```console
+> sudo spoc run -p /tmp/profile.yaml echo test
+2023/03/10 10:20:00 Reading file /tmp/profile.json
+2023/03/10 10:20:00 Setting up seccomp
+2023/03/10 10:20:00 Load seccomp profile
+2023/03/10 10:20:00 Running command with PID: 567625
+test
+```
+
+If we now modify the profile, for example by forbidding `chmod`:
+
+```console
+> jq 'del(.syscalls[0].names[] | select(. | contains("chmod")))' /tmp/profile.json > /tmp/profile-chmod.json
+```
+
+Then running `chmod` via `spoc run` will now throw an error, because the syscall
+is not allowed any more:
+
+```console
+> sudo spoc run -p /tmp/profile-chmod.json chmod +x /tmp/profile-chmod.json
+2023/03/10 10:25:38 Reading file /tmp/profile-chmod.json
+2023/03/10 10:25:38 Setting up seccomp
+2023/03/10 10:25:38 Load seccomp profile
+2023/03/10 10:25:38 Running command with PID: 594242
+chmod: changing permissions of '/tmp/profile-chmod.json': Operation not permitted
+2023/03/10 10:25:38 Command did not exit successfully: exit status 1
+```
 
 ## Uninstalling
 

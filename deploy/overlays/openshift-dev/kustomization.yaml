@@ -1,12 +1,19 @@
 # This is the cluster wide security-profiles-operator deployment, which listens for
 # configMaps on all namespaces
----
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-bases:
-  - ../cluster
 
 images:
-  - name: gcr.io/k8s-staging-sp-operator/security-profiles-operator
-    newName: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator
-    newTag: latest
+- name: gcr.io/k8s-staging-sp-operator/security-profiles-operator
+  newName: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator
+  newTag: latest
+resources:
+- ../cluster
+
+patches:
+- patch: |-
+    - op: add
+      path:  "/metadata/labels/openshift.io~1cluster-monitoring"
+      value: "true"
+  target:
+    kind: Namespace

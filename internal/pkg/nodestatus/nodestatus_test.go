@@ -29,7 +29,7 @@ import (
 
 // Expected shorten the node name if length exceed the limit.
 //
-//nolint:paralleltest
+//nolint:paralleltest // cannot set environment variables in parallel tests
 func TestShortenNodeName(t *testing.T) {
 	cases := []struct {
 		name              string

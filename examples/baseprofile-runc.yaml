@@ -2,56 +2,77 @@
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  name: runc-v1.0.0
+  name: runc-v1.1.4
 spec:
   defaultAction: SCMP_ACT_ERRNO
   architectures:
-  - SCMP_ARCH_X86_64
+    - SCMP_ARCH_X86_64
   syscalls:
-  - action: SCMP_ACT_ALLOW
-    names:
-    - arch_prctl
-    - brk
-    - capget
-    - capset
-    - chdir
-    - close
-    - dup3
-    - epoll_ctl
-    - epoll_pwait
-    - execve
-    - exit_group
-    - fchdir
-    - fchown
-    - fcntl
-    - fstat
-    - fstatfs
-    - futex
-    - getcwd
-    - getdents64
-    - getpid
-    - getppid
-    - getuid
-    - ioctl
-    - mmap
-    - mount
-    - mprotect
-    - nanosleep
-    - newfstatat
-    - openat
-    - pivot_root
-    - prctl
-    - read
-    - rt_sigaction
-    - rt_sigprocmask
-    - rt_sigreturn
-    - set_tid_address
-    - setgid
-    - setgroups
-    - sethostname
-    - setuid
-    - statfs
-    - tgkill
-    - umask
-    - umount2
-    - write
+    - action: SCMP_ACT_ALLOW
+      names:
+        - arch_prctl
+        - brk
+        - capget
+        - capset
+        - chdir
+        - clone
+        - close
+        - dup3
+        - epoll_create1
+        - epoll_ctl
+        - epoll_pwait
+        - execve
+        - exit_group
+        - faccessat2
+        - fchdir
+        - fchmodat
+        - fchownat
+        - fcntl
+        - fstat
+        - fstatfs
+        - futex
+        - getdents64
+        - getpid
+        - getppid
+        - gettid
+        - getuid
+        - keyctl
+        - mkdirat
+        - mknodat
+        - mmap
+        - mount
+        - mprotect
+        - munmap
+        - nanosleep
+        - newfstatat
+        - openat
+        - openat2
+        - pipe2
+        - pivot_root
+        - prctl
+        - pread64
+        - read
+        - readlinkat
+        - rt_sigaction
+        - rt_sigprocmask
+        - rt_sigreturn
+        - sched_getaffinity
+        - sched_yield
+        - seccomp
+        - set_robust_list
+        - set_tid_address
+        - setgid
+        - setgroups
+        - sethostname
+        - setsid
+        - setuid
+        - sigaltstack
+        - statfs
+        - symlinkat
+        - tgkill
+        - umask
+        - umount2
+        - unlinkat
+        - unshare
+        - utimensat
+        - write

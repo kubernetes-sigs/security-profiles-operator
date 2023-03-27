@@ -5,6 +5,9 @@ metadata:
   name: security-profiles-operator
   labels:
     openshift.io/cluster-monitoring: "true"
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
@@ -14,7 +17,7 @@ metadata:
   namespace: olm
 spec:
   sourceType: grpc
-  image: k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.5.0
+  image: gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription

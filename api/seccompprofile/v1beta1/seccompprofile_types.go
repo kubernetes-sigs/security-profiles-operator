@@ -36,9 +36,7 @@ var (
 	_ profilebase.SecurityProfileBase = &SeccompProfile{}
 )
 
-const (
-	extJSON = ".json"
-)
+const ExtJSON = ".json"
 
 // SeccompProfileSpec defines the desired state of SeccompProfile.
 type SeccompProfileSpec struct {
@@ -149,13 +147,13 @@ func (sp *SeccompProfile) DeepCopyToStatusBaseIf() profilebase.StatusBaseUser {
 
 func (sp *SeccompProfile) SetImplementationStatus() {
 	profilePath := sp.GetProfilePath()
-	sp.Status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath+"/")
+	sp.Status.LocalhostProfile = strings.TrimPrefix(profilePath, config.KubeletSeccompRootPath()+"/")
 }
 
 func (sp *SeccompProfile) GetProfileFile() string {
 	pfile := sp.GetName()
-	if !strings.HasSuffix(pfile, extJSON) {
-		pfile = sp.GetName() + extJSON
+	if !strings.HasSuffix(pfile, ExtJSON) {
+		pfile = sp.GetName() + ExtJSON
 	}
 	return pfile
 }
@@ -163,7 +161,7 @@ func (sp *SeccompProfile) GetProfileFile() string {
 func (sp *SeccompProfile) GetProfilePath() string {
 	pfile := sp.GetProfileFile()
 	return path.Join(
-		config.ProfilesRootPath,
+		config.ProfilesRootPath(),
 		filepath.Base(sp.GetNamespace()),
 		filepath.Base(pfile),
 	)

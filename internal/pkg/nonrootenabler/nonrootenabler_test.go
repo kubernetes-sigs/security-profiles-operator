@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nonrootenabler/nonrootenablerfakes"
 )
@@ -83,13 +84,25 @@ func TestRun(t *testing.T) {
 			},
 			shouldError: true,
 		},
+		{ // failure on SaveKubeletConfig failure
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.SaveKubeletConfigReturns(errTest)
+			},
+			shouldError: true,
+		},
+		{ // success on SaveKubeletDir success
+			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
+				mock.SaveKubeletConfigReturns(nil)
+			},
+			shouldError: false,
+		},
 	} {
 		sut := nonrootenabler.New()
 		mock := &nonrootenablerfakes.FakeImpl{}
 		tc.prepare(mock)
 		sut.SetImpl(mock)
 
-		err := sut.Run(logr.Discard())
+		err := sut.Run(logr.Discard(), "", config.KubeletDir())
 		if tc.shouldError {
 			require.NotNil(t, err)
 		} else {

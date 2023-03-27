@@ -1,6 +1,19 @@
 # Default values for security-profiles-operator.
 replicaCount: 3
 
+spoImage:
+  registry: gcr.io
+  repository: k8s-staging-sp-operator/security-profiles-operator
+  tag: latest
+
+enableSelinux: false
+enableLogEnricher: false
+enableAppArmor: false
+enableBpfRecorder: false
+enableProfiling: false
+verbosity: 0
+
+
 nameOverride: ""
 fullnameOverride: ""
 

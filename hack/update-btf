@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euox pipefail
 
-BTFHUB_COMMIT=73a05a7dfd2a71b78f45a8e48283e75e0bfb3dce
+BTFHUB_COMMIT=12d2b6bb4664b6b1d15076f8090dcb0e55696d34
 
-TEMP_DIR=$(mktemp -u)
+TEMP_DIR=$(mktemp -up "$HOME")
 trap 'rm -rf $TEMP_DIR' EXIT
 ROOT_DIR=$(git rev-parse --show-toplevel)
 BPF_OBJECT="${ROOT_DIR}/build/recorder.bpf.o"

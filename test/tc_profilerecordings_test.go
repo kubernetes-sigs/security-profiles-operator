@@ -344,6 +344,18 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	e.kubectl("delete", "sp", resourceName)
 }
 
+func (e *e2e) testCaseProfileRecordingWithMemoryOptimization() {
+	e.logEnricherOnlyTestCase()
+	e.testCaseMemOptmEnable([]string{})
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
+
+	e.profileRecordingStaticPod(
+		exampleRecordingSeccompLogsPath,
+		regexp.MustCompile(`(?m)"syscallName"="listen"`),
+	)
+}
+
 func (e *e2e) profileRecordingDeployment(
 	recording string, waitConditions ...*regexp.Regexp,
 ) {
@@ -481,6 +493,7 @@ metadata:
   name: recording
   labels:
     app: alpine
+    spo.x-k8s.io/enable-recording: "true"
 spec:
   containers:
   - image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21

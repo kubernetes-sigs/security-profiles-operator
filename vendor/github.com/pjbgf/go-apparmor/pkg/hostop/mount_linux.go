@@ -25,18 +25,18 @@ const (
 )
 
 type mountHostOp struct {
-	logger logr.Logger
+	opts *hostOpOpts
 }
 
-func NewMountHostOp() HostOp {
-	return &mountHostOp{
-		logger: logr.Discard(),
+func NewMountHostOp(opts ...HostOpOption) HostOp {
+	o := hostOpOpts{
+		logger:          logr.Discard(),
+		insideContainer: InsideContainer,
 	}
-}
 
-func (m *mountHostOp) WithLogger(logger logr.Logger) HostOp {
-	m.logger = logger
-	return m
+	o.applyOpts(opts...)
+
+	return &mountHostOp{opts: &o}
 }
 
 // Do executes an action ensuring that first thread will be within the host's
@@ -48,9 +48,8 @@ func (m *mountHostOp) WithLogger(logger logr.Logger) HostOp {
 //
 // If the caller is being executed at the host, simply executes the action.
 func (m *mountHostOp) Do(action func() error) error {
-
-	if InsideContainer() {
-		m.logger.V(2).Info("running inside container")
+	if m.opts.insideContainer() {
+		m.opts.logger.V(2).Info("running inside container")
 
 		hostPidNs, err := HostPidNamespace()
 		if err != nil {
@@ -64,7 +63,7 @@ func (m *mountHostOp) Do(action func() error) error {
 		return m.containerDo(action)
 	}
 
-	m.logger.V(2).Info("running in the host")
+	m.opts.logger.V(2).Info("running in the host")
 	return action()
 }
 
@@ -79,7 +78,7 @@ func (m *mountHostOp) containerDo(action func() error) error {
 		}
 		defer func() {
 			if err := origFd.Close(); err != nil {
-				m.logger.V(1).Info(fmt.Sprintf("closing file: %s", err))
+				m.opts.logger.V(1).Info(fmt.Sprintf("closing file: %s", err))
 			}
 		}()
 
@@ -89,13 +88,13 @@ func (m *mountHostOp) containerDo(action func() error) error {
 		}
 		defer func() {
 			if err := hostFd.Close(); err != nil {
-				m.logger.V(1).Info(fmt.Sprintf("closing file: %s", err))
+				m.opts.logger.V(1).Info(fmt.Sprintf("closing file: %s", err))
 			}
 		}()
 
 		defer func() {
 			if err := m.switchToMountNs(origFd); err != nil {
-				m.logger.V(2).Info(fmt.Sprintf("revert to original mount ns: %v", err))
+				m.opts.logger.V(2).Info(fmt.Sprintf("revert to original mount ns: %v", err))
 			} else {
 				// if can't switch back to original mount namespace,
 				// fail-safe by not making the thread with host mount
@@ -151,14 +150,14 @@ func (m *mountHostOp) logNsInfo(nsPath string) {
 	}
 	defer func() {
 		if err := fd.Close(); err != nil {
-			m.logger.V(1).Info(fmt.Sprintf("closing file: %s", err))
+			m.opts.logger.V(1).Info(fmt.Sprintf("closing file: %s", err))
 		}
 	}()
 
 	var s unix.Stat_t
 	if err := unix.Fstat(int(fd.Fd()), &s); err != nil {
-		m.logger.V(2).Info(fmt.Sprintf("fstat ns: %v", err))
+		m.opts.logger.V(2).Info(fmt.Sprintf("fstat ns: %v", err))
 		return
 	}
-	m.logger.V(2).Info(fmt.Sprintf("dev-inode %d:%d ns path: %s", s.Dev, s.Ino, nsPath))
+	m.opts.logger.V(2).Info(fmt.Sprintf("dev-inode %d:%d ns path: %s", s.Dev, s.Ino, nsPath))
 }

@@ -1,14 +1,69 @@
 # This is the cluster wide security-profiles-operator deployment, which listens for
 # configMaps on all namespaces
----
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-bases:
-  - ../../base
 
-patchesJson6902:
-  - target:
-      version: v1
-      kind: ConfigMap
-      name: security-profiles-operator-profile
-    path: operator-profile.yaml
+sortOptions:
+  order: fifo
+
+resources:
+- ../../base
+patches:
+  # Target all namespaced resources present in the project.
+- patch: |
+    - op: replace
+      path: /metadata/namespace
+      value: "{{ .Release.Namespace }}"
+  target:
+    kind: (AppArmorProfile|Binding|Certificate|CertificateRequest|ConfigMap|ControllerRevision|DaemonSet|Deployment|Ingress|Issuer|ProfileBinding|ProfileRecording|RawSelinuxProfile|Role|RoleBinding|SeccompProfile|Secret|SecurityProfileNodeStatus|SecurityProfilesOperatorDaemon|SelinuxProfile|Service|ServiceAccount)
+
+  # Replace the namespace into the role binding associations.
+- patch: |
+    - op: replace
+      path: /subjects/0/namespace
+      value: "{{ .Release.Namespace }}"
+  target:
+    kind: (ClusterRoleBinding|RoleBinding)
+
+  # Replace the namespace name into the namespace resource.
+  # Remove unused openshift label
+- patch: |
+    - op: replace
+      path: /metadata/name
+      value: "{{ .Release.Namespace }}"
+    - op: remove
+      path:  "/metadata/labels/openshift.io~1cluster-monitoring"
+      value: "true"
+  target:
+    kind: Namespace
+
+# TODO: get webhook deployment replicas from values file
+- patch: |
+    - op: replace
+      path: /spec/replicas
+      value: "{{ .Values.replicaCount }}"
+  target:
+    kind: Deployment
+    name: security-profiles-operator-webhook
+
+# Labels and Annotations
+# Kustomize doesn't support adding items as first child to a list, like:
+# - op: add
+#    path: /metadata/labels
+#    value: "{{- include \"security-profiles-operator.labels\" . | nindent 4 }}"
+# So values will be hardcoded.
+- patch: |-
+    - op: add
+      path:  "/metadata/labels/helm.sh~1chart"
+      value: "security-profiles-operator"
+    - op: add
+      path:  "/metadata/labels/app.kubernetes.io~1managed-by"
+      value: "Helm"
+    - op: add
+      path:  "/metadata/annotations/meta.helm.sh~1release-name"
+      value: "security-profiles-operator"
+    - op: add
+      path:  "/metadata/annotations/meta.helm.sh~1release-namespace"
+      value: "{{ .Release.Namespace }}"
+  target:
+    kind: (ClusterRole|ClusterRoleBinding|ConfigMap|MutatingWebhookConfiguration|Namespace|Role|RoleBinding|Secret|ServiceAccount)

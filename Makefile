@@ -14,20 +14,22 @@
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION = v1.49.0
+GOLANGCI_LINT_VERSION = v1.51.1
 REPO_INFRA_VERSION = v0.2.5
-KUSTOMIZE_VERSION = 4.5.5
-OPERATOR_SDK_VERSION ?= v1.22.2
+KUSTOMIZE_VERSION = 5.0.0
+OPERATOR_SDK_VERSION ?= v1.25.0
+ZEITGEIST_VERSION = v0.3.5
+CI_IMAGE ?= golang:1.20
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
 PROJECT := security-profiles-operator
+CLI_BINARY := spoc
 BUILD_DIR := build
 
 APPARMOR_ENABLED ?= 1
 BPF_ENABLED ?= 1
 
-BPFTOOL ?= bpftool
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
 BPF_PATH := internal/pkg/daemon/bpfrecorder/bpf
@@ -64,8 +66,10 @@ endif
 
 ifneq ($(shell uname -s), Darwin)
 OS := linux
+SED ?= sed -i
 else
 OS := darwin
+SED ?= sed -i ''
 endif
 
 ifeq ($(APPARMOR_ENABLED), 1)
@@ -77,6 +81,7 @@ ifeq ($(BPF_ENABLED), 1)
 CGO_LDFLAGS := $(CGO_LDFLAGS) -lelf -lz -lbpf
 else
 BUILDTAGS := $(BUILDTAGS) no_bpf
+LINT_BUILDTAGS := $(LINT_BUILDTAGS),no_bpf
 endif
 
 export CGO_LDFLAGS
@@ -120,7 +125,7 @@ DOCKERFILE ?= Dockerfile
 
 # Utility targets
 
-all: $(BUILD_DIR)/$(PROJECT) ## Build the security-profiles-operator binary
+all: $(BUILD_DIR)/$(PROJECT) $(BUILD_DIR)/$(CLI_BINARY) ## Build the project binaries
 
 .PHONY: help
 help:  ## Display this help
@@ -142,8 +147,15 @@ help:  ## Display this help
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
+define go-build-spo
+	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/$(1)
+endef
+
 $(BUILD_DIR)/$(PROJECT): $(BUILD_DIR) $(BUILD_FILES)
-	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -tags '$(BUILDTAGS)' -o $@ ./cmd/security-profiles-operator
+	$(call go-build-spo,$(PROJECT))
+
+$(BUILD_DIR)/$(CLI_BINARY): $(BUILD_DIR) $(BUILD_FILES)
+	$(call go-build-spo,$(CLI_BINARY))
 
 .PHONY: clean
 clean: ## Clean the build directory
@@ -162,13 +174,13 @@ $(BUILD_DIR)/kubernetes-split-yaml: $(BUILD_DIR)
 
 .PHONY: deployments
 deployments: $(BUILD_DIR)/kustomize manifests generate ## Generate the deployment files with kustomize
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/cluster -o deploy/operator.yaml
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/namespaced -o deploy/namespace-operator.yaml
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-dev -o deploy/openshift-dev.yaml
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/openshift-downstream -o deploy/openshift-downstream.yaml
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/overlays/helm -o deploy/helm/templates/static-resources.yaml
-	$(BUILD_DIR)/kustomize build --reorder=none deploy/base-crds -o deploy/helm/crds/crds.yaml
-	$(BUILD_DIR)/kustomize build --reorder=legacy deploy/overlays/webhook -o deploy/webhook-operator.yaml
+	$(BUILD_DIR)/kustomize build deploy/overlays/cluster -o deploy/operator.yaml
+	$(BUILD_DIR)/kustomize build deploy/overlays/namespaced -o deploy/namespace-operator.yaml
+	$(BUILD_DIR)/kustomize build deploy/overlays/openshift-dev -o deploy/openshift-dev.yaml
+	$(BUILD_DIR)/kustomize build deploy/overlays/openshift-downstream -o deploy/openshift-downstream.yaml
+	$(BUILD_DIR)/kustomize build deploy/overlays/helm -o deploy/helm/templates/static-resources.yaml
+	$(BUILD_DIR)/kustomize build deploy/base-crds -o deploy/helm/crds/crds.yaml
+	$(BUILD_DIR)/kustomize build deploy/overlays/webhook -o deploy/webhook-operator.yaml
 
 .PHONY: image
 image: ## Build the container image
@@ -185,13 +197,23 @@ image-arm64: ## Build the container image for arm64
 image-cross: ## Build and push the container image manifest
 	hack/image-cross.sh
 
+define nix-build-to
+	nix-build nix/default-$(1).nix
+	mkdir -p $(BUILD_DIR)/$(1)
+	cp -f result/* $(BUILD_DIR)/$(1)
+endef
+
 .PHONY: nix
-nix: ## Build the binary via nix for the current system
-	nix-build nix
+nix: nix-amd64 nix-arm64 ## Build all binaries via nix and create a build.tar.gz
+	tar cvfz build.tar.gz -C $(BUILD_DIR) amd64 arm64
+
+.PHONY: nix-amd64
+nix-amd64: ## Build the binary via nix for amd64
+	$(call nix-build-to,amd64)
 
 .PHONY: nix-arm64
 nix-arm64: ## Build the binary via nix for arm64
-	nix-build nix/default-arm64.nix
+	$(call nix-build-to,arm64)
 
 .PHONY: update-nixpkgs
 update-nixpkgs: ## Update the pinned nixpkgs to the latest master
@@ -208,15 +230,6 @@ update-go-mod: ## Cleanup, vendor and verify go modules
 .PHONY: update-mocks
 update-mocks: ## Update all generated mocks
 	$(GO) generate ./...
-	for f in $(shell find . -path ./vendor -prune -false -o -name fake_*.go); do \
-		cp hack/boilerplate/boilerplate.generatego.txt tmp ;\
-		cat $$f >> tmp ;\
-		mv tmp $$f ;\
-	done
-	export BPF_IMPL=internal/pkg/daemon/bpfrecorder/bpfrecorderfakes/fake_impl.go && \
-	printf "//go:build linux && !no_bpf\n// +build linux,!no_bpf\n\n" | \
-		cat - $$BPF_IMPL | \
-		tee $$BPF_IMPL >/dev/null
 
 define go-build
 	CGO_LDFLAGS= $(GO) build -o $(BUILD_DIR)/$(shell basename $(1)) $(1)
@@ -305,7 +318,20 @@ update-bpf: $(BUILD_DIR) ## Build and update all generated BPF code with nix
 # Verification targets
 
 .PHONY: verify
-verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks ## Run all verification targets
+verify: verify-boilerplate verify-go-mod verify-go-lint verify-deployments verify-dependencies verify-toc verify-mocks verify-format ## Run all verification targets
+
+.PHONY: verify-in-a-container
+verify-in-a-container: ## Run all verification targets in a container
+	export WORKDIR=/go/src/sigs.k8s.io/security-profiles-operator && \
+	$(CONTAINER_RUNTIME) run -it \
+		-v $(shell pwd):$$WORKDIR \
+		-v $(shell go env GOCACHE):/root/.cache/go-build \
+		-v $(shell go env GOMODCACHE):/go/pkg/mod \
+		-e GOCACHE=/root/.cache/go-build \
+		-e GOMODCACHE=/go/pkg/mod \
+		-w $$WORKDIR \
+		$(CI_IMAGE) \
+		hack/pull-security-profiles-operator-verify
 
 .PHONY: verify-boilerplate
 verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate headers for all files
@@ -365,7 +391,9 @@ verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 	$(BUILD_DIR)/zeitgeist validate --local-only --base-path . --config dependencies.yaml
 
 $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
-	$(call go-build,./vendor/sigs.k8s.io/zeitgeist)
+	curl -sSfL -o $(BUILD_DIR)/zeitgeist \
+		https://github.com/kubernetes-sigs/zeitgeist/releases/download/$(ZEITGEIST_VERSION)/zeitgeist_$(ZEITGEIST_VERSION:v%=%)_linux_amd64
+	chmod +x $(BUILD_DIR)/zeitgeist
 
 .PHONY: verify-toc
 verify-toc: update-toc ## Verify the table of contents for the documentation
@@ -382,6 +410,11 @@ verify-bpf: update-bpf ## Verify the generated bpf code
 .PHONY: verify-btf
 verify-btf: update-btf ## Verify the generated btf code
 	git diff
+
+.PHONY: verify-format
+verify-format: ## Verify the code format
+	clang-format -i $(shell find . -type f -name '*.c' -or -name '*.proto' | grep -v ./vendor)
+	hack/tree-status
 
 # Test targets
 
@@ -472,7 +505,7 @@ BUNDLE_IMG ?= $(PROJECT)-bundle:v$(VERSION)
 BUNDLE_OPERATOR_MANIFEST ?= deploy/operator.yaml
 
 # These examples are added to the alm-examples annotation and subsequently
-# displayed in the UI
+# displayed in the UI. Keep the separator last.
 OLM_EXAMPLES := \
 	examples/apparmorprofile.yaml \
 	examples/config.yaml \
@@ -480,13 +513,18 @@ OLM_EXAMPLES := \
 	examples/profilebinding.yaml \
 	examples/rawselinuxprofile.yaml \
 	examples/seccompprofile.yaml \
-	examples/selinuxprofile.yaml
+	examples/selinuxprofile.yaml \
+	deploy/separator.yaml
+
+BUNDLE_SA_OPTS ?= --extra-service-accounts security-profiles-operator,spod,spo-webhook
 
 BUNDLE_SA_OPTS ?= --extra-service-accounts security-profiles-operator,spod,spo-webhook
 
 .PHONY: bundle
 bundle: operator-sdk deployments ## Generate bundle manifests and metadata, then validate generated files.
-	sed -i "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
+	$(SED) "s/\(olm.skipRange: '>=.*\)<.*'/\1<$(VERSION)'/" deploy/base/clusterserviceversion.yaml
+	$(SED) "s/\(\"name\": \"security-profiles-operator.v\).*\"/\1$(VERSION)\"/" deploy/catalog-preamble.json
+	$(SED) "s/\(\"skipRange\": \">=.*\)<.*\"/\1<$(VERSION)\"/" deploy/catalog-preamble.json
 	cat $(OLM_EXAMPLES) $(BUNDLE_OPERATOR_MANIFEST) deploy/base/clusterserviceversion.yaml | $(OPERATOR_SDK) generate bundle -q --overwrite $(BUNDLE_SA_OPTS) --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	git restore deploy/base/clusterserviceversion.yaml
 	mkdir -p ./bundle/tests/scorecard
@@ -529,17 +567,17 @@ BUNDLE_IMGS ?= $(BUNDLE_IMG)
 # The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
 CATALOG_IMG ?= $(PROJECT)-catalog:v$(VERSION)
 
-# Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMGS to that image.
-ifneq ($(origin CATALOG_BASE_IMG), undefined)
-FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
-endif
-
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
-# This recipe invokes 'opm' in 'semver' bundle add mode. For more information on add modes, see:
-# https://github.com/operator-framework/community-operators/blob/7f1438c/docs/packaging-operator.md#updating-your-existing-operator
+# This target uses the file-based catalog format (https://olm.operatorframework.io/docs/reference/file-based-catalogs/)
 .PHONY: catalog-build
 catalog-build: opm ## Build a catalog image.
-	$(OPM) $(OPM_EXTRA_ARGS) index add --container-tool $(CONTAINER_RUNTIME) --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
+	$(eval TMP_DIR := $(shell mktemp -d))
+	$(eval CATALOG_DOCKERFILE := $(TMP_DIR).Dockerfile)
+	cp deploy/catalog-preamble.json $(TMP_DIR)/security-profiles-operator-catalog.json
+	$(OPM) $(OPM_EXTRA_ARGS) render $(BUNDLE_IMGS) >> $(TMP_DIR)/security-profiles-operator-catalog.json
+	$(OPM) generate dockerfile $(TMP_DIR)
+	$(CONTAINER_RUNTIME) build -f $(CATALOG_DOCKERFILE) -t $(CATALOG_IMG) $(shell dirname $(TMP_DIR))
+	rm -rf $(TMP_DIR) $(CATALOG_DOCKERFILE)
 
 # Push the catalog image.
 .PHONY: catalog-push
@@ -580,3 +618,13 @@ do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 # Deploy for development into OpenShift
 .PHONY: deploy-openshift-dev
 deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev
+
+
+# Deploy the operator into the current kubectl context.
+.PHONY: deploy
+deploy:
+	mkdir -p build/deploy && cp deploy/operator.yaml build/deploy/
+	$(SED) "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest#$(IMAGE)#g" build/deploy/operator.yaml
+	$(SED) "s#replicas: 3#replicas: 1#g" build/deploy/operator.yaml
+	kubectl apply -f build/deploy/operator.yaml
+	kubectl apply -f examples/config.yaml

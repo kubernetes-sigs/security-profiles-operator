@@ -23,15 +23,20 @@ import (
 	"time"
 )
 
+const (
+	baseProfileNameRunc = "runc-v1.1.4"
+	baseProfileNameCrun = "crun-v1.8.1"
+)
+
 func (e *e2e) testCaseBaseProfile([]string) {
 	e.seccompOnlyTestCase()
 
 	baseProfilePath := "examples/baseprofile-runc.yaml"
-	baseProfileName := "runc-v1.0.0"
+	baseProfileName := baseProfileNameRunc
 
 	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {
 		baseProfilePath = "examples/baseprofile-crun.yaml"
-		baseProfileName = "crun-v0.20.1"
+		baseProfileName = baseProfileNameCrun
 	}
 
 	helloProfile := fmt.Sprintf(`

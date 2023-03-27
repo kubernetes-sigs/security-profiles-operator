@@ -55,7 +55,7 @@ func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, 
 
 	file, err := os.Open(filepath.Clean(cgroupPath))
 	if err != nil {
-		return "", fmt.Errorf("%v: %w", ErrProcessNotFound, err)
+		return "", fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 	}
 
 	defer func() {

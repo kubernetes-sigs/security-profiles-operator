@@ -9,25 +9,32 @@ The overall process should not take longer than a couple of minutes, but it is
 required to have one of the repository [owners](./OWNERS) at hand to be able to
 merge the PRs.
 
-The first PR targets this repository and:
+Run the `./hack/release.sh x.y.z` script by replacing the appropriate version.
+The script basically:
 
 - bumps the [`VERSION`](VERSION) file to the target version
 - changes the `images` `newName`/`newTag` fields of
   [./deploy/kustomize-deployment/kustomization.yaml](deploy/kustomize-deployment/kustomization.yaml)
   from `gcr.io/k8s-staging-sp-operator/security-profiles-operator` to
-  `k8s.gcr.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
-  corresponding tag (`newTag`). After that the make target `make bundle`
+  `registry.k8s.io/security-profiles-operator/security-profiles-operator` (`newName`) and the
+  corresponding tag (`newTag`).
   has to be run and the changes have to be committed.
 - changes the `image` in the `CatalogSource` in the same way at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
 - changes [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh) to sed
-  `"s#k8s.gcr.io/security-profiles-operator/security-profiles-operator-catalog:v0.0.0#${CATALOG_IMG}#g"`
+  `"s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.0.0#${CATALOG_IMG}#g"`
   instead of
   `"s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g"`
   (please note to change the version `v0.0.0` to the upcoming release)
 - updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
+- updates [./deploy/base/clusterserviceversion.yaml](./deploy/base/clusterserviceversion.yaml)
+  to change `replaces` to the latest available version on OperatorHub as well as
+  update the `containerImage`.
+- runs `make bundle`
+
+Create a new PR from the proposed changes and wait for the CI to succeed.
 
 After this PR has been merged, we have to watch out the successful build of the
 container image via the automatically triggered
@@ -74,6 +81,9 @@ After that, another PR against this repository has to be created, which:
 - changes the tag in the same way in the OLM example manifest at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
 - reverts the changes to [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh)
+- updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
+  well as its linked files. Run `make verify-dependencies` to verify the
+  results.
 
 Create a new pull requrest in the OperatorHub.io [community
 operators](https://github.com/k8s-operatorhub/community-operators) repository to

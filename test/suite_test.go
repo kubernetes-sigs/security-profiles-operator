@@ -39,10 +39,10 @@ import (
 )
 
 const (
-	kindVersion      = "v0.15.0"
-	kindImage        = "kindest/node:v1.25.0@sha256:428aaa17ec82ccde0131cb2d1ca6547d13cf5fdabcc0bbecf749baa935387cbf"
-	kindDarwinSHA512 = "f9b4e1ef345d831c19014cce1db42949ff68452590759b4802d183063e5280dfb1c92fd9626d9c952c60d9e440e9872c97525bd9a3b4ba53e43c00762d1e9980" //nolint:lll // full length SHA
-	kindLinuxSHA512  = "9c397eb7cc64f7fb0ac8d686ebf3836aaf485a1a480baa23b91a5167aa1d30b16a730de32910f9463d2028e01d56412bbfb3e9afdaa94b7eb19eef21c650e973" //nolint:lll // full length SHA
+	kindVersion      = "v0.17.0"
+	kindImage        = "kindest/node:v1.26.2@sha256:228590084990838f9f0418ee2c10d2648367286906358a97a47968fb151079c0"
+	kindDarwinSHA512 = "40ebb37b74b88d71854f73bc8d505e5cfb7ad14952657f0f9f46605632f2611277d09e8b00d05e95d10f913bd31d816131a3e26e7f34a6f2e50297d146f15050" //nolint:lll // full length SHA
+	kindLinuxSHA512  = "ae9b8ad431157c47bd034552e6b1656e46aa4033e96f25d5ff5d539308f17b2b003d25e02656f461d3eeed4e3ba0507b8523f6fa9180b59f37a5f083f62e5560" //nolint:lll // full length SHA
 )
 
 var (
@@ -557,13 +557,6 @@ func (e *e2e) run(cmd string, args ...string) string {
 	return ""
 }
 
-func (e *e2e) runFailure(cmd string, args ...string) string {
-	output, err := command.New(cmd, args...).Run()
-	e.Nil(err)
-	e.False(output.Success())
-	return output.Error()
-}
-
 func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
 	if !util.Exists(binaryPath) {
 		e.logf("Downloading %s", binaryPath)
@@ -582,10 +575,6 @@ func (e *e2e) verifySHA512(binaryPath, sha512 string) {
 
 func (e *e2e) kubectl(args ...string) string {
 	return e.run(e.kubectlPath, args...)
-}
-
-func (e *e2e) kubectlFailure(args ...string) string {
-	return e.runFailure(e.kubectlPath, args...)
 }
 
 func (e *e2e) kubectlOperatorNS(args ...string) string {
@@ -622,11 +611,11 @@ const (
 )
 
 func (e *e2e) getSpodMetrics() string {
-	rand.Seed(time.Now().UnixNano())
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
 	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))] //nolint:gosec // fine in tests
+		b[i] = letters[r.Intn(len(letters))]
 	}
 	// Sometimes the metrics command does not output anything in CI. We fix
 	// that by retrying the metrics retrieval several times.
@@ -676,6 +665,9 @@ func (e *e2e) enableSelinuxInSpod() {
 	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
 		e.logf("Enable selinux in SPOD")
 		e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
+		e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+			`{"spec":{"selinuxOptions":{"allowedSystemProfiles":["container","net_container"]}}}`,
+			"--type=merge")
 
 		time.Sleep(defaultWaitTime)
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -729,6 +721,24 @@ func (e *e2e) enableBpfRecorderInSpod() {
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+}
+
+func (e *e2e) enableMemoryOptimization() {
+	e.logf("Enable memory optimization in SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableMemoryOptimization": true}}`, "--type=merge")
+	time.Sleep(defaultWaitTime)
+
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
+}
+
+func (e *e2e) disableMemoryOptimization() {
+	e.logf("Enable memory optimization in SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableMemoryOptimization": false}}`, "--type=merge")
+	time.Sleep(defaultWaitTime)
+
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
 }
 
@@ -823,7 +833,7 @@ metadata:
 	curNs := e.getCurrentContextNamespace(config.OperatorName)
 	e.kubectl("config", "set-context", "--current", "--namespace", ns)
 	return func() {
-		e.logf("switching back to to ns %s", curNs)
+		e.logf("switching back to ns %s", curNs)
 		e.kubectl("config", "set-context", "--current", "--namespace", curNs)
 	}
 }

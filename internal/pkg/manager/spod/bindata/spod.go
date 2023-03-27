@@ -45,7 +45,7 @@ var (
 	metricsCertPath                 = "/var/run/secrets/metrics"
 	metricsServerCert               = "metrics-server-cert"
 	openshiftCertAnnotation         = "service.beta.openshift.io/serving-cert-secret-name"
-	localSeccompProfilePath         = "security-profiles-operator.json"
+	localSeccompProfilePath         = LocalSeccompProfilePath
 )
 
 const (
@@ -53,7 +53,7 @@ const (
 	SelinuxdPrivateDir                         = "/var/run/selinuxd"
 	SelinuxdSocketPath                         = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath                             = SelinuxdPrivateDir + "/selinuxd.db"
-	MetricsImage                               = "quay.io/brancz/kube-rbac-proxy:v0.13.0"
+	MetricsImage                               = "gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1"
 	sysKernelDebugPath                         = "/sys/kernel/debug"
 	InitContainerIDNonRootenabler              = 0
 	InitContainerIDSelinuxSharedPoliciesCopier = 1
@@ -64,6 +64,13 @@ const (
 	ContainerIDMetrics                         = 4
 	DefaultHostProcPath                        = "/proc"
 	MetricsContainerName                       = "metrics"
+	SelinuxContainerNmae                       = "selinuxd"
+	LogEnricherContainerName                   = "log-enricher"
+	BpfRecorderContainerName                   = "bpf-recorder"
+	NonRootEnablerContainerName                = "non-root-enabler"
+	SelinuxPoliciesCopierContainerName         = "selinux-shared-policies-copier"
+	LocalSeccompProfilePath                    = "security-profiles-operator.json"
+	DefaultPriorityClassName                   = "system-node-critical"
 )
 
 var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
@@ -79,6 +86,7 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		EnableBpfRecorder:   false,
 		StaticWebhookConfig: false,
 		HostProcVolumePath:  DefaultHostProcPath,
+		PriorityClassName:   DefaultPriorityClassName,
 		SelinuxOpts: spodv1alpha1.SelinuxOptions{
 			AllowedSystemProfiles: []string{
 				"container",
@@ -142,7 +150,7 @@ var Manifest = &appsv1.DaemonSet{
 				},
 				InitContainers: []corev1.Container{
 					{
-						Name:            "non-root-enabler",
+						Name:            NonRootEnablerContainerName,
 						Args:            []string{"non-root-enabler"},
 						ImagePullPolicy: corev1.PullAlways,
 						VolumeMounts: []corev1.VolumeMount{
@@ -154,6 +162,10 @@ var Manifest = &appsv1.DaemonSet{
 								Name:      "operator-profiles-volume",
 								MountPath: "/opt/spo-profiles",
 								ReadOnly:  true,
+							},
+							{
+								Name:      "host-root-volume",
+								MountPath: config.HostRoot,
 							},
 							{
 								Name:      "metrics-cert-volume",
@@ -184,9 +196,23 @@ var Manifest = &appsv1.DaemonSet{
 								corev1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
 							},
 						},
+						Env: []corev1.EnvVar{
+							{
+								Name: config.NodeNameEnvKey,
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
+										FieldPath: "spec.nodeName",
+									},
+								},
+							},
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
+							},
+						},
 					},
 					{
-						Name:  "selinux-shared-policies-copier",
+						Name:  SelinuxPoliciesCopierContainerName,
 						Image: "quay.io/security-profiles-operator/selinuxd",
 						// Primes the volume mount under /etc/selinux.d with the
 						// shared policies shipped by selinuxd and makes sure the volume mount
@@ -260,6 +286,12 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								corev1.ResourceEphemeralStorage: resource.MustParse("50Mi"),
 							},
 						},
+						Env: []corev1.EnvVar{
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
+							},
+						},
 					},
 				},
 				Containers: []corev1.Container{
@@ -270,7 +302,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "host-operator-volume",
-								MountPath: config.ProfilesRootPath,
+								MountPath: config.ProfilesRootPath(),
 							},
 							{
 								Name:      "selinux-drop-dir",
@@ -339,6 +371,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Name:  config.SPOdNameEnvKey,
 								Value: config.SPOdName,
 							},
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
+							},
 						},
 						Ports: []corev1.ContainerPort{
 							{
@@ -371,7 +407,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 					{
-						Name:  "selinuxd",
+						Name:  SelinuxContainerNmae,
 						Image: "quay.io/security-profiles-operator/selinuxd",
 						Args: []string{
 							"daemon",
@@ -426,9 +462,15 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								corev1.ResourceEphemeralStorage: resource.MustParse("400Mi"),
 							},
 						},
+						Env: []corev1.EnvVar{
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
+							},
+						},
 					},
 					{
-						Name:            "log-enricher",
+						Name:            LogEnricherContainerName,
 						Args:            []string{"log-enricher"},
 						ImagePullPolicy: corev1.PullAlways,
 						VolumeMounts: []corev1.VolumeMount{
@@ -477,10 +519,14 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 									},
 								},
 							},
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
+							},
 						},
 					},
 					{
-						Name:            "bpf-recorder",
+						Name:            BpfRecorderContainerName,
 						Args:            []string{"bpf-recorder"},
 						ImagePullPolicy: corev1.PullAlways,
 						VolumeMounts: []corev1.VolumeMount{
@@ -531,6 +577,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 										FieldPath: "spec.nodeName",
 									},
 								},
+							},
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
 							},
 						},
 					},
@@ -710,6 +760,15 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							EmptyDir: &corev1.EmptyDirVolumeSource{},
 						},
 					},
+					{
+						Name: "host-root-volume",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: "/",
+								Type: &hostPathDirectory,
+							},
+						},
+					},
 				},
 				Tolerations: []corev1.Toleration{
 					{
@@ -789,5 +848,24 @@ func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 			Name:      volumeName,
 			MountPath: DefaultHostProcPath,
 			ReadOnly:  true,
+		}
+}
+
+// CustomHostKubeletVolume returns a new host path volume for custom kubelet path
+// as well as corresponding mount used for non-root-enabler.
+func CustomHostKubeletVolume(path string) (corev1.Volume, corev1.VolumeMount) {
+	const volumeName = "host-kubelet-volume"
+	return corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: path,
+					Type: &hostPathDirectory,
+				},
+			},
+		}, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: path,
+			ReadOnly:  false,
 		}
 }

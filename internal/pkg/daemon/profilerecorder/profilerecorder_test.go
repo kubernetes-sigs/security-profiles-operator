@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +32,7 @@ import (
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -1180,7 +1180,7 @@ func TestReconcile(t *testing.T) {
 		sut := &RecorderReconciler{
 			impl:   mock,
 			log:    logr.Discard(),
-			record: event.NewNopRecorder(),
+			record: record.NewFakeRecorder(10),
 		}
 		tc.prepare(sut, mock)
 

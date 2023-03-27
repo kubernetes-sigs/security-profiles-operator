@@ -12,6 +12,12 @@ issues:
     - linters:
         - goerr113
       text: do not define dynamic errors, use wrapped static errors instead
+    - linters:
+        - lll
+      source: "^//go:generate " # exclude lll issues for long lines with go:generate
+    - linters:
+        - paralleltest
+      path: internal/pkg/config/config_test.go
 linters:
   disable-all: true
   enable:
@@ -20,10 +26,12 @@ linters:
     - bidichk
     - bodyclose
     - containedctx
+    - contextcheck
     - decorder
     - depguard
     - dogsled
     - dupl
+    - dupword
     - durationcheck
     - errcheck
     - errchkjson
@@ -34,10 +42,12 @@ linters:
     - exportloopref
     - forcetypeassert
     - gci
+    - ginkgolinter
+    - gocheckcompilerdirectives
     - gochecknoinits
     - gocognit
     - goconst
-    # - gocritic # TODO: re-enable when it supports go >1.18 and generics
+    - gocritic
     - gocyclo
     - godot
     - godox
@@ -57,8 +67,10 @@ linters:
     - importas
     - ineffassign
     - lll
+    - loggercheck
     - makezero
     - misspell
+    - musttag
     - nakedret
     - nestif
     - nilerr
@@ -78,6 +90,7 @@ linters:
     - stylecheck
     - tagliatelle
     - tenv
+    - testableexamples
     - thelper
     - tparallel
     - typecheck
@@ -87,7 +100,6 @@ linters:
     - usestdlibvars
     - wastedassign
     - whitespace
-    # - contextcheck
     # - cyclop
     # - exhaustruct
     # - forbidigo
@@ -95,7 +107,6 @@ linters:
     # - gochecknoglobals
     # - interfacebloat
     # - ireturn
-    # - logrlint
     # - maintidx
     # - nlreturn
     # - nonamedreturns
