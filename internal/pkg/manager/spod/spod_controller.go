@@ -715,7 +715,7 @@ func verbosityEnv(value uint) corev1.EnvVar {
 func enableContainerProfiling(templateSpec *corev1.PodSpec, cID int) {
 	containerName := templateSpec.Containers[cID].Name
 	switch containerName {
-	case bindata.SelinuxContainerNmae:
+	case bindata.SelinuxContainerName:
 		templateSpec.Containers[cID].Args = append(
 			templateSpec.Containers[cID].Args,
 			profilingArgsSelinuxd()...,

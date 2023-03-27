@@ -29,6 +29,7 @@ The script basically:
 - updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
+- updates ./hack/deploy-localhost.patch to match the new deployment
 - updates [./deploy/base/clusterserviceversion.yaml](./deploy/base/clusterserviceversion.yaml)
   to change `replaces` to the latest available version on OperatorHub as well as
   update the `containerImage`.
