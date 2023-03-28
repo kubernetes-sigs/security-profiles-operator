@@ -7,7 +7,7 @@ require (
 	github.com/aquasecurity/libbpfgo v0.4.6-libbpf-1.1.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cert-manager/cert-manager v1.11.0
-	github.com/containers/common v0.51.0
+	github.com/containers/common v0.51.1
 	github.com/go-logr/logr v1.2.3
 	github.com/google/go-containerregistry v0.14.0
 	github.com/jellydator/ttlcache/v3 v3.0.1
@@ -29,13 +29,13 @@ require (
 	golang.org/x/mod v0.9.0
 	golang.org/x/net v0.8.0
 	golang.org/x/sync v0.1.0
-	google.golang.org/grpc v1.53.0
+	google.golang.org/grpc v1.54.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.3.0
 	google.golang.org/protobuf v1.30.0
-	k8s.io/api v0.26.2
-	k8s.io/apimachinery v0.26.2
-	k8s.io/cli-runtime v0.26.2
-	k8s.io/client-go v0.26.2
+	k8s.io/api v0.26.3
+	k8s.io/apimachinery v0.26.3
+	k8s.io/cli-runtime v0.26.3
+	k8s.io/client-go v0.26.3
 	k8s.io/klog/v2 v2.90.1
 	oras.land/oras-go/v2 v2.0.2
 	sigs.k8s.io/controller-runtime v0.14.5

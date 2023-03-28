@@ -43,8 +43,12 @@ sed -i 's;image: .*;image: registry.k8s.io/security-profiles-operator/security-p
 
 # Update e2e tests
 # shellcheck disable=SC2016
-sed -i 's;gcr.io/k8s-staging-sp-operator.*;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"'#${CATALOG_IMG}#g" examples/olm/install-resources.yaml;g' hack/ci/e2e-olm.sh
+sed -i 's;gcr.io.*catalog.*;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v'"$VERSION"'#${CATALOG_IMG}#g" examples/olm/install-resources.yaml;g' hack/ci/e2e-olm.sh
+sed -i 's;gcr.io/k8s-staging-sp-operator/;registry.k8s.io/;g' hack/ci/e2e-olm.sh
 sed -i 's;gcr.io/k8s-staging-sp-operator/;registry.k8s.io/;g' test/e2e_test.go
+
+# Update patches
+sed -i 's;gcr.io.*;registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' hack/deploy-localhost.patch
 
 # Update dependencies.yaml
 FILES=(
@@ -63,7 +67,12 @@ OPERATOR_VERSION=$(curl -sSfL --retry 5 --retry-delay 3 "https://operatorhub.io/
 sed -i 's;replaces:.*;replaces: '"$OPERATOR_VERSION"';g' $FILE
 sed -i 's;containerImage:.*;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v'"$VERSION"';g' $FILE
 
+# Stage the sources, because `make bundle` will use `git restore`
+git add .
+
 # Build bundle
 make bundle
+
+git add .
 
 echo "Done. Commit the changes to a new branch and create a PR from it"

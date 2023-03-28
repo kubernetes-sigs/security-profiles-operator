@@ -13,8 +13,8 @@
     "package": "security-profiles-operator",
     "entries": [
         {
-            "name": "security-profiles-operator.v0.6.1-dev",
-            "skipRange": ">=0.4.1 <0.6.1-dev"
+            "name": "security-profiles-operator.v0.7.1",
+            "skipRange": ">=0.4.1 <0.7.1"
         }
     ]
 }
