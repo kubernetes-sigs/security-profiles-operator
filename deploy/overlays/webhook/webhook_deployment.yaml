@@ -41,6 +41,7 @@ spec:
               cpu: 250m
             limits:
               memory: 64Mi
+              cpu: 500m
           env:
             - name: OPERATOR_NAMESPACE
               valueFrom:
