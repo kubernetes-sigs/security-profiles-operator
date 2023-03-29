@@ -192,15 +192,7 @@ func (r *Reconciler) handleAllowedSyscallsChanged(obj client.Object) []reconcile
 	reconcileRequests := []reconcile.Request{}
 	for i := range seccompProfileList.Items {
 		sp := &seccompProfileList.Items[i]
-		op := &OutputProfile{
-			DefaultAction:    sp.Spec.DefaultAction,
-			Architectures:    sp.Spec.Architectures,
-			ListenerPath:     sp.Spec.ListenerPath,
-			ListenerMetadata: sp.Spec.ListenerMetadata,
-			Flags:            sp.Spec.Flags,
-			Syscalls:         sp.Spec.Syscalls,
-		}
-		if err := allowProfile(op, spod.Spec.AllowedSyscalls, spod.Spec.AllowedSeccompActions); err != nil {
+		if err := allowProfile(sp, spod.Spec.AllowedSyscalls, spod.Spec.AllowedSeccompActions); err != nil {
 			r.log.Info(fmt.Sprintf("deleting not allowed seccomp profile %s/%s",
 				sp.GetNamespace(), sp.GetName()))
 			if err := r.client.Delete(ctx, sp, &client.DeleteOptions{}); err != nil {
@@ -285,30 +277,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return r.reconcileSeccompProfile(ctx, seccompProfile, logger)
 }
 
-// OutputProfile represents the on-disk form of the SeccompProfile.
-type OutputProfile struct {
-	DefaultAction    seccomp.Action               `json:"defaultAction"`
-	Architectures    []seccompprofileapi.Arch     `json:"architectures,omitempty"`
-	ListenerPath     string                       `json:"listenerPath,omitempty"`
-	ListenerMetadata string                       `json:"listenerMetadata,omitempty"`
-	Syscalls         []*seccompprofileapi.Syscall `json:"syscalls,omitempty"`
-	Flags            []*seccompprofileapi.Flag    `json:"flags,omitempty"`
-}
-
 func (r *Reconciler) mergeBaseProfile(
 	ctx context.Context, sp *seccompprofileapi.SeccompProfile, l logr.Logger,
-) (OutputProfile, error) {
-	op := OutputProfile{
-		DefaultAction:    sp.Spec.DefaultAction,
-		Architectures:    sp.Spec.Architectures,
-		ListenerPath:     sp.Spec.ListenerPath,
-		ListenerMetadata: sp.Spec.ListenerMetadata,
-		Flags:            sp.Spec.Flags,
-	}
+) (*seccompprofileapi.SeccompProfile, error) {
 	baseProfileName := sp.Spec.BaseProfileName
 	if baseProfileName == "" {
-		op.Syscalls = sp.Spec.Syscalls
-		return op, nil
+		return sp, nil
 	}
 	baseProfile := &seccompprofileapi.SeccompProfile{}
 	if err := r.client.Get(
@@ -316,10 +290,10 @@ func (r *Reconciler) mergeBaseProfile(
 		l.Error(err, "cannot retrieve base profile "+baseProfileName)
 		r.metrics.IncSeccompProfileError(reasonInvalidSeccompProfile)
 		r.record.Event(sp, util.EventTypeWarning, reasonInvalidSeccompProfile, err.Error())
-		return op, fmt.Errorf("merging base profile: %w", err)
+		return nil, fmt.Errorf("merging base profile: %w", err)
 	}
-	op.Syscalls = util.UnionSyscalls(baseProfile.Spec.Syscalls, sp.Spec.Syscalls)
-	return op, nil
+	sp.Spec.Syscalls = util.UnionSyscalls(baseProfile.Spec.Syscalls, sp.Spec.Syscalls)
+	return sp, nil
 }
 
 func (r *Reconciler) reconcileSeccompProfile(
@@ -345,14 +319,14 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 
-	if err := r.validateProfile(ctx, &outputProfile); err != nil {
+	if err := r.validateProfile(ctx, outputProfile); err != nil {
 		l.Error(err, "validate profile")
 		r.metrics.IncSeccompProfileError(reasonProfileNotAllowed)
 		r.record.Event(sp, util.EventTypeWarning, reasonProfileNotAllowed, err.Error())
 		return reconcile.Result{Requeue: false}, fmt.Errorf("validating profile: %w", err)
 	}
 
-	profileContent, err := json.Marshal(outputProfile)
+	profileContent, err := json.Marshal(outputProfile.Spec)
 	if err != nil {
 		l.Error(err, "cannot validate profile "+profileName)
 		r.metrics.IncSeccompProfileError(reasonInvalidSeccompProfile)
@@ -487,7 +461,7 @@ func (r *Reconciler) handleDeletion(sp *seccompprofileapi.SeccompProfile) error 
 	return nil
 }
 
-func (r *Reconciler) validateProfile(ctx context.Context, profile *OutputProfile) error {
+func (r *Reconciler) validateProfile(ctx context.Context, profile *seccompprofileapi.SeccompProfile) error {
 	spod, err := common.GetSPOD(ctx, r.client)
 	if err != nil {
 		return fmt.Errorf("retrieving the SPOD configuration: %w", err)
@@ -515,9 +489,11 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 	return true, nil
 }
 
-func allowProfile(profile *OutputProfile, allowedSyscalls []string, allowedActions []seccomp.Action) error {
+func allowProfile(
+	profile *seccompprofileapi.SeccompProfile, allowedSyscalls []string, allowedActions []seccomp.Action,
+) error {
 	syscalls := map[seccomp.Action]map[string]bool{}
-	for _, call := range profile.Syscalls {
+	for _, call := range profile.Spec.Syscalls {
 		if _, ok := syscalls[call.Action]; !ok {
 			syscalls[call.Action] = map[string]bool{}
 		}
@@ -542,7 +518,7 @@ func allowProfile(profile *OutputProfile, allowedSyscalls []string, allowedActio
 				}
 			}
 		}
-		if profile.DefaultAction == action && len(allowedSyscalls) > 0 {
+		if profile.Spec.DefaultAction == action && len(allowedSyscalls) > 0 {
 			return fmt.Errorf(errForbiddenProfile)
 		}
 	}
