@@ -278,25 +278,27 @@ func TestAllowProfile(t *testing.T) {
 		name                  string
 		allowedSyscalls       []string
 		allowedSeccompActions []seccomp.Action
-		profile               *OutputProfile
+		profile               *seccompprofileapi.SeccompProfile
 		want                  error
 	}{
 		{
 			name:                  "EmptyProfile",
 			allowedSyscalls:       []string{"a", "b", "c"},
 			allowedSeccompActions: []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace},
-			profile:               &OutputProfile{},
+			profile:               &seccompprofileapi.SeccompProfile{},
 			want:                  nil,
 		},
 		{
 			name:                  "EmptyAllowedList",
 			allowedSyscalls:       []string{},
 			allowedSeccompActions: []seccomp.Action{},
-			profile: &OutputProfile{
-				Syscalls: []*seccompprofileapi.Syscall{
-					{
-						Action: seccomp.ActAllow,
-						Names:  []string{"a"},
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					Syscalls: []*seccompprofileapi.Syscall{
+						{
+							Action: seccomp.ActAllow,
+							Names:  []string{"a"},
+						},
 					},
 				},
 			},
@@ -306,11 +308,13 @@ func TestAllowProfile(t *testing.T) {
 			name:                  "ProfileWithEmptySyscalls",
 			allowedSyscalls:       []string{"a", "b", "c"},
 			allowedSeccompActions: []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace},
-			profile: &OutputProfile{
-				Syscalls: []*seccompprofileapi.Syscall{
-					{
-						Action: seccomp.ActAllow,
-						Names:  []string{},
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					Syscalls: []*seccompprofileapi.Syscall{
+						{
+							Action: seccomp.ActAllow,
+							Names:  []string{},
+						},
 					},
 				},
 			},
@@ -320,11 +324,13 @@ func TestAllowProfile(t *testing.T) {
 			name:                  "AllowProfile",
 			allowedSyscalls:       []string{"a", "b", "c"},
 			allowedSeccompActions: []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace},
-			profile: &OutputProfile{
-				Syscalls: []*seccompprofileapi.Syscall{
-					{
-						Action: seccomp.ActAllow,
-						Names:  []string{"b"},
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					Syscalls: []*seccompprofileapi.Syscall{
+						{
+							Action: seccomp.ActAllow,
+							Names:  []string{"b"},
+						},
 					},
 				},
 			},
@@ -334,11 +340,13 @@ func TestAllowProfile(t *testing.T) {
 			name:                  "RejectProfile",
 			allowedSyscalls:       []string{"a", "b", "c"},
 			allowedSeccompActions: []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace},
-			profile: &OutputProfile{
-				Syscalls: []*seccompprofileapi.Syscall{
-					{
-						Action: seccomp.ActAllow,
-						Names:  []string{"d"},
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					Syscalls: []*seccompprofileapi.Syscall{
+						{
+							Action: seccomp.ActAllow,
+							Names:  []string{"d"},
+						},
 					},
 				},
 			},
@@ -348,19 +356,21 @@ func TestAllowProfile(t *testing.T) {
 			name:                  "AllAllowedActions",
 			allowedSyscalls:       []string{"a", "b", "c"},
 			allowedSeccompActions: []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace},
-			profile: &OutputProfile{
-				Syscalls: []*seccompprofileapi.Syscall{
-					{
-						Action: seccomp.ActAllow,
-						Names:  []string{"a"},
-					},
-					{
-						Action: seccomp.ActLog,
-						Names:  []string{"b"},
-					},
-					{
-						Action: seccomp.ActTrace,
-						Names:  []string{"c"},
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					Syscalls: []*seccompprofileapi.Syscall{
+						{
+							Action: seccomp.ActAllow,
+							Names:  []string{"a"},
+						},
+						{
+							Action: seccomp.ActLog,
+							Names:  []string{"b"},
+						},
+						{
+							Action: seccomp.ActTrace,
+							Names:  []string{"c"},
+						},
 					},
 				},
 			},
@@ -370,31 +380,33 @@ func TestAllowProfile(t *testing.T) {
 			name:                  "AllForbiddenActions",
 			allowedSyscalls:       []string{"a", "b", "c"},
 			allowedSeccompActions: []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace},
-			profile: &OutputProfile{
-				Syscalls: []*seccompprofileapi.Syscall{
-					{
-						Action: seccomp.ActErrno,
-						Names:  []string{"a"},
-					},
-					{
-						Action: seccomp.ActTrap,
-						Names:  []string{"d"},
-					},
-					{
-						Action: seccomp.ActKillThread,
-						Names:  []string{"e"},
-					},
-					{
-						Action: seccomp.ActKillThread,
-						Names:  []string{"f"},
-					},
-					{
-						Action: seccomp.ActKillProcess,
-						Names:  []string{"g"},
-					},
-					{
-						Action: seccomp.ActKill,
-						Names:  []string{"b"},
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					Syscalls: []*seccompprofileapi.Syscall{
+						{
+							Action: seccomp.ActErrno,
+							Names:  []string{"a"},
+						},
+						{
+							Action: seccomp.ActTrap,
+							Names:  []string{"d"},
+						},
+						{
+							Action: seccomp.ActKillThread,
+							Names:  []string{"e"},
+						},
+						{
+							Action: seccomp.ActKillThread,
+							Names:  []string{"f"},
+						},
+						{
+							Action: seccomp.ActKillProcess,
+							Names:  []string{"g"},
+						},
+						{
+							Action: seccomp.ActKill,
+							Names:  []string{"b"},
+						},
 					},
 				},
 			},
@@ -404,8 +416,10 @@ func TestAllowProfile(t *testing.T) {
 			name:                  "AllowedAll",
 			allowedSyscalls:       []string{"a"},
 			allowedSeccompActions: []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace},
-			profile: &OutputProfile{
-				DefaultAction: seccomp.ActAllow,
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					DefaultAction: seccomp.ActAllow,
+				},
 			},
 			want: fmt.Errorf(errForbiddenProfile),
 		},
@@ -413,8 +427,10 @@ func TestAllowProfile(t *testing.T) {
 			name:                  "DeniedAll",
 			allowedSyscalls:       []string{"a"},
 			allowedSeccompActions: []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace},
-			profile: &OutputProfile{
-				DefaultAction: seccomp.ActErrno,
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					DefaultAction: seccomp.ActErrno,
+				},
 			},
 			want: nil,
 		},
@@ -422,15 +438,17 @@ func TestAllowProfile(t *testing.T) {
 			name:                  "DeniedAction",
 			allowedSyscalls:       []string{"a", "b", "c"},
 			allowedSeccompActions: []seccomp.Action{seccomp.ActErrno},
-			profile: &OutputProfile{
-				Syscalls: []*seccompprofileapi.Syscall{
-					{
-						Action: seccomp.ActAllow,
-						Names:  []string{"a"},
-					},
-					{
-						Action: seccomp.ActTrace,
-						Names:  []string{"b"},
+			profile: &seccompprofileapi.SeccompProfile{
+				Spec: seccompprofileapi.SeccompProfileSpec{
+					Syscalls: []*seccompprofileapi.Syscall{
+						{
+							Action: seccomp.ActAllow,
+							Names:  []string{"a"},
+						},
+						{
+							Action: seccomp.ActTrace,
+							Names:  []string{"b"},
+						},
 					},
 				},
 			},

@@ -25,7 +25,6 @@ import (
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile"
 )
 
 func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
@@ -96,10 +95,10 @@ func (e *e2e) verifyCRDProfileContent(node string, sp *seccompprofileapi.Seccomp
 	e.logf("Verifying %s profile on node %s", sp.Name, node)
 	profilePath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
 	catOutput := e.execNode(node, "cat", profilePath)
-	output := seccompprofile.OutputProfile{}
+	output := seccompprofileapi.SeccompProfileSpec{}
 	err := json.Unmarshal([]byte(catOutput), &output)
 	e.Nil(err)
-	expected := seccompprofile.OutputProfile{}
+	expected := seccompprofileapi.SeccompProfileSpec{}
 	spec, err := json.Marshal(sp.Spec)
 	e.Nil(err)
 	err = json.Unmarshal(spec, &expected)
