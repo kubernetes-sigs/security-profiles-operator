@@ -5,7 +5,6 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.8.0
-  creationTimestamp: null
   name: apparmorprofiles.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
