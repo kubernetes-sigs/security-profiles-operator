@@ -14,6 +14,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.8.0
+  creationTimestamp: null
   labels:
     app: security-profiles-operator
   name: apparmorprofiles.security-profiles-operator.x-k8s.io

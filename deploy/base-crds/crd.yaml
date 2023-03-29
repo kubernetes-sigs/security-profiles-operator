@@ -5,6 +5,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.5.0
+  creationTimestamp: null
   name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
@@ -150,6 +151,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.5.0
+  creationTimestamp: null
   name: securityprofilenodestatuses.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
@@ -217,6 +219,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.5.0
+  creationTimestamp: null
   name: seccompprofiles.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
@@ -459,6 +462,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.5.0
+  creationTimestamp: null
   name: selinuxprofiles.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io

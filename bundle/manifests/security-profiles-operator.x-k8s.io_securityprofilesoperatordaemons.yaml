@@ -3,6 +3,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.11.3
+  creationTimestamp: null
   labels:
     app: security-profiles-operator
   name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
