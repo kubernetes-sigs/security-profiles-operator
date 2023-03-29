@@ -33,6 +33,7 @@ spec:
               cpu: 250m
             limits:
               memory: 128Mi
+              cpu: 500m
           env:
             - name: RELATED_IMAGE_RBAC_PROXY
               value: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
