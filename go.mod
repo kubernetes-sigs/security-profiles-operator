@@ -19,7 +19,7 @@ require (
 	github.com/opencontainers/runtime-spec v1.1.0-rc.1
 	github.com/openshift/api v0.0.0-20221205111557-f2fbb1d1cd5e
 	github.com/pjbgf/go-apparmor v0.1.2
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.63.0
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.0
 	github.com/prometheus/client_golang v1.14.0
 	github.com/prometheus/client_model v0.3.0
 	github.com/seccomp/libseccomp-golang v0.10.0
