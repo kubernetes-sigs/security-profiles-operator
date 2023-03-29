@@ -3011,6 +3011,7 @@ spec:
         name: security-profiles-operator
         resources:
           limits:
+            cpu: 500m
             memory: 128Mi
           requests:
             cpu: 250m
@@ -3069,6 +3070,7 @@ spec:
           protocol: TCP
         resources:
           limits:
+            cpu: 500m
             memory: 64Mi
           requests:
             cpu: 250m
