@@ -115,7 +115,9 @@ func TestMergeProfiles(t *testing.T) {
 
 				mergedProf := ifaceAsSortedSeccompProfile(mergedProfIface)
 				require.Equal(t, mergedProf.Spec.Syscalls[0].Action, seccomp.Action("foo"))
-				require.Equal(t, mergedProf.Spec.Syscalls[0].Names, []string{"a", "b", "c", "d", "e"})
+				require.Equal(t, mergedProf.Spec.Syscalls[0].Names, []string{"a", "b", "c"})
+				require.Equal(t, mergedProf.Spec.Syscalls[1].Action, seccomp.Action("foo"))
+				require.Equal(t, mergedProf.Spec.Syscalls[1].Names, []string{"c", "d", "e"})
 				return nil
 			},
 		},

@@ -167,7 +167,11 @@ func (sp *mergeableSeccompProfile) merge(other mergeableProfile) error {
 	if !ok {
 		return fmt.Errorf("cannot merge SeccompProfile with %T", other)
 	}
-	sp.Spec.Syscalls = util.UnionSyscalls(sp.Spec.Syscalls, otherSP.Spec.Syscalls)
+	syscalls, err := util.UnionSyscalls(sp.Spec.Syscalls, otherSP.Spec.Syscalls)
+	if err != nil {
+		return fmt.Errorf("union syscalls: %w", err)
+	}
+	sp.Spec.Syscalls = syscalls
 
 	return nil
 }
