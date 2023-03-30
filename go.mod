@@ -8,7 +8,7 @@ require (
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cert-manager/cert-manager v1.11.0
 	github.com/containers/common v0.51.1
-	github.com/go-logr/logr v1.2.3
+	github.com/go-logr/logr v1.2.4
 	github.com/google/go-containerregistry v0.14.0
 	github.com/jellydator/ttlcache/v3 v3.0.1
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.6.1
