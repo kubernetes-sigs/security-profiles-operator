@@ -17,7 +17,6 @@ limitations under the License.
 package util
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/containers/common/pkg/seccomp"
@@ -152,6 +151,33 @@ func TestUnionSyscalls(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "ArgsErrnoRet",
+			baseSyscalls: []*v1beta1.Syscall{
+				{
+					Names:    []string{"a", "b", "c"},
+					Action:   seccomp.Action("foo"),
+					Args:     []*v1beta1.Arg{{Index: 1, Value: 2}},
+					ErrnoRet: "ret",
+				},
+			},
+			appliedSyscalls: []*v1beta1.Syscall{
+				{
+					Names:    []string{"a", "b", "c"},
+					Action:   seccomp.Action("foo"),
+					Args:     []*v1beta1.Arg{{Index: 1, Value: 2}},
+					ErrnoRet: "ret",
+				},
+			},
+			want: []*v1beta1.Syscall{
+				{
+					Names:    []string{"a", "b", "c"},
+					Action:   seccomp.Action("foo"),
+					Args:     []*v1beta1.Arg{{Index: 1, Value: 2}},
+					ErrnoRet: "ret",
+				},
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -160,12 +186,6 @@ func TestUnionSyscalls(t *testing.T) {
 			t.Parallel()
 
 			got := UnionSyscalls(tc.baseSyscalls, tc.appliedSyscalls)
-			for i := range got {
-				sort.Strings(got[i].Names)
-			}
-			sort.Slice(got, func(i, j int) bool {
-				return got[i].Action < got[j].Action
-			})
 			require.Equal(t, tc.want, got)
 		})
 	}

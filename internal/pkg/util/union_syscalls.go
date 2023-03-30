@@ -30,31 +30,48 @@ func UnionSyscalls(baseSyscalls, appliedSyscalls []*seccompprofile.Syscall) []*s
 		longestLen = len(appliedSyscalls)
 	}
 
-	allSyscalls := make(map[seccomp.Action]map[string]bool, longestLen)
+	type key struct {
+		errnoRet string
+		args     []*seccompprofile.Arg
+	}
+
+	allSyscalls := make(map[seccomp.Action]map[string]key, longestLen)
 	for _, b := range baseSyscalls {
-		allSyscalls[b.Action] = make(map[string]bool)
+		allSyscalls[b.Action] = make(map[string]key)
+
 		for _, n := range b.Names {
-			allSyscalls[b.Action][n] = true
+			allSyscalls[b.Action][n] = key{errnoRet: b.ErrnoRet, args: b.Args}
 		}
 	}
+
 	for _, s := range appliedSyscalls {
 		if _, ok := allSyscalls[s.Action]; !ok {
-			allSyscalls[s.Action] = make(map[string]bool)
+			allSyscalls[s.Action] = make(map[string]key)
 		}
 		for _, n := range s.Names {
-			allSyscalls[s.Action][n] = true
+			allSyscalls[s.Action][n] = key{errnoRet: s.ErrnoRet, args: s.Args}
 		}
 	}
+
 	finalSyscalls := make([]*seccompprofile.Syscall, 0, longestLen)
 	for action, names := range allSyscalls {
-		syscall := seccompprofile.Syscall{
-			Action: action,
-		}
-		for n := range names {
+		syscall := seccompprofile.Syscall{Action: action}
+		for n, k := range names {
+			syscall.ErrnoRet = k.errnoRet
+			syscall.Args = k.args
 			syscall.Names = append(syscall.Names, n)
 		}
 		sort.Strings(syscall.Names)
 		finalSyscalls = append(finalSyscalls, &syscall)
 	}
+
+	sort.Slice(finalSyscalls, func(i, j int) bool {
+		return finalSyscalls[i].Action < finalSyscalls[j].Action
+	})
+
+	for _, syscall := range finalSyscalls {
+		sort.Strings(syscall.Names)
+	}
+
 	return finalSyscalls
 }
