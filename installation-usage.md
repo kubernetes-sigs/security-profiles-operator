@@ -1,6 +1,7 @@
 # Installation and Usage
 
 <!-- toc -->
+
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
@@ -514,7 +515,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.1.4
+  baseProfileName: runc-v1.1.5
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -550,7 +551,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.4
+  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.5
 ```
 
 The resulting profile `profile1` will then contain all base syscalls from the
