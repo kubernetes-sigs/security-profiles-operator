@@ -4,6 +4,7 @@
 [![test](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/test.yml/badge.svg)](https://github.com/kubernetes-sigs/security-profiles-operator/actions/workflows/test.yml)
 [![coverage](https://codecov.io/gh/kubernetes-sigs/security-profiles-operator/branch/main/graph/badge.svg?token=37VIWSZ1ZT)](https://codecov.io/gh/kubernetes-sigs/security-profiles-operator)
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/5368/badge)](https://bestpractices.coreinfrastructure.org/projects/5368)
+[![OCI security profiles](https://img.shields.io/badge/oci%3A%2F%2F-security%20profiles-blue?logo=kubernetes&logoColor=white)](https://github.com/orgs/security-profiles/packages)
 
 This project is the starting point for the _Security Profiles Operator_ (SPO), an
 out-of-tree Kubernetes enhancement which aims to make it easier for users to use
