@@ -634,11 +634,13 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			},
 			assert: func(syscalls []*seccompprofileapi.Syscall, err error) {
 				require.NoError(t, err)
-				require.Len(t, syscalls, 1)
-				require.Len(t, syscalls[0].Names, 3)
-				require.Equal(t, "first", syscalls[0].Names[0])
-				require.Equal(t, "second", syscalls[0].Names[1])
-				require.Equal(t, "third", syscalls[0].Names[2])
+				require.Len(t, syscalls, 3)
+				require.Len(t, syscalls[0].Names, 1)
+				require.Len(t, syscalls[1].Names, 1)
+				require.Len(t, syscalls[2].Names, 1)
+				require.Equal(t, "third", syscalls[0].Names[0])
+				require.Equal(t, "second", syscalls[1].Names[0])
+				require.Equal(t, "first", syscalls[2].Names[0])
 			},
 		},
 		{
@@ -672,11 +674,13 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			},
 			assert: func(syscalls []*seccompprofileapi.Syscall, err error) {
 				require.NoError(t, err)
-				require.Len(t, syscalls, 1)
-				require.Len(t, syscalls[0].Names, 3)
-				require.Equal(t, "first", syscalls[0].Names[0])
-				require.Equal(t, "second", syscalls[0].Names[1])
-				require.Equal(t, "third", syscalls[0].Names[2])
+				require.Len(t, syscalls, 3)
+				require.Len(t, syscalls[0].Names, 1)
+				require.Len(t, syscalls[1].Names, 1)
+				require.Len(t, syscalls[2].Names, 1)
+				require.Equal(t, "third", syscalls[0].Names[0])
+				require.Equal(t, "second", syscalls[1].Names[0])
+				require.Equal(t, "first", syscalls[2].Names[0])
 			},
 		},
 		{

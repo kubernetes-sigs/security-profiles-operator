@@ -17,7 +17,6 @@ limitations under the License.
 package util
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/containers/common/pkg/seccomp"
@@ -74,6 +73,35 @@ func TestUnionSyscalls(t *testing.T) {
 			},
 		},
 		{
+			name: "Args",
+			baseSyscalls: []*v1beta1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+					Args:   []*v1beta1.Arg{{Index: 1, Value: 2}},
+				},
+			},
+			appliedSyscalls: []*v1beta1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+					Args:   []*v1beta1.Arg{{Index: 2, Value: 3}},
+				},
+			},
+			want: []*v1beta1.Syscall{
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+					Args:   []*v1beta1.Arg{{Index: 1, Value: 2}},
+				},
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+					Args:   []*v1beta1.Arg{{Index: 2, Value: 3}},
+				},
+			},
+		},
+		{
 			name: "UniqueActions",
 			baseSyscalls: []*v1beta1.Syscall{
 				{
@@ -102,19 +130,23 @@ func TestUnionSyscalls(t *testing.T) {
 			name: "OverlappingActionsWithUniqueNames",
 			baseSyscalls: []*v1beta1.Syscall{
 				{
-					Names:  []string{"a", "b", "c"},
+					Names:  []string{"a", "c", "b"},
 					Action: seccomp.Action("foo"),
 				},
 			},
 			appliedSyscalls: []*v1beta1.Syscall{
 				{
-					Names:  []string{"d", "e", "f"},
+					Names:  []string{"d", "f", "e"},
 					Action: seccomp.Action("foo"),
 				},
 			},
 			want: []*v1beta1.Syscall{
 				{
-					Names:  []string{"a", "b", "c", "d", "e", "f"},
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+				{
+					Names:  []string{"d", "e", "f"},
 					Action: seccomp.Action("foo"),
 				},
 			},
@@ -147,7 +179,15 @@ func TestUnionSyscalls(t *testing.T) {
 					Action: seccomp.Action("bar"),
 				},
 				{
-					Names:  []string{"a", "b", "c", "d"},
+					Names:  []string{"x", "y", "z"},
+					Action: seccomp.Action("bar"),
+				},
+				{
+					Names:  []string{"a", "b", "c"},
+					Action: seccomp.Action("foo"),
+				},
+				{
+					Names:  []string{"b", "c", "d"},
 					Action: seccomp.Action("foo"),
 				},
 			},
@@ -159,13 +199,8 @@ func TestUnionSyscalls(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := UnionSyscalls(tc.baseSyscalls, tc.appliedSyscalls)
-			for i := range got {
-				sort.Strings(got[i].Names)
-			}
-			sort.Slice(got, func(i, j int) bool {
-				return got[i].Action < got[j].Action
-			})
+			got, err := UnionSyscalls(tc.baseSyscalls, tc.appliedSyscalls)
+			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 		})
 	}

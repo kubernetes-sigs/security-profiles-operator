@@ -393,7 +393,11 @@ func (r *Reconciler) resolveSyscallsForProfile(
 		baseProfile = profile
 	}
 
-	newSyscalls := util.UnionSyscalls(baseProfile.Spec.Syscalls, inputSyscalls)
+	newSyscalls, err := util.UnionSyscalls(baseProfile.Spec.Syscalls, inputSyscalls)
+	if err != nil {
+		return nil, fmt.Errorf("union syscalls: %w", err)
+	}
+
 	return r.resolveSyscallsForProfile(ctx, baseProfile, newSyscalls, l, level+1)
 }
 
