@@ -308,6 +308,14 @@ spec:
       - rules:
         - apiGroups:
           - ""
+          resourceNames:
+          - security-profiles-operator-profile
+          resources:
+          - configmaps
+          verbs:
+          - get
+        - apiGroups:
+          - ""
           resources:
           - nodes
           verbs:
