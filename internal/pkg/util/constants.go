@@ -28,3 +28,11 @@ const (
 	EventTypeNormal  string = "Normal"
 	EventTypeWarning string = "Warning"
 )
+
+const (
+	// OperatorConfigMap corresponds to the configMap created from deploy/base/profiles.
+	OperatorConfigMap = "security-profiles-operator-profile"
+	// SelinuxdImageMappingKey is the key in the configMap that contains the mapping
+	// between the selinuxd image and the OS version.
+	SelinuxdImageMappingKey = "selinuxd-image-mapping.json"
+)

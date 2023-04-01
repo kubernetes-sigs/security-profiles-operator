@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util_test
+package util
 
 import (
 	"path"
@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func TestGetSeccompLocalhostProfilePath(t *testing.T) {
@@ -86,7 +85,7 @@ func TestGetSeccompLocalhostProfilePath(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := util.GetSeccompLocalhostProfilePath(tt.node)
+			got := GetSeccompLocalhostProfilePath(tt.node)
 			require.Equal(t, tt.want, got)
 		})
 	}
@@ -131,7 +130,7 @@ func TestGetContainerRuntime(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := util.GetContainerRuntime(tt.node)
+			got := GetContainerRuntime(tt.node)
 			require.Equal(t, tt.want, got)
 		})
 	}
@@ -160,8 +159,73 @@ func TestGetVersion(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := util.GetVersion(tt.node)
+			got := GetVersion(tt.node)
 			require.True(t, semver.IsValid(got), "should return a valid version")
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestMatchSelinuxdImageVersion(t *testing.T) {
+	t.Parallel()
+
+	mappingJSON := `[
+		{
+			"regex":"(.*)(CoreOS).*([\\d+])\\.8[\\d+]\\.(.*)",
+			"image":"quay.io/security-profiles-operator/selinuxd:el8"
+		},
+		{
+			"regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
+			"image":"quay.io/security-profiles-operator/selinuxd:el9"
+		}
+	]`
+
+	tests := []struct {
+		name string
+		node *corev1.Node
+		want string
+	}{
+		{
+			name: "Should return el8",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Red Hat Enterprise Linux CoreOS 411.86.202212072103-0 (Ootpa)",
+					},
+				},
+			},
+			want: "quay.io/security-profiles-operator/selinuxd:el8",
+		},
+		{
+			name: "Should return el9",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "CentOS Stream CoreOS 413.92.202303061740-0 (Plow)",
+					},
+				},
+			},
+			want: "quay.io/security-profiles-operator/selinuxd:el9",
+		},
+		{
+			name: "Does not match anything",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Some other OS",
+					},
+				},
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := MatchSelinuxdImageJSONMapping(tt.node, []byte(mappingJSON))
+			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
 		})
 	}
