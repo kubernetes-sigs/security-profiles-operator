@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -120,14 +121,10 @@ func isStaticWebhook(ctx context.Context) bool {
 }
 
 func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error) {
+	var err error
+
 	dt := &daemonTunables{}
 	dt.watchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
-
-	selinuxdImage := os.Getenv(selinuxdImageKey)
-	if selinuxdImage == "" {
-		return dt, errors.New("invalid selinuxd image")
-	}
-	dt.selinuxdImage = selinuxdImage
 
 	rbacProxyImage := os.Getenv(rbacProxyImageKey)
 	if rbacProxyImage == "" {
@@ -146,8 +143,43 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 	}
 	dt.seccompLocalhostProfile = util.GetSeccompLocalhostProfilePath(node)
 	dt.containerRuntime = util.GetContainerRuntime(node)
+	dt.selinuxdImage, err = r.getSelinuxdImage(ctx, node)
+	if err != nil {
+		return dt, fmt.Errorf("could not determine selinuxd image: %w", err)
+	}
 
 	return dt, nil
+}
+
+func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node) (string, error) {
+	var operatorCm corev1.ConfigMap
+	operatorCmName := types.NamespacedName{
+		Namespace: config.GetOperatorNamespace(),
+		Name:      util.OperatorConfigMap,
+	}
+
+	if err := r.clientReader.Get(ctx, operatorCmName, &operatorCm); err != nil {
+		return "", err
+	}
+	selinuxdImageMapping := operatorCm.Data[util.SelinuxdImageMappingKey]
+
+	selinuxdImage, err := util.MatchSelinuxdImageJSONMapping(node, []byte(selinuxdImageMapping))
+	if err != nil {
+		return "", fmt.Errorf("matching selinuxd image: %w", err)
+	}
+
+	if selinuxdImage != "" {
+		r.log.Info("matched selinuxd image against nodeInfo", "image", selinuxdImage)
+		return selinuxdImage, nil
+	}
+
+	selinuxdImage = os.Getenv(selinuxdImageKey)
+	if selinuxdImage != "" {
+		r.log.Info("using selinuxd image from envVar", "image", selinuxdImage)
+		return selinuxdImage, nil
+	}
+
+	return "", errors.New("invalid selinuxd image")
 }
 
 func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {

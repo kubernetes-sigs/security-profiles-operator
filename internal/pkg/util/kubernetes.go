@@ -18,9 +18,11 @@ package util
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 
 	"golang.org/x/mod/semver"
@@ -91,4 +93,36 @@ func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, e
 		return strings.ReplaceAll(kubeletDir, "-", "/"), nil
 	}
 	return "", fmt.Errorf("no %s label found on node %s", config.KubeletDirNodeLabelKey, nodeName)
+}
+
+type selinuxdImageMap struct {
+	Regex string `json:"regex"`
+	Image string `json:"image"`
+}
+
+func MatchSelinuxdImageJSONMapping(node *corev1.Node, mappingObj []byte) (string, error) {
+	var mapping []selinuxdImageMap
+
+	if err := json.Unmarshal(mappingObj, &mapping); err != nil {
+		return "", err
+	}
+
+	return matchSelinuxdImage(node, mapping), nil
+}
+
+func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) string {
+	if node == nil {
+		return ""
+	}
+
+	for _, m := range mapping {
+		if m.Regex == "" {
+			continue
+		}
+		if matched, err := regexp.MatchString(m.Regex, node.Status.NodeInfo.OSImage); err == nil && matched {
+			return m.Image
+		}
+	}
+
+	return ""
 }

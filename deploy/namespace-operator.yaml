@@ -2084,6 +2084,14 @@ metadata:
 rules:
 - apiGroups:
   - ""
+  resourceNames:
+  - security-profiles-operator-profile
+  resources:
+  - configmaps
+  verbs:
+  - get
+- apiGroups:
+  - ""
   resources:
   - nodes
   verbs:
@@ -2922,6 +2930,17 @@ data:
         }
       ]
     }
+  selinuxd-image-mapping.json: |
+    [
+        {
+            "regex":"(.*)(CoreOS).*([\\d+])\\.8[\\d+]\\.(.*)",
+            "image":"quay.io/security-profiles-operator/selinuxd-el8:latest"
+        },
+        {
+            "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
+            "image":"quay.io/security-profiles-operator/selinuxd-el9:latest"
+        }
+    ]
   selinuxd.cil: |
     (block selinuxd
         (blockinherit container)
