@@ -15,6 +15,7 @@ configMapGenerator:
   - profiles/security-profiles-operator.json
   - profiles/selinuxd.cil
   - profiles/selinuxrecording.cil
+  - profiles/selinuxd-image-mapping.json
   name: security-profiles-operator-profile
 
 generatorOptions:

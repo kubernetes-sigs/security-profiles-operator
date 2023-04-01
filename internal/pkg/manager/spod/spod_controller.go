@@ -127,6 +127,9 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 //
 // Needed to detect which runtime is active
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;get
+//
+// Needed to detect the proper selinux image
+// +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=security-profiles-operator-profile,verbs=get
 
 // Reconcile reads that state of the cluster for a SPOD object and makes changes based on the state read
 // and what is in the `ConfigMap.Spec`.
