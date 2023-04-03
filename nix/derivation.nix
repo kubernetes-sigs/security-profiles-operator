@@ -20,7 +20,7 @@ with pkgs; buildGo120Module rec {
     zlib.static
   ];
   buildPhase = ''
-    make WITH_BPF=1
+    make
   '';
   installPhase = ''
     install -Dm755 -t $out build/security-profiles-operator build/spoc
