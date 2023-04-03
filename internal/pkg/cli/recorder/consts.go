@@ -138,6 +138,7 @@ var (
 		"umount2",
 		"unlinkat",
 		"unshare",
+		"utimensat",
 		"write",
 	}
 )
