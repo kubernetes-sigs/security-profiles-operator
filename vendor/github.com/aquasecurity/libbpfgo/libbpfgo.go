@@ -162,6 +162,7 @@ const (
 	Cgroup
 	CgroupLegacy
 	Netns
+	Iter
 )
 
 type BPFLinkLegacy struct {
@@ -1068,6 +1069,31 @@ func (it *BPFMapIterator) Err() error {
 	return it.err
 }
 
+// BPFLinkReader read data from a BPF link
+type BPFLinkReader struct {
+	l  *BPFLink
+	fd int
+}
+
+func (l *BPFLink) Reader() (*BPFLinkReader, error) {
+	fd, errno := C.bpf_iter_create(C.int(l.FileDescriptor()))
+	if fd < 0 {
+		return nil, fmt.Errorf("failed to create reader: %w", errno)
+	}
+	return &BPFLinkReader{
+		l:  l,
+		fd: int(uintptr(fd)),
+	}, nil
+}
+
+func (i *BPFLinkReader) Read(p []byte) (n int, err error) {
+	return syscall.Read(i.fd, p)
+}
+
+func (i *BPFLinkReader) Close() error {
+	return syscall.Close(i.fd)
+}
+
 func (m *Module) GetProgram(progName string) (*BPFProg, error) {
 	cs := C.CString(progName)
 	prog, errno := C.bpf_object__find_program_by_name(m.obj, cs)
@@ -1554,6 +1580,55 @@ func (p *BPFProg) AttachNetns(networkNamespacePath string) (*BPFLink, error) {
 		prog:      p,
 		linkType:  Netns,
 		eventName: fmt.Sprintf("netns-%s-%s", p.name, fileName),
+	}
+	p.module.links = append(p.module.links, bpfLink)
+	return bpfLink, nil
+}
+
+type BPFCgroupIterOrder uint32
+
+const (
+	BPFIterOrderUnspec BPFCgroupIterOrder = iota
+	BPFIterSelfOnly
+	BPFIterDescendantsPre
+	BPFIterDescendantsPost
+	BPFIterAncestorsUp
+)
+
+type IterOpts struct {
+	MapFd           int
+	CgroupIterOrder BPFCgroupIterOrder
+	CgroupFd        int
+	CgroupId        uint64
+	Tid             int
+	Pid             int
+	PidFd           int
+}
+
+func (p *BPFProg) AttachIter(opts IterOpts) (*BPFLink, error) {
+	mapFd := C.uint(opts.MapFd)
+	cgroupIterOrder := uint32(opts.CgroupIterOrder)
+	cgroupFd := C.uint(opts.CgroupFd)
+	cgroupId := C.ulonglong(opts.CgroupId)
+	tid := C.uint(opts.Tid)
+	pid := C.uint(opts.Pid)
+	pidFd := C.uint(opts.PidFd)
+	cOpts, errno := C.bpf_iter_attach_opts_new(mapFd, cgroupIterOrder, cgroupFd, cgroupId, tid, pid, pidFd)
+	if cOpts == nil {
+		return nil, fmt.Errorf("failed to create iter_attach_opts to program %s: %w", p.name, errno)
+	}
+	defer C.bpf_iter_attach_opts_free(cOpts)
+
+	link, errno := C.bpf_program__attach_iter(p.prog, cOpts)
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach iter to program %s: %w", p.name, errno)
+	}
+	eventName := fmt.Sprintf("iter-%s-%d", p.name, opts.MapFd)
+	bpfLink := &BPFLink{
+		link:      link,
+		prog:      p,
+		linkType:  Iter,
+		eventName: eventName,
 	}
 	p.module.links = append(p.module.links, bpfLink)
 	return bpfLink, nil

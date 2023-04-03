@@ -22,16 +22,25 @@ int libbpf_print_fn(enum libbpf_print_level level, // libbpf print level
                     const char *format,            // format used for the msg
                     va_list args) {                // args used by format
 
-  int ret = 0;
+  int ret;
+  size_t len;
   char *out;
   va_list check;
 
-  out = (char *)calloc(1, 300);
+  va_copy(check, args);
+  ret = vsnprintf(NULL, 0, format, check); // get output length
+  va_end(check);
+
+  if (ret < 0)
+    return ret;
+
+  len = ret + 1; // add 1 for NUL
+  out = malloc(len);
   if (!out)
     return -ENOMEM;
 
   va_copy(check, args);
-  ret = vsnprintf(out, 300, format, check);
+  ret = vsnprintf(out, len, format, check);
   va_end(check);
 
   if (ret > 0)
@@ -114,6 +123,45 @@ int bpf_prog_detach_cgroup_legacy(
   attr.attach_type = type;
 
   return syscall(__NR_bpf, BPF_PROG_DETACH, &attr, sizeof(attr));
+}
+
+struct bpf_iter_attach_opts *
+bpf_iter_attach_opts_new(__u32 map_fd, enum bpf_cgroup_iter_order order,
+                         __u32 cgroup_fd, __u64 cgroup_id, __u32 tid, __u32 pid,
+                         __u32 pid_fd) {
+  union bpf_iter_link_info *linfo;
+  linfo = calloc(1, sizeof(*linfo));
+  if (!linfo)
+    return NULL;
+
+  linfo->map.map_fd = map_fd;
+  linfo->cgroup.order = order;
+  linfo->cgroup.cgroup_fd = cgroup_fd;
+  linfo->cgroup.cgroup_id = cgroup_id;
+  linfo->task.tid = tid;
+  linfo->task.pid = pid;
+  linfo->task.pid_fd = pid_fd;
+
+  struct bpf_iter_attach_opts *opts;
+  opts = calloc(1, sizeof(*opts));
+  if (!opts) {
+    free(linfo);
+    return NULL;
+  }
+
+  opts->sz = sizeof(*opts);
+  opts->link_info_len = sizeof(*linfo);
+  opts->link_info = linfo;
+
+  return opts;
+}
+
+void bpf_iter_attach_opts_free(struct bpf_iter_attach_opts *opts) {
+  if (!opts)
+    return;
+
+  free(opts->link_info);
+  free(opts);
 }
 
 struct bpf_object *open_bpf_object(char *btf_file_path, char *kconfig_path,
