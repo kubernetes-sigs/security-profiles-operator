@@ -208,12 +208,33 @@ nix: nix-amd64 nix-arm64 ## Build all binaries via nix and create a build.tar.gz
 	tar cvfz build.tar.gz -C $(BUILD_DIR) amd64 arm64
 
 .PHONY: nix-amd64
-nix-amd64: ## Build the binary via nix for amd64
+nix-amd64: ## Build the binaries via nix for amd64
 	$(call nix-build-to,amd64)
 
 .PHONY: nix-arm64
-nix-arm64: ## Build the binary via nix for arm64
+nix-arm64: ## Build the binaries via nix for arm64
 	$(call nix-build-to,arm64)
+
+define nix-build-sign-spoc-to
+	nix-build nix/default-spoc-$(1).nix
+	cp -f result/spoc $(BUILD_DIR)/spoc.$(1)
+	cosign sign-blob -y \
+		$(BUILD_DIR)/spoc.$(1) \
+		--output-signature $(BUILD_DIR)/spoc.$(1).sig \
+		--output-certificate $(BUILD_DIR)/spoc.$(1).cert
+endef
+
+.PHONY: nix-spoc
+nix-spoc: nix-spoc-amd64 nix-spoc-arm64 ## Build all spoc binaries via nix.
+	cosign
+
+.PHONY: nix-spoc-amd64
+nix-spoc-amd64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for amd64
+	$(call nix-build-sign-spoc-to,amd64)
+
+.PHONY: nix-spoc-arm64
+nix-spoc-arm64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for arm64
+	$(call nix-build-sign-spoc-to,arm64)
 
 .PHONY: update-nixpkgs
 update-nixpkgs: ## Update the pinned nixpkgs to the latest master
