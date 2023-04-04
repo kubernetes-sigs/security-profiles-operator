@@ -226,7 +226,6 @@ endef
 
 .PHONY: nix-spoc
 nix-spoc: nix-spoc-amd64 nix-spoc-arm64 ## Build all spoc binaries via nix.
-	cosign
 
 .PHONY: nix-spoc-amd64
 nix-spoc-amd64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for amd64
