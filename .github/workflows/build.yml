@@ -7,6 +7,7 @@ on:
 env:
   GO_VERSION: '1.20'
   NIX_VERSION: '2.13.3'
+  BOM_VERSION: v0.5.1
 
 permissions: {}
 
@@ -56,6 +57,10 @@ jobs:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
           pushFilter: security-profiles-operator
+      - run: |
+          sudo curl -sSfL --retry 5 --retry-delay 3 -o /usr/bin/bom \
+            https://github.com/kubernetes-sigs/bom/releases/download/${{ env.BOM_VERSION }}/bom-amd64-linux
+          sudo chmod +x /usr/bin/bom
       - run: make nix-spoc
       - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
         with:
