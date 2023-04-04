@@ -43,7 +43,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || contains(github.ref, 'refs/tags')
     runs-on: ubuntu-22.04
     permissions:
-      content: read
+      contents: read
       id-token: write
     steps:
       - uses: sigstore/cosign-installer@c3667d99424e7e6047999fb6246c0da843953c65 # v3.0.1
