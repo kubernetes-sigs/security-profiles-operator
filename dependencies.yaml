@@ -200,9 +200,11 @@ dependencies:
       match: COSIGN_VERSION
 
   - name: bom
-    version: v0.4.1
+    version: v0.5.1
     refPaths:
     - path: hack/ci/install-cri-o.sh
+      match: BOM_VERSION
+    - path: .github/workflows/build.yml
       match: BOM_VERSION
 
   - name: spo-current
