@@ -222,10 +222,21 @@ define nix-build-sign-spoc-to
 		$(BUILD_DIR)/spoc.$(1) \
 		--output-signature $(BUILD_DIR)/spoc.$(1).sig \
 		--output-certificate $(BUILD_DIR)/spoc.$(1).cert
+	cd $(BUILD_DIR) && sha512sum spoc.$(1) > spoc.$(1).sha512
 endef
 
 .PHONY: nix-spoc
 nix-spoc: nix-spoc-amd64 nix-spoc-arm64 ## Build all spoc binaries via nix.
+	bom version
+	bom generate \
+		-l Apache-2.0 \
+		--name spoc \
+		-d $(BUILD_DIR) \
+		-o $(BUILD_DIR)/spoc.spdx
+	cosign sign-blob -y \
+		$(BUILD_DIR)/spoc.spdx \
+		--output-signature $(BUILD_DIR)/spoc.spdx.sig \
+		--output-certificate $(BUILD_DIR)/spoc.spdx.cert
 
 .PHONY: nix-spoc-amd64
 nix-spoc-amd64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for amd64
