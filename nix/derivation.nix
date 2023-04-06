@@ -18,6 +18,7 @@ with pkgs; buildGo120Module rec {
     libbpf_1
     libseccomp
     zlib.static
+    (zstd.override { static = true; })
   ];
   buildPhase = ''
     make
