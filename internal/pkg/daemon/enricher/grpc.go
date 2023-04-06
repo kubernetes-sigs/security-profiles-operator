@@ -39,7 +39,7 @@ const (
 
 // Syscalls returns the syscalls for a provided profile.
 func (e *Enricher) Syscalls(
-	ctx context.Context, r *api.SyscallsRequest,
+	_ context.Context, r *api.SyscallsRequest,
 ) (*api.SyscallsResponse, error) {
 	syscalls, ok := e.syscalls.Load(r.GetProfile())
 	if !ok {
@@ -58,7 +58,7 @@ func (e *Enricher) Syscalls(
 
 // ResetSyscalls removes the syscalls for a provided profile.
 func (e *Enricher) ResetSyscalls(
-	ctx context.Context, r *api.SyscallsRequest,
+	_ context.Context, r *api.SyscallsRequest,
 ) (*api.EmptyResponse, error) {
 	e.syscalls.Delete(r.GetProfile())
 	return &api.EmptyResponse{}, nil
@@ -66,7 +66,7 @@ func (e *Enricher) ResetSyscalls(
 
 // Avcs returns the AVC messages for a provided profile.
 func (e *Enricher) Avcs(
-	ctx context.Context, r *api.AvcRequest,
+	_ context.Context, r *api.AvcRequest,
 ) (*api.AvcResponse, error) {
 	avcs, ok := e.avcs.Load(r.GetProfile())
 	if !ok {
@@ -94,7 +94,7 @@ func (e *Enricher) Avcs(
 
 // ResetAvcs removes the avcs for a provided profile.
 func (e *Enricher) ResetAvcs(
-	ctx context.Context, r *api.AvcRequest,
+	_ context.Context, r *api.AvcRequest,
 ) (*api.EmptyResponse, error) {
 	e.avcs.Delete(r.GetProfile())
 	return &api.EmptyResponse{}, nil

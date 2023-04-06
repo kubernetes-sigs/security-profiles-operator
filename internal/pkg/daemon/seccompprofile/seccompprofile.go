@@ -163,7 +163,7 @@ func (AllowedSyscallsChangedPredicate) Update(e event.UpdateEvent) bool {
 
 // Setup adds a controller that reconciles seccomp profiles.
 func (r *Reconciler) Setup(
-	ctx context.Context,
+	_ context.Context,
 	mgr ctrl.Manager,
 	met *metrics.Metrics,
 ) error {
@@ -351,7 +351,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 		return inputSyscalls, nil
 	}
 
-	baseProfile := &seccompprofileapi.SeccompProfile{}
+	var baseProfile *seccompprofileapi.SeccompProfile
 
 	if strings.HasPrefix(baseProfileName, config.OCIProfilePrefix) {
 		// Pull remote base profile from an OCI artifact registry

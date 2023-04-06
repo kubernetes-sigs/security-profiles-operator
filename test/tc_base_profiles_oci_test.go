@@ -87,7 +87,7 @@ spec:
 	defer os.Remove(helloPodFile.Name())
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	_, err = helloPodFile.WriteString(fmt.Sprintf(helloPod, namespace))
+	_, err = fmt.Fprintf(helloPodFile, helloPod, namespace)
 	e.Nil(err)
 	err = helloPodFile.Close()
 	e.Nil(err)

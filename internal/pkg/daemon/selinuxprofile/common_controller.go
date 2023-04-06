@@ -101,7 +101,7 @@ type ReconcileSelinux struct {
 
 // Setup adds a controller that reconciles selinux profiles.
 func (r *ReconcileSelinux) Setup(
-	ctx context.Context,
+	_ context.Context,
 	mgr ctrl.Manager,
 	met *metrics.Metrics,
 ) error {

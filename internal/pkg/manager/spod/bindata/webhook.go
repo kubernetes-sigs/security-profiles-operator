@@ -164,9 +164,8 @@ func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 					}
 				}
 				continue
-			} else {
-				return fmt.Errorf("creating %s: %w", k, err)
 			}
+			return fmt.Errorf("creating %s: %w", k, err)
 		}
 	}
 
