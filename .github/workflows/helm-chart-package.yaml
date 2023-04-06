@@ -3,7 +3,7 @@ on:
   pull_request:
   release:
     types: [published]
-    
+
 permissions:
   contents: write
 
@@ -33,12 +33,8 @@ jobs:
           name: ${{ steps.package.outputs.helm_tgz_name}}
           path: ${{ steps.package.outputs.helm_tgz_path}}
           if-no-files-found: error
-      - uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1.0.2
-        if: github.event_name == 'release'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v0.1.15
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ steps.package.outputs.helm_tgz_path}}
-          asset_name: ${{ steps.package.outputs.helm_tgz_name}}
-          asset_content_type: 'application/x-tar'
+          files: |
+            ${{ steps.package.outputs.helm_tgz_path}}
