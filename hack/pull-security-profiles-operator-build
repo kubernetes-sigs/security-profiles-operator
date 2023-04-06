@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# assume a Debian based golang image, like: golang:1.16
-apt-get update
-apt-get install -y libseccomp-dev libelf-dev libapparmor-dev
-./hack/install-libbpf.sh
+./hack/install-packages
 
 make

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# assume a Debian based golang image
+apt-get update
+apt-get install -y \
+    libapparmor-dev \
+    libelf-dev \
+    libseccomp-dev \
+    libzstd-dev
+
+./hack/install-libbpf.sh

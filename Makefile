@@ -78,7 +78,7 @@ LINT_BUILDTAGS := $(LINT_BUILDTAGS),apparmor
 endif
 
 ifeq ($(BPF_ENABLED), 1)
-CGO_LDFLAGS := $(CGO_LDFLAGS) -lelf -lz -lbpf
+CGO_LDFLAGS := $(CGO_LDFLAGS) -lelf -lz -lbpf -lzstd
 else
 BUILDTAGS := $(BUILDTAGS) no_bpf
 LINT_BUILDTAGS := $(LINT_BUILDTAGS),no_bpf
