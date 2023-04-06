@@ -172,7 +172,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 		Namespace: r.namespace,
 	}
 
-	caInjectType, err := bindata.GetCAInjectType(ctx, r.log, r.namespace, r.client)
+	caInjectType, err := bindata.GetCAInjectType(ctx, r.log, r.client)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("get ca inject type: %w", err)
 	}
@@ -433,7 +433,7 @@ func (r *ReconcileSPOd) handleUpdate(
 
 		if errors.IsNotFound(err) {
 			// Handle new default profile
-			if createErr := r.client.Create(ctx, profile); err != nil {
+			if createErr := r.client.Create(ctx, profile); createErr != nil {
 				if errors.IsAlreadyExists(createErr) {
 					return nil
 				}

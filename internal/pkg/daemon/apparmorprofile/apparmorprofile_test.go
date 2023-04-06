@@ -121,10 +121,10 @@ func (f *FakeProfileManager) Enabled() bool {
 	return f.enabled
 }
 
-func (f *FakeProfileManager) InstallProfile(p profilebasev1alpha1.StatusBaseUser) (bool, error) {
+func (f *FakeProfileManager) InstallProfile(profilebasev1alpha1.StatusBaseUser) (bool, error) {
 	return f.installed, f.err
 }
 
-func (f *FakeProfileManager) RemoveProfile(p profilebasev1alpha1.StatusBaseUser) error {
+func (f *FakeProfileManager) RemoveProfile(profilebasev1alpha1.StatusBaseUser) error {
 	return f.err
 }

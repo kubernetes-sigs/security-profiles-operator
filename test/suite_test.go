@@ -497,7 +497,7 @@ func (e *vanilla) SetupTest() {
 func (e *vanilla) TearDownTest() {
 }
 
-func (e *vanilla) execNodeVanilla(node string, args ...string) string {
+func (e *vanilla) execNodeVanilla(_ string, args ...string) string {
 	return e.run(args[0], args[1:]...)
 }
 

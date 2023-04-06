@@ -45,7 +45,7 @@ type impl interface {
 }
 
 func (*defaultImpl) Pull(
-	ctx context.Context, l logr.Logger, from, username, password string,
+	ctx context.Context, l logr.Logger, from, _, _ string,
 ) (*artifact.PullResult, error) {
 	return artifact.New(l).Pull(ctx, from, "", "")
 }

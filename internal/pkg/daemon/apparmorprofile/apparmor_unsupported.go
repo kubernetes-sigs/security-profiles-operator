@@ -33,18 +33,18 @@ func (a *aaProfileManager) Enabled() bool {
 	return false
 }
 
-func (a *aaProfileManager) RemoveProfile(bp profilebasev1alpha1.StatusBaseUser) error {
+func (a *aaProfileManager) RemoveProfile(profilebasev1alpha1.StatusBaseUser) error {
 	return errAppArmorNotSupported
 }
 
-func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser) (bool, error) {
+func (a *aaProfileManager) InstallProfile(profilebasev1alpha1.StatusBaseUser) (bool, error) {
 	return false, errAppArmorNotSupported
 }
 
-func loadProfile(logger logr.Logger, name, content string) (bool, error) {
+func loadProfile(logr.Logger, string, string) (bool, error) {
 	return false, errAppArmorNotSupported
 }
 
-func removeProfile(logger logr.Logger, profileName string) error {
+func removeProfile(logr.Logger, string) error {
 	return errAppArmorNotSupported
 }
