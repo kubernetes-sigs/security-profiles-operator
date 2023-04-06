@@ -25,7 +25,7 @@ import (
 
 const profileName = "metrics-profile"
 
-func (e *e2e) testCaseSeccompMetrics(nodes []string) {
+func (e *e2e) testCaseSeccompMetrics([]string) {
 	e.seccompOnlyTestCase()
 	e.singleNodeTestCase()
 

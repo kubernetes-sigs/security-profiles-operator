@@ -87,6 +87,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 	pod := &corev1.Pod{}
 	var err error
+	//nolint:gocritic // It's intended to ignore the not found error
 	if err = r.client.Get(ctx, req.NamespacedName, pod); util.IgnoreNotFound(err) != nil {
 		logger.Error(err, "could not get pod")
 		return reconcile.Result{}, fmt.Errorf("looking up pod in pod reconciler: %w", err)

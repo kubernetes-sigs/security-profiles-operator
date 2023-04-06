@@ -646,18 +646,18 @@ type Logger struct {
 	mutex    sync.RWMutex
 }
 
-func (l *Logger) Init(logr.RuntimeInfo)                                {}
-func (l *Logger) Enabled(int) bool                                     { return true }
-func (l *Logger) WithValues(keysAndValues ...interface{}) logr.LogSink { return l }
-func (l *Logger) WithName(name string) logr.LogSink                    { return l }
+func (l *Logger) Init(logr.RuntimeInfo)                  {}
+func (l *Logger) Enabled(int) bool                       { return true }
+func (l *Logger) WithValues(...interface{}) logr.LogSink { return l }
+func (l *Logger) WithName(string) logr.LogSink           { return l }
 
-func (l *Logger) Info(_ int, msg string, keysAndValues ...interface{}) {
+func (l *Logger) Info(_ int, msg string, _ ...interface{}) {
 	l.mutex.Lock()
 	l.messages = append(l.messages, msg)
 	l.mutex.Unlock()
 }
 
-func (l *Logger) Error(err error, msg string, keysAndValues ...interface{}) {
+func (l *Logger) Error(_ error, msg string, _ ...interface{}) {
 	l.mutex.Lock()
 	l.messages = append(l.messages, msg)
 	l.mutex.Unlock()

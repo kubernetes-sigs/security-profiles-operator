@@ -92,9 +92,9 @@ type fakeClient struct {
 }
 
 func (f *fakeClient) Create(
-	_ context.Context,
-	_ client.Object,
-	_ ...client.CreateOption,
+	context.Context,
+	client.Object,
+	...client.CreateOption,
 ) error {
 	if f.updateFails {
 		return errors.New("test")
@@ -103,9 +103,9 @@ func (f *fakeClient) Create(
 }
 
 func (f *fakeClient) Delete(
-	_ context.Context,
-	_ client.Object,
-	_ ...client.DeleteOption,
+	context.Context,
+	client.Object,
+	...client.DeleteOption,
 ) error {
 	if f.updateFails {
 		return errors.New("test")
@@ -114,9 +114,9 @@ func (f *fakeClient) Delete(
 }
 
 func (f *fakeClient) DeleteAllOf(
-	_ context.Context,
-	_ client.Object,
-	_ ...client.DeleteAllOfOption,
+	context.Context,
+	client.Object,
+	...client.DeleteAllOfOption,
 ) error {
 	if f.updateFails {
 		return errors.New("test")
@@ -125,9 +125,9 @@ func (f *fakeClient) DeleteAllOf(
 }
 
 func (f *fakeClient) Update(
-	ctx context.Context,
-	_ client.Object,
-	_ ...client.UpdateOption,
+	context.Context,
+	client.Object,
+	...client.UpdateOption,
 ) error {
 	if f.updateFails {
 		return errors.New("test")
@@ -136,10 +136,10 @@ func (f *fakeClient) Update(
 }
 
 func (*fakeClient) Patch(
-	ctx context.Context,
-	_ client.Object,
-	_ client.Patch,
-	_ ...client.PatchOption,
+	context.Context,
+	client.Object,
+	client.Patch,
+	...client.PatchOption,
 ) error {
 	return nil
 }

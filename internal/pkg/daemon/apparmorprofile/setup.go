@@ -27,7 +27,7 @@ import (
 
 // Setup adds a controller that reconciles AppArmor profiles.
 func (r *Reconciler) Setup(
-	ctx context.Context,
+	_ context.Context,
 	mgr ctrl.Manager,
 	met *metrics.Metrics,
 ) error {

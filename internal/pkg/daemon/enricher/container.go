@@ -95,11 +95,7 @@ func (e *Enricher) populateContainerPodCache(
 				e.populateCacheEntryForContainer(ctx, pod, eg)
 			}
 
-			if werr := eg.Wait(); werr != nil {
-				return werr
-			}
-
-			return nil
+			return eg.Wait()
 		},
 		func(inErr error) bool {
 			return errors.Is(inErr, errContainerIDEmpty)

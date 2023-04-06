@@ -122,7 +122,7 @@ func (r *RecorderReconciler) SchemeBuilder() *scheme.Builder {
 func (r *RecorderReconciler) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,
-	met *metrics.Metrics,
+	_ *metrics.Metrics,
 ) error {
 	const name = "profilerecorder"
 	c, err := r.NewClient(mgr)
@@ -704,9 +704,8 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
 				r.log.Error(err, "Recorded profile not found", "name", profile.name)
 				continue
-			} else {
-				return fmt.Errorf("get syscalls for profile: %w", err)
 			}
+			return fmt.Errorf("get syscalls for profile: %w", err)
 		}
 
 		arch, err := r.goArchToSeccompArch(response.GoArch)
