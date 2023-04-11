@@ -31,6 +31,8 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+
+	rsafork "github.com/go-piv/piv-go/third_party/rsa"
 )
 
 // errMismatchingAlgorithms is returned when a cryptographic operation
@@ -1072,7 +1074,7 @@ func (k *keyRSA) Public() crypto.PublicKey {
 
 func (k *keyRSA) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	return k.auth.do(k.yk, k.pp, func(tx *scTx) ([]byte, error) {
-		return ykSignRSA(tx, k.slot, k.pub, digest, opts)
+		return ykSignRSA(tx, rand, k.slot, k.pub, digest, opts)
 	})
 }
 
@@ -1285,43 +1287,54 @@ func ykDecryptRSA(tx *scTx, slot Slot, pub *rsa.PublicKey, data []byte) ([]byte,
 // PKCS#1 v15 is largely informed by the standard library
 // https://github.com/golang/go/blob/go1.13.5/src/crypto/rsa/pkcs1v15.go
 
-func ykSignRSA(tx *scTx, slot Slot, pub *rsa.PublicKey, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	if _, ok := opts.(*rsa.PSSOptions); ok {
-		return nil, fmt.Errorf("rsassa-pss signatures not supported")
+func ykSignRSA(tx *scTx, rand io.Reader, slot Slot, pub *rsa.PublicKey, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	hash := opts.HashFunc()
+	if hash.Size() != len(digest) {
+		return nil, fmt.Errorf("input must be a hashed message")
 	}
 
 	alg, err := rsaAlg(pub)
 	if err != nil {
 		return nil, err
 	}
-	hash := opts.HashFunc()
-	if hash.Size() != len(digest) {
-		return nil, fmt.Errorf("input must be a hashed message")
-	}
-	prefix, ok := hashPrefixes[hash]
-	if !ok {
-		return nil, fmt.Errorf("unsupported hash algorithm: crypto.Hash(%d)", hash)
-	}
 
-	// https://tools.ietf.org/pdf/rfc2313.pdf#page=9
-	d := make([]byte, len(prefix)+len(digest))
-	copy(d[:len(prefix)], prefix)
-	copy(d[len(prefix):], digest)
+	var data []byte
+	if o, ok := opts.(*rsa.PSSOptions); ok {
+		salt, err := rsafork.NewSalt(rand, pub, hash, o)
+		if err != nil {
+			return nil, err
+		}
+		em, err := rsafork.EMSAPSSEncode(digest, pub, salt, hash.New())
+		if err != nil {
+			return nil, err
+		}
+		data = em
+	} else {
+		prefix, ok := hashPrefixes[hash]
+		if !ok {
+			return nil, fmt.Errorf("unsupported hash algorithm: crypto.Hash(%d)", hash)
+		}
 
-	paddingLen := pub.Size() - 3 - len(d)
-	if paddingLen < 0 {
-		return nil, fmt.Errorf("message too large")
+		// https://tools.ietf.org/pdf/rfc2313.pdf#page=9
+		d := make([]byte, len(prefix)+len(digest))
+		copy(d[:len(prefix)], prefix)
+		copy(d[len(prefix):], digest)
+
+		paddingLen := pub.Size() - 3 - len(d)
+		if paddingLen < 0 {
+			return nil, fmt.Errorf("message too large")
+		}
+
+		padding := make([]byte, paddingLen)
+		for i := range padding {
+			padding[i] = 0xff
+		}
+
+		// https://tools.ietf.org/pdf/rfc2313.pdf#page=9
+		data = append([]byte{0x00, 0x01}, padding...)
+		data = append(data, 0x00)
+		data = append(data, d...)
 	}
-
-	padding := make([]byte, paddingLen)
-	for i := range padding {
-		padding[i] = 0xff
-	}
-
-	// https://tools.ietf.org/pdf/rfc2313.pdf#page=9
-	data := append([]byte{0x00, 0x01}, padding...)
-	data = append(data, 0x00)
-	data = append(data, d...)
 
 	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=117
 	cmd := apdu{

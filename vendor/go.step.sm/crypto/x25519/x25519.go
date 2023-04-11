@@ -1,6 +1,7 @@
 package x25519
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/sha512"
@@ -58,12 +59,30 @@ func (p PublicKey) ToEd25519() (ed25519.PublicKey, error) {
 	return a.Bytes(), nil
 }
 
+// Equal reports whether p and x have the same value.
+func (p PublicKey) Equal(x crypto.PublicKey) bool {
+	xx, ok := x.(PublicKey)
+	if !ok {
+		return false
+	}
+	return bytes.Equal(p, xx)
+}
+
 // Public returns the public key using scalar multiplication (scalar * point)
 // using the Curve25519 basepoint. It will return nil if the private key is not
 // a valid one.
 func (p PrivateKey) Public() crypto.PublicKey {
 	pub, _ := p.PublicKey()
 	return pub
+}
+
+// Equal reports whether p and x have the same value.
+func (p PrivateKey) Equal(x crypto.PrivateKey) bool {
+	xx, ok := x.(PrivateKey)
+	if !ok {
+		return false
+	}
+	return bytes.Equal(p, xx)
 }
 
 // Public returns the public key using scalar multiplication (scalar * point)
