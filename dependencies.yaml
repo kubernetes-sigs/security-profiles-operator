@@ -50,7 +50,7 @@ dependencies:
       match: OLM_VERSION
 
   - name: cert-manager
-    version: 1.11.0
+    version: 1.11.1
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
