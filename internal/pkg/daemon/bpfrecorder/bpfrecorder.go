@@ -131,7 +131,7 @@ func (b *BpfRecorder) Run() error {
 		b.logger.Error(err, "unable to run recorder")
 		return err
 	}
-	b.logger.Info("Starting log-enricher on node: " + b.nodeName)
+	b.logger.Info("Starting ebpf recorder on node: " + b.nodeName)
 
 	clusterConfig, err := b.InClusterConfig()
 	if err != nil {
