@@ -2,6 +2,7 @@
 package keyutil
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -63,6 +64,8 @@ func PublicKey(priv interface{}) (crypto.PublicKey, error) {
 		return k.Public(), nil
 	case *rsa.PublicKey, *ecdsa.PublicKey, ed25519.PublicKey, x25519.PublicKey:
 		return k, nil
+	case crypto.Signer:
+		return k.Public(), nil
 	default:
 		return nil, errors.Errorf("unrecognized key type: %T", priv)
 	}
@@ -148,36 +151,50 @@ func ExtractKey(in interface{}) (interface{}, error) {
 }
 
 // VerifyPair that the public key matches the given private key.
-func VerifyPair(pubkey crypto.PublicKey, key crypto.PrivateKey) error {
-	switch pub := pubkey.(type) {
-	case *rsa.PublicKey:
-		priv, ok := key.(*rsa.PrivateKey)
-		if !ok {
-			return errors.New("private key type does not match public key type")
-		}
-		if !pub.Equal(priv.Public()) {
-			return errors.New("private key does not match public key")
-		}
-	case *ecdsa.PublicKey:
-		priv, ok := key.(*ecdsa.PrivateKey)
-		if !ok {
-			return errors.New("private key type does not match public key type")
-		}
-		if !pub.Equal(priv.Public()) {
-			return errors.New("private key does not match public key")
-		}
-	case ed25519.PublicKey:
-		priv, ok := key.(ed25519.PrivateKey)
-		if !ok {
-			return errors.New("private key type does not match public key type")
-		}
-		if !pub.Equal(priv.Public()) {
-			return errors.New("private key does not match public key")
-		}
-	default:
-		return errors.Errorf("unsupported public key type %T", pub)
+func VerifyPair(pub crypto.PublicKey, priv crypto.PrivateKey) error {
+	signer, ok := priv.(crypto.Signer)
+	if !ok {
+		return errors.New("private key type does implement crypto.Signer")
+	}
+	if !Equal(pub, signer.Public()) {
+		return errors.New("private key does not match public key")
 	}
 	return nil
+}
+
+// Equal reports if x and y are the same key.
+func Equal(x, y any) bool {
+	switch xx := x.(type) {
+	case *ecdsa.PublicKey:
+		yy, ok := y.(*ecdsa.PublicKey)
+		return ok && xx.Equal(yy)
+	case *ecdsa.PrivateKey:
+		yy, ok := y.(*ecdsa.PrivateKey)
+		return ok && xx.Equal(yy)
+	case *rsa.PublicKey:
+		yy, ok := y.(*rsa.PublicKey)
+		return ok && xx.Equal(yy)
+	case *rsa.PrivateKey:
+		yy, ok := y.(*rsa.PrivateKey)
+		return ok && xx.Equal(yy)
+	case ed25519.PublicKey:
+		yy, ok := y.(ed25519.PublicKey)
+		return ok && xx.Equal(yy)
+	case ed25519.PrivateKey:
+		yy, ok := y.(ed25519.PrivateKey)
+		return ok && xx.Equal(yy)
+	case x25519.PublicKey:
+		yy, ok := y.(x25519.PublicKey)
+		return ok && xx.Equal(yy)
+	case x25519.PrivateKey:
+		yy, ok := y.(x25519.PrivateKey)
+		return ok && xx.Equal(yy)
+	case []byte: // special case for symmetric keys
+		yy, ok := y.([]byte)
+		return ok && bytes.Equal(xx, yy)
+	default:
+		return false
+	}
 }
 
 func generateECKey(crv string) (crypto.Signer, error) {
@@ -222,9 +239,15 @@ func generateOKPKey(crv string) (crypto.Signer, error) {
 			return nil, errors.Wrap(err, "error generating Ed25519 key")
 		}
 		return key, nil
+	case "X25519":
+		_, key, err := x25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, errors.Wrap(err, "error generating X25519 key")
+		}
+		return key, nil
 	default:
 		return nil, errors.Errorf("missing or invalid value for argument 'crv'. "+
-			"expected 'Ed25519', but got '%s'", crv)
+			"expected 'Ed25519' or 'X25519', but got '%s'", crv)
 	}
 }
 

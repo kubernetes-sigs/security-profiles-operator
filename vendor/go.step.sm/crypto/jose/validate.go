@@ -38,11 +38,25 @@ func ValidateSSHPOP(certFile string, key interface{}) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "error extracting public key from ssh public key interface")
 	}
-	if err = keyutil.VerifyPair(pubkey, key); err != nil {
+	if err = validateKeyPair(pubkey, key); err != nil {
 		return "", errors.Wrap(err, "error verifying ssh key pair")
 	}
 
 	return base64.StdEncoding.EncodeToString(cert.Marshal()), nil
+}
+
+func validateKeyPair(pub crypto.PublicKey, priv crypto.PrivateKey) error {
+	switch key := priv.(type) {
+	case *JSONWebKey:
+		return keyutil.VerifyPair(pub, key.Key)
+	case OpaqueSigner:
+		if !keyutil.Equal(pub, key.Public().Key) {
+			return errors.New("private key does not match public key")
+		}
+		return nil
+	default:
+		return keyutil.VerifyPair(pub, priv)
+	}
 }
 
 func validateX5(certs []*x509.Certificate, key interface{}) error {
@@ -50,26 +64,8 @@ func validateX5(certs []*x509.Certificate, key interface{}) error {
 		return errors.New("certs cannot be empty")
 	}
 
-	// Compare public keys if we have an opaque signer, otherwise check that private/public match
-	if opaqueSigner, isOpaqueSigner := key.(OpaqueSigner); isOpaqueSigner {
-		signerPub, ok := opaqueSigner.Public().Key.(crypto.PublicKey)
-
-		if !ok {
-			return errors.Errorf("opaqueSigner public key type %T is not supported", signerPub)
-		}
-
-		pub, ok := certs[0].PublicKey.(interface{ Equal(crypto.PublicKey) bool })
-		if ok {
-			if !pub.Equal(signerPub) {
-				return fmt.Errorf("public keys do not match on certificate and key")
-			}
-		} else {
-			return errors.Errorf("unsupported public key type %T", certs[0].PublicKey)
-		}
-	} else {
-		if err := keyutil.VerifyPair(certs[0].PublicKey, key); err != nil {
-			return errors.Wrap(err, "error verifying certificate and key")
-		}
+	if err := validateKeyPair(certs[0].PublicKey, key); err != nil {
+		return errors.Wrap(err, "error verifying certificate and key")
 	}
 
 	if certs[0].KeyUsage&x509.KeyUsageDigitalSignature == 0 {
