@@ -45,6 +45,8 @@ func Thumbprint(jwk *JSONWebKey) (string, error) {
 		if pub, err = key.PublicKey(); err == nil {
 			sum, err = x25519Thumbprint(pub, crypto.SHA256)
 		}
+	case OpaqueSigner:
+		sum, err = key.Public().Thumbprint(crypto.SHA256)
 	default:
 		sum, err = jwk.Thumbprint(crypto.SHA256)
 	}
