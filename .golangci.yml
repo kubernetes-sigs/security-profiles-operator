@@ -1,7 +1,7 @@
 ---
 run:
   concurrency: 6
-  deadline: 5m
+  deadline: 10m
 issues:
   exclude-rules:
     - path: internal/pkg/daemon/bpfrecorder/generated.go
