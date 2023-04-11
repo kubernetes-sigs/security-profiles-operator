@@ -219,8 +219,8 @@ github.com/buger/jsonparser v1.1.1/go.mod h1:6RYKKt7H4d4+iWqouImQ9R2FZql3VbhNgx2
 github.com/bytecodealliance/wasmtime-go/v3 v3.0.2 h1:3uZCA/BLTIu+DqCfguByNMJa2HVHpXvjfy0Dy7g6fuA=
 github.com/cenkalti/backoff/v3 v3.2.2 h1:cfUAAO3yvKMYKPrvhDuHSwQnhZNk/RMHKdZqKTxfm6M=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
-github.com/cert-manager/cert-manager v1.11.0 h1:sChJmoj9hhWuFkQMDYHnLHgYA/sSVil+hY+A1lnD3jY=
-github.com/cert-manager/cert-manager v1.11.0/go.mod h1:JCy2jvRi3Kp+qnRfw8TVYkOocj1thw/aDWFEHPpv4Q4=
+github.com/cert-manager/cert-manager v1.11.1 h1:WUHLFbeWsncAn4hGe2D1NTKOASOF8I0z1SFlyF0oe3k=
+github.com/cert-manager/cert-manager v1.11.1/go.mod h1:25BOJ0Ukt6rETKAV7BATb/5OV4mcVjSWVe+JGvn5lO0=
 github.com/cespare/xxhash v1.1.0 h1:a6HrQnmkObjyL+Gs60czilIUGqrzKutQD6XZog3p+ko=
 github.com/cespare/xxhash v1.1.0/go.mod h1:XrSqR1VqqWfGrhpAt58auRo0WTKS1nRRg3ghfAqPWnc=
 github.com/cespare/xxhash/v2 v2.2.0 h1:DC2CZ1Ep5Y4k3ZQ899DldepgrayRUGE6BBZ/cd9Cj44=
