@@ -3021,7 +3021,7 @@ spec:
         - --webhook=false
         env:
         - name: RELATED_IMAGE_RBAC_PROXY
-          value: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
+          value: gcr.io/kubebuilder/kube-rbac-proxy:v0.14.0
         - name: RELATED_IMAGE_SELINUXD
           value: quay.io/security-profiles-operator/selinuxd
         - name: OPERATOR_NAMESPACE
