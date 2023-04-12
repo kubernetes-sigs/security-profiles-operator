@@ -62,13 +62,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.17.0
+    version: 0.18.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.26.2
+    version: 1.27.0
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -82,7 +82,7 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.26.2
+    version: 1.27.0
     refPaths:
     - path: hack/ci/install-kubernetes.sh
       match: VERSION
@@ -136,13 +136,25 @@ dependencies:
       match: NIX_VERSION
 
   - name: kube-rbac-proxy
-    version: 0.13.1
+    version: 0.14.0
     refPaths:
     - path: internal/pkg/manager/spod/bindata/spod.go
       match: gcr.io/kubebuilder/kube-rbac-proxy
     - path: deploy/kustomize-deployment/manager_deployment.yaml
       match: gcr.io/kubebuilder/kube-rbac-proxy
     - path: deploy/helm/templates/deployment.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/openshift-downstream.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/operator.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/webhook-operator.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/openshift-dev.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/namespace-operator.yaml
       match: gcr.io/kubebuilder/kube-rbac-proxy
 
   - name: gcb-docker-gcloud
