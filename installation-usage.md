@@ -515,7 +515,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.1.5
+  baseProfileName: runc-v1.1.6
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
