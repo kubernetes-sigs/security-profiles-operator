@@ -854,7 +854,7 @@ github.com/opencontainers/runc/libcontainer/specconv
 github.com/opencontainers/runc/libcontainer/user
 github.com/opencontainers/runc/libcontainer/userns
 github.com/opencontainers/runc/libcontainer/utils
-# github.com/opencontainers/runtime-spec v1.1.0-rc.1
+# github.com/opencontainers/runtime-spec v1.1.0-rc.2
 ## explicit
 github.com/opencontainers/runtime-spec/specs-go
 # github.com/openshift/api v0.0.0-20221205111557-f2fbb1d1cd5e
