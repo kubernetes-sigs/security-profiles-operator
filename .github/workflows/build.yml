@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - main
+  release:
+    types: [published]
   pull_request:
 env:
   GO_VERSION: '1.20'
@@ -44,8 +46,8 @@ jobs:
     if: github.ref == 'refs/heads/main' || contains(github.ref, 'refs/tags')
     runs-on: ubuntu-22.04
     permissions:
-      contents: read
-      id-token: write
+      contents: write  # required for updating the release
+      id-token: write  # required for sigstore signing
     steps:
       - uses: sigstore/cosign-installer@9e9de2292db7abb3f51b7f4808d98f0d347a8919 # v3.0.2
       - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
