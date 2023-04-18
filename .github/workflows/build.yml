@@ -106,7 +106,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
       - name: Image metadata
         id: meta
-        uses: docker/metadata-action@507c2f2dc502c992ad446e3d7a5dfbe311567a96 # v4.3.0
+        uses: docker/metadata-action@c4ee3adeed93b1fa6a762f209fb01608c1a22f1e # v4.4.0
         with:
           images: |
             quay.io/security-profiles-operator/build
@@ -153,7 +153,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
       - name: Image metadata
         id: meta
-        uses: docker/metadata-action@507c2f2dc502c992ad446e3d7a5dfbe311567a96 # v4.3.0
+        uses: docker/metadata-action@c4ee3adeed93b1fa6a762f209fb01608c1a22f1e # v4.4.0
         with:
           images: |
             quay.io/security-profiles-operator/spo
@@ -196,7 +196,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
       - name: Image metadata
         id: meta
-        uses: docker/metadata-action@507c2f2dc502c992ad446e3d7a5dfbe311567a96
+        uses: docker/metadata-action@c4ee3adeed93b1fa6a762f209fb01608c1a22f1e
         with:
           images: |
             quay.io/security-profiles-operator/build
