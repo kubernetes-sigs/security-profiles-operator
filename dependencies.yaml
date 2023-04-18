@@ -248,7 +248,7 @@ dependencies:
       match: BTFHUB_COMMIT
 
   - name: flatcar
-    version: 3446.1.0
+    version: 3510.2.0
     refPaths:
     - path: hack/ci/Vagrantfile-flatcar
       match: flatcar_production_vagrant
