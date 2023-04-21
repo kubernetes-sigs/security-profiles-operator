@@ -172,11 +172,11 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 	mappingJSON := `[
 		{
 			"regex":"(.*)(CoreOS).*([\\d+])\\.8[\\d+]\\.(.*)",
-			"image":"quay.io/security-profiles-operator/selinuxd:el8"
+			"imageFromVar":"RELATED_IMAGE_RHEL8_SELINUXD"
 		},
 		{
 			"regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
-			"image":"quay.io/security-profiles-operator/selinuxd:el9"
+			"imageFromVar":"RELATED_IMAGE_RHEL9_SELINUXD"
 		}
 	]`
 
@@ -194,7 +194,7 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 					},
 				},
 			},
-			want: "quay.io/security-profiles-operator/selinuxd:el8",
+			want: "RELATED_IMAGE_RHEL8_SELINUXD",
 		},
 		{
 			name: "Should return el9",
@@ -205,7 +205,7 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 					},
 				},
 			},
-			want: "quay.io/security-profiles-operator/selinuxd:el9",
+			want: "RELATED_IMAGE_RHEL9_SELINUXD",
 		},
 		{
 			name: "Does not match anything",

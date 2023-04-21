@@ -856,6 +856,10 @@ spec:
                   value: gcr.io/kubebuilder/kube-rbac-proxy:v0.14.0
                 - name: RELATED_IMAGE_SELINUXD
                   value: quay.io/security-profiles-operator/selinuxd
+                - name: RELATED_IMAGE_SELINUXD_EL8
+                  value: quay.io/security-profiles-operator/selinuxd-el8:latest
+                - name: RELATED_IMAGE_SELINUXD_EL9
+                  value: quay.io/security-profiles-operator/selinuxd-el9:latest
                 - name: OPERATOR_NAMESPACE
                   valueFrom:
                     fieldRef:
@@ -977,5 +981,9 @@ spec:
     name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd
+  - image: quay.io/security-profiles-operator/selinuxd-el8:latest
+    name: selinuxd-el8
+  - image: quay.io/security-profiles-operator/selinuxd-el9:latest
+    name: selinuxd-el9
   replaces: security-profiles-operator.v0.7.1
   version: 0.8.1-dev

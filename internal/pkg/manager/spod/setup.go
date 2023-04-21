@@ -163,11 +163,13 @@ func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node)
 	}
 	selinuxdImageMapping := operatorCm.Data[util.SelinuxdImageMappingKey]
 
-	selinuxdImage, err := util.MatchSelinuxdImageJSONMapping(node, []byte(selinuxdImageMapping))
+	selinuxdImageEnvVar, err := util.MatchSelinuxdImageJSONMapping(node, []byte(selinuxdImageMapping))
 	if err != nil {
 		return "", fmt.Errorf("matching selinuxd image: %w", err)
 	}
 
+	// not checking selinuxdImageEnvVar is fine here as os.Getenv returns an empty string in that case
+	selinuxdImage := os.Getenv(selinuxdImageEnvVar)
 	if selinuxdImage != "" {
 		r.log.Info("matched selinuxd image against nodeInfo", "image", selinuxdImage)
 		return selinuxdImage, nil
