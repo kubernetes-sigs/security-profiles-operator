@@ -2934,11 +2934,11 @@ data:
     [
         {
             "regex":"(.*)(CoreOS).*([\\d+])\\.8[\\d+]\\.(.*)",
-            "image":"quay.io/security-profiles-operator/selinuxd-el8:latest"
+            "imageFromVar":"RELATED_IMAGE_SELINUXD_EL8"
         },
         {
             "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
-            "image":"quay.io/security-profiles-operator/selinuxd-el9:latest"
+            "imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"
         }
     ]
   selinuxd.cil: |
@@ -3024,6 +3024,10 @@ spec:
           value: gcr.io/kubebuilder/kube-rbac-proxy:v0.14.0
         - name: RELATED_IMAGE_SELINUXD
           value: quay.io/security-profiles-operator/selinuxd
+        - name: RELATED_IMAGE_SELINUXD_EL8
+          value: quay.io/security-profiles-operator/selinuxd-el8:latest
+        - name: RELATED_IMAGE_SELINUXD_EL9
+          value: quay.io/security-profiles-operator/selinuxd-el9:latest
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
