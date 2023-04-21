@@ -978,11 +978,11 @@ data:
     [
         {
             "regex":"(.*)(CoreOS).*([\\d+])\\.8[\\d+]\\.(.*)",
-            "image":"quay.io/security-profiles-operator/selinuxd-el8:latest"
+            "imageFromVar":"RELATED_IMAGE_SELINUXD_EL8"
         },
         {
             "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
-            "image":"quay.io/security-profiles-operator/selinuxd-el9:latest"
+            "imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"
         }
     ]
   selinuxd.cil: |
