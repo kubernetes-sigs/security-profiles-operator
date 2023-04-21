@@ -96,8 +96,8 @@ func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, e
 }
 
 type selinuxdImageMap struct {
-	Regex string `json:"regex"`
-	Image string `json:"image"`
+	Regex        string `json:"regex"`
+	ImageFromVar string `json:"imageFromVar"`
 }
 
 func MatchSelinuxdImageJSONMapping(node *corev1.Node, mappingObj []byte) (string, error) {
@@ -120,7 +120,7 @@ func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) string {
 			continue
 		}
 		if matched, err := regexp.MatchString(m.Regex, node.Status.NodeInfo.OSImage); err == nil && matched {
-			return m.Image
+			return m.ImageFromVar
 		}
 	}
 
