@@ -524,7 +524,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	}
 
 	// Custom host proc volume
-	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath
+	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath && cfg.Spec.HostProcVolumePath != ""
 	volume, mount := bindata.CustomHostProcVolume(cfg.Spec.HostProcVolumePath)
 
 	// Disable profile recording controller by default
