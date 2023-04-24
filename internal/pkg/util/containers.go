@@ -69,7 +69,9 @@ func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, 
 	for scanner.Scan() {
 		text := scanner.Text()
 
-		if containerID := ContainerIDRegex.FindString(text); containerID != "" {
+		if containerIDs := ContainerIDRegex.FindAllString(text, -1); 0 < len(containerIDs) {
+			// Using the last container ID in the cgroup path to support "docker in docker" use cases
+			containerID := containerIDs[len(containerIDs)-1]
 			// Update the cache
 			cache.Set(strconv.Itoa(pid), containerID, ttlcache.DefaultTTL)
 			return containerID, nil
