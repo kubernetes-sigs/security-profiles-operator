@@ -207,22 +207,31 @@ func (c *visitor) markExpr(env *adt.Environment, expr adt.Elem) {
 		for _, e := range x.Decls {
 			c.markDecl(env, e)
 		}
+
+	case *adt.Comprehension:
+		c.markComprehension(env, x)
 	}
 }
 
 // markResolve resolves dependencies.
 func (c *visitor) markResolver(env *adt.Environment, r adt.Resolver) {
-	switch x := r.(type) {
-	case nil:
-	case *adt.LetReference:
-		saved := c.ctxt.PushState(env, nil)
-		env := c.ctxt.Env(x.UpCount)
-		c.markExpr(env, x.X)
-		c.ctxt.PopState(saved)
-		return
-	}
+	// Note: it is okay to pass an empty CloseInfo{} here as we assume that
+	// all nodes are finalized already and we need neither closedness nor cycle
+	// checks.
+	if ref, _ := c.ctxt.Resolve(adt.MakeConjunct(env, r, adt.CloseInfo{}), r); ref != nil {
+		// If ref is within a let, we only care about dependencies referred to
+		// by internal expressions. The let expression itself is not considered
+		// a dependency and is considered part of the referring expression.
+		if hasLetParent(ref) {
+			// It is okay to use the Environment recorded in the arc, as
+			// lets that may vary per Environment already have a separate arc
+			// associated with them (see Vertex.MultiLet).
+			for _, x := range ref.Conjuncts {
+				c.markExpr(x.Env, x.Expr())
+			}
+			return
+		}
 
-	if ref, _ := c.ctxt.Resolve(env, r); ref != nil {
 		if ref != c.node && ref != empty {
 			d := Dependency{
 				Node:      ref,
@@ -255,6 +264,17 @@ func (c *visitor) markResolver(env *adt.Environment, r adt.Resolver) {
 	case *adt.SelectorExpr:
 		c.markExpr(env, x.X)
 	}
+}
+
+// TODO(perf): make this available as a property of vertices to avoid doing
+// these dynamic lookups.
+func hasLetParent(v *adt.Vertex) bool {
+	for ; v != nil; v = v.Parent {
+		if v.Label.IsLet() {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *visitor) markSubExpr(env *adt.Environment, x adt.Expr) {
@@ -302,28 +322,51 @@ func (c *visitor) markDecl(env *adt.Environment, d adt.Decl) {
 }
 
 func (c *visitor) markComprehension(env *adt.Environment, y *adt.Comprehension) {
-	env = c.markYielder(env, y.Clauses)
-	c.markExpr(env, y.Value)
+	env = c.markClauses(env, y.Clauses)
+
+	// Use "live" environments if we have them. This is important if
+	// dependencies are computed on a partially evaluated value where a pushed
+	// down comprehension is defined outside the root of the dependency
+	// analysis. For instance, when analyzing dependencies at path a.b in:
+	//
+	//  a: {
+	//      for value in { test: 1 } {
+	//          b: bar: value
+	//      }
+	//  }
+	//
+	if envs := y.Envs(); len(envs) > 0 {
+		// We use the Environment to get access to the parent chain. It
+		// suffices to take any Environment (in this case the first), as all
+		// will have the same parent chain.
+		env = envs[0]
+	}
+	for i := y.Nest(); i > 0; i-- {
+		env = &adt.Environment{Up: env, Vertex: empty}
+	}
+	c.markExpr(env, adt.ToExpr(y.Value))
 }
 
-func (c *visitor) markYielder(env *adt.Environment, y adt.Yielder) *adt.Environment {
-	switch x := y.(type) {
-	case *adt.ForClause:
-		c.markExpr(env, x.Src)
-		env = &adt.Environment{Up: env, Vertex: empty}
-		env = c.markYielder(env, x.Dst)
-		// In dynamic mode, iterate over all actual value and
-		// evaluate.
+func (c *visitor) markClauses(env *adt.Environment, a []adt.Yielder) *adt.Environment {
+	for _, y := range a {
+		switch x := y.(type) {
+		case *adt.ForClause:
+			c.markExpr(env, x.Src)
+			env = &adt.Environment{Up: env, Vertex: empty}
+			// In dynamic mode, iterate over all actual value and
+			// evaluate.
 
-	case *adt.LetClause:
-		c.markExpr(env, x.Expr)
-		env = &adt.Environment{Up: env, Vertex: empty}
-		env = c.markYielder(env, x.Dst)
+		case *adt.LetClause:
+			c.markExpr(env, x.Expr)
+			env = &adt.Environment{Up: env, Vertex: empty}
 
-	case *adt.IfClause:
-		c.markExpr(env, x.Condition)
-		// In dynamic mode, only continue if condition is true.
-		env = c.markYielder(env, x.Dst)
+		case *adt.IfClause:
+			c.markExpr(env, x.Condition)
+			// In dynamic mode, only continue if condition is true.
+
+		case *adt.ValueClause:
+			env = &adt.Environment{Up: env, Vertex: empty}
+		}
 	}
 	return env
 }

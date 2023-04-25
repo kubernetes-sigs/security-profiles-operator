@@ -22,13 +22,11 @@ import (
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/encoding/protobuf/pbinternal"
 
-	"github.com/protocolbuffers/txtpbfmt/ast"
 	pbast "github.com/protocolbuffers/txtpbfmt/ast"
 	"github.com/protocolbuffers/txtpbfmt/parser"
 )
 
 // Encoder marshals CUE into text proto.
-//
 type Encoder struct {
 	// Schema
 }
@@ -47,7 +45,6 @@ func NewEncoder(options ...Option) *Encoder {
 //   - it is explicitly required that only fields with an attribute are exported
 //   - a struct represents a Protobuf map
 //   - custom naming
-//
 func (e *Encoder) Encode(v cue.Value, options ...Option) ([]byte, error) {
 	n := &pbast.Node{}
 	enc := &encoder{}
@@ -125,7 +122,7 @@ func (e *encoder) encodeMsg(parent *pbast.Node, v cue.Value) {
 				default:
 					key = &pbast.Node{
 						Name:   "key",
-						Values: []*ast.Value{{Value: i.Label()}},
+						Values: []*pbast.Value{{Value: i.Label()}},
 					}
 				}
 				n.Children = append(n.Children, key)

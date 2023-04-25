@@ -43,7 +43,13 @@ import (
 
 const (
 	// DefaultRemoteRoot is the default remote TUF root location.
-	DefaultRemoteRoot = "https://sigstore-tuf-root.storage.googleapis.com"
+	DefaultRemoteRoot = "https://tuf-repo-cdn.sigstore.dev"
+	// defaultRemoteGCSBucket is the name of the GCS bucket that holds sigstore's public good production TUF root
+	defaultRemoteGCSBucket = "sigstore-tuf-root"
+	// defaultRemoteRootNoCDN is the URL of the GCS HTTP endpoint for the DefaultRootGCSBucket content
+	defaultRemoteRootNoCDN = "https://sigstore-tuf-root.storage.googleapis.com"
+	// defaultRemoteRootNoCDNAlt is an alternate URL to the GCS HTTP endpoint for the DefaultRootGCSBucket content
+	defaultRemoteRootNoCDNAlt = "https://storage.googleapis.com/sigstore-tuf-root"
 
 	// TufRootEnv is the name of the environment variable that locates an alternate local TUF root location.
 	TufRootEnv = "TUF_ROOT"
@@ -74,6 +80,18 @@ type TUF struct {
 	remote   client.RemoteStore
 	embedded fs.FS
 	mirror   string // location of mirror
+}
+
+// Mirror returns the mirror configured; note if the object was configured with a legacy reference
+// to the GCS HTTP endpoint for sigstore's public good trust root, this will return DefaultRemoteRoot
+// which is a CDN fronting that DefaultRemoteGCSBucket
+func (t *TUF) Mirror() string {
+	switch t.mirror {
+	case defaultRemoteGCSBucket, defaultRemoteRootNoCDN, defaultRemoteRootNoCDNAlt:
+		return DefaultRemoteRoot
+	default:
+		return t.mirror
+	}
 }
 
 // JSON output representing the configured root status
@@ -176,7 +194,7 @@ func (t *TUF) getRootStatus() (*RootStatus, error) {
 	}
 	status := &RootStatus{
 		Local:    local,
-		Remote:   t.mirror,
+		Remote:   t.Mirror(),
 		Metadata: make(map[string]MetadataStatus),
 		Targets:  []string{},
 	}
@@ -260,7 +278,7 @@ func initializeTUF(mirror string, root []byte, embedded fs.FS, forceUpdate bool)
 			return
 		}
 
-		t.remote, singletonTUFErr = remoteFromMirror(t.mirror)
+		t.remote, singletonTUFErr = remoteFromMirror(t.Mirror())
 		if singletonTUFErr != nil {
 			return
 		}
@@ -330,15 +348,16 @@ func NewFromEnv(_ context.Context) (*TUF, error) {
 	return initializeTUF(mirror, nil, getEmbedded(), false)
 }
 
-func Initialize(ctx context.Context, mirror string, root []byte) error {
+func Initialize(_ context.Context, mirror string, root []byte) error {
 	// Initialize the client. Force an update with remote.
-	if _, err := initializeTUF(mirror, root, getEmbedded(), true); err != nil {
+	tuf, err := initializeTUF(mirror, root, getEmbedded(), true)
+	if err != nil {
 		return err
 	}
 
 	// Store the remote for later if we are caching.
 	if !noCache() {
-		remoteInfo := &remoteCache{Mirror: mirror}
+		remoteInfo := &remoteCache{Mirror: tuf.Mirror()}
 		b, err := json.Marshal(remoteInfo)
 		if err != nil {
 			return err
@@ -437,7 +456,7 @@ func (t *TUF) updateClient() (data.TargetFiles, error) {
 			Mirror   string                    `json:"mirror"`
 			Metadata map[string]MetadataStatus `json:"metadata"`
 		}{
-			Mirror:   t.mirror,
+			Mirror:   t.Mirror(),
 			Metadata: make(map[string]MetadataStatus),
 		}
 		for _, md := range []string{"root.json", "targets.json", "snapshot.json", "timestamp.json"} {

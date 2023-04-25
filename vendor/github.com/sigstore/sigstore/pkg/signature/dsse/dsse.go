@@ -86,7 +86,7 @@ func (w *wrappedVerifier) PublicKey(opts ...signature.PublicKeyOption) (crypto.P
 }
 
 // VerifySignature verifies the signature specified in an DSSE envelope
-func (w *wrappedVerifier) VerifySignature(s, _ io.Reader, opts ...signature.VerifyOption) error {
+func (w *wrappedVerifier) VerifySignature(s, _ io.Reader, _ ...signature.VerifyOption) error {
 	sig, err := io.ReadAll(s)
 	if err != nil {
 		return err
