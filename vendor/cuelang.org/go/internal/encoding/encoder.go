@@ -126,6 +126,7 @@ func NewEncoder(f *build.File, cfg *Config) (*Encoder, error) {
 			cue.Definitions(fi.Definitions),
 			cue.ResolveReferences(!fi.References),
 			cue.DisallowCycles(!fi.Cycles),
+			cue.InlineImports(cfg.InlineImports),
 		)
 
 		opts := []format.Option{}
@@ -253,15 +254,15 @@ func (e *Encoder) EncodeInstance(v *cue.Instance) error {
 
 func (e *Encoder) Encode(v cue.Value) error {
 	e.autoSimplify = true
+	if err := v.Validate(cue.Concrete(e.concrete)); err != nil {
+		return err
+	}
 	if e.interpret != nil {
 		f, err := e.interpret(v)
 		if err != nil {
 			return err
 		}
 		return e.encodeFile(f, nil)
-	}
-	if err := v.Validate(cue.Concrete(e.concrete)); err != nil {
-		return err
 	}
 	if e.encValue != nil {
 		return e.encValue(v)

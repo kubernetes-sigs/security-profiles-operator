@@ -61,12 +61,12 @@ func WrapMultiSigner(payloadType string, sL ...signature.Signer) signature.Signe
 }
 
 // PublicKey returns the public key associated with the signer
-func (wL *wrappedMultiSigner) PublicKey(opts ...signature.PublicKeyOption) (crypto.PublicKey, error) {
+func (wL *wrappedMultiSigner) PublicKey(_ ...signature.PublicKeyOption) (crypto.PublicKey, error) {
 	return nil, errors.New("not supported for multi signatures")
 }
 
 // SignMessage signs the provided stream in the reader using the DSSE encoding format
-func (wL *wrappedMultiSigner) SignMessage(r io.Reader, opts ...signature.SignOption) ([]byte, error) {
+func (wL *wrappedMultiSigner) SignMessage(r io.Reader, _ ...signature.SignOption) ([]byte, error) {
 	p, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
@@ -123,12 +123,12 @@ func WrapMultiVerifier(payloadType string, threshold int, vL ...signature.Verifi
 }
 
 // PublicKey returns the public key associated with the signer
-func (wL *wrappedMultiVerifier) PublicKey(opts ...signature.PublicKeyOption) (crypto.PublicKey, error) {
+func (wL *wrappedMultiVerifier) PublicKey(_ ...signature.PublicKeyOption) (crypto.PublicKey, error) {
 	return nil, errors.New("not supported for multi signatures")
 }
 
 // VerifySignature verifies the signature specified in an DSSE envelope
-func (wL *wrappedMultiVerifier) VerifySignature(s, _ io.Reader, opts ...signature.VerifyOption) error {
+func (wL *wrappedMultiVerifier) VerifySignature(s, _ io.Reader, _ ...signature.VerifyOption) error {
 	sig, err := io.ReadAll(s)
 	if err != nil {
 		return err

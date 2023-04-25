@@ -102,7 +102,7 @@ const FromArgsUsage = `
    selects all packages named foo in the any subdirectory of the current
    working directory.
 
-   3. An import path referring to a directory within the current module
+3. An import path referring to a directory within the current module
 
    All CUE files in that directory, and all the ancestor directories up to the
    module root (if applicable), with a package name corresponding to the base
@@ -110,7 +110,7 @@ const FromArgsUsage = `
    a single instance.
 
    Examples, assume a module name of acme.org/root:
-      example.com/foo   package in cue.mod
+      mod.test/foo   package in cue.mod
       ./foo             package corresponding to foo directory
       .:bar             package in current directory with package name bar
 `
@@ -150,9 +150,10 @@ type Config struct {
 	//         in the _ package.
 	Package string
 
-	// Dir is the directory in which to run the build system's query tool
-	// that provides information about the packages.
-	// If Dir is empty, the tool is run in the current directory.
+	// Dir is the base directory for import path resolution.
+	// For example, it is used to determine the main module,
+	// and rooted import paths starting with "./" are relative to it.
+	// If Dir is empty, the current directory is used.
 	Dir string
 
 	// Tags defines boolean tags or key-value pairs to select files to build
@@ -479,11 +480,11 @@ func (c *Config) absDirFromImportPath(pos token.Pos, p importPath) (absDir, name
 
 // Complete updates the configuration information. After calling complete,
 // the following invariants hold:
-//  - c.ModuleRoot != ""
-//  - c.Module is set to the module import prefix if there is a cue.mod file
-//    with the module property.
-//  - c.loader != nil
-//  - c.cache != ""
+//   - c.ModuleRoot != ""
+//   - c.Module is set to the module import prefix if there is a cue.mod file
+//     with the module property.
+//   - c.loader != nil
+//   - c.cache != ""
 func (c Config) complete() (cfg *Config, err error) {
 	// Each major CUE release should add a tag here.
 	// Old tags should not be removed. That is, the cue1.x tag is present

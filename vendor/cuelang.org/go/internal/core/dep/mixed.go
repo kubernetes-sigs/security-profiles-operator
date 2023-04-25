@@ -45,6 +45,9 @@ func dynamic(c *adt.OpContext, n *adt.Vertex, f VisitFunc, m marked, top bool) {
 	}
 
 	for _, a := range n.Arcs {
+		if !a.IsDefined(c) || a.Label.IsLet() {
+			continue
+		}
 		dynamic(c, a, f, m, false)
 	}
 }
@@ -83,6 +86,9 @@ func (m marked) markExpr(x adt.Expr) {
 				m.markExpr(x.Value)
 
 			case *adt.BulkOptionalField:
+				m.markExpr(x.Value)
+
+			case *adt.LetField:
 				m.markExpr(x.Value)
 
 			case *adt.DynamicField:
@@ -127,19 +133,5 @@ func (m marked) markExpr(x adt.Expr) {
 }
 
 func (m marked) markComprehension(y *adt.Comprehension) {
-	m.markYielder(y.Clauses)
-	m.markExpr(y.Value)
-}
-
-func (m marked) markYielder(y adt.Yielder) {
-	switch x := y.(type) {
-	case *adt.ForClause:
-		m.markYielder(x.Dst)
-
-	case *adt.IfClause:
-		m.markYielder(x.Dst)
-
-	case *adt.LetClause:
-		m.markYielder(x.Dst)
-	}
+	m.markExpr(adt.ToExpr(y.Value))
 }

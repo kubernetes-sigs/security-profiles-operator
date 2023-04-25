@@ -24,6 +24,7 @@ import (
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/token"
+	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/astinternal"
 )
 
@@ -31,12 +32,13 @@ import (
 //
 // The given file must only contain values that can be directly supported by
 // JSON:
-//    Type          Restrictions
-//    BasicLit
-//    File          no imports, aliases, or definitions
-//    StructLit     no embeddings, aliases, or definitions
-//    List
-//    Field         must be regular; label must be a BasicLit or Ident
+//
+//	Type          Restrictions
+//	BasicLit
+//	File          no imports, aliases, or definitions
+//	StructLit     no embeddings, aliases, or definitions
+//	List
+//	Field         must be regular; label must be a BasicLit or Ident
 //
 // Comments and attributes are ignored.
 func Encode(n ast.Node) (b []byte, err error) {
@@ -229,7 +231,7 @@ func (e *encoder) encodeDecls(decls []ast.Decl, endPos token.Pos) error {
 			continue
 
 		case *ast.Field:
-			if x.Token == token.ISA {
+			if internal.IsDefinition(x.Label) {
 				return errors.Newf(x.TokenPos, "json: definition not allowed")
 			}
 			if x.Optional != token.NoPos {

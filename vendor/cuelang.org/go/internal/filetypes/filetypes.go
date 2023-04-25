@@ -102,7 +102,7 @@ func FromFile(b *build.File, mode Mode) (*FileInfo, error) {
 	v = v.Fill(b)
 
 	if b.Encoding == "" {
-		ext := i.Lookup("extensions", filepath.Ext(b.Filename))
+		ext := i.Lookup("extensions", fileExt(b.Filename))
 		if ext.Exists() {
 			v = v.Unify(ext)
 		}
@@ -145,18 +145,18 @@ func update(errs errors.Error, v, i cue.Value, field, value string) (cue.Value, 
 //
 // The arguments are of the form
 //
-//     file* (spec: file+)*
+//	file* (spec: file+)*
 //
 // where file is a filename and spec is itself of the form
 //
-//     tag[=value]('+'tag[=value])*
+//	tag[=value]('+'tag[=value])*
 //
 // A file type spec applies to all its following files and until a next spec
 // is found.
 //
 // Examples:
-//     json: foo.data bar.data json+schema: bar.schema
 //
+//	json: foo.data bar.data json+schema: bar.schema
 func ParseArgs(args []string) (files []*build.File, err error) {
 	var inst, v cue.Value
 
@@ -221,8 +221,8 @@ func ParseArgs(args []string) (files []*build.File, err error) {
 // passed to a command line argument.
 //
 // Example:
-//   cue eval -o yaml:foo.data
 //
+//	cue eval -o yaml:foo.data
 func ParseFile(s string, mode Mode) (*build.File, error) {
 	scope := ""
 	file := s
@@ -260,7 +260,7 @@ func toFile(i, v cue.Value, filename string) (*build.File, error) {
 			if !hasDefault {
 				v = v.Unify(i.LookupDef("Default"))
 			}
-		} else if ext := filepath.Ext(filename); ext != "" {
+		} else if ext := fileExt(filename); ext != "" {
 			if x := i.Lookup("extensions", ext); x.Exists() || !hasDefault {
 				v = v.Unify(x)
 				if err := v.Err(); err != nil {
@@ -303,4 +303,14 @@ func parseType(s string, mode Mode) (inst, val cue.Value, err error) {
 	}
 
 	return i, v, nil
+}
+
+// fileExt is like filepath.Ext except we don't treat file names starting with "." as having an extension
+// unless there's also another . in the name.
+func fileExt(f string) string {
+	e := filepath.Ext(f)
+	if e == "" || e == filepath.Base(f) {
+		return ""
+	}
+	return e
 }
