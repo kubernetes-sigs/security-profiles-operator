@@ -2,7 +2,7 @@
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  name: runc-v1.1.5
+  name: runc-v1.1.6
 spec:
   defaultAction: SCMP_ACT_ERRNO
   architectures:
@@ -34,9 +34,11 @@ spec:
         - getdents64
         - getpid
         - getppid
+        - getrlimit
         - gettid
         - getuid
         - keyctl
+        - madvise
         - mkdirat
         - mknodat
         - mmap

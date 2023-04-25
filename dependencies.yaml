@@ -176,13 +176,13 @@ dependencies:
       match: VERSION
 
   - name: CRI-O
-    version: v1.26.3
+    version: v1.27.0
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: TAG
 
   - name: crun
-    version: v1.8.3
+    version: v1.8.4
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
@@ -190,7 +190,7 @@ dependencies:
       match: baseProfileNameCrun
 
   - name: runc
-    version: v1.1.5
+    version: v1.1.6
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: name
@@ -206,7 +206,7 @@ dependencies:
       match: VERSION
 
   - name: cosign
-    version: v2.0.0
+    version: v2.0.2
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: COSIGN_VERSION
@@ -260,3 +260,9 @@ dependencies:
     refPaths:
       - path: Makefile
         match: ZEITGEIST_VERSION
+
+  - name: yq
+    version: 4.33.3
+    refPaths:
+      - path: hack/ci/baseprofiles.sh
+        match: YQ_VERSION
