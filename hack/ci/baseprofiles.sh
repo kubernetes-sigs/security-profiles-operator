@@ -15,11 +15,16 @@
 
 set -euo pipefail
 
+curl_retry() {
+    sudo curl -sSfL --retry 5 --retry-delay 3 "$@"
+}
+
 install_yq() {
     echo "Installing yq"
-    go install -mod=mod github.com/mikefarah/yq/v4@latest
-    GOPATH=$(go env GOPATH)
-    export PATH=$GOPATH/bin:$PATH
+    YQ_VERSION=4.33.3
+    curl_retry -o /usr/bin/yq \
+        https://github.com/mikefarah/yq/releases/download/v$YQ_VERSION/yq_linux_amd64
+    sudo chmod +x /usr/bin/yq
     yq --version
 }
 
@@ -168,9 +173,12 @@ EOT
     echo "Diffing output, while ignoring flaky syscalls 'rt_sigreturn', 'sched_yield' and 'tgkill'"
     git diff --exit-code -U0 -I rt_sigreturn -I sched_yield -I tgkill examples
 
-    echo "Verifying that profile is available in the GitHub container registry"
-    cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' \
-        "ghcr.io/security-profiles/$RUNTIME:v$VERSION"
+    for RUNTIME in "${RUNTIMES[@]}"; do
+        echo "Verifying that the profile for runtime $RUNTIME is available in the GitHub container registry"
+        VERSION=$($RUNTIME --version | grep "$RUNTIME version" | grep -oP '\d+.*')
+        cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' \
+            "ghcr.io/security-profiles/$RUNTIME:v$VERSION"
+    done
 }
 
 install_yq
