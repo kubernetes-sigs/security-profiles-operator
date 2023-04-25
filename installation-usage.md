@@ -515,7 +515,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.1.5
+  baseProfileName: runc-v1.1.6
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -551,7 +551,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.5
+  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.6
 ```
 
 The resulting profile `profile1` will then contain all base syscalls from the
@@ -1921,18 +1921,18 @@ The `spoc` client is able to pull security profiles from OCI artifact compatible
 registries. To do that, just run `spoc pull`:
 
 ```console
-> spoc pull ghcr.io/security-profiles/runc:v1.1.4
-16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.4
+> spoc pull ghcr.io/security-profiles/runc:v1.1.6
+16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.6
 16:32:29.795610 Verifying signature
 
-Verification for ghcr.io/security-profiles/runc:v1.1.4 --
+Verification for ghcr.io/security-profiles/runc:v1.1.6 --
 The following checks were performed on each of these signatures:
   - Existence of the claims in the transparency log was verified offline
   - The code-signing certificate was verified using trusted certificate authority certificates
 
 [{"critical":{"identity":{"docker-reference":"ghcr.io/security-profiles/runc"},…}}]
 16:32:33.208695 Creating file store in: /tmp/pull-3199397214
-16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.1.4
+16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.1.6
 16:32:33.208718 Creating repository for ghcr.io/security-profiles/runc
 16:32:33.208742 Using tag: v1.1.4
 16:32:33.208743 Copying profile from repository
