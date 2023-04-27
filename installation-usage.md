@@ -1,7 +1,6 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
@@ -59,6 +58,7 @@
   - [Run commands with seccomp profiles](#run-commands-with-seccomp-profiles)
   - [Pull security profiles from OCI registries](#pull-security-profiles-from-oci-registries)
   - [Push security profiles to OCI registries](#push-security-profiles-to-oci-registries)
+  - [Using multiple platforms](#using-multiple-platforms)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
 
@@ -558,7 +558,10 @@ The resulting profile `profile1` will then contain all base syscalls from the
 remote `runc` profile. It is also possible to reference the base profile by its
 SHA256, like `oci://ghcr.io/security-profiles/runc@sha256:380…`. Please note
 that all profiles must be signed using [sigstore (cosign)](https://github.com/sigstore/cosign)
-signatures, otherwise the Security Profiles Operator will reject them.
+signatures, otherwise the Security Profiles Operator will reject them. The OCI
+artifact profiles also support different architectures, where the operator
+always tries to select the correct one via `runtime.GOOS`/`runtime.GOARCH` but
+also allows to fallback to a default profile.
 
 The operator internally caches pulled artifacts up to 24 hours for 1000
 profiles, means that they will be refreshed after that time period, if the stack
@@ -1985,6 +1988,114 @@ We can specify an username and password in the same way as for `spoc pull`.
 Please also note that signing is always required for push and pull. It is
 possible to add custom annotations to the security profile by using the
 `--annotations` / `-a` flag multiple times in `KEY:VALUE` format.
+
+### Using multiple platforms
+
+`spoc push` supports specifying the target platforms for the profiles to be
+pushed. This can be done by using the `--platforms` / `-p` together with the
+`--profiles` / `-p` flag. For example, to push two profiles into one artifact:
+
+```
+> spoc push -f ./profile-amd64.yaml -p linux/amd64 -f ./profile-arm64.yaml -p linux/arm64 ghcr.io/security-profiles/test:latest
+10:59:17.887884 Pushing profiles to: ghcr.io/security-profiles/test:latest
+10:59:17.887970 Creating file store in: /tmp/push-2265359353
+10:59:17.887989 Adding 2 profiles
+10:59:17.887995 Adding profile ./profile-arm64.yaml for platform linux/arm64 to store
+10:59:17.888193 Adding profile ./profile-amd64.yaml for platform linux/amd64 to store
+10:59:17.888240 Packing files
+…
+Pushing signature to: ghcr.io/security-profiles/test
+```
+
+The pushed artifact now contains both profiles, separated by their platform:
+
+```
+> skopeo inspect --raw docker://ghcr.io/security-profiles/test:latest | jq .
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "config": {
+    "mediaType": "application/vnd.unknown.config.v1+json",
+    "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "size": 2
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar",
+      "digest": "sha256:6ddecdf312758a19ec788c3984418541274b3c9daf2b10f687d847bc283b391b",
+      "size": 1167,
+      "annotations": {
+        "org.opencontainers.image.title": "profile-linux-arm64.yaml"
+      },
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar",
+      "digest": "sha256:6ddecdf312758a19ec788c3984418541274b3c9daf2b10f687d847bc283b391b",
+      "size": 1167,
+      "annotations": {
+        "org.opencontainers.image.title": "profile-linux-amd64.yaml"
+      },
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    }
+  ],
+  "annotations": {
+    "org.opencontainers.image.created": "2023-04-28T08:59:17Z"
+  }
+}
+```
+
+There are a few fallback scenarios included in the CLI:
+
+- If neither a platform nor a input file is specified, then `spoc` will fallback
+  to the default profile (`/tmp/profile.yaml`) and platform
+  (`runtime.GOOS`/`runtime.GOARCH`).
+- If only one platform is specified, then `spoc` will apply it and use the
+  default profile.
+- If only one input file is specified, then `spoc` will apply it and use the
+  default platform.
+- If multiple platforms and input files are provided, then `spoc` requires them
+  to match their occurrences. Platforms have to be unique as well.
+
+The Security Profiles Operator will try to pull the correct profile by using
+`runtime.GOOS`/`runtime.GOARCH`, but also falls back to the default profile
+(without any platform specified), if it exists. `spoc pull` behaves in the same
+way, for example if a profile does not support any platform:
+
+```
+> spoc pull ghcr.io/security-profiles/runc:v1.1.6
+11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.6
+11:07:14.788852 Verifying signature
+…
+11:07:17.559037 Copying profile from repository
+11:07:18.359152 Trying to read profile: profile-linux-amd64.yaml
+11:07:18.359209 Trying to read profile: profile.yaml
+11:07:18.359224 Trying to unmarshal seccomp profile
+11:07:18.359728 Got SeccompProfile: runc-v1.1.6
+11:07:18.359732 Saving profile in: /tmp/profile.yaml
+```
+
+We can see from the logs that `spoc` tries to read `profile-linux-amd64.yaml`,
+and if that does not work it falls back to `profile.yaml`. We can also directly
+specify which platform to pull:
+
+```
+> spoc pull -p linux/arm64 ghcr.io/security-profiles/test:latest
+11:08:53.355689 Pulling profile from: ghcr.io/security-profiles/test:latest
+11:08:53.355724 Verifying signature
+…
+11:08:56.229418 Copying profile from repository
+11:08:57.311964 Trying to read profile: profile-linux-arm64.yaml
+11:08:57.311981 Trying to unmarshal seccomp profile
+11:08:57.312473 Got SeccompProfile: crun-v1.8.4
+11:08:57.312476 Saving profile in: /tmp/profile.yaml
+```
 
 ## Uninstalling
 

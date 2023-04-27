@@ -19,6 +19,7 @@ package artifact
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -31,6 +32,10 @@ import (
 )
 
 var errTest = errors.New("test")
+
+func defaultDescriptor() ocispec.Descriptor {
+	return ocispec.Descriptor{Annotations: map[string]string{}}
+}
 
 func TestPush(t *testing.T) {
 	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
@@ -45,6 +50,7 @@ func TestPush(t *testing.T) {
 		{
 			name: "success with failed cleanup",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.RemoveAllReturns(errTest)
@@ -57,6 +63,7 @@ func TestPush(t *testing.T) {
 		{
 			name: "success",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 			},
@@ -67,6 +74,7 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on SignCmd",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.SignCmdReturns(errTest)
@@ -78,6 +86,7 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on ClientSecret",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ClientSecretReturns("", errTest)
@@ -89,9 +98,10 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on Copy",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
-				mock.CopyReturns(ocispec.Descriptor{}, errTest)
+				mock.CopyReturns(defaultDescriptor(), errTest)
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
@@ -100,6 +110,7 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on NewRepository",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.NewRepositoryReturns(nil, errTest)
 			},
@@ -110,6 +121,7 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on StoreTag",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.StoreTagReturns(errTest)
 			},
@@ -120,6 +132,7 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on ParseReferenceReturns",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.ParseReferenceReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -129,7 +142,8 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on Pack",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.PackReturns(ocispec.Descriptor{}, errTest)
+				mock.StoreAddReturns(defaultDescriptor(), nil)
+				mock.PackReturns(defaultDescriptor(), errTest)
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
@@ -138,6 +152,7 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on FilepathAbs",
 			prepare: func(mock *artifactfakes.FakeImpl) {
+				mock.StoreAddReturns(defaultDescriptor(), nil)
 				mock.FilepathAbsReturns("", errTest)
 			},
 			assert: func(err error) {
@@ -147,7 +162,7 @@ func TestPush(t *testing.T) {
 		{
 			name: "failure on StoreAdd",
 			prepare: func(mock *artifactfakes.FakeImpl) {
-				mock.StoreAddReturns(ocispec.Descriptor{}, errTest)
+				mock.StoreAddReturns(defaultDescriptor(), errTest)
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)
@@ -184,7 +199,19 @@ func TestPush(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			err := sut.Push("", "", "foo", "bar", nil)
+			err := sut.Push(
+				map[*ocispec.Platform]string{
+					{
+						OS:           runtime.GOOS,
+						Architecture: runtime.GOARCH,
+						OSVersion:    "1.2.3",
+					}: "test",
+				},
+				"",
+				"foo",
+				"bar",
+				map[string]string{"foo": "bar"},
+			)
 			assert(err)
 		})
 	}
@@ -296,7 +323,7 @@ func TestPull(t *testing.T) {
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
-				mock.CopyReturns(ocispec.Descriptor{}, errTest)
+				mock.CopyReturns(defaultDescriptor(), errTest)
 			},
 			assert: func(res *PullResult, err error) {
 				require.ErrorIs(t, err, errTest)
@@ -367,7 +394,7 @@ func TestPull(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			res, err := sut.Pull(context.Background(), "", "foo", "bar")
+			res, err := sut.Pull(context.Background(), "", "foo", "bar", nil)
 			assert(res, err)
 		})
 	}

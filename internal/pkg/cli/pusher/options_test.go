@@ -20,6 +20,7 @@ import (
 	"flag"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
 )
@@ -29,7 +30,7 @@ func TestFromContext(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		prepare func(*flag.FlagSet)
-		assert  func(error)
+		assert  func(*Options, error)
 	}{
 		{
 			name: "success",
@@ -38,46 +39,149 @@ func TestFromContext(t *testing.T) {
 				require.Nil(t, set.Set(FlagUsername, "username"))
 				require.Nil(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(err error) {
-				require.NoError(t, err)
+			assert: func(_ *Options, err error) {
+				assert.NoError(t, err)
 			},
 		},
 		{
-			name: "failure no image provided",
+			name: "success with annotations",
 			prepare: func(set *flag.FlagSet) {
-				set.String(FlagProfile, "", "")
-				require.Nil(t, set.Set(FlagProfile, ""))
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{
-			name: "failure no output file provided",
-			prepare: func(set *flag.FlagSet) {
-				set.String(FlagProfile, "", "")
-				require.Nil(t, set.Set(FlagProfile, ""))
 				require.Nil(t, set.Parse([]string{"echo"}))
+				set.Var(cli.NewStringSlice(""), FlagAnnotations, "")
+				require.Nil(t, set.Set(FlagAnnotations, "foo:bar,hello:world"))
 			},
-			assert: func(err error) {
+			assert: func(res *Options, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, res.annotations, 2)
+				assert.Equal(t, "bar", res.annotations["foo"])
+				assert.Equal(t, "world", res.annotations["hello"])
+			},
+		},
+		{
+			name: "success one profile but no platform",
+			prepare: func(set *flag.FlagSet) {
+				require.Nil(t, set.Parse([]string{"echo"}))
+				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
+				require.Nil(t, set.Set(FlagProfiles, "foo"))
+			},
+			assert: func(res *Options, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, res.inputFiles, 1)
+				assert.Equal(t, "foo", res.inputFiles[DefaultPlatform])
+			},
+		},
+		{
+			name: "success one platform but no profile",
+			prepare: func(set *flag.FlagSet) {
+				require.Nil(t, set.Parse([]string{"echo"}))
+				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				require.Nil(t, set.Set(FlagPlatforms, "foo"))
+			},
+			assert: func(res *Options, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, res.inputFiles, 1)
+				for k, v := range res.inputFiles {
+					assert.Equal(t, "foo", k.OS)
+					assert.Equal(t, DefaultInputFile, v)
+				}
+			},
+		},
+		{
+			name: "success multiple profiles and platforms",
+			prepare: func(set *flag.FlagSet) {
+				require.Nil(t, set.Parse([]string{"echo"}))
+				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				require.Nil(t, set.Set(FlagPlatforms, "foo,bar"))
+				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
+				require.Nil(t, set.Set(FlagProfiles, "foo,bar"))
+			},
+			assert: func(res *Options, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, res.inputFiles, 2)
+				for k, v := range res.inputFiles {
+					assert.Equal(t, v, k.OS)
+				}
+			},
+		},
+		{
+			name:    "failure no image provided",
+			prepare: func(set *flag.FlagSet) {},
+			assert: func(_ *Options, err error) {
 				require.Error(t, err)
+			},
+		},
+		{
+			name: "failure wrong annotation format",
+			prepare: func(set *flag.FlagSet) {
+				require.Nil(t, set.Parse([]string{"echo"}))
+				set.Var(cli.NewStringSlice(""), FlagAnnotations, "")
+				require.Nil(t, set.Set(FlagAnnotations, "foo"))
+			},
+			assert: func(_ *Options, err error) {
+				assert.Error(t, err)
+			},
+		},
+		{
+			name: "failure amount of profiles and platforms does not match",
+			prepare: func(set *flag.FlagSet) {
+				require.Nil(t, set.Parse([]string{"echo"}))
+				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
+				require.Nil(t, set.Set(FlagProfiles, "foo,bar"))
+				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				require.Nil(t, set.Set(FlagPlatforms, "foo,bar,baz"))
+			},
+			assert: func(_ *Options, err error) {
+				assert.Error(t, err)
+			},
+		},
+		{
+			name: "failure multiple profiles but no platforms",
+			prepare: func(set *flag.FlagSet) {
+				require.Nil(t, set.Parse([]string{"echo"}))
+				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
+				require.Nil(t, set.Set(FlagProfiles, "foo,bar"))
+			},
+			assert: func(_ *Options, err error) {
+				assert.Error(t, err)
+			},
+		},
+		{
+			name: "failure duplicate platforms",
+			prepare: func(set *flag.FlagSet) {
+				require.Nil(t, set.Parse([]string{"echo"}))
+				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				require.Nil(t, set.Set(FlagPlatforms, "foo,foo"))
+			},
+			assert: func(_ *Options, err error) {
+				assert.Error(t, err)
+			},
+		},
+		{
+			name: "failure parse platforms",
+			prepare: func(set *flag.FlagSet) {
+				require.Nil(t, set.Parse([]string{"echo"}))
+				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
+				require.Nil(t, set.Set(FlagPlatforms, "this/is/a/wrong/platform"))
+			},
+			assert: func(_ *Options, err error) {
+				assert.Error(t, err)
 			},
 		},
 	} {
-		prepare := tc.prepare
-		assert := tc.assert
+		testPrepare := tc.prepare
+		testAssert := tc.assert
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			set := flag.NewFlagSet("", flag.ExitOnError)
-			prepare(set)
+			testPrepare(set)
 
 			app := cli.NewApp()
 			ctx := cli.NewContext(app, set, nil)
 
-			_, err := FromContext(ctx)
-			assert(err)
+			options, err := FromContext(ctx)
+			testAssert(options, err)
 		})
 	}
 }

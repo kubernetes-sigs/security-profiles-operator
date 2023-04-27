@@ -105,10 +105,10 @@ func main() {
 			Action:    push,
 			ArgsUsage: "FILE",
 			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:        pusher.FlagProfile,
+				&cli.StringSliceFlag{
+					Name:        pusher.FlagProfiles,
 					Aliases:     []string{"f"},
-					Usage:       "the profile to be used",
+					Usage:       "the profiles to be used",
 					DefaultText: pusher.DefaultInputFile,
 					TakesFile:   true,
 				},
@@ -125,6 +125,11 @@ func main() {
 						"the username for registry authentication, use $%s for defining a password",
 						spocli.EnvKeyPassword,
 					),
+				},
+				&cli.StringSliceFlag{
+					Name:    pusher.FlagPlatforms,
+					Aliases: []string{"p"},
+					Usage:   "the platforms to be used in format: os[/arch][/variant][:os_version]",
 				},
 			},
 		},
@@ -150,6 +155,11 @@ func main() {
 						"the username for registry authentication, use $%s for defining a password",
 						spocli.EnvKeyPassword,
 					),
+				},
+				&cli.StringFlag{
+					Name:    puller.FlagPlatform,
+					Aliases: []string{"p"},
+					Usage:   "the platform to be used in format: os[/arch][/variant][:os_version]",
 				},
 			},
 		},
