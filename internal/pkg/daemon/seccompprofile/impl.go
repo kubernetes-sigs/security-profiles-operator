@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,7 +35,7 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	Pull(context.Context, logr.Logger, string, string, string) (*artifact.PullResult, error)
+	Pull(context.Context, logr.Logger, string, string, string, *v1.Platform) (*artifact.PullResult, error)
 	PullResultType(*artifact.PullResult) artifact.PullResultType
 	PullResultSeccompProfile(*artifact.PullResult) *seccompprofileapi.SeccompProfile
 	ClientGetProfile(
@@ -45,9 +46,9 @@ type impl interface {
 }
 
 func (*defaultImpl) Pull(
-	ctx context.Context, l logr.Logger, from, _, _ string,
+	ctx context.Context, l logr.Logger, from, _, _ string, platform *v1.Platform,
 ) (*artifact.PullResult, error) {
-	return artifact.New(l).Pull(ctx, from, "", "")
+	return artifact.New(l).Pull(ctx, from, "", "", platform)
 }
 
 func (*defaultImpl) PullResultType(res *artifact.PullResult) artifact.PullResultType {

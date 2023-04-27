@@ -22,7 +22,9 @@ import (
 	"os"
 	"strings"
 
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	ucli "github.com/urfave/cli/v2"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 )
@@ -30,7 +32,7 @@ import (
 // Options define all possible options for the pusher.
 type Options struct {
 	pushTo      string
-	inputFile   string
+	inputFiles  map[*v1.Platform]string
 	username    string
 	password    string
 	annotations map[string]string
@@ -39,7 +41,7 @@ type Options struct {
 // Default returns a default options instance.
 func Default() *Options {
 	return &Options{
-		inputFile: DefaultInputFile,
+		inputFiles: map[*v1.Platform]string{},
 	}
 }
 
@@ -53,11 +55,41 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	}
 	options.pushTo = args[0]
 
-	if ctx.IsSet(FlagProfile) {
-		options.inputFile = ctx.String(FlagProfile)
-	}
-	if options.inputFile == "" {
-		return nil, errors.New("no profile provided")
+	profiles := ctx.StringSlice(FlagProfiles)
+	platforms := ctx.StringSlice(FlagPlatforms)
+
+	if len(platforms) == 0 {
+		if len(profiles) > 1 {
+			return nil, errors.New("multiple profiles provided but no platforms set")
+		} else if len(profiles) == 1 {
+			options.inputFiles[DefaultPlatform] = profiles[0]
+		}
+	} else {
+		// Avoid duplicate platforms because they have to be unique in the map.
+		if sets.New(platforms...).Len() != len(platforms) {
+			return nil, fmt.Errorf(
+				"duplicate platforms defined: %v", strings.Join(platforms, ", "),
+			)
+		}
+
+		parsedPlatforms := []*v1.Platform{}
+		for _, platform := range platforms {
+			parsedPlatform, err := cli.ParsePlatform(platform)
+			if err != nil {
+				return nil, fmt.Errorf("parse platform %s: %w", platform, err)
+			}
+			parsedPlatforms = append(parsedPlatforms, parsedPlatform)
+		}
+
+		if len(profiles) == 0 {
+			options.inputFiles[parsedPlatforms[0]] = DefaultInputFile
+		} else if len(profiles) != len(platforms) {
+			return nil, errors.New("number of profiles and platforms do not match")
+		}
+
+		for i, profile := range profiles {
+			options.inputFiles[parsedPlatforms[i]] = profile
+		}
 	}
 
 	if ctx.IsSet(FlagUsername) {

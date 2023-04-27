@@ -25,12 +25,14 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -363,7 +365,10 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			baseProfile = item.Value()
 		} else {
 			l.Info("Pulling base profile: " + from)
-			res, err := r.Pull(ctx, l, from, "", "")
+			res, err := r.Pull(ctx, l, from, "", "", &v1.Platform{
+				Architecture: runtime.GOARCH,
+				OS:           runtime.GOOS,
+			})
 			if err != nil {
 				l.Error(err, "cannot pull base profile "+baseProfileName)
 				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)

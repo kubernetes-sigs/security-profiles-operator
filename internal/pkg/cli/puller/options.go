@@ -18,8 +18,10 @@ package puller
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	ucli "github.com/urfave/cli/v2"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
@@ -31,6 +33,7 @@ type Options struct {
 	outputFile string
 	username   string
 	password   string
+	platform   *v1.Platform
 }
 
 // Default returns a default options instance.
@@ -62,6 +65,12 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	}
 
 	options.password = os.Getenv(cli.EnvKeyPassword)
+
+	platform, err := cli.ParsePlatform(ctx.String(FlagPlatform))
+	if err != nil {
+		return nil, fmt.Errorf("parse platform: %w", err)
+	}
+	options.platform = platform
 
 	return options, nil
 }

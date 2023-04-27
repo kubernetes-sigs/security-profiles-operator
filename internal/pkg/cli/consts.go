@@ -22,9 +22,6 @@ import (
 )
 
 const (
-	// FlagProfile is the flag for defining the input file location.
-	FlagProfile string = "profile"
-
 	// FlagOutputFile is the flag for defining the output file location.
 	FlagOutputFile string = "output-file"
 

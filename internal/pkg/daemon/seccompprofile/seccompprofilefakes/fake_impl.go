@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -54,7 +55,7 @@ type FakeImpl struct {
 		arg1 *metrics.Metrics
 		arg2 string
 	}
-	PullStub        func(context.Context, logr.Logger, string, string, string) (*artifact.PullResult, error)
+	PullStub        func(context.Context, logr.Logger, string, string, string, *v1.Platform) (*artifact.PullResult, error)
 	pullMutex       sync.RWMutex
 	pullArgsForCall []struct {
 		arg1 context.Context
@@ -62,6 +63,7 @@ type FakeImpl struct {
 		arg3 string
 		arg4 string
 		arg5 string
+		arg6 *v1.Platform
 	}
 	pullReturns struct {
 		result1 *artifact.PullResult
@@ -206,7 +208,7 @@ func (fake *FakeImpl) IncSeccompProfileErrorArgsForCall(i int) (*metrics.Metrics
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string) (*artifact.PullResult, error) {
+func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string, arg6 *v1.Platform) (*artifact.PullResult, error) {
 	fake.pullMutex.Lock()
 	ret, specificReturn := fake.pullReturnsOnCall[len(fake.pullArgsForCall)]
 	fake.pullArgsForCall = append(fake.pullArgsForCall, struct {
@@ -215,13 +217,14 @@ func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, 
 		arg3 string
 		arg4 string
 		arg5 string
-	}{arg1, arg2, arg3, arg4, arg5})
+		arg6 *v1.Platform
+	}{arg1, arg2, arg3, arg4, arg5, arg6})
 	stub := fake.PullStub
 	fakeReturns := fake.pullReturns
-	fake.recordInvocation("Pull", []interface{}{arg1, arg2, arg3, arg4, arg5})
+	fake.recordInvocation("Pull", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6})
 	fake.pullMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4, arg5)
+		return stub(arg1, arg2, arg3, arg4, arg5, arg6)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -235,17 +238,17 @@ func (fake *FakeImpl) PullCallCount() int {
 	return len(fake.pullArgsForCall)
 }
 
-func (fake *FakeImpl) PullCalls(stub func(context.Context, logr.Logger, string, string, string) (*artifact.PullResult, error)) {
+func (fake *FakeImpl) PullCalls(stub func(context.Context, logr.Logger, string, string, string, *v1.Platform) (*artifact.PullResult, error)) {
 	fake.pullMutex.Lock()
 	defer fake.pullMutex.Unlock()
 	fake.PullStub = stub
 }
 
-func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, logr.Logger, string, string, string) {
+func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, logr.Logger, string, string, string, *v1.Platform) {
 	fake.pullMutex.RLock()
 	defer fake.pullMutex.RUnlock()
 	argsForCall := fake.pullArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6
 }
 
 func (fake *FakeImpl) PullReturns(result1 *artifact.PullResult, result2 error) {
