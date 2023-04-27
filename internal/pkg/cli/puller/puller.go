@@ -46,6 +46,7 @@ func (p *Puller) Run() error {
 		p.options.pullFrom,
 		p.options.username,
 		p.options.password,
+		p.options.platform,
 	)
 	if err != nil {
 		return fmt.Errorf("pull profile: %w", err)
