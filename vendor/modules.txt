@@ -317,7 +317,7 @@ github.com/blang/semver/v4
 ## explicit; go 1.18
 github.com/buildkite/agent/v3/api
 github.com/buildkite/agent/v3/logger
-# github.com/cert-manager/cert-manager v1.11.1
+# github.com/cert-manager/cert-manager v1.11.0
 ## explicit; go 1.19
 github.com/cert-manager/cert-manager/pkg/apis/acme
 github.com/cert-manager/cert-manager/pkg/apis/acme/v1
@@ -360,8 +360,8 @@ github.com/common-nighthawk/go-figure
 ## explicit; go 1.19
 github.com/containerd/stargz-snapshotter/estargz
 github.com/containerd/stargz-snapshotter/estargz/errorutil
-# github.com/containers/common v0.52.0
-## explicit; go 1.18
+# github.com/containers/common v0.49.3
+## explicit; go 1.17
 github.com/containers/common/pkg/seccomp
 # github.com/coreos/go-oidc/v3 v3.5.0
 ## explicit; go 1.14
@@ -864,7 +864,7 @@ github.com/open-policy-agent/opa/version
 # github.com/opencontainers/go-digest v1.0.0
 ## explicit; go 1.13
 github.com/opencontainers/go-digest
-# github.com/opencontainers/image-spec v1.1.0-rc2.0.20221005185240-3a7f492d3f1b
+# github.com/opencontainers/image-spec v1.1.0-rc2
 ## explicit; go 1.17
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
