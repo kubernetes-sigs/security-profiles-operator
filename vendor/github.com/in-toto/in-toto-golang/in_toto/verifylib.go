@@ -12,7 +12,6 @@ import (
 	"io"
 	"os"
 	"path"
-	osPath "path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -140,7 +139,7 @@ func verifyMatchRule(ruleData map[string]string,
 
 		// Construct corresponding destination artifact path, i.e.
 		// an optional destination prefix plus the source base path
-		dstPath := path.Clean(osPath.Join(ruleData["dstPrefix"], srcBasePath))
+		dstPath := path.Clean(path.Join(ruleData["dstPrefix"], srcBasePath))
 
 		// Try to find the corresponding destination artifact
 		dstArtifact, exists := dstArtifacts[dstPath]
@@ -621,7 +620,7 @@ func LoadLinksForLayout(layout Layout, linkDir string) (map[string]map[string]Me
 		linksPerStep := make(map[string]Metablock)
 		// Since we can verify against certificates belonging to a CA, we need to
 		// load any possible links
-		linkFiles, err := filepath.Glob(osPath.Join(linkDir, fmt.Sprintf(LinkGlobFormat, step.Name)))
+		linkFiles, err := filepath.Glob(path.Join(linkDir, fmt.Sprintf(LinkGlobFormat, step.Name)))
 		if err != nil {
 			return nil, err
 		}
