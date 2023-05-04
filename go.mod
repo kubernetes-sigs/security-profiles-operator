@@ -22,7 +22,7 @@ require (
 	github.com/pjbgf/go-apparmor v0.1.2
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.1
 	github.com/prometheus/client_golang v1.15.1
-	github.com/prometheus/client_model v0.3.0
+	github.com/prometheus/client_model v0.4.0
 	github.com/seccomp/libseccomp-golang v0.10.0
 	github.com/sigstore/cosign/v2 v2.0.2
 	github.com/stretchr/testify v1.8.2
