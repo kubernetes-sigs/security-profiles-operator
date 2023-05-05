@@ -39,6 +39,7 @@ import (
 	"oras.land/oras-go/v2/internal/ioutil"
 	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/internal/slices"
+	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -946,7 +947,7 @@ func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) e
 // deleteWithIndexing removes the manifest content identified by the descriptor,
 // and indexes referrers for the manifest when needed.
 func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.Descriptor) error {
-	if target.MediaType == ocispec.MediaTypeArtifactManifest || target.MediaType == ocispec.MediaTypeImageManifest {
+	if target.MediaType == spec.MediaTypeArtifactManifest || target.MediaType == ocispec.MediaTypeImageManifest {
 		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
 			// referrers API is available, no client-side indexing needed
 			return s.repo.delete(ctx, target, true)
@@ -1155,7 +1156,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 // and indexes referrers for the manifest when needed.
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
 	switch expected.MediaType {
-	case ocispec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest:
+	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest:
 		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
 			// referrers API is available, no client-side indexing needed
 			return s.push(ctx, expected, r, reference)
@@ -1183,8 +1184,8 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	var subject ocispec.Descriptor
 	switch desc.MediaType {
-	case ocispec.MediaTypeArtifactManifest:
-		var manifest ocispec.Artifact
+	case spec.MediaTypeArtifactManifest:
+		var manifest spec.Artifact
 		if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
 			return fmt.Errorf("failed to decode manifest: %s: %s: %w", desc.Digest, desc.MediaType, err)
 		}
@@ -1271,7 +1272,11 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		// 4. delete the dangling original referrers index
 		if !skipDelete {
 			if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
-				return fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err)
+				return &ReferrersError{
+					Op:      opDeleteReferrersIndex,
+					Err:     fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err),
+					Subject: subject,
+				}
 			}
 		}
 		return nil
