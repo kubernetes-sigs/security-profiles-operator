@@ -162,6 +162,7 @@ const (
 	Cgroup
 	CgroupLegacy
 	Netns
+	Iter
 )
 
 type BPFLinkLegacy struct {
@@ -257,7 +258,6 @@ type NewModuleArgs struct {
 }
 
 func NewModuleFromFile(bpfObjPath string) (*Module, error) {
-
 	return NewModuleFromFileArgs(NewModuleArgs{
 		BPFObjPath: bpfObjPath,
 	})
@@ -358,7 +358,6 @@ func NewModuleFromFileArgs(args NewModuleArgs) (*Module, error) {
 }
 
 func NewModuleFromBuffer(bpfObjBuff []byte, bpfObjName string) (*Module, error) {
-
 	return NewModuleFromBufferArgs(NewModuleArgs{
 		BPFObjBuff: bpfObjBuff,
 		BPFObjName: bpfObjName,
@@ -381,25 +380,30 @@ func NewModuleFromBufferArgs(args NewModuleArgs) (*Module, error) {
 		args.BTFObjPath = "/sys/kernel/btf/vmlinux"
 	}
 
-	CBTFFilePath := C.CString(args.BTFObjPath)
-	CKconfigPath := C.CString(args.KConfigFilePath)
-	CBPFObjName := C.CString(args.BPFObjName)
-	CBPFBuff := unsafe.Pointer(C.CBytes(args.BPFObjBuff))
-	CBPFBuffSize := C.size_t(len(args.BPFObjBuff))
+	cBTFFilePath := C.CString(args.BTFObjPath)
+	defer C.free(unsafe.Pointer(cBTFFilePath))
+	cKconfigPath := C.CString(args.KConfigFilePath)
+	defer C.free(unsafe.Pointer(cKconfigPath))
+	cBPFObjName := C.CString(args.BPFObjName)
+	defer C.free(unsafe.Pointer(cBPFObjName))
+	cBPFBuff := unsafe.Pointer(C.CBytes(args.BPFObjBuff))
+	defer C.free(cBPFBuff)
+	cBPFBuffSize := C.size_t(len(args.BPFObjBuff))
 
 	if len(args.KConfigFilePath) <= 2 {
-		C.free(unsafe.Pointer(CKconfigPath))
-		CKconfigPath = nil
+		cKconfigPath = nil
 	}
 
-	obj, errno := C.open_bpf_object(CBTFFilePath, CKconfigPath, CBPFObjName, CBPFBuff, CBPFBuffSize)
+	cOpts, errno := C.bpf_object_open_opts_new(cBTFFilePath, cKconfigPath, cBPFObjName)
+	if cOpts == nil {
+		return nil, fmt.Errorf("failed to create bpf_object_open_opts to %s: %w", args.BPFObjName, errno)
+	}
+	defer C.bpf_object_open_opts_free(cOpts)
+
+	obj, errno := C.bpf_object__open_mem(cBPFBuff, cBPFBuffSize, cOpts)
 	if obj == nil {
 		return nil, fmt.Errorf("failed to open BPF object %s: %w", args.BPFObjName, errno)
 	}
-
-	C.free(CBPFBuff)
-	C.free(unsafe.Pointer(CBPFObjName))
-	C.free(unsafe.Pointer(CBTFFilePath))
 
 	return &Module{
 		obj: obj,
@@ -992,7 +996,6 @@ func (it *BPFObjectIterator) NextMap() *BPFMap {
 }
 
 func (it *BPFObjectIterator) NextProgram() *BPFProg {
-
 	var startProg *C.struct_bpf_program
 	if it.prevProg != nil && it.prevProg.prog != nil {
 		startProg = it.prevProg.prog
@@ -1068,6 +1071,31 @@ func (it *BPFMapIterator) Err() error {
 	return it.err
 }
 
+// BPFLinkReader read data from a BPF link
+type BPFLinkReader struct {
+	l  *BPFLink
+	fd int
+}
+
+func (l *BPFLink) Reader() (*BPFLinkReader, error) {
+	fd, errno := C.bpf_iter_create(C.int(l.FileDescriptor()))
+	if fd < 0 {
+		return nil, fmt.Errorf("failed to create reader: %w", errno)
+	}
+	return &BPFLinkReader{
+		l:  l,
+		fd: int(uintptr(fd)),
+	}, nil
+}
+
+func (i *BPFLinkReader) Read(p []byte) (n int, err error) {
+	return syscall.Read(i.fd, p)
+}
+
+func (i *BPFLinkReader) Close() error {
+	return syscall.Close(i.fd)
+}
+
 func (m *Module) GetProgram(progName string) (*BPFProg, error) {
 	cs := C.CString(progName)
 	prog, errno := C.bpf_object__find_program_by_name(m.obj, cs)
@@ -1093,7 +1121,6 @@ func (p *BPFProg) GetFd() int {
 }
 
 func (p *BPFProg) Pin(path string) error {
-
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("invalid path: %s: %v", path, err)
@@ -1333,10 +1360,12 @@ func (p *BPFProg) SetAttachType(attachType BPFAttachType) {
 
 // getCgroupDirFD returns a file descriptor for a given cgroup2 directory path
 func getCgroupDirFD(cgroupV2DirPath string) (int, error) {
+	// revive:disable
 	const (
 		O_DIRECTORY int = syscall.O_DIRECTORY
 		O_RDONLY    int = syscall.O_RDONLY
 	)
+	// revive:enable
 	fd, err := syscall.Open(cgroupV2DirPath, O_DIRECTORY|O_RDONLY, 0)
 	if fd < 0 {
 		return 0, fmt.Errorf("failed to open cgroupv2 directory path %s: %w", cgroupV2DirPath, err)
@@ -1559,6 +1588,55 @@ func (p *BPFProg) AttachNetns(networkNamespacePath string) (*BPFLink, error) {
 	return bpfLink, nil
 }
 
+type BPFCgroupIterOrder uint32
+
+const (
+	BPFIterOrderUnspec BPFCgroupIterOrder = iota
+	BPFIterSelfOnly
+	BPFIterDescendantsPre
+	BPFIterDescendantsPost
+	BPFIterAncestorsUp
+)
+
+type IterOpts struct {
+	MapFd           int
+	CgroupIterOrder BPFCgroupIterOrder
+	CgroupFd        int
+	CgroupId        uint64
+	Tid             int
+	Pid             int
+	PidFd           int
+}
+
+func (p *BPFProg) AttachIter(opts IterOpts) (*BPFLink, error) {
+	mapFd := C.uint(opts.MapFd)
+	cgroupIterOrder := uint32(opts.CgroupIterOrder)
+	cgroupFd := C.uint(opts.CgroupFd)
+	cgroupId := C.ulonglong(opts.CgroupId)
+	tid := C.uint(opts.Tid)
+	pid := C.uint(opts.Pid)
+	pidFd := C.uint(opts.PidFd)
+	cOpts, errno := C.bpf_iter_attach_opts_new(mapFd, cgroupIterOrder, cgroupFd, cgroupId, tid, pid, pidFd)
+	if cOpts == nil {
+		return nil, fmt.Errorf("failed to create iter_attach_opts to program %s: %w", p.name, errno)
+	}
+	defer C.bpf_iter_attach_opts_free(cOpts)
+
+	link, errno := C.bpf_program__attach_iter(p.prog, cOpts)
+	if link == nil {
+		return nil, fmt.Errorf("failed to attach iter to program %s: %w", p.name, errno)
+	}
+	eventName := fmt.Sprintf("iter-%s-%d", p.name, opts.MapFd)
+	bpfLink := &BPFLink{
+		link:      link,
+		prog:      p,
+		linkType:  Iter,
+		eventName: eventName,
+	}
+	p.module.links = append(p.module.links, bpfLink)
+	return bpfLink, nil
+}
+
 func doAttachKprobe(prog *BPFProg, kp string, isKretprobe bool) (*BPFLink, error) {
 	cs := C.CString(kp)
 	cbool := C.bool(isKretprobe)
@@ -1599,7 +1677,6 @@ func (p *BPFProg) AttachUprobe(pid int, path string, offset uint32) (*BPFLink, e
 // which can be relative or absolute. A pid can be provided to attach to, or -1 can be specified
 // to attach to all processes
 func (p *BPFProg) AttachURetprobe(pid int, path string, offset uint32) (*BPFLink, error) {
-
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -1665,10 +1742,17 @@ func (m *Module) InitRingBuf(mapName string, eventsChan chan []byte) (*RingBuffe
 	return ringBuf, nil
 }
 
-func (rb *RingBuffer) Start() {
+// Poll will wait until timeout in milliseconds to gather
+// data from the ring buffer.
+func (rb *RingBuffer) Poll(timeout int) {
 	rb.stop = make(chan struct{})
 	rb.wg.Add(1)
-	go rb.poll()
+	go rb.poll(timeout)
+}
+
+// Deprecated: use RingBuffer.Poll() instead.
+func (rb *RingBuffer) Start() {
+	rb.Poll(300)
 }
 
 func (rb *RingBuffer) Stop() {
@@ -1682,8 +1766,10 @@ func (rb *RingBuffer) Stop() {
 		// goroutine will block in the callback.
 		eventChan := eventChannels.get(rb.slot).(chan []byte)
 		go func() {
+			// revive:disable:empty-block
 			for range eventChan {
 			}
+			// revive:enable:empty-block
 		}()
 
 		// Wait for the poll goroutine to exit
@@ -1717,11 +1803,11 @@ func (rb *RingBuffer) isStopped() bool {
 	}
 }
 
-func (rb *RingBuffer) poll() error {
+func (rb *RingBuffer) poll(timeout int) error {
 	defer rb.wg.Done()
 
 	for {
-		err := C.ring_buffer__poll(rb.rb, 300)
+		err := C.ring_buffer__poll(rb.rb, C.int(timeout))
 		if rb.isStopped() {
 			break
 		}
@@ -1769,10 +1855,17 @@ func (m *Module) InitPerfBuf(mapName string, eventsChan chan []byte, lostChan ch
 	return perfBuf, nil
 }
 
-func (pb *PerfBuffer) Start() {
+// Poll will wait until timeout in milliseconds to gather
+// data from the perf buffer.
+func (pb *PerfBuffer) Poll(timeout int) {
 	pb.stop = make(chan struct{})
 	pb.wg.Add(1)
-	go pb.poll()
+	go pb.poll(timeout)
+}
+
+// Deprecated: use PerfBuffer.Poll() instead.
+func (pb *PerfBuffer) Start() {
+	pb.Poll(300)
 }
 
 func (pb *PerfBuffer) Stop() {
@@ -1785,6 +1878,7 @@ func (pb *PerfBuffer) Stop() {
 		// result in a deadlock: the channel will fill up and the poll
 		// goroutine will block in the callback.
 		go func() {
+			// revive:disable:empty-block
 			for range pb.eventsChan {
 			}
 
@@ -1792,6 +1886,7 @@ func (pb *PerfBuffer) Stop() {
 				for range pb.lostChan {
 				}
 			}
+			// revive:enable:empty-block
 		}()
 
 		// Wait for the poll goroutine to exit
@@ -1820,7 +1915,7 @@ func (pb *PerfBuffer) Close() {
 }
 
 // todo: consider writing the perf polling in go as c to go calls (callback) are expensive
-func (pb *PerfBuffer) poll() error {
+func (pb *PerfBuffer) poll(timeout int) error {
 	defer pb.wg.Done()
 
 	for {
@@ -1828,7 +1923,7 @@ func (pb *PerfBuffer) poll() error {
 		case <-pb.stop:
 			return nil
 		default:
-			err := C.perf_buffer__poll(pb.pb, 300)
+			err := C.perf_buffer__poll(pb.pb, C.int(timeout))
 			if err < 0 {
 				if syscall.Errno(-err) == syscall.EINTR {
 					continue
