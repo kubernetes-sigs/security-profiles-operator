@@ -8,12 +8,13 @@ OUTPUT = ./output
 SELFTEST = ./selftest
 HELPERS = ./helpers
 
-CC = gcc
-CLANG = clang
-GO = go
-VAGRANT = vagrant
-CLANG_FMT = clang-format
-GIT = $(shell which git || /bin/false)
+CLANG := clang
+CC := $(CLANG)
+GO := go
+VAGRANT := vagrant
+CLANG_FMT := clang-format-12
+GIT := $(shell which git || /bin/false)
+REVIVE := revive
 
 HOSTOS = $(shell uname)
 ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/g; s/aarch64/arm64/g')
@@ -26,7 +27,7 @@ LIBBPF_OBJ = $(abspath ./$(OUTPUT)/libbpf.a)
 LIBBPF_OBJDIR = $(abspath ./$(OUTPUT)/libbpf)
 LIBBPF_DESTDIR = $(abspath ./$(OUTPUT))
 
-CFLAGS = -g -O2 -Wall -fpie
+CFLAGS = -g -O2 -Wall -fpie -I$(abspath $(OUTPUT))
 LDFLAGS =
 
 # golang
@@ -195,12 +196,18 @@ vagrant-ssh: .vagrant-ssh
 		HOSTOS=$(HOSTOS) \
 		$(VAGRANT) $*
 
+#
+# code check and linting
+#
+
 # fmt-check
+
+C_FILES_TO_BE_CHECKED = $(shell find -regextype posix-extended -regex '.*\.(h|c)' ! -regex '.*(libbpf|output)\/.*' | xargs)
 
 fmt-check:
 	@errors=0
 	echo "Checking C and eBPF files and headers formatting..."
-	$(CLANG_FMT) --dry-run -i ./libbpfgo.h > /tmp/check-c-fmt 2>&1
+	$(CLANG_FMT) --dry-run -i $(C_FILES_TO_BE_CHECKED) > /tmp/check-c-fmt 2>&1
 	clangfmtamount=$$(cat /tmp/check-c-fmt | wc -l)
 	if [[ $$clangfmtamount -ne 0 ]]; then
 		head -n30 /tmp/check-c-fmt
@@ -216,12 +223,20 @@ fmt-check:
 		exit 1
 	fi
 
-
 # fmt-fix
 
 fmt-fix:
 	@echo "Fixing C and eBPF files and headers formatting..."
-	$(CLANG_FMT) -i --verbose ./libbpfgo.h
+	$(CLANG_FMT) -i --verbose $(C_FILES_TO_BE_CHECKED)
+
+# lint-check
+
+.PHONY: lint-check
+lint-check:
+#
+	@errors=0
+	echo "Linting golang code..."
+	$(REVIVE) -config .revive.toml ./...
 
 # output
 

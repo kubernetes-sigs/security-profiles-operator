@@ -451,7 +451,8 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 	if err != nil {
 		return fmt.Errorf("init events ringbuffer: %w", err)
 	}
-	b.StartRingBuffer(ringbuffer)
+	const timeout = 300
+	b.PollRingBuffer(ringbuffer, timeout)
 
 	if startEventProcessor {
 		go b.processEvents(events)

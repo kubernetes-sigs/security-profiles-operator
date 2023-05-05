@@ -8,23 +8,19 @@ import "C"
 import (
 	"fmt"
 	"os"
-	"strings"
 )
 
-// This callback definition needs to be in a different file from where it is declared in C
-// Otherwise, multiple definition compilation error will occur
+// This callback definition needs to be in a different file from where it is
+// declared in C Otherwise, multiple definition compilation error will occur
 
-// loggerCallback is called by libbpf_print_fn() which in turn is called by libbpf
+// loggerCallback is called by libbpf_print_fn() which in turn is called by
+// libbpf
+//
+// revive:disable
 //
 //export loggerCallback
 func loggerCallback(libbpfPrintLevel int, libbpfOutput *C.char) {
-	var (
-		level    int
-		goOutput string
-	)
-
-	goOutput = C.GoString(libbpfOutput)
-	goOutput = strings.TrimSuffix(goOutput, "\n")
+	goOutput := C.GoString(libbpfOutput)
 
 	for _, fnFilterOut := range callbacks.LogFilters {
 		if fnFilterOut != nil {
@@ -34,7 +30,8 @@ func loggerCallback(libbpfPrintLevel int, libbpfOutput *C.char) {
 		}
 	}
 
-	callbacks.Log(level, goOutput)
+	// pass received output to callback, leaving formatting to consumer
+	callbacks.Log(libbpfPrintLevel, goOutput)
 }
 
 const (
@@ -67,9 +64,8 @@ func SetLoggerCbs(cbs Callbacks) {
 
 // logFallback is the default logger callback
 // - level is ignored
-// - output, suffixed with a newline, is printed to stderr
 func logFallback(level int, msg string) {
-	var outMsg = msg + "\n"
-
-	fmt.Fprint(os.Stderr, outMsg)
+	fmt.Fprint(os.Stderr, msg)
 }
+
+// revive:enable

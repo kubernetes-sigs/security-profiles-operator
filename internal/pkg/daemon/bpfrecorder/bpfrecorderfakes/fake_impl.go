@@ -357,6 +357,12 @@ type FakeImpl struct {
 		result1 uint32
 		result2 error
 	}
+	PollRingBufferStub        func(*libbpfgo.RingBuffer, int)
+	pollRingBufferMutex       sync.RWMutex
+	pollRingBufferArgsForCall []struct {
+		arg1 *libbpfgo.RingBuffer
+		arg2 int
+	}
 	ReadOSReleaseStub        func() (map[string]string, error)
 	readOSReleaseMutex       sync.RWMutex
 	readOSReleaseArgsForCall []struct {
@@ -416,11 +422,6 @@ type FakeImpl struct {
 	}
 	serveReturnsOnCall map[int]struct {
 		result1 error
-	}
-	StartRingBufferStub        func(*libbpfgo.RingBuffer)
-	startRingBufferMutex       sync.RWMutex
-	startRingBufferArgsForCall []struct {
-		arg1 *libbpfgo.RingBuffer
 	}
 	StatStub        func(string) (fs.FileInfo, error)
 	statMutex       sync.RWMutex
@@ -2057,6 +2058,39 @@ func (fake *FakeImpl) ParseUintReturnsOnCall(i int, result1 uint32, result2 erro
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) PollRingBuffer(arg1 *libbpfgo.RingBuffer, arg2 int) {
+	fake.pollRingBufferMutex.Lock()
+	fake.pollRingBufferArgsForCall = append(fake.pollRingBufferArgsForCall, struct {
+		arg1 *libbpfgo.RingBuffer
+		arg2 int
+	}{arg1, arg2})
+	stub := fake.PollRingBufferStub
+	fake.recordInvocation("PollRingBuffer", []interface{}{arg1, arg2})
+	fake.pollRingBufferMutex.Unlock()
+	if stub != nil {
+		fake.PollRingBufferStub(arg1, arg2)
+	}
+}
+
+func (fake *FakeImpl) PollRingBufferCallCount() int {
+	fake.pollRingBufferMutex.RLock()
+	defer fake.pollRingBufferMutex.RUnlock()
+	return len(fake.pollRingBufferArgsForCall)
+}
+
+func (fake *FakeImpl) PollRingBufferCalls(stub func(*libbpfgo.RingBuffer, int)) {
+	fake.pollRingBufferMutex.Lock()
+	defer fake.pollRingBufferMutex.Unlock()
+	fake.PollRingBufferStub = stub
+}
+
+func (fake *FakeImpl) PollRingBufferArgsForCall(i int) (*libbpfgo.RingBuffer, int) {
+	fake.pollRingBufferMutex.RLock()
+	defer fake.pollRingBufferMutex.RUnlock()
+	argsForCall := fake.pollRingBufferArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
 func (fake *FakeImpl) ReadOSRelease() (map[string]string, error) {
 	fake.readOSReleaseMutex.Lock()
 	ret, specificReturn := fake.readOSReleaseReturnsOnCall[len(fake.readOSReleaseArgsForCall)]
@@ -2360,38 +2394,6 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 	fake.serveReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
-}
-
-func (fake *FakeImpl) StartRingBuffer(arg1 *libbpfgo.RingBuffer) {
-	fake.startRingBufferMutex.Lock()
-	fake.startRingBufferArgsForCall = append(fake.startRingBufferArgsForCall, struct {
-		arg1 *libbpfgo.RingBuffer
-	}{arg1})
-	stub := fake.StartRingBufferStub
-	fake.recordInvocation("StartRingBuffer", []interface{}{arg1})
-	fake.startRingBufferMutex.Unlock()
-	if stub != nil {
-		fake.StartRingBufferStub(arg1)
-	}
-}
-
-func (fake *FakeImpl) StartRingBufferCallCount() int {
-	fake.startRingBufferMutex.RLock()
-	defer fake.startRingBufferMutex.RUnlock()
-	return len(fake.startRingBufferArgsForCall)
-}
-
-func (fake *FakeImpl) StartRingBufferCalls(stub func(*libbpfgo.RingBuffer)) {
-	fake.startRingBufferMutex.Lock()
-	defer fake.startRingBufferMutex.Unlock()
-	fake.StartRingBufferStub = stub
-}
-
-func (fake *FakeImpl) StartRingBufferArgsForCall(i int) *libbpfgo.RingBuffer {
-	fake.startRingBufferMutex.RLock()
-	defer fake.startRingBufferMutex.RUnlock()
-	argsForCall := fake.startRingBufferArgsForCall[i]
-	return argsForCall.arg1
 }
 
 func (fake *FakeImpl) Stat(arg1 string) (fs.FileInfo, error) {
@@ -2910,6 +2912,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.newModuleFromBufferArgsMutex.RUnlock()
 	fake.parseUintMutex.RLock()
 	defer fake.parseUintMutex.RUnlock()
+	fake.pollRingBufferMutex.RLock()
+	defer fake.pollRingBufferMutex.RUnlock()
 	fake.readOSReleaseMutex.RLock()
 	defer fake.readOSReleaseMutex.RUnlock()
 	fake.readlinkMutex.RLock()
@@ -2920,8 +2924,6 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.sendMetricMutex.RUnlock()
 	fake.serveMutex.RLock()
 	defer fake.serveMutex.RUnlock()
-	fake.startRingBufferMutex.RLock()
-	defer fake.startRingBufferMutex.RUnlock()
 	fake.statMutex.RLock()
 	defer fake.statMutex.RUnlock()
 	fake.tempFileMutex.RLock()
