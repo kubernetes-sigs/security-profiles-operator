@@ -79,7 +79,7 @@ type impl interface {
 	RemoveAll(string) error
 	Chown(string, int, int) error
 	CloseModule(*bpf.BPFMap)
-	StartRingBuffer(*bpf.RingBuffer)
+	PollRingBuffer(*bpf.RingBuffer, int)
 	GoArch() string
 	Readlink(string) (string, error)
 	ParseUint(string) (uint32, error)
@@ -230,8 +230,8 @@ func (d *defaultImpl) GoArch() string {
 	return runtime.GOARCH
 }
 
-func (d *defaultImpl) StartRingBuffer(b *bpf.RingBuffer) {
-	b.Start()
+func (d *defaultImpl) PollRingBuffer(b *bpf.RingBuffer, timeout int) {
+	b.Poll(timeout)
 }
 
 func (d *defaultImpl) CloseModule(m *bpf.BPFMap) {

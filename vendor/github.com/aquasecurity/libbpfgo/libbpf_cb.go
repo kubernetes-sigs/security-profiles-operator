@@ -5,6 +5,8 @@ import (
 	"unsafe"
 )
 
+// revive:disable
+
 // This callback definition needs to be in a different file from where it is declared in C
 // Otherwise, multiple definition compilation error will occur
 
@@ -28,3 +30,5 @@ func ringbufferCallback(ctx unsafe.Pointer, data unsafe.Pointer, size C.int) C.i
 	ch <- C.GoBytes(data, size)
 	return C.int(0)
 }
+
+// revive:enable
