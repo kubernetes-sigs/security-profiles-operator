@@ -24,7 +24,7 @@ CATALOG_IMG=${REPO}/security-profiles-operator-catalog:v${GITHUB_SHA}
 
 function sp_in_ns() {
     ns=$1
-kubectl create -f - << EOF
+    kubectl create -f - <<EOF
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
@@ -69,7 +69,7 @@ function deploy_deps() {
 
     # cert-manager first. This should be done using dependencies in the
     # future
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.1/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.2/cert-manager.yaml
     kubectl -ncert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # All installation methods run off the same catalog
@@ -81,7 +81,7 @@ function deploy_spo_in_custom_ns() {
     ns=$1
     manifests=examples/olm/custom-install-resources.yaml
 
-cat << EOF > $manifests
+    cat <<EOF >$manifests
 ---
 apiVersion: v1
 kind: Namespace
@@ -118,17 +118,17 @@ metadata:
   namespace: $ns
 EOF
 
-echo "Installing manifest for custom ns installation.."
-cat $manifests
+    echo "Installing manifest for custom ns installation.."
+    cat $manifests
 
-kubectl create -f $manifests
+    kubectl create -f $manifests
 }
 
 function deploy_spo_with_variable() {
     variable=$1
     manifests=examples/olm/$variable-install-resources.yaml
 
-cat << EOF > $manifests
+    cat <<EOF >$manifests
 ---
 apiVersion: v1
 kind: Namespace
@@ -181,30 +181,28 @@ function deploy_spo() {
     cp examples/olm/install-resources.yaml $manifests
 
     case $installation_method in
-    all)
-        ;;
+    all) ;;
     own)
         echo "spec:
   targetNamespaces:
-  - security-profiles-operator" >> $manifests
+  - security-profiles-operator" >>$manifests
         ;;
     single)
         echo "spec:
   targetNamespaces:
-  - spo-sp-ns" >> $manifests
+  - spo-sp-ns" >>$manifests
         ;;
     multi)
         echo "spec:
   targetNamespaces:
   - sp-test-1
-  - sp-test-2" >> $manifests
+  - sp-test-2" >>$manifests
         ;;
     esac
 
     # let's roll..
     kubectl create -f $manifests
 }
-
 
 function check_spo_is_running() {
     ns=$1
@@ -274,7 +272,6 @@ function assert_spo_csv_copied_to() {
 
     [[ $(kubectl get csv -lolm.copiedFrom=$from -n$ns -oname) ]] || return 1
 }
-
 
 function smoke_test_all() {
     kubectl create ns sp-test-1
