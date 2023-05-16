@@ -43,7 +43,6 @@ spec:
     }
 `
 
-	//nolint:lll // full yaml
 	aaPodWithPolicyFmt = `
 apiVersion: v1
 kind: Pod
