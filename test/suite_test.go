@@ -53,6 +53,7 @@ var (
 	envSkipFlakyTests            = os.Getenv("E2E_SKIP_FLAKY_TESTS")
 	envSkipNamespacedTests       = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
 	envSelinuxTestsEnabled       = os.Getenv("E2E_TEST_SELINUX")
+	envApparmorTestsEnabled      = os.Getenv("E2E_TEST_APPARMOR")
 	envLogEnricherTestsEnabled   = os.Getenv("E2E_TEST_LOG_ENRICHER")
 	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
 	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
@@ -94,6 +95,7 @@ type e2e struct {
 	nodeRootfsPrefix      string
 	operatorManifest      string
 	selinuxEnabled        bool
+	apparmorEnabled       bool
 	logEnricherEnabled    bool
 	testSeccomp           bool
 	bpfRecorderEnabled    bool
@@ -142,6 +144,10 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		selinuxEnabled = false
 	}
+	apparmorEnabled, err := strconv.ParseBool(envApparmorTestsEnabled)
+	if err != nil {
+		apparmorEnabled = false
+	}
 	logEnricherEnabled, err := strconv.ParseBool(envLogEnricherTestsEnabled)
 	if err != nil {
 		logEnricherEnabled = false
@@ -189,6 +195,7 @@ func TestSuite(t *testing.T) {
 				containerRuntime:    containerRuntime,
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
+				apparmorEnabled:     apparmorEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
@@ -220,6 +227,7 @@ func TestSuite(t *testing.T) {
 				containerRuntime:    containerRuntime,
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
+				apparmorEnabled:     apparmorEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
@@ -246,6 +254,7 @@ func TestSuite(t *testing.T) {
 				containerRuntime:    containerRuntime,
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
+				apparmorEnabled:     apparmorEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
@@ -660,6 +669,13 @@ func (e *e2e) selinuxOnlyTestCase() {
 	e.enableSelinuxInSpod()
 }
 
+func (e *e2e) apparmorOnlyTestCase() {
+	if !e.apparmorEnabled {
+		e.T().Skip("Skipping AppArmor-related test")
+	}
+	e.enableApparmorInSpod()
+}
+
 func (e *e2e) enableSelinuxInSpod() {
 	selinuxEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
@@ -669,6 +685,18 @@ func (e *e2e) enableSelinuxInSpod() {
 			`{"spec":{"selinuxOptions":{"allowedSystemProfiles":["container","net_container"]}}}`,
 			"--type=merge")
 
+		time.Sleep(defaultWaitTime)
+		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultSelinuxOpTimeout)
+	}
+}
+
+func (e *e2e) enableApparmorInSpod() {
+	apparmorEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
+	if !strings.Contains(apparmorEnabledInSPODDS, "--with-apparmor=true") {
+		e.logf("Enable AppArmor in SPOD")
+		e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableAppArmor": true}}`, "--type=merge")
 		time.Sleep(defaultWaitTime)
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 

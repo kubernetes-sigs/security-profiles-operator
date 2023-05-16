@@ -41,7 +41,9 @@ Vagrant.configure("2") do |config|
         kubectl=$KUBERNETES_VERSION \
         podman \
         jq \
-        moreutils
+        moreutils \
+        apparmor \
+        apparmor-utils
 
       # Disable kernel print rate limiting for syslog messaging
       sysctl -w kernel.printk_ratelimit=0
