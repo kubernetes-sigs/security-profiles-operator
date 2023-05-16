@@ -34,7 +34,7 @@ CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
 BPF_PATH := internal/pkg/daemon/bpfrecorder/bpf
 ARCH ?= $(shell uname -m | \
-	sed 's/x86_64/x86/' | \
+	sed 's/x86_64/amd64/' | \
 	sed 's/aarch64/arm64/' | \
 	sed 's/ppc64le/powerpc/' | \
 	sed 's/mips.*/mips/')
@@ -423,7 +423,7 @@ verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 
 $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 	curl -sSfL -o $(BUILD_DIR)/zeitgeist \
-		https://github.com/kubernetes-sigs/zeitgeist/releases/download/$(ZEITGEIST_VERSION)/zeitgeist_$(ZEITGEIST_VERSION:v%=%)_linux_amd64
+		https://github.com/kubernetes-sigs/zeitgeist/releases/download/$(ZEITGEIST_VERSION)/zeitgeist_$(ZEITGEIST_VERSION:v%=%)_${OS}_${ARCH}
 	chmod +x $(BUILD_DIR)/zeitgeist
 
 .PHONY: verify-toc
