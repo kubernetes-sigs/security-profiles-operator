@@ -18,10 +18,11 @@ set -euo pipefail
 export E2E_CLUSTER_TYPE=vanilla
 export E2E_TEST_LOG_ENRICHER=true
 export E2E_TEST_SECCOMP=false
+export E2E_TEST_APPARMOR=true
 export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}
 
 if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then
-    make test-flaky-e2e
+	make test-flaky-e2e
 else
-    make test-e2e
+	make test-e2e
 fi
