@@ -2,7 +2,7 @@
 
 These personas are the potential users of the security-profiles-operator.
 The intent of the operator is to address the needs of these personas, and so,
-user stories and feature enhancements shall be targetted at helping them.
+user stories and feature enhancements shall be targeted at helping them.
 
 ## Infrastructure SRE  (infra/host)
 

@@ -64,7 +64,7 @@ const (
 	// KubeletConfigFile specifies the name of the kubelet config file
 	// which contains various configuration parameters of the kubelet.
 	// This configuration file is created by the non-root enabler container
-	// during the deamon initialization.
+	// during the daemon initialization.
 	KubeletConfigFile = "kubelet-config.json"
 
 	// NodeNameEnvKey is the default environment variable key for retrieving
@@ -88,7 +88,7 @@ const (
 	// EnableBpfRecorderEnvKey is the environment variable key for enabling the BPF recorder.
 	EnableBpfRecorderEnvKey = "ENABLE_BPF_RECORDER"
 
-	// EnableRecordingEnvKey is the environment variable key to enabeling profile recording.
+	// EnableRecordingEnvKey is the environment variable key to enabling profile recording.
 	EnableRecordingEnvKey = "ENABLE_RECORDING"
 
 	// VerboseLevel is the increased verbosity log level.

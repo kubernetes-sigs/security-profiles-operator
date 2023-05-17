@@ -736,7 +736,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 					}
 
 					b.logger.V(config.VerboseLevel).Info(
-						"Found Container ID in cluser",
+						"Found Container ID in cluster",
 						"containerID", containerID,
 						"podName", pod.Name,
 						"containerName", containerName,

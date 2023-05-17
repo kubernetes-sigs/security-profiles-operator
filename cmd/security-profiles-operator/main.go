@@ -131,7 +131,7 @@ func main() {
 				},
 				&cli.BoolFlag{
 					Name:    recordingFlag,
-					Usage:   "Listen for ProfileRecording API recources",
+					Usage:   "Listen for ProfileRecording API resources",
 					Value:   false,
 					EnvVars: []string{config.EnableRecordingEnvKey},
 				},
