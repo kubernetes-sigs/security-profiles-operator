@@ -25,55 +25,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// A ConditionType represents a condition a resource could be in.
-type ConditionType string
-
 // Condition types.
 const (
 	// TypeReady resources are believed to be ready to handle work.
-	TypeReady ConditionType = "Ready"
+	TypeReady = "Ready"
 )
-
-// A ConditionReason represents the reason a resource is in a condition.
-type ConditionReason string
 
 // Reasons a resource is or is not ready.
 const (
-	ReasonAvailable   ConditionReason = "Available"
-	ReasonUnavailable ConditionReason = "Unavailable"
-	ReasonCreating    ConditionReason = "Creating"
-	ReasonDeleting    ConditionReason = "Deleting"
-	ReasonPending     ConditionReason = "Pending"
-	ReasonUpdating    ConditionReason = "Updating"
+	ReasonAvailable   = "Available"
+	ReasonUnavailable = "Unavailable"
+	ReasonCreating    = "Creating"
+	ReasonDeleting    = "Deleting"
+	ReasonPending     = "Pending"
+	ReasonUpdating    = "Updating"
 )
-
-// A Condition that may apply to a resource.
-type Condition struct {
-	// Type of this condition. At most one of each condition type may apply to
-	// a resource at any point in time.
-	Type ConditionType `json:"type"`
-
-	// Status of this condition; is it currently True, False, or Unknown?
-	Status corev1.ConditionStatus `json:"status"`
-
-	// LastTransitionTime is the last time this condition transitioned from one
-	// status to another.
-	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
-
-	// A Reason for this condition's last transition from one status to another.
-	Reason ConditionReason `json:"reason"`
-
-	// A Message containing details about this condition's last transition from
-	// one status to another, if any.
-	// +optional
-	Message string `json:"message,omitempty"`
-}
 
 // Equal returns true if the condition is identical to the supplied condition,
 // ignoring the LastTransitionTime.
 //
 //nolint:gocritic // just a few bytes too heavy
-func (c Condition) Equal(other Condition) bool {
+func equal(c, other metav1.Condition) bool {
 	return c.Type == other.Type &&
 		c.Status == other.Status &&
 		c.Reason == other.Reason &&
@@ -85,28 +57,28 @@ func (c Condition) Equal(other Condition) bool {
 type ConditionedStatus struct {
 	// Conditions of the resource.
 	// +optional
-	Conditions []Condition `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // GetCondition returns the condition for the given ConditionType if exists,
 // otherwise returns an unknown condition.
-func (s *ConditionedStatus) GetReadyCondition() Condition {
+func (s *ConditionedStatus) GetReadyCondition() metav1.Condition {
 	for _, c := range s.Conditions {
 		if c.Type == TypeReady {
 			return c
 		}
 	}
 
-	return Condition{
+	return metav1.Condition{
 		Type:   TypeReady,
-		Status: corev1.ConditionUnknown,
+		Status: metav1.ConditionUnknown,
 	}
 }
 
 // SetConditions sets the supplied conditions, replacing any existing conditions
 // of the same type. This is a no-op if all supplied conditions are identical,
 // ignoring the last transition time, to those already set.
-func (s *ConditionedStatus) SetConditions(c ...Condition) {
+func (s *ConditionedStatus) SetConditions(c ...metav1.Condition) {
 	for _, new := range c {
 		exists := false
 		for i, existing := range s.Conditions {
@@ -114,7 +86,7 @@ func (s *ConditionedStatus) SetConditions(c ...Condition) {
 				continue
 			}
 
-			if existing.Equal(new) {
+			if equal(existing, new) {
 				exists = true
 				continue
 			}
@@ -139,10 +111,10 @@ func (s *ConditionedStatus) Equal(other *ConditionedStatus) bool {
 		return false
 	}
 
-	sc := make([]Condition, len(s.Conditions))
+	sc := make([]metav1.Condition, len(s.Conditions))
 	copy(sc, s.Conditions)
 
-	oc := make([]Condition, len(other.Conditions))
+	oc := make([]metav1.Condition, len(other.Conditions))
 	copy(oc, other.Conditions)
 
 	// We should not have more than one condition of each type.
@@ -150,7 +122,7 @@ func (s *ConditionedStatus) Equal(other *ConditionedStatus) bool {
 	sort.Slice(oc, func(i, j int) bool { return oc[i].Type < oc[j].Type })
 
 	for i := range sc {
-		if !sc[i].Equal(oc[i]) {
+		if !equal(sc[i], oc[i]) {
 			return false
 		}
 	}
@@ -160,10 +132,10 @@ func (s *ConditionedStatus) Equal(other *ConditionedStatus) bool {
 
 // Creating returns a condition that indicates the resource is currently
 // being created.
-func Creating() Condition {
-	return Condition{
+func Creating() metav1.Condition {
+	return metav1.Condition{
 		Type:               TypeReady,
-		Status:             corev1.ConditionFalse,
+		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             ReasonCreating,
 	}
@@ -171,10 +143,10 @@ func Creating() Condition {
 
 // Deleting returns a condition that indicates the resource is currently
 // being deleted.
-func Deleting() Condition {
-	return Condition{
+func Deleting() metav1.Condition {
+	return metav1.Condition{
 		Type:               TypeReady,
-		Status:             corev1.ConditionFalse,
+		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             ReasonDeleting,
 	}
@@ -182,10 +154,10 @@ func Deleting() Condition {
 
 // Available returns a condition that indicates the resource is
 // currently observed to be available for use.
-func Available() Condition {
-	return Condition{
+func Available() metav1.Condition {
+	return metav1.Condition{
 		Type:               TypeReady,
-		Status:             corev1.ConditionTrue,
+		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             ReasonAvailable,
 	}
@@ -195,10 +167,10 @@ func Available() Condition {
 // currently available for use. Unavailable should be set only when Crossplane
 // expects the resource to be available but knows it is not, for example
 // because its API reports it is unhealthy.
-func Unavailable() Condition {
-	return Condition{
+func Unavailable() metav1.Condition {
+	return metav1.Condition{
 		Type:               TypeReady,
-		Status:             corev1.ConditionFalse,
+		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             ReasonUnavailable,
 	}
@@ -206,10 +178,10 @@ func Unavailable() Condition {
 
 // Pending returns a condition that indicates the resource is currently
 // observed to be waiting for creating.
-func Pending() Condition {
-	return Condition{
+func Pending() metav1.Condition {
+	return metav1.Condition{
 		Type:               TypeReady,
-		Status:             corev1.ConditionFalse,
+		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             ReasonPending,
 	}
@@ -217,10 +189,10 @@ func Pending() Condition {
 
 // Updating returns a condition that indicates the resource is currently
 // observed to be updating.
-func Updating() Condition {
-	return Condition{
+func Updating() metav1.Condition {
+	return metav1.Condition{
 		Type:               TypeReady,
-		Status:             corev1.ConditionFalse,
+		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             ReasonUpdating,
 	}
