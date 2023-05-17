@@ -283,7 +283,7 @@ in the SPOD configuration by setting a value in the `priorityClassName` filed.
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
-This is useful in situations when the spod deamon pod remains in `Pending` state, because there isn't enough capacity on the related
+This is useful in situations when the spod daemon pod remains in `Pending` state, because there isn't enough capacity on the related
 node to be scheduled.
 
 ## Set logging verbosity
@@ -306,7 +306,7 @@ I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 
 ## Pull images from private registry
 
-The container images from spod pod can be pulled from a private registry. This can be achived by defining the `imagePullSecrets`
+The container images from spod pod can be pulled from a private registry. This can be achieved by defining the `imagePullSecrets`
 inside of the SPOD configuration.
 
 ## Configure the SELinux type
@@ -927,7 +927,7 @@ To record the individual profiles, delete the deployment:
 ```
 
 The profiles will be reconciled, one per container. Note that the profiles are marked as
-"partial" and the spod deamon instances do not reconcile the profiles.
+"partial" and the spod daemon instances do not reconcile the profiles.
 
 ```bash
 > kubectl get sp -lspo.x-k8s.io/recording-id=test-recording --show-labels
@@ -1304,7 +1304,7 @@ use the log enrichment feature:
   `/var/log/audit/audit.log`
 - [syslog][syslog] can be used as fallback to auditd and needs to log into
   `/var/log/syslog`. Depending on the system configuration, a printk rate limiting may be
-  in place which has direct influence on the log enrichment. To diable the rate
+  in place which has direct influence on the log enrichment. To disable the rate
   limiting, set the following sysctls:
   ```
   > sysctl -w kernel.printk_ratelimit=0
@@ -1337,7 +1337,7 @@ I0623 12:51:04.257814 1854764 deleg.go:130] setup "msg"="starting component: log
 I0623 12:51:04.257890 1854764 enricher.go:44] log-enricher "msg"="Starting log-enricher on node: 127.0.0.1"
 I0623 12:51:04.257898 1854764 enricher.go:46] log-enricher "msg"="Connecting to local GRPC server"
 I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from file /var/log/audit/audit.log"
-2021/06/23 12:51:04 Seeked /var/log/audit/audit.log - &{Offset:0 Whence:2}
+2021/06/23 12:51:04 Sought /var/log/audit/audit.log - &{Offset:0 Whence:2}
 ```
 
 To be able to trace an application, we have to create a logging profile like this:
@@ -1545,7 +1545,7 @@ go tool pprof http://$PODIP:6060/debug/pprof/profile?seconds=30
 
 Note that selinuxd, if enabled, doesn't set up a HTTP listener, but only
 listens on a UNIX socket shared between selinuxd and the `spod` DS pod.
-Nonetheless, this socket can be used to reach the profiling enpoint as
+Nonetheless, this socket can be used to reach the profiling endpoint as
 well:
 
 ```
@@ -1883,7 +1883,7 @@ raw-seccomp`:
 }
 ```
 
-All commands are interruptable by using Ctrl^C, while `spoc record` will still
+All commands are interruptible by using Ctrl^C, while `spoc record` will still
 write the resulting seccomp profile after process terminating.
 
 ### Run commands with seccomp profiles

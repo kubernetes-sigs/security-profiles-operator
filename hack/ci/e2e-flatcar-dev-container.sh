@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -ue
+set -eu
 
 dev() {
   systemd-nspawn -q -i /opt/bin/flatcar_developer_container.bin --bind=/:/hostfs ${@}

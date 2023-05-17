@@ -294,7 +294,7 @@ func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, node
 					missingPolName, policy,
 				))
 			} else {
-				e.logf("the policy was stil present, trying again")
+				e.logf("the policy was still present, trying again")
 				time.Sleep(sleep)
 			}
 		}
@@ -320,7 +320,7 @@ func (e *e2e) assertSelinuxPolicyIsRemoved(nodes []string, policy string, nodeIt
 					missingPolName, policy,
 				))
 			} else {
-				e.logf("the policy was stil present, trying again")
+				e.logf("the policy was still present, trying again")
 				time.Sleep(sleep)
 			}
 		}

@@ -73,7 +73,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
 
     // Notify the userspace when a new PID is found. This will allow
     // the userspace to look up the container ID from cgroups of the
-    // process. And using the container ID, it will search futher the
+    // process. And using the container ID, it will search further the
     // security profile assigned to this container in the cluster.
     u32 * current_pid_mntns = NULL;
     current_pid_mntns = bpf_map_lookup_elem(&pid_mntns, &pid);
