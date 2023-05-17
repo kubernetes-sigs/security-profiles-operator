@@ -51,8 +51,8 @@ const (
 )
 
 var (
-	ErrNoOwnerProfile  = errors.New("no owner profile defined for this status")
-	ErrUnkownOwnerKind = errors.New("the node status owner is of an unknown kind")
+	ErrNoOwnerProfile   = errors.New("no owner profile defined for this status")
+	ErrUnknownOwnerKind = errors.New("the node status owner is of an unknown kind")
 )
 
 // NewController returns a new empty controller instance.
@@ -267,7 +267,7 @@ func (r *StatusReconciler) getProfileFromStatus(
 	case "SelinuxProfile":
 		prof = &selxv1alpha2.SelinuxProfile{}
 	default:
-		return nil, fmt.Errorf("getting owner profile: %w", ErrUnkownOwnerKind)
+		return nil, fmt.Errorf("getting owner profile: %w", ErrUnknownOwnerKind)
 	}
 	if err := r.client.Get(ctx, key, prof); err != nil {
 		return nil, fmt.Errorf("getting owner profile: %s/%s: %w", s.GetNamespace(), ctrl.Name, err)

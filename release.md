@@ -86,7 +86,7 @@ After that, another PR against this repository has to be created, which:
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
 
-Create a new pull requrest in the OperatorHub.io [community
+Create a new pull request in the OperatorHub.io [community
 operators](https://github.com/k8s-operatorhub/community-operators) repository to
 add the new version like in [this
 PR](https://github.com/k8s-operatorhub/community-operators/pull/1672).

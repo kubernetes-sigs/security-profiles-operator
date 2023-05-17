@@ -53,7 +53,7 @@ Throughout their operation they require read and write permissions into host pat
 
 ### Profile Generation Mode (auto-generating security profiles)
 
-Profile generation features are optional and are not intented to be executed at production environments. 
+Profile generation features are optional and are not indented to be executed at production environments. 
 Ideally such features would be used as part of your software development lifecycle, so you can detect and 
 respond to change in profiles, which can _later_ be enforced once deployed in production.
 

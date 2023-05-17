@@ -153,7 +153,7 @@ func (e *e2e) assertAppArmorProfileIsRemoved(nodes []string, profile string, nod
 					missingPolName, profile,
 				))
 			} else {
-				e.logf("the profile was stil present, trying again")
+				e.logf("the profile was still present, trying again")
 				time.Sleep(sleep)
 			}
 		}

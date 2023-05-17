@@ -18,7 +18,7 @@ package bimap
 
 import "sync"
 
-// BiMap a bi-directional map which is safe to use concurently.
+// BiMap a bi-directional map which is safe to use concurrently.
 type BiMap[K comparable, V comparable] struct {
 	l        sync.RWMutex
 	forward  map[K]V
@@ -98,7 +98,7 @@ func (m *BiMap[K, V]) Delete(k K) {
 	delete(m.backward, v)
 }
 
-// DeleteBackwards deltes an element from the map by key in the backward direction.
+// DeleteBackwards deletes an element from the map by key in the backward direction.
 func (m *BiMap[K, V]) DeleteBackwards(v V) {
 	k, ok := m.GetBackwards(v)
 	if !ok {
