@@ -62,13 +62,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.18.0
+    version: 0.19.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.27.0
+    version: 1.27.1
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -82,7 +82,7 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.27.0
+    version: 1.27.1
     refPaths:
     - path: hack/ci/install-kubernetes.sh
       match: VERSION
