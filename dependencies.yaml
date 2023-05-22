@@ -50,7 +50,7 @@ dependencies:
       match: OLM_VERSION
 
   - name: cert-manager
-    version: 1.11.2
+    version: 1.12.0
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -60,6 +60,8 @@ dependencies:
       match: cert-manager/cert-manager
     - path: hack/ci/baseprofiles.sh
       match: cert-manager/cert-manager
+    - path: go.mod
+      match: github.com/cert-manager/cert-manager
 
   - name: kind
     version: 0.18.0
