@@ -317,8 +317,8 @@ github.com/blang/semver/v4
 ## explicit; go 1.18
 github.com/buildkite/agent/v3/api
 github.com/buildkite/agent/v3/logger
-# github.com/cert-manager/cert-manager v1.11.2
-## explicit; go 1.19
+# github.com/cert-manager/cert-manager v1.12.0
+## explicit; go 1.20
 github.com/cert-manager/cert-manager/pkg/apis/acme
 github.com/cert-manager/cert-manager/pkg/apis/acme/v1
 github.com/cert-manager/cert-manager/pkg/apis/certmanager
@@ -1220,8 +1220,8 @@ go.opencensus.io/trace
 go.opencensus.io/trace/internal
 go.opencensus.io/trace/propagation
 go.opencensus.io/trace/tracestate
-# go.opentelemetry.io/otel v1.14.0
-## explicit; go 1.18
+# go.opentelemetry.io/otel v1.15.0
+## explicit; go 1.19
 go.opentelemetry.io/otel
 go.opentelemetry.io/otel/attribute
 go.opentelemetry.io/otel/baggage
@@ -1233,8 +1233,8 @@ go.opentelemetry.io/otel/internal/global
 go.opentelemetry.io/otel/propagation
 go.opentelemetry.io/otel/semconv/internal
 go.opentelemetry.io/otel/semconv/v1.12.0
-# go.opentelemetry.io/otel/trace v1.14.0
-## explicit; go 1.18
+# go.opentelemetry.io/otel/trace v1.15.0
+## explicit; go 1.19
 go.opentelemetry.io/otel/trace
 # go.step.sm/crypto v0.29.3
 ## explicit; go 1.18
@@ -1829,7 +1829,7 @@ k8s.io/kube-openapi/pkg/schemamutation
 k8s.io/kube-openapi/pkg/spec3
 k8s.io/kube-openapi/pkg/util/proto
 k8s.io/kube-openapi/pkg/validation/spec
-# k8s.io/utils v0.0.0-20230209194617-a36077c30491
+# k8s.io/utils v0.0.0-20230406110748-d93618cff8a2
 ## explicit; go 1.18
 k8s.io/utils/buffer
 k8s.io/utils/clock
@@ -1929,7 +1929,7 @@ sigs.k8s.io/controller-tools/pkg/schemapatcher
 sigs.k8s.io/controller-tools/pkg/schemapatcher/internal/yaml
 sigs.k8s.io/controller-tools/pkg/version
 sigs.k8s.io/controller-tools/pkg/webhook
-# sigs.k8s.io/gateway-api v0.6.0
+# sigs.k8s.io/gateway-api v0.6.2
 ## explicit; go 1.18
 sigs.k8s.io/gateway-api/apis/v1beta1
 # sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd

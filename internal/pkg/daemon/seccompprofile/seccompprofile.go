@@ -44,7 +44,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
@@ -180,14 +179,14 @@ func (r *Reconciler) Setup(
 		Named("profile").
 		For(&seccompprofileapi.SeccompProfile{}).
 		Watches(
-			&source.Kind{Type: &spodapi.SecurityProfilesOperatorDaemon{}},
+			&spodapi.SecurityProfilesOperatorDaemon{},
 			handler.EnqueueRequestsFromMapFunc(r.handleAllowedSyscallsChanged),
 			builder.WithPredicates(AllowedSyscallsChangedPredicate{}),
 		).
 		Complete(r)
 }
 
-func (r *Reconciler) handleAllowedSyscallsChanged(obj client.Object) []reconcile.Request {
+func (r *Reconciler) handleAllowedSyscallsChanged(ctx context.Context, obj client.Object) []reconcile.Request {
 	spod, ok := obj.(*spodapi.SecurityProfilesOperatorDaemon)
 	if !ok {
 		r.log.Info("cannot handle allowedSyscalls changed for no SPOD objects")
@@ -197,7 +196,7 @@ func (r *Reconciler) handleAllowedSyscallsChanged(obj client.Object) []reconcile
 		return []reconcile.Request{}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), reconcileTimeout)
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	seccompProfileList := &seccompprofileapi.SeccompProfileList{}

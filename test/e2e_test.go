@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.11.2/cert-manager.yaml"
+	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml"
 	namespaceManifest = "deploy/namespace-operator.yaml"
 	testNamespace     = "test-ns"
 	defaultNamespace  = "default"
