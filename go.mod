@@ -6,7 +6,7 @@ require (
 	github.com/acobaugh/osrelease v0.1.0
 	github.com/aquasecurity/libbpfgo v0.4.8-libbpf-1.2.0.0.20230509162948-80f41e18e690
 	github.com/blang/semver/v4 v4.0.0
-	github.com/cert-manager/cert-manager v1.11.2
+	github.com/cert-manager/cert-manager v1.12.0
 	github.com/containers/common v0.53.0
 	github.com/go-logr/logr v1.2.4
 	github.com/google/go-containerregistry v0.14.1-0.20230409045903-ed5c185df419
@@ -237,8 +237,8 @@ require (
 	github.com/zeebo/errs v1.3.0 // indirect
 	go.mongodb.org/mongo-driver v1.11.3 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	go.opentelemetry.io/otel v1.14.0 // indirect
-	go.opentelemetry.io/otel/trace v1.14.0 // indirect
+	go.opentelemetry.io/otel v1.15.0 // indirect
+	go.opentelemetry.io/otel/trace v1.15.0 // indirect
 	go.step.sm/crypto v0.29.3 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
@@ -265,8 +265,8 @@ require (
 	k8s.io/apiextensions-apiserver v0.27.2 // indirect
 	k8s.io/component-base v0.27.2 // indirect
 	k8s.io/kube-openapi v0.0.0-20230501164219-8b0f38b5fd1f // indirect
-	k8s.io/utils v0.0.0-20230209194617-a36077c30491 // indirect
-	sigs.k8s.io/gateway-api v0.6.0 // indirect
+	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2 // indirect
+	sigs.k8s.io/gateway-api v0.6.2 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )

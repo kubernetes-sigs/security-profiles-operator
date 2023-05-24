@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -56,14 +57,33 @@ func GetCAInjectType(
 		log.Info("Using OpenShift as certificate provider")
 		return CAInjectTypeOpenShift, nil
 	}
-	if meta.IsNoMatchError(err) ||
-		// for the namespaced operator
-		strings.Contains(err.Error(), "failed to get restmapping") {
+	if IsNotFound(err) {
 		log.Info("Using cert-manager as certificate provider")
 		return CAInjectTypeCertManager, nil
 	}
 
 	return res, fmt.Errorf("unable to determine certificate provider: %w", err)
+}
+
+// IsNotFound returns true if the error indicates that the resource is not registered.
+func IsNotFound(err error) bool {
+	if runtime.IsNotRegisteredError(err) ||
+		meta.IsNoMatchError(err) ||
+		errors.IsNotFound(err) {
+		return true
+	}
+
+	// Fallback
+	for _, msg := range []string{
+		"failed to get restmapping",
+		"could not find the requested resource",
+	} {
+		if strings.Contains(err.Error(), msg) {
+			return true
+		}
+	}
+
+	return false
 }
 
 const (

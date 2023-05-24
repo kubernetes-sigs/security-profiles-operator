@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,12 +52,15 @@ type podSeccompRecorder struct {
 	record *utils.SafeRecorder
 }
 
-func RegisterWebhook(server *webhook.Server, rec record.EventRecorder, c client.Client) {
+func RegisterWebhook(server webhook.Server, scheme *runtime.Scheme, rec record.EventRecorder, c client.Client) {
 	server.Register(
 		"/mutate-v1-pod-recording",
 		&webhook.Admission{
 			Handler: &podSeccompRecorder{
-				impl:   &defaultImpl{client: c},
+				impl: &defaultImpl{
+					client:  c,
+					decoder: admission.NewDecoder(scheme),
+				},
 				log:    logf.Log.WithName("recording"),
 				record: utils.NewSafeRecorder(rec),
 			},
@@ -410,11 +414,6 @@ func anyPodMatch(
 	}
 
 	return false
-}
-
-func (p *podSeccompRecorder) InjectDecoder(decoder *admission.Decoder) error {
-	p.impl.SetDecoder(decoder)
-	return nil
 }
 
 func (p *podSeccompRecorder) warnEventIfContainerPrivileged(

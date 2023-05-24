@@ -39,6 +39,7 @@ import (
 	"k8s.io/klog/v2/klogr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
@@ -362,7 +363,6 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 	// listen globally
 	if namespace == "" {
 		setupLog.Info("watching all namespaces")
-		opts.Namespace = namespace
 		return
 	}
 
@@ -378,11 +378,11 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 	// More Info: https://godoc.org/github.com/kubernetes-sigs/controller-runtime/pkg/cache#MultiNamespacedCacheBuilder
 	// Adding "" adds cluster namespaced resources
 	if strings.Contains(namespace, ",") {
-		opts.NewCache = cache.MultiNamespacedCacheBuilder(namespaceList)
+		opts.Cache.Namespaces = namespaceList
 		setupLog.Info("watching multiple namespaces", "namespaces", namespaceList)
 	} else {
 		// listen to a specific namespace only
-		opts.Namespace = namespace
+		opts.Cache.Namespaces = []string{namespace}
 		setupLog.Info("watching single namespace", "namespace", namespace)
 	}
 }
@@ -414,17 +414,15 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 func newMemoryOptimizedCache(ctx *cli.Context) cache.NewCacheFunc {
 	if ctx.Bool(memOptimFlag) {
 		return func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
-			opts.Resync = &sync
-			opts.SelectorsByObject = cache.SelectorsByObject{
+			opts.SyncPeriod = &sync
+			opts.ByObject = map[client.Object]cache.ByObject{
 				&corev1.Pod{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						bindata.EnableRecordingLabel: "true",
 					}),
 				},
 			}
-			opts.DefaultSelector = cache.ObjectSelector{
-				Label: labels.Everything(),
-			}
+			opts.DefaultLabelSelector = labels.Everything()
 			return cache.New(config, opts)
 		}
 	}
@@ -562,8 +560,8 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	setupLog.Info("registering webhooks")
 	hookserver := mgr.GetWebhookServer()
-	binding.RegisterWebhook(hookserver, mgr.GetClient())
-	recording.RegisterWebhook(hookserver, mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
+	binding.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetClient())
+	recording.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
 
 	sigHandler := ctrl.SetupSignalHandler()
 	setupLog.Info("starting webhook")

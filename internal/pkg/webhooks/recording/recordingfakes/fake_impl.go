@@ -111,11 +111,6 @@ type FakeImpl struct {
 		result1 *v1.PodList
 		result2 error
 	}
-	SetDecoderStub        func(*admission.Decoder)
-	setDecoderMutex       sync.RWMutex
-	setDecoderArgsForCall []struct {
-		arg1 *admission.Decoder
-	}
 	UpdateResourceStub        func(context.Context, logr.Logger, client.Object, string) error
 	updateResourceMutex       sync.RWMutex
 	updateResourceArgsForCall []struct {
@@ -526,38 +521,6 @@ func (fake *FakeImpl) ListRecordedPodsReturnsOnCall(i int, result1 *v1.PodList, 
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) SetDecoder(arg1 *admission.Decoder) {
-	fake.setDecoderMutex.Lock()
-	fake.setDecoderArgsForCall = append(fake.setDecoderArgsForCall, struct {
-		arg1 *admission.Decoder
-	}{arg1})
-	stub := fake.SetDecoderStub
-	fake.recordInvocation("SetDecoder", []interface{}{arg1})
-	fake.setDecoderMutex.Unlock()
-	if stub != nil {
-		fake.SetDecoderStub(arg1)
-	}
-}
-
-func (fake *FakeImpl) SetDecoderCallCount() int {
-	fake.setDecoderMutex.RLock()
-	defer fake.setDecoderMutex.RUnlock()
-	return len(fake.setDecoderArgsForCall)
-}
-
-func (fake *FakeImpl) SetDecoderCalls(stub func(*admission.Decoder)) {
-	fake.setDecoderMutex.Lock()
-	defer fake.setDecoderMutex.Unlock()
-	fake.SetDecoderStub = stub
-}
-
-func (fake *FakeImpl) SetDecoderArgsForCall(i int) *admission.Decoder {
-	fake.setDecoderMutex.RLock()
-	defer fake.setDecoderMutex.RUnlock()
-	argsForCall := fake.setDecoderArgsForCall[i]
-	return argsForCall.arg1
-}
-
 func (fake *FakeImpl) UpdateResource(arg1 context.Context, arg2 logr.Logger, arg3 client.Object, arg4 string) error {
 	fake.updateResourceMutex.Lock()
 	ret, specificReturn := fake.updateResourceReturnsOnCall[len(fake.updateResourceArgsForCall)]
@@ -701,8 +664,6 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.listProfileRecordingsMutex.RUnlock()
 	fake.listRecordedPodsMutex.RLock()
 	defer fake.listRecordedPodsMutex.RUnlock()
-	fake.setDecoderMutex.RLock()
-	defer fake.setDecoderMutex.RUnlock()
 	fake.updateResourceMutex.RLock()
 	defer fake.updateResourceMutex.RUnlock()
 	fake.updateResourceStatusMutex.RLock()

@@ -43,7 +43,6 @@ metadata:
   annotations:
     meta.helm.sh/release-name: security-profiles-operator
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
-  creationTimestamp: null
   labels:
     app: security-profiles-operator
     app.kubernetes.io/managed-by: Helm
@@ -310,7 +309,6 @@ metadata:
   annotations:
     meta.helm.sh/release-name: security-profiles-operator
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
-  creationTimestamp: null
   labels:
     app: security-profiles-operator
     app.kubernetes.io/managed-by: Helm
@@ -339,7 +337,6 @@ metadata:
   annotations:
     meta.helm.sh/release-name: security-profiles-operator
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
-  creationTimestamp: null
   labels:
     app: security-profiles-operator
     app.kubernetes.io/managed-by: Helm
@@ -534,7 +531,6 @@ metadata:
   annotations:
     meta.helm.sh/release-name: security-profiles-operator
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
-  creationTimestamp: null
   labels:
     app: security-profiles-operator
     app.kubernetes.io/managed-by: Helm
@@ -555,7 +551,6 @@ metadata:
   annotations:
     meta.helm.sh/release-name: security-profiles-operator
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
-  creationTimestamp: null
   labels:
     app: security-profiles-operator
     app.kubernetes.io/managed-by: Helm
@@ -655,7 +650,6 @@ metadata:
   annotations:
     meta.helm.sh/release-name: security-profiles-operator
     meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
-  creationTimestamp: null
   labels:
     app: security-profiles-operator
     app.kubernetes.io/managed-by: Helm
