@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -50,13 +51,16 @@ type podBinder struct {
 	log logr.Logger
 }
 
-func RegisterWebhook(server *webhook.Server, c client.Client) {
+func RegisterWebhook(server webhook.Server, scheme *runtime.Scheme, c client.Client) {
 	server.Register(
 		"/mutate-v1-pod-binding",
 		&webhook.Admission{
 			Handler: &podBinder{
-				impl: &defaultImpl{client: c},
-				log:  logf.Log.WithName("binding"),
+				impl: &defaultImpl{
+					client:  c,
+					decoder: admission.NewDecoder(scheme),
+				},
+				log: logf.Log.WithName("binding"),
 			},
 		},
 	)
@@ -319,9 +323,4 @@ func (p *podBinder) removePodFromBinding(
 		controllerutil.RemoveFinalizer(pb, finalizer)
 	}
 	return p.impl.UpdateResource(ctx, p.log, pb, "profilebinding")
-}
-
-func (p *podBinder) InjectDecoder(decoder *admission.Decoder) error {
-	p.impl.SetDecoder(decoder)
-	return nil
 }

@@ -71,7 +71,7 @@ func TestHandle(t *testing.T) {
 			assert: func(resp admission.Response) {
 				require.True(t, resp.Allowed)
 				require.Equal(t, http.StatusOK, int(resp.Result.Code))
-				require.Equal(t, metav1.StatusReason("pod unchanged"), resp.Result.Reason)
+				require.Equal(t, "pod unchanged", resp.Result.Message)
 			},
 		},
 		{ // error could not list profile recordings
