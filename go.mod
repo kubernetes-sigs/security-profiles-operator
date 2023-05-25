@@ -6,7 +6,7 @@ require (
 	github.com/acobaugh/osrelease v0.1.0
 	github.com/aquasecurity/libbpfgo v0.4.8-libbpf-1.2.0.0.20230509162948-80f41e18e690
 	github.com/blang/semver/v4 v4.0.0
-	github.com/cert-manager/cert-manager v1.12.0
+	github.com/cert-manager/cert-manager v1.12.1
 	github.com/containers/common v0.53.0
 	github.com/go-logr/logr v1.2.4
 	github.com/google/go-containerregistry v0.14.1-0.20230409045903-ed5c185df419
@@ -264,9 +264,9 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.27.2 // indirect
 	k8s.io/component-base v0.27.2 // indirect
-	k8s.io/kube-openapi v0.0.0-20230501164219-8b0f38b5fd1f // indirect
-	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2 // indirect
-	sigs.k8s.io/gateway-api v0.6.2 // indirect
+	k8s.io/kube-openapi v0.0.0-20230515203736-54b630e78af5 // indirect
+	k8s.io/utils v0.0.0-20230505201702-9f6742963106 // indirect
+	sigs.k8s.io/gateway-api v0.7.0 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )
