@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,7 +44,7 @@ normalized to Unix-style line separators (LF) before hashing file contents.
 func RecordArtifact(path string, hashAlgorithms []string, lineNormalization bool) (map[string]interface{}, error) {
 	supportedHashMappings := getHashMapping()
 	// Read file from passed path
-	contents, err := ioutil.ReadFile(path)
+	contents, err := os.ReadFile(path)
 	hashedContentsMap := make(map[string]interface{})
 	if err != nil {
 		return nil, err
@@ -289,8 +289,8 @@ func RunCommand(cmdArgs []string, runDir string) (map[string]interface{}, error)
 	}
 
 	// TODO: duplicate stdout, stderr
-	stdout, _ := ioutil.ReadAll(stdoutPipe)
-	stderr, _ := ioutil.ReadAll(stderrPipe)
+	stdout, _ := io.ReadAll(stdoutPipe)
+	stderr, _ := io.ReadAll(stderrPipe)
 
 	retVal := waitErrToExitCode(cmd.Wait())
 
@@ -309,14 +309,10 @@ and materials at the passed materialPaths.  The returned link is wrapped in a
 Metablock object.  If command execution or artifact recording fails the first
 return value is an empty Metablock and the second return value is the error.
 */
-func InTotoRun(name string, runDir string, materialPaths []string, productPaths []string,
-	cmdArgs []string, key Key, hashAlgorithms []string, gitignorePatterns []string,
-	lStripPaths []string, lineNormalization bool, followSymlinkDirs bool) (Metablock, error) {
-	var linkMb Metablock
-
+func InTotoRun(name string, runDir string, materialPaths []string, productPaths []string, cmdArgs []string, key Key, hashAlgorithms []string, gitignorePatterns []string, lStripPaths []string, lineNormalization bool, followSymlinkDirs bool, useDSSE bool) (Metadata, error) {
 	materials, err := RecordArtifacts(materialPaths, hashAlgorithms, gitignorePatterns, lStripPaths, lineNormalization, followSymlinkDirs)
 	if err != nil {
-		return linkMb, err
+		return nil, err
 	}
 
 	// make sure that we only run RunCommand if cmdArgs is not nil or empty
@@ -324,16 +320,16 @@ func InTotoRun(name string, runDir string, materialPaths []string, productPaths 
 	if len(cmdArgs) != 0 {
 		byProducts, err = RunCommand(cmdArgs, runDir)
 		if err != nil {
-			return linkMb, err
+			return nil, err
 		}
 	}
 
 	products, err := RecordArtifacts(productPaths, hashAlgorithms, gitignorePatterns, lStripPaths, lineNormalization, followSymlinkDirs)
 	if err != nil {
-		return linkMb, err
+		return nil, err
 	}
 
-	linkMb.Signed = Link{
+	link := Link{
 		Type:        "link",
 		Name:        name,
 		Materials:   materials,
@@ -343,14 +339,25 @@ func InTotoRun(name string, runDir string, materialPaths []string, productPaths 
 		Environment: map[string]interface{}{},
 	}
 
-	linkMb.Signatures = []Signature{}
-	// We use a new feature from Go1.13 here, to check the key struct.
-	// IsZero() will return True, if the key hasn't been initialized
+	if useDSSE {
+		env := &Envelope{}
+		if err := env.SetPayload(link); err != nil {
+			return nil, err
+		}
 
-	// with other values than the default ones.
+		if !reflect.ValueOf(key).IsZero() {
+			if err := env.Sign(key); err != nil {
+				return nil, err
+			}
+		}
+
+		return env, nil
+	}
+
+	linkMb := &Metablock{Signed: link, Signatures: []Signature{}}
 	if !reflect.ValueOf(key).IsZero() {
 		if err := linkMb.Sign(key); err != nil {
-			return linkMb, err
+			return nil, err
 		}
 	}
 
@@ -363,14 +370,13 @@ in order to provide evidence for supply chain steps that cannot be carries out
 by a single command.  InTotoRecordStart collects the hashes of the materials
 before any commands are run, signs the unfinished link, and returns the link.
 */
-func InTotoRecordStart(name string, materialPaths []string, key Key, hashAlgorithms, gitignorePatterns []string, lStripPaths []string, lineNormalization bool, followSymlinkDirs bool) (Metablock, error) {
-	var linkMb Metablock
+func InTotoRecordStart(name string, materialPaths []string, key Key, hashAlgorithms, gitignorePatterns []string, lStripPaths []string, lineNormalization bool, followSymlinkDirs bool, useDSSE bool) (Metadata, error) {
 	materials, err := RecordArtifacts(materialPaths, hashAlgorithms, gitignorePatterns, lStripPaths, lineNormalization, followSymlinkDirs)
 	if err != nil {
-		return linkMb, err
+		return nil, err
 	}
 
-	linkMb.Signed = Link{
+	link := Link{
 		Type:        "link",
 		Name:        name,
 		Materials:   materials,
@@ -380,9 +386,26 @@ func InTotoRecordStart(name string, materialPaths []string, key Key, hashAlgorit
 		Environment: map[string]interface{}{},
 	}
 
+	if useDSSE {
+		env := &Envelope{}
+		if err := env.SetPayload(link); err != nil {
+			return nil, err
+		}
+
+		if !reflect.ValueOf(key).IsZero() {
+			if err := env.Sign(key); err != nil {
+				return nil, err
+			}
+		}
+
+		return env, nil
+	}
+
+	linkMb := &Metablock{Signed: link, Signatures: []Signature{}}
+	linkMb.Signatures = []Signature{}
 	if !reflect.ValueOf(key).IsZero() {
 		if err := linkMb.Sign(key); err != nil {
-			return linkMb, err
+			return nil, err
 		}
 	}
 
@@ -396,25 +419,39 @@ created by InTotoRecordStart and records the hashes of any products creted by
 commands run between InTotoRecordStart and InTotoRecordStop.  The resultant
 finished link metablock is then signed by the provided key and returned.
 */
-func InTotoRecordStop(prelimLinkMb Metablock, productPaths []string, key Key, hashAlgorithms, gitignorePatterns []string, lStripPaths []string, lineNormalization bool, followSymlinkDirs bool) (Metablock, error) {
-	var linkMb Metablock
-	if err := prelimLinkMb.VerifySignature(key); err != nil {
-		return linkMb, err
+func InTotoRecordStop(prelimLinkEnv Metadata, productPaths []string, key Key, hashAlgorithms, gitignorePatterns []string, lStripPaths []string, lineNormalization bool, followSymlinkDirs bool, useDSSE bool) (Metadata, error) {
+	if err := prelimLinkEnv.VerifySignature(key); err != nil {
+		return nil, err
 	}
 
-	link, ok := prelimLinkMb.Signed.(Link)
+	link, ok := prelimLinkEnv.GetPayload().(Link)
 	if !ok {
-		return linkMb, errors.New("invalid metadata block")
+		return nil, errors.New("invalid metadata block")
 	}
 
 	products, err := RecordArtifacts(productPaths, hashAlgorithms, gitignorePatterns, lStripPaths, lineNormalization, followSymlinkDirs)
 	if err != nil {
-		return linkMb, err
+		return nil, err
 	}
 
 	link.Products = products
-	linkMb.Signed = link
 
+	if useDSSE {
+		env := &Envelope{}
+		if err := env.SetPayload(link); err != nil {
+			return nil, err
+		}
+
+		if !reflect.ValueOf(key).IsZero() {
+			if err := env.Sign(key); err != nil {
+				return nil, err
+			}
+		}
+
+		return env, nil
+	}
+
+	linkMb := &Metablock{Signed: link, Signatures: []Signature{}}
 	if !reflect.ValueOf(key).IsZero() {
 		if err := linkMb.Sign(key); err != nil {
 			return linkMb, err
