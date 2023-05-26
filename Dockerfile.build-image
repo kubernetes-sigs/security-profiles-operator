@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y wget xz-utils libapparmor-dev
 
 ENV USER=root
 
-ARG NIX_VERSION=2.13.3
+ARG NIX_VERSION=2.15.1
 RUN wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
     tar xf nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
     groupadd -r -g 30000 nixbld && \

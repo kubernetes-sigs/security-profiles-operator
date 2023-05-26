@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-VERSION=v0.9.0
+VERSION=v0.10.0
 curl -sSfL --retry 5 --retry-delay 3 \
     "https://github.com/liggitt/audit2rbac/releases/download/$VERSION/audit2rbac-linux-amd64.tar.gz" -o- |
     tar xfz -
