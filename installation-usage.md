@@ -1,7 +1,6 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
@@ -32,6 +31,7 @@
     - [Log enricher based recording](#log-enricher-based-recording)
     - [eBPF based recording](#ebpf-based-recording)
     - [Merging per-container profile instances](#merging-per-container-profile-instances)
+    - [Recording profiles without applying them](#recording-profiles-without-applying-them)
     - [Disable profile recording](#disable-profile-recording)
 - [Create a SELinux Profile](#create-a-selinux-profile)
   - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
@@ -972,6 +972,25 @@ including the `mknod` syscall:
 > kubectl get sp test-recording-nginx-record -o yaml | grep mknod
   - mknod
 ```
+
+#### Recording profiles without applying them
+
+In some cases, it might be desirable to record security profiles, but not install them.
+Use-cases might include recording profiles in a CI system where the profiles would be
+deployed in a subsequent verify run or recording profiles as part of a build process where the
+profile would be deployed by the end-user.
+
+To record profiles without installing them, set the `disableProfileAfterRecording`
+attribute to `true` in the `ProfileRecording` CR.  This option defaults to `false`, which
+is the default behavior of the operator to install the profiles. When `disableProfileAfterRecording`
+is set to `true`, the operator will not reconcile the profiles and will not install them. Partial
+disabled profiles can still be merged and the resulting merged profile will be disabled.
+
+On the profile level, this functionality is controlled by the `disabled` flag - it is also possible
+to create profile CRs disabled, although this functionality is probably less interesting to end users
+and is mostly used for testing purposes. The `disabled` flag is set to `false` by default. Profiles
+that are disabled, either explicitly or by the `disableProfileAfterRecording` flag, can be enabled 
+by setting the `disabled` flag to `false` in the profile CR.
 
 #### Disable profile recording
 

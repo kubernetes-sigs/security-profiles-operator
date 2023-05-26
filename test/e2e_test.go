@@ -160,6 +160,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.Run("cluster-wide: Selinux: Verify the policy can be marked as permissive", func() {
 		e.testCaseSelinuxIncompletePolicy()
 		e.testCaseSelinuxIncompletePermissivePolicy()
+		e.testCaseSelinuxIncompleteDisabledPolicy()
 	})
 
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
@@ -177,6 +178,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testSeccompBpfProfileMerging()
 		e.testSeccompLogsProfileMerging()
 		e.testSelinuxLogsProfileMerging()
+		e.testSelinuxLogsDisabledProfileMerging()
 	})
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment

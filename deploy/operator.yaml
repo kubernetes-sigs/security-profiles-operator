@@ -123,6 +123,14 @@ spec:
                 items:
                   type: string
                 type: array
+              disableProfileAfterRecording:
+                default: false
+                description: DisableProfileAfterRecording indicates whether the profile
+                  should be disabled after recording and thus skipped during reconcile.
+                  In case of SELinux profiles, reconcile can take a significant amount
+                  of time and for all profiles might not be needed. This Defaults
+                  to false.
+                type: boolean
               kind:
                 description: Kind of object to be recorded.
                 enum:
@@ -191,6 +199,7 @@ spec:
                 - logs
                 type: string
             required:
+            - disableProfileAfterRecording
             - kind
             - podSelector
             - recorder
@@ -305,6 +314,11 @@ spec:
                 - SCMP_ACT_LOG
                 - SCMP_ACT_NOTIFY
                 type: string
+              disabled:
+                default: false
+                description: Whether the profile is disabled and should be skipped
+                  during reconciliation.
+                type: boolean
               flags:
                 description: list of flags to use with seccomp(2)
                 items:
@@ -397,6 +411,7 @@ spec:
                 type: array
             required:
             - defaultAction
+            - disabled
             type: object
           status:
             description: SeccompProfileStatus contains status of the deployed SeccompProfile.
@@ -1844,8 +1859,15 @@ spec:
           spec:
             description: RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
             properties:
+              disabled:
+                default: false
+                description: Whether the profile is disabled and should be skipped
+                  during reconciliation.
+                type: boolean
               policy:
                 type: string
+            required:
+            - disabled
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
@@ -1993,6 +2015,11 @@ spec:
                   type: object
                 description: Defines the allow policy for the profile
                 type: object
+              disabled:
+                default: false
+                description: Whether the profile is disabled and should be skipped
+                  during reconciliation.
+                type: boolean
               inherit:
                 default:
                 - kind: System
@@ -2023,6 +2050,8 @@ spec:
                 description: Permissive, when true will cause the SELinux profile
                   to only log violations instead of enforcing them.
                 type: boolean
+            required:
+            - disabled
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.

@@ -234,6 +234,11 @@ func TestReconcile(t *testing.T) {
 					assert.Nil(t, err)
 					return "", nil
 				})
+				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
+					Spec: recordingapi.ProfileRecordingSpec{
+						DisableProfileAfterRecording: false,
+					},
+				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				assert.Nil(t, err)
@@ -695,6 +700,11 @@ func TestReconcile(t *testing.T) {
 					assert.Nil(t, err)
 					return "", nil
 				})
+				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
+					Spec: recordingapi.ProfileRecordingSpec{
+						DisableProfileAfterRecording: false,
+					},
+				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				assert.Nil(t, err)
@@ -1037,6 +1047,11 @@ func TestReconcile(t *testing.T) {
 					assert.Nil(t, err)
 					return "", nil
 				})
+				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
+					Spec: recordingapi.ProfileRecordingSpec{
+						DisableProfileAfterRecording: false,
+					},
+				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				assert.Nil(t, err)

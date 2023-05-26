@@ -306,6 +306,9 @@ func (r *StatusReconciler) reconcileStatus(
 	case statusv1alpha1.ProfileStatePartial:
 		outStatus.Status = statusv1alpha1.ProfileStatePartial
 		outStatus.SetConditions(spodv1alpha1.Unavailable())
+	case statusv1alpha1.ProfileStateDisabled:
+		outStatus.Status = statusv1alpha1.ProfileStateDisabled
+		outStatus.SetConditions(spodv1alpha1.Unavailable())
 	}
 
 	l.V(config.VerboseLevel).Info("Updating status")
