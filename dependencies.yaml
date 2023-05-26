@@ -50,7 +50,7 @@ dependencies:
       match: OLM_VERSION
 
   - name: cert-manager
-    version: 1.12.0
+    version: 1.12.1
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -68,7 +68,7 @@ dependencies:
       match: kindVersion
 
   - name: kind-image
-    version: 1.27.1
+    version: 1.27.2
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -128,7 +128,7 @@ dependencies:
       match: registry.access.redhat.com/ubi8/go-toolset
 
   - name: nix
-    version: 2.13.3
+    version: 2.15.1
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION
@@ -136,7 +136,7 @@ dependencies:
       match: NIX_VERSION
 
   - name: kube-rbac-proxy
-    version: 0.14.0
+    version: 0.14.1
     refPaths:
     - path: internal/pkg/manager/spod/bindata/spod.go
       match: gcr.io/kubebuilder/kube-rbac-proxy
@@ -158,7 +158,7 @@ dependencies:
       match: gcr.io/kubebuilder/kube-rbac-proxy
 
   - name: gcb-docker-gcloud
-    version: v20220617-174ad91c3a
+    version: v20230522-312425ae46
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
@@ -200,7 +200,7 @@ dependencies:
       match: baseProfileName
 
   - name: audit2rbac
-    version: v0.9.0
+    version: v0.10.0
     refPaths:
     - path: hack/ci/install-audit2rbac.sh
       match: VERSION

@@ -55,7 +55,7 @@ const (
 	SelinuxdPrivateDir                         = "/var/run/selinuxd"
 	SelinuxdSocketPath                         = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath                             = SelinuxdPrivateDir + "/selinuxd.db"
-	MetricsImage                               = "gcr.io/kubebuilder/kube-rbac-proxy:v0.14.0"
+	MetricsImage                               = "gcr.io/kubebuilder/kube-rbac-proxy:v0.14.1"
 	sysKernelDebugPath                         = "/sys/kernel/debug"
 	InitContainerIDNonRootenabler              = 0
 	InitContainerIDSelinuxSharedPoliciesCopier = 1

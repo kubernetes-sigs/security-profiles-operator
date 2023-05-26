@@ -101,7 +101,7 @@ cert-manager via `kubectl`, if you're **not** running on
 [OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
 ```sh
-$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.1/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
