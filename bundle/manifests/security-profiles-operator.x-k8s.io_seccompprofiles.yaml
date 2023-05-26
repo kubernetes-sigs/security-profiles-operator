@@ -95,6 +95,11 @@ spec:
                 - SCMP_ACT_LOG
                 - SCMP_ACT_NOTIFY
                 type: string
+              disabled:
+                default: false
+                description: Whether the profile is disabled and should be skipped
+                  during reconciliation.
+                type: boolean
               flags:
                 description: list of flags to use with seccomp(2)
                 items:
@@ -187,6 +192,7 @@ spec:
                 type: array
             required:
             - defaultAction
+            - disabled
             type: object
           status:
             description: SeccompProfileStatus contains status of the deployed SeccompProfile.

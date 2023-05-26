@@ -252,8 +252,8 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return reconcile.Result{}, nil
 	}
 
-	if sp.IsPartial() {
-		l.Info("Profile is partial, skipping")
+	if !sp.IsReconcilable() {
+		l.Info("Profile is partial or disabled, skipping")
 		return reconcile.Result{}, nil
 	}
 

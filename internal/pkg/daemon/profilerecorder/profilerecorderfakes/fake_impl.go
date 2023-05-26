@@ -33,7 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	api_bpfrecorder "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	api_enricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
-	"sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
+	v1alpha1a "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 )
 
 type FakeImpl struct {
@@ -125,18 +126,33 @@ type FakeImpl struct {
 		result1 *v1.Pod
 		result2 error
 	}
-	GetSPODStub        func(context.Context, client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error)
+	GetRecordingStub        func(context.Context, client.Client, types.NamespacedName) (*v1alpha1.ProfileRecording, error)
+	getRecordingMutex       sync.RWMutex
+	getRecordingArgsForCall []struct {
+		arg1 context.Context
+		arg2 client.Client
+		arg3 types.NamespacedName
+	}
+	getRecordingReturns struct {
+		result1 *v1alpha1.ProfileRecording
+		result2 error
+	}
+	getRecordingReturnsOnCall map[int]struct {
+		result1 *v1alpha1.ProfileRecording
+		result2 error
+	}
+	GetSPODStub        func(context.Context, client.Client) (*v1alpha1a.SecurityProfilesOperatorDaemon, error)
 	getSPODMutex       sync.RWMutex
 	getSPODArgsForCall []struct {
 		arg1 context.Context
 		arg2 client.Client
 	}
 	getSPODReturns struct {
-		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result1 *v1alpha1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}
 	getSPODReturnsOnCall map[int]struct {
-		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result1 *v1alpha1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}
 	GoArchToSeccompArchStub        func(string) (seccomp.Arch, error)
@@ -668,7 +684,73 @@ func (fake *FakeImpl) GetPodReturnsOnCall(i int, result1 *v1.Pod, result2 error)
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error) {
+func (fake *FakeImpl) GetRecording(arg1 context.Context, arg2 client.Client, arg3 types.NamespacedName) (*v1alpha1.ProfileRecording, error) {
+	fake.getRecordingMutex.Lock()
+	ret, specificReturn := fake.getRecordingReturnsOnCall[len(fake.getRecordingArgsForCall)]
+	fake.getRecordingArgsForCall = append(fake.getRecordingArgsForCall, struct {
+		arg1 context.Context
+		arg2 client.Client
+		arg3 types.NamespacedName
+	}{arg1, arg2, arg3})
+	stub := fake.GetRecordingStub
+	fakeReturns := fake.getRecordingReturns
+	fake.recordInvocation("GetRecording", []interface{}{arg1, arg2, arg3})
+	fake.getRecordingMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetRecordingCallCount() int {
+	fake.getRecordingMutex.RLock()
+	defer fake.getRecordingMutex.RUnlock()
+	return len(fake.getRecordingArgsForCall)
+}
+
+func (fake *FakeImpl) GetRecordingCalls(stub func(context.Context, client.Client, types.NamespacedName) (*v1alpha1.ProfileRecording, error)) {
+	fake.getRecordingMutex.Lock()
+	defer fake.getRecordingMutex.Unlock()
+	fake.GetRecordingStub = stub
+}
+
+func (fake *FakeImpl) GetRecordingArgsForCall(i int) (context.Context, client.Client, types.NamespacedName) {
+	fake.getRecordingMutex.RLock()
+	defer fake.getRecordingMutex.RUnlock()
+	argsForCall := fake.getRecordingArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) GetRecordingReturns(result1 *v1alpha1.ProfileRecording, result2 error) {
+	fake.getRecordingMutex.Lock()
+	defer fake.getRecordingMutex.Unlock()
+	fake.GetRecordingStub = nil
+	fake.getRecordingReturns = struct {
+		result1 *v1alpha1.ProfileRecording
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetRecordingReturnsOnCall(i int, result1 *v1alpha1.ProfileRecording, result2 error) {
+	fake.getRecordingMutex.Lock()
+	defer fake.getRecordingMutex.Unlock()
+	fake.GetRecordingStub = nil
+	if fake.getRecordingReturnsOnCall == nil {
+		fake.getRecordingReturnsOnCall = make(map[int]struct {
+			result1 *v1alpha1.ProfileRecording
+			result2 error
+		})
+	}
+	fake.getRecordingReturnsOnCall[i] = struct {
+		result1 *v1alpha1.ProfileRecording
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client) (*v1alpha1a.SecurityProfilesOperatorDaemon, error) {
 	fake.getSPODMutex.Lock()
 	ret, specificReturn := fake.getSPODReturnsOnCall[len(fake.getSPODArgsForCall)]
 	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, struct {
@@ -694,7 +776,7 @@ func (fake *FakeImpl) GetSPODCallCount() int {
 	return len(fake.getSPODArgsForCall)
 }
 
-func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error)) {
+func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client) (*v1alpha1a.SecurityProfilesOperatorDaemon, error)) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = stub
@@ -707,28 +789,28 @@ func (fake *FakeImpl) GetSPODArgsForCall(i int) (context.Context, client.Client)
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) GetSPODReturns(result1 *v1alpha1.SecurityProfilesOperatorDaemon, result2 error) {
+func (fake *FakeImpl) GetSPODReturns(result1 *v1alpha1a.SecurityProfilesOperatorDaemon, result2 error) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = nil
 	fake.getSPODReturns = struct {
-		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result1 *v1alpha1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1alpha1.SecurityProfilesOperatorDaemon, result2 error) {
+func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1alpha1a.SecurityProfilesOperatorDaemon, result2 error) {
 	fake.getSPODMutex.Lock()
 	defer fake.getSPODMutex.Unlock()
 	fake.GetSPODStub = nil
 	if fake.getSPODReturnsOnCall == nil {
 		fake.getSPODReturnsOnCall = make(map[int]struct {
-			result1 *v1alpha1.SecurityProfilesOperatorDaemon
+			result1 *v1alpha1a.SecurityProfilesOperatorDaemon
 			result2 error
 		})
 	}
 	fake.getSPODReturnsOnCall[i] = struct {
-		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result1 *v1alpha1a.SecurityProfilesOperatorDaemon
 		result2 error
 	}{result1, result2}
 }
@@ -1446,6 +1528,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.dialEnricherMutex.RUnlock()
 	fake.getPodMutex.RLock()
 	defer fake.getPodMutex.RUnlock()
+	fake.getRecordingMutex.RLock()
+	defer fake.getRecordingMutex.RUnlock()
 	fake.getSPODMutex.RLock()
 	defer fake.getSPODMutex.RUnlock()
 	fake.goArchToSeccompArchMutex.RLock()

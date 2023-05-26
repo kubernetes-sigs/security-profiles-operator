@@ -460,8 +460,8 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 
-	if sp.IsPartial() {
-		l.Info("Profile is partial, skipping")
+	if !sp.IsReconcilable() {
+		l.Info("Profile is partial or disabled, skipping")
 		return reconcile.Result{}, nil
 	}
 

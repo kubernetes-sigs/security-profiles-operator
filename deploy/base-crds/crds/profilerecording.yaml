@@ -45,6 +45,14 @@ spec:
                 items:
                   type: string
                 type: array
+              disableProfileAfterRecording:
+                default: false
+                description: DisableProfileAfterRecording indicates whether the profile
+                  should be disabled after recording and thus skipped during reconcile.
+                  In case of SELinux profiles, reconcile can take a significant amount
+                  of time and for all profiles might not be needed. This Defaults
+                  to false.
+                type: boolean
               kind:
                 description: Kind of object to be recorded.
                 enum:
@@ -113,6 +121,7 @@ spec:
                 - logs
                 type: string
             required:
+            - disableProfileAfterRecording
             - kind
             - podSelector
             - recorder
