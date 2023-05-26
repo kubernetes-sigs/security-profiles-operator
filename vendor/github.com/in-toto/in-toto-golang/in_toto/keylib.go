@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -325,7 +324,7 @@ func (k *Key) LoadKeyReader(r io.Reader, scheme string, KeyIDHashAlgorithms []st
 		return ErrNoPEMBlock
 	}
 	// Read key bytes
-	pemBytes, err := ioutil.ReadAll(r)
+	pemBytes, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
@@ -344,7 +343,7 @@ func (k *Key) LoadKeyReaderDefaults(r io.Reader) error {
 		return ErrNoPEMBlock
 	}
 	// Read key bytes
-	pemBytes, err := ioutil.ReadAll(r)
+	pemBytes, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
