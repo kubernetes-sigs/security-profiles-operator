@@ -27,13 +27,13 @@ import (
 )
 
 type wrappedMultiSigner struct {
-	sLAdapters  []dsse.SignVerifier
+	sLAdapters  []dsse.SignerVerifier
 	payloadType string
 }
 
 // WrapMultiSigner returns a signature.Signer that uses the DSSE encoding format
 func WrapMultiSigner(payloadType string, sL ...signature.Signer) signature.Signer {
-	signerAdapterL := make([]dsse.SignVerifier, 0, len(sL))
+	signerAdapterL := make([]dsse.SignerVerifier, 0, len(sL))
 	for _, s := range sL {
 		pub, err := s.PublicKey()
 		if err != nil {
