@@ -33,6 +33,9 @@ var (
 
 // AppArmorProfileSpec defines the desired state of AppArmorProfile.
 type AppArmorProfileSpec struct {
+	// Common spec fields for all profiles.
+	profilebasev1alpha1.SpecBase `json:",inline"`
+
 	Policy string `json:"policy,omitempty"`
 }
 
@@ -76,6 +79,14 @@ func (sp *AppArmorProfile) ListProfilesByRecording(
 
 func (sp *AppArmorProfile) IsPartial() bool {
 	return profilebasev1alpha1.IsPartial(sp)
+}
+
+func (sp *AppArmorProfile) IsDisabled() bool {
+	return profilebasev1alpha1.IsDisabled(&sp.Spec.SpecBase)
+}
+
+func (sp *AppArmorProfile) IsReconcilable() bool {
+	return profilebasev1alpha1.IsReconcilable(sp)
 }
 
 // +kubebuilder:object:root=true

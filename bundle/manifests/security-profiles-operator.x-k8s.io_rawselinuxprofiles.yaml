@@ -43,8 +43,15 @@ spec:
           spec:
             description: RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
             properties:
+              disabled:
+                default: false
+                description: Whether the profile is disabled and should be skipped
+                  during reconciliation.
+                type: boolean
               policy:
                 type: string
+            required:
+            - disabled
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.

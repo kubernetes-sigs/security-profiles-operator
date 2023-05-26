@@ -40,8 +40,15 @@ spec:
           spec:
             description: RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
             properties:
+              disabled:
+                default: false
+                description: Whether the profile is disabled and should be skipped
+                  during reconciliation.
+                type: boolean
               policy:
                 type: string
+            required:
+            - disabled
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
@@ -187,6 +194,11 @@ spec:
                   type: object
                 description: Defines the allow policy for the profile
                 type: object
+              disabled:
+                default: false
+                description: Whether the profile is disabled and should be skipped
+                  during reconciliation.
+                type: boolean
               inherit:
                 default:
                 - kind: System
@@ -217,6 +229,8 @@ spec:
                 description: Permissive, when true will cause the SELinux profile
                   to only log violations instead of enforcing them.
                 type: boolean
+            required:
+            - disabled
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.

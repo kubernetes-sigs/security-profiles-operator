@@ -52,6 +52,9 @@ type PolicyRef struct {
 
 // SelinuxProfileSpec defines the desired state of SelinuxProfile.
 type SelinuxProfileSpec struct {
+	// Common spec fields for all profiles.
+	profilebasev1alpha1.SpecBase `json:",inline"`
+
 	// A SELinuxProfile or set of profiles that this inherits from.
 	// Note that they need to be in the same namespace.
 	// +optional
@@ -81,7 +84,9 @@ type Allow map[LabelKey]map[ObjectClassKey]PermissionSet
 
 // SelinuxProfileStatus defines the observed state of SelinuxProfile.
 type SelinuxProfileStatus struct {
+	// Common status fields for all profiles.
 	profilebasev1alpha1.StatusBase `json:",inline"`
+
 	// Represents the string that the SelinuxProfile object can be
 	// referenced as in a pod seLinuxOptions section.
 	Usage           string   `json:"usage,omitempty"`
@@ -138,6 +143,14 @@ func (sp *SelinuxProfile) ListProfilesByRecording(
 
 func (sp *SelinuxProfile) IsPartial() bool {
 	return profilebasev1alpha1.IsPartial(sp)
+}
+
+func (sp *SelinuxProfile) IsDisabled() bool {
+	return profilebasev1alpha1.IsDisabled(&sp.Spec.SpecBase)
+}
+
+func (sp *SelinuxProfile) IsReconcilable() bool {
+	return profilebasev1alpha1.IsReconcilable(sp)
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -40,6 +40,9 @@ const ExtJSON = ".json"
 
 // SeccompProfileSpec defines the desired state of SeccompProfile.
 type SeccompProfileSpec struct {
+	// Common spec fields for all profiles.
+	profilebase.SpecBase `json:",inline"`
+
 	// BaseProfileName is the name of base profile (in the same namespace) that
 	// will be unioned into this profile. Base profiles can be references as
 	// remote OCI artifacts as well when prefixed with `oci://`.
@@ -188,6 +191,14 @@ func (sp *SeccompProfile) ListProfilesByRecording(
 
 func (sp *SeccompProfile) IsPartial() bool {
 	return profilebase.IsPartial(sp)
+}
+
+func (sp *SeccompProfile) IsDisabled() bool {
+	return profilebase.IsDisabled(&sp.Spec.SpecBase)
+}
+
+func (sp *SeccompProfile) IsReconcilable() bool {
+	return profilebase.IsReconcilable(sp)
 }
 
 // +kubebuilder:object:root=true

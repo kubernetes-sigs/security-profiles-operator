@@ -35,6 +35,7 @@ const (
     metadata:
       name: %s
     spec:
+      disableProfileAfterRecording: %s
       kind: %s
       recorder: %s
       mergeStrategy: %s
@@ -43,6 +44,13 @@ const (
           %s: %s
 `
 )
+
+const (
+	policyEnabledAfterRecording = iota
+	policyDisabledAfterRecording
+)
+
+type policyDisableSwitch int
 
 func (e *e2e) testSeccompBpfProfileMerging() {
 	e.bpfRecorderOnlyTestCase()
@@ -55,6 +63,7 @@ func (e *e2e) testSeccompBpfProfileMerging() {
 		"/bin/mknod /tmp/foo p",
 		"listen",
 		"mknod\n", // for some reason bpf recording always allows mknodat(), let's explicitly check mknod()
+		policyEnabledAfterRecording,
 		regexp.MustCompile(
 			`(?s)"container"="nginx".*"syscallName"="listen"`+
 				`.*"container"="nginx".*"syscallName"="listen"`))
@@ -70,6 +79,7 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 		"SeccompProfile", "sp",
 		"/bin/mknod /tmp/foo p",
 		"listen", "mknod",
+		policyEnabledAfterRecording,
 		regexp.MustCompile(
 			`(?s)"container"="nginx".*"syscallName"="listen"`+
 				`.*"container"="nginx".*"syscallName"="listen"`))
@@ -86,6 +96,24 @@ func (e *e2e) testSelinuxLogsProfileMerging() {
 		"SelinuxProfile", "selinuxprofile",
 		"curl localhost:8080",
 		"name_bind", "name_connect",
+		policyEnabledAfterRecording,
+		regexp.MustCompile(`(?s)"perm"="listen"`+
+			`.*"perm"="listen"`),
+	)
+}
+
+func (e *e2e) testSelinuxLogsDisabledProfileMerging() {
+	e.logEnricherOnlyTestCase()
+	e.selinuxOnlyTestCase()
+	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
+	defer restoreNs()
+
+	e.profileMergingTest(
+		"logs",
+		"SelinuxProfile", "selinuxprofile",
+		"curl localhost:8080",
+		"name_bind", "name_connect",
+		policyDisabledAfterRecording,
 		regexp.MustCompile(`(?s)"perm"="listen"`+
 			`.*"perm"="listen"`),
 	)
@@ -93,6 +121,7 @@ func (e *e2e) testSelinuxLogsProfileMerging() {
 
 func (e *e2e) profileMergingTest(
 	recordedMethod, recorderKind, resource, trigger, commonAction, triggeredAction string,
+	isPolicyDisabled policyDisableSwitch,
 	conditions ...*regexp.Regexp,
 ) {
 	const testDeploymentMultiContainer = `
@@ -133,12 +162,13 @@ spec:
 `
 	e.logf("Creating a profile recording with merge strategy 'containers'")
 	deleteManifestFn := createTemplatedProfileRecording(e, &profileRecTmplMetadata{
-		name:          mergeProfileRecordingName,
-		recorderKind:  recorderKind,
-		recorder:      recordedMethod,
-		mergeStrategy: "containers",
-		labelKey:      "app",
-		labelValue:    "alpine",
+		name:           mergeProfileRecordingName,
+		recorderKind:   recorderKind,
+		recorder:       recordedMethod,
+		mergeStrategy:  "containers",
+		labelKey:       "app",
+		labelValue:     "alpine",
+		policyDisabled: isPolicyDisabled,
 	})
 	defer deleteManifestFn()
 
@@ -178,6 +208,8 @@ spec:
 			e.Contains(profile, v1alpha1.ProfilePartialLabel)
 			e.Contains(profile, commonAction)
 
+			retryAssertPrfStatus(e, resource, recordedProfileName, "Pending", isPolicyDisabled)
+
 			if containerName == containerNameNginx {
 				if strings.HasSuffix(onePodName, sfx) {
 					// check the policy from the first container, it should contain the triggered action
@@ -213,6 +245,10 @@ spec:
 	e.Contains(policiesRecorded, mergedProfileNginx)
 	e.Contains(policiesRecorded, mergedProfileRedis)
 
+	// if the recording is supposed to produce disabled policies, check that the merged policy is disabled
+	// otherwise the policy should be installed
+	retryAssertPrfStatus(e, resource, mergedProfileNginx, "Installed", isPolicyDisabled)
+
 	// the result for the nginx container should contain the triggered action
 	mergedProfile := e.retryGetProfile(resource, mergedProfileNginx)
 	e.Contains(mergedProfile, triggeredAction)
@@ -220,13 +256,55 @@ spec:
 	e.kubectl("delete", resource, mergedProfileNginx, mergedProfileRedis)
 }
 
+func retryAssertPrfStatus(e *e2e, kind, name, enabledState string, isPolicyEnabled policyDisableSwitch) {
+	var profileStatus string
+
+	for i := 0; i < 10; i++ {
+		profileStatus = e.kubectl(
+			"get", kind, name, "-o", "jsonpath={.status.status}")
+		if profileStatus != "" {
+			e.logf("The profile %s/%s has a status %s", kind, name, profileStatus)
+			break
+		}
+		// it might take a bit for the nodestatus controller to pick
+		// up the profile, so retry a couple of times
+		time.Sleep(5 * time.Second)
+		e.logf("Waiting for the profile %s/%s to have a status", kind, name)
+		continue
+	}
+
+	if profileStatus == "" {
+		e.Failf("Failed to get a non-empty status of the profile %s/%s", kind, name)
+	}
+
+	switch {
+	case isPolicyEnabled == policyDisabledAfterRecording:
+		e.Equal("Disabled", profileStatus)
+	case enabledState == "Installed":
+		// let's not bother waiting for the profile to be installed, just the fact that it's
+		// being processed is enough
+		expected := []string{"Installed", "Pending", "InProgress"}
+		e.Contains(expected, profileStatus, "Expected the profile to be installed or pending")
+	default:
+		e.Equal("Partial", profileStatus)
+	}
+}
+
 type profileRecTmplMetadata struct {
 	name, recorderKind, recorder, mergeStrategy, labelKey, labelValue string
+	policyDisabled                                                    policyDisableSwitch
 }
 
 func createTemplatedProfileRecording(e *e2e, metadata *profileRecTmplMetadata) func() {
+	policyDisabledStr := "false"
+	if metadata.policyDisabled == policyDisabledAfterRecording {
+		policyDisabledStr = "true"
+	}
+
 	manifest := fmt.Sprintf(profileRecordingTemplate,
-		metadata.name, metadata.recorderKind, metadata.recorder,
+		metadata.name,
+		policyDisabledStr,
+		metadata.recorderKind, metadata.recorder,
 		metadata.mergeStrategy, metadata.labelKey, metadata.labelValue)
 	deleteFn := e.writeAndCreate(manifest, fmt.Sprintf("%s.yml", metadata.name))
 	return deleteFn

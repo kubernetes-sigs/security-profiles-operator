@@ -28,6 +28,8 @@ type ProfileState string
 const (
 	// The profile is pending installation.
 	ProfileStatePartial ProfileState = "Partial"
+	// The profile is not enabled and won't be reconciled.
+	ProfileStateDisabled ProfileState = "Disabled"
 	// The profile is pending installation.
 	ProfileStatePending ProfileState = "Pending"
 	// The profile is being installed.
@@ -66,9 +68,10 @@ func LowerOfTwoStates(currentLowest, candidate ProfileState) ProfileState {
 	orderedStates[ProfileStateError] = 0       // error must always have the lowest index
 	orderedStates[ProfileStateTerminating] = 1 // If one is set as terminating; all the statuses will end here too
 	orderedStates[ProfileStatePartial] = 2
-	orderedStates[ProfileStatePending] = 3
-	orderedStates[ProfileStateInProgress] = 4
-	orderedStates[ProfileStateInstalled] = 5
+	orderedStates[ProfileStateDisabled] = 3
+	orderedStates[ProfileStatePending] = 4
+	orderedStates[ProfileStateInProgress] = 5
+	orderedStates[ProfileStateInstalled] = 6
 
 	if orderedStates[currentLowest] > orderedStates[candidate] {
 		return candidate
