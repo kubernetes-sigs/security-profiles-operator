@@ -10,7 +10,7 @@ require (
 	github.com/containers/common v0.53.0
 	github.com/go-logr/logr v1.2.4
 	github.com/google/go-containerregistry v0.14.1-0.20230409045903-ed5c185df419
-	github.com/imdario/mergo v0.3.15
+	github.com/imdario/mergo v0.3.16
 	github.com/jellydator/ttlcache/v3 v3.0.1
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.6.1
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
