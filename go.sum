@@ -772,8 +772,8 @@ github.com/pkg/sftp v1.13.1/go.mod h1:3HaPG6Dq1ILlpPZRO0HVMrsydcdLt6HRDccSgb87qR
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/posener/complete v1.1.1/go.mod h1:em0nMJCgc9GFtwrmVmEMR/ZL6WyhyjMBndrE9hABlRI=
-github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.1 h1:bvntWler8vOjDJtxBwGDakGNC6srSZmgawGM9Jf7HC8=
-github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.64.1/go.mod h1:cfNgxpCPGyIydmt3HcwDqKDt0nYdlGRhzftl+DZH7WA=
+github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.65.2 h1:DZzMjhqxx3+kAPpwWdng3ktO6NErh1wGuW5tXJamak8=
+github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.65.2/go.mod h1:xcfWyzl4BpEe5jnVkw7D1yCHU7GHjfjCERJsEfGbpSU=
 github.com/prometheus/client_golang v0.9.1/go.mod h1:7SWBe2y4D6OKWSNQJUaRYU/AaXPKyh/dDVn+NZz0KFw=
 github.com/prometheus/client_golang v0.9.3/go.mod h1:/TN21ttK/J9q6uSwhBd54HahCDft0ttaMvbicHlPoso=
 github.com/prometheus/client_golang v1.15.1 h1:8tXpTmJbyH5lydzFPoxSIJ0J46jdh3tylbvM1xCv0LI=
