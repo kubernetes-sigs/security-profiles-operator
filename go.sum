@@ -145,8 +145,8 @@ github.com/aliyun/credentials-go v1.1.2/go.mod h1:ozcZaMR5kLM7pwtCMEpVmQ242suV6q
 github.com/aliyun/credentials-go v1.2.3 h1:Vmodnr52Rz1mcbwn0kzMhLRKb6soizewuKXdfZiNemU=
 github.com/aliyun/credentials-go v1.2.3/go.mod h1:/KowD1cfGSLrLsH28Jr8W+xwoId0ywIy5lNzDz6O1vw=
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
-github.com/aquasecurity/libbpfgo v0.4.8-libbpf-1.2.0.0.20230509162948-80f41e18e690 h1:iDvZaf9Xcw9JfzJyqG9L9cYDwSpaFRg5pLddu4IvId0=
-github.com/aquasecurity/libbpfgo v0.4.8-libbpf-1.2.0.0.20230509162948-80f41e18e690/go.mod h1:UD3Mfr+JZ/ASK2VMucI/zAdEhb35LtvYXvAUdrdqE9s=
+github.com/aquasecurity/libbpfgo v0.4.9-libbpf-1.2.0 h1:pk9L7I6wF1nTfO42+jjXhA8ozRjvtj2ZvHV/i/YC0dE=
+github.com/aquasecurity/libbpfgo v0.4.9-libbpf-1.2.0/go.mod h1:UD3Mfr+JZ/ASK2VMucI/zAdEhb35LtvYXvAUdrdqE9s=
 github.com/arbovm/levenshtein v0.0.0-20160628152529-48b4e1c0c4d0 h1:jfIu9sQUG6Ig+0+Ap1h4unLjW6YQJpKZVmUzxsD4E/Q=
 github.com/arbovm/levenshtein v0.0.0-20160628152529-48b4e1c0c4d0/go.mod h1:t2tdKJDJF9BV14lnkjHmOQgcvEKgtqs5a1N3LNdJhGE=
 github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hCbHZ8TKRvWD2dDTCfh9M9ya+I9JpbB7O8o=

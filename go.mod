@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/acobaugh/osrelease v0.1.0
-	github.com/aquasecurity/libbpfgo v0.4.8-libbpf-1.2.0.0.20230509162948-80f41e18e690
+	github.com/aquasecurity/libbpfgo v0.4.9-libbpf-1.2.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cert-manager/cert-manager v1.12.1
 	github.com/containers/common v0.53.0
