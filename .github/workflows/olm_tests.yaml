@@ -6,7 +6,7 @@ on:
   pull_request:
 env:
   GO_VERSION: '1.20'
-  KIND_IMG_TAG: v1.27.2
+  KIND_IMG_TAG: v1.27.3
 
 permissions: {}
 
