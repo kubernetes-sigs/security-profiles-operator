@@ -34,11 +34,13 @@ func (e *e2e) testCaseBaseProfileOCI([]string) {
 		baseProfileName += strings.ReplaceAll(baseProfileNameRunc, "-", ":")
 	}
 
+	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	helloProfile := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: hello
+  namespace: %s
 spec:
   defaultAction: SCMP_ACT_ERRNO
   baseProfileName: %s
@@ -48,13 +50,14 @@ spec:
     - arch_prctl
     - set_tid_address
     - exit_group
-`, baseProfileName)
+`, namespace, baseProfileName)
 
-	const helloPod = `
+	helloPod := fmt.Sprintf(`
 apiVersion: v1
 kind: Pod
 metadata:
   name: hello
+  namespace: %s
 spec:
   containers:
   - image: quay.io/security-profiles-operator/test-hello-world:latest
@@ -64,7 +67,7 @@ spec:
       type: Localhost
       localhostProfile: operator/%s/hello.json
   restartPolicy: OnFailure
-`
+`, namespace, namespace)
 
 	e.logf("Creating hello profile")
 	helloProfileFile, err := os.CreateTemp("", "hello-profile*.yaml")
@@ -86,8 +89,7 @@ spec:
 	e.Nil(err)
 	defer os.Remove(helloPodFile.Name())
 
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	_, err = fmt.Fprintf(helloPodFile, helloPod, namespace)
+	_, err = helloPodFile.WriteString(helloPod)
 	e.Nil(err)
 	err = helloPodFile.Close()
 	e.Nil(err)
@@ -102,6 +104,10 @@ spec:
 		output := e.kubectl("get", "pod", "hello")
 		if strings.Contains(output, "Completed") {
 			break
+		}
+		if strings.Contains(output, "CreateContainerError") {
+			output := e.kubectl("describe", "pod", "hello")
+			e.FailNowf("Unable to create container: %v", output)
 		}
 		time.Sleep(time.Second)
 	}
