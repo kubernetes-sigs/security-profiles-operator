@@ -26,8 +26,8 @@ jobs:
           tgz_path="${helm_output##*saved it to: }"
           echo "helm chart tgz path: '${tgz_path}'"
           [ ! -f "${tgz_path}" ] && echo "failed to find helm chart from 'helm package' stdout" && exit 1
-          echo "::set-output name=helm_tgz_path::${tgz_path}"
-          echo "::set-output name=helm_tgz_name::${tgz_path##*/}"
+          echo "helm_tgz_path=${tgz_path}" >> $GITHUB_OUTPUT
+          echo "helm_tgz_name=${tgz_path##*/}" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
         with:
           name: ${{ steps.package.outputs.helm_tgz_name}}
