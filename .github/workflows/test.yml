@@ -137,6 +137,7 @@ jobs:
    steps:
       - name: Upgrade vagrant-box
         run: |
+          brew update --cask
           brew upgrade --cask vagrant
       - name: Install virtualbox
         run: |
