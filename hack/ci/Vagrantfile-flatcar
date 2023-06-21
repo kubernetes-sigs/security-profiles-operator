@@ -4,7 +4,7 @@
 Vagrant.configure("2") do |config|
   config.vm.box = "flatcar-stable"
   config.vm.box_check_update = true
-  config.vm.box_url = "https://stable.release.flatcar-linux.net/amd64-usr/3510.2.0/flatcar_production_vagrant.box"
+  config.vm.box_url = "https://stable.release.flatcar-linux.net/amd64-usr/3510.2.2/flatcar_production_vagrant.box"
   memory = 8192
   cpus = 4
 
@@ -92,7 +92,7 @@ Vagrant.configure("2") do |config|
       # Install tools
       curl -sSL -o $DOWNLOAD_DIR/jq "https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64"
       chmod +x $DOWNLOAD_DIR/jq
-      curl -sSL -o $DOWNLOAD_DIR/flatcar_developer_container.bin.bz2 "https://stable.release.flatcar-linux.net/amd64-usr/3510.2.0/flatcar_developer_container.bin.bz2"
+      curl -sSL -o $DOWNLOAD_DIR/flatcar_developer_container.bin.bz2 "https://stable.release.flatcar-linux.net/amd64-usr/3510.2.2/flatcar_developer_container.bin.bz2"
       bzcat $DOWNLOAD_DIR/flatcar_developer_container.bin.bz2 > $DOWNLOAD_DIR/flatcar_developer_container.bin
 
       curl -sSL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-amd64-${CNI_VERSION}.tgz" | tar -C /opt/cni/bin -xz
