@@ -139,7 +139,6 @@ jobs:
         run: |
           brew update
           brew upgrade
-          brew upgrade --cask vagrant
       - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.2
       - name: Vagrant box version
         id: vagrant-box
@@ -159,6 +158,9 @@ jobs:
         with:
           name: image
           path: .
+      - name: Ensure everything is clean
+        run: |
+          killall -9 VBoxHeadless && vagrant destory
       - name: Boot Virtual Machine
         run: make vagrant-up-flatcar
       - name: Show environment information
