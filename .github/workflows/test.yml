@@ -160,7 +160,7 @@ jobs:
           path: .
       - name: Ensure everything is clean
         run: |
-          killall -9 VBoxHeadless && vagrant destory
+          vagrant destroy -f
       - name: Boot Virtual Machine
         run: make vagrant-up-flatcar
       - name: Show environment information
