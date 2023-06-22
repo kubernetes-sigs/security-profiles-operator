@@ -130,18 +130,15 @@ jobs:
   e2e-flatcar:
    needs: image
 
-   runs-on: macos-13
+   runs-on: macos-12
    timeout-minutes: 90
    env:
      RUN: ./hack/ci/run-flatcar.sh
    steps:
-      - name: Update vagrant-box
+      - name: Update brew packages to latest versions
         run: |
           brew update
-          brew upgrade --cask vagrant
-      - name: Install virtualbox
-        run: |
-          brew install --cask virtualbox
+          brew upgrade
       - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.2
       - name: Vagrant box version
         id: vagrant-box
