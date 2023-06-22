@@ -135,6 +135,10 @@ jobs:
    env:
      RUN: ./hack/ci/run-flatcar.sh
    steps:
+      - name: Ensure specific vagrant version is installed
+        run: |
+          brew uninstall --cask vagrant
+          brew install --cask vagrant@2.3.4
       - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.2
       - name: Vagrant box version
         id: vagrant-box
@@ -154,9 +158,6 @@ jobs:
         with:
           name: image
           path: .
-      - name: Ensure everything is clean
-        run: |
-          vagrant destroy -f
       - name: Boot Virtual Machine
         run: make vagrant-up-flatcar
       - name: Show environment information
