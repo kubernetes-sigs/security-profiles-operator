@@ -135,7 +135,7 @@ jobs:
    env:
      RUN: ./hack/ci/run-flatcar.sh
    steps:
-      - name: Ensure specific vagrant version is installed
+      - name: Ensure vagrant version 2.3.4 is installed
         run: |
           brew uninstall --cask vagrant
           brew install --cask vagrant@2.3.4
