@@ -92,7 +92,7 @@ type Syscall struct {
 	Action seccomp.Action `json:"action"`
 	// the errno return code to use. Some actions like SCMP_ACT_ERRNO and
 	// SCMP_ACT_TRACE allow to specify the errno code to return
-	ErrnoRet string `json:"errnoRet,omitempty"`
+	ErrnoRet uint `json:"errnoRet,omitempty"`
 	// the specific syscall in seccomp
 	// +kubebuilder:validation:MaxItems=6
 	Args []*Arg `json:"args,omitempty"`
