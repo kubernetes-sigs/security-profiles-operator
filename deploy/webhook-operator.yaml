@@ -616,7 +616,7 @@ spec:
                       description: the errno return code to use. Some actions like
                         SCMP_ACT_ERRNO and SCMP_ACT_TRACE allow to specify the errno
                         code to return
-                      type: string
+                      type: uint
                     names:
                       description: the names of the syscalls
                       items:
