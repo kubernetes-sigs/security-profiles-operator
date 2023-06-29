@@ -235,6 +235,10 @@ type AlertmanagerSpec struct {
 	// If defined, it takes precedence over the `configSecret` field.
 	// This field may change in future releases.
 	AlertmanagerConfiguration *AlertmanagerConfiguration `json:"alertmanagerConfiguration,omitempty"`
+	// AutomountServiceAccountToken indicates whether a service account token should be automatically mounted in the pod.
+	// If the service account has `automountServiceAccountToken: true`, set the field to `false` to opt out of automounting API credentials.
+	// +optional
+	AutomountServiceAccountToken *bool `json:"automountServiceAccountToken,omitempty"`
 }
 
 // AlertmanagerConfigMatcherStrategy defines the strategy used by AlertmanagerConfig objects to match alerts.
@@ -282,6 +286,9 @@ type AlertmanagerGlobalConfig struct {
 
 	// The default OpsGenie API Key.
 	OpsGenieAPIKey *v1.SecretKeySelector `json:"opsGenieApiKey,omitempty"`
+
+	// The default Pagerduty URL.
+	PagerdutyURL *string `json:"pagerdutyUrl,omitempty"`
 }
 
 // AlertmanagerStatus is the most recent observed status of the Alertmanager cluster. Read-only.
