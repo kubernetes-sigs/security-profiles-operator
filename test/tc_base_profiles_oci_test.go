@@ -107,7 +107,7 @@ spec:
 		}
 		if strings.Contains(output, "CreateContainerError") {
 			output := e.kubectl("describe", "pod", "hello")
-			e.FailNowf("Unable to create container: %v", output)
+			e.FailNowf("Unable to create container", output)
 		}
 		time.Sleep(time.Second)
 	}
