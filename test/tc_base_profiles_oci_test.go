@@ -84,6 +84,8 @@ spec:
 	e.logf("Waiting for profile to be reconciled")
 	e.waitFor("condition=ready", "sp", "hello")
 
+	e.kubectlOperatorNS("logs", "-l", "name=spod")
+
 	e.logf("Creating hello-world pod")
 	helloPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
 	e.Nil(err)
@@ -107,7 +109,7 @@ spec:
 		}
 		if strings.Contains(output, "CreateContainerError") {
 			output := e.kubectl("describe", "pod", "hello")
-			e.FailNowf("Unable to create container: %v", output)
+			e.FailNowf("Unable to create container", output)
 		}
 		time.Sleep(time.Second)
 	}
