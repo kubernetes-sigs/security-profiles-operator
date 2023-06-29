@@ -27,7 +27,7 @@ require (
 	github.com/sigstore/cosign/v2 v2.0.2
 	github.com/stretchr/testify v1.8.4
 	github.com/urfave/cli/v2 v2.25.6
-	golang.org/x/mod v0.10.0
+	golang.org/x/mod v0.11.0
 	golang.org/x/net v0.10.0
 	golang.org/x/sync v0.3.0
 	google.golang.org/grpc v1.56.1
