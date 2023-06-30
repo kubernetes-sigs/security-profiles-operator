@@ -44,6 +44,9 @@ type RegistryOptions struct {
 	KubernetesKeychain bool
 	RefOpts            ReferenceOptions
 	Keychain           Keychain
+
+	// RegistryClientOpts allows overriding the result of GetRegistryClientOpts.
+	RegistryClientOpts []remote.Option
 }
 
 var _ Interface = (*RegistryOptions)(nil)
@@ -86,6 +89,12 @@ func (o *RegistryOptions) NameOptions() []name.Option {
 }
 
 func (o *RegistryOptions) GetRegistryClientOpts(ctx context.Context) []remote.Option {
+	if o.RegistryClientOpts != nil {
+		ropts := o.RegistryClientOpts
+		ropts = append(ropts, remote.WithContext(ctx))
+		return ropts
+	}
+
 	opts := []remote.Option{
 		remote.WithContext(ctx),
 		remote.WithUserAgent(UserAgent()),
@@ -111,6 +120,19 @@ func (o *RegistryOptions) GetRegistryClientOpts(ctx context.Context) []remote.Op
 	if o.AllowInsecure {
 		opts = append(opts, remote.WithTransport(&http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}})) // #nosec G402
 	}
+
+	// Reuse a remote.Pusher and a remote.Puller for all operations that use these opts.
+	// This allows us to avoid re-authenticating for everying remote.Function we call,
+	// which speeds things up a whole lot.
+	pusher, err := remote.NewPusher(opts...)
+	if err == nil {
+		opts = append(opts, remote.Reuse(pusher))
+	}
+	puller, err := remote.NewPuller(opts...)
+	if err == nil {
+		opts = append(opts, remote.Reuse(puller))
+	}
+
 	return opts
 }
 
