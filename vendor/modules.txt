@@ -319,7 +319,7 @@ github.com/blang/semver/v4
 ## explicit; go 1.18
 github.com/buildkite/agent/v3/api
 github.com/buildkite/agent/v3/logger
-# github.com/cert-manager/cert-manager v1.12.1
+# github.com/cert-manager/cert-manager v1.12.2
 ## explicit; go 1.20
 github.com/cert-manager/cert-manager/pkg/apis/acme
 github.com/cert-manager/cert-manager/pkg/apis/acme/v1
