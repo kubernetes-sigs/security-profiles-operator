@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# hash below relates to tag: bullseye-v1.4.3
-FROM registry.k8s.io/build-image/debian-base@sha256:3fcf9bcc4949392155cde1f96591ba3eda092f4735a9cc856bf526d71f48af47
+# hash below relates to tag: bookworm-v1.0.0
+FROM registry.k8s.io/build-image/debian-base@sha256:b9335fa66cdb5c1562c4f952e2d99f904dbe1618a6ed0d52487e70cf6cc280fd
 WORKDIR /work
 
 RUN apt-get update && apt-get install -y wget xz-utils libapparmor-dev
