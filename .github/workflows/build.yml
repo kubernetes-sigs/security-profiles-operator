@@ -98,7 +98,7 @@ jobs:
       - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.2
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@16c0bc4a6e6ada2cfd8afd41d22d95379cf7c32a
+        uses: docker/setup-buildx-action@2a1a44ac4aa01993040736bd95bb470da1a38365
       - name: Login to Quay
         uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc
         with:
@@ -145,7 +145,7 @@ jobs:
       - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.2
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@16c0bc4a6e6ada2cfd8afd41d22d95379cf7c32a
+        uses: docker/setup-buildx-action@2a1a44ac4aa01993040736bd95bb470da1a38365
       - name: Login to Quay
         uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc
         with:
@@ -188,7 +188,7 @@ jobs:
       - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.2
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@16c0bc4a6e6ada2cfd8afd41d22d95379cf7c32a
+        uses: docker/setup-buildx-action@2a1a44ac4aa01993040736bd95bb470da1a38365
       - name: Login to Quay
         uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc
         with:
