@@ -40,7 +40,9 @@ const ExtJSON = ".json"
 
 // SeccompProfileSpec defines the desired state of SeccompProfile.
 type SeccompProfileSpec struct {
-	// name of base profile (in the same namespace) what will be unioned into this profile
+	// BaseProfileName is the name of base profile (in the same namespace) that
+	// will be unioned into this profile. Base profiles can be references as
+	// remote OCI artifacts as well when prefixed with `oci://`.
 	BaseProfileName string `json:"baseProfileName,omitempty"`
 
 	// Properties from containers/common/pkg/seccomp.Seccomp type

@@ -27,9 +27,9 @@ import (
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
 func (r *StatusReconciler) Setup(
-	ctx context.Context,
+	_ context.Context,
 	mgr ctrl.Manager,
-	met *metrics.Metrics,
+	_ *metrics.Metrics,
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())

@@ -216,15 +216,17 @@ func encodePIN(pin string) ([]byte, error) {
 	return data, nil
 }
 
-// authPIN attempts to authenticate against the card with the provided PIN.
-// The PIN is required to use and modify certain slots.
+// VerifyPIN attempts to authenticate against the card with the provided PIN.
+//
+// PIN authentication for other operations are handled separately, and VerifyPIN
+// does not need to be called before those methods.
 //
 // After a specific number of authentication attemps with an invalid PIN,
 // usually 3, the PIN will become block and refuse further attempts. At that
 // point the PUK must be used to unblock the PIN.
 //
 // Use DefaultPIN if the PIN hasn't been set.
-func (yk *YubiKey) authPIN(pin string) error {
+func (yk *YubiKey) VerifyPIN(pin string) error {
 	return ykLogin(yk.tx, pin)
 }
 

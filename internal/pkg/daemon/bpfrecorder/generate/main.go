@@ -103,7 +103,7 @@ func generateBpfObj(builder *strings.Builder) error {
 	builder.WriteString("var bpfObjects = map[string][]byte{\n")
 
 	for _, arch := range []string{"amd64", "arm64"} {
-		builder.WriteString(fmt.Sprintf("%q: {\n", arch))
+		fmt.Fprintf(builder, "%q: {\n", arch)
 
 		file, err := os.ReadFile(filepath.Join(buildDir, bpfObj+"."+arch))
 		if err != nil {
@@ -112,7 +112,7 @@ func generateBpfObj(builder *strings.Builder) error {
 
 		size := len(file)
 		for k, v := range file {
-			builder.WriteString(fmt.Sprint(v))
+			fmt.Fprint(builder, v)
 
 			if k < size-1 {
 				builder.WriteString(", ")

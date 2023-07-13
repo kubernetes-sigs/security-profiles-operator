@@ -241,15 +241,15 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
-    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.7.1
-    olm.skipRange: '>=0.4.1 <0.7.1'
+    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.8.0
+    olm.skipRange: '>=0.4.1 <0.8.0'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
       Container Platform", "OpenShift Platform Plus"]'
     operators.operatorframework.io/builder: operator-sdk-v1.25.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
-  name: security-profiles-operator.v0.7.1
+  name: security-profiles-operator.v0.8.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -853,7 +853,7 @@ spec:
                 - manager
                 env:
                 - name: RELATED_IMAGE_RBAC_PROXY
-                  value: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
+                  value: gcr.io/kubebuilder/kube-rbac-proxy:v0.14.0
                 - name: RELATED_IMAGE_SELINUXD
                   value: quay.io/security-profiles-operator/selinuxd
                 - name: RELATED_IMAGE_SELINUXD_EL8
@@ -874,11 +874,12 @@ spec:
                       fieldPath: spec.nodeName
                 - name: KUBELET_DIR
                   value: /var/lib/kubelet
-                image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.7.1
+                image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.8.0
                 imagePullPolicy: Always
                 name: security-profiles-operator
                 resources:
                   limits:
+                    cpu: 500m
                     memory: 128Mi
                   requests:
                     cpu: 250m
@@ -976,7 +977,7 @@ spec:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
   relatedImages:
-  - image: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
+  - image: gcr.io/kubebuilder/kube-rbac-proxy:v0.14.0
     name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd
@@ -984,5 +985,5 @@ spec:
     name: selinuxd-el8
   - image: quay.io/security-profiles-operator/selinuxd-el9:latest
     name: selinuxd-el9
-  replaces: security-profiles-operator.v0.7.0
-  version: 0.7.1
+  replaces: security-profiles-operator.v0.7.1
+  version: 0.8.0

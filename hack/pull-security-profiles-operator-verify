@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# assume a Debian based golang image, like: golang:1.19
-apt-get update
-apt-get install -y \
-    libapparmor-dev \
-    libelf-dev \
-    libseccomp-dev \
-    software-properties-common
-
-./hack/install-libbpf.sh
+./hack/install-packages
 
 CLANG_VERSION=15
+apt-get install -y software-properties-common
 curl -sSfL --retry 5 --retry-delay 3 https://apt.llvm.org/llvm.sh | bash -s -- $CLANG_VERSION all
 ln -sf /usr/bin/clang-format-$CLANG_VERSION /usr/bin/clang-format
 

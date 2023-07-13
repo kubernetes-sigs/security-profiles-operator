@@ -81,7 +81,7 @@ func (a *aaProfileManager) CustomResourceTypeName() string {
 	return customResourceTypeName
 }
 
-func loadProfile(logger logr.Logger, name, content string) (bool, error) {
+func loadProfile(_ logr.Logger, name, content string) (bool, error) {
 	mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
 	a := aa.NewAppArmor()
 

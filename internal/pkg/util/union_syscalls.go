@@ -17,41 +17,33 @@ limitations under the License.
 package util
 
 import (
-	"github.com/containers/common/pkg/seccomp"
+	"fmt"
+	"sort"
+
+	"github.com/imdario/mergo"
 
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 )
 
-func UnionSyscalls(baseSyscalls, appliedSyscalls []*seccompprofile.Syscall) []*seccompprofile.Syscall {
-	longestLen := len(baseSyscalls)
-	if len(appliedSyscalls) > longestLen {
-		longestLen = len(appliedSyscalls)
+func UnionSyscalls(syscalls, appliedSyscalls []*seccompprofile.Syscall) ([]*seccompprofile.Syscall, error) {
+	if err := mergo.Merge(
+		&syscalls,
+		appliedSyscalls,
+		mergo.WithAppendSlice,
+		mergo.WithSliceDeepCopy,
+		mergo.WithOverrideEmptySlice,
+		mergo.WithOverwriteWithEmptyValue,
+	); err != nil {
+		return nil, fmt.Errorf("merge syscalls: %w", err)
 	}
 
-	allSyscalls := make(map[seccomp.Action]map[string]bool, longestLen)
-	for _, b := range baseSyscalls {
-		allSyscalls[b.Action] = make(map[string]bool)
-		for _, n := range b.Names {
-			allSyscalls[b.Action][n] = true
-		}
+	for _, syscall := range syscalls {
+		sort.Strings(syscall.Names)
 	}
-	for _, s := range appliedSyscalls {
-		if _, ok := allSyscalls[s.Action]; !ok {
-			allSyscalls[s.Action] = make(map[string]bool)
-		}
-		for _, n := range s.Names {
-			allSyscalls[s.Action][n] = true
-		}
-	}
-	finalSyscalls := make([]*seccompprofile.Syscall, 0, longestLen)
-	for action, names := range allSyscalls {
-		syscall := seccompprofile.Syscall{
-			Action: action,
-		}
-		for n := range names {
-			syscall.Names = append(syscall.Names, n)
-		}
-		finalSyscalls = append(finalSyscalls, &syscall)
-	}
-	return finalSyscalls
+
+	sort.Slice(syscalls, func(i, j int) bool {
+		return syscalls[i].Action < syscalls[j].Action
+	})
+
+	return syscalls, nil
 }

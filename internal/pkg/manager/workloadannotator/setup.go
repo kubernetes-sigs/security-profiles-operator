@@ -36,7 +36,7 @@ import (
 func (r *PodReconciler) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,
-	met *metrics.Metrics,
+	_ *metrics.Metrics,
 ) error {
 	const name = "pods"
 	r.client = mgr.GetClient()

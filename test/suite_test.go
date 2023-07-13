@@ -39,10 +39,10 @@ import (
 )
 
 const (
-	kindVersion      = "v0.17.0"
-	kindImage        = "kindest/node:v1.26.2@sha256:228590084990838f9f0418ee2c10d2648367286906358a97a47968fb151079c0"
-	kindDarwinSHA512 = "40ebb37b74b88d71854f73bc8d505e5cfb7ad14952657f0f9f46605632f2611277d09e8b00d05e95d10f913bd31d816131a3e26e7f34a6f2e50297d146f15050" //nolint:lll // full length SHA
-	kindLinuxSHA512  = "ae9b8ad431157c47bd034552e6b1656e46aa4033e96f25d5ff5d539308f17b2b003d25e02656f461d3eeed4e3ba0507b8523f6fa9180b59f37a5f083f62e5560" //nolint:lll // full length SHA
+	kindVersion      = "v0.18.0"
+	kindImage        = "kindest/node:v1.27.0@sha256:c6b22e613523b1af67d4bc8a0c38a4c3ea3a2b8fbc5b367ae36345c9cb844518"
+	kindDarwinSHA512 = "c5993d7257439dc8016f313b0126b76e4b61cc65cbd5183659755f7b660782cfb0621a31f94cf4565545c296461dfed203678d3ad81fe85a9835ecfb4f9f9b52" //nolint:lll // full length SHA
+	kindLinuxSHA512  = "73257bf705afa1cd095cd1469f4ec5259de1e5dc09745ed68b143e839151e9447133dd63417062bb9ea5fff557f75ec8c413dc4bceb4ffd54bf0fd4212667eb6" //nolint:lll // full length SHA
 )
 
 var (
@@ -497,7 +497,7 @@ func (e *vanilla) SetupTest() {
 func (e *vanilla) TearDownTest() {
 }
 
-func (e *vanilla) execNodeVanilla(node string, args ...string) string {
+func (e *vanilla) execNodeVanilla(_ string, args ...string) string {
 	return e.run(args[0], args[1:]...)
 }
 

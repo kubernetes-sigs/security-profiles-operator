@@ -18,9 +18,10 @@ with pkgs; buildGo120Module rec {
     libbpf_1
     libseccomp
     zlib.static
+    (zstd.override { static = true; })
   ];
   buildPhase = ''
-    make WITH_BPF=1
+    make
   '';
   installPhase = ''
     install -Dm755 -t $out build/security-profiles-operator build/spoc

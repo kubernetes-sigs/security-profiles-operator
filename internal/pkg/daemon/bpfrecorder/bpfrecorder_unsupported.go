@@ -35,7 +35,7 @@ var errUnsupported = errors.New("binary got compiled without bpf recorder suppor
 type BpfRecorder struct{}
 
 // New returns a new BpfRecorder instance.
-func New(logger logr.Logger) *BpfRecorder {
+func New(logr.Logger) *BpfRecorder {
 	return &BpfRecorder{}
 }
 
@@ -51,20 +51,20 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 }
 
 func (b *BpfRecorder) Start(
-	ctx context.Context, r *api.EmptyRequest,
+	context.Context, *api.EmptyRequest,
 ) (*api.EmptyResponse, error) {
 	return nil, errUnsupported
 }
 
 func (b *BpfRecorder) Stop(
-	ctx context.Context, r *api.EmptyRequest,
+	context.Context, *api.EmptyRequest,
 ) (*api.EmptyResponse, error) {
 	return nil, errUnsupported
 }
 
 // SyscallsForNamespace returns the syscall names for the provided PID.
 func (b *BpfRecorder) SyscallsForProfile(
-	ctx context.Context, r *api.ProfileRequest,
+	context.Context, *api.ProfileRequest,
 ) (*api.SyscallsResponse, error) {
 	return nil, errUnsupported
 }

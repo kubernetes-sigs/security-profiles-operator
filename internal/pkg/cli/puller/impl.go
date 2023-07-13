@@ -17,6 +17,7 @@ limitations under the License.
 package puller
 
 import (
+	"context"
 	"os"
 
 	"github.com/go-logr/logr"
@@ -35,7 +36,7 @@ type impl interface {
 }
 
 func (*defaultImpl) Pull(from, username, password string) (*artifact.PullResult, error) {
-	return artifact.New(logr.New(&cli.LogSink{})).Pull(from, username, password)
+	return artifact.New(logr.New(&cli.LogSink{})).Pull(context.Background(), from, username, password)
 }
 
 func (*defaultImpl) WriteFile(name string, data []byte, perm os.FileMode) error {

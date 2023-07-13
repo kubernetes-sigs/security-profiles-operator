@@ -83,6 +83,7 @@ func TestRun(t *testing.T) {
 				}}}, nil)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				//nolint:revive // intentional empty block
 				for mock.LinesCallCount() != 1 {
 					// Wait for Lines() to be called
 				}
@@ -92,6 +93,7 @@ func TestRun(t *testing.T) {
 					Time: time.Now(),
 				}
 
+				//nolint:revive // intentional empty block
 				for mock.SendMetricCallCount() != 1 {
 					// Wait for MetricsAuditIncCallCount to be called
 				}
@@ -205,6 +207,7 @@ func TestRun(t *testing.T) {
 				mock.SendMetricReturns(errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				//nolint:revive // intentional empty block
 				for mock.LinesCallCount() != 1 {
 					// Wait for Lines() to be called
 				}
@@ -214,6 +217,7 @@ func TestRun(t *testing.T) {
 					Time: time.Now(),
 				}
 
+				//nolint:revive // intentional empty block
 				for mock.SendMetricCallCount() != 1 {
 					// Wait for MetricsAuditIncCallCount to be called
 				}
@@ -263,6 +267,7 @@ func TestRun(t *testing.T) {
 				}}}, nil)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+				//nolint:revive // intentional empty block
 				for mock.LinesCallCount() != 1 {
 					// Wait for Lines() to be called. We should hit continue
 					// in the loop, failing the find the container ID
@@ -273,6 +278,7 @@ func TestRun(t *testing.T) {
 					Time: time.Now(),
 				}
 
+				//nolint:revive // intentional empty block
 				for mock.AddToBacklogCallCount() != 1 {
 					// Make sure the backlog was added to, because the
 					// pod information shouldn't be available yet
@@ -306,10 +312,13 @@ func TestRun(t *testing.T) {
 					},
 				)
 
+				//nolint:revive // intentional empty block
 				for mock.GetFromBacklogCallCount() != 1 {
 					// Make sure the backlog was read from when the avcs
 					// were dispatched
 				}
+
+				//nolint:revive // intentional empty block
 				for mock.FlushBacklogCallCount() != 1 {
 					// Make sure the backlog was flushed. This ensures
 					// that it was not empty and the mock entry was

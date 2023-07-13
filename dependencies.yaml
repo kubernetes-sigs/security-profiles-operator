@@ -20,7 +20,7 @@ dependencies:
       match: CI_IMAGE
 
   - name: golangci-lint
-    version: 1.51.1
+    version: 1.52.2
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -50,7 +50,7 @@ dependencies:
       match: OLM_VERSION
 
   - name: cert-manager
-    version: 1.11.0
+    version: 1.11.1
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -62,13 +62,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.17.0
+    version: 0.18.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.26.2
+    version: 1.27.0
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -82,7 +82,7 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.26.2
+    version: 1.27.0
     refPaths:
     - path: hack/ci/install-kubernetes.sh
       match: VERSION
@@ -136,13 +136,25 @@ dependencies:
       match: NIX_VERSION
 
   - name: kube-rbac-proxy
-    version: 0.13.1
+    version: 0.14.0
     refPaths:
     - path: internal/pkg/manager/spod/bindata/spod.go
       match: gcr.io/kubebuilder/kube-rbac-proxy
     - path: deploy/kustomize-deployment/manager_deployment.yaml
       match: gcr.io/kubebuilder/kube-rbac-proxy
     - path: deploy/helm/templates/deployment.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/openshift-downstream.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/operator.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/webhook-operator.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/openshift-dev.yaml
+      match: gcr.io/kubebuilder/kube-rbac-proxy
+    - path: deploy/namespace-operator.yaml
       match: gcr.io/kubebuilder/kube-rbac-proxy
 
   - name: gcb-docker-gcloud
@@ -164,13 +176,13 @@ dependencies:
       match: VERSION
 
   - name: CRI-O
-    version: v1.26.2
+    version: v1.26.3
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: TAG
 
   - name: crun
-    version: v1.8.1
+    version: v1.8.3
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
@@ -178,7 +190,7 @@ dependencies:
       match: baseProfileNameCrun
 
   - name: runc
-    version: v1.1.4
+    version: v1.1.5
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: name
@@ -200,13 +212,15 @@ dependencies:
       match: COSIGN_VERSION
 
   - name: bom
-    version: v0.4.1
+    version: v0.5.1
     refPaths:
     - path: hack/ci/install-cri-o.sh
       match: BOM_VERSION
+    - path: .github/workflows/build.yml
+      match: BOM_VERSION
 
   - name: spo-current
-    version: 0.7.1
+    version: 0.8.0
     refPaths:
     - path: VERSION
       match: ^.*
@@ -216,8 +230,6 @@ dependencies:
       match: "^appVersion: "
     - path: deploy/helm/Chart.yaml
       match: "^version: "
-    - path: installation-usage.md
-      match: ^helm install security-profiles-operator
 
   - name: clang
     version: 15
@@ -244,7 +256,7 @@ dependencies:
       match: flatcar_developer_container
 
   - name: zeitgeist
-    version: 0.3.5
+    version: 0.4.1
     refPaths:
       - path: Makefile
         match: ZEITGEIST_VERSION

@@ -64,7 +64,7 @@ wait_for() {
 }
 
 install_operator() {
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.1/cert-manager.yaml
     kubectl -n cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     git apply hack/deploy-localhost.patch
@@ -167,6 +167,10 @@ EOT
 
     echo "Diffing output, while ignoring flaky syscalls 'rt_sigreturn', 'sched_yield' and 'tgkill'"
     git diff --exit-code -U0 -I rt_sigreturn -I sched_yield -I tgkill examples
+
+    echo "Verifying that profile is available in the GitHub container registry"
+    cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' \
+        "ghcr.io/security-profiles/$RUNTIME:v$VERSION"
 }
 
 install_yq

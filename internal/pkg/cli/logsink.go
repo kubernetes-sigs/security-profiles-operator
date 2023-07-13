@@ -28,12 +28,12 @@ type LogSink struct{}
 
 // Init receives optional information about the logr library for LogSink
 // implementations that need it.
-func (*LogSink) Init(info logr.RuntimeInfo) {}
+func (*LogSink) Init(logr.RuntimeInfo) {}
 
 // Enabled tests whether this LogSink is enabled at the specified V-level.
 // For example, commandline flags might be used to set the logging
 // verbosity and disable some info logs.
-func (*LogSink) Enabled(level int) bool {
+func (*LogSink) Enabled(int) bool {
 	return true
 }
 
@@ -41,7 +41,7 @@ func (*LogSink) Enabled(level int) bool {
 // The level argument is provided for optional logging.  This method will
 // only be called when Enabled(level) is true. See Logger.Info for more
 // details.
-func (l *LogSink) Info(level int, msg string, keysAndValues ...interface{}) {
+func (l *LogSink) Info(_ int, msg string, keysAndValues ...interface{}) {
 	l.Print(msg, nil, keysAndValues...)
 }
 
@@ -79,12 +79,12 @@ func (*LogSink) Print(msg string, err error, keysAndValues ...interface{}) {
 
 // WithValues returns a new LogSink with additional key/value pairs.  See
 // Logger.WithValues for more details.
-func (*LogSink) WithValues(keysAndValues ...interface{}) logr.LogSink {
+func (*LogSink) WithValues(...interface{}) logr.LogSink {
 	return &LogSink{}
 }
 
 // WithName returns a new LogSink with the specified name appended.  See
 // Logger.WithName for more details.
-func (l *LogSink) WithName(name string) logr.LogSink {
+func (l *LogSink) WithName(string) logr.LogSink {
 	return &LogSink{}
 }
