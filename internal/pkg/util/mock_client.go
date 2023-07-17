@@ -245,7 +245,7 @@ func NewMockClient() *MockClient {
 	}
 }
 
-func (c *MockClient) SubResource(subResource string) client.SubResourceClient {
+func (c *MockClient) SubResource(string) client.SubResourceClient {
 	return &MockSubResource{
 		SubResourceWriter: &MockSubResourceWriter{
 			MockCreate: c.MockSubResourceWriterCreate,
@@ -259,7 +259,7 @@ func (c *MockClient) SubResource(subResource string) client.SubResourceClient {
 }
 
 // Get calls MockClient's MockGet function.
-func (c *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+func (c *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
 	return c.MockGet(ctx, key, obj)
 }
 

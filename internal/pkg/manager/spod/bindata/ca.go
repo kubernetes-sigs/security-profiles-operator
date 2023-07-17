@@ -46,7 +46,7 @@ const (
 )
 
 func GetCAInjectType(
-	ctx context.Context, log logr.Logger, namespace string, c client.Client,
+	ctx context.Context, log logr.Logger, c client.Client,
 ) (res CAInjectType, err error) {
 	err = c.Get(ctx,
 		types.NamespacedName{Name: "openshift-apiserver"},

@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	baseProfileNameRunc = "runc-v1.1.4"
-	baseProfileNameCrun = "crun-v1.8.1"
+	baseProfileNameRunc = "runc-v1.1.5"
+	baseProfileNameCrun = "crun-v1.8.3"
 )
 
 func (e *e2e) testCaseBaseProfile([]string) {
@@ -85,7 +85,9 @@ spec:
 	defer e.kubectl("delete", "-f", helloProfileFile.Name())
 
 	e.logf("Waiting for profile to be reconciled")
+	e.kubectlOperatorNS("logs", "-l", "name=spod")
 	e.waitFor("condition=ready", "sp", "hello")
+	e.kubectlOperatorNS("logs", "-l", "name=spod")
 
 	e.logf("Creating hello-world pod")
 	helloPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
@@ -93,7 +95,7 @@ spec:
 	defer os.Remove(helloPodFile.Name())
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	_, err = helloPodFile.WriteString(fmt.Sprintf(helloPod, namespace))
+	_, err = fmt.Fprintf(helloPodFile, helloPod, namespace)
 	e.Nil(err)
 	err = helloPodFile.Close()
 	e.Nil(err)

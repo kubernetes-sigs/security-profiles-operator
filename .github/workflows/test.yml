@@ -18,17 +18,17 @@ jobs:
 
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
-      - uses: github/codeql-action/init@67a35a08586135a9573f4327e904ecbf517a882d
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
+      - uses: github/codeql-action/init@7df0ce34898d659f95c0c4a09eaa8d4e32ee64db
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@67a35a08586135a9573f4327e904ecbf517a882d
-      - uses: github/codeql-action/analyze@67a35a08586135a9573f4327e904ecbf517a882d
+      - uses: github/codeql-action/autobuild@7df0ce34898d659f95c0c4a09eaa8d4e32ee64db
+      - uses: github/codeql-action/analyze@7df0ce34898d659f95c0c4a09eaa8d4e32ee64db
 
   coverage:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
       - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -38,7 +38,7 @@ jobs:
           sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
           sudo hack/install-libbpf.sh
       - run: make test-unit
-      - uses: codecov/codecov-action@d9f34f8cd5cb3b3eb79b3e4b5dae3a16df499a70
+      - uses: codecov/codecov-action@40a12dcee2df644d47232dde008099a3e9e4f865
         with:
           files: build/coverage.out
           flags: unittests
@@ -47,7 +47,7 @@ jobs:
   image:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
       - run: make image
       - run: podman save -o image.tar security-profiles-operator
       - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
@@ -63,7 +63,7 @@ jobs:
     env:
       RUN: ./hack/ci/run-fedora.sh
     steps:
-      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
       - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
         with:
           path: |
@@ -100,7 +100,7 @@ jobs:
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
-      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
       - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
         with:
           path: |
@@ -135,7 +135,7 @@ jobs:
    env:
      RUN: ./hack/ci/run-flatcar.sh
    steps:
-      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
       - name: Vagrant box version
         id: vagrant-box
         run: |
@@ -175,7 +175,7 @@ jobs:
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
-      - uses: actions/checkout@24cb9080177205b6e8c946b17badbe402adc938f # v3.4.0
+      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
       - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
         with:
           path: |

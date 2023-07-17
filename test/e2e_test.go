@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml"
+	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.11.1/cert-manager.yaml"
 	namespaceManifest = "deploy/namespace-operator.yaml"
 	testNamespace     = "test-ns"
 	defaultNamespace  = "default"
@@ -75,6 +75,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		{
 			"Seccomp: Verify base profile merge",
 			e.testCaseBaseProfile,
+		},
+		{
+			"Seccomp: Verify base profile merge from OCI registry",
+			e.testCaseBaseProfileOCI,
 		},
 		{
 			"Seccomp: Allowed syscalls",

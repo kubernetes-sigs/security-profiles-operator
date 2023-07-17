@@ -158,6 +158,10 @@ const (
 	// DefaultSpoProfilePath default path from where the security profiles are copied
 	// by non-root enabler.
 	DefaultSpoProfilePath = "/opt/spo-profiles"
+
+	// OCIProfilePrefix is the prefix used for specifying security profiles
+	// from OCI artifacts.
+	OCIProfilePrefix = "oci://"
 )
 
 // ProfileRecordingOutputPath is the path where the recorded profiles will be

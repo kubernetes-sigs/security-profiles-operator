@@ -16,7 +16,7 @@ limitations under the License.
 
 package e2e_test
 
-func (e *e2e) testCaseSPODEnableProfileRecorder(nodes []string) {
+func (e *e2e) testCaseSPODEnableProfileRecorder([]string) {
 	e.enableLogEnricherInSpod()
 
 	e.logf("assert profile recorder is enabled in the spod DS when log enricher is enabled")

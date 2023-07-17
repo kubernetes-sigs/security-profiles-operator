@@ -24,6 +24,6 @@ import "errors"
 var errUnsupportedPlatform = errors.New("unsupported platform")
 
 // syscallName returns the syscall name for the provided ID.
-func syscallName(id int32) (string, error) {
+func syscallName(int32) (string, error) {
 	return "", errUnsupportedPlatform
 }

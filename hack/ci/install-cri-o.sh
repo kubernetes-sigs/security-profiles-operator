@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-TAG=v1.26.2
+TAG=v1.26.3
 
 curl_retry() {
     curl -sSfL --retry 5 --retry-delay 3 "$@"
@@ -30,9 +30,9 @@ curl_retry -o /usr/bin/cosign \
 chmod +x /usr/bin/cosign
 cosign version
 
-BOM_VERSION=v0.4.1
+BOM_VERSION=v0.5.1
 curl_retry -o /usr/bin/bom \
-    https://github.com/kubernetes-sigs/bom/releases/download/$BOM_VERSION/bom-linux-amd64
+    https://github.com/kubernetes-sigs/bom/releases/download/$BOM_VERSION/bom-amd64-linux
 chmod +x /usr/bin/bom
 bom version
 

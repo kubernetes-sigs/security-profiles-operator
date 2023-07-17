@@ -64,7 +64,7 @@ type daemonTunables struct {
 func (r *ReconcileSPOd) Setup(
 	ctx context.Context,
 	mgr ctrl.Manager,
-	met *metrics.Metrics,
+	_ *metrics.Metrics,
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())

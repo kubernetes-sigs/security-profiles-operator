@@ -25,6 +25,7 @@ import (
 	"log"
 	"path/filepath"
 	"sync/atomic"
+	"time"
 
 	"github.com/nxadm/tail"
 	"github.com/opencontainers/runtime-spec/specs-go"
@@ -102,6 +103,9 @@ func (r *Runner) Run() error {
 	if err := r.CommandWait(cmd); err != nil {
 		return fmt.Errorf("wait for command: %w", err)
 	}
+
+	// Wait for the late syscalls from the audit logs.
+	time.Sleep(time.Second)
 
 	return nil
 }

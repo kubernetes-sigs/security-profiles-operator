@@ -131,7 +131,7 @@ func (b *BpfRecorder) Run() error {
 		b.logger.Error(err, "unable to run recorder")
 		return err
 	}
-	b.logger.Info("Starting log-enricher on node: " + b.nodeName)
+	b.logger.Info("Starting ebpf recorder on node: " + b.nodeName)
 
 	clusterConfig, err := b.InClusterConfig()
 	if err != nil {
@@ -242,7 +242,7 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 }
 
 func (b *BpfRecorder) Start(
-	ctx context.Context, r *api.EmptyRequest,
+	context.Context, *api.EmptyRequest,
 ) (*api.EmptyResponse, error) {
 	if b.startRequests == 0 {
 		b.logger.Info("Starting bpf recorder")
@@ -259,7 +259,7 @@ func (b *BpfRecorder) Start(
 }
 
 func (b *BpfRecorder) Stop(
-	ctx context.Context, r *api.EmptyRequest,
+	context.Context, *api.EmptyRequest,
 ) (*api.EmptyResponse, error) {
 	if b.startRequests == 0 {
 		b.logger.Info("bpf recorder not running")
@@ -278,7 +278,7 @@ func (b *BpfRecorder) Stop(
 
 // SyscallsForProfile returns the syscall names for the provided profile name.
 func (b *BpfRecorder) SyscallsForProfile(
-	ctx context.Context, r *api.ProfileRequest,
+	_ context.Context, r *api.ProfileRequest,
 ) (*api.SyscallsResponse, error) {
 	if b.startRequests == 0 {
 		return nil, errors.New("bpf recorder not running")
