@@ -212,7 +212,7 @@ spec:
                       description: The Kind of the policy that this inherits from.
                         Can be a SelinuxProfile object Or "System" if an already installed
                         policy will be used. The allowed "System" policies are available
-                        in the SecurityProfilesOpertorDaemon instance.
+                        in the SecurityProfilesOperatorDaemon instance.
                       enum:
                       - System
                       - SelinuxProfile
