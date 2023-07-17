@@ -42,7 +42,7 @@ type PolicyRef struct {
 	// Can be a SelinuxProfile object Or "System" if an already
 	// installed policy will be used.
 	// The allowed "System" policies are available in the
-	// SecurityProfilesOpertorDaemon instance.
+	// SecurityProfilesOperatorDaemon instance.
 	// +kubebuilder:default="System"
 	// +kubebuilder:validation:Enum=System;SelinuxProfile;
 	Kind string `json:"kind,omitempty"`
