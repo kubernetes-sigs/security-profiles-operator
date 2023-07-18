@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-TAG=v1.27.0
+TAG=v1.27.1
 
 curl_retry() {
     curl -sSfL --retry 5 --retry-delay 3 "$@"
