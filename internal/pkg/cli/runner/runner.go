@@ -167,7 +167,7 @@ func (r *Runner) printAuditLine(line *types.AuditLine) {
 }
 
 func (r *Runner) printSelinuxLine(line *types.AuditLine) {
-	log.Printf(
+	r.Printf(
 		"SELinux: perm: %s, scontext: %s, tcontext: %s, tclass: %s",
 		line.Perm, line.Scontext, line.Tcontext, line.Tclass,
 	)
@@ -180,11 +180,11 @@ func (r *Runner) printSeccompLine(line *types.AuditLine) {
 		return
 	}
 
-	log.Printf("Seccomp: %s (%d)", syscallName, line.SystemCallID)
+	r.Printf("Seccomp: %s (%d)", syscallName, line.SystemCallID)
 }
 
 func (r *Runner) printApparmorLine(line *types.AuditLine) {
-	log.Printf(
+	r.Printf(
 		"AppArmor: %s, operation: %s, profile: %s, name: %s, extra: %s",
 		line.Apparmor, line.Operation, line.Profile, line.Name, line.ExtraInfo,
 	)
