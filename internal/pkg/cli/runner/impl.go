@@ -21,6 +21,7 @@ package runner
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"sync/atomic"
 
@@ -56,6 +57,7 @@ type impl interface {
 	ExtractAuditLine(string) (*types.AuditLine, error)
 	GetName(libseccomp.ScmpSyscall) (string, error)
 	PidLoad() uint32
+	Printf(format string, v ...any)
 }
 
 func (*defaultImpl) ReadFile(name string) ([]byte, error) {
@@ -112,4 +114,8 @@ func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {
 
 func (*defaultImpl) PidLoad() uint32 {
 	return atomic.LoadUint32(&pid)
+}
+
+func (*defaultImpl) Printf(format string, v ...any) {
+	log.Printf(format, v...)
 }

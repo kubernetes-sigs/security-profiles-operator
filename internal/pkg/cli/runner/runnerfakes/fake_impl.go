@@ -152,6 +152,12 @@ type FakeImpl struct {
 	pidLoadReturnsOnCall map[int]struct {
 		result1 uint32
 	}
+	PrintfStub        func(string, ...any)
+	printfMutex       sync.RWMutex
+	printfArgsForCall []struct {
+		arg1 string
+		arg2 []any
+	}
 	ReadFileStub        func(string) ([]byte, error)
 	readFileMutex       sync.RWMutex
 	readFileArgsForCall []struct {
@@ -831,6 +837,39 @@ func (fake *FakeImpl) PidLoadReturnsOnCall(i int, result1 uint32) {
 	}{result1}
 }
 
+func (fake *FakeImpl) Printf(arg1 string, arg2 ...any) {
+	fake.printfMutex.Lock()
+	fake.printfArgsForCall = append(fake.printfArgsForCall, struct {
+		arg1 string
+		arg2 []any
+	}{arg1, arg2})
+	stub := fake.PrintfStub
+	fake.recordInvocation("Printf", []interface{}{arg1, arg2})
+	fake.printfMutex.Unlock()
+	if stub != nil {
+		fake.PrintfStub(arg1, arg2...)
+	}
+}
+
+func (fake *FakeImpl) PrintfCallCount() int {
+	fake.printfMutex.RLock()
+	defer fake.printfMutex.RUnlock()
+	return len(fake.printfArgsForCall)
+}
+
+func (fake *FakeImpl) PrintfCalls(stub func(string, ...any)) {
+	fake.printfMutex.Lock()
+	defer fake.printfMutex.Unlock()
+	fake.PrintfStub = stub
+}
+
+func (fake *FakeImpl) PrintfArgsForCall(i int) (string, []any) {
+	fake.printfMutex.RLock()
+	defer fake.printfMutex.RUnlock()
+	argsForCall := fake.printfArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
 func (fake *FakeImpl) ReadFile(arg1 string) ([]byte, error) {
 	fake.readFileMutex.Lock()
 	ret, specificReturn := fake.readFileReturnsOnCall[len(fake.readFileArgsForCall)]
@@ -1114,6 +1153,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.linesMutex.RUnlock()
 	fake.pidLoadMutex.RLock()
 	defer fake.pidLoadMutex.RUnlock()
+	fake.printfMutex.RLock()
+	defer fake.printfMutex.RUnlock()
 	fake.readFileMutex.RLock()
 	defer fake.readFileMutex.RUnlock()
 	fake.setupSeccompMutex.RLock()
