@@ -22,6 +22,7 @@ package runner
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/nxadm/tail"
 	"github.com/stretchr/testify/require"
@@ -137,6 +138,20 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func waitForFunctionCall(t *testing.T, fn func() int) {
+	t.Helper()
+
+	countGreaterZero := false
+	for i := 0; i < 5; i++ {
+		if fn() > 0 {
+			countGreaterZero = true
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	require.True(t, countGreaterZero)
+}
+
 func TestStartEnricher(t *testing.T) {
 	const testPid = 123
 
@@ -160,7 +175,9 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
-				require.Equal(t, 1, mock.GetNameCallCount())
+				waitForFunctionCall(t, mock.PrintfCallCount)
+				arg, _ := mock.PrintfArgsForCall(0)
+				require.Contains(t, arg, "Seccomp")
 			},
 		},
 		{
@@ -178,6 +195,8 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
+				waitForFunctionCall(t, mock.GetNameCallCount)
+				require.Zero(t, mock.PrintfCallCount())
 			},
 		},
 		{
@@ -194,6 +213,9 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
+				waitForFunctionCall(t, mock.PrintfCallCount)
+				arg, _ := mock.PrintfArgsForCall(0)
+				require.Contains(t, arg, "AppArmor")
 			},
 		},
 		{
@@ -210,6 +232,9 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
+				waitForFunctionCall(t, mock.PrintfCallCount)
+				arg, _ := mock.PrintfArgsForCall(0)
+				require.Contains(t, arg, "SELinux")
 			},
 		},
 		{
