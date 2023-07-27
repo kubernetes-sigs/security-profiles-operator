@@ -111,6 +111,7 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 				Effect:   corev1.TaintEffectNoExecute,
 			},
 		},
+		DisableOCIArtifactSignatureVerification: false,
 	},
 }
 

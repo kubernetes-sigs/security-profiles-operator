@@ -29,7 +29,7 @@ func TestFromContext(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		prepare func(*flag.FlagSet)
-		assert  func(error)
+		assert  func(*Options, error)
 	}{
 		{
 			name: "success",
@@ -38,8 +38,21 @@ func TestFromContext(t *testing.T) {
 				require.Nil(t, set.Set(FlagUsername, "username"))
 				require.Nil(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(err error) {
+			assert: func(opts *Options, err error) {
 				require.NoError(t, err)
+				require.False(t, opts.disableSignatureVerification)
+			},
+		},
+		{
+			name: "success with verify signature disabled",
+			prepare: func(set *flag.FlagSet) {
+				set.Bool(FlagDisableSignatureVerification, true, "")
+				require.Nil(t, set.Set(FlagDisableSignatureVerification, "true"))
+				require.Nil(t, set.Parse([]string{"echo"}))
+			},
+			assert: func(opts *Options, err error) {
+				require.NoError(t, err)
+				require.True(t, opts.disableSignatureVerification)
 			},
 		},
 		{
@@ -48,7 +61,7 @@ func TestFromContext(t *testing.T) {
 				set.String(FlagOutputFile, "", "")
 				require.Nil(t, set.Set(FlagOutputFile, ""))
 			},
-			assert: func(err error) {
+			assert: func(_ *Options, err error) {
 				require.Error(t, err)
 			},
 		},
@@ -59,7 +72,18 @@ func TestFromContext(t *testing.T) {
 				require.Nil(t, set.Set(FlagOutputFile, ""))
 				require.Nil(t, set.Parse([]string{"echo"}))
 			},
-			assert: func(err error) {
+			assert: func(_ *Options, err error) {
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "failure parse platform",
+			prepare: func(set *flag.FlagSet) {
+				set.String(FlagPlatform, "", "")
+				require.Nil(t, set.Set(FlagPlatform, "os//var"))
+				require.Nil(t, set.Parse([]string{"echo"}))
+			},
+			assert: func(_ *Options, err error) {
 				require.Error(t, err)
 			},
 		},
@@ -76,8 +100,8 @@ func TestFromContext(t *testing.T) {
 			app := cli.NewApp()
 			ctx := cli.NewContext(app, set, nil)
 
-			_, err := FromContext(ctx)
-			assert(err)
+			opts, err := FromContext(ctx)
+			assert(opts, err)
 		})
 	}
 }

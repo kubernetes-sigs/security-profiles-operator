@@ -161,6 +161,12 @@ func main() {
 					Aliases: []string{"p"},
 					Usage:   "the platform to be used in format: os[/arch][/variant][:os_version]",
 				},
+				&cli.BoolFlag{
+					Name:    puller.FlagDisableSignatureVerification,
+					Aliases: []string{"s"},
+					EnvVars: []string{"DISABLE_SIGNATURE_VERIFICATION"},
+					Usage:   "disable signature verification",
+				},
 			},
 		},
 	)

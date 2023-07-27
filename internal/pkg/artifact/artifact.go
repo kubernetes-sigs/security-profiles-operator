@@ -242,20 +242,23 @@ func (a *Artifact) Pull(
 	c context.Context,
 	from, username, password string,
 	platform *v1.Platform,
+	disableSignatureVerification bool,
 ) (*PullResult, error) {
 	ctx, cancel := context.WithTimeout(c, defaultTimeout)
 	defer cancel()
 
-	a.logger.Info("Verifying signature")
-	const all = ".*"
-	v := verify.VerifyCommand{
-		CertVerifyOptions: options.CertVerifyOptions{
-			CertIdentityRegexp:   all,
-			CertOidcIssuerRegexp: all,
-		},
-	}
-	if err := a.VerifyCmd(ctx, v, from); err != nil {
-		return nil, fmt.Errorf("verify signature: %w", err)
+	if !disableSignatureVerification {
+		a.logger.Info("Verifying signature")
+		const all = ".*"
+		v := verify.VerifyCommand{
+			CertVerifyOptions: options.CertVerifyOptions{
+				CertIdentityRegexp:   all,
+				CertOidcIssuerRegexp: all,
+			},
+		}
+		if err := a.VerifyCmd(ctx, v, from); err != nil {
+			return nil, fmt.Errorf("verify signature: %w", err)
+		}
 	}
 
 	dir, err := a.MkdirTemp("", "pull-")
@@ -314,6 +317,8 @@ func (a *Artifact) Pull(
 	); err != nil {
 		return nil, fmt.Errorf("copy from repository: %w", err)
 	}
+
+	a.logger.Info("Checking profile contents")
 
 	// Allow a fallback to defaultProfileYAML if no platform is available.
 	content := []byte{}

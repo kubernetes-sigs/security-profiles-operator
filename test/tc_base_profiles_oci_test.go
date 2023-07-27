@@ -26,6 +26,12 @@ import (
 func (e *e2e) testCaseBaseProfileOCI([]string) {
 	e.seccompOnlyTestCase()
 
+	e.kubectlOperatorNS(
+		"patch", "spod", "spod",
+		"-p", `{"spec":{"disableOciArtifactSignatureVerification": true}}`,
+		"--type=merge",
+	)
+
 	baseProfileName := "oci://ghcr.io/security-profiles/"
 
 	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {
@@ -35,11 +41,12 @@ func (e *e2e) testCaseBaseProfileOCI([]string) {
 	}
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	helloProfile := fmt.Sprintf(`
+	profileName := fmt.Sprintf("profile-%v", time.Now().Unix())
+	profileYAML := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  name: hello
+  name: %s
   namespace: %s
 spec:
   defaultAction: SCMP_ACT_ERRNO
@@ -50,69 +57,72 @@ spec:
     - arch_prctl
     - set_tid_address
     - exit_group
-`, namespace, baseProfileName)
+`, profileName, namespace, baseProfileName)
 
-	helloPod := fmt.Sprintf(`
+	podName := fmt.Sprintf("pod-%v", time.Now().Unix())
+	podYAML := fmt.Sprintf(`
 apiVersion: v1
 kind: Pod
 metadata:
-  name: hello
+  name: %s
   namespace: %s
 spec:
   containers:
   - image: quay.io/security-profiles-operator/test-hello-world:latest
-    name: hello
+    name: ctr
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/%s/hello.json
+      localhostProfile: operator/%s/%s.json
   restartPolicy: OnFailure
-`, namespace, namespace)
+`, podName, namespace, namespace, profileName)
 
-	e.logf("Creating hello profile")
-	helloProfileFile, err := os.CreateTemp("", "hello-profile*.yaml")
+	e.logf("Creating profile")
+	profileFile, err := os.CreateTemp("", "profile-*.yaml")
 	e.Nil(err)
-	defer os.Remove(helloProfileFile.Name())
+	defer os.Remove(profileFile.Name())
 
-	_, err = helloProfileFile.WriteString(helloProfile)
+	_, err = profileFile.WriteString(profileYAML)
 	e.Nil(err)
-	err = helloProfileFile.Close()
+	err = profileFile.Close()
 	e.Nil(err)
-	e.kubectl("create", "-f", helloProfileFile.Name())
-	defer e.kubectl("delete", "-f", helloProfileFile.Name())
+	e.kubectl("create", "-f", profileFile.Name())
+	defer e.kubectl("delete", "-f", profileFile.Name())
 
 	e.logf("Waiting for profile to be reconciled")
-	e.waitForProfile("hello")
+	e.waitForProfile(profileName)
 
-	e.logf("Creating hello-world pod")
-	helloPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
+	e.logf("Creating pod")
+	podFile, err := os.CreateTemp("", "pod-*.yaml")
 	e.Nil(err)
-	defer os.Remove(helloPodFile.Name())
+	defer os.Remove(podFile.Name())
 
-	_, err = helloPodFile.WriteString(helloPod)
+	_, err = podFile.WriteString(podYAML)
 	e.Nil(err)
-	err = helloPodFile.Close()
+	err = podFile.Close()
 	e.Nil(err)
-	e.kubectl("create", "-f", helloPodFile.Name())
-	defer e.kubectl("delete", "pod", "hello")
+	e.kubectl("create", "-f", podFile.Name())
+	defer e.kubectl("delete", "pod", podName)
 
 	e.logf("Waiting for test pod to be initialized")
-	e.waitFor("condition=initialized", "pod", "hello")
+	e.waitFor("condition=initialized", "pod", podName)
 
 	e.logf("Waiting for pod to be completed")
 	for i := 0; i < 20; i++ {
-		output := e.kubectl("get", "pod", "hello")
+		output := e.kubectl("get", "pod", podName)
 		if strings.Contains(output, "Completed") {
 			break
 		}
 		if strings.Contains(output, "CreateContainerError") {
-			output := e.kubectl("describe", "pod", "hello")
+			e.kubectlOperatorNS("logs", "-l", "name=spod")
+			e.kubectl("get", "sp", profileName, "-o", "yaml")
+			output := e.kubectl("describe", "pod", podName)
 			e.FailNowf("Unable to create container", output)
 		}
 		time.Sleep(time.Second)
 	}
 
 	e.logf("Testing that container ran successfully")
-	output := e.kubectl("logs", "hello")
+	output := e.kubectl("logs", podName)
 	e.Contains(output, "Hello from Docker!")
 }
