@@ -394,7 +394,7 @@ func TestPull(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			res, err := sut.Pull(context.Background(), "", "foo", "bar", nil)
+			res, err := sut.Pull(context.Background(), "", "foo", "bar", nil, false)
 			assert(res, err)
 		})
 	}

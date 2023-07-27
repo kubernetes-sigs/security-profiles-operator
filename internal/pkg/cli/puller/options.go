@@ -29,11 +29,12 @@ import (
 
 // Options define all possible options for the puller.
 type Options struct {
-	pullFrom   string
-	outputFile string
-	username   string
-	password   string
-	platform   *v1.Platform
+	pullFrom                     string
+	outputFile                   string
+	username                     string
+	password                     string
+	platform                     *v1.Platform
+	disableSignatureVerification bool
 }
 
 // Default returns a default options instance.
@@ -62,6 +63,10 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 
 	if ctx.IsSet(FlagUsername) {
 		options.username = ctx.String(FlagUsername)
+	}
+
+	if ctx.IsSet(FlagDisableSignatureVerification) {
+		options.disableSignatureVerification = ctx.Bool(FlagDisableSignatureVerification)
 	}
 
 	options.password = os.Getenv(cli.EnvKeyPassword)

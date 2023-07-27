@@ -26,7 +26,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
 
@@ -35,7 +37,7 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	Pull(context.Context, logr.Logger, string, string, string, *v1.Platform) (*artifact.PullResult, error)
+	Pull(context.Context, logr.Logger, string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)
 	PullResultType(*artifact.PullResult) artifact.PullResultType
 	PullResultSeccompProfile(*artifact.PullResult) *seccompprofileapi.SeccompProfile
 	ClientGetProfile(
@@ -43,12 +45,17 @@ type impl interface {
 	) (*seccompprofileapi.SeccompProfile, error)
 	IncSeccompProfileError(*metrics.Metrics, string)
 	RecordEvent(record.EventRecorder, runtime.Object, string, string, string)
+	GetSPOD(context.Context, client.Client) (*spodv1alpha1.SecurityProfilesOperatorDaemon, error)
 }
 
 func (*defaultImpl) Pull(
-	ctx context.Context, l logr.Logger, from, _, _ string, platform *v1.Platform,
+	ctx context.Context,
+	l logr.Logger,
+	from, username, password string,
+	platform *v1.Platform,
+	disableSignatureVerification bool,
 ) (*artifact.PullResult, error) {
-	return artifact.New(l).Pull(ctx, from, "", "", platform)
+	return artifact.New(l).Pull(ctx, from, username, password, platform, disableSignatureVerification)
 }
 
 func (*defaultImpl) PullResultType(res *artifact.PullResult) artifact.PullResultType {
@@ -75,4 +82,10 @@ func (*defaultImpl) RecordEvent(
 	r record.EventRecorder, object runtime.Object, eventtype, reason, message string,
 ) {
 	r.Event(object, eventtype, reason, message)
+}
+
+func (*defaultImpl) GetSPOD(
+	ctx context.Context, cli client.Client,
+) (*spodv1alpha1.SecurityProfilesOperatorDaemon, error) {
+	return common.GetSPOD(ctx, cli)
 }
