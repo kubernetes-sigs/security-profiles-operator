@@ -51,7 +51,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -352,6 +351,7 @@ func (r *Reconciler) resolveSyscallsForProfile(
 		return inputSyscalls, nil
 	}
 
+	l.Info("Resolving syscalls for profile", "recursion", level)
 	var baseProfile *seccompprofileapi.SeccompProfile
 
 	if strings.HasPrefix(baseProfileName, config.OCIProfilePrefix) {
@@ -363,11 +363,20 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			l.Info("Using cached base profile", "baseProfile", from)
 			baseProfile = item.Value()
 		} else {
-			l.Info("Pulling base profile: " + from)
+			spod, err := r.GetSPOD(ctx, r.client)
+			if err != nil {
+				return nil, fmt.Errorf("retrieving the SPOD configuration: %w", err)
+			}
+
+			l.Info(
+				"Pulling base profile: "+from,
+				"disableOCIArtifactSignatureVerification", spod.Spec.DisableOCIArtifactSignatureVerification,
+			)
+
 			res, err := r.Pull(ctx, l, from, "", "", &v1.Platform{
 				Architecture: runtime.GOARCH,
 				OS:           runtime.GOOS,
-			})
+			}, spod.Spec.DisableOCIArtifactSignatureVerification)
 			if err != nil {
 				l.Error(err, "cannot pull base profile "+baseProfileName)
 				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)
@@ -381,6 +390,11 @@ func (r *Reconciler) resolveSyscallsForProfile(
 			}
 			baseProfile = r.PullResultSeccompProfile(res)
 			r.baseProfiles.Set(from, baseProfile, ttlcache.DefaultTTL)
+
+			l.Info(
+				"Set remote base seccomp profile",
+				"baseProfile", baseProfile.Name,
+			)
 		}
 	} else {
 		// Local base profile
@@ -395,6 +409,12 @@ func (r *Reconciler) resolveSyscallsForProfile(
 		}
 
 		baseProfile = profile
+
+		l.Info(
+			"Set remote base seccomp profile",
+			"baseProfile", baseProfile.Name,
+			"seccompProfile", sp.Name,
+		)
 	}
 
 	newSyscalls, err := util.UnionSyscalls(baseProfile.Spec.Syscalls, inputSyscalls)
@@ -422,12 +442,14 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return r.reconcileDeletion(ctx, sp, nodeStatus)
 	}
 
+	l.Info("Merge possible base profile")
 	outputProfile, err := r.mergeBaseProfile(ctx, sp, l)
 	if err != nil {
 		l.Error(err, "merge base profile")
 		return reconcile.Result{RequeueAfter: wait}, nil
 	}
 
+	l.Info("Validate profile")
 	if err := r.validateProfile(ctx, outputProfile); err != nil {
 		l.Error(err, "validate profile")
 		r.metrics.IncSeccompProfileError(reasonProfileNotAllowed)
@@ -435,6 +457,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{Requeue: false}, fmt.Errorf("validating profile: %w", err)
 	}
 
+	l.Info("Got profile content")
 	profileContent, err := json.Marshal(outputProfile.Spec)
 	if err != nil {
 		l.Error(err, "cannot validate profile "+profileName)
@@ -453,6 +476,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 	}
 
 	if !exists {
+		l.Info("Creating node status")
 		if err := nodeStatus.Create(ctx); err != nil {
 			return reconcile.Result{}, fmt.Errorf("cannot ensure node status: %w", err)
 		}
@@ -465,6 +489,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{}, nil
 	}
 
+	l.Info("Saving profile to disk")
 	updated, err := r.save(profilePath, profileContent)
 	if err != nil {
 		l.Error(err, "cannot save profile into disk")
@@ -474,10 +499,12 @@ func (r *Reconciler) reconcileSeccompProfile(
 	}
 	if updated {
 		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
+		l.Info(evstr)
 		r.metrics.IncSeccompProfileUpdate()
 		r.record.Event(sp, util.EventTypeNormal, reasonSavedProfile, evstr)
 	}
 
+	l.Info("Checking node status")
 	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, statusv1alpha1.ProfileStateInstalled)
 	if getErr != nil {
 		l.Error(getErr, "couldn't get current status")
@@ -489,6 +516,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{}, nil
 	}
 
+	l.Info("Set node status to installed")
 	if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInstalled); err != nil {
 		l.Error(err, "cannot update node status")
 		r.metrics.IncSeccompProfileError(reasonCannotUpdateStatus)
@@ -571,7 +599,7 @@ func (r *Reconciler) handleDeletion(sp *seccompprofileapi.SeccompProfile) error 
 }
 
 func (r *Reconciler) validateProfile(ctx context.Context, profile *seccompprofileapi.SeccompProfile) error {
-	spod, err := common.GetSPOD(ctx, r.client)
+	spod, err := r.GetSPOD(ctx, r.client)
 	if err != nil {
 		return fmt.Errorf("retrieving the SPOD configuration: %w", err)
 	}

@@ -28,6 +28,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	"sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 )
@@ -49,13 +50,27 @@ type FakeImpl struct {
 		result1 *v1beta1.SeccompProfile
 		result2 error
 	}
+	GetSPODStub        func(context.Context, client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error)
+	getSPODMutex       sync.RWMutex
+	getSPODArgsForCall []struct {
+		arg1 context.Context
+		arg2 client.Client
+	}
+	getSPODReturns struct {
+		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result2 error
+	}
+	getSPODReturnsOnCall map[int]struct {
+		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result2 error
+	}
 	IncSeccompProfileErrorStub        func(*metrics.Metrics, string)
 	incSeccompProfileErrorMutex       sync.RWMutex
 	incSeccompProfileErrorArgsForCall []struct {
 		arg1 *metrics.Metrics
 		arg2 string
 	}
-	PullStub        func(context.Context, logr.Logger, string, string, string, *v1.Platform) (*artifact.PullResult, error)
+	PullStub        func(context.Context, logr.Logger, string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)
 	pullMutex       sync.RWMutex
 	pullArgsForCall []struct {
 		arg1 context.Context
@@ -64,6 +79,7 @@ type FakeImpl struct {
 		arg4 string
 		arg5 string
 		arg6 *v1.Platform
+		arg7 bool
 	}
 	pullReturns struct {
 		result1 *artifact.PullResult
@@ -175,6 +191,71 @@ func (fake *FakeImpl) ClientGetProfileReturnsOnCall(i int, result1 *v1beta1.Secc
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) GetSPOD(arg1 context.Context, arg2 client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error) {
+	fake.getSPODMutex.Lock()
+	ret, specificReturn := fake.getSPODReturnsOnCall[len(fake.getSPODArgsForCall)]
+	fake.getSPODArgsForCall = append(fake.getSPODArgsForCall, struct {
+		arg1 context.Context
+		arg2 client.Client
+	}{arg1, arg2})
+	stub := fake.GetSPODStub
+	fakeReturns := fake.getSPODReturns
+	fake.recordInvocation("GetSPOD", []interface{}{arg1, arg2})
+	fake.getSPODMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetSPODCallCount() int {
+	fake.getSPODMutex.RLock()
+	defer fake.getSPODMutex.RUnlock()
+	return len(fake.getSPODArgsForCall)
+}
+
+func (fake *FakeImpl) GetSPODCalls(stub func(context.Context, client.Client) (*v1alpha1.SecurityProfilesOperatorDaemon, error)) {
+	fake.getSPODMutex.Lock()
+	defer fake.getSPODMutex.Unlock()
+	fake.GetSPODStub = stub
+}
+
+func (fake *FakeImpl) GetSPODArgsForCall(i int) (context.Context, client.Client) {
+	fake.getSPODMutex.RLock()
+	defer fake.getSPODMutex.RUnlock()
+	argsForCall := fake.getSPODArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) GetSPODReturns(result1 *v1alpha1.SecurityProfilesOperatorDaemon, result2 error) {
+	fake.getSPODMutex.Lock()
+	defer fake.getSPODMutex.Unlock()
+	fake.GetSPODStub = nil
+	fake.getSPODReturns = struct {
+		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetSPODReturnsOnCall(i int, result1 *v1alpha1.SecurityProfilesOperatorDaemon, result2 error) {
+	fake.getSPODMutex.Lock()
+	defer fake.getSPODMutex.Unlock()
+	fake.GetSPODStub = nil
+	if fake.getSPODReturnsOnCall == nil {
+		fake.getSPODReturnsOnCall = make(map[int]struct {
+			result1 *v1alpha1.SecurityProfilesOperatorDaemon
+			result2 error
+		})
+	}
+	fake.getSPODReturnsOnCall[i] = struct {
+		result1 *v1alpha1.SecurityProfilesOperatorDaemon
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) IncSeccompProfileError(arg1 *metrics.Metrics, arg2 string) {
 	fake.incSeccompProfileErrorMutex.Lock()
 	fake.incSeccompProfileErrorArgsForCall = append(fake.incSeccompProfileErrorArgsForCall, struct {
@@ -208,7 +289,7 @@ func (fake *FakeImpl) IncSeccompProfileErrorArgsForCall(i int) (*metrics.Metrics
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string, arg6 *v1.Platform) (*artifact.PullResult, error) {
+func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, arg4 string, arg5 string, arg6 *v1.Platform, arg7 bool) (*artifact.PullResult, error) {
 	fake.pullMutex.Lock()
 	ret, specificReturn := fake.pullReturnsOnCall[len(fake.pullArgsForCall)]
 	fake.pullArgsForCall = append(fake.pullArgsForCall, struct {
@@ -218,13 +299,14 @@ func (fake *FakeImpl) Pull(arg1 context.Context, arg2 logr.Logger, arg3 string, 
 		arg4 string
 		arg5 string
 		arg6 *v1.Platform
-	}{arg1, arg2, arg3, arg4, arg5, arg6})
+		arg7 bool
+	}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
 	stub := fake.PullStub
 	fakeReturns := fake.pullReturns
-	fake.recordInvocation("Pull", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6})
+	fake.recordInvocation("Pull", []interface{}{arg1, arg2, arg3, arg4, arg5, arg6, arg7})
 	fake.pullMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3, arg4, arg5, arg6)
+		return stub(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -238,17 +320,17 @@ func (fake *FakeImpl) PullCallCount() int {
 	return len(fake.pullArgsForCall)
 }
 
-func (fake *FakeImpl) PullCalls(stub func(context.Context, logr.Logger, string, string, string, *v1.Platform) (*artifact.PullResult, error)) {
+func (fake *FakeImpl) PullCalls(stub func(context.Context, logr.Logger, string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)) {
 	fake.pullMutex.Lock()
 	defer fake.pullMutex.Unlock()
 	fake.PullStub = stub
 }
 
-func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, logr.Logger, string, string, string, *v1.Platform) {
+func (fake *FakeImpl) PullArgsForCall(i int) (context.Context, logr.Logger, string, string, string, *v1.Platform, bool) {
 	fake.pullMutex.RLock()
 	defer fake.pullMutex.RUnlock()
 	argsForCall := fake.pullArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5, argsForCall.arg6, argsForCall.arg7
 }
 
 func (fake *FakeImpl) PullReturns(result1 *artifact.PullResult, result2 error) {
@@ -440,6 +522,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.invocationsMutex.RUnlock()
 	fake.clientGetProfileMutex.RLock()
 	defer fake.clientGetProfileMutex.RUnlock()
+	fake.getSPODMutex.RLock()
+	defer fake.getSPODMutex.RUnlock()
 	fake.incSeccompProfileErrorMutex.RLock()
 	defer fake.incSeccompProfileErrorMutex.RUnlock()
 	fake.pullMutex.RLock()

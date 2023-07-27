@@ -295,6 +295,11 @@ type SPODSpec struct {
 	// +optional
 	// +kubebuilder:default="system-node-critical"
 	PriorityClassName string `json:"priorityClassName,omitempty"`
+
+	// DisableOCIArtifactSignatureVerification can be used to disable OCI
+	// artifact signature verification.
+	// +optional
+	DisableOCIArtifactSignatureVerification bool `json:"disableOciArtifactSignatureVerification"`
 }
 
 // SPODState defines the state that the spod is in.

@@ -32,12 +32,16 @@ type defaultImpl struct{}
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
 type impl interface {
-	Pull(string, string, string, *v1.Platform) (*artifact.PullResult, error)
+	Pull(string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)
 	WriteFile(string, []byte, os.FileMode) error
 }
 
-func (*defaultImpl) Pull(from, username, password string, platform *v1.Platform) (*artifact.PullResult, error) {
-	return artifact.New(logr.New(&cli.LogSink{})).Pull(context.Background(), from, username, password, platform)
+func (*defaultImpl) Pull(
+	from, username, password string, platform *v1.Platform, disableSignatureVerification bool,
+) (*artifact.PullResult, error) {
+	return artifact.New(logr.New(&cli.LogSink{})).Pull(
+		context.Background(), from, username, password, platform, disableSignatureVerification,
+	)
 }
 
 func (*defaultImpl) WriteFile(name string, data []byte, perm os.FileMode) error {

@@ -758,6 +758,8 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			t.Parallel()
 
 			mock := &seccompprofilefakes.FakeImpl{}
+			mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{}, nil)
+
 			sp := prepare(mock)
 
 			sut, ok := NewController().(*Reconciler)

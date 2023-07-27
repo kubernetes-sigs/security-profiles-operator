@@ -930,6 +930,10 @@ spec:
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                     type: object
                 type: object
+              disableOciArtifactSignatureVerification:
+                description: DisableOCIArtifactSignatureVerification can be used to
+                  disable OCI artifact signature verification.
+                type: boolean
               enableAppArmor:
                 description: tells the operator whether or not to enable AppArmor
                   support for this SPOD instance.
