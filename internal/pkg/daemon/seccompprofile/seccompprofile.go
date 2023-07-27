@@ -59,7 +59,7 @@ import (
 
 const (
 	// default reconcile timeout.
-	reconcileTimeout = 1 * time.Minute
+	reconcileTimeout = 5 * time.Minute
 
 	wait = 10 * time.Second
 
