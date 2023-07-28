@@ -341,7 +341,7 @@ var webhookDeployment = &appsv1.Deployment{
 						},
 						Env: []corev1.EnvVar{
 							{
-								Name: "OPERATOR_NAMESPACE",
+								Name: config.OperatorNamespaceEnvKey,
 								ValueFrom: &corev1.EnvVarSource{
 									FieldRef: &corev1.ObjectFieldSelector{
 										FieldPath: "metadata.namespace",
