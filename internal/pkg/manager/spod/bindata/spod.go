@@ -369,7 +369,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								},
 							},
 							{
-								Name: "OPERATOR_NAMESPACE",
+								Name: config.OperatorNamespaceEnvKey,
 								ValueFrom: &corev1.EnvVarSource{
 									FieldRef: &corev1.ObjectFieldSelector{
 										FieldPath: "metadata.namespace",
