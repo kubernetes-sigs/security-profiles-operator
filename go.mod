@@ -9,7 +9,7 @@ require (
 	github.com/cert-manager/cert-manager v1.12.3
 	github.com/containers/common v0.55.2
 	github.com/go-logr/logr v1.2.4
-	github.com/google/go-containerregistry v0.15.2
+	github.com/google/go-containerregistry v0.16.1
 	github.com/imdario/mergo v0.3.16
 	github.com/jellydator/ttlcache/v3 v3.0.1
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.6.2
@@ -113,7 +113,7 @@ require (
 	github.com/digitorus/pkcs7 v0.0.0-20221212123742-001c36b64ec3 // indirect
 	github.com/digitorus/timestamp v0.0.0-20221019182153-ef3b63b79b31 // indirect
 	github.com/dimchansky/utfbom v1.1.1 // indirect
-	github.com/docker/cli v23.0.5+incompatible // indirect
+	github.com/docker/cli v24.0.0+incompatible // indirect
 	github.com/docker/distribution v2.8.2+incompatible // indirect
 	github.com/docker/docker v24.0.2+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
