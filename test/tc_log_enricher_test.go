@@ -50,7 +50,7 @@ spec:
 	defer e.kubectl("delete", "sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
-	e.waitFor("condition=ready", "sp", profileName)
+	e.waitForProfile(profileName)
 
 	e.logf("Creating test pod")
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
@@ -75,7 +75,7 @@ spec:
 	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
 	defer podCleanup()
 	defer e.kubectl("delete", "pod", podName)
-	e.waitFor("condition=ready", "sp", profileName)
+	e.waitForProfile(profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
 	const max = 20

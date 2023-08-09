@@ -651,6 +651,12 @@ func (e *e2e) waitFor(args ...string) {
 	)
 }
 
+func (e *e2e) waitForProfile(args ...string) {
+	e.waitFor(
+		append([]string{"jsonpath={.status.status}=Installed", "sp"}, args...)...,
+	)
+}
+
 func (e *e2e) waitInOperatorNSFor(args ...string) {
 	e.kubectlOperatorNS(
 		append([]string{"wait", "--timeout", defaultWaitTimeout, "--for"}, args...)...,
