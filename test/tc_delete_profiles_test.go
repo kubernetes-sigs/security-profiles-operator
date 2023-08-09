@@ -121,7 +121,7 @@ spec:
 	profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
 
 	e.logf("Waiting for profile to be reconciled")
-	e.waitFor("condition=ready", "seccompprofile", deleteProfileName)
+	e.waitForProfile(deleteProfileName)
 
 	e.logf("Verifying profile exists")
 	time.Sleep(time.Second)
@@ -163,7 +163,7 @@ spec:
 		e.logf("> > Running test case for deleted profiles and pods: %s", testCase.description)
 		profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 		defer profileCleanup() //nolint:gocritic // TODO: is this intentional?
-		e.waitFor("condition=ready", "seccompprofile", deleteProfileName)
+		e.waitForProfile(deleteProfileName)
 		e.logf("Create fake node status for profile")
 		e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
 		podCleanup := e.writeAndCreate(fmt.Sprintf(testCase.podManifest, namespace), "delete-pod*.yaml")

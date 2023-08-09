@@ -48,7 +48,7 @@ func (e *e2e) testCaseSameProfileMultipleNs() {
 	defer deleteCurNsFn()
 
 	e.logf("Waiting for profile in the operator NS to be reconciled")
-	e.waitInOperatorNSFor("condition=ready", "sp", dupProfileName)
+	e.waitForProfile(dupProfileName, "-n", config.OperatorName)
 
 	e.logf("Create a new NS")
 	e.kubectl("create", "ns", dupNsName)

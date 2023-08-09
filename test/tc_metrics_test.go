@@ -52,7 +52,7 @@ spec:
 	cleanup := e.writeAndCreate(profile, "metrics-profile*.yaml")
 	defer cleanup()
 	e.logf("Waiting for profile to be reconciled")
-	e.waitFor("condition=ready", "sp", profileName)
+	e.waitForProfile(profileName)
 
 	e.logf("Deleting test profile")
 	e.kubectl("delete", "sp", profileName)
