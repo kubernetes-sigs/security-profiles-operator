@@ -45,7 +45,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 	defer deleteFn()
 
 	e.logf("Waiting for profile to be reconciled")
-	e.waitFor("condition=ready", "sp", policyName)
+	e.waitForProfile(policyName)
 
 	e.logf("List all node statuses for policy by ID")
 	id := e.getSeccompPolicyID(policyName)

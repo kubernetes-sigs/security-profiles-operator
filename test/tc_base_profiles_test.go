@@ -85,7 +85,7 @@ spec:
 	defer e.kubectl("delete", "-f", helloProfileFile.Name())
 
 	e.logf("Waiting for profile to be reconciled")
-	e.waitFor("condition=ready", "sp", "hello")
+	e.waitForProfile("hello")
 
 	e.logf("Creating hello-world pod")
 	helloPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
