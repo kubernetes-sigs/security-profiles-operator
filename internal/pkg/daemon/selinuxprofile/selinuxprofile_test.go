@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
-//nolint:gocognit // complexity is fine for a test
 func Test_selinuxProfileHandler(t *testing.T) {
 	t.Parallel()
 	ns := "security-profiles-operator"
