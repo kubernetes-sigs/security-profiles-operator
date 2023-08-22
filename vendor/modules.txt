@@ -684,7 +684,7 @@ github.com/inconshreveable/mousetrap
 # github.com/jedisct1/go-minisign v0.0.0-20211028175153-1c139d1cc84b
 ## explicit; go 1.17
 github.com/jedisct1/go-minisign
-# github.com/jellydator/ttlcache/v3 v3.0.1
+# github.com/jellydator/ttlcache/v3 v3.1.0
 ## explicit; go 1.18
 github.com/jellydator/ttlcache/v3
 # github.com/jmespath/go-jmespath v0.4.0
