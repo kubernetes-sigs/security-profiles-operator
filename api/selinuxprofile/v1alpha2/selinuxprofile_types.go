@@ -18,11 +18,13 @@ package v1alpha2
 
 import (
 	"context"
+	"sort"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -77,10 +79,30 @@ func (lk LabelKey) String() string {
 
 type ObjectClassKey string
 
+func (ock ObjectClassKey) String() string {
+	return string(ock)
+}
+
 type PermissionSet []string
 
 // Allow defines the allow policy for the profile.
 type Allow map[LabelKey]map[ObjectClassKey]PermissionSet
+
+func SortLabelKeys(allow Allow) []LabelKey {
+	keys := util.MapKeys(allow)
+	sort.SliceStable(keys, func(i, j int) bool {
+		return keys[i].String() < keys[j].String()
+	})
+	return keys
+}
+
+func SortObjectClassKeys(ock map[ObjectClassKey]PermissionSet) []ObjectClassKey {
+	keys := util.MapKeys(ock)
+	sort.SliceStable(keys, func(i, j int) bool {
+		return keys[i].String() < keys[j].String()
+	})
+	return keys
+}
 
 // SelinuxProfileStatus defines the observed state of SelinuxProfile.
 type SelinuxProfileStatus struct {

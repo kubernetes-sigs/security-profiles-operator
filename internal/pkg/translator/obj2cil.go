@@ -58,11 +58,13 @@ func Object2CIL(
 		cilbuilder.WriteString(typePermissive)
 		cilbuilder.WriteString("\n")
 	}
-	for ttype, tclassMap := range sp.Spec.Allow {
-		for tclass, perms := range tclassMap {
-			cilbuilder.WriteString(getCILAllowLine(sp, ttype, tclass, perms))
+
+	for _, ttype := range selxv1alpha2.SortLabelKeys(sp.Spec.Allow) {
+		for _, tclass := range selxv1alpha2.SortObjectClassKeys(sp.Spec.Allow[ttype]) {
+			cilbuilder.WriteString(getCILAllowLine(sp, ttype, tclass, sp.Spec.Allow[ttype][tclass]))
 		}
 	}
+
 	cilbuilder.WriteString(getCILEnd())
 	return cilbuilder.String()
 }
