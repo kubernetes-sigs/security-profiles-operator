@@ -320,9 +320,7 @@ func (r *ReconcileSelinux) reconcilePolicyFile(
 	}
 	policyContent := []byte(cil)
 
-	l.Info("Writing to policy file", "policyPath", policyPath)
-
-	if err := writeFileIfDiffers(policyPath, policyContent); err != nil {
+	if err := writeFileIfDiffers(policyPath, policyContent, l); err != nil {
 		return fmt.Errorf("writing policy file: %w", err)
 	}
 
@@ -475,7 +473,7 @@ func selinuxdGetRequest(ctx context.Context, url string) (*http.Response, error)
 // Reopening the same file may seem wasteful and even look like a TOCTOU issue, but the policy
 // drop dir is private to this pod, but mostly just calling a single write is much easier codepath
 // than mucking around with seeks and truncates to account for all the corner cases.
-func writeFileIfDiffers(filePath string, contents []byte) error {
+func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) error {
 	const filePermissions = 0o600
 	file, err := os.OpenFile(filePath, os.O_RDONLY, filePermissions)
 	if os.IsNotExist(err) {
@@ -494,6 +492,8 @@ func writeFileIfDiffers(filePath string, contents []byte) error {
 	if bytes.Equal(existing, contents) {
 		return nil
 	}
+
+	l.Info("Writing to policy file", "policyPath", filePath)
 
 	return os.WriteFile(filePath, contents, filePermissions)
 }
