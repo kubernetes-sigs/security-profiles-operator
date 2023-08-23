@@ -41,6 +41,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
@@ -303,7 +305,7 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	sigHandler := ctrl.SetupSignalHandler()
 
 	ctrlOpts := manager.Options{
-		SyncPeriod:       &sync,
+		Cache:            cache.Options{SyncPeriod: &sync},
 		LeaderElection:   true,
 		LeaderElectionID: "security-profiles-operator-lock",
 	}
@@ -378,11 +380,14 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 	// More Info: https://godoc.org/github.com/kubernetes-sigs/controller-runtime/pkg/cache#MultiNamespacedCacheBuilder
 	// Adding "" adds cluster namespaced resources
 	if strings.Contains(namespace, ",") {
-		opts.Cache.Namespaces = namespaceList
+		opts.Cache.DefaultNamespaces = make(map[string]cache.Config, len(namespaceList))
+		for _, ns := range namespaceList {
+			opts.Cache.DefaultNamespaces[ns] = cache.Config{}
+		}
 		setupLog.Info("watching multiple namespaces", "namespaces", namespaceList)
 	} else {
 		// listen to a specific namespace only
-		opts.Cache.Namespaces = []string{namespace}
+		opts.Cache.DefaultNamespaces = map[string]cache.Config{namespace: {}}
 		setupLog.Info("watching single namespace", "namespace", namespace)
 	}
 }
@@ -445,19 +450,6 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 
 	sigHandler := ctrl.SetupSignalHandler()
 
-	ctrlOpts := ctrl.Options{
-		SyncPeriod:             &sync,
-		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
-		NewCache:               newMemoryOptimizedCache(ctx),
-	}
-
-	setControllerOptionsForNamespaces(&ctrlOpts)
-
-	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
-	if err != nil {
-		return fmt.Errorf("create manager: %w", err)
-	}
-
 	// Setup metrics
 	met := metrics.New()
 	if err := met.Register(); err != nil {
@@ -467,8 +459,22 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 
-	if err := mgr.AddMetricsExtraHandler(metrics.HandlerPath, met.Handler()); err != nil {
-		return fmt.Errorf("add metrics extra handler: %w", err)
+	ctrlOpts := ctrl.Options{
+		Cache:                  cache.Options{SyncPeriod: &sync},
+		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
+		NewCache:               newMemoryOptimizedCache(ctx),
+		Metrics: metricsserver.Options{
+			ExtraHandlers: map[string]http.Handler{
+				metrics.HandlerPath: met.Handler(),
+			},
+		},
+	}
+
+	setControllerOptionsForNamespaces(&ctrlOpts)
+
+	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
+	if err != nil {
+		return fmt.Errorf("create manager: %w", err)
 	}
 
 	// This API provides status which is used by both seccomp and selinux
@@ -533,11 +539,13 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	}
 
 	port := ctx.Int("port")
+
+	webhookServer := webhook.NewServer(webhook.Options{Port: port})
 	ctrlOpts := manager.Options{
-		SyncPeriod:       &sync,
+		Cache:            cache.Options{SyncPeriod: &sync},
 		LeaderElection:   true,
 		LeaderElectionID: "security-profiles-operator-webhook-lock",
-		Port:             port,
+		WebhookServer:    webhookServer,
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
