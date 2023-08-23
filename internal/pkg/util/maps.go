@@ -16,7 +16,7 @@ limitations under the License.
 
 package util
 
-// To avoid having to use experimental library imports, the below is taken from 
+// To avoid having to use experimental library imports, the below is taken from
 // https://cs.opensource.google/go/x/exp/+/master:maps/maps.go
 
 // Keys returns the keys of the map m.
