@@ -56,7 +56,6 @@ linters:
     - goheader
     - goimports
     - gomnd
-    - gomoddirectives
     - gomodguard
     - goprintffuncname
     - gosec
@@ -109,6 +108,7 @@ linters:
     # - forbidigo
     # - funlen
     # - gochecknoglobals
+    # - gomoddirectives
     # - interfacebloat
     # - ireturn
     # - maintidx
