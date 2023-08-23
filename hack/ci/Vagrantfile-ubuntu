@@ -30,15 +30,15 @@ Vagrant.configure("2") do |config|
         tar xfz - -C /usr/local
 
       # Kubernetes
-      curl -fsSLo /etc/apt/keyrings/kubernetes-archive-keyring.asc https://packages.cloud.google.com/apt/doc/apt-key.gpg
-      echo "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.asc] https://apt.kubernetes.io/ kubernetes-xenial main" > /etc/apt/sources.list.d/kubernetes.list
+      KUBERNETES_VERSION=v1.28
+      curl -fsSL https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
       apt-get update
-      KUBERNETES_VERSION=1.27.2-00
       apt-get install -y \
         build-essential \
-        kubelet=$KUBERNETES_VERSION \
-        kubeadm=$KUBERNETES_VERSION \
-        kubectl=$KUBERNETES_VERSION \
+        kubelet \
+        kubeadm \
+        kubectl \
         podman \
         jq \
         moreutils \
