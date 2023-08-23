@@ -82,7 +82,7 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.27.2
+    version: 1.28
     refPaths:
     - path: hack/ci/install-kubernetes.sh
       match: VERSION
