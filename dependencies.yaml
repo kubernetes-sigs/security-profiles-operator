@@ -122,7 +122,7 @@ dependencies:
       match: registry.access.redhat.com/ubi8/ubi-minimal
 
   - name: ubi8-go-toolset
-    version: sha256:2377bee97e9acfffa66a66fba87df001588576a32833b3f0ac065929da232b03
+    version: sha256:e059e813125f3beee236b0499cfae8d68716d925cffda327e4a09b465832960b
     refPaths:
     - path: Dockerfile.ubi
       match: registry.access.redhat.com/ubi8/go-toolset
