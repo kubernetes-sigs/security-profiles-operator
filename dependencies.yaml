@@ -84,13 +84,13 @@ dependencies:
   - name: e2e-kubernetes
     version: 1.28
     refPaths:
-    - path: hack/ci/install-kubernetes.sh
-      match: VERSION
+    - path: hack/ci/Vagrantfile-fedora
+      match: KUBERNETES_VERSION
     - path: hack/ci/Vagrantfile-ubuntu
       match: KUBERNETES_VERSION
 
   - name: e2e-fedora
-    version: 36
+    version: 38
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: fedora
@@ -198,12 +198,6 @@ dependencies:
       match: baseProfileNameRunc
     - path: installation-usage.md
       match: baseProfileName
-
-  - name: audit2rbac
-    version: v0.10.0
-    refPaths:
-    - path: hack/ci/install-audit2rbac.sh
-      match: VERSION
 
   - name: cosign
     version: v2.0.2
