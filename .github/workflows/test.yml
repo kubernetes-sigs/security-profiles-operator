@@ -77,7 +77,7 @@ jobs:
         run: make vagrant-up-fedora
       - name: Show environment information
         run: |
-          $RUN kubectl wait --for=condition=ready --timeout=60s node 127.0.0.1
+          $RUN kubectl wait --for=condition=ready --timeout=60s node fedora
           $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
@@ -87,10 +87,8 @@ jobs:
       - name: Run Flaky E2E tests
         continue-on-error: true
         run: |
-          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-fedora.sh"
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
           $RUN hack/ci/e2e-fedora.sh
-      - name: Print generated RBAC rules
-        run: $RUN hack/ci/print-rbac.sh
 
   e2e-ubuntu:
     needs: image
@@ -124,7 +122,7 @@ jobs:
       - name: Run Flaky E2E tests
         continue-on-error: true
         run: |
-          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-ubuntu.sh"
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
           $RUN hack/ci/e2e-ubuntu.sh
 
   e2e-flatcar:

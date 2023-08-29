@@ -15,4 +15,4 @@
 
 set -euo pipefail
 
-exec vagrant ssh -- sudo "bash -c 'cd /vagrant && . hack/ci/env-fedora.sh && $*'"
+exec vagrant ssh -- sudo "bash -c 'cd /vagrant && . hack/ci/env.sh && $*'"
