@@ -15,4 +15,4 @@
 
 set -euo pipefail
 
-exec vagrant ssh -- "bash -c 'cd /vagrant && . hack/ci/env-ubuntu.sh && $*'"
+exec vagrant ssh -- "bash -c 'cd /vagrant && . hack/ci/env.sh && $*'"
