@@ -24,8 +24,8 @@ Vagrant.configure("2") do |config|
       # Use a non-localhost DNS to avoid cluster DNS lookup loops
       echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
-      GO_VERSION=1.20
-      curl -sSfL -o- https://dl.google.com/go/go"$GO_VERSION".linux-amd64.tar.gz |
+      GO_VERSION=1.21
+      curl -sSfL -o- https://go.dev/dl/go$GO_VERSION.0.linux-amd64.tar.gz |
         tar xfz - -C /usr/local
 
       echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
