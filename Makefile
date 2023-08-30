@@ -19,7 +19,7 @@ REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 5.1.0
 OPERATOR_SDK_VERSION ?= v1.25.0
 ZEITGEIST_VERSION = v0.4.1
-CI_IMAGE ?= golang:1.20
+CI_IMAGE ?= golang:1.21
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
