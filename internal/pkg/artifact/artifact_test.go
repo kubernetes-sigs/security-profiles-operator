@@ -140,10 +140,10 @@ func TestPush(t *testing.T) {
 			},
 		},
 		{
-			name: "failure on Pack",
+			name: "failure on PackManifest",
 			prepare: func(mock *artifactfakes.FakeImpl) {
 				mock.StoreAddReturns(defaultDescriptor(), nil)
-				mock.PackReturns(defaultDescriptor(), errTest)
+				mock.PackManifestReturns(defaultDescriptor(), errTest)
 			},
 			assert: func(err error) {
 				require.ErrorIs(t, err, errTest)

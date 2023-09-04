@@ -50,7 +50,9 @@ type impl interface {
 	YamlUnmarshal([]byte, interface{}) error
 	StoreAdd(context.Context, *file.Store, string, string, string) (ocispec.Descriptor, error)
 	StoreTag(context.Context, *file.Store, ocispec.Descriptor, string) error
-	Pack(context.Context, content.Pusher, string, []ocispec.Descriptor, oras.PackOptions) (ocispec.Descriptor, error)
+	PackManifest(
+		context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions,
+	) (ocispec.Descriptor, error)
 	ClientSecret(options.OIDCOptions) (string, error)
 	SignCmd(*options.RootOptions, options.KeyOpts, options.SignOptions, []string) error
 	VerifyCmd(context.Context, verify.VerifyCommand, string) error
@@ -112,11 +114,12 @@ func (*defaultImpl) StoreTag(
 	return store.Tag(ctx, desc, ref)
 }
 
-func (*defaultImpl) Pack(
-	ctx context.Context, pusher content.Pusher, artifactType string,
-	blobs []ocispec.Descriptor, opts oras.PackOptions,
+func (*defaultImpl) PackManifest(
+	ctx context.Context, pusher content.Pusher,
+	packManifestVersion oras.PackManifestVersion,
+	artifactType string, opts oras.PackManifestOptions,
 ) (ocispec.Descriptor, error) {
-	return oras.Pack(ctx, pusher, artifactType, blobs, opts)
+	return oras.PackManifest(ctx, pusher, packManifestVersion, artifactType, opts)
 }
 
 //nolint:gocritic // intentional for the mock

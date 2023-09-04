@@ -127,20 +127,20 @@ type FakeImpl struct {
 		result1 *remote.Repository
 		result2 error
 	}
-	PackStub        func(context.Context, content.Pusher, string, []v1.Descriptor, oras.PackOptions) (v1.Descriptor, error)
-	packMutex       sync.RWMutex
-	packArgsForCall []struct {
+	PackManifestStub        func(context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions) (v1.Descriptor, error)
+	packManifestMutex       sync.RWMutex
+	packManifestArgsForCall []struct {
 		arg1 context.Context
 		arg2 content.Pusher
-		arg3 string
-		arg4 []v1.Descriptor
-		arg5 oras.PackOptions
+		arg3 oras.PackManifestVersion
+		arg4 string
+		arg5 oras.PackManifestOptions
 	}
-	packReturns struct {
+	packManifestReturns struct {
 		result1 v1.Descriptor
 		result2 error
 	}
-	packReturnsOnCall map[int]struct {
+	packManifestReturnsOnCall map[int]struct {
 		result1 v1.Descriptor
 		result2 error
 	}
@@ -707,25 +707,20 @@ func (fake *FakeImpl) NewRepositoryReturnsOnCall(i int, result1 *remote.Reposito
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) Pack(arg1 context.Context, arg2 content.Pusher, arg3 string, arg4 []v1.Descriptor, arg5 oras.PackOptions) (v1.Descriptor, error) {
-	var arg4Copy []v1.Descriptor
-	if arg4 != nil {
-		arg4Copy = make([]v1.Descriptor, len(arg4))
-		copy(arg4Copy, arg4)
-	}
-	fake.packMutex.Lock()
-	ret, specificReturn := fake.packReturnsOnCall[len(fake.packArgsForCall)]
-	fake.packArgsForCall = append(fake.packArgsForCall, struct {
+func (fake *FakeImpl) PackManifest(arg1 context.Context, arg2 content.Pusher, arg3 oras.PackManifestVersion, arg4 string, arg5 oras.PackManifestOptions) (v1.Descriptor, error) {
+	fake.packManifestMutex.Lock()
+	ret, specificReturn := fake.packManifestReturnsOnCall[len(fake.packManifestArgsForCall)]
+	fake.packManifestArgsForCall = append(fake.packManifestArgsForCall, struct {
 		arg1 context.Context
 		arg2 content.Pusher
-		arg3 string
-		arg4 []v1.Descriptor
-		arg5 oras.PackOptions
-	}{arg1, arg2, arg3, arg4Copy, arg5})
-	stub := fake.PackStub
-	fakeReturns := fake.packReturns
-	fake.recordInvocation("Pack", []interface{}{arg1, arg2, arg3, arg4Copy, arg5})
-	fake.packMutex.Unlock()
+		arg3 oras.PackManifestVersion
+		arg4 string
+		arg5 oras.PackManifestOptions
+	}{arg1, arg2, arg3, arg4, arg5})
+	stub := fake.PackManifestStub
+	fakeReturns := fake.packManifestReturns
+	fake.recordInvocation("PackManifest", []interface{}{arg1, arg2, arg3, arg4, arg5})
+	fake.packManifestMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2, arg3, arg4, arg5)
 	}
@@ -735,46 +730,46 @@ func (fake *FakeImpl) Pack(arg1 context.Context, arg2 content.Pusher, arg3 strin
 	return fakeReturns.result1, fakeReturns.result2
 }
 
-func (fake *FakeImpl) PackCallCount() int {
-	fake.packMutex.RLock()
-	defer fake.packMutex.RUnlock()
-	return len(fake.packArgsForCall)
+func (fake *FakeImpl) PackManifestCallCount() int {
+	fake.packManifestMutex.RLock()
+	defer fake.packManifestMutex.RUnlock()
+	return len(fake.packManifestArgsForCall)
 }
 
-func (fake *FakeImpl) PackCalls(stub func(context.Context, content.Pusher, string, []v1.Descriptor, oras.PackOptions) (v1.Descriptor, error)) {
-	fake.packMutex.Lock()
-	defer fake.packMutex.Unlock()
-	fake.PackStub = stub
+func (fake *FakeImpl) PackManifestCalls(stub func(context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions) (v1.Descriptor, error)) {
+	fake.packManifestMutex.Lock()
+	defer fake.packManifestMutex.Unlock()
+	fake.PackManifestStub = stub
 }
 
-func (fake *FakeImpl) PackArgsForCall(i int) (context.Context, content.Pusher, string, []v1.Descriptor, oras.PackOptions) {
-	fake.packMutex.RLock()
-	defer fake.packMutex.RUnlock()
-	argsForCall := fake.packArgsForCall[i]
+func (fake *FakeImpl) PackManifestArgsForCall(i int) (context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions) {
+	fake.packManifestMutex.RLock()
+	defer fake.packManifestMutex.RUnlock()
+	argsForCall := fake.packManifestArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5
 }
 
-func (fake *FakeImpl) PackReturns(result1 v1.Descriptor, result2 error) {
-	fake.packMutex.Lock()
-	defer fake.packMutex.Unlock()
-	fake.PackStub = nil
-	fake.packReturns = struct {
+func (fake *FakeImpl) PackManifestReturns(result1 v1.Descriptor, result2 error) {
+	fake.packManifestMutex.Lock()
+	defer fake.packManifestMutex.Unlock()
+	fake.PackManifestStub = nil
+	fake.packManifestReturns = struct {
 		result1 v1.Descriptor
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) PackReturnsOnCall(i int, result1 v1.Descriptor, result2 error) {
-	fake.packMutex.Lock()
-	defer fake.packMutex.Unlock()
-	fake.PackStub = nil
-	if fake.packReturnsOnCall == nil {
-		fake.packReturnsOnCall = make(map[int]struct {
+func (fake *FakeImpl) PackManifestReturnsOnCall(i int, result1 v1.Descriptor, result2 error) {
+	fake.packManifestMutex.Lock()
+	defer fake.packManifestMutex.Unlock()
+	fake.PackManifestStub = nil
+	if fake.packManifestReturnsOnCall == nil {
+		fake.packManifestReturnsOnCall = make(map[int]struct {
 			result1 v1.Descriptor
 			result2 error
 		})
 	}
-	fake.packReturnsOnCall[i] = struct {
+	fake.packManifestReturnsOnCall[i] = struct {
 		result1 v1.Descriptor
 		result2 error
 	}{result1, result2}
@@ -1318,8 +1313,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.mkdirTempMutex.RUnlock()
 	fake.newRepositoryMutex.RLock()
 	defer fake.newRepositoryMutex.RUnlock()
-	fake.packMutex.RLock()
-	defer fake.packMutex.RUnlock()
+	fake.packManifestMutex.RLock()
+	defer fake.packManifestMutex.RUnlock()
 	fake.parseReferenceMutex.RLock()
 	defer fake.parseReferenceMutex.RUnlock()
 	fake.readFileMutex.RLock()
