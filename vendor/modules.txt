@@ -1859,7 +1859,7 @@ k8s.io/utils/net
 k8s.io/utils/pointer
 k8s.io/utils/strings/slices
 k8s.io/utils/trace
-# oras.land/oras-go/v2 v2.2.1
+# oras.land/oras-go/v2 v2.3.0
 ## explicit; go 1.19
 oras.land/oras-go/v2
 oras.land/oras-go/v2/content
@@ -1874,6 +1874,7 @@ oras.land/oras-go/v2/internal/graph
 oras.land/oras-go/v2/internal/httputil
 oras.land/oras-go/v2/internal/interfaces
 oras.land/oras-go/v2/internal/ioutil
+oras.land/oras-go/v2/internal/manifestutil
 oras.land/oras-go/v2/internal/platform
 oras.land/oras-go/v2/internal/registryutil
 oras.land/oras-go/v2/internal/resolver
