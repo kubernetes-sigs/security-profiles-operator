@@ -143,10 +143,14 @@ func (a *Artifact) Push(
 	}
 
 	a.logger.Info("Packing files")
-	manifestDescriptor, err := a.Pack(
-		ctx, store, "",
-		fileDescriptors,
-		oras.PackOptions{PackImageManifest: true},
+	manifestDescriptor, err := a.PackManifest(
+		ctx,
+		store,
+		oras.PackManifestVersion1_1_RC4,
+		oras.MediaTypeUnknownConfig,
+		oras.PackManifestOptions{
+			Layers: fileDescriptors,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("pack files: %w", err)
