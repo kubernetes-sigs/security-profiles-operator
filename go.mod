@@ -46,9 +46,6 @@ require (
 	sigs.k8s.io/yaml v1.3.0
 )
 
-// TODO: remove when Kubernetes updated OTEL
-replace go.opentelemetry.io/otel/metric => go.opentelemetry.io/otel/metric v0.38.0
-
 require (
 	cloud.google.com/go/compute v1.23.0 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
