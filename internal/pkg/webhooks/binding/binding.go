@@ -119,6 +119,7 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 	podChanged := false
 	podID := req.Namespace + "/" + req.Name
 	pod := &corev1.Pod{}
+	applyToAllContainers = false
 
 	var containers sync.Map
 	if req.Operation != "DELETE" {
