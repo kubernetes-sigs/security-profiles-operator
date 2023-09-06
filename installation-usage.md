@@ -631,6 +631,21 @@ spec:
   image: nginx:1.19.1
 ```
 
+You can enable a default profile binding by using the string "*" as the image name.
+This will only apply a profile binding if no other profile binding matches a container in the pod.
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileBinding
+metadata:
+  name: nginx-binding
+spec:
+  profileRef:
+    kind: SeccompProfile
+    name: profile-complain
+  image: *
+```
+
 If the Pod is already running, it will need to be restarted in order to pick up
 the profile binding. Once the binding is created and the Pod is created or
 recreated, the SeccompProfile should be applied to the container whose image
