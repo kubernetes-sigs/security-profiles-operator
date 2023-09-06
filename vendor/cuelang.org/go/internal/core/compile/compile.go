@@ -133,7 +133,7 @@ func (c *compiler) errf(n ast.Node, format string, args ...interface{}) *adt.Bot
 	err := &compilerError{
 		n:       n,
 		path:    c.path(),
-		Message: errors.NewMessage(format, args),
+		Message: errors.NewMessagef(format, args...),
 	}
 	c.errs = errors.Append(c.errs, err)
 	return &adt.Bottom{Err: err}
@@ -188,6 +188,9 @@ func (c *compiler) insertAlias(id *ast.Ident, a aliasEntry) *adt.Bottom {
 		return c.errf(a.source,
 			"alias %q already declared; previous declaration at %s",
 			id.Name, e.source.Pos())
+	}
+	if id.Name == "_" {
+		return c.errf(id, "cannot use _ as alias or let clause")
 	}
 
 	m[id.Name] = a
@@ -415,6 +418,11 @@ func (c *compiler) resolve(n *ast.Ident) adt.Expr {
 		switch f := n.Node.(type) {
 		case *ast.Field:
 			_ = c.lookupAlias(k, f.Label.(*ast.Alias).Ident) // mark as used
+			// The expression of field Label is always done in the same
+			// Environment as pointed to by the UpCount of the DynamicReference
+			// and the evaluation of a DynamicReference assumes this.
+			// We therefore set the UpCount of the LabelReference to 0.
+			label.UpCount = 0
 			return &adt.DynamicReference{
 				Src:     n,
 				UpCount: upCount,
@@ -595,27 +603,13 @@ func (c *compiler) decl(d ast.Decl) adt.Decl {
 				return c.errf(x, "cannot use _ as label")
 			}
 
-			// TODO(legacy): remove: old-school definitions
-			if x.Token == token.ISA && !label.IsDef() {
-				name, isIdent, err := ast.LabelName(lab)
-				if err == nil && isIdent {
-					idx := c.index.StringToIndex(name)
-					label, _ = adt.MakeLabel(x, idx, adt.DefinitionLabel)
-				}
-			}
+			t, _ := internal.ConstraintToken(x)
 
-			if x.Optional == token.NoPos {
-				return &adt.Field{
-					Src:   x,
-					Label: label,
-					Value: value,
-				}
-			} else {
-				return &adt.OptionalField{
-					Src:   x,
-					Label: label,
-					Value: value,
-				}
+			return &adt.Field{
+				Src:     x,
+				Label:   label,
+				ArcType: adt.ConstraintFromToken(t),
+				Value:   value,
 			}
 
 		case *ast.ListLit:
@@ -640,23 +634,23 @@ func (c *compiler) decl(d ast.Decl) adt.Decl {
 			}
 
 		case *ast.ParenExpr:
-			if x.Token == token.ISA {
-				c.errf(x, "definitions not supported for dynamic fields")
-			}
+			t, _ := internal.ConstraintToken(x)
+
 			return &adt.DynamicField{
-				Src:   x,
-				Key:   c.expr(l),
-				Value: value,
+				Src:     x,
+				Key:     c.expr(l),
+				ArcType: adt.ConstraintFromToken(t),
+				Value:   value,
 			}
 
 		case *ast.Interpolation:
-			if x.Token == token.ISA {
-				c.errf(x, "definitions not supported for interpolations")
-			}
+			t, _ := internal.ConstraintToken(x)
+
 			return &adt.DynamicField{
-				Src:   x,
-				Key:   c.expr(l),
-				Value: value,
+				Src:     x,
+				Key:     c.expr(l),
+				ArcType: adt.ConstraintFromToken(t),
+				Value:   value,
 			}
 		}
 
@@ -853,6 +847,16 @@ func (c *compiler) expr(expr ast.Expr) adt.Expr {
 		return nil
 	case *ast.Ident:
 		return c.resolve(n)
+
+	case *ast.Func:
+		// We don't yet support function types natively in
+		// CUE.  ast.Func exists only to support external
+		// interpreters. Function values (really, adt.Builtin)
+		// are only created by the runtime, or injected by
+		// external interpreters.
+		//
+		// TODO: revise this when we add function types.
+		return c.resolve(ast.NewIdent("_"))
 
 	case *ast.StructLit:
 		c.pushScope(nil, 1, n)

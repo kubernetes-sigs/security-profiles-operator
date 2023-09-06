@@ -5,8 +5,6 @@ import (
 	"errors"
 )
 
-var encodeIndent = 0
-
 type asn1Object interface {
 	EncodeTo(writer *bytes.Buffer) error
 }
@@ -18,7 +16,6 @@ type asn1Structured struct {
 
 func (s asn1Structured) EncodeTo(out *bytes.Buffer) error {
 	//fmt.Printf("%s--> tag: % X\n", strings.Repeat("| ", encodeIndent), s.tagBytes)
-	encodeIndent++
 	inner := new(bytes.Buffer)
 	for _, obj := range s.content {
 		err := obj.EncodeTo(inner)
@@ -26,7 +23,6 @@ func (s asn1Structured) EncodeTo(out *bytes.Buffer) error {
 			return err
 		}
 	}
-	encodeIndent--
 	out.Write(s.tagBytes)
 	encodeLength(out, inner.Len())
 	out.Write(inner.Bytes())
@@ -66,10 +62,6 @@ func ber2der(ber []byte) ([]byte, error) {
 		return nil, err
 	}
 	obj.EncodeTo(out)
-
-	// if offset < len(ber) {
-	//	return nil, fmt.Errorf("ber2der: Content longer than expected. Got %d, expected %d", offset, len(ber))
-	//}
 
 	return out.Bytes(), nil
 }
@@ -149,14 +141,14 @@ func readObject(ber []byte, offset int) (asn1Object, int, error) {
 		for ber[offset] >= 0x80 {
 			tag = tag*128 + ber[offset] - 0x80
 			offset++
-			if offset > berLen {
+			if offset >= berLen {
 				return nil, 0, errors.New("ber2der: cannot move offset forward, end of ber data reached")
 			}
 		}
 		// jvehent 20170227: this doesn't appear to be used anywhere...
 		//tag = tag*128 + ber[offset] - 0x80
 		offset++
-		if offset > berLen {
+		if offset >= berLen {
 			return nil, 0, errors.New("ber2der: cannot move offset forward, end of ber data reached")
 		}
 	}
@@ -172,7 +164,10 @@ func readObject(ber []byte, offset int) (asn1Object, int, error) {
 	var length int
 	l := ber[offset]
 	offset++
-	if offset > berLen {
+	if l >= 0x80 && offset >= berLen {
+		// if indefinite or multibyte length, we need to verify there is at least one more byte available
+		// otherwise we need to be flexible here for length == 0 conditions
+		// validation that the length is available is done after the length is correctly parsed
 		return nil, 0, errors.New("ber2der: cannot move offset forward, end of ber data reached")
 	}
 	indefinite := false
@@ -184,17 +179,20 @@ func readObject(ber []byte, offset int) (asn1Object, int, error) {
 		if numberOfBytes == 4 && (int)(ber[offset]) > 0x7F {
 			return nil, 0, errors.New("ber2der: BER tag length is negative")
 		}
-		if (int)(ber[offset]) == 0x0 {
+		if offset + numberOfBytes > berLen {
+			// == condition is not checked here, this allows for a more descreptive error when the parsed length is
+			// compared with the remaining available bytes (`contentEnd > berLen`)
+			return nil, 0, errors.New("ber2der: cannot move offset forward, end of ber data reached")
+		}
+		if (int)(ber[offset]) == 0x0 && (numberOfBytes == 1 || ber[offset+1] <= 0x7F)  {
+			// `numberOfBytes == 1` is an important conditional to avoid a potential out of bounds panic with `ber[offset+1]`
 			return nil, 0, errors.New("ber2der: BER tag length has leading zero")
 		}
 		debugprint("--> (compute length) indicator byte: %x\n", l)
-		debugprint("--> (compute length) length bytes: % X\n", ber[offset:offset+numberOfBytes])
+		//debugprint("--> (compute length) length bytes: %x\n", ber[offset:offset+numberOfBytes])
 		for i := 0; i < numberOfBytes; i++ {
 			length = length*256 + (int)(ber[offset])
 			offset++
-			if offset > berLen {
-				return nil, 0, errors.New("ber2der: cannot move offset forward, end of ber data reached")
-			}
 		}
 	} else if l == 0x80 {
 		indefinite = true
@@ -206,12 +204,12 @@ func readObject(ber []byte, offset int) (asn1Object, int, error) {
 	}
 	//fmt.Printf("--> length        : %d\n", length)
 	contentEnd := offset + length
-	if contentEnd > len(ber) {
+	if contentEnd > berLen {
 		return nil, 0, errors.New("ber2der: BER tag length is more than available data")
 	}
 	debugprint("--> content start : %d\n", offset)
 	debugprint("--> content end   : %d\n", contentEnd)
-	debugprint("--> content       : % X\n", ber[offset:contentEnd])
+	//debugprint("--> content       : %x\n", ber[offset:contentEnd])
 	var obj asn1Object
 	if indefinite && kind == 0 {
 		return nil, 0, errors.New("ber2der: Indefinite form tag must have constructed encoding")

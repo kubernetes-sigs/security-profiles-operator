@@ -210,6 +210,8 @@ var DefaultBuiltins = [...]*Builtin{
 	CryptoSha256,
 	CryptoX509ParseCertificateRequest,
 	CryptoX509ParseRSAPrivateKey,
+	CryptoX509ParseKeyPair,
+	CryptoParsePrivateKeys,
 	CryptoHmacMd5,
 	CryptoHmacSha1,
 	CryptoHmacSha256,
@@ -2159,7 +2161,7 @@ var Format = &Builtin{
 				types.N,
 				types.NewArray([]types.Type{types.N, types.S}, nil),
 				types.NewArray([]types.Type{types.N, types.S, types.S}, nil),
-			)).Description("a number representing the nanoseconds since the epoch (UTC); or a two-element array of the nanoseconds, and a timezone string; or a three-element array of ns, timezone string and a layout string (see golang supported time formats)"),
+			)).Description("a number representing the nanoseconds since the epoch (UTC); or a two-element array of the nanoseconds, and a timezone string; or a three-element array of ns, timezone string and a layout string or golang defined formatting constant (see golang supported time formats)"),
 		),
 		types.Named("formatted timestamp", types.S).Description("the formatted timestamp represented for the nanoseconds since the epoch in the supplied timezone (or UTC)"),
 	),
@@ -2289,6 +2291,17 @@ var CryptoX509ParseCertificateRequest = &Builtin{
 	),
 }
 
+var CryptoX509ParseKeyPair = &Builtin{
+	Name:        "crypto.x509.parse_keypair",
+	Description: "Returns a valid key pair",
+	Decl: types.NewFunction(
+		types.Args(
+			types.Named("cert", types.S).Description("string containing PEM or base64 encoded DER certificates"),
+			types.Named("pem", types.S).Description("string containing PEM or base64 encoded DER keys"),
+		),
+		types.Named("output", types.NewObject(nil, types.NewDynamicProperty(types.S, types.A))).Description("if key pair is valid, returns the tls.certificate(https://pkg.go.dev/crypto/tls#Certificate) as an object. If the key pair is invalid, nil and an error are returned."),
+	),
+}
 var CryptoX509ParseRSAPrivateKey = &Builtin{
 	Name:        "crypto.x509.parse_rsa_private_key",
 	Description: "Returns a JWK for signing a JWT from the given PEM-encoded RSA private key.",
@@ -2297,6 +2310,19 @@ var CryptoX509ParseRSAPrivateKey = &Builtin{
 			types.Named("pem", types.S).Description("base64 string containing a PEM encoded RSA private key"),
 		),
 		types.Named("output", types.NewObject(nil, types.NewDynamicProperty(types.S, types.A))).Description("JWK as an object"),
+	),
+}
+
+var CryptoParsePrivateKeys = &Builtin{
+	Name: "crypto.parse_private_keys",
+	Description: `Returns zero or more private keys from the given encoded string containing DER certificate data.
+
+If the input is empty, the function will return null. The input string should be a list of one or more concatenated PEM blocks. The whole input of concatenated PEM blocks can optionally be Base64 encoded.`,
+	Decl: types.NewFunction(
+		types.Args(
+			types.Named("keys", types.S).Description("PEM encoded data containing one or more private keys as concatenated blocks. Optionally Base64 encoded."),
+		),
+		types.Named("output", types.NewArray(nil, types.NewObject(nil, types.NewDynamicProperty(types.S, types.A)))).Description("parsed private keys represented as objects"),
 	),
 }
 

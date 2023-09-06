@@ -119,7 +119,7 @@ func (n *nodeContext) addDisjunctionValue(env *Environment, x *Disjunction, clon
 }
 
 func (n *nodeContext) expandDisjuncts(
-	state VertexStatus,
+	state vertexStatus,
 	parent *nodeContext,
 	parentMode defaultMode, // default mode of this disjunct
 	recursive, last bool) {
@@ -138,7 +138,7 @@ func (n *nodeContext) expandDisjuncts(
 		n.node = node
 	}()
 
-	for n.expandOne(Partial) {
+	for n.expandOne(partial) {
 	}
 
 	// save node to snapShot in nodeContex
@@ -202,7 +202,7 @@ func (n *nodeContext) expandDisjuncts(
 	case len(n.disjunctions) > 0:
 		// Process full disjuncts to ensure that erroneous disjuncts are
 		// eliminated as early as possible.
-		state = Finalized
+		state = finalized
 
 		n.disjuncts = append(n.disjuncts, n)
 
@@ -373,7 +373,7 @@ func (n *nodeContext) expandDisjuncts(
 		// the value was scalar before, we drop this information when there is
 		// only one disjunct, while not discarding hard defaults. TODO: a more
 		// principled approach would be to recognize that there is only one
-		// default at a point where this does not break commutativity. if
+		// default at a point where this does not break commutativity.
 		// if len(n.disjuncts) == 1 && n.disjuncts[0].defaultMode != isDefault {
 		// 	n.disjuncts[0].defaultMode = maybeDefault
 		// }
@@ -388,6 +388,15 @@ func (n *nodeContext) expandDisjuncts(
 	outer:
 		for _, d := range n.disjuncts {
 			for k, v := range p.disjuncts {
+				// As long as a vertex isn't finalized, it may be that potential
+				// errors are not yet detected. This may lead two structs that
+				// are identical except for closedness information,
+				// for instance, to appear identical.
+				if v.result.status < finalized || d.result.status < finalized {
+					break
+				}
+				// Even if a node is finalized, it may still have an
+				// "incomplete" component that may change down the line.
 				if !d.done() || !v.done() {
 					break
 				}
@@ -441,7 +450,7 @@ func (n *nodeContext) makeError() {
 		Code: code,
 		Err:  n.disjunctError(),
 	}
-	n.node.SetValue(n.ctx, Finalized, b)
+	n.node.SetValue(n.ctx, b)
 }
 
 func mode(hasDefault, marked bool) defaultMode {
@@ -472,7 +481,7 @@ func clone(v Vertex) Vertex {
 		v.Arcs = make([]*Vertex, len(a))
 		for i, arc := range a {
 			switch arc.status {
-			case Finalized:
+			case finalized:
 				v.Arcs[i] = arc
 
 			case 0:

@@ -225,7 +225,7 @@ func (c CloseInfo) SpawnRef(arc *Vertex, isDef bool, x Expr) CloseInfo {
 	return c
 }
 
-// isDef reports whether an expressions is a reference that references a
+// IsDef reports whether an expressions is a reference that references a
 // definition anywhere in its selection path.
 //
 // TODO(performance): this should be merged with resolve(). But for now keeping
@@ -338,7 +338,7 @@ func Accept(ctx *OpContext, n *Vertex, f Feature) (found, required bool) {
 
 	// TODO(perf): more aggressively determine whether a struct is open or
 	// closed: open structs do not have to be checked, yet they can particularly
-	// be the ones with performance isssues, for instanced as a result of
+	// be the ones with performance issues, for instanced as a result of
 	// embedded for comprehensions.
 	for _, s := range n.Structs {
 		if !s.useForAccept() {
@@ -480,7 +480,7 @@ func verifyArc(ctx *OpContext, s *StructInfo, f Feature, label Value) bool {
 	o := s.StructLit
 	env := s.Env
 
-	if isRegular && (len(o.Additional) > 0 || o.IsOpen) {
+	if len(o.Additional) > 0 || o.IsOpen {
 		return true
 	}
 

@@ -44,6 +44,9 @@ var PromptPassword PasswordPrompter
 // check if a file exists and prompts the user if it should be overwritten.
 var WriteFile FileWriter = utils.WriteFile
 
+// PEMBlockHeader is the expected header for any PEM formatted block.
+var PEMBlockHeader = []byte("-----BEGIN ")
+
 // context add options to the pem methods.
 type context struct {
 	filename         string
@@ -282,7 +285,7 @@ func ReadCertificate(filename string, opts ...Options) (*x509.Certificate, error
 	}
 
 	// PEM format
-	if bytes.HasPrefix(b, []byte("-----BEGIN ")) {
+	if bytes.Contains(b, PEMBlockHeader) {
 		var crt interface{}
 		crt, err = Read(filename, opts...)
 		if err != nil {
@@ -311,7 +314,7 @@ func ReadCertificateBundle(filename string) ([]*x509.Certificate, error) {
 	}
 
 	// PEM format
-	if bytes.HasPrefix(b, []byte("-----BEGIN ")) {
+	if bytes.Contains(b, PEMBlockHeader) {
 		var block *pem.Block
 		var bundle []*x509.Certificate
 		for len(b) > 0 {
@@ -352,7 +355,7 @@ func ReadCertificateRequest(filename string) (*x509.CertificateRequest, error) {
 	}
 
 	// PEM format
-	if bytes.HasPrefix(b, []byte("-----BEGIN ")) {
+	if bytes.Contains(b, PEMBlockHeader) {
 		csr, err := Parse(b, WithFilename(filename))
 		if err != nil {
 			return nil, err

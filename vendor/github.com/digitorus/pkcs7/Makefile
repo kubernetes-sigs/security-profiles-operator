@@ -1,7 +1,7 @@
 all: vet staticcheck test
 
 test:
-	go test -covermode=count -coverprofile=coverage.out .
+	GODEBUG=x509sha1=1 go test -covermode=count -coverprofile=coverage.out .
 
 showcoverage: test
 	go tool cover -html=coverage.out

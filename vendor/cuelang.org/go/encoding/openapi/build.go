@@ -44,7 +44,6 @@ type buildContext struct {
 	nameFunc      func(inst cue.Value, path cue.Path) string
 	descFunc      func(v cue.Value) string
 	fieldFilter   *regexp.Regexp
-	evalDepth     int // detect cycles when resolving references
 
 	schemas *OrderedMap
 
@@ -230,7 +229,7 @@ func (c *buildContext) isInternal(sel cue.Selector) bool {
 
 func (b *builder) failf(v cue.Value, format string, args ...interface{}) {
 	panic(&openapiError{
-		errors.NewMessage(format, args),
+		errors.NewMessagef(format, args...),
 		cue.MakePath(b.ctx.path...),
 		v.Pos(),
 	})
@@ -403,7 +402,7 @@ func (b *builder) value(v cue.Value, f typeFunc) (isRef bool) {
 
 	if count > 0 { // TODO: implement IsAny.
 		// TODO: perhaps find optimal representation. For now we assume the
-		// representation as is is already optimized for human consumption.
+		// representation as is already optimized for human consumption.
 		if values.IncompleteKind()&cue.StructKind != cue.StructKind && !isRef {
 			values = values.Eval()
 		}
@@ -517,28 +516,6 @@ outer:
 		}
 	}
 	return a
-}
-
-func countNodes(v cue.Value) (n int) {
-	switch op, a := v.Expr(); op {
-	case cue.OrOp, cue.AndOp:
-		for _, v := range a {
-			n += countNodes(v)
-		}
-		n += len(a) - 1
-	default:
-		switch v.Kind() {
-		case cue.ListKind:
-			for i, _ := v.List(); i.Next(); {
-				n += countNodes(i.Value())
-			}
-		case cue.StructKind:
-			for i, _ := v.Fields(); i.Next(); {
-				n += countNodes(i.Value()) + 1
-			}
-		}
-	}
-	return n + 1
 }
 
 // isConcrete reports whether v is concrete and not a struct (recursively).
