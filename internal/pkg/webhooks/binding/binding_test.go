@@ -49,7 +49,8 @@ var (
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name: "container",
+					Name:  "container",
+					Image: "foo",
 				},
 			},
 		},
@@ -101,6 +102,46 @@ func TestHandle(t *testing.T) {
 								ProfileRef: v1alpha1.ProfileRef{
 									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
+								Image: "foo",
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetSeccompProfileReturns(&seccompprofileapi.SeccompProfile{
+					Status: seccompprofileapi.SeccompProfileStatus{
+						StatusBase: profilebasev1alpha1.StatusBase{
+							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						},
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.Nil(t, err)
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.AdmissionResponse.Allowed)
+				require.Len(t, resp.Patches, 1)
+			},
+		},
+		{ // success pod changed with * image
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
+					Items: []v1alpha1.ProfileBinding{
+						{
+							Spec: v1alpha1.ProfileBindingSpec{
+								ProfileRef: v1alpha1.ProfileRef{
+									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
+								},
+								Image: v1alpha1.SelectAllContainersImage,
 							},
 						},
 					},
@@ -139,6 +180,46 @@ func TestHandle(t *testing.T) {
 								ProfileRef: v1alpha1.ProfileRef{
 									Kind: v1alpha1.ProfileBindingKindSelinuxProfile,
 								},
+								Image: "foo",
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetSelinuxProfileReturns(&selinuxprofileapi.SelinuxProfile{
+					Status: selinuxprofileapi.SelinuxProfileStatus{
+						StatusBase: profilebasev1alpha1.StatusBase{
+							Status: "Installed",
+						},
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.Nil(t, err)
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.AdmissionResponse.Allowed)
+				require.Len(t, resp.Patches, 1)
+			},
+		},
+		{ // selinux success pod changed with * image
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
+					Items: []v1alpha1.ProfileBinding{
+						{
+							Spec: v1alpha1.ProfileBindingSpec{
+								ProfileRef: v1alpha1.ProfileRef{
+									Kind: v1alpha1.ProfileBindingKindSelinuxProfile,
+								},
+								Image: v1alpha1.SelectAllContainersImage,
 							},
 						},
 					},
@@ -280,6 +361,7 @@ func TestHandle(t *testing.T) {
 								ProfileRef: v1alpha1.ProfileRef{
 									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
+								Image: "foo",
 							},
 						},
 					},
@@ -319,6 +401,7 @@ func TestHandle(t *testing.T) {
 								ProfileRef: v1alpha1.ProfileRef{
 									Kind: v1alpha1.ProfileBindingKindSeccompProfile,
 								},
+								Image: "foo",
 							},
 						},
 					},

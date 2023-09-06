@@ -119,7 +119,8 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 	podChanged := false
 	podID := req.Namespace + "/" + req.Name
 	pod := &corev1.Pod{}
-	applyToAllContainers = false
+	var podBindProfile *interface{}
+	var podProfileBinding *profilebindingv1alpha1.ProfileBinding
 
 	var containers sync.Map
 	if req.Operation != "DELETE" {
@@ -147,15 +148,6 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 			}
 			continue
 		}
-		value, ok := containers.Load(profilebindings[i].Spec.Image)
-		if !ok {
-			continue
-		}
-		containers, ok := value.(containerList)
-		if !ok {
-			continue
-		}
-
 		namespacedName := types.NamespacedName{Namespace: req.Namespace, Name: profileName}
 		var bindProfile interface{}
 		var err error
@@ -173,6 +165,20 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
 
+		if profilebindings[i].Spec.Image == profilebindingv1alpha1.SelectAllContainersImage {
+			podBindProfile = &bindProfile
+			podProfileBinding = &profilebindings[i]
+			continue
+		}
+		value, ok := containers.Load(profilebindings[i].Spec.Image)
+		if !ok {
+			continue
+		}
+		containers, ok := value.(containerList)
+		if !ok {
+			continue
+		}
+
 		for j := range containers {
 			podChanged = p.addSecurityContext(containers[j], bindProfile)
 		}
@@ -183,7 +189,15 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 		}
 	}
 	if !podChanged {
-		return admission.Allowed("pod unchanged")
+		if podBindProfile == nil || podProfileBinding == nil {
+			return admission.Allowed("pod unchanged")
+		}
+		podChanged = p.addPodSecurityContext(pod, *podBindProfile)
+		if podChanged {
+			if err := p.addPodToBinding(ctx, podID, podProfileBinding); err != nil {
+				return admission.Errored(http.StatusInternalServerError, err)
+			}
+		}
 	}
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {
@@ -290,6 +304,65 @@ func (p *podBinder) addSelinuxContext(
 		p.log.Info("cannot override existing selinux profile for pod or container")
 	} else {
 		c.SecurityContext.SELinuxOptions = &sl
+		podChanged = true
+	}
+	return podChanged
+}
+
+func (p *podBinder) addPodSecurityContext(
+	pod *corev1.Pod, bindProfile interface{},
+) bool {
+	var podChanged bool
+
+	switch v := bindProfile.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		podChanged = p.addPodSeccompContext(pod, v)
+	case *selinuxprofileapi.SelinuxProfile:
+		podChanged = p.addPodSelinuxContext(pod, v)
+	default:
+		p.log.Info("Unexpected Profile Type")
+		return false
+	}
+	return podChanged
+}
+
+func (p *podBinder) addPodSeccompContext(
+	pod *corev1.Pod, seccompProfile *seccompprofileapi.SeccompProfile,
+) bool {
+	podChanged := false
+	profileRef := seccompProfile.Status.LocalhostProfile
+	sp := corev1.SeccompProfile{
+		Type:             corev1.SeccompProfileTypeLocalhost,
+		LocalhostProfile: &profileRef,
+	}
+	if pod.Spec.SecurityContext == nil {
+		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
+	}
+	if pod.Spec.SecurityContext.SeccompProfile != nil {
+		p.log.Info("cannot override existing seccomp profile for pod or container")
+	} else {
+		pod.Spec.SecurityContext.SeccompProfile = &sp
+		podChanged = true
+	}
+	return podChanged
+}
+
+func (p *podBinder) addPodSelinuxContext(
+	pod *corev1.Pod, selinuxProfile *selinuxprofileapi.SelinuxProfile,
+) bool {
+	podChanged := false
+	usage := selinuxProfile.Status.Usage
+	sl := corev1.SELinuxOptions{
+		Type: usage,
+	}
+
+	if pod.Spec.SecurityContext == nil {
+		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
+	}
+	if pod.Spec.SecurityContext.SELinuxOptions != nil {
+		p.log.Info("cannot override existing selinux profile for pod or container")
+	} else {
+		pod.Spec.SecurityContext.SELinuxOptions = &sl
 		podChanged = true
 	}
 	return podChanged
