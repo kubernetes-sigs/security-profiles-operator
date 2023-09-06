@@ -226,7 +226,7 @@ dependencies:
       match: "^version: "
 
   - name: clang
-    version: 15
+    version: 16
     refPaths:
     - path: nix/derivation-bpf.nix
       match: llvmPackages_\d+.clang-unwrapped
