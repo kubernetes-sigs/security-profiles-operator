@@ -97,7 +97,7 @@ type ReconcileSelinux struct {
 	controllerName    string
 	objectHandlerInit SelinuxObjectHandlerInit
 	ctrlBuilder       controllerBuilder
-	httpc             http.Client
+	httpc             *http.Client
 }
 
 // Setup adds a controller that reconciles selinux profiles.
@@ -111,7 +111,7 @@ func (r *ReconcileSelinux) Setup(
 	r.scheme = mgr.GetScheme()
 	r.record = mgr.GetEventRecorderFor(r.controllerName)
 	r.metrics = met
-	r.httpc = http.Client{
+	r.httpc = &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return net.Dial("unix", bindata.SelinuxdSocketPath)
@@ -414,7 +414,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selxv1alpha2.SelinuxProf
 func getPolicyStatus(
 	ctx context.Context,
 	sp selxv1alpha2.SelinuxProfileObject,
-	httpc http.Client,
+	httpc *http.Client,
 ) (*sePolStatus, error) {
 	polURL := selinuxdPoliciesBaseURL + sp.GetPolicyName()
 	response, err := selinuxdGetRequest(ctx, httpc, polURL)
@@ -443,7 +443,7 @@ func getPolicyStatus(
 	return nil, errors.New("invalid sePolStatus value")
 }
 
-func isSelinuxdReady(ctx context.Context, httpc http.Client) (bool, error) {
+func isSelinuxdReady(ctx context.Context, httpc *http.Client) (bool, error) {
 	response, err := selinuxdGetRequest(ctx, httpc, selinuxdReadyURL)
 	if err != nil {
 		return false, fmt.Errorf("failed to send a request to selinuxd: %w", err)
@@ -459,7 +459,7 @@ func isSelinuxdReady(ctx context.Context, httpc http.Client) (bool, error) {
 	return status[selinuxdReadyKey], nil
 }
 
-func selinuxdGetRequest(ctx context.Context, httpc http.Client, url string) (*http.Response, error) {
+func selinuxdGetRequest(ctx context.Context, httpc *http.Client, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a request to selinuxd: %w", err)
