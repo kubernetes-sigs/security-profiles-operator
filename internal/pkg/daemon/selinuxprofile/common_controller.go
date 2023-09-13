@@ -97,6 +97,7 @@ type ReconcileSelinux struct {
 	controllerName    string
 	objectHandlerInit SelinuxObjectHandlerInit
 	ctrlBuilder       controllerBuilder
+	httpc             http.Client
 }
 
 // Setup adds a controller that reconciles selinux profiles.
@@ -110,6 +111,13 @@ func (r *ReconcileSelinux) Setup(
 	r.scheme = mgr.GetScheme()
 	r.record = mgr.GetEventRecorderFor(r.controllerName)
 	r.metrics = met
+	r.httpc = http.Client{
+		Transport: &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", bindata.SelinuxdSocketPath)
+			},
+		},
+	}
 
 	return r.ctrlBuilder(ctrl.NewControllerManagedBy(mgr), r)
 }
@@ -126,7 +134,7 @@ func (r *ReconcileSelinux) SchemeBuilder() *scheme.Builder {
 
 // Healthz is the liveness probe endpoint of the controller.
 func (r *ReconcileSelinux) Healthz(*http.Request) error {
-	ready, err := isSelinuxdReady(context.TODO())
+	ready, err := isSelinuxdReady(context.TODO(), r.httpc)
 	if err != nil {
 		return fmt.Errorf("getting health status: %w", err)
 	}
@@ -228,7 +236,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	selinuxdReady, err := isSelinuxdReady(ctx)
+	selinuxdReady, err := isSelinuxdReady(ctx, r.httpc)
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotContactSelinuxd)
 		r.record.Event(sp, util.EventTypeWarning, reasonCannotContactSelinuxd, err.Error())
@@ -265,7 +273,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	}
 
 	l.Info("Checking if policy deployed", "policyName", sp.GetName())
-	polStatus, err := getPolicyStatus(ctx, sp)
+	polStatus, err := getPolicyStatus(ctx, sp, r.httpc)
 
 	if errors.Is(err, errPolicyNotFound) {
 		if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInProgress); err != nil {
@@ -333,7 +341,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	nodeStatus *nodestatus.StatusClient,
 	l logr.Logger,
 ) (reconcile.Result, error) {
-	selinuxdReady, err := isSelinuxdReady(ctx)
+	selinuxdReady, err := isSelinuxdReady(ctx, r.httpc)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("contacting selinuxd: %w", err)
 	}
@@ -348,7 +356,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	}
 
 	l.Info("Checking if policy is removed", "policyName", sp.GetName())
-	polStatus, err := getPolicyStatus(ctx, sp)
+	polStatus, err := getPolicyStatus(ctx, sp, r.httpc)
 
 	if errors.Is(err, errPolicyNotFound) {
 		return reconcile.Result{}, nil
@@ -406,9 +414,10 @@ func (r *ReconcileSelinux) reconcileDeletePolicyFile(sp selxv1alpha2.SelinuxProf
 func getPolicyStatus(
 	ctx context.Context,
 	sp selxv1alpha2.SelinuxProfileObject,
+	httpc http.Client,
 ) (*sePolStatus, error) {
 	polURL := selinuxdPoliciesBaseURL + sp.GetPolicyName()
-	response, err := selinuxdGetRequest(ctx, polURL)
+	response, err := selinuxdGetRequest(ctx, httpc, polURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send a request to selinuxd: %w", err)
 	}
@@ -434,8 +443,8 @@ func getPolicyStatus(
 	return nil, errors.New("invalid sePolStatus value")
 }
 
-func isSelinuxdReady(ctx context.Context) (bool, error) {
-	response, err := selinuxdGetRequest(ctx, selinuxdReadyURL)
+func isSelinuxdReady(ctx context.Context, httpc http.Client) (bool, error) {
+	response, err := selinuxdGetRequest(ctx, httpc, selinuxdReadyURL)
 	if err != nil {
 		return false, fmt.Errorf("failed to send a request to selinuxd: %w", err)
 	}
@@ -450,15 +459,7 @@ func isSelinuxdReady(ctx context.Context) (bool, error) {
 	return status[selinuxdReadyKey], nil
 }
 
-func selinuxdGetRequest(ctx context.Context, url string) (*http.Response, error) {
-	httpc := http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", bindata.SelinuxdSocketPath)
-			},
-		},
-	}
-
+func selinuxdGetRequest(ctx context.Context, httpc http.Client, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a request to selinuxd: %w", err)
