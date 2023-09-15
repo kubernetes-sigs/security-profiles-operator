@@ -25,9 +25,9 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -119,7 +119,7 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 	profilebindings := profileBindings.Items
 
 	pod, admissionResponse := p.updatePod(ctx, profilebindings, req)
-	if admissionResponse.Result.Status == metav1.StatusFailure {
+	if !cmp.Equal(admissionResponse, admission.Response{}) {
 		return admissionResponse
 	}
 
@@ -133,14 +133,15 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 }
 
 func (p *podBinder) updatePod(ctx context.Context, profilebindings []profilebindingv1alpha1.ProfileBinding, req admission.Request) (*corev1.Pod, admission.Response) {
-	podChanged := false
+	var err error
 	var podBindProfile *interface{}
+	var containers sync.Map
 	var podProfileBinding *profilebindingv1alpha1.ProfileBinding
 	podID := req.Namespace + "/" + req.Name
 	pod := &corev1.Pod{}
-	var containers sync.Map
+	podChanged := false
 	if req.Operation != "DELETE" {
-		pod, err := p.impl.DecodePod(req)
+		pod, err = p.impl.DecodePod(req)
 		if err != nil {
 			p.log.Error(err, "failed to decode pod")
 			return pod, admission.Errored(http.StatusBadRequest, err)
@@ -215,7 +216,7 @@ func (p *podBinder) updatePod(ctx context.Context, profilebindings []profilebind
 			}
 		}
 	}
-	return pod, admission.Allowed("pod changed")
+	return pod, admission.Response{}
 }
 
 func (p *podBinder) getSeccompProfile(
