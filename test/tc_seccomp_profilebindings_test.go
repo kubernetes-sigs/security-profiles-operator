@@ -153,7 +153,7 @@ metadata:
 spec:
   containers:
   - image: quay.io/security-profiles-operator/test-hello-world:latest
-    name: foo
+    name: hello
     resources: {}
     securityContext:
       allowPrivilegeEscalation: false
