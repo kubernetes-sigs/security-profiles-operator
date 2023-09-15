@@ -118,7 +118,7 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 	}
 	profilebindings := profileBindings.Items
 
-	pod, admissionResponse := p.updatePod(ctx, profilebindings, req)
+	pod, admissionResponse := p.updatePod(ctx, profilebindings, &req)
 	if !cmp.Equal(admissionResponse, admission.Response{}) {
 		return admissionResponse
 	}
@@ -132,7 +132,7 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
-func (p *podBinder) updatePod(ctx context.Context, profilebindings []profilebindingv1alpha1.ProfileBinding, req admission.Request) (*corev1.Pod, admission.Response) {
+func (p *podBinder) updatePod(ctx context.Context, profilebindings []profilebindingv1alpha1.ProfileBinding, req *admission.Request) (*corev1.Pod, admission.Response) {
 	var err error
 	var podBindProfile *interface{}
 	var containers sync.Map
@@ -141,7 +141,7 @@ func (p *podBinder) updatePod(ctx context.Context, profilebindings []profilebind
 	pod := &corev1.Pod{}
 	podChanged := false
 	if req.Operation != "DELETE" {
-		pod, err = p.impl.DecodePod(req)
+		pod, err = p.impl.DecodePod(*req)
 		if err != nil {
 			p.log.Error(err, "failed to decode pod")
 			return pod, admission.Errored(http.StatusBadRequest, err)
