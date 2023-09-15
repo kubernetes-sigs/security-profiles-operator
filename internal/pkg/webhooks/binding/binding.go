@@ -205,9 +205,14 @@ func (p *podBinder) updatePod(ctx context.Context, profilebindings []profilebind
 		}
 	}
 
-	if !podChanged && (podBindProfile == nil || podProfileBinding == nil) {
+	if podChanged {
+		return pod, admission.Response{}
+	}
+
+	if podBindProfile == nil || podProfileBinding == nil {
 		return pod, admission.Allowed("pod unchanged")
 	}
+
 	if !p.addPodSecurityContext(pod, *podBindProfile) {
 		return pod, admission.Allowed("pod unchanged")
 	}
