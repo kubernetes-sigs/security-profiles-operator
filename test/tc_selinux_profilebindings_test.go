@@ -30,7 +30,7 @@ const (
 func (e *e2e) testCaseSelinuxProfileBinding() {
 	e.selinuxOnlyTestCase()
 
-	cleanup := e.profileBindingTestPrep(nsBindingEnabled, true, , "busybox:latest")
+	cleanup := e.profileBindingTestPrep(nsBindingEnabled, true, "busybox:latest")
 	defer cleanup()
 
 	e.logf("the workload should not have errored")
@@ -69,7 +69,7 @@ func (e *e2e) testCaseSelinuxProfileBinding() {
 func (e *e2e) testCaseSelinuxDefaultProfileBinding() {
 	e.selinuxOnlyTestCase()
 
-	cleanup := e.profileBindingTestPrep(nsBindingEnabled, true, , "busybox:latest")
+	cleanup := e.profileBindingTestPrep(nsBindingEnabled, true, "*")
 	defer cleanup()
 
 	e.logf("the workload should not have errored")
