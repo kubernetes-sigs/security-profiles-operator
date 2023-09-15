@@ -205,16 +205,14 @@ func (p *podBinder) updatePod(ctx context.Context, profilebindings []profilebind
 		}
 	}
 
-	if !podChanged {
-		if podBindProfile == nil || podProfileBinding == nil {
-			return pod, admission.Allowed("pod unchanged")
-		}
-		podChanged = p.addPodSecurityContext(pod, *podBindProfile)
-		if podChanged {
-			if err := p.addPodToBinding(ctx, podID, podProfileBinding); err != nil {
-				return pod, admission.Errored(http.StatusInternalServerError, err)
-			}
-		}
+	if !podChanged && (podBindProfile == nil || podProfileBinding == nil) {
+		return pod, admission.Allowed("pod unchanged")
+	}
+	if !p.addPodSecurityContext(pod, *podBindProfile) {
+		return pod, admission.Allowed("pod unchanged")
+	}
+	if err := p.addPodToBinding(ctx, podID, podProfileBinding); err != nil {
+		return pod, admission.Errored(http.StatusInternalServerError, err)
 	}
 	return pod, admission.Response{}
 }
