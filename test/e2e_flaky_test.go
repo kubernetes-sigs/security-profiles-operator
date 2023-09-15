@@ -67,6 +67,7 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 	// fix the issue with the certs.
 	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
 		e.testCaseSeccompProfileBinding(nodes)
+		e.testCaseSeccompProfileBindingDefaultProfile(nodes)
 	})
 
 	e.Run("cluster-wide: Seccomp: Verify profile recording logs", func() {

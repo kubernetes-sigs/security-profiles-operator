@@ -165,6 +165,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 
 	e.Run("cluster-wide: Selinux: Verify profile binding", func() {
 		e.testCaseSelinuxProfileBinding()
+		e.testCaseSelinuxDefaultProfileBinding()
 		e.testCaseSelinuxProfileBindingNsNotEnabled()
 	})
 
