@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -116,22 +117,36 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 	profilebindings := profileBindings.Items
+
+	pod, admissionResponse := p.updatePod(ctx, profilebindings, req)
+	if admissionResponse.Result.Status == metav1.StatusFailure {
+		return admissionResponse
+	}
+
+	marshaledPod, err := json.Marshal(pod)
+	if err != nil {
+		p.log.Error(err, "failed to encode pod")
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+}
+
+func (p *podBinder) updatePod(ctx context.Context, profilebindings []profilebindingv1alpha1.ProfileBinding, req admission.Request) (*corev1.Pod, admission.Response) {
 	podChanged := false
-	podID := req.Namespace + "/" + req.Name
-	pod := &corev1.Pod{}
 	var podBindProfile *interface{}
 	var podProfileBinding *profilebindingv1alpha1.ProfileBinding
-
+	podID := req.Namespace + "/" + req.Name
+	pod := &corev1.Pod{}
 	var containers sync.Map
 	if req.Operation != "DELETE" {
-		pod, err = p.impl.DecodePod(req)
+		pod, err := p.impl.DecodePod(req)
 		if err != nil {
 			p.log.Error(err, "failed to decode pod")
-			return admission.Errored(http.StatusBadRequest, err)
+			return pod, admission.Errored(http.StatusBadRequest, err)
 		}
 		initContainerMap(&containers, &pod.Spec)
 	}
-
 	for i := range profilebindings {
 		profileKind := profilebindings[i].Spec.ProfileRef.Kind
 		if profileKind != profilebindingv1alpha1.ProfileBindingKindSeccompProfile {
@@ -144,7 +159,7 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 		profileName := profilebindings[i].Spec.ProfileRef.Name
 		if req.Operation == "DELETE" {
 			if err := p.removePodFromBinding(ctx, podID, &profilebindings[i]); err != nil {
-				return admission.Errored(http.StatusInternalServerError, err)
+				return pod, admission.Errored(http.StatusInternalServerError, err)
 			}
 			continue
 		}
@@ -162,7 +177,7 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 
 		if err != nil {
 			p.log.Error(err, fmt.Sprintf("failed to get %v %#v", profileKind, namespacedName))
-			return admission.Errored(http.StatusInternalServerError, err)
+			return pod, admission.Errored(http.StatusInternalServerError, err)
 		}
 
 		if profilebindings[i].Spec.Image == profilebindingv1alpha1.SelectAllContainersImage {
@@ -184,28 +199,23 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 		}
 		if podChanged {
 			if err := p.addPodToBinding(ctx, podID, &profilebindings[i]); err != nil {
-				return admission.Errored(http.StatusInternalServerError, err)
+				return pod, admission.Errored(http.StatusInternalServerError, err)
 			}
 		}
 	}
+
 	if !podChanged {
 		if podBindProfile == nil || podProfileBinding == nil {
-			return admission.Allowed("pod unchanged")
+			return pod, admission.Allowed("pod unchanged")
 		}
 		podChanged = p.addPodSecurityContext(pod, *podBindProfile)
 		if podChanged {
 			if err := p.addPodToBinding(ctx, podID, podProfileBinding); err != nil {
-				return admission.Errored(http.StatusInternalServerError, err)
+				return pod, admission.Errored(http.StatusInternalServerError, err)
 			}
 		}
 	}
-	marshaledPod, err := json.Marshal(pod)
-	if err != nil {
-		p.log.Error(err, "failed to encode pod")
-		return admission.Errored(http.StatusInternalServerError, err)
-	}
-
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+	return pod, admission.Allowed("pod changed")
 }
 
 func (p *podBinder) getSeccompProfile(
