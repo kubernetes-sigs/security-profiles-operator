@@ -132,7 +132,11 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
-func (p *podBinder) updatePod(ctx context.Context, profilebindings []profilebindingv1alpha1.ProfileBinding, req *admission.Request) (*corev1.Pod, admission.Response) {
+func (p *podBinder) updatePod(
+	ctx context.Context,
+	profilebindings []profilebindingv1alpha1.ProfileBinding,
+	req *admission.Request,
+) (*corev1.Pod, admission.Response) {
 	var err error
 	var podBindProfile *interface{}
 	var containers sync.Map
