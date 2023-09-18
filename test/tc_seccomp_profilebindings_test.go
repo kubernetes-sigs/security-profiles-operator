@@ -26,7 +26,7 @@ func (e *e2e) testCaseSeccompProfileBinding(_ []string, image string) {
 	e.seccompOnlyTestCase()
 
 	const exampleProfilePath = "examples/seccompprofile.yaml"
-	var testBinding = fmt.Sprintf(`
+	testBinding := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: ProfileBinding
 metadata:
