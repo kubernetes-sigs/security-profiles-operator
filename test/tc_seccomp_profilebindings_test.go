@@ -22,11 +22,11 @@ import (
 	"strings"
 )
 
-func (e *e2e) testCaseSeccompProfileBinding([]string) {
+func (e *e2e) testCaseSeccompProfileBinding(_ []string, image string) {
 	e.seccompOnlyTestCase()
 
 	const exampleProfilePath = "examples/seccompprofile.yaml"
-	const testBinding = `
+	var testBinding = fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: ProfileBinding
 metadata:
@@ -35,8 +35,8 @@ spec:
   profileRef:
     kind: SeccompProfile
     name: profile-allow-unsafe
-  image: quay.io/security-profiles-operator/test-hello-world:latest
-`
+  image: %s
+`, image)
 	const testPod = `
 apiVersion: v1
 kind: Pod
@@ -124,114 +124,6 @@ spec:
 		"--output", "jsonpath={.status.activeWorkloads[0]}")
 
 	e.Equal(fmt.Sprintf("%s/hello", namespace), output)
-	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
-		"--output", "jsonpath={.metadata.finalizers}")
-
-	e.Contains(output, "in-use-by-active-pods")
-}
-
-func (e *e2e) testCaseSeccompProfileBindingDefaultProfile([]string) {
-	e.seccompOnlyTestCase()
-
-	const exampleProfilePath = "examples/seccompprofile.yaml"
-	const testBinding = `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
-kind: ProfileBinding
-metadata:
-  name: foo-binding
-spec:
-  profileRef:
-    kind: SeccompProfile
-    name: profile-allow-unsafe
-  image: *
-`
-	const testPod = `
-apiVersion: v1
-kind: Pod
-metadata:
-  name: foo
-spec:
-  containers:
-  - image: quay.io/security-profiles-operator/test-hello-world:latest
-    name: hello
-    resources: {}
-    securityContext:
-      allowPrivilegeEscalation: false
-      capabilities:
-        drop:
-        - ALL
-      runAsUser: 1000
-      runAsNonRoot: true
-  restartPolicy: Never
-`
-
-	restoreNs := e.switchToNs(nsBindingEnabled)
-	defer restoreNs()
-	e.enableBindingHookInNs(nsBindingEnabled)
-
-	e.kubectl("create", "-f", exampleProfilePath)
-	defer e.kubectl("delete", "-f", exampleProfilePath)
-	e.waitFor("condition=ready", "seccompprofile", "profile-allow-unsafe")
-
-	e.logf("Creating test profile binding")
-	testBindingFile, err := os.CreateTemp("", "foo-binding*.yaml")
-	e.Nil(err)
-	defer os.Remove(testBindingFile.Name())
-	_, err = testBindingFile.WriteString(testBinding)
-	e.Nil(err)
-	err = testBindingFile.Close()
-	e.Nil(err)
-	e.kubectl("create", "-f", testBindingFile.Name())
-	defer e.kubectl("delete", "-f", testBindingFile.Name())
-
-	e.logf("Creating test pod")
-	testPodFile, err := os.CreateTemp("", "foo-pod*.yaml")
-	e.Nil(err)
-	defer os.Remove(testPodFile.Name())
-
-	_, err = testPodFile.WriteString(testPod)
-	e.Nil(err)
-	err = testPodFile.Close()
-	e.Nil(err)
-	e.kubectl("create", "-f", testPodFile.Name())
-	defer e.kubectl("delete", "pod", "foo")
-
-	e.logf("Waiting for test pod to be initialized")
-	e.waitFor("condition=initialized", "pod", "foo")
-
-	output := e.kubectl("get", "pod", "foo")
-	for strings.Contains(output, "ContainerCreating") {
-		output = e.kubectl("get", "pod", "foo")
-	}
-
-	e.logf("Testing that container is launched without runtime permission errors")
-	output = e.kubectl("describe", "pod", "foo")
-	e.NotContains(output, "Error: failed to start containerd task")
-
-	e.logf("Testing that container ran successfully")
-	output = e.kubectl("logs", "foo")
-	e.Contains(output, "Hello from Docker!")
-
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
-
-	e.logf("Testing that pod has securityContext")
-	output = e.kubectl(
-		"get", "pod", "foo",
-		"--output", "jsonpath={.spec.containers[0].securityContext.seccompProfile.localhostProfile}",
-	)
-	e.Equal(fmt.Sprintf("operator/%s/profile-allow-unsafe.json", namespace), output)
-
-	e.logf("Testing that profile binding has pod reference")
-	output = e.kubectl("get", "profilebinding", "foo-binding", "--output", "jsonpath={.status.activeWorkloads[0]}")
-	e.Equal(fmt.Sprintf("%s/foo", namespace), output)
-	output = e.kubectl("get", "profilebinding", "foo-binding", "--output", "jsonpath={.metadata.finalizers[0]}")
-	e.Equal("active-workload-lock", output)
-
-	e.logf("Testing that profile has pod reference")
-	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
-		"--output", "jsonpath={.status.activeWorkloads[0]}")
-
-	e.Equal(fmt.Sprintf("%s/foo", namespace), output)
 	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
 		"--output", "jsonpath={.metadata.finalizers}")
 
