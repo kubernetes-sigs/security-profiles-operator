@@ -108,6 +108,7 @@ spec:
             properties:
               image:
                 description: Image name within pod containers to match to the profile.
+                  Use the "*" string to bind the profile to all pods.
                 type: string
               profileRef:
                 description: ProfileRef references a SeccompProfile or other profile
