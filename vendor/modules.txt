@@ -199,7 +199,7 @@ github.com/aliyun/credentials-go/credentials
 github.com/aliyun/credentials-go/credentials/request
 github.com/aliyun/credentials-go/credentials/response
 github.com/aliyun/credentials-go/credentials/utils
-# github.com/aquasecurity/libbpfgo v0.4.9-libbpf-1.2.0
+# github.com/aquasecurity/libbpfgo v0.5.0-libbpf-1.2
 ## explicit; go 1.18
 github.com/aquasecurity/libbpfgo
 # github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
