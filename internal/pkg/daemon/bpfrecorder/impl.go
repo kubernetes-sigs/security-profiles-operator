@@ -235,7 +235,7 @@ func (d *defaultImpl) PollRingBuffer(b *bpf.RingBuffer, timeout int) {
 }
 
 func (d *defaultImpl) CloseModule(m *bpf.BPFMap) {
-	m.GetModule().Close()
+	m.Module().Close()
 }
 
 func (d *defaultImpl) Readlink(name string) (string, error) {
