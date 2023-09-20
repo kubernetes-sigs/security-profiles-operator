@@ -60,7 +60,7 @@ func endpointFor(path string, caInjectType CAInjectType) v1.Endpoint {
 		Interval: "10s",
 		Port:     "https",
 		Scheme:   "https",
-		BearerTokenSecret: corev1.SecretKeySelector{
+		BearerTokenSecret: &corev1.SecretKeySelector{
 			LocalObjectReference: corev1.LocalObjectReference{
 				Name: "metrics-token",
 			},
