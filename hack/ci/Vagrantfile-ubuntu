@@ -33,6 +33,8 @@ Vagrant.configure("2") do |config|
       KUBERNETES_VERSION=v1.28
       curl -fsSL https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
       echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
+      curl -fsSL https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg
+      echo "deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg] https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/ /" | tee /etc/apt/sources.list.d/cri-o.list
       apt-get update
       apt-get install -y \
         build-essential \
@@ -44,6 +46,30 @@ Vagrant.configure("2") do |config|
         moreutils \
         apparmor \
         apparmor-utils
+
+      # Load the prebuilt container image
+      podman load -i /vagrant/image.tar
+
+      # Remove podman, this package conflicts with CRI-O
+      apt-get remove --purge -y podman
+      apt-get autoremove -y
+
+      # Some tests require runc
+      RUNC_VERSION=v1.1.9
+      RUNC_BINARY=/usr/sbin/runc
+      curl -sSfL --retry 5 --retry-delay 3 "https://github.com/opencontainers/runc/releases/download/$RUNC_VERSION/runc.amd64" -o "$RUNC_BINARY"
+      chmod +x "$RUNC_BINARY"
+
+      # Baseprofile recording requires cosign
+      COSIGN_VERSION=v2.2.0
+      COSIGN_BINARY=/usr/bin/cosign
+      curl -sSfL --retry 5 --retry-delay 3 "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64" -o "$COSIGN_BINARY"
+      chmod +x "$COSIGN_BINARY"
+
+      # Setup CRI-O
+      apt-get install -y cri-o
+      printf '[crio.runtime.runtimes.runc]\n' >/etc/crio/crio.conf.d/10-runc.conf
+      systemctl enable --now crio
 
       # Disable kernel print rate limiting for syslog messaging
       sysctl -w kernel.printk_ratelimit=0
