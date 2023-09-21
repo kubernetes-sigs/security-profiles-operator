@@ -42,6 +42,15 @@ gpgcheck=1
 gpgkey=https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/rpm/repodata/repomd.xml.key
 EOF
 
+cat <<EOF | tee /etc/yum.repos.d/cri-o.repo
+[cri-o]
+name=CRI-O
+baseurl=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/
+enabled=1
+gpgcheck=1
+gpgkey=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/repodata/repomd.xml.key
+EOF
+
       dnf install -y \
         conntrack \
         container-selinux \
@@ -52,9 +61,20 @@ EOF
         kubeadm \
         kubectl \
         kubelet \
+        kubernetes-cni \
         make \
         openssl \
         podman
+
+      # Load the prebuilt container image
+      podman load -i /vagrant/image.tar
+
+      # Setup CRI-O
+      dnf download --repo cri-o --arch x86_64 cri-o
+      rpm -i --nodeps --force cri-o-*.rpm
+
+      printf '[crio.runtime]\nselinux = true' >/etc/crio/crio.conf.d/30-selinux.conf
+      systemctl enable --now crio
 
       dnf remove -y \
         zram-generator-defaults

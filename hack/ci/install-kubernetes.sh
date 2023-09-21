@@ -15,13 +15,6 @@
 
 set -euox pipefail
 
-USER=vagrant
-ROOT_DIR=/$USER
-
-# Prepare dependents
-podman load -i $ROOT_DIR/image.tar
-$ROOT_DIR/hack/ci/install-cri-o.sh
-
 # Setup cluster
 IP=$(ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]')
 NODENAME=$(hostname -s)
@@ -31,6 +24,7 @@ sysctl -w net.ipv4.ip_forward=1
 kubeadm init --apiserver-cert-extra-sans="$IP" --node-name "$NODENAME"
 
 # Setup kubectl
+USER=vagrant
 mkdir /home/$USER/.kube
 cp /etc/kubernetes/admin.conf /home/$USER/.kube/config
 chown -R $USER:$USER /home/$USER/.kube
