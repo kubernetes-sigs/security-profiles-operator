@@ -175,14 +175,8 @@ dependencies:
     - path: hack/update-vmlinux
       match: VERSION
 
-  - name: CRI-O
-    version: v1.28.0
-    refPaths:
-    - path: hack/ci/install-cri-o.sh
-      match: TAG
-
   - name: crun
-    version: v1.8.5
+    version: v1.8.7
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
@@ -198,18 +192,17 @@ dependencies:
       match: baseProfileNameRunc
     - path: installation-usage.md
       match: baseProfileName
+    - path: hack/ci/Vagrantfile-ubuntu
+      match: RUNC_VERSION
 
   - name: cosign
-    version: v2.0.2
+    version: v2.2.0
     refPaths:
-    - path: hack/ci/install-cri-o.sh
+    - path: hack/ci/Vagrantfile-ubuntu
       match: COSIGN_VERSION
-
   - name: bom
     version: v0.5.1
     refPaths:
-    - path: hack/ci/install-cri-o.sh
-      match: BOM_VERSION
     - path: .github/workflows/build.yml
       match: BOM_VERSION
 
