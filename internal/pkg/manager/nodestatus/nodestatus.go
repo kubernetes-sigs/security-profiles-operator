@@ -266,6 +266,8 @@ func (r *StatusReconciler) getProfileFromStatus(
 		prof = &seccompprofileapi.SeccompProfile{}
 	case "SelinuxProfile":
 		prof = &selxv1alpha2.SelinuxProfile{}
+	case "RawSelinuxProfile":
+		prof = &selxv1alpha2.RawSelinuxProfile{}
 	default:
 		return nil, fmt.Errorf("getting owner profile: %w", ErrUnknownOwnerKind)
 	}
