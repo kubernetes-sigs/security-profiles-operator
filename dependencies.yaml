@@ -116,7 +116,7 @@ dependencies:
       match: tag
 
   - name: ubi8-minimal
-    version: sha256:8d43664c250c72d35af8498c7ff76a9f0d42f16b9b3b29f0caa747121778de0e
+    version: sha256:ca2d09012e43e133f7703cbfc9ed9a6b5e5485ca7b3d52e9b3b287a0780b1bb3
     refPaths:
     - path: Dockerfile.ubi
       match: registry.access.redhat.com/ubi8/ubi-minimal
