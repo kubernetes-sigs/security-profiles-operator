@@ -99,6 +99,45 @@ func GetMapByID(id uint32) (*BPFMapLow, error) {
 	}, nil
 }
 
+// GetMapsIDsByName searches for maps with a given name.
+// It returns a slice of unsigned 32-bit integers representing the IDs of matching maps.
+// If no maps are found, it returns an empty slice and no error.
+func GetMapsIDsByName(name string) ([]uint32, error) {
+	bpfMapsIds := []uint32{}
+
+	startId := C.uint(0)
+	nextId := C.uint(0)
+
+	for {
+		retC := C.bpf_map_get_next_id(startId, &nextId)
+		errno := syscall.Errno(-retC)
+		if retC < 0 {
+			if errno == syscall.ENOENT {
+				return bpfMapsIds, nil
+			}
+
+			return bpfMapsIds, fmt.Errorf("failed to get next map id: %w", errno)
+		}
+
+		startId = nextId + 1
+
+		bpfMapLow, err := GetMapByID(uint32(nextId))
+		if err != nil {
+			return bpfMapsIds, err
+		}
+
+		if err := syscall.Close(bpfMapLow.FileDescriptor()); err != nil {
+			return bpfMapsIds, err
+		}
+
+		if bpfMapLow.Name() != name {
+			continue
+		}
+
+		bpfMapsIds = append(bpfMapsIds, bpfMapLow.info.ID)
+	}
+}
+
 //
 // BPFMapLow Specs
 //
