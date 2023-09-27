@@ -6,7 +6,7 @@ require (
 	github.com/acobaugh/osrelease v0.1.0
 	github.com/aquasecurity/libbpfgo v0.5.1-libbpf-1.2
 	github.com/blang/semver/v4 v4.0.0
-	github.com/cert-manager/cert-manager v1.13.0
+	github.com/cert-manager/cert-manager v1.13.1
 	github.com/containers/common v0.56.0
 	github.com/go-logr/logr v1.2.4
 	github.com/google/go-containerregistry v0.16.1
@@ -117,7 +117,7 @@ require (
 	github.com/docker/distribution v2.8.2+incompatible // indirect
 	github.com/docker/docker v24.0.6+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.8.0 // indirect
-	github.com/emicklei/go-restful/v3 v3.10.2 // indirect
+	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/emicklei/proto v1.10.0 // indirect
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
