@@ -134,7 +134,7 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 	// We default to System if Kind is left empty
 	case selxv1alpha2.SystemPolicyKind, "":
 		return sph.handleInheritSystemPolicy(ancestorRef)
-	case "SelinuxPolicy":
+	case "SelinuxProfile":
 		return sph.handleInheritSPOPolicy(ancestorRef, namespace)
 	}
 	return fmt.Errorf("%s/%s: %w", ancestorRef.Kind, ancestorRef.Name, ErrUnknownKindForEntry)
