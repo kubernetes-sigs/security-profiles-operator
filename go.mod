@@ -14,7 +14,7 @@ require (
 	github.com/jellydator/ttlcache/v3 v3.1.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.7.0
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
-	github.com/nxadm/tail v1.4.8
+	github.com/nxadm/tail v1.4.11
 	github.com/opencontainers/image-spec v1.1.0-rc5
 	github.com/opencontainers/runc v1.1.9
 	github.com/opencontainers/runtime-spec v1.1.0
