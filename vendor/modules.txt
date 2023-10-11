@@ -786,7 +786,7 @@ github.com/munnerz/goautoneg
 # github.com/nozzle/throttler v0.0.0-20180817012639-2ea982251481
 ## explicit
 github.com/nozzle/throttler
-# github.com/nxadm/tail v1.4.8
+# github.com/nxadm/tail v1.4.11
 ## explicit; go 1.13
 github.com/nxadm/tail
 github.com/nxadm/tail/ratelimiter
