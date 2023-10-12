@@ -188,11 +188,11 @@ func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract
 			net.AllowRaw = &enabled
 		}
 		if processed.Socket.UseTcp {
-			proto.AllowTcp = &enabled
+			proto.AllowTCP = &enabled
 			net.Protocols = &proto
 		}
 		if processed.Socket.UseUdp {
-			proto.AllowUdp = &enabled
+			proto.AllowUDP = &enabled
 			net.Protocols = &proto
 		}
 		abstract.Network = &net
