@@ -31,12 +31,45 @@ var (
 	_ profilebasev1alpha1.SecurityProfileBase = &AppArmorProfile{}
 )
 
+type AppArmorExecutablesRules struct {
+	AllowedExecutables *[]string `json:"allowed_executables,omitempty"`
+	AllowedLibraries   *[]string `json:"allowed_libraries,omitempty"`
+}
+
+type AppArmorFsRules struct {
+	ReadOnlyPaths  *[]string `json:"read_only_paths,omitempty"`
+	WriteOnlyPaths *[]string `json:"write_only_paths,omitempty"`
+	ReadWritePaths *[]string `json:"read_write_paths,omitempty"`
+}
+
+type AppArmorAllowedProtocols struct {
+	AllowTcp *bool `json:"allow_tcp,omitempty"`
+	AllowUdp *bool `json:"allow_udp,omitempty"`
+}
+
+type AppArmorNetworkRules struct {
+	AllowRaw  *bool                     `json:"allow_raw,omitempty"`
+	Protocols *AppArmorAllowedProtocols `json:"allowed_protocols,omitempty"`
+}
+
+type AppArmorCapabilityRules struct {
+	AllowedCapabilities []string `json:"allowed_capabilities,omitempty"`
+}
+
+type AppArmorAbstract struct {
+	Executable *AppArmorExecutablesRules `json:"executable,omitempty"`
+	Filesystem *AppArmorFsRules          `json:"filesystem,omitempty"`
+	Network    *AppArmorNetworkRules     `json:"network,omitempty"`
+	Capability *AppArmorCapabilityRules  `json:"capability,omitempty"`
+}
+
 // AppArmorProfileSpec defines the desired state of AppArmorProfile.
 type AppArmorProfileSpec struct {
 	// Common spec fields for all profiles.
 	profilebasev1alpha1.SpecBase `json:",inline"`
 
-	Policy string `json:"policy,omitempty"`
+	Policy   string           `json:"policy,omitempty"`
+	Abstract AppArmorAbstract `json:"abstract,omitempty"`
 }
 
 // AppArmorProfileStatus defines the observed state of AppArmorProfile.

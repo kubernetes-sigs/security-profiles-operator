@@ -35,9 +35,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/printers"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -59,7 +61,11 @@ func New(options *Options) *Recorder {
 
 // Run the Recorder.
 func (r *Recorder) Run() error {
-	r.bpfRecorder = bpfrecorder.New(logr.New(&cli.LogSink{}))
+	if (r.options.typ == TypeApparmor) || (r.options.typ == TypeRawAppArmor) {
+		r.bpfRecorder = bpfrecorder.NewAppArmor(logr.New(&cli.LogSink{}))
+	} else {
+		r.bpfRecorder = bpfrecorder.NewSeccomp(logr.New(&cli.LogSink{}))
+	}
 	r.bpfRecorder.FilterProgramName(r.options.commandOptions.Command())
 	if err := r.LoadBpfRecorder(r.bpfRecorder); err != nil {
 		return fmt.Errorf("load: %w", err)
@@ -81,8 +87,14 @@ func (r *Recorder) Run() error {
 		log.Printf("Command did not exit successfully: %v", err)
 	}
 
-	if err := r.processData(mntns); err != nil {
-		return fmt.Errorf("build profile: %w", err)
+	if (r.options.typ == TypeApparmor) || (r.options.typ == TypeRawAppArmor) {
+		if err := r.processAppArmorData(); err != nil {
+			return fmt.Errorf("build profile: %w", err)
+		}
+	} else {
+		if err := r.processData(mntns); err != nil {
+			return fmt.Errorf("build profile: %w", err)
+		}
 	}
 
 	return nil
@@ -125,6 +137,89 @@ func (r *Recorder) processData(mntns uint32) error {
 	}
 
 	return fmt.Errorf("find mntns %d in bpf data map", mntns)
+}
+
+func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract {
+	processed := r.bpfRecorder.GetAppArmorProcessed()
+
+	abstract := apparmorprofileapi.AppArmorAbstract{}
+	enabled := true
+	var gotExec bool
+
+	exec := apparmorprofileapi.AppArmorExecutablesRules{}
+	if len(processed.FileProcessed.AllowedExecutables) != 0 {
+		sort.Strings(processed.FileProcessed.AllowedExecutables)
+		exec.AllowedExecutables = &processed.FileProcessed.AllowedExecutables
+		gotExec = true
+	}
+	if len(processed.FileProcessed.AllowedLibraries) != 0 {
+		sort.Strings(processed.FileProcessed.AllowedLibraries)
+		exec.AllowedLibraries = &processed.FileProcessed.AllowedLibraries
+		gotExec = true
+	}
+
+	if gotExec {
+		abstract.Executable = &exec
+	}
+
+	if (len(processed.FileProcessed.ReadOnlyPaths) != 0) ||
+		(len(processed.FileProcessed.WriteOnlyPaths) != 0) ||
+		(len(processed.FileProcessed.ReadWritePaths) != 0) {
+		files := apparmorprofileapi.AppArmorFsRules{}
+		if len(processed.FileProcessed.ReadOnlyPaths) != 0 {
+			sort.Strings(processed.FileProcessed.ReadOnlyPaths)
+			files.ReadOnlyPaths = &processed.FileProcessed.ReadOnlyPaths
+		}
+		if len(processed.FileProcessed.WriteOnlyPaths) != 0 {
+			sort.Strings(processed.FileProcessed.WriteOnlyPaths)
+			files.WriteOnlyPaths = &processed.FileProcessed.WriteOnlyPaths
+		}
+		if len(processed.FileProcessed.ReadWritePaths) != 0 {
+			sort.Strings(processed.FileProcessed.ReadWritePaths)
+			files.ReadWritePaths = &processed.FileProcessed.ReadWritePaths
+		}
+		abstract.Filesystem = &files
+	}
+
+	if processed.Socket.UseRaw || processed.Socket.UseTcp || processed.Socket.UseUdp {
+		net := apparmorprofileapi.AppArmorNetworkRules{}
+		proto := apparmorprofileapi.AppArmorAllowedProtocols{}
+		if processed.Socket.UseRaw {
+			net.AllowRaw = &enabled
+		}
+		if processed.Socket.UseTcp {
+			proto.AllowTcp = &enabled
+			net.Protocols = &proto
+		}
+		if processed.Socket.UseUdp {
+			proto.AllowUdp = &enabled
+			net.Protocols = &proto
+		}
+		abstract.Network = &net
+	}
+
+	if len(processed.Capabilities) != 0 {
+		capabilities := apparmorprofileapi.AppArmorCapabilityRules{}
+		capabilities.AllowedCapabilities = processed.Capabilities
+		abstract.Capability = &capabilities
+	}
+
+	return abstract
+}
+
+func (r *Recorder) processAppArmorData() error {
+	abstract := r.generateAppArmorProfile()
+	spec := apparmorprofileapi.AppArmorProfileSpec{
+		Abstract: abstract,
+	}
+	defer func() {
+		log.Printf("Wrote apparmor profile to: %s", r.options.outputFile)
+	}()
+
+	if r.options.typ == TypeRawAppArmor {
+		return r.buildAppArmorProfileRaw(&spec)
+	}
+	return r.buildAppArmorProfileCRD(&spec)
 }
 
 func (r *Recorder) buildProfile(names []string) error {
@@ -204,6 +299,51 @@ func (r *Recorder) buildProfileCRD(spec *seccompprofileapi.SeccompProfileSpec) e
 	printer := printers.YAMLPrinter{}
 	if err := r.PrintObj(printer, profile, file); err != nil {
 		return fmt.Errorf("print YAML: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Recorder) buildAppArmorProfileCRD(spec *apparmorprofileapi.AppArmorProfileSpec) error {
+	profile := &apparmorprofileapi.AppArmorProfile{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "AppArmorProfile",
+			APIVersion: apparmorprofileapi.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: filepath.Base(r.options.commandOptions.Command()),
+		},
+		Spec: *spec,
+	}
+
+	file, err := r.Create(r.options.outputFile)
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	defer r.CloseFile(file)
+
+	printer := printers.YAMLPrinter{}
+	if err := r.PrintObj(printer, profile, file); err != nil {
+		return fmt.Errorf("print YAML: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Recorder) buildAppArmorProfileRaw(spec *apparmorprofileapi.AppArmorProfileSpec) error {
+	if r.options.outputFile == DefaultOutputFile {
+		r.options.outputFile = strings.ReplaceAll(r.options.outputFile, ".yaml", ".apparmor")
+	}
+
+	abstract := spec.Abstract
+	raw, err := crd2armor.GenerateProfile(r.options.commandOptions.Command(), &abstract)
+	if err != nil {
+		return err
+	}
+
+	const defaultMode os.FileMode = 0o644
+	if err := r.WriteFile(r.options.outputFile, []byte(raw), defaultMode); err != nil {
+		return fmt.Errorf("write AppArmor file: %w", err)
 	}
 
 	return nil
