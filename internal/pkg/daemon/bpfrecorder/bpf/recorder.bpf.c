@@ -633,7 +633,7 @@ int syscall__write(struct trace_event_raw_sys_enter *ctx)
             return 0;
         }
         event->fd = fd;
-        bpf_printk("writting to fd: %d\n", fd);
+        bpf_printk("writing to fd: %d\n", fd);
         bpf_ringbuf_submit(event, 0);
     }
 

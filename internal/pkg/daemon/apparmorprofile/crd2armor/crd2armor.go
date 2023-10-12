@@ -41,10 +41,10 @@ profile {{.Name}} flags=(attach_disconnected,mediate_deleted) {
 {{ if .Abstract.Network.AllowRaw}}{{else}}  deny network raw,
 {{end}}{{end}}
 {{ if ne .Abstract.Network.Protocols nil }}
-{{if ne .Abstract.Network.Protocols.AllowTcp nil }}
-{{if .Abstract.Network.Protocols.AllowTcp}}  network inet tcp,
-{{end}}{{end}}{{if ne .Abstract.Network.Protocols.AllowUdp nil }}
-{{if .Abstract.Network.Protocols.AllowUdp}}  network inet udp,
+{{if ne .Abstract.Network.Protocols.AllowTCP nil }}
+{{if .Abstract.Network.Protocols.AllowTCP}}  network inet tcp,
+{{end}}{{end}}{{if ne .Abstract.Network.Protocols.AllowUDP nil }}
+{{if .Abstract.Network.Protocols.AllowUDP}}  network inet udp,
 {{end}}{{end}}{{end}}{{end}}
 
   # Capabilities rules

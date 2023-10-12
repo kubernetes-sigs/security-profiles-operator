@@ -43,8 +43,8 @@ type AppArmorFsRules struct {
 }
 
 type AppArmorAllowedProtocols struct {
-	AllowTcp *bool `json:"allow_tcp,omitempty"`
-	AllowUdp *bool `json:"allow_udp,omitempty"`
+	AllowTCP *bool `json:"allow_tcp,omitempty"`
+	AllowUDP *bool `json:"allow_udp,omitempty"`
 }
 
 type AppArmorNetworkRules struct {
