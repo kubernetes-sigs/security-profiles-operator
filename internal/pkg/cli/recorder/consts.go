@@ -45,6 +45,14 @@ const (
 	// TypeRawSeccomp is the type indicating that we should record a raw
 	// seccomp JSON profile.
 	TypeRawSeccomp Type = "raw-seccomp"
+
+	// TypeApparmor is the type indicating that we should record an apparmor CRD
+	// profile.
+	TypeApparmor Type = "apparmor"
+
+	// TypeRawAppArmor is the type indicating that we should record a raw
+	// seccomp JSON profile.
+	TypeRawAppArmor Type = "raw-apparmor"
 )
 
 var (
