@@ -62,27 +62,201 @@ const (
 	maxCacheItems       uint64        = 1000
 	defaultHostPid      uint32        = 1
 	defaultByteNum      int           = 4
+	recordingSeccomp    int           = 1
+	recordingAppArmor   int           = 2
+	pathMax             int           = 4096
+	probeTypeOpen       int           = 0
+	probeTypeExec       int           = 1
+	probeTypeClose      int           = 2
+	probeTypeMmapExec   int           = 3
+	probeTypeRead       int           = 4
+	probeTypeWrite      int           = 5
+	probeTypeSocket     int           = 6
+	probeTypeCap        int           = 7
+	protRead            int           = 0x1
+	protWrite           int           = 0x2
+	protExec            int           = 0x4
+	sockStream          int           = 1
+	sockDgram           int           = 2
+	sockRaw             int           = 3
+	sockTypeMask        int           = 0xF
 )
 
 // BpfRecorder is the main structure of this package.
 type BpfRecorder struct {
 	api.UnimplementedBpfRecorderServer
 	impl
-	logger                  logr.Logger
-	startRequests           int64
-	syscalls                *bpf.BPFMap
-	mntns                   *bpf.BPFMap
-	btfPath                 string
-	syscallIDtoNameCache    *ttlcache.Cache[string, string]
-	pidToContainerIDCache   *ttlcache.Cache[string, string]
-	mntnsToContainerIDMap   *bimap.BiMap[uint32, string]
-	containerIDToProfileMap *bimap.BiMap[string, string]
-	nodeName                string
-	clientset               *kubernetes.Clientset
-	systemMountNamespace    uint32
-	loadUnloadMutex         sync.RWMutex
-	metricsClient           apimetrics.Metrics_BpfIncClient
-	programNameFilter       string
+	logger                   logr.Logger
+	startRequests            int64
+	syscalls                 *bpf.BPFMap
+	mntns                    *bpf.BPFMap
+	btfPath                  string
+	syscallIDtoNameCache     *ttlcache.Cache[string, string]
+	pidToContainerIDCache    *ttlcache.Cache[string, string]
+	mntnsToContainerIDMap    *bimap.BiMap[uint32, string]
+	containerIDToProfileMap  *bimap.BiMap[string, string]
+	nodeName                 string
+	clientset                *kubernetes.Clientset
+	systemMountNamespace     uint32
+	loadUnloadMutex          sync.RWMutex
+	metricsClient            apimetrics.Metrics_BpfIncClient
+	programNameFilter        string
+	recordingMode            int
+	fdMapping                map[uint64]string
+	recordedFiles            []bpfAppArmorFileEvent
+	lockRecordedFiles        sync.Mutex
+	recordedExecs            []string
+	lockRecordedExecs        sync.Mutex
+	recordedSocketsUse       BpfAppArmorSocketEvent
+	lockRecordedSocketsUse   sync.Mutex
+	recordedCapabilities     []string
+	lockRecordedCapabilities sync.Mutex
+}
+
+type syscallTracepoint struct {
+	category string
+	program  string
+	name     string
+}
+
+type bpfAppArmorEvent struct {
+	Pid   uint32
+	Mtns  uint32
+	Type  uint8
+	Flags uint64
+	Fd    uint64
+	Data  [pathMax]uint8
+}
+
+type bpfAppArmorFileEvent struct {
+	Filename string
+	Flags    uint64
+	GotRead  bool
+	GotWrite bool
+	GotExec  bool
+	GotError bool
+}
+
+type BpfAppArmorFileProcessed struct {
+	AllowedExecutables []string
+	AllowedLibraries   []string
+	ReadOnlyPaths      []string
+	WriteOnlyPaths     []string
+	ReadWritePaths     []string
+}
+
+type BpfAppArmorSocketEvent struct {
+	UseRaw bool
+	UseTcp bool
+	UseUdp bool
+}
+
+type BpfAppArmorProcessed struct {
+	FileProcessed BpfAppArmorFileProcessed
+	Socket        BpfAppArmorSocketEvent
+	Capabilities  []string
+}
+
+var apparmorSyscallTracepoints = []syscallTracepoint{
+	{
+		category: "syscalls",
+		program:  "syscall__execve",
+		name:     "sys_enter_execve",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__execveat",
+		name:     "sys_enter_execveat",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__open",
+		name:     "sys_enter_open",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__exit_open",
+		name:     "sys_exit_open",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__openat",
+		name:     "sys_enter_openat",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__exit_openat",
+		name:     "sys_exit_openat",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__close",
+		name:     "sys_enter_close",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__mmap",
+		name:     "sys_enter_mmap",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__write",
+		name:     "sys_enter_write",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__read",
+		name:     "sys_enter_read",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__socket",
+		name:     "sys_enter_socket",
+	},
+}
+
+var capabilities = map[int]string{
+	0:  "chown",
+	1:  "dac_override",
+	2:  "dac_read_search",
+	3:  "fowner",
+	4:  "fsetid",
+	5:  "kill",
+	6:  "setgid",
+	7:  "setuid",
+	8:  "setpcap",
+	9:  "linux_immutable",
+	10: "net_bind_service",
+	11: "net_broadcast",
+	12: "net_admin",
+	13: "net_raw",
+	14: "ipc_lock",
+	15: "ipc_owner",
+	16: "sys_module",
+	17: "sys_rawio",
+	18: "sys_chroot",
+	19: "sys_ptrace",
+	20: "sys_pacct",
+	21: "sys_admin",
+	22: "sys_boot",
+	23: "sys_nice",
+	24: "sys_resource",
+	25: "sys_time",
+	26: "sys_tty_config",
+	27: "mknod",
+	28: "lease",
+	29: "audit_write",
+	30: "audit_control",
+	31: "setfcap",
+	32: "mac_override",
+	33: "mac_admin",
+	34: "syslog",
+	35: "wake_alarm",
+	36: "block_suspend",
+	37: "audit_read",
+	38: "perfmon",
+	39: "bpf",
+	40: "checkpoint_restore",
 }
 
 // New returns a new BpfRecorder instance.
@@ -101,13 +275,39 @@ func New(logger logr.Logger) *BpfRecorder {
 		mntnsToContainerIDMap:   bimap.New[uint32, string](),
 		containerIDToProfileMap: bimap.New[string, string](),
 		loadUnloadMutex:         sync.RWMutex{},
+		recordingMode:           recordingSeccomp,
+		fdMapping:               make(map[uint64]string),
+		recordedFiles:           make([]bpfAppArmorFileEvent, 0),
 	}
+}
+
+// NewSeccomp returns a new BpfRecorder instance for seccomp profiles.
+func NewSeccomp(logger logr.Logger) *BpfRecorder {
+	bpfr := New(logger)
+	return bpfr
+}
+
+// NewAppArmor returns a new BpfRecorder instance.
+func NewAppArmor(logger logr.Logger) *BpfRecorder {
+	bpfr := New(logger)
+	bpfr.recordingMode = recordingAppArmor
+	return bpfr
 }
 
 // Syscalls returns the bpf map containing the PID (key) to syscalls (value)
 // data.
 func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 	return b.syscalls
+}
+
+func (b *BpfRecorder) GetAppArmorProcessed() BpfAppArmorProcessed {
+	var processed BpfAppArmorProcessed
+
+	processed.FileProcessed = b.processExecFsEvents()
+	processed.Socket = b.recordedSocketsUse
+	processed.Capabilities = b.recordedCapabilities
+
+	return processed
 }
 
 // FilterProgramName can be used to filter on a specific program name.
@@ -383,6 +583,8 @@ func sortUnique(input []string) (result []string) {
 
 // Load prestarts the bpf recorder.
 func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
+	var module *bpf.Module
+
 	b.logger.Info("Loading bpf module")
 	b.btfPath, err = b.findBtfPath()
 	if err != nil {
@@ -394,11 +596,20 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
 
-	module, err := b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
-		BPFObjBuff: bpfObject,
-		BPFObjName: "recorder.bpf.o",
-		BTFObjPath: b.btfPath,
-	})
+	if b.recordingMode == recordingSeccomp {
+		module, err = b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
+			BPFObjBuff: bpfObject,
+			BPFObjName: "recorder.bpf.o",
+			BTFObjPath: b.btfPath,
+		})
+	}
+	if b.recordingMode == recordingAppArmor {
+		module, err = b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
+			BPFObjBuff: bpfObject,
+			BPFObjName: "recorder.bpf.o",
+			BTFObjPath: b.btfPath,
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("load bpf module: %w", err)
 	}
@@ -440,6 +651,31 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("get pid_mntns: %w", err)
 	}
 
+	if b.recordingMode == recordingAppArmor {
+		for _, tracepoint := range apparmorSyscallTracepoints {
+			b.logger.Info("Getting bpf program " + tracepoint.program)
+			programApparmor, err := b.GetProgram(module, tracepoint.program)
+			if err != nil {
+				return fmt.Errorf("get %s program: %w", tracepoint.program, err)
+			}
+			b.logger.Info("Attaching bpf tracepoint")
+			if _, err := b.AttachTracepoint(programApparmor, tracepoint.category, tracepoint.name); err != nil {
+				return fmt.Errorf("attach tracepoint: %w", err)
+			}
+		}
+
+		b.logger.Info("Getting bpf program " + "trace_cap_capable")
+		programApparmor, err := b.GetProgram(module, "trace_cap_capable")
+		if err != nil {
+			return fmt.Errorf("get %s program: %w", "trace_cap_capable", err)
+		}
+		b.logger.Info("Attaching bpf tracepoint")
+
+		if _, err := programApparmor.AttachKprobe("cap_capable"); err != nil {
+			return fmt.Errorf("attach tracepoint: %w", err)
+		}
+	}
+
 	b.syscalls = syscalls
 	b.mntns = mntns
 
@@ -456,6 +692,19 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 
 	if startEventProcessor {
 		go b.processEvents(events)
+	}
+
+	// setup the buffer and processing for AppArmor events
+	if b.recordingMode == recordingAppArmor {
+		apparmorEvents := make(chan []byte)
+		apparmorRingbuffer, err := b.InitRingBuf(module,
+			"apparmor_events",
+			apparmorEvents)
+		if err != nil {
+			return fmt.Errorf("init apparmor_events ringbuffer: %w", err)
+		}
+		b.PollRingBuffer(apparmorRingbuffer, timeout)
+		go b.handleAppArmorEvents(apparmorEvents)
 	}
 
 	b.logger.Info("Module successfully loaded")
@@ -583,6 +832,204 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 			sem.Release(1)
 		}()
 	}
+}
+
+func fileDataToString(data [pathMax]uint8) string {
+	var eos int
+	for i, c := range data {
+		if c == 0 {
+			eos = i
+			break
+		}
+	}
+	return string(data[:eos])
+}
+
+func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent bpfAppArmorEvent) {
+
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
+
+	switch fileEvent.Type {
+	case uint8(probeTypeOpen):
+		var fileEv bpfAppArmorFileEvent
+		fileEv.Filename = fileDataToString(fileEvent.Data)
+		fileEv.Flags = fileEvent.Flags
+		if (int)(fileEvent.Fd) < 0 {
+			fileEv.GotError = true
+		}
+		b.recordedFiles = append(b.recordedFiles, fileEv)
+		b.fdMapping[fileEvent.Fd] = fileEv.Filename
+	case uint8(probeTypeClose):
+		delete(b.fdMapping, fileEvent.Fd)
+	case uint8(probeTypeMmapExec):
+		path, ok := b.fdMapping[fileEvent.Fd]
+		if int(fileEvent.Fd) < 0 {
+			return
+		}
+		if !ok {
+			b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
+			return
+		}
+		for i, file := range b.recordedFiles {
+			if file.Filename == path {
+				if fileEvent.Flags&uint64(protExec) == uint64(protExec) {
+					b.recordedFiles[i].GotExec = true
+				}
+				if fileEvent.Flags&uint64(protRead) == uint64(protRead) {
+					b.recordedFiles[i].GotRead = true
+				}
+				if fileEvent.Flags&uint64(protWrite) == uint64(protWrite) {
+					b.recordedFiles[i].GotWrite = true
+				}
+				break
+			}
+		}
+	case uint8(probeTypeWrite):
+		if int(fileEvent.Fd) < 0 {
+			return
+		}
+		path, ok := b.fdMapping[fileEvent.Fd]
+		if !ok {
+			b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
+			return
+		}
+		for i, file := range b.recordedFiles {
+			if file.Filename == path {
+				b.recordedFiles[i].GotWrite = true
+				break
+			}
+		}
+	case uint8(probeTypeRead):
+		if int(fileEvent.Fd) < 0 {
+			return
+		}
+		path, ok := b.fdMapping[fileEvent.Fd]
+		if !ok {
+			b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
+			return
+		}
+		for i, file := range b.recordedFiles {
+			if file.Filename == path {
+				b.recordedFiles[i].GotRead = true
+				break
+			}
+		}
+	}
+}
+
+func (b *BpfRecorder) handleAppArmorExecEvents(execEvent bpfAppArmorEvent) {
+
+	b.lockRecordedExecs.Lock()
+	defer b.lockRecordedExecs.Unlock()
+
+	path := fileDataToString(execEvent.Data)
+	b.recordedExecs = append(b.recordedExecs, path)
+}
+
+func (b *BpfRecorder) handleAppArmorSocketEvents(socketEvent bpfAppArmorEvent) {
+
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+
+	socketType := socketEvent.Flags & uint64(sockTypeMask)
+	switch socketType {
+	case uint64(sockRaw):
+		b.recordedSocketsUse.UseRaw = true
+	case uint64(sockStream):
+		b.recordedSocketsUse.UseTcp = true
+	case uint64(sockDgram):
+		b.recordedSocketsUse.UseUdp = true
+	}
+}
+
+func (b *BpfRecorder) handleAppArmorCapabilityEvents(capEvent bpfAppArmorEvent) {
+
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+
+	cap := capEvent.Flags
+
+	for _, recordedCap := range b.recordedCapabilities {
+		if recordedCap == capabilities[int(cap)] {
+			return
+		}
+	}
+	b.recordedCapabilities = append(b.recordedCapabilities, capabilities[int(cap)])
+}
+
+func (b *BpfRecorder) handleAppArmorEvents(apparmorEvents chan []byte) {
+	b.logger.Info("Processing AppArmor events")
+	defer b.logger.Info("Stopped processing AppArmor events")
+
+	var apparmorEvent bpfAppArmorEvent
+
+	for event := range apparmorEvents {
+		err := binary.Read(bytes.NewReader(event), binary.LittleEndian, &apparmorEvent)
+		if err != nil {
+			b.logger.Error(err, "Couldn't read apparmorEvent structure")
+			return
+		}
+		switch apparmorEvent.Type {
+		case uint8(probeTypeOpen), uint8(probeTypeClose), uint8(probeTypeMmapExec), uint8(probeTypeRead), uint8(probeTypeWrite):
+			b.handleAppArmorFileEvents(apparmorEvent)
+		case uint8(probeTypeExec):
+			b.handleAppArmorExecEvents(apparmorEvent)
+		case uint8(probeTypeSocket):
+			b.handleAppArmorSocketEvents(apparmorEvent)
+		case uint8(probeTypeCap):
+			b.handleAppArmorCapabilityEvents(apparmorEvent)
+		}
+	}
+}
+
+func (b *BpfRecorder) isKnownFile(path string, knownPrefixes []string) bool {
+	for _, filter := range knownPrefixes {
+		if strings.HasPrefix(path, filter) {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *BpfRecorder) processExecFsEvents() BpfAppArmorFileProcessed {
+	var processedEvents BpfAppArmorFileProcessed
+
+	for _, executable := range b.recordedExecs {
+		processedEvents.AllowedExecutables = append(processedEvents.AllowedExecutables, executable)
+	}
+	for _, currentFile := range b.recordedFiles {
+		var currentFilename string
+		if strings.HasPrefix(currentFile.Filename, "/proc/") {
+			currentFilename = strings.Replace(currentFile.Filename, "/proc/", "/proc/@{pid}/", 1)
+		} else {
+			currentFilename = filepath.Clean(currentFile.Filename)
+		}
+		// loaded library
+		if currentFile.GotExec == true && !b.isKnownFile(currentFile.Filename, knownLibrariesPrefixes) {
+			processedEvents.AllowedLibraries = append(processedEvents.AllowedLibraries, currentFilename)
+			continue
+		}
+		// read only file
+		if currentFile.GotRead && !currentFile.GotWrite && !b.isKnownFile(currentFile.Filename, knownReadPrefixes) &&
+			!b.isKnownFile(currentFile.Filename, knownLibrariesPrefixes) {
+			processedEvents.ReadOnlyPaths = append(processedEvents.ReadOnlyPaths, currentFilename)
+			continue
+		}
+		// write only file
+		if currentFile.GotWrite && !currentFile.GotRead && !b.isKnownFile(currentFile.Filename, knownWritePrefixes) {
+			processedEvents.WriteOnlyPaths = append(processedEvents.WriteOnlyPaths, currentFilename)
+			continue
+		}
+		// read write file
+		if currentFile.GotRead && currentFile.GotWrite && !b.isKnownFile(currentFile.Filename, knownReadPrefixes) &&
+			!b.isKnownFile(currentFile.Filename, knownWritePrefixes) && !b.isKnownFile(currentFile.Filename, knownLibrariesPrefixes) {
+			processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, currentFilename)
+			continue
+		}
+	}
+
+	return processedEvents
 }
 
 func (b *BpfRecorder) updateSystemMntns() {
