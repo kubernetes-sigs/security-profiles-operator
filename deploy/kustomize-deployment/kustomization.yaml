@@ -7,7 +7,7 @@ images:
   # # newTag: latest
   # For images to be released:
   newName: registry.k8s.io/security-profiles-operator/security-profiles-operator
-  newTag: v0.8.0
+  newTag: v0.8.1
 
 
 resources:
