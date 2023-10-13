@@ -31,6 +31,7 @@ func TestObject2CIL(t *testing.T) {
 		name        string
 		profile     *selxv1alpha2.SelinuxProfile
 		wantMatches []string
+		doNotMatch  []string
 		inheritsys  []string
 		inheritobjs []selxv1alpha2.SelinuxProfileObject
 	}{
@@ -178,8 +179,11 @@ func TestObject2CIL(t *testing.T) {
 			},
 			wantMatches: []string{
 				"\\(block test-selinux-recording-nginx_default",
-				"\\(blockinherit foo_default.process\\)",
-				"\\(allow process http_port_t \\( tcp_socket \\(.*name_bind.*\\)\\)\\)\n",
+				"\\(blockinherit foo_default\\)",
+				"\\(allow process http_port_t \\( tcp_socket \\(.*name_bind.*\\)\\)\\)\\n",
+			},
+			doNotMatch: []string{
+				"\\(blockinherit container\\)",
 			},
 			inheritobjs: []selxv1alpha2.SelinuxProfileObject{
 				&selxv1alpha2.SelinuxProfile{
@@ -313,6 +317,14 @@ func TestObject2CIL(t *testing.T) {
 					t.Errorf("Error matching parsed CIL to expected result: %s", err)
 				} else if !matched {
 					t.Errorf("The generated CIL didn't match expectation.\nExpected match for: %s\nGenerated CIL: %s", wantMatch, got)
+				}
+			}
+			for _, doNotMatch := range tt.doNotMatch {
+				matched, err := regexp.MatchString(doNotMatch, got)
+				if err != nil {
+					t.Errorf("Error matching parsed CIL to expected result: %s", err)
+				} else if matched {
+					t.Errorf("The generated CIL matched expectation.\nExpected no match for: %s\nGenerated CIL: %s", doNotMatch, got)
 				}
 			}
 		})
