@@ -35,7 +35,7 @@ func (e *e2e) testCaseSeccompMetrics([]string) {
 	)
 
 	e.logf("Retrieving spo metrics for getting assertions")
-	output := e.getSpodMetrics()
+	output := e.runAndRetryPodCMD(curlSpodCMD)
 	metricDeletions := e.parseMetric(output, operationDelete)
 	metricUpdates := e.parseMetric(output, operationUpdate)
 
@@ -61,7 +61,7 @@ spec:
 	e.kubectlRunOperatorNS("pod-2", "--", "bash", "-c", curlCtrlCMD)
 
 	e.logf("Retrieving spo metrics for validation")
-	outputSpod := e.getSpodMetrics()
+	outputSpod := e.runAndRetryPodCMD(curlSpodCMD)
 	e.Contains(outputSpod, "promhttp_metric_handler_requests_total")
 
 	e.logf("Asserting metrics values")
@@ -102,7 +102,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	e.assertSelinuxPolicyIsRemoved(nodes, rawPolicyName, maxNodeIterations, sleepBetweenIterations)
 
 	e.logf("Retrieving spo metrics for validation")
-	outputSpod := e.getSpodMetrics()
+	outputSpod := e.runAndRetryPodCMD(curlSpodCMD)
 	e.Contains(outputSpod, "promhttp_metric_handler_requests_total")
 
 	e.logf("Asserting metrics values")
@@ -125,4 +125,20 @@ func (e *e2e) parseMetric(content, metric string) int {
 		}
 	}
 	return 0
+}
+
+func (e *e2e) testCaseMetricsHTTP([]string) {
+	if !e.testMetricsHTTP {
+		e.T().Skip("Skipping metrics HTTP version related tests")
+	}
+	e.logf("Test metrics HTTP version")
+
+	endpoints := []string{
+		curlHTTPVerCMD + metricsURL + "metrics",
+		curlHTTPVerCMD + metricsURL + "metrics-spod",
+	}
+	for _, endpoint := range endpoints {
+		output := e.runAndRetryPodCMD(endpoint)
+		e.Contains(output, "1.1\n")
+	}
 }
