@@ -128,6 +128,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseProfilingChange,
 		},
 		{
+			"SPOD: Profiling server protocol",
+			e.testCaseProfilingHTTP,
+		},
+		{
 			"SPOD: Enable memory optimiztaion",
 			e.testCaseMemOptmEnable,
 		},

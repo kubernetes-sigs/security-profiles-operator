@@ -97,3 +97,19 @@ func (e *e2e) getWebhookAttribute(hook, attr string) string {
 		"spo-mutating-webhook-configuration",
 		"--output", "jsonpath="+jsonPath)
 }
+
+func (e *e2e) testCaseWebhookHTTP([]string) {
+	if !e.testWebhookHTTP {
+		e.T().Skip("Skipping webhook HTTP version related tests")
+	}
+	e.logf("Test webhook HTTP version")
+
+	endpoints := []string{
+		curlHTTPVerCMD + webhooksURL + "mutate-v1-pod-binding",
+		curlHTTPVerCMD + webhooksURL + "mutate-v1-pod-recording",
+	}
+	for _, endpoint := range endpoints {
+		output := e.runAndRetryPodCMD(endpoint)
+		e.Contains(output, "1.1")
+	}
+}
