@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -459,6 +460,9 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 
+	disableHTTP2 := func(c *tls.Config) {
+		c.NextProtos = []string{"http/1.1"}
+	}
 	ctrlOpts := ctrl.Options{
 		Cache:                  cache.Options{SyncPeriod: &sync},
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
@@ -467,6 +471,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 			ExtraHandlers: map[string]http.Handler{
 				metrics.HandlerPath: met.Handler(),
 			},
+			TLSOpts: []func(*tls.Config){disableHTTP2},
 		},
 	}
 
@@ -540,7 +545,15 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	port := ctx.Int("port")
 
-	webhookServer := webhook.NewServer(webhook.Options{Port: port})
+	disableHTTP2 := func(c *tls.Config) {
+		c.NextProtos = []string{"http/1.1"}
+	}
+	webhookServerOptions := webhook.Options{
+		Port:    port,
+		TLSOpts: []func(config *tls.Config){disableHTTP2},
+	}
+
+	webhookServer := webhook.NewServer(webhookServerOptions)
 	ctrlOpts := manager.Options{
 		Cache:            cache.Options{SyncPeriod: &sync},
 		LeaderElection:   true,
