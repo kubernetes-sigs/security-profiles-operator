@@ -8,7 +8,7 @@ import (
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 )
 
-var appArmorTemplate string = `
+var appArmorTemplate = `
 #include <tunables/global>
 profile {{.Name}} flags=(attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
@@ -88,13 +88,15 @@ func GenerateProfile(name string, abstract *apparmorprofileapi.AppArmorAbstract)
 	}
 
 	if abstract == nil {
-		return "", errors.New("Abstract cannot be nil")
+		return "", errors.New("abstract cannot be nil")
 	}
 
 	tpl, err := template.New("apparmor").Parse(appArmorTemplate)
 	if err != nil {
 		return "", err
 	}
-	tpl.Execute(&generated, templateArgs)
+	if err := tpl.Execute(&generated, templateArgs); err != nil {
+		return "", err
+	}
 	return generated.String(), nil
 }
