@@ -32,28 +32,28 @@ var (
 )
 
 type AppArmorExecutablesRules struct {
-	AllowedExecutables *[]string `json:"allowed_executables,omitempty"`
-	AllowedLibraries   *[]string `json:"allowed_libraries,omitempty"`
+	AllowedExecutables *[]string `json:"allowedExecutables,omitempty"`
+	AllowedLibraries   *[]string `json:"allowedLibraries,omitempty"`
 }
 
 type AppArmorFsRules struct {
-	ReadOnlyPaths  *[]string `json:"read_only_paths,omitempty"`
-	WriteOnlyPaths *[]string `json:"write_only_paths,omitempty"`
-	ReadWritePaths *[]string `json:"read_write_paths,omitempty"`
+	ReadOnlyPaths  *[]string `json:"readOnlyPaths,omitempty"`
+	WriteOnlyPaths *[]string `json:"writeOnlyPaths,omitempty"`
+	ReadWritePaths *[]string `json:"readWritePaths,omitempty"`
 }
 
 type AppArmorAllowedProtocols struct {
-	AllowTCP *bool `json:"allow_tcp,omitempty"`
-	AllowUDP *bool `json:"allow_udp,omitempty"`
+	AllowTCP *bool `json:"allowTCP,omitempty"`
+	AllowUDP *bool `json:"allowUDP,omitempty"`
 }
 
 type AppArmorNetworkRules struct {
-	AllowRaw  *bool                     `json:"allow_raw,omitempty"`
-	Protocols *AppArmorAllowedProtocols `json:"allowed_protocols,omitempty"`
+	AllowRaw  *bool                     `json:"allowRaw,omitempty"`
+	Protocols *AppArmorAllowedProtocols `json:"allowedProtocols,omitempty"`
 }
 
 type AppArmorCapabilityRules struct {
-	AllowedCapabilities []string `json:"allowed_capabilities,omitempty"`
+	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
 }
 
 type AppArmorAbstract struct {
