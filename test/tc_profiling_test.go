@@ -36,3 +36,25 @@ func (e *e2e) testCaseProfilingChange([]string) {
 
 	e.Contains(logs, "Profiling support enabled: true")
 }
+
+func (e *e2e) testCaseProfilingHTTP([]string) {
+	e.logf("Test profiling HTTP version")
+
+	e.logf("Enable spod profiling to test endpoint HTTP version")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableProfiling": true}}`, "--type=merge")
+	time.Sleep(defaultWaitTime)
+
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	// lets only check the first spod pod
+	podIP := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o", "jsonpath={.items[0].status.podIP}")
+	podPort := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o",
+		"jsonpath={.items[0].spec.containers[?(@.name=='security-profiles-operator')]"+
+			".env[?(@.name=='SPO_PROFILING_PORT')].value}")
+	profilingEndpoint := "http://" + podIP + ":" + podPort + "/debug/pprof/heap"
+
+	profilingCurlCMD := curlHTTPVerCMD + profilingEndpoint
+
+	output := e.getSpodMetrics(profilingCurlCMD)
+	e.Contains(output, "HTTP/1.1")
+}

@@ -58,6 +58,8 @@ var (
 	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
 	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
 	envWebhookConfigTestsEnabled = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
+	envWebhookHTTPTestsEnabled   = os.Getenv("E2E_TEST_WEBHOOK_HTTP")
+	envMetricsHTTPTestsEnabled   = os.Getenv("E2E_TEST_METRICS_HTTP")
 	containerRuntime             = os.Getenv("CONTAINER_RUNTIME")
 	nodeRootfsPrefix             = os.Getenv("NODE_ROOTFS_PREFIX")
 	operatorManifest             = os.Getenv("OPERATOR_MANIFEST")
@@ -102,6 +104,8 @@ type e2e struct {
 	skipNamespacedTests   bool
 	skipFlakyTests        bool
 	testWebhookConfig     bool
+	testWebhookHTTP       bool
+	testMetricsHTTP       bool
 	singleNodeEnvironment bool
 	logger                logr.Logger
 	execNode              func(node string, args ...string) string
@@ -176,6 +180,16 @@ func TestSuite(t *testing.T) {
 		testWebhookConfig = true
 	}
 
+	testWebhookHTTP, err := strconv.ParseBool(envWebhookHTTPTestsEnabled)
+	if err != nil {
+		testWebhookHTTP = true
+	}
+
+	testMetricsHTTP, err := strconv.ParseBool(envMetricsHTTPTestsEnabled)
+	if err != nil {
+		testMetricsHTTP = true
+	}
+
 	if operatorManifest == "" {
 		operatorManifest = defaultManifest
 	}
@@ -203,6 +217,8 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests: skipNamespacedTests,
 				operatorManifest:    operatorManifest,
 				testWebhookConfig:   testWebhookConfig,
+				testWebhookHTTP:     testWebhookHTTP,
+				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
 			},
 			"", "",
@@ -235,6 +251,8 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests: skipNamespacedTests,
 				operatorManifest:    operatorManifest,
 				testWebhookConfig:   testWebhookConfig,
+				testWebhookHTTP:     testWebhookHTTP,
+				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
 			},
 			skipBuildImages,
@@ -262,6 +280,8 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests: skipNamespacedTests,
 				operatorManifest:    operatorManifest,
 				testWebhookConfig:   testWebhookConfig,
+				testWebhookHTTP:     testWebhookHTTP,
+				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
 				// NOTE(jaosorior): Our current vanilla jobs are
 				// single-node only.
@@ -612,14 +632,17 @@ func (e *e2e) kubectlRunOperatorNS(args ...string) string {
 }
 
 const (
-	curlBaseCMD = "curl -ksfL --retry 5 --retry-delay 3 --show-error "
-	curlCMD     = curlBaseCMD + "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
-	metricsURL  = "https://metrics.security-profiles-operator.svc.cluster.local/"
-	curlSpodCMD = curlCMD + metricsURL + "metrics-spod"
-	curlCtrlCMD = curlCMD + metricsURL + "metrics"
+	curlBaseCMD    = "curl -ksfL --retry 5 --retry-delay 3 --show-error "
+	headerAuth     = "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
+	curlCMD        = curlBaseCMD + headerAuth
+	curlHTTPVerCMD = curlCMD + "-I "
+	metricsURL     = "https://metrics.security-profiles-operator.svc.cluster.local/"
+	webhooksURL    = "https://webhook-service.security-profiles-operator.svc:443/"
+	curlSpodCMD    = curlCMD + metricsURL + "metrics-spod"
+	curlCtrlCMD    = curlCMD + metricsURL + "metrics"
 )
 
-func (e *e2e) getSpodMetrics() string {
+func (e *e2e) getSpodMetrics(podCMD string) string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
@@ -630,7 +653,7 @@ func (e *e2e) getSpodMetrics() string {
 	// that by retrying the metrics retrieval several times.
 	var output string
 	if err := spoutil.Retry(func() error {
-		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", curlSpodCMD)
+		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", podCMD)
 		if len(strings.Split(output, "\n")) > 1 {
 			return nil
 		}

@@ -113,7 +113,7 @@ spec:
 		// we only run the metrics checks in a single node environment because otherwise it's a lottery
 		// which spod instance do we hit and the test is not stable
 
-		metrics := e.getSpodMetrics()
+		metrics := e.getSpodMetrics(curlSpodCMD)
 		e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_audit_total{`+
 			`container="%s",`+
 			`executable="/usr/sbin/nginx",`+

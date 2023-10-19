@@ -128,6 +128,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseProfilingChange,
 		},
 		{
+			"SPOD: Profiling server protocol",
+			e.testCaseProfilingHTTP,
+		},
+		{
 			"SPOD: Enable memory optimiztaion",
 			e.testCaseMemOptmEnable,
 		},
@@ -142,6 +146,14 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		{
 			"SPOD: Change webhook config",
 			e.testCaseWebhookOptionsChange,
+		},
+		{
+			"SPOD: Test webhook HTTP version",
+			e.testCaseWebhookHTTP,
+		},
+		{
+			"SPOD: Test Metrics HTTP version",
+			e.testCaseMetricsHTTP,
 		},
 		{
 			"SPOD: Enable profile recorder",
