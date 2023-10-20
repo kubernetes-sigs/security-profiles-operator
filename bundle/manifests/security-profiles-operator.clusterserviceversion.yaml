@@ -242,7 +242,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.8.1
-    olm.skipRange: '>=0.4.1 <0.8.0'
+    olm.skipRange: '>=0.4.1 <0.8.1'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
@@ -986,4 +986,4 @@ spec:
   - image: quay.io/security-profiles-operator/selinuxd-el9:latest
     name: selinuxd-el9
   replaces: security-profiles-operator.v0.7.1
-  version: 0.8.0
+  version: 0.8.1
