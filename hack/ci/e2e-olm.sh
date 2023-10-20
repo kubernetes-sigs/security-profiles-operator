@@ -73,7 +73,7 @@ function deploy_deps() {
     kubectl -ncert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # All installation methods run off the same catalog
-    sed -i "s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.8.0#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
+    sed -i "s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.8.1#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
 
 }
 
