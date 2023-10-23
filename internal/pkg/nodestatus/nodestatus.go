@@ -192,7 +192,7 @@ func (nsf *StatusClient) Exists(ctx context.Context) (bool, error) {
 	f := nsf.finalizerExists()
 	s, err := nsf.nodeStatusExists(ctx)
 
-	return s || f, err
+	return s && f, err
 }
 
 func (nsf *StatusClient) finalizerExists() bool {
