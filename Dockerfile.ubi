@@ -37,7 +37,7 @@ ARG STATIC_LINK=no
 RUN make
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:8e68a739db66e514ce9ccfac7421e83d03180045e0a16ccf949cdac884150e5f
+FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:b93deceb59a58588d5b16429fc47f98920f84740a1f2ed6454e33275f0701b59
 ARG version
 USER root
 
