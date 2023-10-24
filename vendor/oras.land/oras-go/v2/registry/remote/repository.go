@@ -147,7 +147,7 @@ type Repository struct {
 	//   - https://www.rfc-editor.org/rfc/rfc7234#section-5.5
 	HandleWarning func(warning Warning)
 
-	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
+	// NOTE: Must keep fields in sync with clone().
 
 	// referrersState represents that if the repository supports Referrers API.
 	// default: referrersStateUnknown
@@ -186,16 +186,24 @@ func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (
 	if err := ref.ValidateRepository(); err != nil {
 		return nil, err
 	}
+	repo := (*Repository)(opts).clone()
+	repo.Reference = ref
+	return repo, nil
+}
+
+// clone makes a copy of the Repository being careful not to copy non-copyable fields (sync.Mutex and syncutil.Pool types)
+func (r *Repository) clone() *Repository {
 	return &Repository{
-		Client:               opts.Client,
-		Reference:            ref,
-		PlainHTTP:            opts.PlainHTTP,
-		SkipReferrersGC:      opts.SkipReferrersGC,
-		ManifestMediaTypes:   slices.Clone(opts.ManifestMediaTypes),
-		TagListPageSize:      opts.TagListPageSize,
-		ReferrerListPageSize: opts.ReferrerListPageSize,
-		MaxMetadataBytes:     opts.MaxMetadataBytes,
-	}, nil
+		Client:               r.Client,
+		Reference:            r.Reference,
+		PlainHTTP:            r.PlainHTTP,
+		ManifestMediaTypes:   slices.Clone(r.ManifestMediaTypes),
+		TagListPageSize:      r.TagListPageSize,
+		ReferrerListPageSize: r.ReferrerListPageSize,
+		MaxMetadataBytes:     r.MaxMetadataBytes,
+		SkipReferrersGC:      r.SkipReferrersGC,
+		HandleWarning:        r.HandleWarning,
+	}
 }
 
 // SetReferrersCapability indicates the Referrers API capability of the remote
@@ -803,10 +811,10 @@ func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo
 // sibling returns a blob store for another repository in the same
 // registry.
 func (s *blobStore) sibling(otherRepoName string) *blobStore {
-	otherRepo := *s.repo
+	otherRepo := s.repo.clone()
 	otherRepo.Reference.Repository = otherRepoName
 	return &blobStore{
-		repo: &otherRepo,
+		repo: otherRepo,
 	}
 }
 
@@ -1113,6 +1121,7 @@ func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.D
 		if err := limitSize(target, s.repo.MaxMetadataBytes); err != nil {
 			return err
 		}
+		ctx = registryutil.WithScopeHint(ctx, s.repo.Reference, auth.ActionPull, auth.ActionDelete)
 		manifestJSON, err := content.FetchAll(ctx, s, target)
 		if err != nil {
 			return err
@@ -1425,26 +1434,25 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
 
-	skipDelete := s.repo.SkipReferrersGC
-	var oldIndexDesc ocispec.Descriptor
-	var referrers []ocispec.Descriptor
+	var oldIndexDesc *ocispec.Descriptor
+	var oldReferrers []ocispec.Descriptor
 	prepare := func() error {
 		// 1. pull the original referrers list using the referrers tag schema
-		var err error
-		oldIndexDesc, referrers, err = s.repo.referrersFromIndex(ctx, referrersTag)
+		indexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
 		if err != nil {
 			if errors.Is(err, errdef.ErrNotFound) {
-				// no old index found, skip delete
-				skipDelete = true
+				// valid case: no old referrers index
 				return nil
 			}
 			return err
 		}
+		oldIndexDesc = &indexDesc
+		oldReferrers = referrers
 		return nil
 	}
 	update := func(referrerChanges []referrerChange) error {
 		// 2. apply the referrer changes on the referrers list
-		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
+		updatedReferrers, err := applyReferrerChanges(oldReferrers, referrerChanges)
 		if err != nil {
 			if err == errNoReferrerUpdate {
 				return nil
@@ -1453,7 +1461,12 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		}
 
 		// 3. push the updated referrers list using referrers tag schema
-		if len(updatedReferrers) > 0 {
+		if len(updatedReferrers) > 0 || s.repo.SkipReferrersGC {
+			// push a new index in either case:
+			// 1. the referrers list has been updated with a non-zero size
+			// 2. OR the updated referrers list is empty but referrers GC
+			//    is skipped, in this case an empty index should still be pushed
+			//    as the old index won't get deleted
 			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
 			if err != nil {
 				return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
@@ -1463,14 +1476,15 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 			}
 		}
 
-		// 4. delete the dangling original referrers index
-		if !skipDelete {
-			if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
-				return &ReferrersError{
-					Op:      opDeleteReferrersIndex,
-					Err:     fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err),
-					Subject: subject,
-				}
+		// 4. delete the dangling original referrers index, if applicable
+		if s.repo.SkipReferrersGC || oldIndexDesc == nil {
+			return nil
+		}
+		if err := s.repo.delete(ctx, *oldIndexDesc, true); err != nil {
+			return &ReferrersError{
+				Op:      opDeleteReferrersIndex,
+				Err:     fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err),
+				Subject: subject,
 			}
 		}
 		return nil
