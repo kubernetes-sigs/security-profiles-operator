@@ -1858,8 +1858,8 @@ k8s.io/utils/pointer
 k8s.io/utils/ptr
 k8s.io/utils/strings/slices
 k8s.io/utils/trace
-# oras.land/oras-go/v2 v2.3.0
-## explicit; go 1.19
+# oras.land/oras-go/v2 v2.3.1
+## explicit; go 1.20
 oras.land/oras-go/v2
 oras.land/oras-go/v2/content
 oras.land/oras-go/v2/content/file
