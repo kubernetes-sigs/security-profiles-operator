@@ -17,11 +17,10 @@ set -euox pipefail
 
 # Setup cluster
 IP=$(ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]')
-NODENAME=$(hostname -s)
 swapoff -a
 modprobe br_netfilter
 sysctl -w net.ipv4.ip_forward=1
-kubeadm init --apiserver-cert-extra-sans="$IP" --node-name "$NODENAME"
+kubeadm init --apiserver-cert-extra-sans="$IP"
 
 # Setup kubectl
 USER=vagrant
