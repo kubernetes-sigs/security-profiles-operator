@@ -10,12 +10,6 @@ dependencies:
       match: GO_VERSION
     - path: .github/workflows/olm_tests.yaml
       match: GO_VERSION
-    - path: hack/ci/Vagrantfile-fedora
-      match: GO_VERSION
-    - path: hack/ci/Vagrantfile-ubuntu
-      match: GO_VERSION
-    - path: hack/ci/Vagrantfile-flatcar
-      match: GO_VERSION
     - path: Makefile
       match: CI_IMAGE
 
@@ -100,8 +94,6 @@ dependencies:
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
       match: config.vm.box
-    - path: .github/workflows/test.yml
-      match: node
 
   - name: debian-base-digest
     version: sha256:b9335fa66cdb5c1562c4f952e2d99f904dbe1618a6ed0d52487e70cf6cc280fd
