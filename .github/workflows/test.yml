@@ -72,7 +72,7 @@ jobs:
         run: make vagrant-up-fedora
       - name: Show environment information
         run: |
-          $RUN kubectl wait --for=condition=ready --timeout=60s node fedora
+          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
           $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
@@ -102,7 +102,7 @@ jobs:
         run: make vagrant-up-ubuntu
       - name: Show environment information
         run: |
-          $RUN kubectl wait --for=condition=ready --timeout=60s node ubuntu2204
+          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
           $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
@@ -167,7 +167,7 @@ jobs:
         run: make vagrant-up-ubuntu
       - name: Show environment information
         run: |
-          $RUN kubectl wait --for=condition=ready --timeout=60s node ubuntu2204
+          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
           $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
