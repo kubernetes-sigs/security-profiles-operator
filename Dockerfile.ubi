@@ -12,13 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# go-toolset uses RH's Go fork which uses OpenSSL for FIPS-certified crypto
-# if this is not desirable, pass -tags no_openssl to SPO build
-# see https://access.redhat.com/documentation/en-us/red_hat_developer_tools/2018.4/html/using_go_toolset/chap-changes
-# for more details
+# hash below relates to tag: rhel-8-release-golang-1.20-openshift-4.14
+FROM registry.ci.openshift.org/openshift/release@sha256:50bd59f41a7bddb8469f45168ffbcda504834329aaf1a466d10cfb3d1a49f29f as build
 
-# hash below referred to latest
-FROM registry.access.redhat.com/ubi8/go-toolset@sha256:6c2c40207abfef2e46426f39c7fe0aca177b9da73d2b223bc0ddc7c5c56485c4 as build
 USER root
 WORKDIR /work
 

@@ -113,11 +113,11 @@ dependencies:
     - path: Dockerfile.ubi
       match: registry.access.redhat.com/ubi8/ubi-minimal
 
-  - name: ubi8-go-toolset
-    version: sha256:6c2c40207abfef2e46426f39c7fe0aca177b9da73d2b223bc0ddc7c5c56485c4
+  - name: openshift-release-golang
+    version: sha256:50bd59f41a7bddb8469f45168ffbcda504834329aaf1a466d10cfb3d1a49f29f
     refPaths:
     - path: Dockerfile.ubi
-      match: registry.access.redhat.com/ubi8/go-toolset
+      match: registry.ci.openshift.org/openshift/release
 
   - name: nix
     version: 2.15.1
