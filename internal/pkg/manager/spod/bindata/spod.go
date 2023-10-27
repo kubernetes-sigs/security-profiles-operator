@@ -55,7 +55,7 @@ const (
 	SelinuxdPrivateDir                         = "/var/run/selinuxd"
 	SelinuxdSocketPath                         = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath                             = SelinuxdPrivateDir + "/selinuxd.db"
-	MetricsImage                               = "gcr.io/kubebuilder/kube-rbac-proxy:v0.14.1"
+	MetricsImage                               = "gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0"
 	sysKernelDebugPath                         = "/sys/kernel/debug"
 	InitContainerIDNonRootenabler              = 0
 	InitContainerIDSelinuxSharedPoliciesCopier = 1
@@ -609,6 +609,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							"--v=10",
 							fmt.Sprintf("--tls-cert-file=%s", filepath.Join(metricsCertPath, "tls.crt")),
 							fmt.Sprintf("--tls-private-key-file=%s", filepath.Join(metricsCertPath, "tls.key")),
+							"--http2-disable",
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{

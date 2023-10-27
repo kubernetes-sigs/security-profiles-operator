@@ -3188,7 +3188,7 @@ spec:
         - name: RESTRICT_TO_NAMESPACE
           value: NS_REPLACE
         - name: RELATED_IMAGE_RBAC_PROXY
-          value: gcr.io/kubebuilder/kube-rbac-proxy:v0.14.1
+          value: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
         - name: RELATED_IMAGE_SELINUXD
           value: quay.io/security-profiles-operator/selinuxd
         - name: RELATED_IMAGE_SELINUXD_EL8
