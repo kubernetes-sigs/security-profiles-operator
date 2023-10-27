@@ -116,7 +116,7 @@ dependencies:
       match: NIX_VERSION
 
   - name: kube-rbac-proxy
-    version: 0.14.1
+    version: 0.15.0
     refPaths:
     - path: internal/pkg/manager/spod/bindata/spod.go
       match: gcr.io/kubebuilder/kube-rbac-proxy
