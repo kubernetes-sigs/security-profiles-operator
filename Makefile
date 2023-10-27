@@ -21,7 +21,7 @@ OPERATOR_SDK_VERSION ?= v1.25.0
 ZEITGEIST_VERSION = v0.4.1
 CI_IMAGE ?= golang:1.21
 
-CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
+CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
 PROJECT := security-profiles-operator
 CLI_BINARY := spoc
