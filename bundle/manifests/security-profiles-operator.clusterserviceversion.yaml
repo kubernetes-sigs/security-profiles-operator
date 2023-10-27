@@ -853,7 +853,7 @@ spec:
                 - manager
                 env:
                 - name: RELATED_IMAGE_RBAC_PROXY
-                  value: gcr.io/kubebuilder/kube-rbac-proxy:v0.14.1
+                  value: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
                 - name: RELATED_IMAGE_SELINUXD
                   value: quay.io/security-profiles-operator/selinuxd
                 - name: RELATED_IMAGE_SELINUXD_EL8
@@ -977,7 +977,7 @@ spec:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
   relatedImages:
-  - image: gcr.io/kubebuilder/kube-rbac-proxy:v0.14.1
+  - image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
     name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd
