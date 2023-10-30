@@ -57,7 +57,6 @@ jobs:
 
   e2e-fedora:
     needs: image
-
     runs-on: macos-12
     timeout-minutes: 90
     env:
@@ -69,7 +68,9 @@ jobs:
           name: image
           path: .
       - name: Boot Virtual Machine
-        run: make vagrant-up-fedora
+        run: |
+          vagrant destroy -f || true
+          make vagrant-up-fedora
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
@@ -87,7 +88,6 @@ jobs:
 
   e2e-ubuntu:
     needs: image
-
     runs-on: macos-12
     timeout-minutes: 90
     env:
@@ -99,7 +99,9 @@ jobs:
           name: image
           path: .
       - name: Boot Virtual Machine
-        run: make vagrant-up-ubuntu
+        run: |
+          vagrant destroy -f || true
+          make vagrant-up-ubuntu
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
@@ -117,7 +119,6 @@ jobs:
 
   e2e-flatcar:
    needs: image
-
    runs-on: macos-12
    timeout-minutes: 90
    env:
@@ -138,7 +139,9 @@ jobs:
           name: image
           path: .
       - name: Boot Virtual Machine
-        run: make vagrant-up-flatcar
+        run: |
+          vagrant destroy -f || true
+          make vagrant-up-flatcar
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
@@ -164,7 +167,9 @@ jobs:
           name: image
           path: .
       - name: Boot Virtual Machine
-        run: make vagrant-up-ubuntu
+        run: |
+          vagrant destroy -f || true
+          make vagrant-up-ubuntu
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
