@@ -15,4 +15,4 @@
 
 set -euo pipefail
 
-exec vagrant ssh -- sudo "bash -c 'cd /vagrant && . hack/ci/env.sh && $*'"
+exec limactl shell lima bash -c ". hack/ci/env.sh && $*"

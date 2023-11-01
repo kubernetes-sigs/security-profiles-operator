@@ -42,7 +42,7 @@ const (
 	defaultSelinuxOpTimeout     = "360s"
 	defaultLogEnricherOpTimeout = defaultSelinuxOpTimeout
 	defaultBpfRecorderOpTimeout = defaultSelinuxOpTimeout
-	defaultWaitTimeout          = "5m"
+	defaultWaitTimeout          = "10m"
 	defaultWaitTime             = 15 * time.Second
 )
 

@@ -322,7 +322,7 @@ func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, node
 		var missingPolName string
 
 		for _, node := range nodes {
-			policiesRaw := e.execNode(node, "semodule", "-l")
+			policiesRaw := e.execNode(node, "sudo", "semodule", "-l")
 			if !e.sliceContainsString(strings.Split(policiesRaw, "\n"), policy) {
 				missingPolName = node
 				break
@@ -348,7 +348,7 @@ func (e *e2e) assertSelinuxPolicyIsRemoved(nodes []string, policy string, nodeIt
 		var missingPolName string
 
 		for _, node := range nodes {
-			policiesRaw := e.execNode(node, "semodule", "-l")
+			policiesRaw := e.execNode(node, "sudo", "semodule", "-l")
 			if e.sliceContainsString(strings.Split(policiesRaw, "\n"), policy) {
 				missingPolName = node
 				break

@@ -78,22 +78,22 @@ dependencies:
   - name: e2e-kubernetes
     version: 1.28
     refPaths:
-    - path: hack/ci/Vagrantfile-fedora
+    - path: hack/ci/lima-fedora.yaml
       match: KUBERNETES_VERSION
-    - path: hack/ci/Vagrantfile-ubuntu
+    - path: hack/ci/lima-ubuntu.yaml
       match: KUBERNETES_VERSION
 
   - name: e2e-fedora
     version: 38
     refPaths:
-    - path: hack/ci/Vagrantfile-fedora
+    - path: hack/ci/lima-fedora.yaml
       match: fedora
 
   - name: e2e-ubuntu
-    version: ubuntu2204
+    version: 22.04
     refPaths:
-    - path: hack/ci/Vagrantfile-ubuntu
-      match: config.vm.box
+    - path: hack/ci/lima-ubuntu.yaml
+      match: location
 
   - name: debian-base-digest
     version: sha256:b9335fa66cdb5c1562c4f952e2d99f904dbe1618a6ed0d52487e70cf6cc280fd
@@ -168,7 +168,7 @@ dependencies:
       match: VERSION
 
   - name: crun
-    version: v1.10
+    version: v1.11.1
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
@@ -184,13 +184,13 @@ dependencies:
       match: baseProfileNameRunc
     - path: installation-usage.md
       match: baseProfileName
-    - path: hack/ci/Vagrantfile-ubuntu
+    - path: hack/ci/lima-ubuntu.yaml
       match: RUNC_VERSION
 
   - name: cosign
     version: v2.2.0
     refPaths:
-    - path: hack/ci/Vagrantfile-ubuntu
+    - path: hack/ci/lima-ubuntu.yaml
       match: COSIGN_VERSION
   - name: bom
     version: v0.5.1

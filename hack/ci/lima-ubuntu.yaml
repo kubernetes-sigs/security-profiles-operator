@@ -1,0 +1,82 @@
+---
+images:
+- location: https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img
+  arch: x86_64
+memory: 6144Mib
+cpus: 2
+mounts:
+- location: "~"
+  writable: true
+- location: "/tmp/lima"
+  writable: true
+containerd:
+  system: false
+  user: false
+env:
+  LIMA_PATH: {{.LimaPath}}
+  LIMA_USER: {{.LimaUser}}
+  KUBECONFIG: /etc/kubernetes/admin.conf
+provision:
+- mode: system
+  script: |
+    #!/usr/bin/env bash
+    set -euxo pipefail
+
+    # Install Go
+    GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1)
+    curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz |
+      tar xfz - -C /usr/local
+
+    # Kubernetes
+    KUBERNETES_VERSION=v1.28
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
+    curl -fsSL https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg] https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/ /" | tee /etc/apt/sources.list.d/cri-o.list
+    apt-get update
+    apt-get install -y \
+      build-essential \
+      kubelet \
+      kubeadm \
+      kubectl \
+      podman \
+      jq \
+      moreutils \
+      apparmor \
+      apparmor-utils
+
+    # Cloud-init starts immediately, avoid races by waiting for the image to be
+    # mounted
+    until [ -f $LIMA_PATH/image.tar ]; do
+      sleep 5
+    done
+
+    # Load the prebuilt container image
+    podman load -i $LIMA_PATH/image.tar
+
+    # Remove podman, this package conflicts with CRI-O
+    apt-get remove --purge -y podman
+    apt-get autoremove -y
+
+    # Some tests require runc
+    RUNC_VERSION=v1.1.9
+    RUNC_BINARY=/usr/sbin/runc
+    curl -sSfL --retry 5 --retry-delay 3 "https://github.com/opencontainers/runc/releases/download/$RUNC_VERSION/runc.amd64" -o "$RUNC_BINARY"
+    chmod +x "$RUNC_BINARY"
+
+    # Baseprofile recording requires cosign
+    COSIGN_VERSION=v2.2.0
+    COSIGN_BINARY=/usr/bin/cosign
+    curl -sSfL --retry 5 --retry-delay 3 "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64" -o "$COSIGN_BINARY"
+    chmod +x "$COSIGN_BINARY"
+
+    # Setup CRI-O
+    apt-get install -y cri-o
+    printf '[crio.runtime.runtimes.runc]\n' >/etc/crio/crio.conf.d/10-runc.conf
+    systemctl enable --now crio
+
+    # Disable kernel print rate limiting for syslog messaging
+    sysctl -w kernel.printk_ratelimit=0
+    sysctl -w kernel.printk_ratelimit_burst=0
+
+    $LIMA_PATH/hack/ci/install-kubernetes.sh

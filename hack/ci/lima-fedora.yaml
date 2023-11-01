@@ -1,0 +1,95 @@
+---
+images:
+- location: https://download.fedoraproject.org/pub/fedora/linux/releases/38/Cloud/x86_64/images/Fedora-Cloud-Base-38-1.6.x86_64.qcow2
+  arch: x86_64
+memory: 6144Mib
+cpus: 2
+mounts:
+- location: "~"
+  writable: true
+- location: "/tmp/lima"
+  writable: true
+containerd:
+  system: false
+  user: false
+env:
+  LIMA_PATH: {{.LimaPath}}
+  LIMA_USER: {{.LimaUser}}
+  KUBECONFIG: /etc/kubernetes/admin.conf
+provision:
+- mode: system
+  script: |
+    #!/usr/bin/env bash
+    set -euxo pipefail
+
+    # Install Go
+    GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1)
+    curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz |
+      tar xfz - -C /usr/local
+
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+    echo 'export GOPATH="$HOME/go"' >> /etc/profile
+    echo 'export GOBIN="$GOPATH/bin"' >> /etc/profile
+
+    KUBERNETES_VERSION=v1.28
+    cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
+    [kubernetes]
+    name=Kubernetes
+    baseurl=https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/rpm/
+    enabled=1
+    gpgcheck=1
+    gpgkey=https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/rpm/repodata/repomd.xml.key
+    EOF
+
+    cat <<EOF | tee /etc/yum.repos.d/cri-o.repo
+    [cri-o]
+    name=CRI-O
+    baseurl=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/
+    enabled=1
+    gpgcheck=1
+    gpgkey=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/repodata/repomd.xml.key
+    EOF
+
+    dnf install -y \
+      conntrack \
+      container-selinux \
+      gcc \
+      git \
+      iptables \
+      jq \
+      kubeadm \
+      kubectl \
+      kubelet \
+      kubernetes-cni \
+      make \
+      openssl \
+      podman
+
+    # Cloud-init starts immediately, avoid races by waiting for the image to be
+    # mounted
+    until [ -f $LIMA_PATH/image.tar ]; do
+      sleep 5
+    done
+
+    # Load the prebuilt container image
+    podman load -i $LIMA_PATH/image.tar
+
+    # Setup CRI-O
+    dnf download --repo cri-o --arch x86_64 cri-o
+    rpm -i --nodeps --force cri-o-*.rpm
+
+    printf '[crio.runtime]\nselinux = true' >/etc/crio/crio.conf.d/30-selinux.conf
+    systemctl enable --now crio
+
+    # Configure system to work seamlessly on single node clusters
+    dnf remove -y zram-generator-defaults
+    systemctl stop dev-zram0.swap
+    modprobe br_netfilter
+    ip6tables --list >/dev/null
+    iptables -F
+    sysctl -w net.ipv4.conf.all.route_localnet=1
+    sysctl -w net.bridge.bridge-nf-call-iptables=1
+    sysctl -w fs.inotify.max_user_watches=1048576
+    iptables -t nat -I POSTROUTING -s 127.0.0.0/8 ! -d 127.0.0.0/8 -j MASQUERADE
+
+    $LIMA_PATH/hack/ci/install-kubernetes.sh

@@ -20,19 +20,13 @@ IP=$(ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]')
 swapoff -a
 modprobe br_netfilter
 sysctl -w net.ipv4.ip_forward=1
-kubeadm init --apiserver-cert-extra-sans="$IP"
+kubeadm init --apiserver-cert-extra-sans="$IP" || (journalctl -xeu kubelet && exit 1)
 
 # Setup kubectl
-USER=vagrant
-mkdir /home/$USER/.kube
-cp /etc/kubernetes/admin.conf /home/$USER/.kube/config
-chown -R $USER:$USER /home/$USER/.kube
-
-mkdir /root/.kube
-cp /etc/kubernetes/admin.conf /root/.kube/config
+LIMA_USER=${LIMA_USER:-$USER}
+chown -R "$LIMA_USER:$LIMA_USER" /etc/kubernetes
 
 # Configure cluster
-export KUBECONFIG=/etc/kubernetes/admin.conf
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 kubectl wait -n kube-system --timeout=180s --for=condition=available deploy coredns
 kubectl wait --timeout=180s --for=condition=ready pods --all -A

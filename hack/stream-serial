@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euox pipefail
+
+LOG_PATH="$HOME/.lima/lima/serial.log"
+
+until [ -f "$LOG_PATH" ]; do
+    sleep 3
+done
+
+# The `--retry` flag os not available on mac OS
+tail -f "$LOG_PATH"

@@ -71,6 +71,7 @@ const (
 
 const (
 	containerRuntimeDocker = "docker"
+	containerRuntimePodman = "podman"
 )
 
 const (
@@ -129,6 +130,14 @@ type openShifte2e struct {
 
 type vanilla struct {
 	e2e
+}
+
+func containerRuntimeArgs() (cmd string, args []string) {
+	// Podman needs to run as root to be able to manipulate the system images
+	if containerRuntime == containerRuntimePodman {
+		return "sudo", []string{containerRuntime}
+	}
+	return containerRuntime, nil
 }
 
 // We're unable to use parallel tests because of our usage of testify/suite.
@@ -334,9 +343,8 @@ func (e *kinde2e) SetupTest() {
 	e.run(
 		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.testImage,
 	)
-	e.run(
-		containerRuntime, "pull", e.selinuxdImage,
-	)
+	cm, args := containerRuntimeArgs()
+	e.run(cm, append(args, "pull", e.selinuxdImage)...)
 	e.run(
 		e.kindPath, "load", "docker-image", "--name="+e.clusterName, "quay.io/security-profiles-operator/selinuxd",
 	)
@@ -437,13 +445,14 @@ func (e *openShifte2e) pushImageToRegistry() {
 		"--template={{ .spec.host }}",
 	)
 
+	cm, args := containerRuntimeArgs()
 	e.run(
-		containerRuntime, "login", "--tls-verify=false", "-u", user, "-p", token, registry,
+		cm, append(args, "login", "--tls-verify=false", "-u", user, "-p", token, registry)...,
 	)
 
 	registryTarget := fmt.Sprintf("%s/openshift/%s", registry, testImageRef)
 	e.run(
-		containerRuntime, "push", "--tls-verify=false", testImageRef, registryTarget,
+		cm, append(args, "push", "--tls-verify=false", testImageRef, registryTarget)...,
 	)
 	// Enable "local" lookup without full path
 	e.kubectl("patch", "imagestream", "-n", "openshift", config.OperatorName,
@@ -499,7 +508,8 @@ func (e *vanilla) SetupSuite() {
 func (e *vanilla) SetupTest() {
 	e.logf("Setting up test")
 	if e.selinuxEnabled {
-		e.run(containerRuntime, "pull", e.selinuxdImage)
+		cm, args := containerRuntimeArgs()
+		e.run(cm, append(args, "pull", e.selinuxdImage)...)
 	}
 }
 
@@ -596,7 +606,7 @@ func (e *e2e) kubectlRun(args ...string) string {
 	return e.kubectl(
 		append([]string{
 			"run",
-			"--pod-running-timeout=5m",
+			"--pod-running-timeout=10m",
 			"--rm",
 			"-i",
 			"--restart=Never",

@@ -300,16 +300,30 @@ define vagrant-up
 	vagrant up
 endef
 
-.PHONY: vagrant-up-fedora
-vagrant-up-fedora: ## Boot the Vagrant Fedora based test VM
-	$(call vagrant-up,fedora)
+define lima-up
+	limactl delete lima -f
+	if [ ! -f image.tar ]; then \
+		make image IMAGE=$(IMAGE) && \
+		$(CONTAINER_RUNTIME) save -o image.tar $(IMAGE); \
+	fi
+	ln -sf hack/ci/lima-$(1).yaml lima.yaml
+	./hack/stream-serial &
+	limactl start lima.yaml \
+		--set '.env.LIMA_PATH="$(shell pwd)" | .env.LIMA_USER="$(shell whoami)"' \
+		--timeout 60m \
+		--tty=false
+endef
 
-.PHONY: vagrant-up-ubuntu
-vagrant-up-ubuntu: ## Boot the Vagrant Ubuntu based test VM
-	$(call vagrant-up,ubuntu)
+.PHONY: lima-up-fedora
+lima-up-fedora: ## Boot the lima Fedora based test VM
+	$(call lima-up,fedora)
+
+.PHONY: lima-up-ubuntu
+lima-up-ubuntu: ## Boot the lima Ubuntu based test VM
+	$(call lima-up,ubuntu)
 
 .PHONY: vagrant-up-flatcar
-vagrant-up-flatcar: ## Boot the Vagrant Flatcar based test VM
+vagrant-up-flatcar: ## Boot the lima Flatcar based test VM
 	$(call vagrant-up,flatcar)
 
 $(BUILD_DIR)/mdtoc: $(BUILD_DIR)

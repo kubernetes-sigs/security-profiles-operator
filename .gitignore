@@ -1,9 +1,8 @@
 *.orig
 *.swp
 .idea
-.vagrant
 /build
-Vagrantfile
+/lima.yaml
 build.tar.gz
 image.tar
 result

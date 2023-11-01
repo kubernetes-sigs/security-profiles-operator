@@ -17,4 +17,6 @@ export GOPATH="$HOME/go"
 export GOBIN="$GOPATH/bin"
 
 # Added for faster debugging with lower verbosity
-alias k=kubectl
+k() {
+    kubectl "$@"
+}
