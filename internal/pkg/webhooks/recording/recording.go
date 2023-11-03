@@ -353,7 +353,6 @@ func (p *podSeccompRecorder) setFinalizers(
 	selector labels.Selector,
 	podLabels labels.Set,
 ) error {
-
 	if op == admissionv1.Delete {
 		if controllerutil.ContainsFinalizer(profileRecording, finalizer) {
 			controllerutil.RemoveFinalizer(profileRecording, finalizer)
@@ -367,38 +366,6 @@ func (p *podSeccompRecorder) setFinalizers(
 	}
 
 	return p.impl.UpdateResource(ctx, p.log, profileRecording, "profilerecording")
-}
-
-func anyPodMatch(
-	op admissionv1.Operation,
-	selector labels.Selector,
-	podLabels labels.Set,
-	podName string,
-	foundPods *corev1.PodList,
-) bool {
-	if len(foundPods.Items) > 0 {
-		if op != admissionv1.Delete {
-			return true
-		}
-
-		for i := range foundPods.Items {
-			pod := foundPods.Items[i]
-
-			if podName == pod.Name {
-				continue
-			}
-
-			// if we ever get here, then we are deleting but we encountered
-			// a pod different than the one we're deleting, so there are still pods
-			return true
-		}
-	}
-
-	if op != admissionv1.Delete && selector.Matches(podLabels) {
-		return true
-	}
-
-	return false
 }
 
 func (p *podSeccompRecorder) warnEventIfContainerPrivileged(
