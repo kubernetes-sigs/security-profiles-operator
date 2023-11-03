@@ -88,7 +88,6 @@ func (p *podSeccompRecorder) Handle(
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
-	podChanged := false
 	pod := &corev1.Pod{}
 	if req.Operation != admissionv1.Delete {
 		pod, err = p.impl.DecodePod(req)
@@ -103,6 +102,7 @@ func (p *podSeccompRecorder) Handle(
 		podName = pod.GenerateName
 	}
 
+	podChanged := false
 	podLabels := labels.Set(pod.GetLabels())
 	items := profileRecordings.Items
 
@@ -125,19 +125,9 @@ func (p *podSeccompRecorder) Handle(
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
 
-		recordedPods, err := p.impl.ListRecordedPods(ctx, req.Namespace, &item.Spec.PodSelector)
-		if err != nil {
-			p.log.Error(
-				err, "Could not list pods for this recording",
-			)
-			return admission.Errored(http.StatusInternalServerError, err)
-		}
-
 		if err := util.Retry(func() error {
 			if err := p.setRecordingReferences(ctx, req.Operation,
-				&item, selector,
-				podName, podLabels,
-				recordedPods); err != nil {
+				&item, selector, podName, podLabels); err != nil {
 				return fmt.Errorf("adding pod tracking: %w", err)
 			}
 
@@ -315,7 +305,6 @@ func (p *podSeccompRecorder) setRecordingReferences(
 	selector labels.Selector,
 	podName string,
 	podLabels labels.Set,
-	recordedPods *corev1.PodList,
 ) error {
 	// we Get the recording again because remove is used in a retry loop
 	// to handle conflicts, we want to get the most recent one
@@ -328,11 +317,11 @@ func (p *podSeccompRecorder) setRecordingReferences(
 		return fmt.Errorf("cannot retrieve profilerecording: %w", err)
 	}
 
-	if err := p.setActiveWorkloads(ctx, op, profileRecording, selector, podName, podLabels, recordedPods); err != nil {
+	if err := p.setActiveWorkloads(ctx, op, profileRecording, selector, podName, podLabels); err != nil {
 		return fmt.Errorf("cannot set active workloads: %w", err)
 	}
 
-	return p.setFinalizers(ctx, op, profileRecording, selector, podName, podLabels, recordedPods)
+	return p.setFinalizers(ctx, op, profileRecording, selector, podLabels)
 }
 
 func (p *podSeccompRecorder) setActiveWorkloads(
@@ -342,19 +331,14 @@ func (p *podSeccompRecorder) setActiveWorkloads(
 	selector labels.Selector,
 	podName string,
 	podLabels labels.Set,
-	recordedPods *corev1.PodList,
 ) error {
-	newActiveWorkloads := []string{}
-
-	for i := range recordedPods.Items {
-		pod := recordedPods.Items[i]
-		newActiveWorkloads = append(newActiveWorkloads, pod.Name)
-	}
-
+	newActiveWorkloads := profileRecording.Status.ActiveWorkloads
 	if op == admissionv1.Delete {
 		newActiveWorkloads = utils.RemoveIfExists(newActiveWorkloads, podName)
-	} else if selector.Matches(podLabels) {
-		newActiveWorkloads = utils.AppendIfNotExists(newActiveWorkloads, podName)
+	} else {
+		if selector.Matches(podLabels) {
+			newActiveWorkloads = utils.AppendIfNotExists(newActiveWorkloads, podName)
+		}
 	}
 
 	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
@@ -367,17 +351,18 @@ func (p *podSeccompRecorder) setFinalizers(
 	op admissionv1.Operation,
 	profileRecording *profilerecordingv1alpha1.ProfileRecording,
 	selector labels.Selector,
-	podName string,
 	podLabels labels.Set,
-	recordedPods *corev1.PodList,
 ) error {
-	if anyPodMatch(op, selector, podLabels, podName, recordedPods) {
-		if !controllerutil.ContainsFinalizer(profileRecording, finalizer) {
-			controllerutil.AddFinalizer(profileRecording, finalizer)
-		}
-	} else {
+
+	if op == admissionv1.Delete {
 		if controllerutil.ContainsFinalizer(profileRecording, finalizer) {
 			controllerutil.RemoveFinalizer(profileRecording, finalizer)
+		}
+	} else {
+		if selector.Matches(podLabels) {
+			if !controllerutil.ContainsFinalizer(profileRecording, finalizer) {
+				controllerutil.AddFinalizer(profileRecording, finalizer)
+			}
 		}
 	}
 
