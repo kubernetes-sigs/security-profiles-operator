@@ -335,10 +335,8 @@ func (p *podSeccompRecorder) setActiveWorkloads(
 	newActiveWorkloads := profileRecording.Status.ActiveWorkloads
 	if op == admissionv1.Delete {
 		newActiveWorkloads = utils.RemoveIfExists(newActiveWorkloads, podName)
-	} else {
-		if selector.Matches(podLabels) {
-			newActiveWorkloads = utils.AppendIfNotExists(newActiveWorkloads, podName)
-		}
+	} else if selector.Matches(podLabels) {
+		newActiveWorkloads = utils.AppendIfNotExists(newActiveWorkloads, podName)
 	}
 
 	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
@@ -357,11 +355,9 @@ func (p *podSeccompRecorder) setFinalizers(
 		if controllerutil.ContainsFinalizer(profileRecording, finalizer) {
 			controllerutil.RemoveFinalizer(profileRecording, finalizer)
 		}
-	} else {
-		if selector.Matches(podLabels) {
-			if !controllerutil.ContainsFinalizer(profileRecording, finalizer) {
-				controllerutil.AddFinalizer(profileRecording, finalizer)
-			}
+	} else if selector.Matches(podLabels) {
+		if !controllerutil.ContainsFinalizer(profileRecording, finalizer) {
+			controllerutil.AddFinalizer(profileRecording, finalizer)
 		}
 	}
 
