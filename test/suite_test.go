@@ -642,7 +642,7 @@ const (
 	curlCtrlCMD    = curlCMD + metricsURL + "metrics"
 )
 
-func (e *e2e) getSpodMetrics(podCMD string) string {
+func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
@@ -658,12 +658,12 @@ func (e *e2e) getSpodMetrics(podCMD string) string {
 			return nil
 		}
 		output = ""
-		return fmt.Errorf("no metrics output yet")
+		return fmt.Errorf("no output from pod command")
 	}, func(err error) bool {
 		e.logf("retry on error: %s", err)
 		return true
 	}); err != nil {
-		e.Failf("unable to retrieve SPOD metrics", "error: %s", err)
+		e.Failf("unable to run pod command", "error: %s", err)
 	}
 	return output
 }

@@ -95,7 +95,7 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 	e.kubectl("delete", "-f", exampleRecordingBpfPath)
 	e.kubectl("delete", "sp", resourceName)
 
-	metrics := e.getSpodMetrics(curlSpodCMD)
+	metrics := e.runAndRetryPodCMD(curlSpodCMD)
 	// we don't use resource name here, because the metrics are tracked by the annotation name which contains
 	// underscores instead of dashes
 	metricName := recordingName + "_nginx"
@@ -331,7 +331,7 @@ func (e *e2e) testCaseBpfRecorderWithMemoryOptimization() {
 	e.kubectl("delete", "-f", exampleRecordingBpfPath)
 	e.kubectl("delete", "sp", resourceName)
 
-	metrics := e.getSpodMetrics(curlSpodCMD)
+	metrics := e.runAndRetryPodCMD(curlSpodCMD)
 	// we don't use resource name here, because the metrics are tracked by the annotation name which contains
 	// underscores instead of dashes
 	metricName := recordingName + "_nginx"

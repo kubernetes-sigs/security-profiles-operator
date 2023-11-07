@@ -55,6 +55,6 @@ func (e *e2e) testCaseProfilingHTTP([]string) {
 
 	profilingCurlCMD := curlHTTPVerCMD + profilingEndpoint
 
-	output := e.getSpodMetrics(profilingCurlCMD)
+	output := e.runAndRetryPodCMD(profilingCurlCMD)
 	e.Contains(output, "HTTP/1.1")
 }

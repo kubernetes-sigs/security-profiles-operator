@@ -109,7 +109,7 @@ func (e *e2e) testCaseWebhookHTTP([]string) {
 		curlHTTPVerCMD + webhooksURL + "mutate-v1-pod-recording",
 	}
 	for _, endpoint := range endpoints {
-		output := e.getSpodMetrics(endpoint)
+		output := e.runAndRetryPodCMD(endpoint)
 		e.Contains(output, "HTTP/1.1")
 	}
 }
