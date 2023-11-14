@@ -76,10 +76,13 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"Seccomp: Verify base profile merge",
 			e.testCaseBaseProfile,
 		},
-		{
-			"Seccomp: Verify base profile merge from OCI registry",
-			e.testCaseBaseProfileOCI,
-		},
+		// TODO: re-enable when we found a workaround to the flaky GitHub registry connection
+		/*
+			{
+				"Seccomp: Verify base profile merge from OCI registry",
+				e.testCaseBaseProfileOCI,
+			},
+		*/
 		{
 			"Seccomp: Allowed syscalls",
 			e.testCaseAllowedSyscalls,

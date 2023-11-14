@@ -23,6 +23,7 @@ import (
 	"time"
 )
 
+//nolint:unused // test is flaky and therefore got deactivated
 func (e *e2e) testCaseBaseProfileOCI([]string) {
 	e.seccompOnlyTestCase()
 
