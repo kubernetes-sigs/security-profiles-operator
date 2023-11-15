@@ -28,7 +28,21 @@ import (
 	"cuelang.org/go/internal/astinternal"
 )
 
-// Encode converts a CUE AST to JSON.
+// Marshal is a replacement for [json.Marshal] without HTML escaping.
+func Marshal(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	p := buf.Bytes()
+	// Unlike json.Marshal, json.Encoder.Encode adds a trailing newline.
+	p = bytes.TrimSuffix(p, []byte("\n"))
+	return p, nil
+}
+
+// Encode converts a CUE AST to unescaped JSON.
 //
 // The given file must only contain values that can be directly supported by
 // JSON:
@@ -187,7 +201,7 @@ func (e *encoder) encodeScalar(l *ast.BasicLit, allowMinus bool) error {
 		if err != nil {
 			return err
 		}
-		b, err := json.Marshal(str)
+		b, err := Marshal(str)
 		if err != nil {
 			return err
 		}
@@ -231,8 +245,8 @@ func (e *encoder) encodeDecls(decls []ast.Decl, endPos token.Pos) error {
 			continue
 
 		case *ast.Field:
-			if internal.IsDefinition(x.Label) {
-				return errors.Newf(x.TokenPos, "json: definition not allowed")
+			if !internal.IsRegularField(x) {
+				return errors.Newf(x.TokenPos, "json: definition or hidden field not allowed")
 			}
 			if x.Optional != token.NoPos {
 				return errors.Newf(x.Optional, "json: optional fields not allowed")
@@ -277,7 +291,7 @@ func (e *encoder) encodeDecls(decls []ast.Decl, endPos token.Pos) error {
 		if err != nil {
 			return errors.Newf(x.Label.Pos(), "json: only literal labels allowed")
 		}
-		b, err := json.Marshal(name)
+		b, err := Marshal(name)
 		if err != nil {
 			return err
 		}

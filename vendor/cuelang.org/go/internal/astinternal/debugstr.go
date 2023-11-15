@@ -21,6 +21,7 @@ import (
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/token"
+	"cuelang.org/go/internal"
 )
 
 func DebugStr(x interface{}) (out string) {
@@ -126,8 +127,8 @@ func DebugStr(x interface{}) (out string) {
 
 	case *ast.Field:
 		out := DebugStr(v.Label)
-		if v.Optional != token.NoPos {
-			out += "?"
+		if t, ok := internal.ConstraintToken(v); ok {
+			out += t.String()
 		}
 		if v.Value != nil {
 			switch v.Token {
@@ -225,6 +226,9 @@ func DebugStr(x interface{}) (out string) {
 		}
 		out += DebugStr(v.Path)
 		return out
+
+	case *ast.Func:
+		return fmt.Sprintf("func(%v): %v", DebugStr(v.Args), DebugStr(v.Ret))
 
 	case []ast.Decl:
 		if len(v) == 0 {

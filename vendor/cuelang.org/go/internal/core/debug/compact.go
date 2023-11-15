@@ -64,6 +64,7 @@ func (w *compactPrinter) node(n adt.Node) {
 					w.node(a)
 				} else {
 					w.label(a.Label)
+					w.string(a.ArcType.Suffix())
 					w.string(":")
 					w.node(a)
 				}
@@ -113,13 +114,8 @@ func (w *compactPrinter) node(n adt.Node) {
 	case *adt.Field:
 		s := w.labelString(x.Label)
 		w.string(s)
+		w.string(x.ArcType.Suffix())
 		w.string(":")
-		w.node(x.Value)
-
-	case *adt.OptionalField:
-		s := w.labelString(x.Label)
-		w.string(s)
-		w.string("?:")
 		w.node(x.Value)
 
 	case *adt.LetField:
@@ -140,9 +136,7 @@ func (w *compactPrinter) node(n adt.Node) {
 
 	case *adt.DynamicField:
 		w.node(x.Key)
-		if x.IsOptional() {
-			w.string("?")
-		}
+		w.string(x.ArcType.Suffix())
 		w.string(":")
 		w.node(x.Value)
 

@@ -20,7 +20,9 @@ func init() {
 	// Note: we use LoadOrStore here to prevent accidentally overriding the
 	// an explicit deprecated ECDSA verifier.
 	// TODO: When deprecated ECDSA is removed, this can switch back to Store.
+	VerifierMap.LoadOrStore(data.KeyTypeECDSA_SHA2_P256_OLD_FMT, NewEcdsaVerifier)
 	VerifierMap.LoadOrStore(data.KeyTypeECDSA_SHA2_P256, NewEcdsaVerifier)
+	SignerMap.Store(data.KeyTypeECDSA_SHA2_P256_OLD_FMT, newEcdsaSigner)
 	SignerMap.Store(data.KeyTypeECDSA_SHA2_P256, newEcdsaSigner)
 }
 

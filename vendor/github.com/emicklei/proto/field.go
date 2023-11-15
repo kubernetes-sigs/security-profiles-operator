@@ -148,10 +148,16 @@ func (f *MapField) Accept(v Visitor) {
 	v.VisitMapField(f)
 }
 
+// Doc is part of Documented
+func (f *MapField) Doc() *Comment {
+	return f.Comment
+}
+
 // parse expects:
 // mapField = "map" "<" keyType "," type ">" mapName "=" fieldNumber [ "[" fieldOptions "]" ] ";"
 // keyType = "int32" | "int64" | "uint32" | "uint64" | "sint32" | "sint64" |
-//           "fixed32" | "fixed64" | "sfixed32" | "sfixed64" | "bool" | "string"
+//
+//	"fixed32" | "fixed64" | "sfixed32" | "sfixed64" | "bool" | "string"
 func (f *MapField) parse(p *Parser) error {
 	_, tok, lit := p.next()
 	if tLESS != tok {
@@ -179,3 +185,15 @@ func (f *MapField) parse(p *Parser) error {
 }
 
 func (f *Field) parent(v Visitee) { f.Parent = v }
+
+const optionNameDeprecated = "deprecated"
+
+// IsDeprecated returns true if the option "deprecated" is set with value "true".
+func (f *Field) IsDeprecated() bool {
+	for _, each := range f.Options {
+		if each.Name == optionNameDeprecated {
+			return each.Constant.Source == "true"
+		}
+	}
+	return false
+}

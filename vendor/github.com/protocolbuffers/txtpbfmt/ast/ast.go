@@ -75,7 +75,7 @@ type Node struct {
 
 // NodeLess is a sorting function that compares two *Nodes, possibly using the parent Node
 // for context, returning whether a is less than b.
-type NodeLess func(parent, a, b *Node) bool
+type NodeLess func(parent, a, b *Node, isWholeSlice bool) bool
 
 // ChainNodeLess combines two NodeLess functions that returns the first comparison if values are
 // not equal, else returns the second.
@@ -86,31 +86,38 @@ func ChainNodeLess(first, second NodeLess) NodeLess {
 	if second == nil {
 		return first
 	}
-	return func(parent, a, b *Node) bool {
-		if isALess := first(parent, a, b); isALess {
+	return func(parent, a, b *Node, isWholeSlice bool) bool {
+		if isALess := first(parent, a, b, isWholeSlice); isALess {
 			return true
 		}
-		if isBLess := first(parent, b, a); isBLess {
+		if isBLess := first(parent, b, a, isWholeSlice); isBLess {
 			return false
 		}
-		return second(parent, a, b)
+		return second(parent, a, b, isWholeSlice)
 	}
 }
 
-// SortableNodes returns a sort.Interface that sorts nodes by the given less function.
-func SortableNodes(ns []*Node, less NodeLess) sort.Interface {
-	return sortable{ /*parent=*/ nil, ns, less}
+// SortNodes sorts nodes by the given less function.
+func SortNodes(parent *Node, ns []*Node, less NodeLess) {
+	sort.Stable(sortableNodes(parent, ns, less, true /* isWholeSlice */))
+	end := 0
+	for begin := 0; begin < len(ns); begin = end {
+		for end = begin + 1; end < len(ns) && ns[begin].Name == ns[end].Name; end++ {
+		}
+		sort.Stable(sortableNodes(parent, ns[begin:end], less, false /* isWholeSlice */))
+	}
 }
 
-// SortableNodesWithParent returns a sort.Interface that sorts nodes by the given less function.
-func SortableNodesWithParent(parent *Node, ns []*Node, less NodeLess) sort.Interface {
-	return sortable{parent, ns, less}
+// sortableNodes returns a sort.Interface that sorts nodes by the given less function.
+func sortableNodes(parent *Node, ns []*Node, less NodeLess, isWholeSlice bool) sort.Interface {
+	return sortable{parent, ns, less, isWholeSlice}
 }
 
 type sortable struct {
-	parent *Node
-	ns     []*Node
-	less   NodeLess
+	parent       *Node
+	ns           []*Node
+	less         NodeLess
+	isWholeSlice bool
 }
 
 func (s sortable) Len() int {
@@ -125,40 +132,64 @@ func (s sortable) Less(i, j int) bool {
 	if s.less == nil {
 		return false
 	}
-	return s.less(s.parent, s.ns[i], s.ns[j])
+	return s.less(s.parent, s.ns[i], s.ns[j], s.isWholeSlice)
 }
 
 // ByFieldName is a NodeLess function that orders nodes by their field name.
-func ByFieldName(_, ni, nj *Node) bool {
+func ByFieldName(_, ni, nj *Node, isWholeSlice bool) bool {
 	return ni.Name < nj.Name
+}
+
+func getFieldValueForByFieldValue(n *Node) *Value {
+	if len(n.Values) != 1 {
+		return nil
+	}
+	return n.Values[0]
 }
 
 // ByFieldValue is a NodeLess function that orders adjacent scalar nodes with the same name by
 // their scalar value.
-func ByFieldValue(_, ni, nj *Node) bool {
-	if ni.Name != nj.Name || len(ni.Values) != 1 || len(nj.Values) != 1 {
+func ByFieldValue(_, ni, nj *Node, isWholeSlice bool) bool {
+	if isWholeSlice {
 		return false
 	}
-	return ni.Values[0].Value < nj.Values[0].Value
+	vi := getFieldValueForByFieldValue(ni)
+	vj := getFieldValueForByFieldValue(nj)
+	if vi == nil {
+		return vj != nil
+	}
+	if vj == nil {
+		return false
+	}
+	return vi.Value < vj.Value
+}
+
+func getChildValueByFieldSubfield(field, subfield string, n *Node) *Value {
+	if field != "" {
+		if n.Name != field {
+			return nil
+		}
+	}
+	return n.getChildValue(subfield)
 }
 
 // ByFieldSubfield returns a NodeLess function that orders adjacent message nodes with the given
 // field name by the given subfield name value. If no field name is provided, it compares the
 // subfields of any adjacent nodes with matching names.
 func ByFieldSubfield(field, subfield string) NodeLess {
-	return func(_, ni, nj *Node) bool {
-		if ni.Name != nj.Name {
+	return func(_, ni, nj *Node, isWholeSlice bool) bool {
+		if isWholeSlice {
 			return false
 		}
-		if field != "" && ni.Name != field {
+		vi := getChildValueByFieldSubfield(field, subfield, ni)
+		vj := getChildValueByFieldSubfield(field, subfield, nj)
+		if vi == nil {
+			return vj != nil
+		}
+		if vj == nil {
 			return false
 		}
-		niChildValue := ni.getChildValue(subfield)
-		njChildValue := nj.getChildValue(subfield)
-		if niChildValue == nil || njChildValue == nil {
-			return false
-		}
-		return niChildValue.Value < njChildValue.Value
+		return vi.Value < vj.Value
 	}
 }
 
@@ -202,7 +233,7 @@ func (n *Node) fix() fixData {
 	d := fixData{
 		// ChildrenSameLine may be false for cases with no children such as a
 		// value `foo: false`. We don't want these to trigger expansion.
-		inline: n.ChildrenSameLine || (len(n.Children) == 0 && isEmptyAndWasOriginallyInline),
+		inline: n.ChildrenSameLine || (len(n.Children) == 0 && isEmptyAndWasOriginallyInline && len(n.Values) <= 1),
 	}
 
 	for _, c := range n.Children {

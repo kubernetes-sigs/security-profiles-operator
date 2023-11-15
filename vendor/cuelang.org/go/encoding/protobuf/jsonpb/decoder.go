@@ -25,7 +25,7 @@ import (
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/encoding/protobuf/pbinternal"
-	"github.com/cockroachdb/apd/v2"
+	"github.com/cockroachdb/apd/v3"
 )
 
 // Option is an option.
@@ -48,7 +48,7 @@ type Option func()
 //	           with/without paddings are accepted.
 //	int:       string values are interpreted as integers
 //	float:     string values are interpreted as numbers, and the values "NaN",
-//	           "Infinity", and "-Infinity" are allowed and converted to
+//	           "Infinity", and "-Infinity" are allowed and converted
 //	           to corresponding error values.
 //	enums:     if a field is of type int and does not have a standard integer
 //	           type for its @protobuf attribute, this is assumed to represent

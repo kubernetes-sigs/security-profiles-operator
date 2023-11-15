@@ -15,6 +15,15 @@ func newAccessKeyCredential(accessKeyId, accessKeySecret string) *AccessKeyCrede
 	}
 }
 
+func (s *AccessKeyCredential) GetCredential() (*CredentialModel, error) {
+	credential := &CredentialModel{
+		AccessKeyId:     tea.String(s.AccessKeyId),
+		AccessKeySecret: tea.String(s.AccessKeySecret),
+		Type:            tea.String("access_key"),
+	}
+	return credential, nil
+}
+
 // GetAccessKeyId reutrns  AccessKeyCreential's AccessKeyId
 func (a *AccessKeyCredential) GetAccessKeyId() (*string, error) {
 	return tea.String(a.AccessKeyId), nil

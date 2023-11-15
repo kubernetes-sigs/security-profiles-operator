@@ -20,7 +20,6 @@ import (
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/literal"
-	"cuelang.org/go/cue/scanner"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal"
 )
@@ -119,7 +118,7 @@ func (f *formatter) walkDeclList(list []ast.Decl) {
 			if hasDocComments(x) {
 				switch x := list[i-1].(type) {
 				case *ast.Field:
-					if x.Token == token.ISA || internal.IsDefinition(x.Label) {
+					if internal.IsDefinition(x.Label) {
 						f.print(newsection)
 					}
 
@@ -276,7 +275,8 @@ func (f *formatter) decl(decl ast.Decl) {
 
 	switch n := decl.(type) {
 	case *ast.Field:
-		f.label(n.Label, n.Optional != token.NoPos)
+		constraint, _ := internal.ConstraintToken(n)
+		f.label(n.Label, constraint)
 
 		regular := isRegularField(n.Token)
 		if regular {
@@ -437,7 +437,7 @@ func (f *formatter) nextNeedsFormfeed(n ast.Expr) bool {
 
 func (f *formatter) importSpec(x *ast.ImportSpec) {
 	if x.Name != nil {
-		f.label(x.Name, false)
+		f.label(x.Name, token.ILLEGAL)
 		f.print(blank)
 	} else {
 		f.current.pos++
@@ -447,18 +447,7 @@ func (f *formatter) importSpec(x *ast.ImportSpec) {
 	f.print(newline)
 }
 
-func isValidIdent(ident string) bool {
-	var scan scanner.Scanner
-	scan.Init(token.NewFile("check", -1, len(ident)), []byte(ident), nil, 0)
-
-	_, tok, lit := scan.Scan()
-	if tok == token.IDENT || tok.IsKeyword() {
-		return lit == ident
-	}
-	return false
-}
-
-func (f *formatter) label(l ast.Label, optional bool) {
+func (f *formatter) label(l ast.Label, constraint token.Token) {
 	f.before(l)
 	defer f.after(l)
 	switch n := l.(type) {
@@ -497,8 +486,8 @@ func (f *formatter) label(l ast.Label, optional bool) {
 	default:
 		panic(fmt.Sprintf("unknown label type %T", n))
 	}
-	if optional {
-		f.print(token.OPTION)
+	if constraint != token.ILLEGAL {
+		f.print(constraint)
 	}
 }
 
@@ -536,7 +525,7 @@ func (f *formatter) exprRaw(expr ast.Expr, prec1, depth int) {
 
 	case *ast.Alias:
 		// Aliases in expression positions are printed in short form.
-		f.label(x.Ident, false)
+		f.label(x.Ident, token.ILLEGAL)
 		f.print(x.Equal, token.BIND)
 		f.expr(x.Expr)
 
@@ -681,13 +670,13 @@ func (f *formatter) clause(clause ast.Clause) {
 		f.print(n.For, "for", blank)
 		f.print(indent)
 		if n.Key != nil {
-			f.label(n.Key, false)
+			f.label(n.Key, token.ILLEGAL)
 			f.print(n.Colon, token.COMMA, blank)
 		} else {
 			f.current.pos++
 			f.visitComments(f.current.pos)
 		}
-		f.label(n.Value, false)
+		f.label(n.Value, token.ILLEGAL)
 		f.print(blank, n.In, "in", blank)
 		f.expr(n.Source)
 		f.markUnindentLine()

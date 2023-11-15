@@ -245,7 +245,7 @@ type RefNode struct {
 	//      x: b: {Y} | null
 	//
 	// In both cases there are not structural cycles and thus need to be
-	// distinguised from regular structural cycles.
+	// distinguished from regular structural cycles.
 	Node *Vertex
 
 	Next  *RefNode
@@ -303,7 +303,7 @@ func (n *nodeContext) markCycle(arc *Vertex, env *Environment, x Resolver, ci Cl
 		// graph will always be the same address. Hence, if this is a
 		// finalized arc with a different address, it resembles a reference that
 		// is included through a different path and is not a cycle.
-		if r.Arc != arc && arc.status == Finalized {
+		if r.Arc != arc && arc.status == finalized {
 			continue
 		}
 
@@ -358,7 +358,7 @@ func (n *nodeContext) markCycle(arc *Vertex, env *Environment, x Resolver, ci Cl
 	// detected, which may be critical for performance.
 outer:
 	switch arc.status {
-	case EvaluatingArcs: // also  Evaluating?
+	case evaluatingArcs: // also  Evaluating?
 		// The reference may already be there if we had no-cyclic structure
 		// invalidating the cycle.
 		for r := arc.cyclicReferences; r != nil; r = r.Next {
@@ -373,7 +373,7 @@ outer:
 			Next: arc.cyclicReferences,
 		}
 
-	case Finalized:
+	case finalized:
 		// Insert cyclic references from found arc, if any.
 		for r := arc.cyclicReferences; r != nil; r = r.Next {
 			if r.Ref == x {
@@ -429,7 +429,7 @@ outer:
 		}
 	}
 
-	if !found && arc.status != EvaluatingArcs {
+	if !found && arc.status != evaluatingArcs {
 		// No cycle.
 		return ci, false
 	}

@@ -35,7 +35,7 @@ The directories contain the following files:
 `go-tuf` is tested on Go versions 1.18.
 
 ```bash
-go get github.com/theupdateframework/go-tuf/cmd/tuf
+go install github.com/theupdateframework/go-tuf/cmd/tuf@latest
 ```
 
 ### Commands
@@ -653,3 +653,10 @@ install tuf`). To update the data for these tests requires Docker and make (see
 test data [README.md](client/python_interop/testdata/README.md) for details).
 
 Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for contribution guidelines before making your first contribution!
+
+## Comparison to other implementations
+
+There are TUF implementations in a variety of programming languages. Some other Go implementations of TUF include:
+
+* [Notary](https://github.com/notaryproject/notary): A version of TUF designed specifically for publishing and managing trusted collections of content. It was used by Docker Content Trust, and has since been superseded by the [Notation](https://github.com/notaryproject/notation) project. In contrast, go-tuf is a direct implementation of TUF and has been updated to conform to 1.0.0 of the TUF specification.
+

@@ -34,7 +34,7 @@
 //		// If it is of typ bytes or string, that input will be used instead.
 //		stdin: *null | string | bytes
 //
-//		// success is set to true when the process terminates with with a zero exit
+//		// success is set to true when the process terminates with a zero exit
 //		// code or false otherwise. The user can explicitly specify the value
 //		// force a fatal error if the desired success code is not reached.
 //		success: bool
@@ -43,17 +43,17 @@ package exec
 
 import (
 	"cuelang.org/go/internal/core/adt"
-	"cuelang.org/go/pkg/internal"
+	"cuelang.org/go/internal/pkg"
 )
 
 func init() {
-	internal.Register("tool/exec", pkg)
+	pkg.Register("tool/exec", p)
 }
 
 var _ = adt.TopKind // in case the adt package isn't used
 
-var pkg = &internal.Package{
-	Native: []*internal.Builtin{},
+var p = &pkg.Package{
+	Native: []*pkg.Builtin{},
 	CUE: `{
 	Run: {
 		$id:  *"tool/exec.Run" | "exec"

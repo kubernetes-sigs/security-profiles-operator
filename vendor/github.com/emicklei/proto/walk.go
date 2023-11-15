@@ -113,3 +113,12 @@ func WithPackage(apply func(*Package)) Handler {
 		}
 	}
 }
+
+// WithNormalField returns a Handler that will call the apply function when the Visitee is a NormalField.
+func WithNormalField(apply func(*NormalField)) Handler {
+	return func(v Visitee) {
+		if s, ok := v.(*NormalField); ok {
+			apply(s)
+		}
+	}
+}
