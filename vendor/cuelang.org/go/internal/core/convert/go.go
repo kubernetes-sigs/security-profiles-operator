@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cockroachdb/apd/v2"
+	"github.com/cockroachdb/apd/v3"
 	"golang.org/x/text/encoding/unicode"
 
 	"cuelang.org/go/cue/ast"
@@ -33,8 +33,10 @@ import (
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/parser"
 	"cuelang.org/go/cue/token"
+	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/adt"
 	"cuelang.org/go/internal/core/compile"
+	internaljson "cuelang.org/go/internal/encoding/json"
 	"cuelang.org/go/internal/types"
 )
 
@@ -76,9 +78,7 @@ func compileExpr(ctx *adt.OpContext, expr ast.Expr) adt.Value {
 
 // parseTag parses a CUE expression from a cue tag.
 func parseTag(ctx *adt.OpContext, obj *ast.StructLit, field, tag string) ast.Expr {
-	if p := strings.Index(tag, ","); p >= 0 {
-		tag = tag[:p]
-	}
+	tag, _ = splitTag(tag)
 	if tag == "" {
 		return topSentinel
 	}
@@ -92,6 +92,15 @@ func parseTag(ctx *adt.OpContext, obj *ast.StructLit, field, tag string) ast.Exp
 	return expr
 }
 
+// splitTag splits a cue tag into cue and options.
+func splitTag(tag string) (cue string, options string) {
+	q := strings.LastIndexByte(tag, '"')
+	if c := strings.IndexByte(tag[q+1:], ','); c >= 0 {
+		return tag[:q+1+c], tag[q+1+c+1:]
+	}
+	return tag, ""
+}
+
 // TODO: should we allow mapping names in cue tags? This only seems like a good
 // idea if we ever want to allow mapping CUE to a different name than JSON.
 var tagsWithNames = []string{"json", "yaml", "protobuf"}
@@ -103,7 +112,7 @@ func getName(f *reflect.StructField) string {
 	}
 	for _, s := range tagsWithNames {
 		if tag, ok := f.Tag.Lookup(s); ok {
-			if p := strings.Index(tag, ","); p >= 0 {
+			if p := strings.IndexByte(tag, ','); p >= 0 {
 				tag = tag[:p]
 			}
 			if tag != "" {
@@ -127,8 +136,9 @@ func isOptional(f *reflect.StructField) bool {
 	}
 	if tag, ok := f.Tag.Lookup("cue"); ok {
 		// TODO: only if first field is not empty.
+		_, opt := splitTag(tag)
 		isOptional = false
-		for _, f := range strings.Split(tag, ",")[1:] {
+		for _, f := range strings.Split(opt, ",") {
 			switch f {
 			case "opt":
 				isOptional = true
@@ -182,30 +192,6 @@ func parseJSON(ctx *adt.OpContext, b []byte) adt.Value {
 	return compileExpr(ctx, expr)
 }
 
-func isZero(v reflect.Value) bool {
-	x := v.Interface()
-	if x == nil {
-		return true
-	}
-	switch k := v.Kind(); k {
-	case reflect.Struct, reflect.Array:
-		// we never allow optional values for these types.
-		return false
-
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map,
-		reflect.Slice:
-		// Note that for maps we preserve the distinction between a nil map and
-		// an empty map.
-		return v.IsNil()
-
-	case reflect.String:
-		return v.Len() == 0
-
-	default:
-		return x == reflect.Zero(v.Type()).Interface()
-	}
-}
-
 func GoValueToExpr(ctx *adt.OpContext, nilIsTop bool, x interface{}) adt.Expr {
 	e := convertRec(ctx, nilIsTop, x)
 	if e == nil {
@@ -251,12 +237,16 @@ func convertRec(ctx *adt.OpContext, nilIsTop bool, x interface{}) adt.Value {
 		return compileExpr(ctx, v)
 
 	case *big.Int:
-		return &adt.Num{Src: src, K: adt.IntKind, X: *apd.NewWithBigInt(v, 0)}
+		v2 := new(apd.BigInt).SetMathBigInt(v)
+		return &adt.Num{Src: src, K: adt.IntKind, X: *apd.NewWithBigInt(v2, 0)}
 
 	case *big.Rat:
 		// should we represent this as a binary operation?
 		n := &adt.Num{Src: src, K: adt.IntKind}
-		_, err := apd.BaseContext.Quo(&n.X, apd.NewWithBigInt(v.Num(), 0), apd.NewWithBigInt(v.Denom(), 0))
+		_, err := internal.BaseContext.Quo(&n.X,
+			apd.NewWithBigInt(new(apd.BigInt).SetMathBigInt(v.Num()), 0),
+			apd.NewWithBigInt(new(apd.BigInt).SetMathBigInt(v.Denom()), 0),
+		)
 		if err != nil {
 			return ctx.AddErrf("could not convert *big.Rat: %v", err)
 		}
@@ -282,7 +272,7 @@ func convertRec(ctx *adt.OpContext, nilIsTop bool, x interface{}) adt.Value {
 		// with this:
 		kind := adt.FloatKind
 		var d apd.Decimal
-		res, _ := apd.BaseContext.RoundToIntegralExact(&d, v)
+		res, _ := internal.BaseContext.RoundToIntegralExact(&d, v)
 		if !res.Inexact() {
 			kind = adt.IntKind
 		}
@@ -303,7 +293,7 @@ func convertRec(ctx *adt.OpContext, nilIsTop bool, x interface{}) adt.Value {
 		if err != nil {
 			return ctx.AddErr(errors.Promote(err, "encoding.TextMarshaler"))
 		}
-		b, err = json.Marshal(string(b))
+		b, err = internaljson.Marshal(string(b))
 		if err != nil {
 			return ctx.AddErr(errors.Promote(err, "json"))
 		}
@@ -413,7 +403,7 @@ func convertRec(ctx *adt.OpContext, nilIsTop bool, x interface{}) adt.Value {
 			// There is no closedness or cycle info for Go structs, so we
 			// pass an empty CloseInfo.
 			v.AddStruct(obj, env, adt.CloseInfo{})
-			v.SetValue(ctx, adt.Finalized, &adt.StructMarker{})
+			v.SetValue(ctx, &adt.StructMarker{})
 
 			t := value.Type()
 			for i := 0; i < value.NumField(); i++ {
@@ -428,7 +418,7 @@ func convertRec(ctx *adt.OpContext, nilIsTop bool, x interface{}) adt.Value {
 				if tag, _ := sf.Tag.Lookup("json"); tag == "-" {
 					continue
 				}
-				if isOmitEmpty(&sf) && isZero(val) {
+				if isOmitEmpty(&sf) && val.IsZero() {
 					continue
 				}
 				sub := convertRec(ctx, nilIsTop, val.Interface())
@@ -463,7 +453,7 @@ func convertRec(ctx *adt.OpContext, nilIsTop bool, x interface{}) adt.Value {
 					arc.Label = f
 				} else {
 					arc = &adt.Vertex{Label: f, BaseValue: sub}
-					arc.UpdateStatus(adt.Finalized)
+					arc.ForceDone()
 					arc.AddConjunct(adt.MakeRootConjunct(nil, sub))
 				}
 				v.Arcs = append(v.Arcs, arc)
@@ -473,7 +463,7 @@ func convertRec(ctx *adt.OpContext, nilIsTop bool, x interface{}) adt.Value {
 
 		case reflect.Map:
 			v := &adt.Vertex{BaseValue: &adt.StructMarker{}}
-			v.SetValue(ctx, adt.Finalized, &adt.StructMarker{})
+			v.SetValue(ctx, &adt.StructMarker{})
 
 			t := value.Type()
 			switch key := t.Key(); key.Kind() {
@@ -517,7 +507,7 @@ func convertRec(ctx *adt.OpContext, nilIsTop bool, x interface{}) adt.Value {
 						arc.Label = f
 					} else {
 						arc = &adt.Vertex{Label: f, BaseValue: sub}
-						arc.UpdateStatus(adt.Finalized)
+						arc.ForceDone()
 						arc.AddConjunct(adt.MakeRootConjunct(nil, sub))
 					}
 					v.Arcs = append(v.Arcs, arc)
@@ -694,7 +684,7 @@ func goTypeToValueRec(ctx *adt.OpContext, allowNullDefault bool, t reflect.Type)
 			// The GO JSON decoder always allows a value to be undefined.
 			d := &ast.Field{Label: ast.NewIdent(name), Value: elem}
 			if isOptional(&f) {
-				d.Optional = token.Blank.Pos()
+				internal.SetConstraint(d, token.OPTION)
 			}
 			obj.Elts = append(obj.Elts, d)
 		}

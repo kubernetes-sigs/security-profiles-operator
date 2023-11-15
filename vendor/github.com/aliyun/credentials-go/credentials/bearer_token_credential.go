@@ -14,6 +14,14 @@ func newBearerTokenCredential(token string) *BearerTokenCredential {
 	}
 }
 
+func (s *BearerTokenCredential) GetCredential() (*CredentialModel, error) {
+	credential := &CredentialModel{
+		BearerToken: tea.String(s.BearerToken),
+		Type:        tea.String("bearer"),
+	}
+	return credential, nil
+}
+
 // GetAccessKeyId is useless for BearerTokenCredential
 func (b *BearerTokenCredential) GetAccessKeyId() (*string, error) {
 	return tea.String(""), nil

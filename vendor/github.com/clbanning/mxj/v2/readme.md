@@ -6,7 +6,7 @@ mxj supplants the legacy x2j and j2x packages. If you want the old syntax, use m
 <h4>Installation</h4>
 Using go.mod:
 <pre>
-go get github.com/clbanning/mxj/v2@v2.3.2
+go get github.com/clbanning/mxj/v2@v2.7	
 </pre>
 
 <pre>
@@ -42,6 +42,8 @@ For over a year I've wanted to refactor the XML-to-map[string]interface{} decode
 
 <h4>Notices</h4>
 
+	2022.11.28: v2.7 - add SetGlobalKeyMapPrefix to change default prefix, '#', for default keys
+	2022.11.20: v2.6 - add NewMapForattedXmlSeq for XML docs formatted with whitespace character
 	2021.02.02: v2.5 - add XmlCheckIsValid toggle to force checking that the encoded XML is valid
 	2020.12.14: v2.4 - add XMLEscapeCharsDecoder to preserve XML escaped characters in Map values
 	2020.10.28: v2.3 - add TrimWhiteSpace option

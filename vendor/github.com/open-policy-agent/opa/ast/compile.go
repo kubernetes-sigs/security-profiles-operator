@@ -81,6 +81,28 @@ type Compiler struct {
 	//                     +--- b
 	//                          |
 	//                          +--- c (1 rule)
+	//
+	// Another example with general refs containing vars at arbitrary locations:
+	//
+	//  package ex
+	//  a.b[x].d { x := "c" }            # R1
+	//  a.b.c[x] { x := "d" }            # R2
+	//  a.b[x][y] { x := "c"; y := "d" } # R3
+	//  p := true                        # R4
+	//
+	//  root
+	//    |
+	//    +--- data (no rules)
+	//           |
+	//           +--- ex (no rules)
+	//                |
+	//                +--- a
+	//                |    |
+	//                |    +--- b (R1, R3)
+	//                |         |
+	//                |         +--- c (R2)
+	//                |
+	//                +--- p (R4)
 	RuleTree *TreeNode
 
 	// Graph contains dependencies between rules. An edge (u,v) is added to the
@@ -94,14 +116,10 @@ type Compiler struct {
 	// with the key being the generated name and value being the original.
 	RewrittenVars map[Var]Var
 
-	localvargen  *localVarGenerator
-	moduleLoader ModuleLoader
-	ruleIndices  *util.HashMap
-	stages       []struct {
-		name       string
-		metricName string
-		f          func()
-	}
+	localvargen             *localVarGenerator
+	moduleLoader            ModuleLoader
+	ruleIndices             *util.HashMap
+	stages                  []stage
 	maxErrs                 int
 	sorted                  []string // list of sorted module names
 	pathExists              func([]string) (bool, error)
@@ -123,10 +141,26 @@ type Compiler struct {
 	keepModules             bool                          // whether to keep the unprocessed, parse modules (below)
 	parsedModules           map[string]*Module            // parsed, but otherwise unprocessed modules, kept track of when keepModules is true
 	useTypeCheckAnnotations bool                          // whether to provide annotated information (schemas) to the type checker
+	evalMode                CompilerEvalMode
 }
 
 // CompilerStage defines the interface for stages in the compiler.
 type CompilerStage func(*Compiler) *Error
+
+// CompilerEvalMode allows toggling certain stages that are only
+// needed for certain modes, Concretely, only "topdown" mode will
+// have the compiler build comprehension and rule indices.
+type CompilerEvalMode int
+
+const (
+	// EvalModeTopdown (default) instructs the compiler to build rule
+	// and comprehension indices used by topdown evaluation.
+	EvalModeTopdown CompilerEvalMode = iota
+
+	// EvalModeIR makes the compiler skip the stages for comprehension
+	// and rule indices.
+	EvalModeIR
+)
 
 // CompilerStageDefinition defines a compiler stage
 type CompilerStageDefinition struct {
@@ -244,6 +278,12 @@ type QueryCompilerStageDefinition struct {
 	Stage      QueryCompilerStage
 }
 
+type stage struct {
+	name       string
+	metricName string
+	f          func()
+}
+
 // NewCompiler returns a new empty compiler.
 func NewCompiler() *Compiler {
 
@@ -267,11 +307,7 @@ func NewCompiler() *Compiler {
 	c.ModuleTree = NewModuleTree(nil)
 	c.RuleTree = NewRuleTree(c.ModuleTree)
 
-	c.stages = []struct {
-		name       string
-		metricName string
-		f          func()
-	}{
+	c.stages = []stage{
 		// Reference resolution should run first as it may be used to lazily
 		// load additional modules. If any stages run before resolution, they
 		// need to be re-run after resolution.
@@ -411,6 +447,12 @@ func (c *Compiler) WithKeepModules(y bool) *Compiler {
 // WithUseTypeCheckAnnotations use schema annotations during type checking
 func (c *Compiler) WithUseTypeCheckAnnotations(enabled bool) *Compiler {
 	c.useTypeCheckAnnotations = enabled
+	return c
+}
+
+// WithEvalMode allows setting the CompilerEvalMode of the compiler
+func (c *Compiler) WithEvalMode(e CompilerEvalMode) *Compiler {
+	c.evalMode = e
 	return c
 }
 
@@ -698,15 +740,15 @@ func (c *Compiler) GetRulesDynamicWithOpts(ref Ref, opts RulesOptions) []*Rule {
 			// The head of the ref is always grounded.  In case another part of the
 			// ref is also grounded, we can lookup the exact child.  If it's not found
 			// we can immediately return...
-			if child := node.Child(ref[i].Value); child == nil {
-				return
-			} else if len(child.Values) > 0 {
-				// If there are any rules at this position, it's what the ref would
-				// refer to.  We can just append those and stop here.
-				insertRules(set, child.Values)
-			} else {
-				// Otherwise, we continue using the child node.
+			if child := node.Child(ref[i].Value); child != nil {
+				if len(child.Values) > 0 {
+					// Add any rules at this position
+					insertRules(set, child.Values)
+				}
+				// There might still be "sub-rules" contributing key-value "overrides" for e.g. partial object rules, continue walking
 				walk(child, i+1)
+			} else {
+				return
 			}
 
 		default:
@@ -757,6 +799,60 @@ func (c *Compiler) PassesTypeCheck(body Body) bool {
 	return len(errs) == 0
 }
 
+// PassesTypeCheckRules determines whether the given rules passes type checking
+func (c *Compiler) PassesTypeCheckRules(rules []*Rule) Errors {
+	elems := []util.T{}
+
+	for _, rule := range rules {
+		elems = append(elems, rule)
+	}
+
+	// Load the global input schema if one was provided.
+	if c.schemaSet != nil {
+		if schema := c.schemaSet.Get(SchemaRootRef); schema != nil {
+
+			var allowNet []string
+			if c.capabilities != nil {
+				allowNet = c.capabilities.AllowNet
+			}
+
+			tpe, err := loadSchema(schema, allowNet)
+			if err != nil {
+				return Errors{NewError(TypeErr, nil, err.Error())}
+			}
+			c.inputType = tpe
+		}
+	}
+
+	var as *AnnotationSet
+	if c.useTypeCheckAnnotations {
+		as = c.annotationSet
+	}
+
+	checker := newTypeChecker().WithSchemaSet(c.schemaSet).WithInputType(c.inputType)
+
+	if c.TypeEnv == nil {
+		if c.capabilities == nil {
+			c.capabilities = CapabilitiesForThisVersion()
+		}
+
+		c.builtins = make(map[string]*Builtin, len(c.capabilities.Builtins)+len(c.customBuiltins))
+
+		for _, bi := range c.capabilities.Builtins {
+			c.builtins[bi.Name] = bi
+		}
+
+		for name, bi := range c.customBuiltins {
+			c.builtins[name] = bi
+		}
+
+		c.TypeEnv = checker.Env(c.builtins)
+	}
+
+	_, errs := checker.CheckTypes(c.TypeEnv, elems, as)
+	return errs
+}
+
 // ModuleLoader defines the interface that callers can implement to enable lazy
 // loading of modules during compilation.
 type ModuleLoader func(resolved map[string]*Module) (parsed map[string]*Module, err error)
@@ -788,19 +884,23 @@ func (c *Compiler) buildRuleIndices() {
 			return false
 		}
 		rules := extractRules(node.Values)
-		hasNonGroundKey := false
+		hasNonGroundRef := false
 		for _, r := range rules {
-			if ref := r.Head.Ref(); len(ref) > 1 {
-				if !ref[len(ref)-1].IsGround() {
-					hasNonGroundKey = true
-				}
-			}
+			hasNonGroundRef = !r.Head.Ref().IsGround()
 		}
-		if hasNonGroundKey {
-			// collect children: as of now, this cannot go deeper than one level,
-			// so we grab those, and abort the DepthFirst processing for this branch
-			for _, n := range node.Children {
-				rules = append(rules, extractRules(n.Values)...)
+		if hasNonGroundRef {
+			// Collect children to ensure that all rules within the extent of a rule with a general ref
+			// are found on the same index. E.g. the following rules should be indexed under data.a.b.c:
+			//
+			// package a
+			// b.c[x].e := 1 { x := input.x }
+			// b.c.d := 2
+			// b.c.d2.e[x] := 3 { x := input.x }
+			for _, child := range node.Children {
+				child.DepthFirst(func(c *TreeNode) bool {
+					rules = append(rules, extractRules(c.Values)...)
+					return false
+				})
 			}
 		}
 
@@ -810,7 +910,7 @@ func (c *Compiler) buildRuleIndices() {
 		if index.Build(rules) {
 			c.ruleIndices.Put(rules[0].Ref().GroundPrefix(), index)
 		}
-		return hasNonGroundKey // currently, we don't allow those branches to go deeper
+		return hasNonGroundRef // currently, we don't allow those branches to go deeper
 	})
 
 }
@@ -870,10 +970,11 @@ func (c *Compiler) checkRuleConflicts() {
 
 		kinds := make(map[RuleKind]struct{}, len(node.Values))
 		defaultRules := 0
+		completeRules := 0
+		partialRules := 0
 		arities := make(map[int]struct{}, len(node.Values))
 		name := ""
-		var singleValueConflicts []Ref
-		var multiValueConflicts []Ref
+		var conflicts []Ref
 
 		for _, rule := range node.Values {
 			r := rule.(*Rule)
@@ -885,70 +986,57 @@ func (c *Compiler) checkRuleConflicts() {
 				defaultRules++
 			}
 
-			// Single-value rules may not have any other rules in their extent: these pairs are invalid:
+			// Single-value rules may not have any other rules in their extent.
+			// Rules with vars in their ref are allowed to have rules inside their extent.
+			// Only the ground portion (terms before the first var term) of a rule's ref is considered when determining
+			// whether it's inside the extent of another (c.RuleTree is organized this way already).
+			// These pairs are invalid:
 			//
 			//   data.p.q.r { true }          # data.p.q is { "r": true }
 			//   data.p.q.r.s { true }
 			//
-			//   data.p.q[r] { r := input.r } # data.p.q could be { "r": true }
+			//   data.p.q.r { true }
+			//   data.p.q.r[s].t { s = input.key }
+			//
+			// But this is allowed:
+			//
+			//   data.p.q.r { true }
+			//   data.p.q[r].s.t { r = input.key }
+			//
+			//   data.p[r] := x { r = input.key; x = input.bar }
+			//   data.p.q[r] := x { r = input.key; x = input.bar }
+			//
+			//   data.p.q[r] { r := input.r }
 			//   data.p.q.r.s { true }
 			//
-			// data.p[r] := x { r = input.key; x = input.bar }
-			// data.p.q[r] := x { r = input.key; x = input.bar }
-
-			// But this is allowed:
 			//   data.p.q[r] = 1 { r := "r" }
 			//   data.p.q.s = 2
+			//
+			//   data.p[q][r] { q := input.q; r := input.r }
+			//   data.p.q.r { true }
+			//
+			//   data.p.q[r] { r := input.r }
+			//   data.p[q].r { q := input.q }
+			//
+			//   data.p.q[r][s] { r := input.r; s := input.s }
+			//   data.p[q].r.s { q := input.q }
 
-			if r.Head.RuleKind() == SingleValue && len(node.Children) > 0 {
-				if len(ref) > 1 && !ref[len(ref)-1].IsGround() { // p.q[x] and p.q.s.t => check grandchildren
-					for _, c := range node.Children {
-						grandchildrenFound := false
-
-						if len(c.Values) > 0 {
-							childRules := extractRules(c.Values)
-							for _, childRule := range childRules {
-								childRef := childRule.Ref()
-								if childRule.Head.RuleKind() == SingleValue && !childRef[len(childRef)-1].IsGround() {
-									// The child is a partial object rule, so it's effectively "generating" grandchildren.
-									grandchildrenFound = true
-									break
-								}
-							}
-						}
-
-						if len(c.Children) > 0 {
-							grandchildrenFound = true
-						}
-
-						if grandchildrenFound {
-							singleValueConflicts = node.flattenChildren()
-							break
-						}
-					}
-				} else { // p.q.s and p.q.s.t => any children are in conflict
-					singleValueConflicts = node.flattenChildren()
-				}
+			if r.Ref().IsGround() && len(node.Children) > 0 {
+				conflicts = node.flattenChildren()
 			}
 
-			// Multi-value rules may not have any other rules in their extent; e.g.:
-			//
-			// data.p[v] { v := ... }
-			// data.p.q := 42 # In direct conflict with data.p[v], which is constructing a set and cannot have values assigned to a sub-path.
-
-			if r.Head.RuleKind() == MultiValue && len(node.Children) > 0 {
-				multiValueConflicts = node.flattenChildren()
+			if r.Head.RuleKind() == SingleValue && r.Head.Ref().IsGround() {
+				completeRules++
+			} else {
+				partialRules++
 			}
 		}
 
 		switch {
-		case singleValueConflicts != nil:
-			c.err(NewError(TypeErr, node.Values[0].(*Rule).Loc(), "single-value rule %v conflicts with %v", name, singleValueConflicts))
+		case conflicts != nil:
+			c.err(NewError(TypeErr, node.Values[0].(*Rule).Loc(), "rule %v conflicts with %v", name, conflicts))
 
-		case multiValueConflicts != nil:
-			c.err(NewError(TypeErr, node.Values[0].(*Rule).Loc(), "multi-value rule %v conflicts with %v", name, multiValueConflicts))
-
-		case len(kinds) > 1 || len(arities) > 1:
+		case len(kinds) > 1 || len(arities) > 1 || (completeRules >= 1 && partialRules >= 1):
 			c.err(NewError(TypeErr, node.Values[0].(*Rule).Loc(), "conflicting rules %v found", name))
 
 		case defaultRules > 1:
@@ -1368,7 +1456,8 @@ func (c *Compiler) checkUnsafeBuiltins() {
 
 func (c *Compiler) checkDeprecatedBuiltins() {
 	for _, name := range c.sorted {
-		errs := checkDeprecatedBuiltins(c.deprecatedBuiltinsMap, c.Modules[name], c.strict)
+		mod := c.Modules[name]
+		errs := checkDeprecatedBuiltins(c.deprecatedBuiltinsMap, mod, c.strict || mod.regoV1Compatible)
 		for _, err := range errs {
 			c.err(err)
 		}
@@ -1400,6 +1489,12 @@ func (c *Compiler) compile() {
 	}()
 
 	for _, s := range c.stages {
+		if c.evalMode == EvalModeIR {
+			switch s.name {
+			case "BuildRuleIndices", "BuildComprehensionIndices":
+				continue // skip these stages
+			}
+		}
 		c.runStage(s.metricName, s.f)
 		if c.Failed() {
 			return
@@ -1427,7 +1522,7 @@ func (c *Compiler) init() {
 
 	for _, bi := range c.capabilities.Builtins {
 		c.builtins[bi.Name] = bi
-		if c.strict && bi.IsDeprecated() {
+		if bi.IsDeprecated() {
 			c.deprecatedBuiltinsMap[bi.Name] = struct{}{}
 		}
 	}
@@ -1502,12 +1597,12 @@ func (c *Compiler) GetAnnotationSet() *AnnotationSet {
 }
 
 func (c *Compiler) checkDuplicateImports() {
-	if !c.strict {
-		return
-	}
-
 	for _, name := range c.sorted {
 		mod := c.Modules[name]
+		if !c.strict && !mod.regoV1Compatible {
+			continue
+		}
+
 		processedImports := map[Var]*Import{}
 
 		for _, imp := range mod.Imports {
@@ -1525,7 +1620,7 @@ func (c *Compiler) checkDuplicateImports() {
 func (c *Compiler) checkKeywordOverrides() {
 	for _, name := range c.sorted {
 		mod := c.Modules[name]
-		errs := checkKeywordOverrides(mod, c.strict)
+		errs := checkKeywordOverrides(mod, c.strict || mod.regoV1Compatible)
 		for _, err := range errs {
 			c.err(err)
 		}
@@ -1603,8 +1698,8 @@ func (c *Compiler) resolveAllRefs() {
 		if c.strict { // check for unused imports
 			for _, imp := range mod.Imports {
 				path := imp.Path.Value.(Ref)
-				if FutureRootDocument.Equal(path[0]) {
-					continue // ignore future imports
+				if FutureRootDocument.Equal(path[0]) || RegoRootDocument.Equal(path[0]) {
+					continue // ignore future and rego imports
 				}
 
 				for v, u := range globals {
@@ -1697,19 +1792,6 @@ func (c *Compiler) rewriteRuleHeadRefs() {
 			}
 
 			for i := 1; i < len(ref); i++ {
-				// NOTE(sr): In the first iteration, non-string values in the refs are forbidden
-				// except for the last position, e.g.
-				//     OK: p.q.r[s]
-				// NOT OK: p[q].r.s
-				// TODO(sr): This is stricter than necessary. We could allow any non-var values there,
-				// but we'll also have to adjust the type tree, for example.
-				if i != len(ref)-1 { // last
-					if _, ok := ref[i].Value.(String); !ok {
-						c.err(NewError(TypeErr, rule.Loc(), "rule head must only contain string terms (except for last): %v", ref[i]))
-						continue
-					}
-				}
-
 				// Rewrite so that any non-scalar elements that in the last position of
 				// the rule are vars:
 				//     p.q.r[y.z] { ... }  =>  p.q.r[__local0__] { __local0__ = y.z }
@@ -1924,7 +2006,7 @@ func isPrintCall(x *Expr) bool {
 	return x.IsCall() && x.Operator().Equal(Print.Ref())
 }
 
-// rewriteTermsInHead will rewrite rules so that the head does not contain any
+// rewriteRefsInHead will rewrite rules so that the head does not contain any
 // terms that require evaluation (e.g., refs or comprehensions). If the key or
 // value contains one or more of these terms, the key or value will be moved
 // into the body and assigned to a new variable. The new variable will replace
@@ -2236,7 +2318,7 @@ func (c *Compiler) rewriteLocalVars() {
 				// Report an error for each unused function argument
 				for arg := range unusedArgs {
 					if !arg.IsWildcard() {
-						c.err(NewError(CompileErr, rule.Head.Location, "unused argument %v", arg))
+						c.err(NewError(CompileErr, rule.Head.Location, "unused argument %v. (hint: use _ (wildcard variable) instead)", arg))
 					}
 				}
 			}
@@ -2272,8 +2354,9 @@ func (c *Compiler) rewriteLocalVarsInRule(rule *Rule, unusedArgs VarSet, argsSta
 	// Rewrite assignments in body.
 	used := NewVarSet()
 
-	last := rule.Head.Ref()[len(rule.Head.Ref())-1]
-	used.Update(last.Vars())
+	for _, t := range rule.Head.Ref()[1:] {
+		used.Update(t.Vars())
+	}
 
 	if rule.Head.Key != nil {
 		used.Update(rule.Head.Key.Vars())
@@ -2563,6 +2646,12 @@ func (qc *queryCompiler) runStageAfter(metricName string, query Body, s QueryCom
 	return s(qc, query)
 }
 
+type queryStage = struct {
+	name       string
+	metricName string
+	f          func(*QueryContext, Body) (Body, error)
+}
+
 func (qc *queryCompiler) Compile(query Body) (Body, error) {
 	if len(query) == 0 {
 		return nil, Errors{NewError(CompileErr, nil, "empty query cannot be compiled")}
@@ -2570,11 +2659,7 @@ func (qc *queryCompiler) Compile(query Body) (Body, error) {
 
 	query = query.Copy()
 
-	stages := []struct {
-		name       string
-		metricName string
-		f          func(*QueryContext, Body) (Body, error)
-	}{
+	stages := []queryStage{
 		{"CheckKeywordOverrides", "query_compile_stage_check_keyword_overrides", qc.checkKeywordOverrides},
 		{"ResolveRefs", "query_compile_stage_resolve_refs", qc.resolveRefs},
 		{"RewriteLocalVars", "query_compile_stage_rewrite_local_vars", qc.rewriteLocalVars},
@@ -2589,7 +2674,9 @@ func (qc *queryCompiler) Compile(query Body) (Body, error) {
 		{"CheckTypes", "query_compile_stage_check_types", qc.checkTypes},
 		{"CheckUnsafeBuiltins", "query_compile_stage_check_unsafe_builtins", qc.checkUnsafeBuiltins},
 		{"CheckDeprecatedBuiltins", "query_compile_stage_check_deprecated_builtins", qc.checkDeprecatedBuiltins},
-		{"BuildComprehensionIndex", "query_compile_stage_build_comprehension_index", qc.buildComprehensionIndices},
+	}
+	if qc.compiler.evalMode == EvalModeTopdown {
+		stages = append(stages, queryStage{"BuildComprehensionIndex", "query_compile_stage_build_comprehension_index", qc.buildComprehensionIndices})
 	}
 
 	qctx := qc.qctx.Copy()
@@ -3917,8 +4004,8 @@ func getGlobals(pkg *Package, rules []Ref, imports []*Import) map[Var]*usedRef {
 	// Populate globals with imports.
 	for _, imp := range imports {
 		path := imp.Path.Value.(Ref)
-		if FutureRootDocument.Equal(path[0]) {
-			continue // ignore future imports
+		if FutureRootDocument.Equal(path[0]) || RegoRootDocument.Equal(path[0]) {
+			continue // ignore future and rego imports
 		}
 		globals[imp.Name()] = &usedRef{ref: path}
 	}

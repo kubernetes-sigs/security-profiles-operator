@@ -12,11 +12,9 @@ import (
 	"fmt"
 	"math"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
-	log "github.com/golang/glog"
 	"github.com/mitchellh/go-wordwrap"
 	"github.com/protocolbuffers/txtpbfmt/ast"
 	"github.com/protocolbuffers/txtpbfmt/unquote"
@@ -72,12 +70,36 @@ type Config struct {
 	// (requires WrapStringsAtColumn to be set).
 	WrapHTMLStrings bool
 
+	// Wrap string field values after each newline.
+	// Should not be used with other Wrap* options.
+	WrapStringsAfterNewlines bool
+
 	// Whether angle brackets used instead of curly braces should be preserved
 	// when outputting a formatted textproto.
 	PreserveAngleBrackets bool
 
 	// Use single quotes around strings that contain double but not single quotes.
 	SmartQuotes bool
+
+	// Logger enables logging when it is non-nil.
+	// If the log messages aren't going to be useful, it's best to leave Logger
+	// set to nil, as otherwise log messages will be constructed.
+	Logger Logger
+}
+
+func (c *Config) infof(format string, args ...any) {
+	if c.Logger != nil {
+		c.Logger.Infof(format, args...)
+	}
+}
+func (c *Config) infoLevel() bool {
+	return c.Logger != nil
+}
+
+// Logger is a small glog-like interface.
+type Logger interface {
+	// Infof is used for informative messages, for testing or debugging.
+	Infof(format string, args ...any)
 }
 
 // RootName contains a constant that can be used to identify the root of all Nodes.
@@ -119,7 +141,6 @@ type parser struct {
 	in     []byte
 	index  int
 	length int
-	log    log.Verbose
 	// Maps the index of '{' characters on 'in' that have the matching '}' on
 	// the same line to 'true'.
 	bracketSameLine map[int]bool
@@ -132,27 +153,6 @@ var tagRegex = regexp.MustCompile(`<.*>`)
 
 const indentSpaces = "  "
 
-func getMetaComments(in []byte) map[string]bool {
-	metaComments := map[string]bool{}
-	scanner := bufio.NewScanner(bytes.NewReader(in))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if len(line) == 0 {
-			continue
-		}
-		if line[0] != byte('#') {
-			break // only process the leading comment block
-		}
-		colon := strings.IndexByte(line, byte(':'))
-		if colon > 1 && strings.TrimSpace(line[1:colon]) == "txtpbfmt" {
-			for _, s := range strings.Split(line[colon+1:], ",") {
-				metaComments[strings.TrimSpace(s)] = true
-			}
-		}
-	}
-	return metaComments
-}
-
 // Format formats a text proto file preserving comments.
 func Format(in []byte) ([]byte, error) {
 	return FormatWithConfig(in, defConfig)
@@ -161,16 +161,18 @@ func Format(in []byte) ([]byte, error) {
 // FormatWithConfig functions similar to format, but allows the user to pass in
 // additional configuration options.
 func FormatWithConfig(in []byte, c Config) ([]byte, error) {
-	addMetaCommentsToConfig(in, &c)
+	if err := addMetaCommentsToConfig(in, &c); err != nil {
+		return nil, err
+	}
 	if c.Disable {
-		log.Infoln("Ignored file with 'disable' comment.")
+		c.infof("Ignored file with 'disable' comment.")
 		return in, nil
 	}
 	nodes, err := parseWithMetaCommentConfig(in, c)
 	if err != nil {
 		return nil, err
 	}
-	return out(nodes), nil
+	return PrettyBytes(nodes, 0), nil
 }
 
 // Return the byte-positions of each bracket which has the corresponding close on the
@@ -312,7 +314,9 @@ func Parse(in []byte) ([]*ast.Node, error) {
 // ParseWithConfig functions similar to Parse, but allows the user to pass in
 // additional configuration options.
 func ParseWithConfig(in []byte, c Config) ([]*ast.Node, error) {
-	addMetaCommentsToConfig(in, &c)
+	if err := addMetaCommentsToConfig(in, &c); err != nil {
+		return nil, err
+	}
 	return parseWithMetaCommentConfig(in, c)
 }
 
@@ -322,9 +326,9 @@ func parseWithMetaCommentConfig(in []byte, c Config) ([]*ast.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.log {
-		p.log.Infof("p.in: %q", string(p.in))
-		p.log.Infof("p.length: %v", p.length)
+	if p.config.infoLevel() {
+		p.config.infof("p.in: %q", string(p.in))
+		p.config.infof("p.length: %v", p.length)
 	}
 	// Although unnamed nodes aren't strictly allowed, some formats represent a
 	// list of protos as a list of unnamed top-level nodes.
@@ -335,91 +339,98 @@ func parseWithMetaCommentConfig(in []byte, c Config) ([]*ast.Node, error) {
 	if p.index < p.length {
 		return nil, fmt.Errorf("parser didn't consume all input. Stopped at %s", p.errorContext())
 	}
-	wrapStrings(nodes, 0, c)
-	err = sortAndFilterNodes( /*parent=*/ nil, nodes, nodeSortFunction(c), nodeFilterFunction(c))
-	if err != nil {
+	if err := wrapStrings(nodes, 0, c); err != nil {
+		return nil, err
+	}
+	if err := sortAndFilterNodes( /*parent=*/ nil, nodes, nodeSortFunction(c), nodeFilterFunction(c)); err != nil {
 		return nil, err
 	}
 	return nodes, nil
 }
 
-func addMetaCommentsToConfig(in []byte, c *Config) {
-	metaComments := getMetaComments(in)
-	if metaComments["allow_triple_quoted_strings"] {
+// There are two types of MetaComment, one in the format of <key>=<val> and the other one doesn't
+// have the equal sign. Currently there are only two MetaComments that are in the former format:
+//
+//	"sort_repeated_fields_by_subfield": If this appears multiple times, then they will all be added
+//	to the config and the order is perserved.
+//	"wrap_strings_at_column": The <val> is expected to be an integer. If it is not, then it will be
+//	ignored. If this appears multiple times, only the last one saved.
+func addToConfig(metaComment string, c *Config) error {
+	// Test if a MetaComment is in the format of <key>=<val>.
+	key, val, hasEqualSign := strings.Cut(metaComment, "=")
+	switch key {
+	case "allow_triple_quoted_strings":
 		c.AllowTripleQuotedStrings = true
-	}
-	if metaComments["allow_unnamed_nodes_everywhere"] {
+	case "allow_unnamed_nodes_everywhere":
 		c.AllowUnnamedNodesEverywhere = true
-	}
-	if metaComments["disable"] {
+	case "disable":
 		c.Disable = true
-	}
-	if metaComments["expand_all_children"] {
+	case "expand_all_children":
 		c.ExpandAllChildren = true
-	}
-	if metaComments["preserve_angle_brackets"] {
+	case "preserve_angle_brackets":
 		c.PreserveAngleBrackets = true
-	}
-	if metaComments["remove_duplicate_values_for_repeated_fields"] {
+	case "remove_duplicate_values_for_repeated_fields":
 		c.RemoveDuplicateValuesForRepeatedFields = true
-	}
-	if metaComments["skip_all_colons"] {
+	case "skip_all_colons":
 		c.SkipAllColons = true
-	}
-	if metaComments["smartquotes"] {
+	case "smartquotes":
 		c.SmartQuotes = true
-	}
-	if metaComments["sort_fields_by_field_name"] {
+	case "sort_fields_by_field_name":
 		c.SortFieldsByFieldName = true
-	}
-	if metaComments["sort_repeated_fields_by_content"] {
+	case "sort_repeated_fields_by_content":
 		c.SortRepeatedFieldsByContent = true
-	}
-	for _, sf := range getMetaCommentStringValues("sort_repeated_fields_by_subfield", metaComments) {
-		c.SortRepeatedFieldsBySubfield = append(c.SortRepeatedFieldsBySubfield, sf)
-	}
-	if metaComments["wrap_html_strings"] {
+	case "sort_repeated_fields_by_subfield":
+		// Take all the subfields and the subfields in order as tie breakers.
+		if !hasEqualSign {
+			return fmt.Errorf("format should be %s=<string>, got: %s", key, metaComment)
+		}
+		c.SortRepeatedFieldsBySubfield = append(c.SortRepeatedFieldsBySubfield, val)
+	case "wrap_strings_at_column":
+		// If multiple of this MetaComment exists in the file, take the last one.
+		if !hasEqualSign {
+			return fmt.Errorf("format should be %s=<int>, got: %s", key, metaComment)
+		}
+		i, err := strconv.Atoi(strings.TrimSpace(val))
+		if err != nil {
+			return fmt.Errorf("error parsing %s value %q (skipping): %v", key, val, err)
+		}
+		c.WrapStringsAtColumn = i
+	case "wrap_html_strings":
 		c.WrapHTMLStrings = true
+	case "wrap_strings_after_newlines":
+		c.WrapStringsAfterNewlines = true
+	default:
+		return fmt.Errorf("unrecognized MetaComment: %s", metaComment)
 	}
-	setMetaCommentIntValue("wrap_strings_at_column", metaComments, &c.WrapStringsAtColumn)
+	return nil
 }
 
-// For a MetaComment in the form comment_name=<int> set *int to the value. Will not change
-// the *int if the comment name isn't present.
-func setMetaCommentIntValue(name string, metaComments map[string]bool, value *int) {
-	for mc := range metaComments {
-		if strings.HasPrefix(mc, fmt.Sprintf("%s ", name)) {
-			log.Errorf("format should be %s=<int>, got: %s", name, mc)
-			return
-		}
-		prefix := fmt.Sprintf("%s=", name)
-		if strings.HasPrefix(mc, prefix) {
-			intStr := strings.TrimPrefix(mc, prefix)
-			var err error
-			i, err := strconv.Atoi(strings.TrimSpace(intStr))
-			if err != nil {
-				log.Errorf("error parsing %s value %q (skipping): %v", name, intStr, err)
-				return
-			}
-			*value = i
-		}
-	}
-}
-
-// For a MetaComment in the form comment_name=<string> returns the strings.
-func getMetaCommentStringValues(name string, metaComments map[string]bool) []string {
-	var vs []string
-	for mc := range metaComments {
-		if strings.HasPrefix(mc, fmt.Sprintf("%s ", name)) {
-			log.Errorf("format should be %s=<string>, got: %s", name, mc)
+// Parses MetaComments and adds them to the configuration.
+func addMetaCommentsToConfig(in []byte, c *Config) error {
+	scanner := bufio.NewScanner(bytes.NewReader(in))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(line) == 0 {
 			continue
 		}
-		prefix := fmt.Sprintf("%s=", name)
-		if strings.HasPrefix(mc, prefix) {
-			vs = append(vs, strings.TrimSpace(strings.TrimPrefix(mc, prefix)))
+		if line[0] != byte('#') {
+			break // only process the leading comment block
+		}
+
+		// Look for comment lines in the format of "<key>:<value>", and process the lines with <key>
+		// equals to "txtpbfmt". It's assumed that the MetaComments are given in the format of:
+		// # txtpbfmt: <MetaComment 1>[, <MetaComment 2> ...]
+		key, value, hasColon := strings.Cut(line[1:], ":") // Ignore the first '#'.
+		if hasColon && strings.TrimSpace(key) == "txtpbfmt" {
+			for _, s := range strings.Split(strings.TrimSpace(value), ",") {
+				metaComment := strings.TrimSpace(s)
+				if err := addToConfig(metaComment, c); err != nil {
+					return err
+				}
+			}
 		}
 	}
-	return vs
+	return nil
 }
 
 func newParser(in []byte, c Config) (*parser, error) {
@@ -439,7 +450,6 @@ func newParser(in []byte, c Config) (*parser, error) {
 		in:              in,
 		index:           0,
 		length:          len(in),
-		log:             log.V(2),
 		bracketSameLine: bracketSameLine,
 		config:          c,
 		line:            1,
@@ -572,8 +582,8 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 
 		// Handle blank lines.
 		if blankLines > 1 {
-			if p.log {
-				p.log.Infof("blankLines: %v", blankLines)
+			if p.config.infoLevel() {
+				p.config.infof("blankLines: %v", blankLines)
 			}
 			comments = append([]string{""}, comments...)
 		}
@@ -610,8 +620,8 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 			Start:       startPos,
 			PreComments: comments,
 		}
-		if p.log {
-			p.log.Infof("PreComments: %q", strings.Join(nd.PreComments, "\n"))
+		if p.config.infoLevel() {
+			p.config.infof("PreComments: %q", strings.Join(nd.PreComments, "\n"))
 		}
 
 		// Skip white-space other than '\n', which is handled below.
@@ -653,14 +663,14 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 				return nil, ast.Position{}, fmt.Errorf("Failed to find a FieldName at %s", p.errorContext())
 			}
 		}
-		if p.log {
-			p.log.Infof("name: %q", nd.Name)
+		if p.config.infoLevel() {
+			p.config.infof("name: %q", nd.Name)
 		}
 		// Skip separator.
-		_, _ = p.skipWhiteSpaceAndReadComments(true /* multiLine */)
+		preCommentsBeforeColon, _ := p.skipWhiteSpaceAndReadComments(true /* multiLine */)
 		nd.SkipColon = !p.consume(':')
 		previousPos := p.position()
-		_, _ = p.skipWhiteSpaceAndReadComments(true /* multiLine */)
+		preCommentsAfterColon, _ := p.skipWhiteSpaceAndReadComments(true /* multiLine */)
 
 		if p.consume('{') || p.consume('<') {
 			if p.config.SkipAllColons {
@@ -681,7 +691,12 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 			openBracketLine := p.line
 
 			// Skip separator.
-			preComments := p.readContinuousBlocksOfComments()
+			preCommentsAfterListStart := p.readContinuousBlocksOfComments()
+
+			var preComments []string
+			preComments = append(preComments, preCommentsBeforeColon...)
+			preComments = append(preComments, preCommentsAfterColon...)
+			preComments = append(preComments, preCommentsAfterListStart...)
 
 			if p.nextInputIs('{') {
 				// Handle list of nodes.
@@ -714,9 +729,13 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 						return nil, ast.Position{}, err
 					}
 					if len(vals) != 1 {
-						return nil, ast.Position{}, fmt.Errorf("multiple-string value not supported (%v). Please add comma explcitily, see http://b/162070952", vals)
+						return nil, ast.Position{}, fmt.Errorf("multiple-string value not supported (%v). Please add comma explicitly, see http://b/162070952", vals)
 					}
-					vals[0].PreComments = append(vals[0].PreComments, preComments...)
+					if len(preComments) > 0 {
+						// If we read preComments before readValues(), they should go first,
+						// but avoid copy overhead if there are none.
+						vals[0].PreComments = append(preComments, vals[0].PreComments...)
+					}
 
 					// Skip separator.
 					_, _ = p.skipWhiteSpaceAndReadComments(false /* multiLine */)
@@ -756,8 +775,8 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 				return nil, ast.Position{}, err
 			}
 		}
-		if p.log && p.index < p.length {
-			p.log.Infof("p.in[p.index]: %q", string(p.in[p.index]))
+		if p.config.infoLevel() && p.index < p.length {
+			p.config.infof("p.in[p.index]: %q", string(p.in[p.index]))
 		}
 		res = append(res, nd)
 	}
@@ -803,10 +822,11 @@ func (p *parser) readContinuousBlocksOfComments() []string {
 }
 
 // skipWhiteSpaceAndReadComments has multiple cases:
-// - (1) reading a block of comments followed by a blank line
-// - (2) reading a block of comments followed by non-blank content
-// - (3) reading the inline comments between the current char and the end of the
+//   - (1) reading a block of comments followed by a blank line
+//   - (2) reading a block of comments followed by non-blank content
+//   - (3) reading the inline comments between the current char and the end of the
 //     current line
+//
 // Lines of comments and number of blank lines will be returned.
 func (p *parser) skipWhiteSpaceAndReadComments(multiLine bool) ([]string, int) {
 	i := p.index
@@ -838,10 +858,10 @@ func (p *parser) skipWhiteSpaceAndReadComments(multiLine bool) ([]string, int) {
 		}
 	}
 	sep := p.advance(i)
-	if p.log {
-		p.log.Infof("sep: %q\np.index: %v", string(sep), p.index)
+	if p.config.infoLevel() {
+		p.config.infof("sep: %q\np.index: %v", string(sep), p.index)
 		if p.index < p.length {
-			p.log.Infof("p.in[p.index]: %q", string(p.in[p.index]))
+			p.config.infof("p.in[p.index]: %q", string(p.in[p.index]))
 		}
 	}
 	return comments, blankLines
@@ -937,10 +957,10 @@ func (p *parser) readValues() ([]*ast.Value, error) {
 			}
 		}
 		vl := p.advance(i)
-		values = append(values, p.populateValue(vl, nil))
+		values = append(values, p.populateValue(vl, preComments))
 	}
-	if p.log {
-		p.log.Infof("values: %v", values)
+	if p.config.infoLevel() {
+		p.config.infof("values: %v", values)
 	}
 	return values, nil
 }
@@ -973,8 +993,8 @@ func (p *parser) readTripleQuotedString() (*ast.Value, error) {
 }
 
 func (p *parser) populateValue(vl string, preComments []string) *ast.Value {
-	if p.log {
-		p.log.Infof("value: %q", vl)
+	if p.config.infoLevel() {
+		p.config.infof("value: %q", vl)
 	}
 	return &ast.Value{
 		Value:         vl,
@@ -985,8 +1005,8 @@ func (p *parser) populateValue(vl string, preComments []string) *ast.Value {
 
 func (p *parser) readInlineComment() string {
 	inlineComment, _ := p.skipWhiteSpaceAndReadComments(false /* multiLine */)
-	if p.log {
-		p.log.Infof("inlineComment: %q", strings.Join(inlineComment, "\n"))
+	if p.config.infoLevel() {
+		p.config.infof("inlineComment: %q", strings.Join(inlineComment, "\n"))
 	}
 	if len(inlineComment) > 0 {
 		return inlineComment[0]
@@ -1066,22 +1086,32 @@ func RemoveDuplicates(nodes []*ast.Node) {
 	}
 }
 
-func wrapStrings(nodes []*ast.Node, depth int, c Config) {
-	if c.WrapStringsAtColumn == 0 {
-		return
+func wrapStrings(nodes []*ast.Node, depth int, c Config) error {
+	if c.WrapStringsAtColumn == 0 && !c.WrapStringsAfterNewlines {
+		return nil
 	}
 	for _, nd := range nodes {
 		if nd.ChildrenSameLine {
-			return
+			continue
 		}
-		if needsWrapping(nd, depth, c) {
-			wrapLines(nd, depth, c)
+		if c.WrapStringsAtColumn > 0 && needsWrappingAtColumn(nd, depth, c) {
+			if err := wrapLinesAtColumn(nd, depth, c); err != nil {
+				return err
+			}
 		}
-		wrapStrings(nd.Children, depth+1, c)
+		if c.WrapStringsAfterNewlines && needsWrappingAfterNewlines(nd, c) {
+			if err := wrapLinesAfterNewlines(nd, c); err != nil {
+				return err
+			}
+		}
+		if err := wrapStrings(nd.Children, depth+1, c); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func needsWrapping(nd *ast.Node, depth int, c Config) bool {
+func needsWrappingAtColumn(nd *ast.Node, depth int, c Config) bool {
 	// Even at depth 0 we have a 2-space indent when the wrapped string is rendered on the line below
 	// the field name.
 	const lengthBuffer = 2
@@ -1114,7 +1144,7 @@ func needsWrapping(nd *ast.Node, depth int, c Config) bool {
 // If the Values of this Node constitute a string, and if Config.WrapStringsAtColumn > 0, then wrap
 // the string so each line is within the specified columns. Wraps only the current Node (does not
 // recurse into Children).
-func wrapLines(nd *ast.Node, depth int, c Config) {
+func wrapLinesAtColumn(nd *ast.Node, depth int, c Config) error {
 	// This function looks at the unquoted ast.Value.Value string (i.e., with each Value's wrapping
 	// quote chars removed). We need to remove these quotes, since otherwise they'll be re-flowed into
 	// the body of the text.
@@ -1123,8 +1153,7 @@ func wrapLines(nd *ast.Node, depth int, c Config) {
 
 	str, err := unquote.Raw(nd)
 	if err != nil {
-		log.Errorf("skipping string wrapping on node %q (error unquoting string): %v", nd.Name, err)
-		return
+		return fmt.Errorf("skipping string wrapping on node %q (error unquoting string): %v", nd.Name, err)
 	}
 
 	// Remove one from the max length since a trailing space may be added below.
@@ -1138,7 +1167,7 @@ func wrapLines(nd *ast.Node, depth int, c Config) {
 	var line string
 	for i, line = range lines {
 		var v *ast.Value
-		if len(nd.Values) > i {
+		if i < len(nd.Values) {
 			v = nd.Values[i]
 		} else {
 			v = &ast.Value{}
@@ -1150,6 +1179,75 @@ func wrapLines(nd *ast.Node, depth int, c Config) {
 		newValues = append(newValues, v)
 	}
 
+	postWrapCollectComments(nd, i)
+
+	nd.Values = newValues
+	return nil
+}
+
+// N.b.: this will incorrectly match `\\\\x`, which hopefully is rare.
+var byteEscapeRegex = regexp.MustCompile(`\\x`)
+
+func needsWrappingAfterNewlines(nd *ast.Node, c Config) bool {
+	for _, v := range nd.Values {
+		if len(v.Value) >= 3 && (strings.HasPrefix(v.Value, `'''`) || strings.HasPrefix(v.Value, `"""`)) {
+			// Don't wrap triple-quoted strings
+			return false
+		}
+		if len(v.Value) > 0 && v.Value[0] != '\'' && v.Value[0] != '"' {
+			// Only wrap strings
+			return false
+		}
+		byteEscapeCount := len(byteEscapeRegex.FindAllStringIndex(v.Value, -1))
+		if float64(byteEscapeCount) > float64(len(v.Value))*0.1 {
+			// Only wrap UTF-8 looking strings (where less than ~10% of the characters are escaped).
+			return false
+		}
+		// Check that there is at least one newline, *not* at the end of the string.
+		if i := strings.Index(v.Value, `\n`); i >= 0 && i < len(v.Value)-3 {
+			return true
+		}
+	}
+	return false
+}
+
+// If the Values of this Node constitute a string, and if Config.WrapStringsAfterNewlines,
+// then wrap the string so each line ends with a newline.
+// Wraps only the current Node (does not recurse into Children).
+func wrapLinesAfterNewlines(nd *ast.Node, c Config) error {
+	str, err := unquote.Raw(nd)
+	if err != nil {
+		return fmt.Errorf("skipping string wrapping on node %q (error unquoting string): %v", nd.Name, err)
+	}
+
+	wrappedStr := strings.ReplaceAll(str, `\n`, `\n`+"\n")
+	// Avoid empty string at end after splitting in case str ended with an (escaped) newline.
+	wrappedStr = strings.TrimSuffix(wrappedStr, "\n")
+	lines := strings.Split(wrappedStr, "\n")
+	newValues := make([]*ast.Value, 0, len(lines))
+	// The Value objects have more than just the string in them. They also have any leading and
+	// trailing comments. To maintain these comments we recycle the existing Value objects if
+	// possible.
+	var i int
+	var line string
+	for i, line = range lines {
+		var v *ast.Value
+		if i < len(nd.Values) {
+			v = nd.Values[i]
+		} else {
+			v = &ast.Value{}
+		}
+		v.Value = fmt.Sprintf(`"%s"`, line)
+		newValues = append(newValues, v)
+	}
+
+	postWrapCollectComments(nd, i)
+
+	nd.Values = newValues
+	return nil
+}
+
+func postWrapCollectComments(nd *ast.Node, i int) {
 	for i++; i < len(nd.Values); i++ {
 		// If this executes, then the text was wrapped into less lines of text (less Values) than
 		// previously. If any of these had comments on them, we collect them so they are not lost.
@@ -1159,8 +1257,6 @@ func wrapLines(nd *ast.Node, depth int, c Config) {
 			nd.PostValuesComments = append(nd.PostValuesComments, v.InlineComment)
 		}
 	}
-
-	nd.Values = newValues
 }
 
 func fixQuotes(s string) string {
@@ -1243,9 +1339,10 @@ func Pretty(nodes []*ast.Node, depth int) string {
 	return result.String()
 }
 
-func out(nodes []*ast.Node) []byte {
+// PrettyBytes returns formatted nodes at the given indentation depth (0 = top-level) as bytes.
+func PrettyBytes(nodes []*ast.Node, depth int) []byte {
 	var result bytes.Buffer
-	formatter{&result}.writeNodes(removeDeleted(nodes), 0, false /* isSameLine */, false /* asListItems */)
+	formatter{&result}.writeNodes(removeDeleted(nodes), depth, false /* isSameLine */, false /* asListItems */)
 	return result.Bytes()
 }
 
@@ -1298,7 +1395,7 @@ func nodeSortFunction(c Config) NodeSortFunction {
 	}
 	if sorter != nil {
 		return func(parent *ast.Node, ns []*ast.Node) error {
-			sort.Stable(ast.SortableNodesWithParent(parent, ns, sorter))
+			ast.SortNodes(parent, ns, sorter)
 			if c.RequireFieldSortOrderToMatchAllFieldsInNode {
 				return unsortedFieldCollector.asError()
 			}
@@ -1325,6 +1422,27 @@ func nodeFilterFunction(c Config) NodeFilterFunction {
 	return nil
 }
 
+func getNodePriorityForByFieldOrder(parent, node *ast.Node, name string, priorities map[string]int, unsortedCollector UnsortedFieldCollectorFunc) *int {
+	if parent != nil && parent.Name != name {
+		return nil
+	}
+	if parent == nil && name != RootName {
+		return nil
+	}
+	// CommentOnly nodes don't set priority below, and default to MaxInt, which keeps them at the bottom
+	prio := math.MaxInt
+
+	// Unknown fields will get the int nil value of 0 from the order map, and bubble to the top.
+	if !node.IsCommentOnly() {
+		var ok bool
+		prio, ok = priorities[node.Name]
+		if !ok {
+			unsortedCollector(node.Name, node.Start.Line, parent.Name)
+		}
+	}
+	return &prio
+}
+
 // ByFieldOrder returns a NodeLess function that orders fields within a node named name
 // by the order specified in fieldOrder. Nodes sorted but not specified by the field order
 // are bubbled to the top and reported to unsortedCollector.
@@ -1333,28 +1451,19 @@ func ByFieldOrder(name string, fieldOrder []string, unsortedCollector UnsortedFi
 	for i, fieldName := range fieldOrder {
 		priorities[fieldName] = i + 1
 	}
-	return func(parent, ni, nj *ast.Node) bool {
-		if parent != nil && parent.Name != name {
+	return func(parent, ni, nj *ast.Node, isWholeSlice bool) bool {
+		if !isWholeSlice {
 			return false
 		}
-		if parent == nil && name != RootName {
+		vi := getNodePriorityForByFieldOrder(parent, ni, name, priorities, unsortedCollector)
+		vj := getNodePriorityForByFieldOrder(parent, nj, name, priorities, unsortedCollector)
+		if vi == nil {
+			return vj != nil
+		}
+		if vj == nil {
 			return false
 		}
-		getNodePriority := func(node *ast.Node) int {
-			// CommentOnly nodes don't set priority below, and default to MaxInt, which keeps them at the bottom
-			prio := math.MaxInt
-
-			// Unknown fields will get the int nil value of 0 from the order map, and bubble to the top.
-			if !node.IsCommentOnly() {
-				var ok bool
-				prio, ok = priorities[node.Name]
-				if !ok {
-					unsortedCollector(node.Name, node.Start.Line, parent.Name)
-				}
-			}
-			return prio
-		}
-		return getNodePriority(ni) < getNodePriority(nj)
+		return *vi < *vj
 	}
 }
 

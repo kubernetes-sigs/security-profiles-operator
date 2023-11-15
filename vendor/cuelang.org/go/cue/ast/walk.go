@@ -91,6 +91,10 @@ func walk(v visitor, node Node) {
 			walk(v, a)
 		}
 
+	case *Func:
+		walkExprList(v, n.Args)
+		walk(v, n.Ret)
+
 	case *StructLit:
 		walkDeclList(v, n.Elts)
 
@@ -234,10 +238,6 @@ func (f *inspector) After(node Node) {
 
 func (f *inspector) Token(t token.Token) {
 	f.current.pos++
-}
-
-func (f *inspector) setPos(i int8) {
-	f.current.pos = i
 }
 
 func (f *inspector) visitComments(pos int8) {

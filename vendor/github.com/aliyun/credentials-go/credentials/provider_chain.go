@@ -8,7 +8,7 @@ type providerChain struct {
 	Providers []Provider
 }
 
-var defaultproviders = []Provider{providerEnv, providerProfile, providerInstance}
+var defaultproviders = []Provider{providerEnv, providerOIDC, providerProfile, providerInstance}
 var defaultChain = newProviderChain(defaultproviders)
 
 func newProviderChain(providers []Provider) Provider {

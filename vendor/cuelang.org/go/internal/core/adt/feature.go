@@ -147,7 +147,7 @@ func (f Feature) ToValue(ctx *OpContext) Value {
 
 // StringLabel converts s to a string label.
 func (c *OpContext) StringLabel(s string) Feature {
-	return labelFromValue(c, nil, &String{Str: s})
+	return LabelFromValue(c, nil, &String{Str: s})
 }
 
 // MakeStringLabel creates a label for the given string.
@@ -228,7 +228,7 @@ func MakeIntLabel(t FeatureType, i int64) Feature {
 
 const msgGround = "invalid non-ground value %s (must be concrete %s)"
 
-func labelFromValue(c *OpContext, src Expr, v Value) Feature {
+func LabelFromValue(c *OpContext, src Expr, v Value) Feature {
 	v, _ = c.getDefault(v)
 
 	var i int64
@@ -258,10 +258,10 @@ func labelFromValue(c *OpContext, src Expr, v Value) Feature {
 			case nil, *Num, *UnaryExpr:
 				// If the value is a constant, we know it is always an error.
 				// UnaryExpr is an approximation for a constant value here.
-				c.AddErrf("invalid index %s (index must be non-negative)", x)
+				c.AddErrf("invalid index %v (index must be non-negative)", x)
 			default:
 				// Use a different message is it is the result of evaluation.
-				c.AddErrf("index %s out of range [%s]", src, x)
+				c.AddErrf("index %v out of range [%v]", src, x)
 			}
 			return InvalidLabel
 		}

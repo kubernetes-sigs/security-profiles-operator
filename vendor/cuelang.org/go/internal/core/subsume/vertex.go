@@ -31,6 +31,9 @@ func (s *subsumer) vertices(x, y *adt.Vertex) bool {
 	if x == y {
 		return true
 	}
+	if x.ArcType < y.ArcType {
+		return false
+	}
 
 	if s.Defaults {
 		y = y.Default()
@@ -52,7 +55,7 @@ func (s *subsumer) vertices(x, y *adt.Vertex) bool {
 
 	case *adt.ListMarker:
 		if !y.IsList() {
-			s.errf("list does not subsume %s (type %s)", y, y.Kind())
+			s.errf("list does not subsume %v (type %s)", y, y.Kind())
 			return false
 		}
 		if !s.listVertices(x, y) {
@@ -125,13 +128,24 @@ func (s *subsumer) vertices(x, y *adt.Vertex) bool {
 			}
 
 			aOpt = true
+		} else if a.IsConstraint() {
+			if s.IgnoreOptional {
+				continue
+			}
+			// If field a is optional and has value top, neither the
+			// omission of the field nor the field defined with any value
+			// may cause unification to fail.
+			if a.Kind() == adt.TopKind {
+				continue
+			}
+			aOpt = true
 		}
 
 		b := y.Lookup(f)
 		if b == nil {
 			// y.f is optional
 			if !aOpt {
-				s.errf("required field is optional in subsumed value: %s", f)
+				s.errf("required field is optional in subsumed value: %v", f)
 				return false
 			}
 
@@ -156,7 +170,7 @@ func (s *subsumer) vertices(x, y *adt.Vertex) bool {
 		s.gt = a
 		s.lt = y
 
-		s.errf("field %s not present in %s", f, y)
+		s.errf("field %v not present in %v", f, y)
 		return false
 	}
 
@@ -187,13 +201,17 @@ outer:
 
 			b = &adt.Vertex{Label: f}
 			y.MatchAndInsert(ctx, b)
+		} else if b.IsConstraint() {
+			if s.IgnoreOptional || s.Final {
+				continue
+			}
 		}
 
 		if !x.Accept(ctx, f) {
 			if s.Profile.IgnoreClosedness {
 				continue
 			}
-			s.errf("field not allowed in closed struct: %s", f)
+			s.errf("field not allowed in closed struct: %v", f)
 			return false
 		}
 

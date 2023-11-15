@@ -207,3 +207,15 @@ func (f *EnumField) addElement(v Visitee) {
 }
 
 func (f *EnumField) parent(v Visitee) { f.Parent = v }
+
+// IsDeprecated returns true if the option "deprecated" is set with value "true".
+func (f *EnumField) IsDeprecated() bool {
+	for _, each := range f.Elements {
+		if opt, ok := each.(*Option); ok {
+			if opt.Name == optionNameDeprecated {
+				return opt.Constant.Source == "true"
+			}
+		}
+	}
+	return false
+}

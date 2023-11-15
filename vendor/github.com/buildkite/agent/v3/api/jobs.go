@@ -3,23 +3,28 @@ package api
 import (
 	"context"
 	"fmt"
+
+	"github.com/buildkite/agent/v3/internal/pipeline"
 )
 
 // Job represents a Buildkite Agent API Job
 type Job struct {
-	ID                 string            `json:"id,omitempty"`
-	Endpoint           string            `json:"endpoint"`
-	State              string            `json:"state,omitempty"`
-	Env                map[string]string `json:"env,omitempty"`
-	ChunksMaxSizeBytes int               `json:"chunks_max_size_bytes,omitempty"`
-	Token              string            `json:"token,omitempty"`
-	ExitStatus         string            `json:"exit_status,omitempty"`
-	Signal             string            `json:"signal,omitempty"`
-	SignalReason       string            `json:"signal_reason,omitempty"`
-	StartedAt          string            `json:"started_at,omitempty"`
-	FinishedAt         string            `json:"finished_at,omitempty"`
-	RunnableAt         string            `json:"runnable_at,omitempty"`
-	ChunksFailedCount  int               `json:"chunks_failed_count,omitempty"`
+	ID                 string                     `json:"id,omitempty"`
+	Endpoint           string                     `json:"endpoint"`
+	State              string                     `json:"state,omitempty"`
+	Env                map[string]string          `json:"env,omitempty"`
+	Step               pipeline.CommandStep       `json:"step,omitempty"`
+	MatrixPermutation  pipeline.MatrixPermutation `json:"matrix_permutation,omitempty"`
+	ChunksMaxSizeBytes uint64                     `json:"chunks_max_size_bytes,omitempty"`
+	LogMaxSizeBytes    uint64                     `json:"log_max_size_bytes,omitempty"`
+	Token              string                     `json:"token,omitempty"`
+	ExitStatus         string                     `json:"exit_status,omitempty"`
+	Signal             string                     `json:"signal,omitempty"`
+	SignalReason       string                     `json:"signal_reason,omitempty"`
+	StartedAt          string                     `json:"started_at,omitempty"`
+	FinishedAt         string                     `json:"finished_at,omitempty"`
+	RunnableAt         string                     `json:"runnable_at,omitempty"`
+	ChunksFailedCount  int                        `json:"chunks_failed_count,omitempty"`
 }
 
 type JobState struct {
@@ -40,7 +45,7 @@ type jobFinishRequest struct {
 
 // GetJobState returns the state of a given job
 func (c *Client) GetJobState(ctx context.Context, id string) (*JobState, *Response, error) {
-	u := fmt.Sprintf("jobs/%s", id)
+	u := fmt.Sprintf("jobs/%s", railsPathEscape(id))
 
 	req, err := c.newRequest(ctx, "GET", u, nil)
 	if err != nil {
@@ -58,7 +63,7 @@ func (c *Client) GetJobState(ctx context.Context, id string) (*JobState, *Respon
 
 // Acquires a job using its ID
 func (c *Client) AcquireJob(ctx context.Context, id string, headers ...Header) (*Job, *Response, error) {
-	u := fmt.Sprintf("jobs/%s/acquire", id)
+	u := fmt.Sprintf("jobs/%s/acquire", railsPathEscape(id))
 
 	req, err := c.newRequest(ctx, "PUT", u, nil, headers...)
 	if err != nil {
@@ -78,7 +83,7 @@ func (c *Client) AcquireJob(ctx context.Context, id string, headers ...Header) (
 // environment variables (when a job is accepted, the agents environment is
 // applied to the job)
 func (c *Client) AcceptJob(ctx context.Context, job *Job) (*Job, *Response, error) {
-	u := fmt.Sprintf("jobs/%s/accept", job.ID)
+	u := fmt.Sprintf("jobs/%s/accept", railsPathEscape(job.ID))
 
 	req, err := c.newRequest(ctx, "PUT", u, nil)
 	if err != nil {
@@ -96,7 +101,7 @@ func (c *Client) AcceptJob(ctx context.Context, job *Job) (*Job, *Response, erro
 
 // StartJob starts the passed in job
 func (c *Client) StartJob(ctx context.Context, job *Job) (*Response, error) {
-	u := fmt.Sprintf("jobs/%s/start", job.ID)
+	u := fmt.Sprintf("jobs/%s/start", railsPathEscape(job.ID))
 
 	req, err := c.newRequest(ctx, "PUT", u, &jobStartRequest{
 		StartedAt: job.StartedAt,
@@ -110,7 +115,7 @@ func (c *Client) StartJob(ctx context.Context, job *Job) (*Response, error) {
 
 // FinishJob finishes the passed in job
 func (c *Client) FinishJob(ctx context.Context, job *Job) (*Response, error) {
-	u := fmt.Sprintf("jobs/%s/finish", job.ID)
+	u := fmt.Sprintf("jobs/%s/finish", railsPathEscape(job.ID))
 
 	req, err := c.newRequest(ctx, "PUT", u, &jobFinishRequest{
 		FinishedAt:        job.FinishedAt,

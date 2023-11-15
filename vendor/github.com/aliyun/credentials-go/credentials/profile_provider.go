@@ -46,10 +46,11 @@ func newProfileProvider(name ...string) Provider {
 func (p *profileProvider) resolve() (*Config, error) {
 	path, ok := os.LookupEnv(ENVCredentialFile)
 	if !ok {
-		path, err := checkDefaultPath()
+		defaultPath, err := checkDefaultPath()
 		if err != nil {
 			return nil, err
 		}
+		path = defaultPath
 		if path == "" {
 			return nil, nil
 		}

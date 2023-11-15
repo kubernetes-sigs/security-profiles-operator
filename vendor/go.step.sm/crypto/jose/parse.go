@@ -375,7 +375,7 @@ func guessSignatureAlgorithm(key crypto.PrivateKey) SignatureAlgorithm {
 
 // guessKnownJWKAlgorithm sets the algorithm for keys that only have one
 // possible algorithm.
-func guessKnownJWKAlgorithm(ctx *context, jwk *JSONWebKey) {
+func guessKnownJWKAlgorithm(_ *context, jwk *JSONWebKey) {
 	if jwk.Algorithm == "" && jwk.Use != "enc" {
 		switch k := jwk.Key.(type) {
 		case *ecdsa.PrivateKey:

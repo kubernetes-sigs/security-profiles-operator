@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cockroachdb/apd/v2"
+	"github.com/cockroachdb/apd/v3"
 	"golang.org/x/text/encoding/unicode"
 
 	"cuelang.org/go/cue/ast"
@@ -85,7 +85,7 @@ func DebugSortFields(c *OpContext, a []Feature) {
 // Assert panics if the condition is false. Assert can be used to check for
 // conditions that are considers to break an internal variant or unexpected
 // condition, but that nonetheless probably will be handled correctly down the
-// line. For instance, a faulty condition could lead to to error being caught
+// line. For instance, a faulty condition could lead to error being caught
 // down the road, but resulting in an inaccurate error message. In production
 // code it is better to deal with the bad error message than to panic.
 //
@@ -109,14 +109,6 @@ func (c *OpContext) Assertf(pos token.Pos, b bool, format string, args ...interf
 
 func init() {
 	log.SetFlags(log.Lshortfile)
-}
-
-func Logf(format string, args ...interface{}) {
-	if Verbosity == 0 {
-		return
-	}
-	s := fmt.Sprintf(format, args...)
-	_ = log.Output(2, s)
 }
 
 var pMap = map[*Vertex]int{}
@@ -315,18 +307,18 @@ func spawn(env *Environment, node *Vertex) *Environment {
 }
 
 func (c *OpContext) Env(upCount int32) *Environment {
-	return c.e.up(upCount)
+	return c.e.up(c, upCount)
 }
 
 func (c *OpContext) relNode(upCount int32) *Vertex {
-	e := c.e.up(upCount)
-	c.Unify(e.Vertex, Partial)
+	e := c.e.up(c, upCount)
+	c.unify(e.Vertex, partial)
 	return e.Vertex
 }
 
 func (c *OpContext) relLabel(upCount int32) Feature {
 	// locate current label.
-	e := c.e.up(upCount)
+	e := c.e.up(c, upCount)
 	return e.DynamicLabel
 }
 
@@ -467,10 +459,10 @@ func (c *OpContext) PopArc(saved *Vertex) {
 // Should only be used to insert Conjuncts. TODO: perhaps only return Conjuncts
 // and error.
 func (c *OpContext) Resolve(x Conjunct, r Resolver) (*Vertex, *Bottom) {
-	return c.resolveState(x, r, Finalized)
+	return c.resolveState(x, r, finalized)
 }
 
-func (c *OpContext) resolveState(x Conjunct, r Resolver, state VertexStatus) (*Vertex, *Bottom) {
+func (c *OpContext) resolveState(x Conjunct, r Resolver, state vertexStatus) (*Vertex, *Bottom) {
 	s := c.PushConjunct(x)
 
 	arc := r.resolve(c, state)
@@ -493,7 +485,7 @@ func (c *OpContext) resolveState(x Conjunct, r Resolver, state VertexStatus) (*V
 func (c *OpContext) Lookup(env *Environment, r Resolver) (*Vertex, *Bottom) {
 	s := c.PushState(env, r.Source())
 
-	arc := r.resolve(c, Partial)
+	arc := r.resolve(c, partial)
 
 	err := c.PopState(s)
 
@@ -520,9 +512,9 @@ func (c *OpContext) Validate(check Validator, value Value) *Bottom {
 	return err
 }
 
-// Concrete returns the concrete value of x after evaluating it.
+// concrete returns the concrete value of x after evaluating it.
 // msg is used to mention the context in which an error occurred, if any.
-func (c *OpContext) Concrete(env *Environment, x Expr, msg interface{}) (result Value, complete bool) {
+func (c *OpContext) concrete(env *Environment, x Expr, msg interface{}) (result Value, complete bool) {
 
 	w, complete := c.Evaluate(env, x)
 
@@ -575,7 +567,7 @@ func (c *OpContext) getDefault(v Value) (result Value, ok bool) {
 
 	if d.NumDefaults != 1 {
 		c.addErrf(IncompleteError, c.pos(),
-			"unresolved disjunction %s (type %s)", d, d.Kind())
+			"unresolved disjunction %v (type %s)", d, d.Kind())
 		return nil, false
 	}
 	return c.getDefault(d.Values[0])
@@ -586,7 +578,7 @@ func (c *OpContext) getDefault(v Value) (result Value, ok bool) {
 func (c *OpContext) Evaluate(env *Environment, x Expr) (result Value, complete bool) {
 	s := c.PushState(env, x.Source())
 
-	val := c.evalState(x, Partial)
+	val := c.evalState(x, partial)
 
 	complete = true
 
@@ -612,7 +604,7 @@ func (c *OpContext) Evaluate(env *Environment, x Expr) (result Value, complete b
 	return val, true
 }
 
-func (c *OpContext) evaluateRec(v Conjunct, state VertexStatus) Value {
+func (c *OpContext) evaluateRec(v Conjunct, state vertexStatus) Value {
 	x := v.Expr()
 	s := c.PushConjunct(v)
 
@@ -633,7 +625,7 @@ func (c *OpContext) evaluateRec(v Conjunct, state VertexStatus) Value {
 // value evaluates expression v within the current environment. The result may
 // be nil if the result is incomplete. value leaves errors untouched to that
 // they can be collected by the caller.
-func (c *OpContext) value(x Expr, state VertexStatus) (result Value) {
+func (c *OpContext) value(x Expr, state vertexStatus) (result Value) {
 	v := c.evalState(x, state)
 
 	v, _ = c.getDefault(v)
@@ -641,7 +633,7 @@ func (c *OpContext) value(x Expr, state VertexStatus) (result Value) {
 	return v
 }
 
-func (c *OpContext) evalState(v Expr, state VertexStatus) (result Value) {
+func (c *OpContext) evalState(v Expr, state vertexStatus) (result Value) {
 	savedSrc := c.src
 	c.src = v.Source()
 	err := c.errs
@@ -655,7 +647,7 @@ func (c *OpContext) evalState(v Expr, state VertexStatus) (result Value) {
 				switch b.Code {
 				case IncompleteError:
 				case CycleError:
-					if state == Partial {
+					if state == partial {
 						break
 					}
 					fallthrough
@@ -728,7 +720,7 @@ func (c *OpContext) wrapCycleError(src ast.Node, b *Bottom) *Bottom {
 // unifyNode returns a possibly partially evaluated node value.
 //
 // TODO: maybe return *Vertex, *Bottom
-func (c *OpContext) unifyNode(v Expr, state VertexStatus) (result Value) {
+func (c *OpContext) unifyNode(v Expr, state vertexStatus) (result Value) {
 	savedSrc := c.src
 	c.src = v.Source()
 	err := c.errs
@@ -779,7 +771,7 @@ func (c *OpContext) unifyNode(v Expr, state VertexStatus) (result Value) {
 		}
 
 		if v.isUndefined() || state > v.status {
-			c.Unify(v, state)
+			c.unify(v, state)
 		}
 
 		return v
@@ -790,7 +782,7 @@ func (c *OpContext) unifyNode(v Expr, state VertexStatus) (result Value) {
 	}
 }
 
-func (c *OpContext) lookup(x *Vertex, pos token.Pos, l Feature, state VertexStatus) *Vertex {
+func (c *OpContext) lookup(x *Vertex, pos token.Pos, l Feature, state vertexStatus) *Vertex {
 	if l == InvalidLabel || x == nil {
 		// TODO: is it possible to have an invalid label here? Maybe through the
 		// API?
@@ -805,7 +797,7 @@ func (c *OpContext) lookup(x *Vertex, pos token.Pos, l Feature, state VertexStat
 	switch x.BaseValue.(type) {
 	case *StructMarker:
 		if l.Typ() == IntLabel {
-			c.addErrf(0, pos, "invalid struct selector %s (type int)", l)
+			c.addErrf(0, pos, "invalid struct selector %v (type int)", l)
 			return nil
 		}
 
@@ -814,17 +806,17 @@ func (c *OpContext) lookup(x *Vertex, pos token.Pos, l Feature, state VertexStat
 		case l.Typ() == IntLabel:
 			switch {
 			case l.Index() < 0:
-				c.addErrf(0, pos, "invalid list index %s (index must be non-negative)", l)
+				c.addErrf(0, pos, "invalid list index %v (index must be non-negative)", l)
 				return nil
 			case l.Index() > len(x.Arcs):
-				c.addErrf(0, pos, "invalid list index %s (out of bounds)", l)
+				c.addErrf(0, pos, "invalid list index %v (out of bounds)", l)
 				return nil
 			}
 
 		case l.IsDef(), l.IsHidden(), l.IsLet():
 
 		default:
-			c.addErrf(0, pos, "invalid list index %s (type string)", l)
+			c.addErrf(0, pos, "invalid list index %v (type string)", l)
 			return nil
 		}
 
@@ -843,7 +835,7 @@ func (c *OpContext) lookup(x *Vertex, pos token.Pos, l Feature, state VertexStat
 			// return nil
 		} else if !l.IsDef() && !l.IsHidden() && !l.IsLet() {
 			c.addErrf(0, pos,
-				"invalid selector %s for value of type %s", l, kind)
+				"invalid selector %v for value of type %s", l, kind)
 			return nil
 		}
 	}
@@ -859,9 +851,23 @@ func (c *OpContext) lookup(x *Vertex, pos token.Pos, l Feature, state VertexStat
 		// hasAllConjuncts, but that are finalized too early, get conjuncts
 		// processed beforehand.
 		if state > a.status {
-			c.Unify(a, state)
+			c.unify(a, state)
 		} else if a.state != nil {
-			c.Unify(a, Partial)
+			c.unify(a, partial)
+		}
+
+		if a.IsConstraint() {
+			code := IncompleteError
+			if hasCycle {
+				code = CycleError
+			}
+			label := l.SelectorString(c.Runtime)
+			c.AddBottom(&Bottom{
+				Code:      code,
+				Permanent: x.status >= conjuncts,
+				Err: c.NewPosf(pos,
+					"cannot reference optional field: %s", label),
+			})
 		}
 	} else {
 		if x.state != nil {
@@ -875,11 +881,11 @@ func (c *OpContext) lookup(x *Vertex, pos token.Pos, l Feature, state VertexStat
 		// As long as we have incomplete information, we cannot mark the
 		// inability to look up a field as "final", as it may resolve down the
 		// line.
-		permanent := x.status > Conjuncts
+		permanent := x.status > conjuncts
 		if m, _ := x.BaseValue.(*ListMarker); m != nil && !m.IsOpen {
 			permanent = true
 		}
-		if (state > Partial || permanent) && !x.Accept(c, l) {
+		if (state > partial || permanent) && !x.Accept(c, l) {
 			code = 0
 		} else if hasCycle {
 			code = CycleError
@@ -891,16 +897,15 @@ func (c *OpContext) lookup(x *Vertex, pos token.Pos, l Feature, state VertexStat
 		// TODO(errors): add path reference and make message
 		//       "undefined field %s in %s"
 		var err *ValueError
-		if l.IsInt() {
+		switch {
+		case isCyclePlaceholder(x.BaseValue):
+			err = c.NewPosf(pos, "cycle error referencing %s", label)
+			permanent = false
+		case l.IsInt():
 			err = c.NewPosf(pos, "index out of range [%d] with length %d",
 				l.Index(), len(x.Elems()))
-		} else {
-			if code != 0 && x.IsOptional(l) {
-				err = c.NewPosf(pos,
-					"cannot reference optional field: %s", label)
-			} else {
-				err = c.NewPosf(pos, "undefined field: %s", label)
-			}
+		default:
+			err = c.NewPosf(pos, "undefined field: %s", label)
 		}
 		c.AddBottom(&Bottom{
 			Code:      code,
@@ -917,7 +922,7 @@ func (c *OpContext) undefinedFieldError(v *Vertex, code ErrorCode) {
 }
 
 func (c *OpContext) Label(src Expr, x Value) Feature {
-	return labelFromValue(c, src, x)
+	return LabelFromValue(c, src, x)
 }
 
 func (c *OpContext) typeError(v Value, k Kind) {
@@ -956,7 +961,7 @@ func pos(x Node) token.Pos {
 	return x.Source().Pos()
 }
 
-func (c *OpContext) node(orig Node, x Expr, scalar bool, state VertexStatus) *Vertex {
+func (c *OpContext) node(orig Node, x Expr, scalar bool, state vertexStatus) *Vertex {
 	// TODO: always get the vertex. This allows a whole bunch of trickery
 	// down the line.
 	v := c.unifyNode(x, state)
@@ -1112,7 +1117,7 @@ func (c *OpContext) uint64(v Value, as string) uint64 {
 	}
 	if !x.X.Coeff.IsUint64() {
 		// TODO: improve message
-		c.AddErrf("cannot convert number %s to uint64", x.X)
+		c.AddErrf("cannot convert number %s to uint64", &x.X)
 		return 0
 	}
 	return x.X.Coeff.Uint64()
@@ -1293,11 +1298,7 @@ func (c *OpContext) newBool(b bool) Value {
 }
 
 func (c *OpContext) newList(src ast.Node, parent *Vertex) *Vertex {
-	return &Vertex{
-		Parent:    parent,
-		BaseValue: &ListMarker{},
-		IsDynamic: true,
-	}
+	return c.newInlineVertex(parent, &ListMarker{})
 }
 
 // Str reports a debug string of x.
@@ -1312,14 +1313,11 @@ func (c *OpContext) Str(x Node) string {
 func (c *OpContext) NewList(values ...Value) *Vertex {
 	// TODO: consider making this a literal list instead.
 	list := &ListLit{}
-	v := &Vertex{
-		IsDynamic: true,
-		Conjuncts: []Conjunct{{Env: nil, x: list}},
-	}
+	v := c.newInlineVertex(nil, nil, Conjunct{Env: nil, x: list})
 
 	for _, x := range values {
 		list.Elems = append(list.Elems, x)
 	}
-	c.Unify(v, Finalized)
+	v.Finalize(c)
 	return v
 }

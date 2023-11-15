@@ -20,7 +20,7 @@ import (
 	"io"
 	"regexp"
 
-	"github.com/cockroachdb/apd/v2"
+	"github.com/cockroachdb/apd/v3"
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/errors"
@@ -62,28 +62,23 @@ func (o *StructLit) IsFile() bool {
 }
 
 type FieldInfo struct {
-	Label    Feature
-	Optional []Node
+	Label Feature
 }
 
 func (x *StructLit) HasOptional() bool {
-	return x.types&(HasField|HasPattern|HasAdditional) != 0
+	return x.types&(HasPattern|HasAdditional) != 0
 }
 
 func (x *StructLit) Source() ast.Node { return x.Src }
 
-func (x *StructLit) evaluate(c *OpContext, state VertexStatus) Value {
+func (x *StructLit) evaluate(c *OpContext, state vertexStatus) Value {
 	e := c.Env(0)
-	v := &Vertex{
-		Parent:    e.Vertex,
-		IsDynamic: true,
-		Conjuncts: []Conjunct{{e, x, c.ci}},
-	}
+	v := c.newInlineVertex(e.Vertex, nil, Conjunct{e, x, c.ci})
 	// evaluate may not finalize a field, as the resulting value may be
 	// used in a context where more conjuncts are added. It may also lead
 	// to disjuncts being in a partially expanded state, leading to
 	// misaligned nodeContexts.
-	c.Unify(v, Conjuncts)
+	v.CompleteArcs(c)
 	return v
 }
 
@@ -103,15 +98,9 @@ func (o *StructLit) Init() {
 			if o.fieldIndex(x.Label) < 0 {
 				o.Fields = append(o.Fields, FieldInfo{Label: x.Label})
 			}
-
-		case *OptionalField:
-			p := o.fieldIndex(x.Label)
-			if p < 0 {
-				p = len(o.Fields)
-				o.Fields = append(o.Fields, FieldInfo{Label: x.Label})
+			if x.ArcType > ArcMember {
+				o.types |= HasField
 			}
-			o.Fields[p].Optional = append(o.Fields[p].Optional, x)
-			o.types |= HasField
 
 		case *LetField:
 			if o.fieldIndex(x.Label) >= 0 {
@@ -172,22 +161,13 @@ func (o *StructLit) OptionalTypes() OptionalType {
 	return o.types
 }
 
-func (o *StructLit) IsOptionalField(label Feature) bool {
-	for _, f := range o.Fields {
-		if f.Label == label && len(f.Optional) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // FIELDS
 //
 // Fields can also be used as expressions whereby the value field is the
 // expression this allows retaining more context.
 
-// Field represents a field with a fixed label. It can be a regular field,
-// definition or hidden field.
+// Field represents a regular field or field constraint with a fixed label.
+// The label can be a regular field, definition or hidden field.
 //
 //	foo: bar
 //	#foo: bar
@@ -199,27 +179,12 @@ func (o *StructLit) IsOptionalField(label Feature) bool {
 type Field struct {
 	Src *ast.Field
 
-	Label Feature
-	Value Expr
+	ArcType ArcType
+	Label   Feature
+	Value   Expr
 }
 
 func (x *Field) Source() ast.Node {
-	if x.Src == nil {
-		return nil
-	}
-	return x.Src
-}
-
-// An OptionalField represents an optional regular field.
-//
-//	foo?: expr
-type OptionalField struct {
-	Src   *ast.Field
-	Label Feature
-	Value Expr
-}
-
-func (x *OptionalField) Source() ast.Node {
 	if x.Src == nil {
 		return nil
 	}
@@ -250,7 +215,7 @@ func (x *LetField) Source() ast.Node {
 //
 //	[expr]: expr
 type BulkOptionalField struct {
-	Src    *ast.Field // Elipsis or Field
+	Src    *ast.Field // Ellipsis or Field
 	Filter Expr
 	Value  Expr
 	Label  Feature // for reference and formatting
@@ -283,13 +248,11 @@ func (x *Ellipsis) Source() ast.Node {
 //	"\(expr)": expr
 //	(expr): expr
 type DynamicField struct {
-	Src   *ast.Field
-	Key   Expr
-	Value Expr
-}
+	Src *ast.Field
 
-func (x *DynamicField) IsOptional() bool {
-	return x.Src.Optional != token.NoPos
+	ArcType ArcType
+	Key     Expr
+	Value   Expr
 }
 
 func (x *DynamicField) Source() ast.Node {
@@ -318,14 +281,10 @@ func (x *ListLit) Source() ast.Node {
 	return x.Src
 }
 
-func (x *ListLit) evaluate(c *OpContext, state VertexStatus) Value {
+func (x *ListLit) evaluate(c *OpContext, state vertexStatus) Value {
 	e := c.Env(0)
-	v := &Vertex{
-		Parent:    e.Vertex,
-		IsDynamic: true,
-		Conjuncts: []Conjunct{{e, x, c.ci}},
-	}
-	c.Unify(v, Conjuncts)
+	v := c.newInlineVertex(e.Vertex, nil, Conjunct{e, x, c.ci})
+	v.CompleteArcs(c)
 	return v
 }
 
@@ -487,8 +446,8 @@ func (x *BoundExpr) Source() ast.Node {
 	return x.Src
 }
 
-func (x *BoundExpr) evaluate(ctx *OpContext, state VertexStatus) Value {
-	v := ctx.value(x.Expr, Partial)
+func (x *BoundExpr) evaluate(ctx *OpContext, state vertexStatus) Value {
+	v := ctx.value(x.Expr, partial)
 	if isError(v) {
 		return v
 	}
@@ -716,7 +675,7 @@ func (x *NodeLink) Kind() Kind {
 }
 func (x *NodeLink) Source() ast.Node { return x.Node.Source() }
 
-func (x *NodeLink) resolve(c *OpContext, state VertexStatus) *Vertex {
+func (x *NodeLink) resolve(c *OpContext, state vertexStatus) *Vertex {
 	return x.Node
 }
 
@@ -736,7 +695,7 @@ func (x *FieldReference) Source() ast.Node {
 	return x.Src
 }
 
-func (x *FieldReference) resolve(c *OpContext, state VertexStatus) *Vertex {
+func (x *FieldReference) resolve(c *OpContext, state vertexStatus) *Vertex {
 	n := c.relNode(x.UpCount)
 	pos := pos(x)
 	return c.lookup(n, pos, x.Label, state)
@@ -760,7 +719,7 @@ func (x *ValueReference) Source() ast.Node {
 	return x.Src
 }
 
-func (x *ValueReference) resolve(c *OpContext, state VertexStatus) *Vertex {
+func (x *ValueReference) resolve(c *OpContext, state vertexStatus) *Vertex {
 	if x.UpCount == 0 {
 		return c.vertex
 	}
@@ -787,7 +746,7 @@ func (x *LabelReference) Source() ast.Node {
 	return x.Src
 }
 
-func (x *LabelReference) evaluate(ctx *OpContext, state VertexStatus) Value {
+func (x *LabelReference) evaluate(ctx *OpContext, state vertexStatus) Value {
 	label := ctx.relLabel(x.UpCount)
 	if label == 0 {
 		// There is no label. This may happen if a LabelReference is evaluated
@@ -800,7 +759,7 @@ func (x *LabelReference) evaluate(ctx *OpContext, state VertexStatus) Value {
 	return label.ToValue(ctx)
 }
 
-// A DynamicReference is like a LabelReference, but with a computed label.
+// A DynamicReference is like a FieldReference, but with a computed label.
 //
 // Example: an X referring to
 //
@@ -829,17 +788,17 @@ func (x *DynamicReference) Source() ast.Node {
 }
 
 func (x *DynamicReference) EvaluateLabel(ctx *OpContext, env *Environment) Feature {
-	env = env.up(x.UpCount)
+	env = env.up(ctx, x.UpCount)
 	frame := ctx.PushState(env, x.Src)
-	v := ctx.value(x.Label, Partial)
+	v := ctx.value(x.Label, partial)
 	ctx.PopState(frame)
 	return ctx.Label(x, v)
 }
 
-func (x *DynamicReference) resolve(ctx *OpContext, state VertexStatus) *Vertex {
+func (x *DynamicReference) resolve(ctx *OpContext, state vertexStatus) *Vertex {
 	e := ctx.Env(x.UpCount)
 	frame := ctx.PushState(e, x.Src)
-	v := ctx.value(x.Label, Partial)
+	v := ctx.value(x.Label, partial)
 	ctx.PopState(frame)
 	f := ctx.Label(x.Label, v)
 	return ctx.lookup(e.Vertex, pos(x), f, state)
@@ -865,7 +824,7 @@ func (x *ImportReference) Source() ast.Node {
 	return x.Src
 }
 
-func (x *ImportReference) resolve(ctx *OpContext, state VertexStatus) *Vertex {
+func (x *ImportReference) resolve(ctx *OpContext, state vertexStatus) *Vertex {
 	path := x.ImportPath.StringValue(ctx)
 	v := ctx.Runtime.LoadImport(path)
 	if v == nil {
@@ -893,14 +852,14 @@ func (x *LetReference) Source() ast.Node {
 	return x.Src
 }
 
-func (x *LetReference) resolve(ctx *OpContext, state VertexStatus) *Vertex {
+func (x *LetReference) resolve(ctx *OpContext, state vertexStatus) *Vertex {
 	e := ctx.Env(x.UpCount)
 	n := e.Vertex
 
 	// No need to Unify n, as Let references can only result from evaluating
-	// an experssion within n, in which case evaluation must already have
+	// an expression within n, in which case evaluation must already have
 	// started.
-	if n.status < Evaluating {
+	if n.status < evaluating {
 		panic("unexpected node state < Evaluating")
 	}
 
@@ -933,7 +892,7 @@ func (x *LetReference) resolve(ctx *OpContext, state VertexStatus) *Vertex {
 	// now, though, as it is not entirely clear it is fine to remove this.
 	// We can reevaluate this once we have redone some of the planned order of
 	// evaluation work.
-	ctx.Unify(arc, Finalized)
+	arc.Finalize(ctx)
 	b, ok := arc.BaseValue.(*Bottom)
 	if !arc.MultiLet && !ok {
 		return arc
@@ -996,16 +955,16 @@ func (x *SelectorExpr) Source() ast.Node {
 	return x.Src
 }
 
-func (x *SelectorExpr) resolve(c *OpContext, state VertexStatus) *Vertex {
+func (x *SelectorExpr) resolve(c *OpContext, state vertexStatus) *Vertex {
 	// TODO: the node should really be evaluated as AllConjunctsDone, but the
 	// order of evaluation is slightly off, causing too much to be evaluated.
 	// This may especially result in incorrect results when using embedded
 	// scalars.
-	n := c.node(x, x.X, x.Sel.IsRegular(), Partial)
+	n := c.node(x, x.X, x.Sel.IsRegular(), partial)
 	if n == emptyNode {
 		return n
 	}
-	if n.status == Partial {
+	if n.status == partial {
 		if b := n.state.incompleteErrors(false); b != nil && b.Code < CycleError {
 			c.AddBottom(b)
 			return n
@@ -1034,18 +993,18 @@ func (x *IndexExpr) Source() ast.Node {
 	return x.Src
 }
 
-func (x *IndexExpr) resolve(ctx *OpContext, state VertexStatus) *Vertex {
+func (x *IndexExpr) resolve(ctx *OpContext, state vertexStatus) *Vertex {
 	// TODO: support byte index.
 	// TODO: the node should really be evaluated as AllConjunctsDone, but the
 	// order of evaluation is slightly off, causing too much to be evaluated.
 	// This may especially result in incorrect results when using embedded
 	// scalars.
-	n := ctx.node(x, x.X, true, Partial)
-	i := ctx.value(x.Index, Partial)
+	n := ctx.node(x, x.X, true, partial)
+	i := ctx.value(x.Index, partial)
 	if n == emptyNode {
 		return n
 	}
-	if n.status == Partial {
+	if n.status == partial {
 		if b := n.state.incompleteErrors(false); b != nil && b.Code < CycleError {
 			ctx.AddBottom(b)
 			return n
@@ -1077,10 +1036,10 @@ func (x *SliceExpr) Source() ast.Node {
 	return x.Src
 }
 
-func (x *SliceExpr) evaluate(c *OpContext, state VertexStatus) Value {
+func (x *SliceExpr) evaluate(c *OpContext, state vertexStatus) Value {
 	// TODO: strides
 
-	v := c.value(x.X, Partial)
+	v := c.value(x.X, partial)
 	const as = "slice index"
 
 	switch v := v.(type) {
@@ -1097,10 +1056,10 @@ func (x *SliceExpr) evaluate(c *OpContext, state VertexStatus) Value {
 			hi = uint64(len(v.Arcs))
 		)
 		if x.Lo != nil {
-			lo = c.uint64(c.value(x.Lo, Partial), as)
+			lo = c.uint64(c.value(x.Lo, partial), as)
 		}
 		if x.Hi != nil {
-			hi = c.uint64(c.value(x.Hi, Partial), as)
+			hi = c.uint64(c.value(x.Hi, partial), as)
 			if hi > uint64(len(v.Arcs)) {
 				return c.NewErrf("index %d out of range", hi)
 			}
@@ -1121,7 +1080,7 @@ func (x *SliceExpr) evaluate(c *OpContext, state VertexStatus) Value {
 			arc.Label = label
 			n.Arcs = append(n.Arcs, &arc)
 		}
-		n.status = Finalized
+		n.status = finalized
 		return n
 
 	case *Bytes:
@@ -1130,10 +1089,10 @@ func (x *SliceExpr) evaluate(c *OpContext, state VertexStatus) Value {
 			hi = uint64(len(v.B))
 		)
 		if x.Lo != nil {
-			lo = c.uint64(c.value(x.Lo, Partial), as)
+			lo = c.uint64(c.value(x.Lo, partial), as)
 		}
 		if x.Hi != nil {
-			hi = c.uint64(c.value(x.Hi, Partial), as)
+			hi = c.uint64(c.value(x.Hi, partial), as)
 			if hi > uint64(len(v.B)) {
 				return c.NewErrf("index %d out of range", hi)
 			}
@@ -1166,10 +1125,10 @@ func (x *Interpolation) Source() ast.Node {
 	return x.Src
 }
 
-func (x *Interpolation) evaluate(c *OpContext, state VertexStatus) Value {
+func (x *Interpolation) evaluate(c *OpContext, state vertexStatus) Value {
 	buf := bytes.Buffer{}
 	for _, e := range x.Parts {
-		v := c.value(e, Partial)
+		v := c.value(e, partial)
 		if x.K == BytesKind {
 			buf.Write(c.ToBytes(v))
 		} else {
@@ -1208,11 +1167,11 @@ func (x *UnaryExpr) Source() ast.Node {
 	return x.Src
 }
 
-func (x *UnaryExpr) evaluate(c *OpContext, state VertexStatus) Value {
+func (x *UnaryExpr) evaluate(c *OpContext, state vertexStatus) Value {
 	if !c.concreteIsPossible(x.Op, x.X) {
 		return nil
 	}
-	v := c.value(x.X, Partial)
+	v := c.value(x.X, partial)
 	if isError(v) {
 		return v
 	}
@@ -1248,7 +1207,7 @@ func (x *UnaryExpr) evaluate(c *OpContext, state VertexStatus) Value {
 			"operand %s of '%s' not concrete (was %s)", x.X, op, k)
 		return nil
 	}
-	return c.NewErrf("invalid operation %s (%s %s)", x, op, k)
+	return c.NewErrf("invalid operation %v (%s %s)", x, op, k)
 }
 
 // BinaryExpr is a binary expression.
@@ -1269,25 +1228,22 @@ func (x *BinaryExpr) Source() ast.Node {
 	return x.Src
 }
 
-func (x *BinaryExpr) evaluate(c *OpContext, state VertexStatus) Value {
+func (x *BinaryExpr) evaluate(c *OpContext, state vertexStatus) Value {
 	env := c.Env(0)
 	if x.Op == AndOp {
-		v := &Vertex{
-			IsDynamic: true,
-			Conjuncts: []Conjunct{makeAnonymousConjunct(env, x, c.ci.Refs)},
-		}
+		v := c.newInlineVertex(nil, nil, makeAnonymousConjunct(env, x, c.ci.Refs))
 
 		// Do not fully evaluate the Vertex: if it is embedded within a
-		// a struct with arcs that are referenced from within this expression,
+		// struct with arcs that are referenced from within this expression,
 		// it will end up adding "locked" fields, resulting in an error.
 		// It will be the responsibility of the "caller" to get the result
 		// to the required state. If the struct is already dynamic, we will
 		// evaluate the struct regardless to ensure that cycle reporting
 		// keeps working.
 		if env.Vertex.IsDynamic || c.inValidator > 0 {
-			c.Unify(v, Finalized)
+			v.Finalize(c)
 		} else {
-			c.Unify(v, Conjuncts)
+			v.CompleteArcs(c)
 		}
 
 		return v
@@ -1310,8 +1266,8 @@ func (x *BinaryExpr) evaluate(c *OpContext, state VertexStatus) Value {
 		}
 	}
 
-	left, _ := c.Concrete(env, x.X, x.Op)
-	right, _ := c.Concrete(env, x.Y, x.Op)
+	left, _ := c.concrete(env, x.X, x.Op)
+	right, _ := c.concrete(env, x.Y, x.Op)
 
 	if err := CombineErrors(x.Src, left, right); err != nil {
 		return err
@@ -1324,7 +1280,7 @@ func (x *BinaryExpr) evaluate(c *OpContext, state VertexStatus) Value {
 	return BinOp(c, x.Op, left, right)
 }
 
-func (c *OpContext) validate(env *Environment, src ast.Node, x Expr, op Op, state VertexStatus) (r Value) {
+func (c *OpContext) validate(env *Environment, src ast.Node, x Expr, op Op, state vertexStatus) (r Value) {
 	s := c.PushState(env, src)
 
 	match := op != EqualOp // non-error case
@@ -1356,7 +1312,7 @@ func (c *OpContext) validate(env *Environment, src ast.Node, x Expr, op Op, stat
 			return nil
 
 		case IncompleteError:
-			c.evalState(x, Finalized)
+			c.evalState(x, finalized)
 
 			// We have a nonmonotonic use of a failure. Referenced fields should
 			// not be added anymore.
@@ -1373,9 +1329,9 @@ func (c *OpContext) validate(env *Environment, src ast.Node, x Expr, op Op, stat
 		// - walk over all fields and verify that fields are not contradicting
 		//   previously marked fields.
 		//
-		c.Unify(v, Finalized)
+		v.Finalize(c)
 
-		if v.status == EvaluatingArcs {
+		if v.status == evaluatingArcs {
 			// We have a cycle, which may be an error. Cycle errors may occur
 			// in chains that are themselves not a cycle. It suffices to check
 			// for non-monotonic results at the end for this particular path.
@@ -1405,7 +1361,7 @@ func (c *OpContext) validate(env *Environment, src ast.Node, x Expr, op Op, stat
 		}
 
 	default:
-		if v.Kind().IsAnyOf(CompositKind) && v.Concreteness() > Concrete && state < Conjuncts {
+		if v.Kind().IsAnyOf(CompositKind) && v.Concreteness() > Concrete && state < conjuncts {
 			c.PopState(s)
 			c.AddBottom(cycle)
 			return nil
@@ -1421,7 +1377,7 @@ func (c *OpContext) validate(env *Environment, src ast.Node, x Expr, op Op, stat
 			match = op == EqualOp
 		}
 
-		c.evalState(x, Partial)
+		c.evalState(x, partial)
 	}
 
 	c.PopState(s)
@@ -1468,8 +1424,8 @@ func (x *CallExpr) Source() ast.Node {
 	return x.Src
 }
 
-func (x *CallExpr) evaluate(c *OpContext, state VertexStatus) Value {
-	fun := c.value(x.Fun, Partial)
+func (x *CallExpr) evaluate(c *OpContext, state vertexStatus) Value {
+	fun := c.value(x.Fun, partial)
 	var b *Builtin
 	switch f := fun.(type) {
 	case *Builtin:
@@ -1529,7 +1485,7 @@ func (x *CallExpr) evaluate(c *OpContext, state VertexStatus) Value {
 	if result == nil {
 		return nil
 	}
-	return c.evalState(result, Partial)
+	return c.evalState(result, partial)
 }
 
 // A Builtin is a value representing a native function call.
@@ -1599,7 +1555,7 @@ func (x *Builtin) call(c *OpContext, p token.Pos, validate bool, args []Value) E
 	fun := x // right now always x.
 	if len(args) > len(x.Params) {
 		c.addErrf(0, p,
-			"too many arguments in call to %s (have %d, want %d)",
+			"too many arguments in call to %v (have %d, want %d)",
 			fun, len(args), len(x.Params))
 		return nil
 	}
@@ -1607,7 +1563,7 @@ func (x *Builtin) call(c *OpContext, p token.Pos, validate bool, args []Value) E
 		v := x.Params[i].Default()
 		if v == nil {
 			c.addErrf(0, p,
-				"not enough arguments in call to %s (have %d, want %d)",
+				"not enough arguments in call to %v (have %d, want %d)",
 				fun, len(args), len(x.Params))
 			return nil
 		}
@@ -1627,7 +1583,7 @@ func (x *Builtin) call(c *OpContext, p token.Pos, validate bool, args []Value) E
 				code = b.Code
 			}
 			c.addErrf(code, pos(a),
-				"cannot use %s (type %s) as %s in argument %d to %s",
+				"cannot use %s (type %s) as %s in argument %d to %v",
 				a, k, x.Params[i].Kind(), i+1, fun)
 			return nil
 		}
@@ -1635,14 +1591,11 @@ func (x *Builtin) call(c *OpContext, p token.Pos, validate bool, args []Value) E
 		if _, ok := v.(*BasicType); !ok {
 			env := c.Env(0)
 			x := &BinaryExpr{Op: AndOp, X: v, Y: a}
-			n := &Vertex{
-				IsDynamic: true,
-				Conjuncts: []Conjunct{{env, x, c.ci}},
-			}
-			c.Unify(n, Finalized)
+			n := c.newInlineVertex(nil, nil, Conjunct{env, x, c.ci})
+			n.Finalize(c)
 			if _, ok := n.BaseValue.(*Bottom); ok {
 				c.addErrf(0, pos(a),
-					"cannot use %s as %s in argument %d to %s",
+					"cannot use %s as %s in argument %d to %v",
 					a, v, i+1, fun)
 				return nil
 			}
@@ -1771,10 +1724,10 @@ func (x *DisjunctionExpr) Source() ast.Node {
 	return x.Src
 }
 
-func (x *DisjunctionExpr) evaluate(c *OpContext, state VertexStatus) Value {
+func (x *DisjunctionExpr) evaluate(c *OpContext, state vertexStatus) Value {
 	e := c.Env(0)
-	v := &Vertex{Conjuncts: []Conjunct{{e, x, c.ci}}}
-	c.Unify(v, Finalized) // TODO: also partial okay?
+	v := c.newInlineVertex(nil, nil, Conjunct{e, x, c.ci})
+	v.Finalize(c) // TODO: also partial okay?
 	// TODO: if the disjunction result originated from a literal value, we may
 	// consider the result closed to create more permanent errors.
 	return v
@@ -1802,8 +1755,8 @@ type Disjunction struct {
 	Src ast.Expr
 
 	// Values are the non-error disjuncts of this expression. The first
-	// NumDefault values are default values.
-	Values []*Vertex
+	// NumDefaults values are default values.
+	Values []Value
 
 	Errors *Bottom // []bottom
 
@@ -1833,6 +1786,9 @@ type Comprehension struct {
 	// rather than an Expr, in the latter case to preserve as much position
 	// information as possible.
 	Value Node
+
+	// The type of field as which the comprehension is added.
+	arcType ArcType
 
 	// Only used for partial comprehensions.
 	comp   *envComprehension
@@ -1892,8 +1848,8 @@ func (x *ForClause) Source() ast.Node {
 
 func (x *ForClause) yield(s *compState) {
 	c := s.ctx
-	n := c.node(x, x.Src, true, Conjuncts)
-	if n.status == Evaluating && !n.LockArcs {
+	n := c.node(x, x.Src, true, conjuncts)
+	if n.status == evaluating && !n.LockArcs {
 		c.AddBottom(&Bottom{
 			Code:     CycleError,
 			ForCycle: true,
@@ -1907,12 +1863,22 @@ func (x *ForClause) yield(s *compState) {
 	}
 	n.LockArcs = true
 	for _, a := range n.Arcs {
-		if !a.Label.IsRegular() || !a.IsDefined(c) {
+		if !a.Label.IsRegular() {
 			continue
 		}
+		if !a.isDefined() {
+			a.Finalize(c)
+			switch a.ArcType {
+			case ArcMember:
+			case ArcRequired:
+				c.AddBottom(newRequiredFieldInComprehensionError(c, x, a))
+				continue
+			default:
+				continue
+			}
+		}
 
-		c.Unify(a, Partial)
-		if a.arcType == arcVoid {
+		if !a.definitelyExists() {
 			continue
 		}
 
@@ -1922,8 +1888,9 @@ func (x *ForClause) yield(s *compState) {
 			// Using Finalized here ensures that no nodeContext is allocated,
 			// preventing a leak, as this "helper" struct bypasses normal
 			// processing, eluding the deallocation step.
-			status:    Finalized,
+			status:    finalized,
 			IsDynamic: true,
+			ArcType:   ArcMember,
 		}
 
 		if x.Value != InvalidLabel {
@@ -1931,15 +1898,19 @@ func (x *ForClause) yield(s *compState) {
 				Label:     x.Value,
 				BaseValue: a,
 				IsDynamic: true,
+				ArcType:   ArcPending,
 			}
 			n.Arcs = append(n.Arcs, b)
 		}
 
 		if x.Key != InvalidLabel {
-			v := &Vertex{Label: x.Key}
+			v := &Vertex{
+				Label:     x.Key,
+				IsDynamic: true,
+			}
 			key := a.Label.ToValue(c)
 			v.AddConjunct(MakeRootConjunct(c.Env(0), key))
-			v.SetValue(c, Finalized, key)
+			v.SetValue(c, key)
 			n.Arcs = append(n.Arcs, v)
 		}
 

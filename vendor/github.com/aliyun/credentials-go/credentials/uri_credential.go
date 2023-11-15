@@ -37,6 +37,22 @@ func newURLCredential(URL string) *URLCredential {
 	}
 }
 
+func (e *URLCredential) GetCredential() (*CredentialModel, error) {
+	if e.sessionCredential == nil || e.needUpdateCredential() {
+		err := e.updateCredential()
+		if err != nil {
+			return nil, err
+		}
+	}
+	credential := &CredentialModel{
+		AccessKeyId:     tea.String(e.sessionCredential.AccessKeyId),
+		AccessKeySecret: tea.String(e.sessionCredential.AccessKeySecret),
+		SecurityToken:   tea.String(e.sessionCredential.SecurityToken),
+		Type:            tea.String("credential_uri"),
+	}
+	return credential, nil
+}
+
 // GetAccessKeyId reutrns  URLCredential's AccessKeyId
 // if AccessKeyId is not exist or out of date, the function will update it.
 func (e *URLCredential) GetAccessKeyId() (*string, error) {

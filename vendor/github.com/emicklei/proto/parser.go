@@ -193,7 +193,7 @@ func (p *Parser) nextInteger() (i int, err error) {
 	if tok != tIDENT {
 		return 0, errors.New("non integer")
 	}
-	if strings.HasPrefix(lit, "0x") {
+	if strings.HasPrefix(lit, "0x") || strings.HasPrefix(lit, "0X") {
 		// hex decode
 		i64, err := strconv.ParseInt(lit, 0, 64)
 		return int(i64), err

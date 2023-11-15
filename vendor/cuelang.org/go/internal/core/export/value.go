@@ -22,6 +22,7 @@ import (
 	"cuelang.org/go/cue/ast/astutil"
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/token"
+	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/adt"
 )
 
@@ -55,7 +56,7 @@ func (e *exporter) vertex(n *adt.Vertex) (result ast.Expr) {
 	}()
 
 	for _, c := range n.Conjuncts {
-		e.markLets(c.Expr().Source())
+		e.markLets(c.Expr().Source(), s)
 	}
 
 	switch x := n.BaseValue.(type) {
@@ -73,6 +74,9 @@ func (e *exporter) vertex(n *adt.Vertex) (result ast.Expr) {
 
 	case *adt.Bottom:
 		switch {
+		case n.ArcType == adt.ArcOptional:
+			// Optional fields may always be the original value.
+
 		case e.cfg.ShowErrors && x.ChildError:
 			// TODO(perf): use precompiled arc statistics
 			if len(n.Arcs) > 0 && n.Arcs[0].Label.IsInt() && !e.showArcs(n) && attrs == nil {
@@ -116,22 +120,6 @@ func (e *exporter) vertex(n *adt.Vertex) (result ast.Expr) {
 	}
 
 	return result
-}
-
-// TODO: do something more principled. Best would be to have a similar
-// mechanism in ast.Ident as others do.
-func stripRefs(x ast.Expr) ast.Expr {
-	ast.Walk(x, nil, func(n ast.Node) {
-		switch x := n.(type) {
-		case *ast.Ident:
-			switch x.Node.(type) {
-			case *ast.ImportSpec:
-			default:
-				x.Node = nil
-			}
-		}
-	})
-	return x
 }
 
 func (e *exporter) value(n adt.Value, a ...adt.Conjunct) (result ast.Expr) {
@@ -444,28 +432,20 @@ func (e *exporter) structComposite(v *adt.Vertex, attrs []*ast.Attribute) ast.Ex
 		}
 
 		arc := v.Lookup(label)
-		switch {
-		case arc == nil:
-			if !p.ShowOptional {
-				continue
-			}
-			f.Optional = token.NoSpace.Pos()
-
-			arc = &adt.Vertex{Label: label}
-			v.MatchAndInsert(e.ctx, arc)
-			if len(arc.Conjuncts) == 0 {
-				continue
-			}
-
-			// fall back to expression mode.
-			f.Value = stripRefs(e.expr(nil, arc))
-
-			// TODO: remove use of stripRefs.
-			// f.Value = e.expr(arc)
-
-		default:
-			f.Value = e.vertex(arc)
+		if arc == nil {
+			continue
 		}
+
+		if arc.ArcType == adt.ArcOptional && !p.ShowOptional {
+			continue
+		}
+		// TODO: report an error for required fields in Final mode?
+		// This package typically does not create errors that did not result
+		// from evaluation already.
+
+		internal.SetConstraint(f, arc.ArcType.Token())
+
+		f.Value = e.vertex(arc)
 
 		if label.IsDef() {
 			e.inDefinition--

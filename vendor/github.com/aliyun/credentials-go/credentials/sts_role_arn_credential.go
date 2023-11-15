@@ -23,6 +23,7 @@ type RAMRoleArnCredential struct {
 	RoleSessionName       string
 	RoleSessionExpiration int
 	Policy                string
+	ExternalId            string
 	sessionCredential     *sessionCredential
 	runtime               *utils.Runtime
 }
@@ -49,6 +50,36 @@ func newRAMRoleArnCredential(accessKeyId, accessKeySecret, roleArn, roleSessionN
 		credentialUpdater:     new(credentialUpdater),
 		runtime:               runtime,
 	}
+}
+
+func newRAMRoleArnWithExternalIdCredential(accessKeyId, accessKeySecret, roleArn, roleSessionName, policy string, roleSessionExpiration int, externalId string, runtime *utils.Runtime) *RAMRoleArnCredential {
+	return &RAMRoleArnCredential{
+		AccessKeyId:           accessKeyId,
+		AccessKeySecret:       accessKeySecret,
+		RoleArn:               roleArn,
+		RoleSessionName:       roleSessionName,
+		RoleSessionExpiration: roleSessionExpiration,
+		Policy:                policy,
+		ExternalId:            externalId,
+		credentialUpdater:     new(credentialUpdater),
+		runtime:               runtime,
+	}
+}
+
+func (e *RAMRoleArnCredential) GetCredential() (*CredentialModel, error) {
+	if e.sessionCredential == nil || e.needUpdateCredential() {
+		err := e.updateCredential()
+		if err != nil {
+			return nil, err
+		}
+	}
+	credential := &CredentialModel{
+		AccessKeyId:     tea.String(e.sessionCredential.AccessKeyId),
+		AccessKeySecret: tea.String(e.sessionCredential.AccessKeySecret),
+		SecurityToken:   tea.String(e.sessionCredential.SecurityToken),
+		Type:            tea.String("ram_role_arn"),
+	}
+	return credential, nil
 }
 
 // GetAccessKeyId reutrns RamRoleArnCredential's AccessKeyId
@@ -103,6 +134,9 @@ func (r *RAMRoleArnCredential) updateCredential() (err error) {
 	}
 	request := request.NewCommonRequest()
 	request.Domain = "sts.aliyuncs.com"
+	if r.runtime.STSEndpoint != "" {
+		request.Domain = r.runtime.STSEndpoint
+	}
 	request.Scheme = "HTTPS"
 	request.Method = "GET"
 	request.QueryParams["AccessKeyId"] = r.AccessKeyId
@@ -121,6 +155,9 @@ func (r *RAMRoleArnCredential) updateCredential() (err error) {
 	request.QueryParams["RoleArn"] = r.RoleArn
 	if r.Policy != "" {
 		request.QueryParams["Policy"] = r.Policy
+	}
+	if r.ExternalId != "" {
+		request.QueryParams["ExternalId"] = r.ExternalId
 	}
 	request.QueryParams["RoleSessionName"] = r.RoleSessionName
 	request.QueryParams["SignatureMethod"] = "HMAC-SHA1"

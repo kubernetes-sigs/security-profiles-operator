@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/open-policy-agent/opa/ast"
+	astJSON "github.com/open-policy-agent/opa/ast/json"
 	"github.com/open-policy-agent/opa/format"
 	"github.com/open-policy-agent/opa/internal/file/archive"
 	"github.com/open-policy-agent/opa/internal/merge"
@@ -391,13 +392,14 @@ type Reader struct {
 	verificationConfig    *VerificationConfig
 	skipVerify            bool
 	processAnnotations    bool
-	jsonOptions           *ast.JSONOptions
+	jsonOptions           *astJSON.Options
 	capabilities          *ast.Capabilities
 	files                 map[string]FileInfo // files in the bundle signature payload
 	sizeLimitBytes        int64
 	etag                  string
 	lazyLoadingMode       bool
 	name                  string
+	persist               bool
 }
 
 // NewReader is deprecated. Use NewCustomReader instead.
@@ -462,7 +464,7 @@ func (r *Reader) WithCapabilities(caps *ast.Capabilities) *Reader {
 }
 
 // WithJSONOptions sets the JSONOptions to use when parsing policy files
-func (r *Reader) WithJSONOptions(opts *ast.JSONOptions) *Reader {
+func (r *Reader) WithJSONOptions(opts *astJSON.Options) *Reader {
 	r.jsonOptions = opts
 	return r
 }
@@ -492,6 +494,12 @@ func (r *Reader) WithBundleName(name string) *Reader {
 // outside the bundle's roots will not be performed while reading the bundle.
 func (r *Reader) WithLazyLoadingMode(yes bool) *Reader {
 	r.lazyLoadingMode = yes
+	return r
+}
+
+// WithBundlePersistence specifies if the downloaded bundle will eventually be persisted to disk.
+func (r *Reader) WithBundlePersistence(persist bool) *Reader {
+	r.persist = persist
 	return r
 }
 
@@ -603,7 +611,7 @@ func (r *Reader) Read() (Bundle, error) {
 			var value interface{}
 
 			r.metrics.Timer(metrics.RegoDataParse).Start()
-			err := util.NewJSONDecoder(&buf).Decode(&value)
+			err := util.UnmarshalJSON(buf.Bytes(), &value)
 			r.metrics.Timer(metrics.RegoDataParse).Stop()
 
 			if err != nil {
@@ -652,6 +660,10 @@ func (r *Reader) Read() (Bundle, error) {
 
 		if len(bundle.WasmModules) != 0 {
 			return bundle, fmt.Errorf("delta bundle expected to contain only patch file but wasm files found")
+		}
+
+		if r.persist {
+			return bundle, fmt.Errorf("'persist' property is true in config. persisting delta bundle to disk is not supported")
 		}
 	}
 
