@@ -120,7 +120,7 @@ metadata:
 spec:
   containers:
   - name: errorlogger
-    image: "registry.access.redhat.com/ubi8/ubi-minimal:latest"
+    image: "registry.access.redhat.com/ubi9/ubi-minimal:latest"
     command: ["/bin/bash"]
     args: ["-c", "set -eux; while true; do echo \"Time: $(date). Some error info.\" >> /var/log/test.log; sleep 2; done"]
     securityContext:
