@@ -49,7 +49,7 @@ package adt
 // With this rewrite, any dependencies in comprehension expressions will follow
 // the same rules, more or less, as with normal evaluation.
 //
-// Note that a singe comprehension may be distributed across multiple fields.
+// Note that a single comprehension may be distributed across multiple fields.
 // The evaluator will ensure, however, that a comprehension is only evaluated
 // once.
 //
@@ -96,7 +96,7 @@ type envYield struct {
 	*envComprehension                // The original comprehension.
 	leaf              *Comprehension // The leaf Comprehension
 
-	// Values specific to the field corresponsing to this envYield
+	// Values specific to the field corresponding to this envYield
 
 	// This envYield was added to selfComprehensions
 	self bool
@@ -169,33 +169,28 @@ func (n *nodeContext) insertComprehension(
 			case *Field:
 				numFixed++
 
-				arc, _ := n.node.GetArc(n.ctx, f.Label, arcVoid)
-
 				// Create partial comprehension
 				c := &Comprehension{
 					Syntax:  c.Syntax,
 					Clauses: c.Clauses,
 					Value:   f,
+					arcType: f.ArcType,
 
 					comp:   ec,
 					parent: c,
 					arc:    n.node,
 				}
 
-				arc.addConjunctUnchecked(MakeConjunct(env, c, ci))
+				conjunct := MakeConjunct(env, c, ci)
+				n.node.state.insertFieldUnchecked(f.Label, ArcPending, conjunct)
 				fields = append(fields, f)
 				// TODO: adjust ci to embed?
-
-				// TODO: this also needs to be done for optional fields.
 
 			case *LetField:
 				// TODO: consider merging this case with the LetField case.
 
 				numFixed++
 
-				arc, _ := n.node.GetArc(n.ctx, f.Label, arcVoid)
-				arc.MultiLet = f.IsMulti
-
 				// Create partial comprehension
 				c := &Comprehension{
 					Syntax:  c.Syntax,
@@ -207,7 +202,10 @@ func (n *nodeContext) insertComprehension(
 					arc:    n.node,
 				}
 
-				arc.addConjunctUnchecked(MakeConjunct(env, c, ci))
+				conjunct := MakeConjunct(env, c, ci)
+				arc := n.node.state.insertFieldUnchecked(f.Label, ArcMember, conjunct)
+				arc.MultiLet = f.IsMulti
+
 				fields = append(fields, f)
 
 			default:
@@ -267,16 +265,16 @@ type compState struct {
 	comp  *Comprehension
 	i     int
 	f     YieldFunc
-	state VertexStatus
+	state vertexStatus
 }
 
-// yield evaluates a Comprehension within the given Environment and and calls
+// yield evaluates a Comprehension within the given Environment and calls
 // f for each result.
 func (c *OpContext) yield(
 	node *Vertex, // errors are associated with this node
 	env *Environment, // env for field for which this yield is called
 	comp *Comprehension,
-	state VertexStatus,
+	state vertexStatus,
 	f YieldFunc, // called for every result
 ) *Bottom {
 	s := &compState{
@@ -322,105 +320,123 @@ func (s *compState) yield(env *Environment) (ok bool) {
 // injectComprehension evaluates and inserts embeddings. It first evaluates all
 // embeddings before inserting the results to ensure that the order of
 // evaluation does not matter.
-func (n *nodeContext) injectComprehensions(allP *[]envYield, allowCycle bool, state VertexStatus) (progress bool) {
-	ctx := n.ctx
-
-	all := *allP
+func (n *nodeContext) injectComprehensions(state vertexStatus) (progress bool) {
 	workRemaining := false
 
 	// We use variables, instead of range, as the list may grow dynamically.
-	for i := 0; i < len(*allP); i++ {
-		all = *allP // update list as long as it is non-empty.
-		d := all[i]
-
-		if d.self && allowCycle {
+	for i := 0; i < len(n.comprehensions); i++ {
+		d := &n.comprehensions[i]
+		if d.self || d.inserted {
 			continue
 		}
-
-		// Compute environments, if needed.
-		if !d.done {
-			var envs []*Environment
-			f := func(env *Environment) {
-				envs = append(envs, env)
+		if err := n.processComprehension(d, state); err != nil {
+			// TODO:  Detect that the nodes are actually equal
+			if err.ForCycle && err.Value == n.node {
+				n.selfComprehensions = append(n.selfComprehensions, *d)
+				progress = true
+				d.self = true
+				return
 			}
 
-			if err := ctx.yield(d.node, d.env, d.comp, state, f); err != nil {
-				if err.IsIncomplete() {
-					// TODO:  Detect that the nodes are actually equal
-					if allowCycle && err.ForCycle && err.Value == n.node {
-						n.selfComprehensions = append(n.selfComprehensions, d)
-						progress = true
-						all[i].self = true
-						continue
-					}
-					d.err = err
-					workRemaining = true
+			d.err = err
+			workRemaining = true
 
-					// TODO: add this when it can be done without breaking other
-					// things.
-					//
-					// // Add comprehension to ensure incomplete error is inserted.
-					// // This ensures that the error is reported in the Vertex
-					// // where the comprehension was defined, and not just in the
-					// // node below. This, in turn, is necessary to support
-					// // certain logic, like export, that expects to be able to
-					// // detect an "incomplete" error at the first level where it
-					// // is necessary.
-					// n := d.node.getNodeContext(ctx)
-					// n.addBottom(err)
-
-				} else {
-					// continue to collect other errors.
-					d.node.state.addBottom(err)
-					d.done = true
-					progress = true
-				}
-				if d.node != nil {
-					ctx.PopArc(d.node)
-				}
-				continue
-			}
-
-			d.envs = envs
-
-			if len(d.envs) > 0 {
-				for _, s := range d.structs {
-					s.Init()
-				}
-			}
-			d.structs = nil
-			d.done = true
-		}
-
-		if all[i].inserted {
 			continue
-		}
-		all[i].inserted = true
 
+			// TODO: add this when it can be done without breaking other
+			// things.
+			//
+			// // Add comprehension to ensure incomplete error is inserted.
+			// // This ensures that the error is reported in the Vertex
+			// // where the comprehension was defined, and not just in the
+			// // node below. This, in turn, is necessary to support
+			// // certain logic, like export, that expects to be able to
+			// // detect an "incomplete" error at the first level where it
+			// // is necessary.
+			// n := d.node.getNodeContext(ctx)
+			// n.addBottom(err)
+
+		}
 		progress = true
-
-		if len(d.envs) == 0 {
-			continue
-		}
-
-		v := n.node
-		for c := d.leaf; c.parent != nil; c = c.parent {
-			v.arcType = arcMember
-			v = c.arc
-		}
-
-		id := d.id
-
-		for _, env := range d.envs {
-			env = linkChildren(env, d.leaf)
-			n.addExprConjunct(Conjunct{env, d.expr, id}, state)
-		}
 	}
 
 	if !workRemaining {
-		*allP = all[:0] // Signal that all work is done.
+		n.comprehensions = n.comprehensions[:0] // Signal that all work is done.
 	}
+
 	return progress
+}
+
+// injectSelfComprehensions processes comprehensions that were earlier marked
+// as iterating over the node in which they are defined. Such comprehensions
+// are legal as long as they do not modify the arc set of the node.
+func (n *nodeContext) injectSelfComprehensions(state vertexStatus) {
+	// We use variables, instead of range, as the list may grow dynamically.
+	for i := 0; i < len(n.selfComprehensions); i++ {
+		n.processComprehension(&n.selfComprehensions[i], state)
+	}
+	n.selfComprehensions = n.selfComprehensions[:0] // Signal that all work is done.
+}
+
+// processComprehension processes a single Comprehension conjunct.
+// It returns an incomplete error if there was one. Fatal errors are
+// processed as a "successfully" completed computation.
+func (n *nodeContext) processComprehension(d *envYield, state vertexStatus) *Bottom {
+	ctx := n.ctx
+
+	// Compute environments, if needed.
+	if !d.done {
+		var envs []*Environment
+		f := func(env *Environment) {
+			envs = append(envs, env)
+		}
+
+		if err := ctx.yield(d.node, d.env, d.comp, state, f); err != nil {
+			if err.IsIncomplete() {
+				return err
+			}
+
+			// continue to collect other errors.
+			d.node.state.addBottom(err)
+			d.done = true
+			d.inserted = true
+			if d.node != nil {
+				ctx.PopArc(d.node)
+			}
+			return nil
+		}
+
+		d.envs = envs
+
+		if len(d.envs) > 0 {
+			for _, s := range d.structs {
+				s.Init()
+			}
+		}
+		d.structs = nil
+		d.done = true
+	}
+
+	d.inserted = true
+
+	if len(d.envs) == 0 {
+		return nil
+	}
+
+	v := n.node
+	for c := d.leaf; c.parent != nil; c = c.parent {
+		v.updateArcType(c.arcType)
+		v = c.arc
+	}
+
+	id := d.id
+
+	for _, env := range d.envs {
+		env = linkChildren(env, d.leaf)
+		n.addExprConjunct(Conjunct{env, d.expr, id}, state)
+	}
+
+	return nil
 }
 
 // linkChildren adds environments for the chain of vertices to a result

@@ -19,8 +19,10 @@ package pkcs7
 import (
 	"bytes"
 	"crypto"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -28,6 +30,7 @@ import (
 	"strings"
 
 	"github.com/sassoftware/relic/lib/pkcs7"
+	"github.com/sigstore/rekor/pkg/pki/identity"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	sigsig "github.com/sigstore/sigstore/pkg/signature"
 )
@@ -224,24 +227,22 @@ func (k PublicKey) Subjects() []string {
 }
 
 // Identities implements the pki.PublicKey interface
-func (k PublicKey) Identities() ([]string, error) {
-	var identities []string
-
+func (k PublicKey) Identities() ([]identity.Identity, error) {
 	// pkcs7 structure may contain both a key and certificate chain
-	pemCert, err := cryptoutils.MarshalCertificateToPEM(k.certs[0])
+	pkixKey, err := cryptoutils.MarshalPublicKeyToDER(k.key)
 	if err != nil {
 		return nil, err
 	}
-	identities = append(identities, string(pemCert))
-	pemKey, err := cryptoutils.MarshalPublicKeyToPEM(k.key)
-	if err != nil {
-		return nil, err
-	}
-	identities = append(identities, string(pemKey))
-
-	// Subjects come from the certificate Subject and SANs
-	// SANs could include an email, IP address, DNS name, URI, or any other value in the SAN
-	identities = append(identities, k.Subjects()...)
-
-	return identities, nil
+	keyDigest := sha256.Sum256(pkixKey)
+	certDigest := sha256.Sum256(k.certs[0].Raw)
+	return []identity.Identity{{
+		Crypto:      k.certs[0],
+		Raw:         k.certs[0].Raw,
+		Fingerprint: hex.EncodeToString(certDigest[:]),
+	}, {
+		Crypto:      k.key,
+		Raw:         pkixKey,
+		Fingerprint: hex.EncodeToString(keyDigest[:]),
+	},
+	}, nil
 }

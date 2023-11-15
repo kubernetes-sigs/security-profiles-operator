@@ -69,12 +69,14 @@ type Response struct {
 
 // SDKError struct is used save error code and message
 type SDKError struct {
-	Code       *string
-	StatusCode *int
-	Message    *string
-	Data       *string
-	Stack      *string
-	errMsg     *string
+	Code               *string
+	StatusCode         *int
+	Message            *string
+	Data               *string
+	Stack              *string
+	errMsg             *string
+	Description        *string
+	AccessDeniedDetail map[string]interface{}
 }
 
 // RuntimeObject is used for converting http configuration
@@ -181,6 +183,20 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 	if obj["message"] != nil {
 		err.Message = String(obj["message"].(string))
 	}
+	if obj["description"] != nil {
+		err.Description = String(obj["description"].(string))
+	}
+	if detail := obj["accessDeniedDetail"]; detail != nil {
+		r := reflect.ValueOf(detail)
+		if r.Kind().String() == "map" {
+			res := make(map[string]interface{})
+			tmp := r.MapKeys()
+			for _, key := range tmp {
+				res[key.String()] = r.MapIndex(key).Interface()
+			}
+			err.AccessDeniedDetail = res
+		}
+	}
 	if data := obj["data"]; data != nil {
 		r := reflect.ValueOf(data)
 		if r.Kind().String() == "map" {
@@ -197,6 +213,8 @@ func NewSDKError(obj map[string]interface{}) *SDKError {
 					if err_ == nil {
 						err.StatusCode = Int(code)
 					}
+				} else if code, ok := statusCode.(*int); ok {
+					err.StatusCode = code
 				}
 			}
 		}
@@ -244,7 +262,7 @@ func Convert(in interface{}, out interface{}) error {
 	return err
 }
 
-// Convert is use convert map[string]interface object to struct
+// Recover is used to format error
 func Recover(in interface{}) error {
 	if in == nil {
 		return nil
@@ -304,6 +322,9 @@ func DoRequest(request *Request, requestRuntime map[string]interface{}) (respons
 
 	requestURL := ""
 	request.Domain = request.Headers["host"]
+	if request.Port != nil {
+		request.Domain = String(fmt.Sprintf("%s:%d", StringValue(request.Domain), IntValue(request.Port)))
+	}
 	requestURL = fmt.Sprintf("%s://%s%s", StringValue(request.Protocol), StringValue(request.Domain), StringValue(request.Pathname))
 	queryParams := request.Query
 	// sort QueryParams by key
@@ -394,28 +415,30 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 	if err != nil {
 		return nil, err
 	}
-	if strings.ToLower(*req.Protocol) == "https" &&
-		runtime.Key != nil && runtime.Cert != nil {
-		cert, err := tls.X509KeyPair([]byte(StringValue(runtime.Cert)), []byte(StringValue(runtime.Key)))
-		if err != nil {
-			return nil, err
-		}
-
-		trans.TLSClientConfig = &tls.Config{
-			Certificates:       []tls.Certificate{cert},
-			InsecureSkipVerify: BoolValue(runtime.IgnoreSSL),
-		}
-		if runtime.CA != nil {
-			clientCertPool := x509.NewCertPool()
-			ok := clientCertPool.AppendCertsFromPEM([]byte(StringValue(runtime.CA)))
-			if !ok {
-				return nil, errors.New("Failed to parse root certificate")
+	if strings.ToLower(*req.Protocol) == "https" {
+		if BoolValue(runtime.IgnoreSSL) != true {
+			trans.TLSClientConfig = &tls.Config{
+				InsecureSkipVerify: false,
 			}
-			trans.TLSClientConfig.RootCAs = clientCertPool
-		}
-	} else {
-		trans.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: BoolValue(runtime.IgnoreSSL),
+			if runtime.Key != nil && runtime.Cert != nil && StringValue(runtime.Key) != "" && StringValue(runtime.Cert) != "" {
+				cert, err := tls.X509KeyPair([]byte(StringValue(runtime.Cert)), []byte(StringValue(runtime.Key)))
+				if err != nil {
+					return nil, err
+				}
+				trans.TLSClientConfig.Certificates = []tls.Certificate{cert}
+			}
+			if runtime.CA != nil && StringValue(runtime.CA) != "" {
+				clientCertPool := x509.NewCertPool()
+				ok := clientCertPool.AppendCertsFromPEM([]byte(StringValue(runtime.CA)))
+				if !ok {
+					return nil, errors.New("Failed to parse root certificate")
+				}
+				trans.TLSClientConfig.RootCAs = clientCertPool
+			}
+		} else {
+			trans.TLSClientConfig = &tls.Config{
+				InsecureSkipVerify: true,
+			}
 		}
 	}
 	if httpProxy != nil {
@@ -454,6 +477,10 @@ func getHttpTransport(req *Request, runtime *RuntimeObject) (*http.Transport, er
 		}
 	} else {
 		trans.DialContext = setDialContext(runtime)
+	}
+	if runtime.MaxIdleConns != nil && *runtime.MaxIdleConns > 0 {
+		trans.MaxIdleConns = IntValue(runtime.MaxIdleConns)
+		trans.MaxIdleConnsPerHost = IntValue(runtime.MaxIdleConns)
 	}
 	return trans, nil
 }

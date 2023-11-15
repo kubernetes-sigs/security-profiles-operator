@@ -353,11 +353,22 @@ func (v V001Entry) CreateFromArtifactProperties(_ context.Context, props types.A
 	return &returnVal, nil
 }
 
-func (v V001Entry) Verifier() (pki.PublicKey, error) {
+func (v V001Entry) Verifiers() ([]pki.PublicKey, error) {
 	if v.IntotoObj.PublicKey == nil {
 		return nil, errors.New("intoto v0.0.1 entry not initialized")
 	}
-	return x509.NewPublicKey(bytes.NewReader(*v.IntotoObj.PublicKey))
+	key, err := x509.NewPublicKey(bytes.NewReader(*v.IntotoObj.PublicKey))
+	if err != nil {
+		return nil, err
+	}
+	return []pki.PublicKey{key}, nil
+}
+
+func (v V001Entry) ArtifactHash() (string, error) {
+	if v.IntotoObj.Content == nil || v.IntotoObj.Content.PayloadHash == nil || v.IntotoObj.Content.PayloadHash.Algorithm == nil || v.IntotoObj.Content.PayloadHash.Value == nil {
+		return "", errors.New("hashedrekord v0.0.1 entry not initialized")
+	}
+	return strings.ToLower(fmt.Sprintf("%s:%s", *v.IntotoObj.Content.PayloadHash.Algorithm, *v.IntotoObj.Content.PayloadHash.Value)), nil
 }
 
 func (v V001Entry) Insertable() (bool, error) {

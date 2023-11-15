@@ -136,6 +136,7 @@ var DefaultBuiltins = [...]*Builtin{
 
 	// Numbers
 	NumbersRange,
+	NumbersRangeStep,
 	RandIntn,
 
 	// Encoding
@@ -210,6 +211,8 @@ var DefaultBuiltins = [...]*Builtin{
 	CryptoSha256,
 	CryptoX509ParseCertificateRequest,
 	CryptoX509ParseRSAPrivateKey,
+	CryptoX509ParseKeyPair,
+	CryptoParsePrivateKeys,
 	CryptoHmacMd5,
 	CryptoHmacSha1,
 	CryptoHmacSha256,
@@ -283,6 +286,7 @@ var DefaultBuiltins = [...]*Builtin{
 
 	// UUIDs
 	UUIDRFC4122,
+	UUIDParse,
 
 	// SemVers
 	SemVerIsValid,
@@ -1345,6 +1349,23 @@ var NumbersRange = &Builtin{
 	),
 }
 
+var NumbersRangeStep = &Builtin{
+	Name: "numbers.range_step",
+	Description: `Returns an array of numbers in the given (inclusive) range incremented by a positive step.
+	If "a==b", then "range == [a]"; if "a > b", then "range" is in descending order.
+	If the provided "step" is less then 1, an error will be thrown.
+	If "b" is not in the range of the provided "step", "b" won't be included in the result.
+	`,
+	Decl: types.NewFunction(
+		types.Args(
+			types.Named("a", types.N),
+			types.Named("b", types.N),
+			types.Named("step", types.N),
+		),
+		types.Named("range", types.NewArray(nil, types.N)).Description("the range between `a` and `b` in `step` increments"),
+	),
+}
+
 /**
  * Units
  */
@@ -1396,6 +1417,19 @@ var UUIDRFC4122 = &Builtin{
 		types.Named("output", types.S).Description("a version 4 UUID; for any given `k`, the output will be consistent throughout a query evaluation"),
 	),
 	Nondeterministic: true,
+}
+
+var UUIDParse = &Builtin{
+	Name:        "uuid.parse",
+	Description: "Parses the string value as an UUID and returns an object with the well-defined fields of the UUID if valid.",
+	Categories:  nil,
+	Decl: types.NewFunction(
+		types.Args(
+			types.Named("uuid", types.S),
+		),
+		types.Named("result", types.NewObject(nil, types.NewDynamicProperty(types.S, types.A))).Description("Properties of UUID if valid (version, variant, etc). Undefined otherwise."),
+	),
+	Relation: false,
 }
 
 /**
@@ -2159,7 +2193,7 @@ var Format = &Builtin{
 				types.N,
 				types.NewArray([]types.Type{types.N, types.S}, nil),
 				types.NewArray([]types.Type{types.N, types.S, types.S}, nil),
-			)).Description("a number representing the nanoseconds since the epoch (UTC); or a two-element array of the nanoseconds, and a timezone string; or a three-element array of ns, timezone string and a layout string (see golang supported time formats)"),
+			)).Description("a number representing the nanoseconds since the epoch (UTC); or a two-element array of the nanoseconds, and a timezone string; or a three-element array of ns, timezone string and a layout string or golang defined formatting constant (see golang supported time formats)"),
 		),
 		types.Named("formatted timestamp", types.S).Description("the formatted timestamp represented for the nanoseconds since the epoch in the supplied timezone (or UTC)"),
 	),
@@ -2210,7 +2244,7 @@ var Weekday = &Builtin{
 
 var AddDate = &Builtin{
 	Name:        "time.add_date",
-	Description: "Returns the nanoseconds since epoch after adding years, months and days to nanoseconds. `undefined` if the result would be outside the valid time range that can fit within an `int64`.",
+	Description: "Returns the nanoseconds since epoch after adding years, months and days to nanoseconds. Month & day values outside their usual ranges after the operation and will be normalized - for example, October 32 would become November 1. `undefined` if the result would be outside the valid time range that can fit within an `int64`.",
 	Decl: types.NewFunction(
 		types.Args(
 			types.Named("ns", types.N).Description("nanoseconds since the epoch"),
@@ -2289,6 +2323,17 @@ var CryptoX509ParseCertificateRequest = &Builtin{
 	),
 }
 
+var CryptoX509ParseKeyPair = &Builtin{
+	Name:        "crypto.x509.parse_keypair",
+	Description: "Returns a valid key pair",
+	Decl: types.NewFunction(
+		types.Args(
+			types.Named("cert", types.S).Description("string containing PEM or base64 encoded DER certificates"),
+			types.Named("pem", types.S).Description("string containing PEM or base64 encoded DER keys"),
+		),
+		types.Named("output", types.NewObject(nil, types.NewDynamicProperty(types.S, types.A))).Description("if key pair is valid, returns the tls.certificate(https://pkg.go.dev/crypto/tls#Certificate) as an object. If the key pair is invalid, nil and an error are returned."),
+	),
+}
 var CryptoX509ParseRSAPrivateKey = &Builtin{
 	Name:        "crypto.x509.parse_rsa_private_key",
 	Description: "Returns a JWK for signing a JWT from the given PEM-encoded RSA private key.",
@@ -2297,6 +2342,19 @@ var CryptoX509ParseRSAPrivateKey = &Builtin{
 			types.Named("pem", types.S).Description("base64 string containing a PEM encoded RSA private key"),
 		),
 		types.Named("output", types.NewObject(nil, types.NewDynamicProperty(types.S, types.A))).Description("JWK as an object"),
+	),
+}
+
+var CryptoParsePrivateKeys = &Builtin{
+	Name: "crypto.parse_private_keys",
+	Description: `Returns zero or more private keys from the given encoded string containing DER certificate data.
+
+If the input is empty, the function will return null. The input string should be a list of one or more concatenated PEM blocks. The whole input of concatenated PEM blocks can optionally be Base64 encoded.`,
+	Decl: types.NewFunction(
+		types.Args(
+			types.Named("keys", types.S).Description("PEM encoded data containing one or more private keys as concatenated blocks. Optionally Base64 encoded."),
+		),
+		types.Named("output", types.NewArray(nil, types.NewObject(nil, types.NewDynamicProperty(types.S, types.A)))).Description("parsed private keys represented as objects"),
 	),
 }
 
@@ -2412,7 +2470,7 @@ var WalkBuiltin = &Builtin{
 				types.A,
 			},
 			nil,
-		)).Description("pairs of `path` and `value`: `path` is an array representing the pointer to `value` in `x`"),
+		)).Description("pairs of `path` and `value`: `path` is an array representing the pointer to `value` in `x`. If `path` is assigned a wildcard (`_`), the `walk` function will skip path creation entirely for faster evaluation."),
 	),
 	Categories: graphs,
 }

@@ -782,11 +782,13 @@ func (r *Repo) setMeta(roleFilename string, meta interface{}) error {
 	return r.local.SetMeta(roleFilename, b)
 }
 
-// SignPayload signs the given payload using the key(s) associated with role.
+// CanonicalizeAndSign canonicalizes the signed portion of signed, then signs it using the key(s) associated with role.
+//
+// It appends the signature to signed.
 //
 // It returns the total number of keys used for signing, 0 (along with
 // ErrNoKeys) if no keys were found, or -1 (along with an error) in error cases.
-func (r *Repo) SignPayload(role string, payload *data.Signed) (int, error) {
+func (r *Repo) CanonicalizeAndSign(role string, signed *data.Signed) (int, error) {
 	keys, err := r.signersForRole(role)
 	if err != nil {
 		return -1, err
@@ -795,11 +797,44 @@ func (r *Repo) SignPayload(role string, payload *data.Signed) (int, error) {
 		return 0, ErrNoKeys{role}
 	}
 	for _, k := range keys {
-		if err = sign.Sign(payload, k); err != nil {
+		if err = sign.Sign(signed, k); err != nil {
 			return -1, err
 		}
 	}
 	return len(keys), nil
+}
+
+// SignPayload canonicalizes the signed portion of payload, then signs it using the key(s) associated with role.
+//
+// It returns the total number of keys used for signing, 0 (along with
+// ErrNoKeys) if no keys were found, or -1 (along with an error) in error cases.
+//
+// DEPRECATED: please use CanonicalizeAndSign instead.
+func (r *Repo) SignPayload(role string, payload *data.Signed) (int, error) {
+	return r.CanonicalizeAndSign(role, payload)
+}
+
+// SignRaw signs the given (pre-canonicalized) payload using the key(s) associated with role.
+//
+// It returns the new data.Signatures.
+func (r *Repo) SignRaw(role string, payload []byte) ([]data.Signature, error) {
+	keys, err := r.signersForRole(role)
+	if err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return nil, ErrNoKeys{role}
+	}
+
+	allSigs := make([]data.Signature, 0, len(keys))
+	for _, k := range keys {
+		sigs, err := sign.MakeSignatures(payload, k)
+		if err != nil {
+			return nil, err
+		}
+		allSigs = append(allSigs, sigs...)
+	}
+	return allSigs, nil
 }
 
 func (r *Repo) Sign(roleFilename string) error {

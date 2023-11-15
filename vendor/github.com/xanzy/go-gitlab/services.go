@@ -44,6 +44,7 @@ type Service struct {
 	Active                   bool       `json:"active"`
 	PushEvents               bool       `json:"push_events"`
 	IssuesEvents             bool       `json:"issues_events"`
+	AlertEvents              bool       `json:"alert_events"`
 	ConfidentialIssuesEvents bool       `json:"confidential_issues_events"`
 	CommitEvents             bool       `json:"commit_events"`
 	MergeRequestsEvents      bool       `json:"merge_requests_events"`
@@ -54,6 +55,7 @@ type Service struct {
 	PipelineEvents           bool       `json:"pipeline_events"`
 	JobEvents                bool       `json:"job_events"`
 	WikiPageEvents           bool       `json:"wiki_page_events"`
+	VulnerabilityEvents      bool       `json:"vulnerability_events"`
 	DeploymentEvents         bool       `json:"deployment_events"`
 }
 
@@ -177,6 +179,106 @@ func (s *ServicesService) DeleteCustomIssueTrackerService(pid interface{}, optio
 	return s.client.Do(req, nil)
 }
 
+// DataDogService represents DataDog service settings.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/services.html#datadog
+type DataDogService struct {
+	Service
+	Properties *DataDogServiceProperties `json:"properties"`
+}
+
+// DataDogServiceProperties represents DataDog specific properties.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/services.html#datadog
+type DataDogServiceProperties struct {
+	APIURL             string `url:"api_url,omitempty" json:"api_url,omitempty"`
+	DataDogEnv         string `url:"datadog_env,omitempty" json:"datadog_env,omitempty"`
+	DataDogService     string `url:"datadog_service,omitempty" json:"datadog_service,omitempty"`
+	DataDogSite        string `url:"datadog_site,omitempty" json:"datadog_site,omitempty"`
+	DataDogTags        string `url:"datadog_tags,omitempty" json:"datadog_tags,omitempty"`
+	ArchiveTraceEvents bool   `url:"archive_trace_events,omitempty" json:"archive_trace_events,omitempty"`
+}
+
+// GetDataDogService gets DataDog service settings for a project.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/services.html#get-datadog-integration-settings
+func (s *ServicesService) GetDataDogService(pid interface{}, options ...RequestOptionFunc) (*DataDogService, *Response, error) {
+	project, err := parseID(pid)
+	if err != nil {
+		return nil, nil, err
+	}
+	u := fmt.Sprintf("projects/%s/services/datadog", PathEscape(project))
+
+	req, err := s.client.NewRequest(http.MethodGet, u, nil, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	svc := new(DataDogService)
+	resp, err := s.client.Do(req, svc)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return svc, resp, nil
+}
+
+// SetDataDogServiceOptions represents the available SetDataDogService()
+// options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/services.html#createedit-datadog-integration
+type SetDataDogServiceOptions struct {
+	APIKey             *string `url:"api_key,omitempty" json:"api_key,omitempty"`
+	APIURL             *string `url:"api_url,omitempty" json:"api_url,omitempty"`
+	DataDogEnv         *string `url:"datadog_env,omitempty" json:"datadog_env,omitempty"`
+	DataDogService     *string `url:"datadog_service,omitempty" json:"datadog_service,omitempty"`
+	DataDogSite        *string `url:"datadog_site,omitempty" json:"datadog_site,omitempty"`
+	DataDogTags        *string `url:"datadog_tags,omitempty" json:"datadog_tags,omitempty"`
+	ArchiveTraceEvents *bool   `url:"archive_trace_events,omitempty" json:"archive_trace_events,omitempty"`
+}
+
+// SetDataDogService sets DataDog service settings for a project.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/services.html#createedit-datadog-integration
+func (s *ServicesService) SetDataDogService(pid interface{}, opt *SetDataDogServiceOptions, options ...RequestOptionFunc) (*Response, error) {
+	project, err := parseID(pid)
+	if err != nil {
+		return nil, err
+	}
+	u := fmt.Sprintf("projects/%s/services/datadog", PathEscape(project))
+
+	req, err := s.client.NewRequest(http.MethodPut, u, opt, options)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.client.Do(req, nil)
+}
+
+// DeleteDataDogService deletes the DataDog service settings for a project.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/services.html#disable-datadog-integration
+func (s *ServicesService) DeleteDataDogService(pid interface{}, options ...RequestOptionFunc) (*Response, error) {
+	project, err := parseID(pid)
+	if err != nil {
+		return nil, err
+	}
+	u := fmt.Sprintf("projects/%s/services/datadog", PathEscape(project))
+
+	req, err := s.client.NewRequest(http.MethodDelete, u, nil, options)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.client.Do(req, nil)
+}
+
 // DiscordService represents Discord service settings.
 //
 // GitLab API docs:
@@ -191,8 +293,8 @@ type DiscordService struct {
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/services.html#discord
 type DiscordServiceProperties struct {
-	NotifyOnlyBrokenPipelines bool   `url:"notify_only_broken_pipelines,omitempty" json:"notify_only_broken_pipelines,omitempty"`
 	BranchesToBeNotified      string `url:"branches_to_be_notified,omitempty" json:"branches_to_be_notified,omitempty"`
+	NotifyOnlyBrokenPipelines bool   `url:"notify_only_broken_pipelines,omitempty" json:"notify_only_broken_pipelines,omitempty"`
 }
 
 // GetDiscordService gets Discord service settings for a project.
@@ -226,7 +328,18 @@ func (s *ServicesService) GetDiscordService(pid interface{}, options ...RequestO
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/services.html#createedit-discord-service
 type SetDiscordServiceOptions struct {
-	WebHook *string `json:"webhook,omitempty"`
+	WebHook                   *string `url:"webhook,omitempty" json:"webhook,omitempty"`
+	BranchesToBeNotified      *string `url:"branches_to_be_notified,omitempty" json:"branches_to_be_notified,omitempty"`
+	ConfidentialIssuesEvents  *bool   `url:"confidential_issues_events,omitempty" json:"confidential_issues_events,omitempty"`
+	ConfidentialNoteEvents    *bool   `url:"confidential_note_events,omitempty" json:"confidential_note_events,omitempty"`
+	IssuesEvents              *bool   `url:"issues_events,omitempty" json:"issues_events,omitempty"`
+	MergeRequestsEvents       *bool   `url:"merge_requests_events,omitempty" json:"merge_requests_events,omitempty"`
+	NoteEvents                *bool   `url:"note_events,omitempty" json:"note_events,omitempty"`
+	NotifyOnlyBrokenPipelines *bool   `url:"notify_only_broken_pipelines,omitempty" json:"notify_only_broken_pipelines,omitempty"`
+	PipelineEvents            *bool   `url:"pipeline_events,omitempty" json:"pipeline_events,omitempty"`
+	PushEvents                *bool   `url:"push_events,omitempty" json:"push_events,omitempty"`
+	TagPushEvents             *bool   `url:"tag_push_events,omitempty" json:"tag_push_events,omitempty"`
+	WikiPageEvents            *bool   `url:"wiki_page_events,omitempty" json:"wiki_page_events,omitempty"`
 }
 
 // SetDiscordService sets Discord service for a project.
@@ -993,6 +1106,7 @@ type MattermostServiceProperties struct {
 	TagPushChannel            string    `json:"tag_push_channel"`
 	PipelineChannel           string    `json:"pipeline_channel"`
 	PushChannel               string    `json:"push_channel"`
+	VulnerabilityChannel      string    `json:"vulnerability_channel"`
 	WikiPageChannel           string    `json:"wiki_page_channel"`
 }
 
@@ -1032,24 +1146,24 @@ type SetMattermostServiceOptions struct {
 	Channel                   *string `url:"channel,omitempty" json:"channel,omitempty"`
 	NotifyOnlyBrokenPipelines *bool   `url:"notify_only_broken_pipelines,omitempty" json:"notify_only_broken_pipelines,omitempty"`
 	BranchesToBeNotified      *string `url:"branches_to_be_notified,omitempty" json:"branches_to_be_notified,omitempty"`
-	ConfidentialIssueChannel  *string `url:"confidential_issue_channel,omitempty" json:"confidential_issue_channel,omitempty"`
-	ConfidentialIssuesEvents  *bool   `url:"confidential_issues_events,omitempty" json:"confidential_issues_events,omitempty"`
-	ConfidentialNoteChannel   *string `json:"confidential_note_channel,omitempty"`
-	ConfidentialNoteEvents    *bool   `url:"confidential_note_events,omitempty" json:"confidential_note_events,omitempty"`
-	IssueChannel              *string `url:"issue_channel,omitempty" json:"issue_channel,omitempty"`
-	IssuesEvents              *bool   `url:"issues_events,omitempty" json:"issues_events,omitempty"`
-	MergeRequestChannel       *string `url:"merge_request_channel,omitempty" json:"merge_request_channel,omitempty"`
-	MergeRequestsEvents       *bool   `url:"merge_requests_events,omitempty" json:"merge_requests_events,omitempty"`
-	TagPushChannel            *string `url:"tag_push_channel,omitempty" json:"tag_push_channel,omitempty"`
-	TagPushEvents             *bool   `url:"tag_push_events,omitempty" json:"tag_push_events,omitempty"`
-	NoteChannel               *string `url:"note_channel,omitempty" json:"note_channel,omitempty"`
-	NoteEvents                *bool   `url:"note_events,omitempty" json:"note_events,omitempty"`
-	PipelineChannel           *string `url:"pipeline_channel,omitempty" json:"pipeline_channel,omitempty"`
-	PipelineEvents            *bool   `url:"pipeline_events,omitempty" json:"pipeline_events,omitempty"`
-	PushChannel               *string `url:"push_channel,omitempty" json:"push_channel,omitempty"`
 	PushEvents                *bool   `url:"push_events,omitempty" json:"push_events,omitempty"`
-	WikiPageChannel           *string `url:"wiki_page_channel,omitempty" json:"wiki_page_channel,omitempty"`
+	IssuesEvents              *bool   `url:"issues_events,omitempty" json:"issues_events,omitempty"`
+	ConfidentialIssuesEvents  *bool   `url:"confidential_issues_events,omitempty" json:"confidential_issues_events,omitempty"`
+	MergeRequestsEvents       *bool   `url:"merge_requests_events,omitempty" json:"merge_requests_events,omitempty"`
+	TagPushEvents             *bool   `url:"tag_push_events,omitempty" json:"tag_push_events,omitempty"`
+	NoteEvents                *bool   `url:"note_events,omitempty" json:"note_events,omitempty"`
+	ConfidentialNoteChannel   *string `url:"confidential_note_channel,omitempty" json:"confidential_note_channel,omitempty"`
+	PipelineEvents            *bool   `url:"pipeline_events,omitempty" json:"pipeline_events,omitempty"`
 	WikiPageEvents            *bool   `url:"wiki_page_events,omitempty" json:"wiki_page_events,omitempty"`
+	PushChannel               *string `url:"push_channel,omitempty" json:"push_channel,omitempty"`
+	IssueChannel              *string `url:"issue_channel,omitempty" json:"issue_channel,omitempty"`
+	ConfidentialIssueChannel  *string `url:"confidential_issue_channel,omitempty" json:"confidential_issue_channel,omitempty"`
+	MergeRequestChannel       *string `url:"merge_request_channel,omitempty" json:"merge_request_channel,omitempty"`
+	NoteChannel               *string `url:"note_channel,omitempty" json:"note_channel,omitempty"`
+	ConfidentialNoteEvents    *bool   `url:"confidential_note_events,omitempty" json:"confidential_note_events,omitempty"`
+	TagPushChannel            *string `url:"tag_push_channel,omitempty" json:"tag_push_channel,omitempty"`
+	PipelineChannel           *string `url:"pipeline_channel,omitempty" json:"pipeline_channel,omitempty"`
+	WikiPageChannel           *string `url:"wiki_page_channel,omitempty" json:"wiki_page_channel,omitempty"`
 }
 
 // SetMattermostService sets Mattermost service for a project.
@@ -1409,6 +1523,7 @@ type SlackServiceProperties struct {
 	NotifyOnlyBrokenPipelines BoolValue `json:"notify_only_broken_pipelines"`
 	NotifyOnlyDefaultBranch   BoolValue `json:"notify_only_default_branch"`
 	BranchesToBeNotified      string    `json:"branches_to_be_notified"`
+	AlertChannel              string    `json:"alert_channel"`
 	ConfidentialIssueChannel  string    `json:"confidential_issue_channel"`
 	ConfidentialNoteChannel   string    `json:"confidential_note_channel"`
 	DeploymentChannel         string    `json:"deployment_channel"`
@@ -1418,6 +1533,7 @@ type SlackServiceProperties struct {
 	TagPushChannel            string    `json:"tag_push_channel"`
 	PipelineChannel           string    `json:"pipeline_channel"`
 	PushChannel               string    `json:"push_channel"`
+	VulnerabilityChannel      string    `json:"vulnerability_channel"`
 	WikiPageChannel           string    `json:"wiki_page_channel"`
 }
 
@@ -1458,29 +1574,28 @@ type SetSlackServiceOptions struct {
 	NotifyOnlyBrokenPipelines *bool   `url:"notify_only_broken_pipelines,omitempty" json:"notify_only_broken_pipelines,omitempty"`
 	NotifyOnlyDefaultBranch   *bool   `url:"notify_only_default_branch,omitempty" json:"notify_only_default_branch,omitempty"`
 	BranchesToBeNotified      *string `url:"branches_to_be_notified,omitempty" json:"branches_to_be_notified,omitempty"`
+	AlertChannel              *string `url:"alert_channel,omitempty" json:"alert_channel,omitempty"`
+	AlertEvents               *bool   `url:"alert_events,omitempty" json:"alert_events,omitempty"`
 	ConfidentialIssueChannel  *string `url:"confidential_issue_channel,omitempty" json:"confidential_issue_channel,omitempty"`
 	ConfidentialIssuesEvents  *bool   `url:"confidential_issues_events,omitempty" json:"confidential_issues_events,omitempty"`
-	// TODO: Currently, GitLab ignores this option (not implemented yet?), so
-	// there is no way to set it. Uncomment when this is fixed.
-	// See: https://gitlab.com/gitlab-org/gitlab-ce/issues/49730
-	// ConfidentialNoteChannel   *string `json:"confidential_note_channel,omitempty"`
-	ConfidentialNoteEvents *bool   `url:"confidential_note_events,omitempty" json:"confidential_note_events,omitempty"`
-	DeploymentChannel      *string `url:"deployment_channel,omitempty" json:"deployment_channel,omitempty"`
-	DeploymentEvents       *bool   `url:"deployment_events,omitempty" json:"deployment_events,omitempty"`
-	IssueChannel           *string `url:"issue_channel,omitempty" json:"issue_channel,omitempty"`
-	IssuesEvents           *bool   `url:"issues_events,omitempty" json:"issues_events,omitempty"`
-	MergeRequestChannel    *string `url:"merge_request_channel,omitempty" json:"merge_request_channel,omitempty"`
-	MergeRequestsEvents    *bool   `url:"merge_requests_events,omitempty" json:"merge_requests_events,omitempty"`
-	TagPushChannel         *string `url:"tag_push_channel,omitempty" json:"tag_push_channel,omitempty"`
-	TagPushEvents          *bool   `url:"tag_push_events,omitempty" json:"tag_push_events,omitempty"`
-	NoteChannel            *string `url:"note_channel,omitempty" json:"note_channel,omitempty"`
-	NoteEvents             *bool   `url:"note_events,omitempty" json:"note_events,omitempty"`
-	PipelineChannel        *string `url:"pipeline_channel,omitempty" json:"pipeline_channel,omitempty"`
-	PipelineEvents         *bool   `url:"pipeline_events,omitempty" json:"pipeline_events,omitempty"`
-	PushChannel            *string `url:"push_channel,omitempty" json:"push_channel,omitempty"`
-	PushEvents             *bool   `url:"push_events,omitempty" json:"push_events,omitempty"`
-	WikiPageChannel        *string `url:"wiki_page_channel,omitempty" json:"wiki_page_channel,omitempty"`
-	WikiPageEvents         *bool   `url:"wiki_page_events,omitempty" json:"wiki_page_events,omitempty"`
+	ConfidentialNoteChannel   *string `url:"confidential_note_channel,omitempty" json:"confidential_note_channel,omitempty"`
+	ConfidentialNoteEvents    *bool   `url:"confidential_note_events,omitempty" json:"confidential_note_events,omitempty"`
+	DeploymentChannel         *string `url:"deployment_channel,omitempty" json:"deployment_channel,omitempty"`
+	DeploymentEvents          *bool   `url:"deployment_events,omitempty" json:"deployment_events,omitempty"`
+	IssueChannel              *string `url:"issue_channel,omitempty" json:"issue_channel,omitempty"`
+	IssuesEvents              *bool   `url:"issues_events,omitempty" json:"issues_events,omitempty"`
+	MergeRequestChannel       *string `url:"merge_request_channel,omitempty" json:"merge_request_channel,omitempty"`
+	MergeRequestsEvents       *bool   `url:"merge_requests_events,omitempty" json:"merge_requests_events,omitempty"`
+	NoteChannel               *string `url:"note_channel,omitempty" json:"note_channel,omitempty"`
+	NoteEvents                *bool   `url:"note_events,omitempty" json:"note_events,omitempty"`
+	PipelineChannel           *string `url:"pipeline_channel,omitempty" json:"pipeline_channel,omitempty"`
+	PipelineEvents            *bool   `url:"pipeline_events,omitempty" json:"pipeline_events,omitempty"`
+	PushChannel               *string `url:"push_channel,omitempty" json:"push_channel,omitempty"`
+	PushEvents                *bool   `url:"push_events,omitempty" json:"push_events,omitempty"`
+	TagPushChannel            *string `url:"tag_push_channel,omitempty" json:"tag_push_channel,omitempty"`
+	TagPushEvents             *bool   `url:"tag_push_events,omitempty" json:"tag_push_events,omitempty"`
+	WikiPageChannel           *string `url:"wiki_page_channel,omitempty" json:"wiki_page_channel,omitempty"`
+	WikiPageEvents            *bool   `url:"wiki_page_events,omitempty" json:"wiki_page_events,omitempty"`
 }
 
 // SetSlackService sets Slack service for a project

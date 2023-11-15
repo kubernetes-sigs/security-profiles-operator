@@ -48,12 +48,15 @@ outer:
 		f := sel.sel.feature(v.idx)
 		for _, a := range n.Arcs {
 			if a.Label == f {
+				if a.IsConstraint() && !sel.sel.isConstraint() {
+					break
+				}
 				parent = linkParent(parent, n, a)
 				n = a
 				continue outer
 			}
 		}
-		if sel.sel.optional() {
+		if sel.sel.isConstraint() {
 			x := &adt.Vertex{
 				Parent: n,
 				Label:  sel.sel.feature(ctx),

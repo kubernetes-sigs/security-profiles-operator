@@ -27,22 +27,53 @@ package proto
 // It implements the Visitor interface.
 type NoopVisitor struct{}
 
-func (n NoopVisitor) VisitMessage(m *Message)         {}
-func (n NoopVisitor) VisitService(v *Service)         {}
-func (n NoopVisitor) VisitSyntax(s *Syntax)           {}
-func (n NoopVisitor) VisitPackage(p *Package)         {}
-func (n NoopVisitor) VisitOption(o *Option)           {}
-func (n NoopVisitor) VisitImport(i *Import)           {}
-func (n NoopVisitor) VisitNormalField(i *NormalField) {}
-func (n NoopVisitor) VisitEnumField(i *EnumField)     {}
-func (n NoopVisitor) VisitEnum(e *Enum)               {}
-func (n NoopVisitor) VisitComment(e *Comment)         {}
-func (n NoopVisitor) VisitOneof(o *Oneof)             {}
-func (n NoopVisitor) VisitOneofField(o *OneOfField)   {}
-func (n NoopVisitor) VisitReserved(r *Reserved)       {}
-func (n NoopVisitor) VisitRPC(r *RPC)                 {}
-func (n NoopVisitor) VisitMapField(f *MapField)       {}
+// VisitMessage is part of Visitor interface
+func (n NoopVisitor) VisitMessage(m *Message) {}
 
-// proto2
-func (n NoopVisitor) VisitGroup(g *Group)           {}
+// VisitService is part of Visitor interface
+func (n NoopVisitor) VisitService(v *Service) {}
+
+// VisitSyntax is part of Visitor interface
+func (n NoopVisitor) VisitSyntax(s *Syntax) {}
+
+// VisitPackage is part of Visitor interface
+func (n NoopVisitor) VisitPackage(p *Package) {}
+
+// VisitOption is part of Visitor interface
+func (n NoopVisitor) VisitOption(o *Option) {}
+
+// VisitImport is part of Visitor interface
+func (n NoopVisitor) VisitImport(i *Import) {}
+
+// VisitNormalField is part of Visitor interface
+func (n NoopVisitor) VisitNormalField(i *NormalField) {}
+
+// VisitEnumField is part of Visitor interface
+func (n NoopVisitor) VisitEnumField(i *EnumField) {}
+
+// VisitEnum is part of Visitor interface
+func (n NoopVisitor) VisitEnum(e *Enum) {}
+
+// VisitComment is part of Visitor interface
+func (n NoopVisitor) VisitComment(e *Comment) {}
+
+// VisitOneof is part of Visitor interface
+func (n NoopVisitor) VisitOneof(o *Oneof) {}
+
+// VisitOneofField is part of Visitor interface
+func (n NoopVisitor) VisitOneofField(o *OneOfField) {}
+
+// VisitReserved is part of Visitor interface
+func (n NoopVisitor) VisitReserved(r *Reserved) {}
+
+// VisitRPC is part of Visitor interface
+func (n NoopVisitor) VisitRPC(r *RPC) {}
+
+// VisitMapField is part of Visitor interface
+func (n NoopVisitor) VisitMapField(f *MapField) {}
+
+// VisitGroup is part of Visitor interface
+func (n NoopVisitor) VisitGroup(g *Group) {}
+
+// VisitExtensions is part of Visitor interface
 func (n NoopVisitor) VisitExtensions(e *Extensions) {}

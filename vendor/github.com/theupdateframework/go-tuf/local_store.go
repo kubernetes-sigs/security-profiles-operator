@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
 	"github.com/theupdateframework/go-tuf/data"
-	"github.com/theupdateframework/go-tuf/encrypted"
 	"github.com/theupdateframework/go-tuf/internal/fsutil"
 	"github.com/theupdateframework/go-tuf/internal/sets"
 	"github.com/theupdateframework/go-tuf/pkg/keys"

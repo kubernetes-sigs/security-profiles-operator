@@ -15,6 +15,29 @@ import (
 	credential "github.com/aliyun/credentials-go/credentials"
 )
 
+type GlobalParameters struct {
+	Headers map[string]*string `json:"headers,omitempty" xml:"headers,omitempty"`
+	Queries map[string]*string `json:"queries,omitempty" xml:"queries,omitempty"`
+}
+
+func (s GlobalParameters) String() string {
+	return tea.Prettify(s)
+}
+
+func (s GlobalParameters) GoString() string {
+	return s.String()
+}
+
+func (s *GlobalParameters) SetHeaders(v map[string]*string) *GlobalParameters {
+	s.Headers = v
+	return s
+}
+
+func (s *GlobalParameters) SetQueries(v map[string]*string) *GlobalParameters {
+	s.Queries = v
+	return s
+}
+
 /**
  * Model for initing client
  */
@@ -68,6 +91,8 @@ type Config struct {
 	SignatureVersion *string `json:"signatureVersion,omitempty" xml:"signatureVersion,omitempty"`
 	// Signature Algorithm
 	SignatureAlgorithm *string `json:"signatureAlgorithm,omitempty" xml:"signatureAlgorithm,omitempty"`
+	// Global Parameters
+	GlobalParameters *GlobalParameters `json:"globalParameters,omitempty" xml:"globalParameters,omitempty"`
 }
 
 func (s Config) String() string {
@@ -195,6 +220,11 @@ func (s *Config) SetSignatureVersion(v string) *Config {
 
 func (s *Config) SetSignatureAlgorithm(v string) *Config {
 	s.SignatureAlgorithm = &v
+	return s
+}
+
+func (s *Config) SetGlobalParameters(v *GlobalParameters) *Config {
+	s.GlobalParameters = v
 	return s
 }
 
@@ -336,6 +366,7 @@ type Client struct {
 	SignatureAlgorithm   *string
 	Headers              map[string]*string
 	Spi                  spi.ClientInterface
+	GlobalParameters     *GlobalParameters
 }
 
 /**
@@ -397,6 +428,7 @@ func (client *Client) Init(config *Config) (_err error) {
 	client.MaxIdleConns = config.MaxIdleConns
 	client.SignatureVersion = config.SignatureVersion
 	client.SignatureAlgorithm = config.SignatureAlgorithm
+	client.GlobalParameters = config.GlobalParameters
 	return nil
 }
 
@@ -1085,7 +1117,22 @@ func (client *Client) DoRequest(params *Params, request *OpenApiRequest, runtime
 			request_.Protocol = util.DefaultString(client.Protocol, params.Protocol)
 			request_.Method = params.Method
 			request_.Pathname = params.Pathname
-			request_.Query = request.Query
+			globalQueries := make(map[string]*string)
+			globalHeaders := make(map[string]*string)
+			if !tea.BoolValue(util.IsUnset(tea.ToMap(client.GlobalParameters))) {
+				globalParams := client.GlobalParameters
+				if !tea.BoolValue(util.IsUnset(globalParams.Queries)) {
+					globalQueries = globalParams.Queries
+				}
+
+				if !tea.BoolValue(util.IsUnset(globalParams.Headers)) {
+					globalHeaders = globalParams.Headers
+				}
+
+			}
+
+			request_.Query = tea.Merge(globalQueries,
+				request.Query)
 			// endpoint is setted in product client
 			request_.Headers = tea.Merge(map[string]*string{
 				"host":                  client.Endpoint,
@@ -1095,7 +1142,8 @@ func (client *Client) DoRequest(params *Params, request *OpenApiRequest, runtime
 				"x-acs-date":            openapiutil.GetTimestamp(),
 				"x-acs-signature-nonce": util.GetNonce(),
 				"accept":                tea.String("application/json"),
-			}, request.Headers)
+			}, globalHeaders,
+				request.Headers)
 			if tea.BoolValue(util.EqualString(params.Style, tea.String("RPC"))) {
 				headers, _err := client.GetRpcHeaders()
 				if _err != nil {
@@ -1213,8 +1261,9 @@ func (client *Client) DoRequest(params *Params, request *OpenApiRequest, runtime
 
 			if tea.BoolValue(util.EqualString(params.BodyType, tea.String("binary"))) {
 				resp := map[string]interface{}{
-					"body":    response_.Body,
-					"headers": response_.Headers,
+					"body":       response_.Body,
+					"headers":    response_.Headers,
+					"statusCode": tea.IntValue(response_.StatusCode),
 				}
 				_result = resp
 				return _result, _err
@@ -1226,8 +1275,9 @@ func (client *Client) DoRequest(params *Params, request *OpenApiRequest, runtime
 
 				_result = make(map[string]interface{})
 				_err = tea.Convert(map[string]interface{}{
-					"body":    byt,
-					"headers": response_.Headers,
+					"body":       byt,
+					"headers":    response_.Headers,
+					"statusCode": tea.IntValue(response_.StatusCode),
 				}, &_result)
 				return _result, _err
 			} else if tea.BoolValue(util.EqualString(params.BodyType, tea.String("string"))) {
@@ -1238,8 +1288,9 @@ func (client *Client) DoRequest(params *Params, request *OpenApiRequest, runtime
 
 				_result = make(map[string]interface{})
 				_err = tea.Convert(map[string]interface{}{
-					"body":    tea.StringValue(str),
-					"headers": response_.Headers,
+					"body":       tea.StringValue(str),
+					"headers":    response_.Headers,
+					"statusCode": tea.IntValue(response_.StatusCode),
 				}, &_result)
 				return _result, _err
 			} else if tea.BoolValue(util.EqualString(params.BodyType, tea.String("json"))) {
@@ -1251,8 +1302,9 @@ func (client *Client) DoRequest(params *Params, request *OpenApiRequest, runtime
 				res := util.AssertAsMap(obj)
 				_result = make(map[string]interface{})
 				_err = tea.Convert(map[string]interface{}{
-					"body":    res,
-					"headers": response_.Headers,
+					"body":       res,
+					"headers":    response_.Headers,
+					"statusCode": tea.IntValue(response_.StatusCode),
 				}, &_result)
 				return _result, _err
 			} else if tea.BoolValue(util.EqualString(params.BodyType, tea.String("array"))) {
@@ -1263,14 +1315,16 @@ func (client *Client) DoRequest(params *Params, request *OpenApiRequest, runtime
 
 				_result = make(map[string]interface{})
 				_err = tea.Convert(map[string]interface{}{
-					"body":    arr,
-					"headers": response_.Headers,
+					"body":       arr,
+					"headers":    response_.Headers,
+					"statusCode": tea.IntValue(response_.StatusCode),
 				}, &_result)
 				return _result, _err
 			} else {
 				_result = make(map[string]interface{})
-				_err = tea.Convert(map[string]map[string]*string{
-					"headers": response_.Headers,
+				_err = tea.Convert(map[string]interface{}{
+					"headers":    response_.Headers,
+					"statusCode": tea.IntValue(response_.StatusCode),
 				}, &_result)
 				return _result, _err
 			}
@@ -1347,10 +1401,26 @@ func (client *Client) Execute(params *Params, request *OpenApiRequest, runtime *
 				return _result, _err
 			}
 
+			globalQueries := make(map[string]*string)
+			globalHeaders := make(map[string]*string)
+			if !tea.BoolValue(util.IsUnset(tea.ToMap(client.GlobalParameters))) {
+				globalParams := client.GlobalParameters
+				if !tea.BoolValue(util.IsUnset(globalParams.Queries)) {
+					globalQueries = globalParams.Queries
+				}
+
+				if !tea.BoolValue(util.IsUnset(globalParams.Headers)) {
+					globalHeaders = globalParams.Headers
+				}
+
+			}
+
 			requestContext := &spi.InterceptorContextRequest{
-				Headers: tea.Merge(request.Headers,
+				Headers: tea.Merge(globalHeaders,
+					request.Headers,
 					headers),
-				Query:              request.Query,
+				Query: tea.Merge(globalQueries,
+					request.Query),
 				Body:               request.Body,
 				Stream:             request.Stream,
 				HostMap:            request.HostMap,
@@ -1416,8 +1486,9 @@ func (client *Client) Execute(params *Params, request *OpenApiRequest, runtime *
 			}
 			_result = make(map[string]interface{})
 			_err = tea.Convert(map[string]interface{}{
-				"headers": interceptorContext.Response.Headers,
-				"body":    interceptorContext.Response.DeserializedBody,
+				"headers":    interceptorContext.Response.Headers,
+				"statusCode": tea.IntValue(interceptorContext.Response.StatusCode),
+				"body":       interceptorContext.Response.DeserializedBody,
 			}, &_result)
 			return _result, _err
 		}()
