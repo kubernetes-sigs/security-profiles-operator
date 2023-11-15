@@ -30,7 +30,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/suite"
-	"k8s.io/klog/v2/klogr"
+	"k8s.io/klog/v2/textlogger"
 	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/release-utils/util"
 
@@ -188,7 +188,7 @@ func TestSuite(t *testing.T) {
 		}
 		suite.Run(t, &kinde2e{
 			e2e{
-				logger:              klogr.New(),
+				logger:              textlogger.NewLogger(textlogger.NewConfig()),
 				pullPolicy:          "Never",
 				testImage:           testImage,
 				spodConfig:          spodConfig,
@@ -218,7 +218,7 @@ func TestSuite(t *testing.T) {
 
 		suite.Run(t, &openShifte2e{
 			e2e{
-				logger: klogr.New(),
+				logger: textlogger.NewLogger(textlogger.NewConfig()),
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
 				pullPolicy:          "Always",
@@ -247,7 +247,7 @@ func TestSuite(t *testing.T) {
 		selinuxdImage = "quay.io/security-profiles-operator/selinuxd-fedora"
 		suite.Run(t, &vanilla{
 			e2e{
-				logger:              klogr.New(),
+				logger:              textlogger.NewLogger(textlogger.NewConfig()),
 				pullPolicy:          "Never",
 				testImage:           testImage,
 				spodConfig:          spodConfig,
