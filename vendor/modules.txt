@@ -1833,7 +1833,8 @@ k8s.io/klog/v2/internal/dbg
 k8s.io/klog/v2/internal/serialize
 k8s.io/klog/v2/internal/severity
 k8s.io/klog/v2/internal/sloghandler
-k8s.io/klog/v2/klogr
+k8s.io/klog/v2/internal/verbosity
+k8s.io/klog/v2/textlogger
 # k8s.io/kube-openapi v0.0.0-20230905202853-d090da108d2f
 ## explicit; go 1.19
 k8s.io/kube-openapi/pkg/builder3/util
