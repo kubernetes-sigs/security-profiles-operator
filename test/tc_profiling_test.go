@@ -52,7 +52,7 @@ func (e *e2e) testCaseProfilingHTTP([]string) {
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
 	output := e.getProfilingHTTPVersion()
-	e.Contains(output, "HTTP/1.1")
+	e.Contains(output, "1.1\n")
 }
 
 func (e *e2e) getProfilingEndpoint() string {

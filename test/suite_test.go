@@ -635,7 +635,7 @@ const (
 	curlBaseCMD    = "curl -ksfL --retry 5 --retry-delay 3 --show-error "
 	headerAuth     = "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
 	curlCMD        = curlBaseCMD + headerAuth
-	curlHTTPVerCMD = curlCMD + "-I "
+	curlHTTPVerCMD = curlCMD + "-I -w '%{http_version}\n' -o/dev/null "
 	metricsURL     = "https://metrics.security-profiles-operator.svc.cluster.local/"
 	webhooksURL    = "https://webhook-service.security-profiles-operator.svc:443/"
 	curlSpodCMD    = curlCMD + metricsURL + "metrics-spod"

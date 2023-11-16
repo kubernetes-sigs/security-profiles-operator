@@ -110,6 +110,6 @@ func (e *e2e) testCaseWebhookHTTP([]string) {
 	}
 	for _, endpoint := range endpoints {
 		output := e.runAndRetryPodCMD(endpoint)
-		e.Contains(output, "HTTP/1.1")
+		e.Contains(output, "1.1")
 	}
 }
