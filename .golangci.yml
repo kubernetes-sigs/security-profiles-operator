@@ -44,6 +44,7 @@ linters:
     - ginkgolinter
     - gocheckcompilerdirectives
     - gochecknoinits
+    - gochecksumtype
     - gocognit
     - goconst
     - gocritic
@@ -85,6 +86,7 @@ linters:
     - reassign
     - revive
     - rowserrcheck
+    - sloglint
     - sqlclosecheck
     - staticcheck
     - stylecheck
@@ -109,16 +111,22 @@ linters:
     # - funlen
     # - gochecknoglobals
     # - gomoddirectives
+    # - inamedparam
     # - interfacebloat
     # - ireturn
     # - maintidx
     # - nlreturn
     # - nonamedreturns
+    # - perfsprint
+    # - protogetter
+    # - testifylint
     # - testpackage
     # - varnamelen
     # - wrapcheck
     # - wsl
 linters-settings:
+  goconst:
+    min-occurrences: 6
   gomoddirectives:
     replace-allow-list:
       - golang.org/x/sys
