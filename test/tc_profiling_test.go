@@ -57,10 +57,13 @@ func (e *e2e) testCaseProfilingHTTP([]string) {
 
 func (e *e2e) getProfilingEndpoint() string {
 	// lets only check the first spod pod
-	podIP := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o", "jsonpath={.items[0].status.podIP}")
+	podName := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o", "jsonpath={.items[0].metadata.name}")
+	podIP := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o",
+		fmt.Sprintf("jsonpath={.items[?(@.metadata.name=='%s')].status.podIP}", podName))
 	podPort := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o",
-		"jsonpath={.items[0].spec.containers[?(@.name=='security-profiles-operator')]"+
-			".env[?(@.name=='SPO_PROFILING_PORT')].value}")
+		fmt.Sprintf("jsonpath={.items[?(@.metadata.name=='%s')]"+
+			".spec.containers[?(@.name=='security-profiles-operator')]"+
+			".env[?(@.name=='SPO_PROFILING_PORT')].value}", podName))
 	return "http://" + podIP + ":" + podPort + "/debug/pprof/heap"
 }
 
