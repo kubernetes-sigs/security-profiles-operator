@@ -21,7 +21,7 @@ curl_retry() {
 
 install_yq() {
     echo "Installing yq"
-    YQ_VERSION=4.33.3
+    YQ_VERSION=4.35.2
     curl_retry -o /usr/bin/yq \
         https://github.com/mikefarah/yq/releases/download/v$YQ_VERSION/yq_linux_amd64
     sudo chmod +x /usr/bin/yq
@@ -69,7 +69,7 @@ wait_for() {
 }
 
 install_operator() {
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.1/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.2/cert-manager.yaml
     k_wait -n cert-manager pod -l app.kubernetes.io/instance=cert-manager
 
     git apply hack/deploy-localhost.patch

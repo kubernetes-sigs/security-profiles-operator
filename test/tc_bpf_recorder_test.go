@@ -84,6 +84,7 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 
 	since, podName := e.createRecordingTestPod()
 
+	//nolint:goconst // no need to make the nginx prefix a const
 	resourceName := recordingName + "-nginx"
 	e.waitForBpfRecorderLogs(since, resourceName)
 

@@ -14,7 +14,7 @@ dependencies:
       match: CI_IMAGE
 
   - name: golangci-lint
-    version: 1.54.1
+    version: 1.55.2
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -26,7 +26,7 @@ dependencies:
       match: REPO_INFRA_VERSION
 
   - name: kustomize
-    version: 5.1.0
+    version: 5.2.1
     refPaths:
     - path: Makefile
       match: KUSTOMIZE_VERSION
@@ -44,7 +44,7 @@ dependencies:
       match: OLM_VERSION
 
   - name: cert-manager
-    version: 1.12.1
+    version: 1.13.2
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -108,7 +108,7 @@ dependencies:
       match: tag
 
   - name: nix
-    version: 2.15.1
+    version: 2.18.1
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION
@@ -138,7 +138,7 @@ dependencies:
       match: gcr.io/kubebuilder/kube-rbac-proxy
 
   - name: gcb-docker-gcloud
-    version: v20230522-312425ae46
+    version: v20231105-52c482caa0
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
@@ -176,10 +176,11 @@ dependencies:
       match: RUNC_VERSION
 
   - name: cosign
-    version: v2.2.0
+    version: v2.2.1
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
       match: COSIGN_VERSION
+
   - name: bom
     version: v0.5.1
     refPaths:
@@ -228,13 +229,13 @@ dependencies:
       match: flatcar_developer_container
 
   - name: zeitgeist
-    version: 0.4.1
+    version: 0.4.3
     refPaths:
       - path: Makefile
         match: ZEITGEIST_VERSION
 
   - name: yq
-    version: 4.33.3
+    version: 4.35.2
     refPaths:
       - path: hack/ci/baseprofiles.sh
         match: YQ_VERSION
