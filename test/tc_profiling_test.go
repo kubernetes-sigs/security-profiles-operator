@@ -17,7 +17,12 @@ limitations under the License.
 package e2e_test
 
 import (
+	"fmt"
+	"math/rand"
+	"strings"
 	"time"
+
+	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 func (e *e2e) testCaseProfilingChange([]string) {
@@ -46,15 +51,44 @@ func (e *e2e) testCaseProfilingHTTP([]string) {
 
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
+	output := e.getProfilingHTTPVersion()
+	e.Contains(output, "HTTP/1.1")
+}
+
+func (e *e2e) getProfilingEndpoint() string {
 	// lets only check the first spod pod
 	podIP := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o", "jsonpath={.items[0].status.podIP}")
 	podPort := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o",
 		"jsonpath={.items[0].spec.containers[?(@.name=='security-profiles-operator')]"+
 			".env[?(@.name=='SPO_PROFILING_PORT')].value}")
-	profilingEndpoint := "http://" + podIP + ":" + podPort + "/debug/pprof/heap"
+	return "http://" + podIP + ":" + podPort + "/debug/pprof/heap"
+}
 
-	profilingCurlCMD := curlHTTPVerCMD + profilingEndpoint
-
-	output := e.runAndRetryPodCMD(profilingCurlCMD)
-	e.Contains(output, "HTTP/1.1")
+// This funcion is inspired by e2e.runAndRetryPodCMD().
+func (e *e2e) getProfilingHTTPVersion() string {
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec
+	letters := []rune("abcdefghijklmnopqrstuvwxyz")
+	b := make([]rune, 10)
+	for i := range b {
+		b[i] = letters[r.Intn(len(letters))]
+	}
+	// Sometimes the endpoint does not output anything in CI. We fix
+	// that by retrying the endpoint several times.
+	var output string
+	if err := spoutil.Retry(func() error {
+		profilingEndpoint := e.getProfilingEndpoint()
+		profilingCurlCMD := curlHTTPVerCMD + profilingEndpoint
+		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", profilingCurlCMD)
+		if len(strings.Split(output, "\n")) > 1 {
+			return nil
+		}
+		output = ""
+		return fmt.Errorf("no output from profiling curl command")
+	}, func(err error) bool {
+		e.logf("retry on error: %s", err)
+		return true
+	}); err != nil {
+		e.Failf("unable to get profiling endpoint http version", "error: %s", err)
+	}
+	return output
 }
