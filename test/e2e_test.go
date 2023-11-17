@@ -69,6 +69,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	e.logf("testing cluster-wide operator")
 	testCases := []testCase{
 		{
+			"SPOD: Profiling server protocol",
+			e.testCaseProfilingHTTP,
+		},
+		{
 			"Seccomp: Verify default and example profiles",
 			e.testCaseDefaultAndExampleProfiles,
 		},
@@ -126,10 +130,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		{
 			"SPOD: Change profiling",
 			e.testCaseProfilingChange,
-		},
-		{
-			"SPOD: Profiling server protocol",
-			e.testCaseProfilingHTTP,
 		},
 		{
 			"SPOD: Enable memory optimiztaion",

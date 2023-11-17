@@ -17,11 +17,13 @@ limitations under the License.
 package e2e_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"strings"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -43,7 +45,15 @@ func (e *e2e) testCaseProfilingChange([]string) {
 }
 
 func (e *e2e) testCaseProfilingHTTP([]string) {
+	e.selinuxOnlyTestCase()
 	e.logf("Test profiling HTTP version")
+	e.logf("enable selinux in the spod object, this is needed to test the profiling endpoint")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
+	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+	e.logf("assert selinux is enabled in the spod DS")
+	selinuxEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
+	e.Contains(selinuxEnabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Enable spod profiling to test endpoint HTTP version")
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableProfiling": true}}`, "--type=merge")
@@ -53,17 +63,45 @@ func (e *e2e) testCaseProfilingHTTP([]string) {
 
 	output := e.getProfilingHTTPVersion()
 	e.Contains(output, "1.1\n")
+
+	e.logf("Disable selinux from SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": false}}`, "--type=merge")
+
+	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 }
 
 func (e *e2e) getProfilingEndpoint() string {
-	// lets only check the first spod pod
-	podName := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o", "jsonpath={.items[0].metadata.name}")
-	podIP := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o",
-		fmt.Sprintf("jsonpath={.items[?(@.metadata.name=='%s')].status.podIP}", podName))
-	podPort := e.kubectlOperatorNS("get", "pods", "-l", "name=spod", "-o",
-		fmt.Sprintf("jsonpath={.items[?(@.metadata.name=='%s')]"+
-			".spec.containers[?(@.name=='security-profiles-operator')]"+
-			".env[?(@.name=='SPO_PROFILING_PORT')].value}", podName))
+	spodListOutput := e.kubectlOperatorNS("get", "pod", "-l", "app=spod", "-o", "json")
+	// printout the spod list output
+	e.logf("spod list output: %s", spodListOutput)
+	var spodList v1.PodList
+	if err := json.Unmarshal([]byte(spodListOutput), &spodList); err != nil {
+		e.Failf("unable to unmarshal spod list", "error: %s", err)
+	}
+	if len(spodList.Items) == 0 {
+		e.Fail("no spod found")
+	}
+	spod := spodList.Items[0]
+	// find the security-profiles-operator container for SPO_PROFILING_PORT env var
+	var podPort string
+	for _, container := range spod.Spec.Containers {
+		if container.Name == "security-profiles-operator" {
+			for _, env := range container.Env {
+				if env.Name == "SPO_PROFILING_PORT" {
+					podPort = env.Value
+				}
+			}
+		}
+	}
+	if podPort == "" {
+		e.Fail("no profiling port found")
+	}
+	// find the pod IP
+	podIP := spod.Status.PodIP
+	if podIP == "" {
+		e.Fail("no pod IP found")
+	}
 	return "http://" + podIP + ":" + podPort + "/debug/pprof/heap"
 }
 
