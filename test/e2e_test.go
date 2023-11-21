@@ -308,7 +308,6 @@ func (e *e2e) deployOperator(manifest string) {
 	e.updateManifest(manifest, "imagePullPolicy: Always", fmt.Sprintf("imagePullPolicy: %s", e.pullPolicy))
 	e.updateManifest(manifest, "image: .*gcr.io/k8s-staging-sp-operator/.*", fmt.Sprintf("image: %s", e.testImage))
 	e.updateManifest(manifest, "value: .*gcr.io/k8s-staging-sp-operator/.*", fmt.Sprintf("value: %s", e.testImage))
-	e.updateManifest(manifest, "value: .*quay.io/.*/selinuxd.*", fmt.Sprintf("value: %s", e.selinuxdImage))
 	if e.selinuxEnabled {
 		e.updateManifest(manifest, "enableSelinux: false", "enableSelinux: true")
 	}

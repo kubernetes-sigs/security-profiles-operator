@@ -327,6 +327,7 @@ func (e *kinde2e) SetupSuite() {
 
 	var err error
 	e.kubectlPath, err = exec.LookPath("kubectl")
+	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", fmt.Sprintf("value: %s", e.selinuxdImage))
 	e.Nil(err)
 }
 
@@ -517,6 +518,7 @@ func (e *vanilla) SetupSuite() {
 	e.e2e.waitForReadyPods = e.waitForReadyPodsVanilla
 	e.e2e.deployCertManager = e.deployCertManagerVanilla
 	e.e2e.setupRecordingSa = e.deployRecordingSa
+	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", fmt.Sprintf("value: %s", e.selinuxdImage))
 	e.Nil(err)
 }
 
