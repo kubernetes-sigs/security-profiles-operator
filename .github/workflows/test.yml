@@ -56,22 +56,21 @@ jobs:
           path: image.tar
 
   e2e-fedora:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
     needs: image
-    runs-on: macos-12
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      RUN: ./hack/ci/run-fedora.sh
+      RUN: sudo -E ./hack/ci/run-fedora.sh
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
       - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with:
           name: image
           path: .
+      - name: Install dependencies
+        run: sudo hack/ci/github-actions-setup
       - name: Boot Virtual Machine
-        run: make vagrant-up-fedora
+        run: sudo -E make vagrant-up-fedora
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
@@ -88,22 +87,21 @@ jobs:
           $RUN hack/ci/e2e-fedora.sh
 
   e2e-ubuntu:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
     needs: image
-    runs-on: macos-12
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      RUN: ./hack/ci/run-ubuntu.sh
+      RUN: sudo -E ./hack/ci/run-ubuntu.sh
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
       - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with:
           name: image
           path: .
+      - name: Install dependencies
+        run: sudo hack/ci/github-actions-setup
       - name: Boot Virtual Machine
-        run: make vagrant-up-ubuntu
+        run: sudo -E make vagrant-up-ubuntu
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
@@ -120,60 +118,58 @@ jobs:
           $RUN hack/ci/e2e-ubuntu.sh
 
   e2e-flatcar:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
     needs: image
-    runs-on: macos-12
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      RUN: ./hack/ci/run-flatcar.sh
+      RUN: sudo -E ./hack/ci/run-flatcar.sh
     steps:
-       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-       - name: Vagrant box version
-         id: vagrant-box
-         run: |
-           echo "version=$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')" >> $GITHUB_OUTPUT
-         shell: bash
-       - name: Upgrade vagrant box
-         run: |
-           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
-           vagrant box update
-       - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
-         with:
-           name: image
-           path: .
-       - name: Boot Virtual Machine
-         run: make vagrant-up-flatcar
-       - name: Show environment information
-         run: |
-           $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
-           $RUN kubectl get nodes -o wide
-       - name: Run E2E tests
-         run: $RUN hack/ci/e2e-flatcar-dev-container.sh
-       - name: Run Flaky E2E tests
-         continue-on-error: true
-         run: |
-           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
-           $RUN hack/ci/e2e-flatcar-dev-container.sh
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+      - name: Install dependencies
+        run: sudo hack/ci/github-actions-setup
+      - name: Vagrant box version
+        id: vagrant-box
+        run: |
+          echo "version=$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')" >> $GITHUB_OUTPUT
+        shell: bash
+      - name: Upgrade vagrant box
+        run: |
+          ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
+          sudo vagrant box update
+      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+        with:
+          name: image
+          path: .
+      - name: Boot Virtual Machine
+        run: sudo -E make vagrant-up-flatcar
+      - name: Show environment information
+        run: |
+          $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
+          $RUN kubectl get nodes -o wide
+      - name: Run E2E tests
+        run: $RUN hack/ci/e2e-flatcar-dev-container.sh
+      - name: Run Flaky E2E tests
+        continue-on-error: true
+        run: |
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
+          $RUN hack/ci/e2e-flatcar-dev-container.sh
 
   baseprofiles:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
     needs: image
-    runs-on: macos-12
+    runs-on: ubuntu-latesubuntu-latest
     timeout-minutes: 90
     env:
-      RUN: ./hack/ci/run-ubuntu.sh
+      RUN: sudo -E ./hack/ci/run-ubuntu.sh
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
       - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
         with:
           name: image
           path: .
+      - name: Install dependencies
+        run: sudo hack/ci/github-actions-setup
       - name: Boot Virtual Machine
-        run: make vagrant-up-ubuntu
+        run: sudo -E make vagrant-up-ubuntu
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all

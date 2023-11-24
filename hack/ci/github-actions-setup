@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euox pipefail
+
+apt-get update
+apt-get install -y \
+    libvirt-daemon-system \
+    qemu-kvm \
+    vagrant
+
+systemctl enable --now libvirtd
