@@ -69,6 +69,7 @@ EOF
 
       # Load the prebuilt container image
       podman load -i /vagrant/image.tar
+      podman tag gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest localhost/security-profiles-operator:latest
 
       # Setup CRI-O
       dnf download --repo cri-o --arch x86_64 cri-o

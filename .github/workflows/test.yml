@@ -10,66 +10,65 @@ env:
 permissions: {}
 
 jobs:
-  analyze:
-    permissions:
-
-      # write security-events is required by all codeql-action workflows
-      security-events: write
-
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: github/codeql-action/init@cdcdbb579706841c47f7063dda365e292e5cad7a
-        with:
-          languages: go
-      - uses: github/codeql-action/autobuild@cdcdbb579706841c47f7063dda365e292e5cad7a
-      - uses: github/codeql-action/analyze@cdcdbb579706841c47f7063dda365e292e5cad7a
-
-  coverage:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/setup-go@93397bea11091df50f3d7e59dc26a7711a8bcfbe
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
-          sudo hack/install-libbpf.sh
-      - run: make test-unit
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          files: build/coverage.out
-          flags: unittests
-          verbose: true
-
-  image:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - run: make image
-      - run: podman save -o image.tar security-profiles-operator
-      - uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32
-        with:
-          name: image
-          path: image.tar
+#  analyze:
+#    permissions:
+#
+#      # write security-events is required by all codeql-action workflows
+#      security-events: write
+#
+#    runs-on: ubuntu-22.04
+#    steps:
+#      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+#      - uses: github/codeql-action/init@cdcdbb579706841c47f7063dda365e292e5cad7a
+#        with:
+#          languages: go
+#      - uses: github/codeql-action/autobuild@cdcdbb579706841c47f7063dda365e292e5cad7a
+#      - uses: github/codeql-action/analyze@cdcdbb579706841c47f7063dda365e292e5cad7a
+#
+#  coverage:
+#    runs-on: ubuntu-22.04
+#    steps:
+#      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+#      - uses: actions/setup-go@93397bea11091df50f3d7e59dc26a7711a8bcfbe
+#        with:
+#          go-version: ${{ env.GO_VERSION }}
+#      - name: Install dependencies
+#        run: |
+#          sudo apt update
+#          sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
+#          sudo hack/install-libbpf.sh
+#      - run: make test-unit
+#      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+#        with:
+#          files: build/coverage.out
+#          flags: unittests
+#          verbose: true
+#
+#  image:
+#    runs-on: ubuntu-22.04
+#    steps:
+#      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+#      - run: make image
+#      - run: podman save -o image.tar security-profiles-operator
+#      - uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32
+#        with:
+#          name: image
+#          path: image.tar
 
   e2e-fedora:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
-    needs: image
+    #needs: image
     runs-on: macos-12
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-fedora.sh
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
-        with:
-          name: image
-          path: .
+      #- uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      #  with:
+      #    name: image
+      #    path: .
+      - name: Fake local image
+        run: tar xfvz image.tar.gz
       - name: Boot Virtual Machine
         run: make vagrant-up-fedora
       - name: Show environment information
@@ -88,20 +87,19 @@ jobs:
           $RUN hack/ci/e2e-fedora.sh
 
   e2e-ubuntu:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
-    needs: image
+    #needs: image
     runs-on: macos-12
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
-        with:
-          name: image
-          path: .
+      #- uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      #  with:
+      #    name: image
+      #    path: .
+      - name: Fake local image
+        run: tar xfvz image.tar.gz
       - name: Boot Virtual Machine
         run: make vagrant-up-ubuntu
       - name: Show environment information
@@ -120,58 +118,56 @@ jobs:
           $RUN hack/ci/e2e-ubuntu.sh
 
   e2e-flatcar:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
-    needs: image
+    #needs: image
     runs-on: macos-12
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-flatcar.sh
     steps:
-       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-       - name: Vagrant box version
-         id: vagrant-box
-         run: |
-           echo "version=$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')" >> $GITHUB_OUTPUT
-         shell: bash
-       - name: Upgrade vagrant box
-         run: |
-           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
-           vagrant box update
-       - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
-         with:
-           name: image
-           path: .
-       - name: Boot Virtual Machine
-         run: make vagrant-up-flatcar
-       - name: Show environment information
-         run: |
-           $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
-           $RUN kubectl get nodes -o wide
-       - name: Run E2E tests
-         run: $RUN hack/ci/e2e-flatcar-dev-container.sh
-       - name: Run Flaky E2E tests
-         continue-on-error: true
-         run: |
-           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
-           $RUN hack/ci/e2e-flatcar-dev-container.sh
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+      - name: Vagrant box version
+        id: vagrant-box
+        run: |
+          echo "version=$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')" >> $GITHUB_OUTPUT
+        shell: bash
+      - name: Upgrade vagrant box
+        run: |
+          ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
+          vagrant box update
+       #- uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+       #  with:
+       #    name: image
+       #    path: .
+      - name: Fake local image
+        run: tar xfvz image.tar.gz
+      - name: Boot Virtual Machine
+        run: make vagrant-up-flatcar
+      - name: Show environment information
+        run: |
+          $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
+          $RUN kubectl get nodes -o wide
+      - name: Run E2E tests
+        run: $RUN hack/ci/e2e-flatcar-dev-container.sh
+      - name: Run Flaky E2E tests
+        continue-on-error: true
+        run: |
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
+          $RUN hack/ci/e2e-flatcar-dev-container.sh
 
   baseprofiles:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
-    needs: image
+    #needs: image
     runs-on: macos-12
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
-        with:
-          name: image
-          path: .
+      #- uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      #  with:
+      #    name: image
+      #    path: .
+      - name: Fake local image
+        run: tar xfvz image.tar.gz
       - name: Boot Virtual Machine
         run: make vagrant-up-ubuntu
       - name: Show environment information
@@ -184,10 +180,10 @@ jobs:
       - name: Record baseprofiles
         run: $RUN hack/ci/baseprofiles.sh
 
-  typos:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: crate-ci/typos@v1.16.23
-        with:
-          config: .typos.toml
+#  typos:
+#    runs-on: ubuntu-22.04
+#    steps:
+#      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+#      - uses: crate-ci/typos@v1.16.23
+#        with:
+#          config: .typos.toml

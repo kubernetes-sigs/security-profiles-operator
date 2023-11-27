@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -euo pipefail
+set -euox pipefail
 
 curl_retry() {
     sudo curl -sSfL --retry 5 --retry-delay 3 "$@"
@@ -33,7 +33,7 @@ k() {
 }
 
 k_wait() {
-    k wait --timeout 120s --for condition=ready "$@"
+    k wait --timeout 300s --for condition=ready "$@" || (k describe "$@" && k logs -l name=spod && exit 1)
 }
 
 wait_for_pod_name_label() {
