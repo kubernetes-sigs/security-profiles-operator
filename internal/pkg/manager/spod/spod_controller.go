@@ -214,6 +214,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	}
 
 	if spodUpdate || hookUpdate {
+		r.log.Info("Updating spod", "spodUpdate", spodUpdate, "hookUpdate", hookUpdate)
 		updatedSPod := foundSPOd.DeepCopy()
 		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
 		updateErr := r.handleUpdate(
@@ -241,7 +242,7 @@ func (r *ReconcileSPOd) handleInitialStatus(
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (res reconcile.Result, err error) {
-	l.Info("Adding an initial status to the SPOD Instance")
+	l.Info("Adding an initial status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StatePending()
 	updateErr := r.client.Status().Update(ctx, sCopy)
@@ -256,7 +257,7 @@ func (r *ReconcileSPOd) handleCreatingStatus(
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (res reconcile.Result, err error) {
-	l.Info("Adding 'Creating' status to the SPOD Instance")
+	l.Info("Adding 'Creating' status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateCreating()
 	updateErr := r.client.Status().Update(ctx, sCopy)
@@ -271,7 +272,7 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (res reconcile.Result, err error) {
-	l.Info("Adding 'Updating' status to the SPOD Instance")
+	l.Info("Adding 'Updating' status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateUpdating()
 	updateErr := r.client.Status().Update(ctx, sCopy)
@@ -295,7 +296,7 @@ func (r *ReconcileSPOd) handleRunningStatus(
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (res reconcile.Result, err error) {
-	l.Info("Adding 'Running' status to the SPOD Instance")
+	l.Info("Adding 'Running' status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateRunning()
 	updateErr := r.client.Status().Update(ctx, sCopy)
