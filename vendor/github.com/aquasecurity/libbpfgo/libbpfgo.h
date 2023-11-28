@@ -60,4 +60,45 @@ void cgo_bpf_map_create_opts_free(struct bpf_map_create_opts *opts);
 struct bpf_map_batch_opts *cgo_bpf_map_batch_opts_new(__u64 elem_flags, __u64 flags);
 void cgo_bpf_map_batch_opts_free(struct bpf_map_batch_opts *opts);
 
+struct bpf_map_info *cgo_bpf_map_info_new();
+__u32 cgo_bpf_map_info_size();
+void cgo_bpf_map_info_free(struct bpf_map_info *info);
+
+struct bpf_tc_opts *cgo_bpf_tc_opts_new(
+    int prog_fd, __u32 flags, __u32 prog_id, __u32 handle, __u32 priority);
+void cgo_bpf_tc_opts_free(struct bpf_tc_opts *opts);
+
+struct bpf_tc_hook *cgo_bpf_tc_hook_new();
+void cgo_bpf_tc_hook_free(struct bpf_tc_hook *hook);
+
+//
+// struct getters
+//
+
+// bpf_map_info
+
+__u32 cgo_bpf_map_info_type(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_id(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_key_size(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_value_size(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_max_entries(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_map_flags(struct bpf_map_info *info);
+char *cgo_bpf_map_info_name(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_ifindex(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_btf_vmlinux_value_type_id(struct bpf_map_info *info);
+__u64 cgo_bpf_map_info_netns_dev(struct bpf_map_info *info);
+__u64 cgo_bpf_map_info_netns_ino(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_btf_id(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_btf_key_type_id(struct bpf_map_info *info);
+__u32 cgo_bpf_map_info_btf_value_type_id(struct bpf_map_info *info);
+__u64 cgo_bpf_map_info_map_extra(struct bpf_map_info *info);
+
+// bpf_tc_opts
+
+int cgo_bpf_tc_opts_prog_fd(struct bpf_tc_opts *opts);
+__u32 cgo_bpf_tc_opts_flags(struct bpf_tc_opts *opts);
+__u32 cgo_bpf_tc_opts_prog_id(struct bpf_tc_opts *opts);
+__u32 cgo_bpf_tc_opts_handle(struct bpf_tc_opts *opts);
+__u32 cgo_bpf_tc_opts_priority(struct bpf_tc_opts *opts);
+
 #endif

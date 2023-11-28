@@ -149,9 +149,16 @@ func (m *BPFMap) KeySize() int {
 	return int(C.bpf_map__key_size(m.bpfMap))
 }
 
-// TODO: implement `bpf_map__set_key_size` wrapper
-// func (m *BPFMap) SetKeySize(size uint32) error {
-// }
+// SetKeySize sets the key size to a BPFMap instance that is not yet associated
+// with a file descriptor.
+func (m *BPFMap) SetKeySize(size uint32) error {
+	retC := C.bpf_map__set_key_size(m.bpfMap, C.uint(size))
+	if retC < 0 {
+		return fmt.Errorf("could not set map key size: %w", syscall.Errno(-retC))
+	}
+
+	return nil
+}
 
 func (m *BPFMap) ValueSize() int {
 	return int(C.bpf_map__value_size(m.bpfMap))
@@ -163,6 +170,21 @@ func (m *BPFMap) SetValueSize(size uint32) error {
 	retC := C.bpf_map__set_value_size(m.bpfMap, C.uint(size))
 	if retC < 0 {
 		return fmt.Errorf("could not set map value size: %w", syscall.Errno(-retC))
+	}
+
+	return nil
+}
+
+func (m *BPFMap) Autocreate() bool {
+	return bool(C.bpf_map__autocreate(m.bpfMap))
+}
+
+// Autocreate sets whether libbpf has to auto-create BPF map during BPF object
+// load phase.
+func (m *BPFMap) SetAutocreate(autocreate bool) error {
+	retC := C.bpf_map__set_autocreate(m.bpfMap, C.bool(autocreate))
+	if retC < 0 {
+		return fmt.Errorf("could not set map autocreate: %w", syscall.Errno(-retC))
 	}
 
 	return nil
