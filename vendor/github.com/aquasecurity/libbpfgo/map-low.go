@@ -7,6 +7,7 @@ package libbpfgo
 import "C"
 
 import (
+	"errors"
 	"fmt"
 	"syscall"
 	"unsafe"
@@ -99,29 +100,60 @@ func GetMapByID(id uint32) (*BPFMapLow, error) {
 	}, nil
 }
 
-// GetMapsIDsByName searches for maps with a given name.
-// It returns a slice of unsigned 32-bit integers representing the IDs of matching maps.
-// If no maps are found, it returns an empty slice and no error.
-func GetMapsIDsByName(name string) ([]uint32, error) {
-	bpfMapsIds := []uint32{}
+// GetMapNextID retrieves the next available map ID after the given startID.
+// It returns the next map ID and an error if one occurs during the operation.
+func GetMapNextID(startId uint32) (uint32, error) {
+	startIDC := C.uint(startId)
+	retC := C.bpf_map_get_next_id(startIDC, &startIDC)
+	if retC == 0 {
+		return uint32(startIDC), nil
+	}
 
-	startId := C.uint(0)
-	nextId := C.uint(0)
+	return uint32(startIDC), fmt.Errorf("failed to get next map id: %w", syscall.Errno(-retC))
+}
+
+// GetMapsIDsByName searches for maps with a specified name and collects their IDs.
+// It starts the search from the given 'startId' and continues until no more matching maps are found.
+// The function returns a slice of unsigned 32-bit integers representing the IDs of matching maps.
+// If no maps with the provided 'name' are found, it returns an empty slice and no error.
+// The 'startId' is modified and returned as the last processed map ID.
+//
+// Example Usage:
+//
+//	name := "myMap"          // The name of the map you want to find.
+//	startId := uint32(0)     // The map ID to start the search from.
+//
+//	var mapIDs []uint32      // Initialize an empty slice to collect map IDs.
+//	var err error            // Initialize an error variable.
+//
+//	// Retry mechanism in case of errors using the last processed 'startId'.
+//	for {
+//	    mapIDs, err = GetMapsIDsByName(name, startId)
+//	    if err != nil {
+//	        // Handle other errors, possibly with a retry mechanism.
+//	        // You can use the 'startId' who contains the last processed map ID to continue the search.
+//	    } else {
+//	        // Successful search, use the 'mapIDs' slice containing the IDs of matching maps.
+//	        // Update 'startId' to the last processed map ID to continue the search.
+//	    }
+//	}
+func GetMapsIDsByName(name string, startId *uint32) ([]uint32, error) {
+	var (
+		bpfMapsIds []uint32
+		err        error
+	)
 
 	for {
-		retC := C.bpf_map_get_next_id(startId, &nextId)
-		errno := syscall.Errno(-retC)
-		if retC < 0 {
-			if errno == syscall.ENOENT {
+		*startId, err = GetMapNextID(*startId)
+		if err != nil {
+			if errors.Is(err, syscall.ENOENT) {
 				return bpfMapsIds, nil
 			}
 
-			return bpfMapsIds, fmt.Errorf("failed to get next map id: %w", errno)
+			return bpfMapsIds, err
 		}
 
-		startId = nextId + 1
-
-		bpfMapLow, err := GetMapByID(uint32(nextId))
+		bpfMapLow, err := GetMapByID(*startId)
 		if err != nil {
 			return bpfMapsIds, err
 		}

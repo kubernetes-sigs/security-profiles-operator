@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/acobaugh/osrelease v0.1.0
-	github.com/aquasecurity/libbpfgo v0.5.1-libbpf-1.2
+	github.com/aquasecurity/libbpfgo v0.6.0-libbpf-1.3
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cert-manager/cert-manager v1.13.2
 	github.com/containers/common v0.57.0
