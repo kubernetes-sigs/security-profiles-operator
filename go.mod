@@ -9,7 +9,7 @@ require (
 	github.com/cert-manager/cert-manager v1.13.2
 	github.com/containers/common v0.57.0
 	github.com/go-logr/logr v1.3.0
-	github.com/google/go-containerregistry v0.16.1
+	github.com/google/go-containerregistry v0.17.0
 	github.com/imdario/mergo v0.3.16
 	github.com/jellydator/ttlcache/v3 v3.1.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.7.0
