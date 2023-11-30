@@ -2,7 +2,7 @@
 with pkgs; buildGo121Module rec {
   name = "security-profiles-operator";
   src = ./..;
-  vendorSha256 = null;
+  vendorHash = null;
   doCheck = false;
   outputs = [ "out" ];
   nativeBuildInputs = with buildPackages; [

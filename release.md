@@ -55,12 +55,9 @@ To run the tool from `$GOPATH/src/sigs.k8s.io/promo-tools`, just execute:
 
 ```bash
 > export GITHUB_TOKEN=<YOUR_TOKEN>
-> go run ./cmd/kpromo pr \
+> kpromo pr \
     --fork <YOUR_GH_USERNAME> \
     --project sp-operator \
-    --reviewers "" \
-    --image "" \
-    --digests "" \
     --tag v0.x.y
 ```
 
@@ -70,6 +67,9 @@ release](https://github.com/kubernetes-sigs/security-profiles-operator/releases/
 directly on GitHub and add the release notes. The release notes can be generated
 by the [official Kubernetes Release Notes
 tool](https://github.com/kubernetes/release/tree/master/cmd/release-notes).
+
+Run `make nix-spoc` and attach the results from the `build` directory to the
+GitHub release.
 
 After that, another PR against this repository has to be created, which:
 
@@ -82,6 +82,9 @@ After that, another PR against this repository has to be created, which:
 - changes the tag in the same way in the OLM example manifest at
   [./examples/olm/install-resources.yaml](/examples/olm/install-resources.yaml)
 - reverts the changes to [`hack/ci/e2e-olm.sh`](/hack/ci/e2e-olm.sh)
+- reverts the changes to [`deploy/helm/Chart.yaml`](/deploy/helm/Chart.yaml)
+- reverts the changes to [`hack/deploy-localhost.patch`](/hack/deploy-localhost.patch)
+- reverts the changes to [`test/e2e_test.go`](/test/e2e_test.go)
 - updates [./dependencies.yaml](./dependencies.yaml) `spo-current` version as
   well as its linked files. Run `make verify-dependencies` to verify the
   results.
