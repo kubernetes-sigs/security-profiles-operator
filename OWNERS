@@ -3,11 +3,14 @@
 reviewers:
   - Vincent056
 approvers:
-  - ccojocar
   - pjbgf
   - saschagrunert
   - JAORMX
   - jhrozek
+  - sheriff-rh
+  - Vincent056
+  - xiaojiey
+  - BhargaviGudi
 emeritus_approvers:
   - cmurphy
   - hasheddan
