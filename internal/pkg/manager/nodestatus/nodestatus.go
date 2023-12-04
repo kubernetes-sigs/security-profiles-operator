@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
+	apparmorapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	pbv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
@@ -268,6 +269,8 @@ func (r *StatusReconciler) getProfileFromStatus(
 		prof = &selxv1alpha2.SelinuxProfile{}
 	case "RawSelinuxProfile":
 		prof = &selxv1alpha2.RawSelinuxProfile{}
+	case "AppArmorProfile":
+		prof = &apparmorapi.AppArmorProfile{}
 	default:
 		return nil, fmt.Errorf("getting owner profile: %w", ErrUnknownOwnerKind)
 	}
