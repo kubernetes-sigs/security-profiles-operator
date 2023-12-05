@@ -97,17 +97,17 @@ spec:
 	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "log-enricher")
 
 	// then match the rest
-	e.Contains(output, `"msg"="audit"`)
-	e.Contains(output, `"type"="seccomp"`)
-	e.Contains(output, `"executable"="/usr/sbin/nginx"`)
-	e.Contains(output, fmt.Sprintf(`"pod"=%q`, podName))
-	e.Contains(output, fmt.Sprintf(`"container"=%q`, containerName))
-	e.Contains(output, fmt.Sprintf(`"namespace"=%q`, namespace))
-	e.Regexp(`(?mU)\s"node"=".*"\s`, output)
-	e.Contains(output, `"pid"`)
-	e.Contains(output, `"timestamp"`)
-	e.Contains(output, `"syscallName"="listen"`)
-	e.Contains(output, `"syscallID"=50`)
+	e.Contains(output, `"audit"`)
+	e.Contains(output, `type="seccomp"`)
+	e.Contains(output, `executable="/usr/sbin/nginx"`)
+	e.Contains(output, fmt.Sprintf(`pod=%q`, podName))
+	e.Contains(output, fmt.Sprintf(`container=%q`, containerName))
+	e.Contains(output, fmt.Sprintf(`namespace=%q`, namespace))
+	e.Regexp(`(?mU)\snode=".*"\s`, output)
+	e.Contains(output, `pid`)
+	e.Contains(output, `timestamp`)
+	e.Contains(output, `syscallName="listen"`)
+	e.Contains(output, `syscallID=50`)
 
 	if e.singleNodeEnvironment {
 		// we only run the metrics checks in a single node environment because otherwise it's a lottery
