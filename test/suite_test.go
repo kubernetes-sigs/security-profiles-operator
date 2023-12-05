@@ -49,6 +49,7 @@ var (
 	clusterType                  = os.Getenv("E2E_CLUSTER_TYPE")
 	envSkipBuildImages           = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	envTestImage                 = os.Getenv("E2E_SPO_IMAGE")
+	envSelinuxdTestImage         = os.Getenv("E2E_SELINUXD_IMAGE")
 	spodConfig                   = os.Getenv("E2E_SPOD_CONFIG")
 	envSkipFlakyTests            = os.Getenv("E2E_SKIP_FLAKY_TESTS")
 	envSkipNamespacedTests       = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
@@ -194,7 +195,11 @@ func TestSuite(t *testing.T) {
 		operatorManifest = defaultManifest
 	}
 
-	selinuxdImage := "quay.io/security-profiles-operator/selinuxd"
+	selinuxdImage := envSelinuxdTestImage
+	if selinuxdImage == "" {
+		selinuxdImage = "quay.io/security-profiles-operator/selinuxd"
+	}
+
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, clusterTypeKind):
 		if testImage == "" {
@@ -262,7 +267,6 @@ func TestSuite(t *testing.T) {
 		if testImage == "" {
 			testImage = "localhost/" + config.OperatorName + ":latest"
 		}
-		selinuxdImage = "quay.io/security-profiles-operator/selinuxd-fedora"
 		suite.Run(t, &vanilla{
 			e2e{
 				logger:              textlogger.NewLogger(textlogger.NewConfig()),
@@ -358,7 +362,7 @@ func (e *kinde2e) SetupTest() {
 		containerRuntime, "pull", e.selinuxdImage,
 	)
 	e.run(
-		e.kindPath, "load", "docker-image", "--name="+e.clusterName, "quay.io/security-profiles-operator/selinuxd",
+		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.selinuxdImage,
 	)
 }
 
