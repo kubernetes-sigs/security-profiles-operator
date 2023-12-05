@@ -379,6 +379,49 @@ func (r *Repo) GenKeyWithSchemeAndExpires(role string, expires time.Time, keySch
 	return signer.PublicData().IDs(), nil
 }
 
+func (r *Repo) AddKeyWithSchemeAndExpires(role string, expires time.Time, keyScheme data.KeyScheme, publicValue string) ([]string, error) {
+	var verifier keys.Verifier
+	var keyType data.KeyType
+	switch keyScheme {
+	case data.KeySchemeEd25519:
+		verifier = keys.NewEd25519Verifier()
+		keyType = data.KeyTypeEd25519
+	case data.KeySchemeECDSA_SHA2_P256:
+		verifier = keys.NewEcdsaVerifier()
+		keyType = data.KeyTypeECDSA_SHA2_P256
+	case data.KeySchemeRSASSA_PSS_SHA256:
+		verifier = keys.NewRsaVerifier()
+		keyType = data.KeyTypeRSASSA_PSS_SHA256
+	default:
+		return nil, errors.New("unknown key type")
+	}
+
+	publicValueData, err := json.Marshal(map[string]string{
+		"public": publicValue,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := verifier.UnmarshalPublicKey(&data.PublicKey{
+		Type:       keyType,
+		Scheme:     keyScheme,
+		Algorithms: data.HashAlgorithms,
+		Value:      publicValueData,
+	}); err != nil {
+		return nil, err
+	}
+
+	publicKey := verifier.MarshalPublicKey()
+
+	// Not compatible with delegated targets roles, since delegated targets keys
+	// are associated with a delegation (edge), not a role (node).
+	if err := r.AddVerificationKeyWithExpiration(role, publicKey, expires); err != nil {
+		return nil, err
+	}
+	return publicKey.IDs(), nil
+}
+
 func (r *Repo) AddPrivateKey(role string, signer keys.Signer) error {
 	// Not compatible with delegated targets roles, since delegated targets keys
 	// are associated with a delegation (edge), not a role (node).

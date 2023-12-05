@@ -20,6 +20,15 @@ func (b *HexBytes) UnmarshalJSON(data []byte) error {
 	*b = res
 	return nil
 }
+func (b *HexBytes) FromString(data []byte) error {
+	res := make([]byte, hex.DecodedLen(len(data)))
+	_, err := hex.Decode(res, data)
+	if err != nil {
+		return err
+	}
+	*b = res
+	return nil
+}
 
 func (b HexBytes) MarshalJSON() ([]byte, error) {
 	res := make([]byte, hex.EncodedLen(len(b))+2)
