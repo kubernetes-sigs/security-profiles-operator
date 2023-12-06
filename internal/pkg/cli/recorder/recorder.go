@@ -144,22 +144,19 @@ func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract
 
 	abstract := apparmorprofileapi.AppArmorAbstract{}
 	enabled := true
-	var gotExec bool
 
-	exec := apparmorprofileapi.AppArmorExecutablesRules{}
+	abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
 	if len(processed.FileProcessed.AllowedExecutables) != 0 {
 		sort.Strings(processed.FileProcessed.AllowedExecutables)
-		exec.AllowedExecutables = &processed.FileProcessed.AllowedExecutables
-		gotExec = true
+		ExecutableAllowedExecCopy := make([]string, len(processed.FileProcessed.AllowedExecutables))
+		copy(ExecutableAllowedExecCopy, processed.FileProcessed.AllowedExecutables)
+		abstract.Executable.AllowedExecutables = &ExecutableAllowedExecCopy
 	}
 	if len(processed.FileProcessed.AllowedLibraries) != 0 {
 		sort.Strings(processed.FileProcessed.AllowedLibraries)
-		exec.AllowedLibraries = &processed.FileProcessed.AllowedLibraries
-		gotExec = true
-	}
-
-	if gotExec {
-		abstract.Executable = &exec
+		ExecutableAllowedLibCopy := make([]string, len(processed.FileProcessed.AllowedLibraries))
+		copy(ExecutableAllowedLibCopy, processed.FileProcessed.AllowedLibraries)
+		abstract.Executable.AllowedLibraries = &ExecutableAllowedLibCopy
 	}
 
 	if (len(processed.FileProcessed.ReadOnlyPaths) != 0) ||
@@ -168,15 +165,21 @@ func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract
 		files := apparmorprofileapi.AppArmorFsRules{}
 		if len(processed.FileProcessed.ReadOnlyPaths) != 0 {
 			sort.Strings(processed.FileProcessed.ReadOnlyPaths)
-			files.ReadOnlyPaths = &processed.FileProcessed.ReadOnlyPaths
+			FileReadOnlyCopy := make([]string, len(processed.FileProcessed.ReadOnlyPaths))
+			copy(FileReadOnlyCopy, processed.FileProcessed.ReadOnlyPaths)
+			files.ReadOnlyPaths = &FileReadOnlyCopy
 		}
 		if len(processed.FileProcessed.WriteOnlyPaths) != 0 {
 			sort.Strings(processed.FileProcessed.WriteOnlyPaths)
-			files.WriteOnlyPaths = &processed.FileProcessed.WriteOnlyPaths
+			FileWriteOnlyCopy := make([]string, len(processed.FileProcessed.WriteOnlyPaths))
+			copy(FileWriteOnlyCopy, processed.FileProcessed.WriteOnlyPaths)
+			files.WriteOnlyPaths = &FileWriteOnlyCopy
 		}
 		if len(processed.FileProcessed.ReadWritePaths) != 0 {
 			sort.Strings(processed.FileProcessed.ReadWritePaths)
-			files.ReadWritePaths = &processed.FileProcessed.ReadWritePaths
+			FileReadWriteCopy := make([]string, len(processed.FileProcessed.ReadWritePaths))
+			copy(FileReadWriteCopy, processed.FileProcessed.ReadWritePaths)
+			files.ReadWritePaths = &FileReadWriteCopy
 		}
 		abstract.Filesystem = &files
 	}
