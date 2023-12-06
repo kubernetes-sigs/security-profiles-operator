@@ -19,6 +19,7 @@
 #define PROBE_TYPE_WRITE        5
 #define PROBE_TYPE_SOCKET       6
 #define PROBE_TYPE_CAP          7
+#define PROBE_TYPE_EXIT         8
 
 enum
 {
@@ -604,6 +605,39 @@ int BPF_KPROBE(trace_cap_capable)
         bpf_ringbuf_submit(event, 0);
     }
 
+    return 0;
+}
+
+static __always_inline void handle_exit()
+{
+    apparmor_event_data_t *event;
+
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return;
+
+    event = bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
+    if (event) {
+        event->pid = pid;
+        event->mntns = mntns;
+        event->type = PROBE_TYPE_EXIT;
+        bpf_ringbuf_submit(event, 0);
+    }
+}
+
+SEC("tracepoint/syscalls/sys_enter_exit")
+int syscall__exit(struct trace_event_raw_sys_enter *ctx)
+{
+    handle_exit();
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_exit_group")
+int syscall__exit_group(struct trace_event_raw_sys_enter *ctx)
+{
+    handle_exit();
     return 0;
 }
 
