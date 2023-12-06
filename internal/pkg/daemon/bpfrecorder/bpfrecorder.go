@@ -73,6 +73,7 @@ const (
 	probeTypeWrite      int           = 5
 	probeTypeSocket     int           = 6
 	probeTypeCap        int           = 7
+	probeTypeExit       int           = 8
 	protRead            int           = 0x1
 	protWrite           int           = 0x2
 	protExec            int           = 0x4
@@ -111,6 +112,7 @@ type BpfRecorder struct {
 	lockRecordedSocketsUse   sync.Mutex
 	recordedCapabilities     []string
 	lockRecordedCapabilities sync.Mutex
+	lockAppArmorRecording    sync.Mutex
 }
 
 type syscallTracepoint struct {
@@ -213,6 +215,16 @@ var apparmorSyscallTracepoints = []syscallTracepoint{
 		program:  "syscall__socket",
 		name:     "sys_enter_socket",
 	},
+	{
+		category: "syscalls",
+		program:  "syscall__exit",
+		name:     "sys_enter_exit",
+	},
+	{
+		category: "syscalls",
+		program:  "syscall__exit_group",
+		name:     "sys_enter_exit_group",
+	},
 }
 
 var capabilities = map[int]string{
@@ -302,6 +314,10 @@ func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 
 func (b *BpfRecorder) GetAppArmorProcessed() BpfAppArmorProcessed {
 	var processed BpfAppArmorProcessed
+
+	// validating that the process exited.
+	// TODO: should this be subject to a flag for the Kubernetes controller integration?
+	b.lockAppArmorRecording.Lock()
 
 	processed.FileProcessed = b.processExecFsEvents()
 	processed.Socket = b.recordedSocketsUse
@@ -704,6 +720,7 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 			return fmt.Errorf("init apparmor_events ringbuffer: %w", err)
 		}
 		b.PollRingBuffer(apparmorRingbuffer, timeout)
+		b.lockAppArmorRecording.Lock()
 		go b.handleAppArmorEvents(apparmorEvents)
 	}
 
@@ -979,6 +996,8 @@ func (b *BpfRecorder) handleAppArmorEvents(apparmorEvents chan []byte) {
 			b.handleAppArmorSocketEvents(apparmorEvent)
 		case uint8(probeTypeCap):
 			b.handleAppArmorCapabilityEvents(apparmorEvent)
+		case uint8(probeTypeExit):
+			b.lockAppArmorRecording.Unlock()
 		}
 	}
 }
