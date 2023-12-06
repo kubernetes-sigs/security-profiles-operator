@@ -130,13 +130,14 @@ static __always_inline int load_args(u32 event_id, const char **filename, u64 *f
     return 0;
 }
 
-SEC("tracepoint/syscalls/sys_enter_execve")
-int syscall__execve(struct trace_event_raw_sys_enter *ctx)
+/**
+ * get_mntns returns the mntns in case the call should be taken into account.
+ * 0 is returned when the process should not be processed. The following criterias are used:
+ *   - host processes are excluded
+ *   - program name if filtering on this is required
+*/
+static __always_inline u32 get_mntns()
 {
-    apparmor_event_data_t *event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
     // Get the current mntns
     struct task_struct * task = (struct task_struct *)bpf_get_current_task();
     u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
@@ -158,6 +159,20 @@ int syscall__execve(struct trace_event_raw_sys_enter *ctx)
     if (is_filtered(comm)) {
         return 0;
     }
+
+    return 1;
+}
+
+SEC("tracepoint/syscalls/sys_enter_execve")
+int syscall__execve(struct trace_event_raw_sys_enter *ctx)
+{
+    apparmor_event_data_t *event;
+
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
 
     event = bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
     if (event) {
@@ -191,27 +206,9 @@ int syscall__execveat(struct trace_event_raw_sys_enter *ctx)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     event = bpf_ringbuf_reserve(&apparmor_events, sizeof (apparmor_event_data_t), 0);
     if (event) {
@@ -247,27 +244,9 @@ int syscall__open(struct trace_event_raw_sys_enter *ctx)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     int res;
     const char *pathname;
@@ -296,27 +275,9 @@ int syscall__openat(struct trace_event_raw_sys_enter *ctx)
 {
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     int res;
     const char *pathname;
@@ -343,27 +304,9 @@ int syscall__exit_open(struct trace_event_raw_sys_exit *ctx)
 {
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     const char* orig_filename;
     u64         flags;
@@ -414,27 +357,9 @@ int syscall__exit_openat(struct trace_event_raw_sys_exit *ctx)
 {
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     const char* orig_filename;
     u64         flags;
@@ -487,27 +412,9 @@ int syscall__close(struct trace_event_raw_sys_enter *ctx)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     event = bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
     if (event) {
@@ -538,27 +445,9 @@ int syscall__mmap(struct trace_event_raw_sys_enter *ctx)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     u64 prot;
     u64 fd;
@@ -596,27 +485,9 @@ int syscall__write(struct trace_event_raw_sys_enter *ctx)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     event = bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
     if (event) {
@@ -647,27 +518,9 @@ int syscall__read(struct trace_event_raw_sys_enter *ctx)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     event = bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
     if (event) {
@@ -698,27 +551,9 @@ int syscall__socket(struct trace_event_raw_sys_enter *ctx)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     event = bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
     if (event) {
@@ -751,27 +586,9 @@ int BPF_KPROBE(trace_cap_capable)
     
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    if (mntns == 0) {
+    u32 mntns = get_mntns();
+    if (!mntns)
         return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
-    }
 
     unsigned long cap = PT_REGS_PARM3(ctx);
 
