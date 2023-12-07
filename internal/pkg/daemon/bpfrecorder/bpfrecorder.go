@@ -113,12 +113,7 @@ type BpfRecorder struct {
 	recordedCapabilities     []string
 	lockRecordedCapabilities sync.Mutex
 	lockAppArmorRecording    sync.Mutex
-}
-
-type syscallTracepoint struct {
-	category string
-	program  string
-	name     string
+	recorderBackend          recorderInterface
 }
 
 type bpfAppArmorEvent struct {
@@ -157,74 +152,6 @@ type BpfAppArmorProcessed struct {
 	FileProcessed BpfAppArmorFileProcessed
 	Socket        BpfAppArmorSocketEvent
 	Capabilities  []string
-}
-
-var apparmorSyscallTracepoints = []syscallTracepoint{
-	{
-		category: "syscalls",
-		program:  "syscall__execve",
-		name:     "sys_enter_execve",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__execveat",
-		name:     "sys_enter_execveat",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__open",
-		name:     "sys_enter_open",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__exit_open",
-		name:     "sys_exit_open",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__openat",
-		name:     "sys_enter_openat",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__exit_openat",
-		name:     "sys_exit_openat",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__close",
-		name:     "sys_enter_close",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__mmap",
-		name:     "sys_enter_mmap",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__write",
-		name:     "sys_enter_write",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__read",
-		name:     "sys_enter_read",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__socket",
-		name:     "sys_enter_socket",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__exit",
-		name:     "sys_enter_exit",
-	},
-	{
-		category: "syscalls",
-		program:  "syscall__exit_group",
-		name:     "sys_enter_exit_group",
-	},
 }
 
 var capabilities = map[int]string{
@@ -271,6 +198,11 @@ var capabilities = map[int]string{
 	40: "checkpoint_restore",
 }
 
+type recorderInterface interface {
+	AddSpecificInstrumentation(*BpfRecorder, *bpf.Module) error
+	SetupAndProcessSpecificEvents(*BpfRecorder, *bpf.Module) error
+}
+
 // New returns a new BpfRecorder instance.
 func New(logger logr.Logger) *BpfRecorder {
 	return &BpfRecorder{
@@ -296,6 +228,7 @@ func New(logger logr.Logger) *BpfRecorder {
 // NewSeccomp returns a new BpfRecorder instance for seccomp profiles.
 func NewSeccomp(logger logr.Logger) *BpfRecorder {
 	bpfr := New(logger)
+	bpfr.recorderBackend = &BpfRecorderSeccomp{}
 	return bpfr
 }
 
@@ -303,6 +236,7 @@ func NewSeccomp(logger logr.Logger) *BpfRecorder {
 func NewAppArmor(logger logr.Logger) *BpfRecorder {
 	bpfr := New(logger)
 	bpfr.recordingMode = recordingAppArmor
+	bpfr.recorderBackend = &BpfRecorderAppArmor{}
 	return bpfr
 }
 
@@ -312,6 +246,7 @@ func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 	return b.syscalls
 }
 
+// TODO: move in BpfRecorderAppArmor
 func (b *BpfRecorder) GetAppArmorProcessed() BpfAppArmorProcessed {
 	var processed BpfAppArmorProcessed
 
@@ -612,20 +547,12 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
 
-	if b.recordingMode == recordingSeccomp {
-		module, err = b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
-			BPFObjBuff: bpfObject,
-			BPFObjName: "recorder.bpf.o",
-			BTFObjPath: b.btfPath,
-		})
-	}
-	if b.recordingMode == recordingAppArmor {
-		module, err = b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
-			BPFObjBuff: bpfObject,
-			BPFObjName: "recorder.bpf.o",
-			BTFObjPath: b.btfPath,
-		})
-	}
+	module, err = b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
+		BPFObjBuff: bpfObject,
+		BPFObjName: "recorder.bpf.o",
+		BTFObjPath: b.btfPath,
+	})
+
 	if err != nil {
 		return fmt.Errorf("load bpf module: %w", err)
 	}
@@ -667,29 +594,9 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("get pid_mntns: %w", err)
 	}
 
-	if b.recordingMode == recordingAppArmor {
-		for _, tracepoint := range apparmorSyscallTracepoints {
-			b.logger.Info("Getting bpf program " + tracepoint.program)
-			programApparmor, err := b.GetProgram(module, tracepoint.program)
-			if err != nil {
-				return fmt.Errorf("get %s program: %w", tracepoint.program, err)
-			}
-			b.logger.Info("Attaching bpf tracepoint")
-			if _, err := b.AttachTracepoint(programApparmor, tracepoint.category, tracepoint.name); err != nil {
-				return fmt.Errorf("attach tracepoint: %w", err)
-			}
-		}
-
-		b.logger.Info("Getting bpf program " + "trace_cap_capable")
-		programApparmor, err := b.GetProgram(module, "trace_cap_capable")
-		if err != nil {
-			return fmt.Errorf("get %s program: %w", "trace_cap_capable", err)
-		}
-		b.logger.Info("Attaching bpf tracepoint")
-
-		if _, err := programApparmor.AttachKprobe("cap_capable"); err != nil {
-			return fmt.Errorf("attach tracepoint: %w", err)
-		}
+	err = b.recorderBackend.AddSpecificInstrumentation(b, module)
+	if err != nil {
+		return err
 	}
 
 	b.syscalls = syscalls
@@ -711,17 +618,10 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 	}
 
 	// setup the buffer and processing for AppArmor events
-	if b.recordingMode == recordingAppArmor {
-		apparmorEvents := make(chan []byte)
-		apparmorRingbuffer, err := b.InitRingBuf(module,
-			"apparmor_events",
-			apparmorEvents)
-		if err != nil {
-			return fmt.Errorf("init apparmor_events ringbuffer: %w", err)
-		}
-		b.PollRingBuffer(apparmorRingbuffer, timeout)
-		b.lockAppArmorRecording.Lock()
-		go b.handleAppArmorEvents(apparmorEvents)
+	// replace with interface call
+	err = b.recorderBackend.SetupAndProcessSpecificEvents(b, module)
+	if err != nil {
+		return err
 	}
 
 	b.logger.Info("Module successfully loaded")
