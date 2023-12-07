@@ -4,7 +4,7 @@
 package bpfrecorder
 
 // List of known paths containing systems libraries.
-// Taken from /etc/apparmor.d/abstractions/base
+// Taken from /etc/apparmor.d/abstractions/base.
 var knownLibrariesPrefixes = []string{
 	"/usr/lib32/locale/",
 	"/usr/lib64/locale/",
@@ -18,7 +18,7 @@ var knownLibrariesPrefixes = []string{
 }
 
 // List of known paths for commonly read from files.
-// Taken from /etc/apparmor.d/abstractions/base
+// Taken from /etc/apparmor.d/abstractions/base.
 var knownReadPrefixes = []string{
 	"/dev/random",
 	"/dev/urandom",

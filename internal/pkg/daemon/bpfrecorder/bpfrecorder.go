@@ -144,8 +144,8 @@ type BpfAppArmorFileProcessed struct {
 
 type BpfAppArmorSocketEvent struct {
 	UseRaw bool
-	UseTcp bool
-	UseUdp bool
+	UseTCP bool
+	UseUDP bool
 }
 
 type BpfAppArmorProcessed struct {
@@ -246,7 +246,6 @@ func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 	return b.syscalls
 }
 
-// TODO: move in BpfRecorderAppArmor
 func (b *BpfRecorder) GetAppArmorProcessed() BpfAppArmorProcessed {
 	var processed BpfAppArmorProcessed
 
@@ -751,7 +750,7 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 	}
 }
 
-func fileDataToString(data [pathMax]uint8) string {
+func fileDataToString(data *[pathMax]uint8) string {
 	var eos int
 	for i, c := range data {
 		if c == 0 {
@@ -770,9 +769,9 @@ func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent bpfAppArmorEvent) {
 	switch fileEvent.Type {
 	case uint8(probeTypeOpen):
 		var fileEv bpfAppArmorFileEvent
-		fileEv.Filename = fileDataToString(fileEvent.Data)
+		fileEv.Filename = fileDataToString(&fileEvent.Data)
 		fileEv.Flags = fileEvent.Flags
-		if (int)(fileEvent.Fd) < 0 {
+		if int(fileEvent.Fd) < 0 {
 			fileEv.GotError = true
 		}
 		b.recordedFiles = append(b.recordedFiles, fileEv)
@@ -835,16 +834,16 @@ func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent bpfAppArmorEvent) {
 	}
 }
 
-func (b *BpfRecorder) handleAppArmorExecEvents(execEvent bpfAppArmorEvent) {
+func (b *BpfRecorder) handleAppArmorExecEvents(execEvent *bpfAppArmorEvent) {
 
 	b.lockRecordedExecs.Lock()
 	defer b.lockRecordedExecs.Unlock()
 
-	path := fileDataToString(execEvent.Data)
+	path := fileDataToString(&execEvent.Data)
 	b.recordedExecs = append(b.recordedExecs, path)
 }
 
-func (b *BpfRecorder) handleAppArmorSocketEvents(socketEvent bpfAppArmorEvent) {
+func (b *BpfRecorder) handleAppArmorSocketEvents(socketEvent *bpfAppArmorEvent) {
 
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
@@ -854,25 +853,25 @@ func (b *BpfRecorder) handleAppArmorSocketEvents(socketEvent bpfAppArmorEvent) {
 	case uint64(sockRaw):
 		b.recordedSocketsUse.UseRaw = true
 	case uint64(sockStream):
-		b.recordedSocketsUse.UseTcp = true
+		b.recordedSocketsUse.UseTCP = true
 	case uint64(sockDgram):
-		b.recordedSocketsUse.UseUdp = true
+		b.recordedSocketsUse.UseUDP = true
 	}
 }
 
-func (b *BpfRecorder) handleAppArmorCapabilityEvents(capEvent bpfAppArmorEvent) {
+func (b *BpfRecorder) handleAppArmorCapabilityEvents(capEvent *bpfAppArmorEvent) {
 
 	b.lockRecordedCapabilities.Lock()
 	defer b.lockRecordedCapabilities.Unlock()
 
-	cap := capEvent.Flags
+	requestedCap := capEvent.Flags
 
 	for _, recordedCap := range b.recordedCapabilities {
-		if recordedCap == capabilities[int(cap)] {
+		if recordedCap == capabilities[int(requestedCap)] {
 			return
 		}
 	}
-	b.recordedCapabilities = append(b.recordedCapabilities, capabilities[int(cap)])
+	b.recordedCapabilities = append(b.recordedCapabilities, capabilities[int(requestedCap)])
 }
 
 func (b *BpfRecorder) handleAppArmorEvents(apparmorEvents chan []byte) {
@@ -888,14 +887,15 @@ func (b *BpfRecorder) handleAppArmorEvents(apparmorEvents chan []byte) {
 			return
 		}
 		switch apparmorEvent.Type {
-		case uint8(probeTypeOpen), uint8(probeTypeClose), uint8(probeTypeMmapExec), uint8(probeTypeRead), uint8(probeTypeWrite):
+		case uint8(probeTypeOpen), uint8(probeTypeClose),
+			uint8(probeTypeMmapExec), uint8(probeTypeRead), uint8(probeTypeWrite):
 			b.handleAppArmorFileEvents(apparmorEvent)
 		case uint8(probeTypeExec):
-			b.handleAppArmorExecEvents(apparmorEvent)
+			b.handleAppArmorExecEvents(&apparmorEvent)
 		case uint8(probeTypeSocket):
-			b.handleAppArmorSocketEvents(apparmorEvent)
+			b.handleAppArmorSocketEvents(&apparmorEvent)
 		case uint8(probeTypeCap):
-			b.handleAppArmorCapabilityEvents(apparmorEvent)
+			b.handleAppArmorCapabilityEvents(&apparmorEvent)
 		case uint8(probeTypeExit):
 			b.lockAppArmorRecording.Unlock()
 		}
@@ -925,7 +925,7 @@ func (b *BpfRecorder) processExecFsEvents() BpfAppArmorFileProcessed {
 			currentFilename = filepath.Clean(currentFile.Filename)
 		}
 		// loaded library
-		if currentFile.GotExec == true && !b.isKnownFile(currentFile.Filename, knownLibrariesPrefixes) {
+		if currentFile.GotExec && !b.isKnownFile(currentFile.Filename, knownLibrariesPrefixes) {
 			processedEvents.AllowedLibraries = append(processedEvents.AllowedLibraries, currentFilename)
 			continue
 		}
@@ -941,8 +941,10 @@ func (b *BpfRecorder) processExecFsEvents() BpfAppArmorFileProcessed {
 			continue
 		}
 		// read write file
-		if currentFile.GotRead && currentFile.GotWrite && !b.isKnownFile(currentFile.Filename, knownReadPrefixes) &&
-			!b.isKnownFile(currentFile.Filename, knownWritePrefixes) && !b.isKnownFile(currentFile.Filename, knownLibrariesPrefixes) {
+		if currentFile.GotRead && currentFile.GotWrite &&
+			!b.isKnownFile(currentFile.Filename, knownReadPrefixes) &&
+			!b.isKnownFile(currentFile.Filename, knownWritePrefixes) &&
+			!b.isKnownFile(currentFile.Filename, knownLibrariesPrefixes) {
 			processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, currentFilename)
 			continue
 		}
