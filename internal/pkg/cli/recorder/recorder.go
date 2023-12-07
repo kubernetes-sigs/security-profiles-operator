@@ -184,17 +184,17 @@ func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract
 		abstract.Filesystem = &files
 	}
 
-	if processed.Socket.UseRaw || processed.Socket.UseTcp || processed.Socket.UseUdp {
+	if processed.Socket.UseRaw || processed.Socket.UseTCP || processed.Socket.UseUDP {
 		net := apparmorprofileapi.AppArmorNetworkRules{}
 		proto := apparmorprofileapi.AppArmorAllowedProtocols{}
 		if processed.Socket.UseRaw {
 			net.AllowRaw = &enabled
 		}
-		if processed.Socket.UseTcp {
+		if processed.Socket.UseTCP {
 			proto.AllowTCP = &enabled
 			net.Protocols = &proto
 		}
-		if processed.Socket.UseUdp {
+		if processed.Socket.UseUDP {
 			proto.AllowUDP = &enabled
 			net.Protocols = &proto
 		}
