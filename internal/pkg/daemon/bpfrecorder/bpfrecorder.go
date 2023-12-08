@@ -593,9 +593,11 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("get pid_mntns: %w", err)
 	}
 
-	err = b.recorderBackend.AddSpecificInstrumentation(b, module)
-	if err != nil {
-		return err
+	if b.recorderBackend != nil {
+		err = b.recorderBackend.AddSpecificInstrumentation(b, module)
+		if err != nil {
+			return err
+		}
 	}
 
 	b.syscalls = syscalls
@@ -618,9 +620,11 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 
 	// setup the buffer and processing for AppArmor events
 	// replace with interface call
-	err = b.recorderBackend.SetupAndProcessSpecificEvents(b, module)
-	if err != nil {
-		return err
+	if b.recorderBackend != nil {
+		err = b.recorderBackend.SetupAndProcessSpecificEvents(b, module)
+		if err != nil {
+			return err
+		}
 	}
 
 	b.logger.Info("Module successfully loaded")
