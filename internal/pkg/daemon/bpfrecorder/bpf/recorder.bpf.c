@@ -133,7 +133,7 @@ static __always_inline int load_args(u32 event_id, const char **filename, u64 *f
 
 /**
  * get_mntns returns the mntns in case the call should be taken into account.
- * 0 is returned when the process should not be processed. The following criterias are used:
+ * 0 is returned when the process should not be processed. The following criteria are used:
  *   - host processes are excluded
  *   - program name if filtering on this is required
 */
