@@ -98,7 +98,6 @@ struct {
     __type(value, saved_state_t);
 } states_map SEC(".maps");
 
-
 static __always_inline int save_args(u32 event_id, const char* filename, u64 flags)
 {
     u32 tgid = bpf_get_current_pid_tgid();
