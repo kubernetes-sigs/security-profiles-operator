@@ -22,13 +22,12 @@ package bpfrecorder
 import bpf "github.com/aquasecurity/libbpfgo"
 
 type BpfRecorderSeccomp struct {
-	recordingMode int
 }
 
-func (*BpfRecorderSeccomp) AddSpecificInstrumentation(b *BpfRecorder, module *bpf.Module) error {
+func (*BpfRecorderSeccomp) AddSpecificInstrumentation(_ *BpfRecorder, _ *bpf.Module) error {
 	return nil
 }
 
-func (*BpfRecorderSeccomp) SetupAndProcessSpecificEvents(b *BpfRecorder, module *bpf.Module) error {
+func (*BpfRecorderSeccomp) SetupAndProcessSpecificEvents(_ *BpfRecorder, _ *bpf.Module) error {
 	return nil
 }

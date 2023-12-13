@@ -766,7 +766,6 @@ func fileDataToString(data *[pathMax]uint8) string {
 }
 
 func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent bpfAppArmorEvent) {
-
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
 
@@ -839,7 +838,6 @@ func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent bpfAppArmorEvent) {
 }
 
 func (b *BpfRecorder) handleAppArmorExecEvents(execEvent *bpfAppArmorEvent) {
-
 	b.lockRecordedExecs.Lock()
 	defer b.lockRecordedExecs.Unlock()
 
@@ -848,7 +846,6 @@ func (b *BpfRecorder) handleAppArmorExecEvents(execEvent *bpfAppArmorEvent) {
 }
 
 func (b *BpfRecorder) handleAppArmorSocketEvents(socketEvent *bpfAppArmorEvent) {
-
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
 
@@ -864,7 +861,6 @@ func (b *BpfRecorder) handleAppArmorSocketEvents(socketEvent *bpfAppArmorEvent) 
 }
 
 func (b *BpfRecorder) handleAppArmorCapabilityEvents(capEvent *bpfAppArmorEvent) {
-
 	b.lockRecordedCapabilities.Lock()
 	defer b.lockRecordedCapabilities.Unlock()
 
@@ -918,9 +914,7 @@ func (b *BpfRecorder) isKnownFile(path string, knownPrefixes []string) bool {
 func (b *BpfRecorder) processExecFsEvents() BpfAppArmorFileProcessed {
 	var processedEvents BpfAppArmorFileProcessed
 
-	for _, executable := range b.recordedExecs {
-		processedEvents.AllowedExecutables = append(processedEvents.AllowedExecutables, executable)
-	}
+	processedEvents.AllowedExecutables = append(processedEvents.AllowedExecutables, b.recordedExecs...)
 	for _, currentFile := range b.recordedFiles {
 		var currentFilename string
 		if strings.HasPrefix(currentFile.Filename, "/proc/") {
