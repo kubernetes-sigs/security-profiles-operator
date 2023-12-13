@@ -100,7 +100,6 @@ var apparmorSyscallTracepoints = []syscallTracepoint{
 }
 
 type BpfRecorderAppArmor struct {
-	recordingMode int
 }
 
 func (*BpfRecorderAppArmor) AddSpecificInstrumentation(b *BpfRecorder, module *bpf.Module) error {
