@@ -66,7 +66,7 @@ jobs:
       RUN: ./hack/ci/run-fedora.sh
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      - uses: actions/download-artifact@7a1cd3216ca9260cd8022db641d960b1db4d1be4
         with:
           name: image
           path: .
@@ -98,7 +98,7 @@ jobs:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      - uses: actions/download-artifact@7a1cd3216ca9260cd8022db641d960b1db4d1be4
         with:
           name: image
           path: .
@@ -139,7 +139,7 @@ jobs:
          run: |
            ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
            vagrant box update
-       - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+       - uses: actions/download-artifact@7a1cd3216ca9260cd8022db641d960b1db4d1be4
          with:
            name: image
            path: .
@@ -168,7 +168,7 @@ jobs:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      - uses: actions/download-artifact@7a1cd3216ca9260cd8022db641d960b1db4d1be4
         with:
           name: image
           path: .
