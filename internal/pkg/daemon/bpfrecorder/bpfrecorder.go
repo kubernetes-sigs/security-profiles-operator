@@ -228,7 +228,7 @@ func New(logger logr.Logger) *BpfRecorder {
 // NewSeccomp returns a new BpfRecorder instance for seccomp profiles.
 func NewSeccomp(logger logr.Logger) *BpfRecorder {
 	bpfr := New(logger)
-	bpfr.recorderBackend = &BpfRecorderSeccomp{}
+	bpfr.recorderBackend = &Seccomp{}
 	return bpfr
 }
 
@@ -236,7 +236,7 @@ func NewSeccomp(logger logr.Logger) *BpfRecorder {
 func NewAppArmor(logger logr.Logger) *BpfRecorder {
 	bpfr := New(logger)
 	bpfr.recordingMode = recordingAppArmor
-	bpfr.recorderBackend = &BpfRecorderAppArmor{}
+	bpfr.recorderBackend = &AppArmor{}
 	return bpfr
 }
 
