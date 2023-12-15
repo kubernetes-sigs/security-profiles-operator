@@ -765,7 +765,66 @@ func fileDataToString(data *[pathMax]uint8) string {
 	return string(data[:eos])
 }
 
-func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent bpfAppArmorEvent) {
+func (b *BpfRecorder) handleMmapEvent(fileEvent *bpfAppArmorEvent) {
+	path, ok := b.fdMapping[fileEvent.Fd]
+	if int(fileEvent.Fd) < 0 {
+		return
+	}
+	if !ok {
+		b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
+		return
+	}
+	for i, file := range b.recordedFiles {
+		if file.Filename == path {
+			if fileEvent.Flags&uint64(protExec) == uint64(protExec) {
+				b.recordedFiles[i].GotExec = true
+			}
+			if fileEvent.Flags&uint64(protRead) == uint64(protRead) {
+				b.recordedFiles[i].GotRead = true
+			}
+			if fileEvent.Flags&uint64(protWrite) == uint64(protWrite) {
+				b.recordedFiles[i].GotWrite = true
+			}
+			break
+		}
+	}
+}
+
+func (b *BpfRecorder) handleWrite(fileEvent *bpfAppArmorEvent) {
+	if int(fileEvent.Fd) < 0 {
+		return
+	}
+	path, ok := b.fdMapping[fileEvent.Fd]
+	if !ok {
+		b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
+		return
+	}
+	for i, file := range b.recordedFiles {
+		if file.Filename == path {
+			b.recordedFiles[i].GotWrite = true
+			break
+		}
+	}
+}
+
+func (b *BpfRecorder) handleRead(fileEvent *bpfAppArmorEvent) {
+	if int(fileEvent.Fd) < 0 {
+		return
+	}
+	path, ok := b.fdMapping[fileEvent.Fd]
+	if !ok {
+		b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
+		return
+	}
+	for i, file := range b.recordedFiles {
+		if file.Filename == path {
+			b.recordedFiles[i].GotRead = true
+			break
+		}
+	}
+}
+
+func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent *bpfAppArmorEvent) {
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
 
@@ -782,58 +841,11 @@ func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent bpfAppArmorEvent) {
 	case uint8(probeTypeClose):
 		delete(b.fdMapping, fileEvent.Fd)
 	case uint8(probeTypeMmapExec):
-		path, ok := b.fdMapping[fileEvent.Fd]
-		if int(fileEvent.Fd) < 0 {
-			return
-		}
-		if !ok {
-			b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
-			return
-		}
-		for i, file := range b.recordedFiles {
-			if file.Filename == path {
-				if fileEvent.Flags&uint64(protExec) == uint64(protExec) {
-					b.recordedFiles[i].GotExec = true
-				}
-				if fileEvent.Flags&uint64(protRead) == uint64(protRead) {
-					b.recordedFiles[i].GotRead = true
-				}
-				if fileEvent.Flags&uint64(protWrite) == uint64(protWrite) {
-					b.recordedFiles[i].GotWrite = true
-				}
-				break
-			}
-		}
+		b.handleMmapEvent(fileEvent)
 	case uint8(probeTypeWrite):
-		if int(fileEvent.Fd) < 0 {
-			return
-		}
-		path, ok := b.fdMapping[fileEvent.Fd]
-		if !ok {
-			b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
-			return
-		}
-		for i, file := range b.recordedFiles {
-			if file.Filename == path {
-				b.recordedFiles[i].GotWrite = true
-				break
-			}
-		}
+		b.handleWrite(fileEvent)
 	case uint8(probeTypeRead):
-		if int(fileEvent.Fd) < 0 {
-			return
-		}
-		path, ok := b.fdMapping[fileEvent.Fd]
-		if !ok {
-			b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
-			return
-		}
-		for i, file := range b.recordedFiles {
-			if file.Filename == path {
-				b.recordedFiles[i].GotRead = true
-				break
-			}
-		}
+		b.handleRead((fileEvent))
 	}
 }
 
@@ -889,7 +901,7 @@ func (b *BpfRecorder) handleAppArmorEvents(apparmorEvents chan []byte) {
 		switch apparmorEvent.Type {
 		case uint8(probeTypeOpen), uint8(probeTypeClose),
 			uint8(probeTypeMmapExec), uint8(probeTypeRead), uint8(probeTypeWrite):
-			b.handleAppArmorFileEvents(apparmorEvent)
+			b.handleAppArmorFileEvents(&apparmorEvent)
 		case uint8(probeTypeExec):
 			b.handleAppArmorExecEvents(&apparmorEvent)
 		case uint8(probeTypeSocket):
