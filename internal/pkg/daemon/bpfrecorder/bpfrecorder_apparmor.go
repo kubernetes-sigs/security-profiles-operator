@@ -99,8 +99,7 @@ var apparmorSyscallTracepoints = []syscallTracepoint{
 	},
 }
 
-type BpfRecorderAppArmor struct {
-}
+type BpfRecorderAppArmor struct{}
 
 func (*BpfRecorderAppArmor) AddSpecificInstrumentation(b *BpfRecorder, module *bpf.Module) error {
 	for _, tracepoint := range apparmorSyscallTracepoints {
