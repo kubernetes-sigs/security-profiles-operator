@@ -642,7 +642,7 @@ int syscall__exit_group(struct trace_event_raw_sys_enter *ctx)
 }
 
 SEC("tracepoint/raw_syscalls/sys_enter")
-int sys_enter(struct trace_event_raw_sys_enter * args)
+int sys_enter(struct trace_event_raw_sys_enter *args)
 {
     // Sanity check for syscall ID range
     u32 syscall_id = args->id;
@@ -719,7 +719,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     return 0;
 }
 
-static inline bool is_filtered(char * comm)
+static inline bool is_filtered(char *comm)
 {
     // No filter set
     if (filter_name[0] == 0) {
