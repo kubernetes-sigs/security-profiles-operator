@@ -99,9 +99,9 @@ var apparmorSyscallTracepoints = []syscallTracepoint{
 	},
 }
 
-type BpfRecorderAppArmor struct{}
+type AppArmor struct{}
 
-func (*BpfRecorderAppArmor) AddSpecificInstrumentation(b *BpfRecorder, module *bpf.Module) error {
+func (*AppArmor) AddSpecificInstrumentation(b *BpfRecorder, module *bpf.Module) error {
 	for _, tracepoint := range apparmorSyscallTracepoints {
 		b.logger.Info("Getting bpf program " + tracepoint.program)
 		programApparmor, err := b.GetProgram(module, tracepoint.program)
@@ -128,7 +128,7 @@ func (*BpfRecorderAppArmor) AddSpecificInstrumentation(b *BpfRecorder, module *b
 	return nil
 }
 
-func (*BpfRecorderAppArmor) SetupAndProcessSpecificEvents(b *BpfRecorder, module *bpf.Module) error {
+func (*AppArmor) SetupAndProcessSpecificEvents(b *BpfRecorder, module *bpf.Module) error {
 	const timeout = 300
 
 	if b.recordingMode == recordingAppArmor {
