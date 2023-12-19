@@ -106,6 +106,7 @@ type StatusBaseUser interface {
 // SpecBase contains common attributes for a profile's spec.
 type SpecBase struct {
 	// Whether the profile is disabled and should be skipped during reconciliation.
+	// +optional
 	// +kubebuilder:default=false
-	Disabled bool `json:"disabled"`
+	Disabled bool `json:"disabled,omitempty"`
 }

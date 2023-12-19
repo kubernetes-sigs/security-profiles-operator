@@ -50,8 +50,6 @@ spec:
                 type: boolean
               policy:
                 type: string
-            required:
-            - disabled
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
