@@ -189,7 +189,6 @@ spec:
                 type: array
             required:
             - defaultAction
-            - disabled
             type: object
           status:
             description: SeccompProfileStatus contains status of the deployed SeccompProfile.
