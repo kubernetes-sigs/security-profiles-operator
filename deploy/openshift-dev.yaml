@@ -270,7 +270,6 @@ spec:
                 - logs
                 type: string
             required:
-            - disableProfileAfterRecording
             - kind
             - podSelector
             - recorder
@@ -340,8 +339,6 @@ spec:
                 type: boolean
               policy:
                 type: string
-            required:
-            - disabled
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
@@ -593,7 +590,6 @@ spec:
                 type: array
             required:
             - defaultAction
-            - disabled
             type: object
           status:
             description: SeccompProfileStatus contains status of the deployed SeccompProfile.
@@ -2171,8 +2167,6 @@ spec:
                 description: Permissive, when true will cause the SELinux profile
                   to only log violations instead of enforcing them.
                 type: boolean
-            required:
-            - disabled
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.

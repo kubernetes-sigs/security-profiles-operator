@@ -124,7 +124,6 @@ spec:
                 - logs
                 type: string
             required:
-            - disableProfileAfterRecording
             - kind
             - podSelector
             - recorder
