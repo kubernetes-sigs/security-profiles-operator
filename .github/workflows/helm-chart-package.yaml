@@ -28,7 +28,7 @@ jobs:
           [ ! -f "${tgz_path}" ] && echo "failed to find helm chart from 'helm package' stdout" && exit 1
           echo "helm_tgz_path=${tgz_path}" >> $GITHUB_OUTPUT
           echo "helm_tgz_name=${tgz_path##*/}" >> $GITHUB_OUTPUT
-      - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
+      - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
         with:
           name: ${{ steps.package.outputs.helm_tgz_name}}
           path: ${{ steps.package.outputs.helm_tgz_path}}
