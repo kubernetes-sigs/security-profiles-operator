@@ -18,12 +18,12 @@
 # for more details
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi9/go-toolset@sha256:077f292da8bea9ce7f729489cdbd217dd268ce300f3e216cb1fffb38de7daeb9 as build
+FROM registry.access.redhat.com/ubi9/go-toolset@sha256:f5001c30e7ee626d87ca3cbf5606f401e637ecd50aa12023862a9119ede9ffb9 as build
 USER root
 WORKDIR /work
 
 RUN dnf install -y \
-        libseccomp-devel
+  libseccomp-devel
 
 ADD . /work
 RUN mkdir -p build
@@ -37,16 +37,16 @@ ARG STATIC_LINK=no
 RUN make
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:a340f4b9fb261a75c84666a3dccb88e193a116da3cebabaf9bcdc33609b61172
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:b7a3642d6245446da03d14482740be5f2fe58f30b9dfe001e89a39071a50edfc
 ARG version
 USER root
 
 RUN microdnf install -y \
-        libseccomp
+  libseccomp
 
 LABEL name="Security Profiles Operator" \
-      version=$version \
-      description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, SELinux or AppArmor profiles and apply them to Kubernetes' workloads."
+  version=$version \
+  description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, SELinux or AppArmor profiles and apply them to Kubernetes' workloads."
 
 COPY --from=build /work/build/security-profiles-operator /usr/bin/
 COPY --from=build /work/build/spoc /usr/bin/
