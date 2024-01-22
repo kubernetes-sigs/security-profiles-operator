@@ -12,7 +12,7 @@ require (
 	github.com/google/go-containerregistry v0.17.0
 	github.com/imdario/mergo v0.3.16
 	github.com/jellydator/ttlcache/v3 v3.1.1
-	github.com/maxbrunsfeld/counterfeiter/v6 v6.7.0
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.8.1
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
 	github.com/nxadm/tail v1.4.11
 	github.com/opencontainers/image-spec v1.1.0-rc5
@@ -255,7 +255,7 @@ require (
 	golang.org/x/term v0.16.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.15.0 // indirect
+	golang.org/x/tools v0.17.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/api v0.152.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
