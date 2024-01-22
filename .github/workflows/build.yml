@@ -124,17 +124,15 @@ jobs:
           file: Dockerfile.build-image
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # TODO(gcojocar) push the image because it seems to be fetched by the vulnerability scanner
-          # push: ${{ github.ref == 'refs/heads/main' }}
-          # Only load on PR builds
-          load: ${{ github.ref != 'refs/heads/main' }}
+          push: ${{ github.ref == 'refs/heads/main' }}
+          load: true
       - name: Run container image vulnerability scanner
         uses: aquasecurity/trivy-action@91713af97dc80187565512baba96e4364e983601
         with:
           image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'
           # TODO(jaosorior): Fix this once we bump the NixOS dependencies.
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
