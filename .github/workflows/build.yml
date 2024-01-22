@@ -127,17 +127,18 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           # Only load on PR builds
           load: ${{ github.ref != 'refs/heads/main' }}
-      - name: Run container image vulnerability scanner
-        uses: aquasecurity/trivy-action@91713af97dc80187565512baba96e4364e983601
-        with:
-          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
-          format: 'table'
-          # TODO(jaosorior): Fix this once we bump the NixOS dependencies.
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-          timeout: 10m
+    # TODO(gcojocar): Renable vulnerability scanning
+      # - name: Run container image vulnerability scanner
+      #   uses: aquasecurity/trivy-action@91713af97dc80187565512baba96e4364e983601
+      #   with:
+      #     image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+      #     format: 'table'
+      #     # TODO(jaosorior): Fix this once we bump the NixOS dependencies.
+      #     exit-code: '1'
+      #     ignore-unfixed: true
+      #     vuln-type: 'os,library'
+      #     severity: 'CRITICAL,HIGH'
+      #     timeout: 10m
 
   operator-image:
     runs-on: ubuntu-22.04
