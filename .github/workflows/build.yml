@@ -31,7 +31,7 @@ jobs:
       - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7
         with:
           install_url: https://releases.nixos.org/nix/nix-${{ env.NIX_VERSION }}/install
-      - uses: cachix/cachix-action@6a2e08b5ebf7a9f285ff57b1870a4262b06e0bee
+      - uses: cachix/cachix-action@18cf96c7c98e048e10a83abd92116114cd8504be
         with:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -54,7 +54,7 @@ jobs:
       - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7
         with:
           install_url: https://releases.nixos.org/nix/nix-${{ env.NIX_VERSION }}/install
-      - uses: cachix/cachix-action@6a2e08b5ebf7a9f285ff57b1870a4262b06e0bee
+      - uses: cachix/cachix-action@18cf96c7c98e048e10a83abd92116114cd8504be
         with:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -85,7 +85,7 @@ jobs:
       - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7
         with:
           install_url: https://releases.nixos.org/nix/nix-${{ env.NIX_VERSION }}/install
-      - uses: cachix/cachix-action@6a2e08b5ebf7a9f285ff57b1870a4262b06e0bee
+      - uses: cachix/cachix-action@18cf96c7c98e048e10a83abd92116114cd8504be
         with:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
