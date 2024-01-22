@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
@@ -35,11 +36,15 @@ const (
 // +k8s:deepcopy-gen=false
 type PrometheusInterface interface {
 	metav1.ObjectMetaAccessor
-	GetTypeMeta() metav1.TypeMeta
+	schema.ObjectKind
+
 	GetCommonPrometheusFields() CommonPrometheusFields
 	SetCommonPrometheusFields(CommonPrometheusFields)
+
 	GetStatus() PrometheusStatus
 }
+
+var _ = PrometheusInterface(&Prometheus{})
 
 func (l *Prometheus) GetCommonPrometheusFields() CommonPrometheusFields {
 	return l.Spec.CommonPrometheusFields
@@ -49,12 +54,29 @@ func (l *Prometheus) SetCommonPrometheusFields(f CommonPrometheusFields) {
 	l.Spec.CommonPrometheusFields = f
 }
 
-func (l *Prometheus) GetTypeMeta() metav1.TypeMeta {
-	return l.TypeMeta
-}
-
 func (l *Prometheus) GetStatus() PrometheusStatus {
 	return l.Status
+}
+
+// +kubebuilder:validation:Enum=OnResource;OnShard
+type AdditionalLabelSelectors string
+
+const (
+	// Automatically add a label selector that will select all pods matching the same Prometheus/PrometheusAgent resource (irrespective of their shards).
+	ResourceNameLabelSelector AdditionalLabelSelectors = "OnResource"
+
+	// Automatically add a label selector that will select all pods matching the same shard.
+	ShardAndResourceNameLabelSelector AdditionalLabelSelectors = "OnShard"
+)
+
+type CoreV1TopologySpreadConstraint v1.TopologySpreadConstraint
+
+type TopologySpreadConstraint struct {
+	CoreV1TopologySpreadConstraint `json:",inline"`
+
+	//+optional
+	// Defines what Prometheus Operator managed labels should be added to labelSelector on the topologySpreadConstraint.
+	AdditionalLabelSelectors *AdditionalLabelSelectors `json:"additionalLabelSelectors,omitempty"`
 }
 
 // CommonPrometheusFields are the options available to both the Prometheus server and agent.
@@ -320,9 +342,10 @@ type CommonPrometheusFields struct {
 	// Defines the Pods' tolerations if specified.
 	// +optional
 	Tolerations []v1.Toleration `json:"tolerations,omitempty"`
+
 	// Defines the pod's topology spread constraints if specified.
-	// +optional
-	TopologySpreadConstraints []v1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+	//+optional
+	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
 
 	// Defines the list of remote write configurations.
 	// +optional
@@ -621,6 +644,12 @@ type CommonPrometheusFields struct {
 	// If not specified, the configuration is reloaded using the /-/reload HTTP endpoint.
 	// +optional
 	ReloadStrategy *ReloadStrategyType `json:"reloadStrategy,omitempty"`
+
+	// Defines the maximum time that the `prometheus` container's startup probe will wait before being considered failed. The startup probe will return success after the WAL replay is complete.
+	// If set, the value should be greater than 60 (seconds). Otherwise it will be equal to 600 seconds (15 minutes).
+	// +optional
+	// +kubebuilder:validation:Minimum=60
+	MaximumStartupDurationSeconds *int32 `json:"maximumStartupDurationSeconds,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=HTTP;ProcessSignal
@@ -661,6 +690,9 @@ func (cpf *CommonPrometheusFields) WebRoutePrefix() string {
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="Paused",type="boolean",JSONPath=".status.paused",description="Whether the resource reconciliation is paused or not",priority=1
 // +kubebuilder:subresource:status
+// +kubebuilder:subresource:scale:specpath=.spec.shards,statuspath=.status.shards,selectorpath=.status.selector
+// +genclient:method=GetScale,verb=get,subresource=scale,result=k8s.io/api/autoscaling/v1.Scale
+// +genclient:method=UpdateScale,verb=update,subresource=scale,input=k8s.io/api/autoscaling/v1.Scale,result=k8s.io/api/autoscaling/v1.Scale
 
 // Prometheus defines a Prometheus deployment.
 type Prometheus struct {
@@ -702,13 +734,11 @@ func (l *PrometheusList) DeepCopyObject() runtime.Object {
 type PrometheusSpec struct {
 	CommonPrometheusFields `json:",inline"`
 
-	// *Deprecated: use 'spec.image' instead.*
+	// Deprecated: use 'spec.image' instead.
 	BaseImage string `json:"baseImage,omitempty"`
-	// *Deprecated: use 'spec.image' instead. The image's tag can be specified
-	// as part of the image name.*
+	// Deprecated: use 'spec.image' instead. The image's tag can be specified as part of the image name.
 	Tag string `json:"tag,omitempty"`
-	// *Deprecated: use 'spec.image' instead. The image's digest can be
-	// specified as part of the image name.*
+	// Deprecated: use 'spec.image' instead. The image's digest can be specified as part of the image name.
 	SHA string `json:"sha,omitempty"`
 
 	// How long to retain the Prometheus data.
@@ -726,8 +756,8 @@ type PrometheusSpec struct {
 	// Defines the list of PrometheusRule objects to which the namespace label
 	// enforcement doesn't apply.
 	// This is only relevant when `spec.enforcedNamespaceLabel` is set to true.
-	// *Deprecated: use `spec.excludedFromEnforcement` instead.*
 	// +optional
+	// Deprecated: use `spec.excludedFromEnforcement` instead.
 	PrometheusRulesExcludedFromEnforce []PrometheusRuleExcludeConfig `json:"prometheusRulesExcludedFromEnforce,omitempty"`
 	// PrometheusRule objects to be selected for rule evaluation. An empty
 	// label selector matches all objects. A null label selector matches no
@@ -807,7 +837,7 @@ type PrometheusSpec struct {
 	// AllowOverlappingBlocks enables vertical compaction and vertical query
 	// merge in Prometheus.
 	//
-	// *Deprecated: this flag has no effect for Prometheus >= 2.39.0 where overlapping blocks are enabled by default.*
+	// Deprecated: this flag has no effect for Prometheus >= 2.39.0 where overlapping blocks are enabled by default.
 	AllowOverlappingBlocks bool `json:"allowOverlappingBlocks,omitempty"`
 
 	// Exemplars related settings that are runtime reloadable.
@@ -902,6 +932,10 @@ type PrometheusStatus struct {
 	// +listMapKey=shardID
 	// +optional
 	ShardStatuses []ShardStatus `json:"shardStatuses,omitempty"`
+	// Shards is the most recently observed number of shards.
+	Shards int32 `json:"shards,omitempty"`
+	// The selector used to match the pods targeted by this Prometheus resource.
+	Selector string `json:"selector,omitempty"`
 }
 
 // AlertingSpec defines parameters for alerting configuration of Prometheus servers.
@@ -921,7 +955,7 @@ type AlertingSpec struct {
 //
 // +k8s:openapi-gen=true
 type StorageSpec struct {
-	// *Deprecated: subPath usage will be removed in a future release.*
+	// Deprecated: subPath usage will be removed in a future release.
 	DisableMountSubPath bool `json:"disableMountSubPath,omitempty"`
 	// EmptyDirVolumeSource to be used by the StatefulSet.
 	// If specified, it takes precedence over `ephemeral` and `volumeClaimTemplate`.
@@ -1001,16 +1035,14 @@ type ThanosSpec struct {
 	// +optional
 	Version *string `json:"version,omitempty"`
 
-	// *Deprecated: use 'image' instead. The image's tag can be specified as
-	// part of the image name.*
 	// +optional
+	// Deprecated: use 'image' instead. The image's tag can be specified as as part of the image name.
 	Tag *string `json:"tag,omitempty"`
-	// *Deprecated: use 'image' instead.  The image digest can be specified
-	// as part of the image name.*
 	// +optional
+	// Deprecated: use 'image' instead.  The image digest can be specified as part of the image name.
 	SHA *string `json:"sha,omitempty"`
-	// *Deprecated: use 'image' instead.*
 	// +optional
+	// Deprecated: use 'image' instead.
 	BaseImage *string `json:"baseImage,omitempty"`
 
 	// Defines the resources requests and limits of the Thanos sidecar.
@@ -1031,7 +1063,7 @@ type ThanosSpec struct {
 	// +optional
 	ObjectStorageConfigFile *string `json:"objectStorageConfigFile,omitempty"`
 
-	// *Deprecated: use `grpcListenLocal` and `httpListenLocal` instead.*
+	// Deprecated: use `grpcListenLocal` and `httpListenLocal` instead.
 	ListenLocal bool `json:"listenLocal,omitempty"`
 
 	// When true, the Thanos sidecar listens on the loopback interface instead
@@ -1183,7 +1215,7 @@ type RemoteWriteSpec struct {
 	BasicAuth *BasicAuth `json:"basicAuth,omitempty"`
 	// File from which to read bearer token for the URL.
 	//
-	// *Deprecated: this will be removed in a future release. Prefer using `authorization`.*
+	// Deprecated: this will be removed in a future release. Prefer using `authorization`.
 	BearerTokenFile string `json:"bearerTokenFile,omitempty"`
 	// Authorization section for the URL.
 	//
@@ -1214,7 +1246,7 @@ type RemoteWriteSpec struct {
 	// *Warning: this field shouldn't be used because the token value appears
 	// in clear-text. Prefer using `authorization`.*
 	//
-	// *Deprecated: this will be removed in a future release.*
+	// Deprecated: this will be removed in a future release.
 	BearerToken string `json:"bearerToken,omitempty"`
 
 	// TLS Config to use for the URL.
@@ -1231,6 +1263,10 @@ type RemoteWriteSpec struct {
 	// MetadataConfig configures the sending of series metadata to the remote storage.
 	// +optional
 	MetadataConfig *MetadataConfig `json:"metadataConfig,omitempty"`
+
+	// Whether to enable HTTP2.
+	// +optional
+	EnableHttp2 *bool `json:"enableHTTP2,omitempty"`
 }
 
 // QueueConfig allows the tuning of remote write's queue_config parameters.
@@ -1373,7 +1409,7 @@ type RemoteReadSpec struct {
 	BasicAuth *BasicAuth `json:"basicAuth,omitempty"`
 	// File from which to read the bearer token for the URL.
 	//
-	// *Deprecated: this will be removed in a future release. Prefer using `authorization`.*
+	// Deprecated: this will be removed in a future release. Prefer using `authorization`.
 	BearerTokenFile string `json:"bearerTokenFile,omitempty"`
 	// Authorization section for the URL.
 	//
@@ -1387,7 +1423,7 @@ type RemoteReadSpec struct {
 	// *Warning: this field shouldn't be used because the token value appears
 	// in clear-text. Prefer using `authorization`.*
 	//
-	// *Deprecated: this will be removed in a future release.*
+	// Deprecated: this will be removed in a future release.
 	BearerToken string `json:"bearerToken,omitempty"`
 
 	// TLS Config to use for the URL.
@@ -1485,7 +1521,7 @@ type APIServerConfig struct {
 	//
 	// Cannot be set at the same time as `basicAuth`, `authorization`, or `bearerToken`.
 	//
-	// *Deprecated: this will be removed in a future release. Prefer using `authorization`.*
+	// Deprecated: this will be removed in a future release. Prefer using `authorization`.
 	BearerTokenFile string `json:"bearerTokenFile,omitempty"`
 
 	// TLS Config to use for the API server.
@@ -1504,7 +1540,7 @@ type APIServerConfig struct {
 	// *Warning: this field shouldn't be used because the token value appears
 	// in clear-text. Prefer using `authorization`.*
 	//
-	// *Deprecated: this will be removed in a future release.*
+	// Deprecated: this will be removed in a future release.
 	BearerToken string `json:"bearerToken,omitempty"`
 }
 
@@ -1542,7 +1578,7 @@ type AlertmanagerEndpoints struct {
 	//
 	// Cannot be set at the same time as `basicAuth`, `authorization`, or `sigv4`.
 	//
-	// *Deprecated: this will be removed in a future release. Prefer using `authorization`.*
+	// Deprecated: this will be removed in a future release. Prefer using `authorization`.
 	BearerTokenFile string `json:"bearerTokenFile,omitempty"`
 
 	// Authorization section for Alertmanager.
