@@ -125,7 +125,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           push: ${{ github.ref == 'refs/heads/main' }}
-          load: true
+          # Only load on PR builds
+          load: ${{ github.ref != 'refs/heads/main' }}
       - name: Run container image vulnerability scanner
         uses: aquasecurity/trivy-action@91713af97dc80187565512baba96e4364e983601
         with:
