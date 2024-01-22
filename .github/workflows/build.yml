@@ -124,7 +124,8 @@ jobs:
           file: Dockerfile.build-image
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          push: ${{ github.ref == 'refs/heads/main' }}
+          # TODO(gcojocar) push the image because it seems to be fetched by the vulnerability scanner
+          # push: ${{ github.ref == 'refs/heads/main' }}
           # Only load on PR builds
           load: ${{ github.ref != 'refs/heads/main' }}
       - name: Run container image vulnerability scanner
