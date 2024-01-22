@@ -1,4 +1,4 @@
-# `counterfeiter` [![Go](https://github.com/maxbrunsfeld/counterfeiter/actions/workflows/go.yml/badge.svg)](https://github.com/maxbrunsfeld/counterfeiter/actions/workflows/go.yml) [![CircleCI](https://circleci.com/gh/maxbrunsfeld/counterfeiter.svg?style=svg)](https://circleci.com/gh/maxbrunsfeld/counterfeiter) [![Build status](https://ci.appveyor.com/api/projects/status/0j2v7pt06lp9yanm/branch/master?svg=true)](https://ci.appveyor.com/project/maxbrunsfeld/counterfeiter/branch/master)
+# `counterfeiter` [![GitHub Actions](https://github.com/maxbrunsfeld/counterfeiter/actions/workflows/go.yml/badge.svg)](https://github.com/maxbrunsfeld/counterfeiter/actions/workflows/go.yml) [![Go Report Card](https://goreportcard.com/badge/github.com/maxbrunsfeld/counterfeiter/v6)](https://goreportcard.com/report/github.com/maxbrunsfeld/counterfeiter/v6) [![GoDoc](https://godoc.org/github.com/maxbrunsfeld/counterfeiter/v6?status.svg)](https://godoc.org/github.com/maxbrunsfeld/counterfeiter/v6)
 
 When writing unit-tests for an object, it is often useful to have fake implementations
 of the object's collaborators. In go, such fake implementations cannot be generated
@@ -29,7 +29,7 @@ $ cat tools/tools.go
 ```
 
 ```go
-// +build tools
+//go:build tools
 
 package tools
 
@@ -116,7 +116,8 @@ $ go run github.com/maxbrunsfeld/counterfeiter/v6
 
 USAGE
 	counterfeiter
-		[-generate] [-o <output-path>] [-p] [--fake-name <fake-name>]
+		[-generate>] [-o <output-path>] [-p] [--fake-name <fake-name>]
+		[-header <header-file>]
 		[<source-path>] <interface> [-]
 ```
 
@@ -125,12 +126,13 @@ USAGE
 This is unnecessary if you're using the approach described above, but does allow you to invoke `counterfeiter` in your shell _outside_ of a module:
 
 ```shell
-$ GO111MODULE=off go get -u github.com/maxbrunsfeld/counterfeiter
-$ counterfeiter
+$ go install github.com/maxbrunsfeld/counterfeiter/v6
+$ ~/go/bin/counterfeiter
 
 USAGE
 	counterfeiter
-		[-generate] [-o <output-path>] [-p] [--fake-name <fake-name>]
+		[-generate>] [-o <output-path>] [-p] [--fake-name <fake-name>]
+		[-header <header-file>]
 		[<source-path>] <interface> [-]
 ```
 
