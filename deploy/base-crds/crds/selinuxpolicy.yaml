@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.13.0
+    controller-gen.kubebuilder.io/version: v0.14.0
   name: rawselinuxprofiles.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
@@ -26,14 +26,19 @@ spec:
         description: RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
@@ -61,13 +66,15 @@ spec:
                   description: A Condition that may apply to a resource.
                   properties:
                     lastTransitionTime:
-                      description: LastTransitionTime is the last time this condition
-                        transitioned from one status to another.
+                      description: |-
+                        LastTransitionTime is the last time this condition transitioned from one
+                        status to another.
                       format: date-time
                       type: string
                     message:
-                      description: A Message containing details about this condition's
-                        last transition from one status to another, if any.
+                      description: |-
+                        A Message containing details about this condition's last transition from
+                        one status to another, if any.
                       type: string
                     reason:
                       description: A Reason for this condition's last transition from
@@ -78,8 +85,9 @@ spec:
                         False, or Unknown?
                       type: string
                     type:
-                      description: Type of this condition. At most one of each condition
-                        type may apply to a resource at any point in time.
+                      description: |-
+                        Type of this condition. At most one of each condition type may apply to
+                        a resource at any point in time.
                       type: string
                   required:
                   - lastTransitionTime
@@ -89,14 +97,15 @@ spec:
                   type: object
                 type: array
               status:
-                description: ProfileState defines the state that the profile is in.
-                  A profile in this context refers to a SeccompProfile or a SELinux
-                  profile, the states are shared between them as well as the management
-                  API.
+                description: |-
+                  ProfileState defines the state that the profile is in. A profile in this context
+                  refers to a SeccompProfile or a SELinux profile, the states are shared between them
+                  as well as the management API.
                 type: string
               usage:
-                description: Represents the string that the SelinuxProfile object
-                  can be referenced as in a pod seLinuxOptions section.
+                description: |-
+                  Represents the string that the SelinuxProfile object can be
+                  referenced as in a pod seLinuxOptions section.
                 type: string
             type: object
         type: object
@@ -109,7 +118,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.13.0
+    controller-gen.kubebuilder.io/version: v0.14.0
   name: selinuxprofiles.security-profiles-operator.x-k8s.io
 spec:
   group: security-profiles-operator.x-k8s.io
@@ -133,14 +142,19 @@ spec:
         description: SelinuxProfile is the Schema for the selinuxprofiles API.
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
@@ -165,16 +179,19 @@ spec:
                 default:
                 - kind: System
                   name: container
-                description: A SELinuxProfile or set of profiles that this inherits
-                  from. Note that they need to be in the same namespace.
+                description: |-
+                  A SELinuxProfile or set of profiles that this inherits from.
+                  Note that they need to be in the same namespace.
                 items:
                   properties:
                     kind:
                       default: System
-                      description: The Kind of the policy that this inherits from.
-                        Can be a SelinuxProfile object Or "System" if an already installed
-                        policy will be used. The allowed "System" policies are available
-                        in the SecurityProfilesOperatorDaemon instance.
+                      description: |-
+                        The Kind of the policy that this inherits from.
+                        Can be a SelinuxProfile object Or "System" if an already
+                        installed policy will be used.
+                        The allowed "System" policies are available in the
+                        SecurityProfilesOperatorDaemon instance.
                       enum:
                       - System
                       - SelinuxProfile
@@ -188,8 +205,9 @@ spec:
                 type: array
               permissive:
                 default: false
-                description: Permissive, when true will cause the SELinux profile
-                  to only log violations instead of enforcing them.
+                description: |-
+                  Permissive, when true will cause the SELinux profile to only
+                  log violations instead of enforcing them.
                 type: boolean
             type: object
           status:
@@ -205,13 +223,15 @@ spec:
                   description: A Condition that may apply to a resource.
                   properties:
                     lastTransitionTime:
-                      description: LastTransitionTime is the last time this condition
-                        transitioned from one status to another.
+                      description: |-
+                        LastTransitionTime is the last time this condition transitioned from one
+                        status to another.
                       format: date-time
                       type: string
                     message:
-                      description: A Message containing details about this condition's
-                        last transition from one status to another, if any.
+                      description: |-
+                        A Message containing details about this condition's last transition from
+                        one status to another, if any.
                       type: string
                     reason:
                       description: A Reason for this condition's last transition from
@@ -222,8 +242,9 @@ spec:
                         False, or Unknown?
                       type: string
                     type:
-                      description: Type of this condition. At most one of each condition
-                        type may apply to a resource at any point in time.
+                      description: |-
+                        Type of this condition. At most one of each condition type may apply to
+                        a resource at any point in time.
                       type: string
                   required:
                   - lastTransitionTime
@@ -233,14 +254,15 @@ spec:
                   type: object
                 type: array
               status:
-                description: ProfileState defines the state that the profile is in.
-                  A profile in this context refers to a SeccompProfile or a SELinux
-                  profile, the states are shared between them as well as the management
-                  API.
+                description: |-
+                  ProfileState defines the state that the profile is in. A profile in this context
+                  refers to a SeccompProfile or a SELinux profile, the states are shared between them
+                  as well as the management API.
                 type: string
               usage:
-                description: Represents the string that the SelinuxProfile object
-                  can be referenced as in a pod seLinuxOptions section.
+                description: |-
+                  Represents the string that the SelinuxProfile object can be
+                  referenced as in a pod seLinuxOptions section.
                 type: string
             type: object
         type: object
