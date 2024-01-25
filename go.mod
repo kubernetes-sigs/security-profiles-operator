@@ -7,7 +7,7 @@ require (
 	github.com/aquasecurity/libbpfgo v0.6.0-libbpf-1.3
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cert-manager/cert-manager v1.13.3
-	github.com/containers/common v0.57.2
+	github.com/containers/common v0.49.3
 	github.com/go-logr/logr v1.4.1
 	github.com/google/go-cmp v0.6.0
 	github.com/google/go-containerregistry v0.18.0
