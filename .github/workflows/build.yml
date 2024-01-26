@@ -125,9 +125,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           push: ${{ github.ref == 'refs/heads/main' }}
+          load: false
+          # TODO renable loading (currently runs out of disk space)
           # Only load on PR builds
-          load: ${{ github.ref != 'refs/heads/main' }}
-    # TODO(gcojocar): Renable vulnerability scanning
+          # load: ${{ github.ref != 'refs/heads/main' }}
+      # TODO(gcojocar): Renable vulnerability scanning
       # - name: Run container image vulnerability scanner
       #   uses: aquasecurity/trivy-action@d43c1f16c00cfd3978dde6c07f4bbcf9eb6993ca
       #   with:
