@@ -56,15 +56,20 @@ jobs:
           path: image.tar
 
   e2e-fedora:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
+    # TODO(saschagrunert): re-enable when tests are fixed
     if: false
     needs: image
-    runs-on: macos-12
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-fedora.sh
     steps:
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
       - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935
         with:
@@ -88,15 +93,18 @@ jobs:
           $RUN hack/ci/e2e-fedora.sh
 
   e2e-ubuntu:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
     needs: image
-    runs-on: macos-12
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
       - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935
         with:
@@ -120,53 +128,59 @@ jobs:
           $RUN hack/ci/e2e-ubuntu.sh
 
   e2e-flatcar:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
     needs: image
-    runs-on: macos-12
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-flatcar.sh
     steps:
-       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-       - name: Vagrant box version
-         id: vagrant-box
-         run: |
-           echo "version=$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')" >> $GITHUB_OUTPUT
-         shell: bash
-       - name: Upgrade vagrant box
-         run: |
-           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
-           vagrant box update
-       - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935
-         with:
-           name: image
-           path: .
-       - name: Boot Virtual Machine
-         run: make vagrant-up-flatcar
-       - name: Show environment information
-         run: |
-           $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
-           $RUN kubectl get nodes -o wide
-       - name: Run E2E tests
-         run: $RUN hack/ci/e2e-flatcar-dev-container.sh
-       - name: Run Flaky E2E tests
-         continue-on-error: true
-         run: |
-           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
-           $RUN hack/ci/e2e-flatcar-dev-container.sh
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+      - name: Vagrant box version
+        id: vagrant-box
+        run: |
+          echo "version=$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')" >> $GITHUB_OUTPUT
+        shell: bash
+      - name: Upgrade vagrant box
+        run: |
+          ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
+          vagrant box update
+      - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935
+        with:
+          name: image
+          path: .
+      - name: Boot Virtual Machine
+        run: make vagrant-up-flatcar
+      - name: Show environment information
+        run: |
+          $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
+          $RUN kubectl get nodes -o wide
+      - name: Run E2E tests
+        run: $RUN hack/ci/e2e-flatcar-dev-container.sh
+      - name: Run Flaky E2E tests
+        continue-on-error: true
+        run: |
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
+          $RUN hack/ci/e2e-flatcar-dev-container.sh
 
   baseprofiles:
-    # TODO(saschagrunert): re-enable when
-    # https://github.com/actions/runner-images/issues/8730 is resolved
-    if: false
     needs: image
-    runs-on: macos-12
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
       - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935
         with:
