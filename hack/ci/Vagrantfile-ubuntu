@@ -56,8 +56,8 @@ Vagrant.configure("2") do |config|
       apt-get autoremove -y
 
       # Some tests require runc
-      RUNC_VERSION=v1.1.9
-      RUNC_BINARY=/usr/sbin/runc
+      RUNC_VERSION=v1.1.11
+      RUNC_BINARY=/usr/bin/crio-runc
       curl -sSfL --retry 5 --retry-delay 3 "https://github.com/opencontainers/runc/releases/download/$RUNC_VERSION/runc.amd64" -o "$RUNC_BINARY"
       chmod +x "$RUNC_BINARY"
 
@@ -69,7 +69,6 @@ Vagrant.configure("2") do |config|
 
       # Setup CRI-O
       apt-get install -y cri-o
-      printf '[crio.runtime.runtimes.runc]\n' >/etc/crio/crio.conf.d/10-runc.conf
       systemctl enable --now crio
 
       # Disable kernel print rate limiting for syslog messaging
