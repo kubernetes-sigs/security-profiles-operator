@@ -56,8 +56,6 @@ jobs:
           path: image.tar
 
   e2e-fedora:
-    # TODO(saschagrunert): re-enable when tests are fixed
-    if: false
     needs: image
     runs-on: ubuntu-22.04
     timeout-minutes: 90
