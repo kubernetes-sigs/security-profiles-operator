@@ -38,9 +38,13 @@ var knownLibrariesPrefixes = []string{
 var knownReadPrefixes = []string{
 	"/dev/random",
 	"/dev/urandom",
+	"/etc/ld.so.cache",
+	"/etc/ld.so.conf",
+	"/etc/ld.so.conf.d/",
 	"/etc/locale/",
 	"/etc/locale.alias/",
 	"/etc/localtime",
+	"/sys/kernel/mm/transparent_hugepage/hpage_pmd_size",
 	"/usr/share/locale/",
 }
 
