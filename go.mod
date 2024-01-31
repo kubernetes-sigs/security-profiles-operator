@@ -17,7 +17,7 @@ require (
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
 	github.com/nxadm/tail v1.4.11
 	github.com/opencontainers/image-spec v1.1.0-rc6
-	github.com/opencontainers/runc v1.1.11
+	github.com/opencontainers/runc v1.1.12
 	github.com/opencontainers/runtime-spec v1.1.0
 	github.com/openshift/api v0.0.0-20221205111557-f2fbb1d1cd5e
 	github.com/pjbgf/go-apparmor v0.1.2
