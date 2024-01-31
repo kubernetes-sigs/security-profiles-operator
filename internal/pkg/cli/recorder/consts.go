@@ -51,7 +51,7 @@ const (
 	TypeApparmor Type = "apparmor"
 
 	// TypeRawAppArmor is the type indicating that we should record a raw
-	// seccomp JSON profile.
+	// apparmor JSON profile.
 	TypeRawAppArmor Type = "raw-apparmor"
 )
 
