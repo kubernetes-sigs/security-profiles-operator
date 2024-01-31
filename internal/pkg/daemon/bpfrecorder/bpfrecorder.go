@@ -767,11 +767,11 @@ func fileDataToString(data *[pathMax]uint8) string {
 
 func (b *BpfRecorder) handleMmapEvent(fileEvent *bpfAppArmorEvent) {
 	path, ok := b.fdMapping[fileEvent.Fd]
-	if int(fileEvent.Fd) < 0 {
+	if int32(fileEvent.Fd) < 0 {
 		return
 	}
 	if !ok {
-		b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
+		b.logger.Info(fmt.Sprintf("Got mmap event for unknown fd: %d", fileEvent.Fd))
 		return
 	}
 	for i, file := range b.recordedFiles {
@@ -791,12 +791,12 @@ func (b *BpfRecorder) handleMmapEvent(fileEvent *bpfAppArmorEvent) {
 }
 
 func (b *BpfRecorder) handleWrite(fileEvent *bpfAppArmorEvent) {
-	if int(fileEvent.Fd) < 0 {
+	if int32(fileEvent.Fd) < 0 {
 		return
 	}
 	path, ok := b.fdMapping[fileEvent.Fd]
 	if !ok {
-		b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
+		b.logger.Info(fmt.Sprintf("Got write event for unknown fd: %d", fileEvent.Fd))
 		return
 	}
 	for i, file := range b.recordedFiles {
@@ -808,12 +808,12 @@ func (b *BpfRecorder) handleWrite(fileEvent *bpfAppArmorEvent) {
 }
 
 func (b *BpfRecorder) handleRead(fileEvent *bpfAppArmorEvent) {
-	if int(fileEvent.Fd) < 0 {
+	if int32(fileEvent.Fd) < 0 {
 		return
 	}
 	path, ok := b.fdMapping[fileEvent.Fd]
 	if !ok {
-		b.logger.Info(fmt.Sprintf("Got event for unknown fd: %d", fileEvent.Fd))
+		b.logger.Info(fmt.Sprintf("Got read event for unknown fd: %d", fileEvent.Fd))
 		return
 	}
 	for i, file := range b.recordedFiles {
@@ -833,7 +833,7 @@ func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent *bpfAppArmorEvent) {
 		var fileEv bpfAppArmorFileEvent
 		fileEv.Filename = fileDataToString(&fileEvent.Data)
 		fileEv.Flags = fileEvent.Flags
-		if int(fileEvent.Fd) < 0 {
+		if int32(fileEvent.Fd) < 0 {
 			fileEv.GotError = true
 		}
 		b.recordedFiles = append(b.recordedFiles, fileEv)
