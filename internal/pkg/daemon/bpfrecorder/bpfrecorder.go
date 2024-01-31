@@ -81,6 +81,9 @@ const (
 	sockDgram           int           = 2
 	sockRaw             int           = 3
 	sockTypeMask        int           = 0xF
+	fdStdin             uint64        = 0
+	fdStdout            uint64        = 1
+	fdStderr            uint64        = 2
 )
 
 // BpfRecorder is the main structure of this package.
@@ -796,7 +799,10 @@ func (b *BpfRecorder) handleWrite(fileEvent *bpfAppArmorEvent) {
 	}
 	path, ok := b.fdMapping[fileEvent.Fd]
 	if !ok {
-		b.logger.Info(fmt.Sprintf("Got write event for unknown fd: %d", fileEvent.Fd))
+		isStdoutStderr := fileEvent.Fd == fdStdout || fileEvent.Fd == fdStderr
+		if !isStdoutStderr {
+			b.logger.Info(fmt.Sprintf("Got write event for unknown fd: %d", fileEvent.Fd))
+		}
 		return
 	}
 	for i, file := range b.recordedFiles {
@@ -813,7 +819,10 @@ func (b *BpfRecorder) handleRead(fileEvent *bpfAppArmorEvent) {
 	}
 	path, ok := b.fdMapping[fileEvent.Fd]
 	if !ok {
-		b.logger.Info(fmt.Sprintf("Got read event for unknown fd: %d", fileEvent.Fd))
+		isStdin := fileEvent.Fd == fdStdin
+		if !isStdin {
+			b.logger.Info(fmt.Sprintf("Got read event for unknown fd: %d", fileEvent.Fd))
+		}
 		return
 	}
 	for i, file := range b.recordedFiles {
