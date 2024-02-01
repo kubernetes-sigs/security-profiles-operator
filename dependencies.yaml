@@ -164,7 +164,7 @@ dependencies:
       match: baseProfileNameCrun
 
   - name: runc
-    version: v1.1.11
+    version: v1.1.12
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: name
