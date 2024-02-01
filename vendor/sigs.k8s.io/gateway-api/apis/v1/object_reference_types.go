@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package v1
 
 // LocalObjectReference identifies an API object within the namespace of the
 // referrer.
@@ -62,7 +62,7 @@ type SecretObjectReference struct {
 	// Name is the name of the referent.
 	Name ObjectName `json:"name"`
 
-	// Namespace is the namespace of the backend. When unspecified, the local
+	// Namespace is the namespace of the referenced object. When unspecified, the local
 	// namespace is inferred.
 	//
 	// Note that when a namespace different than the local namespace is specified,
