@@ -234,27 +234,37 @@ func rangeYAMLMapImpl(merged map[*yaml.Node]bool, n *yaml.Node, f func(key strin
 // 0xb and 11, to be equivalent, and therefore a duplicate key. JSON requires
 // all keys to be strings.
 func canonicalMapKey(n *yaml.Node) (string, error) {
-	var x any
-	if err := n.Decode(&x); err != nil {
-		return "", err
-	}
-	if x == nil || n.Tag == "!!null" {
-		// Nulls are not valid JSON keys.
-		return "", fmt.Errorf("line %d, col %d: null not supported as a map key", n.Line, n.Column)
-	}
-	switch n.Tag {
-	case "!!bool":
-		// Canonicalise to true or false.
-		return fmt.Sprintf("%t", x), nil
-	case "!!int":
-		// Canonicalise to decimal.
-		return fmt.Sprintf("%d", x), nil
-	case "!!float":
-		// Canonicalise to scientific notation.
-		// Don't handle Inf or NaN specially, as they will be quoted.
-		return fmt.Sprintf("%e", x), nil
+	switch n.Kind {
+	case yaml.AliasNode:
+		return canonicalMapKey(n.Alias)
+
+	case yaml.ScalarNode:
+		var x any
+		if err := n.Decode(&x); err != nil {
+			return "", err
+		}
+		if x == nil || n.Tag == "!!null" {
+			// Nulls are not valid JSON keys.
+			return "", fmt.Errorf("line %d, col %d: null not supported as a map key", n.Line, n.Column)
+		}
+		switch n.Tag {
+		case "!!bool":
+			// Canonicalise to true or false.
+			return fmt.Sprintf("%t", x), nil
+		case "!!int":
+			// Canonicalise to decimal.
+			return fmt.Sprintf("%d", x), nil
+		case "!!float":
+			// Canonicalise to scientific notation.
+			// Don't handle Inf or NaN specially, as they will be quoted.
+			return fmt.Sprintf("%e", x), nil
+		default:
+			// Assume the value is already a suitable key.
+			return n.Value, nil
+		}
+
 	default:
-		// Assume the value is already a suitable key.
-		return n.Value, nil
+		// TODO: Use %v once yaml.Kind has a String method
+		return "", fmt.Errorf("line %d, col %d: cannot use node kind %x as a map key", n.Line, n.Column, n.Kind)
 	}
 }

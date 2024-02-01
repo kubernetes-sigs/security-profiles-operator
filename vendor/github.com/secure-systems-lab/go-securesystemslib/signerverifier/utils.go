@@ -24,15 +24,14 @@ var (
 	ErrFailedPEMParsing = errors.New("failed parsing the PEM block: unsupported PEM type")
 )
 
-// loadKeyFromSSLibBytes returns a pointer to a Key instance created from the
+// LoadKeyFromSSLibBytes returns a pointer to a Key instance created from the
 // contents of the bytes. The key contents are expected to be in the custom
 // securesystemslib format.
-func loadKeyFromSSLibBytes(contents []byte) (*SSLibKey, error) {
+func LoadKeyFromSSLibBytes(contents []byte) (*SSLibKey, error) {
 	var key *SSLibKey
 	if err := json.Unmarshal(contents, &key); err != nil {
-		return nil, err
+		return LoadRSAPSSKeyFromBytes(contents)
 	}
-
 	if len(key.KeyID) == 0 {
 		keyID, err := calculateKeyID(key)
 		if err != nil {

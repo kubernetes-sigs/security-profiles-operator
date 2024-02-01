@@ -31,9 +31,9 @@ type selfInterpolater interface {
 	interpolate(stringTransformer) error
 }
 
-// interpolateAny interpolates (almost) anything in-place. When passed a string,
-// it returns a new string. Anything it doesn't know how to interpolate is
-// returned unaltered.
+// interpolateAny interpolates most things, mostly in-place. When passed a
+// string, it returns a new string. Anything it doesn't know how to interpolate
+// is returned unaltered.
 func interpolateAny[T any](tf stringTransformer, o T) (T, error) {
 	// The box-typeswitch-unbox dance is required because the Go compiler
 	// has no type switch for type parameters.
@@ -45,11 +45,7 @@ func interpolateAny[T any](tf stringTransformer, o T) (T, error) {
 		err = t.interpolate(tf)
 
 	case *string:
-		if t == nil {
-			return o, nil
-		}
-		*t, err = tf.Transform(*t)
-		a = t
+		err = interpolateString(tf, t)
 
 	case string:
 		a, err = tf.Transform(t)
@@ -83,6 +79,20 @@ func interpolateAny[T any](tf stringTransformer, o T) (T, error) {
 		return zt, err
 	}
 	return a.(T), err
+}
+
+// interpolateString is a helper to interpolate a string field in-place
+// (requiring a pointer to the field).
+func interpolateString(tf stringTransformer, p *string) error {
+	if p == nil {
+		return nil
+	}
+	s, err := tf.Transform(*p)
+	if err != nil {
+		return err
+	}
+	*p = s
+	return nil
 }
 
 // interpolateSlice applies interpolateAny over any type of slice. Values in the

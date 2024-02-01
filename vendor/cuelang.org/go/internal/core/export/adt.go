@@ -328,9 +328,12 @@ func (e *exporter) resolve(env *adt.Environment, r adt.Resolver) ast.Expr {
 		// cannot be properly resolved, throwing off the sanitize. Also,
 		// comprehensions originate from a single source and do not need to be
 		// handled.
-		if v := env.Vertex; !v.IsDynamic {
-			if v = v.Lookup(x.Label); v != nil {
-				e.linkIdentifier(v, ident)
+		if env != nil { // for generated stuff
+			// TODO: note that env.Vertex should never be nil; investigate and replace the nil check below.
+			if v := env.Vertex; v != nil && !v.IsDynamic {
+				if v = v.Lookup(x.Label); v != nil {
+					e.linkIdentifier(v, ident)
+				}
 			}
 		}
 

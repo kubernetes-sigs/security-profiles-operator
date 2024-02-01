@@ -15,6 +15,7 @@
 package load
 
 import (
+	"context"
 	"fmt"
 	"os"
 	pathpkg "path"
@@ -22,10 +23,12 @@ import (
 	"sort"
 	"strings"
 
+	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/build"
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal/filetypes"
+	"cuelang.org/go/internal/mod/module"
 )
 
 // importPkg returns details about the CUE package named by the import path,
@@ -51,6 +54,19 @@ import (
 //	_       anonymous files (which may be marked with _)
 //	*       all packages
 func (l *loader) importPkg(pos token.Pos, p *build.Instance) []*build.Instance {
+	retErr := func(errs errors.Error) []*build.Instance {
+		// XXX: move this loop to ReportError
+		for _, err := range errors.Errors(errs) {
+			p.ReportError(err)
+		}
+		return []*build.Instance{p}
+	}
+
+	for _, item := range l.stk {
+		if item == p.ImportPath {
+			return retErr(&PackageError{Message: errors.NewMessagef("package import cycle not allowed")})
+		}
+	}
 	l.stk.Push(p.ImportPath)
 	defer l.stk.Pop()
 
@@ -58,14 +74,6 @@ func (l *loader) importPkg(pos token.Pos, p *build.Instance) []*build.Instance {
 	ctxt := &cfg.fileSystem
 
 	if p.Err != nil {
-		return []*build.Instance{p}
-	}
-
-	retErr := func(errs errors.Error) []*build.Instance {
-		// XXX: move this loop to ReportError
-		for _, err := range errors.Errors(errs) {
-			p.ReportError(err)
-		}
 		return []*build.Instance{p}
 	}
 
@@ -348,15 +356,25 @@ func (l *loader) absDirFromImportPath(pos token.Pos, p importPath) (absDir, name
 		p = p[:i]
 
 	default: // p[i] == '/'
-		name = string(p[i+1:])
+		mp, _, ok := module.SplitPathVersion(string(p))
+		if ok {
+			// import of the form: example.com/foo/bar@v1
+			if i := strings.LastIndex(mp, "/"); i >= 0 {
+				name = mp[i+1:]
+			}
+		} else {
+			name = string(p[i+1:])
+		}
 	}
-
 	// TODO: fully test that name is a valid identifier.
 	if name == "" {
 		err = errors.Newf(pos, "empty package name in import path %q", p)
 	} else if strings.IndexByte(name, '.') >= 0 {
 		err = errors.Newf(pos,
 			"cannot determine package name for %q (set explicitly with ':')", p)
+	} else if !ast.IsValidIdent(name) {
+		err = errors.Newf(pos,
+			"implied package identifier %q from import path %q is not valid", name, p)
 	}
 
 	// Determine the directory.
@@ -371,7 +389,7 @@ func (l *loader) absDirFromImportPath(pos token.Pos, p importPath) (absDir, name
 
 	default:
 		// TODO predicate registry-aware lookup on module.cue-declared CUE version?
-		if l.cfg.Registry != "" {
+		if l.cfg.Registry != nil {
 			var err error
 			absDir, err = l.externalPackageDir(p)
 			if err != nil {
@@ -387,12 +405,15 @@ func (l *loader) absDirFromImportPath(pos token.Pos, p importPath) (absDir, name
 }
 
 func (l *loader) externalPackageDir(p importPath) (dir string, err error) {
-	m, subPath, ok := l.deps.lookup(p)
-	if !ok {
-		return "", fmt.Errorf("no dependency found for import path %q", p)
+	if l.deps == nil {
+		return "", fmt.Errorf("no dependency found for import path %q (no dependencies at all)", p)
+	}
+	m, subPath, err := l.deps.lookup(p)
+	if err != nil {
+		return "", err
 	}
 
-	dir, err = l.regClient.getModContents(m)
+	dir, err = l.regClient.getModContents(context.TODO(), m)
 	if err != nil {
 		return "", fmt.Errorf("cannot get contents for %v: %v", m, err)
 	}

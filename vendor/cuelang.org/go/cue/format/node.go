@@ -431,6 +431,16 @@ func (f *formatter) nextNeedsFormfeed(n ast.Expr) bool {
 		return strings.IndexByte(x.Value, '\n') >= 0
 	case *ast.ListLit:
 		return true
+	case *ast.UnaryExpr:
+		return f.nextNeedsFormfeed(x.X)
+	case *ast.BinaryExpr:
+		return f.nextNeedsFormfeed(x.X) || f.nextNeedsFormfeed(x.Y)
+	case *ast.CallExpr:
+		for _, arg := range x.Args {
+			if f.nextNeedsFormfeed(arg) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -649,7 +659,7 @@ func (f *formatter) exprRaw(expr ast.Expr, prec1, depth int) {
 		f.print(ws, x.Rbrace, token.RBRACE)
 
 	case *ast.ListLit:
-		f.print(x.Lbrack, token.LBRACK, indent)
+		f.print(x.Lbrack, token.LBRACK, noblank, indent)
 		f.walkListElems(x.Elts)
 		f.print(trailcomma, noblank)
 		f.visitComments(f.current.pos)
