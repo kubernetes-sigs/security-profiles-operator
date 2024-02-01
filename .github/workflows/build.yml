@@ -136,7 +136,7 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-          timeout: 10m
+          timeout: 30m
 
   operator-image:
     runs-on: ubuntu-22.04
