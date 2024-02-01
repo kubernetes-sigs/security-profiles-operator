@@ -209,8 +209,8 @@ github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be h1:J5BL
 github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be/go.mod h1:mk5IQ+Y0ZeO87b858TlA645sVcEcbiX6YqP98kt+7+w=
 github.com/containerd/stargz-snapshotter/estargz v0.15.1 h1:eXJjw9RbkLFgioVaTG+G/ZW/0kEe2oEKCdS/ZxIyoCU=
 github.com/containerd/stargz-snapshotter/estargz v0.15.1/go.mod h1:gr2RNwukQ/S9Nv33Lt6UC7xEx58C+LHRdoqbEKjz1Kk=
-github.com/containers/common v0.57.3 h1:g4NqE/4iqunqgp7htfJLPKAFKf1PAXkv2I65a7+lQJI=
-github.com/containers/common v0.57.3/go.mod h1:o3L3CyOI9yr+JC8l4dZgvqTxcjs3qdKmkek00uchgvw=
+github.com/containers/common v0.57.4 h1:kmfBad92kUjP5X44BPpOwMe+eZQqaKETfS+ASeL0g+g=
+github.com/containers/common v0.57.4/go.mod h1:o3L3CyOI9yr+JC8l4dZgvqTxcjs3qdKmkek00uchgvw=
 github.com/coreos/go-oidc/v3 v3.9.0 h1:0J/ogVOd4y8P0f0xUh8l9t07xRP/d8tccvjHl2dcsSo=
 github.com/coreos/go-oidc/v3 v3.9.0/go.mod h1:rTKz2PYwftcrtoCzV5g5kvfJoWcm0Mk8AF8y1iAQro4=
 github.com/coreos/go-systemd/v22 v22.5.0 h1:RrqgGjYQKalulkV8NGVIfkXQf6YYmOyiJKk8iXXhfZs=
