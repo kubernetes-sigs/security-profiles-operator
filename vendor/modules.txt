@@ -340,8 +340,8 @@ github.com/blang/semver
 # github.com/blang/semver/v4 v4.0.0
 ## explicit; go 1.14
 github.com/blang/semver/v4
-# github.com/buildkite/agent/v3 v3.62.0
-## explicit; go 1.21
+# github.com/buildkite/agent/v3 v3.62.0 => github.com/buildkite/agent/v3 v3.59.0
+## explicit; go 1.20
 github.com/buildkite/agent/v3/api
 github.com/buildkite/agent/v3/logger
 github.com/buildkite/agent/v3/version
@@ -2045,3 +2045,4 @@ sigs.k8s.io/structured-merge-diff/v4/value
 ## explicit; go 1.12
 sigs.k8s.io/yaml
 sigs.k8s.io/yaml/goyaml.v2
+# github.com/buildkite/agent/v3 => github.com/buildkite/agent/v3 v3.59.0
