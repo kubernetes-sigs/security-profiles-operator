@@ -53,6 +53,7 @@ gpgkey=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/repodata/repomd.x
 EOF
 
       dnf install -y \
+        cri-o \
         conntrack \
         container-selinux \
         gcc \
@@ -71,9 +72,6 @@ EOF
       podman load -i /vagrant/image.tar
 
       # Setup CRI-O
-      dnf download --repo cri-o --arch x86_64 cri-o
-      rpm -i --nodeps --force cri-o-*.rpm
-
       printf '[crio.runtime]\nselinux = true' >/etc/crio/crio.conf.d/30-selinux.conf
       systemctl enable --now crio
 
