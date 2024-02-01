@@ -30,21 +30,22 @@ import (
 	"cuelang.org/go/internal/core/adt"
 )
 
-// Decode initializes x with Value v. If x is a struct, it will validate the
-// constraints specified in the field tags.
+// Decode initializes the value pointed to by x with Value v.
+// An error is returned if x is nil or not a pointer.
+//
+// If x is a struct, Decode will validate the constraints specified in the field tags.
+//
+// If x contains a [Value], that part of x will be set to the value
+// at the corresponding part of v. This allows decoding values
+// that aren't entirely concrete into a Go type.
 func (v Value) Decode(x interface{}) error {
 	var d decoder
 	w := reflect.ValueOf(x)
-	switch {
-	case !reflect.Indirect(w).CanSet():
+	if w.Kind() != reflect.Pointer || w.IsNil() {
 		d.addErr(errors.Newf(v.Pos(), "cannot decode into unsettable value"))
-
-	default:
-		if w.Kind() == reflect.Ptr {
-			w = w.Elem()
-		}
-		d.decode(w, v, false)
+		return d.errs
 	}
+	d.decode(w.Elem(), v, false)
 	return d.errs
 }
 
@@ -70,9 +71,11 @@ func incompleteError(v Value) errors.Error {
 
 func (d *decoder) clear(x reflect.Value) {
 	if x.CanSet() {
-		x.Set(reflect.Zero(x.Type()))
+		x.SetZero()
 	}
 }
+
+var valueType = reflect.TypeOf(Value{})
 
 func (d *decoder) decode(x reflect.Value, v Value, isPtr bool) {
 	if !x.IsValid() {
@@ -88,6 +91,10 @@ func (d *decoder) decode(x reflect.Value, v Value, isPtr bool) {
 
 	if err := v.Err(); err != nil {
 		d.addErr(err)
+		return
+	}
+	if x.Type() == valueType {
+		x.Set(reflect.ValueOf(v))
 		return
 	}
 
@@ -280,6 +287,9 @@ func (d *decoder) interfaceValue(v Value) (x interface{}) {
 		for list.Next() {
 			a = append(a, d.interfaceValue(list.Value()))
 		}
+		if a == nil {
+			a = []interface{}{}
+		}
 		x = a
 
 	case StructKind:
@@ -314,7 +324,7 @@ func (d *decoder) convertMap(x reflect.Value, v Value) {
 		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 	default:
-		if !reflect.PtrTo(t.Key()).Implements(textUnmarshalerType) {
+		if !reflect.PointerTo(t.Key()).Implements(textUnmarshalerType) {
 			d.addErr(errors.Newf(v.Pos(), "unsupported key type %v", t.Key()))
 			return
 		}
@@ -333,21 +343,17 @@ func (d *decoder) convertMap(x reflect.Value, v Value) {
 
 		var kv reflect.Value
 		kt := t.Key()
-		switch {
-		case reflect.PtrTo(kt).Implements(textUnmarshalerType):
+		if reflect.PointerTo(kt).Implements(textUnmarshalerType) {
 			kv = reflect.New(kt)
 			err := kv.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(key))
 			d.addErr(err)
 			kv = kv.Elem()
-
-		case kt.Kind() == reflect.String:
-			kv = reflect.ValueOf(key).Convert(kt)
-
-		default:
+		} else {
 			switch kt.Kind() {
+			case reflect.String:
+				kv = reflect.ValueOf(key).Convert(kt)
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				s := string(key)
-				n, err := strconv.ParseInt(s, 10, 64)
+				n, err := strconv.ParseInt(key, 10, 64)
 				d.addErr(err)
 				if reflect.Zero(kt).OverflowInt(n) {
 					d.addErr(errors.Newf(v.Pos(), "key integer %d overflows %s", n, kt))
@@ -356,8 +362,7 @@ func (d *decoder) convertMap(x reflect.Value, v Value) {
 				kv = reflect.ValueOf(n).Convert(kt)
 
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-				s := string(key)
-				n, err := strconv.ParseUint(s, 10, 64)
+				n, err := strconv.ParseUint(key, 10, 64)
 				d.addErr(err)
 				if reflect.Zero(kt).OverflowUint(n) {
 					d.addErr(errors.Newf(v.Pos(), "key integer %d overflows %s", n, kt))
@@ -370,11 +375,10 @@ func (d *decoder) convertMap(x reflect.Value, v Value) {
 			}
 		}
 
-		elemType := t.Elem()
 		if !mapElem.IsValid() {
-			mapElem = reflect.New(elemType).Elem()
+			mapElem = reflect.New(t.Elem()).Elem()
 		} else {
-			mapElem.Set(reflect.Zero(elemType))
+			mapElem.SetZero()
 		}
 		d.decode(mapElem, iter.Value(), false)
 
@@ -486,10 +490,6 @@ type goField struct {
 
 // byIndex sorts goField by index sequence.
 type byIndex []goField
-
-func (x byIndex) Len() int { return len(x) }
-
-func (x byIndex) Swap(i, j int) { x[i], x[j] = x[j], x[i] }
 
 func (x byIndex) Less(i, j int) bool {
 	for k, xik := range x[i].index {
@@ -660,7 +660,7 @@ func typeFields(t reflect.Type) structFields {
 	}
 
 	fields = out
-	sort.Sort(byIndex(fields))
+	sort.Slice(fields, byIndex(fields).Less)
 
 	nameIndex := make(map[string]int, len(fields))
 	for i, field := range fields {

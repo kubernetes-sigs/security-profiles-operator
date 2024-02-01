@@ -192,6 +192,11 @@ type Vertex struct {
 	// or any other operation that relies on the set of arcs being constant.
 	LockArcs bool
 
+	// disallowedField means that this arc is not allowed according
+	// to the closedness rules. This is used to avoid duplicate error reporting.
+	// TODO: perhaps rename to notAllowedErrorEmitted.
+	disallowedField bool
+
 	// IsDynamic signifies whether this struct is computed as part of an
 	// expression and not part of the static evaluation tree.
 	// Used for cycle detection.
@@ -220,6 +225,13 @@ type Vertex struct {
 	// configuration of this node.
 	// Value  Value
 	Arcs []*Vertex // arcs are sorted in display order.
+
+	// PatternConstraints are additional constraints that match more nodes.
+	// Constraints that match existing Arcs already have their conjuncts
+	// mixed in.
+	// TODO: either put in StructMarker/ListMarker or integrate with Arcs
+	// so that this pointer is unnecessary.
+	PatternConstraints *Constraints
 
 	// Conjuncts lists the structs that ultimately formed this Composite value.
 	// This includes all selected disjuncts.
@@ -916,7 +928,7 @@ func (v *Vertex) Source() ast.Node {
 
 // AddConjunct adds the given Conjuncts to v if it doesn't already exist.
 func (v *Vertex) AddConjunct(c Conjunct) *Bottom {
-	if v.BaseValue != nil {
+	if v.BaseValue != nil && !isCyclePlaceholder(v.BaseValue) {
 		// TODO: investigate why this happens at all. Removing it seems to
 		// change the order of fields in some cases.
 		//
@@ -987,7 +999,8 @@ func (n *nodeContext) addConjunctDynamic(c Conjunct) {
 }
 
 func (n *nodeContext) notifyConjunct(c Conjunct) {
-	for _, arc := range n.notify {
+	for _, rec := range n.notify {
+		arc := rec.v
 		if !arc.hasConjunct(c) {
 			if arc.state == nil {
 				// TODO: continuing here is likely to result in a faulty

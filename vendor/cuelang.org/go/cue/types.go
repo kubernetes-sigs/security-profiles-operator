@@ -248,7 +248,12 @@ func (i *Iterator) Value() Value {
 
 // Selector reports the field label of this iteration.
 func (i *Iterator) Selector() Selector {
-	return wrapConstraint(featureToSel(i.f, i.idx), fromArcType(i.arcType))
+	sel := featureToSel(i.f, i.idx)
+	// Only call wrapConstraint if there is any constraint type to wrap with.
+	if ctype := fromArcType(i.arcType); ctype != 0 {
+		sel = wrapConstraint(sel, ctype)
+	}
+	return sel
 }
 
 // Label reports the label of the value if i iterates over struct fields and ""
@@ -1055,7 +1060,7 @@ func (v Value) Doc() []*ast.CommentGroup {
 // split values may fail if actually unified.
 // Source returns a non-nil value.
 //
-// Deprecated: use Expr.
+// Deprecated: use [Value.Expr].
 func (v hiddenValue) Split() []Value {
 	if v.v == nil {
 		return nil
@@ -1163,7 +1168,7 @@ func (v Value) Allows(sel Selector) bool {
 // IsConcrete reports whether the current value is a concrete scalar value
 // (not relying on default values), a terminal error, a list, or a struct.
 // It does not verify that values of lists or structs are concrete themselves.
-// To check whether there is a concrete default, use v.Default().IsConcrete().
+// To check whether there is a concrete default, use this method on [Value.Default].
 func (v Value) IsConcrete() bool {
 	if v.v == nil {
 		return false // any is neither concrete, not a list or struct.
@@ -1332,7 +1337,7 @@ func (v Value) Bytes() ([]byte, error) {
 	ctx := v.ctx()
 	switch x := v.eval(ctx).(type) {
 	case *adt.Bytes:
-		return append([]byte(nil), x.B...), nil
+		return bytes.Clone(x.B), nil
 	case *adt.String:
 		return []byte(x.Str), nil
 	}
@@ -1527,10 +1532,10 @@ func (v Value) Fields(opts ...Option) (*Iterator, error) {
 // Lookup reports the value at a path starting from v. The empty path returns v
 // itself.
 //
-// The Exists() method can be used to verify if the returned value existed.
+// [Value.Exists] can be used to verify if the returned value existed.
 // Lookup cannot be used to look up hidden or optional fields or definitions.
 //
-// Deprecated: use LookupPath. At some point before v1.0.0, this method will
+// Deprecated: use [Value.LookupPath]. At some point before v1.0.0, this method will
 // be removed to be reused eventually for looking up a selector.
 func (v hiddenValue) Lookup(path ...string) Value {
 	ctx := v.ctx()
@@ -1787,10 +1792,10 @@ func (v hiddenValue) Template() func(label string) Value {
 // Without options, the entire value is considered for assumption, which means
 // Subsume tests whether  v is a backwards compatible (newer) API version of w.
 //
-// Use the Final option to check subsumption if a w is known to be final, and
+// Use the [Final] option to check subsumption if a w is known to be final, and
 // should assumed to be closed.
 //
-// Use the Raw option to do a low-level subsumption, taking defaults into
+// Use the [Raw] option to do a low-level subsumption, taking defaults into
 // account.
 //
 // Value v and w must be obtained from the same build. TODO: remove this
@@ -1813,7 +1818,7 @@ func (v Value) Subsume(w Value, opts ...Option) error {
 	return p.Value(ctx, v.v, w.v)
 }
 
-// Deprecated: use Subsume.
+// Deprecated: use [Value.Subsume].
 //
 // Subsumes reports whether w is an instance of v.
 //
@@ -1947,7 +1952,7 @@ func (v Value) instance() *Instance {
 // a reference. If a reference contains index selection (foo[bar]), it will
 // only return a reference if the index resolves to a concrete value.
 //
-// Deprecated: use ReferencePath
+// Deprecated: use [Value.ReferencePath]
 func (v hiddenValue) Reference() (inst *Instance, path []string) {
 	root, p := v.ReferencePath()
 	if !root.Exists() {
@@ -2108,7 +2113,7 @@ func InlineImports(expand bool) Option {
 }
 
 // DisallowCycles forces validation in the presence of cycles, even if
-// non-concrete values are allowed. This is implied by Concrete(true).
+// non-concrete values are allowed. This is implied by [Concrete].
 func DisallowCycles(disallow bool) Option {
 	return func(p *options) { p.disallowCycles = disallow }
 }
@@ -2116,9 +2121,9 @@ func DisallowCycles(disallow bool) Option {
 // ResolveReferences forces the evaluation of references when outputting.
 //
 // Deprecated: Syntax will now always attempt to resolve dangling references and
-// make the output self-contained. When Final or Concrete is used, it will
-// already attempt to resolve all references.
-// See also InlineImports.
+// make the output self-contained. When [Final] or [Concrete] are used,
+// it will already attempt to resolve all references.
+// See also [InlineImports].
 func ResolveReferences(resolve bool) Option {
 	return func(p *options) {
 		p.resolveReferences = resolve
@@ -2211,7 +2216,7 @@ func (o *options) updateOptions(opts []Option) {
 // exists.
 //
 // Note that by default not all errors are reported, unless options like
-// Concrete are used. The Final option can be used to check for missing
+// [Concrete] are used. The [Final] option can be used to check for missing
 // required fields.
 func (v Value) Validate(opts ...Option) error {
 	o := options{}

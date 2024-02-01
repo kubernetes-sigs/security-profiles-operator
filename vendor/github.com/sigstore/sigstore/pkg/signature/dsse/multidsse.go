@@ -27,13 +27,13 @@ import (
 )
 
 type wrappedMultiSigner struct {
-	sLAdapters  []dsse.SignerVerifier
+	sLAdapters  []dsse.Signer
 	payloadType string
 }
 
 // WrapMultiSigner returns a signature.Signer that uses the DSSE encoding format
 func WrapMultiSigner(payloadType string, sL ...signature.Signer) signature.Signer {
-	signerAdapterL := make([]dsse.SignerVerifier, 0, len(sL))
+	signerAdapterL := make([]dsse.Signer, 0, len(sL))
 	for _, s := range sL {
 		pub, err := s.PublicKey()
 		if err != nil {
@@ -72,8 +72,7 @@ func (wL *wrappedMultiSigner) SignMessage(r io.Reader, _ ...signature.SignOption
 		return nil, err
 	}
 
-	// Threshold does not matter signer is not used for verification.
-	envSigner, err := dsse.NewMultiEnvelopeSigner(1, wL.sLAdapters...)
+	envSigner, err := dsse.NewEnvelopeSigner(wL.sLAdapters...)
 	if err != nil {
 		return nil, err
 	}
