@@ -10,9 +10,12 @@ import (
 //
 // Standard caveats apply - see the package comment.
 type GroupStep struct {
-	// Group is typically a key with no value. Since it must always exist in
-	// a group step, here it is.
-	Group *string `yaml:"group"`
+	// Fields common to various step types
+	Key string `yaml:"key,omitempty" aliases:"id,identifier"`
+
+	// Group must always exist in a group step (so that we know it is a group).
+	// If it has a value, it is treated as equivalent to the label or name.
+	Group *string `yaml:"group" aliases:"label,name"`
 
 	Steps Steps `yaml:"steps"`
 
@@ -36,12 +39,12 @@ func (g *GroupStep) UnmarshalOrdered(src any) error {
 }
 
 func (g *GroupStep) interpolate(tf stringTransformer) error {
-	grp, err := interpolateAny(tf, g.Group)
-	if err != nil {
+	if err := interpolateString(tf, &g.Key); err != nil {
 		return err
 	}
-	g.Group = grp
-
+	if err := interpolateString(tf, g.Group); err != nil {
+		return err
+	}
 	if err := g.Steps.interpolate(tf); err != nil {
 		return err
 	}

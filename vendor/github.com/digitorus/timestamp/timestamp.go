@@ -632,6 +632,7 @@ func (t *Timestamp) generateSignedData(tstInfo []byte, signer crypto.Signer, cer
 	}
 	signedData.SetDigestAlgorithm(alg)
 	signedData.SetContentType(asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 1, 4})
+	signedData.GetSignedData().Version = 3
 
 	signingCertV2Bytes, err := t.populateSigningCertificateV2Ext(certificate)
 	if err != nil {

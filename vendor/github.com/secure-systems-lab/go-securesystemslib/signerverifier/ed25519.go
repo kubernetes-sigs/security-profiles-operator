@@ -94,5 +94,5 @@ func LoadED25519KeyFromFile(path string) (*SSLibKey, error) {
 		return nil, fmt.Errorf("unable to load ED25519 key from file: %w", err)
 	}
 
-	return loadKeyFromSSLibBytes(contents)
+	return LoadKeyFromSSLibBytes(contents)
 }
