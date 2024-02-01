@@ -519,7 +519,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.1.9
+  baseProfileName: runc-v1.1.12
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -555,7 +555,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.11
+  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.12
 ```
 
 The resulting profile `profile1` will then contain all base syscalls from the
@@ -1962,18 +1962,18 @@ The `spoc` client is able to pull security profiles from OCI artifact compatible
 registries. To do that, just run `spoc pull`:
 
 ```console
-> spoc pull ghcr.io/security-profiles/runc:v1.1.11
-16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.11
+> spoc pull ghcr.io/security-profiles/runc:v1.1.12
+16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.12
 16:32:29.795610 Verifying signature
 
-Verification for ghcr.io/security-profiles/runc:v1.1.11 --
+Verification for ghcr.io/security-profiles/runc:v1.1.12 --
 The following checks were performed on each of these signatures:
   - Existence of the claims in the transparency log was verified offline
   - The code-signing certificate was verified using trusted certificate authority certificates
 
 [{"critical":{"identity":{"docker-reference":"ghcr.io/security-profiles/runc"},…}}]
 16:32:33.208695 Creating file store in: /tmp/pull-3199397214
-16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.1.11
+16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.1.12
 16:32:33.208718 Creating repository for ghcr.io/security-profiles/runc
 16:32:33.208742 Using tag: v1.1.4
 16:32:33.208743 Copying profile from repository
@@ -2107,15 +2107,15 @@ The Security Profiles Operator will try to pull the correct profile by using
 way, for example if a profile does not support any platform:
 
 ```
-> spoc pull ghcr.io/security-profiles/runc:v1.1.11
-11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.11
+> spoc pull ghcr.io/security-profiles/runc:v1.1.12
+11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.12
 11:07:14.788852 Verifying signature
 …
 11:07:17.559037 Copying profile from repository
 11:07:18.359152 Trying to read profile: profile-linux-amd64.yaml
 11:07:18.359209 Trying to read profile: profile.yaml
 11:07:18.359224 Trying to unmarshal seccomp profile
-11:07:18.359728 Got SeccompProfile: runc-v1.1.9
+11:07:18.359728 Got SeccompProfile: runc-v1.1.12
 11:07:18.359732 Saving profile in: /tmp/profile.yaml
 ```
 
