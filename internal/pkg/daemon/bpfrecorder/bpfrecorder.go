@@ -121,7 +121,7 @@ type BpfRecorder struct {
 
 type bpfAppArmorEvent struct {
 	Pid   uint32
-	Mtns  uint32
+	Mntns uint32
 	Type  uint8
 	Flags uint64
 	Fd    uint64
