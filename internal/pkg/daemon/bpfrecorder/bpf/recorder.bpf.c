@@ -664,25 +664,8 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+    u32 mntns = get_mntns();
     if (mntns == 0) {
-        return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
         return 0;
     }
 
@@ -696,8 +679,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         struct event_t * event =
             bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
         if (event) {
-            bpf_printk("send event pid: %u, mntns: %u, comm: %s\n", pid, mntns,
-                       comm);
+            bpf_printk("send event pid: %u, mntns: %u\n", pid, mntns);
 
             event->pid = pid;
             event->mntns = mntns;
@@ -720,9 +702,8 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         if (!value) {
             // Should not happen, we updated the element straight ahead
             bpf_printk(
-                "look up item in mntns_syscalls map failed pid: %u, mntns: %u, "
-                "comm: %s\n",
-                pid, mntns, comm);
+                "look up item in mntns_syscalls map failed pid: %u, mntns: %u\n",
+                pid, mntns);
             return 0;
         }
         value[syscall_id] = 1;
