@@ -204,7 +204,6 @@ int syscall__execve(struct trace_event_raw_sys_enter * ctx)
 SEC("tracepoint/syscalls/sys_enter_execveat")
 int syscall__execveat(struct trace_event_raw_sys_enter * ctx)
 {
-    int zero = 0;
     apparmor_event_data_t * event;
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -243,11 +242,6 @@ int syscall__execveat(struct trace_event_raw_sys_enter * ctx)
 SEC("tracepoint/syscalls/sys_enter_open")
 int syscall__open(struct trace_event_raw_sys_enter * ctx)
 {
-    int zero = 0;
-    apparmor_event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -277,8 +271,6 @@ int syscall__open(struct trace_event_raw_sys_enter * ctx)
 SEC("tracepoint/syscalls/sys_enter_openat")
 int syscall__openat(struct trace_event_raw_sys_enter * ctx)
 {
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
