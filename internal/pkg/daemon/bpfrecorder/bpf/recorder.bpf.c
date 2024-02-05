@@ -267,7 +267,7 @@ int syscall__open(struct trace_event_raw_sys_enter * ctx)
         return 0;
     }
 
-    save_args(_SYS_OPENAT, pathname, flags);
+    save_args(_SYS_OPEN, pathname, flags);
 
     return 0;
 }
@@ -314,7 +314,7 @@ int syscall__exit_open(struct trace_event_raw_sys_exit * ctx)
 
     const char * orig_filename;
     u64 flags;
-    if (load_args(_SYS_OPENAT, &orig_filename, &flags) != 0) {
+    if (load_args(_SYS_OPEN, &orig_filename, &flags) != 0) {
         bpf_printk("failed to load saved args\n");
         return 0;
     }
