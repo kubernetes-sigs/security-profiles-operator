@@ -9,6 +9,7 @@
 
 #define MAX_ENTRIES 8 * 1024
 #define MAX_SYSCALLS 1024
+#define MAX_CHILD_PIDS 1024
 #define MAX_COMM_LEN 64
 
 #define PROBE_TYPE_OPEN 0
@@ -61,6 +62,13 @@ struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, MAX_CHILD_PIDS);
+    __type(key, u32);
+    __type(value, bool);
+} child_pids SEC(".maps");
 
 struct event_t {
     u32 pid;
@@ -136,6 +144,7 @@ static __always_inline int load_args(u32 event_id, const char ** filename,
  * 0 is returned when the process should not be processed. The following
  * criteria are used:
  *   - host processes are excluded
+ *   - child processes are included
  *   - program name if filtering on this is required
  */
 static __always_inline u32 get_mntns()
@@ -153,6 +162,12 @@ static __always_inline u32 get_mntns()
     host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
     if (host_mntns != NULL && *host_mntns == mntns) {
         return 0;
+    }
+
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    bool * is_child = bpf_map_lookup_elem(&child_pids, &pid);
+    if (is_child != NULL) {
+        return 1;
     }
 
     // Filter per program name if requested
@@ -194,8 +209,10 @@ int syscall__execve(struct trace_event_raw_sys_enter * ctx)
         res = bpf_probe_read_str(&event->data, PATH_MAX, pathname);
         if (res > 0)
             event->data[(res - 1) & (PATH_MAX - 1)] = 0;
-        bpf_printk("executed process: %s\n", event->data);
+        bpf_printk("executed process (execve, pid %d): %s\n", pid, event->data);
         bpf_ringbuf_submit(event, 0);
+        bool ok = true;
+        bpf_map_update_elem(&child_pids, &pid, &ok, BPF_ANY);
     }
 
     return 0;
@@ -230,8 +247,10 @@ int syscall__execveat(struct trace_event_raw_sys_enter * ctx)
         res = bpf_probe_read_str(&event->data, PATH_MAX, pathname);
         if (res > 0)
             event->data[(res - 1) & (PATH_MAX - 1)] = 0;
-        bpf_printk("executed process: %s\n", event->data);
+        bpf_printk("executed process (execveat, pid %d): %s\n", pid, event->data);
         bpf_ringbuf_submit(event, 0);
+        bool ok = true;
+        bpf_map_update_elem(&child_pids, &pid, &ok, BPF_ANY);
     }
 
     return 0;
@@ -620,6 +639,12 @@ static __always_inline void handle_exit()
     u32 mntns = get_mntns();
     if (!mntns)
         return;
+
+    // only report when the main process exits.
+    bool * is_child = bpf_map_lookup_elem(&child_pids, &pid);
+    if (is_child != NULL) {
+        return;
+    }
 
     event =
         bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
