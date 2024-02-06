@@ -91,7 +91,8 @@ typedef struct __attribute__((__packed__)) apparmor_event_data {
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
 
-static inline bool is_filtered(char * comm);
+static inline bool has_filter();
+static inline bool matches_filter(char * comm);
 
 typedef struct saved_state {
     const char * filename;
@@ -164,20 +165,20 @@ static __always_inline u32 get_mntns()
         return 0;
     }
 
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-    bool * is_child = bpf_map_lookup_elem(&child_pids, &pid);
-    if (is_child != NULL) {
-        return 1;
-    }
-
     // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
+    if (has_filter()) {
+
+        u32 pid = bpf_get_current_pid_tgid() >> 32;
+        bool is_child = bpf_map_lookup_elem(&child_pids, &pid) != NULL;
+        char comm[MAX_COMM_LEN] = {};
+        bpf_get_current_comm(comm, sizeof(comm));
+
+        if (!is_child && !matches_filter(comm)) {
+            return 0;
+        }
     }
 
-    return 1;
+    return mntns;
 }
 
 SEC("tracepoint/syscalls/sys_enter_execve")
@@ -729,18 +730,19 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     return 0;
 }
 
-static inline bool is_filtered(char * comm)
-{
-    // No filter set
-    if (filter_name[0] == 0) {
-        return false;
-    }
 
+static inline bool has_filter()
+{
+    return filter_name[0] != 0;
+}
+
+static inline bool matches_filter(char * comm)
+{
     // We cannot use __builtin_memcmp() until llvm bug
     // https://llvm.org/bugs/show_bug.cgi?id=26218 got resolved
     for (int i = 0; i < MAX_COMM_LEN; i++) {
         if (comm[i] != filter_name[i]) {
-            return true;
+            return false;
         }
 
         // Stop searching when comm is done
@@ -749,5 +751,5 @@ static inline bool is_filtered(char * comm)
         }
     }
 
-    return false;
+    return true;
 }
