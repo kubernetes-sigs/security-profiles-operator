@@ -22,12 +22,6 @@
 #define PROBE_TYPE_CAP 7
 #define PROBE_TYPE_EXIT 8
 
-enum {
-    // file
-    _SYS_OPEN = 2,
-    _SYS_OPENAT = 257,
-};
-
 #define PROT_READ 0x1  /* Page can be read.  */
 #define PROT_WRITE 0x2 /* Page can be written.  */
 #define PROT_EXEC 0x4  /* Page can be executed.  */
@@ -102,15 +96,13 @@ typedef struct saved_state {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 10240);
-    __type(key, u64);
+    __type(key, u32);
     __type(value, saved_state_t);
 } states_map SEC(".maps");
 
-static __always_inline int save_args(u32 event_id, const char * filename,
-                                     u64 flags)
+static __always_inline int save_args(const char * filename, u64 flags)
 {
-    u32 tgid = bpf_get_current_pid_tgid();
-    u64 id = ((u64)event_id << 32) | tgid;
+    u32 id = bpf_get_current_pid_tgid();
 
     saved_state_t state = {};
     state.filename = filename;
@@ -121,11 +113,9 @@ static __always_inline int save_args(u32 event_id, const char * filename,
     return 0;
 }
 
-static __always_inline int load_args(u32 event_id, const char ** filename,
-                                     u64 * flags)
+static __always_inline int load_args(const char ** filename, u64 * flags)
 {
-    u32 tgid = bpf_get_current_pid_tgid();
-    u64 id = ((u64)event_id << 32) | tgid;
+    u32 id = bpf_get_current_pid_tgid();
 
     saved_state_t * saved_state = bpf_map_lookup_elem(&states_map, &id);
     if (saved_state == 0)
@@ -281,7 +271,7 @@ int syscall__open(struct trace_event_raw_sys_enter * ctx)
         return 0;
     }
 
-    save_args(_SYS_OPEN, pathname, flags);
+    save_args(pathname, flags);
 
     return 0;
 }
@@ -310,7 +300,7 @@ int syscall__openat(struct trace_event_raw_sys_enter * ctx)
         return 0;
     }
 
-    save_args(_SYS_OPENAT, pathname, flags);
+    save_args(pathname, flags);
 
     return 0;
 }
@@ -326,7 +316,7 @@ int syscall__exit_open(struct trace_event_raw_sys_exit * ctx)
 
     const char * orig_filename;
     u64 flags;
-    if (load_args(_SYS_OPEN, &orig_filename, &flags) != 0) {
+    if (load_args(&orig_filename, &flags) != 0) {
         bpf_printk("failed to load saved args\n");
         return 0;
     }
@@ -380,7 +370,7 @@ int syscall__exit_openat(struct trace_event_raw_sys_exit * ctx)
 
     const char * orig_filename;
     u64 flags;
-    if (load_args(_SYS_OPENAT, &orig_filename, &flags) != 0) {
+    if (load_args(&orig_filename, &flags) != 0) {
         bpf_printk("failed to load saved args\n");
         return 0;
     }
