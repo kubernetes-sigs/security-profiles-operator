@@ -172,8 +172,6 @@ dependencies:
       match: baseProfileNameRunc
     - path: installation-usage.md
       match: baseProfileName
-    - path: hack/ci/Vagrantfile-ubuntu
-      match: RUNC_VERSION
 
   - name: cosign
     version: v2.2.1
