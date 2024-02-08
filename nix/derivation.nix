@@ -1,5 +1,5 @@
 { pkgs, buildGoModule }:
-with pkgs; buildGo121Module rec {
+with pkgs; buildGo122Module rec {
   name = "security-profiles-operator";
   src = ./..;
   vendorHash = null;
