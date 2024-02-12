@@ -3005,6 +3005,7 @@ data:
             "capget",
             "capset",
             "chdir",
+            "clock_gettime",
             "clone",
             "clone3",
             "close",
