@@ -721,7 +721,7 @@ my-pod   2/2     Running   0          18s
 Then the enricher should indicate that it receives audit logs for those containers:
 
 ```
-> kubectl -n security-profiles-operator logs --since=1m --selector name=spod log-enricher
+> kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c log-enricher
 …
 I0705 12:08:18.729660 1843190 enricher.go:136] log-enricher "msg"="audit"  "container"="redis" "executable"="/usr/local/bin/redis-server" "namespace"="default" "node"="127.0.0.1" "pid"=1847839 "pod"="my-pod" "syscallID"=232 "syscallName"="epoll_wait" "timestamp"="1625486870.273:187492" "type"="seccomp"
 ```
@@ -848,7 +848,7 @@ my-pod   1/1     Running   0          10s
 Then the BPF recorder should indicate that it found the container:
 
 ```
-> kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c log-enricher
+> kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c bpf-recorder
 …
 I1115 12:12:30.029216   66106 bpfrecorder.go:654] bpf-recorder "msg"="Found container ID in cluster"  "containerID"="c2e10af47011f6a61cd7e92073db2711796f174af35b34486967588ef7f95fbc" "containerName"="nginx"
 I1115 12:12:30.029264   66106 bpfrecorder.go:539] bpf-recorder "msg"="Saving PID for profile"  "mntns"=4026533352 "pid"=74384 "profile"="my-recording-nginx-1636978341"
