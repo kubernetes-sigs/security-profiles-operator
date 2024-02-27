@@ -50,7 +50,7 @@ func mergedProfileName(recordingName string, prf metav1.Object) string {
 	return fmt.Sprintf("%s-%s", recordingName, suffix)
 }
 
-func mergeProfiles(profiles []mergeableProfile) (mergeableProfile, error) {
+func mergeMergeableProfiles(profiles []mergeableProfile) (mergeableProfile, error) {
 	if len(profiles) == 0 {
 		return nil, fmt.Errorf("cannot merge empty list of profiles")
 	}
@@ -114,6 +114,24 @@ func listPartialProfiles(
 	}
 
 	return partialProfiles, nil
+}
+
+func MergeProfiles(
+	profiles []client.Object,
+) (client.Object, error) {
+	mergables := make([]mergeableProfile, len(profiles))
+	for i, profile := range profiles {
+		mergable, err := newMergeableProfile(profile)
+		if err != nil {
+			return nil, err
+		}
+		mergables[i] = mergable
+	}
+	merged, err := mergeMergeableProfiles(mergables)
+	if err != nil {
+		return nil, err
+	}
+	return merged.getProfile(), nil
 }
 
 func getContainerID(prf client.Object) string {

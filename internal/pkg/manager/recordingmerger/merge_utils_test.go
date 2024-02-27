@@ -187,7 +187,7 @@ func TestMergeProfiles(t *testing.T) {
 			t.Parallel()
 
 			partialProfiles := tc.prepare(t)
-			mergedProfIface, err := mergeProfiles(partialProfiles)
+			mergedProfIface, err := mergeMergeableProfiles(partialProfiles)
 			require.Nil(t, err)
 			err = tc.assert(mergedProfIface)
 			require.Nil(t, err)
