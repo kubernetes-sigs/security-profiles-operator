@@ -26,6 +26,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/cmd"
 	spocli "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/merger"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/puller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/pusher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
@@ -75,6 +76,22 @@ func main() {
 					Name:    recorder.FlagNoBaseSyscalls,
 					Aliases: []string{"n"},
 					Usage:   "do not add any base syscalls at all",
+				},
+			},
+		},
+		&cli.Command{
+			Name:      "merge",
+			Aliases:   []string{"m"},
+			Usage:     "merge multiple security profiles",
+			Action:    merge,
+			ArgsUsage: "INFILE...",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:        merger.FlagOutputFile,
+					Aliases:     []string{"o"},
+					Usage:       "the output file path for the combined profile",
+					DefaultText: merger.DefaultOutputFile,
+					TakesFile:   true,
 				},
 			},
 		},
@@ -187,6 +204,20 @@ func record(ctx *cli.Context) error {
 
 	if err := recorder.New(options).Run(); err != nil {
 		return fmt.Errorf("run recorder: %w", err)
+	}
+
+	return nil
+}
+
+// merge runs the `spoc merge` subcommand.
+func merge(ctx *cli.Context) error {
+	options, err := merger.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
+	}
+
+	if err := merger.New(options).Run(); err != nil {
+		return fmt.Errorf("launch merger: %w", err)
 	}
 
 	return nil
