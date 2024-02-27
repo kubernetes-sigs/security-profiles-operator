@@ -158,7 +158,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	for cntName, cntPartialProfiles := range partialProfiles {
 		r.log.Info("Merging profiles for container", "container", cntName)
 
-		mergedProfile, err := mergeProfiles(cntPartialProfiles)
+		mergedProfile, err := mergeMergeableProfiles(cntPartialProfiles)
 		if err != nil {
 			return fmt.Errorf("cannot merge partial profiles: %w", err)
 		}
