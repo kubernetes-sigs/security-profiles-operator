@@ -19,12 +19,15 @@ package recordingmerger
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
@@ -164,6 +167,8 @@ func newMergeableProfile(obj client.Object) (mergeableProfile, error) {
 		return &mergeableSeccompProfile{SeccompProfile: *obj}, nil
 	case *selinuxprofileapi.SelinuxProfile:
 		return &MergeableSelinuxProfile{SelinuxProfile: *obj}, nil
+	case *apparmorprofileapi.AppArmorProfile:
+		return &mergeableAppArmorProfile{AppArmorProfile: *obj}, nil
 	default:
 		return nil, fmt.Errorf("cannot convert %T to mergeableProfile", obj)
 	}
@@ -239,4 +244,148 @@ func addAllow(union, additional selinuxprofileapi.Allow) selinuxprofileapi.Allow
 	}
 
 	return union
+}
+
+type mergeableAppArmorProfile struct {
+	apparmorprofileapi.AppArmorProfile
+}
+
+func (sp *mergeableAppArmorProfile) getProfile() client.Object {
+	return &sp.AppArmorProfile
+}
+
+func (sp *mergeableAppArmorProfile) merge(other mergeableProfile) error {
+	otherSP, ok := other.(*mergeableAppArmorProfile)
+	if !ok {
+		return fmt.Errorf("cannot merge AppArmorProfile with %T", other)
+	}
+
+	a1 := &sp.Spec.Abstract
+	a2 := &otherSP.Spec.Abstract
+
+	if a1.Executable != nil && a2.Executable != nil {
+		a1.Executable.AllowedExecutables = mergeDedupSortStrings(
+			a1.Executable.AllowedExecutables,
+			a2.Executable.AllowedExecutables,
+		)
+		a1.Executable.AllowedLibraries = mergeDedupSortStrings(
+			a1.Executable.AllowedLibraries,
+			a2.Executable.AllowedLibraries,
+		)
+	} else if a2.Executable != nil {
+		a1.Executable = a2.Executable
+	}
+
+	mergeFilesystem(a1, a2)
+
+	if a1.Network != nil && a2.Network != nil {
+		a1.Network.AllowRaw = mergeBools(a1.Network.AllowRaw, a2.Network.AllowRaw)
+
+		if a1.Network.Protocols != nil && a2.Network.Protocols != nil {
+			a1.Network.Protocols.AllowTCP = mergeBools(a1.Network.Protocols.AllowTCP, a2.Network.Protocols.AllowTCP)
+			a1.Network.Protocols.AllowUDP = mergeBools(a1.Network.Protocols.AllowUDP, a2.Network.Protocols.AllowUDP)
+		} else if a2.Network.Protocols != nil {
+			a1.Network.Protocols = a2.Network.Protocols
+		}
+	} else if a2.Network != nil {
+		a1.Network = a2.Network
+	}
+
+	if a1.Capability != nil && a2.Capability != nil {
+		a1.Capability.AllowedCapabilities = *mergeDedupSortStrings(
+			&a1.Capability.AllowedCapabilities,
+			&a2.Capability.AllowedCapabilities,
+		)
+	} else if a2.Capability != nil {
+		a1.Capability = a2.Capability
+	}
+
+	return nil
+}
+
+func mergeFilesystem(a1, a2 *apparmorprofileapi.AppArmorAbstract) {
+	if a1.Filesystem != nil && a2.Filesystem != nil {
+		read := make(map[string]bool)
+		write := make(map[string]bool)
+		for _, fs := range []apparmorprofileapi.AppArmorFsRules{*a1.Filesystem, *a2.Filesystem} {
+			if fs.ReadOnlyPaths != nil {
+				for _, p := range *fs.ReadOnlyPaths {
+					read[p] = true
+				}
+			}
+			if fs.WriteOnlyPaths != nil {
+				for _, p := range *fs.WriteOnlyPaths {
+					write[p] = true
+				}
+			}
+			if fs.ReadWritePaths != nil {
+				for _, p := range *fs.ReadWritePaths {
+					read[p] = true
+					write[p] = true
+				}
+			}
+		}
+
+		r := make([]string, 0, len(read))
+		w := make([]string, 0, len(write))
+		rw := make([]string, 0, min(len(read), len(write)))
+
+		for path := range read {
+			if _, hasWrite := write[path]; hasWrite {
+				rw = append(rw, path)
+				delete(write, path)
+			} else {
+				r = append(r, path)
+			}
+		}
+		for path := range write {
+			w = append(w, path)
+		}
+
+		sort.Strings(r)
+		sort.Strings(w)
+		sort.Strings(rw)
+
+		a1.Filesystem = &apparmorprofileapi.AppArmorFsRules{
+			ReadOnlyPaths:  &r,
+			WriteOnlyPaths: &w,
+			ReadWritePaths: &rw,
+		}
+		// omitempty is not sufficient here.
+		if len(*a1.Filesystem.ReadOnlyPaths) == 0 {
+			a1.Filesystem.ReadOnlyPaths = nil
+		}
+		if len(*a1.Filesystem.WriteOnlyPaths) == 0 {
+			a1.Filesystem.WriteOnlyPaths = nil
+		}
+		if len(*a1.Filesystem.ReadWritePaths) == 0 {
+			a1.Filesystem.ReadWritePaths = nil
+		}
+	} else if a2.Filesystem != nil {
+		a1.Filesystem = a2.Filesystem
+	}
+}
+
+func mergeBools(a, b *bool) *bool {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	merged := (*a || *b)
+	return &merged
+}
+
+func mergeDedupSortStrings(a, b *[]string) *[]string {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	merged := append(*a, *b...)
+	sort.Strings(merged)
+	merged = slices.Compact(merged)
+	return &merged
 }
