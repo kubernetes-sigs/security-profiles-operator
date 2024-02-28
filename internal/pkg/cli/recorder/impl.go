@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"time"
 	"unsafe"
 
 	"github.com/aquasecurity/libbpfgo"
@@ -44,6 +45,7 @@ type impl interface {
 	UnloadBpfRecorder(*bpfrecorder.BpfRecorder)
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
+	WaitForPidExit(*bpfrecorder.BpfRecorder, uint32, time.Duration) error
 	FindProcMountNamespace(*bpfrecorder.BpfRecorder, uint32) (uint32, error)
 	SyscallsIterator(*bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator
 	IteratorNext(*libbpfgo.BPFMapIterator) bool
@@ -76,6 +78,10 @@ func (*defaultImpl) FindProcMountNamespace(b *bpfrecorder.BpfRecorder, pid uint3
 
 func (*defaultImpl) CommandWait(cmd *command.Command) error {
 	return cmd.Wait()
+}
+
+func (*defaultImpl) WaitForPidExit(b *bpfrecorder.BpfRecorder, pid uint32, timeout time.Duration) error {
+	return b.WaitForPidExit(pid, timeout)
 }
 
 func (*defaultImpl) SyscallsIterator(b *bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator {

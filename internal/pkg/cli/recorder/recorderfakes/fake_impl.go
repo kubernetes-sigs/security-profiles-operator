@@ -25,6 +25,7 @@ import (
 	"io/fs"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/aquasecurity/libbpfgo"
 	seccompa "github.com/containers/common/pkg/seccomp"
@@ -208,6 +209,19 @@ type FakeImpl struct {
 	unloadBpfRecorderMutex       sync.RWMutex
 	unloadBpfRecorderArgsForCall []struct {
 		arg1 *bpfrecorder.BpfRecorder
+	}
+	WaitForPidExitStub        func(*bpfrecorder.BpfRecorder, uint32, time.Duration) error
+	waitForPidExitMutex       sync.RWMutex
+	waitForPidExitArgsForCall []struct {
+		arg1 *bpfrecorder.BpfRecorder
+		arg2 uint32
+		arg3 time.Duration
+	}
+	waitForPidExitReturns struct {
+		result1 error
+	}
+	waitForPidExitReturnsOnCall map[int]struct {
+		result1 error
 	}
 	WriteFileStub        func(string, []byte, fs.FileMode) error
 	writeFileMutex       sync.RWMutex
@@ -1110,6 +1124,69 @@ func (fake *FakeImpl) UnloadBpfRecorderArgsForCall(i int) *bpfrecorder.BpfRecord
 	return argsForCall.arg1
 }
 
+func (fake *FakeImpl) WaitForPidExit(arg1 *bpfrecorder.BpfRecorder, arg2 uint32, arg3 time.Duration) error {
+	fake.waitForPidExitMutex.Lock()
+	ret, specificReturn := fake.waitForPidExitReturnsOnCall[len(fake.waitForPidExitArgsForCall)]
+	fake.waitForPidExitArgsForCall = append(fake.waitForPidExitArgsForCall, struct {
+		arg1 *bpfrecorder.BpfRecorder
+		arg2 uint32
+		arg3 time.Duration
+	}{arg1, arg2, arg3})
+	stub := fake.WaitForPidExitStub
+	fakeReturns := fake.waitForPidExitReturns
+	fake.recordInvocation("WaitForPidExit", []interface{}{arg1, arg2, arg3})
+	fake.waitForPidExitMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) WaitForPidExitCallCount() int {
+	fake.waitForPidExitMutex.RLock()
+	defer fake.waitForPidExitMutex.RUnlock()
+	return len(fake.waitForPidExitArgsForCall)
+}
+
+func (fake *FakeImpl) WaitForPidExitCalls(stub func(*bpfrecorder.BpfRecorder, uint32, time.Duration) error) {
+	fake.waitForPidExitMutex.Lock()
+	defer fake.waitForPidExitMutex.Unlock()
+	fake.WaitForPidExitStub = stub
+}
+
+func (fake *FakeImpl) WaitForPidExitArgsForCall(i int) (*bpfrecorder.BpfRecorder, uint32, time.Duration) {
+	fake.waitForPidExitMutex.RLock()
+	defer fake.waitForPidExitMutex.RUnlock()
+	argsForCall := fake.waitForPidExitArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) WaitForPidExitReturns(result1 error) {
+	fake.waitForPidExitMutex.Lock()
+	defer fake.waitForPidExitMutex.Unlock()
+	fake.WaitForPidExitStub = nil
+	fake.waitForPidExitReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) WaitForPidExitReturnsOnCall(i int, result1 error) {
+	fake.waitForPidExitMutex.Lock()
+	defer fake.waitForPidExitMutex.Unlock()
+	fake.WaitForPidExitStub = nil
+	if fake.waitForPidExitReturnsOnCall == nil {
+		fake.waitForPidExitReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.waitForPidExitReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) WriteFile(arg1 string, arg2 []byte, arg3 fs.FileMode) error {
 	var arg2Copy []byte
 	if arg2 != nil {
@@ -1211,6 +1288,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.syscallsIteratorMutex.RUnlock()
 	fake.unloadBpfRecorderMutex.RLock()
 	defer fake.unloadBpfRecorderMutex.RUnlock()
+	fake.waitForPidExitMutex.RLock()
+	defer fake.waitForPidExitMutex.RUnlock()
 	fake.writeFileMutex.RLock()
 	defer fake.writeFileMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
