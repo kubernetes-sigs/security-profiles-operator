@@ -544,12 +544,6 @@ static __always_inline void handle_exit()
     if (!mntns)
         return;
 
-    // only report when the main process exits.
-    bool * is_child = bpf_map_lookup_elem(&child_pids, &pid);
-    if (is_child != NULL) {
-        return;
-    }
-
     event =
         bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
     if (event) {

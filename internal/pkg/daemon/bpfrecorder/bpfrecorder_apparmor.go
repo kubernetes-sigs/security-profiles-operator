@@ -140,7 +140,6 @@ func (*AppArmor) SetupAndProcessSpecificEvents(b *BpfRecorder, module *bpf.Modul
 			return fmt.Errorf("init apparmor_events ringbuffer: %w", err)
 		}
 		b.PollRingBuffer(apparmorRingbuffer, timeout)
-		b.lockAppArmorRecording.Lock()
 		go b.handleAppArmorEvents(apparmorEvents)
 	}
 
