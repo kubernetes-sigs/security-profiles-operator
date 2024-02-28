@@ -119,15 +119,15 @@ func listPartialProfiles(
 func MergeProfiles(
 	profiles []client.Object,
 ) (client.Object, error) {
-	mergables := make([]mergeableProfile, len(profiles))
+	mergeables := make([]mergeableProfile, len(profiles))
 	for i, profile := range profiles {
-		mergable, err := newMergeableProfile(profile)
+		mergeable, err := newMergeableProfile(profile)
 		if err != nil {
 			return nil, err
 		}
-		mergables[i] = mergable
+		mergeables[i] = mergeable
 	}
-	merged, err := mergeMergeableProfiles(mergables)
+	merged, err := mergeMergeableProfiles(mergeables)
 	if err != nil {
 		return nil, err
 	}
