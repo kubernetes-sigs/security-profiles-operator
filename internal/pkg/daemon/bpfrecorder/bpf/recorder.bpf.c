@@ -53,16 +53,16 @@ struct {
 } pid_mntns SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 24);
-} events SEC(".maps");
-
-struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, MAX_CHILD_PIDS);
     __type(key, u32);
     __type(value, bool);
 } child_pids SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1 << 24);
+} events SEC(".maps");
 
 struct event_t {
     u32 pid;
@@ -134,9 +134,9 @@ static __always_inline int load_args(const char ** filename, u64 * flags)
  * get_mntns returns the mntns in case the call should be taken into account.
  * 0 is returned when the process should not be processed. The following
  * criteria are used:
- *   - host processes are excluded
+ *   - host processes are excluded (if system mntns is set)
  *   - child processes are included
- *   - program name if filtering on this is required
+ *   - program name if filter is active
  */
 static __always_inline u32 get_mntns()
 {
