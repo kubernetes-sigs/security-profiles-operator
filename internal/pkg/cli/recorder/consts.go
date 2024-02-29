@@ -32,6 +32,10 @@ const (
 	// FlagNoBaseSyscalls can be used to indicate that no base syscalls should
 	// be added at all.
 	FlagNoBaseSyscalls string = "no-base-syscalls"
+
+	// FlagNoStart can be used to indicate that the target process is managed
+	// externally and should not be started.
+	FlagNoStart string = "no-start"
 )
 
 // Type is the enum for all available recorder types.
