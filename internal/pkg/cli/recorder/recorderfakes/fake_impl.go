@@ -167,6 +167,12 @@ type FakeImpl struct {
 		result1 []byte
 		result2 error
 	}
+	NotifyStub        func(chan<- os.Signal, ...os.Signal)
+	notifyMutex       sync.RWMutex
+	notifyArgsForCall []struct {
+		arg1 chan<- os.Signal
+		arg2 []os.Signal
+	}
 	PrintObjStub        func(printers.YAMLPrinter, runtime.Object, io.Writer) error
 	printObjMutex       sync.RWMutex
 	printObjArgsForCall []struct {
@@ -903,6 +909,39 @@ func (fake *FakeImpl) MarshalIndentReturnsOnCall(i int, result1 []byte, result2 
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) Notify(arg1 chan<- os.Signal, arg2 ...os.Signal) {
+	fake.notifyMutex.Lock()
+	fake.notifyArgsForCall = append(fake.notifyArgsForCall, struct {
+		arg1 chan<- os.Signal
+		arg2 []os.Signal
+	}{arg1, arg2})
+	stub := fake.NotifyStub
+	fake.recordInvocation("Notify", []interface{}{arg1, arg2})
+	fake.notifyMutex.Unlock()
+	if stub != nil {
+		fake.NotifyStub(arg1, arg2...)
+	}
+}
+
+func (fake *FakeImpl) NotifyCallCount() int {
+	fake.notifyMutex.RLock()
+	defer fake.notifyMutex.RUnlock()
+	return len(fake.notifyArgsForCall)
+}
+
+func (fake *FakeImpl) NotifyCalls(stub func(chan<- os.Signal, ...os.Signal)) {
+	fake.notifyMutex.Lock()
+	defer fake.notifyMutex.Unlock()
+	fake.NotifyStub = stub
+}
+
+func (fake *FakeImpl) NotifyArgsForCall(i int) (chan<- os.Signal, []os.Signal) {
+	fake.notifyMutex.RLock()
+	defer fake.notifyMutex.RUnlock()
+	argsForCall := fake.notifyArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
 func (fake *FakeImpl) PrintObj(arg1 printers.YAMLPrinter, arg2 runtime.Object, arg3 io.Writer) error {
 	fake.printObjMutex.Lock()
 	ret, specificReturn := fake.printObjReturnsOnCall[len(fake.printObjArgsForCall)]
@@ -1280,6 +1319,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.loadBpfRecorderMutex.RUnlock()
 	fake.marshalIndentMutex.RLock()
 	defer fake.marshalIndentMutex.RUnlock()
+	fake.notifyMutex.RLock()
+	defer fake.notifyMutex.RUnlock()
 	fake.printObjMutex.RLock()
 	defer fake.printObjMutex.RUnlock()
 	fake.syscallsGetValueMutex.RLock()

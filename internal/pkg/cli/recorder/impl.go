@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/signal"
 	"time"
 	"unsafe"
 
@@ -58,6 +59,7 @@ type impl interface {
 	CloseFile(*os.File)
 	PrintObj(printers.YAMLPrinter, runtime.Object, io.Writer) error
 	GoArchToSeccompArch(string) (seccomp.Arch, error)
+	Notify(chan<- os.Signal, ...os.Signal)
 }
 
 func (*defaultImpl) LoadBpfRecorder(b *bpfrecorder.BpfRecorder) error {
@@ -126,4 +128,8 @@ func (*defaultImpl) PrintObj(p printers.YAMLPrinter, obj runtime.Object, w io.Wr
 
 func (*defaultImpl) GoArchToSeccompArch(arch string) (seccomp.Arch, error) {
 	return seccomp.GoArchToSeccompArch(arch)
+}
+
+func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {
+	signal.Notify(c, sig...)
 }

@@ -17,8 +17,12 @@ limitations under the License.
 package main_test
 
 import (
+	"bufio"
+	"bytes"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -28,7 +32,10 @@ import (
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
 )
+
+const spocPath = "../../build/spoc"
 
 //nolint:paralleltest // should not run in parallel
 func TestSpoc(t *testing.T) {
@@ -70,13 +77,61 @@ func recordAppArmorTest(t *testing.T) {
 	t.Run("subprocess", func(t *testing.T) {
 		profile := recordAppArmor(t, "./demobinary-child", "--file-read", "/dev/null")
 		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary-child")
-		// TODO: requires child process tracing
-		// require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
+		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
 
 		profile = recordAppArmor(t, "./demobinary", "--file-read", "/dev/null")
 		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary")
-		// TODO: requires child process tracing
-		// require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
+		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
+	})
+
+	t.Run("no-start", func(t *testing.T) {
+		demobinary, err := filepath.Abs("./demobinary")
+		require.Nil(t, err)
+
+		cmd := exec.Command(
+			"sudo", spocPath,
+			"record",
+			"--no-start",
+			"-t", "apparmor",
+			"-o", "/dev/stdout",
+			demobinary,
+		)
+		stderr, err := cmd.StderrPipe()
+		spocLogs := bufio.NewScanner(stderr)
+		require.Nil(t, err)
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+
+		// Start recorder and wait for it to set itself up.
+		err = cmd.Start()
+		require.Nil(t, err)
+
+		t.Log("waiting for SPOC to set up...")
+		for spocLogs.Scan() {
+			if strings.Contains(spocLogs.Text(), recorder.WaitForSigIntMessage) {
+				break
+			}
+		}
+
+		// Run binary...
+		cmd2 := exec.Command(demobinary, "--file-read", "/dev/null")
+		err = cmd2.Run()
+		require.Nil(t, err)
+
+		t.Log("waiting for SPOC to receive an event...")
+		for spocLogs.Scan() {
+			if strings.Contains(spocLogs.Text(), "Received event:") {
+				break
+			}
+		}
+
+		// Wait until events are processed and stop the recorder...
+		err = cmd.Process.Signal(os.Interrupt)
+		require.Nil(t, err)
+		err = cmd.Wait()
+		require.Nil(t, err)
+
+		require.Contains(t, stdout.String(), "/dev/null", "did not find file read in profile")
 	})
 }
 
@@ -87,7 +142,7 @@ func recordSeccompTest(t *testing.T) {
 
 func runSpoc(t *testing.T, args ...string) []byte {
 	t.Helper()
-	args = append([]string{"../../build/spoc"}, args...)
+	args = append([]string{spocPath}, args...)
 	cmd := exec.Command("sudo", args...)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
