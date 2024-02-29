@@ -77,6 +77,10 @@ func main() {
 					Aliases: []string{"n"},
 					Usage:   "do not add any base syscalls at all",
 				},
+				&cli.BoolFlag{
+					Name:  recorder.FlagNoStart,
+					Usage: "do not start the target command and record until ctrl+c/SIGINT.",
+				},
 			},
 		},
 		&cli.Command{
