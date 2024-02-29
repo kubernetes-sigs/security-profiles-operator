@@ -134,7 +134,7 @@ jobs:
           # Only load on PR builds
           load: ${{ github.ref != 'refs/heads/main' }}
       - name: Run container image vulnerability scanner
-        uses: aquasecurity/trivy-action@84384bd6e777ef152729993b8145ea352e9dd3ef
+        uses: aquasecurity/trivy-action@062f2592684a31eb3aa050cc61e7ca1451cecd3d
         with:
           image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'
@@ -178,7 +178,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           load: true
       - name: Run container image vulnerability scanner
-        uses: aquasecurity/trivy-action@84384bd6e777ef152729993b8145ea352e9dd3ef
+        uses: aquasecurity/trivy-action@062f2592684a31eb3aa050cc61e7ca1451cecd3d
         with:
           image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'
@@ -224,7 +224,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           load: true
       - name: Run container image vulnerability scanner
-        uses: aquasecurity/trivy-action@84384bd6e777ef152729993b8145ea352e9dd3ef
+        uses: aquasecurity/trivy-action@062f2592684a31eb3aa050cc61e7ca1451cecd3d
         with:
           image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: 'table'
