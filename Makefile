@@ -469,6 +469,10 @@ test-flaky-e2e: ## Only run the flaky end-to-end tests
 	E2E_SKIP_FLAKY_TESTS=false \
 	$(GO) test -parallel 1 -timeout 20m -count=1 ./test/... -v -testify.m '^(TestSecurityProfilesOperator_Flaky)$$'
 
+.PHONY: test-spoc-e2e
+test-spoc-e2e: build/spoc
+	$(GO) test -v ./test/spoc/...
+
 # Generate CRD manifests
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/spod/...' output:crd:stdout" "deploy/base-crds/crds/securityprofilesoperatordaemon.yaml"
