@@ -166,6 +166,21 @@ jobs:
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
           $RUN hack/ci/e2e-flatcar-dev-container.sh
 
+  e2e-spoc:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+      - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
+          sudo hack/install-libbpf.sh
+      - run: make test-spoc-e2e
+
   baseprofiles:
     needs: image
     runs-on: ubuntu-22.04
