@@ -27,11 +27,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 )
 
-func GetDynamicClient(client client.Client) (dynamic.Interface, error) {
+func GetDynamicClient() (dynamic.Interface, error) {
 	clusterConfig, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("get in-cluster config: %w", err)
@@ -45,8 +44,8 @@ func GetDynamicClient(client client.Client) (dynamic.Interface, error) {
 	return dynamicClient, nil
 }
 
-func GetNodeList(ctx context.Context, client client.Client) ([]string, error) {
-	dynamicClient, err := GetDynamicClient(client)
+func GetNodeList(ctx context.Context) ([]string, error) {
+	dynamicClient, err := GetDynamicClient()
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +59,7 @@ func GetNodeList(ctx context.Context, client client.Client) ([]string, error) {
 	}
 
 	// Extract node names
-	var nodeNames []string
+	var nodeNames = make([]string, len(nodeList.Items))
 	for _, item := range nodeList.Items {
 		var node map[string]interface{}
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(item.Object, &node)
@@ -78,15 +77,16 @@ func GetNodeList(ctx context.Context, client client.Client) ([]string, error) {
 }
 
 func FinalizersMatchCurrentNodes(ctx context.Context,
-	client client.Client, nodeStatusList *statusv1alpha1.SecurityProfileNodeStatusList) (bool, error) {
+	nodeStatusList *statusv1alpha1.SecurityProfileNodeStatusList) (bool, error) {
 
 	// Obtain a list of current node names through a Kubernetes API call
-	currentNodeNames, err := GetNodeList(ctx, client)
+	currentNodeNames, err := GetNodeList(ctx)
 	if err != nil {
 		return false, err
 	}
 
-	for _, nodeStatus := range nodeStatusList.Items {
+	for i := range nodeStatusList.Items {
+		nodeStatus := &nodeStatusList.Items[i]
 		if StringInSlice(currentNodeNames, nodeStatus.NodeName) {
 			// We've found a matching node for this finalizer
 			return true, nil
