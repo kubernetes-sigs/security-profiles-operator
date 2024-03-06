@@ -116,6 +116,7 @@ type TargetFile struct {
 type customMetadata struct {
 	Usage  UsageKind  `json:"usage"`
 	Status StatusKind `json:"status"`
+	URI    string     `json:"uri"`
 }
 
 type sigstoreCustomMetadata struct {
