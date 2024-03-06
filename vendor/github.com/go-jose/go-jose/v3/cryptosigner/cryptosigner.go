@@ -23,6 +23,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/asn1"
@@ -51,12 +52,20 @@ func (s *cryptoSigner) Public() *jose.JSONWebKey {
 }
 
 func (s *cryptoSigner) Algs() []jose.SignatureAlgorithm {
-	switch s.signer.Public().(type) {
+	switch key := s.signer.Public().(type) {
 	case ed25519.PublicKey:
 		return []jose.SignatureAlgorithm{jose.EdDSA}
 	case *ecdsa.PublicKey:
-		// This could be more precise
-		return []jose.SignatureAlgorithm{jose.ES256, jose.ES384, jose.ES512}
+		switch key.Curve {
+		case elliptic.P256():
+			return []jose.SignatureAlgorithm{jose.ES256}
+		case elliptic.P384():
+			return []jose.SignatureAlgorithm{jose.ES384}
+		case elliptic.P521():
+			return []jose.SignatureAlgorithm{jose.ES512}
+		default:
+			return nil
+		}
 	case *rsa.PublicKey:
 		return []jose.SignatureAlgorithm{jose.RS256, jose.RS384, jose.RS512, jose.PS256, jose.PS384, jose.PS512}
 	default:
