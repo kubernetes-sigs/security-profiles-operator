@@ -21,7 +21,6 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/release-utils/util"
@@ -33,7 +32,6 @@ import (
 
 //nolint:paralleltest // should not run in parallel
 func TestSpoc(t *testing.T) {
-	logrus.Info("Building demobinary...")
 	cmd := exec.Command("go", "build", "demobinary.go")
 	err := cmd.Run()
 	require.Nil(t, err, "failed to build demobinary.go")
