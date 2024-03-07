@@ -59,7 +59,7 @@ func GetNodeList(ctx context.Context) ([]string, error) {
 	}
 
 	// Extract node names
-	var nodeNames = make([]string, len(nodeList.Items))
+	nodeNames := make([]string, len(nodeList.Items))
 	for _, item := range nodeList.Items {
 		var node map[string]interface{}
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(item.Object, &node)
@@ -77,8 +77,8 @@ func GetNodeList(ctx context.Context) ([]string, error) {
 }
 
 func FinalizersMatchCurrentNodes(ctx context.Context,
-	nodeStatusList *statusv1alpha1.SecurityProfileNodeStatusList) (bool, error) {
-
+	nodeStatusList *statusv1alpha1.SecurityProfileNodeStatusList,
+) (bool, error) {
 	// Obtain a list of current node names through a Kubernetes API call
 	currentNodeNames, err := GetNodeList(ctx)
 	if err != nil {
