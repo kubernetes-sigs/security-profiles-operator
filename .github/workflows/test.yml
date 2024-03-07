@@ -33,10 +33,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
-          sudo hack/install-libbpf.sh
+        run: sudo hack/install-packages
       - run: make test-unit
       - uses: codecov/codecov-action@54bcd8715eee62d40e33596ef5e8f0f48dbbccab
         with:
@@ -175,10 +172,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
-          sudo hack/install-libbpf.sh
+        run: sudo hack/install-packages
       - run: make test-spoc-e2e
 
   baseprofiles:
