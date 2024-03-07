@@ -387,8 +387,7 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 		--skip internal/pkg/nonrootenabler/nonrootenablerfakes/fake_impl.go \
 		--skip internal/pkg/webhooks/binding/bindingfakes/fake_impl.go \
 		--skip internal/pkg/webhooks/recording/recordingfakes/fake_impl.go \
-		--skip internal/pkg/daemon/profilerecorder/profilerecorderfakes/fake_impl.go \
-		--skip kind-with-registry.sh
+		--skip internal/pkg/daemon/profilerecorder/profilerecorderfakes/fake_impl.go
 
 $(BUILD_DIR)/verify_boilerplate.py: $(BUILD_DIR)
 	curl -sfL https://raw.githubusercontent.com/kubernetes/repo-infra/$(REPO_INFRA_VERSION)/hack/verify_boilerplate.py \
