@@ -157,7 +157,6 @@ static __always_inline u32 get_mntns()
 
     // Filter per program name if requested
     if (has_filter()) {
-
         u32 pid = bpf_get_current_pid_tgid() >> 32;
         bool is_child = bpf_map_lookup_elem(&child_pids, &pid) != NULL;
         char comm[MAX_COMM_LEN] = {};
@@ -171,9 +170,8 @@ static __always_inline u32 get_mntns()
     return mntns;
 }
 
-static __always_inline int enter_execve(
-    unsigned long * pathname_ptr
-) {
+static __always_inline int enter_execve(unsigned long * pathname_ptr)
+{
     apparmor_event_data_t * event;
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -221,10 +219,9 @@ int syscall__execveat(struct trace_event_raw_sys_enter * ctx)
     return enter_execve(&ctx->args[1]);
 }
 
-static __always_inline int enter_open(
-    unsigned long * pathname_ptr,
-    unsigned long * flags_ptr
-) {
+static __always_inline int enter_open(unsigned long * pathname_ptr,
+                                      unsigned long * flags_ptr)
+{
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -264,7 +261,8 @@ int syscall__openat(struct trace_event_raw_sys_enter * ctx)
     return enter_open(&ctx->args[1], &ctx->args[2]);
 }
 
-static __always_inline int exit_open(struct trace_event_raw_sys_exit * ctx) {
+static __always_inline int exit_open(struct trace_event_raw_sys_exit * ctx)
+{
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
     u32 mntns = get_mntns();
@@ -625,7 +623,8 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         if (!value) {
             // Should not happen, we updated the element straight ahead
             bpf_printk(
-                "look up item in mntns_syscalls map failed pid: %u, mntns: %u\n",
+                "look up item in mntns_syscalls map failed pid: %u, mntns: "
+                "%u\n",
                 pid, mntns);
             return 0;
         }
@@ -634,7 +633,6 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
 
     return 0;
 }
-
 
 static inline bool has_filter()
 {
