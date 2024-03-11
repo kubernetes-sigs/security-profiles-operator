@@ -998,6 +998,11 @@ func (b *BpfRecorder) handleEvent(event []byte) {
 	pid := e.Pid
 	mntns := e.Mntns
 
+	if b.clientset == nil {
+		// spoc: we're running outside of a kubernetes context.
+		return
+	}
+
 	// Look up the container ID based on PID from cgroup file.
 	containerID, err := b.ContainerIDForPID(b.pidToContainerIDCache, int(pid))
 	if err != nil {
