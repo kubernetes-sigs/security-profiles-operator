@@ -35,6 +35,7 @@ import (
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -777,6 +778,8 @@ func TestProcessEvents(t *testing.T) {
 		sut := New(logger)
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock
+		// pretend that we're running in a kubernetes context
+		sut.clientset = &kubernetes.Clientset{}
 
 		msg := tc.prepare(sut, mock)
 
