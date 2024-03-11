@@ -554,7 +554,6 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		BPFObjName: "recorder.bpf.o",
 		BTFObjPath: b.btfPath,
 	})
-
 	if err != nil {
 		return fmt.Errorf("load bpf module: %w", err)
 	}

@@ -6,18 +6,11 @@ issues:
   exclude-rules:
     - path: internal/pkg/daemon/bpfrecorder/generated.go
       linters:
-        - dupl
         - gofumpt
         - lll
     - linters:
         - goerr113
       text: do not define dynamic errors, use wrapped static errors instead
-    - linters:
-        - lll
-      source: "^//go:generate " # exclude lll issues for long lines with go:generate
-    - linters:
-        - paralleltest
-      path: internal/pkg/config/config_test.go
 linters:
   disable-all: true
   enable:
@@ -87,6 +80,7 @@ linters:
     - revive
     - rowserrcheck
     - sloglint
+    - spancheck
     - sqlclosecheck
     - staticcheck
     - stylecheck
@@ -125,6 +119,10 @@ linters:
     # - wrapcheck
     # - wsl
 linters-settings:
+  revive:
+    rules:
+      - name: unused-parameter
+        disabled: true
   goconst:
     min-occurrences: 6
   gomoddirectives:
@@ -158,6 +156,7 @@ linters-settings:
       - badLock
       - badRegexp
       - badSorting
+      - badSyncOnceFunc
       - boolExprSimplify
       - builtinShadow
       - builtinShadowDecl
@@ -223,7 +222,6 @@ linters-settings:
       - sliceClear
       - sloppyLen
       - sloppyReassign
-      - sloppyTestFuncName
       - sloppyTypeAssert
       - sortSlice
       - sprintfQuotedString
@@ -233,7 +231,6 @@ linters-settings:
       - stringsCompare
       - switchTrue
       - syncMapLoadAndDelete
-      - timeCmpSimplify
       - timeExprSimplify
       - todoCommentWithoutDetail
       - tooManyResultsChecker
