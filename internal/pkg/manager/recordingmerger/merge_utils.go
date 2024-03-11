@@ -19,7 +19,6 @@ package recordingmerger
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sort"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -386,6 +385,24 @@ func mergeDedupSortStrings(a, b *[]string) *[]string {
 	}
 	merged := append(*a, *b...)
 	sort.Strings(merged)
-	merged = slices.Compact(merged)
+	merged = compact(merged)
 	return &merged
+}
+
+// TODO: replace this with slices.Compact once all platform support Go 1.21.
+func compact(s []string) []string {
+	//nolint:all
+	if len(s) < 2 {
+		return s
+	}
+	i := 1
+	for k := 1; k < len(s); k++ {
+		if s[k] != s[k-1] {
+			if i != k {
+				s[i] = s[k]
+			}
+			i++
+		}
+	}
+	return s[:i]
 }
