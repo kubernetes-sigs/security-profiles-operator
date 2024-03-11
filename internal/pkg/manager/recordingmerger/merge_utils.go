@@ -406,3 +406,11 @@ func compact(s []string) []string {
 	}
 	return s[:i]
 }
+
+// TODO: remove once all platform support Go 1.21.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
