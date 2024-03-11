@@ -285,7 +285,7 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 			continue
 		}
 
-		if n := otherPol.GetName(); len(n) > 0 {
+		if n := otherPol.GetName(); n != "" {
 			// we have a partial profile that is not being deleted and is not the current one
 			if n != pol.GetName() {
 				hasOthers = true
