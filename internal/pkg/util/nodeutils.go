@@ -91,8 +91,6 @@ func FinalizersMatchCurrentNodes(ctx context.Context,
 		if !StringInSlice(currentNodeNames, nodeStatus.NodeName) {
 			// We've found a node that doesn't exist anymore
 			return false, nil
-		} else {
-			continue
 		}
 	}
 	return true, nil
