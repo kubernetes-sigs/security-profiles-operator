@@ -88,12 +88,14 @@ func FinalizersMatchCurrentNodes(ctx context.Context,
 
 	for i := range nodeStatusList.Items {
 		nodeStatus := &nodeStatusList.Items[i]
-		if StringInSlice(currentNodeNames, nodeStatus.NodeName) {
-			// We've found a matching node for this finalizer
-			return true, nil
+		if !StringInSlice(currentNodeNames, nodeStatus.NodeName) {
+			// We've found a node that doesn't exist anymore
+			return false, nil
+		} else {
+			continue
 		}
 	}
-	return false, nil
+	return true, nil
 }
 
 func StringInSlice(list []string, str string) bool {
