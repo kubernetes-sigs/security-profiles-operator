@@ -22,6 +22,7 @@ package main_test
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -111,6 +112,7 @@ func recordAppArmorTest(t *testing.T) {
 
 		t.Log("waiting for SPOC to set up...")
 		for spocLogs.Scan() {
+			t.Log(spocLogs.Text())
 			if strings.Contains(spocLogs.Text(), recorder.WaitForSigIntMessage) {
 				break
 			}
@@ -121,14 +123,16 @@ func recordAppArmorTest(t *testing.T) {
 		err = cmd2.Run()
 		require.Nil(t, err)
 
-		t.Log("waiting for SPOC to receive an event...")
+		t.Log("waiting for SPOC to register process exit...")
 		for spocLogs.Scan() {
-			if strings.Contains(spocLogs.Text(), "Received event:") {
+			t.Log(spocLogs.Text())
+			if strings.Contains(spocLogs.Text(), fmt.Sprintf("pid exit: %d.", cmd2.Process.Pid)) {
 				break
 			}
 		}
 
 		// Wait until events are processed and stop the recorder...
+		t.Log("sending SIGINT...")
 		err = cmd.Process.Signal(os.Interrupt)
 		require.Nil(t, err)
 		err = cmd.Wait()

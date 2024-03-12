@@ -913,6 +913,7 @@ func (b *BpfRecorder) handleAppArmorEvents(apparmorEvents chan []byte) {
 		case uint8(probeTypeCap):
 			b.handleAppArmorCapabilityEvents(&apparmorEvent)
 		case uint8(probeTypeExit):
+			b.logger.V(config.VerboseLevel).Info(fmt.Sprintf("pid exit: %d.", apparmorEvent.Pid))
 			d, _ := b.recordedExits.LoadOrStore(apparmorEvent.Pid, make(chan bool))
 			done, ok := d.(chan bool)
 			if !ok {
