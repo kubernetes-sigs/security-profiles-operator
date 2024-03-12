@@ -79,7 +79,7 @@ func (r *Recorder) Run() error {
 	defer r.UnloadBpfRecorder(r.bpfRecorder)
 
 	var mntns uint32
-	if r.options.noStart {
+	if r.options.noProcStart {
 		// command execution is managed externally,
 		// so we play dumb and just wait for SIGINT.
 		ch := make(chan os.Signal, 1)
@@ -126,6 +126,8 @@ func (r *Recorder) Run() error {
 func (r *Recorder) processData(mntns uint32) error {
 	log.Printf("Processing recorded data")
 
+	// A set of all observed syscalls.
+	// We may iterate over multiple mount namespaces if mntns is 0, so we need to remove duplicates
 	syscallsMap := map[string]bool{}
 	foundMntns := false
 	it := r.SyscallsIterator(r.bpfRecorder)
@@ -375,7 +377,7 @@ func (r *Recorder) buildAppArmorProfileRaw(spec *apparmorprofileapi.AppArmorProf
 	abstract := spec.Abstract
 	raw, err := crd2armor.GenerateProfile(r.options.commandOptions.Command(), &abstract)
 	if err != nil {
-		return err
+		return fmt.Errorf("build raw apparmor profile: %w", err)
 	}
 
 	const defaultMode os.FileMode = 0o644
