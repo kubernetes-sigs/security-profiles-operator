@@ -88,14 +88,14 @@ func recordAppArmorTest(t *testing.T) {
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
 	})
 
-	t.Run("no-start", func(t *testing.T) {
+	t.Run("no-proc-start", func(t *testing.T) {
 		demobinary, err := filepath.Abs("./demobinary")
 		require.Nil(t, err)
 
 		cmd := exec.Command(
 			"sudo", spocPath,
 			"record",
-			"--no-start",
+			"--no-proc-start",
 			"-t", "apparmor",
 			"-o", "/dev/stdout",
 			demobinary,

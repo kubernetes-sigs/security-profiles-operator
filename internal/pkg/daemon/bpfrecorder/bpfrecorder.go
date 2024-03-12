@@ -920,7 +920,12 @@ func (b *BpfRecorder) handleAppArmorEvents(apparmorEvents chan []byte) {
 				b.logger.Info("unexpected recordedExits type")
 				return
 			}
-			close(done)
+			select {
+			case <-done:
+				// already closed
+			default:
+				close(done)
+			}
 		}
 	}
 }
