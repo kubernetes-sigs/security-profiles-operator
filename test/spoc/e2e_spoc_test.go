@@ -133,7 +133,16 @@ func recordAppArmorTest(t *testing.T) {
 
 		// Wait until events are processed and stop the recorder...
 		t.Log("sending SIGINT...")
-		err = cmd.Process.Signal(os.Interrupt)
+		// We cannot simply use cmd.Process.Signal here as sudo will not forward
+		// SIGINT when running outside of a pty (i.e. in CI)
+		//nolint:gosec // not a security risk
+		err = exec.Command(
+			"setsid",
+			"sudo",
+			"kill",
+			"-SIGINT",
+			fmt.Sprintf("%d", cmd.Process.Pid),
+		).Run()
 		require.Nil(t, err)
 		err = cmd.Wait()
 		require.Nil(t, err)
