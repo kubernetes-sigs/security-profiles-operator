@@ -124,7 +124,7 @@ jobs:
             type=ref,event=tag
             type=sha,format=long
       - name: Build (and push if needed)
-        uses: docker/build-push-action@af5a7ed5ba88268d5278f7203fb52cd833f66d6e
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0
         with:
           context: .
           file: Dockerfile.build-image
@@ -170,7 +170,7 @@ jobs:
             type=ref,event=tag
             type=sha,format=long
       - name: Build
-        uses: docker/build-push-action@af5a7ed5ba88268d5278f7203fb52cd833f66d6e
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0
         with:
           context: .
           file: Dockerfile
@@ -216,7 +216,7 @@ jobs:
             type=sha,format=long
       # TODO(jaosorior): Push UBI image too
       - name: Build
-        uses: docker/build-push-action@af5a7ed5ba88268d5278f7203fb52cd833f66d6e
+        uses: docker/build-push-action@2cdde995de11925a030ce8070c3d77a52ffcf1c0
         with:
           context: .
           file: Dockerfile.ubi
