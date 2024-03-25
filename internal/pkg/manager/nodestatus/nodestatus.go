@@ -205,7 +205,7 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		// if nodeName is not in currentNodeNames and there isn't a mismatch in statuses/nodes, remove it from the finalizers
 		for i := range nodeStatusList.Items {
 			nodeStatus := &nodeStatusList.Items[i]
-			if !util.StringInSlice(currentNodeNames, nodeStatus.NodeName) { // string not in list
+			if !util.ContainsSubstring(currentNodeNames, nodeStatus.NodeName) { // string not in list
 				// Found a finalizer for a node that doesn't exist
 				finalizerNodeString := util.GetFinalizerNodeString(nodeStatus.NodeName)
 				if err := util.RemoveFinalizer(ctx, r.client, prof, finalizerNodeString); err != nil {
