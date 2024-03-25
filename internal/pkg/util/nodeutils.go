@@ -48,7 +48,7 @@ func GetDynamicClient() (dynamic.Interface, error) {
 func GetNodeList(ctx context.Context) ([]string, error) {
 	dynamicClient, err := GetDynamicClient()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to create dynamic client: %w", err)
 	}
 	// Specify the resource (nodes) and namespace
 	nodeResource := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "nodes"}
@@ -56,7 +56,7 @@ func GetNodeList(ctx context.Context) ([]string, error) {
 	// List the nodes (using the dynamic client)
 	nodeList, err := dynamicClient.Resource(nodeResource).Namespace("").List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot connect to api to list nodes: %w", err)
 	}
 
 	// Extract node names
@@ -65,11 +65,11 @@ func GetNodeList(ctx context.Context) ([]string, error) {
 		var node map[string]interface{}
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(item.Object, &node)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to read node object: %w", err)
 		}
 		nodeName, _, err := unstructured.NestedString(node, "metadata", "name")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to extract nodeName from node object: %w", err)
 		}
 		nodeNames = append(nodeNames, nodeName)
 	}
@@ -83,12 +83,12 @@ func FinalizersMatchCurrentNodes(ctx context.Context,
 	// Obtain a list of current node names through a Kubernetes API call
 	currentNodeNames, err := GetNodeList(ctx)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("error getting list of node names from api: %w", err)
 	}
 
 	for i := range nodeStatusList.Items {
 		nodeStatus := &nodeStatusList.Items[i]
-		if !StringInSlice(currentNodeNames, nodeStatus.NodeName) {
+		if !ContainsSubstring(currentNodeNames, nodeStatus.NodeName) {
 			// We've found a node that doesn't exist anymore
 			return false, nil
 		}
@@ -96,7 +96,7 @@ func FinalizersMatchCurrentNodes(ctx context.Context,
 	return true, nil
 }
 
-func StringInSlice(list []string, str string) bool {
+func ContainsSubstring(list []string, str string) bool {
 	for _, item := range list {
 		if strings.Contains(item, str) {
 			return true
