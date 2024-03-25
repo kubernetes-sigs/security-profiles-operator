@@ -146,7 +146,7 @@ func (a *Artifact) Push(
 	manifestDescriptor, err := a.PackManifest(
 		ctx,
 		store,
-		oras.PackManifestVersion1_1_RC4,
+		oras.PackManifestVersion1_1,
 		oras.MediaTypeUnknownConfig,
 		oras.PackManifestOptions{
 			Layers: fileDescriptors,
