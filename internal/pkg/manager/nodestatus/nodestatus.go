@@ -192,6 +192,29 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		return reconcile.Result{Requeue: true}, nil
 	}
 
+	statusMatch, err := util.FinalizersMatchCurrentNodes(ctx, nodeStatusList)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("cannot compare statuses and finalizers: %w", err)
+	}
+	if !statusMatch { // if the finalizers don't match the current nodes
+		// Get current list of nodes
+		currentNodeNames, err := util.GetNodeList(ctx)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("cannot get node list: %w", err)
+		}
+		// if nodeName is not in currentNodeNames and there isn't a mismatch in statuses/nodes, remove it from the finalizers
+		for i := range nodeStatusList.Items {
+			nodeStatus := &nodeStatusList.Items[i]
+			if !util.ContainsSubstring(currentNodeNames, nodeStatus.NodeName) { // string not in list
+				// Found a finalizer for a node that doesn't exist
+				finalizerNodeString := util.GetFinalizerNodeString(nodeStatus.NodeName)
+				if err := util.RemoveFinalizer(ctx, r.client, prof, finalizerNodeString); err != nil {
+					return reconcile.Result{}, fmt.Errorf("cannot remove finalizer: %w", err)
+				}
+			}
+		}
+	}
+
 	lowestCommonState := statusv1alpha1.LowestState
 	for i := range nodeStatusList.Items {
 		lowestCommonState = statusv1alpha1.LowerOfTwoStates(lowestCommonState, nodeStatusList.Items[i].Status)
