@@ -209,6 +209,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v3.5.2
-      - uses: crate-ci/typos@v1.19.0
+      - uses: crate-ci/typos@v1.20.1
         with:
           config: .typos.toml
