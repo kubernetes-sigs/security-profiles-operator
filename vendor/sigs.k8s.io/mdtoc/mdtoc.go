@@ -17,12 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 
 	"sigs.k8s.io/mdtoc/pkg/mdtoc"
+	"sigs.k8s.io/release-utils/version"
 )
 
 type utilityOptions struct {
@@ -37,6 +39,7 @@ func init() {
 	flag.BoolVar(&defaultOptions.Inplace, "inplace", false, "Whether to edit the file in-place, or output to STDOUT. Requires toc tags to be present.")
 	flag.BoolVar(&defaultOptions.SkipPrefix, "skip-prefix", true, "Whether to ignore any headers before the opening toc tag.")
 	flag.IntVar(&defaultOptions.MaxDepth, "max-depth", mdtoc.MaxHeaderDepth, "Limit the depth of headers that will be included in the TOC.")
+	flag.BoolVar(&defaultOptions.Version, "version", false, "Show MDTOC version.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [OPTIONS] [FILE]...\n", os.Args[0])
@@ -48,6 +51,17 @@ func init() {
 
 func main() {
 	flag.Parse()
+
+	if defaultOptions.Version {
+		v := version.GetVersionInfo()
+		v.Name = "mdtoc"
+		v.Description = "is a utility for generating a table-of-contents for markdown files"
+		v.ASCIIName = "true"
+		v.FontName = "banner"
+		fmt.Fprintln(os.Stdout, v.String())
+		os.Exit(0)
+	}
+
 	if err := validateArgs(defaultOptions, flag.Args()); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		flag.Usage()
@@ -78,13 +92,13 @@ func main() {
 
 func validateArgs(opts utilityOptions, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("must specify at least 1 file")
+		return errors.New("must specify at least 1 file")
 	}
 	if !opts.Inplace && len(args) > 1 {
-		return fmt.Errorf("non-inplace updates require exactly 1 file")
+		return errors.New("non-inplace updates require exactly 1 file")
 	}
 	if opts.Dryrun && !opts.Inplace {
-		return fmt.Errorf("--dryrun requires --inplace")
+		return errors.New("--dryrun requires --inplace")
 	}
 	return nil
 }
