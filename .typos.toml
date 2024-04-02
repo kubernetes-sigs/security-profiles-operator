@@ -25,4 +25,5 @@ extend-ignore-re = [
     "ANDed",
     "PT_REGS_PARM3",
     "Mmaped",
+    "ro",
 ]
