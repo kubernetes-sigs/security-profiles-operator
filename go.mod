@@ -21,7 +21,7 @@ require (
 	github.com/opencontainers/runtime-spec v1.2.0
 	github.com/openshift/api v0.0.0-20221205111557-f2fbb1d1cd5e
 	github.com/pjbgf/go-apparmor v0.1.2
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.72.0
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.73.0
 	github.com/prometheus/client_golang v1.19.0
 	github.com/prometheus/client_model v0.6.0
 	github.com/seccomp/libseccomp-golang v0.10.0
@@ -268,10 +268,10 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.29.2 // indirect
-	k8s.io/component-base v0.29.2 // indirect
+	k8s.io/apiextensions-apiserver v0.29.3 // indirect
+	k8s.io/component-base v0.29.3 // indirect
 	k8s.io/kube-openapi v0.0.0-20240103051144-eec4567ac022 // indirect
-	k8s.io/utils v0.0.0-20240102154912-e7106e64919e // indirect
+	k8s.io/utils v0.0.0-20240310230437-4693a0247e57 // indirect
 	sigs.k8s.io/gateway-api v1.0.0 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
