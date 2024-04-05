@@ -3,71 +3,114 @@ run:
   concurrency: 6
   deadline: 5m
 issues:
-  exclude-rules:
-    # counterfeiter fakes are usually named 'fake_<something>.go'
-    - path: fake_.*\.go
-      linters:
-        - gocritic
-        - golint
-        - dupl
 linters:
   disable-all: true
   enable:
+    - asasalint
     - asciicheck
+    - bidichk
     - bodyclose
-    - deadcode
-    - depguard
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - decorder
     - dogsled
     - dupl
+    - dupword
+    - durationcheck
     - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - execinquery
+    - exhaustive
+    - exportloopref
+    - forcetypeassert
+    - funlen
+    - gci
+    - ginkgolinter
+    - gocheckcompilerdirectives
+    - gochecksumtype
+    - gocognit
     - goconst
     - gocritic
     - gocyclo
+    - godot
     - godox
     - gofmt
     - gofumpt
     - goheader
     - goimports
-    - golint
+    - gomoddirectives
     - gomodguard
     - goprintffuncname
+    - gosec
     - gosimple
+    - gosmopolitan
     - govet
+    - grouper
+    - importas
+    - inamedparam
     - ineffassign
-    - interfacer
-    - maligned
+    - interfacebloat
+    - intrange
+    - loggercheck
+    - maintidx
+    - makezero
+    - mirror
     - misspell
+    - musttag
     - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - paralleltest
+    - perfsprint
     - prealloc
+    - predeclared
+    - promlinter
+    - protogetter
+    - reassign
+    - revive
     - rowserrcheck
+    - sloglint
+    - spancheck
     - sqlclosecheck
     - staticcheck
-    - structcheck
     - stylecheck
+    - tagalign
+    - tagliatelle
+    - tenv
+    - testableexamples
+    - testifylint
+    - thelper
+    - tparallel
     - typecheck
     - unconvert
     - unparam
     - unused
-    - varcheck
+    - usestdlibvars
+    - wastedassign
     - whitespace
-    # - exhaustive
-    # - exportloopref
-    # - funlen
-    # - gci
+    - wrapcheck
+    - zerologlint
+    # - cyclop
+    # - depguard
+    # - exhaustruct
+    # - forbidigo
     # - gochecknoglobals
     # - gochecknoinits
-    # - gocognit
-    # - godot
     # - goerr113
     # - gomnd
-    # - gosec
+    # - ireturn
     # - lll
-    # - nestif
     # - nlreturn
-    # - noctx
-    # - nolintlint
-    # - scopelint
+    # - nonamedreturns
     # - testpackage
+    # - varnamelen
     # - wsl
 linters-settings:
   godox:
@@ -80,71 +123,74 @@ linters-settings:
     check-blank: true
   gocritic:
     enabled-checks:
-      # Diagnostic
-      - appendAssign
-      - argOrder
-      - badCond
-      - caseOrder
-      - codegenComment
-      - commentedOutCode
-      - deprecatedComment
-      - dupArg
-      - dupBranchBody
-      - dupCase
-      - dupSubExpr
-      - exitAfterDefer
-      - flagDeref
-      - flagName
-      - nilValReturn
-      - offBy1
-      - sloppyReassign
-      - weakCond
-      - octalLiteral
-
-      # Performance
       - appendCombine
-      - equalFold
-      - hugeParam
-      - indexAlloc
-      - rangeExprCopy
-      - rangeValCopy
-
-      # Style
-      - assignOp
+      - badLock
+      - badRegexp
+      - badSorting
+      - badSyncOnceFunc
       - boolExprSimplify
-      - captLocal
-      - commentFormatting
+      - builtinShadow
+      - builtinShadowDecl
+      - commentedOutCode
       - commentedOutImport
-      - defaultCaseOrder
+      - deferInLoop
+      - deferUnlambda
       - docStub
-      - elseif
+      - dupImport
+      - dynamicFmtString
+      - emptyDecl
       - emptyFallthrough
       - emptyStringTest
+      - equalFold
+      - evalOrder
+      - exposedSyncMutex
+      - externalErrorReassign
+      - filepathJoin
       - hexLiteral
-      - methodExprCall
-      - regexpMust
-      - singleCaseSwitch
-      - sloppyLen
-      - stringXbytes
-      - switchTrue
-      - typeAssertChain
-      - typeSwitchVar
-      - underef
-      - unlabelStmt
-      - unlambda
-      - unslice
-      - valSwap
-      - wrapperFunc
-      - yodaStyleExpr
-      # - ifElseChain
-
-      # Opinionated
-      - builtinShadow
+      - httpNoBody
+      - hugeParam
       - importShadow
+      - indexAlloc
       - initClause
+      - methodExprCall
       - nestingReduce
+      - nilValReturn
+      - octalLiteral
       - paramTypeCombine
+      - preferDecodeRune
+      - preferFilepathJoin
+      - preferFprint
+      - preferStringWriter
+      - preferWriteByte
       - ptrToRefParam
+      - rangeExprCopy
+      - rangeValCopy
+      - redundantSprint
+      - regexpPattern
+      - regexpSimplify
+      - returnAfterHttpError
+      - ruleguard
+      - sliceClear
+      - sloppyReassign
+      - sortSlice
+      - sprintfQuotedString
+      - sqlQuery
+      - stringConcatSimplify
+      - stringXbytes
+      - stringsCompare
+      - syncMapLoadAndDelete
+      - timeExprSimplify
+      - todoCommentWithoutDetail
+      - tooManyResultsChecker
+      - truncateCmp
+      - typeAssertChain
+      - typeDefFirst
       - typeUnparen
+      - uncheckedInlineErr
+      - unlabelStmt
       - unnamedResult
       - unnecessaryBlock
+      - unnecessaryDefer
+      - weakCond
+      - whyNoLint
+      - yodaStyleExpr
