@@ -3,11 +3,11 @@ kind: Kustomization
 
 images:
 - name: security-profiles-operator
-  # newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
-  # newTag: latest
+  newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
+  newTag: latest
   # For images to be released:
-  newName: registry.k8s.io/security-profiles-operator/security-profiles-operator
-  newTag: v0.8.3
+  # newName: registry.k8s.io/security-profiles-operator/security-profiles-operator
+  # newTag: v0.8.4
 
 
 resources:
