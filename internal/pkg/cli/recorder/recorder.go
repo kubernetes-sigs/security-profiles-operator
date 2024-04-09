@@ -181,18 +181,20 @@ func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract
 	abstract := apparmorprofileapi.AppArmorAbstract{}
 	enabled := true
 
-	abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
-	if len(processed.FileProcessed.AllowedExecutables) != 0 {
-		sort.Strings(processed.FileProcessed.AllowedExecutables)
-		ExecutableAllowedExecCopy := make([]string, len(processed.FileProcessed.AllowedExecutables))
-		copy(ExecutableAllowedExecCopy, processed.FileProcessed.AllowedExecutables)
-		abstract.Executable.AllowedExecutables = &ExecutableAllowedExecCopy
-	}
-	if len(processed.FileProcessed.AllowedLibraries) != 0 {
-		sort.Strings(processed.FileProcessed.AllowedLibraries)
-		ExecutableAllowedLibCopy := make([]string, len(processed.FileProcessed.AllowedLibraries))
-		copy(ExecutableAllowedLibCopy, processed.FileProcessed.AllowedLibraries)
-		abstract.Executable.AllowedLibraries = &ExecutableAllowedLibCopy
+	if len(processed.FileProcessed.AllowedExecutables) != 0 || len(processed.FileProcessed.AllowedLibraries) != 0 {
+		abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
+		if len(processed.FileProcessed.AllowedExecutables) != 0 {
+			sort.Strings(processed.FileProcessed.AllowedExecutables)
+			ExecutableAllowedExecCopy := make([]string, len(processed.FileProcessed.AllowedExecutables))
+			copy(ExecutableAllowedExecCopy, processed.FileProcessed.AllowedExecutables)
+			abstract.Executable.AllowedExecutables = &ExecutableAllowedExecCopy
+		}
+		if len(processed.FileProcessed.AllowedLibraries) != 0 {
+			sort.Strings(processed.FileProcessed.AllowedLibraries)
+			ExecutableAllowedLibCopy := make([]string, len(processed.FileProcessed.AllowedLibraries))
+			copy(ExecutableAllowedLibCopy, processed.FileProcessed.AllowedLibraries)
+			abstract.Executable.AllowedLibraries = &ExecutableAllowedLibCopy
+		}
 	}
 
 	if (len(processed.FileProcessed.ReadOnlyPaths) != 0) ||
