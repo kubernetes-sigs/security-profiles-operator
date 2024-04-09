@@ -70,7 +70,6 @@ func (m *Metrics) ServeGRPC() error {
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	//nolint:staticcheck // use this method until unsupported
 	conn, err := grpc.DialContext(
 		ctx,
 		"unix://"+config.GRPCServerSocketMetrics,
