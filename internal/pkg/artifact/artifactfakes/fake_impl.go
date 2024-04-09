@@ -29,6 +29,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type FakeImpl struct {
@@ -171,6 +172,19 @@ type FakeImpl struct {
 		result1 []byte
 		result2 error
 	}
+	ReadProfileStub        func([]byte) (client.Object, error)
+	readProfileMutex       sync.RWMutex
+	readProfileArgsForCall []struct {
+		arg1 []byte
+	}
+	readProfileReturns struct {
+		result1 client.Object
+		result2 error
+	}
+	readProfileReturnsOnCall map[int]struct {
+		result1 client.Object
+		result2 error
+	}
 	RemoveAllStub        func(string) error
 	removeAllMutex       sync.RWMutex
 	removeAllArgsForCall []struct {
@@ -238,18 +252,6 @@ type FakeImpl struct {
 		result1 error
 	}
 	verifyCmdReturnsOnCall map[int]struct {
-		result1 error
-	}
-	YamlUnmarshalStub        func([]byte, interface{}) error
-	yamlUnmarshalMutex       sync.RWMutex
-	yamlUnmarshalArgsForCall []struct {
-		arg1 []byte
-		arg2 interface{}
-	}
-	yamlUnmarshalReturns struct {
-		result1 error
-	}
-	yamlUnmarshalReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
@@ -904,6 +906,75 @@ func (fake *FakeImpl) ReadFileReturnsOnCall(i int, result1 []byte, result2 error
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) ReadProfile(arg1 []byte) (client.Object, error) {
+	var arg1Copy []byte
+	if arg1 != nil {
+		arg1Copy = make([]byte, len(arg1))
+		copy(arg1Copy, arg1)
+	}
+	fake.readProfileMutex.Lock()
+	ret, specificReturn := fake.readProfileReturnsOnCall[len(fake.readProfileArgsForCall)]
+	fake.readProfileArgsForCall = append(fake.readProfileArgsForCall, struct {
+		arg1 []byte
+	}{arg1Copy})
+	stub := fake.ReadProfileStub
+	fakeReturns := fake.readProfileReturns
+	fake.recordInvocation("ReadProfile", []interface{}{arg1Copy})
+	fake.readProfileMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ReadProfileCallCount() int {
+	fake.readProfileMutex.RLock()
+	defer fake.readProfileMutex.RUnlock()
+	return len(fake.readProfileArgsForCall)
+}
+
+func (fake *FakeImpl) ReadProfileCalls(stub func([]byte) (client.Object, error)) {
+	fake.readProfileMutex.Lock()
+	defer fake.readProfileMutex.Unlock()
+	fake.ReadProfileStub = stub
+}
+
+func (fake *FakeImpl) ReadProfileArgsForCall(i int) []byte {
+	fake.readProfileMutex.RLock()
+	defer fake.readProfileMutex.RUnlock()
+	argsForCall := fake.readProfileArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) ReadProfileReturns(result1 client.Object, result2 error) {
+	fake.readProfileMutex.Lock()
+	defer fake.readProfileMutex.Unlock()
+	fake.ReadProfileStub = nil
+	fake.readProfileReturns = struct {
+		result1 client.Object
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ReadProfileReturnsOnCall(i int, result1 client.Object, result2 error) {
+	fake.readProfileMutex.Lock()
+	defer fake.readProfileMutex.Unlock()
+	fake.ReadProfileStub = nil
+	if fake.readProfileReturnsOnCall == nil {
+		fake.readProfileReturnsOnCall = make(map[int]struct {
+			result1 client.Object
+			result2 error
+		})
+	}
+	fake.readProfileReturnsOnCall[i] = struct {
+		result1 client.Object
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) RemoveAll(arg1 string) error {
 	fake.removeAllMutex.Lock()
 	ret, specificReturn := fake.removeAllReturnsOnCall[len(fake.removeAllArgsForCall)]
@@ -1229,73 +1300,6 @@ func (fake *FakeImpl) VerifyCmdReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) YamlUnmarshal(arg1 []byte, arg2 interface{}) error {
-	var arg1Copy []byte
-	if arg1 != nil {
-		arg1Copy = make([]byte, len(arg1))
-		copy(arg1Copy, arg1)
-	}
-	fake.yamlUnmarshalMutex.Lock()
-	ret, specificReturn := fake.yamlUnmarshalReturnsOnCall[len(fake.yamlUnmarshalArgsForCall)]
-	fake.yamlUnmarshalArgsForCall = append(fake.yamlUnmarshalArgsForCall, struct {
-		arg1 []byte
-		arg2 interface{}
-	}{arg1Copy, arg2})
-	stub := fake.YamlUnmarshalStub
-	fakeReturns := fake.yamlUnmarshalReturns
-	fake.recordInvocation("YamlUnmarshal", []interface{}{arg1Copy, arg2})
-	fake.yamlUnmarshalMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) YamlUnmarshalCallCount() int {
-	fake.yamlUnmarshalMutex.RLock()
-	defer fake.yamlUnmarshalMutex.RUnlock()
-	return len(fake.yamlUnmarshalArgsForCall)
-}
-
-func (fake *FakeImpl) YamlUnmarshalCalls(stub func([]byte, interface{}) error) {
-	fake.yamlUnmarshalMutex.Lock()
-	defer fake.yamlUnmarshalMutex.Unlock()
-	fake.YamlUnmarshalStub = stub
-}
-
-func (fake *FakeImpl) YamlUnmarshalArgsForCall(i int) ([]byte, interface{}) {
-	fake.yamlUnmarshalMutex.RLock()
-	defer fake.yamlUnmarshalMutex.RUnlock()
-	argsForCall := fake.yamlUnmarshalArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) YamlUnmarshalReturns(result1 error) {
-	fake.yamlUnmarshalMutex.Lock()
-	defer fake.yamlUnmarshalMutex.Unlock()
-	fake.YamlUnmarshalStub = nil
-	fake.yamlUnmarshalReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) YamlUnmarshalReturnsOnCall(i int, result1 error) {
-	fake.yamlUnmarshalMutex.Lock()
-	defer fake.yamlUnmarshalMutex.Unlock()
-	fake.YamlUnmarshalStub = nil
-	if fake.yamlUnmarshalReturnsOnCall == nil {
-		fake.yamlUnmarshalReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.yamlUnmarshalReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
@@ -1319,6 +1323,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.parseReferenceMutex.RUnlock()
 	fake.readFileMutex.RLock()
 	defer fake.readFileMutex.RUnlock()
+	fake.readProfileMutex.RLock()
+	defer fake.readProfileMutex.RUnlock()
 	fake.removeAllMutex.RLock()
 	defer fake.removeAllMutex.RUnlock()
 	fake.signCmdMutex.RLock()
@@ -1329,8 +1335,6 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.storeTagMutex.RUnlock()
 	fake.verifyCmdMutex.RLock()
 	defer fake.verifyCmdMutex.RUnlock()
-	fake.yamlUnmarshalMutex.RLock()
-	defer fake.yamlUnmarshalMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value
