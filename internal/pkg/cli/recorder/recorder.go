@@ -374,8 +374,13 @@ func (r *Recorder) buildAppArmorProfileRaw(spec *apparmorprofileapi.AppArmorProf
 		r.options.outputFile = strings.ReplaceAll(r.options.outputFile, ".yaml", ".apparmor")
 	}
 
+	programName, err := filepath.Abs(r.options.commandOptions.Command())
+	if err != nil {
+		return fmt.Errorf("get program name: %w", err)
+	}
+
 	abstract := spec.Abstract
-	raw, err := crd2armor.GenerateProfile(r.options.commandOptions.Command(), &abstract)
+	raw, err := crd2armor.GenerateProfile(programName, &abstract)
 	if err != nil {
 		return fmt.Errorf("build raw apparmor profile: %w", err)
 	}
