@@ -28,6 +28,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"oras.land/oras-go/v2/registry/remote"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
+	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
+	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact/artifactfakes"
 )
 
@@ -233,6 +236,7 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
+				mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 				mock.RemoveAllReturns(errTest)
 				mock.FileCloseReturns(errTest)
 			},
@@ -250,6 +254,7 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
+				mock.ReadProfileReturns(&seccompprofileapi.SeccompProfile{}, nil)
 			},
 			assert: func(res *PullResult, err error) {
 				require.NoError(t, err)
@@ -265,7 +270,7 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
-				mock.YamlUnmarshalReturnsOnCall(0, errTest)
+				mock.ReadProfileReturns(&selinuxprofileapi.SelinuxProfile{}, nil)
 			},
 			assert: func(res *PullResult, err error) {
 				require.NoError(t, err)
@@ -281,8 +286,7 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
-				mock.YamlUnmarshalReturnsOnCall(0, errTest)
-				mock.YamlUnmarshalReturnsOnCall(1, errTest)
+				mock.ReadProfileReturns(&apparmorprofileapi.AppArmorProfile{}, nil)
 			},
 			assert: func(res *PullResult, err error) {
 				require.NoError(t, err)
@@ -298,7 +302,7 @@ func TestPull(t *testing.T) {
 				mock.NewRepositoryReturns(&remote.Repository{}, nil)
 				mock.ParseReferenceReturns(testRef, nil)
 				mock.ReadFileReturns([]byte{}, nil)
-				mock.YamlUnmarshalReturns(errTest)
+				mock.ReadProfileReturns(nil, errTest)
 			},
 			assert: func(res *PullResult, err error) {
 				require.ErrorIs(t, err, ErrDecodeYAML)
