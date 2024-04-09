@@ -40,10 +40,10 @@ require (
 	k8s.io/client-go v0.29.3
 	k8s.io/klog/v2 v2.120.1
 	oras.land/oras-go/v2 v2.4.0
-	sigs.k8s.io/controller-runtime v0.17.2
+	sigs.k8s.io/controller-runtime v0.17.3
 	sigs.k8s.io/controller-tools v0.14.0
-	sigs.k8s.io/mdtoc v1.1.0
-	sigs.k8s.io/release-utils v0.7.7
+	sigs.k8s.io/mdtoc v1.3.0
+	sigs.k8s.io/release-utils v0.8.1
 	sigs.k8s.io/yaml v1.4.0
 )
 
@@ -153,7 +153,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
-	github.com/gomarkdown/markdown v0.0.0-20210514010506-3b9f47219fe7 // indirect
+	github.com/gomarkdown/markdown v0.0.0-20240328165702-4d01890c35c0 // indirect
 	github.com/google/certificate-transparency-go v1.1.7 // indirect
 	github.com/google/gnostic-models v0.6.9-0.20230804172637-c7be7c783f49 // indirect
 	github.com/google/go-github/v55 v55.0.0 // indirect
