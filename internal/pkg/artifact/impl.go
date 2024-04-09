@@ -30,7 +30,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
-	"sigs.k8s.io/yaml"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type defaultImpl struct{}
@@ -47,7 +47,7 @@ type impl interface {
 	NewRepository(string) (*remote.Repository, error)
 	Copy(context.Context, oras.ReadOnlyTarget, string, oras.Target, string, oras.CopyOptions) (ocispec.Descriptor, error)
 	ReadFile(string) ([]byte, error)
-	YamlUnmarshal([]byte, interface{}) error
+	ReadProfile([]byte) (client.Object, error)
 	StoreAdd(context.Context, *file.Store, string, string, string) (ocispec.Descriptor, error)
 	StoreTag(context.Context, *file.Store, ocispec.Descriptor, string) error
 	PackManifest(
@@ -97,8 +97,8 @@ func (*defaultImpl) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
-func (*defaultImpl) YamlUnmarshal(y []byte, o interface{}) error {
-	return yaml.Unmarshal(y, o)
+func (*defaultImpl) ReadProfile(raw []byte) (client.Object, error) {
+	return ReadProfile(raw)
 }
 
 func (*defaultImpl) StoreAdd(
