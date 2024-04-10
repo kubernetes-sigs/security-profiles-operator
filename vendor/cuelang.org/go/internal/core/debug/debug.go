@@ -249,6 +249,16 @@ func (w *printer) node(n adt.Node) {
 			w.indent += "// "
 			w.string("// ")
 			for i, c := range x.Conjuncts {
+				if c.CloseInfo.FromDef || c.CloseInfo.FromEmbed {
+					w.string("[")
+					if c.CloseInfo.FromDef {
+						w.string("d")
+					}
+					if c.CloseInfo.FromEmbed {
+						w.string("e")
+					}
+					w.string("]")
+				}
 				if i > 0 {
 					w.string(" & ")
 				}
@@ -509,6 +519,16 @@ func (w *printer) node(n adt.Node) {
 			w.node(c)
 		}
 		w.string(")")
+
+	case *adt.ConjunctGroup:
+		w.string("&[")
+		for i, c := range *x {
+			if i > 0 {
+				w.string(", ")
+			}
+			w.node(c.Expr())
+		}
+		w.string("]")
 
 	case *adt.Disjunction:
 		w.string("|(")

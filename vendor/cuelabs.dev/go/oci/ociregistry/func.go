@@ -20,6 +20,8 @@ import (
 	"io"
 )
 
+var _ Interface = (*Funcs)(nil)
+
 // Funcs implements Interface by calling its member functions: there's one field
 // for every corresponding method of [Interface].
 //
@@ -52,9 +54,9 @@ type Funcs struct {
 	DeleteBlob_            func(ctx context.Context, repo string, digest Digest) error
 	DeleteManifest_        func(ctx context.Context, repo string, digest Digest) error
 	DeleteTag_             func(ctx context.Context, repo string, name string) error
-	Repositories_          func(ctx context.Context) Iter[string]
-	Tags_                  func(ctx context.Context, repo string) Iter[string]
-	Referrers_             func(ctx context.Context, repo string, digest Digest, artifactType string) Iter[Descriptor]
+	Repositories_          func(ctx context.Context, startAfter string) Seq[string]
+	Tags_                  func(ctx context.Context, repo string, startAfter string) Seq[string]
+	Referrers_             func(ctx context.Context, repo string, digest Digest, artifactType string) Seq[Descriptor]
 }
 
 // This blesses Funcs as the canonical Interface implementation.
@@ -172,21 +174,21 @@ func (f *Funcs) DeleteTag(ctx context.Context, repo string, name string) error {
 	return f.newError(ctx, "DeleteTag", repo)
 }
 
-func (f *Funcs) Repositories(ctx context.Context) Iter[string] {
+func (f *Funcs) Repositories(ctx context.Context, startAfter string) Seq[string] {
 	if f != nil && f.Repositories_ != nil {
-		return f.Repositories_(ctx)
+		return f.Repositories_(ctx, startAfter)
 	}
 	return ErrorIter[string](f.newError(ctx, "Repositories", ""))
 }
 
-func (f *Funcs) Tags(ctx context.Context, repo string) Iter[string] {
+func (f *Funcs) Tags(ctx context.Context, repo string, startAfter string) Seq[string] {
 	if f != nil && f.Tags_ != nil {
-		return f.Tags_(ctx, repo)
+		return f.Tags_(ctx, repo, startAfter)
 	}
 	return ErrorIter[string](f.newError(ctx, "Tags", repo))
 }
 
-func (f *Funcs) Referrers(ctx context.Context, repo string, digest Digest, artifactType string) Iter[Descriptor] {
+func (f *Funcs) Referrers(ctx context.Context, repo string, digest Digest, artifactType string) Seq[Descriptor] {
 	if f != nil && f.Referrers_ != nil {
 		return f.Referrers_(ctx, repo, digest, artifactType)
 	}

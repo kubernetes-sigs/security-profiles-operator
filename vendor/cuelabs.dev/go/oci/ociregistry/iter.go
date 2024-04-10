@@ -14,21 +14,26 @@
 
 package ociregistry
 
-type Iter[T any] interface {
-	Close()
-	Next() (T, bool)
-	Error() error
-}
+// TODO(go1.23) when we can depend on Go 1.23, this should be:
+// type Seq[T any] = iter.Seq2[T, error]
 
-func All[T any](it Iter[T]) ([]T, error) {
+// Seq defines the type of an iterator sequence returned from
+// the iterator functions. In general, a non-nil
+// error means that the item is the last in the sequence.
+type Seq[T any] func(yield func(T, error) bool)
+
+func All[T any](it Seq[T]) (_ []T, _err error) {
 	xs := []T{}
-	for {
-		x, ok := it.Next()
-		if !ok {
-			return xs, it.Error()
+	// TODO(go1.23) for x, err := range it
+	it(func(x T, err error) bool {
+		if err != nil {
+			_err = err
+			return false
 		}
 		xs = append(xs, x)
-	}
+		return true
+	})
+	return xs, _err
 }
 
 type sliceIter[T any] struct {
@@ -36,43 +41,20 @@ type sliceIter[T any] struct {
 	xs []T
 }
 
-func SliceIter[T any](xs []T) Iter[T] {
-	return &sliceIter[T]{
-		xs: xs,
+func SliceIter[T any](xs []T) Seq[T] {
+	return func(yield func(T, error) bool) {
+		for _, x := range xs {
+			if !yield(x, nil) {
+				return
+			}
+		}
 	}
-}
-
-func (it *sliceIter[T]) Close() {}
-
-func (it *sliceIter[T]) Next() (T, bool) {
-	if it.i >= len(it.xs) {
-		return *new(T), false
-	}
-	x := it.xs[it.i]
-	it.i++
-	return x, true
-}
-
-func (it *sliceIter[T]) Error() error {
-	return nil
 }
 
 // ErrorIter returns an iterator that has no
 // items and always returns the given error.
-func ErrorIter[T any](err error) Iter[T] {
-	return errorIter[T]{err}
-}
-
-type errorIter[T any] struct {
-	err error
-}
-
-func (it errorIter[T]) Close() {}
-
-func (it errorIter[T]) Next() (T, bool) {
-	return *new(T), false
-}
-
-func (it errorIter[T]) Error() error {
-	return it.err
+func ErrorIter[T any](err error) Seq[T] {
+	return func(yield func(T, error) bool) {
+		yield(*new(T), err)
+	}
 }

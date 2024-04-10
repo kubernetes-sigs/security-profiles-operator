@@ -26,6 +26,7 @@ import (
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal/encoding"
+	"cuelang.org/go/internal/mod/modpkgload"
 
 	// Trigger the unconditional loading of all core builtin packages if load
 	// is used. This was deemed the simplest way to avoid having to import
@@ -35,20 +36,18 @@ import (
 )
 
 type loader struct {
-	cfg       *Config
-	tagger    *tagger
-	stk       importStack
-	loadFunc  build.LoadFunc
-	deps      *dependencies
-	regClient *registryClient
+	cfg      *Config
+	tagger   *tagger
+	stk      importStack
+	loadFunc build.LoadFunc
+	pkgs     *modpkgload.Packages
 }
 
-func newLoader(c *Config, tg *tagger, deps *dependencies, regClient *registryClient) *loader {
+func newLoader(c *Config, tg *tagger, pkgs *modpkgload.Packages) *loader {
 	l := &loader{
-		cfg:       c,
-		tagger:    tg,
-		deps:      deps,
-		regClient: regClient,
+		cfg:    c,
+		tagger: tg,
+		pkgs:   pkgs,
 	}
 	l.loadFunc = l._loadFunc
 	return l
@@ -101,7 +100,7 @@ func (l *loader) cueFilesPackage(files []*build.File) *build.Instance {
 
 	fp := newFileProcessor(cfg, pkg, l.tagger)
 	for _, file := range files {
-		fp.add(token.NoPos, cfg.Dir, file, allowAnonymous)
+		fp.add(cfg.Dir, file, allowAnonymous)
 	}
 
 	// TODO: ModImportFromFiles(files)

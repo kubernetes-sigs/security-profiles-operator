@@ -109,8 +109,8 @@ func (n *nodeContext) insertConstraint(pattern Value, c Conjunct) bool {
 
 // matchPattern reports whether f matches pattern. The result reflects
 // whether unification of pattern with f converted to a CUE value succeeds.
-func matchPattern(n *nodeContext, pattern Value, f Feature) bool {
-	if pattern == nil {
+func matchPattern(ctx *OpContext, pattern Value, f Feature) bool {
+	if pattern == nil || !f.IsRegular() {
 		return false
 	}
 
@@ -124,10 +124,10 @@ func matchPattern(n *nodeContext, pattern Value, f Feature) bool {
 	if int64(f.Index()) == MaxIndex {
 		f = 0
 	} else if f.IsString() {
-		label = f.ToValue(n.ctx)
+		label = f.ToValue(ctx)
 	}
 
-	return matchPatternValue(n.ctx, pattern, f, label)
+	return matchPatternValue(ctx, pattern, f, label)
 }
 
 // matchPatternValue matches a concrete value against f. label must be the
@@ -150,7 +150,7 @@ func matchPatternValue(ctx *OpContext, pattern Value, f Feature, label Value) (r
 		if x == cycle {
 			err := ctx.NewPosf(pos(pattern), "cyclic pattern constraint")
 			for _, c := range ctx.vertex.Conjuncts {
-				err.AddPosition(c.Elem())
+				addPositions(err, c)
 			}
 			ctx.AddBottom(&Bottom{
 				Err: err,

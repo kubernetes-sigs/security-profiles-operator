@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"regexp"
@@ -592,8 +593,8 @@ func verifySignatures(ctx context.Context, sigs oci.Signatures, h v1.Hash, co *C
 	}
 
 	if len(sl) == 0 {
-		return nil, false, &ErrNoMatchingSignatures{
-			errors.New("no matching signatures"),
+		return nil, false, &ErrNoSignaturesFound{
+			errors.New("no signatures found"),
 		}
 	}
 
@@ -834,7 +835,7 @@ func loadSignatureFromFile(ctx context.Context, sigRef string, signedImgRef name
 	var b64sig string
 	targetSig, err := blob.LoadFileOrURL(sigRef)
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
 		targetSig = []byte(sigRef)

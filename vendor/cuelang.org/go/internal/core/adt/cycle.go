@@ -455,9 +455,7 @@ outer:
 			a := p.Conjuncts
 			count := 0
 			for _, c := range a {
-				if !c.CloseInfo.IsCyclic {
-					count++
-				}
+				count += getNonCyclicCount(c)
 			}
 			if !alreadyCycle {
 				count--
@@ -478,13 +476,36 @@ outer:
 	return ci, false
 }
 
+func getNonCyclicCount(c Conjunct) int {
+	switch a, ok := c.x.(*ConjunctGroup); {
+	case ok:
+		count := 0
+		for _, c := range *a {
+			count += getNonCyclicCount(c)
+		}
+		return count
+
+	case !c.CloseInfo.IsCyclic:
+		return 1
+
+	default:
+		return 0
+	}
+}
+
 // updateCyclicStatus looks for proof of non-cyclic conjuncts to override
 // a structural cycle.
 func (n *nodeContext) updateCyclicStatus(c CloseInfo) {
 	if !c.IsCyclic {
 		n.hasNonCycle = true
 		for _, c := range n.cyclicConjuncts {
-			n.addVertexConjuncts(c.c, c.arc, false)
+			if n.ctx.isDevVersion() {
+				ci := c.c.CloseInfo
+				ci.cc = n.node.rootCloseContext()
+				n.scheduleVertexConjuncts(c.c, c.arc, ci)
+			} else {
+				n.addVertexConjuncts(c.c, c.arc, false)
+			}
 		}
 		n.cyclicConjuncts = n.cyclicConjuncts[:0]
 	}

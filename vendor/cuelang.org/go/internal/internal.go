@@ -22,7 +22,6 @@ package internal // import "cuelang.org/go/internal"
 import (
 	"bufio"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -110,6 +109,16 @@ const (
 func Version(minor, patch int) int {
 	return -1000 + 100*minor + patch
 }
+
+type EvaluatorVersion int
+
+const (
+	DefaultVersion EvaluatorVersion = iota
+
+	// The DevVersion is used for new implementations of the evaluator that
+	// do not cover all features of the CUE language yet.
+	DevVersion
+)
 
 // ListEllipsis reports the list type and remaining elements of a list. If we
 // ever relax the usage of ellipsis, this function will likely change. Using
@@ -435,17 +444,6 @@ func IsEllipsis(x ast.Decl) bool {
 
 // GenPath reports the directory in which to store generated files.
 func GenPath(root string) string {
-	info, err := os.Stat(filepath.Join(root, "cue.mod"))
-	if os.IsNotExist(err) || !info.IsDir() {
-		// Try legacy pkgDir mode
-		pkgDir := filepath.Join(root, "pkg")
-		if err == nil && !info.IsDir() {
-			return pkgDir
-		}
-		if info, err := os.Stat(pkgDir); err == nil && info.IsDir() {
-			return pkgDir
-		}
-	}
 	return filepath.Join(root, "cue.mod", "gen")
 }
 

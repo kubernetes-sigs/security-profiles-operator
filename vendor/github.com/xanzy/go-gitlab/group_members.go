@@ -56,6 +56,7 @@ type GroupMember struct {
 	AccessLevel       AccessLevelValue         `json:"access_level"`
 	Email             string                   `json:"email,omitempty"`
 	GroupSAMLIdentity *GroupMemberSAMLIdentity `json:"group_saml_identity"`
+	MemberRole        *MemberRole              `json:"member_role"`
 }
 
 // ListGroupMembersOptions represents the available ListGroupMembers() and
@@ -126,9 +127,10 @@ func (s *GroupsService) ListAllGroupMembers(gid interface{}, opt *ListGroupMembe
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/members.html#add-a-member-to-a-group-or-project
 type AddGroupMemberOptions struct {
-	UserID      *int              `url:"user_id,omitempty" json:"user_id,omitempty"`
-	AccessLevel *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
-	ExpiresAt   *string           `url:"expires_at,omitempty" json:"expires_at"`
+	UserID       *int              `url:"user_id,omitempty" json:"user_id,omitempty"`
+	AccessLevel  *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
+	ExpiresAt    *string           `url:"expires_at,omitempty" json:"expires_at"`
+	MemberRoleID *int              `url:"member_role_id,omitempty" json:"member_role_id,omitempty"`
 }
 
 // GetGroupMember gets a member of a group.
@@ -305,8 +307,9 @@ func (s *GroupMembersService) DeleteShareWithGroup(gid interface{}, groupID int,
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/members.html#edit-a-member-of-a-group-or-project
 type EditGroupMemberOptions struct {
-	AccessLevel *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
-	ExpiresAt   *string           `url:"expires_at,omitempty" json:"expires_at,omitempty"`
+	AccessLevel  *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
+	ExpiresAt    *string           `url:"expires_at,omitempty" json:"expires_at,omitempty"`
+	MemberRoleID *int              `url:"member_role_id,omitempty" json:"member_role_id,omitempty"`
 }
 
 // EditGroupMember updates a member of a group.
