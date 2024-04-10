@@ -18,6 +18,7 @@ package artifact
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -339,7 +340,7 @@ func (a *Artifact) Pull(
 
 	profile, err := a.ReadProfile(content)
 	if err != nil {
-		return nil, fmt.Errorf("%w: last err: %w", ErrDecodeYAML, err)
+		return nil, errors.Join(ErrDecodeYAML, err)
 	}
 
 	switch obj := profile.(type) {

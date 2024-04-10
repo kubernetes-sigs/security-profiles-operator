@@ -27,6 +27,8 @@ import (
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 )
 
+// Unmarshal a raw security profile YAML byte slice into a SeccompProfile, SelinuxProfile,
+// or AppArmorProfile struct. The caller can then use `switch obj := profile.(type) { ... `.
 func ReadProfile(content []byte) (client.Object, error) {
 	// yaml.Unmarshal happily takes YAML for a SELinux profile and unmarshals
 	// it into SeccompProfile. We need to check the YAML kind!
