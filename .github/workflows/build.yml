@@ -49,7 +49,7 @@ jobs:
       contents: write  # required for updating the release
       id-token: write  # required for sigstore signing
     steps:
-      - uses: sigstore/cosign-installer@e1523de7571e31dbe865fd2e80c5c7c23ae71eb4 # v3.4.0
+      - uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
       - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v3.5.2
       - uses: cachix/install-nix-action@8887e596b4ee1134dae06b98d573bd674693f47c
         with:
