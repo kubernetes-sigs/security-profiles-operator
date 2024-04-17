@@ -7,8 +7,8 @@ with pkgs; buildGo122Module rec {
   outputs = [ "out" ];
   nativeBuildInputs = with buildPackages; [
     git
-    llvmPackages_16.clang-unwrapped
-    llvm_16
+    llvmPackages_18.clang-unwrapped
+    llvm_18
     pkg-config
     which
   ];
