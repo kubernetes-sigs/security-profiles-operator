@@ -66,7 +66,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y vagrant virtualbox
       - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v3.5.2
-      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+      - uses: actions/download-artifact@8caf195ad4b1dee92908e23f56eeb0696f1dd42d
         with:
           name: image
           path: .
@@ -101,7 +101,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y vagrant virtualbox
       - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v3.5.2
-      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+      - uses: actions/download-artifact@8caf195ad4b1dee92908e23f56eeb0696f1dd42d
         with:
           name: image
           path: .
@@ -145,7 +145,7 @@ jobs:
         run: |
           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
           vagrant box update
-      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+      - uses: actions/download-artifact@8caf195ad4b1dee92908e23f56eeb0696f1dd42d
         with:
           name: image
           path: .
@@ -189,7 +189,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y vagrant virtualbox
       - uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v3.5.2
-      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+      - uses: actions/download-artifact@8caf195ad4b1dee92908e23f56eeb0696f1dd42d
         with:
           name: image
           path: .
