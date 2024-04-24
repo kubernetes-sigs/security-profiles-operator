@@ -17,7 +17,7 @@ jobs:
   macos:
     runs-on: macos-12
     steps:
-      - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v3.5.2
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v3.5.2
       - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -27,7 +27,7 @@ jobs:
   nix:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v3.5.2
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v3.5.2
       - uses: cachix/install-nix-action@8887e596b4ee1134dae06b98d573bd674693f47c
         with:
           install_url: https://releases.nixos.org/nix/nix-${{ env.NIX_VERSION }}/install
@@ -50,7 +50,7 @@ jobs:
       id-token: write  # required for sigstore signing
     steps:
       - uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
-      - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v3.5.2
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v3.5.2
       - uses: cachix/install-nix-action@8887e596b4ee1134dae06b98d573bd674693f47c
         with:
           install_url: https://releases.nixos.org/nix/nix-${{ env.NIX_VERSION }}/install
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491
         with:
           go-version: ${{ env.GO_VERSION }}
-      - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v3.5.2
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v3.5.2
       - uses: cachix/install-nix-action@8887e596b4ee1134dae06b98d573bd674693f47c
         with:
           install_url: https://releases.nixos.org/nix/nix-${{ env.NIX_VERSION }}/install
@@ -101,7 +101,7 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
-      - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v3.5.2
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v3.5.2
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@d70bba72b1f3fd22344832f00baa16ece964efeb
@@ -147,7 +147,7 @@ jobs:
   operator-image:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v3.5.2
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v3.5.2
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@d70bba72b1f3fd22344832f00baa16ece964efeb
@@ -190,7 +190,7 @@ jobs:
   ubi-image:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v3.5.2
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v3.5.2
       - name: Set up Docker Buildx
         id: buildx
         uses: docker/setup-buildx-action@d70bba72b1f3fd22344832f00baa16ece964efeb
