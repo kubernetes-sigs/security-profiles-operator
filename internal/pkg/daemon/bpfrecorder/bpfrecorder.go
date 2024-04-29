@@ -331,7 +331,7 @@ func (b *BpfRecorder) Run() error {
 	if err != nil {
 		return fmt.Errorf("retrieve current mount namespace: %w", err)
 	}
-	b.logger.Info("Got system mount namespace: " + fmt.Sprint(b.systemMountNamespace))
+	b.logger.Info("Got system mount namespace: " + strconv.FormatUint(uint64(b.systemMountNamespace), 10))
 
 	b.logger.Info("Doing BPF load/unload self-test")
 	if err := b.Load(false); err != nil {
@@ -712,7 +712,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 		return "", fmt.Errorf("write BTF: %w", err)
 	}
 
-	b.logger.Info(fmt.Sprintf("Wrote BTF to file: %s", file.Name()))
+	b.logger.Info("Wrote BTF to file: " + file.Name())
 	return file.Name(), nil
 }
 
@@ -1099,7 +1099,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 				return fmt.Errorf("list node pods: %w", err)
 			}
 			if pods == nil {
-				return fmt.Errorf("no pods found in cluster")
+				return errors.New("no pods found in cluster")
 			}
 
 			for p := range pods.Items {

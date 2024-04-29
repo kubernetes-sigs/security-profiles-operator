@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 )
@@ -129,7 +130,7 @@ func (i *Info) String() string {
 		//nolint:exhaustive,nolintlint // we ignore missing switch cases on purpose
 		switch field.Type.Kind() {
 		case reflect.Bool:
-			valueString = fmt.Sprint(value.Bool())
+			valueString = strconv.FormatBool(value.Bool())
 
 		case reflect.Slice:
 			// Only expecting []string here; ignore other slices.

@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -141,7 +142,7 @@ func recordAppArmorTest(t *testing.T) {
 			"sudo",
 			"kill",
 			"-SIGINT",
-			fmt.Sprintf("%d", cmd.Process.Pid),
+			strconv.Itoa(cmd.Process.Pid),
 		).Run()
 		require.Nil(t, err)
 		err = cmd.Wait()

@@ -115,7 +115,7 @@ spec:
 
 	e.logf("Testing that profile binding has pod reference")
 	output = e.kubectl("get", "profilebinding", "hello-binding", "--output", "jsonpath={.status.activeWorkloads[0]}")
-	e.Equal(fmt.Sprintf("%s/hello", namespace), output)
+	e.Equal(namespace+"/hello", output)
 	output = e.kubectl("get", "profilebinding", "hello-binding", "--output", "jsonpath={.metadata.finalizers[0]}")
 	e.Equal("active-workload-lock", output)
 
@@ -123,7 +123,7 @@ spec:
 	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
 		"--output", "jsonpath={.status.activeWorkloads[0]}")
 
-	e.Equal(fmt.Sprintf("%s/hello", namespace), output)
+	e.Equal(namespace+"/hello", output)
 	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
 		"--output", "jsonpath={.metadata.finalizers}")
 

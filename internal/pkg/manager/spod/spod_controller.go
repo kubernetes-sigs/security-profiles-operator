@@ -689,7 +689,7 @@ func addEnvVar(templateSpec *corev1.PodSpec, envVarKey string) {
 
 	envVar := corev1.EnvVar{
 		Name:  envVarKey,
-		Value: fmt.Sprint(envValue),
+		Value: strconv.FormatBool(envValue),
 	}
 
 	templateSpec.Containers[bindata.ContainerIDDaemon].Env = append(
@@ -711,7 +711,7 @@ func configureSeLinuxTag(secContext *corev1.SecurityContext, seLinuxTag string) 
 func verbosityEnv(value uint) corev1.EnvVar {
 	return corev1.EnvVar{
 		Name:  config.VerbosityEnvKey,
-		Value: fmt.Sprint(value),
+		Value: strconv.FormatUint(uint64(value), 10),
 	}
 }
 
@@ -743,7 +743,7 @@ func profilingEnvsSpo(add int) []corev1.EnvVar {
 		},
 		{
 			Name:  config.ProfilingPortEnvKey,
-			Value: fmt.Sprint(config.DefaultProfilingPort + add),
+			Value: strconv.Itoa(config.DefaultProfilingPort + add),
 		},
 	}
 }
