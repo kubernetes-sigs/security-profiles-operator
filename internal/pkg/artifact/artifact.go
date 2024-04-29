@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -118,7 +119,7 @@ func (a *Artifact) Push(
 	defer cancel()
 
 	fileDescriptors := []v1.Descriptor{}
-	a.logger.Info("Adding " + fmt.Sprint(len(files)) + " profiles")
+	a.logger.Info("Adding " + strconv.Itoa(len(files)) + " profiles")
 	for platform, file := range files {
 		a.logger.Info(
 			"Adding profile " + file +

@@ -17,6 +17,7 @@ limitations under the License.
 package e2e_test
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -327,7 +328,7 @@ func (e *kinde2e) SetupSuite() {
 
 	var err error
 	e.kubectlPath, err = exec.LookPath("kubectl")
-	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", fmt.Sprintf("value: %s", e.selinuxdImage))
+	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 	e.Nil(err)
 }
 
@@ -481,7 +482,7 @@ func (e *openShifte2e) pushImageToRegistry() {
 
 func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
 	return e.kubectl(
-		"debug", "-q", fmt.Sprintf("node/%s", node), "--",
+		"debug", "-q", "node/"+node, "--",
 		"chroot", "/host", "/bin/bash", "-c",
 		strings.Join(args, " "),
 	)
@@ -518,7 +519,7 @@ func (e *vanilla) SetupSuite() {
 	e.e2e.waitForReadyPods = e.waitForReadyPodsVanilla
 	e.e2e.deployCertManager = e.deployCertManagerVanilla
 	e.e2e.setupRecordingSa = e.deployRecordingSa
-	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", fmt.Sprintf("value: %s", e.selinuxdImage))
+	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 	e.Nil(err)
 }
 
@@ -665,7 +666,7 @@ func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 			return nil
 		}
 		output = ""
-		return fmt.Errorf("no output from pod command")
+		return errors.New("no output from pod command")
 	}, func(err error) bool {
 		e.logf("retry on error: %s", err)
 		if maxTries < 3 {
@@ -887,14 +888,10 @@ func (e *e2e) labelNs(namespace, label string) {
 }
 
 func (e *e2e) switchToNs(ns string) func() {
-	nsManifest := fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s`, ns)
+	nsManifest := "\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: " + ns
 
 	e.logf("creating ns %s", ns)
-	deleteFn := e.writeAndApply(nsManifest, fmt.Sprintf("%s.yml", ns))
+	deleteFn := e.writeAndApply(nsManifest, ns+".yml")
 	defer deleteFn()
 
 	e.logf("switching to ns %s", ns)

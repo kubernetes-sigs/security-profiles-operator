@@ -55,7 +55,7 @@ func UpdateResource(
 	name string,
 ) error {
 	if err := c.Update(ctx, object); err != nil {
-		msg := fmt.Sprintf("failed to update resource %s", name)
+		msg := "failed to update resource " + name
 		logger.Error(err, msg)
 		return fmt.Errorf("%s: %w", msg, err)
 	}
@@ -73,7 +73,7 @@ func UpdateResourceStatus(
 	name string,
 ) error {
 	if err := c.Update(ctx, object); err != nil {
-		msg := fmt.Sprintf("failed to update resource %s", name)
+		msg := "failed to update resource " + name
 		logger.Error(err, msg)
 		return fmt.Errorf("%s: %w", msg, err)
 	}

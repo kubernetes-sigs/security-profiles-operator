@@ -310,9 +310,9 @@ func (e *e2e) deployOperator(manifest string) {
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
-	e.updateManifest(manifest, "imagePullPolicy: Always", fmt.Sprintf("imagePullPolicy: %s", e.pullPolicy))
-	e.updateManifest(manifest, "image: .*gcr.io/k8s-staging-sp-operator/.*", fmt.Sprintf("image: %s", e.testImage))
-	e.updateManifest(manifest, "value: .*gcr.io/k8s-staging-sp-operator/.*", fmt.Sprintf("value: %s", e.testImage))
+	e.updateManifest(manifest, "imagePullPolicy: Always", "imagePullPolicy: "+e.pullPolicy)
+	e.updateManifest(manifest, "image: .*gcr.io/k8s-staging-sp-operator/.*", "image: "+e.testImage)
+	e.updateManifest(manifest, "value: .*gcr.io/k8s-staging-sp-operator/.*", "value: "+e.testImage)
 	if e.selinuxEnabled {
 		e.updateManifest(manifest, "enableSelinux: false", "enableSelinux: true")
 	}
@@ -397,7 +397,7 @@ func (e *e2e) getSeccompProfileNodeStatus(
 func (e *e2e) getAllSeccompProfileNodeStatuses(
 	id, namespace string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatusList {
-	selector := fmt.Sprintf("spo.x-k8s.io/profile-id=SeccompProfile-%s", id)
+	selector := "spo.x-k8s.io/profile-id=SeccompProfile-" + id
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)

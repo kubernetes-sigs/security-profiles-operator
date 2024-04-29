@@ -19,6 +19,7 @@ package metrics
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
@@ -214,7 +215,7 @@ func (m *Metrics) Register() error {
 		metricNameAppArmorProfileAudit: m.metricAppArmorProfileAudit,
 		metricNameAppArmorProfileError: m.metricAppArmorProfileError,
 	} {
-		m.log.Info(fmt.Sprintf("Registering metric: %s", name))
+		m.log.Info("Registering metric: " + name)
 		if err := m.impl.Register(collector); err != nil {
 			return fmt.Errorf("register collector for %s metric: %w", name, err)
 		}
@@ -257,7 +258,7 @@ func (m *Metrics) IncSeccompProfileBpf(
 	node, profile string, mountNamespace uint32,
 ) {
 	m.metricSeccompProfileBpf.WithLabelValues(
-		node, fmt.Sprint(mountNamespace), profile,
+		node, strconv.FormatUint(uint64(mountNamespace), 10), profile,
 	).Inc()
 }
 

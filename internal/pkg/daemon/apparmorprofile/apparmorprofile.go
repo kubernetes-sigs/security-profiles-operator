@@ -206,7 +206,7 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		"name", sp.GetName(),
 	)
 	if updated {
-		evstr := fmt.Sprintf("Successfully loaded profile into node %s", os.Getenv(config.NodeNameEnvKey))
+		evstr := "Successfully loaded profile into node " + os.Getenv(config.NodeNameEnvKey)
 		r.metrics.IncAppArmorProfileUpdate()
 		r.record.Event(sp, util.EventTypeNormal, reasonLoadedAppArmorProfile, evstr)
 	}
@@ -268,7 +268,7 @@ func (r *Reconciler) handleDeletion(sp *v1alpha1.AppArmorProfile) error {
 	if err := r.manager.RemoveProfile(sp); err != nil {
 		return fmt.Errorf("unloading profile from host: %w", err)
 	}
-	r.log.Info(fmt.Sprintf("removed profile %s", sp.GetProfileName()))
+	r.log.Info("removed profile " + sp.GetProfileName())
 	r.metrics.IncAppArmorProfileDelete()
 	return nil
 }
@@ -281,10 +281,10 @@ func (r *Reconciler) logNodeInfo() {
 
 	err := mount.Do(func() error {
 		enabled, err := a.Enabled()
-		r.log.Info(fmt.Sprintf("apparmor enabled: %s", ok(enabled, err)))
+		r.log.Info("apparmor enabled: " + ok(enabled, err))
 
 		enforceable, err := a.Enforceable()
-		r.log.Info(fmt.Sprintf("apparmor enforceable: %s", ok(enforceable, err)))
+		r.log.Info("apparmor enforceable: " + ok(enforceable, err))
 
 		return nil
 	})

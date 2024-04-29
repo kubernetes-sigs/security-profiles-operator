@@ -18,7 +18,7 @@ package metrics
 
 import (
 	"errors"
-	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -192,7 +192,7 @@ func TestSeccompProfileBpf(t *testing.T) {
 			},
 			then: func(m *Metrics) {
 				ctr, err := m.metricSeccompProfileBpf.GetMetricWithLabelValues(
-					node, fmt.Sprint(mountNamespace), profile,
+					node, strconv.Itoa(mountNamespace), profile,
 				)
 				require.Nil(t, err)
 				require.Equal(t, 1, getMetricValue(ctr))
@@ -206,7 +206,7 @@ func TestSeccompProfileBpf(t *testing.T) {
 			},
 			then: func(m *Metrics) {
 				ctrUpdate, err := m.metricSeccompProfileBpf.GetMetricWithLabelValues(
-					node, fmt.Sprint(mountNamespace), profile,
+					node, strconv.Itoa(mountNamespace), profile,
 				)
 				require.Nil(t, err)
 				require.Equal(t, 3, getMetricValue(ctrUpdate))

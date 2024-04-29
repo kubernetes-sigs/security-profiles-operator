@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -295,7 +296,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	switch polStatus.Status {
 	case installedStatus:
 		polState = statusv1alpha1.ProfileStateInstalled
-		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
+		evstr := "Successfully saved profile to disk on " + os.Getenv(config.NodeNameEnvKey)
 		r.metrics.IncSelinuxProfileUpdate()
 		r.record.Event(sp, util.EventTypeNormal, reasonInstalledPolicy, evstr)
 	case failedStatus:
@@ -426,7 +427,7 @@ func getPolicyStatus(
 	if response.StatusCode == http.StatusNotFound {
 		return nil, errPolicyNotFound
 	} else if response.StatusCode != http.StatusOK {
-		return nil, errors.New("unexpected HTTP error code " + fmt.Sprint(response.StatusCode))
+		return nil, errors.New("unexpected HTTP error code " + strconv.Itoa(response.StatusCode))
 	}
 
 	var status sePolStatus

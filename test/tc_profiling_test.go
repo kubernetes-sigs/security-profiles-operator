@@ -17,6 +17,7 @@ limitations under the License.
 package e2e_test
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -97,7 +98,7 @@ func (e *e2e) getProfilingHTTPVersion() string {
 			return nil
 		}
 		output = ""
-		return fmt.Errorf("no output from profiling curl command")
+		return errors.New("no output from profiling curl command")
 	}, func(err error) bool {
 		e.logf("retry on error: %s", err)
 		if index < nPods {

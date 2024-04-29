@@ -498,7 +498,7 @@ func (r *Reconciler) reconcileSeccompProfile(
 		return reconcile.Result{}, fmt.Errorf("cannot save profile into disk: %w", err)
 	}
 	if updated {
-		evstr := fmt.Sprintf("Successfully saved profile to disk on %s", os.Getenv(config.NodeNameEnvKey))
+		evstr := "Successfully saved profile to disk on " + os.Getenv(config.NodeNameEnvKey)
 		l.Info(evstr)
 		r.metrics.IncSeccompProfileUpdate()
 		r.record.Event(sp, util.EventTypeNormal, reasonSavedProfile, evstr)
@@ -593,7 +593,7 @@ func (r *Reconciler) handleDeletion(sp *seccompprofileapi.SeccompProfile) error 
 	if err != nil {
 		return fmt.Errorf("removing profile from host: %w", err)
 	}
-	r.log.Info(fmt.Sprintf("removed profile %s", profilePath))
+	r.log.Info("removed profile " + profilePath)
 	r.metrics.IncSeccompProfileDelete()
 	return nil
 }
@@ -656,7 +656,7 @@ func allowProfile(
 			}
 		}
 		if profile.Spec.DefaultAction == action && len(allowedSyscalls) > 0 {
-			return fmt.Errorf(errForbiddenProfile)
+			return errors.New(errForbiddenProfile)
 		}
 	}
 	return nil
