@@ -19,7 +19,7 @@
 
 # hash below referred to latest
 # TODO: remove github.com/buildkite/agent/v3 replace in go.mod when UBI is on go 1.21
-FROM registry.access.redhat.com/ubi9/go-toolset@sha256:47ebbc1171d2e8cc54fada0674302da7eba7875b0fd58188742ec8aa4ca5f701 as build
+FROM registry.access.redhat.com/ubi9/go-toolset@sha256:4b9c0a15e3be72c8455ee5398069c74bcde6d827a139c2c3b5f2db779c5b1db8 as build
 USER root
 WORKDIR /work
 
