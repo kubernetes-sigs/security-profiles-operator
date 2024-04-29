@@ -18,6 +18,7 @@ package recordingmerger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -54,7 +55,7 @@ func mergedProfileName(recordingName string, prf metav1.Object) string {
 
 func mergeMergeableProfiles(profiles []mergeableProfile) (mergeableProfile, error) {
 	if len(profiles) == 0 {
-		return nil, fmt.Errorf("cannot merge empty list of profiles")
+		return nil, errors.New("cannot merge empty list of profiles")
 	}
 
 	base := profiles[0]

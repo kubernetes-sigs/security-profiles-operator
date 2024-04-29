@@ -73,6 +73,7 @@ linters:
     - nolintlint
     - nosprintfhostport
     - paralleltest
+    - perfsprint
     - prealloc
     - predeclared
     - promlinter
@@ -111,7 +112,6 @@ linters:
     # - maintidx
     # - nlreturn
     # - nonamedreturns
-    # - perfsprint
     # - protogetter
     # - testifylint
     # - testpackage

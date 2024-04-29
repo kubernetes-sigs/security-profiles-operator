@@ -306,6 +306,6 @@ func createTemplatedProfileRecording(e *e2e, metadata *profileRecTmplMetadata) f
 		policyDisabledStr,
 		metadata.recorderKind, metadata.recorder,
 		metadata.mergeStrategy, metadata.labelKey, metadata.labelValue)
-	deleteFn := e.writeAndCreate(manifest, fmt.Sprintf("%s.yml", metadata.name))
+	deleteFn := e.writeAndCreate(manifest, metadata.name+".yml")
 	return deleteFn
 }

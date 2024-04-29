@@ -424,7 +424,7 @@ func TestAllowProfile(t *testing.T) {
 					DefaultAction: seccomp.ActAllow,
 				},
 			},
-			want: fmt.Errorf(errForbiddenProfile),
+			want: errors.New(errForbiddenProfile),
 		},
 		{
 			name:                  "DeniedAll",

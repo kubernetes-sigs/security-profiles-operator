@@ -18,6 +18,7 @@ package util
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -57,7 +58,7 @@ func lengthName(maxLen int, hashPrefix, format string, a ...interface{}) (string
 		return "", fmt.Errorf("writing string: %w", err)
 	}
 
-	hashStr := fmt.Sprintf("%x", hasher.Sum(nil))
+	hashStr := hex.EncodeToString(hasher.Sum(nil))
 	hashUseLen := maxLen - len(hashPrefix) - 1 // -1 for the dash separator
 	if hashUseLen < maxLen {
 		hashStr = hashStr[:hashUseLen]

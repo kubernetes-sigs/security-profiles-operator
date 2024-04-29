@@ -607,8 +607,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							fmt.Sprintf("--secure-listen-address=0.0.0.0:%d", metricsPort),
 							"--upstream=http://127.0.0.1:8080",
 							"--v=10",
-							fmt.Sprintf("--tls-cert-file=%s", filepath.Join(metricsCertPath, "tls.crt")),
-							fmt.Sprintf("--tls-private-key-file=%s", filepath.Join(metricsCertPath, "tls.key")),
+							"--tls-cert-file=" + filepath.Join(metricsCertPath, "tls.crt"),
+							"--tls-private-key-file=" + filepath.Join(metricsCertPath, "tls.key"),
 							"--http2-disable",
 						},
 						Resources: corev1.ResourceRequirements{
