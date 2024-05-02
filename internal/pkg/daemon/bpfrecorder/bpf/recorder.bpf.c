@@ -10,7 +10,10 @@
 #define MAX_ENTRIES 8 * 1024
 #define MAX_SYSCALLS 1024
 #define MAX_CHILD_PIDS 1024
-#define MAX_COMM_LEN 64
+
+// We don't have TASK_COMM_LEN in userspace, so we define
+// a static MAX_COMM_LEN which is supposed to be >= TASK_COMM_LEN
+#define MAX_COMM_LEN 1024
 
 #define PROBE_TYPE_OPEN 0
 #define PROBE_TYPE_EXEC 1
@@ -159,7 +162,7 @@ static __always_inline u32 get_mntns()
     if (has_filter()) {
         u32 pid = bpf_get_current_pid_tgid() >> 32;
         bool is_child = bpf_map_lookup_elem(&child_pids, &pid) != NULL;
-        char comm[MAX_COMM_LEN] = {};
+        char comm[TASK_COMM_LEN] = {};
         bpf_get_current_comm(comm, sizeof(comm));
 
         if (!is_child && !matches_filter(comm)) {
@@ -637,7 +640,9 @@ static inline bool matches_filter(char * comm)
 {
     // We cannot use __builtin_memcmp() until llvm bug
     // https://llvm.org/bugs/show_bug.cgi?id=26218 got resolved
-    for (int i = 0; i < MAX_COMM_LEN; i++) {
+    // We use TASK_COMM_LEN - 1 because the last byte may be a null bye and
+    // MAX_COMM_LEN may be larger.
+    for (int i = 0; i < TASK_COMM_LEN - 1; i++) {
         if (comm[i] != filter_name[i]) {
             return false;
         }

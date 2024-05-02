@@ -58,6 +58,7 @@ import (
 const (
 	defaultTimeout      time.Duration = time.Minute
 	maxMsgSize          int           = 16 * 1024 * 1024
+	maxCommLen          int           = 64
 	defaultCacheTimeout time.Duration = time.Hour
 	maxCacheItems       uint64        = 1000
 	defaultHostPid      uint32        = 1
@@ -560,8 +561,13 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 	}
 
 	if b.programNameFilter != "" {
+		programName := []byte(b.programNameFilter)
+		if len(programName) >= maxCommLen {
+			programName = programName[:maxCommLen-1]
+		}
+		programName = append(programName, 0)
 		if err := b.InitGlobalVariable(
-			module, "filter_name", []byte(b.programNameFilter),
+			module, "filter_name", programName,
 		); err != nil {
 			return fmt.Errorf("init global variable: %w", err)
 		}
