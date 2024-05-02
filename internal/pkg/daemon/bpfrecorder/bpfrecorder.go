@@ -86,6 +86,11 @@ const (
 	fdStderr            uint64        = 2
 )
 
+type fileDescriptor struct {
+	pid uint32
+	fd  uint64
+}
+
 // BpfRecorder is the main structure of this package.
 type BpfRecorder struct {
 	api.UnimplementedBpfRecorderServer
@@ -106,7 +111,7 @@ type BpfRecorder struct {
 	metricsClient            apimetrics.Metrics_BpfIncClient
 	programNameFilter        string
 	recordingMode            int
-	fdMapping                map[uint64]string
+	fdMapping                map[fileDescriptor]string
 	recordedFiles            []bpfAppArmorFileEvent
 	lockRecordedFiles        sync.Mutex
 	recordedExecs            []string
@@ -223,7 +228,7 @@ func New(logger logr.Logger) *BpfRecorder {
 		containerIDToProfileMap: bimap.New[string, string](),
 		loadUnloadMutex:         sync.RWMutex{},
 		recordingMode:           recordingSeccomp,
-		fdMapping:               make(map[uint64]string),
+		fdMapping:               make(map[fileDescriptor]string),
 		recordedFiles:           make([]bpfAppArmorFileEvent, 0),
 	}
 }
@@ -764,7 +769,7 @@ func fileDataToString(data *[pathMax]uint8) string {
 }
 
 func (b *BpfRecorder) handleMmapEvent(fileEvent *bpfAppArmorEvent) {
-	path, ok := b.fdMapping[fileEvent.Fd]
+	path, ok := b.fdMapping[fileDescriptor{pid: fileEvent.Pid, fd: fileEvent.Fd}]
 	if int32(fileEvent.Fd) < 0 {
 		return
 	}
@@ -792,7 +797,7 @@ func (b *BpfRecorder) handleWrite(fileEvent *bpfAppArmorEvent) {
 	if int32(fileEvent.Fd) < 0 {
 		return
 	}
-	path, ok := b.fdMapping[fileEvent.Fd]
+	path, ok := b.fdMapping[fileDescriptor{pid: fileEvent.Pid, fd: fileEvent.Fd}]
 	if !ok {
 		isStdoutStderr := fileEvent.Fd == fdStdout || fileEvent.Fd == fdStderr
 		if !isStdoutStderr {
@@ -812,7 +817,7 @@ func (b *BpfRecorder) handleRead(fileEvent *bpfAppArmorEvent) {
 	if int32(fileEvent.Fd) < 0 {
 		return
 	}
-	path, ok := b.fdMapping[fileEvent.Fd]
+	path, ok := b.fdMapping[fileDescriptor{pid: fileEvent.Pid, fd: fileEvent.Fd}]
 	if !ok {
 		isStdin := fileEvent.Fd == fdStdin
 		if !isStdin {
@@ -841,9 +846,9 @@ func (b *BpfRecorder) handleAppArmorFileEvents(fileEvent *bpfAppArmorEvent) {
 			fileEv.GotError = true
 		}
 		b.recordedFiles = append(b.recordedFiles, fileEv)
-		b.fdMapping[fileEvent.Fd] = fileEv.Filename
+		b.fdMapping[fileDescriptor{pid: fileEvent.Pid, fd: fileEvent.Fd}] = fileEv.Filename
 	case uint8(probeTypeClose):
-		delete(b.fdMapping, fileEvent.Fd)
+		delete(b.fdMapping, fileDescriptor{pid: fileEvent.Pid, fd: fileEvent.Fd})
 	case uint8(probeTypeMmapExec):
 		b.handleMmapEvent(fileEvent)
 	case uint8(probeTypeWrite):
