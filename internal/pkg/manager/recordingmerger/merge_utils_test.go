@@ -191,6 +191,9 @@ func TestMergeProfiles(t *testing.T) {
 								Network: &apparmorprofileapi.AppArmorNetworkRules{
 									AllowRaw: func() *bool { b := true; return &b }(),
 								},
+								Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+									AllowedCapabilities: []string{"sys_admin", "net_admin"},
+								},
 							},
 						},
 					},
@@ -212,6 +215,9 @@ func TestMergeProfiles(t *testing.T) {
 									Protocols: &apparmorprofileapi.AppArmorAllowedProtocols{
 										AllowTCP: func() *bool { b := true; return &b }(),
 									},
+								},
+								Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+									AllowedCapabilities: []string{"net_admin", "net_raw"},
 								},
 							},
 						},
@@ -239,6 +245,9 @@ func TestMergeProfiles(t *testing.T) {
 						Protocols: &apparmorprofileapi.AppArmorAllowedProtocols{
 							AllowTCP: func() *bool { b := true; return &b }(),
 						},
+					},
+					Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+						AllowedCapabilities: []string{"net_admin", "net_raw", "sys_admin"},
 					},
 				})
 				return nil
