@@ -26,6 +26,7 @@ import (
 type Options struct {
 	inputFiles []string
 	outputFile string
+	check      bool
 }
 
 // Default returns a default options instance.
@@ -44,6 +45,8 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		return nil, errors.New("no profiles provided")
 	}
 	options.inputFiles = args
+
+	options.check = ctx.IsSet(FlagCheck)
 
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)
