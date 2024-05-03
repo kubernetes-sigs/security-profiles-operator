@@ -257,6 +257,8 @@ func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 }
 
 func (b *BpfRecorder) GetAppArmorProcessed() BpfAppArmorProcessed {
+	sort.Strings(b.recordedCapabilities)
+
 	var processed BpfAppArmorProcessed
 
 	processed.FileProcessed = b.processExecFsEvents()
