@@ -85,9 +85,11 @@ func main() {
 			},
 		},
 		&cli.Command{
-			Name:      "merge",
-			Aliases:   []string{"m"},
-			Usage:     "merge multiple security profiles",
+			Name:    "merge",
+			Aliases: []string{"m"},
+			Usage:   "merge multiple security profiles",
+			Description: "Merge multiple security profiles into a combined profile. " +
+				"Permissions are additive. For AppArmor, the first profile may additionally contain glob paths.",
 			Action:    merge,
 			ArgsUsage: "INFILE...",
 			Flags: []cli.Flag{
@@ -97,6 +99,12 @@ func main() {
 					Usage:       "the output file path for the combined profile",
 					DefaultText: merger.DefaultOutputFile,
 					TakesFile:   true,
+				},
+				&cli.BoolFlag{
+					Name:    merger.FlagCheck,
+					Aliases: []string{"c"},
+					Usage: "do not write an output file, " +
+						"but exit with an error if the first profile is not a superset of all others.",
 				},
 			},
 		},
