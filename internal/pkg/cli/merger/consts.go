@@ -24,4 +24,6 @@ var DefaultOutputFile = cli.DefaultFile
 const (
 	// FlagOutputFile is the flag for defining the output file location.
 	FlagOutputFile string = cli.FlagOutputFile
+
+	FlagCheck string = "check"
 )

@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"os"
+	"reflect"
 
 	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -60,13 +62,29 @@ func (p *Merger) Run() error {
 		}
 	}
 
+	baseProfile := contents[0].DeepCopyObject()
+
 	merged, err := recordingmerger.MergeProfiles(contents)
 	if err != nil {
 		return fmt.Errorf("merge profiles: %w", err)
 	}
 
-	var buffer bytes.Buffer
 	printer := printers.YAMLPrinter{}
+
+	if p.options.check {
+		if reflect.DeepEqual(baseProfile, merged) {
+			log.Println("Base profile is up-to-date.")
+			os.Exit(0)
+		} else {
+			log.Println("Base profile needs an update.")
+			if err := printer.PrintObj(merged, os.Stderr); err != nil {
+				return fmt.Errorf("print YAML: %w", err)
+			}
+			os.Exit(1)
+		}
+	}
+
+	var buffer bytes.Buffer
 	if err := printer.PrintObj(merged, &buffer); err != nil {
 		return fmt.Errorf("print YAML: %w", err)
 	}
