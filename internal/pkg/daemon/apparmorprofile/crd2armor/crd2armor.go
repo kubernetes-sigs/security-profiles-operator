@@ -41,15 +41,15 @@ profile {{.Name}} flags=(attach_disconnected,mediate_deleted) {
 {{ if ne .Abstract.Filesystem nil }}{{ if ne .Abstract.Filesystem.ReadOnlyPaths nil }}
 {{range $readonly := .Abstract.Filesystem.ReadOnlyPaths}}  {{$readonly}} r,
 {{end}}
-{{range $readonly := .Abstract.Filesystem.ReadOnlyPaths}}  deny {{$readonly}} wl,
+{{range $readonly := .Abstract.Filesystem.ReadOnlyPaths}}  deny {{$readonly}} wlk,
 {{end}}{{end}}
 {{ if ne .Abstract.Filesystem.WriteOnlyPaths nil }}
-{{range $writeonly := .Abstract.Filesystem.WriteOnlyPaths}}  {{$writeonly}} wl,
+{{range $writeonly := .Abstract.Filesystem.WriteOnlyPaths}}  {{$writeonly}} wlk,
 {{end}}
 {{range $writeonly := .Abstract.Filesystem.WriteOnlyPaths}}  deny {{$writeonly}} r,
 {{end}}{{end}}
 {{ if ne .Abstract.Filesystem.ReadWritePaths nil }}
-{{range $readwrite := .Abstract.Filesystem.ReadWritePaths}}  {{$readwrite}} rwl,
+{{range $readwrite := .Abstract.Filesystem.ReadWritePaths}}  {{$readwrite}} rwlk,
 {{end}}{{end}}{{end}}
 
   # Network rules
