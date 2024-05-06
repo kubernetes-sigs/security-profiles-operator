@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euox pipefail
 
-CRUN_VERSION=1.14.4
+CRUN_VERSION=1.15
 CRUN_BIN=/tmp/crun
 
 # Current crun version
