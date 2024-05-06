@@ -58,9 +58,9 @@ profile {{.Name}} flags=(attach_disconnected,mediate_deleted) {
 {{end}}{{end}}
 {{ if ne .Abstract.Network.Protocols nil }}
 {{if ne .Abstract.Network.Protocols.AllowTCP nil }}
-{{if .Abstract.Network.Protocols.AllowTCP}}  network inet tcp,
+{{if .Abstract.Network.Protocols.AllowTCP}}  network tcp,
 {{end}}{{end}}{{if ne .Abstract.Network.Protocols.AllowUDP nil }}
-{{if .Abstract.Network.Protocols.AllowUDP}}  network inet udp,
+{{if .Abstract.Network.Protocols.AllowUDP}}  network udp,
 {{end}}{{end}}{{end}}{{end}}
 
   # Capabilities rules
