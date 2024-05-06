@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -950,17 +951,15 @@ func (b *BpfRecorder) isKnownFile(path string, knownPrefixes []string) bool {
 	return false
 }
 
+var pathWithPid *regexp.Regexp = regexp.MustCompile(`^/proc/\d+/`)
+
 func (b *BpfRecorder) processExecFsEvents() BpfAppArmorFileProcessed {
 	var processedEvents BpfAppArmorFileProcessed
 
 	processedEvents.AllowedExecutables = append(processedEvents.AllowedExecutables, b.recordedExecs...)
 	for _, currentFile := range b.recordedFiles {
-		var currentFilename string
-		if strings.HasPrefix(currentFile.Filename, "/proc/") {
-			currentFilename = strings.Replace(currentFile.Filename, "/proc/", "/proc/@{pid}/", 1)
-		} else {
-			currentFilename = filepath.Clean(currentFile.Filename)
-		}
+		currentFilename := filepath.Clean(currentFile.Filename)
+		currentFilename = pathWithPid.ReplaceAllString(currentFilename, "/proc/@{pid}/")
 		// loaded library
 		if currentFile.GotExec && !b.isKnownFile(currentFile.Filename, knownLibrariesPrefixes) {
 			processedEvents.AllowedLibraries = append(processedEvents.AllowedLibraries, currentFilename)
