@@ -54,7 +54,7 @@ profile {{.Name}} flags=(attach_disconnected,mediate_deleted) {
 
   # Network rules
 {{ if ne .Abstract.Network nil }}{{ if ne .Abstract.Network.AllowRaw nil }}
-{{ if .Abstract.Network.AllowRaw}}{{else}}  deny network raw,
+{{ if .Abstract.Network.AllowRaw}}  network raw,{{else}}  deny network raw,
 {{end}}{{end}}
 {{ if ne .Abstract.Network.Protocols nil }}
 {{if ne .Abstract.Network.Protocols.AllowTCP nil }}
