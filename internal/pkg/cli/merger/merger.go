@@ -23,10 +23,8 @@ import (
 
 	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/yaml"
 
-	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
-	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 )
 
@@ -56,34 +54,9 @@ func (p *Merger) Run() error {
 			return fmt.Errorf("open profile: %w", err)
 		}
 
-		// yaml.Unmarshal happily takes YAML for a SELinux profile and unmarshals
-		// it into SeccompProfile. We need to check the YAML kind!
-		var genericCRD map[string]interface{}
-		err = yaml.Unmarshal(content, &genericCRD)
+		contents[i], err = artifact.ReadProfile(content)
 		if err != nil {
-			fmt.Println(err)
-			return fmt.Errorf("cannot parse yaml: %w", err)
-		}
-		kind, ok := genericCRD["kind"].(string)
-		if !ok {
-			return fmt.Errorf("invalid yaml, kind missing: %w", err)
-		}
-
-		switch kind {
-		case "SeccompProfile":
-			var profile seccompprofileapi.SeccompProfile
-			if err := yaml.Unmarshal(content, &profile); err != nil {
-				return fmt.Errorf("unmarshal to seccomp profile: %w", err)
-			}
-			contents[i] = &profile
-		case "SelinuxProfile":
-			var profile selinuxprofileapi.SelinuxProfile
-			if err := yaml.Unmarshal(content, &profile); err != nil {
-				return fmt.Errorf("unmarshal to selinux profile: %w", err)
-			}
-			contents[i] = &profile
-		default:
-			return fmt.Errorf("unexpected YAML kind: %s", kind)
+			return fmt.Errorf("failed to read %s: %w", filepath, err)
 		}
 	}
 

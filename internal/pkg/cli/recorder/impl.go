@@ -23,6 +23,8 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/signal"
+	"time"
 	"unsafe"
 
 	"github.com/aquasecurity/libbpfgo"
@@ -44,6 +46,7 @@ type impl interface {
 	UnloadBpfRecorder(*bpfrecorder.BpfRecorder)
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
+	WaitForPidExit(*bpfrecorder.BpfRecorder, uint32, time.Duration) error
 	FindProcMountNamespace(*bpfrecorder.BpfRecorder, uint32) (uint32, error)
 	SyscallsIterator(*bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator
 	IteratorNext(*libbpfgo.BPFMapIterator) bool
@@ -56,6 +59,7 @@ type impl interface {
 	CloseFile(*os.File)
 	PrintObj(printers.YAMLPrinter, runtime.Object, io.Writer) error
 	GoArchToSeccompArch(string) (seccomp.Arch, error)
+	Notify(chan<- os.Signal, ...os.Signal)
 }
 
 func (*defaultImpl) LoadBpfRecorder(b *bpfrecorder.BpfRecorder) error {
@@ -76,6 +80,10 @@ func (*defaultImpl) FindProcMountNamespace(b *bpfrecorder.BpfRecorder, pid uint3
 
 func (*defaultImpl) CommandWait(cmd *command.Command) error {
 	return cmd.Wait()
+}
+
+func (*defaultImpl) WaitForPidExit(b *bpfrecorder.BpfRecorder, pid uint32, timeout time.Duration) error {
+	return b.WaitForPidExit(pid, timeout)
 }
 
 func (*defaultImpl) SyscallsIterator(b *bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator {
@@ -120,4 +128,8 @@ func (*defaultImpl) PrintObj(p printers.YAMLPrinter, obj runtime.Object, w io.Wr
 
 func (*defaultImpl) GoArchToSeccompArch(arch string) (seccomp.Arch, error) {
 	return seccomp.GoArchToSeccompArch(arch)
+}
+
+func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {
+	signal.Notify(c, sig...)
 }

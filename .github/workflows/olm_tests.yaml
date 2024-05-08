@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+    - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
 
     - name: Download binaries
       run: |
@@ -25,14 +25,14 @@ jobs:
         make operator-sdk
         make opm
 
-    - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491
+    - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
       with:
         go-version: ${{ env.GO_VERSION }}
+
     - name: Install dependencies
       run: |
-        sudo apt update
-        sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
-        sudo hack/install-libbpf.sh
+        sudo ./hack/install-packages
+        ./hack/install-crun
 
     - name: Create and verify bundle
       run: |
@@ -44,3 +44,5 @@ jobs:
 
     - name: Run the tests
       run: ./hack/ci/e2e-olm.sh
+      env:
+        XDG_RUNTIME_DIR: ''

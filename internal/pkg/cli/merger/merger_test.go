@@ -21,7 +21,6 @@ package merger
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -152,7 +151,6 @@ func TestRun(t *testing.T) {
 			sut.impl = mock
 
 			err := sut.Run()
-			fmt.Println("err", err)
 			assert(mock, err)
 		})
 	}

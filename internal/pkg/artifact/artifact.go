@@ -18,8 +18,10 @@ package artifact
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -117,7 +119,7 @@ func (a *Artifact) Push(
 	defer cancel()
 
 	fileDescriptors := []v1.Descriptor{}
-	a.logger.Info("Adding " + fmt.Sprint(len(files)) + " profiles")
+	a.logger.Info("Adding " + strconv.Itoa(len(files)) + " profiles")
 	for platform, file := range files {
 		a.logger.Info(
 			"Adding profile " + file +
@@ -337,41 +339,33 @@ func (a *Artifact) Pull(
 		return nil, fmt.Errorf("read profile: %w", err)
 	}
 
-	a.logger.Info("Trying to unmarshal seccomp profile")
-	seccompProfile := &seccompprofileapi.SeccompProfile{}
-	err = a.YamlUnmarshal(content, seccompProfile)
-	if err == nil {
+	profile, err := a.ReadProfile(content)
+	if err != nil {
+		return nil, errors.Join(ErrDecodeYAML, err)
+	}
+
+	switch obj := profile.(type) {
+	case *seccompprofileapi.SeccompProfile:
 		return &PullResult{
 			typ:            PullResultTypeSeccompProfile,
-			seccompProfile: seccompProfile,
+			seccompProfile: obj,
 			content:        content,
 		}, nil
-	}
-
-	a.logger.Info("Trying to unmarshal selinux profile")
-	selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
-	err = a.YamlUnmarshal(content, selinuxProfile)
-	if err == nil {
+	case *selinuxprofileapi.SelinuxProfile:
 		return &PullResult{
 			typ:            PullResultTypeSelinuxProfile,
-			selinuxProfile: selinuxProfile,
+			selinuxProfile: obj,
 			content:        content,
 		}, nil
-	}
-
-	a.logger.Info("Trying to unmarshal apparmor profile")
-	apparmorProfile := &apparmorprofileapi.AppArmorProfile{}
-	err = a.YamlUnmarshal(content, apparmorProfile)
-	if err == nil {
+	case *apparmorprofileapi.AppArmorProfile:
 		return &PullResult{
 			typ:             PullResultTypeApparmorProfile,
-			apparmorProfile: apparmorProfile,
+			apparmorProfile: obj,
 			content:         content,
 		}, nil
+	default:
+		return nil, fmt.Errorf("cannot process %T to PullResult", obj)
 	}
-
-	a.logger.Info("No profile found")
-	return nil, fmt.Errorf("%w: last err: %w", ErrDecodeYAML, err)
 }
 
 // profileName returns the name for the profile based on the platform.

@@ -28,6 +28,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/go-logr/logr"
@@ -42,6 +43,11 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
+)
+
+const (
+	waitForPidExitTimeout = 10 * time.Second
+	WaitForSigIntMessage  = "Waiting for CTRL+C / SIGINT..."
 )
 
 // Recorder is the main structure of this package.
@@ -72,29 +78,46 @@ func (r *Recorder) Run() error {
 	}
 	defer r.UnloadBpfRecorder(r.bpfRecorder)
 
-	cmd := command.New(r.options.commandOptions)
-	pid, err := r.CommandRun(cmd)
-	if err != nil {
-		return fmt.Errorf("run command: %w", err)
-	}
-
-	mntns, err := r.FindProcMountNamespace(r.bpfRecorder, pid)
-	if err != nil {
-		return fmt.Errorf("finding mntns for command PID %d: %w", pid, err)
-	}
-
-	if err := r.CommandWait(cmd); err != nil {
-		log.Printf("Command did not exit successfully: %v", err)
-	}
-
-	if (r.options.typ == TypeApparmor) || (r.options.typ == TypeRawAppArmor) {
-		if err := r.processAppArmorData(); err != nil {
-			return fmt.Errorf("build profile: %w", err)
-		}
+	var mntns uint32
+	if r.options.noProcStart {
+		// command execution is managed externally,
+		// so we play dumb and just wait for SIGINT.
+		ch := make(chan os.Signal, 1)
+		r.Notify(ch, os.Interrupt)
+		log.Print(WaitForSigIntMessage)
+		<-ch
 	} else {
-		if err := r.processData(mntns); err != nil {
-			return fmt.Errorf("build profile: %w", err)
+		cmd := command.New(r.options.commandOptions)
+		pid, err := r.CommandRun(cmd)
+		if err != nil {
+			return fmt.Errorf("run command: %w", err)
 		}
+
+		mntns, err = r.FindProcMountNamespace(r.bpfRecorder, pid)
+		if err != nil {
+			return fmt.Errorf("finding mntns for command PID %d: %w", pid, err)
+		}
+
+		if err := r.CommandWait(cmd); err != nil {
+			log.Printf("Command did not exit successfully: %v", err)
+		}
+
+		if (r.options.typ == TypeApparmor) || (r.options.typ == TypeRawAppArmor) {
+			log.Println("Waiting for events processor to catch up...")
+			if err := r.WaitForPidExit(r.bpfRecorder, pid, waitForPidExitTimeout); err != nil {
+				log.Printf("Did not register exit signal for pid %d: %v", pid, err)
+			}
+		}
+	}
+
+	var err error
+	if (r.options.typ == TypeApparmor) || (r.options.typ == TypeRawAppArmor) {
+		err = r.processAppArmorData()
+	} else {
+		err = r.processData(mntns)
+	}
+	if err != nil {
+		return fmt.Errorf("build profile: %w", err)
 	}
 
 	return nil
@@ -103,20 +126,24 @@ func (r *Recorder) Run() error {
 func (r *Recorder) processData(mntns uint32) error {
 	log.Printf("Processing recorded data")
 
+	// A set of all observed syscalls.
+	// We may iterate over multiple mount namespaces if mntns is 0, so we need to remove duplicates
+	syscallsMap := map[string]bool{}
+	foundMntns := false
 	it := r.SyscallsIterator(r.bpfRecorder)
 	for r.IteratorNext(it) {
 		currentMntns := binary.LittleEndian.Uint32(r.IteratorKey(it))
-		if currentMntns != mntns {
+		if mntns != 0 && currentMntns != mntns {
 			continue
 		}
-		log.Printf("Found process mntns %d in bpf map", mntns)
+		foundMntns = true
+		log.Printf("Found process mntns %d in bpf map", currentMntns)
 
 		syscallsValue, err := r.SyscallsGetValue(r.bpfRecorder, currentMntns)
 		if err != nil {
 			return fmt.Errorf("get syscalls from bpf map: %w", err)
 		}
 
-		syscalls := []string{}
 		for id, found := range syscallsValue {
 			if found != 0 {
 				name, err := r.GetName(libseccomp.ScmpSyscall(id))
@@ -124,19 +151,28 @@ func (r *Recorder) processData(mntns uint32) error {
 					return fmt.Errorf("get syscall name for id %d: %w", id, err)
 				}
 
-				syscalls = append(syscalls, name)
+				syscallsMap[name] = true
 			}
 		}
-
-		log.Printf("Got syscalls: %s", strings.Join(syscalls, ", "))
-		if err := r.buildProfile(syscalls); err != nil {
-			return fmt.Errorf("build profile: %w", err)
-		}
-
-		return nil
+	}
+	if !foundMntns {
+		return fmt.Errorf("find mntns %d in bpf data map", mntns)
 	}
 
-	return fmt.Errorf("find mntns %d in bpf data map", mntns)
+	// map -> slice
+	syscalls := make([]string, len(syscallsMap))
+	i := 0
+	for k := range syscallsMap {
+		syscalls[i] = k
+		i++
+	}
+
+	log.Printf("Got syscalls: %s", strings.Join(syscalls, ", "))
+	if err := r.buildProfile(syscalls); err != nil {
+		return fmt.Errorf("build profile: %w", err)
+	}
+
+	return nil
 }
 
 func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract {
@@ -145,18 +181,20 @@ func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract
 	abstract := apparmorprofileapi.AppArmorAbstract{}
 	enabled := true
 
-	abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
-	if len(processed.FileProcessed.AllowedExecutables) != 0 {
-		sort.Strings(processed.FileProcessed.AllowedExecutables)
-		ExecutableAllowedExecCopy := make([]string, len(processed.FileProcessed.AllowedExecutables))
-		copy(ExecutableAllowedExecCopy, processed.FileProcessed.AllowedExecutables)
-		abstract.Executable.AllowedExecutables = &ExecutableAllowedExecCopy
-	}
-	if len(processed.FileProcessed.AllowedLibraries) != 0 {
-		sort.Strings(processed.FileProcessed.AllowedLibraries)
-		ExecutableAllowedLibCopy := make([]string, len(processed.FileProcessed.AllowedLibraries))
-		copy(ExecutableAllowedLibCopy, processed.FileProcessed.AllowedLibraries)
-		abstract.Executable.AllowedLibraries = &ExecutableAllowedLibCopy
+	if len(processed.FileProcessed.AllowedExecutables) != 0 || len(processed.FileProcessed.AllowedLibraries) != 0 {
+		abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
+		if len(processed.FileProcessed.AllowedExecutables) != 0 {
+			sort.Strings(processed.FileProcessed.AllowedExecutables)
+			ExecutableAllowedExecCopy := make([]string, len(processed.FileProcessed.AllowedExecutables))
+			copy(ExecutableAllowedExecCopy, processed.FileProcessed.AllowedExecutables)
+			abstract.Executable.AllowedExecutables = &ExecutableAllowedExecCopy
+		}
+		if len(processed.FileProcessed.AllowedLibraries) != 0 {
+			sort.Strings(processed.FileProcessed.AllowedLibraries)
+			ExecutableAllowedLibCopy := make([]string, len(processed.FileProcessed.AllowedLibraries))
+			copy(ExecutableAllowedLibCopy, processed.FileProcessed.AllowedLibraries)
+			abstract.Executable.AllowedLibraries = &ExecutableAllowedLibCopy
+		}
 	}
 
 	if (len(processed.FileProcessed.ReadOnlyPaths) != 0) ||
@@ -338,10 +376,15 @@ func (r *Recorder) buildAppArmorProfileRaw(spec *apparmorprofileapi.AppArmorProf
 		r.options.outputFile = strings.ReplaceAll(r.options.outputFile, ".yaml", ".apparmor")
 	}
 
-	abstract := spec.Abstract
-	raw, err := crd2armor.GenerateProfile(r.options.commandOptions.Command(), &abstract)
+	programName, err := filepath.Abs(r.options.commandOptions.Command())
 	if err != nil {
-		return err
+		return fmt.Errorf("get program name: %w", err)
+	}
+
+	abstract := spec.Abstract
+	raw, err := crd2armor.GenerateProfile(programName, &abstract)
+	if err != nil {
+		return fmt.Errorf("build raw apparmor profile: %w", err)
 	}
 
 	const defaultMode os.FileMode = 0o644

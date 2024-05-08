@@ -478,7 +478,7 @@ func (e *e2e) existsSelinuxProfile(args ...string) bool {
 }
 
 func (e *e2e) retryGetSelinuxJsonpath(jsonpath string, args ...string) string {
-	jsonpatharg := fmt.Sprintf("jsonpath=%s", jsonpath)
+	jsonpatharg := "jsonpath=" + jsonpath
 	return e.retryGet(append([]string{"selinuxprofile", "-o", jsonpatharg}, args...)...)
 }
 

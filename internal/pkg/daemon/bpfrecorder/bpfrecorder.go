@@ -115,8 +115,8 @@ type BpfRecorder struct {
 	lockRecordedSocketsUse   sync.Mutex
 	recordedCapabilities     []string
 	lockRecordedCapabilities sync.Mutex
-	lockAppArmorRecording    sync.Mutex
 	recorderBackend          recorderInterface
+	recordedExits            sync.Map
 }
 
 type bpfAppArmorEvent struct {
@@ -252,10 +252,6 @@ func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 func (b *BpfRecorder) GetAppArmorProcessed() BpfAppArmorProcessed {
 	var processed BpfAppArmorProcessed
 
-	// validating that the process exited.
-	// TODO: should this be subject to a flag for the Kubernetes controller integration?
-	b.lockAppArmorRecording.Lock()
-
 	processed.FileProcessed = b.processExecFsEvents()
 	processed.Socket = b.recordedSocketsUse
 	processed.Capabilities = b.recordedCapabilities
@@ -335,7 +331,7 @@ func (b *BpfRecorder) Run() error {
 	if err != nil {
 		return fmt.Errorf("retrieve current mount namespace: %w", err)
 	}
-	b.logger.Info("Got system mount namespace: " + fmt.Sprint(b.systemMountNamespace))
+	b.logger.Info("Got system mount namespace: " + strconv.FormatUint(uint64(b.systemMountNamespace), 10))
 
 	b.logger.Info("Doing BPF load/unload self-test")
 	if err := b.Load(false); err != nil {
@@ -554,7 +550,6 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		BPFObjName: "recorder.bpf.o",
 		BTFObjPath: b.btfPath,
 	})
-
 	if err != nil {
 		return fmt.Errorf("load bpf module: %w", err)
 	}
@@ -717,7 +712,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 		return "", fmt.Errorf("write BTF: %w", err)
 	}
 
-	b.logger.Info(fmt.Sprintf("Wrote BTF to file: %s", file.Name()))
+	b.logger.Info("Wrote BTF to file: " + file.Name())
 	return file.Name(), nil
 }
 
@@ -918,7 +913,19 @@ func (b *BpfRecorder) handleAppArmorEvents(apparmorEvents chan []byte) {
 		case uint8(probeTypeCap):
 			b.handleAppArmorCapabilityEvents(&apparmorEvent)
 		case uint8(probeTypeExit):
-			b.lockAppArmorRecording.Unlock()
+			b.logger.V(config.VerboseLevel).Info(fmt.Sprintf("pid exit: %d.", apparmorEvent.Pid))
+			d, _ := b.recordedExits.LoadOrStore(apparmorEvent.Pid, make(chan bool))
+			done, ok := d.(chan bool)
+			if !ok {
+				b.logger.Info("unexpected recordedExits type")
+				return
+			}
+			select {
+			case <-done:
+				// already closed
+			default:
+				close(done)
+			}
 		}
 	}
 }
@@ -996,6 +1003,11 @@ func (b *BpfRecorder) handleEvent(event []byte) {
 
 	pid := e.Pid
 	mntns := e.Mntns
+
+	if b.clientset == nil {
+		// spoc: we're running outside of a kubernetes context.
+		return
+	}
 
 	// Look up the container ID based on PID from cgroup file.
 	containerID, err := b.ContainerIDForPID(b.pidToContainerIDCache, int(pid))
@@ -1087,7 +1099,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 				return fmt.Errorf("list node pods: %w", err)
 			}
 			if pods == nil {
-				return fmt.Errorf("no pods found in cluster")
+				return errors.New("no pods found in cluster")
 			}
 
 			for p := range pods.Items {
@@ -1191,4 +1203,19 @@ func (b *BpfRecorder) syscallNameForID(id int) (string, error) {
 
 	b.syscallIDtoNameCache.Set(key, name, ttlcache.DefaultTTL)
 	return name, nil
+}
+
+func (b *BpfRecorder) WaitForPidExit(pid uint32, timeout time.Duration) error {
+	d, _ := b.recordedExits.LoadOrStore(pid, make(chan bool))
+	done, ok := d.(chan bool)
+	if !ok {
+		return fmt.Errorf("unexpected type: %T", d)
+	}
+
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("timeout after %v", timeout)
+	}
 }

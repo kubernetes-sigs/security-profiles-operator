@@ -26,6 +26,7 @@ const (
 	Fulcio
 	Rekor
 	CTFE
+	TSA
 )
 
 var toUsageString = map[UsageKind]string{
@@ -33,6 +34,7 @@ var toUsageString = map[UsageKind]string{
 	Fulcio:       "Fulcio",
 	Rekor:        "Rekor",
 	CTFE:         "CTFE",
+	TSA:          "TSA",
 }
 
 func (u UsageKind) String() string {
@@ -57,6 +59,8 @@ func (u *UsageKind) UnmarshalText(text []byte) error {
 		*u = Rekor
 	case "ctfe":
 		*u = CTFE
+	case "tsa":
+		*u = TSA
 	default:
 		return fmt.Errorf("error while unmarshalling, UsageKind=%v not valid", string(text))
 	}

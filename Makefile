@@ -14,11 +14,11 @@
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION = v1.55.2
+GOLANGCI_LINT_VERSION = v1.56.2
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 5.2.1
 OPERATOR_SDK_VERSION ?= v1.25.0
-ZEITGEIST_VERSION = v0.4.3
+ZEITGEIST_VERSION = v0.4.4
 CI_IMAGE ?= golang:1.22
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
@@ -461,13 +461,17 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 test-e2e: ## Run the end-to-end tests
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=true \
-	$(GO) test -parallel 1 -timeout 60m -count=1 ./test/... -v
+	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v
 
 .PHONY: test-flaky-e2e
 test-flaky-e2e: ## Only run the flaky end-to-end tests
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=false \
-	$(GO) test -parallel 1 -timeout 20m -count=1 ./test/... -v -testify.m '^(TestSecurityProfilesOperator_Flaky)$$'
+	$(GO) test -parallel 1 -timeout 20m -count=1 ./test -v -testify.m '^(TestSecurityProfilesOperator_Flaky)$$'
+
+.PHONY: test-spoc-e2e
+test-spoc-e2e: build/spoc
+	$(GO) test -v ./test/spoc
 
 # Generate CRD manifests
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize

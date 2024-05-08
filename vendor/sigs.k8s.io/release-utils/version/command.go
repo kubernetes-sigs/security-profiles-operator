@@ -47,7 +47,7 @@ func version(fontName string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Prints the version",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			v := GetVersionInfo()
 			v.Name = cmd.Root().Name()
 			v.Description = cmd.Root().Short

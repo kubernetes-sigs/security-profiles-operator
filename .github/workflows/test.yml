@@ -18,27 +18,24 @@ jobs:
 
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: github/codeql-action/init@cdcdbb579706841c47f7063dda365e292e5cad7a
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: github/codeql-action/init@c4fb451437765abf5018c6fbf22cce1a7da1e5cc # v2.17.1
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@cdcdbb579706841c47f7063dda365e292e5cad7a
-      - uses: github/codeql-action/analyze@cdcdbb579706841c47f7063dda365e292e5cad7a
+      - uses: github/codeql-action/autobuild@c4fb451437765abf5018c6fbf22cce1a7da1e5cc # v2.17.1
+      - uses: github/codeql-action/analyze@c4fb451437765abf5018c6fbf22cce1a7da1e5cc # v2.17.1
 
   coverage:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
-          sudo hack/install-libbpf.sh
+        run: sudo hack/install-packages
       - run: make test-unit
-      - uses: codecov/codecov-action@54bcd8715eee62d40e33596ef5e8f0f48dbbccab
+      - uses: codecov/codecov-action@5ecb98a3c6b747ed38dc09f787459979aebb39be # v4.3.1
         with:
           files: build/coverage.out
           flags: unittests
@@ -47,10 +44,13 @@ jobs:
   image:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - run: hack/install-crun
       - run: make image
+        env:
+          XDG_RUNTIME_DIR: ''
       - run: podman save -o image.tar security-profiles-operator
-      - uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: image
           path: image.tar
@@ -68,8 +68,8 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
           sudo apt-get update
           sudo apt-get install -y vagrant virtualbox
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
           name: image
           path: .
@@ -103,8 +103,8 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
           sudo apt-get update
           sudo apt-get install -y vagrant virtualbox
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
           name: image
           path: .
@@ -138,7 +138,7 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
           sudo apt-get update
           sudo apt-get install -y vagrant virtualbox
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
       - name: Vagrant box version
         id: vagrant-box
         run: |
@@ -148,7 +148,7 @@ jobs:
         run: |
           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
           vagrant box update
-      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
           name: image
           path: .
@@ -166,6 +166,18 @@ jobs:
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
           $RUN hack/ci/e2e-flatcar-dev-container.sh
 
+  e2e-spoc:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install dependencies
+        run: sudo hack/install-packages
+      - run: make test-spoc-e2e
+
   baseprofiles:
     needs: image
     runs-on: ubuntu-22.04
@@ -179,8 +191,8 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
           sudo apt-get update
           sudo apt-get install -y vagrant virtualbox
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: actions/download-artifact@c850b930e6ba138125429b7e5c93fc707a7f8427
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
           name: image
           path: .
@@ -199,7 +211,7 @@ jobs:
   typos:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v3.5.2
-      - uses: crate-ci/typos@v1.19.0
+      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b # v4.1.4
+      - uses: crate-ci/typos@d503507db9c5d116c79135435b149cd0f27d726e # v1.21.0
         with:
           config: .typos.toml

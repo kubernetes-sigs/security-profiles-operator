@@ -26,6 +26,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/cmd"
 	spocli "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/converter"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/merger"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/puller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/pusher"
@@ -77,6 +78,10 @@ func main() {
 					Aliases: []string{"n"},
 					Usage:   "do not add any base syscalls at all",
 				},
+				&cli.BoolFlag{
+					Name:  recorder.FlagNoProcStart,
+					Usage: "do not start the target command and record until ctrl+c/SIGINT.",
+				},
 			},
 		},
 		&cli.Command{
@@ -92,6 +97,27 @@ func main() {
 					Usage:       "the output file path for the combined profile",
 					DefaultText: merger.DefaultOutputFile,
 					TakesFile:   true,
+				},
+			},
+		},
+		&cli.Command{
+			Name:      "convert",
+			Aliases:   []string{"c"},
+			Usage:     "convert a security profile to its raw format",
+			Action:    convert,
+			ArgsUsage: "PROFILE",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:        converter.FlagOutputFile,
+					Aliases:     []string{"o"},
+					Usage:       "the output file path for the raw profile",
+					DefaultText: converter.DefaultOutputFile,
+					TakesFile:   true,
+				},
+				&cli.StringFlag{
+					Name:    converter.FlagProgramName,
+					Aliases: []string{"p"},
+					Usage:   "AppArmor only: the path to the program that is confined.",
 				},
 			},
 		},
@@ -218,6 +244,20 @@ func merge(ctx *cli.Context) error {
 
 	if err := merger.New(options).Run(); err != nil {
 		return fmt.Errorf("launch merger: %w", err)
+	}
+
+	return nil
+}
+
+// convert runs the `spoc convert` subcommand.
+func convert(ctx *cli.Context) error {
+	options, err := converter.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
+	}
+
+	if err := converter.New(options).Run(); err != nil {
+		return fmt.Errorf("launch converter: %w", err)
 	}
 
 	return nil

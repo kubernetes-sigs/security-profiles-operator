@@ -287,7 +287,7 @@ func initProfiling(ctx *cli.Context) {
 
 func printInfo(component string, info *version.Info) {
 	setupLog.Info(
-		fmt.Sprintf("starting component: %s", component),
+		"starting component: "+component,
 		info.AsKeyValues()...,
 	)
 }

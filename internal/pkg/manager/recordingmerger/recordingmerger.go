@@ -18,6 +18,7 @@ package recordingmerger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -214,7 +215,7 @@ func createUpdateSeccompProfile(
 
 	mergedProf, ok := mergedProfiles.getProfile().(*seccompprofile.SeccompProfile)
 	if !ok {
-		return controllerutil.OperationResultNone, fmt.Errorf("cannot convert merged profile to SeccompProfile")
+		return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SeccompProfile")
 	}
 	mergedSpec := mergedProf.Spec.DeepCopy()
 	mergedSp.Spec = *mergedSpec
@@ -251,7 +252,7 @@ func createUpdateSelinuxProfile(
 
 	mergedProf, ok := mergedProfiles.getProfile().(*selinuxprofileapi.SelinuxProfile)
 	if !ok {
-		return controllerutil.OperationResultNone, fmt.Errorf("cannot convert merged profile to SelinuxProfile")
+		return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SelinuxProfile")
 	}
 
 	mergedSpec := mergedProf.Spec.DeepCopy()

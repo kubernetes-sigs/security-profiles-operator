@@ -12,7 +12,7 @@ dependencies:
       match: CI_IMAGE
 
   - name: golangci-lint
-    version: 1.55.2
+    version: 1.56.2
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -74,7 +74,7 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.29
+    version: 1.30
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: KUBERNETES_VERSION
@@ -142,7 +142,7 @@ dependencies:
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   - name: libbpf
-    version: 1.2.0
+    version: 1.4.0
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
@@ -154,12 +154,14 @@ dependencies:
       match: VERSION
 
   - name: crun
-    version: v1.14.1
+    version: 1.14.4
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
     - path: test/tc_base_profiles_test.go
       match: baseProfileNameCrun
+    - path: hack/install-crun
+      match: CRUN_VERSION
 
   - name: runc
     version: v1.1.12
@@ -184,7 +186,7 @@ dependencies:
       match: BOM_VERSION
 
   - name: spo-current
-    version: 0.8.3-dev
+    version: 0.8.4-dev
     refPaths:
     - path: VERSION
       match: ^.*
@@ -196,7 +198,7 @@ dependencies:
       match: "^version: "
 
   - name: clang
-    version: 16
+    version: 18
     refPaths:
     - path: nix/derivation-bpf.nix
       match: llvmPackages_\d+.clang-unwrapped
@@ -205,7 +207,7 @@ dependencies:
 
   # TODO: update to the latest clang of debian 12 packages are available.
   - name: clang-debian-12
-    version: 14
+    version: 16
     refPaths:
     - path: hack/pull-security-profiles-operator-verify
       match: CLANG_VERSION
@@ -225,7 +227,7 @@ dependencies:
       match: flatcar_developer_container
 
   - name: zeitgeist
-    version: 0.4.3
+    version: 0.4.4
     refPaths:
       - path: Makefile
         match: ZEITGEIST_VERSION

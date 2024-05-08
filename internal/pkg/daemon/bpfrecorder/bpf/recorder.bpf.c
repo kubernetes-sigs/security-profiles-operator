@@ -9,6 +9,7 @@
 
 #define MAX_ENTRIES 8 * 1024
 #define MAX_SYSCALLS 1024
+#define MAX_CHILD_PIDS 1024
 #define MAX_COMM_LEN 64
 
 #define PROBE_TYPE_OPEN 0
@@ -20,12 +21,6 @@
 #define PROBE_TYPE_SOCKET 6
 #define PROBE_TYPE_CAP 7
 #define PROBE_TYPE_EXIT 8
-
-enum {
-    // file
-    _SYS_OPEN = 2,
-    _SYS_OPENAT = 257,
-};
 
 #define PROT_READ 0x1  /* Page can be read.  */
 #define PROT_WRITE 0x2 /* Page can be written.  */
@@ -58,6 +53,13 @@ struct {
 } pid_mntns SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, MAX_CHILD_PIDS);
+    __type(key, u32);
+    __type(value, bool);
+} child_pids SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
@@ -83,7 +85,8 @@ typedef struct __attribute__((__packed__)) apparmor_event_data {
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
 
-static inline bool is_filtered(char * comm);
+static inline bool has_filter();
+static inline bool matches_filter(char * comm);
 
 typedef struct saved_state {
     const char * filename;
@@ -93,15 +96,13 @@ typedef struct saved_state {
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 10240);
-    __type(key, u64);
+    __type(key, u32);
     __type(value, saved_state_t);
 } states_map SEC(".maps");
 
-static __always_inline int save_args(u32 event_id, const char * filename,
-                                     u64 flags)
+static __always_inline int save_args(const char * filename, u64 flags)
 {
-    u32 tgid = bpf_get_current_pid_tgid();
-    u64 id = ((u64)event_id << 32) | tgid;
+    u32 id = bpf_get_current_pid_tgid();
 
     saved_state_t state = {};
     state.filename = filename;
@@ -112,11 +113,9 @@ static __always_inline int save_args(u32 event_id, const char * filename,
     return 0;
 }
 
-static __always_inline int load_args(u32 event_id, const char ** filename,
-                                     u64 * flags)
+static __always_inline int load_args(const char ** filename, u64 * flags)
 {
-    u32 tgid = bpf_get_current_pid_tgid();
-    u64 id = ((u64)event_id << 32) | tgid;
+    u32 id = bpf_get_current_pid_tgid();
 
     saved_state_t * saved_state = bpf_map_lookup_elem(&states_map, &id);
     if (saved_state == 0)
@@ -135,8 +134,9 @@ static __always_inline int load_args(u32 event_id, const char ** filename,
  * get_mntns returns the mntns in case the call should be taken into account.
  * 0 is returned when the process should not be processed. The following
  * criteria are used:
- *   - host processes are excluded
- *   - program name if filtering on this is required
+ *   - host processes are excluded (if system mntns is set)
+ *   - child processes are included
+ *   - program name if filter is active
  */
 static __always_inline u32 get_mntns()
 {
@@ -156,17 +156,21 @@ static __always_inline u32 get_mntns()
     }
 
     // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
-        return 0;
+    if (has_filter()) {
+        u32 pid = bpf_get_current_pid_tgid() >> 32;
+        bool is_child = bpf_map_lookup_elem(&child_pids, &pid) != NULL;
+        char comm[MAX_COMM_LEN] = {};
+        bpf_get_current_comm(comm, sizeof(comm));
+
+        if (!is_child && !matches_filter(comm)) {
+            return 0;
+        }
     }
 
-    return 1;
+    return mntns;
 }
 
-SEC("tracepoint/syscalls/sys_enter_execve")
-int syscall__execve(struct trace_event_raw_sys_enter * ctx)
+static __always_inline int enter_execve(unsigned long * pathname_ptr)
 {
     apparmor_event_data_t * event;
 
@@ -185,7 +189,7 @@ int syscall__execve(struct trace_event_raw_sys_enter * ctx)
 
         const char * pathname;
         int res;
-        res = bpf_probe_read(&pathname, sizeof(pathname), &ctx->args[0]);
+        res = bpf_probe_read(&pathname, sizeof(pathname), pathname_ptr);
         if (res != 0) {
             bpf_printk("failed to get pathname pointer\n");
             bpf_ringbuf_discard(event, 0);
@@ -194,47 +198,50 @@ int syscall__execve(struct trace_event_raw_sys_enter * ctx)
         res = bpf_probe_read_str(&event->data, PATH_MAX, pathname);
         if (res > 0)
             event->data[(res - 1) & (PATH_MAX - 1)] = 0;
-        bpf_printk("executed process: %s\n", event->data);
+        bpf_printk("executed process (execve, pid %d): %s\n", pid, event->data);
         bpf_ringbuf_submit(event, 0);
+        bool ok = true;
+        bpf_map_update_elem(&child_pids, &pid, &ok, BPF_ANY);
     }
 
     return 0;
 }
 
+SEC("tracepoint/syscalls/sys_enter_execve")
+int syscall__execve(struct trace_event_raw_sys_enter * ctx)
+{
+    return enter_execve(&ctx->args[0]);
+}
+
 SEC("tracepoint/syscalls/sys_enter_execveat")
 int syscall__execveat(struct trace_event_raw_sys_enter * ctx)
 {
-    int zero = 0;
-    apparmor_event_data_t * event;
+    return enter_execve(&ctx->args[1]);
+}
 
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
+static __always_inline int enter_open(unsigned long * pathname_ptr,
+                                      unsigned long * flags_ptr)
+{
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
 
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_EXEC;
-
-        const char * pathname;
-        int res;
-        res = bpf_probe_read(&pathname, sizeof(pathname), &ctx->args[1]);
-        if (res != 0) {
-            bpf_printk("failed to get pathname pointer\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-        res = bpf_probe_read_str(&event->data, PATH_MAX, pathname);
-        if (res > 0)
-            event->data[(res - 1) & (PATH_MAX - 1)] = 0;
-        bpf_printk("executed process: %s\n", event->data);
-        bpf_ringbuf_submit(event, 0);
+    int res;
+    const char * pathname;
+    res = bpf_probe_read(&pathname, sizeof(pathname), pathname_ptr);
+    if (res != 0) {
+        bpf_printk("failed to get pathname pointer");
+        return 0;
     }
 
+    u64 flags;
+    res = bpf_probe_read(&flags, sizeof(flags), flags_ptr);
+    if (res != 0) {
+        bpf_printk("failed to get flags value");
+        return 0;
+    }
+
+    save_args(pathname, flags);
     return 0;
 }
 
@@ -243,33 +250,7 @@ int syscall__execveat(struct trace_event_raw_sys_enter * ctx)
 SEC("tracepoint/syscalls/sys_enter_open")
 int syscall__open(struct trace_event_raw_sys_enter * ctx)
 {
-    int zero = 0;
-    apparmor_event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-
-    int res;
-    const char * pathname;
-    res = bpf_probe_read(&pathname, sizeof(pathname), &ctx->args[0]);
-    if (res != 0) {
-        bpf_printk("failed to get pathname pointer\n");
-        return 0;
-    }
-
-    u64 flags;
-    res = bpf_probe_read(&flags, sizeof(flags), &ctx->args[1]);
-    if (res != 0) {
-        bpf_printk("failed to get flags value\n");
-        return 0;
-    }
-
-    save_args(_SYS_OPENAT, pathname, flags);
-
-    return 0;
+    return enter_open(&ctx->args[0], &ctx->args[1]);
 }
 
 // A limitation with tracing open/openat is that symlinks will not be resolved.
@@ -277,138 +258,72 @@ int syscall__open(struct trace_event_raw_sys_enter * ctx)
 SEC("tracepoint/syscalls/sys_enter_openat")
 int syscall__openat(struct trace_event_raw_sys_enter * ctx)
 {
+    return enter_open(&ctx->args[1], &ctx->args[2]);
+}
+
+static __always_inline int exit_open(struct trace_event_raw_sys_exit * ctx)
+{
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
 
-    int res;
-    const char * pathname;
-    res = bpf_probe_read(&pathname, sizeof(pathname), &ctx->args[1]);
-    if (res != 0) {
-        bpf_printk("failed to get pathname pointer\n");
-        return 0;
-    }
-
+    const char * orig_filename;
     u64 flags;
-    res = bpf_probe_read(&flags, sizeof(flags), &ctx->args[2]);
-    if (res != 0) {
-        bpf_printk("failed to get flags value\n");
+    if (load_args(&orig_filename, &flags) != 0) {
+        bpf_printk("failed to load saved args\n");
         return 0;
     }
 
-    save_args(_SYS_OPENAT, pathname, flags);
+    apparmor_event_data_t * event;
+    event =
+        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
+    if (event) {
+        event->pid = pid;
+        event->mntns = mntns;
+        event->type = PROBE_TYPE_OPEN;
+        event->flags = flags;
+        event->fd = 0;
 
+        int res;
+        res = bpf_probe_read(&event->fd, sizeof(event->fd), &ctx->ret);
+        if (res != 0) {
+            bpf_printk("failed to get fd value\n");
+            bpf_ringbuf_discard(event, 0);
+            return 0;
+        }
+
+        const char * pathname;
+        res = bpf_probe_read(&pathname, sizeof(pathname), &orig_filename);
+
+        bpf_printk("loading ptr: %x, flags: %d\n", pathname, flags);
+
+        if (res != 0) {
+            bpf_printk("failed to get pathname pointer\n");
+            bpf_ringbuf_discard(event, 0);
+            return 0;
+        }
+
+        res = bpf_probe_read_str(&event->data, sizeof(event->data), pathname);
+        if (res > 0)
+            event->data[(res - 1) & (PATH_MAX - 1)] = 0;
+        bpf_printk("opening file: %s with mode: %lu\n", event->data, event->fd);
+        bpf_ringbuf_submit(event, 0);
+    }
     return 0;
 }
 
 SEC("tracepoint/syscalls/sys_exit_open")
 int syscall__exit_open(struct trace_event_raw_sys_exit * ctx)
 {
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-
-    const char * orig_filename;
-    u64 flags;
-    if (load_args(_SYS_OPENAT, &orig_filename, &flags) != 0) {
-        bpf_printk("failed to load saved args\n");
-        return 0;
-    }
-
-    apparmor_event_data_t * event;
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_OPEN;
-        event->flags = flags;
-        event->fd = 0;
-
-        int res;
-        res = bpf_probe_read(&event->fd, sizeof(event->fd), &ctx->ret);
-        if (res != 0) {
-            bpf_printk("failed to get fd value\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-
-        const char * pathname;
-        res = bpf_probe_read(&pathname, sizeof(pathname), &orig_filename);
-
-        bpf_printk("loading ptr: %x, flags: %d\n", pathname, flags);
-
-        if (res != 0) {
-            bpf_printk("failed to get pathname pointer\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-
-        res = bpf_probe_read_str(&event->data, sizeof(event->data), pathname);
-        if (res > 0)
-            event->data[(res - 1) & (PATH_MAX - 1)] = 0;
-        bpf_printk("opening file: %s with mode: %lu\n", event->data, event->fd);
-        bpf_ringbuf_submit(event, 0);
-    }
-    return 0;
+    return exit_open(ctx);
 }
 
 SEC("tracepoint/syscalls/sys_exit_openat")
 int syscall__exit_openat(struct trace_event_raw_sys_exit * ctx)
 {
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-
-    const char * orig_filename;
-    u64 flags;
-    if (load_args(_SYS_OPENAT, &orig_filename, &flags) != 0) {
-        bpf_printk("failed to load saved args\n");
-        return 0;
-    }
-
-    apparmor_event_data_t * event;
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_OPEN;
-        event->flags = flags;
-        event->fd = 0;
-
-        int res;
-        res = bpf_probe_read(&event->fd, sizeof(event->fd), &ctx->ret);
-        if (res != 0) {
-            bpf_printk("failed to get fd value\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-
-        const char * pathname;
-        res = bpf_probe_read(&pathname, sizeof(pathname), &orig_filename);
-
-        bpf_printk("loading ptr: %x, flags: %d\n", pathname, flags);
-
-        if (res != 0) {
-            bpf_printk("failed to get pathname pointer\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-
-        res = bpf_probe_read_str(&event->data, sizeof(event->data), pathname);
-        if (res > 0)
-            event->data[(res - 1) & (PATH_MAX - 1)] = 0;
-        bpf_printk("opening file: %s with mode: %lu\n", event->data, event->fd);
-        bpf_ringbuf_submit(event, 0);
-    }
-    return 0;
+    return exit_open(ctx);
 }
 
 SEC("tracepoint/syscalls/sys_enter_close")
@@ -664,25 +579,8 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-    // Get the current mntns
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+    u32 mntns = get_mntns();
     if (mntns == 0) {
-        return 0;
-    }
-
-    // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
-        return 0;
-    }
-
-    // Filter per program name if requested
-    char comm[MAX_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    if (is_filtered(comm)) {
         return 0;
     }
 
@@ -696,8 +594,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         struct event_t * event =
             bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
         if (event) {
-            bpf_printk("send event pid: %u, mntns: %u, comm: %s\n", pid, mntns,
-                       comm);
+            bpf_printk("send event pid: %u, mntns: %u\n", pid, mntns);
 
             event->pid = pid;
             event->mntns = mntns;
@@ -720,9 +617,9 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         if (!value) {
             // Should not happen, we updated the element straight ahead
             bpf_printk(
-                "look up item in mntns_syscalls map failed pid: %u, mntns: %u, "
-                "comm: %s\n",
-                pid, mntns, comm);
+                "look up item in mntns_syscalls map failed pid: %u, mntns: "
+                "%u\n",
+                pid, mntns);
             return 0;
         }
         value[syscall_id] = 1;
@@ -731,18 +628,18 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
     return 0;
 }
 
-static inline bool is_filtered(char * comm)
+static inline bool has_filter()
 {
-    // No filter set
-    if (filter_name[0] == 0) {
-        return false;
-    }
+    return filter_name[0] != 0;
+}
 
+static inline bool matches_filter(char * comm)
+{
     // We cannot use __builtin_memcmp() until llvm bug
     // https://llvm.org/bugs/show_bug.cgi?id=26218 got resolved
     for (int i = 0; i < MAX_COMM_LEN; i++) {
         if (comm[i] != filter_name[i]) {
-            return true;
+            return false;
         }
 
         // Stop searching when comm is done
@@ -751,5 +648,5 @@ static inline bool is_filtered(char * comm)
         }
     }
 
-    return false;
+    return true;
 }

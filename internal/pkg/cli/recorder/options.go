@@ -31,6 +31,7 @@ type Options struct {
 	typ            Type
 	outputFile     string
 	baseSyscalls   []string
+	noProcStart    bool
 }
 
 // Default returns a default options instance.
@@ -40,6 +41,7 @@ func Default() *Options {
 		typ:            TypeSeccomp,
 		outputFile:     DefaultOutputFile,
 		baseSyscalls:   DefaultBaseSyscalls,
+		noProcStart:    false,
 	}
 }
 
@@ -67,6 +69,9 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	}
 	if ctx.IsSet(FlagNoBaseSyscalls) {
 		options.baseSyscalls = nil
+	}
+	if ctx.IsSet(FlagNoProcStart) {
+		options.noProcStart = true
 	}
 
 	commandOptions, err := command.FromContext(ctx)
