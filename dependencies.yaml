@@ -94,13 +94,13 @@ dependencies:
       match: config.vm.box
 
   - name: debian-base-digest
-    version: sha256:b9335fa66cdb5c1562c4f952e2d99f904dbe1618a6ed0d52487e70cf6cc280fd
+    version: sha256:b30608f5a81f8ba99b287322d0bfb77ec506adcce396147aa4a59699d69be3e0
     refPaths:
     - path: Dockerfile.build-image
       match: registry.k8s.io/build-image/debian-base
 
   - name: debian-base
-    version: bookworm-v1.0.0
+    version: bookworm-v1.0.3
     refPaths:
     - path: Dockerfile.build-image
       match: tag
