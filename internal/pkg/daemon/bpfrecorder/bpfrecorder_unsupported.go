@@ -35,7 +35,7 @@ var errUnsupported = errors.New("binary got compiled without bpf recorder suppor
 type BpfRecorder struct{}
 
 // New returns a new BpfRecorder instance.
-func New(logr.Logger) *BpfRecorder {
+func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor bool) *BpfRecorder {
 	return &BpfRecorder{}
 }
 

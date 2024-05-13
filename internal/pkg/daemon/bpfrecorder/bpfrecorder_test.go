@@ -20,6 +20,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -230,17 +231,17 @@ func TestRun(t *testing.T) {
 				require.NotNil(t, err)
 			},
 		},
-		{ // load:AttachTracepoint fails
+		{ // load:AttachGeneric fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
 				mock.GoArchReturns(validGoArch)
-				mock.AttachTracepointReturns(nil, errTest)
+				mock.AttachGenericReturns(nil, errTest)
 			},
 			assert: func(err error) {
 				require.NotNil(t, err)
 			},
 		},
-		{ // load:GetMap fails on first call
+		{ // load:GetMap fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
 				mock.GoArchReturns(validGoArch)
@@ -250,16 +251,7 @@ func TestRun(t *testing.T) {
 				require.NotNil(t, err)
 			},
 		},
-		{ // load:GetMap fails on second call
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.GoArchReturns(validGoArch)
-				mock.GetMapReturnsOnCall(1, nil, errTest)
-			},
-			assert: func(err error) {
-				require.NotNil(t, err)
-			},
-		},
+
 		{ // load:InitRingBuf fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
@@ -416,9 +408,7 @@ func TestRun(t *testing.T) {
 	} {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		tc.prepare(mock)
-
-		sut := New(logr.Discard())
-		sut.FilterProgramName("test")
+		sut := New("test", logr.Discard(), true, true)
 		sut.impl = mock
 
 		err := sut.Run()
@@ -467,7 +457,7 @@ func TestStart(t *testing.T) {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		tc.prepare(mock)
 
-		sut := New(logr.Discard())
+		sut := New("", logr.Discard(), true, true)
 		sut.impl = mock
 
 		_, err := sut.Start(context.Background(), &api.EmptyRequest{})
@@ -514,7 +504,7 @@ func TestStop(t *testing.T) {
 			},
 		},
 	} {
-		sut := New(logr.Discard())
+		sut := New("", logr.Discard(), true, true)
 
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock
@@ -583,6 +573,14 @@ func TestSyscallsForProfile(t *testing.T) {
 				require.NotNil(t, err)
 			},
 		},
+		{ // not recording seccomp
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				sut.Seccomp = nil
+			},
+			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
+				require.NotNil(t, err)
+			},
+		},
 		{ // no PID for container
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
@@ -628,7 +626,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			},
 		},
 	} {
-		sut := New(logr.Discard())
+		sut := New("", logr.Discard(), true, true)
 
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock
@@ -667,12 +665,56 @@ func (l *Logger) Error(_ error, msg string, _ ...interface{}) {
 func TestProcessEvents(t *testing.T) {
 	t.Parallel()
 
+	sut := New("", logr.Discard(), true, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
+
+	var buf bytes.Buffer
+	err := binary.Write(&buf, binary.LittleEndian, bpfEvent{
+		Pid:   42,
+		Mntns: 0x1010,
+		Type:  uint8(eventTypeExit),
+	})
+	require.Nil(t, err)
+
+	ch := make(chan []byte, 1)
+	ch <- buf.Bytes()
+	close(ch)
+
+	go sut.processEvents(ch)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = sut.WaitForPidExit(ctx, 42)
+	require.Nil(t, err)
+}
+
+func TestHandleEvent(t *testing.T) {
+	t.Parallel()
+
+	logSink := &Logger{}
+	logger := logr.New(logSink)
+
+	sut := New("", logger, true, true)
+	mock := &bpfrecorderfakes.FakeImpl{}
+	sut.impl = mock
+
+	sut.handleEvent([]byte{1, 0, 0})
+
+	logSink.mutex.RLock()
+	require.Contains(t, logSink.messages, "Couldn't read event structure")
+	logSink.mutex.RUnlock()
+}
+
+func TestNewPidEvent(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
-		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl) (msg []byte)
+		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl) bpfEvent
 		assert  func(*BpfRecorder, *Logger)
 	}{
 		{ // Success
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
 					ObjectMeta: metav1.ObjectMeta{
@@ -689,13 +731,13 @@ func TestProcessEvents(t *testing.T) {
 						}},
 					},
 				}}}, nil)
-				return []byte{
-					1, 0, 0, 0,
-					1, 0, 1, 0,
+				return bpfEvent{
+					Pid:   42,
+					Mntns: 0x1010,
+					Type:  uint8(eventTypeNewPid),
 				}
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
-				mntns := binary.LittleEndian.Uint32([]byte{1, 0, 1, 0})
 				var foundMntns uint32
 				for i := 0; i < 100; i++ {
 					if containerID, ok := sut.containerIDToProfileMap.GetBackwards("profile.json"); ok {
@@ -706,33 +748,16 @@ func TestProcessEvents(t *testing.T) {
 					}
 					time.Sleep(100 * time.Millisecond)
 				}
-				require.Equal(t, mntns, foundMntns)
-			},
-		},
-		{ // invalid event length
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
-				return []byte{1, 0, 0}
-			},
-			assert: func(sut *BpfRecorder, logger *Logger) {
-				success := false
-				for i := 0; i < 100; i++ {
-					logger.mutex.RLock()
-					success = util.Contains(logger.messages, "Unable to read event")
-					logger.mutex.RUnlock()
-					if success {
-						break
-					}
-					time.Sleep(100 * time.Millisecond)
-				}
-				require.True(t, success)
+				require.Equal(t, uint32(0x1010), foundMntns)
 			},
 		},
 		{ // unable to find container ID for PID
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
 				mock.ContainerIDForPIDReturns(containerID, errTest)
-				return []byte{
-					1, 0, 0, 0,
-					1, 1, 0, 0,
+				return bpfEvent{
+					Pid:   42,
+					Mntns: 0x1010,
+					Type:  uint8(eventTypeNewPid),
 				}
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
@@ -750,12 +775,13 @@ func TestProcessEvents(t *testing.T) {
 			},
 		},
 		{ // unable to find profile in cluster for container ID
-			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) []byte {
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				mock.ListPodsReturns(nil, errTest)
-				return []byte{
-					1, 0, 0, 0,
-					1, 0, 1, 0,
+				return bpfEvent{
+					Pid:   42,
+					Mntns: 0x1010,
+					Type:  uint8(eventTypeNewPid),
 				}
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
@@ -775,19 +801,16 @@ func TestProcessEvents(t *testing.T) {
 	} {
 		logSink := &Logger{}
 		logger := logr.New(logSink)
-		sut := New(logger)
+		sut := New("", logger, false, false)
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock
 		// pretend that we're running in a kubernetes context
 		sut.clientset = &kubernetes.Clientset{}
 
-		msg := tc.prepare(sut, mock)
+		e := tc.prepare(sut, mock)
 
-		ch := make(chan []byte)
-		go sut.processEvents(ch)
-		ch <- msg
+		go sut.handleNewPidEvent(&e)
 
 		tc.assert(sut, logSink)
-		close(ch)
 	}
 }

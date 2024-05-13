@@ -20,11 +20,11 @@ limitations under the License.
 package recorder
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"os/signal"
-	"time"
 	"unsafe"
 
 	"github.com/aquasecurity/libbpfgo"
@@ -46,7 +46,7 @@ type impl interface {
 	UnloadBpfRecorder(*bpfrecorder.BpfRecorder)
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
-	WaitForPidExit(*bpfrecorder.BpfRecorder, uint32, time.Duration) error
+	WaitForPidExit(*bpfrecorder.BpfRecorder, context.Context, uint32) error
 	FindProcMountNamespace(*bpfrecorder.BpfRecorder, uint32) (uint32, error)
 	SyscallsIterator(*bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator
 	IteratorNext(*libbpfgo.BPFMapIterator) bool
@@ -54,9 +54,7 @@ type impl interface {
 	SyscallsGetValue(*bpfrecorder.BpfRecorder, uint32) ([]byte, error)
 	GetName(libseccomp.ScmpSyscall) (string, error)
 	MarshalIndent(any, string, string) ([]byte, error)
-	WriteFile(string, []byte, os.FileMode) error
-	Create(string) (*os.File, error)
-	CloseFile(*os.File)
+	Create(string) (io.WriteCloser, error)
 	PrintObj(printers.YAMLPrinter, runtime.Object, io.Writer) error
 	GoArchToSeccompArch(string) (seccomp.Arch, error)
 	Notify(chan<- os.Signal, ...os.Signal)
@@ -82,8 +80,8 @@ func (*defaultImpl) CommandWait(cmd *command.Command) error {
 	return cmd.Wait()
 }
 
-func (*defaultImpl) WaitForPidExit(b *bpfrecorder.BpfRecorder, pid uint32, timeout time.Duration) error {
-	return b.WaitForPidExit(pid, timeout)
+func (*defaultImpl) WaitForPidExit(b *bpfrecorder.BpfRecorder, ctx context.Context, pid uint32) error {
+	return b.WaitForPidExit(ctx, pid)
 }
 
 func (*defaultImpl) SyscallsIterator(b *bpfrecorder.BpfRecorder) *libbpfgo.BPFMapIterator {
@@ -110,16 +108,8 @@ func (*defaultImpl) MarshalIndent(v any, prefix, indent string) ([]byte, error) 
 	return json.MarshalIndent(v, prefix, indent)
 }
 
-func (*defaultImpl) WriteFile(name string, data []byte, perm os.FileMode) error {
-	return os.WriteFile(name, data, perm)
-}
-
-func (*defaultImpl) Create(name string) (*os.File, error) {
+func (*defaultImpl) Create(name string) (io.WriteCloser, error) {
 	return os.Create(name)
-}
-
-func (*defaultImpl) CloseFile(file *os.File) {
-	file.Close()
 }
 
 func (*defaultImpl) PrintObj(p printers.YAMLPrinter, obj runtime.Object, w io.Writer) error {

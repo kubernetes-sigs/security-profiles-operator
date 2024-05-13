@@ -19,14 +19,97 @@ limitations under the License.
 
 package bpfrecorder
 
-import bpf "github.com/aquasecurity/libbpfgo"
+import (
+	"fmt"
+	"sort"
+	"strconv"
 
-type Seccomp struct{}
+	bpf "github.com/aquasecurity/libbpfgo"
+	"github.com/go-logr/logr"
+	seccomp "github.com/seccomp/libseccomp-golang"
+)
 
-func (*Seccomp) AddSpecificInstrumentation(_ *BpfRecorder, _ *bpf.Module) error {
+type SeccompRecorder struct {
+	logger               logr.Logger
+	syscalls             *bpf.BPFMap
+	syscallIDtoNameCache map[string]string
+}
+
+func newSeccompRecorder(logger logr.Logger) *SeccompRecorder {
+	return &SeccompRecorder{
+		logger:               logger,
+		syscallIDtoNameCache: make(map[string]string),
+	}
+}
+
+func (s *SeccompRecorder) Load(b *BpfRecorder) error {
+	s.logger.Info("Getting syscalls map")
+	syscalls, err := b.GetMap(b.module, "mntns_syscalls")
+	if err != nil {
+		return fmt.Errorf("get syscalls map: %w", err)
+	}
+	s.syscalls = syscalls
 	return nil
 }
 
-func (*Seccomp) SetupAndProcessSpecificEvents(_ *BpfRecorder, _ *bpf.Module) error {
-	return nil
+func (s *SeccompRecorder) Unload() {
+	s.syscalls = nil
+}
+
+func (s *SeccompRecorder) PopSyscalls(b *BpfRecorder, mntns uint32) ([]string, error) {
+	syscalls, err := b.GetValue(s.syscalls, mntns)
+	if err != nil {
+		s.logger.Error(err, "No syscalls found for mntns", "mntns", mntns)
+		return nil, fmt.Errorf("no syscalls found for mntns: %d", mntns)
+	}
+	syscallNames := s.convertSyscallIDsToNames(b, syscalls)
+
+	if err := b.DeleteKey(b.Seccomp.syscalls, mntns); err != nil {
+		s.logger.Error(err, "Unable to cleanup syscalls map", "mntns", mntns)
+	}
+
+	return sortUnique(syscallNames), nil
+}
+
+func sortUnique(input []string) (result []string) {
+	tmp := map[string]bool{}
+	for _, val := range input {
+		tmp[val] = true
+	}
+	for k := range tmp {
+		result = append(result, k)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func (s *SeccompRecorder) convertSyscallIDsToNames(b *BpfRecorder, syscalls []byte) []string {
+	result := []string{}
+	for id, set := range syscalls {
+		if set == 1 {
+			name, err := s.syscallNameForID(b, id)
+			if err != nil {
+				s.logger.Error(err, "unable to convert syscall ID", "id", id)
+				continue
+			}
+			result = append(result, name)
+		}
+	}
+	return result
+}
+
+func (s *SeccompRecorder) syscallNameForID(b *BpfRecorder, id int) (string, error) {
+	key := strconv.Itoa(id)
+	item, ok := s.syscallIDtoNameCache[key]
+	if ok {
+		return item, nil
+	}
+
+	name, err := b.GetName(seccomp.ScmpSyscall(id))
+	if err != nil {
+		return "", fmt.Errorf("get syscall name for ID %d: %w", id, err)
+	}
+
+	s.syscallIDtoNameCache[key] = name
+	return name, nil
 }

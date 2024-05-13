@@ -15,20 +15,27 @@
 // a static MAX_COMM_LEN which is supposed to be >= TASK_COMM_LEN
 #define MAX_COMM_LEN 1024
 
-#define PROBE_TYPE_OPEN 0
-#define PROBE_TYPE_EXEC 1
-#define PROBE_TYPE_CLOSE 2
-#define PROBE_TYPE_MMAP_EXEC 3
-#define PROBE_TYPE_READ 4
-#define PROBE_TYPE_WRITE 5
-#define PROBE_TYPE_SOCKET 6
-#define PROBE_TYPE_CAP 7
-#define PROBE_TYPE_EXIT 8
+#define EVENT_TYPE_NEWPID 0
+#define EVENT_TYPE_EXIT 1
+#define EVENT_TYPE_APPARMOR_FILE 2
+#define EVENT_TYPE_APPARMOR_SOCKET 3
+#define EVENT_TYPE_APPARMOR_CAP 4
+
+#define FLAG_READ 0x1
+#define FLAG_WRITE 0x2
+#define FLAG_EXEC 0x4
+#define FLAG_SPAWN 0x8
+
+#define FMODE_READ 0x1
+#define FMODE_WRITE 0x2
+#define FMODE_EXEC 0x20
 
 #define PROT_READ 0x1  /* Page can be read.  */
 #define PROT_WRITE 0x2 /* Page can be written.  */
 #define PROT_EXEC 0x4  /* Page can be executed.  */
 #define PROT_NONE 0x0
+
+#define S_IFIFO 0010000
 
 #define SOCK_RAW 3
 
@@ -41,6 +48,7 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define unlikely(x) __builtin_expect((x), 0)
 #endif
 
+// Track syscalls for each mtnns
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ENTRIES);
@@ -48,13 +56,16 @@ struct {
     __type(value, u8[MAX_SYSCALLS]);  // syscall IDs
 } mntns_syscalls SEC(".maps");
 
+// Track active (known) PIDs
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, MAX_ENTRIES);
-    __type(key, u32);    // PID
-    __type(value, u32);  // mntns ID
-} pid_mntns SEC(".maps");
+    __type(key, u32);
+    __type(value, bool);
+} active_pids SEC(".maps");
 
+// Keep track of all child PIDs when observing
+// a particular program name.
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, MAX_CHILD_PIDS);
@@ -62,76 +73,26 @@ struct {
     __type(value, bool);
 } child_pids SEC(".maps");
 
+// send events to userland
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
 
-struct event_t {
-    u32 pid;
-    u32 mntns;
-};
-
-struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 24);
-} apparmor_events SEC(".maps");
-
-typedef struct __attribute__((__packed__)) apparmor_event_data {
+typedef struct __attribute__((__packed__)) event_data {
     u32 pid;
     u32 mntns;
     u8 type;
     u64 flags;
-    u64 fd;
     char data[PATH_MAX];
-} apparmor_event_data_t;
+} event_data_t;
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
+const volatile u32 exclude_mntns = 0;
 
+static const bool TRUE = true;
 static inline bool has_filter();
 static inline bool matches_filter(char * comm);
-
-typedef struct saved_state {
-    const char * filename;
-    u64 flags;
-} saved_state_t;
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 10240);
-    __type(key, u32);
-    __type(value, saved_state_t);
-} states_map SEC(".maps");
-
-static __always_inline int save_args(const char * filename, u64 flags)
-{
-    u32 id = bpf_get_current_pid_tgid();
-
-    saved_state_t state = {};
-    state.filename = filename;
-    state.flags = flags;
-
-    bpf_map_update_elem(&states_map, &id, &state, BPF_ANY);
-
-    return 0;
-}
-
-static __always_inline int load_args(const char ** filename, u64 * flags)
-{
-    u32 id = bpf_get_current_pid_tgid();
-
-    saved_state_t * saved_state = bpf_map_lookup_elem(&states_map, &id);
-    if (saved_state == 0)
-        return -1;
-
-    u64 local_flags;
-    bpf_probe_read(filename, sizeof(filename), &saved_state->filename);
-    bpf_probe_read(flags, sizeof(*flags), &saved_state->flags);
-
-    bpf_map_delete_elem(&states_map, &id);
-
-    return 0;
-}
 
 /**
  * get_mntns returns the mntns in case the call should be taken into account.
@@ -150,11 +111,9 @@ static __always_inline u32 get_mntns()
         return 0;
     }
 
+    // When running in a Kubernetes context:
     // Filter out mntns of the host PID to exclude host processes
-    u32 hostPid = 1;
-    u32 * host_mntns = NULL;
-    host_mntns = bpf_map_lookup_elem(&pid_mntns, &hostPid);
-    if (host_mntns != NULL && *host_mntns == mntns) {
+    if (exclude_mntns == mntns) {
         return 0;
     }
 
@@ -173,309 +132,114 @@ static __always_inline u32 get_mntns()
     return mntns;
 }
 
-static __always_inline int enter_execve(unsigned long * pathname_ptr)
-{
-    apparmor_event_data_t * event;
+static u64 _file_event_inode;
+static u64 _file_event_flags;
+static u32 _file_event_pid;
 
+static __always_inline int register_file_event(struct file * file, u64 flags)
+{
+    // ignore unix pipes
+    if (file == NULL || file->f_inode->i_mode & S_IFIFO) {
+        return 0;
+    }
+
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+
+    // discard repeated calls
+    u64 inode = file->f_inode->i_ino;
     u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
+    bool same_file = inode == _file_event_inode && pid == _file_event_pid;
+    bool flags_are_subset = (flags | _file_event_flags) == _file_event_flags;
+    if (same_file && flags_are_subset) {
+        bpf_printk("register_file_event skipped");
         return 0;
-
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_EXEC;
-
-        const char * pathname;
-        int res;
-        res = bpf_probe_read(&pathname, sizeof(pathname), pathname_ptr);
-        if (res != 0) {
-            bpf_printk("failed to get pathname pointer\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-        res = bpf_probe_read_str(&event->data, PATH_MAX, pathname);
-        if (res > 0)
-            event->data[(res - 1) & (PATH_MAX - 1)] = 0;
-        bpf_printk("executed process (execve, pid %d): %s\n", pid, event->data);
-        bpf_ringbuf_submit(event, 0);
-        bool ok = true;
-        bpf_map_update_elem(&child_pids, &pid, &ok, BPF_ANY);
     }
+
+    event_data_t * event;
+    event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (!event) {
+        return 0;
+    }
+
+    int ok = bpf_d_path(&file->f_path, event->data, sizeof(event->data));
+    if (ok < 0) {
+        bpf_printk("register_file_event bpf_d_path failed: %i\n", ok);
+        bpf_ringbuf_discard(event, 0);
+        return 0;
+    }
+
+    event->pid = pid;
+    event->mntns = mntns;
+    event->type = EVENT_TYPE_APPARMOR_FILE;
+    event->flags = flags;
+
+    bpf_printk(
+        "register_file_event: %i, %s with flags=%d, mode=%d, inode_mode=%d\n",
+        file, event->data, flags, file->f_mode, file->f_inode->i_mode);
+    bpf_ringbuf_submit(event, 0);
+
+    _file_event_inode = inode;
+    _file_event_pid = pid;
+    _file_event_flags = same_file ? (flags | _file_event_flags) : flags;
 
     return 0;
 }
 
-SEC("tracepoint/syscalls/sys_enter_execve")
-int syscall__execve(struct trace_event_raw_sys_enter * ctx)
+SEC("lsm/file_open")
+int BPF_PROG(file_open, struct file * file)
 {
-    return enter_execve(&ctx->args[0]);
-}
-
-SEC("tracepoint/syscalls/sys_enter_execveat")
-int syscall__execveat(struct trace_event_raw_sys_enter * ctx)
-{
-    return enter_execve(&ctx->args[1]);
-}
-
-static __always_inline int enter_open(unsigned long * pathname_ptr,
-                                      unsigned long * flags_ptr)
-{
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-
-    int res;
-    const char * pathname;
-    res = bpf_probe_read(&pathname, sizeof(pathname), pathname_ptr);
-    if (res != 0) {
-        bpf_printk("failed to get pathname pointer");
-        return 0;
+    // bpf_printk("file_open");
+    u64 flags = 0;
+    if (file->f_mode & FMODE_READ) {
+        flags |= FLAG_READ;
     }
-
-    u64 flags;
-    res = bpf_probe_read(&flags, sizeof(flags), flags_ptr);
-    if (res != 0) {
-        bpf_printk("failed to get flags value");
-        return 0;
+    if (file->f_mode & FMODE_WRITE) {
+        flags |= FLAG_WRITE;
     }
-
-    save_args(pathname, flags);
-    return 0;
+    if (file->f_mode & FMODE_EXEC) {
+        flags |= FLAG_EXEC;
+    }
+    return register_file_event(file, flags);
 }
 
-// A limitation with tracing open/openat is that symlinks will not be resolved.
-// Using LSM hooks like security_open would solve this.
-SEC("tracepoint/syscalls/sys_enter_open")
-int syscall__open(struct trace_event_raw_sys_enter * ctx)
+SEC("lsm/file_lock")
+int BPF_PROG(file_lock, struct file * file)
 {
-    return enter_open(&ctx->args[0], &ctx->args[1]);
+    // bpf_printk("file_lock");
+    return register_file_event(file, FLAG_WRITE);
 }
 
-// A limitation with tracing open/openat is that symlinks will not be resolved.
-// Using LSM hooks like security_open would solve this.
-SEC("tracepoint/syscalls/sys_enter_openat")
-int syscall__openat(struct trace_event_raw_sys_enter * ctx)
+SEC("lsm/mmap_file")
+int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
+             unsigned long flags)
 {
-    return enter_open(&ctx->args[1], &ctx->args[2]);
+    // bpf_printk("mmap_file");
+    u64 file_flags = 0;
+    if (prot & PROT_READ) {
+        file_flags |= FLAG_READ;
+    }
+    if (prot & PROT_WRITE) {
+        file_flags |= FLAG_WRITE;
+    }
+    if (prot & PROT_EXEC) {
+        file_flags |= FLAG_EXEC;
+    }
+    return register_file_event(file, file_flags);
 }
 
-static __always_inline int exit_open(struct trace_event_raw_sys_exit * ctx)
+SEC("lsm/bprm_check_security")
+int BPF_PROG(bprm_check_security, struct linux_binprm * bprm)
 {
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-
-    const char * orig_filename;
-    u64 flags;
-    if (load_args(&orig_filename, &flags) != 0) {
-        bpf_printk("failed to load saved args\n");
-        return 0;
-    }
-
-    apparmor_event_data_t * event;
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_OPEN;
-        event->flags = flags;
-        event->fd = 0;
-
-        int res;
-        res = bpf_probe_read(&event->fd, sizeof(event->fd), &ctx->ret);
-        if (res != 0) {
-            bpf_printk("failed to get fd value\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-
-        const char * pathname;
-        res = bpf_probe_read(&pathname, sizeof(pathname), &orig_filename);
-
-        bpf_printk("loading ptr: %x, flags: %d\n", pathname, flags);
-
-        if (res != 0) {
-            bpf_printk("failed to get pathname pointer\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-
-        res = bpf_probe_read_str(&event->data, sizeof(event->data), pathname);
-        if (res > 0)
-            event->data[(res - 1) & (PATH_MAX - 1)] = 0;
-        bpf_printk("opening file: %s with mode: %lu\n", event->data, event->fd);
-        bpf_ringbuf_submit(event, 0);
-    }
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_exit_open")
-int syscall__exit_open(struct trace_event_raw_sys_exit * ctx)
-{
-    return exit_open(ctx);
-}
-
-SEC("tracepoint/syscalls/sys_exit_openat")
-int syscall__exit_openat(struct trace_event_raw_sys_exit * ctx)
-{
-    return exit_open(ctx);
-}
-
-SEC("tracepoint/syscalls/sys_enter_close")
-int syscall__close(struct trace_event_raw_sys_enter * ctx)
-{
-    apparmor_event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_CLOSE;
-
-        u64 fd;
-        int res;
-        res = bpf_probe_read(&fd, sizeof(fd), &ctx->args[0]);
-        if (res != 0) {
-            bpf_printk("failed to get closed fd\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-        event->fd = fd;
-        bpf_printk("closed fd: %d\n", fd);
-        bpf_ringbuf_submit(event, 0);
-    }
-
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_enter_mmap")
-int syscall__mmap(struct trace_event_raw_sys_enter * ctx)
-{
-    apparmor_event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-
-    u64 prot;
-    u64 fd;
-    int res;
-
-    res = bpf_probe_read(&fd, sizeof(fd), &ctx->args[4]);
-    if (res != 0) {
-        bpf_printk("failed to get mmap fd\n");
-        return 0;
-    }
-    res = bpf_probe_read(&prot, sizeof(prot), &ctx->args[2]);
-    if (res != 0) {
-        bpf_printk("failed to get mmap prot\n");
-        return 0;
-    }
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_MMAP_EXEC;
-        event->fd = fd;
-        event->flags = prot;
-
-        bpf_printk("Mmaped fd: %d\n", fd);
-        bpf_ringbuf_submit(event, 0);
-    }
-
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_enter_write")
-int syscall__write(struct trace_event_raw_sys_enter * ctx)
-{
-    apparmor_event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_WRITE;
-
-        u64 fd;
-        int res;
-        res = bpf_probe_read(&fd, sizeof(fd), &ctx->args[0]);
-        if (res != 0) {
-            bpf_printk("failed to get written to fd\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-        event->fd = fd;
-        bpf_printk("writing to fd: %d\n", fd);
-        bpf_ringbuf_submit(event, 0);
-    }
-
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_enter_read")
-int syscall__read(struct trace_event_raw_sys_enter * ctx)
-{
-    apparmor_event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
-
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_READ;
-
-        u64 fd;
-        int res;
-        res = bpf_probe_read(&fd, sizeof(fd), &ctx->args[0]);
-        if (res != 0) {
-            bpf_printk("failed to get read from fd\n");
-            bpf_ringbuf_discard(event, 0);
-            return 0;
-        }
-        event->fd = fd;
-        bpf_printk("reading to fd: %d\n", fd);
-        bpf_ringbuf_submit(event, 0);
-    }
-
-    return 0;
+    // bpf_printk("bprm_check_security");
+    return register_file_event(bprm->file, FLAG_SPAWN);
 }
 
 SEC("tracepoint/syscalls/sys_enter_socket")
-int syscall__socket(struct trace_event_raw_sys_enter * ctx)
+int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 {
-    apparmor_event_data_t * event;
+    event_data_t * event;
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
 
@@ -483,16 +247,15 @@ int syscall__socket(struct trace_event_raw_sys_enter * ctx)
     if (!mntns)
         return 0;
 
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
+    event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (event) {
         event->pid = pid;
         event->mntns = mntns;
-        event->type = PROBE_TYPE_SOCKET;
+        event->type = EVENT_TYPE_APPARMOR_SOCKET;
 
         u64 type;
         int res;
-        res = bpf_probe_read(&type, sizeof(type), &ctx->args[1]);
+        res = bpf_core_read(&type, sizeof(type), &ctx->args[1]);
         if (res != 0) {
             bpf_printk("failed to get socket type\n");
             bpf_ringbuf_discard(event, 0);
@@ -509,24 +272,21 @@ int syscall__socket(struct trace_event_raw_sys_enter * ctx)
 }
 
 SEC("kprobe/cap_capable")
-int BPF_KPROBE(trace_cap_capable)
+int BPF_KPROBE(cap_capable)
 {
-    apparmor_event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
 
     unsigned long cap = PT_REGS_PARM3(ctx);
 
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
+    // TODO: This should be implemented like the seccomp syscalls map.
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (event) {
-        event->pid = pid;
+        event->pid = bpf_get_current_pid_tgid() >> 32;
         event->mntns = mntns;
-        event->type = PROBE_TYPE_CAP;
+        event->type = EVENT_TYPE_APPARMOR_CAP;
 
         event->flags = cap;
 
@@ -537,37 +297,50 @@ int BPF_KPROBE(trace_cap_capable)
     return 0;
 }
 
-static __always_inline void handle_exit()
+SEC("tracepoint/sched/sched_process_exec")
+int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 {
-    apparmor_event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return;
-
-    event =
-        bpf_ringbuf_reserve(&apparmor_events, sizeof(apparmor_event_data_t), 0);
-    if (event) {
-        event->pid = pid;
-        event->mntns = mntns;
-        event->type = PROBE_TYPE_EXIT;
-        bpf_ringbuf_submit(event, 0);
+    if (!has_filter()) {
+        return 0;
     }
-}
 
-SEC("tracepoint/syscalls/sys_enter_exit")
-int syscall__exit(struct trace_event_raw_sys_enter * ctx)
-{
-    handle_exit();
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u32 parent_pid = BPF_CORE_READ(task, real_parent, pid);
+    bool is_child = bpf_map_lookup_elem(&child_pids, &parent_pid) != NULL;
+
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+
+    if (is_child || matches_filter(comm)) {
+        u32 pid = bpf_get_current_pid_tgid() >> 32;
+        bpf_printk("adding child pid: %u\n", pid);
+        bpf_map_update_elem(&child_pids, &pid, &TRUE, BPF_ANY);
+    }
     return 0;
 }
 
-SEC("tracepoint/syscalls/sys_enter_exit_group")
-int syscall__exit_group(struct trace_event_raw_sys_enter * ctx)
+SEC("tracepoint/sched/sched_process_exit")
+int sched_process_exit(void * ctx)
 {
-    handle_exit();
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u32 ok = bpf_map_delete_elem(&active_pids, &pid);
+    if (ok != 0) {
+        return 0;  // key not found
+    }
+    bpf_map_delete_elem(&child_pids, &pid);
+
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (event) {
+        event->pid = bpf_get_current_pid_tgid() >> 32;
+        event->mntns = mntns;
+        event->type = EVENT_TYPE_EXIT;
+        bpf_ringbuf_submit(event, 0);
+    }
     return 0;
 }
 
@@ -580,30 +353,30 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         return 0;
     }
 
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
     u32 mntns = get_mntns();
     if (mntns == 0) {
         return 0;
     }
 
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+
     // Notify the userspace when a new PID is found. This will allow
     // the userspace to look up the container ID from cgroups of the
     // process. And using the container ID, it will search further the
     // security profile assigned to this container in the cluster.
-    u32 * current_pid_mntns = NULL;
-    current_pid_mntns = bpf_map_lookup_elem(&pid_mntns, &pid);
-    if (current_pid_mntns == NULL) {
-        struct event_t * event =
-            bpf_ringbuf_reserve(&events, sizeof(struct event_t), 0);
+    if (bpf_map_lookup_elem(&active_pids, &pid) == NULL) {
+        event_data_t * event =
+            bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
         if (event) {
             bpf_printk("send event pid: %u, mntns: %u\n", pid, mntns);
 
+            event->type = EVENT_TYPE_NEWPID;
             event->pid = pid;
             event->mntns = mntns;
+
             bpf_ringbuf_submit(event, 0);
 
-            bpf_map_update_elem(&pid_mntns, &pid, &mntns, BPF_ANY);
+            bpf_map_update_elem(&active_pids, &pid, &TRUE, BPF_ANY);
         }
     }
 
@@ -640,8 +413,8 @@ static inline bool matches_filter(char * comm)
 {
     // We cannot use __builtin_memcmp() until llvm bug
     // https://llvm.org/bugs/show_bug.cgi?id=26218 got resolved
-    // We use TASK_COMM_LEN - 1 because the last byte may be a null bye and
-    // MAX_COMM_LEN may be larger.
+    // Use TASK_COMM_LEN - 1 because the last byte is a null byte due to
+    // truncation and MAX_COMM_LEN is potentially longer.
     for (int i = 0; i < TASK_COMM_LEN - 1; i++) {
         if (comm[i] != filter_name[i]) {
             return false;

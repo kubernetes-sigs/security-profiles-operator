@@ -20,8 +20,10 @@ limitations under the License.
 package recorder
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -67,12 +69,20 @@ func New(options *Options) *Recorder {
 
 // Run the Recorder.
 func (r *Recorder) Run() error {
-	if (r.options.typ == TypeApparmor) || (r.options.typ == TypeRawAppArmor) {
-		r.bpfRecorder = bpfrecorder.NewAppArmor(logr.New(&cli.LogSink{}))
-	} else {
-		r.bpfRecorder = bpfrecorder.NewSeccomp(logr.New(&cli.LogSink{}))
-	}
-	r.bpfRecorder.FilterProgramName(r.options.commandOptions.Command())
+	recordAppArmor := ((r.options.typ == TypeApparmor) ||
+		(r.options.typ == TypeRawAppArmor) ||
+		(r.options.typ == TypeAll))
+	recordSeccomp := ((r.options.typ == TypeSeccomp) ||
+		(r.options.typ == TypeRawSeccomp) ||
+		(r.options.typ == TypeAll))
+
+	r.bpfRecorder = bpfrecorder.New(
+		r.options.commandOptions.Command(),
+		logr.New(&cli.LogSink{}),
+		recordSeccomp,
+		recordAppArmor,
+	)
+
 	if err := r.LoadBpfRecorder(r.bpfRecorder); err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
@@ -102,28 +112,49 @@ func (r *Recorder) Run() error {
 			log.Printf("Command did not exit successfully: %v", err)
 		}
 
-		if (r.options.typ == TypeApparmor) || (r.options.typ == TypeRawAppArmor) {
-			log.Println("Waiting for events processor to catch up...")
-			if err := r.WaitForPidExit(r.bpfRecorder, pid, waitForPidExitTimeout); err != nil {
-				log.Printf("Did not register exit signal for pid %d: %v", pid, err)
-			}
+		log.Println("Waiting for events processor to catch up...")
+		ctx, cancel := context.WithTimeout(context.Background(), waitForPidExitTimeout)
+		defer cancel()
+
+		if err := r.WaitForPidExit(r.bpfRecorder, ctx, pid); err != nil {
+			log.Printf("Did not register exit signal for pid %d: %v", pid, err)
 		}
 	}
 
-	var err error
-	if (r.options.typ == TypeApparmor) || (r.options.typ == TypeRawAppArmor) {
-		err = r.processAppArmorData()
-	} else {
-		err = r.processData(mntns)
-	}
+	file, err := r.Create(r.outFile())
 	if err != nil {
-		return fmt.Errorf("build profile: %w", err)
+		return fmt.Errorf("create file: %w", err)
+	}
+	defer file.Close()
+
+	if recordAppArmor {
+		if err := r.processAppArmor(file); err != nil {
+			return fmt.Errorf("build apparmor profile: %w", err)
+		}
+	}
+	if recordSeccomp {
+		if err := r.processSeccomp(file, mntns); err != nil {
+			return fmt.Errorf("build seccomp profile: %w", err)
+		}
 	}
 
 	return nil
 }
 
-func (r *Recorder) processData(mntns uint32) error {
+func (r *Recorder) outFile() string {
+	outFile := r.options.outputFile
+	if outFile == DefaultOutputFile {
+		if r.options.typ == TypeRawAppArmor {
+			outFile = strings.TrimSuffix(outFile, ".yaml") + ".json"
+		}
+		if r.options.typ == TypeRawSeccomp {
+			outFile = strings.TrimSuffix(outFile, ".yaml") + ".apparmor"
+		}
+	}
+	return outFile
+}
+
+func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 	log.Printf("Processing recorded data")
 
 	// A set of all observed syscalls.
@@ -168,7 +199,7 @@ func (r *Recorder) processData(mntns uint32) error {
 	}
 
 	log.Printf("Got syscalls: %s", strings.Join(syscalls, ", "))
-	if err := r.buildProfile(syscalls); err != nil {
+	if err := r.buildProfile(writer, syscalls); err != nil {
 		return fmt.Errorf("build profile: %w", err)
 	}
 
@@ -176,7 +207,7 @@ func (r *Recorder) processData(mntns uint32) error {
 }
 
 func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract {
-	processed := r.bpfRecorder.GetAppArmorProcessed()
+	processed := r.bpfRecorder.AppArmor.GetAppArmorProcessed()
 
 	abstract := apparmorprofileapi.AppArmorAbstract{}
 	enabled := true
@@ -248,22 +279,22 @@ func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract
 	return abstract
 }
 
-func (r *Recorder) processAppArmorData() error {
+func (r *Recorder) processAppArmor(writer io.Writer) error {
 	abstract := r.generateAppArmorProfile()
 	spec := apparmorprofileapi.AppArmorProfileSpec{
 		Abstract: abstract,
 	}
 	defer func() {
-		log.Printf("Wrote apparmor profile to: %s", r.options.outputFile)
+		log.Printf("Wrote apparmor profile to: %s", r.outFile())
 	}()
 
 	if r.options.typ == TypeRawAppArmor {
-		return r.buildAppArmorProfileRaw(&spec)
+		return r.buildAppArmorProfileRaw(writer, &spec)
 	}
-	return r.buildAppArmorProfileCRD(&spec)
+	return r.buildAppArmorProfileCRD(writer, &spec)
 }
 
-func (r *Recorder) buildProfile(names []string) error {
+func (r *Recorder) buildProfile(writer io.Writer, names []string) error {
 	arch, err := r.goArchToSeccompArch(runtime.GOARCH)
 	if err != nil {
 		return fmt.Errorf("get seccomp arch: %w", err)
@@ -291,35 +322,30 @@ func (r *Recorder) buildProfile(names []string) error {
 	}
 
 	defer func() {
-		log.Printf("Wrote seccomp profile to: %s", r.options.outputFile)
+		log.Printf("Wrote seccomp profile to: %s", r.outFile())
 	}()
 
 	if r.options.typ == TypeRawSeccomp {
-		return r.buildProfileRaw(&spec)
+		return r.buildProfileRaw(writer, &spec)
 	}
 
-	return r.buildProfileCRD(&spec)
+	return r.buildProfileCRD(writer, &spec)
 }
 
-func (r *Recorder) buildProfileRaw(spec *seccompprofileapi.SeccompProfileSpec) error {
-	if r.options.outputFile == DefaultOutputFile {
-		r.options.outputFile = strings.ReplaceAll(r.options.outputFile, ".yaml", ".json")
-	}
-
+func (r *Recorder) buildProfileRaw(writer io.Writer, spec *seccompprofileapi.SeccompProfileSpec) error {
 	data, err := r.MarshalIndent(spec, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal JSON profile: %w", err)
 	}
 
-	const defaultMode os.FileMode = 0o644
-	if err := r.WriteFile(r.options.outputFile, data, defaultMode); err != nil {
+	if _, err := writer.Write(data); err != nil {
 		return fmt.Errorf("write JSON file: %w", err)
 	}
 
 	return nil
 }
 
-func (r *Recorder) buildProfileCRD(spec *seccompprofileapi.SeccompProfileSpec) error {
+func (r *Recorder) buildProfileCRD(writer io.Writer, spec *seccompprofileapi.SeccompProfileSpec) error {
 	profile := &seccompprofileapi.SeccompProfile{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "SeccompProfile",
@@ -331,21 +357,15 @@ func (r *Recorder) buildProfileCRD(spec *seccompprofileapi.SeccompProfileSpec) e
 		Spec: *spec,
 	}
 
-	file, err := r.Create(r.options.outputFile)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer r.CloseFile(file)
-
 	printer := printers.YAMLPrinter{}
-	if err := r.PrintObj(printer, profile, file); err != nil {
+	if err := r.PrintObj(printer, profile, writer); err != nil {
 		return fmt.Errorf("print YAML: %w", err)
 	}
 
 	return nil
 }
 
-func (r *Recorder) buildAppArmorProfileCRD(spec *apparmorprofileapi.AppArmorProfileSpec) error {
+func (r *Recorder) buildAppArmorProfileCRD(writer io.Writer, spec *apparmorprofileapi.AppArmorProfileSpec) error {
 	profile := &apparmorprofileapi.AppArmorProfile{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "AppArmorProfile",
@@ -357,25 +377,20 @@ func (r *Recorder) buildAppArmorProfileCRD(spec *apparmorprofileapi.AppArmorProf
 		Spec: *spec,
 	}
 
-	file, err := r.Create(r.options.outputFile)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer r.CloseFile(file)
-
 	printer := printers.YAMLPrinter{}
-	if err := r.PrintObj(printer, profile, file); err != nil {
+	if err := r.PrintObj(printer, profile, writer); err != nil {
 		return fmt.Errorf("print YAML: %w", err)
 	}
 
+	if r.options.typ == TypeAll {
+		if _, err := writer.Write([]byte("\n---\n")); err != nil {
+			return fmt.Errorf("write combined prifle: %w", err)
+		}
+	}
 	return nil
 }
 
-func (r *Recorder) buildAppArmorProfileRaw(spec *apparmorprofileapi.AppArmorProfileSpec) error {
-	if r.options.outputFile == DefaultOutputFile {
-		r.options.outputFile = strings.ReplaceAll(r.options.outputFile, ".yaml", ".apparmor")
-	}
-
+func (r *Recorder) buildAppArmorProfileRaw(writer io.Writer, spec *apparmorprofileapi.AppArmorProfileSpec) error {
 	programName, err := filepath.Abs(r.options.commandOptions.Command())
 	if err != nil {
 		return fmt.Errorf("get program name: %w", err)
@@ -387,8 +402,7 @@ func (r *Recorder) buildAppArmorProfileRaw(spec *apparmorprofileapi.AppArmorProf
 		return fmt.Errorf("build raw apparmor profile: %w", err)
 	}
 
-	const defaultMode os.FileMode = 0o644
-	if err := r.WriteFile(r.options.outputFile, []byte(raw), defaultMode); err != nil {
+	if _, err := writer.Write([]byte(raw)); err != nil {
 		return fmt.Errorf("write AppArmor file: %w", err)
 	}
 

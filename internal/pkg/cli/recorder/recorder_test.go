@@ -20,6 +20,7 @@ limitations under the License.
 package recorder
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -30,6 +31,15 @@ import (
 )
 
 var errTest = errors.New("test")
+
+type buffer struct {
+	bytes.Buffer
+}
+
+// Add a Close method to our buffer so that we satisfy io.WriteCloser.
+func (b *buffer) Close() error {
+	return nil
+}
 
 func TestRun(t *testing.T) {
 	t.Parallel()
@@ -99,7 +109,7 @@ func TestRun(t *testing.T) {
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
 				require.Nil(t, err)
-				require.Equal(t, 1, mock.WriteFileCallCount())
+				require.Equal(t, 1, mock.CreateCallCount())
 			},
 		},
 		{
@@ -128,7 +138,7 @@ func TestRun(t *testing.T) {
 			name: "failure raw seccomp profile on WriteFile",
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
-				mock.WriteFileReturns(errTest)
+				mock.CreateReturns(nil, errTest)
 				options := Default()
 				options.typ = TypeRawSeccomp
 				return options
@@ -225,6 +235,20 @@ func TestRun(t *testing.T) {
 				require.ErrorIs(t, err, errTest)
 			},
 		},
+		{
+			name: "success all CRD",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				mock.CommandRunReturns(1, nil)
+				defaultMock(mock)
+				options := Default()
+				options.typ = TypeAll
+				return options
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.Nil(t, err)
+				require.Equal(t, 2, mock.PrintObjCallCount())
+			},
+		},
 	} {
 		prepare := tc.prepare
 		assert := tc.assert
@@ -233,6 +257,8 @@ func TestRun(t *testing.T) {
 			t.Parallel()
 
 			mock := &recorderfakes.FakeImpl{}
+			buf := buffer{}
+			mock.CreateReturns(&buf, nil)
 			options := prepare(mock)
 
 			sut := New(options)

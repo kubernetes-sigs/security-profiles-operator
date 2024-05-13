@@ -63,8 +63,12 @@ func recordTest(t *testing.T) {
 func recordAppArmorTest(t *testing.T) {
 	t.Run("files", func(t *testing.T) {
 		profile := recordAppArmor(t, "--file-read", "../../README.md", "--file-write", "/dev/null")
-		// TODO: This is still wrong - it should be an absolute path.
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "../../README.md")
+		readme, err := filepath.Abs("../../README.md")
+		require.Nil(t, err)
+		require.NotNil(t, profile.Filesystem)
+		require.NotNil(t, profile.Filesystem.ReadOnlyPaths)
+		require.NotNil(t, profile.Filesystem.WriteOnlyPaths)
+		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, readme)
 		require.Contains(t, *profile.Filesystem.WriteOnlyPaths, "/dev/null")
 
 		profile = recordAppArmor(t, "--file-read", "/dev/null", "--file-write", "/dev/null")
@@ -86,6 +90,10 @@ func recordAppArmorTest(t *testing.T) {
 
 		profile = recordAppArmor(t, "./demobinary", "--file-read", "/dev/null")
 		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary")
+		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
+
+		profile = recordAppArmor(t, "./demobinary-child", "./demobinary-child", "--file-read", "/dev/null")
+		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary-child")
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
 	})
 
@@ -127,7 +135,7 @@ func recordAppArmorTest(t *testing.T) {
 		t.Log("waiting for SPOC to register process exit...")
 		for spocLogs.Scan() {
 			t.Log(spocLogs.Text())
-			if strings.Contains(spocLogs.Text(), fmt.Sprintf("pid exit: %d.", cmd2.Process.Pid)) {
+			if strings.Contains(spocLogs.Text(), fmt.Sprintf("record pid exit: %d.", cmd2.Process.Pid)) {
 				break
 			}
 		}
@@ -138,8 +146,8 @@ func recordAppArmorTest(t *testing.T) {
 		// SIGINT when running outside of a pty (i.e. in CI)
 		//nolint:gosec // not a security risk
 		err = exec.Command(
-			"setsid",
 			"sudo",
+			"setsid",
 			"kill",
 			"-SIGINT",
 			strconv.Itoa(cmd.Process.Pid),

@@ -39,18 +39,16 @@ import (
 )
 
 type FakeImpl struct {
-	AttachTracepointStub        func(*libbpfgo.BPFProg, string, string) (*libbpfgo.BPFLink, error)
-	attachTracepointMutex       sync.RWMutex
-	attachTracepointArgsForCall []struct {
+	AttachGenericStub        func(*libbpfgo.BPFProg) (*libbpfgo.BPFLink, error)
+	attachGenericMutex       sync.RWMutex
+	attachGenericArgsForCall []struct {
 		arg1 *libbpfgo.BPFProg
-		arg2 string
-		arg3 string
 	}
-	attachTracepointReturns struct {
+	attachGenericReturns struct {
 		result1 *libbpfgo.BPFLink
 		result2 error
 	}
-	attachTracepointReturnsOnCall map[int]struct {
+	attachGenericReturnsOnCall map[int]struct {
 		result1 *libbpfgo.BPFLink
 		result2 error
 	}
@@ -102,10 +100,10 @@ type FakeImpl struct {
 	closeGRPCReturnsOnCall map[int]struct {
 		result1 error
 	}
-	CloseModuleStub        func(*libbpfgo.BPFMap)
+	CloseModuleStub        func(*libbpfgo.Module)
 	closeModuleMutex       sync.RWMutex
 	closeModuleArgsForCall []struct {
-		arg1 *libbpfgo.BPFMap
+		arg1 *libbpfgo.Module
 	}
 	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
@@ -517,20 +515,18 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) AttachTracepoint(arg1 *libbpfgo.BPFProg, arg2 string, arg3 string) (*libbpfgo.BPFLink, error) {
-	fake.attachTracepointMutex.Lock()
-	ret, specificReturn := fake.attachTracepointReturnsOnCall[len(fake.attachTracepointArgsForCall)]
-	fake.attachTracepointArgsForCall = append(fake.attachTracepointArgsForCall, struct {
+func (fake *FakeImpl) AttachGeneric(arg1 *libbpfgo.BPFProg) (*libbpfgo.BPFLink, error) {
+	fake.attachGenericMutex.Lock()
+	ret, specificReturn := fake.attachGenericReturnsOnCall[len(fake.attachGenericArgsForCall)]
+	fake.attachGenericArgsForCall = append(fake.attachGenericArgsForCall, struct {
 		arg1 *libbpfgo.BPFProg
-		arg2 string
-		arg3 string
-	}{arg1, arg2, arg3})
-	stub := fake.AttachTracepointStub
-	fakeReturns := fake.attachTracepointReturns
-	fake.recordInvocation("AttachTracepoint", []interface{}{arg1, arg2, arg3})
-	fake.attachTracepointMutex.Unlock()
+	}{arg1})
+	stub := fake.AttachGenericStub
+	fakeReturns := fake.attachGenericReturns
+	fake.recordInvocation("AttachGeneric", []interface{}{arg1})
+	fake.attachGenericMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3)
+		return stub(arg1)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -538,46 +534,46 @@ func (fake *FakeImpl) AttachTracepoint(arg1 *libbpfgo.BPFProg, arg2 string, arg3
 	return fakeReturns.result1, fakeReturns.result2
 }
 
-func (fake *FakeImpl) AttachTracepointCallCount() int {
-	fake.attachTracepointMutex.RLock()
-	defer fake.attachTracepointMutex.RUnlock()
-	return len(fake.attachTracepointArgsForCall)
+func (fake *FakeImpl) AttachGenericCallCount() int {
+	fake.attachGenericMutex.RLock()
+	defer fake.attachGenericMutex.RUnlock()
+	return len(fake.attachGenericArgsForCall)
 }
 
-func (fake *FakeImpl) AttachTracepointCalls(stub func(*libbpfgo.BPFProg, string, string) (*libbpfgo.BPFLink, error)) {
-	fake.attachTracepointMutex.Lock()
-	defer fake.attachTracepointMutex.Unlock()
-	fake.AttachTracepointStub = stub
+func (fake *FakeImpl) AttachGenericCalls(stub func(*libbpfgo.BPFProg) (*libbpfgo.BPFLink, error)) {
+	fake.attachGenericMutex.Lock()
+	defer fake.attachGenericMutex.Unlock()
+	fake.AttachGenericStub = stub
 }
 
-func (fake *FakeImpl) AttachTracepointArgsForCall(i int) (*libbpfgo.BPFProg, string, string) {
-	fake.attachTracepointMutex.RLock()
-	defer fake.attachTracepointMutex.RUnlock()
-	argsForCall := fake.attachTracepointArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+func (fake *FakeImpl) AttachGenericArgsForCall(i int) *libbpfgo.BPFProg {
+	fake.attachGenericMutex.RLock()
+	defer fake.attachGenericMutex.RUnlock()
+	argsForCall := fake.attachGenericArgsForCall[i]
+	return argsForCall.arg1
 }
 
-func (fake *FakeImpl) AttachTracepointReturns(result1 *libbpfgo.BPFLink, result2 error) {
-	fake.attachTracepointMutex.Lock()
-	defer fake.attachTracepointMutex.Unlock()
-	fake.AttachTracepointStub = nil
-	fake.attachTracepointReturns = struct {
+func (fake *FakeImpl) AttachGenericReturns(result1 *libbpfgo.BPFLink, result2 error) {
+	fake.attachGenericMutex.Lock()
+	defer fake.attachGenericMutex.Unlock()
+	fake.AttachGenericStub = nil
+	fake.attachGenericReturns = struct {
 		result1 *libbpfgo.BPFLink
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) AttachTracepointReturnsOnCall(i int, result1 *libbpfgo.BPFLink, result2 error) {
-	fake.attachTracepointMutex.Lock()
-	defer fake.attachTracepointMutex.Unlock()
-	fake.AttachTracepointStub = nil
-	if fake.attachTracepointReturnsOnCall == nil {
-		fake.attachTracepointReturnsOnCall = make(map[int]struct {
+func (fake *FakeImpl) AttachGenericReturnsOnCall(i int, result1 *libbpfgo.BPFLink, result2 error) {
+	fake.attachGenericMutex.Lock()
+	defer fake.attachGenericMutex.Unlock()
+	fake.AttachGenericStub = nil
+	if fake.attachGenericReturnsOnCall == nil {
+		fake.attachGenericReturnsOnCall = make(map[int]struct {
 			result1 *libbpfgo.BPFLink
 			result2 error
 		})
 	}
-	fake.attachTracepointReturnsOnCall[i] = struct {
+	fake.attachGenericReturnsOnCall[i] = struct {
 		result1 *libbpfgo.BPFLink
 		result2 error
 	}{result1, result2}
@@ -832,10 +828,10 @@ func (fake *FakeImpl) CloseGRPCReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) CloseModule(arg1 *libbpfgo.BPFMap) {
+func (fake *FakeImpl) CloseModule(arg1 *libbpfgo.Module) {
 	fake.closeModuleMutex.Lock()
 	fake.closeModuleArgsForCall = append(fake.closeModuleArgsForCall, struct {
-		arg1 *libbpfgo.BPFMap
+		arg1 *libbpfgo.Module
 	}{arg1})
 	stub := fake.CloseModuleStub
 	fake.recordInvocation("CloseModule", []interface{}{arg1})
@@ -851,13 +847,13 @@ func (fake *FakeImpl) CloseModuleCallCount() int {
 	return len(fake.closeModuleArgsForCall)
 }
 
-func (fake *FakeImpl) CloseModuleCalls(stub func(*libbpfgo.BPFMap)) {
+func (fake *FakeImpl) CloseModuleCalls(stub func(*libbpfgo.Module)) {
 	fake.closeModuleMutex.Lock()
 	defer fake.closeModuleMutex.Unlock()
 	fake.CloseModuleStub = stub
 }
 
-func (fake *FakeImpl) CloseModuleArgsForCall(i int) *libbpfgo.BPFMap {
+func (fake *FakeImpl) CloseModuleArgsForCall(i int) *libbpfgo.Module {
 	fake.closeModuleMutex.RLock()
 	defer fake.closeModuleMutex.RUnlock()
 	argsForCall := fake.closeModuleArgsForCall[i]
@@ -2862,8 +2858,8 @@ func (fake *FakeImpl) WriteReturnsOnCall(i int, result1 int, result2 error) {
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.attachTracepointMutex.RLock()
-	defer fake.attachTracepointMutex.RUnlock()
+	fake.attachGenericMutex.RLock()
+	defer fake.attachGenericMutex.RUnlock()
 	fake.bPFLoadObjectMutex.RLock()
 	defer fake.bPFLoadObjectMutex.RUnlock()
 	fake.bpfIncClientMutex.RLock()
