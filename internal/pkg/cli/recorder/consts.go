@@ -42,6 +42,9 @@ const (
 type Type string
 
 const (
+	// TypeApp is the type indicating that we should record all CRD profiles.
+	TypeAll Type = "all"
+
 	// TypeSeccomp is the type indicating that we should record a seccomp CRD
 	// profile.
 	TypeSeccomp Type = "seccomp"

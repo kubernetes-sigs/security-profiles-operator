@@ -59,11 +59,12 @@ func main() {
 					Aliases: []string{"t"},
 					Usage:   "the record type",
 					DefaultText: fmt.Sprintf(
-						"%s [alternative: %s %s %s]",
+						"%s [alternative: %s %s %s %s]",
 						recorder.TypeSeccomp,
 						recorder.TypeRawSeccomp,
 						recorder.TypeApparmor,
 						recorder.TypeRawAppArmor,
+						recorder.TypeAll,
 					),
 				},
 				&cli.StringSliceFlag{

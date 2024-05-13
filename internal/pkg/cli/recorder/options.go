@@ -60,7 +60,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 		options.typ = Type(ctx.String(FlagType))
 	}
 	if options.typ != TypeSeccomp && options.typ != TypeRawSeccomp &&
-		options.typ != TypeApparmor && options.typ != TypeRawAppArmor {
+		options.typ != TypeApparmor && options.typ != TypeRawAppArmor && options.typ != TypeAll {
 		return nil, fmt.Errorf("unsupported %s: %s", FlagType, options.typ)
 	}
 
