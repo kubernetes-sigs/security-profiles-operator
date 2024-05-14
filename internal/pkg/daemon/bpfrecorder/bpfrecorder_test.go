@@ -408,7 +408,7 @@ func TestRun(t *testing.T) {
 	} {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		tc.prepare(mock)
-		sut := New("test", logr.Discard(), true, true)
+		sut := New("test", logr.Discard(), true, false)
 		sut.impl = mock
 
 		err := sut.Run()
@@ -457,7 +457,7 @@ func TestStart(t *testing.T) {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		tc.prepare(mock)
 
-		sut := New("", logr.Discard(), true, true)
+		sut := New("", logr.Discard(), true, false)
 		sut.impl = mock
 
 		_, err := sut.Start(context.Background(), &api.EmptyRequest{})
@@ -504,7 +504,7 @@ func TestStop(t *testing.T) {
 			},
 		},
 	} {
-		sut := New("", logr.Discard(), true, true)
+		sut := New("", logr.Discard(), true, false)
 
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock
@@ -626,7 +626,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			},
 		},
 	} {
-		sut := New("", logr.Discard(), true, true)
+		sut := New("", logr.Discard(), true, false)
 
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock

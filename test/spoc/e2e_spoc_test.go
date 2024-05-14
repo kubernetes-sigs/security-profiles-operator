@@ -38,6 +38,7 @@ import (
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 )
 
 const spocPath = "../../build/spoc"
@@ -61,7 +62,22 @@ func recordTest(t *testing.T) {
 }
 
 func recordAppArmorTest(t *testing.T) {
+	t.Run("unsupported", func(t *testing.T) {
+		out, err := exec.Command(
+			"sudo",
+			"E2E_TEST_BPF_LSM_ENABLED=0",
+			spocPath,
+			"record",
+			"-t", "apparmor",
+			"./demobinary",
+		).CombinedOutput()
+		require.NotNil(t, err)
+		require.Contains(t, string(out), "BPF LSM is not enabled")
+	})
 	t.Run("files", func(t *testing.T) {
+		if !bpfrecorder.BPFLSMEnabled() {
+			t.Skip("BPF LSM disabled")
+		}
 		profile := recordAppArmor(t, "--file-read", "../../README.md", "--file-write", "/dev/null")
 		readme, err := filepath.Abs("../../README.md")
 		require.Nil(t, err)
@@ -84,6 +100,9 @@ func recordAppArmorTest(t *testing.T) {
 	})
 
 	t.Run("subprocess", func(t *testing.T) {
+		if !bpfrecorder.BPFLSMEnabled() {
+			t.Skip("BPF LSM disabled")
+		}
 		profile := recordAppArmor(t, "./demobinary-child", "--file-read", "/dev/null")
 		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary-child")
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
@@ -102,7 +121,9 @@ func recordAppArmorTest(t *testing.T) {
 		require.Nil(t, err)
 
 		cmd := exec.Command(
-			"sudo", spocPath,
+			"sudo",
+			"E2E_TEST_BPF_LSM_ENABLED=1",
+			spocPath,
 			"record",
 			"--no-proc-start",
 			"-t", "apparmor",
@@ -128,7 +149,7 @@ func recordAppArmorTest(t *testing.T) {
 		}
 
 		// Run binary...
-		cmd2 := exec.Command(demobinary, "--file-read", "/dev/null")
+		cmd2 := exec.Command(demobinary, "--net-tcp")
 		err = cmd2.Run()
 		require.Nil(t, err)
 
@@ -156,7 +177,7 @@ func recordAppArmorTest(t *testing.T) {
 		err = cmd.Wait()
 		require.Nil(t, err)
 
-		require.Contains(t, stdout.String(), "/dev/null", "did not find file read in profile")
+		require.Contains(t, stdout.String(), "allowTcp", "did not find TCP permission in profile")
 	})
 }
 
@@ -167,8 +188,11 @@ func recordSeccompTest(t *testing.T) {
 
 func runSpoc(t *testing.T, args ...string) []byte {
 	t.Helper()
-	args = append([]string{spocPath}, args...)
-	cmd := exec.Command("sudo", args...)
+	args = append([]string{"E2E_TEST_BPF_LSM_ENABLED=1", spocPath}, args...)
+	cmd := exec.Command(
+		"sudo",
+		args...,
+	)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	require.Nil(t, err, "failed to run spoc")
