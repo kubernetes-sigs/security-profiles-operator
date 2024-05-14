@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -84,7 +85,7 @@ type BpfRecorder struct {
 	containerIDToProfileMap *bimap.BiMap[string, string]
 	nodeName                string
 	clientset               *kubernetes.Clientset
-	systemMountNamespace    uint32
+	excludeMountNamespace   uint32
 	loadUnloadMutex         sync.RWMutex
 	metricsClient           apimetrics.Metrics_BpfIncClient
 	programName             string
@@ -204,11 +205,11 @@ func (b *BpfRecorder) Run() error {
 		}()
 	}
 
-	b.systemMountNamespace, err = b.FindProcMountNamespace(defaultHostPid)
+	b.excludeMountNamespace, err = b.FindProcMountNamespace(defaultHostPid)
 	if err != nil {
 		return fmt.Errorf("retrieve current mount namespace: %w", err)
 	}
-	b.logger.Info("Got system mount namespace: " + strconv.FormatUint(uint64(b.systemMountNamespace), 10))
+	b.logger.Info("Got system mount namespace: " + strconv.FormatUint(uint64(b.excludeMountNamespace), 10))
 
 	b.logger.Info("Doing BPF load/unload self-test")
 	if err := b.Load(false); err != nil {
@@ -410,7 +411,9 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		programName := []byte(filepath.Base(b.programName))
 		if len(programName) >= maxCommLen {
 			programName = programName[:maxCommLen-1]
-			b.logger.Info("Matching on first %d characters of the program name: '%s'", len(programName), programName)
+			b.logger.Info(fmt.Sprintf("Set truncated program name filter: '%s'", programName))
+		} else {
+			b.logger.Info(fmt.Sprintf("Set program name filter: '%s'", programName))
 		}
 		programName = append(programName, 0)
 		if err := b.InitGlobalVariable(
@@ -421,7 +424,7 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 	}
 
 	if err := b.InitGlobalVariable(
-		module, "exclude_mntns", b.systemMountNamespace,
+		module, "exclude_mntns", b.excludeMountNamespace,
 	); err != nil {
 		return fmt.Errorf("update system_mntns map failed: %w", err)
 	}
@@ -859,4 +862,15 @@ func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
 	}
 	b.eventWorkers.Release(maxEventWorkers)
 	return nil
+}
+
+func BPFLSMEnabled() bool {
+	if enabled := os.Getenv("E2E_TEST_BPF_LSM_ENABLED"); enabled != "" {
+		return enabled == "1"
+	}
+	contents, err := os.ReadFile("/sys/kernel/security/lsm")
+	if err != nil {
+		return false
+	}
+	return regexp.MustCompile(`(^|,)bpf(,|$)`).Match(contents)
 }

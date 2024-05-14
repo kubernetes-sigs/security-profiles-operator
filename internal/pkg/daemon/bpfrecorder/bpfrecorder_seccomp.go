@@ -64,7 +64,7 @@ func (s *SeccompRecorder) PopSyscalls(b *BpfRecorder, mntns uint32) ([]string, e
 	}
 	syscallNames := s.convertSyscallIDsToNames(b, syscalls)
 
-	if err := b.DeleteKey(b.Seccomp.syscalls, mntns); err != nil {
+	if err := b.DeleteKey(s.syscalls, mntns); err != nil {
 		s.logger.Error(err, "Unable to cleanup syscalls map", "mntns", mntns)
 	}
 

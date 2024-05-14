@@ -20,6 +20,7 @@ limitations under the License.
 package bpfrecorder
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -108,6 +109,9 @@ func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecord
 }
 
 func (*AppArmorRecorder) Load(b *BpfRecorder) error {
+	if !BPFLSMEnabled() {
+		return errors.New("BPF LSM is not enabled for this kernel")
+	}
 	for _, hook := range appArmorHooks {
 		if err := b.attachBpfProgram(hook); err != nil {
 			return err
