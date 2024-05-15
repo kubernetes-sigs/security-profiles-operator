@@ -175,9 +175,11 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
     event->type = EVENT_TYPE_APPARMOR_FILE;
     event->flags = flags;
 
-    bpf_printk(
-        "register_file_event: %i, %s with flags=%d, mode=%d, inode_mode=%d\n",
-        file, event->data, flags, file->f_mode, file->f_inode->i_mode);
+    // This debug log does not work on old kernels, see
+    // https://github.com/libbpf/libbpf-bootstrap/issues/206#issuecomment-1694085235
+    // bpf_printk(
+    //    "register_file_event: %i, %s with flags=%d, mode=%d, inode_mode=%d\n",
+    //    file, event->data, flags, file->f_mode, file->f_inode->i_mode);
     bpf_ringbuf_submit(event, 0);
 
     _file_event_inode = inode;
