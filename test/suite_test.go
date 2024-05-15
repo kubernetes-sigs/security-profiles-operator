@@ -40,10 +40,10 @@ import (
 )
 
 const (
-	kindVersion      = "v0.21.0"
-	kindImage        = "kindest/node:v1.29.1@sha256:a0cc28af37cf39b019e2b448c54d1a3f789de32536cb5a5db61a49623e527144"
-	kindDarwinSHA512 = "647ff18247ad9c47fd5346be98db83244e6d6110a0b2766d27c96c6ebb38c77f4fa7002345277aac9ec9252481277e329e7fc49a2ee395e1977900ee008034f0" //nolint:lll // full length SHA
-	kindLinuxSHA512  = "0e8c56a2c87bacded1696ed3caf20c068981810e6f31c5907d4228cca671330f5641312e78cae0a148e6cbaddfe7b9092194132c3f420bf0463a8af7e167482f" //nolint:lll // full length SHA
+	kindVersion      = "v0.23.0"
+	kindImage        = "kindest/node:v1.30.0@sha256:047357ac0cfea04663786a612ba1eaba9702bef25227a794b52890dd8bcd692e"
+	kindDarwinSHA512 = "08a8055068e6f735704b6543f9510eaa871ac37903abc18b803f7c5a8187acb322511cf61c13dc940cc1e260849e6bda279c692d1cb464c6d825996fd42b8e56" //nolint:lll // full length SHA
+	kindLinuxSHA512  = "5026abe09759c2243cfedb10f1f52b2bb7878153da9453eae42fa22d9ae867ba46d2ac03ffbc771b58b747724a344c6c8fb754f24727fefbfd66e961543805c3" //nolint:lll // full length SHA
 )
 
 var (
