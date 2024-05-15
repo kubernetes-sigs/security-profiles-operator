@@ -54,13 +54,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.21.0
+    version: 0.23.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.29.1
+    version: 1.30.0
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -227,7 +227,7 @@ dependencies:
       match: flatcar_developer_container
 
   - name: zeitgeist
-    version: 0.4.4
+    version: 0.5.3
     refPaths:
       - path: Makefile
         match: ZEITGEIST_VERSION
