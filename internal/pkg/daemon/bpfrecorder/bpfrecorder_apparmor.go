@@ -129,7 +129,7 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 
 	fileName := fileDataToString(&fileEvent.Data)
 
-	log.Printf("File access: %s, flags=%d\n", fileName, fileEvent.Flags)
+	log.Printf("File access: %s, flags=%d pid=%d mntns=%d\n", fileName, fileEvent.Flags, fileEvent.Pid, fileEvent.Mntns)
 
 	path, ok := b.recordedFiles[fileName]
 	if !ok {
@@ -169,6 +169,13 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 			return
 		}
 	}
+
+	log.Printf(
+		"Requested capability: %s with pid=%d, mntns=%d\n",
+		capabilityToString(requestedCap),
+		capEvent.Pid,
+		capEvent.Mntns,
+	)
 	b.recordedCapabilities = append(b.recordedCapabilities, requestedCap)
 }
 
@@ -230,11 +237,7 @@ func (b *AppArmorRecorder) processExecFsEvents() BpfAppArmorFileProcessed {
 func (b *AppArmorRecorder) processCapabilities() []string {
 	ret := make([]string, 0, len(b.recordedCapabilities))
 	for _, capID := range b.recordedCapabilities {
-		val, ok := capabilities[capID]
-		if !ok {
-			val = fmt.Sprintf("CAPABILITY_%d", capID)
-		}
-		ret = append(ret, val)
+		ret = append(ret, capabilityToString(capID))
 	}
 	slices.Sort(ret)
 	return ret
@@ -302,4 +305,12 @@ var capabilities = map[int]string{
 	38: "perfmon",
 	39: "bpf",
 	40: "checkpoint_restore",
+}
+
+func capabilityToString(capID int) string {
+	val, ok := capabilities[capID]
+	if !ok {
+		return fmt.Sprintf("CAPABILITY_%d", capID)
+	}
+	return val
 }

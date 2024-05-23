@@ -40,6 +40,7 @@ func main() {
 	log.SetFlags(log.Lshortfile)
 	log.Println("⏩", os.Args)
 
+	capSysAdmin := flag.Bool("cap-sys-admin", false, "exercise CAP_SYS_ADMIN")
 	fileWrite := flag.String("file-write", "", "write file (e.g. /dev/null)")
 	fileRead := flag.String("file-read", "", "read file (e.g. /dev/null)")
 	fileSymlink := flag.String("file-symlink", "", "Create symlink using the following syntax: OLD:NEW")
@@ -54,6 +55,14 @@ func main() {
 
 	subprocess := flag.Args()
 
+	if *capSysAdmin {
+		// Modifying niceness of another process requires CAP_SYS_ADMIN.
+		err := os.WriteFile("/proc/1/autogroup", []byte("0"), 0)
+		if err != nil {
+			log.Fatal("❌ Error exercising CAP_SYS_ADMIN:", err)
+		}
+		log.Println("✅ CAP_SYS_ADMIN is available.")
+	}
 	if *fileWrite != "" {
 		const fileMode = 0o666
 		err := os.WriteFile(*fileWrite, []byte{}, fileMode)

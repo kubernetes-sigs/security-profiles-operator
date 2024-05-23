@@ -37,6 +37,8 @@
 
 #define S_IFIFO 0010000
 
+#define CAP_OPT_NOAUDIT 0b10
+
 #define SOCK_RAW 3
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
@@ -281,6 +283,11 @@ int BPF_KPROBE(cap_capable)
         return 0;
 
     unsigned long cap = PT_REGS_PARM3(ctx);
+    unsigned long cap_opt = PT_REGS_PARM4(ctx);
+    // bpf_printk("requesting capability: cap=%i cap_opt=%i\n", cap, cap_opt);
+
+    if (cap_opt & CAP_OPT_NOAUDIT)
+        return 0;
 
     // TODO: This should be implemented like the seccomp syscalls map.
     event_data_t * event =
@@ -292,7 +299,6 @@ int BPF_KPROBE(cap_capable)
 
         event->flags = cap;
 
-        bpf_printk("requesting capability: %i\n", cap);
         bpf_ringbuf_submit(event, 0);
     }
 
