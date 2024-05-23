@@ -18,7 +18,7 @@ package hashedrekord
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
+	"crypto"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -38,6 +38,7 @@ import (
 	"github.com/sigstore/rekor/pkg/pki/x509"
 	"github.com/sigstore/rekor/pkg/types"
 	hashedrekord "github.com/sigstore/rekor/pkg/types/hashedrekord"
+	"github.com/sigstore/rekor/pkg/util"
 	"github.com/sigstore/sigstore/pkg/signature/options"
 )
 
@@ -146,7 +147,7 @@ func (v *V001Entry) validate() (pki.Signature, pki.PublicKey, error) {
 		return nil, nil, types.ValidationError(errors.New("missing signature"))
 	}
 	// Hashed rekord type only works for x509 signature types
-	sigObj, err := x509.NewSignature(bytes.NewReader(sig.Content))
+	sigObj, err := x509.NewSignatureWithOpts(bytes.NewReader(sig.Content), options.WithED25519ph())
 	if err != nil {
 		return nil, nil, types.ValidationError(err)
 	}
@@ -158,11 +159,6 @@ func (v *V001Entry) validate() (pki.Signature, pki.PublicKey, error) {
 	keyObj, err := x509.NewPublicKey(bytes.NewReader(key.Content))
 	if err != nil {
 		return nil, nil, types.ValidationError(err)
-	}
-
-	_, isEd25519 := keyObj.CryptoPubKey().(ed25519.PublicKey)
-	if isEd25519 {
-		return nil, nil, types.ValidationError(errors.New("ed25519 unsupported for hashedrekord"))
 	}
 
 	data := v.HashedRekordObj.Data
@@ -178,15 +174,36 @@ func (v *V001Entry) validate() (pki.Signature, pki.PublicKey, error) {
 		return nil, nil, types.ValidationError(errors.New("invalid value for hash"))
 	}
 
+	var alg crypto.Hash
+	switch swag.StringValue(hash.Algorithm) {
+	case models.HashedrekordV001SchemaDataHashAlgorithmSha384:
+		alg = crypto.SHA384
+	case models.HashedrekordV001SchemaDataHashAlgorithmSha512:
+		alg = crypto.SHA512
+	default:
+		alg = crypto.SHA256
+	}
+
 	decoded, err := hex.DecodeString(*hash.Value)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := sigObj.Verify(nil, keyObj, options.WithDigest(decoded)); err != nil {
+	if err := sigObj.Verify(nil, keyObj, options.WithDigest(decoded), options.WithCryptoSignerOpts(alg)); err != nil {
 		return nil, nil, types.ValidationError(fmt.Errorf("verifying signature: %w", err))
 	}
 
 	return sigObj, keyObj, nil
+}
+
+func getDataHashAlgorithm(hashAlgorithm crypto.Hash) string {
+	switch hashAlgorithm {
+	case crypto.SHA384:
+		return models.HashedrekordV001SchemaDataHashAlgorithmSha384
+	case crypto.SHA512:
+		return models.HashedrekordV001SchemaDataHashAlgorithmSha512
+	default:
+		return models.HashedrekordV001SchemaDataHashAlgorithmSha256
+	}
 }
 
 func (v V001Entry) CreateFromArtifactProperties(_ context.Context, props types.ArtifactProperties) (models.ProposedEntry, error) {
@@ -230,10 +247,11 @@ func (v V001Entry) CreateFromArtifactProperties(_ context.Context, props types.A
 		return nil, errors.New("only one public key must be provided")
 	}
 
+	hashAlgorithm, hashValue := util.UnprefixSHA(props.ArtifactHash)
 	re.HashedRekordObj.Signature.PublicKey.Content = strfmt.Base64(publicKeyBytes[0])
 	re.HashedRekordObj.Data.Hash = &models.HashedrekordV001SchemaDataHash{
-		Algorithm: swag.String(models.HashedrekordV001SchemaDataHashAlgorithmSha256),
-		Value:     swag.String(props.ArtifactHash),
+		Algorithm: swag.String(getDataHashAlgorithm(hashAlgorithm)),
+		Value:     swag.String(hashValue),
 	}
 
 	if _, _, err := re.validate(); err != nil {
