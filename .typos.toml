@@ -23,7 +23,7 @@ extend-ignore-identifiers-re = []
 extend-ignore-re = [
     "(?i)aks",
     "ANDed",
-    "PT_REGS_PARM3",
+    "PT_REGS_PARM",
     "Mmaped",
     "ro",
 ]

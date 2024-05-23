@@ -93,10 +93,17 @@ func recordAppArmorTest(t *testing.T) {
 	t.Run("sockets", func(t *testing.T) {
 		profile := recordAppArmor(t, "--net-tcp")
 		require.True(t, *profile.Network.Protocols.AllowTCP)
+		require.Nil(t, profile.Capability)
 		profile = recordAppArmor(t, "--net-udp")
 		require.True(t, *profile.Network.Protocols.AllowUDP)
+		require.Nil(t, profile.Capability)
 		profile = recordAppArmor(t, "--net-icmp")
 		require.True(t, *profile.Network.AllowRaw)
+		require.Contains(t, profile.Capability.AllowedCapabilities, "net_raw")
+	})
+	t.Run("capabilities", func(t *testing.T) {
+		profile := recordAppArmor(t, "--cap-sys-admin")
+		require.Contains(t, profile.Capability.AllowedCapabilities, "sys_admin")
 	})
 
 	t.Run("subprocess", func(t *testing.T) {
