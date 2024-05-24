@@ -227,10 +227,14 @@ function check_spo_is_running() {
     done
 
     # wait a bit for CSV to appear
-    # (jhrozek): I didn't find a useful condition or status to wait for..
-    # ..if only there was a way to check if ANY installedCSV is set..
-    sleep 30
-    CSV=$(kubectl -n$ns get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}')
+    for i in $(seq 1 120); do
+        CSV=$(kubectl -n$ns get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}')
+        if [[ $CSV ]]; then
+            break
+        fi
+        sleep 1
+    done
+
     # wait for the CSV to be actually installed
     kubectl_wait -n$ns --for=jsonpath='{.status.phase}'=Succeeded csv $CSV
 
