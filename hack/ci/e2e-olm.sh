@@ -204,17 +204,33 @@ function deploy_spo() {
     kubectl create -f $manifests
 }
 
+function try_until_ok() {
+    local cmd="$1"
+    shift  # Remove the command from the argument list
+
+    # retry until it succeeds or until time is up
+    { set +x; } 2>/dev/null  # disable trace output while we retry
+    local end_time=$(($(date +%s) + 180))
+    while (( $(date +%s) < end_time )); do
+        local cmd_start_time=$(date +%s)
+        if "$cmd" "$@" 1>/dev/null 2>/dev/null; then
+            break
+        else
+            if (( $(date +%s) == $cmd_start_time )); then 
+                sleep 1
+            fi
+        fi
+    done
+    set -x
+
+    # run one final time with all output enabled
+    "$cmd" "$@"
+}
+
 function kubectl_wait() {
     # kubectl wait for non-existent resource seems to exit with error, which is causing random test failures.
     # see https://github.com/kubernetes/kubernetes/issues/83242
-    { set +ex; } 2>/dev/null
-    for i in $(seq 1 180); do
-        if kubectl wait --timeout 1s "$@" 1>/dev/null 2>&1; then
-            break
-        fi
-    done
-    set -ex
-    kubectl wait --timeout 1s "$@"
+    try_until_ok kubectl wait --timeout 1s "$@"
 }
 
 function check_spo_is_running() {
@@ -411,12 +427,10 @@ function check_spod_property() {
     what=$1
 
     for i in $(seq 1 5); do
-        kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what
-        found=$?
-        if [ $found -ne 0 ]; then
-            sleep 3
-        else
+        if kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what; then
             break
+        else
+            sleep 1
         fi
     done
 
