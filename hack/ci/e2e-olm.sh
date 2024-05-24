@@ -205,7 +205,16 @@ function deploy_spo() {
 }
 
 function kubectl_wait() {
-    kubectl wait --timeout 180s "$@"
+    # kubectl wait for non-existent resource seems to exit with error, which is causing random test failures.
+    # see https://github.com/kubernetes/kubernetes/issues/83242
+    { set +ex; } 2>/dev/null
+    for i in $(seq 1 180); do
+        if kubectl wait --timeout 1s "$@" 1>/dev/null 2>&1; then
+            break
+        fi
+    done
+    set -ex
+    kubectl wait --timeout 1s "$@"
 }
 
 function check_spo_is_running() {
@@ -241,28 +250,10 @@ function check_spo_is_running() {
     # wait for the operator to be ready
     kubectl_wait -n$ns --for=condition=ready pod -lname=security-profiles-operator || return 1
 
-    # wait for webhook deploy to be created, kubectl wait for non-existent resource seems to exit with error
-    # which is causing random test failure
-    # see https://github.com/kubernetes/kubernetes/issues/83242
-    for i in $(seq 1 10); do
-        found=$(kubectl_wait -n$ns --for=condition=ready pod -lname=security-profiles-operator-webhook 2>/dev/null)
-        if [[ $found ]]; then
-            break
-        fi
-        sleep 5
-    done
+    # wait for webhook deploy to be created
     kubectl_wait -n$ns --for=condition=ready pod -lname=security-profiles-operator-webhook || return 1
 
-    # wait for spod pod to be created, kubectl wait for non-existent resource seems to exit with error
-    # which is causing random test failure
-    # see https://github.com/kubernetes/kubernetes/issues/83242
-    for i in $(seq 1 10); do
-        found=$(kubectl get -n$ns pods -lname=spod 2>/dev/null)
-        if [[ $found ]]; then
-            break
-        fi
-        sleep 5
-    done
+    # wait for spod pod to be created
     kubectl_wait -n$ns --for=condition=ready pod -lname=spod || return 1
 
     return 0
