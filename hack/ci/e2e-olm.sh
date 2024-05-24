@@ -205,24 +205,24 @@ function deploy_spo() {
 }
 
 function try_until_ok() {
+    { set +x; } 2>/dev/null  # disable trace output temporarily
+
     local cmd="$1"
     shift  # Remove the command from the argument list
 
     # retry until it succeeds or until time is up
-    { set +x; } 2>/dev/null  # disable trace output while we retry
     local end_time=$(($(date +%s) + 180))
     while (( $(date +%s) < end_time )); do
         local cmd_start_time=$(date +%s)
         if "$cmd" "$@" 1>/dev/null 2>/dev/null; then
             break
-        else
-            if (( $(date +%s) == $cmd_start_time )); then 
-                sleep 1
-            fi
+        fi
+        if (( $(date +%s) == $cmd_start_time )); then
+            sleep 1
         fi
     done
-    set -x
 
+    set -x
     # run one final time with all output enabled
     "$cmd" "$@"
 }
@@ -252,13 +252,7 @@ function check_spo_is_running() {
     done
 
     # wait a bit for CSV to appear
-    for i in $(seq 1 120); do
-        CSV=$(kubectl -n$ns get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}')
-        if [[ $CSV ]]; then
-            break
-        fi
-        sleep 1
-    done
+    CSV=$(try_until_ok kubectl -n$ns get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}')
 
     # wait for the CSV to be actually installed
     kubectl_wait -n$ns --for=jsonpath='{.status.phase}'=Succeeded csv $CSV
@@ -425,16 +419,7 @@ function teardown_spo() {
 
 function check_spod_property() {
     what=$1
-
-    for i in $(seq 1 5); do
-        if kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what; then
-            break
-        else
-            sleep 1
-        fi
-    done
-
-    kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what || return 1
+    try_until_ok kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what
 }
 
 # The actual script begins here
@@ -471,13 +456,13 @@ teardown_spo custom
 echo "Testing SPO deployment with ENABLE_LOG_ENRICHER"
 deploy_spo_with_variable ENABLE_LOG_ENRICHER || rv=1
 check_spo_is_running security-profiles-operator || rv=1
-check_spod_property with-recording=true
+check_spod_property with-recording=true || rv=1
 teardown_spo ENABLE_LOG_ENRICHER
 
 echo "Testing SPO deployment with ENABLE_BPF_RECORDER"
 deploy_spo_with_variable ENABLE_BPF_RECORDER || rv=1
 check_spo_is_running security-profiles-operator || rv=1
-check_spod_property with-recording=true
+check_spod_property with-recording=true || rv=1
 teardown_spo ENABLE_BPF_RECORDER
 
 exit $rv
