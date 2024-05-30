@@ -277,6 +277,3 @@ require (
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 )
-
-// TODO: Update to latest release when UBI supports go 1.21
-replace github.com/buildkite/agent/v3 => github.com/buildkite/agent/v3 v3.59.0
