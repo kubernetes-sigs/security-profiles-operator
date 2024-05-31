@@ -55,6 +55,7 @@ func ServiceMonitor(caInjectType CAInjectType) *v1.ServiceMonitor {
 
 // endpointFor provides a standard endpoint for the given URL path.
 func endpointFor(path string, caInjectType CAInjectType) v1.Endpoint {
+	serverName := fmt.Sprintf("metrics.%s.svc", config.GetOperatorNamespace())
 	ep := v1.Endpoint{
 		Path:     path,
 		Interval: "10s",
@@ -68,7 +69,7 @@ func endpointFor(path string, caInjectType CAInjectType) v1.Endpoint {
 		},
 		TLSConfig: &v1.TLSConfig{
 			SafeTLSConfig: v1.SafeTLSConfig{
-				ServerName: fmt.Sprintf("metrics.%s.svc", config.GetOperatorNamespace()),
+				ServerName: &serverName,
 				CA: v1.SecretOrConfigMap{
 					Secret: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
@@ -85,7 +86,7 @@ func endpointFor(path string, caInjectType CAInjectType) v1.Endpoint {
 		ep.TLSConfig = &v1.TLSConfig{
 			CAFile: "/etc/prometheus/configmaps/serving-certs-ca-bundle/service-ca.crt",
 			SafeTLSConfig: v1.SafeTLSConfig{
-				ServerName: fmt.Sprintf("metrics.%s.svc", config.GetOperatorNamespace()),
+				ServerName: &serverName,
 			},
 		}
 	}
