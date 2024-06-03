@@ -186,7 +186,7 @@ dependencies:
       match: BOM_VERSION
 
   - name: spo-current
-    version: 0.8.4-dev
+    version: 0.8.4
     refPaths:
     - path: VERSION
       match: ^.*

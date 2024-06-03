@@ -2,5 +2,5 @@ apiVersion: v2
 name: security-profiles-operator
 description: "The Kubernetes Security Profiles Operator."
 type: application
-version: "0.8.4-dev"
-appVersion: "0.8.4-dev"
+version: "0.8.4"
+appVersion: "0.8.4"
