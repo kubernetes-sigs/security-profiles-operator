@@ -71,7 +71,7 @@ tool](https://github.com/kubernetes/release/tree/master/cmd/release-notes).
 Run `make nix-spoc` and attach the results from the `build` directory to the
 GitHub release.
 
-After that, another PR against this repository has to be created, which:
+After that, run the `./hack/back-to-dev.sh` script, which will:
 
 - bumps the [`VERSION`](VERSION) file to the next minor version, but now including the
   suffix `-dev`, for example `1.0.0-dev`.
