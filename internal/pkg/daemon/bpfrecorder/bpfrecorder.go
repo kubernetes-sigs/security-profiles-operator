@@ -312,10 +312,65 @@ func (b *BpfRecorder) SyscallsForProfile(
 		return nil, errors.New("bpf recorder not running")
 	}
 	if b.Seccomp == nil {
-		return nil, errors.New("not recording seccomp profiles")
+		return nil, errors.New("not seccomp profiles recording running")
 	}
 	b.logger.Info("Getting syscalls for profile " + r.Name)
 
+	mntns, err := b.getMntnsForProfileWithRetry(r.Name)
+	if err != nil {
+		return nil, err
+	}
+	b.loadUnloadMutex.RLock()
+	syscalls, err := b.Seccomp.PopSyscalls(b, mntns)
+	b.loadUnloadMutex.RUnlock()
+	if err != nil {
+		b.logger.Error(err, "Failed to get syscalls for mntns", "mntns", mntns)
+		return nil, err
+	}
+
+	return &api.SyscallsResponse{
+		Syscalls: syscalls,
+		GoArch:   runtime.GOARCH,
+	}, nil
+}
+
+func (b *BpfRecorder) ApparmorForProfile(
+	_ context.Context, r *api.ProfileRequest,
+) (*api.ApparmorResponse, error) {
+
+	if b.startRequests == 0 {
+		return nil, errors.New("bpf recorder not running")
+	}
+	if b.AppArmor == nil {
+		return nil, errors.New("no apparmor profiles recording running")
+	}
+	b.logger.Info("Getting apparmor profile for profile " + r.Name)
+
+	mntns, err := b.getMntnsForProfileWithRetry(r.Name)
+	if err != nil {
+		return nil, err
+	}
+	b.loadUnloadMutex.RLock()
+	apparmor := b.AppArmor.GetAppArmorProcessed(mntns)
+	b.loadUnloadMutex.RUnlock()
+	return &api.ApparmorResponse{
+		Files: &api.ApparmorResponse_Files{
+			AllowedExecutables: apparmor.FileProcessed.AllowedExecutables,
+			AllowedLibraries:   apparmor.FileProcessed.AllowedLibraries,
+			ReadonlyPaths:      apparmor.FileProcessed.ReadOnlyPaths,
+			WriteonlyPaths:     apparmor.FileProcessed.WriteOnlyPaths,
+			ReadwritePaths:     apparmor.FileProcessed.ReadWritePaths,
+		},
+		Capabilities: apparmor.Capabilities,
+		Socket: &api.ApparmorResponse_Socket{
+			UseRaw: apparmor.Socket.UseRaw,
+			UseTcp: apparmor.Socket.UseTCP,
+			UseUdp: apparmor.Socket.UseUDP,
+		},
+	}, nil
+}
+
+func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error) {
 	// There is a chance to miss the PID if concurrent processes are being
 	// analyzed. If we request the `SyscallsForProfile` exactly between two
 	// events, while the first one is from a different recording container and
@@ -329,35 +384,18 @@ func (b *BpfRecorder) SyscallsForProfile(
 	if err := util.Retry(
 		func() error {
 			try++
-			b.logger.Info("Looking up mount namespace for profile", "try", try, "profile", r.Name)
-
-			if foundMntns, ok := b.getMntnsForProfile(r.Name); ok {
+			b.logger.Info("Looking up mount namespace for profile", "profile", profile, "try", try)
+			if foundMntns, ok := b.getMntnsForProfile(profile); ok {
 				mntns = foundMntns
-				b.logger.Info("Found mount namespace for profile", "mntns", mntns, "profile", r.Name)
-				b.deleteContainerIDFromCache(r.Name)
-				return nil
 			}
-
-			b.logger.Info("No mount namespace found for profile", "profile", r.Name)
+			b.logger.Info("No mount namespace found for profile", "profile", profile)
 			return ErrNotFound
 		},
 		func(error) bool { return true },
 	); err != nil {
-		return nil, ErrNotFound
+		return mntns, ErrNotFound
 	}
-
-	b.loadUnloadMutex.RLock()
-	syscalls, err := b.Seccomp.PopSyscalls(b, mntns)
-	b.loadUnloadMutex.RUnlock()
-	if err != nil {
-		b.logger.Error(err, "Failed to get syscalls for mntns", "mntns", mntns)
-		return nil, err
-	}
-
-	return &api.SyscallsResponse{
-		Syscalls: syscalls,
-		GoArch:   runtime.GOARCH,
-	}, nil
+	return mntns, nil
 }
 
 func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {

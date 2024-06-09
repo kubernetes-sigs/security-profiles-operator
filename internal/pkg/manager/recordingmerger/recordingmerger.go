@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
@@ -126,6 +127,8 @@ func (r *PolicyMergeReconciler) mergeProfiles(
 		err = r.mergeSeccompProfiles(ctx, profileRecording)
 	case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
 		err = r.mergeSelinuxProfiles(ctx, profileRecording)
+	case profilerecording1alpha1.ProfileRecordingKindAppArmorProfile:
+		err = r.mergeAppArmorProfiles(ctx, profileRecording)
 	default:
 		err = fmt.Errorf("%s: %s", errCannotMergeKind, profileRecording.Spec.Kind)
 		r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotMergeKind, err.Error())
@@ -202,31 +205,6 @@ func (r *PolicyMergeReconciler) mergeSeccompProfiles(
 		&seccompprofile.SeccompProfileList{})
 }
 
-func createUpdateSeccompProfile(
-	ctx context.Context,
-	cl client.Client,
-	profileRecording *profilerecording1alpha1.ProfileRecording,
-	mergedRecordingName string,
-	mergedProfiles mergeableProfile,
-) (controllerutil.OperationResult, error) {
-	mergedSp := &seccompprofile.SeccompProfile{
-		ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
-	}
-
-	mergedProf, ok := mergedProfiles.getProfile().(*seccompprofile.SeccompProfile)
-	if !ok {
-		return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SeccompProfile")
-	}
-	mergedSpec := mergedProf.Spec.DeepCopy()
-	mergedSp.Spec = *mergedSpec
-	return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
-		func() error {
-			mergedSp.Spec = *mergedSpec
-			return nil
-		},
-	)
-}
-
 func (r *PolicyMergeReconciler) mergeSelinuxProfiles(
 	ctx context.Context,
 	profileRecording *profilerecording1alpha1.ProfileRecording,
@@ -239,6 +217,36 @@ func (r *PolicyMergeReconciler) mergeSelinuxProfiles(
 		&selinuxprofileapi.SelinuxProfileList{})
 }
 
+func (r *PolicyMergeReconciler) mergeAppArmorProfiles(
+	ctx context.Context,
+	profileRecording *profilerecording1alpha1.ProfileRecording,
+) error {
+	return r.mergeTypedProfiles(
+		ctx,
+		profileRecording,
+		createUpdateApparmorProfile,
+		&apparmorprofileapi.AppArmorProfile{},
+		&apparmorprofileapi.AppArmorProfileList{},
+	)
+}
+
+func createUpdateSeccompProfile(
+	ctx context.Context,
+	cl client.Client,
+	profileRecording *profilerecording1alpha1.ProfileRecording,
+	mergedRecordingName string,
+	mergedProfiles mergeableProfile,
+) (controllerutil.OperationResult, error) {
+	return createUpdateProfile(
+		ctx,
+		cl,
+		profileRecording,
+		mergedRecordingName,
+		mergedProfiles,
+		profilerecording1alpha1.ProfileRecordingKindSeccompProfile,
+	)
+}
+
 func createUpdateSelinuxProfile(
 	ctx context.Context,
 	cl client.Client,
@@ -246,21 +254,94 @@ func createUpdateSelinuxProfile(
 	mergedRecordingName string,
 	mergedProfiles mergeableProfile,
 ) (controllerutil.OperationResult, error) {
-	mergedSp := &selinuxprofileapi.SelinuxProfile{
-		ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
-	}
-
-	mergedProf, ok := mergedProfiles.getProfile().(*selinuxprofileapi.SelinuxProfile)
-	if !ok {
-		return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SelinuxProfile")
-	}
-
-	mergedSpec := mergedProf.Spec.DeepCopy()
-	mergedSp.Spec = *mergedSpec
-	return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
-		func() error {
-			mergedSp.Spec = *mergedSpec
-			return nil
-		},
+	return createUpdateProfile(
+		ctx,
+		cl,
+		profileRecording,
+		mergedRecordingName,
+		mergedProfiles,
+		profilerecording1alpha1.ProfileRecordingKindSelinuxProfile,
 	)
+}
+
+func createUpdateApparmorProfile(
+	ctx context.Context,
+	cl client.Client,
+	profileRecording *profilerecording1alpha1.ProfileRecording,
+	mergedRecordingName string,
+	mergedProfiles mergeableProfile,
+) (controllerutil.OperationResult, error) {
+	return createUpdateProfile(
+		ctx,
+		cl,
+		profileRecording,
+		mergedRecordingName,
+		mergedProfiles,
+		profilerecording1alpha1.ProfileRecordingKindAppArmorProfile,
+	)
+}
+
+func createUpdateProfile(
+	ctx context.Context,
+	cl client.Client,
+	profileRecording *profilerecording1alpha1.ProfileRecording,
+	mergedRecordingName string,
+	mergedProfiles mergeableProfile,
+	kind profilerecording1alpha1.ProfileRecordingKind,
+) (controllerutil.OperationResult, error) {
+	switch kind {
+	case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
+		mergedSp := &seccompprofile.SeccompProfile{
+			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
+		}
+
+		mergedProf, ok := mergedProfiles.getProfile().(*seccompprofile.SeccompProfile)
+		if !ok {
+			return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SeccompProfile")
+		}
+		mergedSpec := mergedProf.Spec.DeepCopy()
+		mergedSp.Spec = *mergedSpec
+		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
+			func() error {
+				mergedSp.Spec = *mergedSpec
+				return nil
+			},
+		)
+
+	case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
+		mergedSp := &selinuxprofileapi.SelinuxProfile{
+			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
+		}
+		mergedProf, ok := mergedProfiles.getProfile().(*selinuxprofileapi.SelinuxProfile)
+		if !ok {
+			return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SelinuxProfile")
+		}
+		mergedSpec := mergedProf.Spec.DeepCopy()
+		mergedSp.Spec = *mergedSpec
+		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
+			func() error {
+				mergedSp.Spec = *mergedSpec
+				return nil
+			},
+		)
+	case profilerecording1alpha1.ProfileRecordingKindAppArmorProfile:
+		mergedSp := &apparmorprofileapi.AppArmorProfile{
+			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
+		}
+		mergedProf, ok := mergedProfiles.getProfile().(*apparmorprofileapi.AppArmorProfile)
+		if !ok {
+			return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to AppArmorProfile")
+		}
+		mergedSpec := mergedProf.Spec.DeepCopy()
+		mergedSp.Spec = *mergedSpec
+		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
+			func() error {
+				mergedSp.Spec = *mergedSpec
+				return nil
+			},
+		)
+	default:
+		return controllerutil.OperationResultNone, nil
+	}
+
 }

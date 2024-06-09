@@ -128,7 +128,7 @@ func (r *Recorder) Run() error {
 	defer file.Close()
 
 	if recordAppArmor {
-		if err := r.processAppArmor(file); err != nil {
+		if err := r.processAppArmor(file, mntns); err != nil {
 			return fmt.Errorf("build apparmor profile: %w", err)
 		}
 	}
@@ -206,8 +206,8 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 	return nil
 }
 
-func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract {
-	processed := r.bpfRecorder.AppArmor.GetAppArmorProcessed()
+func (r *Recorder) generateAppArmorProfile(mntns uint32) apparmorprofileapi.AppArmorAbstract {
+	processed := r.bpfRecorder.AppArmor.GetAppArmorProcessed(mntns)
 
 	abstract := apparmorprofileapi.AppArmorAbstract{}
 	enabled := true
@@ -279,8 +279,8 @@ func (r *Recorder) generateAppArmorProfile() apparmorprofileapi.AppArmorAbstract
 	return abstract
 }
 
-func (r *Recorder) processAppArmor(writer io.Writer) error {
-	abstract := r.generateAppArmorProfile()
+func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
+	abstract := r.generateAppArmorProfile(mntns)
 	spec := apparmorprofileapi.AppArmorProfileSpec{
 		Abstract: abstract,
 	}
@@ -384,7 +384,7 @@ func (r *Recorder) buildAppArmorProfileCRD(writer io.Writer, spec *apparmorprofi
 
 	if r.options.typ == TypeAll {
 		if _, err := writer.Write([]byte("\n---\n")); err != nil {
-			return fmt.Errorf("write combined prifle: %w", err)
+			return fmt.Errorf("write combined profile: %w", err)
 		}
 	}
 	return nil

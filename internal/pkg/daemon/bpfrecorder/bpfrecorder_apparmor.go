@@ -54,17 +54,24 @@ var appArmorHooks = []string{
 
 var pathWithPid *regexp.Regexp = regexp.MustCompile(`^/proc/\d+/`)
 
+// mntnsID is a unique identifier for a group of processes usually running in a container
+// Note: on a host running concurrent containers, there will be multiple process running with
+// the same PID but they are assigned to different mntns since  they run in different containers.
+// Therefore, in oder to have unique apparmor profiles, each profile should be recorded using
+// mntns + pid as a key identifier.
+type mntnsID uint32
+
 type AppArmorRecorder struct {
 	logger      logr.Logger
 	programName string
 
-	recordedSocketsUse     BpfAppArmorSocketTypes
+	recordedSocketsUse     map[mntnsID]*BpfAppArmorSocketTypes
 	lockRecordedSocketsUse sync.Mutex
 
-	recordedCapabilities     []int
+	recordedCapabilities     map[mntnsID][]int
 	lockRecordedCapabilities sync.Mutex
 
-	recordedFiles     map[string]*fileAccess
+	recordedFiles     map[mntnsID]map[string]*fileAccess
 	lockRecordedFiles sync.Mutex
 }
 
@@ -99,11 +106,11 @@ func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecord
 	return &AppArmorRecorder{
 		logger:                   logger,
 		programName:              programName,
-		recordedSocketsUse:       BpfAppArmorSocketTypes{},
+		recordedSocketsUse:       map[mntnsID]*BpfAppArmorSocketTypes{},
 		lockRecordedSocketsUse:   sync.Mutex{},
-		recordedCapabilities:     make([]int, 0),
+		recordedCapabilities:     map[mntnsID][]int{},
 		lockRecordedCapabilities: sync.Mutex{},
-		recordedFiles:            make(map[string]*fileAccess),
+		recordedFiles:            map[mntnsID]map[string]*fileAccess{},
 		lockRecordedFiles:        sync.Mutex{},
 	}
 }
@@ -131,10 +138,15 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 
 	log.Printf("File access: %s, flags=%d pid=%d mntns=%d\n", fileName, fileEvent.Flags, fileEvent.Pid, fileEvent.Mntns)
 
-	path, ok := b.recordedFiles[fileName]
+	mid := mntnsID(fileEvent.Mntns)
+	if _, ok := b.recordedFiles[mid]; !ok {
+		b.recordedFiles[mid] = map[string]*fileAccess{}
+	}
+
+	path, ok := b.recordedFiles[mid][fileName]
 	if !ok {
 		path = &fileAccess{}
-		b.recordedFiles[fileName] = path
+		b.recordedFiles[mid][fileName] = path
 	}
 
 	path.read = path.read || ((fileEvent.Flags & flagRead) > 0)
@@ -147,14 +159,18 @@ func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
 
+	mid := mntnsID(socketEvent.Mntns)
+	if _, ok := b.recordedSocketsUse[mid]; !ok {
+		b.recordedSocketsUse[mid] = &BpfAppArmorSocketTypes{}
+	}
 	socketType := socketEvent.Flags & sockTypeMask
 	switch socketType {
 	case sockRaw:
-		b.recordedSocketsUse.UseRaw = true
+		b.recordedSocketsUse[mid].UseRaw = true
 	case sockStream:
-		b.recordedSocketsUse.UseTCP = true
+		b.recordedSocketsUse[mid].UseTCP = true
 	case sockDgram:
-		b.recordedSocketsUse.UseUDP = true
+		b.recordedSocketsUse[mid].UseUDP = true
 	}
 }
 
@@ -162,9 +178,13 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 	b.lockRecordedCapabilities.Lock()
 	defer b.lockRecordedCapabilities.Unlock()
 
-	requestedCap := int(capEvent.Flags)
+	mid := mntnsID(capEvent.Mntns)
+	if _, ok := b.recordedCapabilities[mid]; !ok {
+		b.recordedCapabilities[mid] = []int{}
+	}
 
-	for _, recordedCap := range b.recordedCapabilities {
+	requestedCap := int(capEvent.Flags)
+	for _, recordedCap := range b.recordedCapabilities[mid] {
 		if recordedCap == requestedCap {
 			return
 		}
@@ -176,26 +196,32 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 		capEvent.Pid,
 		capEvent.Mntns,
 	)
-	b.recordedCapabilities = append(b.recordedCapabilities, requestedCap)
+	b.recordedCapabilities[mid] = append(b.recordedCapabilities[mid], requestedCap)
 }
-
-func (b *AppArmorRecorder) GetAppArmorProcessed() BpfAppArmorProcessed {
+func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcessed {
 	var processed BpfAppArmorProcessed
 
-	processed.FileProcessed = b.processExecFsEvents()
-	processed.Socket = b.recordedSocketsUse
-	processed.Capabilities = b.processCapabilities()
+	mid := mntnsID(mntns)
+	processed.FileProcessed = b.processExecFsEvents(mid)
+	if sockets, ok := b.recordedSocketsUse[mid]; ok && sockets != nil {
+		processed.Socket = *b.recordedSocketsUse[mid]
+	}
+	processed.Capabilities = b.processCapabilities(mid)
 
 	return processed
 }
 
-func (b *AppArmorRecorder) processExecFsEvents() BpfAppArmorFileProcessed {
+func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProcessed {
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
 
 	var processedEvents BpfAppArmorFileProcessed
 
-	for fileName, access := range b.recordedFiles {
+	if _, ok := b.recordedFiles[mid]; !ok {
+		return processedEvents
+	}
+
+	for fileName, access := range b.recordedFiles[mid] {
 		fileName = filepath.Clean(fileName)
 		fileName = pathWithPid.ReplaceAllString(fileName, "/proc/@{pid}/")
 
@@ -234,9 +260,12 @@ func (b *AppArmorRecorder) processExecFsEvents() BpfAppArmorFileProcessed {
 	return processedEvents
 }
 
-func (b *AppArmorRecorder) processCapabilities() []string {
-	ret := make([]string, 0, len(b.recordedCapabilities))
-	for _, capID := range b.recordedCapabilities {
+func (b *AppArmorRecorder) processCapabilities(mid mntnsID) []string {
+	if _, ok := b.recordedCapabilities[mid]; !ok {
+		return []string{}
+	}
+	ret := make([]string, 0, len(b.recordedCapabilities[mid]))
+	for _, capID := range b.recordedCapabilities[mid] {
 		ret = append(ret, capabilityToString(capID))
 	}
 	slices.Sort(ret)

@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	bpfrecorderapi "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	enricherapi "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
@@ -449,6 +450,8 @@ func (r *RecorderReconciler) collectLogProfiles(
 			err = r.collectLogSeccompProfile(ctx, enricherClient, parsedProfileAnnotation, profileNamespacedName, prf.name)
 		case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
 			err = r.collectLogSelinuxProfile(ctx, enricherClient, parsedProfileAnnotation, profileNamespacedName, prf.name)
+		case profilerecording1alpha1.ProfileRecordingKindAppArmorProfile:
+			err = fmt.Errorf("log recorder doesn't support apparmor profile recording")
 		default:
 			err = fmt.Errorf("unrecognized kind %s", prf.kind)
 		}
@@ -681,8 +684,8 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	}
 	defer cancel()
 
-	for _, profile := range profiles {
-		parsedProfileName, err := parseProfileAnnotation(profile.name)
+	for _, profileToCollect := range profiles {
+		parsedProfileName, err := parseProfileAnnotation(profileToCollect.name)
 		if err != nil {
 			return fmt.Errorf("parse profile raw annotation: %w", err)
 		}
@@ -709,72 +712,271 @@ func (r *RecorderReconciler) collectBpfProfiles(
 			return fmt.Errorf("setting finalizer on profilerecording: %w", err)
 		}
 
-		r.log.Info("Collecting BPF profile", "name", profile.name, "kind", profile.kind)
-		response, err := r.SyscallsForProfile(
-			ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profile.name},
-		)
-		if err != nil {
-			// Recording was not found for this profile, this might be an init container
-			// which is not longer active. Let's skip here and keep processing the
-			// next profile.
-			if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
-				r.log.Error(err, "Recorded profile not found", "name", profile.name)
+		r.log.Info("Collecting BPF profile", "name", profileToCollect.name, "kind", profileToCollect.kind)
+
+		switch profileToCollect.kind {
+		case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
+			profile, err := r.collectSeccompBpfProfile(ctx, recorderClient, &profileToCollect, profileNamespacedName, labels)
+			if err != nil {
+				return fmt.Errorf("collecting seccomp profile %s: %w", profileToCollect.name, err)
+			}
+			// Skip empty profiles
+			if profile == nil {
 				continue
 			}
-			return fmt.Errorf("get syscalls for profile: %w", err)
+			err = r.updateOrCreateSeccompResource(ctx, profileNamespacedName, profile)
+			if err != nil {
+				return fmt.Errorf("creating/updating seccomp profile %s: %s", profileToCollect.name, err)
+			}
+		case profilerecording1alpha1.ProfileRecordingKindAppArmorProfile:
+			profile, err := r.collectApparmorBpfProfile(ctx, recorderClient, &profileToCollect, profileNamespacedName, labels)
+			if err != nil {
+				return fmt.Errorf("collecting seccomp profile %s: %w", profileToCollect.name, err)
+			}
+			// Skip empty profiles
+			if profile == nil {
+				continue
+			}
+			err = r.updateOrCreateApparmorResource(ctx, profileNamespacedName, profile)
+			if err != nil {
+				return fmt.Errorf("creating/updating seccomp profile %s: %s", profileToCollect.name, err)
+			}
+		default:
+			r.log.Info("Profile kind not supported by BPF recoder", "name", profileToCollect.name, "kind", profileToCollect.kind)
+			continue
 		}
-
-		arch, err := r.goArchToSeccompArch(response.GoArch)
-		if err != nil {
-			return fmt.Errorf("get seccomp arch: %w", err)
-		}
-
-		profileSpec := seccompprofileapi.SeccompProfileSpec{
-			DefaultAction: seccomp.ActErrno,
-			Architectures: []seccompprofileapi.Arch{arch},
-			Syscalls: []*seccompprofileapi.Syscall{{
-				Action: seccomp.ActAllow,
-				Names:  response.GetSyscalls(),
-			}},
-		}
-
-		profile := &seccompprofileapi.SeccompProfile{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      profileNamespacedName.Name,
-				Namespace: profileNamespacedName.Namespace,
-				Labels:    labels,
-			},
-			Spec: profileSpec,
-		}
-
-		if err := r.setDisabled(ctx, r.client,
-			parsedProfileName.profileName, profileNamespacedName.Namespace,
-			&profileSpec.SpecBase); err != nil {
-			r.log.Error(err, "Cannot set the enabled flag")
-			r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
-			return fmt.Errorf("format selinuxprofile resource: %w", err)
-		}
-
-		res, err := r.CreateOrUpdate(ctx, r.client, profile,
-			func() error {
-				profile.Spec = profileSpec
-				return nil
-			},
-		)
-		if err != nil {
-			r.log.Error(err, "Cannot create seccompprofile resource")
-			r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
-			return fmt.Errorf("create seccompProfile resource: %w", err)
-		}
-
-		r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName)
-		r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
 	}
 
 	if err := r.stopBpfRecorder(ctx); err != nil {
 		r.log.Error(err, "Unable to stop bpf recorder")
 		return fmt.Errorf("stop bpf recorder: %w", err)
 	}
+	return nil
+}
+
+func (r *RecorderReconciler) collectSeccompBpfProfile(
+	ctx context.Context,
+	client bpfrecorderapi.BpfRecorderClient,
+	profileToCollect *profileToCollect,
+	profileNamespacedName types.NamespacedName,
+	profileLabels map[string]string) (*seccompprofileapi.SeccompProfile, error) {
+
+	response, err := r.SyscallsForProfile(
+		ctx, client, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
+	)
+
+	if err != nil {
+		// Recording was not found for this profile, this might be an init container
+		// which is not longer active. Let's skip here and keep processing the
+		// next profile.
+		if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
+			r.log.Error(err, "Recorded profile not found", "name", profileToCollect.name)
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getting syscalls for profile: %w", err)
+	}
+
+	arch, err := r.goArchToSeccompArch(response.GoArch)
+	if err != nil {
+		return nil, fmt.Errorf("getting seccomp arch: %w", err)
+	}
+
+	profileSpec := seccompprofileapi.SeccompProfileSpec{
+		DefaultAction: seccomp.ActErrno,
+		Architectures: []seccompprofileapi.Arch{arch},
+		Syscalls: []*seccompprofileapi.Syscall{{
+			Action: seccomp.ActAllow,
+			Names:  response.GetSyscalls(),
+		}},
+	}
+
+	profile := &seccompprofileapi.SeccompProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      profileNamespacedName.Name,
+			Namespace: profileNamespacedName.Namespace,
+			Labels:    profileLabels,
+		},
+		Spec: profileSpec,
+	}
+
+	return profile, nil
+}
+
+func (r *RecorderReconciler) updateOrCreateSeccompResource(
+	ctx context.Context,
+	profileNamespacedName types.NamespacedName,
+	profile *seccompprofileapi.SeccompProfile) error {
+
+	if err := r.setDisabled(ctx, r.client,
+		profileNamespacedName.Name, profileNamespacedName.Namespace,
+		&profile.Spec.SpecBase); err != nil {
+
+		r.log.Error(err, "Cannot set the disable flag on profile",
+			"name", profileNamespacedName.Name,
+			"namespace", profileNamespacedName.Namespace,
+		)
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		return fmt.Errorf("disabling profile after recording: %w", err)
+	}
+
+	profileSpec := profile.Spec
+	res, err := r.CreateOrUpdate(ctx, r.client, profile,
+		func() error {
+			profile.Spec = profileSpec
+			return nil
+		},
+	)
+	if err != nil {
+		r.log.Error(err, "Cannot create profile resource")
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		return fmt.Errorf("creating profile resource: %w", err)
+	}
+
+	r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName)
+	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
+	return nil
+}
+
+func (r *RecorderReconciler) collectApparmorBpfProfile(
+	ctx context.Context,
+	client bpfrecorderapi.BpfRecorderClient,
+	profileToCollect *profileToCollect,
+	profileNamespacedName types.NamespacedName,
+	profileLabels map[string]string) (*apparmorprofileapi.AppArmorProfile, error) {
+
+	response, err := r.ApparmorForProfile(
+		ctx, client, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
+	)
+
+	if err != nil {
+		// Recording was not found for this profile, this might be an init container
+		// which is not longer active. Let's skip here and keep processing the
+		// next profile.
+		if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
+			r.log.Error(err, "Recorded profile not found", "name", profileToCollect.name)
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getting syscalls for profile: %w", err)
+	}
+
+	spec := apparmorprofileapi.AppArmorProfileSpec{
+		Abstract: r.generateAppArmorProfileAbstract(response),
+	}
+
+	profile := &apparmorprofileapi.AppArmorProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      profileNamespacedName.Name,
+			Namespace: profileNamespacedName.Namespace,
+			Labels:    profileLabels,
+		},
+		Spec: spec,
+	}
+
+	return profile, nil
+}
+
+func (r *RecorderReconciler) generateAppArmorProfileAbstract(response *bpfrecorderapi.ApparmorResponse) apparmorprofileapi.AppArmorAbstract {
+	abstract := apparmorprofileapi.AppArmorAbstract{}
+	enabled := true
+	if len(response.Files.AllowedExecutables) != 0 || len(response.Files.AllowedLibraries) != 0 {
+		abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
+		if len(response.Files.AllowedExecutables) != 0 {
+			sort.Strings(response.Files.AllowedExecutables)
+			ExecutableAllowedExecCopy := make([]string, len(response.Files.AllowedExecutables))
+			copy(ExecutableAllowedExecCopy, response.Files.AllowedExecutables)
+			abstract.Executable.AllowedExecutables = &ExecutableAllowedExecCopy
+		}
+		if len(response.Files.AllowedLibraries) != 0 {
+			sort.Strings(response.Files.AllowedLibraries)
+			ExecutableAllowedLibCopy := make([]string, len(response.Files.AllowedLibraries))
+			copy(ExecutableAllowedLibCopy, response.Files.AllowedLibraries)
+			abstract.Executable.AllowedLibraries = &ExecutableAllowedLibCopy
+		}
+	}
+	if (len(response.Files.ReadonlyPaths) != 0) ||
+		(len(response.Files.WriteonlyPaths) != 0) ||
+		(len(response.Files.ReadwritePaths) != 0) {
+		files := apparmorprofileapi.AppArmorFsRules{}
+		if len(response.Files.ReadonlyPaths) != 0 {
+			sort.Strings(response.Files.ReadonlyPaths)
+			FileReadOnlyCopy := make([]string, len(response.Files.ReadonlyPaths))
+			copy(FileReadOnlyCopy, response.Files.ReadonlyPaths)
+			files.ReadOnlyPaths = &FileReadOnlyCopy
+		}
+		if len(response.Files.WriteonlyPaths) != 0 {
+			sort.Strings(response.Files.WriteonlyPaths)
+			FileWriteOnlyCopy := make([]string, len(response.Files.WriteonlyPaths))
+			copy(FileWriteOnlyCopy, response.Files.WriteonlyPaths)
+			files.WriteOnlyPaths = &FileWriteOnlyCopy
+		}
+		if len(response.Files.ReadwritePaths) != 0 {
+			sort.Strings(response.Files.ReadwritePaths)
+			FileReadWriteCopy := make([]string, len(response.Files.ReadwritePaths))
+			copy(FileReadWriteCopy, response.Files.ReadwritePaths)
+			files.ReadWritePaths = &FileReadWriteCopy
+		}
+		abstract.Filesystem = &files
+	}
+
+	if response.Socket.UseRaw || response.Socket.UseTcp || response.Socket.UseUdp {
+		net := apparmorprofileapi.AppArmorNetworkRules{}
+		proto := apparmorprofileapi.AppArmorAllowedProtocols{}
+		if response.Socket.UseRaw {
+			net.AllowRaw = &enabled
+		}
+		if response.Socket.UseTcp {
+			proto.AllowTCP = &enabled
+			net.Protocols = &proto
+		}
+		if response.Socket.UseTcp {
+			proto.AllowUDP = &enabled
+			net.Protocols = &proto
+		}
+		abstract.Network = &net
+	}
+
+	if len(response.Capabilities) != 0 {
+		capabilities := apparmorprofileapi.AppArmorCapabilityRules{}
+		capabilities.AllowedCapabilities = response.Capabilities
+		abstract.Capability = &capabilities
+	}
+
+	return abstract
+
+}
+
+func (r *RecorderReconciler) updateOrCreateApparmorResource(
+	ctx context.Context,
+	profileNamespacedName types.NamespacedName,
+	profile *apparmorprofileapi.AppArmorProfile) error {
+
+	if err := r.setDisabled(ctx, r.client,
+		profileNamespacedName.Name, profileNamespacedName.Namespace,
+		&profile.Spec.SpecBase); err != nil {
+
+		r.log.Error(err, "Cannot set the disable flag on profile",
+			"name", profileNamespacedName.Name,
+			"namespace", profileNamespacedName.Namespace,
+		)
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		return fmt.Errorf("disabling profile after recording: %w", err)
+	}
+
+	profileSpec := profile.Spec
+	res, err := r.CreateOrUpdate(ctx, r.client, profile,
+		func() error {
+			profile.Spec = profileSpec
+			return nil
+		},
+	)
+	if err != nil {
+		r.log.Error(err, "Cannot create profile resource")
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		return fmt.Errorf("creating profile resource: %w", err)
+	}
+
+	r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName)
+	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "apparmor profile created")
 	return nil
 }
 
@@ -851,6 +1053,8 @@ func parseBpfAnnotations(annotations map[string]string) (res []profileToCollect,
 
 		if strings.HasPrefix(key, config.SeccompProfileRecordBpfAnnotationKey) {
 			collectProfile.kind = profilerecording1alpha1.ProfileRecordingKindSeccompProfile
+		} else if strings.HasPrefix(key, config.ApparmorProfileRecordBpfAnnotationKey) {
+			collectProfile.kind = profilerecording1alpha1.ProfileRecordingKindAppArmorProfile
 		} else {
 			continue
 		}

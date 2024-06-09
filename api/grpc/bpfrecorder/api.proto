@@ -23,6 +23,7 @@ service BpfRecorder {
   rpc Start(EmptyRequest) returns (EmptyResponse) {}
   rpc Stop(EmptyRequest) returns (EmptyResponse) {}
   rpc SyscallsForProfile(ProfileRequest) returns (SyscallsResponse) {}
+  rpc ApparmorForProfile(ProfileRequest) returns (ApparmorResponse) {}
 }
 
 message EmptyRequest {}
@@ -33,4 +34,24 @@ message ProfileRequest { string name = 1; }
 message SyscallsResponse {
   repeated string syscalls = 1;
   string go_arch = 2;
+}
+
+message ApparmorResponse {
+  message Files {
+    repeated string allowed_executables = 1;
+    repeated string allowed_libraries = 2;
+    repeated string readonly_paths = 3;
+    repeated string writeonly_paths = 4;
+    repeated string readwrite_paths = 5;
+  }
+  Files files = 1;
+
+  message Socket {
+    bool use_raw = 1;
+    bool use_tcp = 2;
+    bool use_udp = 3;
+  }
+  Socket socket = 2;
+
+  repeated string capabilities = 3;
 }
