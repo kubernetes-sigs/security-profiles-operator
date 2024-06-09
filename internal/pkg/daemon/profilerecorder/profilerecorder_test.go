@@ -601,7 +601,8 @@ func TestReconcile(t *testing.T) {
 				_, retryErr := sut.Reconcile(context.Background(), testRequest)
 				assert.Nil(t, retryErr)
 			},
-		}, { // apparmor BPF success collect
+		},
+		{ // apparmor BPF success collect
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_apparmor_%d", time.Now().Unix())
 				pod := podToWatch{
