@@ -764,7 +764,6 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	profileNamespacedName types.NamespacedName,
 	profileLabels map[string]string,
 ) (*seccompprofileapi.SeccompProfile, error) {
-
 	response, err := r.SyscallsForProfile(
 		ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
 	)
