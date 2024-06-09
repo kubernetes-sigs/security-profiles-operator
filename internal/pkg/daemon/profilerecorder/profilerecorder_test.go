@@ -659,8 +659,7 @@ func TestReconcile(t *testing.T) {
 				assert.Nil(t, err)
 			},
 		},
-		{ //nolint:dupl // test duplicates are fine
-			// apparmor BPF CreateOrUpdate fails
+		{ // apparmor BPF CreateOrUpdate fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
