@@ -78,6 +78,7 @@ const (
 )
 
 var errNameNotValid = errors.New("recording name is not valid DNS1123 subdomain, check profileRecording events")
+var errRecordedProfileNotFound = errors.New("recorded profile not found")
 
 // NewController returns a new empty controller instance.
 func NewController() controller.Controller {
@@ -451,7 +452,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 		case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
 			err = r.collectLogSelinuxProfile(ctx, enricherClient, parsedProfileAnnotation, profileNamespacedName, prf.name)
 		case profilerecording1alpha1.ProfileRecordingKindAppArmorProfile:
-			err = fmt.Errorf("log recorder doesn't support apparmor profile recording")
+			err = errors.New("log recorder doesn't support apparmor profile recording")
 		default:
 			err = fmt.Errorf("unrecognized kind %s", prf.kind)
 		}
@@ -716,32 +717,32 @@ func (r *RecorderReconciler) collectBpfProfiles(
 
 		switch profileToCollect.kind {
 		case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
-			profile, err := r.collectSeccompBpfProfile(ctx, recorderClient, &profileToCollect, profileNamespacedName, labels)
+			seccompProfile, err := r.collectSeccompBpfProfile(ctx, recorderClient, &profileToCollect, profileNamespacedName, labels)
 			if err != nil {
 				return fmt.Errorf("collecting seccomp profile %s: %w", profileToCollect.name, err)
 			}
 			// Skip empty profiles
-			if profile == nil {
+			if seccompProfile == nil {
 				continue
 			}
-			err = r.updateOrCreateSeccompResource(ctx, profileNamespacedName, profile)
+			err = r.updateOrCreateSeccompResource(ctx, profileNamespacedName, seccompProfile)
 			if err != nil {
-				return fmt.Errorf("creating/updating seccomp profile %s: %s", profileToCollect.name, err)
+				return fmt.Errorf("creating/updating seccomp profile %s: %w", profileToCollect.name, err)
 			}
 		case profilerecording1alpha1.ProfileRecordingKindAppArmorProfile:
-			profile, err := r.collectApparmorBpfProfile(ctx, recorderClient, &profileToCollect, profileNamespacedName, labels)
+			apparmorProfile, err := r.collectApparmorBpfProfile(ctx, recorderClient, &profileToCollect, profileNamespacedName, labels)
 			if err != nil {
+				// skip empty profiles
+				if errors.Is(err, errRecordedProfileNotFound) {
+					continue
+				}
 				return fmt.Errorf("collecting seccomp profile %s: %w", profileToCollect.name, err)
 			}
-			// Skip empty profiles
-			if profile == nil {
-				continue
-			}
-			err = r.updateOrCreateApparmorResource(ctx, profileNamespacedName, profile)
+			err = r.updateOrCreateApparmorResource(ctx, profileNamespacedName, apparmorProfile)
 			if err != nil {
-				return fmt.Errorf("creating/updating seccomp profile %s: %s", profileToCollect.name, err)
+				return fmt.Errorf("creating/updating seccomp profile %s: %w", profileToCollect.name, err)
 			}
-		default:
+		case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
 			r.log.Info("Profile kind not supported by BPF recoder", "name", profileToCollect.name, "kind", profileToCollect.kind)
 			continue
 		}
@@ -771,7 +772,7 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 		// next profile.
 		if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
 			r.log.Error(err, "Recorded profile not found", "name", profileToCollect.name)
-			return nil, nil
+			return nil, errRecordedProfileNotFound
 		}
 		return nil, fmt.Errorf("getting syscalls for profile: %w", err)
 	}
@@ -802,7 +803,7 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	return profile, nil
 }
 
-// nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
+//nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
 func (r *RecorderReconciler) updateOrCreateSeccompResource(
 	ctx context.Context,
 	profileNamespacedName types.NamespacedName,
@@ -811,7 +812,6 @@ func (r *RecorderReconciler) updateOrCreateSeccompResource(
 	if err := r.setDisabled(ctx, r.client,
 		profileNamespacedName.Name, profileNamespacedName.Namespace,
 		&profile.Spec.SpecBase); err != nil {
-
 		r.log.Error(err, "Cannot set the disable flag on profile",
 			"name", profileNamespacedName.Name,
 			"namespace", profileNamespacedName.Namespace,
@@ -855,7 +855,7 @@ func (r *RecorderReconciler) collectApparmorBpfProfile(
 		// next profile.
 		if grpcstatus.Convert(err).Message() == bpfrecorder.ErrNotFound.Error() {
 			r.log.Error(err, "Recorded profile not found", "name", profileToCollect.name)
-			return nil, nil
+			return nil, errRecordedProfileNotFound
 		}
 		return nil, fmt.Errorf("getting syscalls for profile: %w", err)
 	}
@@ -876,7 +876,8 @@ func (r *RecorderReconciler) collectApparmorBpfProfile(
 	return profile, nil
 }
 
-func (r *RecorderReconciler) generateAppArmorProfileAbstract(response *bpfrecorderapi.ApparmorResponse) apparmorprofileapi.AppArmorAbstract {
+func (r *RecorderReconciler) generateAppArmorProfileAbstract(
+	response *bpfrecorderapi.ApparmorResponse) apparmorprofileapi.AppArmorAbstract {
 	abstract := apparmorprofileapi.AppArmorAbstract{}
 	enabled := true
 	if len(response.Files.AllowedExecutables) != 0 || len(response.Files.AllowedLibraries) != 0 {
@@ -943,10 +944,9 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(response *bpfrecord
 	}
 
 	return abstract
-
 }
 
-// nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
+//nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
 func (r *RecorderReconciler) updateOrCreateApparmorResource(
 	ctx context.Context,
 	profileNamespacedName types.NamespacedName,
@@ -955,7 +955,6 @@ func (r *RecorderReconciler) updateOrCreateApparmorResource(
 	if err := r.setDisabled(ctx, r.client,
 		profileNamespacedName.Name, profileNamespacedName.Namespace,
 		&profile.Spec.SpecBase); err != nil {
-
 		r.log.Error(err, "Cannot set the disable flag on profile",
 			"name", profileNamespacedName.Name,
 			"namespace", profileNamespacedName.Namespace,
