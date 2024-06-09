@@ -27,8 +27,8 @@ func TestVersionText(t *testing.T) {
 
 	// buildDate and version are typically empty during test because they are populated
 	// by the build system. Let's set some default value to avoid test failures.
-	buildDate = "2024-06-09T17:39:57Z"
-	version = "1.0.0"
+	// buildDate = "2024-06-09T17:39:57Z"
+	// version = "1.0.0"
 
 	sut, err := Get()
 	require.Nil(t, err)
