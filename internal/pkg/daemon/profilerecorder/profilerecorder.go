@@ -304,7 +304,7 @@ func (r *RecorderReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 			// not reconcilable, no need to requeue
 			return reconcile.Result{}, nil
 		} else if collErr != nil {
-			return reconcile.Result{}, fmt.Errorf("collect profile for succeeded pod: %w", err)
+			return reconcile.Result{}, fmt.Errorf("collect profile for succeeded pod: %w", collErr)
 		}
 	}
 
@@ -721,11 +721,11 @@ func (r *RecorderReconciler) collectBpfProfiles(
 		case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
 			seccompProfile, err := r.collectSeccompBpfProfile(ctx, recorderClient, &ptc, profileNamespacedName, labels)
 			if err != nil {
+				// skip empty profiles
+				if errors.Is(err, errRecordedProfileNotFound) {
+					continue
+				}
 				return fmt.Errorf("collecting seccomp profile %s: %w", profileToCollect.name, err)
-			}
-			// Skip empty profiles
-			if seccompProfile == nil {
-				continue
 			}
 			err = r.updateOrCreateSeccompResource(ctx, profileNamespacedName, seccompProfile)
 			if err != nil {
@@ -738,11 +738,11 @@ func (r *RecorderReconciler) collectBpfProfiles(
 				if errors.Is(err, errRecordedProfileNotFound) {
 					continue
 				}
-				return fmt.Errorf("collecting seccomp profile %s: %w", profileToCollect.name, err)
+				return fmt.Errorf("collecting apparmor profile %s: %w", profileToCollect.name, err)
 			}
 			err = r.updateOrCreateApparmorResource(ctx, profileNamespacedName, apparmorProfile)
 			if err != nil {
-				return fmt.Errorf("creating/updating seccomp profile %s: %w", profileToCollect.name, err)
+				return fmt.Errorf("creating/updating apparmor profile %s: %w", profileToCollect.name, err)
 			}
 		case profilerecording1alpha1.ProfileRecordingKindSelinuxProfile:
 			r.log.Info("Profile kind not supported by BPF recoder", "name", profileToCollect.name, "kind", profileToCollect.kind)
