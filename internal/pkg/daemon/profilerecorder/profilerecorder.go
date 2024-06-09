@@ -767,7 +767,6 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	response, err := r.SyscallsForProfile(
 		ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
 	)
-
 	if err != nil {
 		// Recording was not found for this profile, this might be an init container
 		// which is not longer active. Let's skip here and keep processing the
@@ -809,8 +808,8 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 func (r *RecorderReconciler) updateOrCreateSeccompResource(
 	ctx context.Context,
 	profileNamespacedName types.NamespacedName,
-	profile *seccompprofileapi.SeccompProfile) error {
-
+	profile *seccompprofileapi.SeccompProfile,
+) error {
 	if err := r.setDisabled(ctx, r.client,
 		profileNamespacedName.Name, profileNamespacedName.Namespace,
 		&profile.Spec.SpecBase); err != nil {
@@ -845,12 +844,11 @@ func (r *RecorderReconciler) collectApparmorBpfProfile(
 	recorderClient bpfrecorderapi.BpfRecorderClient,
 	profileToCollect *profileToCollect,
 	profileNamespacedName types.NamespacedName,
-	profileLabels map[string]string) (*apparmorprofileapi.AppArmorProfile, error) {
-
+	profileLabels map[string]string,
+) (*apparmorprofileapi.AppArmorProfile, error) {
 	response, err := r.ApparmorForProfile(
 		ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
 	)
-
 	if err != nil {
 		// Recording was not found for this profile, this might be an init container
 		// which is not longer active. Let's skip here and keep processing the
@@ -879,7 +877,8 @@ func (r *RecorderReconciler) collectApparmorBpfProfile(
 }
 
 func (r *RecorderReconciler) generateAppArmorProfileAbstract(
-	response *bpfrecorderapi.ApparmorResponse) apparmorprofileapi.AppArmorAbstract {
+	response *bpfrecorderapi.ApparmorResponse,
+) apparmorprofileapi.AppArmorAbstract {
 	abstract := apparmorprofileapi.AppArmorAbstract{}
 	enabled := true
 	if len(response.Files.AllowedExecutables) != 0 || len(response.Files.AllowedLibraries) != 0 {
@@ -952,8 +951,8 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 func (r *RecorderReconciler) updateOrCreateApparmorResource(
 	ctx context.Context,
 	profileNamespacedName types.NamespacedName,
-	profile *apparmorprofileapi.AppArmorProfile) error {
-
+	profile *apparmorprofileapi.AppArmorProfile,
+) error {
 	if err := r.setDisabled(ctx, r.client,
 		profileNamespacedName.Name, profileNamespacedName.Namespace,
 		&profile.Spec.SpecBase); err != nil {
