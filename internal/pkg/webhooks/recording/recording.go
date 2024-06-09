@@ -240,12 +240,10 @@ func (p *podSeccompRecorder) updateSecurityContext(
 	}
 
 	switch pr.Spec.Kind {
-	case profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile:
+	case profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile,
+		profilerecordingv1alpha1.ProfileRecordingKindSelinuxProfile,
+		profilerecordingv1alpha1.ProfileRecordingKindAppArmorProfile:
 		p.updateSeccompSecurityContext(ctr, pr)
-	case profilerecordingv1alpha1.ProfileRecordingKindSelinuxProfile:
-		p.updateSelinuxSecurityContext(ctr, pr)
-	case profilerecordingv1alpha1.ProfileRecordingKindAppArmorProfile:
-		return
 	}
 
 	p.log.Info(fmt.Sprintf(
