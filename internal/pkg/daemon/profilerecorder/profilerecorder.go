@@ -686,6 +686,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	defer cancel()
 
 	for _, profileToCollect := range profiles {
+		ptc := profileToCollect
 		parsedProfileName, err := parseProfileAnnotation(profileToCollect.name)
 		if err != nil {
 			return fmt.Errorf("parse profile raw annotation: %w", err)
@@ -717,7 +718,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 
 		switch profileToCollect.kind {
 		case profilerecording1alpha1.ProfileRecordingKindSeccompProfile:
-			seccompProfile, err := r.collectSeccompBpfProfile(ctx, recorderClient, &profileToCollect, profileNamespacedName, labels)
+			seccompProfile, err := r.collectSeccompBpfProfile(ctx, recorderClient, &ptc, profileNamespacedName, labels)
 			if err != nil {
 				return fmt.Errorf("collecting seccomp profile %s: %w", profileToCollect.name, err)
 			}
@@ -730,7 +731,7 @@ func (r *RecorderReconciler) collectBpfProfiles(
 				return fmt.Errorf("creating/updating seccomp profile %s: %w", profileToCollect.name, err)
 			}
 		case profilerecording1alpha1.ProfileRecordingKindAppArmorProfile:
-			apparmorProfile, err := r.collectApparmorBpfProfile(ctx, recorderClient, &profileToCollect, profileNamespacedName, labels)
+			apparmorProfile, err := r.collectApparmorBpfProfile(ctx, recorderClient, &ptc, profileNamespacedName, labels)
 			if err != nil {
 				// skip empty profiles
 				if errors.Is(err, errRecordedProfileNotFound) {
