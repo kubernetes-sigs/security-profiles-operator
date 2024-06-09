@@ -162,7 +162,8 @@ func TestReconcile(t *testing.T) {
 				assert.Nil(t, err)
 			},
 		},
-		{ // seccomp BPF success record
+		{ //nolint:dupl // test duplicates are fine
+			// seccomp BPF success record
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
@@ -430,7 +431,8 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // seccomp BPF SyscallsForProfile returns not found
+		{ //nolint:dupl // test duplicates are fine
+			// seccomp BPF SyscallsForProfile returns not found
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
@@ -569,7 +571,8 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // apparmor BPF success record
+		{ //nolint:dupl // test duplicates are fine
+			// apparmor BPF success record
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
@@ -817,7 +820,8 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // apparmor BPF ApparmorForProfile returns not found
+		{ //nolint:dupl // test duplicates are fine
+			// apparmor BPF ApparmorForProfile returns not found
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
