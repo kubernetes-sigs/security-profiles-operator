@@ -162,7 +162,7 @@ func TestReconcile(t *testing.T) {
 				assert.Nil(t, err)
 			},
 		},
-		{ // BPF success record
+		{ // seccomp BPF success record
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
@@ -192,7 +192,7 @@ func TestReconcile(t *testing.T) {
 				assert.Nil(t, retryErr)
 			},
 		},
-		{ // BPF success collect
+		{ // seccomp BPF success collect
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
@@ -245,7 +245,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// BPF GoArchToSeccompArch fails
+			// seccomp BPF GoArchToSeccompArch fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
@@ -284,7 +284,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// BPF CreateOrUpdate fails
+			// seccomp BPF CreateOrUpdate fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
@@ -323,7 +323,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// BPF DialBpfRecorder fails
+			// seccomp BPF DialBpfRecorder fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
@@ -354,7 +354,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // BPF DialBpfRecorder fails on StopBpfRecorder
+		{ // seccomp BPF DialBpfRecorder fails on StopBpfRecorder
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
@@ -393,7 +393,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // BPF invalid profile name
+		{ // seccomp BPF invalid profile name
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				const profileName = "invalid"
 				value := podToWatch{
@@ -430,7 +430,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // BPF SyscallsForProfile returns not found
+		{ // seccomp BPF SyscallsForProfile returns not found
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
 				value := podToWatch{
@@ -464,7 +464,7 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
-			// BPF SyscallsForProfile fails
+			// seccomp BPF SyscallsForProfile fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
 				value := podToWatch{
@@ -496,7 +496,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // BPF DialBpfRecorder fails
+		{ // seccomp BPF DialBpfRecorder fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
@@ -515,7 +515,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // BPF StartBpfRecorder fails
+		{ // seccomp BPF StartBpfRecorder fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
@@ -535,7 +535,7 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // BPF GetSPOD fails
+		{ // seccomp BPF GetSPOD fails
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
@@ -551,13 +551,400 @@ func TestReconcile(t *testing.T) {
 				assert.NotNil(t, err)
 			},
 		},
-		{ // BPF not enabled
+		{ // seccomp BPF not enabled
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodPending},
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							config.SeccompProfileRecordBpfAnnotationKey: "profile",
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: false},
+				}, nil)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.NotNil(t, err)
+			},
+		},
+		{ // apparmor BPF success record
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodPending},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: "profile",
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, nil)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.Nil(t, err)
+				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
+				assert.True(t, ok)
+				pod, ok := v.(podToWatch)
+				assert.True(t, ok)
+				assert.Equal(t, recordingapi.ProfileRecorderBpf, pod.recorder)
+				assert.Len(t, pod.profiles, 1)
+				assert.Equal(t, recordingapi.ProfileRecordingKindAppArmorProfile, pod.profiles[0].kind)
+				assert.Equal(t, "profile", pod.profiles[0].name)
+				// already tracking
+				_, retryErr := sut.Reconcile(context.Background(), testRequest)
+				assert.Nil(t, retryErr)
+			},
+		}, { // apparmor BPF success collect
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				profileName := fmt.Sprintf("profile_replica-123_apparmor_%d", time.Now().Unix())
+				pod := podToWatch{
+					recorder: recordingapi.ProfileRecorderBpf,
+					profiles: []profileToCollect{
+						{
+							kind: recordingapi.ProfileRecordingKindAppArmorProfile,
+							name: profileName,
+						},
+					},
+				}
+				sut.podsToWatch.Store(testRequest.NamespacedName.String(), pod)
+
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: profileName,
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, nil)
+				mock.ApparmorForProfileReturns(
+					&bpfrecorderapi.ApparmorResponse{
+						Files: &bpfrecorderapi.ApparmorResponse_Files{
+							AllowedExecutables: []string{"/usr/bin/test"},
+						},
+						Socket: &bpfrecorderapi.ApparmorResponse_Socket{
+							UseTcp: true,
+						},
+						Capabilities: []string{"test-cap"},
+					}, nil,
+				)
+				mock.CreateOrUpdateCalls(func(
+					ctx context.Context,
+					c client.Client,
+					obj client.Object,
+					f controllerutil.MutateFn,
+				) (controllerutil.OperationResult, error) {
+					err := f()
+					assert.Nil(t, err)
+					return "", nil
+				})
+				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
+					Spec: recordingapi.ProfileRecordingSpec{
+						DisableProfileAfterRecording: false,
+					},
+				}, nil)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.Nil(t, err)
+			},
+		},
+		{ //nolint:dupl // test duplicates are fine
+			// apparmor BPF CreateOrUpdate fails
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				value := podToWatch{
+					recorder: recordingapi.ProfileRecorderBpf,
+					profiles: []profileToCollect{
+						{
+							kind: recordingapi.ProfileRecordingKindAppArmorProfile,
+							name: profileName,
+						},
+					},
+				}
+				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: profileName,
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, nil)
+				mock.ApparmorForProfileReturns(
+					&bpfrecorderapi.ApparmorResponse{
+						Files: &bpfrecorderapi.ApparmorResponse_Files{
+							AllowedExecutables: []string{"/usr/bin/test"},
+						},
+						Socket: &bpfrecorderapi.ApparmorResponse_Socket{
+							UseTcp: true,
+						},
+						Capabilities: []string{"test-cap"},
+					}, nil,
+				)
+				mock.CreateOrUpdateReturns("", errTest)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.NotNil(t, err)
+			},
+		},
+		{ //nolint:dupl // test duplicates are fine
+			// apparmor BPF DialBpfRecorder fails
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				value := podToWatch{
+					recorder: recordingapi.ProfileRecorderBpf,
+					profiles: []profileToCollect{
+						{
+							kind: recordingapi.ProfileRecordingKindAppArmorProfile,
+							name: profileName,
+						},
+					},
+				}
+				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: profileName,
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, errTest)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.NotNil(t, err)
+			},
+		},
+		{ // apparmor BPF DialBpfRecorder fails on StopBpfRecorder
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				value := podToWatch{
+					recorder: recordingapi.ProfileRecorderBpf,
+					profiles: []profileToCollect{
+						{
+							kind: recordingapi.ProfileRecordingKindAppArmorProfile,
+							name: profileName,
+						},
+					},
+				}
+				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: profileName,
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, nil)
+				mock.ApparmorForProfileReturns(
+					&bpfrecorderapi.ApparmorResponse{
+						Files: &bpfrecorderapi.ApparmorResponse_Files{
+							AllowedExecutables: []string{"/usr/bin/test"},
+						},
+						Socket: &bpfrecorderapi.ApparmorResponse_Socket{
+							UseTcp: true,
+						},
+						Capabilities: []string{"test-cap"},
+					}, nil,
+				)
+				mock.DialBpfRecorderReturns(nil, func() {}, nil)
+				mock.StopBpfRecorderReturns(errTest)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.NotNil(t, err)
+			},
+		},
+		{ // apparmor BPF invalid profile name
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				const profileName = "invalid"
+				value := podToWatch{
+					recorder: recordingapi.ProfileRecorderBpf,
+					profiles: []profileToCollect{
+						{
+							kind: recordingapi.ProfileRecordingKindAppArmorProfile,
+							name: profileName,
+						},
+					},
+				}
+				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: profileName,
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, nil)
+				mock.ApparmorForProfileReturns(
+					&bpfrecorderapi.ApparmorResponse{
+						Files: &bpfrecorderapi.ApparmorResponse_Files{
+							AllowedExecutables: []string{"/usr/bin/test"},
+						},
+						Socket: &bpfrecorderapi.ApparmorResponse_Socket{
+							UseTcp: true,
+						},
+						Capabilities: []string{"test-cap"},
+					}, nil,
+				)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.NotNil(t, err)
+			},
+		},
+		{ // apparmor BPF ApparmorForProfile returns not found
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				profileName := fmt.Sprintf("profile_replica-123_4bbwm_%d", time.Now().Unix())
+				value := podToWatch{
+					recorder: recordingapi.ProfileRecorderBpf,
+					profiles: []profileToCollect{
+						{
+							kind: recordingapi.ProfileRecordingKindAppArmorProfile,
+							name: profileName,
+						},
+					},
+				}
+				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: profileName,
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, nil)
+				mock.ApparmorForProfileReturns(nil, bpfrecorder.ErrNotFound)
+				mock.StopBpfRecorderReturns(nil)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.Nil(t, err)
+			},
+		},
+		{ //nolint:dupl // test duplicates are fine
+			// apparmor BPF ApparmorForProfiles fails
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				profileName := fmt.Sprintf("profile_replica-123_%d", time.Now().Unix())
+				value := podToWatch{
+					recorder: recordingapi.ProfileRecorderBpf,
+					profiles: []profileToCollect{
+						{
+							kind: recordingapi.ProfileRecordingKindAppArmorProfile,
+							name: profileName,
+						},
+					},
+				}
+				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: profileName,
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, nil)
+				mock.ApparmorForProfileReturns(nil, errTest)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.NotNil(t, err)
+			},
+		},
+		{ // apparmor BPF DialBpfRecorder fails
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodPending},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: "profile-123",
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, errTest)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.NotNil(t, err)
+			},
+		},
+		{ // apparmor BPF StartBpfRecorder fails
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodPending},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: "profile",
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(&spodapi.SecurityProfilesOperatorDaemon{
+					Spec: spodapi.SPODSpec{EnableBpfRecorder: true},
+				}, nil)
+				mock.DialBpfRecorderReturns(nil, func() {}, nil)
+				mock.StartBpfRecorderReturns(errTest)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.NotNil(t, err)
+			},
+		},
+		{ // apparmor BPF GetSPOD fails
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodPending},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: "profile",
+						},
+					},
+				}, nil)
+				mock.GetSPODReturns(nil, errTest)
+			},
+			assert: func(sut *RecorderReconciler, err error) {
+				assert.NotNil(t, err)
+			},
+		},
+		{ // seccomp BPF not enabled
+			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
+				mock.GetPodReturns(&corev1.Pod{
+					Status: corev1.PodStatus{Phase: corev1.PodPending},
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							config.ApparmorProfileRecordBpfAnnotationKey: "profile",
 						},
 					},
 				}, nil)
@@ -1282,6 +1669,18 @@ func TestIsPodWithTraceAnnotation(t *testing.T) {
 				return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						config.SeccompProfileRecordBpfAnnotationKey: "",
+					},
+				}}
+			},
+			assert: func(res bool) {
+				assert.True(t, res)
+			},
+		},
+		{ // success seccomp bpf
+			prepare: func(sut *RecorderReconciler) apiruntime.Object {
+				return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						config.ApparmorProfileRecordBpfAnnotationKey: "",
 					},
 				}}
 			},

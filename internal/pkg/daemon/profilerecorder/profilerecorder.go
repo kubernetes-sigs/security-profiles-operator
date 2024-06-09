@@ -200,7 +200,8 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 	for key := range p.Annotations {
 		if strings.HasPrefix(key, config.SelinuxProfileRecordLogsAnnotationKey) ||
 			strings.HasPrefix(key, config.SeccompProfileRecordLogsAnnotationKey) ||
-			strings.HasPrefix(key, config.SeccompProfileRecordBpfAnnotationKey) {
+			strings.HasPrefix(key, config.SeccompProfileRecordBpfAnnotationKey) ||
+			strings.HasPrefix(key, config.ApparmorProfileRecordBpfAnnotationKey) {
 			return true
 		}
 	}
