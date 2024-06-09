@@ -110,17 +110,22 @@ const (
 
 	// SeccompProfileRecordLogsAnnotationKey is the annotation on a Pod that
 	// triggers the internal log enricher to trace the syscalls of a Pod and
-	// created a seccomp profile.
+	// creates a seccomp profile.
 	SeccompProfileRecordLogsAnnotationKey = "io.containers.trace-logs/"
 
 	// SeccompProfileRecordBpfAnnotationKey is the annotation on a Pod that
 	// triggers the internal bpf module to trace the syscalls of a Pod and
-	// created a seccomp profile.
+	// creates a seccomp profile.
 	SeccompProfileRecordBpfAnnotationKey = "io.containers.trace-bpf/"
+
+	// ApparmorProfilerRecordBpfAnnotationKey is the annotation on a Pod that
+	// triggers the internal bpf module to trace the apparmor profile of a Pod
+	// and creates a apparmor profile.
+	ApparmorProfileRecordBpfAnnotationKey = "io.containers.trace-bpf-apparmor/"
 
 	// SelinuxProfileRecordLogsAnnotationKey is the annotation on a Pod that
 	// triggers the internal log enricher to trace the AVC denials of a Pod and
-	// created a selinux profile.
+	// creates a selinux profile.
 	SelinuxProfileRecordLogsAnnotationKey = "io.containers.trace-avcs/"
 
 	// KubeletDirNodeLabelKey is the label on a Node that specifies

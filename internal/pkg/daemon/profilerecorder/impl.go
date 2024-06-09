@@ -81,6 +81,11 @@ type impl interface {
 	) error
 	DialEnricher() (*grpc.ClientConn, context.CancelFunc, error)
 	GetRecording(context.Context, client.Client, client.ObjectKey) (*profilerecording1alpha1.ProfileRecording, error)
+	ApparmorForProfile(
+		context.Context,
+		bpfrecorderapi.BpfRecorderClient,
+		*bpfrecorderapi.ProfileRequest,
+	) (*bpfrecorderapi.ApparmorResponse, error)
 }
 
 func (*defaultImpl) NewClient(mgr ctrl.Manager) (client.Client, error) {
@@ -160,6 +165,14 @@ func (*defaultImpl) SyscallsForProfile(
 	req *bpfrecorderapi.ProfileRequest,
 ) (*bpfrecorderapi.SyscallsResponse, error) {
 	return c.SyscallsForProfile(ctx, req)
+}
+
+func (*defaultImpl) ApparmorForProfile(
+	ctx context.Context,
+	c bpfrecorderapi.BpfRecorderClient,
+	req *bpfrecorderapi.ProfileRequest,
+) (*bpfrecorderapi.ApparmorResponse, error) {
+	return c.ApparmorForProfile(ctx, req)
 }
 
 func (*defaultImpl) CreateOrUpdate(

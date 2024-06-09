@@ -244,6 +244,8 @@ func (p *podSeccompRecorder) updateSecurityContext(
 		p.updateSeccompSecurityContext(ctr, pr)
 	case profilerecordingv1alpha1.ProfileRecordingKindSelinuxProfile:
 		p.updateSelinuxSecurityContext(ctr, pr)
+	case profilerecordingv1alpha1.ProfileRecordingKindAppArmorProfile:
+		return
 	}
 
 	p.log.Info(fmt.Sprintf(
