@@ -54,6 +54,7 @@
   - [Replicating controllers and SCCs](#replicating-controllers-and-sccs)
 - [Create an AppArmor profile](#create-an-apparmor-profile)
   - [Apply an AppArmor profile to a pod](#apply-an-apparmor-profile-to-a-pod)
+  - [Record a AppArmor profile](#record-a-apparmor-profile)
   - [Known limitations](#known-limitations)
 - [Command Line Interface (CLI)](#command-line-interface-cli)
   - [Record seccomp profiles for a command](#record-seccomp-profiles-for-a-command)
@@ -219,7 +220,7 @@ helm install security-profiles-operator --namespace security-profiles-operator h
 
 #### Troubleshooting and maintenance
 
-These CRDs are not templated, but will be installed by default when running a helm install for the chart.  
+These CRDs are not templated, but will be installed by default when running a helm install for the chart.
 There is no support at this time for upgrading or deleting CRDs using Helm. [[docs](https://helm.sh/docs/chart_best_practices/custom_resource_definitions/)]
 
 To remove everything or to do a new installation from scratch be sure to remove them first.
@@ -662,12 +663,13 @@ Binding a SELinux profile works in the same way, except you'd use the `SelinuxPr
 
 ### Record profiles from workloads with `ProfileRecordings`
 
-The operator is capable of recording seccomp or SELinux profiles by the usage of the
+The operator is capable of recording seccomp, AppArmor or SELinux profiles by the usage of the
 built-in [eBPF](https://ebpf.io) recorder or
 by evaluating the [audit][auditd] or [syslog][syslog] files. Each method has
 its pros and cons as well as separate technical requirements.
 
-Note that SELinux profiles can only be recorded using the log enricher.
+Note that AppArmor profiles can be recorded only by the eBPF recorder and
+SELinux profiles can only be recorded using the log enricher.
 
 #### Log enricher based recording
 
@@ -754,7 +756,7 @@ to record the syscalls or SELinux events.
 #### eBPF based recording
 
 The operator also supports an [eBPF](https://ebpf.io) based recorder. This
-recorder only supports seccomp profiles for now. Recording via ebpf works for
+recorder only supports seccomp and apparmor profiles for now. Recording via ebpf works for
 kernels which expose the `/sys/kernel/btf/vmlinux` file per default as well as a
 [custom list of selected Linux kernels](bpf-support.md). In addition, this
 feature requires new library versions and thus might not be enabled. You
@@ -1799,6 +1801,15 @@ you can restrict Pod's access with the annotation:
 
 When [AppArmor becomes GA](https://github.com/kubernetes/enhancements/pull/3298) a new field within SecurityContext will be created to replace the annotations above.
 For up-to-date information on how to use AppArmor in Kubernetes, refer to the [official documentation](https://kubernetes.io/docs/tutorials/security/apparmor/).
+
+### Record a AppArmor profile
+
+The operator is able to record AppArmor profiles for a workload using the build-in eBPF recorder. For more details, please
+refer to the [eBPF based recording](#ebpf-based-recording)) section in `seccomp` documentation.
+
+You will need to use `kind: AppArmorProfile` in `ProfileRecording` CR instead of `SeccompProfile`.
+
+Note that log enricher doesn't support recording of AppArmor profiles.
 
 ### Known limitations
 
