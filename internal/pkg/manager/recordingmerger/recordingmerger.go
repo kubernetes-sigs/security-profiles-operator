@@ -343,5 +343,4 @@ func createUpdateProfile(
 	default:
 		return controllerutil.OperationResultNone, nil
 	}
-
 }

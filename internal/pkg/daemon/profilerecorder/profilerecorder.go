@@ -802,7 +802,7 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	return profile, nil
 }
 
-// nolint:dupl
+// nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
 func (r *RecorderReconciler) updateOrCreateSeccompResource(
 	ctx context.Context,
 	profileNamespacedName types.NamespacedName,
@@ -946,7 +946,7 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(response *bpfrecord
 
 }
 
-// nolint:dupl
+// nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
 func (r *RecorderReconciler) updateOrCreateApparmorResource(
 	ctx context.Context,
 	profileNamespacedName types.NamespacedName,

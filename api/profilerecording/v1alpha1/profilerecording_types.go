@@ -119,19 +119,20 @@ func (pr *ProfileRecording) CtrAnnotation(ctrName string) (key, value string, er
 		return pr.ctrAnnotationSeccomp(ctrName)
 	case ProfileRecordingKindSelinuxProfile:
 		return pr.ctrAnnotationSelinux(ctrName)
+	default:
+		return "", "", fmt.Errorf(
+			"invalid kind: %s", pr.Spec.Kind,
+		)
 	}
-
-	return "", "", fmt.Errorf(
-		"invalid kind: %s", pr.Spec.Kind,
-	)
 }
 
 func (pr *ProfileRecording) IsKindSupported() bool {
 	switch pr.Spec.Kind {
 	case ProfileRecordingKindSelinuxProfile, ProfileRecordingKindSeccompProfile:
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func (pr *ProfileRecording) ctrAnnotationValue(ctrName string) string {
