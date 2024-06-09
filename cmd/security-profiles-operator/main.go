@@ -506,7 +506,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 func runBPFRecorder(_ *cli.Context, info *version.Info) error {
 	const component = "bpf-recorder"
 	printInfo(component, info)
-	return bpfrecorder.New("", ctrl.Log.WithName(component), true, false).Run()
+	return bpfrecorder.New("", ctrl.Log.WithName(component), true, true).Run()
 }
 
 func runLogEnricher(_ *cli.Context, info *version.Info) error {

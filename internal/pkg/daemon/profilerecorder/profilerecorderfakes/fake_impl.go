@@ -38,6 +38,21 @@ import (
 )
 
 type FakeImpl struct {
+	ApparmorForProfileStub        func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.ApparmorResponse, error)
+	apparmorForProfileMutex       sync.RWMutex
+	apparmorForProfileArgsForCall []struct {
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
+		arg3 *api_bpfrecorder.ProfileRequest
+	}
+	apparmorForProfileReturns struct {
+		result1 *api_bpfrecorder.ApparmorResponse
+		result2 error
+	}
+	apparmorForProfileReturnsOnCall map[int]struct {
+		result1 *api_bpfrecorder.ApparmorResponse
+		result2 error
+	}
 	AvcsStub        func(context.Context, api_enricher.EnricherClient, *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error)
 	avcsMutex       sync.RWMutex
 	avcsArgsForCall []struct {
@@ -301,6 +316,72 @@ type FakeImpl struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeImpl) ApparmorForProfile(arg1 context.Context, arg2 api_bpfrecorder.BpfRecorderClient, arg3 *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.ApparmorResponse, error) {
+	fake.apparmorForProfileMutex.Lock()
+	ret, specificReturn := fake.apparmorForProfileReturnsOnCall[len(fake.apparmorForProfileArgsForCall)]
+	fake.apparmorForProfileArgsForCall = append(fake.apparmorForProfileArgsForCall, struct {
+		arg1 context.Context
+		arg2 api_bpfrecorder.BpfRecorderClient
+		arg3 *api_bpfrecorder.ProfileRequest
+	}{arg1, arg2, arg3})
+	stub := fake.ApparmorForProfileStub
+	fakeReturns := fake.apparmorForProfileReturns
+	fake.recordInvocation("ApparmorForProfile", []interface{}{arg1, arg2, arg3})
+	fake.apparmorForProfileMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ApparmorForProfileCallCount() int {
+	fake.apparmorForProfileMutex.RLock()
+	defer fake.apparmorForProfileMutex.RUnlock()
+	return len(fake.apparmorForProfileArgsForCall)
+}
+
+func (fake *FakeImpl) ApparmorForProfileCalls(stub func(context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) (*api_bpfrecorder.ApparmorResponse, error)) {
+	fake.apparmorForProfileMutex.Lock()
+	defer fake.apparmorForProfileMutex.Unlock()
+	fake.ApparmorForProfileStub = stub
+}
+
+func (fake *FakeImpl) ApparmorForProfileArgsForCall(i int) (context.Context, api_bpfrecorder.BpfRecorderClient, *api_bpfrecorder.ProfileRequest) {
+	fake.apparmorForProfileMutex.RLock()
+	defer fake.apparmorForProfileMutex.RUnlock()
+	argsForCall := fake.apparmorForProfileArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) ApparmorForProfileReturns(result1 *api_bpfrecorder.ApparmorResponse, result2 error) {
+	fake.apparmorForProfileMutex.Lock()
+	defer fake.apparmorForProfileMutex.Unlock()
+	fake.ApparmorForProfileStub = nil
+	fake.apparmorForProfileReturns = struct {
+		result1 *api_bpfrecorder.ApparmorResponse
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ApparmorForProfileReturnsOnCall(i int, result1 *api_bpfrecorder.ApparmorResponse, result2 error) {
+	fake.apparmorForProfileMutex.Lock()
+	defer fake.apparmorForProfileMutex.Unlock()
+	fake.ApparmorForProfileStub = nil
+	if fake.apparmorForProfileReturnsOnCall == nil {
+		fake.apparmorForProfileReturnsOnCall = make(map[int]struct {
+			result1 *api_bpfrecorder.ApparmorResponse
+			result2 error
+		})
+	}
+	fake.apparmorForProfileReturnsOnCall[i] = struct {
+		result1 *api_bpfrecorder.ApparmorResponse
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) Avcs(arg1 context.Context, arg2 api_enricher.EnricherClient, arg3 *api_enricher.AvcRequest) (*api_enricher.AvcResponse, error) {
@@ -1516,6 +1597,8 @@ func (fake *FakeImpl) SyscallsForProfileReturnsOnCall(i int, result1 *api_bpfrec
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
+	fake.apparmorForProfileMutex.RLock()
+	defer fake.apparmorForProfileMutex.RUnlock()
 	fake.avcsMutex.RLock()
 	defer fake.avcsMutex.RUnlock()
 	fake.clientGetMutex.RLock()

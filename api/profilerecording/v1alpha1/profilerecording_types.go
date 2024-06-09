@@ -29,8 +29,9 @@ import (
 type ProfileRecordingKind string
 
 const (
-	ProfileRecordingKindSeccompProfile ProfileRecordingKind = "SeccompProfile"
-	ProfileRecordingKindSelinuxProfile ProfileRecordingKind = "SelinuxProfile"
+	ProfileRecordingKindSeccompProfile  ProfileRecordingKind = "SeccompProfile"
+	ProfileRecordingKindSelinuxProfile  ProfileRecordingKind = "SelinuxProfile"
+	ProfileRecordingKindAppArmorProfile ProfileRecordingKind = "ApparmorProfile"
 )
 
 type ProfileRecorder string
