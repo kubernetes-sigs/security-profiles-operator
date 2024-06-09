@@ -278,26 +278,6 @@ func (p *podSeccompRecorder) updateSeccompSecurityContext(
 	ctr.SecurityContext.SeccompProfile.LocalhostProfile = &profile
 }
 
-func (p *podSeccompRecorder) updateSelinuxSecurityContext(
-	ctr *corev1.Container,
-	pr *profilerecordingv1alpha1.ProfileRecording,
-) {
-	if ctr.SecurityContext == nil {
-		ctr.SecurityContext = &corev1.SecurityContext{}
-	}
-
-	if ctr.SecurityContext.SELinuxOptions == nil {
-		ctr.SecurityContext.SELinuxOptions = &corev1.SELinuxOptions{}
-	} else {
-		p.record.Eventf(pr,
-			corev1.EventTypeWarning,
-			"SecurityContextAlreadySet",
-			"Container %s had SecurityContext already set, the profile recorder overwrote it", ctr.Name)
-	}
-
-	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile
-}
-
 func (p *podSeccompRecorder) setRecordingReferences(
 	ctx context.Context,
 	op admissionv1.Operation,
