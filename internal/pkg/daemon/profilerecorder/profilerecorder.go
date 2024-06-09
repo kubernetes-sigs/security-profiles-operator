@@ -77,7 +77,8 @@ const (
 	seContextRequiredParts = 3
 )
 
-var errNameNotValid = errors.New("recording name is not valid DNS1123 subdomain, check profileRecording events")
+var errNameNotValid = errors.New(
+	"recording name is not valid DNS1123 subdomain, check profileRecording events")
 var errRecordedProfileNotFound = errors.New("recorded profile not found")
 
 // NewController returns a new empty controller instance.
@@ -761,7 +762,8 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	recorderClient bpfrecorderapi.BpfRecorderClient,
 	profileToCollect *profileToCollect,
 	profileNamespacedName types.NamespacedName,
-	profileLabels map[string]string) (*seccompprofileapi.SeccompProfile, error) {
+	profileLabels map[string]string,
+) (*seccompprofileapi.SeccompProfile, error) {
 
 	response, err := r.SyscallsForProfile(
 		ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
