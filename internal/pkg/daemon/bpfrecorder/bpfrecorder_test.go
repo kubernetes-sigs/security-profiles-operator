@@ -640,6 +640,127 @@ func TestSyscallsForProfile(t *testing.T) {
 	}
 }
 
+func TestApparmorForProfile(t *testing.T) {
+{
+	t.Parallel()
+
+	for _, tc := range []struct {
+		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl)
+		assert  func(*BpfRecorder, *api.ApparmorResponse, error)
+	}{
+		{ // Success
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				mock.GoArchReturns(validGoArch)
+				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
+				require.Nil(t, err)
+				sut.containerIDToProfileMap.Insert(containerID, profile)
+				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
+				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
+					mntns: {
+						&BpfAppArmorSocketTypes{
+							UseRaw: false,
+							UseTCP: true,
+							UseUDP: false,
+						},
+					},
+				}
+				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
+					mntns: {
+						[]int{1,2,3},
+					},
+				}
+				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
+					mntns: {
+						"/usr/bin/test": &fileAccess{exec: true},
+					},
+				}
+			},
+			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				require.Nil(t, err)
+				require.Len(t, resp.Capabilities, 3)
+				require.Len(t, resp.Files.AllowedExecutables, 1)
+				require.False(t, resp.Socket.UseRaw)
+				require.True(t, resp.Socket.UseTcp)
+				require.False(t, resp.Socket.UseUdp)
+			},
+		},
+		{ // Success only for right mntns
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				mock.GoArchReturns(validGoArch)
+				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
+				require.Nil(t, err)
+				sut.containerIDToProfileMap.Insert(containerID, profile)
+				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
+				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
+					mntns: {
+						&BpfAppArmorSocketTypes{
+							UseRaw: false,
+							UseTCP: true,
+							UseUDP: false,
+						},
+					},
+				}
+				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
+					mntns: {
+						[]int{1,2,3},
+					},
+				}
+				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
+					mntns: {
+						"/usr/bin/test1": &fileAccess{exec: true},
+					},
+					123: {
+						"/usr/bin/test2": &fileAccess{exec: true},
+					},
+				}
+			},
+			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				require.Nil(t, err)
+				require.Len(t, resp.Capabilities, 3)
+				require.Len(t, resp.Files.AllowedExecutables, 1)
+				require.False(t, resp.Socket.UseRaw)
+				require.True(t, resp.Socket.UseTcp)
+				require.False(t, resp.Socket.UseUdp)
+			},
+		},
+		{ // recorder not running
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
+			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // not recording apparmor
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				sut.AppArmor = nil
+			},
+			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				require.NotNil(t, err)
+			},
+		},
+		{ // no PID for container
+			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				mock.GoArchReturns(validGoArch)
+				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
+				require.Nil(t, err)
+			},
+			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
+				require.NotNil(t, err)
+			},
+		},
+	} {
+		sut := New("", logr.Discard(), true, false)
+
+		mock := &bpfrecorderfakes.FakeImpl{}
+		sut.impl = mock
+
+		tc.prepare(sut, mock)
+
+		resp, err := sut.ApparmorForProfile(
+			context.Background(), &api.ProfileRequest{Name: profile},
+		)
+		tc.assert(sut, resp, err)
+	}
+}
 type Logger struct {
 	messages []string
 	mutex    sync.RWMutex
