@@ -641,8 +641,9 @@ func TestSyscallsForProfile(t *testing.T) {
 }
 
 func TestApparmorForProfile(t *testing.T) {
-{
 	t.Parallel()
+
+	mnsID := mntnsID(mntns)
 
 	for _, tc := range []struct {
 		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl)
@@ -656,21 +657,17 @@ func TestApparmorForProfile(t *testing.T) {
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
-					mntns: {
-						&BpfAppArmorSocketTypes{
-							UseRaw: false,
-							UseTCP: true,
-							UseUDP: false,
-						},
+					mnsID: &BpfAppArmorSocketTypes{
+						UseRaw: false,
+						UseTCP: true,
+						UseUDP: false,
 					},
 				}
 				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
-					mntns: {
-						[]int{1,2,3},
-					},
+					mnsID: []int{1, 2, 3},
 				}
 				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
-					mntns: {
+					mnsID: {
 						"/usr/bin/test": &fileAccess{exec: true},
 					},
 				}
@@ -692,21 +689,17 @@ func TestApparmorForProfile(t *testing.T) {
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
-					mntns: {
-						&BpfAppArmorSocketTypes{
-							UseRaw: false,
-							UseTCP: true,
-							UseUDP: false,
-						},
+					mnsID: &BpfAppArmorSocketTypes{
+						UseRaw: false,
+						UseTCP: true,
+						UseUDP: false,
 					},
 				}
 				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
-					mntns: {
-						[]int{1,2,3},
-					},
+					mnsID: []int{1, 2, 3},
 				}
 				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
-					mntns: {
+					mnsID: {
 						"/usr/bin/test1": &fileAccess{exec: true},
 					},
 					123: {
@@ -761,6 +754,7 @@ func TestApparmorForProfile(t *testing.T) {
 		tc.assert(sut, resp, err)
 	}
 }
+
 type Logger struct {
 	messages []string
 	mutex    sync.RWMutex
