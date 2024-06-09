@@ -496,6 +496,49 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
 			},
 		},
+		{ // success apparmor profile recording should be admitted
+			prepare: func(mock *recordingfakes.FakeImpl) {
+				mock.ListProfileRecordingsReturns(&v1alpha1.ProfileRecordingList{
+					Items: []v1alpha1.ProfileRecording{
+						{
+							Spec: v1alpha1.ProfileRecordingSpec{
+								Kind:     v1alpha1.ProfileRecordingKindAppArmorProfile,
+								Recorder: v1alpha1.ProfileRecorderBpf,
+							},
+						},
+					},
+				}, nil)
+				mock.GetProfileRecordingReturns(&v1alpha1.ProfileRecording{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "apparmor-profile-recording",
+						Namespace: "test-ns",
+					},
+					Spec: v1alpha1.ProfileRecordingSpec{
+						Kind:     v1alpha1.ProfileRecordingKindAppArmorProfile,
+						Recorder: v1alpha1.ProfileRecorderBpf,
+					},
+				}, nil)
+				mock.ListRecordedPodsReturns(&corev1.PodList{
+					Items: []corev1.Pod{},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.LabelSelectorAsSelectorReturns(labels.Everything(), nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.Nil(t, err)
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.AdmissionResponse.Allowed)
+			},
+		},
 	} {
 		mock := &recordingfakes.FakeImpl{}
 		tc.prepare(mock)
