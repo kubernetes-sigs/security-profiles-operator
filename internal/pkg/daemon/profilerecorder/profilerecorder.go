@@ -756,13 +756,13 @@ func (r *RecorderReconciler) collectBpfProfiles(
 
 func (r *RecorderReconciler) collectSeccompBpfProfile(
 	ctx context.Context,
-	client bpfrecorderapi.BpfRecorderClient,
+	recorderClient bpfrecorderapi.BpfRecorderClient,
 	profileToCollect *profileToCollect,
 	profileNamespacedName types.NamespacedName,
 	profileLabels map[string]string) (*seccompprofileapi.SeccompProfile, error) {
 
 	response, err := r.SyscallsForProfile(
-		ctx, client, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
+		ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
 	)
 
 	if err != nil {
@@ -802,6 +802,7 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	return profile, nil
 }
 
+// nolint:dupl
 func (r *RecorderReconciler) updateOrCreateSeccompResource(
 	ctx context.Context,
 	profileNamespacedName types.NamespacedName,
@@ -839,13 +840,13 @@ func (r *RecorderReconciler) updateOrCreateSeccompResource(
 
 func (r *RecorderReconciler) collectApparmorBpfProfile(
 	ctx context.Context,
-	client bpfrecorderapi.BpfRecorderClient,
+	recorderClient bpfrecorderapi.BpfRecorderClient,
 	profileToCollect *profileToCollect,
 	profileNamespacedName types.NamespacedName,
 	profileLabels map[string]string) (*apparmorprofileapi.AppArmorProfile, error) {
 
 	response, err := r.ApparmorForProfile(
-		ctx, client, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
+		ctx, recorderClient, &bpfrecorderapi.ProfileRequest{Name: profileToCollect.name},
 	)
 
 	if err != nil {
@@ -945,6 +946,7 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(response *bpfrecord
 
 }
 
+// nolint:dupl
 func (r *RecorderReconciler) updateOrCreateApparmorResource(
 	ctx context.Context,
 	profileNamespacedName types.NamespacedName,
@@ -1051,6 +1053,7 @@ func parseBpfAnnotations(annotations map[string]string) (res []profileToCollect,
 	for key, profile := range annotations {
 		var collectProfile profileToCollect
 
+		//nolint:gocritic
 		if strings.HasPrefix(key, config.SeccompProfileRecordBpfAnnotationKey) {
 			collectProfile.kind = profilerecording1alpha1.ProfileRecordingKindSeccompProfile
 		} else if strings.HasPrefix(key, config.ApparmorProfileRecordBpfAnnotationKey) {
