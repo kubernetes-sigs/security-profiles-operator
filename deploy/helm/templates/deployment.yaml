@@ -27,11 +27,11 @@ spec:
         - name: RELATED_IMAGE_RBAC_PROXY
           value: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
         - name: RELATED_IMAGE_SELINUXD
-          value: quay.io/security-profiles-operator/selinuxd
+          value: {{ .Values.selinuxdImage.default.registry }}/{{ .Values.selinuxdImage.default.repository }}:{{ .Values.selinuxdImage.default.tag }}
         - name: RELATED_IMAGE_SELINUXD_EL8
-          value: quay.io/security-profiles-operator/selinuxd-el8:latest
+          value: {{ .Values.selinuxdImage.el8.registry }}/{{ .Values.selinuxdImage.el8.repository }}:{{ .Values.selinuxdImage.el8.tag }}
         - name: RELATED_IMAGE_SELINUXD_EL9
-          value: quay.io/security-profiles-operator/selinuxd-el9:latest
+          value: {{ .Values.selinuxdImage.el9.registry }}/{{ .Values.selinuxdImage.el9.repository }}:{{ .Values.selinuxdImage.el9.tag }}
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
