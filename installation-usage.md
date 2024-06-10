@@ -1745,10 +1745,10 @@ running with the appropriate profile.
 
 ## Create an AppArmor profile
 
-Ensure that the Daemon has AppArmor enabled:
+Ensure that the daemon has AppArmor enabled:
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"apparmorenabled":"true"}}'
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableAppArmor":"true"}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
