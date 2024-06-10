@@ -6,6 +6,20 @@ spoImage:
   repository: k8s-staging-sp-operator/security-profiles-operator
   tag: latest
 
+selinuxdImage:
+  default:
+    registry: quay.io
+    repository: security-profiles-operator/selinuxd
+    tag: latest
+  el8:
+    registry: quay.io
+    repository: security-profiles-operator/selinuxd-el8
+    tag: latest
+  el9:
+    registry: quay.io
+    repository: security-profiles-operator/selinuxd-el9
+    tag: latest
+
 enableSelinux: false
 enableLogEnricher: false
 enableAppArmor: false
