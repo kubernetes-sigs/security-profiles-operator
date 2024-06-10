@@ -1024,6 +1024,13 @@ environment variable.
 
 ## Create a SELinux Profile
 
+Ensure that the running daemon has SELinux enabled:
+
+```
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableSelinux":"true"}}'
+securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
+```
+
 There are two kinds that can be used to define a SELinux profile - `SelinuxProfile` and `RawSelinuxProfile`.
 
 The default one and the one created during workload recording is `SelinuxProfile`. It is more readable
