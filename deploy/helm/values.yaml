@@ -19,6 +19,10 @@ selinuxdImage:
     registry: quay.io
     repository: security-profiles-operator/selinuxd-el9
     tag: latest
+  fedora:
+    registry: quay.io
+    repository: security-profiles-operator/selinuxd-fedora
+    tag: latest
 
 enableSelinux: false
 enableLogEnricher: false

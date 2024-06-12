@@ -6,5 +6,9 @@
     {
         "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
         "imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"
+    },
+    {
+        "regex":"Fedora \\d+",
+        "imageFromVar":"RELATED_IMAGE_SELINUXD_FEDORA"
     }
 ]
