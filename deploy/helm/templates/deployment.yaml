@@ -32,6 +32,8 @@ spec:
           value: {{ .Values.selinuxdImage.el8.registry }}/{{ .Values.selinuxdImage.el8.repository }}:{{ .Values.selinuxdImage.el8.tag }}
         - name: RELATED_IMAGE_SELINUXD_EL9
           value: {{ .Values.selinuxdImage.el9.registry }}/{{ .Values.selinuxdImage.el9.repository }}:{{ .Values.selinuxdImage.el9.tag }}
+        - name: RELATED_IMAGE_SELINUXD_FEDORA
+          value: {{ .Values.selinuxdImage.fedora.registry }}/{{ .Values.selinuxdImage.fedora.repository }}:{{ .Values.selinuxdImage.fedora.tag }}
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
