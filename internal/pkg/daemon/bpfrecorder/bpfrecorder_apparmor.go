@@ -58,7 +58,7 @@ var pathWithPid *regexp.Regexp = regexp.MustCompile(`^/proc/\d+/`)
 // Note: on a host running concurrent containers, there will be multiple process running with
 // the same PID but they are assigned to different mntns since  they run in different containers.
 // Therefore, in order to have unique apparmor profiles, each profile should be recorded using
-// mntns + pid as a key identifier.
+// mntns as a key identifier.
 type mntnsID uint32
 
 type AppArmorRecorder struct {
