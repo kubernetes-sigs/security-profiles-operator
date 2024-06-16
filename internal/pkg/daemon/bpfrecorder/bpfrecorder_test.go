@@ -657,14 +657,14 @@ func TestApparmorForProfile(t *testing.T) {
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
-					mnsID: &BpfAppArmorSocketTypes{
+					mnsID: {
 						UseRaw: false,
 						UseTCP: true,
 						UseUDP: false,
 					},
 				}
 				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
-					mnsID: []int{1, 2, 3},
+					mnsID: {1, 2, 3},
 				}
 				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
 					mnsID: {
@@ -689,14 +689,14 @@ func TestApparmorForProfile(t *testing.T) {
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
-					mnsID: &BpfAppArmorSocketTypes{
+					mnsID: {
 						UseRaw: false,
 						UseTCP: true,
 						UseUDP: false,
 					},
 				}
 				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
-					mnsID: []int{1, 2, 3},
+					mnsID: {1, 2, 3},
 				}
 				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
 					mnsID: {
