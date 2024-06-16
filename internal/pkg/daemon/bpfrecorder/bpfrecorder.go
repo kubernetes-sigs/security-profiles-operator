@@ -337,7 +337,6 @@ func (b *BpfRecorder) SyscallsForProfile(
 func (b *BpfRecorder) ApparmorForProfile(
 	_ context.Context, r *api.ProfileRequest,
 ) (*api.ApparmorResponse, error) {
-
 	if b.startRequests == 0 {
 		return nil, errors.New("bpf recorder not running")
 	}
@@ -405,13 +404,6 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 		}
 	}
 	return 0, false
-}
-
-func (b *BpfRecorder) deleteContainerIDFromCache(profile string) {
-	if containerID, ok := b.containerIDToProfileMap.GetBackwards(profile); ok {
-		b.containerIDToProfileMap.Delete(containerID)
-		b.mntnsToContainerIDMap.DeleteBackwards(containerID)
-	}
 }
 
 var baseHooks = []string{
