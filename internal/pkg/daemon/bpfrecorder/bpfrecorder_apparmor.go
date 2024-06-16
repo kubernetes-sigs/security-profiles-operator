@@ -198,6 +198,7 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 	)
 	b.recordedCapabilities[mid] = append(b.recordedCapabilities[mid], requestedCap)
 }
+
 func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcessed {
 	var processed BpfAppArmorProcessed
 
