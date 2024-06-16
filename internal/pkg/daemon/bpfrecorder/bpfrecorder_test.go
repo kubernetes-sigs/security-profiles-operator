@@ -683,6 +683,7 @@ func TestApparmorForProfile(t *testing.T) {
 		},
 		{ // Success only for right mntns
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
+				t.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1")
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
