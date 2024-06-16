@@ -643,7 +643,7 @@ func TestSyscallsForProfile(t *testing.T) {
 func TestApparmorForProfile(t *testing.T) {
 	t.Parallel()
 
-	mnsID := mntnsID(mntns)
+	mID := mntnsID(mntns)
 
 	for _, tc := range []struct {
 		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl)
@@ -657,18 +657,18 @@ func TestApparmorForProfile(t *testing.T) {
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
-					mnsID: {
+					mID: {
 						UseRaw: false,
 						UseTCP: true,
 						UseUDP: false,
 					},
 				}
 				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
-					mnsID: {1, 2, 3},
+					mID: {1, 2, 3},
 				}
 				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
-					mnsID: {
-						"/usr/bin/test": &fileAccess{exec: true},
+					mID: {
+						"/home/user/test": &fileAccess{spawn: true},
 					},
 				}
 			},
@@ -689,21 +689,21 @@ func TestApparmorForProfile(t *testing.T) {
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
-					mnsID: {
+					mID: {
 						UseRaw: false,
 						UseTCP: true,
 						UseUDP: false,
 					},
 				}
 				sut.AppArmor.recordedCapabilities = map[mntnsID][]int{
-					mnsID: {1, 2, 3},
+					mID: {1, 2, 3},
 				}
 				sut.AppArmor.recordedFiles = map[mntnsID]map[string]*fileAccess{
-					mnsID: {
-						"/usr/bin/test1": &fileAccess{exec: true},
+					mID: {
+						"/home/user/test1": &fileAccess{spawn: true},
 					},
 					123: {
-						"/usr/bin/test2": &fileAccess{exec: true},
+						"/home/user/test2": &fileAccess{spawn: true},
 					},
 				}
 			},
@@ -741,7 +741,7 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 		},
 	} {
-		sut := New("", logr.Discard(), true, false)
+		sut := New("", logr.Discard(), true, true)
 
 		mock := &bpfrecorderfakes.FakeImpl{}
 		sut.impl = mock

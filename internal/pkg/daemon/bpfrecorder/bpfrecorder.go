@@ -386,6 +386,7 @@ func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error
 			b.logger.Info("Looking up mount namespace for profile", "profile", profile, "try", try)
 			if foundMntns, ok := b.getMntnsForProfile(profile); ok {
 				mntns = foundMntns
+				return nil
 			}
 			b.logger.Info("No mount namespace found for profile", "profile", profile)
 			return ErrNotFound
