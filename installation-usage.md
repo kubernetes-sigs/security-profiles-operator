@@ -1,6 +1,7 @@
 # Installation and Usage
 
 <!-- toc -->
+
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
@@ -519,7 +520,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.1.12
+  baseProfileName: runc-v1.1.13
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -555,7 +556,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.12
+  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.13
 ```
 
 The resulting profile `profile1` will then contain all base syscalls from the
@@ -631,7 +632,7 @@ spec:
   image: nginx:1.19.1
 ```
 
-You can enable a default profile binding by using the string "*" as the image name.
+You can enable a default profile binding by using the string "\*" as the image name.
 This will only apply a profile binding if no other profile binding matches a container in the pod.
 
 ```yaml
@@ -999,7 +1000,7 @@ deployed in a subsequent verify run or recording profiles as part of a build pro
 profile would be deployed by the end-user.
 
 To record profiles without installing them, set the `disableProfileAfterRecording`
-attribute to `true` in the `ProfileRecording` CR.  This option defaults to `false`, which
+attribute to `true` in the `ProfileRecording` CR. This option defaults to `false`, which
 is the default behavior of the operator to install the profiles. When `disableProfileAfterRecording`
 is set to `true`, the operator will not reconcile the profiles and will not install them. Partial
 disabled profiles can still be merged and the resulting merged profile will be disabled.
@@ -1007,7 +1008,7 @@ disabled profiles can still be merged and the resulting merged profile will be d
 On the profile level, this functionality is controlled by the `disabled` flag - it is also possible
 to create profile CRs disabled, although this functionality is probably less interesting to end users
 and is mostly used for testing purposes. The `disabled` flag is set to `false` by default. Profiles
-that are disabled, either explicitly or by the `disableProfileAfterRecording` flag, can be enabled 
+that are disabled, either explicitly or by the `disableProfileAfterRecording` flag, can be enabled
 by setting the `disabled` flag to `false` in the profile CR.
 
 #### Disable profile recording
@@ -1969,18 +1970,18 @@ The `spoc` client is able to pull security profiles from OCI artifact compatible
 registries. To do that, just run `spoc pull`:
 
 ```console
-> spoc pull ghcr.io/security-profiles/runc:v1.1.12
-16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.12
+> spoc pull ghcr.io/security-profiles/runc:v1.1.13
+16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.13
 16:32:29.795610 Verifying signature
 
-Verification for ghcr.io/security-profiles/runc:v1.1.12 --
+Verification for ghcr.io/security-profiles/runc:v1.1.13 --
 The following checks were performed on each of these signatures:
   - Existence of the claims in the transparency log was verified offline
   - The code-signing certificate was verified using trusted certificate authority certificates
 
 [{"critical":{"identity":{"docker-reference":"ghcr.io/security-profiles/runc"},…}}]
 16:32:33.208695 Creating file store in: /tmp/pull-3199397214
-16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.1.12
+16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.1.13
 16:32:33.208718 Creating repository for ghcr.io/security-profiles/runc
 16:32:33.208742 Using tag: v1.1.4
 16:32:33.208743 Copying profile from repository
@@ -2114,15 +2115,15 @@ The Security Profiles Operator will try to pull the correct profile by using
 way, for example if a profile does not support any platform:
 
 ```
-> spoc pull ghcr.io/security-profiles/runc:v1.1.12
-11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.12
+> spoc pull ghcr.io/security-profiles/runc:v1.1.13
+11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.13
 11:07:14.788852 Verifying signature
 …
 11:07:17.559037 Copying profile from repository
 11:07:18.359152 Trying to read profile: profile-linux-amd64.yaml
 11:07:18.359209 Trying to read profile: profile.yaml
 11:07:18.359224 Trying to unmarshal seccomp profile
-11:07:18.359728 Got SeccompProfile: runc-v1.1.12
+11:07:18.359728 Got SeccompProfile: runc-v1.1.13
 11:07:18.359732 Saving profile in: /tmp/profile.yaml
 ```
 
