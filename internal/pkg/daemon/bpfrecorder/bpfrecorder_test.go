@@ -640,8 +640,6 @@ func TestSyscallsForProfile(t *testing.T) {
 }
 
 func TestApparmorForProfile(t *testing.T) {
-	t.Parallel()
-
 	mID := mntnsID(mntns)
 
 	for _, tc := range []struct {
@@ -748,11 +746,9 @@ func TestApparmorForProfile(t *testing.T) {
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			// This is required to enable the unit tests when they are executed on an
 			// Linux OS without BPF_LSM module enabled.
-			os.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1") //nolint:tenv // tenv doesn't seem to work with parallel tests even in Run
-			defer os.Unsetenv("E2E_TEST_BPF_LSM_ENABLED")
+			t.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1") //nolint:tenv // tenv doesn't seem to work with parallel tests even in Run
 
 			sut := New("", logr.Discard(), true, true)
 
