@@ -67,7 +67,6 @@ var (
 
 func TestRun(t *testing.T) {
 	t.Parallel()
-
 	for _, tc := range []struct {
 		prepare func(*bpfrecorderfakes.FakeImpl)
 		assert  func(error)
@@ -738,7 +737,6 @@ func TestApparmorForProfile(t *testing.T) {
 		{ // no PID for container
 			name: "no pid for container available",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
@@ -749,9 +747,11 @@ func TestApparmorForProfile(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			tc := tc
+			t.Parallel()
 			// This is required to enable the unit tests when they are executed on an
 			// Linux OS without BPF_LSM module enabled.
-			os.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1")
+			os.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1") //nolint:tenv // tenv doesn't seem to work with parallel tests even in Run
 			defer os.Unsetenv("E2E_TEST_BPF_LSM_ENABLED")
 
 			sut := New("", logr.Discard(), true, true)
