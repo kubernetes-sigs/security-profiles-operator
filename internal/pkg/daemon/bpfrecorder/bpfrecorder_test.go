@@ -646,15 +646,13 @@ func TestApparmorForProfile(t *testing.T) {
 	mID := mntnsID(mntns)
 
 	for _, tc := range []struct {
+		name    string
 		prepare func(*BpfRecorder, *bpfrecorderfakes.FakeImpl)
 		assert  func(*BpfRecorder, *api.ApparmorResponse, error)
 	}{
 		{ // Success
+			name: "success",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				// This is required to enable the unit tests when they are executed on an
-				// Linux OS without BPF_LSM module enabled.
-				t.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1")
-
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
@@ -686,11 +684,8 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 		},
 		{ // Success only for right mntns
+			name: "success only for right mntns",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				// This is required to enable the unit tests when they are executed on an
-				// Linux OS without BPF_LSM module enabled.
-				t.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1")
-
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
 				require.Nil(t, err)
@@ -725,12 +720,14 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 		},
 		{ // recorder not running
+			name:    "recorder not running",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
 				require.NotNil(t, err)
 			},
 		},
 		{ // not recording apparmor
+			name: "apparmor recorder disabled",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				sut.AppArmor = nil
 			},
@@ -739,10 +736,8 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 		},
 		{ // no PID for container
+			name: "no pid for container available",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
-				// This is required to enable the unit tests when they are executed on an
-				// Linux OS without BPF_LSM module enabled.
-				t.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1")
 
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
@@ -753,17 +748,24 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 		},
 	} {
-		sut := New("", logr.Discard(), true, true)
+		t.Run(tc.name, func(t *testing.T) {
+			// This is required to enable the unit tests when they are executed on an
+			// Linux OS without BPF_LSM module enabled.
+			os.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1")
+			defer os.Unsetenv("E2E_TEST_BPF_LSM_ENABLED")
 
-		mock := &bpfrecorderfakes.FakeImpl{}
-		sut.impl = mock
+			sut := New("", logr.Discard(), true, true)
 
-		tc.prepare(sut, mock)
+			mock := &bpfrecorderfakes.FakeImpl{}
+			sut.impl = mock
 
-		resp, err := sut.ApparmorForProfile(
-			context.Background(), &api.ProfileRequest{Name: profile},
-		)
-		tc.assert(sut, resp, err)
+			tc.prepare(sut, mock)
+
+			resp, err := sut.ApparmorForProfile(
+				context.Background(), &api.ProfileRequest{Name: profile},
+			)
+			tc.assert(sut, resp, err)
+		})
 	}
 }
 
