@@ -746,8 +746,8 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 		},
 	} {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			tc := tc
 			t.Parallel()
 			// This is required to enable the unit tests when they are executed on an
 			// Linux OS without BPF_LSM module enabled.
