@@ -105,7 +105,7 @@ func createProcData(root string, pid int, cmd string, skipCmd, emptyCmd bool) er
 	}
 	if !skipCmd {
 		cmdFile := path.Join(procDir, "cmdline")
-		if err := os.WriteFile(cmdFile, []byte(cmd), 0644); err != nil {
+		if err := os.WriteFile(cmdFile, []byte(cmd), 0o644); err != nil {
 			return fmt.Errorf("creating cmd file: %w", err)
 		}
 	}
@@ -115,7 +115,7 @@ func createProcData(root string, pid int, cmd string, skipCmd, emptyCmd bool) er
 			return fmt.Errorf("creating proc dir: %w", err)
 		}
 		cmdFile := path.Join(procDir, "cmdline")
-		if err := os.WriteFile(cmdFile, []byte(""), 0o644); err != nil {
+		if err := os.WriteFile(cmdFile, []byte(""), 0o600); err != nil {
 			return fmt.Errorf("creating cmd file: %w", err)
 		}
 	}
