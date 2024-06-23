@@ -66,7 +66,7 @@ func (p *proc) walkProc(file string, info os.FileInfo, err error) error {
 	// Return already if there is an existing error due to for instance
 	// insufficient privileges.
 	if err != nil {
-		return nil //nolint: nilerr // skip errors due to insufficient permissions
+		return nil //nolint:nilerr // skip errors due to insufficient permissions
 	}
 
 	// Skip paths which doesn't look like /proc/<pid>cmdline.
