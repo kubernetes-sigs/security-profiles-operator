@@ -32,12 +32,12 @@ const (
 	processRoot = "/proc"
 )
 
-// ErrEmptyPIDName indicates an erorr for a PID with an empty process name
+// ErrEmptyPIDName indicates an erorr for a PID with an empty process name.
 var ErrEmptyPIDName = errors.New("process Name of given PID is empty")
 
-var procRegexp = regexp.MustCompile(`[/]*proc/[\d]+/cmdline`)
+var procRegexp = regexp.MustCompile(`/*proc/\d+/cmdline`)
 
-// ProcessIDByName is looking up the PID by process name
+// ProcessIDByName is looking up the PID by process name.
 func ProcessIDByName(name string) (int, error) {
 	p := &proc{
 		name: name,
@@ -62,30 +62,30 @@ func (p *proc) findPIDByName(root string) (int, error) {
 	return -1, fmt.Errorf("could not find a valid pid for process name %q", p.name)
 }
 
-func (p *proc) walkProc(path string, info os.FileInfo, err error) error {
+func (p *proc) walkProc(file string, info os.FileInfo, err error) error {
 	// Return already if there is an existing error due to for instance
 	// insufficient privileges.
 	if err != nil {
-		return nil
+		return nil //nolint: nilerr // skip errors due to insufficient permissions
 	}
 
 	// Skip paths which doesn't look like /proc/<pid>cmdline.
-	if !procRegexp.Match([]byte(path)) {
+	if !procRegexp.MatchString(file) {
 		return nil
 	}
 
-	pid, err := parsePID(path)
+	pid, err := parsePID(file)
 	if err != nil {
-		return fmt.Errorf("parsing PID from path %s: %w", path, err)
+		return fmt.Errorf("parsing PID from path %s: %w", file, err)
 	}
 
-	name, err := parseName(path)
+	name, err := parseName(file)
 	if err != nil {
 		// skip pids without empty command and keep going
-		if err == ErrEmptyPIDName {
+		if errors.Is(err, ErrEmptyPIDName) {
 			return nil
 		}
-		return fmt.Errorf("parsing process name from path %s: %w", path, err)
+		return fmt.Errorf("parsing process name from path %s: %w", file, err)
 	}
 
 	// Update the PID if we found the process
@@ -101,13 +101,13 @@ func parsePID(dir string) (int, error) {
 	return strconv.Atoi(path.Base(pidDir))
 }
 
-func parseName(path string) (string, error) {
-	f, err := os.ReadFile(path)
+func parseName(file string) (string, error) {
+	f, err := os.ReadFile(file)
 	if err != nil {
-		return "", fmt.Errorf("reading from %s: %w", path, err)
+		return "", fmt.Errorf("reading from %s: %w", file, err)
 	}
 	name := strings.TrimSpace(string(f))
-	if len(name) > 0 {
+	if name != "" {
 		return name, nil
 	}
 	return "", ErrEmptyPIDName
