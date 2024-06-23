@@ -35,6 +35,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 type defaultImpl struct{}
@@ -58,6 +59,7 @@ type impl interface {
 	PrintObj(printers.YAMLPrinter, runtime.Object, io.Writer) error
 	GoArchToSeccompArch(string) (seccomp.Arch, error)
 	Notify(chan<- os.Signal, ...os.Signal)
+	ProcessIDByName(name string) (int, error)
 }
 
 func (*defaultImpl) LoadBpfRecorder(b *bpfrecorder.BpfRecorder) error {
@@ -122,4 +124,8 @@ func (*defaultImpl) GoArchToSeccompArch(arch string) (seccomp.Arch, error) {
 
 func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {
 	signal.Notify(c, sig...)
+}
+
+func (*defaultImpl) ProcessIDByName(name string) (int, error) {
+	return util.ProcessIDByName(name)
 }

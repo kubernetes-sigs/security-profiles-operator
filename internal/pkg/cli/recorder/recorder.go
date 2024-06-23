@@ -95,6 +95,22 @@ func (r *Recorder) Run() error {
 		ch := make(chan os.Signal, 1)
 		r.Notify(ch, os.Interrupt)
 		log.Print(WaitForSigIntMessage)
+
+		// searching the mntns of the process started outside of spoc
+		cmd := r.options.commandOptions.Command()
+		if err := util.Retry(func() (err error) {
+			pid, err := r.ProcessIDByName(cmd)
+			if err != nil {
+				return fmt.Errorf("getting PID by name: %w", err)
+			}
+			mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(pid))
+			if err != nil {
+				return fmt.Errorf("finding mntns of PID %d: %w", pid, err)
+			}
+			return nil
+		}, func(err error) bool { return true }); err != nil {
+			return fmt.Errorf("searching the PID of %q command: %w", cmd, err)
+		}
 		<-ch
 	} else {
 		cmd := command.New(r.options.commandOptions)
@@ -105,7 +121,7 @@ func (r *Recorder) Run() error {
 
 		mntns, err = r.FindProcMountNamespace(r.bpfRecorder, pid)
 		if err != nil {
-			return fmt.Errorf("finding mntns for command PID %d: %w", pid, err)
+			return fmt.Errorf("finding mntns of PID %d: %w", pid, err)
 		}
 
 		if err := r.CommandWait(cmd); err != nil {
