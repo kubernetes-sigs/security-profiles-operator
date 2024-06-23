@@ -32,7 +32,7 @@ const (
 	processRoot = "/proc"
 )
 
-// ErrEmptyPIDName indicates an erorr for a PID with an empty process name.
+// ErrEmptyPIDName indicates an error for a PID with an empty process name.
 var ErrEmptyPIDName = errors.New("process Name of given PID is empty")
 
 var procRegexp = regexp.MustCompile(`/*proc/\d+/cmdline`)
