@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -93,13 +94,13 @@ func TestFindPIDByName(t *testing.T) {
 	}
 }
 
-func createProcData(root string, pid int, cmd string, skipCmd bool, emptyCmd bool) error {
+func createProcData(root string, pid int, cmd string, skipCmd, emptyCmd bool) error {
 	procPath := path.Join(root, processRoot)
-	if err := os.Mkdir(procPath, 0700); err != nil {
+	if err := os.Mkdir(procPath, 0o700); err != nil {
 		return fmt.Errorf("creating proc root dir: %w", err)
 	}
-	procDir := path.Join(procPath, fmt.Sprintf("%d", pid))
-	if err := os.Mkdir(procDir, 0700); err != nil {
+	procDir := path.Join(procPath, strconv.Itoa(pid))
+	if err := os.Mkdir(procDir, 0o700); err != nil {
 		return fmt.Errorf("creating proc dir: %w", err)
 	}
 	if !skipCmd {
@@ -110,11 +111,11 @@ func createProcData(root string, pid int, cmd string, skipCmd bool, emptyCmd boo
 	}
 	if emptyCmd {
 		procDir := path.Join(procPath, "567")
-		if err := os.Mkdir(procDir, 0700); err != nil {
+		if err := os.Mkdir(procDir, 0o700); err != nil {
 			return fmt.Errorf("creating proc dir: %w", err)
 		}
 		cmdFile := path.Join(procDir, "cmdline")
-		if err := os.WriteFile(cmdFile, []byte(""), 0644); err != nil {
+		if err := os.WriteFile(cmdFile, []byte(""), 0o644); err != nil {
 			return fmt.Errorf("creating cmd file: %w", err)
 		}
 	}
