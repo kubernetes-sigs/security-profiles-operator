@@ -25,6 +25,9 @@ Vagrant.configure("2") do |config|
     v.cpus = cpus
   end
 
+  if File.exists?("./ssh-config")
+    config.ssh.config = "./ssh-config"
+  end
   config.ssh.connect_timeout = 30
   config.ssh.username = 'core'
   config.ssh.forward_agent = true

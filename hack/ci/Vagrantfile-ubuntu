@@ -3,7 +3,7 @@
 
 Vagrant.configure("2") do |config|
   config.vm.box = "generic/ubuntu2204"
-  memory = 6144
+  memory = 8192
   cpus = 4
 
   config.vm.provider :virtualbox do |v|
@@ -14,6 +14,10 @@ Vagrant.configure("2") do |config|
   config.vm.provider :libvirt do |v|
     v.memory = memory
     v.cpus = cpus
+  end
+
+  if File.exists?("./ssh-config")
+    config.ssh.config = "./ssh-config"
   end
 
   config.vm.synced_folder ".", "/vagrant"
