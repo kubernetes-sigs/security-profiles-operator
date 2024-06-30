@@ -290,7 +290,7 @@ update-proto: $(BUILD_DIR)/protoc-gen-go $(BUILD_DIR)/protoc-gen-go-grpc ## Upda
 	done
 
 define vagrant-up
-	if [ ! -f image.tar ]; then \
+	if [ ! -f image.tar ] && [ $(2) = build ]; then \
 		make image IMAGE=$(IMAGE) && \
 		$(CONTAINER_RUNTIME) save -o image.tar $(IMAGE); \
 	fi
@@ -302,19 +302,19 @@ endef
 
 .PHONY: vagrant-up-fedora
 vagrant-up-fedora: ## Boot the Vagrant Fedora based test VM
-	$(call vagrant-up,fedora)
+	$(call vagrant-up,fedora,build)
 
 .PHONY: vagrant-up-ubuntu
 vagrant-up-ubuntu: ## Boot the Vagrant Ubuntu based test VM
-	$(call vagrant-up,ubuntu)
+	$(call vagrant-up,ubuntu,build)
 
 .PHONY: vagrant-up-debian
 vagrant-up-debian: ## Boot the Vagrant Debian based test VM
-	$(call vagrant-up,debian)
+	$(call vagrant-up,debian,no)
 
 .PHONY: vagrant-up-flatcar
 vagrant-up-flatcar: ## Boot the Vagrant Flatcar based test VM
-	$(call vagrant-up,flatcar)
+	$(call vagrant-up,flatcar,build)
 
 $(BUILD_DIR)/mdtoc: $(BUILD_DIR)
 	$(call go-build,./vendor/sigs.k8s.io/mdtoc)
