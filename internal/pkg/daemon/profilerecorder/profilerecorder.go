@@ -728,7 +728,8 @@ func (r *RecorderReconciler) collectBpfProfiles(
 				}
 				return fmt.Errorf("collecting seccomp profile %s: %w", profileToCollect.name, err)
 			}
-			err = r.updateOrCreateSeccompResource(ctx, profileNamespacedName, seccompProfile)
+			err = r.updateOrCreateSeccompResource(
+				ctx, parsedProfileName.profileName, profileNamespacedName.Namespace, seccompProfile)
 			if err != nil {
 				return fmt.Errorf("creating/updating seccomp profile %s: %w", profileToCollect.name, err)
 			}
@@ -741,7 +742,8 @@ func (r *RecorderReconciler) collectBpfProfiles(
 				}
 				return fmt.Errorf("collecting apparmor profile %s: %w", profileToCollect.name, err)
 			}
-			err = r.updateOrCreateApparmorResource(ctx, profileNamespacedName, apparmorProfile)
+			err = r.updateOrCreateApparmorResource(
+				ctx, parsedProfileName.profileName, profileNamespacedName.Namespace, apparmorProfile)
 			if err != nil {
 				return fmt.Errorf("creating/updating apparmor profile %s: %w", profileToCollect.name, err)
 			}
@@ -808,15 +810,16 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 //nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
 func (r *RecorderReconciler) updateOrCreateSeccompResource(
 	ctx context.Context,
-	profileNamespacedName types.NamespacedName,
+	profileRecordingName string,
+	profileNamesapce string,
 	profile *seccompprofileapi.SeccompProfile,
 ) error {
 	if err := r.setDisabled(ctx, r.client,
-		profileNamespacedName.Name, profileNamespacedName.Namespace,
+		profileRecordingName, profileNamesapce,
 		&profile.Spec.SpecBase); err != nil {
 		r.log.Error(err, "Cannot set the disable flag on profile",
-			"name", profileNamespacedName.Name,
-			"namespace", profileNamespacedName.Namespace,
+			"name", profileRecordingName,
+			"namespace", profileNamesapce,
 		)
 		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("disabling profile after recording: %w", err)
@@ -835,7 +838,7 @@ func (r *RecorderReconciler) updateOrCreateSeccompResource(
 		return fmt.Errorf("creating profile resource: %w", err)
 	}
 
-	r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName)
+	r.log.Info("Created/updated profile", "action", res, "name", profileNamesapce)
 	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
 	return nil
 }
@@ -951,15 +954,16 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 //nolint:dupl // This requires a specific profile type which prevents the reducton of duplicated code
 func (r *RecorderReconciler) updateOrCreateApparmorResource(
 	ctx context.Context,
-	profileNamespacedName types.NamespacedName,
+	profileRecordingName string,
+	profileNamesapce string,
 	profile *apparmorprofileapi.AppArmorProfile,
 ) error {
 	if err := r.setDisabled(ctx, r.client,
-		profileNamespacedName.Name, profileNamespacedName.Namespace,
+		profileRecordingName, profileNamesapce,
 		&profile.Spec.SpecBase); err != nil {
 		r.log.Error(err, "Cannot set the disable flag on profile",
-			"name", profileNamespacedName.Name,
-			"namespace", profileNamespacedName.Namespace,
+			"name", profileRecordingName,
+			"namespace", profileNamesapce,
 		)
 		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("disabling profile after recording: %w", err)
@@ -978,7 +982,7 @@ func (r *RecorderReconciler) updateOrCreateApparmorResource(
 		return fmt.Errorf("creating profile resource: %w", err)
 	}
 
-	r.log.Info("Created/updated profile", "action", res, "name", profileNamespacedName)
+	r.log.Info("Created/updated profile", "action", res, "name", profileNamesapce)
 	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "apparmor profile created")
 	return nil
 }
