@@ -811,15 +811,15 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 func (r *RecorderReconciler) updateOrCreateSeccompResource(
 	ctx context.Context,
 	profileRecordingName string,
-	profileNamesapce string,
+	profileNamespace string,
 	profile *seccompprofileapi.SeccompProfile,
 ) error {
 	if err := r.setDisabled(ctx, r.client,
-		profileRecordingName, profileNamesapce,
+		profileRecordingName, profileNamespace,
 		&profile.Spec.SpecBase); err != nil {
 		r.log.Error(err, "Cannot set the disable flag on profile",
 			"name", profileRecordingName,
-			"namespace", profileNamesapce,
+			"namespace", profileNamespace,
 		)
 		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("disabling profile after recording: %w", err)
@@ -838,7 +838,7 @@ func (r *RecorderReconciler) updateOrCreateSeccompResource(
 		return fmt.Errorf("creating profile resource: %w", err)
 	}
 
-	r.log.Info("Created/updated profile", "action", res, "name", profileNamesapce)
+	r.log.Info("Created/updated profile", "action", res, "name", profileNamespace)
 	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "seccomp profile created")
 	return nil
 }
@@ -955,15 +955,15 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 func (r *RecorderReconciler) updateOrCreateApparmorResource(
 	ctx context.Context,
 	profileRecordingName string,
-	profileNamesapce string,
+	profileNamespace string,
 	profile *apparmorprofileapi.AppArmorProfile,
 ) error {
 	if err := r.setDisabled(ctx, r.client,
-		profileRecordingName, profileNamesapce,
+		profileRecordingName, profileNamespace,
 		&profile.Spec.SpecBase); err != nil {
 		r.log.Error(err, "Cannot set the disable flag on profile",
 			"name", profileRecordingName,
-			"namespace", profileNamesapce,
+			"namespace", profileNamespace,
 		)
 		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
 		return fmt.Errorf("disabling profile after recording: %w", err)
@@ -982,7 +982,7 @@ func (r *RecorderReconciler) updateOrCreateApparmorResource(
 		return fmt.Errorf("creating profile resource: %w", err)
 	}
 
-	r.log.Info("Created/updated profile", "action", res, "name", profileNamesapce)
+	r.log.Info("Created/updated profile", "action", res, "name", profileNamespace)
 	r.record.Event(profile, util.EventTypeNormal, reasonProfileCreated, "apparmor profile created")
 	return nil
 }
