@@ -79,6 +79,9 @@ func recordAppArmorTest(t *testing.T) {
 		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/dev/null")
 	})
 	t.Run("sockets", func(t *testing.T) {
+		if !bpfrecorder.BPFLSMEnabled() {
+			t.Skip("BPF LSM disabled")
+		}
 		profile := recordAppArmor(t, "--net-tcp")
 		require.True(t, *profile.Network.Protocols.AllowTCP)
 		require.Nil(t, profile.Capability)
@@ -90,6 +93,9 @@ func recordAppArmorTest(t *testing.T) {
 		require.Contains(t, profile.Capability.AllowedCapabilities, "net_raw")
 	})
 	t.Run("capabilities", func(t *testing.T) {
+		if !bpfrecorder.BPFLSMEnabled() {
+			t.Skip("BPF LSM disabled")
+		}
 		profile := recordAppArmor(t, "--cap-sys-admin")
 		require.Contains(t, profile.Capability.AllowedCapabilities, "sys_admin")
 	})
@@ -112,6 +118,9 @@ func recordAppArmorTest(t *testing.T) {
 	})
 
 	t.Run("no-proc-start", func(t *testing.T) {
+		if !bpfrecorder.BPFLSMEnabled() {
+			t.Skip("BPF LSM disabled")
+		}
 		demobinary, err := filepath.Abs("./demobinary")
 		require.Nil(t, err)
 
