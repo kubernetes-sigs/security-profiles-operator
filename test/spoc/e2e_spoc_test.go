@@ -62,18 +62,6 @@ func recordTest(t *testing.T) {
 }
 
 func recordAppArmorTest(t *testing.T) {
-	t.Run("unsupported", func(t *testing.T) {
-		out, err := exec.Command(
-			"sudo",
-			"E2E_TEST_BPF_LSM_ENABLED=0",
-			spocPath,
-			"record",
-			"-t", "apparmor",
-			"./demobinary",
-		).CombinedOutput()
-		require.NotNil(t, err)
-		require.Contains(t, string(out), "BPF LSM is not enabled")
-	})
 	t.Run("files", func(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
@@ -129,7 +117,6 @@ func recordAppArmorTest(t *testing.T) {
 
 		cmd := exec.Command(
 			"sudo",
-			"E2E_TEST_BPF_LSM_ENABLED=1",
 			spocPath,
 			"record",
 			"--no-proc-start",
@@ -193,7 +180,7 @@ func recordSeccompTest(t *testing.T) {
 
 func runSpoc(t *testing.T, args ...string) []byte {
 	t.Helper()
-	args = append([]string{"E2E_TEST_BPF_LSM_ENABLED=1", spocPath}, args...)
+	args = append([]string{spocPath}, args...)
 	cmd := exec.Command(
 		"sudo",
 		args...,

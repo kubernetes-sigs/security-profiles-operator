@@ -746,10 +746,6 @@ func TestApparmorForProfile(t *testing.T) {
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			// This is required to enable the unit tests when they are executed on an
-			// Linux OS without BPF_LSM module enabled.
-			t.Setenv("E2E_TEST_BPF_LSM_ENABLED", "1")
-
 			sut := New("", logr.Discard(), true, true)
 
 			mock := &bpfrecorderfakes.FakeImpl{}
