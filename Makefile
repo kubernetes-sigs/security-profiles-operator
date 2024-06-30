@@ -308,6 +308,10 @@ vagrant-up-fedora: ## Boot the Vagrant Fedora based test VM
 vagrant-up-ubuntu: ## Boot the Vagrant Ubuntu based test VM
 	$(call vagrant-up,ubuntu)
 
+.PHONY: vagrant-up-debian
+vagrant-up-debian: ## Boot the Vagrant Debian based test VM
+	$(call vagrant-up,debian)
+
 .PHONY: vagrant-up-flatcar
 vagrant-up-flatcar: ## Boot the Vagrant Flatcar based test VM
 	$(call vagrant-up,flatcar)
