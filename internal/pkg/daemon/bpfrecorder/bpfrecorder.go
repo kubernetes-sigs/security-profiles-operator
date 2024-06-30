@@ -473,7 +473,10 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 	}
 	if b.AppArmor != nil {
 		if err := b.AppArmor.Load(b); err != nil {
-			return err
+			// Only log an error here, if Apparmor cannot be loaded. This is because it is
+			// enabled by default, and there are Linux distributions which either do not
+			// support Apparmor or BPF LSM is not yet available.
+			b.logger.Error(err, "Loading bpf program")
 		}
 	}
 	if b.Seccomp != nil {
@@ -896,9 +899,6 @@ func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
 }
 
 func BPFLSMEnabled() bool {
-	if enabled := os.Getenv("E2E_TEST_BPF_LSM_ENABLED"); enabled != "" {
-		return enabled == "1"
-	}
 	contents, err := os.ReadFile("/sys/kernel/security/lsm")
 	if err != nil {
 		return false
