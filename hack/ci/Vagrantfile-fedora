@@ -17,6 +17,10 @@ Vagrant.configure("2") do |config|
     v.cpus = cpus
   end
 
+  if File.exists?("./ssh-config")
+    config.ssh.config = "./ssh-config"
+  end
+
   config.vm.provision "install-dependencies", type: "shell", run: "once" do |sh|
     sh.inline = <<~SHELL
       set -euxo pipefail
