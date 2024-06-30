@@ -1,0 +1,58 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "generic/debian12"
+  memory = 8192
+  cpus = 4
+
+  config.vm.provider :virtualbox do |v|
+    v.memory = memory
+    v.cpus = cpus
+  end
+
+  config.vm.provider :libvirt do |v|
+    v.memory = memory
+    v.cpus = cpus
+  end
+
+  if File.exists?("./ssh-config")
+    config.ssh.config = "./ssh-config"
+  end
+
+  config.vm.synced_folder ".", "/vagrant"
+
+  config.vm.provision "install-dependencies", type: "shell", run: "once" do |sh|
+    sh.inline = <<~SHELL
+      set -euxo pipefail
+
+      # Use a non-localhost DNS to avoid cluster DNS lookup loops
+      echo "nameserver 8.8.8.8" > /etc/resolv.conf
+
+      # Install Go
+      GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1)
+      curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz |
+        tar xfz - -C /usr/local
+
+      # Disable kernel print rate limiting for syslog messaging
+      sysctl -w kernel.printk_ratelimit=0
+      sysctl -w kernel.printk_ratelimit_burst=0
+
+      # Install dependecies such as eBPF and seccomp libs
+      apt-get update
+      apt-get install -y \
+          build-essential \
+          pkg-config \
+          jq \
+          apparmor \
+          apparmor-utils \
+          libapparmor-dev \
+          libelf-dev \
+          libseccomp-dev \
+          libzstd-dev
+
+      /vagrant/hack/install-libbpf.sh
+
+    SHELL
+  end
+end

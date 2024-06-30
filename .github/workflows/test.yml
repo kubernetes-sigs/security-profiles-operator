@@ -172,14 +172,23 @@ jobs:
   e2e-spoc:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    env:
+      RUN: ./hack/ci/run-debian.sh
     steps:
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
-      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: Install dependencies
-        run: sudo hack/install-packages
-      - run: make test-spoc-e2e
+      - name: Boot Virtual Machine
+        run: make vagrant-up-debian
+      - name: Set up git config
+        run: |
+          $RUN git config --global --add safe.directory /vagrant
+      - name: Run E2E tests
+        run: $RUN hack/ci/e2e-spoc.sh
 
   baseprofiles:
     needs: image
