@@ -640,6 +640,8 @@ func TestSyscallsForProfile(t *testing.T) {
 }
 
 func TestApparmorForProfile(t *testing.T) {
+	t.Parallel()
+
 	mID := mntnsID(mntns)
 
 	for _, tc := range []struct {
@@ -746,6 +748,8 @@ func TestApparmorForProfile(t *testing.T) {
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			sut := New("", logr.Discard(), true, true)
 
 			mock := &bpfrecorderfakes.FakeImpl{}
