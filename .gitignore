@@ -7,3 +7,4 @@ Vagrantfile
 build.tar.gz
 image.tar
 result
+ssh-config
