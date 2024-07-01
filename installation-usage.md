@@ -1805,7 +1805,7 @@ For up-to-date information on how to use AppArmor in Kubernetes, refer to the [o
 ### Record a AppArmor profile
 
 The operator is able to record AppArmor profiles for a workload using the build-in eBPF recorder. For more details, please
-refer to the [eBPF based recording](#ebpf-based-recording)) section in `seccomp` documentation.
+refer to the [eBPF based recording](#ebpf-based-recording)) section.
 
 You will need to use `kind: AppArmorProfile` in `ProfileRecording` CR instead of `SeccompProfile`.
 
