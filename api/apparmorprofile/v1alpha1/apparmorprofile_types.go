@@ -31,9 +31,45 @@ var (
 	_ profilebasev1alpha1.SecurityProfileBase = &AppArmorProfile{}
 )
 
+type AppArmorExecutablesRules struct {
+	AllowedExecutables *[]string `json:"allowedExecutables,omitempty"`
+	AllowedLibraries   *[]string `json:"allowedLibraries,omitempty"`
+}
+
+type AppArmorFsRules struct {
+	ReadOnlyPaths  *[]string `json:"readOnlyPaths,omitempty"`
+	WriteOnlyPaths *[]string `json:"writeOnlyPaths,omitempty"`
+	ReadWritePaths *[]string `json:"readWritePaths,omitempty"`
+}
+
+type AppArmorAllowedProtocols struct {
+	AllowTCP *bool `json:"allowTcp,omitempty"`
+	AllowUDP *bool `json:"allowUdp,omitempty"`
+}
+
+type AppArmorNetworkRules struct {
+	AllowRaw  *bool                     `json:"allowRaw,omitempty"`
+	Protocols *AppArmorAllowedProtocols `json:"allowedProtocols,omitempty"`
+}
+
+type AppArmorCapabilityRules struct {
+	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
+}
+
+type AppArmorAbstract struct {
+	Executable *AppArmorExecutablesRules `json:"executable,omitempty"`
+	Filesystem *AppArmorFsRules          `json:"filesystem,omitempty"`
+	Network    *AppArmorNetworkRules     `json:"network,omitempty"`
+	Capability *AppArmorCapabilityRules  `json:"capability,omitempty"`
+}
+
 // AppArmorProfileSpec defines the desired state of AppArmorProfile.
 type AppArmorProfileSpec struct {
-	Policy string `json:"policy,omitempty"`
+	// Common spec fields for all profiles.
+	profilebasev1alpha1.SpecBase `json:",inline"`
+
+	Policy   string           `json:"policy,omitempty"`
+	Abstract AppArmorAbstract `json:"abstract,omitempty"`
 }
 
 // AppArmorProfileStatus defines the observed state of AppArmorProfile.
@@ -76,6 +112,14 @@ func (sp *AppArmorProfile) ListProfilesByRecording(
 
 func (sp *AppArmorProfile) IsPartial() bool {
 	return profilebasev1alpha1.IsPartial(sp)
+}
+
+func (sp *AppArmorProfile) IsDisabled() bool {
+	return profilebasev1alpha1.IsDisabled(&sp.Spec.SpecBase)
+}
+
+func (sp *AppArmorProfile) IsReconcilable() bool {
+	return profilebasev1alpha1.IsReconcilable(sp)
 }
 
 // +kubebuilder:object:root=true

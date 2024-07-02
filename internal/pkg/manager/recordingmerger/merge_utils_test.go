@@ -23,13 +23,15 @@ import (
 	"github.com/containers/common/pkg/seccomp"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 )
 
-func ifaceAsSortedSeccompProfile(iface mergeableProfile) *seccompprofile.SeccompProfile {
-	prof, ok := iface.getProfile().(*seccompprofile.SeccompProfile)
+func ifaceAsSortedSeccompProfile(iface client.Object) *seccompprofile.SeccompProfile {
+	prof, ok := iface.(*seccompprofile.SeccompProfile)
 	if !ok {
 		return nil
 	}
@@ -42,8 +44,8 @@ func ifaceAsSortedSeccompProfile(iface mergeableProfile) *seccompprofile.Seccomp
 	return prof
 }
 
-func ifaceAsSortedSelinuxProfile(iface mergeableProfile) *selinuxprofileapi.SelinuxProfile {
-	prof, ok := iface.getProfile().(*selinuxprofileapi.SelinuxProfile)
+func ifaceAsSortedSelinuxProfile(iface client.Object) *selinuxprofileapi.SelinuxProfile {
+	prof, ok := iface.(*selinuxprofileapi.SelinuxProfile)
 	if !ok {
 		return nil
 	}
@@ -61,16 +63,16 @@ func TestMergeProfiles(t *testing.T) {
 
 	for _, tc := range []struct {
 		name    string
-		prepare func(*testing.T) []mergeableProfile
-		assert  func(profile mergeableProfile) error
+		prepare func(*testing.T) []client.Object
+		assert  func(profile client.Object) error
 	}{
 		{
 			name: "Two seccomp profiles",
-			prepare: func(t *testing.T) []mergeableProfile {
+			prepare: func(t *testing.T) []client.Object {
 				t.Helper()
 
-				parts := []seccompprofile.SeccompProfile{
-					{
+				return []client.Object{
+					&seccompprofile.SeccompProfile{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "test-abc",
 						},
@@ -85,7 +87,7 @@ func TestMergeProfiles(t *testing.T) {
 							},
 						},
 					},
-					{
+					&seccompprofile.SeccompProfile{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "test-ced",
 						},
@@ -101,16 +103,8 @@ func TestMergeProfiles(t *testing.T) {
 						},
 					},
 				}
-
-				partialSpecs := make([]mergeableProfile, len(parts))
-				for i := range parts {
-					var err error
-					partialSpecs[i], err = newMergeableProfile(&parts[i])
-					require.NoError(t, err)
-				}
-				return partialSpecs
 			},
-			assert: func(mergedProfIface mergeableProfile) error {
+			assert: func(mergedProfIface client.Object) error {
 				t.Helper()
 
 				mergedProf := ifaceAsSortedSeccompProfile(mergedProfIface)
@@ -123,11 +117,11 @@ func TestMergeProfiles(t *testing.T) {
 		},
 		{
 			name: "Two selinux profiles",
-			prepare: func(t *testing.T) []mergeableProfile {
+			prepare: func(t *testing.T) []client.Object {
 				t.Helper()
 
-				parts := []selinuxprofileapi.SelinuxProfile{
-					{
+				return []client.Object{
+					&selinuxprofileapi.SelinuxProfile{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "test-foobarbaz1",
 						},
@@ -143,7 +137,7 @@ func TestMergeProfiles(t *testing.T) {
 							},
 						},
 					},
-					{
+					&selinuxprofileapi.SelinuxProfile{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "test-foobarbaz2",
 						},
@@ -161,16 +155,8 @@ func TestMergeProfiles(t *testing.T) {
 						},
 					},
 				}
-
-				partialSpecs := make([]mergeableProfile, len(parts))
-				for i := range parts {
-					var err error
-					partialSpecs[i], err = newMergeableProfile(&parts[i])
-					require.NoError(t, err)
-				}
-				return partialSpecs
 			},
-			assert: func(profile mergeableProfile) error {
+			assert: func(profile client.Object) error {
 				t.Helper()
 
 				mergedProf := ifaceAsSortedSelinuxProfile(profile)
@@ -181,13 +167,99 @@ func TestMergeProfiles(t *testing.T) {
 				return nil
 			},
 		},
+		{
+			name: "Two apparmor profiles",
+			prepare: func(t *testing.T) []client.Object {
+				t.Helper()
+
+				return []client.Object{
+					&apparmorprofileapi.AppArmorProfile{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "test-foobarbaz1",
+						},
+						Spec: apparmorprofileapi.AppArmorProfileSpec{
+							Abstract: apparmorprofileapi.AppArmorAbstract{
+								Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+									AllowedExecutables: &[]string{"execA", "execB"},
+									AllowedLibraries:   &[]string{"libA"},
+								},
+								Filesystem: &apparmorprofileapi.AppArmorFsRules{
+									ReadOnlyPaths:  &[]string{"read1", "merged-rw1"},
+									WriteOnlyPaths: &[]string{"write1", "merged-rw2"},
+									ReadWritePaths: &[]string{"readwrite1"},
+								},
+								Network: &apparmorprofileapi.AppArmorNetworkRules{
+									AllowRaw: func() *bool { b := true; return &b }(),
+								},
+								Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+									AllowedCapabilities: []string{"sys_admin", "net_admin"},
+								},
+							},
+						},
+					},
+					&apparmorprofileapi.AppArmorProfile{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "test-foobarbaz2",
+						},
+						Spec: apparmorprofileapi.AppArmorProfileSpec{
+							Abstract: apparmorprofileapi.AppArmorAbstract{
+								Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+									AllowedExecutables: &[]string{"execA", "execC"},
+								},
+								Filesystem: &apparmorprofileapi.AppArmorFsRules{
+									WriteOnlyPaths: &[]string{"merged-rw1"},
+									ReadWritePaths: &[]string{"merged-rw2"},
+								},
+								Network: &apparmorprofileapi.AppArmorNetworkRules{
+									AllowRaw: func() *bool { b := false; return &b }(),
+									Protocols: &apparmorprofileapi.AppArmorAllowedProtocols{
+										AllowTCP: func() *bool { b := true; return &b }(),
+									},
+								},
+								Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+									AllowedCapabilities: []string{"net_admin", "net_raw"},
+								},
+							},
+						},
+					},
+				}
+			},
+			assert: func(profile client.Object) error {
+				t.Helper()
+
+				prof, ok := profile.(*apparmorprofileapi.AppArmorProfile)
+				require.True(t, ok)
+
+				require.Equal(t, prof.Spec.Abstract, apparmorprofileapi.AppArmorAbstract{
+					Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+						AllowedExecutables: &[]string{"execA", "execB", "execC"},
+						AllowedLibraries:   &[]string{"libA"},
+					},
+					Filesystem: &apparmorprofileapi.AppArmorFsRules{
+						ReadOnlyPaths:  &[]string{"read1"},
+						WriteOnlyPaths: &[]string{"write1"},
+						ReadWritePaths: &[]string{"merged-rw1", "merged-rw2", "readwrite1"},
+					},
+					Network: &apparmorprofileapi.AppArmorNetworkRules{
+						AllowRaw: func() *bool { b := true; return &b }(),
+						Protocols: &apparmorprofileapi.AppArmorAllowedProtocols{
+							AllowTCP: func() *bool { b := true; return &b }(),
+						},
+					},
+					Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+						AllowedCapabilities: []string{"net_admin", "net_raw", "sys_admin"},
+					},
+				})
+				return nil
+			},
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			partialProfiles := tc.prepare(t)
-			mergedProfIface, err := mergeProfiles(partialProfiles)
+			mergedProfIface, err := MergeProfiles(partialProfiles)
 			require.Nil(t, err)
 			err = tc.assert(mergedProfIface)
 			require.Nil(t, err)

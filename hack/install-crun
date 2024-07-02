@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euox pipefail
+
+CRUN_VERSION=1.15
+CRUN_BIN=/tmp/crun
+
+# Current crun version
+crun --version
+
+# Download
+curl -sSfL --retry 5 --retry-delay 3 -o $CRUN_BIN \
+    https://github.com/containers/crun/releases/download/$CRUN_VERSION/crun-$CRUN_VERSION-linux-amd64
+chmod +x $CRUN_BIN
+
+# Override current crun
+sudo mv $CRUN_BIN "$(which crun)"
+crun --version

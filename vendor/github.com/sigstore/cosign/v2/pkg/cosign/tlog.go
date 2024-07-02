@@ -42,6 +42,8 @@ import (
 	"github.com/sigstore/rekor/pkg/generated/client/entries"
 	"github.com/sigstore/rekor/pkg/generated/models"
 	"github.com/sigstore/rekor/pkg/types"
+	"github.com/sigstore/rekor/pkg/types/dsse"
+	dsse_v001 "github.com/sigstore/rekor/pkg/types/dsse/v0.0.1"
 	hashedrekord_v001 "github.com/sigstore/rekor/pkg/types/hashedrekord/v0.0.1"
 	"github.com/sigstore/rekor/pkg/types/intoto"
 	intoto_v001 "github.com/sigstore/rekor/pkg/types/intoto/v0.0.1"
@@ -80,6 +82,21 @@ func GetTransparencyLogID(pub crypto.PublicKey) (string, error) {
 	}
 	digest := sha256.Sum256(pubBytes)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+func dsseEntry(ctx context.Context, signature, pubKey []byte) (models.ProposedEntry, error) {
+	var pubKeyBytes [][]byte
+
+	if len(pubKey) == 0 {
+		return nil, errors.New("public key provided has 0 length")
+	}
+
+	pubKeyBytes = append(pubKeyBytes, pubKey)
+
+	return types.NewProposedEntry(ctx, dsse.KIND, dsse_v001.APIVERSION, types.ArtifactProperties{
+		ArtifactBytes:  signature,
+		PublicKeyBytes: pubKeyBytes,
+	})
 }
 
 func intotoEntry(ctx context.Context, signature, pubKey []byte) (models.ProposedEntry, error) {
@@ -162,7 +179,17 @@ func TLogUpload(ctx context.Context, rekorClient *client.Rekor, signature []byte
 	return doUpload(ctx, rekorClient, &returnVal)
 }
 
-// TLogUploadInTotoAttestation will upload and in-toto entry for the signature and public key to the transparency log.
+// TLogUploadDSSEEnvelope will upload a DSSE entry for the signature and public key to the Rekor transparency log.
+func TLogUploadDSSEEnvelope(ctx context.Context, rekorClient *client.Rekor, signature, pemBytes []byte) (*models.LogEntryAnon, error) {
+	e, err := dsseEntry(ctx, signature, pemBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return doUpload(ctx, rekorClient, e)
+}
+
+// TLogUploadInTotoAttestation will upload an in-toto entry for the signature and public key to the transparency log.
 func TLogUploadInTotoAttestation(ctx context.Context, rekorClient *client.Rekor, signature, pemBytes []byte) (*models.LogEntryAnon, error) {
 	e, err := intotoEntry(ctx, signature, pemBytes)
 	if err != nil {
@@ -181,7 +208,7 @@ func doUpload(ctx context.Context, rekorClient *client.Rekor, pe models.Proposed
 		// Here, we display the proof and succeed.
 		var existsErr *entries.CreateLogEntryConflict
 		if errors.As(err, &existsErr) {
-			ui.Infof(ctx, "Signature already exists. Displaying proof")
+			ui.Infof(ctx, "Signature already exists. Fetching and verifying inclusion proof.")
 			uriSplit := strings.Split(existsErr.Location.String(), "/")
 			uuid := uriSplit[len(uriSplit)-1]
 			e, err := GetTlogEntry(ctx, rekorClient, uuid)
@@ -272,8 +299,8 @@ func getTreeUUID(entryUUID string) (string, error) {
 	}
 }
 
-// Validates UUID and also TreeID if present.
-func isExpectedResponseUUID(requestEntryUUID string, responseEntryUUID string, treeid string) error {
+// Validates UUID and also shard if present.
+func isExpectedResponseUUID(requestEntryUUID string, responseEntryUUID string) error {
 	// Comparare UUIDs
 	requestUUID, err := getUUID(requestEntryUUID)
 	if err != nil {
@@ -286,19 +313,21 @@ func isExpectedResponseUUID(requestEntryUUID string, responseEntryUUID string, t
 	if requestUUID != responseUUID {
 		return fmt.Errorf("expected EntryUUID %s got UUID %s", requestEntryUUID, responseEntryUUID)
 	}
-	// Compare tree ID if it is in the request.
-	requestTreeID, err := getTreeUUID(requestEntryUUID)
+	// Compare shards if it is in the request.
+	requestShardID, err := getTreeUUID(requestEntryUUID)
 	if err != nil {
 		return err
 	}
-	if requestTreeID != "" {
-		tid, err := getTreeUUID(treeid)
-		if err != nil {
-			return err
-		}
-		if requestTreeID != tid {
-			return fmt.Errorf("expected EntryUUID %s got UUID %s from Tree %s", requestEntryUUID, responseEntryUUID, treeid)
-		}
+	responseShardID, err := getTreeUUID(responseEntryUUID)
+	if err != nil {
+		return err
+	}
+	// no shard ID prepends the entry UUID
+	if requestShardID == "" || responseShardID == "" {
+		return nil
+	}
+	if requestShardID != responseShardID {
+		return fmt.Errorf("expected UUID %s from shard %s: got UUID %s from shard %s", requestEntryUUID, responseEntryUUID, requestShardID, responseShardID)
 	}
 	return nil
 }
@@ -330,8 +359,8 @@ func GetTlogEntry(ctx context.Context, rekorClient *client.Rekor, entryUUID stri
 		return nil, err
 	}
 	for k, e := range resp.Payload {
-		// Validate that request EntryUUID matches the response UUID and response Tree ID
-		if err := isExpectedResponseUUID(entryUUID, k, *e.LogID); err != nil {
+		// Validate that request EntryUUID matches the response UUID and response shard ID
+		if err := isExpectedResponseUUID(entryUUID, k); err != nil {
 			return nil, fmt.Errorf("unexpected entry returned from rekor server: %w", err)
 		}
 		// Check that body hash matches UUID
@@ -343,7 +372,7 @@ func GetTlogEntry(ctx context.Context, rekorClient *client.Rekor, entryUUID stri
 	return nil, errors.New("empty response")
 }
 
-func proposedEntry(b64Sig string, payload, pubKey []byte) ([]models.ProposedEntry, error) {
+func proposedEntries(b64Sig string, payload, pubKey []byte) ([]models.ProposedEntry, error) {
 	var proposedEntry []models.ProposedEntry
 	signature, err := base64.StdEncoding.DecodeString(b64Sig)
 	if err != nil {
@@ -353,11 +382,15 @@ func proposedEntry(b64Sig string, payload, pubKey []byte) ([]models.ProposedEntr
 	// The fact that there's no signature (or empty rather), implies
 	// that this is an Attestation that we're verifying.
 	if len(signature) == 0 {
-		e, err := intotoEntry(context.Background(), payload, pubKey)
+		intotoEntry, err := intotoEntry(context.Background(), payload, pubKey)
 		if err != nil {
 			return nil, err
 		}
-		proposedEntry = []models.ProposedEntry{e}
+		dsseEntry, err := dsseEntry(context.Background(), payload, pubKey)
+		if err != nil {
+			return nil, err
+		}
+		proposedEntry = []models.ProposedEntry{dsseEntry, intotoEntry}
 	} else {
 		sha256CheckSum := sha256.New()
 		if _, err := sha256CheckSum.Write(payload); err != nil {
@@ -377,12 +410,12 @@ func FindTlogEntry(ctx context.Context, rekorClient *client.Rekor,
 	b64Sig string, payload, pubKey []byte) ([]models.LogEntryAnon, error) {
 	searchParams := entries.NewSearchLogQueryParamsWithContext(ctx)
 	searchLogQuery := models.SearchLogQuery{}
-	proposedEntry, err := proposedEntry(b64Sig, payload, pubKey)
+	proposedEntries, err := proposedEntries(b64Sig, payload, pubKey)
 	if err != nil {
 		return nil, err
 	}
 
-	searchLogQuery.SetEntries(proposedEntry)
+	searchLogQuery.SetEntries(proposedEntries)
 
 	searchParams.SetEntry(&searchLogQuery)
 	resp, err := rekorClient.Entries.SearchLogQuery(searchParams)

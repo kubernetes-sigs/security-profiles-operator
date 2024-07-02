@@ -27,8 +27,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,7 +40,6 @@ import (
 	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
-	seccomp "github.com/seccomp/libseccomp-golang"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -56,12 +55,22 @@ import (
 )
 
 const (
-	defaultTimeout      time.Duration = time.Minute
-	maxMsgSize          int           = 16 * 1024 * 1024
-	defaultCacheTimeout time.Duration = time.Hour
-	maxCacheItems       uint64        = 1000
-	defaultHostPid      uint32        = 1
-	defaultByteNum      int           = 4
+	defaultTimeout          time.Duration = time.Minute
+	maxEventWorkers         int64         = 1024
+	maxMsgSize              int           = 16 * 1024 * 1024
+	maxCommLen              int           = 64
+	defaultCacheTimeout     time.Duration = time.Hour
+	maxCacheItems           uint64        = 1000
+	defaultHostPid          uint32        = 1
+	defaultByteNum          int           = 4
+	recordingSeccomp        int           = 1
+	recordingAppArmor       int           = 2
+	pathMax                 int           = 4096
+	eventTypeNewPid         int           = 0
+	eventTypeExit           int           = 1
+	eventTypeAppArmorFile   int           = 2
+	eventTypeAppArmorSocket int           = 3
+	eventTypeAppArmorCap    int           = 4
 )
 
 // BpfRecorder is the main structure of this package.
@@ -70,30 +79,49 @@ type BpfRecorder struct {
 	impl
 	logger                  logr.Logger
 	startRequests           int64
-	syscalls                *bpf.BPFMap
-	mntns                   *bpf.BPFMap
 	btfPath                 string
-	syscallIDtoNameCache    *ttlcache.Cache[string, string]
 	pidToContainerIDCache   *ttlcache.Cache[string, string]
 	mntnsToContainerIDMap   *bimap.BiMap[uint32, string]
 	containerIDToProfileMap *bimap.BiMap[string, string]
 	nodeName                string
 	clientset               *kubernetes.Clientset
-	systemMountNamespace    uint32
+	excludeMountNamespace   uint32
 	loadUnloadMutex         sync.RWMutex
 	metricsClient           apimetrics.Metrics_BpfIncClient
-	programNameFilter       string
+	programName             string
+	module                  *bpf.Module
+	eventWorkers            semaphore.Weighted
+
+	AppArmor *AppArmorRecorder
+	Seccomp  *SeccompRecorder
+
+	recordedExits sync.Map
+}
+
+// We use a single shared event ringbuf for all userspace communication.
+// This ensures that all previous events have already been processed.
+type bpfEvent struct {
+	Pid   uint32
+	Mntns uint32
+	Type  uint8
+	Flags uint64
+	Data  [pathMax]uint8
 }
 
 // New returns a new BpfRecorder instance.
-func New(logger logr.Logger) *BpfRecorder {
+func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor bool) *BpfRecorder {
+	var seccomp *SeccompRecorder
+	if recordSeccomp {
+		seccomp = newSeccompRecorder(logger)
+	}
+	var appArmor *AppArmorRecorder
+	if recordAppArmor {
+		appArmor = newAppArmorRecorder(logger, programName)
+	}
 	return &BpfRecorder{
 		impl:   &defaultImpl{},
 		logger: logger,
-		syscallIDtoNameCache: ttlcache.New(
-			ttlcache.WithTTL[string, string](defaultCacheTimeout),
-			ttlcache.WithCapacity[string, string](maxCacheItems),
-		),
+
 		pidToContainerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, string](maxCacheItems),
@@ -101,18 +129,18 @@ func New(logger logr.Logger) *BpfRecorder {
 		mntnsToContainerIDMap:   bimap.New[uint32, string](),
 		containerIDToProfileMap: bimap.New[string, string](),
 		loadUnloadMutex:         sync.RWMutex{},
+		programName:             programName,
+		eventWorkers:            *semaphore.NewWeighted(maxEventWorkers),
+		AppArmor:                appArmor,
+		Seccomp:                 seccomp,
+		recordedExits:           sync.Map{},
 	}
 }
 
 // Syscalls returns the bpf map containing the PID (key) to syscalls (value)
 // data.
 func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
-	return b.syscalls
-}
-
-// FilterProgramName can be used to filter on a specific program name.
-func (b *BpfRecorder) FilterProgramName(filter string) {
-	b.programNameFilter = filepath.Base(filter)
+	return b.Seccomp.syscalls
 }
 
 // Run the BpfRecorder.
@@ -120,7 +148,6 @@ func (b *BpfRecorder) Run() error {
 	b.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
 	for _, cache := range []*ttlcache.Cache[string, string]{
 		b.pidToContainerIDCache,
-		b.syscallIDtoNameCache,
 	} {
 		go cache.Start()
 	}
@@ -178,11 +205,11 @@ func (b *BpfRecorder) Run() error {
 		}()
 	}
 
-	b.systemMountNamespace, err = b.FindProcMountNamespace(defaultHostPid)
+	b.excludeMountNamespace, err = b.FindProcMountNamespace(defaultHostPid)
 	if err != nil {
 		return fmt.Errorf("retrieve current mount namespace: %w", err)
 	}
-	b.logger.Info("Got system mount namespace: " + fmt.Sprint(b.systemMountNamespace))
+	b.logger.Info("Got system mount namespace: " + strconv.FormatUint(uint64(b.excludeMountNamespace), 10))
 
 	b.logger.Info("Doing BPF load/unload self-test")
 	if err := b.Load(false); err != nil {
@@ -229,6 +256,7 @@ func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.Ca
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	//nolint:staticcheck // we'll use this API once we have an appropriate alternative
 	conn, err := grpc.DialContext(
 		ctx,
 		"unix://"+config.GRPCServerSocketBpfRecorder,
@@ -283,6 +311,9 @@ func (b *BpfRecorder) SyscallsForProfile(
 	if b.startRequests == 0 {
 		return nil, errors.New("bpf recorder not running")
 	}
+	if b.Seccomp == nil {
+		return nil, errors.New("not recording seccomp profiles")
+	}
 	b.logger.Info("Getting syscalls for profile " + r.Name)
 
 	// There is a chance to miss the PID if concurrent processes are being
@@ -316,24 +347,15 @@ func (b *BpfRecorder) SyscallsForProfile(
 	}
 
 	b.loadUnloadMutex.RLock()
-	syscalls, err := b.GetValue(b.syscalls, mntns)
+	syscalls, err := b.Seccomp.PopSyscalls(b, mntns)
 	b.loadUnloadMutex.RUnlock()
 	if err != nil {
-		b.logger.Error(err, "No syscalls found for mntns", "mntns", mntns)
-		return nil, fmt.Errorf("no syscalls found for mntns: %d", mntns)
+		b.logger.Error(err, "Failed to get syscalls for mntns", "mntns", mntns)
+		return nil, err
 	}
-	syscallNames := b.convertSyscallIDsToNames(syscalls)
-
-	// Cleanup the syscalls map from eBpf.
-	b.logger.Info("Cleaning up BPF syscalls hashmaps")
-	b.loadUnloadMutex.Lock()
-	if err := b.DeleteKey(b.syscalls, mntns); err != nil {
-		b.logger.Error(err, "Unable to cleanup syscalls map", "mntns", mntns)
-	}
-	b.loadUnloadMutex.Unlock()
 
 	return &api.SyscallsResponse{
-		Syscalls: sortUnique(syscallNames),
+		Syscalls: syscalls,
 		GoArch:   runtime.GOARCH,
 	}, nil
 }
@@ -354,35 +376,16 @@ func (b *BpfRecorder) deleteContainerIDFromCache(profile string) {
 	}
 }
 
-func (b *BpfRecorder) convertSyscallIDsToNames(syscalls []byte) []string {
-	result := []string{}
-	for id, set := range syscalls {
-		if set == 1 {
-			name, err := b.syscallNameForID(id)
-			if err != nil {
-				b.logger.Error(err, "unable to convert syscall ID")
-				continue
-			}
-			result = append(result, name)
-		}
-	}
-	return result
-}
-
-func sortUnique(input []string) (result []string) {
-	tmp := map[string]bool{}
-	for _, val := range input {
-		tmp[val] = true
-	}
-	for k := range tmp {
-		result = append(result, k)
-	}
-	sort.Strings(result)
-	return result
+var baseHooks = []string{
+	"sys_enter",
+	"sched_process_exec",
+	"sched_process_exit",
 }
 
 // Load prestarts the bpf recorder.
 func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
+	var module *bpf.Module
+
 	b.logger.Info("Loading bpf module")
 	b.btfPath, err = b.findBtfPath()
 	if err != nil {
@@ -394,7 +397,7 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
 
-	module, err := b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
+	module, err = b.NewModuleFromBufferArgs(&bpf.NewModuleArgs{
 		BPFObjBuff: bpfObject,
 		BPFObjName: "recorder.bpf.o",
 		BTFObjPath: b.btfPath,
@@ -402,13 +405,28 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 	if err != nil {
 		return fmt.Errorf("load bpf module: %w", err)
 	}
+	b.module = module
 
-	if b.programNameFilter != "" {
+	if b.programName != "" {
+		programName := []byte(filepath.Base(b.programName))
+		if len(programName) >= maxCommLen {
+			programName = programName[:maxCommLen-1]
+			b.logger.Info(fmt.Sprintf("Set truncated program name filter: '%s'", programName))
+		} else {
+			b.logger.Info(fmt.Sprintf("Set program name filter: '%s'", programName))
+		}
+		programName = append(programName, 0)
 		if err := b.InitGlobalVariable(
-			module, "filter_name", []byte(b.programNameFilter),
+			module, "filter_name", programName,
 		); err != nil {
 			return fmt.Errorf("init global variable: %w", err)
 		}
+	}
+
+	if err := b.InitGlobalVariable(
+		module, "exclude_mntns", b.excludeMountNamespace,
+	); err != nil {
+		return fmt.Errorf("update system_mntns map failed: %w", err)
 	}
 
 	b.logger.Info("Loading bpf object from module")
@@ -416,48 +434,52 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("load bpf object: %w", err)
 	}
 
-	const programName = "sys_enter"
-	b.logger.Info("Getting bpf program " + programName)
-	program, err := b.GetProgram(module, programName)
-	if err != nil {
-		return fmt.Errorf("get %s program: %w", programName, err)
+	b.logger.Info("Attach all bpf programs")
+	for _, hook := range baseHooks {
+		if err := b.attachBpfProgram(hook); err != nil {
+			return fmt.Errorf("attach bpf program: %w", err)
+		}
+	}
+	if b.AppArmor != nil {
+		if err := b.AppArmor.Load(b); err != nil {
+			return err
+		}
+	}
+	if b.Seccomp != nil {
+		if err := b.Seccomp.Load(b); err != nil {
+			return err
+		}
 	}
 
-	b.logger.Info("Attaching bpf tracepoint")
-	if _, err := b.AttachTracepoint(program, "raw_syscalls", programName); err != nil {
-		return fmt.Errorf("attach tracepoint: %w", err)
-	}
-
-	b.logger.Info("Getting syscalls map")
-	syscalls, err := b.GetMap(module, "mntns_syscalls")
-	if err != nil {
-		return fmt.Errorf("get syscalls map: %w", err)
-	}
-
-	b.logger.Info("Getting pid_mntns map")
-	mntns, err := b.GetMap(module, "pid_mntns")
-	if err != nil {
-		return fmt.Errorf("get pid_mntns: %w", err)
-	}
-
-	b.syscalls = syscalls
-	b.mntns = mntns
-
-	// Update the host mntns into pid_mntns map
-	b.updateSystemMntns()
-
+	const timeout = 300
 	events := make(chan []byte)
-	ringbuffer, err := b.InitRingBuf(module, "events", events)
+	ringbuf, err := b.InitRingBuf(
+		b.module,
+		"events",
+		events,
+	)
 	if err != nil {
 		return fmt.Errorf("init events ringbuffer: %w", err)
 	}
-	b.StartRingBuffer(ringbuffer)
+	b.PollRingBuffer(ringbuf, timeout)
 
 	if startEventProcessor {
 		go b.processEvents(events)
 	}
 
-	b.logger.Info("Module successfully loaded")
+	b.logger.Info("BPF module successfully loaded.")
+	return nil
+}
+
+func (b *BpfRecorder) attachBpfProgram(name string) error {
+	program, err := b.GetProgram(b.module, name)
+	if err != nil {
+		return fmt.Errorf("get %s bpf program: %w", name, err)
+	}
+	if _, err := b.AttachGeneric(program); err != nil {
+		return fmt.Errorf("attach %s bpf program: %w", name, err)
+	}
+	b.logger.Info("Attached bpf program " + name + ".")
 	return nil
 }
 
@@ -544,7 +566,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 		return "", fmt.Errorf("write BTF: %w", err)
 	}
 
-	b.logger.Info(fmt.Sprintf("Wrote BTF to file: %s", file.Name()))
+	b.logger.Info("Wrote BTF to file: " + file.Name())
 	return file.Name(), nil
 }
 
@@ -565,11 +587,10 @@ func toStringByte(array []byte) string {
 }
 
 func (b *BpfRecorder) processEvents(events chan []byte) {
-	b.logger.Info("Processing events")
+	b.logger.Info("Processing bpf events")
+	defer b.logger.Info("Stopped processing bpf events")
 
-	// Allow up to 1000 goroutines to run in parallel
-	const workers = 1000
-	sem := semaphore.NewWeighted(workers)
+	sem := &b.eventWorkers
 
 	for event := range events {
 		if err := sem.Acquire(context.Background(), 1); err != nil {
@@ -577,6 +598,7 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 			break
 		}
 		eventCopy := event
+
 		go func() {
 			b.handleEvent(eventCopy)
 			sem.Release(1)
@@ -584,30 +606,39 @@ func (b *BpfRecorder) processEvents(events chan []byte) {
 	}
 }
 
-func (b *BpfRecorder) updateSystemMntns() {
-	mntnsByte := make([]byte, defaultByteNum)
-	binary.LittleEndian.PutUint32(mntnsByte, b.systemMountNamespace)
-	err := b.UpdateValue(b.mntns, defaultHostPid, mntnsByte)
+func (b *BpfRecorder) handleEvent(eventBytes []byte) {
+	var event bpfEvent
+
+	err := binary.Read(bytes.NewReader(eventBytes), binary.LittleEndian, &event)
 	if err != nil {
-		b.logger.Error(err, "update system_mntns map failed")
-	}
-}
-
-func (b *BpfRecorder) handleEvent(event []byte) {
-	e := struct {
-		Pid   uint32
-		Mntns uint32
-	}{}
-
-	if err := binary.Read(bytes.NewReader(event), binary.LittleEndian, &e); err != nil {
-		b.logger.Error(err, "Unable to read event")
+		b.logger.Error(err, "Couldn't read event structure")
 		return
 	}
 
-	b.logger.V(config.VerboseLevel).Info(fmt.Sprintf("Received event: pid: %d, mntns: %d", e.Pid, e.Mntns))
+	switch event.Type {
+	case uint8(eventTypeNewPid):
+		b.handleNewPidEvent(&event)
+	case uint8(eventTypeExit):
+		b.handleExitEvent(&event)
+	case uint8(eventTypeAppArmorFile):
+		b.AppArmor.handleFileEvent(&event)
+	case uint8(eventTypeAppArmorSocket):
+		b.AppArmor.handleSocketEvent(&event)
+	case uint8(eventTypeAppArmorCap):
+		b.AppArmor.handleCapabilityEvent(&event)
+	}
+}
+
+func (b *BpfRecorder) handleNewPidEvent(e *bpfEvent) {
+	b.logger.Info(fmt.Sprintf("Received new pid: %d with mntns=%d", e.Pid, e.Mntns))
 
 	pid := e.Pid
 	mntns := e.Mntns
+
+	if b.clientset == nil {
+		// spoc: we're running outside of a kubernetes context.
+		return
+	}
 
 	// Look up the container ID based on PID from cgroup file.
 	containerID, err := b.ContainerIDForPID(b.pidToContainerIDCache, int(pid))
@@ -637,6 +668,22 @@ func (b *BpfRecorder) handleEvent(event []byte) {
 	)
 
 	b.trackProfileMetric(mntns, profile)
+}
+
+func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
+	b.logger.Info(fmt.Sprintf("record pid exit: %d.", exitEvent.Pid))
+	d, _ := b.recordedExits.LoadOrStore(exitEvent.Pid, make(chan bool))
+	done, ok := d.(chan bool)
+	if !ok {
+		b.logger.Info("unexpected recordedExits type")
+		return
+	}
+	select {
+	case <-done:
+		// already closed
+	default:
+		close(done)
+	}
 }
 
 // FindProcMountNamespace is looking up the mnt ns for a given PID.
@@ -699,7 +746,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 				return fmt.Errorf("list node pods: %w", err)
 			}
 			if pods == nil {
-				return fmt.Errorf("no pods found in cluster")
+				return errors.New("no pods found in cluster")
 			}
 
 			for p := range pods.Items {
@@ -735,7 +782,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 					}
 
 					b.logger.V(config.VerboseLevel).Info(
-						"Found Container ID in cluser",
+						"Found Container ID in cluster",
 						"containerID", containerID,
 						"podName", pod.Name,
 						"containerName", containerName,
@@ -783,24 +830,47 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 func (b *BpfRecorder) Unload() {
 	b.logger.Info("Unloading bpf module")
 	b.loadUnloadMutex.Lock()
-	b.CloseModule(b.syscalls)
-	b.syscalls = nil
+	b.CloseModule(b.module)
+
+	if b.Seccomp != nil {
+		b.Seccomp.Unload()
+	}
+	if b.AppArmor != nil {
+		b.AppArmor.Unload()
+	}
+
 	os.RemoveAll(b.btfPath)
 	b.loadUnloadMutex.Unlock()
 }
 
-func (b *BpfRecorder) syscallNameForID(id int) (string, error) {
-	key := strconv.Itoa(id)
-	item := b.syscallIDtoNameCache.Get(key)
-	if item != nil {
-		return item.Value(), nil
+// When running outside of Kubernetes as spoc, we have the use case of waiting for a specific PID to exit.
+func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
+	d, _ := b.recordedExits.LoadOrStore(pid, make(chan bool))
+	done, ok := d.(chan bool)
+	if !ok {
+		return fmt.Errorf("unexpected type: %T", d)
 	}
 
-	name, err := b.GetName(seccomp.ScmpSyscall(id))
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for pid exit: %w", ctx.Err())
+	}
+
+	if err := b.eventWorkers.Acquire(ctx, maxEventWorkers); err != nil {
+		return fmt.Errorf("waiting for event workers: %w", ctx.Err())
+	}
+	b.eventWorkers.Release(maxEventWorkers)
+	return nil
+}
+
+func BPFLSMEnabled() bool {
+	if enabled := os.Getenv("E2E_TEST_BPF_LSM_ENABLED"); enabled != "" {
+		return enabled == "1"
+	}
+	contents, err := os.ReadFile("/sys/kernel/security/lsm")
 	if err != nil {
-		return "", fmt.Errorf("get syscall name for ID %d: %w", id, err)
+		return false
 	}
-
-	b.syscallIDtoNameCache.Set(key, name, ttlcache.DefaultTTL)
-	return name, nil
+	return regexp.MustCompile(`(^|,)bpf(,|$)`).Match(contents)
 }

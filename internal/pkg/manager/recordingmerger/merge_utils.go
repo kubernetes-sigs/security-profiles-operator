@@ -18,6 +18,7 @@ package recordingmerger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -25,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
@@ -50,9 +52,9 @@ func mergedProfileName(recordingName string, prf metav1.Object) string {
 	return fmt.Sprintf("%s-%s", recordingName, suffix)
 }
 
-func mergeProfiles(profiles []mergeableProfile) (mergeableProfile, error) {
+func mergeMergeableProfiles(profiles []mergeableProfile) (mergeableProfile, error) {
 	if len(profiles) == 0 {
-		return nil, fmt.Errorf("cannot merge empty list of profiles")
+		return nil, errors.New("cannot merge empty list of profiles")
 	}
 
 	base := profiles[0]
@@ -116,6 +118,24 @@ func listPartialProfiles(
 	return partialProfiles, nil
 }
 
+func MergeProfiles(
+	profiles []client.Object,
+) (client.Object, error) {
+	mergeables := make([]mergeableProfile, len(profiles))
+	for i, profile := range profiles {
+		mergeable, err := newMergeableProfile(profile)
+		if err != nil {
+			return nil, err
+		}
+		mergeables[i] = mergeable
+	}
+	merged, err := mergeMergeableProfiles(mergeables)
+	if err != nil {
+		return nil, err
+	}
+	return merged.getProfile(), nil
+}
+
 func getContainerID(prf client.Object) string {
 	labels := prf.GetLabels()
 	if labels == nil {
@@ -146,6 +166,8 @@ func newMergeableProfile(obj client.Object) (mergeableProfile, error) {
 		return &mergeableSeccompProfile{SeccompProfile: *obj}, nil
 	case *selinuxprofileapi.SelinuxProfile:
 		return &MergeableSelinuxProfile{SelinuxProfile: *obj}, nil
+	case *apparmorprofileapi.AppArmorProfile:
+		return &mergeableAppArmorProfile{AppArmorProfile: *obj}, nil
 	default:
 		return nil, fmt.Errorf("cannot convert %T to mergeableProfile", obj)
 	}

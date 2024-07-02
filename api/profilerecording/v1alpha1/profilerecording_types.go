@@ -84,6 +84,14 @@ type ProfileRecordingSpec struct {
 	// in the pod.
 	// +optional
 	Containers []string `json:"containers,omitempty"`
+
+	// DisableProfileAfterRecording indicates whether the profile should be disabled
+	// after recording and thus skipped during reconcile. In case of SELinux profiles,
+	// reconcile can take a significant amount of time and for all profiles might not be needed.
+	// This Defaults to false.
+	// +optional
+	// +kubebuilder:default=false
+	DisableProfileAfterRecording bool `json:"disableProfileAfterRecording,omitempty"`
 }
 
 // ProfileRecordingStatus contains status of the ProfileRecording.

@@ -49,7 +49,6 @@ func walkDeclList(v visitor, list []ast.Decl) {
 // v.Visit(node) is not nil, walk is invoked recursively with visitor
 // w for each of the non-nil children of node, followed by a call of
 // w.Visit(nil).
-//
 func walk(v visitor, node ast.Node) {
 	if v = v.Before(node); v == nil {
 		return
@@ -85,6 +84,10 @@ func walk(v visitor, node ast.Node) {
 		for _, a := range n.Attrs {
 			walk(v, a)
 		}
+
+	case *ast.Func:
+		walkExprList(v, n.Args)
+		walk(v, n.Ret)
 
 	case *ast.StructLit:
 		for _, f := range n.Elts {

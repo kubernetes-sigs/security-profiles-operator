@@ -58,9 +58,6 @@ func (s *subsumer) node(env *adt.Environment, up int32) *adt.Vertex {
 }
 
 func (s *subsumer) structural(a, b adt.Conjunct) bool {
-	if y, ok := b.Expr().(*adt.LetReference); ok {
-		return s.conjunct(a, s.c(b.Env, y.X))
-	}
 	if isBottomConjunct(b) {
 		return true
 	}
@@ -99,7 +96,11 @@ func (s *subsumer) structural(a, b adt.Conjunct) bool {
 		}
 
 	case *adt.LetReference:
-		return s.conjunct(s.c(a.Env, x.X), b)
+		if y, ok := b.Elem().(*adt.LetReference); ok && x.Label == y.Label {
+			if s.node(a.Env, x.UpCount) == s.node(b.Env, y.UpCount) {
+				return true
+			}
+		}
 
 	case *adt.SelectorExpr:
 		if y, ok := a.Elem().(*adt.SelectorExpr); ok &&
@@ -249,12 +250,9 @@ func (c *collatedDecls) collate(env *adt.Environment, s *adt.StructLit) {
 			e.required = true
 			e.conjuncts = append(e.conjuncts, adt.MakeRootConjunct(env, x))
 			c.fields[x.Label] = e
-
-		case *adt.OptionalField:
-			e := c.fields[x.Label]
-			e.conjuncts = append(e.conjuncts, adt.MakeRootConjunct(env, x))
-			c.fields[x.Label] = e
-			c.hasOptional = true
+			if x.ArcType != adt.ArcMember {
+				c.hasOptional = true
+			}
 
 		case *adt.BulkOptionalField:
 			c.pattern = append(c.pattern, x)
@@ -269,12 +267,10 @@ func (c *collatedDecls) collate(env *adt.Environment, s *adt.StructLit) {
 			c.additional = append(c.additional, x)
 
 		case *adt.Comprehension:
-			c.yielders = append(c.yielders, x.Clauses)
+			c.yielders = append(c.yielders, x.Clauses...)
 
 		case *adt.LetClause:
 			c.yielders = append(c.yielders, x)
-
-		case *adt.ValueClause:
 		}
 	}
 }

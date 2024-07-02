@@ -128,11 +128,7 @@ func (nsf *StatusClient) statusObj(
 }
 
 func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
-	state := secprofnodestatusv1alpha1.ProfileStatePending
-	if nsf.pol.IsPartial() {
-		state = secprofnodestatusv1alpha1.ProfileStatePartial
-	}
-	s := nsf.statusObj(state)
+	s := nsf.statusObj(nsf.initialStatus())
 
 	if setCtrlErr := controllerutil.SetControllerReference(nsf.pol, s, nsf.client.Scheme()); setCtrlErr != nil {
 		return fmt.Errorf("cannot set node status owner reference: %s: %w", nsf.pol.GetName(), setCtrlErr)
@@ -143,6 +139,15 @@ func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (nsf *StatusClient) initialStatus() secprofnodestatusv1alpha1.ProfileState {
+	if nsf.pol.IsDisabled() {
+		return secprofnodestatusv1alpha1.ProfileStateDisabled
+	} else if nsf.pol.IsPartial() {
+		return secprofnodestatusv1alpha1.ProfileStatePartial
+	}
+	return secprofnodestatusv1alpha1.ProfileStatePending
 }
 
 func (nsf *StatusClient) Remove(ctx context.Context, c client.Client) error {
@@ -187,7 +192,7 @@ func (nsf *StatusClient) Exists(ctx context.Context) (bool, error) {
 	f := nsf.finalizerExists()
 	s, err := nsf.nodeStatusExists(ctx)
 
-	return s || f, err
+	return s && f, err
 }
 
 func (nsf *StatusClient) finalizerExists() bool {
@@ -280,7 +285,7 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 			continue
 		}
 
-		if n := otherPol.GetName(); len(n) > 0 {
+		if n := otherPol.GetName(); n != "" {
 			// we have a partial profile that is not being deleted and is not the current one
 			if n != pol.GetName() {
 				hasOthers = true

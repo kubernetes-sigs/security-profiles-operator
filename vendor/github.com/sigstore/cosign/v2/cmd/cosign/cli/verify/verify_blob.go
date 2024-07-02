@@ -78,7 +78,7 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 
 	// Key, sk, and cert are mutually exclusive.
 	if options.NOf(c.KeyRef, c.Sk, c.CertRef) > 1 {
-		return &options.KeyParseError{}
+		return &options.PubKeyParseError{}
 	}
 
 	var identities []cosign.Identity
@@ -285,7 +285,8 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 		opts = append(opts, static.WithCertChain(certPEM, chainPEM))
 	}
 
-	if !c.IgnoreSCT {
+	// Ignore Signed Certificate Timestamp if the flag is set or a key is provided
+	if shouldVerifySCT(c.IgnoreSCT, c.KeyRef, c.Sk) {
 		co.CTLogPubKeys, err = cosign.GetCTLogPubs(ctx)
 		if err != nil {
 			return fmt.Errorf("getting ctlog public keys: %w", err)

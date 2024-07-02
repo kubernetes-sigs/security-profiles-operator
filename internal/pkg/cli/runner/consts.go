@@ -26,7 +26,7 @@ const (
 	FlagType string = "type"
 
 	// FlagProfile is the flag for defining the input file location.
-	FlagProfile string = cli.FlagProfile
+	FlagProfile string = "profile"
 )
 
 // Type is the enum for all available profile types.

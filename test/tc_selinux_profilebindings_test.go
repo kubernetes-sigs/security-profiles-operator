@@ -27,10 +27,10 @@ const (
 	testPodName            = "selinux-profile-test-pod"
 )
 
-func (e *e2e) testCaseSelinuxProfileBinding() {
+func (e *e2e) testCaseSelinuxProfileBinding(image string) {
 	e.selinuxOnlyTestCase()
 
-	cleanup := e.profileBindingTestPrep(nsBindingEnabled, true)
+	cleanup := e.profileBindingTestPrep(nsBindingEnabled, true, image)
 	defer cleanup()
 
 	e.logf("the workload should not have errored")
@@ -40,7 +40,7 @@ func (e *e2e) testCaseSelinuxProfileBinding() {
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 
 	e.logf("Getting selinux profile usage")
-	selinuxUsage := e.getSELinuxPolicyUsage(selinuxTestProfileName)
+	selinuxUsage := e.getSELinuxPolicyUsage("selinuxprofile", selinuxTestProfileName)
 
 	e.logf("Testing that pod has securityContext")
 	output := e.kubectl(
@@ -69,7 +69,7 @@ func (e *e2e) testCaseSelinuxProfileBinding() {
 func (e *e2e) testCaseSelinuxProfileBindingNsNotEnabled() {
 	e.selinuxOnlyTestCase()
 
-	cleanup := e.profileBindingTestPrep(nsBindingDisabled, false)
+	cleanup := e.profileBindingTestPrep(nsBindingDisabled, false, "busybox:latest")
 	defer cleanup()
 
 	e.logf("the workload should have errored")
@@ -80,6 +80,7 @@ func (e *e2e) testCaseSelinuxProfileBindingNsNotEnabled() {
 func (e *e2e) profileBindingTestPrep(
 	ns string,
 	labelNs bool,
+	image string,
 ) func() {
 	selinuxTestProfile := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
@@ -126,8 +127,8 @@ spec:
   profileRef:
     kind: SelinuxProfile
     name: %s
-  image: busybox:latest
-`, selinuxBindingName, selinuxTestProfileName)
+  image: %s
+`, selinuxBindingName, selinuxTestProfileName, image)
 
 	testPod := fmt.Sprintf(`
 apiVersion: v1

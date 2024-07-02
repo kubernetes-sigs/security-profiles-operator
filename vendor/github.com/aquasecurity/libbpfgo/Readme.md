@@ -99,7 +99,7 @@ mymap.Update(key, value)
 
 // ring buffer
 rb, _ := bpfModule.InitRingBuffer("events", eventsChannel, buffSize)
-rb.Start()
+rb.Poll(300)
 e := <-eventsChannel
 ```
 

@@ -19,18 +19,24 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 
-	validator "github.com/go-playground/validator/v10"
+	"github.com/asaskevich/govalidator"
 
 	//TODO: https://github.com/sigstore/rekor/issues/286
 	"golang.org/x/crypto/openpgp"        //nolint:staticcheck
 	"golang.org/x/crypto/openpgp/armor"  //nolint:staticcheck
 	"golang.org/x/crypto/openpgp/packet" //nolint:staticcheck
 
+	"github.com/sigstore/rekor/pkg/pki/identity"
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	sigsig "github.com/sigstore/sigstore/pkg/signature"
 )
 
@@ -56,7 +62,7 @@ func NewSignature(r io.Reader) (*Signature, error) {
 	if err == nil {
 		s.isArmored = true
 		if sigBlock.Type != openpgp.SignatureType {
-			return nil, fmt.Errorf("invalid PGP signature provided")
+			return nil, errors.New("invalid PGP signature provided")
 		}
 		sigReader = sigBlock.Body
 	} else {
@@ -75,7 +81,7 @@ func NewSignature(r io.Reader) (*Signature, error) {
 
 	if _, ok := sigPkt.(*packet.Signature); !ok {
 		if _, ok := sigPkt.(*packet.SignatureV3); !ok {
-			return nil, fmt.Errorf("valid PGP signature was not detected")
+			return nil, errors.New("valid PGP signature was not detected")
 		}
 	}
 
@@ -106,7 +112,7 @@ func FetchSignature(ctx context.Context, url string) (*Signature, error) {
 // CanonicalValue implements the pki.Signature interface
 func (s Signature) CanonicalValue() ([]byte, error) {
 	if len(s.signature) == 0 {
-		return nil, fmt.Errorf("PGP signature has not been initialized")
+		return nil, errors.New("PGP signature has not been initialized")
 	}
 
 	if s.isArmored {
@@ -134,17 +140,17 @@ func (s Signature) CanonicalValue() ([]byte, error) {
 }
 
 // Verify implements the pki.Signature interface
-func (s Signature) Verify(r io.Reader, k interface{}, opts ...sigsig.VerifyOption) error {
+func (s Signature) Verify(r io.Reader, k interface{}, _ ...sigsig.VerifyOption) error {
 	if len(s.signature) == 0 {
-		return fmt.Errorf("PGP signature has not been initialized")
+		return errors.New("PGP signature has not been initialized")
 	}
 
 	key, ok := k.(*PublicKey)
 	if !ok {
-		return fmt.Errorf("cannot use Verify with a non-PGP signature")
+		return errors.New("cannot use Verify with a non-PGP signature")
 	}
 	if len(key.key) == 0 {
-		return fmt.Errorf("PGP public key has not been initialized")
+		return errors.New("PGP public key has not been initialized")
 	}
 
 	verifyFn := openpgp.CheckDetachedSignature
@@ -192,7 +198,7 @@ func NewPublicKey(r io.Reader) (*PublicKey, error) {
 				keyBlock, err := armor.Decode(&inputBuffer)
 				if err == nil {
 					if keyBlock.Type != openpgp.PublicKeyType && keyBlock.Type != openpgp.PrivateKeyType {
-						return nil, fmt.Errorf("invalid PGP type detected")
+						return nil, errors.New("invalid PGP type detected")
 					}
 					keys, err := openpgp.ReadKeyRing(keyBlock.Body)
 					if err != nil {
@@ -218,7 +224,7 @@ func NewPublicKey(r io.Reader) (*PublicKey, error) {
 	}
 
 	if len(k.key) == len(k.key.DecryptionKeys()) {
-		return nil, fmt.Errorf("no PGP public keys could be read")
+		return nil, errors.New("no PGP public keys could be read")
 	}
 
 	return &k, nil
@@ -249,7 +255,7 @@ func FetchPublicKey(ctx context.Context, url string) (*PublicKey, error) {
 // CanonicalValue implements the pki.PublicKey interface
 func (k PublicKey) CanonicalValue() ([]byte, error) {
 	if k.key == nil {
-		return nil, fmt.Errorf("PGP public key has not been initialized")
+		return nil, errors.New("PGP public key has not been initialized")
 	}
 
 	var canonicalBuffer bytes.Buffer
@@ -289,9 +295,7 @@ func (k PublicKey) EmailAddresses() []string {
 	// Extract from cert
 	for _, entity := range k.key {
 		for _, identity := range entity.Identities {
-			validate := validator.New()
-			errs := validate.Var(identity.UserId.Email, "required,email")
-			if errs == nil {
+			if govalidator.IsEmail(identity.UserId.Email) {
 				names = append(names, identity.UserId.Email)
 			}
 		}
@@ -305,14 +309,34 @@ func (k PublicKey) Subjects() []string {
 }
 
 // Identities implements the pki.PublicKey interface
-func (k PublicKey) Identities() ([]string, error) {
-	// returns the email addresses and armored public key
-	var identities []string
-	identities = append(identities, k.Subjects()...)
-	key, err := k.CanonicalValue()
-	if err != nil {
-		return nil, err
+func (k PublicKey) Identities() ([]identity.Identity, error) {
+	var ids []identity.Identity
+	for _, entity := range k.key {
+		var keys []*packet.PublicKey
+		keys = append(keys, entity.PrimaryKey)
+		for _, subKey := range entity.Subkeys {
+			keys = append(keys, subKey.PublicKey)
+		}
+		for _, pk := range keys {
+			pubKey := pk.PublicKey
+			// Only process supported types. Will ignore DSA
+			// and ElGamal keys.
+			// TODO: For a V2 PGP type, enforce on upload
+			switch pubKey.(type) {
+			case *rsa.PublicKey, *ecdsa.PublicKey, ed25519.PublicKey:
+			default:
+				continue
+			}
+			pkixKey, err := cryptoutils.MarshalPublicKeyToDER(pubKey)
+			if err != nil {
+				return nil, err
+			}
+			ids = append(ids, identity.Identity{
+				Crypto:      pubKey,
+				Raw:         pkixKey,
+				Fingerprint: hex.EncodeToString(pk.Fingerprint[:]),
+			})
+		}
 	}
-	identities = append(identities, string(key))
-	return identities, nil
+	return ids, nil
 }

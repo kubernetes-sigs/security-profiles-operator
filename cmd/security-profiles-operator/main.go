@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -36,10 +37,13 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
-	"k8s.io/klog/v2/klogr"
+	"k8s.io/klog/v2/textlogger"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
@@ -131,7 +135,7 @@ func main() {
 				},
 				&cli.BoolFlag{
 					Name:    recordingFlag,
-					Usage:   "Listen for ProfileRecording API recources",
+					Usage:   "Listen for ProfileRecording API resources",
 					Value:   false,
 					EnvVars: []string{config.EnableRecordingEnvKey},
 				},
@@ -246,7 +250,7 @@ func initialize(ctx *cli.Context) error {
 }
 
 func initLogging(ctx *cli.Context) error {
-	ctrl.SetLogger(klogr.New())
+	ctrl.SetLogger(textlogger.NewLogger(textlogger.NewConfig()))
 
 	set := flag.NewFlagSet("logging", flag.ContinueOnError)
 	klog.InitFlags(set)
@@ -283,7 +287,7 @@ func initProfiling(ctx *cli.Context) {
 
 func printInfo(component string, info *version.Info) {
 	setupLog.Info(
-		fmt.Sprintf("starting component: %s", component),
+		"starting component: "+component,
 		info.AsKeyValues()...,
 	)
 }
@@ -302,7 +306,7 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	sigHandler := ctrl.SetupSignalHandler()
 
 	ctrlOpts := manager.Options{
-		SyncPeriod:       &sync,
+		Cache:            cache.Options{SyncPeriod: &sync},
 		LeaderElection:   true,
 		LeaderElectionID: "security-profiles-operator-lock",
 	}
@@ -362,7 +366,6 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 	// listen globally
 	if namespace == "" {
 		setupLog.Info("watching all namespaces")
-		opts.Namespace = namespace
 		return
 	}
 
@@ -378,11 +381,14 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 	// More Info: https://godoc.org/github.com/kubernetes-sigs/controller-runtime/pkg/cache#MultiNamespacedCacheBuilder
 	// Adding "" adds cluster namespaced resources
 	if strings.Contains(namespace, ",") {
-		opts.NewCache = cache.MultiNamespacedCacheBuilder(namespaceList)
+		opts.Cache.DefaultNamespaces = make(map[string]cache.Config, len(namespaceList))
+		for _, ns := range namespaceList {
+			opts.Cache.DefaultNamespaces[ns] = cache.Config{}
+		}
 		setupLog.Info("watching multiple namespaces", "namespaces", namespaceList)
 	} else {
 		// listen to a specific namespace only
-		opts.Namespace = namespace
+		opts.Cache.DefaultNamespaces = map[string]cache.Config{namespace: {}}
 		setupLog.Info("watching single namespace", "namespace", namespace)
 	}
 }
@@ -414,17 +420,15 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 func newMemoryOptimizedCache(ctx *cli.Context) cache.NewCacheFunc {
 	if ctx.Bool(memOptimFlag) {
 		return func(config *rest.Config, opts cache.Options) (cache.Cache, error) {
-			opts.Resync = &sync
-			opts.SelectorsByObject = cache.SelectorsByObject{
+			opts.SyncPeriod = &sync
+			opts.ByObject = map[client.Object]cache.ByObject{
 				&corev1.Pod{}: {
 					Label: labels.SelectorFromSet(labels.Set{
 						bindata.EnableRecordingLabel: "true",
 					}),
 				},
 			}
-			opts.DefaultSelector = cache.ObjectSelector{
-				Label: labels.Everything(),
-			}
+			opts.DefaultLabelSelector = labels.Everything()
 			return cache.New(config, opts)
 		}
 	}
@@ -447,19 +451,6 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 
 	sigHandler := ctrl.SetupSignalHandler()
 
-	ctrlOpts := ctrl.Options{
-		SyncPeriod:             &sync,
-		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
-		NewCache:               newMemoryOptimizedCache(ctx),
-	}
-
-	setControllerOptionsForNamespaces(&ctrlOpts)
-
-	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
-	if err != nil {
-		return fmt.Errorf("create manager: %w", err)
-	}
-
 	// Setup metrics
 	met := metrics.New()
 	if err := met.Register(); err != nil {
@@ -469,8 +460,26 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 
-	if err := mgr.AddMetricsExtraHandler(metrics.HandlerPath, met.Handler()); err != nil {
-		return fmt.Errorf("add metrics extra handler: %w", err)
+	disableHTTP2 := func(c *tls.Config) {
+		c.NextProtos = []string{"http/1.1"}
+	}
+	ctrlOpts := ctrl.Options{
+		Cache:                  cache.Options{SyncPeriod: &sync},
+		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
+		NewCache:               newMemoryOptimizedCache(ctx),
+		Metrics: metricsserver.Options{
+			ExtraHandlers: map[string]http.Handler{
+				metrics.HandlerPath: met.Handler(),
+			},
+			TLSOpts: []func(*tls.Config){disableHTTP2},
+		},
+	}
+
+	setControllerOptionsForNamespaces(&ctrlOpts)
+
+	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
+	if err != nil {
+		return fmt.Errorf("create manager: %w", err)
 	}
 
 	// This API provides status which is used by both seccomp and selinux
@@ -497,7 +506,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 func runBPFRecorder(_ *cli.Context, info *version.Info) error {
 	const component = "bpf-recorder"
 	printInfo(component, info)
-	return bpfrecorder.New(ctrl.Log.WithName(component)).Run()
+	return bpfrecorder.New("", ctrl.Log.WithName(component), true, false).Run()
 }
 
 func runLogEnricher(_ *cli.Context, info *version.Info) error {
@@ -535,11 +544,21 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	}
 
 	port := ctx.Int("port")
+
+	disableHTTP2 := func(c *tls.Config) {
+		c.NextProtos = []string{"http/1.1"}
+	}
+	webhookServerOptions := webhook.Options{
+		Port:    port,
+		TLSOpts: []func(config *tls.Config){disableHTTP2},
+	}
+
+	webhookServer := webhook.NewServer(webhookServerOptions)
 	ctrlOpts := manager.Options{
-		SyncPeriod:       &sync,
+		Cache:            cache.Options{SyncPeriod: &sync},
 		LeaderElection:   true,
 		LeaderElectionID: "security-profiles-operator-webhook-lock",
-		Port:             port,
+		WebhookServer:    webhookServer,
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrlOpts)
@@ -562,8 +581,8 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	setupLog.Info("registering webhooks")
 	hookserver := mgr.GetWebhookServer()
-	binding.RegisterWebhook(hookserver, mgr.GetClient())
-	recording.RegisterWebhook(hookserver, mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
+	binding.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetClient())
+	recording.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
 
 	sigHandler := ctrl.SetupSignalHandler()
 	setupLog.Info("starting webhook")

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -73,7 +73,7 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 		}
 		return nil, errors.New("invalid source")
 	}
-	return ioutil.ReadFile(filename)
+	return os.ReadFile(filename)
 }
 
 func newParser(filename string, src interface{}) (*parser, error) {
@@ -236,6 +236,8 @@ func (p *parser) sequence() *node {
 	}
 	if len(n.children) > 0 {
 		n.endPos = n.children[len(n.children)-1].endPos
+	} else {
+		n.endPos = p.event.start_mark
 	}
 	p.expect(yaml_SEQUENCE_END_EVENT)
 	return n
@@ -262,7 +264,6 @@ type decoder struct {
 	p            *parser
 	doc          *node
 	aliases      map[*node]bool
-	mapType      reflect.Type
 	terrors      []string
 	prev         token.Pos
 	lastNode     ast.Node
@@ -270,7 +271,6 @@ type decoder struct {
 }
 
 var (
-	mapItemType    = reflect.TypeOf(MapItem{})
 	durationType   = reflect.TypeOf(time.Duration(0))
 	defaultMapType = reflect.TypeOf(map[interface{}]interface{}{})
 	timeType       = reflect.TypeOf(time.Time{})
@@ -278,7 +278,7 @@ var (
 )
 
 func newDecoder(p *parser) *decoder {
-	d := &decoder{p: p, mapType: defaultMapType}
+	d := &decoder{p: p}
 	d.aliases = make(map[*node]bool)
 	return d
 }
@@ -364,7 +364,7 @@ func (d *decoder) attachLineComment(m yaml_mark_t, pos int8, expr ast.Node) {
 }
 
 func (d *decoder) pos(m yaml_mark_t) token.Pos {
-	pos := d.p.info.Pos(m.index+1, token.NoRelPos)
+	pos := d.absPos(m)
 
 	if d.forceNewline {
 		d.forceNewline = false
@@ -392,7 +392,7 @@ func (d *decoder) pos(m yaml_mark_t) token.Pos {
 }
 
 func (d *decoder) absPos(m yaml_mark_t) token.Pos {
-	return d.p.info.Pos(m.index+1, token.NoRelPos)
+	return d.p.info.Pos(m.index, token.NoRelPos)
 }
 
 func (d *decoder) start(n *node) token.Pos {
@@ -523,19 +523,8 @@ func (d *decoder) scalar(n *node) ast.Expr {
 			Value:    "null",
 		}
 	}
-	err := &ast.BottomLit{
-		Bottom: d.pos(n.startPos),
-	}
-	comment := &ast.Comment{
-		Slash: d.start(n),
-		Text:  "// " + d.terror(n, tag),
-	}
-	err.AddComment(&ast.CommentGroup{
-		Line:     true,
-		Position: 1,
-		List:     []*ast.Comment{comment},
-	})
-	return err
+	d.terror(n, tag)
+	return &ast.BottomLit{}
 }
 
 func (d *decoder) label(n *node) ast.Label {

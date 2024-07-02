@@ -21,16 +21,19 @@ import (
 	"io/fs"
 	"sync"
 
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 )
 
 type FakeImpl struct {
-	PullStub        func(string, string, string) (*artifact.PullResult, error)
+	PullStub        func(string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)
 	pullMutex       sync.RWMutex
 	pullArgsForCall []struct {
 		arg1 string
 		arg2 string
 		arg3 string
+		arg4 *v1.Platform
+		arg5 bool
 	}
 	pullReturns struct {
 		result1 *artifact.PullResult
@@ -57,20 +60,22 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) Pull(arg1 string, arg2 string, arg3 string) (*artifact.PullResult, error) {
+func (fake *FakeImpl) Pull(arg1 string, arg2 string, arg3 string, arg4 *v1.Platform, arg5 bool) (*artifact.PullResult, error) {
 	fake.pullMutex.Lock()
 	ret, specificReturn := fake.pullReturnsOnCall[len(fake.pullArgsForCall)]
 	fake.pullArgsForCall = append(fake.pullArgsForCall, struct {
 		arg1 string
 		arg2 string
 		arg3 string
-	}{arg1, arg2, arg3})
+		arg4 *v1.Platform
+		arg5 bool
+	}{arg1, arg2, arg3, arg4, arg5})
 	stub := fake.PullStub
 	fakeReturns := fake.pullReturns
-	fake.recordInvocation("Pull", []interface{}{arg1, arg2, arg3})
+	fake.recordInvocation("Pull", []interface{}{arg1, arg2, arg3, arg4, arg5})
 	fake.pullMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3)
+		return stub(arg1, arg2, arg3, arg4, arg5)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -84,17 +89,17 @@ func (fake *FakeImpl) PullCallCount() int {
 	return len(fake.pullArgsForCall)
 }
 
-func (fake *FakeImpl) PullCalls(stub func(string, string, string) (*artifact.PullResult, error)) {
+func (fake *FakeImpl) PullCalls(stub func(string, string, string, *v1.Platform, bool) (*artifact.PullResult, error)) {
 	fake.pullMutex.Lock()
 	defer fake.pullMutex.Unlock()
 	fake.PullStub = stub
 }
 
-func (fake *FakeImpl) PullArgsForCall(i int) (string, string, string) {
+func (fake *FakeImpl) PullArgsForCall(i int) (string, string, string, *v1.Platform, bool) {
 	fake.pullMutex.RLock()
 	defer fake.pullMutex.RUnlock()
 	argsForCall := fake.pullArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5
 }
 
 func (fake *FakeImpl) PullReturns(result1 *artifact.PullResult, result2 error) {

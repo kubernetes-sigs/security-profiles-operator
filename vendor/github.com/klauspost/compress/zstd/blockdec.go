@@ -554,6 +554,9 @@ func (b *blockDec) prepareSequences(in []byte, hist *history) (err error) {
 		if debugDecoder {
 			printf("Compression modes: 0b%b", compMode)
 		}
+		if compMode&3 != 0 {
+			return errors.New("corrupt block: reserved bits not zero")
+		}
 		for i := uint(0); i < 3; i++ {
 			mode := seqCompMode((compMode >> (6 - i*2)) & 3)
 			if debugDecoder {
@@ -592,7 +595,7 @@ func (b *blockDec) prepareSequences(in []byte, hist *history) (err error) {
 				}
 				seq.fse.setRLE(symb)
 				if debugDecoder {
-					printf("RLE set to %+v, code: %v", symb, v)
+					printf("RLE set to 0x%x, code: %v", symb, v)
 				}
 			case compModeFSE:
 				println("Reading table for", tableIndex(i))

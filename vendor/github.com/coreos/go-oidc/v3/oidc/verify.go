@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
-	jose "github.com/go-jose/go-jose/v3"
+	jose "github.com/go-jose/go-jose/v4"
 	"golang.org/x/oauth2"
 )
 
@@ -64,14 +64,13 @@ type IDTokenVerifier struct {
 // This constructor can be used to create a verifier directly using the issuer URL and
 // JSON Web Key Set URL without using discovery:
 //
-//		keySet := oidc.NewRemoteKeySet(ctx, "https://www.googleapis.com/oauth2/v3/certs")
-//		verifier := oidc.NewVerifier("https://accounts.google.com", keySet, config)
+//	keySet := oidc.NewRemoteKeySet(ctx, "https://www.googleapis.com/oauth2/v3/certs")
+//	verifier := oidc.NewVerifier("https://accounts.google.com", keySet, config)
 //
 // Or a static key set (e.g. for testing):
 //
-//		keySet := &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{pub1, pub2}}
-//		verifier := oidc.NewVerifier("https://accounts.google.com", keySet, config)
-//
+//	keySet := &oidc.StaticKeySet{PublicKeys: []crypto.PublicKey{pub1, pub2}}
+//	verifier := oidc.NewVerifier("https://accounts.google.com", keySet, config)
 func NewVerifier(issuerURL string, keySet KeySet, config *Config) *IDTokenVerifier {
 	return &IDTokenVerifier{keySet: keySet, config: config, issuer: issuerURL}
 }
@@ -120,8 +119,22 @@ type Config struct {
 	InsecureSkipSignatureCheck bool
 }
 
+// VerifierContext returns an IDTokenVerifier that uses the provider's key set to
+// verify JWTs. As opposed to Verifier, the context is used for all requests to
+// the upstream JWKs endpoint.
+func (p *Provider) VerifierContext(ctx context.Context, config *Config) *IDTokenVerifier {
+	return p.newVerifier(NewRemoteKeySet(ctx, p.jwksURL), config)
+}
+
 // Verifier returns an IDTokenVerifier that uses the provider's key set to verify JWTs.
+//
+// The returned verifier uses a background context for all requests to the upstream
+// JWKs endpoint. To control that context, use VerifierContext instead.
 func (p *Provider) Verifier(config *Config) *IDTokenVerifier {
+	return p.newVerifier(p.remoteKeySet(), config)
+}
+
+func (p *Provider) newVerifier(keySet KeySet, config *Config) *IDTokenVerifier {
 	if len(config.SupportedSigningAlgs) == 0 && len(p.algorithms) > 0 {
 		// Make a copy so we don't modify the config values.
 		cp := &Config{}
@@ -129,7 +142,7 @@ func (p *Provider) Verifier(config *Config) *IDTokenVerifier {
 		cp.SupportedSigningAlgs = p.algorithms
 		config = cp
 	}
-	return NewVerifier(p.issuer, p.remoteKeySet, config)
+	return NewVerifier(p.issuer, keySet, config)
 }
 
 func parseJWT(p string) ([]byte, error) {
@@ -169,7 +182,7 @@ func resolveDistributedClaim(ctx context.Context, verifier *IDTokenVerifier, src
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read response body: %v", err)
 	}
@@ -193,19 +206,18 @@ func resolveDistributedClaim(ctx context.Context, verifier *IDTokenVerifier, src
 //
 // See: https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation
 //
-//    oauth2Token, err := oauth2Config.Exchange(ctx, r.URL.Query().Get("code"))
-//    if err != nil {
-//        // handle error
-//    }
+//	oauth2Token, err := oauth2Config.Exchange(ctx, r.URL.Query().Get("code"))
+//	if err != nil {
+//	    // handle error
+//	}
 //
-//    // Extract the ID Token from oauth2 token.
-//    rawIDToken, ok := oauth2Token.Extra("id_token").(string)
-//    if !ok {
-//        // handle error
-//    }
+//	// Extract the ID Token from oauth2 token.
+//	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
+//	if !ok {
+//	    // handle error
+//	}
 //
-//    token, err := verifier.Verify(ctx, rawIDToken)
-//
+//	token, err := verifier.Verify(ctx, rawIDToken)
 func (v *IDTokenVerifier) Verify(ctx context.Context, rawIDToken string) (*IDToken, error) {
 	// Throw out tokens with invalid claims before trying to verify the token. This lets
 	// us do cheap checks before possibly re-syncing keys.
@@ -298,7 +310,16 @@ func (v *IDTokenVerifier) Verify(ctx context.Context, rawIDToken string) (*IDTok
 		return t, nil
 	}
 
-	jws, err := jose.ParseSigned(rawIDToken)
+	var supportedSigAlgs []jose.SignatureAlgorithm
+	for _, alg := range v.config.SupportedSigningAlgs {
+		supportedSigAlgs = append(supportedSigAlgs, jose.SignatureAlgorithm(alg))
+	}
+	if len(supportedSigAlgs) == 0 {
+		// If no algorithms were specified by both the config and discovery, default
+		// to the one mandatory algorithm "RS256".
+		supportedSigAlgs = []jose.SignatureAlgorithm{jose.RS256}
+	}
+	jws, err := jose.ParseSigned(rawIDToken, supportedSigAlgs)
 	if err != nil {
 		return nil, fmt.Errorf("oidc: malformed jwt: %v", err)
 	}
@@ -310,17 +331,7 @@ func (v *IDTokenVerifier) Verify(ctx context.Context, rawIDToken string) (*IDTok
 	default:
 		return nil, fmt.Errorf("oidc: multiple signatures on id token not supported")
 	}
-
 	sig := jws.Signatures[0]
-	supportedSigAlgs := v.config.SupportedSigningAlgs
-	if len(supportedSigAlgs) == 0 {
-		supportedSigAlgs = []string{RS256}
-	}
-
-	if !contains(supportedSigAlgs, sig.Header.Algorithm) {
-		return nil, fmt.Errorf("oidc: id token signed with unsupported algorithm, expected %q got %q", supportedSigAlgs, sig.Header.Algorithm)
-	}
-
 	t.sigAlgorithm = sig.Header.Algorithm
 
 	ctx = context.WithValue(ctx, parsedJWTKey, jws)

@@ -29,6 +29,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type FakeImpl struct {
@@ -127,20 +128,20 @@ type FakeImpl struct {
 		result1 *remote.Repository
 		result2 error
 	}
-	PackStub        func(context.Context, content.Pusher, string, []v1.Descriptor, oras.PackOptions) (v1.Descriptor, error)
-	packMutex       sync.RWMutex
-	packArgsForCall []struct {
+	PackManifestStub        func(context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions) (v1.Descriptor, error)
+	packManifestMutex       sync.RWMutex
+	packManifestArgsForCall []struct {
 		arg1 context.Context
 		arg2 content.Pusher
-		arg3 string
-		arg4 []v1.Descriptor
-		arg5 oras.PackOptions
+		arg3 oras.PackManifestVersion
+		arg4 string
+		arg5 oras.PackManifestOptions
 	}
-	packReturns struct {
+	packManifestReturns struct {
 		result1 v1.Descriptor
 		result2 error
 	}
-	packReturnsOnCall map[int]struct {
+	packManifestReturnsOnCall map[int]struct {
 		result1 v1.Descriptor
 		result2 error
 	}
@@ -169,6 +170,19 @@ type FakeImpl struct {
 	}
 	readFileReturnsOnCall map[int]struct {
 		result1 []byte
+		result2 error
+	}
+	ReadProfileStub        func([]byte) (client.Object, error)
+	readProfileMutex       sync.RWMutex
+	readProfileArgsForCall []struct {
+		arg1 []byte
+	}
+	readProfileReturns struct {
+		result1 client.Object
+		result2 error
+	}
+	readProfileReturnsOnCall map[int]struct {
+		result1 client.Object
 		result2 error
 	}
 	RemoveAllStub        func(string) error
@@ -238,18 +252,6 @@ type FakeImpl struct {
 		result1 error
 	}
 	verifyCmdReturnsOnCall map[int]struct {
-		result1 error
-	}
-	YamlUnmarshalStub        func([]byte, interface{}) error
-	yamlUnmarshalMutex       sync.RWMutex
-	yamlUnmarshalArgsForCall []struct {
-		arg1 []byte
-		arg2 interface{}
-	}
-	yamlUnmarshalReturns struct {
-		result1 error
-	}
-	yamlUnmarshalReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
@@ -707,25 +709,20 @@ func (fake *FakeImpl) NewRepositoryReturnsOnCall(i int, result1 *remote.Reposito
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) Pack(arg1 context.Context, arg2 content.Pusher, arg3 string, arg4 []v1.Descriptor, arg5 oras.PackOptions) (v1.Descriptor, error) {
-	var arg4Copy []v1.Descriptor
-	if arg4 != nil {
-		arg4Copy = make([]v1.Descriptor, len(arg4))
-		copy(arg4Copy, arg4)
-	}
-	fake.packMutex.Lock()
-	ret, specificReturn := fake.packReturnsOnCall[len(fake.packArgsForCall)]
-	fake.packArgsForCall = append(fake.packArgsForCall, struct {
+func (fake *FakeImpl) PackManifest(arg1 context.Context, arg2 content.Pusher, arg3 oras.PackManifestVersion, arg4 string, arg5 oras.PackManifestOptions) (v1.Descriptor, error) {
+	fake.packManifestMutex.Lock()
+	ret, specificReturn := fake.packManifestReturnsOnCall[len(fake.packManifestArgsForCall)]
+	fake.packManifestArgsForCall = append(fake.packManifestArgsForCall, struct {
 		arg1 context.Context
 		arg2 content.Pusher
-		arg3 string
-		arg4 []v1.Descriptor
-		arg5 oras.PackOptions
-	}{arg1, arg2, arg3, arg4Copy, arg5})
-	stub := fake.PackStub
-	fakeReturns := fake.packReturns
-	fake.recordInvocation("Pack", []interface{}{arg1, arg2, arg3, arg4Copy, arg5})
-	fake.packMutex.Unlock()
+		arg3 oras.PackManifestVersion
+		arg4 string
+		arg5 oras.PackManifestOptions
+	}{arg1, arg2, arg3, arg4, arg5})
+	stub := fake.PackManifestStub
+	fakeReturns := fake.packManifestReturns
+	fake.recordInvocation("PackManifest", []interface{}{arg1, arg2, arg3, arg4, arg5})
+	fake.packManifestMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2, arg3, arg4, arg5)
 	}
@@ -735,46 +732,46 @@ func (fake *FakeImpl) Pack(arg1 context.Context, arg2 content.Pusher, arg3 strin
 	return fakeReturns.result1, fakeReturns.result2
 }
 
-func (fake *FakeImpl) PackCallCount() int {
-	fake.packMutex.RLock()
-	defer fake.packMutex.RUnlock()
-	return len(fake.packArgsForCall)
+func (fake *FakeImpl) PackManifestCallCount() int {
+	fake.packManifestMutex.RLock()
+	defer fake.packManifestMutex.RUnlock()
+	return len(fake.packManifestArgsForCall)
 }
 
-func (fake *FakeImpl) PackCalls(stub func(context.Context, content.Pusher, string, []v1.Descriptor, oras.PackOptions) (v1.Descriptor, error)) {
-	fake.packMutex.Lock()
-	defer fake.packMutex.Unlock()
-	fake.PackStub = stub
+func (fake *FakeImpl) PackManifestCalls(stub func(context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions) (v1.Descriptor, error)) {
+	fake.packManifestMutex.Lock()
+	defer fake.packManifestMutex.Unlock()
+	fake.PackManifestStub = stub
 }
 
-func (fake *FakeImpl) PackArgsForCall(i int) (context.Context, content.Pusher, string, []v1.Descriptor, oras.PackOptions) {
-	fake.packMutex.RLock()
-	defer fake.packMutex.RUnlock()
-	argsForCall := fake.packArgsForCall[i]
+func (fake *FakeImpl) PackManifestArgsForCall(i int) (context.Context, content.Pusher, oras.PackManifestVersion, string, oras.PackManifestOptions) {
+	fake.packManifestMutex.RLock()
+	defer fake.packManifestMutex.RUnlock()
+	argsForCall := fake.packManifestArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5
 }
 
-func (fake *FakeImpl) PackReturns(result1 v1.Descriptor, result2 error) {
-	fake.packMutex.Lock()
-	defer fake.packMutex.Unlock()
-	fake.PackStub = nil
-	fake.packReturns = struct {
+func (fake *FakeImpl) PackManifestReturns(result1 v1.Descriptor, result2 error) {
+	fake.packManifestMutex.Lock()
+	defer fake.packManifestMutex.Unlock()
+	fake.PackManifestStub = nil
+	fake.packManifestReturns = struct {
 		result1 v1.Descriptor
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) PackReturnsOnCall(i int, result1 v1.Descriptor, result2 error) {
-	fake.packMutex.Lock()
-	defer fake.packMutex.Unlock()
-	fake.PackStub = nil
-	if fake.packReturnsOnCall == nil {
-		fake.packReturnsOnCall = make(map[int]struct {
+func (fake *FakeImpl) PackManifestReturnsOnCall(i int, result1 v1.Descriptor, result2 error) {
+	fake.packManifestMutex.Lock()
+	defer fake.packManifestMutex.Unlock()
+	fake.PackManifestStub = nil
+	if fake.packManifestReturnsOnCall == nil {
+		fake.packManifestReturnsOnCall = make(map[int]struct {
 			result1 v1.Descriptor
 			result2 error
 		})
 	}
-	fake.packReturnsOnCall[i] = struct {
+	fake.packManifestReturnsOnCall[i] = struct {
 		result1 v1.Descriptor
 		result2 error
 	}{result1, result2}
@@ -905,6 +902,75 @@ func (fake *FakeImpl) ReadFileReturnsOnCall(i int, result1 []byte, result2 error
 	}
 	fake.readFileReturnsOnCall[i] = struct {
 		result1 []byte
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ReadProfile(arg1 []byte) (client.Object, error) {
+	var arg1Copy []byte
+	if arg1 != nil {
+		arg1Copy = make([]byte, len(arg1))
+		copy(arg1Copy, arg1)
+	}
+	fake.readProfileMutex.Lock()
+	ret, specificReturn := fake.readProfileReturnsOnCall[len(fake.readProfileArgsForCall)]
+	fake.readProfileArgsForCall = append(fake.readProfileArgsForCall, struct {
+		arg1 []byte
+	}{arg1Copy})
+	stub := fake.ReadProfileStub
+	fakeReturns := fake.readProfileReturns
+	fake.recordInvocation("ReadProfile", []interface{}{arg1Copy})
+	fake.readProfileMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) ReadProfileCallCount() int {
+	fake.readProfileMutex.RLock()
+	defer fake.readProfileMutex.RUnlock()
+	return len(fake.readProfileArgsForCall)
+}
+
+func (fake *FakeImpl) ReadProfileCalls(stub func([]byte) (client.Object, error)) {
+	fake.readProfileMutex.Lock()
+	defer fake.readProfileMutex.Unlock()
+	fake.ReadProfileStub = stub
+}
+
+func (fake *FakeImpl) ReadProfileArgsForCall(i int) []byte {
+	fake.readProfileMutex.RLock()
+	defer fake.readProfileMutex.RUnlock()
+	argsForCall := fake.readProfileArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) ReadProfileReturns(result1 client.Object, result2 error) {
+	fake.readProfileMutex.Lock()
+	defer fake.readProfileMutex.Unlock()
+	fake.ReadProfileStub = nil
+	fake.readProfileReturns = struct {
+		result1 client.Object
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) ReadProfileReturnsOnCall(i int, result1 client.Object, result2 error) {
+	fake.readProfileMutex.Lock()
+	defer fake.readProfileMutex.Unlock()
+	fake.ReadProfileStub = nil
+	if fake.readProfileReturnsOnCall == nil {
+		fake.readProfileReturnsOnCall = make(map[int]struct {
+			result1 client.Object
+			result2 error
+		})
+	}
+	fake.readProfileReturnsOnCall[i] = struct {
+		result1 client.Object
 		result2 error
 	}{result1, result2}
 }
@@ -1234,73 +1300,6 @@ func (fake *FakeImpl) VerifyCmdReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) YamlUnmarshal(arg1 []byte, arg2 interface{}) error {
-	var arg1Copy []byte
-	if arg1 != nil {
-		arg1Copy = make([]byte, len(arg1))
-		copy(arg1Copy, arg1)
-	}
-	fake.yamlUnmarshalMutex.Lock()
-	ret, specificReturn := fake.yamlUnmarshalReturnsOnCall[len(fake.yamlUnmarshalArgsForCall)]
-	fake.yamlUnmarshalArgsForCall = append(fake.yamlUnmarshalArgsForCall, struct {
-		arg1 []byte
-		arg2 interface{}
-	}{arg1Copy, arg2})
-	stub := fake.YamlUnmarshalStub
-	fakeReturns := fake.yamlUnmarshalReturns
-	fake.recordInvocation("YamlUnmarshal", []interface{}{arg1Copy, arg2})
-	fake.yamlUnmarshalMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) YamlUnmarshalCallCount() int {
-	fake.yamlUnmarshalMutex.RLock()
-	defer fake.yamlUnmarshalMutex.RUnlock()
-	return len(fake.yamlUnmarshalArgsForCall)
-}
-
-func (fake *FakeImpl) YamlUnmarshalCalls(stub func([]byte, interface{}) error) {
-	fake.yamlUnmarshalMutex.Lock()
-	defer fake.yamlUnmarshalMutex.Unlock()
-	fake.YamlUnmarshalStub = stub
-}
-
-func (fake *FakeImpl) YamlUnmarshalArgsForCall(i int) ([]byte, interface{}) {
-	fake.yamlUnmarshalMutex.RLock()
-	defer fake.yamlUnmarshalMutex.RUnlock()
-	argsForCall := fake.yamlUnmarshalArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2
-}
-
-func (fake *FakeImpl) YamlUnmarshalReturns(result1 error) {
-	fake.yamlUnmarshalMutex.Lock()
-	defer fake.yamlUnmarshalMutex.Unlock()
-	fake.YamlUnmarshalStub = nil
-	fake.yamlUnmarshalReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) YamlUnmarshalReturnsOnCall(i int, result1 error) {
-	fake.yamlUnmarshalMutex.Lock()
-	defer fake.yamlUnmarshalMutex.Unlock()
-	fake.YamlUnmarshalStub = nil
-	if fake.yamlUnmarshalReturnsOnCall == nil {
-		fake.yamlUnmarshalReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.yamlUnmarshalReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
@@ -1318,12 +1317,14 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.mkdirTempMutex.RUnlock()
 	fake.newRepositoryMutex.RLock()
 	defer fake.newRepositoryMutex.RUnlock()
-	fake.packMutex.RLock()
-	defer fake.packMutex.RUnlock()
+	fake.packManifestMutex.RLock()
+	defer fake.packManifestMutex.RUnlock()
 	fake.parseReferenceMutex.RLock()
 	defer fake.parseReferenceMutex.RUnlock()
 	fake.readFileMutex.RLock()
 	defer fake.readFileMutex.RUnlock()
+	fake.readProfileMutex.RLock()
+	defer fake.readProfileMutex.RUnlock()
 	fake.removeAllMutex.RLock()
 	defer fake.removeAllMutex.RUnlock()
 	fake.signCmdMutex.RLock()
@@ -1334,8 +1335,6 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.storeTagMutex.RUnlock()
 	fake.verifyCmdMutex.RLock()
 	defer fake.verifyCmdMutex.RUnlock()
-	fake.yamlUnmarshalMutex.RLock()
-	defer fake.yamlUnmarshalMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

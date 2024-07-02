@@ -1,4 +1,4 @@
-// Package jose is a wrapper for gopkg.in/square/go-jose.v2 and implements
+// Package jose is a wrapper for github.com/go-jose/go-jose/v3 and implements
 // utilities to parse and generate JWT, JWK and JWKSets.
 package jose
 
@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	jose "github.com/go-jose/go-jose/v3"
+	"github.com/go-jose/go-jose/v3/cryptosigner"
+	"github.com/go-jose/go-jose/v3/jwt"
 	"go.step.sm/crypto/x25519"
-	jose "gopkg.in/square/go-jose.v2"
-	"gopkg.in/square/go-jose.v2/cryptosigner"
-	"gopkg.in/square/go-jose.v2/jwt"
 )
 
 // SupportsPBKDF2 constant to know if the underlaying library supports
@@ -21,9 +21,14 @@ const SupportsPBKDF2 = true
 // PBKDF2SaltSize is the default size of the salt for PBKDF2, 128-bit salt.
 const PBKDF2SaltSize = 16
 
-// PBKDF2Iterations is the default number of iterations for PBKDF2, 100k
-// iterations. Nist recommends at least 10k, 1Passsword uses 100k.
-const PBKDF2Iterations = 100000
+// PBKDF2Iterations is the default number of iterations for PBKDF2.
+//
+// 600k is the current OWASP recommendation (Dec 2022)
+// https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2
+//
+// Nist recommends at least 10k (800-63B), 1Password increased in 2023 the
+// number of iterations from 100k to 650k.
+const PBKDF2Iterations = 600000
 
 // JSONWebSignature represents a signed JWS object after parsing.
 type JSONWebSignature = jose.JSONWebSignature
@@ -296,10 +301,10 @@ func IsAsymmetric(k *JSONWebKey) bool {
 	return !IsSymmetric(k)
 }
 
-// TrimPrefix removes the string "square/go-jose" from all errors.
+// TrimPrefix removes the string "go-jose/go-jose" from all errors.
 func TrimPrefix(err error) error {
 	if err == nil {
 		return nil
 	}
-	return errors.New(strings.TrimPrefix(err.Error(), "square/go-jose: "))
+	return errors.New(strings.TrimPrefix(err.Error(), "go-jose/go-jose: "))
 }

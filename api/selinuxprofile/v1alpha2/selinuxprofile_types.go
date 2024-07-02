@@ -18,11 +18,13 @@ package v1alpha2
 
 import (
 	"context"
+	"sort"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
@@ -42,7 +44,7 @@ type PolicyRef struct {
 	// Can be a SelinuxProfile object Or "System" if an already
 	// installed policy will be used.
 	// The allowed "System" policies are available in the
-	// SecurityProfilesOpertorDaemon instance.
+	// SecurityProfilesOperatorDaemon instance.
 	// +kubebuilder:default="System"
 	// +kubebuilder:validation:Enum=System;SelinuxProfile;
 	Kind string `json:"kind,omitempty"`
@@ -52,6 +54,9 @@ type PolicyRef struct {
 
 // SelinuxProfileSpec defines the desired state of SelinuxProfile.
 type SelinuxProfileSpec struct {
+	// Common spec fields for all profiles.
+	profilebasev1alpha1.SpecBase `json:",inline"`
+
 	// A SELinuxProfile or set of profiles that this inherits from.
 	// Note that they need to be in the same namespace.
 	// +optional
@@ -74,14 +79,36 @@ func (lk LabelKey) String() string {
 
 type ObjectClassKey string
 
+func (ock ObjectClassKey) String() string {
+	return string(ock)
+}
+
 type PermissionSet []string
 
 // Allow defines the allow policy for the profile.
 type Allow map[LabelKey]map[ObjectClassKey]PermissionSet
 
+func SortLabelKeys(allow Allow) []LabelKey {
+	keys := util.MapKeys(allow)
+	sort.SliceStable(keys, func(i, j int) bool {
+		return keys[i].String() < keys[j].String()
+	})
+	return keys
+}
+
+func SortObjectClassKeys(ock map[ObjectClassKey]PermissionSet) []ObjectClassKey {
+	keys := util.MapKeys(ock)
+	sort.SliceStable(keys, func(i, j int) bool {
+		return keys[i].String() < keys[j].String()
+	})
+	return keys
+}
+
 // SelinuxProfileStatus defines the observed state of SelinuxProfile.
 type SelinuxProfileStatus struct {
+	// Common status fields for all profiles.
 	profilebasev1alpha1.StatusBase `json:",inline"`
+
 	// Represents the string that the SelinuxProfile object can be
 	// referenced as in a pod seLinuxOptions section.
 	Usage           string   `json:"usage,omitempty"`
@@ -138,6 +165,14 @@ func (sp *SelinuxProfile) ListProfilesByRecording(
 
 func (sp *SelinuxProfile) IsPartial() bool {
 	return profilebasev1alpha1.IsPartial(sp)
+}
+
+func (sp *SelinuxProfile) IsDisabled() bool {
+	return profilebasev1alpha1.IsDisabled(&sp.Spec.SpecBase)
+}
+
+func (sp *SelinuxProfile) IsReconcilable() bool {
+	return profilebasev1alpha1.IsReconcilable(sp)
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

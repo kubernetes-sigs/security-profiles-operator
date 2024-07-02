@@ -10,6 +10,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -43,6 +44,9 @@ var PromptPassword PasswordPrompter
 // ioutil.WriteFile, but it can be set to a custom method, that for example can
 // check if a file exists and prompts the user if it should be overwritten.
 var WriteFile FileWriter = utils.WriteFile
+
+// PEMBlockHeader is the expected header for any PEM formatted block.
+var PEMBlockHeader = []byte("-----BEGIN ")
 
 // context add options to the pem methods.
 type context struct {
@@ -282,7 +286,7 @@ func ReadCertificate(filename string, opts ...Options) (*x509.Certificate, error
 	}
 
 	// PEM format
-	if bytes.HasPrefix(b, []byte("-----BEGIN ")) {
+	if bytes.Contains(b, PEMBlockHeader) {
 		var crt interface{}
 		crt, err = Read(filename, opts...)
 		if err != nil {
@@ -311,7 +315,7 @@ func ReadCertificateBundle(filename string) ([]*x509.Certificate, error) {
 	}
 
 	// PEM format
-	if bytes.HasPrefix(b, []byte("-----BEGIN ")) {
+	if bytes.Contains(b, PEMBlockHeader) {
 		var block *pem.Block
 		var bundle []*x509.Certificate
 		for len(b) > 0 {
@@ -352,7 +356,7 @@ func ReadCertificateRequest(filename string) (*x509.CertificateRequest, error) {
 	}
 
 	// PEM format
-	if bytes.HasPrefix(b, []byte("-----BEGIN ")) {
+	if bytes.Contains(b, PEMBlockHeader) {
 		csr, err := Parse(b, WithFilename(filename))
 		if err != nil {
 			return nil, err
@@ -703,4 +707,75 @@ func ParseSSH(b []byte) (interface{}, error) {
 	default:
 		return nil, errors.Errorf("unsupported key type %T", key)
 	}
+}
+
+// BundleCertificate adds PEM-encoded certificates to a PEM-encoded certificate
+// bundle if not already in the bundle.
+func BundleCertificate(bundlePEM []byte, certsPEM ...[]byte) ([]byte, bool, error) {
+	bundle, err := ParseCertificateBundle(bundlePEM)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid bundle: %w", err)
+	}
+
+	sums := make(map[[sha256.Size224]byte]bool, len(bundle)+len(certsPEM))
+	for i := range bundle {
+		sums[sha256.Sum224(bundle[i].Raw)] = true
+	}
+
+	modified := false
+
+	for i := range certsPEM {
+		cert, err := ParseCertificate(certsPEM[i])
+		if err != nil {
+			return nil, false, fmt.Errorf("invalid certificate %d: %w", i, err)
+		}
+		certSum := sha256.Sum224(cert.Raw)
+		if sums[certSum] {
+			continue
+		}
+		sums[certSum] = true
+		bundlePEM = append(bundlePEM, certsPEM[i]...)
+		modified = true
+	}
+
+	return bundlePEM, modified, nil
+}
+
+// UnbundleCertificate removes PEM-encoded certificates from a PEM-encoded
+// certificate bundle.
+func UnbundleCertificate(bundlePEM []byte, certsPEM ...[]byte) ([]byte, bool, error) {
+	if len(certsPEM) == 0 {
+		return bundlePEM, false, nil
+	}
+	drop := make(map[[sha256.Size224]byte]bool, len(certsPEM))
+	for i := range certsPEM {
+		certs, err := ParseCertificateBundle(certsPEM[i])
+		if err != nil {
+			return nil, false, fmt.Errorf("invalid certificate %d: %w", i, err)
+		}
+		for _, cert := range certs {
+			drop[sha256.Sum224(cert.Raw)] = true
+		}
+	}
+
+	var modified bool
+	var keep []byte
+
+	bundle, err := ParseCertificateBundle(bundlePEM)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid bundle: %w", err)
+	}
+	for _, cert := range bundle {
+		sum := sha256.Sum224(cert.Raw)
+		if drop[sum] {
+			modified = true
+			continue
+		}
+		keep = append(keep, pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: cert.Raw,
+		})...)
+	}
+
+	return keep, modified, nil
 }

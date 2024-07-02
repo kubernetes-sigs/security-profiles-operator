@@ -14,14 +14,14 @@
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION = v1.52.2
+GOLANGCI_LINT_VERSION = v1.56.2
 REPO_INFRA_VERSION = v0.2.5
-KUSTOMIZE_VERSION = 5.0.0
+KUSTOMIZE_VERSION = 5.2.1
 OPERATOR_SDK_VERSION ?= v1.25.0
-ZEITGEIST_VERSION = v0.4.1
-CI_IMAGE ?= golang:1.20
+ZEITGEIST_VERSION = v0.5.3
+CI_IMAGE ?= golang:1.22
 
-CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
+CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
 PROJECT := security-profiles-operator
 CLI_BINARY := spoc
@@ -34,7 +34,7 @@ CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
 BPF_PATH := internal/pkg/daemon/bpfrecorder/bpf
 ARCH ?= $(shell uname -m | \
-	sed 's/x86_64/x86/' | \
+	sed 's/x86_64/amd64/' | \
 	sed 's/aarch64/arm64/' | \
 	sed 's/ppc64le/powerpc/' | \
 	sed 's/mips.*/mips/')
@@ -423,7 +423,7 @@ verify-dependencies: $(BUILD_DIR)/zeitgeist ## Verify external dependencies
 
 $(BUILD_DIR)/zeitgeist: $(BUILD_DIR)
 	curl -sSfL -o $(BUILD_DIR)/zeitgeist \
-		https://github.com/kubernetes-sigs/zeitgeist/releases/download/$(ZEITGEIST_VERSION)/zeitgeist_$(ZEITGEIST_VERSION:v%=%)_linux_amd64
+		https://storage.googleapis.com/k8s-artifacts-sig-release/kubernetes-sigs/zeitgeist/$(ZEITGEIST_VERSION)/zeitgeist-$(ARCH)-$(OS)
 	chmod +x $(BUILD_DIR)/zeitgeist
 
 .PHONY: verify-toc
@@ -461,13 +461,17 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 test-e2e: ## Run the end-to-end tests
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=true \
-	$(GO) test -parallel 1 -timeout 60m -count=1 ./test/... -v
+	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v
 
 .PHONY: test-flaky-e2e
 test-flaky-e2e: ## Only run the flaky end-to-end tests
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=false \
-	$(GO) test -parallel 1 -timeout 20m -count=1 ./test/... -v -testify.m '^(TestSecurityProfilesOperator_Flaky)$$'
+	$(GO) test -parallel 1 -timeout 20m -count=1 ./test -v -testify.m '^(TestSecurityProfilesOperator_Flaky)$$'
+
+.PHONY: test-spoc-e2e
+test-spoc-e2e: build/spoc
+	$(GO) test -v ./test/spoc
 
 # Generate CRD manifests
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize

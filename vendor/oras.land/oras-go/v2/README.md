@@ -1,6 +1,8 @@
 # ORAS Go library
 
-![ORAS](https://github.com/oras-project/oras-www/raw/main/docs/assets/images/oras.png)
+<p align="left">
+<a href="https://oras.land/"><img src="https://oras.land/img/oras.svg" alt="banner" width="100px"></a>
+</p>
 
 ## Project status
 
@@ -16,6 +18,9 @@ The ORAS Go library follows [Semantic Versioning](https://semver.org/), where br
 [![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go/v2.svg)](https://pkg.go.dev/oras.land/oras-go/v2)
 
 The version `2` is actively developed in the [`main`](https://github.com/oras-project/oras-go/tree/main) branch with all new features.
+
+> [!Note]
+> The `main` branch follows [Go's Security Policy](https://github.com/golang/go/security/policy) and supports the two latest versions of Go (currently `1.20` and `1.21`).
 
 Examples for common use cases can be found below:
 
@@ -45,7 +50,7 @@ to use releases with major version `2` for new features.
 
 ## Docs
 
-- [oras.land/client_libraries/go](https://oras.land/client_libraries/0_go/): Documentation for the ORAS Go library
+- [oras.land/client_libraries/go](https://oras.land/docs/Client_Libraries/go): Documentation for the ORAS Go library
 - [Reviewing guide](https://github.com/oras-project/community/blob/main/REVIEWING.md): All reviewers must read the reviewing guide and agree to follow the project review guidelines.
 
 ## Code of Conduct

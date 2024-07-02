@@ -44,8 +44,10 @@ type Codec struct {
 // It is safe to use the methods of Codec concurrently as long as the given
 // Runtime is not used elsewhere while using Codec. However, only the concurrent
 // use of Decode, Validate, and Complete is efficient.
-func New(r *cue.Runtime, c *Config) *Codec {
-	return &Codec{runtime: value.ConvertToContext(r)}
+//
+// Note: calling this with a *cue.Runtime value is deprecated.
+func New[Ctx *cue.Runtime | *cue.Context](ctx Ctx, c *Config) *Codec {
+	return &Codec{runtime: value.ConvertToContext(ctx)}
 }
 
 // ExtractType extracts a CUE value from a Go type.
@@ -58,12 +60,11 @@ func New(r *cue.Runtime, c *Config) *Codec {
 // field tag. The value of the tag is a CUE expression, which may contain
 // references to the JSON name of other fields in a struct.
 //
-//     type Sum struct {
-//         A int `cue:"c-b" json:"a,omitempty"`
-//         B int `cue:"c-a" json:"b,omitempty"`
-//         C int `cue:"a+b" json:"c,omitempty"`
-//     }
-//
+//	type Sum struct {
+//	    A int `cue:"c-b" json:"a,omitempty"`
+//	    B int `cue:"c-a" json:"b,omitempty"`
+//	    C int `cue:"a+b" json:"c,omitempty"`
+//	}
 func (c *Codec) ExtractType(x interface{}) (cue.Value, error) {
 	// ExtractType cannot introduce new fields on repeated calls. We could
 	// consider optimizing the lock usage based on this property.

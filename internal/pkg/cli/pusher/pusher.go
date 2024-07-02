@@ -37,13 +37,10 @@ func New(options *Options) *Pusher {
 
 // Run the Pusher.
 func (p *Pusher) Run() error {
-	log.Printf(
-		"Pushing profile %s to: %s",
-		p.options.inputFile, p.options.pushTo,
-	)
+	log.Printf("Pushing profiles to: %s", p.options.pushTo)
 
 	if err := p.Push(
-		p.options.inputFile,
+		p.options.inputFiles,
 		p.options.pushTo,
 		p.options.username,
 		p.options.password,

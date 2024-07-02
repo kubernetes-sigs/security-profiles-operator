@@ -33,6 +33,9 @@ var (
 
 // RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
 type RawSelinuxProfileSpec struct {
+	// Common spec fields for all profiles.
+	profilebasev1alpha1.SpecBase `json:",inline"`
+
 	Policy string `json:"policy,omitempty"`
 }
 
@@ -85,6 +88,14 @@ func (sp *RawSelinuxProfile) ListProfilesByRecording(
 
 func (sp *RawSelinuxProfile) IsPartial() bool {
 	return profilebasev1alpha1.IsPartial(sp)
+}
+
+func (sp *RawSelinuxProfile) IsDisabled() bool {
+	return profilebasev1alpha1.IsDisabled(&sp.Spec.SpecBase)
+}
+
+func (sp *RawSelinuxProfile) IsReconcilable() bool {
+	return profilebasev1alpha1.IsReconcilable(sp)
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

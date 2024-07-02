@@ -184,7 +184,6 @@ func (c *cursor) Delete()                 { panic("unsupported") }
 //
 // Children are traversed in the order in which they appear in the
 // respective node's struct definition.
-//
 func Apply(node ast.Node, before, after func(Cursor) bool) ast.Node {
 	apply(&applier{before: before, after: after}, nil, &node)
 	return node
@@ -200,7 +199,7 @@ type applyVisitor interface {
 
 // Helper functions for common node lists. They may be empty.
 
-func applyExprList(v applyVisitor, parent Cursor, ptr interface{}, list []ast.Expr) {
+func applyExprList(v applyVisitor, parent Cursor, list []ast.Expr) {
 	c := newCursor(parent, nil, nil)
 	for i, x := range list {
 		c.index = i
@@ -287,14 +286,12 @@ func applyDeclList(v applyVisitor, parent Cursor, list []ast.Decl) []ast.Decl {
 	return c.decls
 }
 
-func apply(v applyVisitor, parent Cursor, nodePtr interface{}) {
-	res := reflect.Indirect(reflect.ValueOf(nodePtr))
-	n := res.Interface()
-	node := n.(ast.Node)
+func apply[N ast.Node](v applyVisitor, parent Cursor, nodePtr *N) {
+	node := *nodePtr
 	c := newCursor(parent, node, nodePtr)
 	applyCursor(v, c)
-	if node != c.node {
-		res.Set(reflect.ValueOf(c.node))
+	if ast.Node(node) != c.node {
+		*nodePtr = c.node.(N)
 	}
 }
 
@@ -303,7 +300,6 @@ func apply(v applyVisitor, parent Cursor, nodePtr interface{}) {
 // v.Visit(node) is not nil, apply is invoked recursively with visitor
 // w for each of the non-nil children of node, followed by a call of
 // w.Visit(nil).
-//
 func applyCursor(v applyVisitor, c Cursor) {
 	if v = v.Before(c); v == nil {
 		return
@@ -351,10 +347,10 @@ func applyCursor(v applyVisitor, c Cursor) {
 		// nothing to do
 
 	case *ast.Interpolation:
-		applyExprList(v, c, &n, n.Elts)
+		applyExprList(v, c, n.Elts)
 
 	case *ast.ListLit:
-		applyExprList(v, c, &n, n.Elts)
+		applyExprList(v, c, n.Elts)
 
 	case *ast.Ellipsis:
 		if n.Type != nil {
@@ -383,7 +379,7 @@ func applyCursor(v applyVisitor, c Cursor) {
 
 	case *ast.CallExpr:
 		apply(v, c, &n.Fun)
-		applyExprList(v, c, &n, n.Args)
+		applyExprList(v, c, n.Args)
 
 	case *ast.UnaryExpr:
 		apply(v, c, &n.X)

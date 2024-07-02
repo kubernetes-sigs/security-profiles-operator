@@ -37,11 +37,21 @@ type SecurityProfileBase interface {
 
 	ListProfilesByRecording(ctx context.Context, cli client.Client, recording string) ([]metav1.Object, error)
 	IsPartial() bool
+	IsDisabled() bool
+	IsReconcilable() bool
 }
 
 func IsPartial(obj metav1.Object) bool {
 	_, ok := obj.GetLabels()[ProfilePartialLabel]
 	return ok
+}
+
+func IsDisabled(prfSpec *SpecBase) bool {
+	return prfSpec.Disabled
+}
+
+func IsReconcilable(prfBase SecurityProfileBase) bool {
+	return !(prfBase.IsDisabled() || prfBase.IsPartial())
 }
 
 func ListProfilesByRecording(
@@ -91,4 +101,12 @@ type StatusBaseUser interface {
 	// Sets the needed status that's specific to the profile
 	// implementation
 	SetImplementationStatus()
+}
+
+// SpecBase contains common attributes for a profile's spec.
+type SpecBase struct {
+	// Whether the profile is disabled and should be skipped during reconciliation.
+	// +optional
+	// +kubebuilder:default=false
+	Disabled bool `json:"disabled,omitempty"`
 }

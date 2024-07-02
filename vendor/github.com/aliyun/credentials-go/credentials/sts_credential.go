@@ -17,6 +17,16 @@ func newStsTokenCredential(accessKeyId, accessKeySecret, securityToken string) *
 	}
 }
 
+func (s *StsTokenCredential) GetCredential() (*CredentialModel, error) {
+	credential := &CredentialModel{
+		AccessKeyId:     tea.String(s.AccessKeyId),
+		AccessKeySecret: tea.String(s.AccessKeySecret),
+		SecurityToken:   tea.String(s.SecurityToken),
+		Type:            tea.String("sts"),
+	}
+	return credential, nil
+}
+
 // GetAccessKeyId reutrns  StsTokenCredential's AccessKeyId
 func (s *StsTokenCredential) GetAccessKeyId() (*string, error) {
 	return tea.String(s.AccessKeyId), nil

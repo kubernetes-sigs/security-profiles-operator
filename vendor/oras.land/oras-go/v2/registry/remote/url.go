@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/opencontainers/go-digest"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -87,9 +88,20 @@ func buildRepositoryBlobUploadURL(plainHTTP bool, ref registry.Reference) string
 	return buildRepositoryBaseURL(plainHTTP, ref) + "/blobs/uploads/"
 }
 
+// buildRepositoryBlobMountURLbuilds the URL for cross-repository mounting.
+// Format: <scheme>://<registry>/v2/<repository>/blobs/uploads/?mount=<digest>&from=<other_repository>
+// Reference: https://docs.docker.com/registry/spec/api/#blob
+func buildRepositoryBlobMountURL(plainHTTP bool, ref registry.Reference, d digest.Digest, fromRepo string) string {
+	return fmt.Sprintf("%s?mount=%s&from=%s",
+		buildRepositoryBlobUploadURL(plainHTTP, ref),
+		d,
+		fromRepo,
+	)
+}
+
 // buildReferrersURL builds the URL for querying the Referrers API.
 // Format: <scheme>://<registry>/v2/<repository>/referrers/<digest>?artifactType=<artifactType>
-// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc4/spec.md#listing-referrers
 func buildReferrersURL(plainHTTP bool, ref registry.Reference, artifactType string) string {
 	var query string
 	if artifactType != "" {

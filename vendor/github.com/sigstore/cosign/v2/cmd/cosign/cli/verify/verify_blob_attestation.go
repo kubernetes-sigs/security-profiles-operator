@@ -189,7 +189,8 @@ func (c *VerifyBlobAttestationCommand) Exec(ctx context.Context, artifactPath st
 			}
 		}
 	}
-	if !c.IgnoreSCT {
+	// Ignore Signed Certificate Timestamp if the flag is set or a key is provided
+	if shouldVerifySCT(c.IgnoreSCT, c.KeyRef, c.Sk) {
 		co.CTLogPubKeys, err = cosign.GetCTLogPubs(ctx)
 		if err != nil {
 			return fmt.Errorf("getting ctlog public keys: %w", err)

@@ -46,6 +46,8 @@ func (p *Puller) Run() error {
 		p.options.pullFrom,
 		p.options.username,
 		p.options.password,
+		p.options.platform,
+		p.options.disableSignatureVerification,
 	)
 	if err != nil {
 		return fmt.Errorf("pull profile: %w", err)

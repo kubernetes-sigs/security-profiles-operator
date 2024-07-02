@@ -55,6 +55,22 @@ func newOIDCRoleArnCredential(accessKeyId, accessKeySecret, roleArn, OIDCProvide
 	}
 }
 
+func (e *OIDCCredential) GetCredential() (*CredentialModel, error) {
+	if e.sessionCredential == nil || e.needUpdateCredential() {
+		err := e.updateCredential()
+		if err != nil {
+			return nil, err
+		}
+	}
+	credential := &CredentialModel{
+		AccessKeyId:     tea.String(e.sessionCredential.AccessKeyId),
+		AccessKeySecret: tea.String(e.sessionCredential.AccessKeySecret),
+		SecurityToken:   tea.String(e.sessionCredential.SecurityToken),
+		Type:            tea.String("oidc_role_arn"),
+	}
+	return credential, nil
+}
+
 // GetAccessKeyId reutrns OIDCCredential's AccessKeyId
 // if AccessKeyId is not exist or out of date, the function will update it.
 func (r *OIDCCredential) GetAccessKeyId() (*string, error) {
@@ -123,6 +139,9 @@ func (r *OIDCCredential) updateCredential() (err error) {
 	}
 	request := request.NewCommonRequest()
 	request.Domain = "sts.aliyuncs.com"
+	if r.runtime.STSEndpoint != "" {
+		request.Domain = r.runtime.STSEndpoint
+	}
 	request.Scheme = "HTTPS"
 	request.Method = "POST"
 	request.QueryParams["Timestamp"] = utils.GetTimeInFormatISO8601()
@@ -138,12 +157,6 @@ func (r *OIDCCredential) updateCredential() (err error) {
 	request.QueryParams["RoleSessionName"] = r.RoleSessionName
 	request.QueryParams["Version"] = "2015-04-01"
 	request.QueryParams["SignatureNonce"] = utils.GetUUID()
-	if r.AccessKeyId != "" && r.AccessKeySecret != "" {
-		signature := utils.ShaHmac1(request.BuildStringToSign(), r.AccessKeySecret+"&")
-		request.QueryParams["Signature"] = signature
-		request.QueryParams["AccessKeyId"] = r.AccessKeyId
-		request.QueryParams["AccessKeySecret"] = r.AccessKeySecret
-	}
 	request.Headers["Host"] = request.Domain
 	request.Headers["Accept-Encoding"] = "identity"
 	request.Headers["content-type"] = "application/x-www-form-urlencoded"

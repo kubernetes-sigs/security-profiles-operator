@@ -17,6 +17,7 @@ limitations under the License.
 package e2e_test
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -30,7 +31,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/suite"
-	"k8s.io/klog/v2/klogr"
+	"k8s.io/klog/v2/textlogger"
 	"sigs.k8s.io/release-utils/command"
 	"sigs.k8s.io/release-utils/util"
 
@@ -39,24 +40,28 @@ import (
 )
 
 const (
-	kindVersion      = "v0.18.0"
-	kindImage        = "kindest/node:v1.27.0@sha256:c6b22e613523b1af67d4bc8a0c38a4c3ea3a2b8fbc5b367ae36345c9cb844518"
-	kindDarwinSHA512 = "c5993d7257439dc8016f313b0126b76e4b61cc65cbd5183659755f7b660782cfb0621a31f94cf4565545c296461dfed203678d3ad81fe85a9835ecfb4f9f9b52" //nolint:lll // full length SHA
-	kindLinuxSHA512  = "73257bf705afa1cd095cd1469f4ec5259de1e5dc09745ed68b143e839151e9447133dd63417062bb9ea5fff557f75ec8c413dc4bceb4ffd54bf0fd4212667eb6" //nolint:lll // full length SHA
+	kindVersion      = "v0.23.0"
+	kindImage        = "kindest/node:v1.30.0@sha256:047357ac0cfea04663786a612ba1eaba9702bef25227a794b52890dd8bcd692e"
+	kindDarwinSHA512 = "08a8055068e6f735704b6543f9510eaa871ac37903abc18b803f7c5a8187acb322511cf61c13dc940cc1e260849e6bda279c692d1cb464c6d825996fd42b8e56" //nolint:lll // full length SHA
+	kindLinuxSHA512  = "5026abe09759c2243cfedb10f1f52b2bb7878153da9453eae42fa22d9ae867ba46d2ac03ffbc771b58b747724a344c6c8fb754f24727fefbfd66e961543805c3" //nolint:lll // full length SHA
 )
 
 var (
 	clusterType                  = os.Getenv("E2E_CLUSTER_TYPE")
 	envSkipBuildImages           = os.Getenv("E2E_SKIP_BUILD_IMAGES")
 	envTestImage                 = os.Getenv("E2E_SPO_IMAGE")
+	envSelinuxdTestImage         = os.Getenv("E2E_SELINUXD_IMAGE")
 	spodConfig                   = os.Getenv("E2E_SPOD_CONFIG")
 	envSkipFlakyTests            = os.Getenv("E2E_SKIP_FLAKY_TESTS")
 	envSkipNamespacedTests       = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
 	envSelinuxTestsEnabled       = os.Getenv("E2E_TEST_SELINUX")
+	envApparmorTestsEnabled      = os.Getenv("E2E_TEST_APPARMOR")
 	envLogEnricherTestsEnabled   = os.Getenv("E2E_TEST_LOG_ENRICHER")
 	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
 	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
 	envWebhookConfigTestsEnabled = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
+	envWebhookHTTPTestsEnabled   = os.Getenv("E2E_TEST_WEBHOOK_HTTP")
+	envMetricsHTTPTestsEnabled   = os.Getenv("E2E_TEST_METRICS_HTTP")
 	containerRuntime             = os.Getenv("CONTAINER_RUNTIME")
 	nodeRootfsPrefix             = os.Getenv("NODE_ROOTFS_PREFIX")
 	operatorManifest             = os.Getenv("OPERATOR_MANIFEST")
@@ -94,12 +99,15 @@ type e2e struct {
 	nodeRootfsPrefix      string
 	operatorManifest      string
 	selinuxEnabled        bool
+	apparmorEnabled       bool
 	logEnricherEnabled    bool
 	testSeccomp           bool
 	bpfRecorderEnabled    bool
 	skipNamespacedTests   bool
 	skipFlakyTests        bool
 	testWebhookConfig     bool
+	testWebhookHTTP       bool
+	testMetricsHTTP       bool
 	singleNodeEnvironment bool
 	logger                logr.Logger
 	execNode              func(node string, args ...string) string
@@ -142,6 +150,10 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		selinuxEnabled = false
 	}
+	apparmorEnabled, err := strconv.ParseBool(envApparmorTestsEnabled)
+	if err != nil {
+		apparmorEnabled = false
+	}
 	logEnricherEnabled, err := strconv.ParseBool(envLogEnricherTestsEnabled)
 	if err != nil {
 		logEnricherEnabled = false
@@ -170,11 +182,25 @@ func TestSuite(t *testing.T) {
 		testWebhookConfig = true
 	}
 
+	testWebhookHTTP, err := strconv.ParseBool(envWebhookHTTPTestsEnabled)
+	if err != nil {
+		testWebhookHTTP = true
+	}
+
+	testMetricsHTTP, err := strconv.ParseBool(envMetricsHTTPTestsEnabled)
+	if err != nil {
+		testMetricsHTTP = true
+	}
+
 	if operatorManifest == "" {
 		operatorManifest = defaultManifest
 	}
 
-	selinuxdImage := "quay.io/security-profiles-operator/selinuxd"
+	selinuxdImage := envSelinuxdTestImage
+	if selinuxdImage == "" {
+		selinuxdImage = "quay.io/security-profiles-operator/selinuxd"
+	}
+
 	switch {
 	case clusterType == "" || strings.EqualFold(clusterType, clusterTypeKind):
 		if testImage == "" {
@@ -182,13 +208,14 @@ func TestSuite(t *testing.T) {
 		}
 		suite.Run(t, &kinde2e{
 			e2e{
-				logger:              klogr.New(),
+				logger:              textlogger.NewLogger(textlogger.NewConfig()),
 				pullPolicy:          "Never",
 				testImage:           testImage,
 				spodConfig:          spodConfig,
 				containerRuntime:    containerRuntime,
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
+				apparmorEnabled:     apparmorEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
@@ -196,6 +223,8 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests: skipNamespacedTests,
 				operatorManifest:    operatorManifest,
 				testWebhookConfig:   testWebhookConfig,
+				testWebhookHTTP:     testWebhookHTTP,
+				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
 			},
 			"", "",
@@ -211,7 +240,7 @@ func TestSuite(t *testing.T) {
 
 		suite.Run(t, &openShifte2e{
 			e2e{
-				logger: klogr.New(),
+				logger: textlogger.NewLogger(textlogger.NewConfig()),
 				// Need to pull the image as it'll be uploaded to the cluster OCP
 				// image registry and not on the nodes.
 				pullPolicy:          "Always",
@@ -220,6 +249,7 @@ func TestSuite(t *testing.T) {
 				containerRuntime:    containerRuntime,
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
+				apparmorEnabled:     apparmorEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
@@ -227,6 +257,8 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests: skipNamespacedTests,
 				operatorManifest:    operatorManifest,
 				testWebhookConfig:   testWebhookConfig,
+				testWebhookHTTP:     testWebhookHTTP,
+				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
 			},
 			skipBuildImages,
@@ -236,16 +268,16 @@ func TestSuite(t *testing.T) {
 		if testImage == "" {
 			testImage = "localhost/" + config.OperatorName + ":latest"
 		}
-		selinuxdImage = "quay.io/security-profiles-operator/selinuxd-fedora"
 		suite.Run(t, &vanilla{
 			e2e{
-				logger:              klogr.New(),
+				logger:              textlogger.NewLogger(textlogger.NewConfig()),
 				pullPolicy:          "Never",
 				testImage:           testImage,
 				spodConfig:          spodConfig,
 				containerRuntime:    containerRuntime,
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
+				apparmorEnabled:     apparmorEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
@@ -253,6 +285,8 @@ func TestSuite(t *testing.T) {
 				skipNamespacedTests: skipNamespacedTests,
 				operatorManifest:    operatorManifest,
 				testWebhookConfig:   testWebhookConfig,
+				testWebhookHTTP:     testWebhookHTTP,
+				testMetricsHTTP:     testMetricsHTTP,
 				skipFlakyTests:      skipFlakyTests,
 				// NOTE(jaosorior): Our current vanilla jobs are
 				// single-node only.
@@ -294,6 +328,7 @@ func (e *kinde2e) SetupSuite() {
 
 	var err error
 	e.kubectlPath, err = exec.LookPath("kubectl")
+	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 	e.Nil(err)
 }
 
@@ -329,7 +364,7 @@ func (e *kinde2e) SetupTest() {
 		containerRuntime, "pull", e.selinuxdImage,
 	)
 	e.run(
-		e.kindPath, "load", "docker-image", "--name="+e.clusterName, "quay.io/security-profiles-operator/selinuxd",
+		e.kindPath, "load", "docker-image", "--name="+e.clusterName, e.selinuxdImage,
 	)
 }
 
@@ -447,7 +482,7 @@ func (e *openShifte2e) pushImageToRegistry() {
 
 func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
 	return e.kubectl(
-		"debug", "-q", fmt.Sprintf("node/%s", node), "--",
+		"debug", "-q", "node/"+node, "--",
 		"chroot", "/host", "/bin/bash", "-c",
 		strings.Join(args, " "),
 	)
@@ -484,6 +519,7 @@ func (e *vanilla) SetupSuite() {
 	e.e2e.waitForReadyPods = e.waitForReadyPodsVanilla
 	e.e2e.deployCertManager = e.deployCertManagerVanilla
 	e.e2e.setupRecordingSa = e.deployRecordingSa
+	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 	e.Nil(err)
 }
 
@@ -603,35 +639,43 @@ func (e *e2e) kubectlRunOperatorNS(args ...string) string {
 }
 
 const (
-	curlBaseCMD = "curl -ksfL --retry 5 --retry-delay 3 --show-error "
-	curlCMD     = curlBaseCMD + "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
-	metricsURL  = "https://metrics.security-profiles-operator.svc.cluster.local/"
-	curlSpodCMD = curlCMD + metricsURL + "metrics-spod"
-	curlCtrlCMD = curlCMD + metricsURL + "metrics"
+	curlBaseCMD    = "curl -ksL --retry 5 --retry-delay 3 --show-error "
+	headerAuth     = "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
+	curlCMD        = curlBaseCMD + headerAuth + "-f "
+	curlHTTPVerCMD = curlBaseCMD + headerAuth + "-I -w '%{http_version}\n' -o/dev/null "
+	metricsURL     = "https://metrics.security-profiles-operator.svc.cluster.local/"
+	webhooksURL    = "https://webhook-service.security-profiles-operator.svc.cluster.local/"
+	curlSpodCMD    = curlCMD + metricsURL + "metrics-spod"
+	curlCtrlCMD    = curlCMD + metricsURL + "metrics"
 )
 
-func (e *e2e) getSpodMetrics() string {
+func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
 	for i := range b {
 		b[i] = letters[r.Intn(len(letters))]
 	}
+	maxTries := 0
 	// Sometimes the metrics command does not output anything in CI. We fix
 	// that by retrying the metrics retrieval several times.
 	var output string
 	if err := spoutil.Retry(func() error {
-		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", curlSpodCMD)
+		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", podCMD)
 		if len(strings.Split(output, "\n")) > 1 {
 			return nil
 		}
 		output = ""
-		return fmt.Errorf("no metrics output yet")
+		return errors.New("no output from pod command")
 	}, func(err error) bool {
 		e.logf("retry on error: %s", err)
-		return true
+		if maxTries < 3 {
+			maxTries++
+			return true
+		}
+		return false
 	}); err != nil {
-		e.Failf("unable to retrieve SPOD metrics", "error: %s", err)
+		e.Failf("unable to run pod command", "error: %s", err)
 	}
 	return output
 }
@@ -639,6 +683,12 @@ func (e *e2e) getSpodMetrics() string {
 func (e *e2e) waitFor(args ...string) {
 	e.kubectl(
 		append([]string{"wait", "--timeout", defaultWaitTimeout, "--for"}, args...)...,
+	)
+}
+
+func (e *e2e) waitForProfile(args ...string) {
+	e.waitFor(
+		append([]string{"jsonpath={.status.status}=Installed", "sp"}, args...)...,
 	)
 }
 
@@ -660,6 +710,13 @@ func (e *e2e) selinuxOnlyTestCase() {
 	e.enableSelinuxInSpod()
 }
 
+func (e *e2e) apparmorOnlyTestCase() {
+	if !e.apparmorEnabled {
+		e.T().Skip("Skipping AppArmor-related test")
+	}
+	e.enableApparmorInSpod()
+}
+
 func (e *e2e) enableSelinuxInSpod() {
 	selinuxEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
@@ -669,6 +726,18 @@ func (e *e2e) enableSelinuxInSpod() {
 			`{"spec":{"selinuxOptions":{"allowedSystemProfiles":["container","net_container"]}}}`,
 			"--type=merge")
 
+		time.Sleep(defaultWaitTime)
+		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultSelinuxOpTimeout)
+	}
+}
+
+func (e *e2e) enableApparmorInSpod() {
+	apparmorEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
+	if !strings.Contains(apparmorEnabledInSPODDS, "--with-apparmor=true") {
+		e.logf("Enable AppArmor in SPOD")
+		e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableAppArmor": true}}`, "--type=merge")
 		time.Sleep(defaultWaitTime)
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
@@ -819,14 +888,10 @@ func (e *e2e) labelNs(namespace, label string) {
 }
 
 func (e *e2e) switchToNs(ns string) func() {
-	nsManifest := fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %s`, ns)
+	nsManifest := "\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: " + ns
 
 	e.logf("creating ns %s", ns)
-	deleteFn := e.writeAndApply(nsManifest, fmt.Sprintf("%s.yml", ns))
+	deleteFn := e.writeAndApply(nsManifest, ns+".yml")
 	defer deleteFn()
 
 	e.logf("switching to ns %s", ns)

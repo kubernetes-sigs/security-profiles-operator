@@ -18,8 +18,10 @@ package puller
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	ucli "github.com/urfave/cli/v2"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
@@ -27,10 +29,12 @@ import (
 
 // Options define all possible options for the puller.
 type Options struct {
-	pullFrom   string
-	outputFile string
-	username   string
-	password   string
+	pullFrom                     string
+	outputFile                   string
+	username                     string
+	password                     string
+	platform                     *v1.Platform
+	disableSignatureVerification bool
 }
 
 // Default returns a default options instance.
@@ -61,7 +65,17 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		options.username = ctx.String(FlagUsername)
 	}
 
+	if ctx.IsSet(FlagDisableSignatureVerification) {
+		options.disableSignatureVerification = ctx.Bool(FlagDisableSignatureVerification)
+	}
+
 	options.password = os.Getenv(cli.EnvKeyPassword)
+
+	platform, err := cli.ParsePlatform(ctx.String(FlagPlatform))
+	if err != nil {
+		return nil, fmt.Errorf("parse platform: %w", err)
+	}
+	options.platform = platform
 
 	return options, nil
 }

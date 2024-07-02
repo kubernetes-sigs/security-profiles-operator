@@ -20,14 +20,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"os"
 )
 
 // Read loads the source bytes for the given arguments. If src != nil,
 // Read converts src to a []byte if possible; otherwise it returns an
 // error. If src == nil, readSource returns the result of reading the file
 // specified by filename.
-//
 func Read(filename string, src interface{}) ([]byte, error) {
 	if src != nil {
 		switch s := src.(type) {
@@ -49,5 +48,5 @@ func Read(filename string, src interface{}) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("invalid source type %T", src)
 	}
-	return ioutil.ReadFile(filename)
+	return os.ReadFile(filename)
 }

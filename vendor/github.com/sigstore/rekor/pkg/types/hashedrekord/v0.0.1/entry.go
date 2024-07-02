@@ -18,7 +18,7 @@ package hashedrekord
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
+	"crypto"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -38,6 +38,7 @@ import (
 	"github.com/sigstore/rekor/pkg/pki/x509"
 	"github.com/sigstore/rekor/pkg/types"
 	hashedrekord "github.com/sigstore/rekor/pkg/types/hashedrekord"
+	"github.com/sigstore/rekor/pkg/util"
 	"github.com/sigstore/sigstore/pkg/signature/options"
 )
 
@@ -104,7 +105,7 @@ func (v *V001Entry) Unmarshal(pe models.ProposedEntry) error {
 	return err
 }
 
-func (v *V001Entry) Canonicalize(ctx context.Context) ([]byte, error) {
+func (v *V001Entry) Canonicalize(_ context.Context) ([]byte, error) {
 	sigObj, keyObj, err := v.validate()
 	if err != nil {
 		return nil, types.ValidationError(err)
@@ -146,7 +147,7 @@ func (v *V001Entry) validate() (pki.Signature, pki.PublicKey, error) {
 		return nil, nil, types.ValidationError(errors.New("missing signature"))
 	}
 	// Hashed rekord type only works for x509 signature types
-	sigObj, err := x509.NewSignature(bytes.NewReader(sig.Content))
+	sigObj, err := x509.NewSignatureWithOpts(bytes.NewReader(sig.Content), options.WithED25519ph())
 	if err != nil {
 		return nil, nil, types.ValidationError(err)
 	}
@@ -158,11 +159,6 @@ func (v *V001Entry) validate() (pki.Signature, pki.PublicKey, error) {
 	keyObj, err := x509.NewPublicKey(bytes.NewReader(key.Content))
 	if err != nil {
 		return nil, nil, types.ValidationError(err)
-	}
-
-	_, isEd25519 := keyObj.CryptoPubKey().(ed25519.PublicKey)
-	if isEd25519 {
-		return nil, nil, types.ValidationError(errors.New("ed25519 unsupported for hashedrekord"))
 	}
 
 	data := v.HashedRekordObj.Data
@@ -178,18 +174,39 @@ func (v *V001Entry) validate() (pki.Signature, pki.PublicKey, error) {
 		return nil, nil, types.ValidationError(errors.New("invalid value for hash"))
 	}
 
+	var alg crypto.Hash
+	switch swag.StringValue(hash.Algorithm) {
+	case models.HashedrekordV001SchemaDataHashAlgorithmSha384:
+		alg = crypto.SHA384
+	case models.HashedrekordV001SchemaDataHashAlgorithmSha512:
+		alg = crypto.SHA512
+	default:
+		alg = crypto.SHA256
+	}
+
 	decoded, err := hex.DecodeString(*hash.Value)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := sigObj.Verify(nil, keyObj, options.WithDigest(decoded)); err != nil {
+	if err := sigObj.Verify(nil, keyObj, options.WithDigest(decoded), options.WithCryptoSignerOpts(alg)); err != nil {
 		return nil, nil, types.ValidationError(fmt.Errorf("verifying signature: %w", err))
 	}
 
 	return sigObj, keyObj, nil
 }
 
-func (v V001Entry) CreateFromArtifactProperties(ctx context.Context, props types.ArtifactProperties) (models.ProposedEntry, error) {
+func getDataHashAlgorithm(hashAlgorithm crypto.Hash) string {
+	switch hashAlgorithm {
+	case crypto.SHA384:
+		return models.HashedrekordV001SchemaDataHashAlgorithmSha384
+	case crypto.SHA512:
+		return models.HashedrekordV001SchemaDataHashAlgorithmSha512
+	default:
+		return models.HashedrekordV001SchemaDataHashAlgorithmSha256
+	}
+}
+
+func (v V001Entry) CreateFromArtifactProperties(_ context.Context, props types.ArtifactProperties) (models.ProposedEntry, error) {
 	returnVal := models.Hashedrekord{}
 	re := V001Entry{}
 
@@ -230,10 +247,11 @@ func (v V001Entry) CreateFromArtifactProperties(ctx context.Context, props types
 		return nil, errors.New("only one public key must be provided")
 	}
 
+	hashAlgorithm, hashValue := util.UnprefixSHA(props.ArtifactHash)
 	re.HashedRekordObj.Signature.PublicKey.Content = strfmt.Base64(publicKeyBytes[0])
 	re.HashedRekordObj.Data.Hash = &models.HashedrekordV001SchemaDataHash{
-		Algorithm: swag.String(models.HashedrekordV001SchemaDataHashAlgorithmSha256),
-		Value:     swag.String(props.ArtifactHash),
+		Algorithm: swag.String(getDataHashAlgorithm(hashAlgorithm)),
+		Value:     swag.String(hashValue),
 	}
 
 	if _, _, err := re.validate(); err != nil {
@@ -246,9 +264,48 @@ func (v V001Entry) CreateFromArtifactProperties(ctx context.Context, props types
 	return &returnVal, nil
 }
 
-func (v V001Entry) Verifier() (pki.PublicKey, error) {
+func (v V001Entry) Verifiers() ([]pki.PublicKey, error) {
 	if v.HashedRekordObj.Signature == nil || v.HashedRekordObj.Signature.PublicKey == nil || v.HashedRekordObj.Signature.PublicKey.Content == nil {
 		return nil, errors.New("hashedrekord v0.0.1 entry not initialized")
 	}
-	return x509.NewPublicKey(bytes.NewReader(v.HashedRekordObj.Signature.PublicKey.Content))
+	key, err := x509.NewPublicKey(bytes.NewReader(v.HashedRekordObj.Signature.PublicKey.Content))
+	if err != nil {
+		return nil, err
+	}
+	return []pki.PublicKey{key}, nil
+}
+
+func (v V001Entry) ArtifactHash() (string, error) {
+	if v.HashedRekordObj.Data == nil || v.HashedRekordObj.Data.Hash == nil || v.HashedRekordObj.Data.Hash.Value == nil || v.HashedRekordObj.Data.Hash.Algorithm == nil {
+		return "", errors.New("hashedrekord v0.0.1 entry not initialized")
+	}
+	return strings.ToLower(fmt.Sprintf("%s:%s", *v.HashedRekordObj.Data.Hash.Algorithm, *v.HashedRekordObj.Data.Hash.Value)), nil
+}
+
+func (v V001Entry) Insertable() (bool, error) {
+	if v.HashedRekordObj.Signature == nil {
+		return false, errors.New("missing signature property")
+	}
+	if len(v.HashedRekordObj.Signature.Content) == 0 {
+		return false, errors.New("missing signature content")
+	}
+	if v.HashedRekordObj.Signature.PublicKey == nil {
+		return false, errors.New("missing publicKey property")
+	}
+	if len(v.HashedRekordObj.Signature.PublicKey.Content) == 0 {
+		return false, errors.New("missing publicKey content")
+	}
+	if v.HashedRekordObj.Data == nil {
+		return false, errors.New("missing data property")
+	}
+	if v.HashedRekordObj.Data.Hash == nil {
+		return false, errors.New("missing hash property")
+	}
+	if v.HashedRekordObj.Data.Hash.Algorithm == nil {
+		return false, errors.New("missing hash algorithm")
+	}
+	if v.HashedRekordObj.Data.Hash.Value == nil {
+		return false, errors.New("missing hash value")
+	}
+	return true, nil
 }

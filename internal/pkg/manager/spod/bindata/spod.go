@@ -55,7 +55,7 @@ const (
 	SelinuxdPrivateDir                         = "/var/run/selinuxd"
 	SelinuxdSocketPath                         = SelinuxdPrivateDir + "/selinuxd.sock"
 	SelinuxdDBPath                             = SelinuxdPrivateDir + "/selinuxd.db"
-	MetricsImage                               = "gcr.io/kubebuilder/kube-rbac-proxy:v0.14.0"
+	MetricsImage                               = "gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0"
 	sysKernelDebugPath                         = "/sys/kernel/debug"
 	InitContainerIDNonRootenabler              = 0
 	InitContainerIDSelinuxSharedPoliciesCopier = 1
@@ -111,6 +111,7 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 				Effect:   corev1.TaintEffectNoExecute,
 			},
 		},
+		DisableOCIArtifactSignatureVerification: false,
 	},
 }
 
@@ -369,7 +370,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								},
 							},
 							{
-								Name: "OPERATOR_NAMESPACE",
+								Name: config.OperatorNamespaceEnvKey,
 								ValueFrom: &corev1.EnvVarSource{
 									FieldRef: &corev1.ObjectFieldSelector{
 										FieldPath: "metadata.namespace",
@@ -606,8 +607,9 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							fmt.Sprintf("--secure-listen-address=0.0.0.0:%d", metricsPort),
 							"--upstream=http://127.0.0.1:8080",
 							"--v=10",
-							fmt.Sprintf("--tls-cert-file=%s", filepath.Join(metricsCertPath, "tls.crt")),
-							fmt.Sprintf("--tls-private-key-file=%s", filepath.Join(metricsCertPath, "tls.key")),
+							"--tls-cert-file=" + filepath.Join(metricsCertPath, "tls.crt"),
+							"--tls-private-key-file=" + filepath.Join(metricsCertPath, "tls.key"),
+							"--http2-disable",
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{

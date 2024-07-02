@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: security-profiles-operator
 rules:
 - apiGroups:
@@ -262,7 +261,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  creationTimestamp: null
   name: security-profiles-operator
   namespace: security-profiles-operator
 rules:
@@ -284,7 +282,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: spod
 rules:
 - apiGroups:
@@ -472,7 +469,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  creationTimestamp: null
   name: spod
   namespace: security-profiles-operator
 rules:
@@ -486,7 +482,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: spo-webhook
 rules:
 - apiGroups:
@@ -579,7 +574,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  creationTimestamp: null
   name: spo-webhook
   namespace: security-profiles-operator
 rules:

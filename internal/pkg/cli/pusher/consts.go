@@ -16,14 +16,28 @@ limitations under the License.
 
 package pusher
 
-import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+import (
+	"runtime"
 
-// DefaultInputFile defines the default input location for the pusher.
-var DefaultInputFile = cli.DefaultFile
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+)
+
+var (
+	// DefaultInputFile defines the default input location for the pusher.
+	DefaultInputFile = cli.DefaultFile
+
+	// DefaultPlatform defines the default platform for the current system.
+	DefaultPlatform = &v1.Platform{
+		OS:           runtime.GOOS,
+		Architecture: runtime.GOARCH,
+	}
+)
 
 const (
-	// FlagProfile is the flag for defining the input file location.
-	FlagProfile string = cli.FlagProfile
+	// FlagProfiles is the flag for defining the input file locations.
+	FlagProfiles string = "profiles"
 
 	// FlagUsername is the flag for defining the username for registry
 	// authentication.
@@ -32,4 +46,7 @@ const (
 	// FlagAnnotations is the flag for setting custom annotations to the pushed
 	// artifact.
 	FlagAnnotations string = "annotations"
+
+	// FlagPlatforms is the flag for defining the platforms to push.
+	FlagPlatforms string = "platforms"
 )

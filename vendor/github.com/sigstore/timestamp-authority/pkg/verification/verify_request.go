@@ -21,10 +21,12 @@ import (
 	"github.com/pkg/errors"
 )
 
+var ErrWeakHashAlg = errors.New("weak hash algorithm: must be SHA-256, SHA-384, or SHA-512")
+
 func VerifyRequest(ts *timestamp.Request) error {
 	// only SHA-1, SHA-256, SHA-384, and SHA-512 are supported by the underlying library
 	if ts.HashAlgorithm == crypto.SHA1 {
-		return errors.New("weak hash algorithm: must be SHA-256, SHA-384, or SHA-512")
+		return ErrWeakHashAlg
 	}
 	return nil
 }

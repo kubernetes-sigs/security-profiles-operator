@@ -46,7 +46,6 @@ type impl interface {
 	ListRecordedPods(ctx context.Context, inNs string, selector *metav1.LabelSelector) (*corev1.PodList, error)
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
 	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
-	SetDecoder(*admission.Decoder)
 	DecodePod(admission.Request) (*corev1.Pod, error)
 	LabelSelectorAsSelector(*metav1.LabelSelector) (labels.Selector, error)
 	GetOperatorNamespace() string
@@ -113,10 +112,6 @@ func (d *defaultImpl) UpdateResourceStatus(
 	name string,
 ) error {
 	return utils.UpdateResourceStatus(ctx, logger, d.client.Status(), object, name)
-}
-
-func (d *defaultImpl) SetDecoder(decoder *admission.Decoder) {
-	d.decoder = decoder
 }
 
 func (d *defaultImpl) GetOperatorNamespace() string {

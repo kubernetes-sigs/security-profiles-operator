@@ -26,6 +26,8 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/cmd"
 	spocli "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/converter"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/merger"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/puller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/pusher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
@@ -57,9 +59,12 @@ func main() {
 					Aliases: []string{"t"},
 					Usage:   "the record type",
 					DefaultText: fmt.Sprintf(
-						"%s [alternative: %s]",
+						"%s [alternative: %s %s %s %s]",
 						recorder.TypeSeccomp,
 						recorder.TypeRawSeccomp,
+						recorder.TypeApparmor,
+						recorder.TypeRawAppArmor,
+						recorder.TypeAll,
 					),
 				},
 				&cli.StringSliceFlag{
@@ -73,6 +78,55 @@ func main() {
 					Name:    recorder.FlagNoBaseSyscalls,
 					Aliases: []string{"n"},
 					Usage:   "do not add any base syscalls at all",
+				},
+				&cli.BoolFlag{
+					Name:  recorder.FlagNoProcStart,
+					Usage: "do not start the target command and record until ctrl+c/SIGINT.",
+				},
+			},
+		},
+		&cli.Command{
+			Name:    "merge",
+			Aliases: []string{"m"},
+			Usage:   "merge multiple security profiles",
+			Description: "Merge multiple security profiles into a combined profile. " +
+				"Permissions are additive. For AppArmor, the first profile may additionally contain glob paths.",
+			Action:    merge,
+			ArgsUsage: "INFILE...",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:        merger.FlagOutputFile,
+					Aliases:     []string{"o"},
+					Usage:       "the output file path for the combined profile",
+					DefaultText: merger.DefaultOutputFile,
+					TakesFile:   true,
+				},
+				&cli.BoolFlag{
+					Name:    merger.FlagCheck,
+					Aliases: []string{"c"},
+					Usage: "do not write an output file, " +
+						"but exit with an error if the first profile is not a superset of all others.",
+				},
+			},
+		},
+		&cli.Command{
+			Name:      "convert",
+			Aliases:   []string{"c"},
+			Usage:     "convert a security profile to its raw format",
+			Action:    convert,
+			ArgsUsage: "PROFILE",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:        converter.FlagOutputFile,
+					Aliases:     []string{"o"},
+					Usage:       "the output file path for the raw profile",
+					DefaultText: converter.DefaultOutputFile,
+					TakesFile:   true,
+				},
+				&cli.StringFlag{
+					Name:    converter.FlagProgramName,
+					Aliases: []string{"p"},
+					Usage:   "AppArmor only: the path to the program that is confined.",
 				},
 			},
 		},
@@ -105,10 +159,10 @@ func main() {
 			Action:    push,
 			ArgsUsage: "FILE",
 			Flags: []cli.Flag{
-				&cli.StringFlag{
-					Name:        pusher.FlagProfile,
+				&cli.StringSliceFlag{
+					Name:        pusher.FlagProfiles,
 					Aliases:     []string{"f"},
-					Usage:       "the profile to be used",
+					Usage:       "the profiles to be used",
 					DefaultText: pusher.DefaultInputFile,
 					TakesFile:   true,
 				},
@@ -125,6 +179,11 @@ func main() {
 						"the username for registry authentication, use $%s for defining a password",
 						spocli.EnvKeyPassword,
 					),
+				},
+				&cli.StringSliceFlag{
+					Name:    pusher.FlagPlatforms,
+					Aliases: []string{"p"},
+					Usage:   "the platforms to be used in format: os[/arch][/variant][:os_version]",
 				},
 			},
 		},
@@ -151,6 +210,17 @@ func main() {
 						spocli.EnvKeyPassword,
 					),
 				},
+				&cli.StringFlag{
+					Name:    puller.FlagPlatform,
+					Aliases: []string{"p"},
+					Usage:   "the platform to be used in format: os[/arch][/variant][:os_version]",
+				},
+				&cli.BoolFlag{
+					Name:    puller.FlagDisableSignatureVerification,
+					Aliases: []string{"s"},
+					EnvVars: []string{"DISABLE_SIGNATURE_VERIFICATION"},
+					Usage:   "disable signature verification",
+				},
 			},
 		},
 	)
@@ -169,6 +239,34 @@ func record(ctx *cli.Context) error {
 
 	if err := recorder.New(options).Run(); err != nil {
 		return fmt.Errorf("run recorder: %w", err)
+	}
+
+	return nil
+}
+
+// merge runs the `spoc merge` subcommand.
+func merge(ctx *cli.Context) error {
+	options, err := merger.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
+	}
+
+	if err := merger.New(options).Run(); err != nil {
+		return fmt.Errorf("launch merger: %w", err)
+	}
+
+	return nil
+}
+
+// convert runs the `spoc convert` subcommand.
+func convert(ctx *cli.Context) error {
+	options, err := converter.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
+	}
+
+	if err := converter.New(options).Run(); err != nil {
+		return fmt.Errorf("launch converter: %w", err)
 	}
 
 	return nil

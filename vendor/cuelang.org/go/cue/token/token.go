@@ -87,7 +87,6 @@ const (
 	RBRACE    // }
 	SEMICOLON // ;
 	COLON     // :
-	ISA       // ::
 	OPTION    // ?
 	operatorEnd
 
@@ -97,6 +96,7 @@ const (
 	FOR
 	IN
 	LET
+	FUNC // experimental
 
 	TRUE
 	FALSE
@@ -161,7 +161,6 @@ var tokens = [...]string{
 	RBRACE:    "}",
 	SEMICOLON: ";",
 	COLON:     ":",
-	ISA:       "::",
 	OPTION:    "?",
 
 	BOTTOM: "_|_",
@@ -170,10 +169,11 @@ var tokens = [...]string{
 	TRUE:  "true",
 	NULL:  "null",
 
-	FOR: "for",
-	IF:  "if",
-	IN:  "in",
-	LET: "let",
+	FOR:  "for",
+	IF:   "if",
+	IN:   "in",
+	LET:  "let",
+	FUNC: "func",
 }
 
 // String returns the string corresponding to the token tok.
@@ -212,7 +212,6 @@ const (
 // Precedence returns the operator precedence of the binary
 // operator op. If op is not a binary operator, the result
 // is LowestPrecedence.
-//
 func (tok Token) Precedence() int {
 	switch tok {
 	case OR:
@@ -243,7 +242,6 @@ func init() {
 }
 
 // Lookup maps an identifier to its keyword token or IDENT (if not a keyword).
-//
 func Lookup(ident string) Token {
 	if tok, isKeyword := keywords[ident]; isKeyword {
 		return tok

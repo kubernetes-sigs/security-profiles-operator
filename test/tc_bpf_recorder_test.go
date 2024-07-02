@@ -40,7 +40,7 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
 
 		matches := 0
 		for _, profile := range profiles {
-			pattern := fmt.Sprintf(`Found profile in cluster for container ID.+%s`, profile)
+			pattern := "Found profile in cluster for container ID.+" + profile
 			testRegex := regexp.MustCompile(pattern)
 			if testRegex.MatchString(logs) {
 				matches++
@@ -84,6 +84,7 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 
 	since, podName := e.createRecordingTestPod()
 
+	//nolint:goconst // no need to make the nginx prefix a const
 	resourceName := recordingName + "-nginx"
 	e.waitForBpfRecorderLogs(since, resourceName)
 
@@ -95,7 +96,7 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 	e.kubectl("delete", "-f", exampleRecordingBpfPath)
 	e.kubectl("delete", "sp", resourceName)
 
-	metrics := e.getSpodMetrics()
+	metrics := e.runAndRetryPodCMD(curlSpodCMD)
 	// we don't use resource name here, because the metrics are tracked by the annotation name which contains
 	// underscores instead of dashes
 	metricName := recordingName + "_nginx"
@@ -331,7 +332,7 @@ func (e *e2e) testCaseBpfRecorderWithMemoryOptimization() {
 	e.kubectl("delete", "-f", exampleRecordingBpfPath)
 	e.kubectl("delete", "sp", resourceName)
 
-	metrics := e.getSpodMetrics()
+	metrics := e.runAndRetryPodCMD(curlSpodCMD)
 	// we don't use resource name here, because the metrics are tracked by the annotation name which contains
 	// underscores instead of dashes
 	metricName := recordingName + "_nginx"

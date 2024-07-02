@@ -173,7 +173,7 @@ type Pattern string
 type MaxItems int
 
 // +controllertools:marker:generateHelp:category="CRD validation"
-// MinItems specifies the minimun length for this list.
+// MinItems specifies the minimum length for this list.
 type MinItems int
 
 // +controllertools:marker:generateHelp:category="CRD validation"
@@ -476,6 +476,9 @@ func (m Default) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
 	marshalledDefault, err := json.Marshal(m.Value)
 	if err != nil {
 		return err
+	}
+	if schema.Type == "array" && string(marshalledDefault) == "{}" {
+		marshalledDefault = []byte("[]")
 	}
 	schema.Default = &apiext.JSON{Raw: marshalledDefault}
 	return nil

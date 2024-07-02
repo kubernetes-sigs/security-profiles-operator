@@ -17,8 +17,8 @@
 package astutil
 
 import (
-	"bytes"
 	"fmt"
+	"strings"
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/token"
@@ -88,7 +88,6 @@ func ResolveExpr(e ast.Expr, errFn ErrFunc) {
 // A Scope maintains the set of named language entities declared
 // in the scope and a link to the immediately surrounding (outer)
 // scope.
-//
 type scope struct {
 	file    *ast.File
 	outer   *scope
@@ -204,9 +203,9 @@ func (s *scope) insert(name string, n, link ast.Node) {
 				if _, ok := existing.node.(*ast.ImportSpec); ok {
 					return
 					// TODO:
-					s.errFn(n.Pos(), "conflicting declaration %s\n"+
-						"\tprevious declaration at %s",
-						name, existing.node.Pos())
+					// s.errFn(n.Pos(), "conflicting declaration %s\n"+
+					// 	"\tprevious declaration at %s",
+					// 	name, existing.node.Pos())
 				} else {
 					s.errFn(n.Pos(), "alias %q redeclared in same scope", name)
 				}
@@ -307,7 +306,7 @@ func (s *scope) Before(n ast.Node) (w visitor) {
 				// references to bind to these illegally.
 				// We need this kind of administration anyway to detect
 				// illegal name clashes, and it allows giving better error
-				// messages. This puts the burdon on clients of this library
+				// messages. This puts the burden on clients of this library
 				// to detect illegal usage, though.
 				name, err := ast.ParseIdent(a.Ident)
 				if err == nil {
@@ -448,14 +447,14 @@ func scopeClauses(s *scope, clauses []ast.Clause) *scope {
 
 // Debugging support
 func (s *scope) String() string {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "scope %p {", s)
+	var b strings.Builder
+	fmt.Fprintf(&b, "scope %p {", s)
 	if s != nil && len(s.index) > 0 {
-		fmt.Fprintln(&buf)
+		fmt.Fprintln(&b)
 		for name := range s.index {
-			fmt.Fprintf(&buf, "\t%v\n", name)
+			fmt.Fprintf(&b, "\t%v\n", name)
 		}
 	}
-	fmt.Fprintf(&buf, "}\n")
-	return buf.String()
+	fmt.Fprintf(&b, "}\n")
+	return b.String()
 }

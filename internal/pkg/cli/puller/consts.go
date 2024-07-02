@@ -28,4 +28,11 @@ const (
 	// FlagUsername is the flag for defining the username for registry
 	// authentication.
 	FlagUsername string = cli.FlagUsername
+
+	// FlagPlatform is the flag for defining the platform.
+	FlagPlatform string = "platform"
+
+	// FlagDisableSignatureVerification is the flag for disabling the signature
+	// verification on pull.
+	FlagDisableSignatureVerification string = "disable-signature-verification"
 )

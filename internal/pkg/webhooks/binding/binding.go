@@ -25,8 +25,10 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -50,13 +52,16 @@ type podBinder struct {
 	log logr.Logger
 }
 
-func RegisterWebhook(server *webhook.Server, c client.Client) {
+func RegisterWebhook(server webhook.Server, scheme *runtime.Scheme, c client.Client) {
 	server.Register(
 		"/mutate-v1-pod-binding",
 		&webhook.Admission{
 			Handler: &podBinder{
-				impl: &defaultImpl{client: c},
-				log:  logf.Log.WithName("binding"),
+				impl: &defaultImpl{
+					client:  c,
+					decoder: admission.NewDecoder(scheme),
+				},
+				log: logf.Log.WithName("binding"),
 			},
 		},
 	)
@@ -112,20 +117,41 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 	profilebindings := profileBindings.Items
-	podChanged := false
+
+	pod, admissionResponse := p.updatePod(ctx, profilebindings, &req)
+	if !cmp.Equal(admissionResponse, admission.Response{}) {
+		return admissionResponse
+	}
+
+	marshaledPod, err := json.Marshal(pod)
+	if err != nil {
+		p.log.Error(err, "failed to encode pod")
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+}
+
+func (p *podBinder) updatePod(
+	ctx context.Context,
+	profilebindings []profilebindingv1alpha1.ProfileBinding,
+	req *admission.Request,
+) (*corev1.Pod, admission.Response) {
+	var err error
+	var podBindProfile *interface{}
+	var containers sync.Map
+	var podProfileBinding *profilebindingv1alpha1.ProfileBinding
 	podID := req.Namespace + "/" + req.Name
 	pod := &corev1.Pod{}
-
-	var containers sync.Map
+	podChanged := false
 	if req.Operation != "DELETE" {
-		pod, err = p.impl.DecodePod(req)
+		pod, err = p.impl.DecodePod(*req)
 		if err != nil {
 			p.log.Error(err, "failed to decode pod")
-			return admission.Errored(http.StatusBadRequest, err)
+			return pod, admission.Errored(http.StatusBadRequest, err)
 		}
 		initContainerMap(&containers, &pod.Spec)
 	}
-
 	for i := range profilebindings {
 		profileKind := profilebindings[i].Spec.ProfileRef.Kind
 		if profileKind != profilebindingv1alpha1.ProfileBindingKindSeccompProfile {
@@ -138,19 +164,10 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 		profileName := profilebindings[i].Spec.ProfileRef.Name
 		if req.Operation == "DELETE" {
 			if err := p.removePodFromBinding(ctx, podID, &profilebindings[i]); err != nil {
-				return admission.Errored(http.StatusInternalServerError, err)
+				return pod, admission.Errored(http.StatusInternalServerError, err)
 			}
 			continue
 		}
-		value, ok := containers.Load(profilebindings[i].Spec.Image)
-		if !ok {
-			continue
-		}
-		containers, ok := value.(containerList)
-		if !ok {
-			continue
-		}
-
 		namespacedName := types.NamespacedName{Namespace: req.Namespace, Name: profileName}
 		var bindProfile interface{}
 		var err error
@@ -165,7 +182,21 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 
 		if err != nil {
 			p.log.Error(err, fmt.Sprintf("failed to get %v %#v", profileKind, namespacedName))
-			return admission.Errored(http.StatusInternalServerError, err)
+			return pod, admission.Errored(http.StatusInternalServerError, err)
+		}
+
+		if profilebindings[i].Spec.Image == profilebindingv1alpha1.SelectAllContainersImage {
+			podBindProfile = &bindProfile
+			podProfileBinding = &profilebindings[i]
+			continue
+		}
+		value, ok := containers.Load(profilebindings[i].Spec.Image)
+		if !ok {
+			continue
+		}
+		containers, ok := value.(containerList)
+		if !ok {
+			continue
 		}
 
 		for j := range containers {
@@ -173,20 +204,26 @@ func (p *podBinder) Handle(ctx context.Context, req admission.Request) admission
 		}
 		if podChanged {
 			if err := p.addPodToBinding(ctx, podID, &profilebindings[i]); err != nil {
-				return admission.Errored(http.StatusInternalServerError, err)
+				return pod, admission.Errored(http.StatusInternalServerError, err)
 			}
 		}
 	}
-	if !podChanged {
-		return admission.Allowed("pod unchanged")
-	}
-	marshaledPod, err := json.Marshal(pod)
-	if err != nil {
-		p.log.Error(err, "failed to encode pod")
-		return admission.Errored(http.StatusInternalServerError, err)
+
+	if podChanged {
+		return pod, admission.Response{}
 	}
 
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+	if podBindProfile == nil || podProfileBinding == nil {
+		return pod, admission.Allowed("pod unchanged")
+	}
+
+	if !p.addPodSecurityContext(pod, *podBindProfile) {
+		return pod, admission.Allowed("pod unchanged")
+	}
+	if err := p.addPodToBinding(ctx, podID, podProfileBinding); err != nil {
+		return pod, admission.Errored(http.StatusInternalServerError, err)
+	}
+	return pod, admission.Response{}
 }
 
 func (p *podBinder) getSeccompProfile(
@@ -290,6 +327,65 @@ func (p *podBinder) addSelinuxContext(
 	return podChanged
 }
 
+func (p *podBinder) addPodSecurityContext(
+	pod *corev1.Pod, bindProfile interface{},
+) bool {
+	var podChanged bool
+
+	switch v := bindProfile.(type) {
+	case *seccompprofileapi.SeccompProfile:
+		podChanged = p.addPodSeccompContext(pod, v)
+	case *selinuxprofileapi.SelinuxProfile:
+		podChanged = p.addPodSelinuxContext(pod, v)
+	default:
+		p.log.Info("Unexpected Profile Type")
+		return false
+	}
+	return podChanged
+}
+
+func (p *podBinder) addPodSeccompContext(
+	pod *corev1.Pod, seccompProfile *seccompprofileapi.SeccompProfile,
+) bool {
+	podChanged := false
+	profileRef := seccompProfile.Status.LocalhostProfile
+	sp := corev1.SeccompProfile{
+		Type:             corev1.SeccompProfileTypeLocalhost,
+		LocalhostProfile: &profileRef,
+	}
+	if pod.Spec.SecurityContext == nil {
+		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
+	}
+	if pod.Spec.SecurityContext.SeccompProfile != nil {
+		p.log.Info("cannot override existing seccomp profile for pod or container")
+	} else {
+		pod.Spec.SecurityContext.SeccompProfile = &sp
+		podChanged = true
+	}
+	return podChanged
+}
+
+func (p *podBinder) addPodSelinuxContext(
+	pod *corev1.Pod, selinuxProfile *selinuxprofileapi.SelinuxProfile,
+) bool {
+	podChanged := false
+	usage := selinuxProfile.Status.Usage
+	sl := corev1.SELinuxOptions{
+		Type: usage,
+	}
+
+	if pod.Spec.SecurityContext == nil {
+		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
+	}
+	if pod.Spec.SecurityContext.SELinuxOptions != nil {
+		p.log.Info("cannot override existing selinux profile for pod or container")
+	} else {
+		pod.Spec.SecurityContext.SELinuxOptions = &sl
+		podChanged = true
+	}
+	return podChanged
+}
+
 func (p *podBinder) addPodToBinding(
 	ctx context.Context,
 	podID string,
@@ -319,9 +415,4 @@ func (p *podBinder) removePodFromBinding(
 		controllerutil.RemoveFinalizer(pb, finalizer)
 	}
 	return p.impl.UpdateResource(ctx, p.log, pb, "profilebinding")
-}
-
-func (p *podBinder) InjectDecoder(decoder *admission.Decoder) error {
-	p.impl.SetDecoder(decoder)
-	return nil
 }

@@ -61,10 +61,10 @@ type ProbeSpec struct {
 	// If not specified Prometheus' global scrape interval is used.
 	Interval Duration `json:"interval,omitempty"`
 	// Timeout for scraping metrics from the Prometheus exporter.
-	// If not specified, the Prometheus global scrape interval is used.
+	// If not specified, the Prometheus global scrape timeout is used.
 	ScrapeTimeout Duration `json:"scrapeTimeout,omitempty"`
 	// TLS configuration to use when scraping the endpoint.
-	TLSConfig *ProbeTLSConfig `json:"tlsConfig,omitempty"`
+	TLSConfig *SafeTLSConfig `json:"tlsConfig,omitempty"`
 	// Secret to mount to read bearer token for scraping targets. The secret
 	// needs to be in the same namespace as the probe and accessible by
 	// the Prometheus Operator.
@@ -75,22 +75,49 @@ type ProbeSpec struct {
 	// OAuth2 for the URL. Only valid in Prometheus versions 2.27.0 and newer.
 	OAuth2 *OAuth2 `json:"oauth2,omitempty"`
 	// MetricRelabelConfigs to apply to samples before ingestion.
-	MetricRelabelConfigs []*RelabelConfig `json:"metricRelabelings,omitempty"`
+	MetricRelabelConfigs []RelabelConfig `json:"metricRelabelings,omitempty"`
 	// Authorization section for this endpoint
 	Authorization *SafeAuthorization `json:"authorization,omitempty"`
 	// SampleLimit defines per-scrape limit on number of scraped samples that will be accepted.
-	SampleLimit uint64 `json:"sampleLimit,omitempty"`
+	// +optional
+	SampleLimit *uint64 `json:"sampleLimit,omitempty"`
 	// TargetLimit defines a limit on the number of scraped targets that will be accepted.
-	TargetLimit uint64 `json:"targetLimit,omitempty"`
+	// +optional
+	TargetLimit *uint64 `json:"targetLimit,omitempty"`
+	// `scrapeProtocols` defines the protocols to negotiate during a scrape. It tells clients the
+	// protocols supported by Prometheus in order of preference (from most to least preferred).
+	//
+	// If unset, Prometheus uses its default value.
+	//
+	// It requires Prometheus >= v2.49.0.
+	//
+	// +listType=set
+	// +optional
+	ScrapeProtocols []ScrapeProtocol `json:"scrapeProtocols,omitempty"`
 	// Per-scrape limit on number of labels that will be accepted for a sample.
 	// Only valid in Prometheus versions 2.27.0 and newer.
-	LabelLimit uint64 `json:"labelLimit,omitempty"`
+	// +optional
+	LabelLimit *uint64 `json:"labelLimit,omitempty"`
 	// Per-scrape limit on length of labels name that will be accepted for a sample.
 	// Only valid in Prometheus versions 2.27.0 and newer.
-	LabelNameLengthLimit uint64 `json:"labelNameLengthLimit,omitempty"`
+	// +optional
+	LabelNameLengthLimit *uint64 `json:"labelNameLengthLimit,omitempty"`
 	// Per-scrape limit on length of labels value that will be accepted for a sample.
 	// Only valid in Prometheus versions 2.27.0 and newer.
-	LabelValueLengthLimit uint64 `json:"labelValueLengthLimit,omitempty"`
+	// +optional
+	LabelValueLengthLimit *uint64 `json:"labelValueLengthLimit,omitempty"`
+	// Per-scrape limit on the number of targets dropped by relabeling
+	// that will be kept in memory. 0 means no limit.
+	//
+	// It requires Prometheus >= v2.47.0.
+	//
+	// +optional
+	KeepDroppedTargets *uint64 `json:"keepDroppedTargets,omitempty"`
+
+	// The scrape class to apply.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	ScrapeClassName *string `json:"scrapeClass,omitempty"`
 }
 
 // ProbeTargets defines how to discover the probed targets.
@@ -139,7 +166,7 @@ type ProbeTargetStaticConfig struct {
 	// RelabelConfigs to apply to the label set of the targets before it gets
 	// scraped.
 	// More info: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config
-	RelabelConfigs []*RelabelConfig `json:"relabelingConfigs,omitempty"`
+	RelabelConfigs []RelabelConfig `json:"relabelingConfigs,omitempty"`
 }
 
 // ProbeTargetIngress defines the set of Ingress objects considered for probing.
@@ -157,7 +184,7 @@ type ProbeTargetIngress struct {
 	// probed URL.
 	// The original scrape job's name is available via the `__tmp_prometheus_job_name` label.
 	// More info: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config
-	RelabelConfigs []*RelabelConfig `json:"relabelingConfigs,omitempty"`
+	RelabelConfigs []RelabelConfig `json:"relabelingConfigs,omitempty"`
 }
 
 // ProberSpec contains specification parameters for the Prober used for probing.
@@ -166,7 +193,9 @@ type ProberSpec struct {
 	// Mandatory URL of the prober.
 	URL string `json:"url"`
 	// HTTP scheme to use for scraping.
-	// Defaults to `http`.
+	// `http` and `https` are the expected values unless you rewrite the `__scheme__` label via relabeling.
+	// If empty, Prometheus uses the default value `http`.
+	// +kubebuilder:validation:Enum=http;https
 	Scheme string `json:"scheme,omitempty"`
 	// Path to collect metrics from.
 	// Defaults to `/probe`.
@@ -190,10 +219,4 @@ type ProbeList struct {
 // DeepCopyObject implements the runtime.Object interface.
 func (l *ProbeList) DeepCopyObject() runtime.Object {
 	return l.DeepCopy()
-}
-
-// ProbeTLSConfig specifies TLS configuration parameters for the prober.
-// +k8s:openapi-gen=true
-type ProbeTLSConfig struct {
-	SafeTLSConfig `json:",inline"`
 }

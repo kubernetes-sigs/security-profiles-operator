@@ -524,6 +524,14 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		Spec: profileSpec,
 	}
 
+	if err := r.setDisabled(ctx, r.client,
+		parsedProfileName.profileName, profileNamespacedName.Namespace,
+		&profileSpec.SpecBase); err != nil {
+		r.log.Error(err, "Cannot set the enabled flag")
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		return fmt.Errorf("format selinuxprofile resource: %w", err)
+	}
+
 	res, err := r.CreateOrUpdate(ctx, r.client, profile,
 		func() error {
 			profile.Spec = profileSpec
@@ -612,6 +620,14 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 		return fmt.Errorf("format selinuxprofile resource: %w", err)
 	}
 	r.log.Info("Created", "profile", profile)
+
+	if err := r.setDisabled(ctx, r.client,
+		parsedProfileName.profileName, profileNamespacedName.Namespace,
+		&selinuxProfileSpec.SpecBase); err != nil {
+		r.log.Error(err, "Cannot set the enabled flag")
+		r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+		return fmt.Errorf("format selinuxprofile resource: %w", err)
+	}
 
 	res, err := r.CreateOrUpdate(ctx, r.client, profile,
 		func() error {
@@ -729,6 +745,14 @@ func (r *RecorderReconciler) collectBpfProfiles(
 				Labels:    labels,
 			},
 			Spec: profileSpec,
+		}
+
+		if err := r.setDisabled(ctx, r.client,
+			parsedProfileName.profileName, profileNamespacedName.Namespace,
+			&profileSpec.SpecBase); err != nil {
+			r.log.Error(err, "Cannot set the enabled flag")
+			r.record.Event(profile, util.EventTypeWarning, reasonProfileCreationFailed, err.Error())
+			return fmt.Errorf("format selinuxprofile resource: %w", err)
 		}
 
 		res, err := r.CreateOrUpdate(ctx, r.client, profile,
@@ -1003,6 +1027,21 @@ func profileLabels(
 	}
 
 	return labels, nil
+}
+
+func (r *RecorderReconciler) setDisabled(
+	ctx context.Context,
+	cli client.Client,
+	profileRecordingName, namespace string,
+	profileSpecBase *profilebase.SpecBase,
+) error {
+	recording, err := r.GetRecording(ctx, cli, types.NamespacedName{Name: profileRecordingName, Namespace: namespace})
+	if err != nil {
+		return fmt.Errorf("get recording: %w", err)
+	}
+
+	profileSpecBase.Disabled = recording.Spec.DisableProfileAfterRecording
+	return nil
 }
 
 func (r *RecorderReconciler) setRecordingFinalizers(

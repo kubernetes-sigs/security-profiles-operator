@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
-//nolint:gocognit // complexity is fine for a test
 func Test_selinuxProfileHandler(t *testing.T) {
 	t.Parallel()
 	ns := "security-profiles-operator"
@@ -125,7 +124,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				Spec: selxv1alpha2.SelinuxProfileSpec{
 					Inherit: []selxv1alpha2.PolicyRef{
 						{
-							Kind: "SelinuxPolicy",
+							Kind: "SelinuxProfile",
 							Name: "foo",
 						},
 					},
@@ -189,7 +188,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				Spec: selxv1alpha2.SelinuxProfileSpec{
 					Inherit: []selxv1alpha2.PolicyRef{
 						{
-							Kind: "SelinuxPolicy",
+							Kind: "SelinuxProfile",
 							Name: "unexistent-ref",
 						},
 					},
@@ -204,7 +203,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 			},
 			wantValidateErr: true,
 			wantErrMatches: []string{
-				"couldn't find inherit reference SelinuxPolicy/unexistent-ref",
+				"couldn't find inherit reference SelinuxProfile/unexistent-ref",
 			},
 			existingObjs: []client.Object{
 				spodinstance.DeepCopy(),
@@ -251,7 +250,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 				Spec: selxv1alpha2.SelinuxProfileSpec{
 					Inherit: []selxv1alpha2.PolicyRef{
 						{
-							Kind: "SelinuxPolicy",
+							Kind: "SelinuxProfile",
 							Name: "foo",
 						},
 					},

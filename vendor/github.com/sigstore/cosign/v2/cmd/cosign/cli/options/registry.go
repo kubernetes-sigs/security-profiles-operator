@@ -44,6 +44,10 @@ type RegistryOptions struct {
 	KubernetesKeychain bool
 	RefOpts            ReferenceOptions
 	Keychain           Keychain
+	AuthConfig         authn.AuthConfig
+
+	// RegistryClientOpts allows overriding the result of GetRegistryClientOpts.
+	RegistryClientOpts []remote.Option
 }
 
 var _ Interface = (*RegistryOptions)(nil)
@@ -58,6 +62,15 @@ func (o *RegistryOptions) AddFlags(cmd *cobra.Command) {
 
 	cmd.Flags().BoolVar(&o.KubernetesKeychain, "k8s-keychain", false,
 		"whether to use the kubernetes keychain instead of the default keychain (supports workload identity).")
+
+	cmd.Flags().StringVar(&o.AuthConfig.Username, "registry-username", "",
+		"registry basic auth username")
+
+	cmd.Flags().StringVar(&o.AuthConfig.Password, "registry-password", "",
+		"registry basic auth password")
+
+	cmd.Flags().StringVar(&o.AuthConfig.RegistryToken, "registry-token", "",
+		"registry bearer auth token")
 
 	o.RefOpts.AddFlags(cmd)
 }
@@ -86,6 +99,12 @@ func (o *RegistryOptions) NameOptions() []name.Option {
 }
 
 func (o *RegistryOptions) GetRegistryClientOpts(ctx context.Context) []remote.Option {
+	if o.RegistryClientOpts != nil {
+		ropts := o.RegistryClientOpts
+		ropts = append(ropts, remote.WithContext(ctx))
+		return ropts
+	}
+
 	opts := []remote.Option{
 		remote.WithContext(ctx),
 		remote.WithUserAgent(UserAgent()),
@@ -104,6 +123,10 @@ func (o *RegistryOptions) GetRegistryClientOpts(ctx context.Context) []remote.Op
 			github.Keychain,
 		)
 		opts = append(opts, remote.WithAuthFromKeychain(kc))
+	case o.AuthConfig.Username != "" && o.AuthConfig.Password != "":
+		opts = append(opts, remote.WithAuth(&authn.Basic{Username: o.AuthConfig.Username, Password: o.AuthConfig.Password}))
+	case o.AuthConfig.RegistryToken != "":
+		opts = append(opts, remote.WithAuth(&authn.Bearer{Token: o.AuthConfig.RegistryToken}))
 	default:
 		opts = append(opts, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	}
@@ -111,6 +134,19 @@ func (o *RegistryOptions) GetRegistryClientOpts(ctx context.Context) []remote.Op
 	if o.AllowInsecure {
 		opts = append(opts, remote.WithTransport(&http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}})) // #nosec G402
 	}
+
+	// Reuse a remote.Pusher and a remote.Puller for all operations that use these opts.
+	// This allows us to avoid re-authenticating for everying remote.Function we call,
+	// which speeds things up a whole lot.
+	pusher, err := remote.NewPusher(opts...)
+	if err == nil {
+		opts = append(opts, remote.Reuse(pusher))
+	}
+	puller, err := remote.NewPuller(opts...)
+	if err == nil {
+		opts = append(opts, remote.Reuse(puller))
+	}
+
 	return opts
 }
 

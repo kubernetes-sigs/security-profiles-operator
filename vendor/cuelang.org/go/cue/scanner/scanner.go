@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -109,7 +108,7 @@ type Mode uint
 // These constants are options to the Init function.
 const (
 	ScanComments     Mode = 1 << iota // return comments as COMMENT tokens
-	dontInsertCommas                  // do not automatically insert commas - for testing only
+	DontInsertCommas                  // do not automatically insert commas
 )
 
 // Init prepares the scanner s to tokenize the text src by setting the
@@ -181,7 +180,7 @@ func (s *Scanner) interpretLineComment(text []byte) {
 }
 
 func (s *Scanner) scanComment() string {
-	// initial '/' already consumed; s.ch == '/' || s.ch == '*'
+	// initial '/' already consumed; s.ch == '/'
 	offs := s.offset - 1 // position of initial '/'
 	hasCR := false
 
@@ -211,50 +210,6 @@ exit:
 	}
 
 	return string(lit)
-}
-
-func (s *Scanner) findLineEnd() bool {
-	// initial '/' already consumed
-
-	defer func(offs int) {
-		// reset scanner state to where it was upon calling findLineEnd
-		s.ch = '/'
-		s.offset = offs
-		s.rdOffset = offs + 1
-		s.next() // consume initial '/' again
-	}(s.offset - 1)
-
-	// read ahead until a newline, EOF, or non-comment token is found
-	for s.ch == '/' || s.ch == '*' {
-		if s.ch == '/' {
-			//-style comment always contains a newline
-			return true
-		}
-		/*-style comment: look for newline */
-		s.next()
-		for s.ch >= 0 {
-			ch := s.ch
-			if ch == '\n' {
-				return true
-			}
-			s.next()
-			if ch == '*' && s.ch == '/' {
-				s.next()
-				break
-			}
-		}
-		s.skipWhitespace(0) // s.insertSemi is set
-		if s.ch < 0 || s.ch == '\n' {
-			return true
-		}
-		if s.ch != '/' {
-			// non-comment token
-			return false
-		}
-		s.next() // consume '/'
-	}
-
-	return false
 }
 
 func isLetter(ch rune) bool {
@@ -290,10 +245,6 @@ func (s *Scanner) scanIdentifier() string {
 		s.next()
 	}
 	return string(s.src[offs:s.offset])
-}
-
-func isExtendedIdent(r rune) bool {
-	return strings.IndexRune("-_#$%. ", r) >= 0
 }
 
 func digitVal(ch rune) int {
@@ -567,14 +518,14 @@ func (s *Scanner) consumeStringClose(ch rune, quote quoteInfo) (next rune, atEnd
 	return s.ch, true
 }
 
-func (s *Scanner) checkHashCount(offs int, quote quoteInfo) {
-	for i := 0; i < quote.numHash; i++ {
+func (s *Scanner) scanHashes(maxHash int) int {
+	for i := 0; i < maxHash; i++ {
 		if s.ch != '#' {
-			s.errf(offs, "string literal not terminated")
-			return
+			return i
 		}
 		s.next()
 	}
+	return maxHash
 }
 
 func stripCR(b []byte) []byte {
@@ -691,6 +642,11 @@ func (s *Scanner) ResumeInterpolation() string {
 	quote := s.popInterpolation()
 	_, str := s.scanString(s.offset-1, quote)
 	return str
+}
+
+// Offset returns the current position offset.
+func (s *Scanner) Offset() int {
+	return s.offset
 }
 
 // Scan scans the next token and returns the token position, the token,
@@ -830,8 +786,18 @@ scanAgain:
 				quote.numChar = 1
 				tok, lit = s.scanString(offs, quote)
 			case 1:
-				s.checkHashCount(offs, quote)
-				tok, lit = token.STRING, string(s.src[offs:s.offset])
+				// When the string is surrounded by hashes,
+				// a single leading quote is OK (and part of the string)
+				// e.g. #""hello""#
+				// unless it's succeeded by the correct number of terminating
+				// hash characters
+				// e.g. ##""##
+				if n := s.scanHashes(quote.numHash); n == quote.numHash {
+					// It's the empty string.
+					tok, lit = token.STRING, string(s.src[offs:s.offset])
+				} else {
+					tok, lit = s.scanString(offs, quote)
+				}
 			case 2:
 				quote.numChar = 3
 				switch s.ch {
@@ -856,12 +822,7 @@ scanAgain:
 			insertEOL = true
 			tok, lit = s.scanAttribute()
 		case ':':
-			if s.ch == ':' {
-				s.next()
-				tok = token.ISA
-			} else {
-				tok = token.COLON
-			}
+			tok = token.COLON
 		case ';':
 			tok = token.SEMICOLON
 			insertEOL = true
@@ -911,7 +872,7 @@ scanAgain:
 		case '/':
 			if s.ch == '/' {
 				// comment
-				if s.insertEOL && s.findLineEnd() {
+				if s.insertEOL {
 					// reset position to the beginning of the comment
 					s.ch = '/'
 					s.offset = s.file.Offset(pos)
@@ -981,7 +942,7 @@ scanAgain:
 			lit = string(ch)
 		}
 	}
-	if s.mode&dontInsertCommas == 0 {
+	if s.mode&DontInsertCommas == 0 {
 		s.insertEOL = insertEOL
 	}
 

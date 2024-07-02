@@ -13,67 +13,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -euo pipefail
+set -euox pipefail
 
-ENVFILE=$(dirname "${BASH_SOURCE[0]}")/env-fedora.sh
-. "$ENVFILE"
+# Setup cluster
+IP=$(ip route get 1.2.3.4 | cut -d ' ' -f7 | tr -d '[:space:]')
+swapoff -a
+modprobe br_netfilter
+sysctl -w net.ipv4.ip_forward=1
+kubeadm init --apiserver-cert-extra-sans="$IP"
 
-K8SPATH="$GOPATH/src/k8s.io"
-VERSION=v1.27.0
+# Setup kubectl
+USER=vagrant
+mkdir /home/$USER/.kube
+cp /etc/kubernetes/admin.conf /home/$USER/.kube/config
+chown -R $USER:$USER /home/$USER/.kube
 
-download-kubernetes() {
-    export KUBERNETES_RELEASE=$VERSION
-    export KUBERNETES_SKIP_CONFIRM=1
-    export KUBERNETES_SKIP_CREATE_CLUSTER=1
-    cluster/get-kube.sh
+mkdir /root/.kube
+cp /etc/kubernetes/admin.conf /root/.kube/config
 
-    mkdir -p _output/bin
-    tar xfz kubernetes/server/kubernetes-server-linux-amd64.tar.gz
-    cp kubernetes/server/bin/{kubectl,kube-apiserver,kube-controller-manager,kube-proxy,kube-scheduler,kubelet} \
-        _output/bin
-}
-
-local-up() {
-    export PATH="$GOPATH/src/k8s.io/kubernetes/third_party/etcd:$PATH"
-    export CONTAINER_RUNTIME=remote
-    export CGROUP_DRIVER=systemd
-    export CONTAINER_RUNTIME_ENDPOINT=/var/run/crio/crio.sock
-    export CGROUPS_PER_QOS=false
-    export ALLOW_PRIVILEGED=1
-    export KUBELET_FLAGS='--enforce-node-allocatable='
-
-    echo "Using IP: $IP"
-    export DNS_SERVER_IP=$IP
-    export API_HOST_IP=$IP
-
-    iptables -F
-    download-kubernetes
-    hack/local-up-cluster.sh -O
-}
-
-mkdir -p "$K8SPATH"
-cd "$K8SPATH"
-
-TARBALL=k8s.tar.gz
-curl -sfL --retry 5 --retry-delay 3 --show-error \
-    -o $TARBALL https://github.com/kubernetes/kubernetes/tarball/$VERSION
-tar xfz $TARBALL
-rm $TARBALL
-mv kubernetes-kubernetes-* kubernetes
-cd kubernetes
-
-hack/install-etcd.sh
-
-OUTPUT=$(mktemp)
-local-up 2>&1 | tee "$OUTPUT" &
-PID=$!
-
-echo Waiting for hack/local-up-cluster.sh
-until grep -q "Local Kubernetes cluster is running" "$OUTPUT"; do
-    if ! ps $PID >/dev/null; then
-        exit 1
-    fi
-    sleep 1
-done
-
-echo Cluster is up and running
+# Configure cluster
+export KUBECONFIG=/etc/kubernetes/admin.conf
+kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+kubectl wait -n kube-system --timeout=180s --for=condition=available deploy coredns
+kubectl wait --timeout=180s --for=condition=ready pods --all -A
+kubectl get pods -A

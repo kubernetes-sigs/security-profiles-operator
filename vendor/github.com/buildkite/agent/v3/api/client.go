@@ -1,6 +1,6 @@
 package api
 
-//go:generate interfacer -for github.com/buildkite/agent/v3/api.Client -as agent.APIClient -o ../agent/api.go
+//go:generate go run github.com/rjeczalik/interfaces/cmd/interfacer@v0.3.0 -for github.com/buildkite/agent/v3/api.Client -as agent.APIClient -o ../agent/api.go
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -172,6 +173,15 @@ func (c *Client) newRequest(
 
 	req.Header.Add("User-Agent", c.conf.UserAgent)
 
+	// If our context has a timeout/deadline, tell the server how long is remaining.
+	// This may allow the server to configure its own timeouts accordingly.
+	if deadline, ok := ctx.Deadline(); ok {
+		ms := time.Until(deadline).Milliseconds()
+		if ms > 0 {
+			req.Header.Add("Buildkite-Timeout-Milliseconds", strconv.FormatInt(ms, 10))
+		}
+	}
+
 	for _, header := range headers {
 		req.Header.Add(header.Name, header.Value)
 	}
@@ -299,12 +309,12 @@ type ErrorResponse struct {
 }
 
 func (r *ErrorResponse) Error() string {
-	s := fmt.Sprintf("%v %v: %d",
+	s := fmt.Sprintf("%v %v: %s",
 		r.Response.Request.Method, r.Response.Request.URL,
-		r.Response.StatusCode)
+		r.Response.Status)
 
 	if r.Message != "" {
-		s = fmt.Sprintf("%s %v", s, r.Message)
+		s = fmt.Sprintf("%s: %v", s, r.Message)
 	}
 
 	return s
@@ -353,4 +363,9 @@ func addOptions(s string, opt any) (string, error) {
 
 func joinURLPath(endpoint string, path string) string {
 	return strings.TrimRight(endpoint, "/") + "/" + strings.TrimLeft(path, "/")
+}
+
+// Rails doesn't accept dots in some path segments.
+func railsPathEscape(s string) string {
+	return strings.ReplaceAll(url.PathEscape(s), ".", "%2E")
 }

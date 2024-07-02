@@ -5,7 +5,10 @@ on:
       - main
   pull_request:
 env:
-  GO_VERSION: '1.20'
+  GO_VERSION: '1.22'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions: {}
 
@@ -18,27 +21,24 @@ jobs:
 
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
-      - uses: github/codeql-action/init@7df0ce34898d659f95c0c4a09eaa8d4e32ee64db
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - uses: github/codeql-action/init@c4fb451437765abf5018c6fbf22cce1a7da1e5cc # v2.17.1
         with:
           languages: go
-      - uses: github/codeql-action/autobuild@7df0ce34898d659f95c0c4a09eaa8d4e32ee64db
-      - uses: github/codeql-action/analyze@7df0ce34898d659f95c0c4a09eaa8d4e32ee64db
+      - uses: github/codeql-action/autobuild@c4fb451437765abf5018c6fbf22cce1a7da1e5cc # v2.17.1
+      - uses: github/codeql-action/analyze@c4fb451437765abf5018c6fbf22cce1a7da1e5cc # v2.17.1
 
   coverage:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
-      - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
-          sudo hack/install-libbpf.sh
+        run: sudo hack/install-packages
       - run: make test-unit
-      - uses: codecov/codecov-action@40a12dcee2df644d47232dde008099a3e9e4f865
+      - uses: codecov/codecov-action@125fc84a9a348dbcf27191600683ec096ec9021c # v4.4.1
         with:
           files: build/coverage.out
           flags: unittests
@@ -47,29 +47,32 @@ jobs:
   image:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - run: hack/install-crun
       - run: make image
+        env:
+          XDG_RUNTIME_DIR: ''
       - run: podman save -o image.tar security-profiles-operator
-      - uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
         with:
           name: image
           path: image.tar
 
   e2e-fedora:
     needs: image
-
-    runs-on: macos-12
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-fedora.sh
     steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
-      - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
-        with:
-          path: |
-            ~/.vagrant.d/boxes
-          key: e2e-fedora-${{ hashFiles('hack/ci/Vagrantfile-fedora') }}
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
           name: image
           path: .
@@ -77,7 +80,7 @@ jobs:
         run: make vagrant-up-fedora
       - name: Show environment information
         run: |
-          $RUN kubectl wait --for=condition=ready --timeout=60s node 127.0.0.1
+          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
           $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
@@ -87,26 +90,24 @@ jobs:
       - name: Run Flaky E2E tests
         continue-on-error: true
         run: |
-          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-fedora.sh"
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
           $RUN hack/ci/e2e-fedora.sh
-      - name: Print generated RBAC rules
-        run: $RUN hack/ci/print-rbac.sh
 
   e2e-ubuntu:
     needs: image
-
-    runs-on: macos-12
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
-      - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
-        with:
-          path: |
-            ~/.vagrant.d/boxes
-          key: e2e-ubuntu-${{ hashFiles('hack/ci/Vagrantfile-ubuntu') }}
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
           name: image
           path: .
@@ -114,7 +115,7 @@ jobs:
         run: make vagrant-up-ubuntu
       - name: Show environment information
         run: |
-          $RUN kubectl wait --for=condition=ready --timeout=60s node ubuntu2204
+          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
           $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
@@ -124,33 +125,33 @@ jobs:
       - name: Run Flaky E2E tests
         continue-on-error: true
         run: |
-          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-ubuntu.sh"
+          $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env.sh"
           $RUN hack/ci/e2e-ubuntu.sh
 
   e2e-flatcar:
-   needs: image
-
-   runs-on: macos-12
-   timeout-minutes: 90
-   env:
-     RUN: ./hack/ci/run-flatcar.sh
-   steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
+    needs: image
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      RUN: ./hack/ci/run-flatcar.sh
+    steps:
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
       - name: Vagrant box version
         id: vagrant-box
         run: |
-          echo "::set-output name=version::$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')"
+          echo "version=$(curl -s  https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_vagrant.json | jq '.versions[0].version' | tr -d '".')" >> $GITHUB_OUTPUT
         shell: bash
-      - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
-        with:
-          path: |
-            ~/.vagrant.d/boxes
-          key: e2e-flatcar-${{ steps.vagrant-box.outputs.version }}-${{ hashFiles('hack/ci/Vagrantfile-flatcar') }}
       - name: Upgrade vagrant box
         run: |
           ln -sf hack/ci/Vagrantfile-flatcar Vagrantfile
           vagrant box update
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
           name: image
           path: .
@@ -168,21 +169,33 @@ jobs:
           $RUN "echo \"export E2E_TEST_FLAKY_TESTS_ONLY=true\" >> /vagrant/hack/ci/env-flatcar.sh"
           $RUN hack/ci/e2e-flatcar-dev-container.sh
 
+  e2e-spoc:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install dependencies
+        run: sudo hack/install-packages
+      - run: make test-spoc-e2e
+
   baseprofiles:
     needs: image
-    runs-on: macos-12
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
     steps:
-      - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
-      - uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
-        with:
-          path: |
-            ~/.vagrant.d/boxes
-          key: e2e-ubuntu-${{ hashFiles('hack/ci/Vagrantfile-ubuntu') }}
-          restore-keys: e2e-ubuntu-
-      - uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
         with:
           name: image
           path: .
@@ -190,10 +203,18 @@ jobs:
         run: make vagrant-up-ubuntu
       - name: Show environment information
         run: |
-          $RUN kubectl wait --for=condition=ready --timeout=60s node ubuntu2204
+          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
           $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
           $RUN git config --global --add safe.directory /vagrant
       - name: Record baseprofiles
         run: $RUN hack/ci/baseprofiles.sh
+
+  typos:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+      - uses: crate-ci/typos@41752caac953aa62b357d386cc658221af004915 # v1.22.0
+        with:
+          config: .typos.toml

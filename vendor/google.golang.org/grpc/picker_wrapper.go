@@ -20,6 +20,7 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 
@@ -37,7 +38,6 @@ import (
 type pickerWrapper struct {
 	mu            sync.Mutex
 	done          bool
-	idle          bool
 	blockingCh    chan struct{}
 	picker        balancer.Picker
 	statsHandlers []stats.Handler // to record blocking picker calls
@@ -122,7 +122,7 @@ func (pw *pickerWrapper) pick(ctx context.Context, failfast bool, info balancer.
 				if lastPickErr != nil {
 					errStr = "latest balancer error: " + lastPickErr.Error()
 				} else {
-					errStr = ctx.Err().Error()
+					errStr = fmt.Sprintf("received context error while waiting for new LB policy update: %s", ctx.Err().Error())
 				}
 				switch ctx.Err() {
 				case context.DeadlineExceeded:
@@ -210,23 +210,15 @@ func (pw *pickerWrapper) close() {
 	close(pw.blockingCh)
 }
 
-func (pw *pickerWrapper) enterIdleMode() {
-	pw.mu.Lock()
-	defer pw.mu.Unlock()
-	if pw.done {
-		return
-	}
-	pw.idle = true
-}
-
-func (pw *pickerWrapper) exitIdleMode() {
+// reset clears the pickerWrapper and prepares it for being used again when idle
+// mode is exited.
+func (pw *pickerWrapper) reset() {
 	pw.mu.Lock()
 	defer pw.mu.Unlock()
 	if pw.done {
 		return
 	}
 	pw.blockingCh = make(chan struct{})
-	pw.idle = false
 }
 
 // dropError is a wrapper error that indicates the LB policy wishes to drop the

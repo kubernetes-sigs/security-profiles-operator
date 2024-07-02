@@ -20,7 +20,6 @@
 package errors // import "cuelang.org/go/cue/errors"
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -74,11 +73,21 @@ type Message struct {
 	args   []interface{}
 }
 
-// NewMessage creates an error message for human consumption. The arguments
+// NewMessagef creates an error message for human consumption. The arguments
 // are for later consumption, allowing the message to be localized at a later
 // time. The passed argument list should not be modified.
-func NewMessage(format string, args []interface{}) Message {
+func NewMessagef(format string, args ...interface{}) Message {
+	if false {
+		// Let go vet know that we're expecting printf-like arguments.
+		_ = fmt.Sprintf(format, args...)
+	}
 	return Message{format: format, args: args}
+}
+
+// NewMessage creates an error message for human consumption.
+// Deprecated: Use NewMessagef instead.
+func NewMessage(format string, args []interface{}) Message {
+	return NewMessagef(format, args...)
 }
 
 // Msg returns a printf-style format string and its arguments for human
@@ -162,7 +171,7 @@ func Path(err error) []string {
 func Newf(p token.Pos, format string, args ...interface{}) Error {
 	return &posError{
 		pos:     p,
-		Message: NewMessage(format, args),
+		Message: NewMessagef(format, args...),
 	}
 }
 
@@ -171,7 +180,7 @@ func Newf(p token.Pos, format string, args ...interface{}) Error {
 func Wrapf(err error, p token.Pos, format string, args ...interface{}) Error {
 	pErr := &posError{
 		pos:     p,
-		Message: NewMessage(format, args),
+		Message: NewMessagef(format, args...),
 	}
 	return Wrap(pErr, err)
 }
@@ -254,7 +263,7 @@ func Promote(err error, msg string) Error {
 	case Error:
 		return x
 	default:
-		return Wrapf(err, token.NoPos, msg)
+		return Wrapf(err, token.NoPos, "%s", msg)
 	}
 }
 
@@ -293,13 +302,16 @@ func Append(a, b Error) Error {
 // its individual elements. If the given error is not an Error, it will be
 // promoted to one.
 func Errors(err error) []Error {
-	switch x := err.(type) {
-	case nil:
+	if err == nil {
 		return nil
-	case list:
-		return []Error(x)
-	case Error:
-		return []Error{x}
+	}
+	var listErr list
+	var errorErr Error
+	switch {
+	case As(err, &listErr):
+		return listErr
+	case As(err, &errorErr):
+		return []Error{errorErr}
 	default:
 		return []Error{Promote(err, "")}
 	}
@@ -323,7 +335,7 @@ func appendToList(a list, err Error) list {
 // The zero value for an list is an empty list ready to use.
 type list []Error
 
-func (p list) Is(err, target error) bool {
+func (p list) Is(target error) bool {
 	for _, e := range p {
 		if errors.Is(e, target) {
 			return true
@@ -332,7 +344,7 @@ func (p list) Is(err, target error) bool {
 	return false
 }
 
-func (p list) As(err error, target interface{}) bool {
+func (p list) As(target interface{}) bool {
 	for _, e := range p {
 		if errors.As(e, target) {
 			return true
@@ -420,20 +432,32 @@ func equalPath(a, b []string) bool {
 // Sanitize sorts multiple errors and removes duplicates on a best effort basis.
 // If err represents a single or no error, it returns the error as is.
 func Sanitize(err Error) Error {
-	if l, ok := err.(list); ok && err != nil {
-		a := make(list, len(l))
-		copy(a, l)
-		a.Sort()
-		a.RemoveMultiples()
+	if err == nil {
+		return nil
+	}
+	if l, ok := err.(list); ok {
+		a := l.sanitize()
+		if len(a) == 1 {
+			return a[0]
+		}
 		return a
 	}
 	return err
 }
 
+func (p list) sanitize() list {
+	if p == nil {
+		return p
+	}
+	a := make(list, len(p))
+	copy(a, p)
+	a.RemoveMultiples()
+	return a
+}
+
 // Sort sorts an List. *posError entries are sorted by position,
 // other errors are sorted by error message, and before any *posError
 // entry.
-//
 func (p list) Sort() {
 	sort.Sort(p)
 }
@@ -461,6 +485,7 @@ func approximateEqual(a, b Error) bool {
 	}
 	return aPos.Filename() == bPos.Filename() &&
 		aPos.Line() == bPos.Line() &&
+		aPos.Column() == bPos.Column() &&
 		equalPath(a.Path(), b.Path())
 }
 
@@ -531,15 +556,11 @@ type Config struct {
 // Print is a utility function that prints a list of errors to w,
 // one error per line, if the err parameter is an List. Otherwise
 // it prints the err string.
-//
 func Print(w io.Writer, err error, cfg *Config) {
 	if cfg == nil {
 		cfg = &Config{}
 	}
-	if e, ok := err.(Error); ok {
-		err = Sanitize(e)
-	}
-	for _, e := range Errors(err) {
+	for _, e := range list(Errors(err)).sanitize() {
 		printError(w, e, cfg)
 	}
 }
@@ -547,16 +568,16 @@ func Print(w io.Writer, err error, cfg *Config) {
 // Details is a convenience wrapper for Print to return the error text as a
 // string.
 func Details(err error, cfg *Config) string {
-	w := &bytes.Buffer{}
-	Print(w, err, cfg)
-	return w.String()
+	var b strings.Builder
+	Print(&b, err, cfg)
+	return b.String()
 }
 
 // String generates a short message from a given Error.
 func String(err Error) string {
-	w := &strings.Builder{}
-	writeErr(w, err)
-	return w.String()
+	var b strings.Builder
+	writeErr(&b, err)
+	return b.String()
 }
 
 func writeErr(w io.Writer, err Error) {
@@ -570,8 +591,9 @@ func writeErr(w io.Writer, err Error) {
 
 		printed := false
 		msg, args := err.Msg()
-		if msg != "" || u == nil { // print at least something
-			fmt.Fprintf(w, msg, args...)
+		s := fmt.Sprintf(msg, args...)
+		if s != "" || u == nil { // print at least something
+			_, _ = io.WriteString(w, s)
 			printed = true
 		}
 

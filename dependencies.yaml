@@ -1,26 +1,18 @@
 dependencies:
   - name: go
-    version: 1.20
+    version: 1.22
     refPaths:
-    - path: go.mod
-      match: go
     - path: .github/workflows/build.yml
       match: GO_VERSION
     - path: .github/workflows/test.yml
       match: GO_VERSION
     - path: .github/workflows/olm_tests.yaml
       match: GO_VERSION
-    - path: hack/ci/Vagrantfile-fedora
-      match: GO_VERSION
-    - path: hack/ci/Vagrantfile-ubuntu
-      match: GO_VERSION
-    - path: hack/ci/Vagrantfile-flatcar
-      match: GO_VERSION
     - path: Makefile
       match: CI_IMAGE
 
   - name: golangci-lint
-    version: 1.52.2
+    version: 1.56.2
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -32,7 +24,7 @@ dependencies:
       match: REPO_INFRA_VERSION
 
   - name: kustomize
-    version: 5.0.0
+    version: 5.2.1
     refPaths:
     - path: Makefile
       match: KUSTOMIZE_VERSION
@@ -50,7 +42,7 @@ dependencies:
       match: OLM_VERSION
 
   - name: cert-manager
-    version: 1.11.1
+    version: 1.13.2
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -62,13 +54,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.18.0
+    version: 0.23.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.27.0
+    version: 1.30.0
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -82,15 +74,15 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.27.0
+    version: 1.30
     refPaths:
-    - path: hack/ci/install-kubernetes.sh
-      match: VERSION
+    - path: hack/ci/Vagrantfile-fedora
+      match: KUBERNETES_VERSION
     - path: hack/ci/Vagrantfile-ubuntu
       match: KUBERNETES_VERSION
 
   - name: e2e-fedora
-    version: 36
+    version: 38
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: fedora
@@ -100,35 +92,33 @@ dependencies:
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
       match: config.vm.box
-    - path: .github/workflows/test.yml
-      match: node
 
   - name: debian-base-digest
-    version: sha256:3fcf9bcc4949392155cde1f96591ba3eda092f4735a9cc856bf526d71f48af47
+    version: sha256:b30608f5a81f8ba99b287322d0bfb77ec506adcce396147aa4a59699d69be3e0
     refPaths:
     - path: Dockerfile.build-image
       match: registry.k8s.io/build-image/debian-base
 
   - name: debian-base
-    version: bullseye-v1.4.3
+    version: bookworm-v1.0.3
     refPaths:
     - path: Dockerfile.build-image
       match: tag
 
-  - name: ubi8-minimal
-    version: sha256:a49924d9d685a35b2d0817ffe9c84f3429d97e9ad29ed3816c389f45564c9e19
+  - name: ubi9-minimal
+    version: sha256:ef6fb6b3b38ef6c85daebeabebc7ff3151b9dd1500056e6abc9c3295e4b78a51
     refPaths:
     - path: Dockerfile.ubi
-      match: registry.access.redhat.com/ubi8/ubi-minimal
+      match: registry.access.redhat.com/ubi9/ubi-minimal
 
-  - name: ubi8-go-toolset
-    version: sha256:3f9754728f2ae36083badb14d57fa384ee7ce482f9bfa07d8b8967ea4f8a782a
+  - name: ubi9-go-toolset
+    version: sha256:d1911ff6e8b3d17175dafe00aa466e83c3ceec45903b01a7cc18e9e417781263
     refPaths:
     - path: Dockerfile.ubi
-      match: registry.access.redhat.com/ubi8/go-toolset
+      match: registry.access.redhat.com/ubi9/go-toolset
 
   - name: nix
-    version: 2.13.3
+    version: 2.18.1
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION
@@ -136,7 +126,7 @@ dependencies:
       match: NIX_VERSION
 
   - name: kube-rbac-proxy
-    version: 0.14.0
+    version: 0.15.0
     refPaths:
     - path: internal/pkg/manager/spod/bindata/spod.go
       match: gcr.io/kubebuilder/kube-rbac-proxy
@@ -158,13 +148,13 @@ dependencies:
       match: gcr.io/kubebuilder/kube-rbac-proxy
 
   - name: gcb-docker-gcloud
-    version: v20220617-174ad91c3a
+    version: v20231105-52c482caa0
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   - name: libbpf
-    version: 1.0.1
+    version: 1.4.0
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
@@ -175,22 +165,18 @@ dependencies:
     - path: hack/update-vmlinux
       match: VERSION
 
-  - name: CRI-O
-    version: v1.26.3
-    refPaths:
-    - path: hack/ci/install-cri-o.sh
-      match: TAG
-
   - name: crun
-    version: v1.8.3
+    version: 1.15
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
     - path: test/tc_base_profiles_test.go
       match: baseProfileNameCrun
+    - path: hack/install-crun
+      match: CRUN_VERSION
 
   - name: runc
-    version: v1.1.5
+    version: v1.1.12
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: name
@@ -199,28 +185,20 @@ dependencies:
     - path: installation-usage.md
       match: baseProfileName
 
-  - name: audit2rbac
-    version: v0.9.0
-    refPaths:
-    - path: hack/ci/install-audit2rbac.sh
-      match: VERSION
-
   - name: cosign
-    version: v2.0.0
+    version: v2.2.1
     refPaths:
-    - path: hack/ci/install-cri-o.sh
+    - path: hack/ci/Vagrantfile-ubuntu
       match: COSIGN_VERSION
 
   - name: bom
     version: v0.5.1
     refPaths:
-    - path: hack/ci/install-cri-o.sh
-      match: BOM_VERSION
     - path: .github/workflows/build.yml
       match: BOM_VERSION
 
   - name: spo-current
-    version: 0.8.1
+    version: 0.8.4
     refPaths:
     - path: VERSION
       match: ^.*
@@ -232,12 +210,17 @@ dependencies:
       match: "^version: "
 
   - name: clang
-    version: 15
+    version: 18
     refPaths:
     - path: nix/derivation-bpf.nix
       match: llvmPackages_\d+.clang-unwrapped
     - path: nix/derivation-bpf.nix
       match: llvm_\d+
+
+  # TODO: update to the latest clang of debian 12 packages are available.
+  - name: clang-debian-12
+    version: 16
+    refPaths:
     - path: hack/pull-security-profiles-operator-verify
       match: CLANG_VERSION
 
@@ -248,7 +231,7 @@ dependencies:
       match: BTFHUB_COMMIT
 
   - name: flatcar
-    version: 3446.1.0
+    version: 3510.2.3
     refPaths:
     - path: hack/ci/Vagrantfile-flatcar
       match: flatcar_production_vagrant
@@ -256,7 +239,13 @@ dependencies:
       match: flatcar_developer_container
 
   - name: zeitgeist
-    version: 0.4.1
+    version: 0.5.3
     refPaths:
       - path: Makefile
         match: ZEITGEIST_VERSION
+
+  - name: yq
+    version: 4.35.2
+    refPaths:
+      - path: hack/ci/baseprofiles.sh
+        match: YQ_VERSION

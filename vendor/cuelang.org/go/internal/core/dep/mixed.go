@@ -27,10 +27,10 @@ import (
 // evaluated Vertex. A more correct and more performant algorithm would be to
 // descend into the conjuncts and evaluate the necessary values, like fields
 // and comprehension sources.
-func dynamic(c *adt.OpContext, n *adt.Vertex, f VisitFunc, m marked, top bool) {
+func (v *visitor) dynamic(n *adt.Vertex, top bool) {
 	found := false
 	for _, c := range n.Conjuncts {
-		if m[c.Expr()] {
+		if v.marked[c.Expr()] {
 			found = true
 			break
 		}
@@ -40,12 +40,15 @@ func dynamic(c *adt.OpContext, n *adt.Vertex, f VisitFunc, m marked, top bool) {
 		return
 	}
 
-	if visit(c, n, f, false, top) != nil {
+	if v.visit(n, top) != nil {
 		return
 	}
 
 	for _, a := range n.Arcs {
-		dynamic(c, a, f, m, false)
+		if !a.IsDefined(v.ctxt) || a.Label.IsLet() {
+			continue
+		}
+		v.dynamic(a, false)
 	}
 }
 
@@ -79,10 +82,10 @@ func (m marked) markExpr(x adt.Expr) {
 			case *adt.Field:
 				m.markExpr(x.Value)
 
-			case *adt.OptionalField:
+			case *adt.BulkOptionalField:
 				m.markExpr(x.Value)
 
-			case *adt.BulkOptionalField:
+			case *adt.LetField:
 				m.markExpr(x.Value)
 
 			case *adt.DynamicField:
@@ -127,19 +130,5 @@ func (m marked) markExpr(x adt.Expr) {
 }
 
 func (m marked) markComprehension(y *adt.Comprehension) {
-	m.markYielder(y.Clauses)
-	m.markExpr(y.Value)
-}
-
-func (m marked) markYielder(y adt.Yielder) {
-	switch x := y.(type) {
-	case *adt.ForClause:
-		m.markYielder(x.Dst)
-
-	case *adt.IfClause:
-		m.markYielder(x.Dst)
-
-	case *adt.LetClause:
-		m.markYielder(x.Dst)
-	}
+	m.markExpr(adt.ToExpr(y.Value))
 }

@@ -12,37 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# hash below relates to tag: bullseye-v1.4.3
-FROM registry.k8s.io/build-image/debian-base@sha256:3fcf9bcc4949392155cde1f96591ba3eda092f4735a9cc856bf526d71f48af47
+# hash below relates to tag: bookworm-v1.0.3
+FROM registry.k8s.io/build-image/debian-base@sha256:b30608f5a81f8ba99b287322d0bfb77ec506adcce396147aa4a59699d69be3e0
 WORKDIR /work
 
-RUN apt-get update && apt-get install -y wget xz-utils libapparmor-dev
+RUN apt-get update && \
+  apt-get install -y wget xz-utils libapparmor-dev && \
+  apt-get autoremove  -y && \
+  apt-get purge -y --auto-remove && \
+  rm -rf /var/lib/apt/lists/*
 
 ENV USER=root
 
-ARG NIX_VERSION=2.13.3
+ARG NIX_VERSION=2.18.1
 RUN wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
-    tar xf nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
-    groupadd -r -g 30000 nixbld && \
-    for i in $(seq 1 30); do useradd -rM -u $((30000 + i)) -G nixbld nixbld$i ; done && \
-    mkdir -m 0755 /etc/nix /nix && \
-    printf "sandbox = false\nfilter-syscalls = false\n" > /etc/nix/nix.conf && \
-    nix-${NIX_VERSION}-x86_64-linux/install && \
-    ln -s /nix/var/nix/profiles/default/etc/profile.d/nix.sh /etc/profile.d && \
-    rm -rf nix-*
+  tar xf nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
+  groupadd -r -g 30000 nixbld && \
+  for i in $(seq 1 30); do useradd -rM -u $((30000 + i)) -G nixbld nixbld$i ; done && \
+  mkdir -m 0755 /etc/nix /nix && \
+  printf "sandbox = false\nfilter-syscalls = false\n" > /etc/nix/nix.conf && \
+  nix-${NIX_VERSION}-x86_64-linux/install && \
+  ln -s /nix/var/nix/profiles/default/etc/profile.d/nix.sh /etc/profile.d && \
+  rm -rf nix-*
 
 ENV ENV=/etc/profile \
-    PATH=/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/bin:/sbin:/usr/bin:/usr/sbin \
-    GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt \
-    NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
-    NIX_PATH=/nix/var/nix/profiles/per-user/root/channels
+  PATH=/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:/bin:/sbin:/usr/bin:/usr/sbin \
+  GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt \
+  NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+  NIX_PATH=/nix/var/nix/profiles/per-user/root/channels
 
 RUN nix-env -iA cachix -f https://cachix.org/api/v1/install && \
-    cachix use security-profiles-operator
-
-RUN nix-collect-garbage --delete-old -d && \
-    nix-store --optimise && \
-    nix-store --verify --check-contents
+  cachix use security-profiles-operator && \
+  nix-collect-garbage --delete-old -d && \
+  nix-store --optimise && \
+  nix-store --verify --check-contents
 
 # Cache build dependencies
 COPY . /build

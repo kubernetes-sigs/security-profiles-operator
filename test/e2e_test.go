@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.11.1/cert-manager.yaml"
+	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.13.2/cert-manager.yaml"
 	namespaceManifest = "deploy/namespace-operator.yaml"
 	testNamespace     = "test-ns"
 	defaultNamespace  = "default"
@@ -42,7 +42,7 @@ const (
 	defaultSelinuxOpTimeout     = "360s"
 	defaultLogEnricherOpTimeout = defaultSelinuxOpTimeout
 	defaultBpfRecorderOpTimeout = defaultSelinuxOpTimeout
-	defaultWaitTimeout          = "180s"
+	defaultWaitTimeout          = "5m"
 	defaultWaitTime             = 15 * time.Second
 )
 
@@ -76,10 +76,13 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"Seccomp: Verify base profile merge",
 			e.testCaseBaseProfile,
 		},
-		{
-			"Seccomp: Verify base profile merge from OCI registry",
-			e.testCaseBaseProfileOCI,
-		},
+		// TODO: re-enable when we found a workaround to the flaky GitHub registry connection
+		/*
+			{
+				"Seccomp: Verify base profile merge from OCI registry",
+				e.testCaseBaseProfileOCI,
+			},
+		*/
 		{
 			"Seccomp: Allowed syscalls",
 			e.testCaseAllowedSyscalls,
@@ -101,12 +104,20 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseSelinuxBaseUsage,
 		},
 		{
+			"SELinux: base case (install policy, run pod and delete) for the raw CR",
+			e.testCaseRawSelinuxBaseUsage,
+		},
+		{
 			"SELinux: non-default template",
 			e.testCaseSelinuxNonDefaultTemplate,
 		},
 		{
 			"SELinux: Metrics (update, delete)",
 			e.testCaseSelinuxMetrics,
+		},
+		{
+			"AppArmor: base case (install policy, run pod and delete)",
+			e.testCaseAppArmorBaseUsage,
 		},
 		{
 			"SPOD: Update SELinux flag",
@@ -119,6 +130,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		{
 			"SPOD: Change profiling",
 			e.testCaseProfilingChange,
+		},
+		{
+			"SPOD: Profiling server protocol",
+			e.testCaseProfilingHTTP,
 		},
 		{
 			"SPOD: Enable memory optimiztaion",
@@ -149,13 +164,15 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	}
 
 	e.Run("cluster-wide: Selinux: Verify profile binding", func() {
-		e.testCaseSelinuxProfileBinding()
+		e.testCaseSelinuxProfileBinding("busybox:latest")
+		e.testCaseSelinuxProfileBinding("*")
 		e.testCaseSelinuxProfileBindingNsNotEnabled()
 	})
 
 	e.Run("cluster-wide: Selinux: Verify the policy can be marked as permissive", func() {
 		e.testCaseSelinuxIncompletePolicy()
 		e.testCaseSelinuxIncompletePermissivePolicy()
+		e.testCaseSelinuxIncompleteDisabledPolicy()
 	})
 
 	e.Run("cluster-wide: Selinux: Verify SELinux profile recording logs", func() {
@@ -173,6 +190,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testSeccompBpfProfileMerging()
 		e.testSeccompLogsProfileMerging()
 		e.testSelinuxLogsProfileMerging()
+		e.testSelinuxLogsDisabledProfileMerging()
 	})
 
 	// Clean up cluster-wide deployment to prepare for namespace deployment
@@ -292,10 +310,9 @@ func (e *e2e) deployOperator(manifest string) {
 	// Ensure that we do not accidentally pull the image and use the pre-loaded
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
-	e.updateManifest(manifest, "imagePullPolicy: Always", fmt.Sprintf("imagePullPolicy: %s", e.pullPolicy))
-	e.updateManifest(manifest, "image: .*registry.k8s.io/.*", fmt.Sprintf("image: %s", e.testImage))
-	e.updateManifest(manifest, "value: .*registry.k8s.io/.*", fmt.Sprintf("value: %s", e.testImage))
-	e.updateManifest(manifest, "value: .*quay.io/.*/selinuxd.*", fmt.Sprintf("value: %s", e.selinuxdImage))
+	e.updateManifest(manifest, "imagePullPolicy: Always", "imagePullPolicy: "+e.pullPolicy)
+	e.updateManifest(manifest, "image: .*registry.k8s.io/.*", "image: "+e.testImage)
+	e.updateManifest(manifest, "value: .*registry.k8s.io/.*", "value: "+e.testImage)
 	if e.selinuxEnabled {
 		e.updateManifest(manifest, "enableSelinux: false", "enableSelinux: true")
 	}
@@ -380,7 +397,7 @@ func (e *e2e) getSeccompProfileNodeStatus(
 func (e *e2e) getAllSeccompProfileNodeStatuses(
 	id, namespace string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatusList {
-	selector := fmt.Sprintf("spo.x-k8s.io/profile-id=SeccompProfile-%s", id)
+	selector := "spo.x-k8s.io/profile-id=SeccompProfile-" + id
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
@@ -417,19 +434,19 @@ func (e *e2e) writeAndDo(verb, manifest, filePattern string) func() {
 	return func() { os.Remove(fileName) }
 }
 
-func (e *e2e) getSELinuxPolicyName(policy string) string {
-	usageStr := e.getSELinuxPolicyUsage(policy)
+func (e *e2e) getSELinuxPolicyName(kind, policy string) string {
+	usageStr := e.getSELinuxPolicyUsage(kind, policy)
 	// Udica (the library that helps out generate SELinux policies),
 	// adds .process in the end of the usage. So we need to remove it
 	// to get the module name
 	return strings.TrimSuffix(usageStr, ".process")
 }
 
-func (e *e2e) getSELinuxPolicyUsage(policy string) string {
+func (e *e2e) getSELinuxPolicyUsage(kind, policy string) string {
 	ns := e.getCurrentContextNamespace(defaultNamespace)
 	// This describes the usage string, which is not necessarily
 	// the name of the policy in the node
-	return e.kubectl("get", "selinuxprofile", "-n", ns, policy, "-o", "jsonpath={.status.usage}")
+	return e.kubectl("get", kind, "-n", ns, policy, "-o", "jsonpath={.status.usage}")
 }
 
 func (e *e2e) sliceContainsString(slice []string, s string) bool {

@@ -18,6 +18,7 @@ package options
 import (
 	"context"
 	"crypto"
+	"crypto/rsa"
 	"io"
 )
 
@@ -25,25 +26,34 @@ import (
 type NoOpOptionImpl struct{}
 
 // ApplyContext is a no-op required to fully implement the requisite interfaces
-func (NoOpOptionImpl) ApplyContext(ctx *context.Context) {}
+func (NoOpOptionImpl) ApplyContext(_ *context.Context) {}
 
 // ApplyCryptoSignerOpts is a no-op required to fully implement the requisite interfaces
-func (NoOpOptionImpl) ApplyCryptoSignerOpts(opts *crypto.SignerOpts) {}
+func (NoOpOptionImpl) ApplyCryptoSignerOpts(_ *crypto.SignerOpts) {}
 
 // ApplyDigest is a no-op required to fully implement the requisite interfaces
-func (NoOpOptionImpl) ApplyDigest(digest *[]byte) {}
+func (NoOpOptionImpl) ApplyDigest(_ *[]byte) {}
 
 // ApplyRand is a no-op required to fully implement the requisite interfaces
-func (NoOpOptionImpl) ApplyRand(rand *io.Reader) {}
+func (NoOpOptionImpl) ApplyRand(_ *io.Reader) {}
 
 // ApplyRemoteVerification is a no-op required to fully implement the requisite interfaces
-func (NoOpOptionImpl) ApplyRemoteVerification(remoteVerification *bool) {}
+func (NoOpOptionImpl) ApplyRemoteVerification(_ *bool) {}
 
 // ApplyRPCAuthOpts is a no-op required to fully implement the requisite interfaces
-func (NoOpOptionImpl) ApplyRPCAuthOpts(opts *RPCAuth) {}
+func (NoOpOptionImpl) ApplyRPCAuthOpts(_ *RPCAuth) {}
 
 // ApplyKeyVersion is a no-op required to fully implement the requisite interfaces
-func (NoOpOptionImpl) ApplyKeyVersion(keyVersion *string) {}
+func (NoOpOptionImpl) ApplyKeyVersion(_ *string) {}
 
 // ApplyKeyVersionUsed is a no-op required to fully implement the requisite interfaces
-func (NoOpOptionImpl) ApplyKeyVersionUsed(keyVersion **string) {}
+func (NoOpOptionImpl) ApplyKeyVersionUsed(_ **string) {}
+
+// ApplyHash is a no-op required to fully implement the requisite interfaces
+func (NoOpOptionImpl) ApplyHash(_ *crypto.Hash) {}
+
+// ApplyED25519ph is a no-op required to fully implement the requisite interfaces
+func (NoOpOptionImpl) ApplyED25519ph(_ *bool) {}
+
+// ApplyRSAPSS is a no-op required to fully implement the requisite interfaces
+func (NoOpOptionImpl) ApplyRSAPSS(_ **rsa.PSSOptions) {}

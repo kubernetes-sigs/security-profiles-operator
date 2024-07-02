@@ -17,7 +17,7 @@ package list
 import (
 	"fmt"
 
-	"github.com/cockroachdb/apd/v2"
+	"github.com/cockroachdb/apd/v3"
 
 	"cuelang.org/go/internal"
 )
@@ -92,12 +92,11 @@ func Product(xs []*internal.Decimal) (*internal.Decimal, error) {
 //
 // For instance:
 //
-//    Range(0, 5, 2)
+//	Range(0, 5, 2)
 //
 // results in
 //
-//    [0, 2, 4]
-//
+//	[0, 2, 4]
 func Range(start, limit, step *internal.Decimal) ([]*internal.Decimal, error) {
 	if step.IsZero() {
 		return nil, fmt.Errorf("step must be non zero")

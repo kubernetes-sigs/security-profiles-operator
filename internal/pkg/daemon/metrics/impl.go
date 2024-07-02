@@ -30,7 +30,7 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	Register(c prometheus.Collector) error
-	ListenAndServe(addr string, hander http.Handler) error
+	ListenAndServe(addr string, handler http.Handler) error
 }
 
 func (d *defaultImpl) Register(c prometheus.Collector) error {

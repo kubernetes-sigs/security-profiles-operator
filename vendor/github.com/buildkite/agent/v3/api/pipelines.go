@@ -19,33 +19,16 @@ type PipelineUploadStatus struct {
 	Message string `json:"message"`
 }
 
-// Uploads the pipeline to the Buildkite Agent API.
+// UploadPipeline uploads the pipeline to the Buildkite Agent API. It does not wait for the
+// pipeline to finish processing but will instead return with a redirect to the location to check
+// the pipeline's status.
 func (c *Client) UploadPipeline(
 	ctx context.Context,
 	jobId string,
 	pipeline *PipelineChange,
 	headers ...Header,
 ) (*Response, error) {
-	u := fmt.Sprintf("jobs/%s/pipelines", jobId)
-
-	req, err := c.newRequest(ctx, "POST", u, pipeline, headers...)
-	if err != nil {
-		return nil, err
-	}
-
-	return c.doRequest(req, nil)
-}
-
-// UploadPipelineAsync uploads the pipeline to the Buildkite Agent API. It does not wait for the
-// pipeline to finish processing but will instead return with a redirect to the location to check
-// the pipeline's status.
-func (c *Client) UploadPipelineAsync(
-	ctx context.Context,
-	jobId string,
-	pipeline *PipelineChange,
-	headers ...Header,
-) (*Response, error) {
-	u := fmt.Sprintf("jobs/%s/pipelines?async=true", jobId)
+	u := fmt.Sprintf("jobs/%s/pipelines?async=true", railsPathEscape(jobId))
 
 	req, err := c.newRequest(ctx, "POST", u, pipeline, headers...)
 	if err != nil {
@@ -61,7 +44,7 @@ func (c *Client) PipelineUploadStatus(
 	uuid string,
 	headers ...Header,
 ) (*PipelineUploadStatus, *Response, error) {
-	u := fmt.Sprintf("jobs/%s/pipelines/%s", jobId, uuid)
+	u := fmt.Sprintf("jobs/%s/pipelines/%s", railsPathEscape(jobId), railsPathEscape(uuid))
 
 	req, err := c.newRequest(ctx, "GET", u, nil, headers...)
 	if err != nil {

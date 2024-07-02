@@ -37,7 +37,9 @@ type EntryImpl interface {
 	Canonicalize(ctx context.Context) ([]byte, error) // marshal the canonical entry to be put into the tlog
 	Unmarshal(e models.ProposedEntry) error           // unmarshal the abstract entry into the specific struct for this versioned type
 	CreateFromArtifactProperties(context.Context, ArtifactProperties) (models.ProposedEntry, error)
-	Verifier() (pki.PublicKey, error)
+	Verifiers() ([]pki.PublicKey, error) // list of keys or certificates that can verify an entry's signature
+	ArtifactHash() (string, error)       // hex-encoded artifact hash prefixed with hash name, e.g. sha256:abcdef
+	Insertable() (bool, error)           // denotes whether the entry that was unmarshalled has the writeOnly fields required to validate and insert into the log
 }
 
 // EntryWithAttestationImpl specifies the behavior of a versioned type that also stores attestations
@@ -82,6 +84,12 @@ func CreateVersionedEntry(pe models.ProposedEntry) (EntryImpl, error) {
 		if !tf.(func() TypeImpl)().IsSupportedVersion(ei.APIVersion()) {
 			return nil, fmt.Errorf("entry kind '%v' does not support inserting entries of version '%v'", kind, ei.APIVersion())
 		}
+	} else {
+		return nil, fmt.Errorf("unknown kind '%v' specified", kind)
+	}
+
+	if ok, err := ei.Insertable(); !ok {
+		return nil, fmt.Errorf("entry not insertable into log: %w", err)
 	}
 
 	return ei, nil
@@ -127,7 +135,7 @@ func DecodeEntry(input, output interface{}) error {
 
 			bytes, err := base64.StdEncoding.DecodeString(data.(string))
 			if err != nil {
-				return []byte{}, fmt.Errorf("failed parsing base64 data: %v", err)
+				return []byte{}, fmt.Errorf("failed parsing base64 data: %w", err)
 			}
 			return bytes, nil
 		},

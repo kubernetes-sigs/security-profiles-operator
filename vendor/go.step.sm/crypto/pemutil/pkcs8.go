@@ -20,9 +20,14 @@ import (
 // PBKDF2SaltSize is the default size of the salt for PBKDF2, 128-bit salt.
 const PBKDF2SaltSize = 16
 
-// PBKDF2Iterations is the default number of iterations for PBKDF2, 100k
-// iterations. Nist recommends at least 10k, 1Passsword uses 100k.
-const PBKDF2Iterations = 100000
+// PBKDF2Iterations is the default number of iterations for PBKDF2.
+//
+// 600k is the current OWASP recommendation (Dec 2022)
+// https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2
+//
+// Nist recommends at least 10k (800-63B), 1Password increased in 2023 the
+// number of iterations from 100k to 650k.
+const PBKDF2Iterations = 600000
 
 // pkcs8 reflects an ASN.1, PKCS#8 PrivateKey. See
 // ftp://ftp.rsasecurity.com/pub/pkcs/pkcs-8/pkcs-8v1_2.asn
@@ -313,7 +318,7 @@ func EncryptPKCS8PrivateKey(rand io.Reader, data, password []byte, alg x509.PEMC
 	}
 	enc.CryptBlocks(encrypted, encrypted)
 
-	// Build encrypted ans1 data
+	// Build encrypted asn1 data
 	pki := encryptedPrivateKeyInfo{
 		Algo: encryptedlAlgorithmIdentifier{
 			Algorithm: oidPBES2,
@@ -324,7 +329,8 @@ func EncryptPKCS8PrivateKey(rand io.Reader, data, password []byte, alg x509.PEMC
 						Salt:           salt,
 						IterationCount: PBKDF2Iterations,
 						PrfParam: prfParam{
-							Algo: oidHMACWithSHA256,
+							Algo:      oidHMACWithSHA256,
+							NullParam: asn1.NullRawValue,
 						},
 					},
 				},

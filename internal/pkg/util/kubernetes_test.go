@@ -144,7 +144,7 @@ func TestGetVersion(t *testing.T) {
 		want string
 	}{
 		{
-			name: "Should return the corect version",
+			name: "Should return the correct version",
 			node: &corev1.Node{
 				Status: corev1.NodeStatus{
 					NodeInfo: corev1.NodeSystemInfo{

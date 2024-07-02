@@ -30,7 +30,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -214,6 +213,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	}
 
 	if spodUpdate || hookUpdate {
+		r.log.Info("Updating spod", "spodUpdate", spodUpdate, "hookUpdate", hookUpdate)
 		updatedSPod := foundSPOd.DeepCopy()
 		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
 		updateErr := r.handleUpdate(
@@ -241,7 +241,7 @@ func (r *ReconcileSPOd) handleInitialStatus(
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (res reconcile.Result, err error) {
-	l.Info("Adding an initial status to the SPOD Instance")
+	l.Info("Adding an initial status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StatePending()
 	updateErr := r.client.Status().Update(ctx, sCopy)
@@ -256,7 +256,7 @@ func (r *ReconcileSPOd) handleCreatingStatus(
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (res reconcile.Result, err error) {
-	l.Info("Adding 'Creating' status to the SPOD Instance")
+	l.Info("Adding 'Creating' status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateCreating()
 	updateErr := r.client.Status().Update(ctx, sCopy)
@@ -271,7 +271,7 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (res reconcile.Result, err error) {
-	l.Info("Adding 'Updating' status to the SPOD Instance")
+	l.Info("Adding 'Updating' status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateUpdating()
 	updateErr := r.client.Status().Update(ctx, sCopy)
@@ -295,7 +295,7 @@ func (r *ReconcileSPOd) handleRunningStatus(
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
 ) (res reconcile.Result, err error) {
-	l.Info("Adding 'Running' status to the SPOD Instance")
+	l.Info("Adding 'Running' status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateRunning()
 	updateErr := r.client.Status().Update(ctx, sCopy)
@@ -369,7 +369,7 @@ func (r *ReconcileSPOd) handleCreate(
 		ctx, serviceMonitor,
 	); err != nil {
 		//nolint:gocritic
-		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
+		if bindata.IsNotFound(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
 		} else if errors.IsAlreadyExists(err) {
 			r.log.Info("Service monitor already exist, skipping")
@@ -454,7 +454,7 @@ func (r *ReconcileSPOd) handleUpdate(
 	if err := r.client.Patch(
 		ctx, serviceMonitor, client.Merge,
 	); err != nil {
-		if runtime.IsNotRegisteredError(err) || meta.IsNoMatchError(err) {
+		if bindata.IsNotFound(err) {
 			r.log.Info("Service monitor resource does not seem to exist, ignoring")
 		} else {
 			return fmt.Errorf("updating service monitor: %w", err)
@@ -524,7 +524,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	}
 
 	// Custom host proc volume
-	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath
+	useCustomHostProc := cfg.Spec.HostProcVolumePath != bindata.DefaultHostProcPath && cfg.Spec.HostProcVolumePath != ""
 	volume, mount := bindata.CustomHostProcVolume(cfg.Spec.HostProcVolumePath)
 
 	// Disable profile recording controller by default
@@ -689,7 +689,7 @@ func addEnvVar(templateSpec *corev1.PodSpec, envVarKey string) {
 
 	envVar := corev1.EnvVar{
 		Name:  envVarKey,
-		Value: fmt.Sprint(envValue),
+		Value: strconv.FormatBool(envValue),
 	}
 
 	templateSpec.Containers[bindata.ContainerIDDaemon].Env = append(
@@ -711,7 +711,7 @@ func configureSeLinuxTag(secContext *corev1.SecurityContext, seLinuxTag string) 
 func verbosityEnv(value uint) corev1.EnvVar {
 	return corev1.EnvVar{
 		Name:  config.VerbosityEnvKey,
-		Value: fmt.Sprint(value),
+		Value: strconv.FormatUint(uint64(value), 10),
 	}
 }
 
@@ -743,7 +743,7 @@ func profilingEnvsSpo(add int) []corev1.EnvVar {
 		},
 		{
 			Name:  config.ProfilingPortEnvKey,
-			Value: fmt.Sprint(config.DefaultProfilingPort + add),
+			Value: strconv.Itoa(config.DefaultProfilingPort + add),
 		},
 	}
 }

@@ -104,6 +104,10 @@ type Store struct {
 	// manifest and config file, while leaving only named layer files.
 	// Default value: false.
 	IgnoreNoName bool
+	// SkipUnpack controls if push operations should skip unpacking files. This
+	// value overrides the [AnnotationUnpack].
+	// Default value: false.
+	SkipUnpack bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -265,7 +269,7 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 		return fmt.Errorf("failed to resolve path for writing: %w", err)
 	}
 
-	if needUnpack := expected.Annotations[AnnotationUnpack]; needUnpack == "true" {
+	if needUnpack := expected.Annotations[AnnotationUnpack]; needUnpack == "true" && !s.SkipUnpack {
 		err = s.pushDir(name, target, expected, content)
 	} else {
 		err = s.pushFile(target, expected, content)

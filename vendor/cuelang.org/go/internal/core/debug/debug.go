@@ -17,7 +17,6 @@
 // Note that the result is not valid CUE, but instead prints the internals
 // of an ADT node in human-readable form. It uses a simple indentation algorithm
 // for improved readability and diffing.
-//
 package debug
 
 import (
@@ -28,7 +27,6 @@ import (
 
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/literal"
-	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/adt"
 )
 
@@ -43,6 +41,7 @@ type Config struct {
 	Raw     bool
 }
 
+// WriteNode writes a string representation of the node to w.
 func WriteNode(w io.Writer, i adt.StringIndexer, n adt.Node, config *Config) {
 	if config == nil {
 		config = &Config{}
@@ -56,6 +55,10 @@ func WriteNode(w io.Writer, i adt.StringIndexer, n adt.Node, config *Config) {
 	}
 }
 
+// NodeString returns a string representation of the given node.
+// The StringIndexer value i is used to translate elements of n to strings.
+// Commonly available implementations of StringIndexer include *adt.OpContext
+// and *runtime.Runtime.
 func NodeString(i adt.StringIndexer, n adt.Node, config *Config) string {
 	b := &strings.Builder{}
 	WriteNode(b, i, n, config)
@@ -90,14 +93,22 @@ func (w *printer) ident(f adt.Feature) {
 
 // TODO: fold into label once :: is no longer supported.
 func (w *printer) labelString(f adt.Feature) string {
-	if f.IsHidden() {
+	switch {
+	case f.IsHidden():
 		ident := f.IdentString(w.index)
 		if pkgName := f.PkgID(w.index); pkgName != "_" {
 			ident = fmt.Sprintf("%s(%s)", ident, pkgName)
 		}
 		return ident
+
+	case f.IsLet():
+		ident := f.RawString(w.index)
+		ident = strings.Replace(ident, "\x00", "#", 1)
+		return ident
+
+	default:
+		return f.SelectorString(w.index)
 	}
-	return f.SelectorString(w.index)
 }
 
 func (w *printer) shortError(errs errors.Error) {
@@ -209,10 +220,29 @@ func (w *printer) node(n adt.Node) {
 		}
 
 		for _, a := range x.Arcs {
-			w.string("\n")
-			w.label(a.Label)
-			w.string(": ")
-			w.node(a)
+			if a.ArcType == adt.ArcNotPresent {
+				continue
+			}
+			if a.Label.IsLet() {
+				w.string("\n")
+				w.string("let ")
+				w.label(a.Label)
+				if a.MultiLet {
+					w.string("multi")
+				}
+				w.string(" = ")
+				if c := a.Conjuncts[0]; a.MultiLet {
+					w.node(c.Expr())
+					continue
+				}
+				w.node(a)
+			} else {
+				w.string("\n")
+				w.label(a.Label)
+				w.string(a.ArcType.Suffix())
+				w.string(": ")
+				w.node(a)
+			}
 		}
 
 		if x.BaseValue == nil {
@@ -268,21 +298,19 @@ func (w *printer) node(n adt.Node) {
 	case *adt.Field:
 		s := w.labelString(x.Label)
 		w.string(s)
+		w.string(x.ArcType.Suffix())
 		w.string(":")
-		if x.Label.IsDef() && !internal.IsDef(s) {
-			w.string(":")
-		}
 		w.string(" ")
 		w.node(x.Value)
 
-	case *adt.OptionalField:
+	case *adt.LetField:
+		w.string("let ")
 		s := w.labelString(x.Label)
 		w.string(s)
-		w.string("?:")
-		if x.Label.IsDef() && !internal.IsDef(s) {
-			w.string(":")
+		if x.IsMulti {
+			w.string("multi")
 		}
-		w.string(" ")
+		w.string(" = ")
 		w.node(x.Value)
 
 	case *adt.BulkOptionalField:
@@ -293,9 +321,7 @@ func (w *printer) node(n adt.Node) {
 
 	case *adt.DynamicField:
 		w.node(x.Key)
-		if x.IsOptional() {
-			w.string("?")
-		}
+		w.string(x.ArcType.Suffix())
 		w.string(": ")
 		w.node(x.Value)
 
@@ -387,7 +413,7 @@ func (w *printer) node(n adt.Node) {
 		w.string(openTuple)
 		w.string(strconv.Itoa(int(x.UpCount)))
 		w.string(";let ")
-		w.ident(x.Label)
+		w.label(x.Label)
 		w.string(closeTuple)
 
 	case *adt.SelectorExpr:
@@ -498,8 +524,10 @@ func (w *printer) node(n adt.Node) {
 		w.string(")")
 
 	case *adt.Comprehension:
-		w.node(x.Clauses)
-		w.node(x.Value)
+		for _, c := range x.Clauses {
+			w.node(c)
+		}
+		w.node(adt.ToExpr(x.Value))
 
 	case *adt.ForClause:
 		w.string("for ")
@@ -509,13 +537,11 @@ func (w *printer) node(n adt.Node) {
 		w.string(" in ")
 		w.node(x.Src)
 		w.string(" ")
-		w.node(x.Dst)
 
 	case *adt.IfClause:
 		w.string("if ")
 		w.node(x.Condition)
 		w.string(" ")
-		w.node(x.Dst)
 
 	case *adt.LetClause:
 		w.string("let ")
@@ -523,7 +549,6 @@ func (w *printer) node(n adt.Node) {
 		w.string(" = ")
 		w.node(x.Expr)
 		w.string(" ")
-		w.node(x.Dst)
 
 	case *adt.ValueClause:
 

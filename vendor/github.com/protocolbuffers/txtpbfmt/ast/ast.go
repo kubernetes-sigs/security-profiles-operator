@@ -59,6 +59,8 @@ type Node struct {
 	End Position
 	// Keep values in list (e.g "list: [1, 2]").
 	ValuesAsList bool
+	// Keep children in list (e.g "list: [ { value: 1 }, { value: 2 } ]").
+	ChildrenAsList bool
 	// Lines of comments appearing after last value inside list.
 	// Each non-empty line starts with a # and does not contain the trailing newline.
 	// e.g
@@ -67,67 +69,142 @@ type Node struct {
 	//   # Comment
 	// ]
 	PostValuesComments []string
+	// Whether the braces used for the children of this node are curly braces or angle brackets.
+	IsAngleBracket bool
 }
 
-func sortableNodes(ns []*Node) sortable {
-	return sortable(ns)
+// NodeLess is a sorting function that compares two *Nodes, possibly using the parent Node
+// for context, returning whether a is less than b.
+type NodeLess func(parent, a, b *Node, isWholeSlice bool) bool
+
+// ChainNodeLess combines two NodeLess functions that returns the first comparison if values are
+// not equal, else returns the second.
+func ChainNodeLess(first, second NodeLess) NodeLess {
+	if first == nil {
+		return second
+	}
+	if second == nil {
+		return first
+	}
+	return func(parent, a, b *Node, isWholeSlice bool) bool {
+		if isALess := first(parent, a, b, isWholeSlice); isALess {
+			return true
+		}
+		if isBLess := first(parent, b, a, isWholeSlice); isBLess {
+			return false
+		}
+		return second(parent, a, b, isWholeSlice)
+	}
 }
 
-type sortable []*Node
-
-func (ns sortable) Len() int {
-	return len(ns)
+// SortNodes sorts nodes by the given less function.
+func SortNodes(parent *Node, ns []*Node, less NodeLess) {
+	sort.Stable(sortableNodes(parent, ns, less, true /* isWholeSlice */))
+	end := 0
+	for begin := 0; begin < len(ns); begin = end {
+		for end = begin + 1; end < len(ns) && ns[begin].Name == ns[end].Name; end++ {
+		}
+		sort.Stable(sortableNodes(parent, ns[begin:end], less, false /* isWholeSlice */))
+	}
 }
 
-func (ns sortable) Swap(i, j int) {
-	ns[i], ns[j] = ns[j], ns[i]
+// sortableNodes returns a sort.Interface that sorts nodes by the given less function.
+func sortableNodes(parent *Node, ns []*Node, less NodeLess, isWholeSlice bool) sort.Interface {
+	return sortable{parent, ns, less, isWholeSlice}
 }
 
-// ByFieldName constructs a sort.Interface that sorts nodes by their field name.
-func ByFieldName(ns []*Node) sort.Interface {
-	return byFieldName{sortableNodes(ns)}
+type sortable struct {
+	parent       *Node
+	ns           []*Node
+	less         NodeLess
+	isWholeSlice bool
 }
 
-type byFieldName struct{ sortable }
+func (s sortable) Len() int {
+	return len(s.ns)
+}
 
-func (ns byFieldName) Less(i, j int) bool {
-	ni, nj := ns.sortable[i], ns.sortable[j]
+func (s sortable) Swap(i, j int) {
+	s.ns[i], s.ns[j] = s.ns[j], s.ns[i]
+}
+
+func (s sortable) Less(i, j int) bool {
+	if s.less == nil {
+		return false
+	}
+	return s.less(s.parent, s.ns[i], s.ns[j], s.isWholeSlice)
+}
+
+// ByFieldName is a NodeLess function that orders nodes by their field name.
+func ByFieldName(_, ni, nj *Node, isWholeSlice bool) bool {
 	return ni.Name < nj.Name
 }
 
-// ByFieldValue constructs a sort.Interface that sorts adjacent scalar nodes with the same name by
-// their value.
-func ByFieldValue(ns []*Node) sort.Interface {
-	return byFieldValue{sortableNodes(ns)}
+func getFieldValueForByFieldValue(n *Node) *Value {
+	if len(n.Values) != 1 {
+		return nil
+	}
+	return n.Values[0]
 }
 
-type byFieldValue struct{ sortable }
-
-func (ns byFieldValue) Less(i, j int) bool {
-	ni, nj := ns.sortable[i], ns.sortable[j]
-	if ni.Name != nj.Name || len(ni.Values) != 1 || len(nj.Values) != 1 {
+// ByFieldValue is a NodeLess function that orders adjacent scalar nodes with the same name by
+// their scalar value.
+func ByFieldValue(_, ni, nj *Node, isWholeSlice bool) bool {
+	if isWholeSlice {
 		return false
 	}
-	return ni.Values[0].Value < nj.Values[0].Value
-}
-
-// ByFieldNameAndValue constructs a sort.Interface that sorts nodes by their field name and scalar
-// value.
-func ByFieldNameAndValue(ns []*Node) sort.Interface {
-	return byFieldNameAndValue{sortableNodes(ns)}
-}
-
-type byFieldNameAndValue struct{ sortable }
-
-func (ns byFieldNameAndValue) Less(i, j int) bool {
-	ni, nj := ns.sortable[i], ns.sortable[j]
-	if ni.Name != nj.Name {
-		return ni.Name < nj.Name
+	vi := getFieldValueForByFieldValue(ni)
+	vj := getFieldValueForByFieldValue(nj)
+	if vi == nil {
+		return vj != nil
 	}
-	if len(ni.Values) != 1 || len(nj.Values) != 1 {
+	if vj == nil {
 		return false
 	}
-	return ni.Values[0].Value < nj.Values[0].Value
+	return vi.Value < vj.Value
+}
+
+func getChildValueByFieldSubfield(field, subfield string, n *Node) *Value {
+	if field != "" {
+		if n.Name != field {
+			return nil
+		}
+	}
+	return n.getChildValue(subfield)
+}
+
+// ByFieldSubfield returns a NodeLess function that orders adjacent message nodes with the given
+// field name by the given subfield name value. If no field name is provided, it compares the
+// subfields of any adjacent nodes with matching names.
+func ByFieldSubfield(field, subfield string) NodeLess {
+	return func(_, ni, nj *Node, isWholeSlice bool) bool {
+		if isWholeSlice {
+			return false
+		}
+		vi := getChildValueByFieldSubfield(field, subfield, ni)
+		vj := getChildValueByFieldSubfield(field, subfield, nj)
+		if vi == nil {
+			return vj != nil
+		}
+		if vj == nil {
+			return false
+		}
+		return vi.Value < vj.Value
+	}
+}
+
+// getChildValue returns the Value of the child with the given field name,
+// or nil if no single such child exists.
+func (n *Node) getChildValue(field string) *Value {
+	for _, c := range n.Children {
+		if c.Name == field {
+			if len(c.Values) != 1 {
+				return nil
+			}
+			return c.Values[0]
+		}
+	}
+	return nil
 }
 
 // IsCommentOnly returns true if this is a comment-only node.
@@ -147,11 +224,16 @@ func (n *Node) Fix() {
 	n.fix()
 }
 
+func isRealPosition(p Position) bool {
+	return p.Byte != 0 || p.Line != 0 || p.Column != 0
+}
+
 func (n *Node) fix() fixData {
+	isEmptyAndWasOriginallyInline := !(isRealPosition(n.Start) && isRealPosition(n.End) && n.End.Line-n.Start.Line > 0)
 	d := fixData{
 		// ChildrenSameLine may be false for cases with no children such as a
 		// value `foo: false`. We don't want these to trigger expansion.
-		inline: n.ChildrenSameLine || len(n.Children) == 0,
+		inline: n.ChildrenSameLine || (len(n.Children) == 0 && isEmptyAndWasOriginallyInline && len(n.Values) <= 1),
 	}
 
 	for _, c := range n.Children {

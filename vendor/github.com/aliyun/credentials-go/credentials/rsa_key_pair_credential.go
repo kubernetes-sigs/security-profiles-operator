@@ -42,6 +42,22 @@ func newRsaKeyPairCredential(privateKey, publicKeyId string, sessionExpiration i
 	}
 }
 
+func (e *RsaKeyPairCredential) GetCredential() (*CredentialModel, error) {
+	if e.sessionCredential == nil || e.needUpdateCredential() {
+		err := e.updateCredential()
+		if err != nil {
+			return nil, err
+		}
+	}
+	credential := &CredentialModel{
+		AccessKeyId:     tea.String(e.sessionCredential.AccessKeyId),
+		AccessKeySecret: tea.String(e.sessionCredential.AccessKeySecret),
+		SecurityToken:   tea.String(e.sessionCredential.SecurityToken),
+		Type:            tea.String("rsa_key_pair"),
+	}
+	return credential, nil
+}
+
 // GetAccessKeyId reutrns RsaKeyPairCredential's AccessKeyId
 // if AccessKeyId is not exist or out of date, the function will update it.
 func (r *RsaKeyPairCredential) GetAccessKeyId() (*string, error) {
@@ -89,6 +105,8 @@ func (r *RsaKeyPairCredential) updateCredential() (err error) {
 	request.Domain = "sts.aliyuncs.com"
 	if r.runtime.Host != "" {
 		request.Domain = r.runtime.Host
+	} else if r.runtime.STSEndpoint != "" {
+		request.Domain = r.runtime.STSEndpoint
 	}
 	request.Scheme = "HTTPS"
 	request.Method = "GET"

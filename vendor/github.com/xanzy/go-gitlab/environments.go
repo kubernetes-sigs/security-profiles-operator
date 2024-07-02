@@ -84,7 +84,7 @@ func (s *EnvironmentsService) ListEnvironments(pid interface{}, opts *ListEnviro
 		return nil, resp, err
 	}
 
-	return envs, resp, err
+	return envs, resp, nil
 }
 
 // GetEnvironment gets a specific environment from a project.
@@ -109,7 +109,7 @@ func (s *EnvironmentsService) GetEnvironment(pid interface{}, environment int, o
 		return nil, resp, err
 	}
 
-	return env, resp, err
+	return env, resp, nil
 }
 
 // CreateEnvironmentOptions represents the available CreateEnvironment() options.
@@ -147,7 +147,7 @@ func (s *EnvironmentsService) CreateEnvironment(pid interface{}, opt *CreateEnvi
 		return nil, resp, err
 	}
 
-	return env, resp, err
+	return env, resp, nil
 }
 
 // EditEnvironmentOptions represents the available EditEnvironment() options.
@@ -182,7 +182,7 @@ func (s *EnvironmentsService) EditEnvironment(pid interface{}, environment int, 
 		return nil, resp, err
 	}
 
-	return env, resp, err
+	return env, resp, nil
 }
 
 // DeleteEnvironment removes an environment from a project team.
@@ -204,21 +204,35 @@ func (s *EnvironmentsService) DeleteEnvironment(pid interface{}, environment int
 	return s.client.Do(req, nil)
 }
 
-// StopEnvironment stop an environment from a project team.
+// StopEnvironmentOptions represents the available StopEnvironment() options.
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/environments.html#stop-an-environment
-func (s *EnvironmentsService) StopEnvironment(pid interface{}, environmentID int, options ...RequestOptionFunc) (*Response, error) {
+type StopEnvironmentOptions struct {
+	Force *bool `url:"force,omitempty" json:"force,omitempty"`
+}
+
+// StopEnvironment stops an environment within a specific project.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/environments.html#stop-an-environment
+func (s *EnvironmentsService) StopEnvironment(pid interface{}, environmentID int, opt *StopEnvironmentOptions, options ...RequestOptionFunc) (*Environment, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	u := fmt.Sprintf("projects/%s/environments/%d/stop", PathEscape(project), environmentID)
 
-	req, err := s.client.NewRequest(http.MethodPost, u, nil, options)
+	req, err := s.client.NewRequest(http.MethodPost, u, opt, options)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return s.client.Do(req, nil)
+	env := new(Environment)
+	resp, err := s.client.Do(req, env)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return env, resp, nil
 }

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/format"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -44,7 +44,7 @@ func run() error {
 
 	log.SetFlags(log.Lshortfile)
 	if !isDebug() {
-		log.SetOutput(ioutil.Discard)
+		log.SetOutput(io.Discard)
 	}
 
 	cwd, err := os.Getwd()
@@ -174,7 +174,7 @@ func printCode(code []byte, outputPath string, printToStdOut bool) error {
 		fmt.Println(string(formattedCode))
 		return nil
 	}
-	os.MkdirAll(filepath.Dir(outputPath), 0777)
+	_ = os.MkdirAll(filepath.Dir(outputPath), 0777)
 	file, err := os.Create(outputPath)
 	if err != nil {
 		return fmt.Errorf("Couldn't create fake file - %v", err)

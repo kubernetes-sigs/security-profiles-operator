@@ -39,10 +39,10 @@ const (
 )
 
 var (
-	regexpCRLF       *regexp.Regexp = regexp.MustCompile(`\015$`)
-	regexpCtrlChar   *regexp.Regexp = regexp.MustCompile(`\x1B[\[(]([0-9]{1,2}(;[0-9]{1,2})?)?[mKB]`)
-	regexpOauthToken *regexp.Regexp = regexp.MustCompile(`[a-f0-9]{40}:x-oauth-basic`)
-	regexpGitToken   *regexp.Regexp = regexp.MustCompile(`git:[a-f0-9]{35,40}@github.com`)
+	regexpCRLF       = regexp.MustCompile(`\015$`)
+	regexpCtrlChar   = regexp.MustCompile(`\x1B[\[(](\d{1,2}(;\d{1,2})?)?[mKB]`)
+	regexpOauthToken = regexp.MustCompile(`[a-f0-9]{40}:x-oauth-basic`)
+	regexpGitToken   = regexp.MustCompile(`git:[a-f0-9]{35,40}@github\.com`)
 )
 
 // UserInputError a custom error to handle more user input info
@@ -205,7 +205,7 @@ common::askyorn () {
 // return an error crafted with UserInputError. This error can be queried
 // to find out if the user canceled the input using its method IsCtrlC:
 //
-//     if err.(util.UserInputError).IsCtrlC() {}
+//	if err.(util.UserInputError).IsCtrlC() {}
 //
 // Note that in case of cancelling input, the user will still have to press
 // enter to finish the scan.
@@ -244,19 +244,19 @@ func readInput(question string) (string, error) {
 // To specify the valid responses, either pass a string or craft a series
 // of answers using the following format:
 //
-//      "|successAnswers|nonSuccessAnswers|defaultAnswer"
+//	"|successAnswers|nonSuccessAnswers|defaultAnswer"
 //
 // The successAnswers and nonSuccessAnswers can be either a string or a
 // series os responses like:
 //
-//       "|opt1a:opt1b|opt2a:opt2b|defaultAnswer"
+//	"|opt1a:opt1b|opt2a:opt2b|defaultAnswer"
 //
 // This example will accept opt1a and opt1b as successful answers, opt2a and
 // opt2b as unsuccessful answers and in case of an empty answer, it will
 // return "defaultAnswer" as success.
 //
 // To consider the default as a success, simply list them with the rest of the
-// non successfule answers.
+// non successful answers.
 func Ask(question, expectedResponse string, retries int) (answer string, success bool, err error) {
 	attempts := 1
 
@@ -283,7 +283,7 @@ func Ask(question, expectedResponse string, retries int) (answer string, success
 		if strings.Contains(expectedResponse, parts[0]) {
 			successAnswers = strings.Split(parts[0], optsSeparator)
 		}
-		// If there is a seconf part, its non success, but expected responses
+		// If there is a second part, its non success, but expected responses
 		if len(parts) >= 2 {
 			if strings.Contains(parts[1], optsSeparator) {
 				nonSuccessAnswers = strings.Split(parts[1], optsSeparator)

@@ -47,6 +47,14 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 			"Seccomp: Metrics",
 			e.testCaseSeccompMetrics,
 		},
+		{
+			"SPOD: Test webhook HTTP version",
+			e.testCaseWebhookHTTP,
+		},
+		{
+			"SPOD: Test Metrics HTTP version",
+			e.testCaseMetricsHTTP,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase
@@ -58,7 +66,8 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 	// TODO(jaosorior): Re-introduce this to the namespaced tests once we
 	// fix the issue with the certs.
 	e.Run("cluster-wide: Seccomp: Verify profile binding", func() {
-		e.testCaseSeccompProfileBinding(nodes)
+		e.testCaseSeccompProfileBinding(nodes, "quay.io/security-profiles-operator/test-hello-world:latest")
+		e.testCaseSeccompProfileBinding(nodes, "*")
 	})
 
 	e.Run("cluster-wide: Seccomp: Verify profile recording logs", func() {

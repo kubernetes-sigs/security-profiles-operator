@@ -47,7 +47,7 @@ func TestInsert(t *testing.T) {
 	actual.Insert("test", 1)
 	v, ok := actual.Get("test")
 	assert.True(t, ok, "should find element in forward direction")
-	assert.Equal(t, 1, v, "shuold get element in forward direction")
+	assert.Equal(t, 1, v, "should get element in forward direction")
 	k, ok := actual.GetBackwards(1)
 	assert.True(t, ok, "should find element in backward direction")
 	assert.Equal(t, "test", k, "should find element in backward direction")

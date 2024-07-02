@@ -25,6 +25,7 @@ type ProfileBindingKind string
 const (
 	ProfileBindingKindSeccompProfile ProfileBindingKind = "SeccompProfile"
 	ProfileBindingKindSelinuxProfile ProfileBindingKind = "SelinuxProfile"
+	SelectAllContainersImage         string             = "*"
 )
 
 // ProfileBindingSpec defines the desired state of ProfileBinding.
@@ -32,6 +33,7 @@ type ProfileBindingSpec struct {
 	// ProfileRef references a SeccompProfile or other profile type in the current namespace.
 	ProfileRef ProfileRef `json:"profileRef"`
 	// Image name within pod containers to match to the profile.
+	// Use the "*" string to bind the profile to all pods.
 	Image string `json:"image"`
 }
 

@@ -20,7 +20,6 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
-	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/internal/core/adt"
 	"cuelang.org/go/internal/core/convert"
 	"cuelang.org/go/internal/core/eval"
@@ -32,9 +31,11 @@ func ConvertToRuntime(c *cue.Context) *cue.Runtime {
 	return (*cue.Runtime)(c)
 }
 
-func ConvertToContext(r *cue.Runtime) *cue.Context {
-	(*runtime.Runtime)(r).Init()
-	return (*cue.Context)(r)
+func ConvertToContext[Ctx *cue.Runtime | *cue.Context](ctx Ctx) *cue.Context {
+	if ctx, ok := any(ctx).(*cue.Runtime); ok {
+		(*runtime.Runtime)(ctx).Init()
+	}
+	return (*cue.Context)(ctx)
 }
 
 func ToInternal(v cue.Value) (*runtime.Runtime, *adt.Vertex) {
@@ -48,18 +49,9 @@ func Make(ctx *adt.OpContext, v adt.Value) cue.Value {
 	return (*cue.Context)(ctx.Impl().(*runtime.Runtime)).Encode(v)
 }
 
-func MakeError(r *runtime.Runtime, err errors.Error) cue.Value {
-	b := &adt.Bottom{Err: err}
-	node := &adt.Vertex{BaseValue: b}
-	node.UpdateStatus(adt.Finalized)
-	node.AddConjunct(adt.MakeRootConjunct(nil, b))
-	return (*cue.Context)(r).Encode(node)
-}
-
 // UnifyBuiltin returns the given Value unified with the given builtin template.
 func UnifyBuiltin(v cue.Value, kind string) cue.Value {
-	p := strings.Split(kind, ".")
-	pkg, name := p[0], p[1]
+	pkg, name, _ := strings.Cut(kind, ".")
 	s := runtime.SharedRuntime.LoadImport(pkg)
 	if s == nil {
 		return v

@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/ast"
@@ -26,6 +27,7 @@ import (
 	"cuelang.org/go/cue/parser"
 	"cuelang.org/go/cue/token"
 	cuejson "cuelang.org/go/encoding/json"
+	internaljson "cuelang.org/go/internal/encoding/json"
 )
 
 // Compact generates the JSON-encoded src with insignificant space characters
@@ -70,7 +72,7 @@ func HTMLEscape(src []byte) string {
 
 // Marshal returns the JSON encoding of v.
 func Marshal(v cue.Value) (string, error) {
-	b, err := json.Marshal(v)
+	b, err := internaljson.Marshal(v)
 	return string(b), err
 }
 
@@ -81,16 +83,16 @@ func MarshalStream(v cue.Value) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	buf := &bytes.Buffer{}
+	var b strings.Builder
 	for iter.Next() {
-		b, err := json.Marshal(iter.Value())
+		p, err := internaljson.Marshal(iter.Value())
 		if err != nil {
 			return "", err
 		}
-		buf.Write(b)
-		buf.WriteByte('\n')
+		b.Write(p)
+		b.WriteByte('\n')
 	}
-	return buf.String(), nil
+	return b.String(), nil
 }
 
 // UnmarshalStream parses the JSON to a CUE instance.

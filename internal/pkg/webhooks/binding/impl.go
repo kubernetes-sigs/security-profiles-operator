@@ -43,7 +43,6 @@ type impl interface {
 	ListProfileBindings(context.Context, ...client.ListOption) (*v1alpha1.ProfileBindingList, error)
 	UpdateResource(context.Context, logr.Logger, client.Object, string) error
 	UpdateResourceStatus(context.Context, logr.Logger, client.Object, string) error
-	SetDecoder(*admission.Decoder)
 	DecodePod(admission.Request) (*corev1.Pod, error)
 	GetSeccompProfile(context.Context, types.NamespacedName) (*seccompprofileapi.SeccompProfile, error)
 	GetSelinuxProfile(context.Context, types.NamespacedName) (*selinuxprofileapi.SelinuxProfile, error)
@@ -75,10 +74,6 @@ func (d *defaultImpl) UpdateResourceStatus(
 	name string,
 ) error {
 	return utils.UpdateResourceStatus(ctx, logger, d.client.Status(), object, name)
-}
-
-func (d *defaultImpl) SetDecoder(decoder *admission.Decoder) {
-	d.decoder = decoder
 }
 
 //nolint:gocritic

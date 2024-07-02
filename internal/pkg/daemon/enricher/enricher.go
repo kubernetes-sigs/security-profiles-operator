@@ -281,6 +281,7 @@ func (e *Enricher) startGrpcServer() error {
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	//nolint:staticcheck // we'll use this API once we have an appropriate alternative
 	conn, err := grpc.DialContext(
 		ctx,
 		"unix://"+config.GRPCServerSocketEnricher,

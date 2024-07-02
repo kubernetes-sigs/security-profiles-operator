@@ -12,6 +12,7 @@ type Runtime struct {
 	ConnectTimeout int
 	Proxy          string
 	Host           string
+	STSEndpoint    string
 }
 
 // NewRuntime returns a Runtime

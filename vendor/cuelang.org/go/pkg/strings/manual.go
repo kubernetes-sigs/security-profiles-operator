@@ -18,9 +18,9 @@
 // Some of the functions in this package are specifically intended as field
 // constraints. For instance, MaxRunes as used in this CUE program
 //
-//    import "strings"
+//	import "strings"
 //
-//    myString: strings.MaxRunes(5)
+//	myString: strings.MaxRunes(5)
 //
 // specifies that the myString should be at most 5 code points.
 package strings
@@ -54,7 +54,7 @@ func Runes(s string) []rune {
 }
 
 // MinRunes reports whether the number of runes (Unicode codepoints) in a string
-// is at least a certain minimum. MinRunes can be used a a field constraint to
+// is at least a certain minimum. MinRunes can be used a field constraint to
 // except all strings for which this property holds.
 func MinRunes(s string, min int) bool {
 	// TODO: CUE strings cannot be invalid UTF-8. In case this changes, we need
@@ -64,7 +64,7 @@ func MinRunes(s string, min int) bool {
 }
 
 // MaxRunes reports whether the number of runes (Unicode codepoints) in a string
-// exceeds a certain maximum. MaxRunes can be used a a field constraint to
+// exceeds a certain maximum. MaxRunes can be used a field constraint to
 // except all strings for which this property holds
 func MaxRunes(s string, max int) bool {
 	// See comment in MinRunes implementation.

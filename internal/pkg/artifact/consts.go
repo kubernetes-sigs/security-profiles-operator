@@ -26,7 +26,7 @@ const (
 	defaultProfileYAML = "profile.yaml"
 
 	// defaultTimeout is the default timeout for push and pull operations.
-	defaultTimeout = time.Minute
+	defaultTimeout = 5 * time.Minute
 )
 
 // ErrDecodeYAML is the error returned if no matching type could be decoded on

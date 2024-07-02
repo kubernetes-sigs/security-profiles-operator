@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"strings"
@@ -151,17 +150,18 @@ type Config struct {
 
 	PkgName string // package name for files to generate
 
-	Force     bool // overwrite existing files.
+	Force     bool // overwrite existing files
 	Strict    bool
-	Stream    bool // will potentially write more than one document per file
+	Stream    bool // potentially write more than one document per file
 	AllErrors bool
 
 	Schema cue.Value // used for schema-based decoding
 
-	EscapeHTML bool
-	ProtoPath  []string
-	Format     []format.Option
-	ParseFile  func(name string, src interface{}) (*ast.File, error)
+	EscapeHTML    bool
+	InlineImports bool // expand references to non-core imports
+	ProtoPath     []string
+	Format        []format.Option
+	ParseFile     func(name string, src interface{}) (*ast.File, error)
 }
 
 // NewDecoder returns a stream of non-rooted data expressions. The encoding
@@ -181,7 +181,7 @@ func NewDecoder(f *build.File, cfg *Config) *Decoder {
 
 	if file, ok := f.Source.(*ast.File); ok {
 		i.file = file
-		i.closer = ioutil.NopCloser(strings.NewReader(""))
+		i.closer = io.NopCloser(strings.NewReader(""))
 		i.validate(file, f)
 		return i
 	}
@@ -249,11 +249,11 @@ func NewDecoder(f *build.File, cfg *Config) *Decoder {
 		i.next = d.Decode
 		i.Next()
 	case build.Text:
-		b, err := ioutil.ReadAll(r)
+		b, err := io.ReadAll(r)
 		i.err = err
 		i.expr = ast.NewString(string(b))
 	case build.Binary:
-		b, err := ioutil.ReadAll(r)
+		b, err := io.ReadAll(r)
 		i.err = err
 		s := literal.Bytes.WithTabIndent(1).Quote(string(b))
 		i.expr = ast.NewLit(token.STRING, s)
@@ -264,7 +264,7 @@ func NewDecoder(f *build.File, cfg *Config) *Decoder {
 		}
 		i.file, i.err = protobuf.Extract(path, r, paths)
 	case build.TextProto:
-		b, err := ioutil.ReadAll(r)
+		b, err := io.ReadAll(r)
 		i.err = err
 		if err == nil {
 			d := textproto.NewDecoder()
@@ -329,20 +329,20 @@ func reader(f *build.File, stdin io.Reader) (io.ReadCloser, error) {
 	case nil:
 		// Use the file name.
 	case string:
-		return ioutil.NopCloser(strings.NewReader(s)), nil
+		return io.NopCloser(strings.NewReader(s)), nil
 	case []byte:
-		return ioutil.NopCloser(bytes.NewReader(s)), nil
+		return io.NopCloser(bytes.NewReader(s)), nil
 	case *bytes.Buffer:
 		// is io.Reader, but it needs to be readable repeatedly
 		if s != nil {
-			return ioutil.NopCloser(bytes.NewReader(s.Bytes())), nil
+			return io.NopCloser(bytes.NewReader(s.Bytes())), nil
 		}
 	default:
 		return nil, fmt.Errorf("invalid source type %T", f.Source)
 	}
 	// TODO: should we allow this?
 	if f.Filename == "-" {
-		return ioutil.NopCloser(stdin), nil
+		return io.NopCloser(stdin), nil
 	}
 	return os.Open(f.Filename)
 }
@@ -421,8 +421,7 @@ func (v *validator) validate(n ast.Node) bool {
 		check(n, i.Imports, "imports", true)
 
 	case *ast.Field:
-		check(n, i.Definitions, "definitions",
-			x.Token == token.ISA || internal.IsDefinition(x.Label))
+		check(n, i.Definitions, "definitions", internal.IsDefinition(x.Label))
 		check(n, i.Data, "regular fields", internal.IsRegularField(x))
 		check(n, constraints, "optional fields", x.Optional != token.NoPos)
 
@@ -463,22 +462,4 @@ func (v *validator) validate(n ast.Node) bool {
 		// Other types are either always okay or handled elsewhere.
 	}
 	return ok
-}
-
-// simplify reformats a File. To be used as a wrapper for Extract functions.
-//
-// It currently does so by formatting the file using fmt.Format and then
-// reparsing it. This is not ideal, but the package format does not provide a
-// way to do so differently.
-func simplify(f *ast.File, err error) (*ast.File, error) {
-	if err != nil {
-		return nil, err
-	}
-	// This needs to be a function that modifies f in order to maintain line
-	// number information.
-	b, err := format.Node(f, format.Simplify())
-	if err != nil {
-		return nil, err
-	}
-	return parser.ParseFile(f.Filename, b, parser.ParseComments)
 }

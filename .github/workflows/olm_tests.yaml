@@ -5,8 +5,11 @@ on:
       - main
   pull_request:
 env:
-  GO_VERSION: '1.20'
-  KIND_IMG_TAG: v1.27.0
+  GO_VERSION: '1.22'
+  KIND_IMG_TAG: v1.30.0
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions: {}
 
@@ -16,7 +19,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@8e5e7e5ab8b370d6c329ec480221332ada57f0ab # v3.5.2
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
 
     - name: Download binaries
       run: |
@@ -25,14 +28,14 @@ jobs:
         make operator-sdk
         make opm
 
-    - uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
+    - uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5.0.1
       with:
         go-version: ${{ env.GO_VERSION }}
+
     - name: Install dependencies
       run: |
-        sudo apt update
-        sudo apt install -y libseccomp-dev libelf-dev libapparmor-dev
-        sudo hack/install-libbpf.sh
+        sudo ./hack/install-packages
+        ./hack/install-crun
 
     - name: Create and verify bundle
       run: |
@@ -44,3 +47,5 @@ jobs:
 
     - name: Run the tests
       run: ./hack/ci/e2e-olm.sh
+      env:
+        XDG_RUNTIME_DIR: ''

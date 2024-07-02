@@ -40,6 +40,9 @@ const ExtJSON = ".json"
 
 // SeccompProfileSpec defines the desired state of SeccompProfile.
 type SeccompProfileSpec struct {
+	// Common spec fields for all profiles.
+	profilebase.SpecBase `json:",inline"`
+
 	// BaseProfileName is the name of base profile (in the same namespace) that
 	// will be unioned into this profile. Base profiles can be references as
 	// remote OCI artifacts as well when prefixed with `oci://`.
@@ -89,7 +92,7 @@ type Syscall struct {
 	Action seccomp.Action `json:"action"`
 	// the errno return code to use. Some actions like SCMP_ACT_ERRNO and
 	// SCMP_ACT_TRACE allow to specify the errno code to return
-	ErrnoRet string `json:"errnoRet,omitempty"`
+	ErrnoRet uint `json:"errnoRet,omitempty"`
 	// the specific syscall in seccomp
 	// +kubebuilder:validation:MaxItems=6
 	Args []*Arg `json:"args,omitempty"`
@@ -188,6 +191,14 @@ func (sp *SeccompProfile) ListProfilesByRecording(
 
 func (sp *SeccompProfile) IsPartial() bool {
 	return profilebase.IsPartial(sp)
+}
+
+func (sp *SeccompProfile) IsDisabled() bool {
+	return profilebase.IsDisabled(&sp.Spec.SpecBase)
+}
+
+func (sp *SeccompProfile) IsReconcilable() bool {
+	return profilebase.IsReconcilable(sp)
 }
 
 // +kubebuilder:object:root=true

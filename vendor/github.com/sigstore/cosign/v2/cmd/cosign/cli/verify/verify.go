@@ -71,12 +71,15 @@ type VerifyCommand struct {
 	Attachment                   string
 	Annotations                  sigs.AnnotationsMap
 	SignatureRef                 string
+	PayloadRef                   string
 	HashAlgorithm                crypto.Hash
 	LocalImage                   bool
 	NameOptions                  []name.Option
 	Offline                      bool
 	TSACertChainPath             string
 	IgnoreTlog                   bool
+	MaxWorkers                   int
+	ExperimentalOCI11            bool
 }
 
 // Exec runs the verification command
@@ -86,7 +89,9 @@ func (c *VerifyCommand) Exec(ctx context.Context, images []string) (err error) {
 	}
 
 	switch c.Attachment {
-	case "sbom", "":
+	case "sbom":
+		fmt.Fprintln(os.Stderr, options.SBOMAttachmentDeprecation)
+	case "":
 		break
 	default:
 		return flag.ErrHelp
@@ -120,9 +125,12 @@ func (c *VerifyCommand) Exec(ctx context.Context, images []string) (err error) {
 		CertGithubWorkflowRef:        c.CertGithubWorkflowRef,
 		IgnoreSCT:                    c.IgnoreSCT,
 		SignatureRef:                 c.SignatureRef,
+		PayloadRef:                   c.PayloadRef,
 		Identities:                   identities,
 		Offline:                      c.Offline,
 		IgnoreTlog:                   c.IgnoreTlog,
+		MaxWorkers:                   c.MaxWorkers,
+		ExperimentalOCI11:            c.ExperimentalOCI11,
 	}
 	if c.CheckClaims {
 		co.ClaimVerifier = cosign.SimpleClaimVerifier
@@ -169,21 +177,37 @@ func (c *VerifyCommand) Exec(ctx context.Context, images []string) (err error) {
 		}
 	}
 	if keylessVerification(c.KeyRef, c.Sk) {
-		// This performs an online fetch of the Fulcio roots. This is needed
-		// for verifying keyless certificates (both online and offline).
-		co.RootCerts, err = fulcio.GetRoots()
-		if err != nil {
-			return fmt.Errorf("getting Fulcio roots: %w", err)
-		}
-		co.IntermediateCerts, err = fulcio.GetIntermediates()
-		if err != nil {
-			return fmt.Errorf("getting Fulcio intermediates: %w", err)
+		if c.CertChain != "" {
+			chain, err := loadCertChainFromFileOrURL(c.CertChain)
+			if err != nil {
+				return err
+			}
+			co.RootCerts = x509.NewCertPool()
+			co.RootCerts.AddCert(chain[len(chain)-1])
+			if len(chain) > 1 {
+				co.IntermediateCerts = x509.NewCertPool()
+				for _, cert := range chain[:len(chain)-1] {
+					co.IntermediateCerts.AddCert(cert)
+				}
+			}
+		} else {
+			// This performs an online fetch of the Fulcio roots. This is needed
+			// for verifying keyless certificates (both online and offline).
+			co.RootCerts, err = fulcio.GetRoots()
+			if err != nil {
+				return fmt.Errorf("getting Fulcio roots: %w", err)
+			}
+			co.IntermediateCerts, err = fulcio.GetIntermediates()
+			if err != nil {
+				return fmt.Errorf("getting Fulcio intermediates: %w", err)
+			}
 		}
 	}
 	keyRef := c.KeyRef
 	certRef := c.CertRef
 
-	if !c.IgnoreSCT {
+	// Ignore Signed Certificate Timestamp if the flag is set or a key is provided
+	if shouldVerifySCT(c.IgnoreSCT, c.KeyRef, c.Sk) {
 		co.CTLogPubKeys, err = cosign.GetCTLogPubs(ctx)
 		if err != nil {
 			return fmt.Errorf("getting ctlog public keys: %w", err)
@@ -254,7 +278,8 @@ func (c *VerifyCommand) Exec(ctx context.Context, images []string) (err error) {
 
 	// NB: There are only 2 kinds of verification right now:
 	// 1. You gave us the public key explicitly to verify against so co.SigVerifier is non-nil or,
-	// 2. We're going to find an x509 certificate on the signature and verify against Fulcio root trust
+	// 2. We’re going to find an x509 certificate on the signature and verify against
+	//    Fulcio root trust (or user supplied root trust)
 	// TODO(nsmith5): Refactor this verification logic to pass back _how_ verification
 	// was performed so we don't need to use this fragile logic here.
 	fulcioVerified := (co.SigVerifier == nil)
@@ -320,7 +345,11 @@ func PrintVerification(ctx context.Context, verified []oci.Signature, output str
 		for _, sig := range verified {
 			if cert, err := sig.Cert(); err == nil && cert != nil {
 				ce := cosign.CertExtensions{Cert: cert}
-				ui.Infof(ctx, "Certificate subject: %s", sigs.CertSubject(cert))
+				sub := ""
+				if sans := cryptoutils.GetSubjectAlternateNames(cert); len(sans) > 0 {
+					sub = sans[0]
+				}
+				ui.Infof(ctx, "Certificate subject: %s", sub)
 				if issuerURL := ce.GetIssuer(); issuerURL != "" {
 					ui.Infof(ctx, "Certificate issuer URL: %s", issuerURL)
 				}
@@ -373,7 +402,11 @@ func PrintVerification(ctx context.Context, verified []oci.Signature, output str
 				if ss.Optional == nil {
 					ss.Optional = make(map[string]interface{})
 				}
-				ss.Optional["Subject"] = sigs.CertSubject(cert)
+				sub := ""
+				if sans := cryptoutils.GetSubjectAlternateNames(cert); len(sans) > 0 {
+					sub = sans[0]
+				}
+				ss.Optional["Subject"] = sub
 				if issuerURL := ce.GetIssuer(); issuerURL != "" {
 					ss.Optional["Issuer"] = issuerURL
 					ss.Optional[cosign.CertExtensionOIDCIssuer] = issuerURL
@@ -471,6 +504,19 @@ func keylessVerification(keyRef string, sk bool) bool {
 		return false
 	}
 	if sk {
+		return false
+	}
+	return true
+}
+
+func shouldVerifySCT(ignoreSCT bool, keyRef string, sk bool) bool {
+	if keyRef != "" {
+		return false
+	}
+	if sk {
+		return false
+	}
+	if ignoreSCT {
 		return false
 	}
 	return true

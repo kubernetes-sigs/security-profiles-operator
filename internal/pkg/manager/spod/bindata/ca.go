@@ -18,6 +18,7 @@ package bindata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -25,10 +26,12 @@ import (
 	certmanagermetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	"github.com/go-logr/logr"
 	configv1 "github.com/openshift/api/config/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -56,14 +59,43 @@ func GetCAInjectType(
 		log.Info("Using OpenShift as certificate provider")
 		return CAInjectTypeOpenShift, nil
 	}
-	if meta.IsNoMatchError(err) ||
-		// for the namespaced operator
-		strings.Contains(err.Error(), "failed to get restmapping") {
+	if IsNotFound(err) {
 		log.Info("Using cert-manager as certificate provider")
 		return CAInjectTypeCertManager, nil
 	}
 
 	return res, fmt.Errorf("unable to determine certificate provider: %w", err)
+}
+
+// IsNotFound returns true if the error indicates that the resource is not registered.
+func IsNotFound(err error) bool {
+	if runtime.IsNotRegisteredError(err) ||
+		meta.IsNoMatchError(err) ||
+		apierrors.IsNotFound(err) {
+		return true
+	}
+
+	// Introduced in controller-runtime v0.15.0, which makes a simple
+	// `apierrors.IsNotFound(err)` not work any more.
+	groupErr := &discovery.ErrGroupDiscoveryFailed{}
+	if errors.As(err, &groupErr) {
+		for _, err := range groupErr.Groups {
+			if apierrors.IsNotFound(err) {
+				return true
+			}
+		}
+	}
+
+	// Fallback
+	for _, msg := range []string{
+		"failed to get restmapping",
+	} {
+		if strings.Contains(err.Error(), msg) {
+			return true
+		}
+	}
+
+	return false
 }
 
 const (
@@ -96,7 +128,7 @@ func GetCertManagerResources(namespace string) *CertManagerResources {
 func (c *CertManagerResources) Create(ctx context.Context, cl client.Client) error {
 	for k, o := range c.objectMap() {
 		if err := cl.Create(ctx, o); err != nil {
-			if errors.IsAlreadyExists(err) {
+			if apierrors.IsAlreadyExists(err) {
 				continue
 			}
 			return fmt.Errorf("creating %s: %w", k, err)

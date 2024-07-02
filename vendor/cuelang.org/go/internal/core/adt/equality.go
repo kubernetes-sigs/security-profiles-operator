@@ -45,6 +45,9 @@ func equalVertex(ctx *OpContext, x *Vertex, v Value, flags Flag) bool {
 	if x == y {
 		return true
 	}
+	if x.ArcType != y.ArcType {
+		return false
+	}
 	xk := x.Kind()
 	yk := y.Kind()
 
@@ -52,8 +55,11 @@ func equalVertex(ctx *OpContext, x *Vertex, v Value, flags Flag) bool {
 		return false
 	}
 
-	if len(x.Arcs) != len(y.Arcs) {
-		return false
+	maxArcType := ArcMember
+	if flags&CheckStructural != 0 {
+		// Do not ignore optional fields
+		// TODO(required): consider making this unconditional
+		maxArcType = ArcOptional
 	}
 
 	// TODO: this really should be subsumption.
@@ -68,9 +74,12 @@ func equalVertex(ctx *OpContext, x *Vertex, v Value, flags Flag) bool {
 
 loop1:
 	for _, a := range x.Arcs {
+		if a.ArcType > maxArcType {
+			continue
+		}
 		for _, b := range y.Arcs {
 			if a.Label == b.Label {
-				if !Equal(ctx, a, b, flags) {
+				if a.ArcType != b.ArcType || !Equal(ctx, a, b, flags) {
 					return false
 				}
 				continue loop1
@@ -79,16 +88,24 @@ loop1:
 		return false
 	}
 
-	// We do not need to do the following check, because of the pigeon-hole principle.
-	// loop2:
-	// 	for _, b := range y.Arcs {
-	// 		for _, a := range x.Arcs {
-	// 			if a.Label == b.Label {
-	// 				continue loop2
-	// 			}
-	// 		}
-	// 		return false
-	// 	}
+loop2:
+	for _, b := range y.Arcs {
+		if b.ArcType > maxArcType {
+			continue
+		}
+		for _, a := range x.Arcs {
+			if a.Label == b.Label {
+				if a.ArcType > maxArcType {
+					// No need to continue: arc with label not found.
+					break
+				}
+				// Label found. Equality was already tested in loop 1.
+				continue loop2
+			}
+		}
+		// Arc with same label not found.
+		return false
+	}
 
 	v, ok1 := x.BaseValue.(Value)
 	w, ok2 := y.BaseValue.(Value)
@@ -101,10 +118,10 @@ loop1:
 
 // equalClosed tests if x and y have the same set of close information.
 // TODO: the following refinements are possible:
-// - unify optional fields and equate the optional fields
-// - do the same for pattern constraints, where the pattern constraints
-//   are collated by pattern equality.
-// - a further refinement would collate patterns by ranges.
+//   - unify optional fields and equate the optional fields
+//   - do the same for pattern constraints, where the pattern constraints
+//     are collated by pattern equality.
+//   - a further refinement would collate patterns by ranges.
 //
 // For all these refinements it would be necessary to have well-working
 // structure sharing so as to not repeatedly recompute optional arcs.
@@ -118,7 +135,7 @@ outer:
 		if (flags&IgnoreOptional != 0) && !s.StructLit.HasOptional() {
 			continue
 		}
-		if s.closeInfo == nil || s.closeInfo.span&DefinitionSpan == 0 {
+		if s.span()&DefinitionSpan == 0 {
 			if !s.StructLit.HasOptional() {
 				continue
 			}
@@ -139,6 +156,11 @@ func equalTerminal(ctx *OpContext, v, w Value, flags Flag) bool {
 	}
 
 	switch x := v.(type) {
+	case *Bottom:
+		// All errors are logically the same.
+		_, ok := w.(*Bottom)
+		return ok
+
 	case *Num, *String, *Bool, *Bytes, *Null:
 		if b, ok := BinOp(ctx, EqualOp, v, w).(*Bool); ok {
 			return b.B

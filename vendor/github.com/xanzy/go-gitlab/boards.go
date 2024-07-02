@@ -104,18 +104,18 @@ func (s *IssueBoardsService) CreateIssueBoard(pid interface{}, opt *CreateIssueB
 		return nil, resp, err
 	}
 
-	return board, resp, err
+	return board, resp, nil
 }
 
 // UpdateIssueBoardOptions represents the available UpdateIssueBoard() options.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/boards.html#update-an-issue-board
 type UpdateIssueBoardOptions struct {
-	Name        *string `url:"name,omitempty" json:"name,omitempty"`
-	AssigneeID  *int    `url:"assignee_id,omitempty" json:"assignee_id,omitempty"`
-	MilestoneID *int    `url:"milestone_id,omitempty" json:"milestone_id,omitempty"`
-	Labels      *Labels `url:"labels,omitempty" json:"labels,omitempty"`
-	Weight      *int    `url:"weight,omitempty" json:"weight,omitempty"`
+	Name        *string       `url:"name,omitempty" json:"name,omitempty"`
+	AssigneeID  *int          `url:"assignee_id,omitempty" json:"assignee_id,omitempty"`
+	MilestoneID *int          `url:"milestone_id,omitempty" json:"milestone_id,omitempty"`
+	Labels      *LabelOptions `url:"labels,omitempty" json:"labels,omitempty"`
+	Weight      *int          `url:"weight,omitempty" json:"weight,omitempty"`
 }
 
 // UpdateIssueBoard update an issue board.
@@ -139,7 +139,7 @@ func (s *IssueBoardsService) UpdateIssueBoard(pid interface{}, board int, opt *U
 		return nil, resp, err
 	}
 
-	return is, resp, err
+	return is, resp, nil
 }
 
 // DeleteIssueBoard deletes an issue board.
@@ -186,7 +186,7 @@ func (s *IssueBoardsService) ListIssueBoards(pid interface{}, opt *ListIssueBoar
 		return nil, resp, err
 	}
 
-	return is, resp, err
+	return is, resp, nil
 }
 
 // GetIssueBoard gets a single issue board of a project.
@@ -210,7 +210,7 @@ func (s *IssueBoardsService) GetIssueBoard(pid interface{}, board int, options .
 		return nil, resp, err
 	}
 
-	return ib, resp, err
+	return ib, resp, nil
 }
 
 // GetIssueBoardListsOptions represents the available GetIssueBoardLists() options.
@@ -240,7 +240,7 @@ func (s *IssueBoardsService) GetIssueBoardLists(pid interface{}, board int, opt 
 		return nil, resp, err
 	}
 
-	return bl, resp, err
+	return bl, resp, nil
 }
 
 // GetIssueBoardList gets a single issue board list.
@@ -268,7 +268,7 @@ func (s *IssueBoardsService) GetIssueBoardList(pid interface{}, board, list int,
 		return nil, resp, err
 	}
 
-	return bl, resp, err
+	return bl, resp, nil
 }
 
 // CreateIssueBoardListOptions represents the available CreateIssueBoardList()
@@ -303,7 +303,7 @@ func (s *IssueBoardsService) CreateIssueBoardList(pid interface{}, board int, op
 		return nil, resp, err
 	}
 
-	return bl, resp, err
+	return bl, resp, nil
 }
 
 // UpdateIssueBoardListOptions represents the available UpdateIssueBoardList()
@@ -339,7 +339,7 @@ func (s *IssueBoardsService) UpdateIssueBoardList(pid interface{}, board, list i
 		return nil, resp, err
 	}
 
-	return bl, resp, err
+	return bl, resp, nil
 }
 
 // DeleteIssueBoardList soft deletes an issue board list. Only for admins and

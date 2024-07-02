@@ -32,12 +32,19 @@ const (
 	// FlagNoBaseSyscalls can be used to indicate that no base syscalls should
 	// be added at all.
 	FlagNoBaseSyscalls string = "no-base-syscalls"
+
+	// FlagNoProcStart can be used to indicate that the target process is managed
+	// externally and should not be started.
+	FlagNoProcStart string = "no-proc-start"
 )
 
 // Type is the enum for all available recorder types.
 type Type string
 
 const (
+	// TypeApp is the type indicating that we should record all CRD profiles.
+	TypeAll Type = "all"
+
 	// TypeSeccomp is the type indicating that we should record a seccomp CRD
 	// profile.
 	TypeSeccomp Type = "seccomp"
@@ -45,6 +52,14 @@ const (
 	// TypeRawSeccomp is the type indicating that we should record a raw
 	// seccomp JSON profile.
 	TypeRawSeccomp Type = "raw-seccomp"
+
+	// TypeApparmor is the type indicating that we should record an apparmor CRD
+	// profile.
+	TypeApparmor Type = "apparmor"
+
+	// TypeRawAppArmor is the type indicating that we should record a raw
+	// apparmor JSON profile.
+	TypeRawAppArmor Type = "raw-apparmor"
 )
 
 var (

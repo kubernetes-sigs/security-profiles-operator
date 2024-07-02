@@ -70,9 +70,11 @@ package adt
 // TODO(errors): return a dedicated ConflictError that can track original
 // positions on demand.
 
-func (v *Vertex) IsInOneOf(t SpanType) bool {
+// IsInOneOf reports whether any of the Structs associated with v is contained
+// within any of the span types in the given mask.
+func (v *Vertex) IsInOneOf(mask SpanType) bool {
 	for _, s := range v.Structs {
-		if s.CloseInfo.IsInOneOf(t) {
+		if s.CloseInfo.IsInOneOf(mask) {
 			return true
 		}
 	}
@@ -106,10 +108,30 @@ const (
 
 // TODO: merge with closeInfo: this is a leftover of the refactoring.
 type CloseInfo struct {
-	*closeInfo
+	*closeInfo               // old implementation (TODO: remove)
+	cc         *closeContext // new implementation (TODO: rename field to closeCtx)
 
-	IsClosed   bool
+	// IsClosed is true if this conjunct represents a single level of closing
+	// as indicated by the closed builtin.
+	IsClosed bool
+
+	// FromEmbed indicates whether this conjunct was inserted because of an
+	// embedding.  This flag is sticky: it will be set for conjuncts created
+	// from fields defined by this conjunct.
+	// NOTE: only used when using closeContext.
+	FromEmbed bool
+
+	// FromDef indicates whether this conjunct was inserted because of a
+	// definition. This flag is sticky: it will be set for conjuncts created
+	// from fields defined by this conjunct.
+	// NOTE: only used when using closeContext.
+	FromDef bool
+
+	// FieldTypes indicates which kinds of fields (optional, dynamic, patterns,
+	// etc.) are contained in this conjunct.
 	FieldTypes OptionalType
+
+	CycleInfo
 }
 
 func (c CloseInfo) Location() Node {
@@ -119,11 +141,11 @@ func (c CloseInfo) Location() Node {
 	return c.closeInfo.location
 }
 
-func (c CloseInfo) SpanMask() SpanType {
+func (c CloseInfo) span() SpanType {
 	if c.closeInfo == nil {
 		return 0
 	}
-	return c.span
+	return c.closeInfo.span
 }
 
 func (c CloseInfo) RootSpanType() SpanType {
@@ -133,11 +155,10 @@ func (c CloseInfo) RootSpanType() SpanType {
 	return c.root
 }
 
+// IsInOneOf reports whether c is contained within any of the span types in the
+// given mask.
 func (c CloseInfo) IsInOneOf(t SpanType) bool {
-	if c.closeInfo == nil {
-		return false
-	}
-	return c.span&t != 0
+	return c.span()&t != 0
 }
 
 // TODO(perf): remove: error positions should always be computed on demand
@@ -152,18 +173,13 @@ func (c *CloseInfo) AddPositions(ctx *OpContext) {
 
 // TODO(perf): use on StructInfo. Then if parent and expression are the same
 // it is possible to use cached value.
-func (c CloseInfo) SpawnEmbed(x Expr) CloseInfo {
-	var span SpanType
-	if c.closeInfo != nil {
-		span = c.span
-	}
-
+func (c CloseInfo) SpawnEmbed(x Node) CloseInfo {
 	c.closeInfo = &closeInfo{
 		parent:   c.closeInfo,
 		location: x,
 		mode:     closeEmbed,
 		root:     EmbeddingSpan,
-		span:     span | EmbeddingSpan,
+		span:     c.span() | EmbeddingSpan,
 	}
 	return c
 }
@@ -171,17 +187,12 @@ func (c CloseInfo) SpawnEmbed(x Expr) CloseInfo {
 // SpawnGroup is used for structs that contain embeddings that may end up
 // closing the struct. This is to force that `b` is not allowed in
 //
-//      a: {#foo} & {b: int}
-//
+//	a: {#foo} & {b: int}
 func (c CloseInfo) SpawnGroup(x Expr) CloseInfo {
-	var span SpanType
-	if c.closeInfo != nil {
-		span = c.span
-	}
 	c.closeInfo = &closeInfo{
 		parent:   c.closeInfo,
 		location: x,
-		span:     span,
+		span:     c.span(),
 	}
 	return c
 }
@@ -190,28 +201,34 @@ func (c CloseInfo) SpawnGroup(x Expr) CloseInfo {
 // or constraint. Definition and embedding spans are introduced with SpawnRef
 // and SpawnEmbed, respectively.
 func (c CloseInfo) SpawnSpan(x Node, t SpanType) CloseInfo {
-	var span SpanType
-	if c.closeInfo != nil {
-		span = c.span
-	}
 	c.closeInfo = &closeInfo{
 		parent:   c.closeInfo,
 		location: x,
 		root:     t,
-		span:     span | t,
+		span:     c.span() | t,
 	}
 	return c
 }
 
 func (c CloseInfo) SpawnRef(arc *Vertex, isDef bool, x Expr) CloseInfo {
-	var span SpanType
-	if c.closeInfo != nil {
-		span = c.span
+	span := c.span()
+	found := false
+	if !isDef {
+		xnode := Node(x) // Optimization so we're comparing identical interface types.
+		// TODO: make this work for non-definitions too.
+		for p := c.closeInfo; p != nil; p = p.parent {
+			if p.span == span && p.location == xnode {
+				found = true
+				break
+			}
+		}
 	}
-	c.closeInfo = &closeInfo{
-		parent:   c.closeInfo,
-		location: x,
-		span:     span,
+	if !found {
+		c.closeInfo = &closeInfo{
+			parent:   c.closeInfo,
+			location: x,
+			span:     span,
+		}
 	}
 	if isDef {
 		c.mode = closeDef
@@ -221,7 +238,7 @@ func (c CloseInfo) SpawnRef(arc *Vertex, isDef bool, x Expr) CloseInfo {
 	return c
 }
 
-// isDef reports whether an expressions is a reference that references a
+// IsDef reports whether an expressions is a reference that references a
 // definition anywhere in its selection path.
 //
 // TODO(performance): this should be merged with resolve(). But for now keeping
@@ -299,22 +316,26 @@ type closeStats struct {
 	accepted bool
 
 	required bool
-	next     *closeStats
+
+	inTodoList bool // true if added to todo list.
+	next       *closeStats
 }
 
 func (c *closeInfo) isClosed() bool {
 	return c.mode == closeDef
 }
 
+// isClosed reports whether v is closed at this level (so not recursively).
 func isClosed(v *Vertex) bool {
+	// We could have used IsRecursivelyClosed here, but (effectively)
+	// implementing it again here allows us to only have to iterate over
+	// Structs once.
+	if v.Closed {
+		return true
+	}
 	for _, s := range v.Structs {
-		if s.IsClosed {
+		if s.IsClosed || s.IsInOneOf(DefinitionSpan) {
 			return true
-		}
-		for c := s.closeInfo; c != nil; c = c.parent {
-			if c.isClosed() {
-				return true
-			}
 		}
 	}
 	return false
@@ -330,7 +351,7 @@ func Accept(ctx *OpContext, n *Vertex, f Feature) (found, required bool) {
 
 	// TODO(perf): more aggressively determine whether a struct is open or
 	// closed: open structs do not have to be checked, yet they can particularly
-	// be the ones with performance isssues, for instanced as a result of
+	// be the ones with performance issues, for instanced as a result of
 	// embedded for comprehensions.
 	for _, s := range n.Structs {
 		if !s.useForAccept() {
@@ -398,9 +419,10 @@ func markRequired(ctx *OpContext, info *closeInfo) {
 			return
 		}
 
-		if s.span&EmbeddingSpan == 0 {
+		if s.span&EmbeddingSpan == 0 && !x.inTodoList {
 			x.next = ctx.todo
 			ctx.todo = x
+			x.inTodoList = true
 		}
 
 		x.required = true
@@ -471,7 +493,7 @@ func verifyArc(ctx *OpContext, s *StructInfo, f Feature, label Value) bool {
 	o := s.StructLit
 	env := s.Env
 
-	if isRegular && (len(o.Additional) > 0 || o.IsOpen) {
+	if len(o.Additional) > 0 || o.IsOpen {
 		return true
 	}
 
@@ -492,6 +514,7 @@ func verifyArc(ctx *OpContext, s *StructInfo, f Feature, label Value) bool {
 	if len(o.Dynamic) > 0 && f.IsString() && label != nil {
 		for _, b := range o.Dynamic {
 			v := env.evalCached(ctx, b.Key)
+			v, _ = ctx.getDefault(v)
 			s, ok := Unwrap(v).(*String)
 			if !ok {
 				continue

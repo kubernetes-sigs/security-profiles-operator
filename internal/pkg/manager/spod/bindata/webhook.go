@@ -251,10 +251,13 @@ func webhookNeedsUpdate(existing, configured *admissionregv1.MutatingWebhook) bo
 		return true
 	}
 
-	if existing.NamespaceSelector != nil &&
-		configured.NamespaceSelector != nil &&
-		!reflect.DeepEqual(*existing.NamespaceSelector, *configured.NamespaceSelector) {
-		return true
+	if existing.NamespaceSelector != nil && configured.NamespaceSelector != nil {
+		// Only compare managed labels, all others are out of scope
+		for _, label := range []string{EnableBindingLabel, EnableRecordingLabel} {
+			if namespaceSelectorUnequalForLabel(label, existing.NamespaceSelector, configured.NamespaceSelector) {
+				return true
+			}
+		}
 	}
 
 	if existing.ObjectSelector == nil && configured.ObjectSelector != nil ||
@@ -266,6 +269,41 @@ func webhookNeedsUpdate(existing, configured *admissionregv1.MutatingWebhook) bo
 	if existing.ObjectSelector != nil &&
 		configured.ObjectSelector != nil &&
 		!reflect.DeepEqual(*existing.ObjectSelector, *configured.ObjectSelector) {
+		return true
+	}
+
+	return false
+}
+
+// namespaceSelectorUnequalForLabel checks if the selected label matches the
+// provided LabelSelectors and returns true if they're unequal.
+func namespaceSelectorUnequalForLabel(label string, existing, configured *metav1.LabelSelector) bool {
+	var (
+		i, j                                 int
+		existingHasLabel, configuredHasLabel bool
+	)
+
+	for i = range existing.MatchExpressions {
+		if existing.MatchExpressions[i].Key == label {
+			existingHasLabel = true
+			break
+		}
+	}
+
+	for j = range configured.MatchExpressions {
+		if configured.MatchExpressions[j].Key == label {
+			configuredHasLabel = true
+			break
+		}
+	}
+
+	if existingHasLabel != configuredHasLabel {
+		return true
+	}
+
+	// Check if values match
+	if existingHasLabel && configuredHasLabel &&
+		!reflect.DeepEqual(existing.MatchExpressions[i], configured.MatchExpressions[j]) {
 		return true
 	}
 
@@ -341,7 +379,7 @@ var webhookDeployment = &appsv1.Deployment{
 						},
 						Env: []corev1.EnvVar{
 							{
-								Name: "OPERATOR_NAMESPACE",
+								Name: config.OperatorNamespaceEnvKey,
 								ValueFrom: &corev1.EnvVarSource{
 									FieldRef: &corev1.ObjectFieldSelector{
 										FieldPath: "metadata.namespace",

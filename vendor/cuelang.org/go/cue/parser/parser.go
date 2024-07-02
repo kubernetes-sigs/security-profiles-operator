@@ -24,6 +24,7 @@ import (
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/scanner"
 	"cuelang.org/go/cue/token"
+	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/astinternal"
 )
 
@@ -328,7 +329,7 @@ func (p *parser) consumeCommentGroup(prevLine, n int) (comments *ast.CommentGrou
 
 // Advance to the next non-comment  In the process, collect
 // any comment groups encountered, and refield the last lead and
-// and line comments.
+// line comments.
 //
 // A lead comment is a comment group that starts and ends in a
 // line without any other tokens and that is followed by a non-comment
@@ -393,8 +394,12 @@ func (p *parser) next() {
 // assertV0 indicates the last version at which a certain feature was
 // supported.
 func (p *parser) assertV0(pos token.Pos, minor, patch int, name string) {
-	v := version0(minor, patch)
-	if p.version != 0 && p.version > v {
+	v := internal.Version(minor, patch)
+	base := p.version
+	if base == 0 {
+		base = internal.APIVersionSupported
+	}
+	if base > v {
 		p.errors = errors.Append(p.errors,
 			errors.Wrapf(&DeprecationError{v}, pos,
 				"use of deprecated %s (deprecated as of v0.%d.%d)", name, minor, patch+1))
@@ -592,6 +597,13 @@ func (p *parser) parseOperand() (expr ast.Expr) {
 
 	case token.LBRACK:
 		return p.parseList()
+
+	case token.FUNC:
+		if p.mode&parseFuncsMode != 0 {
+			return p.parseFunc()
+		} else {
+			return p.parseKeyIdent()
+		}
 
 	case token.BOTTOM:
 		c := p.openComments()
@@ -855,8 +867,10 @@ func (p *parser) parseField() (decl ast.Decl) {
 		return e
 	}
 
-	if p.tok == token.OPTION {
+	switch p.tok {
+	case token.OPTION, token.NOT:
 		m.Optional = p.pos
+		m.Constraint = p.tok
 		p.next()
 	}
 
@@ -867,7 +881,7 @@ func (p *parser) parseField() (decl ast.Decl) {
 	// allowComprehension = false
 
 	switch p.tok {
-	case token.COLON, token.ISA:
+	case token.COLON:
 	case token.COMMA:
 		p.expectComma() // sync parser.
 		fallthrough
@@ -893,22 +907,18 @@ func (p *parser) parseField() (decl ast.Decl) {
 
 	m.TokenPos = p.pos
 	m.Token = p.tok
-	if p.tok == token.ISA {
-		p.assertV0(p.pos, 2, 0, "'::'")
+	if p.tok != token.COLON {
+		p.errorExpected(pos, "':'")
 	}
-	if p.tok != token.COLON && p.tok != token.ISA {
-		p.errorExpected(pos, "':' or '::'")
-	}
-	p.next() // : or ::
+	p.next() // :
 
 	for {
 		if l, ok := m.Label.(*ast.ListLit); ok && len(l.Elts) != 1 {
 			p.errf(l.Pos(), "square bracket must have exactly one element")
 		}
 
-		tok := p.tok
 		label, expr, _, ok := p.parseLabel(true)
-		if !ok || (p.tok != token.COLON && p.tok != token.ISA && p.tok != token.OPTION) {
+		if !ok || (p.tok != token.COLON && p.tok != token.OPTION && p.tok != token.NOT) {
 			if expr == nil {
 				expr = p.parseRHS()
 			}
@@ -919,21 +929,20 @@ func (p *parser) parseField() (decl ast.Decl) {
 		m.Value = &ast.StructLit{Elts: []ast.Decl{field}}
 		m = field
 
-		if tok != token.LSS && p.tok == token.OPTION {
+		switch p.tok {
+		case token.OPTION, token.NOT:
 			m.Optional = p.pos
+			m.Constraint = p.tok
 			p.next()
 		}
 
 		m.TokenPos = p.pos
 		m.Token = p.tok
-		if p.tok == token.ISA {
-			p.assertV0(p.pos, 2, 0, "'::'")
-		}
-		if p.tok != token.COLON && p.tok != token.ISA {
+		if p.tok != token.COLON {
 			if p.tok.IsLiteral() {
-				p.errf(p.pos, "expected ':' or '::'; found %s", p.lit)
+				p.errf(p.pos, "expected ':'; found %s", p.lit)
 			} else {
-				p.errf(p.pos, "expected ':' or '::'; found %s", p.tok)
+				p.errf(p.pos, "expected ':'; found %s", p.tok)
 			}
 			break
 		}
@@ -989,7 +998,7 @@ func (p *parser) parseLabel(rhs bool) (label ast.Label, expr ast.Expr, decl ast.
 		expr = ident
 
 	case token.IDENT, token.STRING, token.INTERPOLATION, token.LPAREN,
-		token.NULL, token.TRUE, token.FALSE, token.IN:
+		token.NULL, token.TRUE, token.FALSE, token.IN, token.FUNC:
 		expr = p.parseExpr()
 
 	case token.LBRACK:
@@ -1004,7 +1013,7 @@ func (p *parser) parseLabel(rhs bool) (label ast.Label, expr ast.Expr, decl ast.
 	switch x := expr.(type) {
 	case *ast.BasicLit:
 		switch x.Kind {
-		case token.STRING, token.NULL, token.TRUE, token.FALSE:
+		case token.STRING, token.NULL, token.TRUE, token.FALSE, token.FUNC:
 			// Keywords that represent operands.
 
 			// Allowing keywords to be used as a labels should not interfere with
@@ -1091,7 +1100,7 @@ func (p *parser) parseComprehensionClauses(first bool) (clauses []ast.Clause, c 
 			forPos := p.expect(token.FOR)
 			if first {
 				switch p.tok {
-				case token.COLON, token.ISA, token.BIND, token.OPTION,
+				case token.COLON, token.BIND, token.OPTION,
 					token.COMMA, token.EOF:
 					return nil, c
 				}
@@ -1121,7 +1130,7 @@ func (p *parser) parseComprehensionClauses(first bool) (clauses []ast.Clause, c 
 			ifPos := p.expect(token.IF)
 			if first {
 				switch p.tok {
-				case token.COLON, token.ISA, token.BIND, token.OPTION,
+				case token.COLON, token.BIND, token.OPTION,
 					token.COMMA, token.EOF:
 					return nil, c
 				}
@@ -1156,6 +1165,63 @@ func (p *parser) parseComprehensionClauses(first bool) (clauses []ast.Clause, c 
 
 		first = false
 	}
+}
+
+func (p *parser) parseFunc() (expr ast.Expr) {
+	if p.trace {
+		defer un(trace(p, "Func"))
+	}
+	tok := p.tok
+	pos := p.pos
+	fun := p.expect(token.FUNC)
+
+	// "func" might be used as an identifier, in which case bail out early.
+	switch p.tok {
+	case token.COLON, token.BIND, token.OPTION,
+		token.COMMA, token.EOF:
+
+		return &ast.Ident{
+			NamePos: pos,
+			Name:    tok.String(),
+		}
+	}
+
+	p.expect(token.LPAREN)
+	args := p.parseFuncArgs()
+	p.expectClosing(token.RPAREN, "argument type list")
+
+	p.expect(token.COLON)
+	ret := p.parseExpr()
+
+	return &ast.Func{
+		Func: fun,
+		Args: args,
+		Ret:  ret,
+	}
+}
+
+func (p *parser) parseFuncArgs() (list []ast.Expr) {
+	if p.trace {
+		defer un(trace(p, "FuncArgs"))
+	}
+	p.openList()
+	defer p.closeList()
+
+	for p.tok != token.RPAREN && p.tok != token.EOF {
+		list = append(list, p.parseFuncArg())
+		if p.tok != token.RPAREN {
+			p.expectComma()
+		}
+	}
+
+	return list
+}
+
+func (p *parser) parseFuncArg() (expr ast.Expr) {
+	if p.trace {
+		defer un(trace(p, "FuncArg"))
+	}
+	return p.parseExpr()
 }
 
 func (p *parser) parseList() (expr ast.Expr) {
@@ -1292,6 +1358,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.Ident:
 	case *ast.BasicLit:
 	case *ast.Interpolation:
+	case *ast.Func:
 	case *ast.StructLit:
 	case *ast.ListLit:
 	case *ast.ParenExpr:

@@ -29,11 +29,12 @@ import (
 // A Context provides context for running a task.
 type Context struct {
 	Context context.Context
-	Stdin   io.Reader
-	Stdout  io.Writer
-	Stderr  io.Writer
-	Obj     cue.Value
-	Err     errors.Error
+
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+	Obj    cue.Value
+	Err    errors.Error
 }
 
 func (c *Context) Lookup(field string) cue.Value {
@@ -83,7 +84,7 @@ func (c *Context) addErr(v cue.Value, wrap error, format string, args ...interfa
 	err := &taskError{
 		task:    c.Obj,
 		v:       v,
-		Message: errors.NewMessage(format, args),
+		Message: errors.NewMessagef(format, args...),
 	}
 	c.Err = errors.Append(c.Err, errors.Wrap(err, wrap))
 }

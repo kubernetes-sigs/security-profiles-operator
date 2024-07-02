@@ -16,8 +16,8 @@ type Symbol struct {
 	byteOrder   binary.ByteOrder
 }
 
-func getGlobalVariableSymbol(elf *elf.File, varName string) (*Symbol, error) {
-	regularSymbols, err := elf.Symbols()
+func getGlobalVariableSymbol(e *elf.File, varName string) (*Symbol, error) {
+	regularSymbols, err := e.Symbols()
 	if err != nil {
 		return nil, err
 	}
@@ -25,17 +25,17 @@ func getGlobalVariableSymbol(elf *elf.File, varName string) (*Symbol, error) {
 	var symbols []Symbol
 	for _, s := range regularSymbols {
 		i := int(s.Section)
-		if i >= len(elf.Sections) {
+		if i >= len(e.Sections) {
 			continue
 		}
-		sectionName := elf.Sections[i].Name
+		sectionName := e.Sections[i].Name
 		if isGlobalVariableSection(sectionName) {
 			symbols = append(symbols, Symbol{
 				name:        s.Name,
 				size:        int(s.Size),
 				offset:      int(s.Value),
 				sectionName: sectionName,
-				byteOrder:   elf.ByteOrder,
+				byteOrder:   e.ByteOrder,
 			})
 		}
 	}
@@ -57,5 +57,6 @@ func isGlobalVariableSection(sectionName string) bool {
 		strings.HasPrefix(sectionName, ".rodata.") {
 		return true
 	}
+
 	return false
 }

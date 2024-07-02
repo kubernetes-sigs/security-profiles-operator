@@ -40,7 +40,7 @@ import (
 
 // ErrorCode indicates the type of error. The type of error may influence
 // control flow. No other aspects of an error may influence control flow.
-type ErrorCode int
+type ErrorCode int8
 
 const (
 	// An EvalError is a fatal evaluation error.
@@ -89,10 +89,15 @@ type Bottom struct {
 	Src ast.Node
 	Err errors.Error
 
-	Code         ErrorCode
+	Code ErrorCode
+	// Permanent indicates whether an incomplete error can be
+	// resolved later without making the configuration more specific.
+	// This may happen when an arc isn't fully resolved yet.
+	Permanent    bool
 	HasRecursive bool
 	ChildError   bool // Err is the error of the child
 	NotExists    bool // This error originated from a failed lookup.
+	ForCycle     bool // this is a for cycle
 	// Value holds the computed value so far in case
 	Value Value
 }
@@ -140,7 +145,6 @@ func isIncomplete(v *Vertex) bool {
 //
 // If x is not already an error, the value is recorded in the error for
 // reference.
-//
 func (v *Vertex) AddChildError(recursive *Bottom) {
 	v.ChildErrors = CombineErrors(nil, v.ChildErrors, recursive)
 	if recursive.IsIncomplete() {
@@ -199,6 +203,40 @@ func CombineErrors(src ast.Node, x, y Value) *Bottom {
 		Src:  src,
 		Err:  errors.Append(a.Err, b.Err),
 		Code: a.Code,
+	}
+}
+
+func NewRequiredNotPresentError(ctx *OpContext, v *Vertex) *Bottom {
+	saved := ctx.PushArc(v)
+	err := ctx.Newf("field is required but not present")
+	for _, c := range v.Conjuncts {
+		if f, ok := c.x.(*Field); ok && f.ArcType == ArcRequired {
+			err.AddPosition(c.x)
+		}
+		if c.CloseInfo.closeInfo != nil {
+			err.AddPosition(c.CloseInfo.location)
+		}
+	}
+
+	b := &Bottom{
+		Code: IncompleteError,
+		Err:  err,
+	}
+	ctx.PopArc(saved)
+	return b
+}
+
+func newRequiredFieldInComprehensionError(ctx *OpContext, x *ForClause, v *Vertex) *Bottom {
+	err := ctx.Newf("missing required field in for comprehension: %v", v.Label)
+	err.AddPosition(x.Src)
+	for _, c := range v.Conjuncts {
+		if f, ok := c.x.(*Field); ok && f.ArcType == ArcRequired {
+			err.AddPosition(c.x)
+		}
+	}
+	return &Bottom{
+		Code: IncompleteError,
+		Err:  err,
 	}
 }
 
@@ -297,7 +335,7 @@ func (c *OpContext) NewPosf(p token.Pos, format string, args ...interface{}) *Va
 		v:       c.errNode(),
 		pos:     p,
 		auxpos:  a,
-		Message: errors.NewMessage(format, args),
+		Message: errors.NewMessagef(format, args...),
 	}
 }
 

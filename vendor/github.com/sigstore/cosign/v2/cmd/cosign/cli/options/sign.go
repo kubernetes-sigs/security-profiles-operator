@@ -21,20 +21,26 @@ import (
 
 // SignOptions is the top level wrapper for the sign command.
 type SignOptions struct {
-	Key               string
-	Cert              string
-	CertChain         string
-	Upload            bool
-	Output            string // deprecated: TODO remove when the output flag is fully deprecated
-	OutputSignature   string // TODO: this should be the root output file arg.
-	OutputCertificate string
-	PayloadPath       string
-	Recursive         bool
-	Attachment        string
-	SkipConfirmation  bool
-	TlogUpload        bool
-	TSAServerURL      string
-	IssueCertificate  bool
+	Key                   string
+	Cert                  string
+	CertChain             string
+	Upload                bool
+	Output                string // deprecated: TODO remove when the output flag is fully deprecated
+	OutputSignature       string // TODO: this should be the root output file arg.
+	OutputPayload         string
+	OutputCertificate     string
+	PayloadPath           string
+	Recursive             bool
+	Attachment            string
+	SkipConfirmation      bool
+	TlogUpload            bool
+	TSAClientCACert       string
+	TSAClientCert         string
+	TSAClientKey          string
+	TSAServerName         string
+	TSAServerURL          string
+	IssueCertificate      bool
+	SignContainerIdentity string
 
 	Rekor       RekorOptions
 	Fulcio      FulcioOptions
@@ -78,6 +84,9 @@ func (o *SignOptions) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.OutputSignature, "output-signature", "",
 		"write the signature to FILE")
 	_ = cmd.Flags().SetAnnotation("output-signature", cobra.BashCompFilenameExt, []string{})
+	cmd.Flags().StringVar(&o.OutputPayload, "output-payload", "",
+		"write the signed payload to FILE")
+	_ = cmd.Flags().SetAnnotation("output-payload", cobra.BashCompFilenameExt, []string{})
 
 	cmd.Flags().StringVar(&o.OutputCertificate, "output-certificate", "",
 		"write the certificate to FILE")
@@ -91,7 +100,7 @@ func (o *SignOptions) AddFlags(cmd *cobra.Command) {
 		"if a multi-arch image is specified, additionally sign each discrete image")
 
 	cmd.Flags().StringVar(&o.Attachment, "attachment", "",
-		"related image attachment to sign (sbom), default none")
+		"DEPRECATED, related image attachment to sign (sbom), default none")
 
 	cmd.Flags().BoolVarP(&o.SkipConfirmation, "yes", "y", false,
 		"skip confirmation prompts for non-destructive operations")
@@ -99,9 +108,26 @@ func (o *SignOptions) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&o.TlogUpload, "tlog-upload", true,
 		"whether or not to upload to the tlog")
 
+	cmd.Flags().StringVar(&o.TSAClientCACert, "timestamp-client-cacert", "",
+		"path to the X.509 CA certificate file in PEM format to be used for the connection to the TSA Server")
+
+	cmd.Flags().StringVar(&o.TSAClientCert, "timestamp-client-cert", "",
+		"path to the X.509 certificate file in PEM format to be used for the connection to the TSA Server")
+
+	cmd.Flags().StringVar(&o.TSAClientKey, "timestamp-client-key", "",
+		"path to the X.509 private key file in PEM format to be used, together with the 'timestamp-client-cert' value, for the connection to the TSA Server")
+
+	cmd.Flags().StringVar(&o.TSAServerName, "timestamp-server-name", "",
+		"SAN name to use as the 'ServerName' tls.Config field to verify the mTLS connection to the TSA Server")
+
 	cmd.Flags().StringVar(&o.TSAServerURL, "timestamp-server-url", "",
 		"url to the Timestamp RFC3161 server, default none. Must be the path to the API to request timestamp responses, e.g. https://freetsa.org/tsr")
 
+	_ = cmd.Flags().SetAnnotation("certificate", cobra.BashCompFilenameExt, []string{"cert"})
+
 	cmd.Flags().BoolVar(&o.IssueCertificate, "issue-certificate", false,
 		"issue a code signing certificate from Fulcio, even if a key is provided")
+
+	cmd.Flags().StringVar(&o.SignContainerIdentity, "sign-container-identity", "",
+		"manually set the .critical.docker-reference field for the signed identity, which is useful when image proxies are being used where the pull reference should match the signature")
 }

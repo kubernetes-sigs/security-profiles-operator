@@ -18,8 +18,11 @@ package artifact
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -86,7 +89,11 @@ func New(logger logr.Logger) *Artifact {
 }
 
 // Push a profile to a remote location.
-func (a *Artifact) Push(file, to, username, password string, annotations map[string]string) error {
+func (a *Artifact) Push(
+	files map[*v1.Platform]string,
+	to, username, password string,
+	annotations map[string]string,
+) error {
 	dir, err := a.MkdirTemp("", "push-")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
@@ -111,27 +118,41 @@ func (a *Artifact) Push(file, to, username, password string, annotations map[str
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
-	a.logger.Info("Adding profile to store: " + file)
-	absPath, err := a.FilepathAbs(file)
-	if err != nil {
-		return fmt.Errorf("get absoluate file path: %w", err)
+	fileDescriptors := []v1.Descriptor{}
+	a.logger.Info("Adding " + strconv.Itoa(len(files)) + " profiles")
+	for platform, file := range files {
+		a.logger.Info(
+			"Adding profile " + file +
+				" for platform " +
+				platformToString(platform) +
+				" to store",
+		)
+		absPath, err := a.FilepathAbs(file)
+		if err != nil {
+			return fmt.Errorf("get absolute file path: %w", err)
+		}
+		fileDescriptor, err := a.StoreAdd(
+			ctx, store, profileName(platform), "", absPath,
+		)
+		if err != nil {
+			return fmt.Errorf("add profile to store: %w", err)
+		}
+		for k, v := range annotations {
+			fileDescriptor.Annotations[k] = v
+		}
+		fileDescriptor.Platform = platform
+		fileDescriptors = append(fileDescriptors, fileDescriptor)
 	}
-	fileDescriptor, err := a.StoreAdd(
-		ctx, store, defaultProfileYAML, "", absPath,
-	)
-	if err != nil {
-		return fmt.Errorf("add profile to store: %w", err)
-	}
-	for k, v := range annotations {
-		fileDescriptor.Annotations[k] = v
-	}
-	fileDescriptors := []v1.Descriptor{fileDescriptor}
 
 	a.logger.Info("Packing files")
-	manifestDescriptor, err := a.Pack(
-		ctx, store, "",
-		fileDescriptors,
-		oras.PackOptions{PackImageManifest: true},
+	manifestDescriptor, err := a.PackManifest(
+		ctx,
+		store,
+		oras.PackManifestVersion1_1_RC4,
+		oras.MediaTypeUnknownConfig,
+		oras.PackManifestOptions{
+			Layers: fileDescriptors,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("pack files: %w", err)
@@ -176,7 +197,7 @@ func (a *Artifact) Push(file, to, username, password string, annotations map[str
 		return fmt.Errorf("copy to repository: %w", err)
 	}
 
-	a.logger.Info("Signing container image")
+	a.logger.Info("Signing OCI artifact")
 	o := &options.SignOptions{
 		Upload:           true,
 		TlogUpload:       true,
@@ -223,20 +244,27 @@ func (a *Artifact) Push(file, to, username, password string, annotations map[str
 }
 
 // Pull a profile from a remote location.
-func (a *Artifact) Pull(c context.Context, from, username, password string) (*PullResult, error) {
+func (a *Artifact) Pull(
+	c context.Context,
+	from, username, password string,
+	platform *v1.Platform,
+	disableSignatureVerification bool,
+) (*PullResult, error) {
 	ctx, cancel := context.WithTimeout(c, defaultTimeout)
 	defer cancel()
 
-	a.logger.Info("Verifying signature")
-	const all = ".*"
-	v := verify.VerifyCommand{
-		CertVerifyOptions: options.CertVerifyOptions{
-			CertIdentityRegexp:   all,
-			CertOidcIssuerRegexp: all,
-		},
-	}
-	if err := a.VerifyCmd(ctx, v, from); err != nil {
-		return nil, fmt.Errorf("verify signature: %w", err)
+	if !disableSignatureVerification {
+		a.logger.Info("Verifying signature")
+		const all = ".*"
+		v := verify.VerifyCommand{
+			CertVerifyOptions: options.CertVerifyOptions{
+				CertIdentityRegexp:   all,
+				CertOidcIssuerRegexp: all,
+			},
+		}
+		if err := a.VerifyCmd(ctx, v, from); err != nil {
+			return nil, fmt.Errorf("verify signature: %w", err)
+		}
 	}
 
 	dir, err := a.MkdirTemp("", "pull-")
@@ -296,45 +324,94 @@ func (a *Artifact) Pull(c context.Context, from, username, password string) (*Pu
 		return nil, fmt.Errorf("copy from repository: %w", err)
 	}
 
-	a.logger.Info("Reading profile")
-	content, err := a.ReadFile(filepath.Join(dir, defaultProfileYAML))
+	a.logger.Info("Checking profile contents")
+
+	// Allow a fallback to defaultProfileYAML if no platform is available.
+	content := []byte{}
+	for _, name := range []string{profileName(platform), defaultProfileYAML} {
+		a.logger.Info("Trying to read profile: " + name)
+		content, err = a.ReadFile(filepath.Join(dir, name))
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read profile: %w", err)
 	}
 
-	a.logger.Info("Trying to unmarshal seccomp profile")
-	seccompProfile := &seccompprofileapi.SeccompProfile{}
-	err = a.YamlUnmarshal(content, seccompProfile)
-	if err == nil {
+	profile, err := a.ReadProfile(content)
+	if err != nil {
+		return nil, errors.Join(ErrDecodeYAML, err)
+	}
+
+	switch obj := profile.(type) {
+	case *seccompprofileapi.SeccompProfile:
 		return &PullResult{
 			typ:            PullResultTypeSeccompProfile,
-			seccompProfile: seccompProfile,
+			seccompProfile: obj,
 			content:        content,
 		}, nil
-	}
-
-	a.logger.Info("Trying to unmarshal selinux profile")
-	selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
-	err = a.YamlUnmarshal(content, selinuxProfile)
-	if err == nil {
+	case *selinuxprofileapi.SelinuxProfile:
 		return &PullResult{
 			typ:            PullResultTypeSelinuxProfile,
-			selinuxProfile: selinuxProfile,
+			selinuxProfile: obj,
 			content:        content,
 		}, nil
-	}
-
-	a.logger.Info("Trying to unmarshal apparmor profile")
-	apparmorProfile := &apparmorprofileapi.AppArmorProfile{}
-	err = a.YamlUnmarshal(content, apparmorProfile)
-	if err == nil {
+	case *apparmorprofileapi.AppArmorProfile:
 		return &PullResult{
 			typ:             PullResultTypeApparmorProfile,
-			apparmorProfile: apparmorProfile,
+			apparmorProfile: obj,
 			content:         content,
 		}, nil
+	default:
+		return nil, fmt.Errorf("cannot process %T to PullResult", obj)
+	}
+}
+
+// profileName returns the name for the profile based on the platform.
+func profileName(platform *v1.Platform) string {
+	name := strings.Builder{}
+	name.WriteString("profile")
+
+	if platform != nil {
+		for _, part := range []string{
+			platform.OS,
+			platform.Architecture,
+			platform.Variant,
+			platform.OSVersion,
+		} {
+			if part != "" {
+				name.WriteRune('-')
+				name.WriteString(part)
+			}
+		}
 	}
 
-	a.logger.Info("No profile found")
-	return nil, fmt.Errorf("%w: last err: %w", ErrDecodeYAML, err)
+	name.WriteString(".yaml")
+	return name.String()
+}
+
+// platformToString returns a string for the provided platform.
+func platformToString(platform *v1.Platform) string {
+	name := strings.Builder{}
+
+	for i, part := range []string{
+		platform.OS,
+		platform.Architecture,
+		platform.Variant,
+	} {
+		if part != "" {
+			if i > 0 {
+				name.WriteRune('/')
+			}
+			name.WriteString(part)
+		}
+	}
+
+	if platform.OSVersion != "" {
+		name.WriteRune(':')
+		name.WriteString(platform.OSVersion)
+	}
+
+	return name.String()
 }

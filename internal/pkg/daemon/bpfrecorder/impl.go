@@ -58,7 +58,7 @@ type impl interface {
 	NewModuleFromBufferArgs(*bpf.NewModuleArgs) (*bpf.Module, error)
 	BPFLoadObject(*bpf.Module) error
 	GetProgram(*bpf.Module, string) (*bpf.BPFProg, error)
-	AttachTracepoint(*bpf.BPFProg, string, string) (*bpf.BPFLink, error)
+	AttachGeneric(*bpf.BPFProg) (*bpf.BPFLink, error)
 	GetMap(*bpf.Module, string) (*bpf.BPFMap, error)
 	InitRingBuf(*bpf.Module, string, chan []byte) (*bpf.RingBuffer, error)
 	Stat(string) (os.FileInfo, error)
@@ -78,8 +78,8 @@ type impl interface {
 	GetName(seccomp.ScmpSyscall) (string, error)
 	RemoveAll(string) error
 	Chown(string, int, int) error
-	CloseModule(*bpf.BPFMap)
-	StartRingBuffer(*bpf.RingBuffer)
+	CloseModule(*bpf.Module)
+	PollRingBuffer(*bpf.RingBuffer, int)
 	GoArch() string
 	Readlink(string) (string, error)
 	ParseUint(string) (uint32, error)
@@ -124,8 +124,8 @@ func (d *defaultImpl) GetProgram(module *bpf.Module, progName string) (*bpf.BPFP
 	return module.GetProgram(progName)
 }
 
-func (d *defaultImpl) AttachTracepoint(prog *bpf.BPFProg, category, name string) (*bpf.BPFLink, error) {
-	return prog.AttachTracepoint(category, name)
+func (d *defaultImpl) AttachGeneric(prog *bpf.BPFProg) (*bpf.BPFLink, error) {
+	return prog.AttachGeneric()
 }
 
 func (d *defaultImpl) GetMap(module *bpf.Module, mapName string) (*bpf.BPFMap, error) {
@@ -230,12 +230,12 @@ func (d *defaultImpl) GoArch() string {
 	return runtime.GOARCH
 }
 
-func (d *defaultImpl) StartRingBuffer(b *bpf.RingBuffer) {
-	b.Start()
+func (d *defaultImpl) PollRingBuffer(b *bpf.RingBuffer, timeout int) {
+	b.Poll(timeout)
 }
 
-func (d *defaultImpl) CloseModule(m *bpf.BPFMap) {
-	m.GetModule().Close()
+func (d *defaultImpl) CloseModule(m *bpf.Module) {
+	m.Close()
 }
 
 func (d *defaultImpl) Readlink(name string) (string, error) {

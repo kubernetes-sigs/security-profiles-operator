@@ -36,13 +36,17 @@ import (
 //
 // Use
 //
-//    ctx := cuecontext.New()
+//	ctx := cuecontext.New()
 //
 // to create a new Context.
 type Context runtime.Runtime
 
 func (c *Context) runtime() *runtime.Runtime {
 	rt := (*runtime.Runtime)(c)
+	if !rt.IsInitialized() {
+		panic("cue: uninitialized Context: use cuecontext.New instead of zero value")
+	}
+
 	return rt
 }
 
@@ -129,7 +133,7 @@ func (c *Context) BuildInstance(i *build.Instance, options ...BuildOption) Value
 func (c *Context) makeError(err errors.Error) Value {
 	b := &adt.Bottom{Err: err}
 	node := &adt.Vertex{BaseValue: b}
-	node.UpdateStatus(adt.Finalized)
+	node.ForceDone()
 	node.AddConjunct(adt.MakeRootConjunct(nil, b))
 	return c.make(node)
 }
@@ -245,7 +249,10 @@ func (c *Context) CompileBytes(b []byte, options ...BuildOption) Value {
 // }
 
 func (c *Context) make(v *adt.Vertex) Value {
-	return newValueRoot(c.runtime(), newContext(c.runtime()), v)
+	opCtx := newContext(c.runtime())
+	x := newValueRoot(c.runtime(), opCtx, v)
+	adt.AddStats(opCtx)
+	return x
 }
 
 // An EncodeOption defines options for the various encoding-related methods of
@@ -338,9 +345,9 @@ func NilIsAny(isAny bool) EncodeOption {
 // and used as CUE struct field names by applying the following rules, subject
 // to the UTF-8 coercion described for string values above:
 //
-//  - keys of any string type are used directly
-//  - encoding.TextMarshalers are marshaled
-//  - integer keys are converted to strings
+//   - keys of any string type are used directly
+//   - encoding.TextMarshalers are marshaled
+//   - integer keys are converted to strings
 //
 // Pointer values encode as the value pointed to. A nil pointer encodes as the
 // null CUE value.
@@ -352,7 +359,6 @@ func NilIsAny(isAny bool) EncodeOption {
 // Channel, complex, and function values cannot be encoded in CUE. Attempting to
 // encode such a value results in the returned value being an error, accessible
 // through the Err method.
-//
 func (c *Context) Encode(x interface{}, option ...EncodeOption) Value {
 	switch v := x.(type) {
 	case adt.Value:

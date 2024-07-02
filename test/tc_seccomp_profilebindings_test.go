@@ -22,11 +22,11 @@ import (
 	"strings"
 )
 
-func (e *e2e) testCaseSeccompProfileBinding([]string) {
+func (e *e2e) testCaseSeccompProfileBinding(_ []string, image string) {
 	e.seccompOnlyTestCase()
 
 	const exampleProfilePath = "examples/seccompprofile.yaml"
-	const testBinding = `
+	testBinding := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: ProfileBinding
 metadata:
@@ -35,8 +35,8 @@ spec:
   profileRef:
     kind: SeccompProfile
     name: profile-allow-unsafe
-  image: quay.io/security-profiles-operator/test-hello-world:latest
-`
+  image: %s
+`, image)
 	const testPod = `
 apiVersion: v1
 kind: Pod
@@ -115,7 +115,7 @@ spec:
 
 	e.logf("Testing that profile binding has pod reference")
 	output = e.kubectl("get", "profilebinding", "hello-binding", "--output", "jsonpath={.status.activeWorkloads[0]}")
-	e.Equal(fmt.Sprintf("%s/hello", namespace), output)
+	e.Equal(namespace+"/hello", output)
 	output = e.kubectl("get", "profilebinding", "hello-binding", "--output", "jsonpath={.metadata.finalizers[0]}")
 	e.Equal("active-workload-lock", output)
 
@@ -123,7 +123,7 @@ spec:
 	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
 		"--output", "jsonpath={.status.activeWorkloads[0]}")
 
-	e.Equal(fmt.Sprintf("%s/hello", namespace), output)
+	e.Equal(namespace+"/hello", output)
 	output = e.kubectl("get", "seccompprofile", "profile-allow-unsafe",
 		"--output", "jsonpath={.metadata.finalizers}")
 

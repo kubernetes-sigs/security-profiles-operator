@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -x
+set -euox pipefail
 
 OLM_VERSION=v0.18.2
 
@@ -24,7 +24,7 @@ CATALOG_IMG=${REPO}/security-profiles-operator-catalog:v${GITHUB_SHA}
 
 function sp_in_ns() {
     ns=$1
-kubectl create -f - << EOF
+    kubectl create -f - <<EOF
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
@@ -69,11 +69,11 @@ function deploy_deps() {
 
     # cert-manager first. This should be done using dependencies in the
     # future
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.1/cert-manager.yaml
-    kubectl -ncert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.2/cert-manager.yaml
+    kubectl_wait -ncert-manager --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # All installation methods run off the same catalog
-    sed -i "s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.8.1#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
+    sed -i "s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.8.4#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
 
 }
 
@@ -81,7 +81,7 @@ function deploy_spo_in_custom_ns() {
     ns=$1
     manifests=examples/olm/custom-install-resources.yaml
 
-cat << EOF > $manifests
+    cat <<EOF >$manifests
 ---
 apiVersion: v1
 kind: Namespace
@@ -118,17 +118,17 @@ metadata:
   namespace: $ns
 EOF
 
-echo "Installing manifest for custom ns installation.."
-cat $manifests
+    echo "Installing manifest for custom ns installation.."
+    cat $manifests
 
-kubectl create -f $manifests
+    kubectl create -f $manifests
 }
 
 function deploy_spo_with_variable() {
     variable=$1
     manifests=examples/olm/$variable-install-resources.yaml
 
-cat << EOF > $manifests
+    cat <<EOF >$manifests
 ---
 apiVersion: v1
 kind: Namespace
@@ -181,23 +181,22 @@ function deploy_spo() {
     cp examples/olm/install-resources.yaml $manifests
 
     case $installation_method in
-    all)
-        ;;
+    all) ;;
     own)
         echo "spec:
   targetNamespaces:
-  - security-profiles-operator" >> $manifests
+  - security-profiles-operator" >>$manifests
         ;;
     single)
         echo "spec:
   targetNamespaces:
-  - spo-sp-ns" >> $manifests
+  - spo-sp-ns" >>$manifests
         ;;
     multi)
         echo "spec:
   targetNamespaces:
   - sp-test-1
-  - sp-test-2" >> $manifests
+  - sp-test-2" >>$manifests
         ;;
     esac
 
@@ -205,6 +204,34 @@ function deploy_spo() {
     kubectl create -f $manifests
 }
 
+function try_until_ok() {
+    { set +x; } 2>/dev/null  # disable trace output temporarily
+
+    local cmd="$1"
+    shift  # Remove the command from the argument list
+
+    # retry until it succeeds or until time is up
+    local end_time=$(($(date +%s) + 180))
+    while (( $(date +%s) < end_time )); do
+        local cmd_start_time=$(date +%s)
+        if "$cmd" "$@" 1>/dev/null 2>/dev/null; then
+            break
+        fi
+        if (( $(date +%s) == $cmd_start_time )); then
+            sleep 1
+        fi
+    done
+
+    set -x
+    # run one final time with all output enabled
+    "$cmd" "$@"
+}
+
+function kubectl_wait() {
+    # kubectl wait for non-existent resource seems to exit with error, which is causing random test failures.
+    # see https://github.com/kubernetes/kubernetes/issues/83242
+    try_until_ok kubectl wait --timeout 1s "$@"
+}
 
 function check_spo_is_running() {
     ns=$1
@@ -213,7 +240,7 @@ function check_spo_is_running() {
     # because on transient errors (which are for some reason common even
     # if the catalog is local) the pod gets restarted
     for i in $(seq 1 5); do
-        kubectl -nolm wait --for=condition=ready pods -lolm.catalogSource=security-profiles-operator
+        kubectl_wait -nolm --for=condition=ready pods -lolm.catalogSource=security-profiles-operator
         install_rv=$?
         if [ $install_rv -ne 0 ]; then
             catalog_logs=$(kubectl -nolm logs $(kubectl -nolm get pods --no-headers -lolm.catalogSource=security-profiles-operator | awk '{print $1}') 2>/dev/null)
@@ -225,39 +252,19 @@ function check_spo_is_running() {
     done
 
     # wait a bit for CSV to appear
-    # (jhrozek): I didn't find a useful condition or status to wait for..
-    # ..if only there was a way to check if ANY installedCSV is set..
-    sleep 30
-    CSV=$(kubectl -n$ns get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}')
+    CSV=$(try_until_ok kubectl -n$ns get sub security-profiles-operator-sub -ojsonpath='{.status.installedCSV}')
+
     # wait for the CSV to be actually installed
-    kubectl -n$ns wait --for=jsonpath='{.status.phase}'=Succeeded csv $CSV
+    kubectl_wait -n$ns --for=jsonpath='{.status.phase}'=Succeeded csv $CSV
 
     # wait for the operator to be ready
-    kubectl -n$ns wait --for=condition=ready pod -lname=security-profiles-operator || return 1
+    kubectl_wait -n$ns --for=condition=ready pod -lname=security-profiles-operator || return 1
 
-    # wait for webhook deploy to be created, kubectl wait for non-existent resource seems to exit with error
-    # which is causing random test failure
-    # see https://github.com/kubernetes/kubernetes/issues/83242
-    for i in $(seq 1 10); do
-        found=$(kubectl -n$ns wait --for=condition=ready pod -lname=security-profiles-operator-webhook 2>/dev/null)
-        if [[ $found ]]; then
-            break
-        fi
-        sleep 5
-    done
-    kubectl -n$ns wait --for=condition=ready pod -lname=security-profiles-operator-webhook || return 1
+    # wait for webhook deploy to be created
+    kubectl_wait -n$ns --for=condition=ready pod -lname=security-profiles-operator-webhook || return 1
 
-    # wait for spod pod to be created, kubectl wait for non-existent resource seems to exit with error
-    # which is causing random test failure
-    # see https://github.com/kubernetes/kubernetes/issues/83242
-    for i in $(seq 1 10); do
-        found=$(kubectl get -n$ns pods -lname=spod 2>/dev/null)
-        if [[ $found ]]; then
-            break
-        fi
-        sleep 5
-    done
-    kubectl -n$ns wait --for=condition=ready pod -lname=spod || return 1
+    # wait for spod pod to be created
+    kubectl_wait -n$ns --for=condition=ready pod -lname=spod || return 1
 
     return 0
 }
@@ -275,15 +282,14 @@ function assert_spo_csv_copied_to() {
     [[ $(kubectl get csv -lolm.copiedFrom=$from -n$ns -oname) ]] || return 1
 }
 
-
 function smoke_test_all() {
     kubectl create ns sp-test-1
     sp_in_ns sp-test-1
-    kubectl wait --for=condition=ready -nsp-test-1 sp log-all || return 1
+    kubectl_wait --for=condition=ready -nsp-test-1 sp log-all || return 1
 
     kubectl create ns sp-test-2
     sp_in_ns sp-test-2
-    kubectl wait --for=condition=ready -nsp-test-2 sp log-all || return 1
+    kubectl_wait --for=condition=ready -nsp-test-2 sp log-all || return 1
 
     kubectl delete sp --all --all-namespaces
     kubectl delete ns sp-test-{1,2}
@@ -298,11 +304,11 @@ function smoke_test_all() {
 
 function smoke_test_own() {
     sp_in_ns security-profiles-operator
-    kubectl wait --for=condition=ready -nsecurity-profiles-operator sp log-all || return 1
+    kubectl_wait --for=condition=ready -nsecurity-profiles-operator sp log-all || return 1
 
     kubectl create ns sp-test-neg
     sp_in_ns sp-test-neg
-    kubectl wait --for=condition=ready -nsp-test-neg sp log-all && return 1
+    kubectl_wait --for=condition=ready -nsp-test-neg sp log-all && return 1
 
     kubectl delete sp --all --all-namespaces
     kubectl delete ns sp-test-neg
@@ -318,15 +324,15 @@ function smoke_test_own() {
 function smoke_test_single() {
     kubectl create ns spo-sp-ns
     sp_in_ns spo-sp-ns
-    kubectl wait --for=condition=ready -nspo-sp-ns sp log-all || return 1
+    kubectl_wait --for=condition=ready -nspo-sp-ns sp log-all || return 1
 
     kubectl create ns sp-test-neg
     sp_in_ns sp-test-neg
-    kubectl wait --for=condition=ready -nsp-test-neg sp log-all && return 1
+    kubectl_wait --for=condition=ready -nsp-test-neg sp log-all && return 1
 
     # SPO always adds its own ns regardless even if not watched explicitly
     sp_in_ns security-profiles-operator
-    kubectl wait --for=condition=ready -nsecurity-profiles-operator sp log-all || return 1
+    kubectl_wait --for=condition=ready -nsecurity-profiles-operator sp log-all || return 1
 
     kubectl delete sp --all --all-namespaces
     kubectl delete ns spo-sp-ns sp-test-neg
@@ -342,20 +348,20 @@ function smoke_test_single() {
 function smoke_test_multi() {
     kubectl create ns sp-test-1
     sp_in_ns sp-test-1
-    kubectl wait --for=condition=ready -nsp-test-1 sp log-all || return 1
+    kubectl_wait --for=condition=ready -nsp-test-1 sp log-all || return 1
 
     kubectl create ns sp-test-2
     sp_in_ns sp-test-2
-    kubectl wait --for=condition=ready -nsp-test-2 sp log-all || return 1
+    kubectl_wait --for=condition=ready -nsp-test-2 sp log-all || return 1
 
     # SPO always adds its own ns regardless even if not watched explicitly
     sp_in_ns security-profiles-operator
-    kubectl wait --for=condition=ready -nsecurity-profiles-operator sp log-all || return 1
+    kubectl_wait --for=condition=ready -nsecurity-profiles-operator sp log-all || return 1
 
     # negative test, we listen for sp-test-{1,2} only
     kubectl create ns sp-test-3
     sp_in_ns sp-test-3
-    kubectl wait --for=condition=ready -nsp-test-3 sp log-all && return 1
+    kubectl_wait --for=condition=ready -nsp-test-3 sp log-all && return 1
 
     kubectl delete sp --all --all-namespaces
     kubectl delete ns sp-test-{1,2,3}
@@ -371,14 +377,14 @@ function smoke_test_multi() {
 function smoke_test_custom() {
     kubectl create ns sp-test-1
     sp_in_ns sp-test-1
-    kubectl wait --for=condition=ready -nsp-test-1 sp log-all || return 1
+    kubectl_wait --for=condition=ready -nsp-test-1 sp log-all || return 1
 
     kubectl create ns sp-test-2
     sp_in_ns sp-test-2
-    kubectl wait --for=condition=ready -nsp-test-2 sp log-all || return 1
+    kubectl_wait --for=condition=ready -nsp-test-2 sp log-all || return 1
 
     sp_in_ns spo-lives-here
-    kubectl wait --for=condition=ready -nspo-lives-here sp log-all || return 1
+    kubectl_wait --for=condition=ready -nspo-lives-here sp log-all || return 1
 
     kubectl delete sp --all --all-namespaces
     kubectl delete ns sp-test-1 sp-test-2
@@ -413,18 +419,7 @@ function teardown_spo() {
 
 function check_spod_property() {
     what=$1
-
-    for i in $(seq 1 5); do
-        kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what
-        found=$?
-        if [ $found -ne 0 ]; then
-            sleep 3
-        else
-            break
-        fi
-    done
-
-    kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what || return 1
+    try_until_ok kubectl -nsecurity-profiles-operator get ds spod -oyaml | grep $what
 }
 
 # The actual script begins here
@@ -461,13 +456,13 @@ teardown_spo custom
 echo "Testing SPO deployment with ENABLE_LOG_ENRICHER"
 deploy_spo_with_variable ENABLE_LOG_ENRICHER || rv=1
 check_spo_is_running security-profiles-operator || rv=1
-check_spod_property with-recording=true
+check_spod_property with-recording=true || rv=1
 teardown_spo ENABLE_LOG_ENRICHER
 
 echo "Testing SPO deployment with ENABLE_BPF_RECORDER"
 deploy_spo_with_variable ENABLE_BPF_RECORDER || rv=1
 check_spo_is_running security-profiles-operator || rv=1
-check_spod_property with-recording=true
+check_spod_property with-recording=true || rv=1
 teardown_spo ENABLE_BPF_RECORDER
 
 exit $rv

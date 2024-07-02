@@ -25,7 +25,7 @@ import (
 
 // VertexFeatures returns the feature list of v. The list may include more
 // features than for which there are arcs and also includes features for
-// optional fields. It assumes the Structs fields is properly initialized.
+// optional fields. It assumes the Structs fields are initialized and evaluated.
 func VertexFeatures(c *adt.OpContext, v *adt.Vertex) []adt.Feature {
 	sets := extractFeatures(v.Structs)
 	m := sortArcs(sets) // TODO: use for convenience.
@@ -51,49 +51,12 @@ func VertexFeatures(c *adt.OpContext, v *adt.Vertex) []adt.Feature {
 	return a
 }
 
-// func structFeatures(a []*adt.StructLit) []adt.Feature {
-// 	sets := extractFeatures(a)
-// 	return sortedArcs(sets)
-// }
-
-func (e *exporter) sortedArcs(v *adt.Vertex) (sorted []*adt.Vertex) {
-	if adt.DebugSort > 0 {
-		return v.Arcs
-	}
-
-	a := extractFeatures(v.Structs)
-	if len(a) == 0 {
-		return v.Arcs
-	}
-
-	sorted = make([]*adt.Vertex, len(v.Arcs))
-	copy(sorted, v.Arcs)
-
-	m := sortArcs(a)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		if m[sorted[i].Label] == 0 {
-			return m[sorted[j].Label] != 0
-		}
-		return m[sorted[i].Label] > m[sorted[j].Label]
-	})
-
-	return sorted
-}
-
-// TODO: remove
-func (e *exporter) extractFeatures(in []*adt.StructInfo) (a [][]adt.Feature) {
-	return extractFeatures(in)
-}
-
 func extractFeatures(in []*adt.StructInfo) (a [][]adt.Feature) {
 	for _, s := range in {
 		sorted := []adt.Feature{}
 		for _, e := range s.StructLit.Decls {
 			switch x := e.(type) {
 			case *adt.Field:
-				sorted = append(sorted, x.Label)
-
-			case *adt.OptionalField:
 				sorted = append(sorted, x.Label)
 			}
 		}

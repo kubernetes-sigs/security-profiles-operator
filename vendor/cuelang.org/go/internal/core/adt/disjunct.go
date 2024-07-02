@@ -119,19 +119,26 @@ func (n *nodeContext) addDisjunctionValue(env *Environment, x *Disjunction, clon
 }
 
 func (n *nodeContext) expandDisjuncts(
-	state VertexStatus,
+	state vertexStatus,
 	parent *nodeContext,
 	parentMode defaultMode, // default mode of this disjunct
 	recursive, last bool) {
 
-	n.ctx.stats.DisjunctCount++
+	n.ctx.stats.Disjuncts++
+
+	// refNode is used to collect cyclicReferences for all disjuncts to be
+	// passed up to the parent node. Note that because the node in the parent
+	// context is overwritten in the course of expanding disjunction to retain
+	// pointer identity, it is not possible to simply record the refNodes in the
+	// parent directly.
+	var refNode *RefNode
 
 	node := n.node
 	defer func() {
 		n.node = node
 	}()
 
-	for n.expandOne() {
+	for n.expandOne(partial) {
 	}
 
 	// save node to snapShot in nodeContex
@@ -167,9 +174,6 @@ func (n *nodeContext) expandDisjuncts(
 				// Perhaps introduce an Err() method.
 				err = x.ChildErrors
 			}
-			if err.IsIncomplete() {
-				break
-			}
 			if err != nil {
 				parent.disjunctErrs = append(parent.disjunctErrs, err)
 			}
@@ -186,7 +190,7 @@ func (n *nodeContext) expandDisjuncts(
 			n.disjuncts = append(n.disjuncts, n)
 		}
 		if n.node.BaseValue == nil {
-			n.node.BaseValue = n.getValidators()
+			n.node.BaseValue = n.getValidators(state)
 		}
 
 		n.usedDefault = append(n.usedDefault, defaultInfo{
@@ -198,7 +202,7 @@ func (n *nodeContext) expandDisjuncts(
 	case len(n.disjunctions) > 0:
 		// Process full disjuncts to ensure that erroneous disjuncts are
 		// eliminated as early as possible.
-		state = Finalized
+		state = finalized
 
 		n.disjuncts = append(n.disjuncts, n)
 
@@ -225,11 +229,22 @@ func (n *nodeContext) expandDisjuncts(
 						cn.node.state = cn
 
 						c := MakeConjunct(d.env, v.Val, d.cloneID)
-						cn.addExprConjunct(c)
+						cn.addExprConjunct(c, state)
 
 						newMode := mode(d.hasDefaults, v.Default)
 
 						cn.expandDisjuncts(state, n, newMode, true, last)
+
+						// Record the cyclicReferences of the conjunct in the
+						// parent list.
+						// TODO: avoid the copy. It should be okay to "steal"
+						// this list and avoid the copy. But this change is best
+						// done in a separate CL.
+						for r := n.node.cyclicReferences; r != nil; r = r.Next {
+							s := *r
+							s.Next = refNode
+							refNode = &s
+						}
 					}
 
 				case d.value != nil:
@@ -243,6 +258,13 @@ func (n *nodeContext) expandDisjuncts(
 						newMode := mode(d.hasDefaults, i < d.value.NumDefaults)
 
 						cn.expandDisjuncts(state, n, newMode, true, last)
+
+						// See comment above.
+						for r := n.node.cyclicReferences; r != nil; r = r.Next {
+							s := *r
+							s.Next = refNode
+							refNode = &s
+						}
 					}
 				}
 			}
@@ -351,7 +373,7 @@ func (n *nodeContext) expandDisjuncts(
 		// the value was scalar before, we drop this information when there is
 		// only one disjunct, while not discarding hard defaults. TODO: a more
 		// principled approach would be to recognize that there is only one
-		// default at a point where this does not break commutativity. if
+		// default at a point where this does not break commutativity.
 		// if len(n.disjuncts) == 1 && n.disjuncts[0].defaultMode != isDefault {
 		// 	n.disjuncts[0].defaultMode = maybeDefault
 		// }
@@ -366,6 +388,15 @@ func (n *nodeContext) expandDisjuncts(
 	outer:
 		for _, d := range n.disjuncts {
 			for k, v := range p.disjuncts {
+				// As long as a vertex isn't finalized, it may be that potential
+				// errors are not yet detected. This may lead two structs that
+				// are identical except for closedness information,
+				// for instance, to appear identical.
+				if v.result.status < finalized || d.result.status < finalized {
+					break
+				}
+				// Even if a node is finalized, it may still have an
+				// "incomplete" component that may change down the line.
 				if !d.done() || !v.done() {
 					break
 				}
@@ -393,6 +424,14 @@ func (n *nodeContext) expandDisjuncts(
 
 		n.disjuncts = n.disjuncts[:0]
 	}
+
+	// Record the refNodes in the parent.
+	for r := refNode; r != nil; {
+		next := r.Next
+		r.Next = parent.node.cyclicReferences
+		parent.node.cyclicReferences = r
+		r = next
+	}
 }
 
 func (n *nodeContext) makeError() {
@@ -411,7 +450,7 @@ func (n *nodeContext) makeError() {
 		Code: code,
 		Err:  n.disjunctError(),
 	}
-	n.node.SetValue(n.ctx, Finalized, b)
+	n.node.SetValue(n.ctx, b)
 }
 
 func mode(hasDefault, marked bool) defaultMode {
@@ -442,7 +481,7 @@ func clone(v Vertex) Vertex {
 		v.Arcs = make([]*Vertex, len(a))
 		for i, arc := range a {
 			switch arc.status {
-			case Finalized:
+			case finalized:
 				v.Arcs[i] = arc
 
 			case 0:
@@ -528,11 +567,13 @@ func (n *nodeContext) disjunctError() (errs errors.Error) {
 	} else {
 		disjuncts = errors.Sanitize(disjuncts)
 		k := len(errors.Errors(disjuncts))
+		if k == 1 {
+			return disjuncts
+		}
 		// prefix '-' to sort to top
 		errs = ctx.Newf("%d errors in empty disjunction:", k)
+		errs = errors.Append(errs, disjuncts)
 	}
-
-	errs = errors.Append(errs, disjuncts)
 
 	return errs
 }

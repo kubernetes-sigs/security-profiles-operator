@@ -14,11 +14,7 @@
 
 package file
 
-//go:generate go run gen.go
-//go:generate gofmt -s -w .
-
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -59,7 +55,7 @@ func (c *cmdRead) Run(ctx *task.Context) (res interface{}, err error) {
 		return nil, ctx.Err
 	}
 
-	b, err := ioutil.ReadFile(filename)
+	b, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +102,7 @@ func (c *cmdCreate) Run(ctx *task.Context) (res interface{}, err error) {
 		return nil, ctx.Err
 	}
 
-	return nil, ioutil.WriteFile(filename, b, os.FileMode(mode))
+	return nil, os.WriteFile(filename, b, os.FileMode(mode))
 }
 
 func (c *cmdGlob) Run(ctx *task.Context) (res interface{}, err error) {

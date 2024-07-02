@@ -1,7 +1,6 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
@@ -32,6 +31,7 @@
     - [Log enricher based recording](#log-enricher-based-recording)
     - [eBPF based recording](#ebpf-based-recording)
     - [Merging per-container profile instances](#merging-per-container-profile-instances)
+    - [Recording profiles without applying them](#recording-profiles-without-applying-them)
     - [Disable profile recording](#disable-profile-recording)
 - [Create a SELinux Profile](#create-a-selinux-profile)
   - [Apply a SELinux profile to a pod](#apply-a-selinux-profile-to-a-pod)
@@ -59,6 +59,7 @@
   - [Run commands with seccomp profiles](#run-commands-with-seccomp-profiles)
   - [Pull security profiles from OCI registries](#pull-security-profiles-from-oci-registries)
   - [Push security profiles to OCI registries](#push-security-profiles-to-oci-registries)
+  - [Using multiple platforms](#using-multiple-platforms)
 - [Uninstalling](#uninstalling)
 <!-- /toc -->
 
@@ -80,6 +81,9 @@ The feature scope of the security-profiles-operator is right now limited to:
 
 ## Tutorials and Demos
 
+- [Improving Containers Isolation in Kubernetes](https://www.youtube.com/watch?v=Padw5duODy4&list=PLbzoR-pLrL6prBc8UnTQ9wI3BvFYp17Xp&index=8)
+  from @ccojocar - May 2023
+
 - [Using the EBPF Superpowers To Generate Kubernetes Security Policies](https://youtu.be/3dysej_Ydcw)
   from [@mauriciovasquezbernal](https://github.com/mauriciovasquezbernal) and [@alban](https://github.com/alban) - Oct 2022
 
@@ -100,7 +104,7 @@ cert-manager via `kubectl`, if you're **not** running on
 [OpenShift](https://www.redhat.com/en/technologies/cloud-computing/openshift):
 
 ```sh
-$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.1/cert-manager.yaml
+$ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.2/cert-manager.yaml
 $ kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 ```
 
@@ -184,7 +188,7 @@ You may also specify a different target namespace with `--namespace mynamespace`
 ```shell
 # Install cert-manager if it is not already installed (TODO: The helm
 # chart might do this one day - see issue 1062 for details):
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.2/cert-manager.yaml
 kubectl --namespace cert-manager wait --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
 # Create the namespace beforehand
@@ -282,7 +286,7 @@ in the SPOD configuration by setting a value in the `priorityClassName` filed.
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
-This is useful in situations when the spod deamon pod remains in `Pending` state, because there isn't enough capacity on the related
+This is useful in situations when the spod daemon pod remains in `Pending` state, because there isn't enough capacity on the related
 node to be scheduled.
 
 ## Set logging verbosity
@@ -305,7 +309,7 @@ I1111 15:13:16.942837       1 main.go:182]  "msg"="Set logging verbosity to 1"
 
 ## Pull images from private registry
 
-The container images from spod pod can be pulled from a private registry. This can be achived by defining the `imagePullSecrets`
+The container images from spod pod can be pulled from a private registry. This can be achieved by defining the `imagePullSecrets`
 inside of the SPOD configuration.
 
 ## Configure the SELinux type
@@ -515,7 +519,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.1.5
+  baseProfileName: runc-v1.1.12
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -551,14 +555,17 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.5
+  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.1.12
 ```
 
 The resulting profile `profile1` will then contain all base syscalls from the
 remote `runc` profile. It is also possible to reference the base profile by its
 SHA256, like `oci://ghcr.io/security-profiles/runc@sha256:380…`. Please note
 that all profiles must be signed using [sigstore (cosign)](https://github.com/sigstore/cosign)
-signatures, otherwise the Security Profiles Operator will reject them.
+signatures, otherwise the Security Profiles Operator will reject them. The OCI
+artifact profiles also support different architectures, where the operator
+always tries to select the correct one via `runtime.GOOS`/`runtime.GOARCH` but
+also allows to fallback to a default profile.
 
 The operator internally caches pulled artifacts up to 24 hours for 1000
 profiles, means that they will be refreshed after that time period, if the stack
@@ -622,6 +629,21 @@ spec:
     kind: SeccompProfile
     name: profile-complain
   image: nginx:1.19.1
+```
+
+You can enable a default profile binding by using the string "*" as the image name.
+This will only apply a profile binding if no other profile binding matches a container in the pod.
+
+```yaml
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileBinding
+metadata:
+  name: nginx-binding
+spec:
+  profileRef:
+    kind: SeccompProfile
+    name: profile-complain
+  image: *
 ```
 
 If the Pod is already running, it will need to be restarted in order to pick up
@@ -699,7 +721,7 @@ my-pod   2/2     Running   0          18s
 Then the enricher should indicate that it receives audit logs for those containers:
 
 ```
-> kubectl -n security-profiles-operator logs --since=1m --selector name=spod log-enricher
+> kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c log-enricher
 …
 I0705 12:08:18.729660 1843190 enricher.go:136] log-enricher "msg"="audit"  "container"="redis" "executable"="/usr/local/bin/redis-server" "namespace"="default" "node"="127.0.0.1" "pid"=1847839 "pod"="my-pod" "syscallID"=232 "syscallName"="epoll_wait" "timestamp"="1625486870.273:187492" "type"="seccomp"
 ```
@@ -826,7 +848,7 @@ my-pod   1/1     Running   0          10s
 Then the BPF recorder should indicate that it found the container:
 
 ```
-> kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c log-enricher
+> kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c bpf-recorder
 …
 I1115 12:12:30.029216   66106 bpfrecorder.go:654] bpf-recorder "msg"="Found container ID in cluster"  "containerID"="c2e10af47011f6a61cd7e92073db2711796f174af35b34486967588ef7f95fbc" "containerName"="nginx"
 I1115 12:12:30.029264   66106 bpfrecorder.go:539] bpf-recorder "msg"="Saving PID for profile"  "mntns"=4026533352 "pid"=74384 "profile"="my-recording-nginx-1636978341"
@@ -923,7 +945,7 @@ To record the individual profiles, delete the deployment:
 ```
 
 The profiles will be reconciled, one per container. Note that the profiles are marked as
-"partial" and the spod deamon instances do not reconcile the profiles.
+"partial" and the spod daemon instances do not reconcile the profiles.
 
 ```bash
 > kubectl get sp -lspo.x-k8s.io/recording-id=test-recording --show-labels
@@ -968,6 +990,25 @@ including the `mknod` syscall:
 > kubectl get sp test-recording-nginx-record -o yaml | grep mknod
   - mknod
 ```
+
+#### Recording profiles without applying them
+
+In some cases, it might be desirable to record security profiles, but not install them.
+Use-cases might include recording profiles in a CI system where the profiles would be
+deployed in a subsequent verify run or recording profiles as part of a build process where the
+profile would be deployed by the end-user.
+
+To record profiles without installing them, set the `disableProfileAfterRecording`
+attribute to `true` in the `ProfileRecording` CR.  This option defaults to `false`, which
+is the default behavior of the operator to install the profiles. When `disableProfileAfterRecording`
+is set to `true`, the operator will not reconcile the profiles and will not install them. Partial
+disabled profiles can still be merged and the resulting merged profile will be disabled.
+
+On the profile level, this functionality is controlled by the `disabled` flag - it is also possible
+to create profile CRs disabled, although this functionality is probably less interesting to end users
+and is mostly used for testing purposes. The `disabled` flag is set to `false` by default. Profiles
+that are disabled, either explicitly or by the `disableProfileAfterRecording` flag, can be enabled 
+by setting the `disabled` flag to `false` in the profile CR.
 
 #### Disable profile recording
 
@@ -1300,7 +1341,7 @@ use the log enrichment feature:
   `/var/log/audit/audit.log`
 - [syslog][syslog] can be used as fallback to auditd and needs to log into
   `/var/log/syslog`. Depending on the system configuration, a printk rate limiting may be
-  in place which has direct influence on the log enrichment. To diable the rate
+  in place which has direct influence on the log enrichment. To disable the rate
   limiting, set the following sysctls:
   ```
   > sysctl -w kernel.printk_ratelimit=0
@@ -1320,9 +1361,9 @@ securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 
 Alternatively, make sure the operator deployment sets the `ENABLE_LOG_ENRICHER` variable,
 to `true`, either by setting the environment variable in the deployment or by enabling
-the variable trough a `Subscription` resource, when installing the operator using OLM
-(see [Restricting the operator to specific nodes](#restricting-the-operator-to-specific-nodes)
-for an example of setting another variable).
+the variable trough a `Subscription` resource, when installing the operator using OLM.
+See [Constrain spod scheduling](#constrain-spod-scheduling) for an example of
+setting `tolerations` and `affinity` on the SPOD.
 
 Now the operator will take care of re-deploying the `spod` DaemonSet and the
 enricher should listening on new changes to the audit logs:
@@ -1333,7 +1374,7 @@ I0623 12:51:04.257814 1854764 deleg.go:130] setup "msg"="starting component: log
 I0623 12:51:04.257890 1854764 enricher.go:44] log-enricher "msg"="Starting log-enricher on node: 127.0.0.1"
 I0623 12:51:04.257898 1854764 enricher.go:46] log-enricher "msg"="Connecting to local GRPC server"
 I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from file /var/log/audit/audit.log"
-2021/06/23 12:51:04 Seeked /var/log/audit/audit.log - &{Offset:0 Whence:2}
+2021/06/23 12:51:04 Sought /var/log/audit/audit.log - &{Offset:0 Whence:2}
 ```
 
 To be able to trace an application, we have to create a logging profile like this:
@@ -1541,7 +1582,7 @@ go tool pprof http://$PODIP:6060/debug/pprof/profile?seconds=30
 
 Note that selinuxd, if enabled, doesn't set up a HTTP listener, but only
 listens on a UNIX socket shared between selinuxd and the `spod` DS pod.
-Nonetheless, this socket can be used to reach the profiling enpoint as
+Nonetheless, this socket can be used to reach the profiling endpoint as
 well:
 
 ```
@@ -1879,7 +1920,7 @@ raw-seccomp`:
 }
 ```
 
-All commands are interruptable by using Ctrl^C, while `spoc record` will still
+All commands are interruptible by using Ctrl^C, while `spoc record` will still
 write the resulting seccomp profile after process terminating.
 
 ### Run commands with seccomp profiles
@@ -1921,18 +1962,18 @@ The `spoc` client is able to pull security profiles from OCI artifact compatible
 registries. To do that, just run `spoc pull`:
 
 ```console
-> spoc pull ghcr.io/security-profiles/runc:v1.1.4
-16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.4
+> spoc pull ghcr.io/security-profiles/runc:v1.1.12
+16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.12
 16:32:29.795610 Verifying signature
 
-Verification for ghcr.io/security-profiles/runc:v1.1.4 --
+Verification for ghcr.io/security-profiles/runc:v1.1.12 --
 The following checks were performed on each of these signatures:
   - Existence of the claims in the transparency log was verified offline
   - The code-signing certificate was verified using trusted certificate authority certificates
 
 [{"critical":{"identity":{"docker-reference":"ghcr.io/security-profiles/runc"},…}}]
 16:32:33.208695 Creating file store in: /tmp/pull-3199397214
-16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.1.4
+16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.1.12
 16:32:33.208718 Creating repository for ghcr.io/security-profiles/runc
 16:32:33.208742 Using tag: v1.1.4
 16:32:33.208743 Copying profile from repository
@@ -1985,6 +2026,114 @@ We can specify an username and password in the same way as for `spoc pull`.
 Please also note that signing is always required for push and pull. It is
 possible to add custom annotations to the security profile by using the
 `--annotations` / `-a` flag multiple times in `KEY:VALUE` format.
+
+### Using multiple platforms
+
+`spoc push` supports specifying the target platforms for the profiles to be
+pushed. This can be done by using the `--platforms` / `-p` together with the
+`--profiles` / `-p` flag. For example, to push two profiles into one artifact:
+
+```
+> spoc push -f ./profile-amd64.yaml -p linux/amd64 -f ./profile-arm64.yaml -p linux/arm64 ghcr.io/security-profiles/test:latest
+10:59:17.887884 Pushing profiles to: ghcr.io/security-profiles/test:latest
+10:59:17.887970 Creating file store in: /tmp/push-2265359353
+10:59:17.887989 Adding 2 profiles
+10:59:17.887995 Adding profile ./profile-arm64.yaml for platform linux/arm64 to store
+10:59:17.888193 Adding profile ./profile-amd64.yaml for platform linux/amd64 to store
+10:59:17.888240 Packing files
+…
+Pushing signature to: ghcr.io/security-profiles/test
+```
+
+The pushed artifact now contains both profiles, separated by their platform:
+
+```
+> skopeo inspect --raw docker://ghcr.io/security-profiles/test:latest | jq .
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "config": {
+    "mediaType": "application/vnd.unknown.config.v1+json",
+    "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "size": 2
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar",
+      "digest": "sha256:6ddecdf312758a19ec788c3984418541274b3c9daf2b10f687d847bc283b391b",
+      "size": 1167,
+      "annotations": {
+        "org.opencontainers.image.title": "profile-linux-arm64.yaml"
+      },
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    },
+    {
+      "mediaType": "application/vnd.oci.image.layer.v1.tar",
+      "digest": "sha256:6ddecdf312758a19ec788c3984418541274b3c9daf2b10f687d847bc283b391b",
+      "size": 1167,
+      "annotations": {
+        "org.opencontainers.image.title": "profile-linux-amd64.yaml"
+      },
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      }
+    }
+  ],
+  "annotations": {
+    "org.opencontainers.image.created": "2023-04-28T08:59:17Z"
+  }
+}
+```
+
+There are a few fallback scenarios included in the CLI:
+
+- If neither a platform nor a input file is specified, then `spoc` will fallback
+  to the default profile (`/tmp/profile.yaml`) and platform
+  (`runtime.GOOS`/`runtime.GOARCH`).
+- If only one platform is specified, then `spoc` will apply it and use the
+  default profile.
+- If only one input file is specified, then `spoc` will apply it and use the
+  default platform.
+- If multiple platforms and input files are provided, then `spoc` requires them
+  to match their occurrences. Platforms have to be unique as well.
+
+The Security Profiles Operator will try to pull the correct profile by using
+`runtime.GOOS`/`runtime.GOARCH`, but also falls back to the default profile
+(without any platform specified), if it exists. `spoc pull` behaves in the same
+way, for example if a profile does not support any platform:
+
+```
+> spoc pull ghcr.io/security-profiles/runc:v1.1.12
+11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.1.12
+11:07:14.788852 Verifying signature
+…
+11:07:17.559037 Copying profile from repository
+11:07:18.359152 Trying to read profile: profile-linux-amd64.yaml
+11:07:18.359209 Trying to read profile: profile.yaml
+11:07:18.359224 Trying to unmarshal seccomp profile
+11:07:18.359728 Got SeccompProfile: runc-v1.1.12
+11:07:18.359732 Saving profile in: /tmp/profile.yaml
+```
+
+We can see from the logs that `spoc` tries to read `profile-linux-amd64.yaml`,
+and if that does not work it falls back to `profile.yaml`. We can also directly
+specify which platform to pull:
+
+```
+> spoc pull -p linux/arm64 ghcr.io/security-profiles/test:latest
+11:08:53.355689 Pulling profile from: ghcr.io/security-profiles/test:latest
+11:08:53.355724 Verifying signature
+…
+11:08:56.229418 Copying profile from repository
+11:08:57.311964 Trying to read profile: profile-linux-arm64.yaml
+11:08:57.311981 Trying to unmarshal seccomp profile
+11:08:57.312473 Got SeccompProfile: crun-v1.8.4
+11:08:57.312476 Saving profile in: /tmp/profile.yaml
+```
 
 ## Uninstalling
 

@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
+	apparmorapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	pbv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
@@ -51,8 +52,8 @@ const (
 )
 
 var (
-	ErrNoOwnerProfile  = errors.New("no owner profile defined for this status")
-	ErrUnkownOwnerKind = errors.New("the node status owner is of an unknown kind")
+	ErrNoOwnerProfile   = errors.New("no owner profile defined for this status")
+	ErrUnknownOwnerKind = errors.New("the node status owner is of an unknown kind")
 )
 
 // NewController returns a new empty controller instance.
@@ -191,6 +192,29 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		return reconcile.Result{Requeue: true}, nil
 	}
 
+	statusMatch, err := util.FinalizersMatchCurrentNodes(ctx, nodeStatusList)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("cannot compare statuses and finalizers: %w", err)
+	}
+	if !statusMatch { // if the finalizers don't match the current nodes
+		// Get current list of nodes
+		currentNodeNames, err := util.GetNodeList(ctx)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("cannot get node list: %w", err)
+		}
+		// if nodeName is not in currentNodeNames and there isn't a mismatch in statuses/nodes, remove it from the finalizers
+		for i := range nodeStatusList.Items {
+			nodeStatus := &nodeStatusList.Items[i]
+			if !util.ContainsSubstring(currentNodeNames, nodeStatus.NodeName) { // string not in list
+				// Found a finalizer for a node that doesn't exist
+				finalizerNodeString := util.GetFinalizerNodeString(nodeStatus.NodeName)
+				if err := util.RemoveFinalizer(ctx, r.client, prof, finalizerNodeString); err != nil {
+					return reconcile.Result{}, fmt.Errorf("cannot remove finalizer: %w", err)
+				}
+			}
+		}
+	}
+
 	lowestCommonState := statusv1alpha1.LowestState
 	for i := range nodeStatusList.Items {
 		lowestCommonState = statusv1alpha1.LowerOfTwoStates(lowestCommonState, nodeStatusList.Items[i].Status)
@@ -266,8 +290,12 @@ func (r *StatusReconciler) getProfileFromStatus(
 		prof = &seccompprofileapi.SeccompProfile{}
 	case "SelinuxProfile":
 		prof = &selxv1alpha2.SelinuxProfile{}
+	case "RawSelinuxProfile":
+		prof = &selxv1alpha2.RawSelinuxProfile{}
+	case "AppArmorProfile":
+		prof = &apparmorapi.AppArmorProfile{}
 	default:
-		return nil, fmt.Errorf("getting owner profile: %w", ErrUnkownOwnerKind)
+		return nil, fmt.Errorf("getting owner profile: %w", ErrUnknownOwnerKind)
 	}
 	if err := r.client.Get(ctx, key, prof); err != nil {
 		return nil, fmt.Errorf("getting owner profile: %s/%s: %w", s.GetNamespace(), ctrl.Name, err)
@@ -305,6 +333,9 @@ func (r *StatusReconciler) reconcileStatus(
 		outStatus.SetConditions(spodv1alpha1.Unavailable())
 	case statusv1alpha1.ProfileStatePartial:
 		outStatus.Status = statusv1alpha1.ProfileStatePartial
+		outStatus.SetConditions(spodv1alpha1.Unavailable())
+	case statusv1alpha1.ProfileStateDisabled:
+		outStatus.Status = statusv1alpha1.ProfileStateDisabled
 		outStatus.SetConditions(spodv1alpha1.Unavailable())
 	}
 

@@ -34,30 +34,32 @@ func isDigit(ch rune) bool {
 }
 
 // IsValidIdent reports whether str is a valid identifier.
+// Note that the underscore "_" string is considered valid, for top.
 func IsValidIdent(ident string) bool {
 	if ident == "" {
 		return false
 	}
 
-	// TODO: use consumed again to allow #0.
-	// consumed := false
+	consumed := false
 	if strings.HasPrefix(ident, "_") {
 		ident = ident[1:]
-		// consumed = true
+		consumed = true
 		if len(ident) == 0 {
 			return true
 		}
 	}
 	if strings.HasPrefix(ident, "#") {
 		ident = ident[1:]
-		// consumed = true
+		// Note: _#0 is not allowed by the spec, although _0 is.
+		// TODO: set consumed to true here to allow #0.
+		consumed = false
 	}
 
-	// if !consumed {
-	if r, _ := utf8.DecodeRuneInString(ident); isDigit(r) {
-		return false
+	if !consumed {
+		if r, _ := utf8.DecodeRuneInString(ident); isDigit(r) {
+			return false
+		}
 	}
-	// }
 
 	for _, r := range ident {
 		if isLetter(r) || isDigit(r) || r == '_' || r == '$' {
@@ -129,15 +131,14 @@ func parseIdent(pos token.Pos, ident string) (string, error) {
 //
 // Examples:
 //
-//     Label   Result
-//     foo     "foo"  true   nil
-//     true    "true" true   nil
-//     "foo"   "foo"  false  nil
-//     "x-y"   "x-y"  false  nil
-//     "foo    ""     false  invalid string
-//     "\(x)"  ""     false  errors.Is(err, ErrIsExpression)
-//     X=foo   "foo"  true   nil
-//
+//	Label   Result
+//	foo     "foo"  true   nil
+//	true    "true" true   nil
+//	"foo"   "foo"  false  nil
+//	"x-y"   "x-y"  false  nil
+//	"foo    ""     false  invalid string
+//	"\(x)"  ""     false  errors.Is(err, ErrIsExpression)
+//	X=foo   "foo"  true   nil
 func LabelName(l Label) (name string, isIdent bool, err error) {
 	if a, ok := l.(*Alias); ok {
 		l, _ = a.Expr.(Label)

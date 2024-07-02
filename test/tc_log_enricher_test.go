@@ -50,7 +50,7 @@ spec:
 	defer e.kubectl("delete", "sp", profileName)
 
 	e.logf("Waiting for profile to be reconciled")
-	e.waitFor("condition=ready", "sp", profileName)
+	e.waitForProfile(profileName)
 
 	e.logf("Creating test pod")
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
@@ -75,7 +75,7 @@ spec:
 	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
 	defer podCleanup()
 	defer e.kubectl("delete", "pod", podName)
-	e.waitFor("condition=ready", "sp", profileName)
+	e.waitForProfile(profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
 	const max = 20
@@ -97,23 +97,23 @@ spec:
 	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "log-enricher")
 
 	// then match the rest
-	e.Contains(output, `"msg"="audit"`)
-	e.Contains(output, `"type"="seccomp"`)
-	e.Contains(output, `"executable"="/usr/sbin/nginx"`)
-	e.Contains(output, fmt.Sprintf(`"pod"=%q`, podName))
-	e.Contains(output, fmt.Sprintf(`"container"=%q`, containerName))
-	e.Contains(output, fmt.Sprintf(`"namespace"=%q`, namespace))
-	e.Regexp(`(?mU)\s"node"=".*"\s`, output)
-	e.Contains(output, `"pid"`)
-	e.Contains(output, `"timestamp"`)
-	e.Contains(output, `"syscallName"="listen"`)
-	e.Contains(output, `"syscallID"=50`)
+	e.Contains(output, `"audit"`)
+	e.Contains(output, `type="seccomp"`)
+	e.Contains(output, `executable="/usr/sbin/nginx"`)
+	e.Contains(output, fmt.Sprintf(`pod=%q`, podName))
+	e.Contains(output, fmt.Sprintf(`container=%q`, containerName))
+	e.Contains(output, fmt.Sprintf(`namespace=%q`, namespace))
+	e.Regexp(`(?mU)\snode=".*"\s`, output)
+	e.Contains(output, `pid`)
+	e.Contains(output, `timestamp`)
+	e.Contains(output, `syscallName="listen"`)
+	e.Contains(output, `syscallID=50`)
 
 	if e.singleNodeEnvironment {
 		// we only run the metrics checks in a single node environment because otherwise it's a lottery
 		// which spod instance do we hit and the test is not stable
 
-		metrics := e.getSpodMetrics()
+		metrics := e.runAndRetryPodCMD(curlSpodCMD)
 		e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_audit_total{`+
 			`container="%s",`+
 			`executable="/usr/sbin/nginx",`+
