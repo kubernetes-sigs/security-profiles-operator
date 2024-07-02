@@ -151,10 +151,11 @@ func recordAppArmorTest(t *testing.T) {
 			}
 		}
 		// Run binary...
-		cmd2 := exec.Command(demobinary, "--net-tcp", "--sleep", "30")
+		cmd2 := exec.Command(demobinary, "--net-tcp")
 		err = cmd2.Run()
 		require.Nil(t, err)
 
+		t.Log("waiting for SPOC to register process exit...")
 		for spocLogs.Scan() {
 			t.Log(spocLogs.Text())
 			if strings.Contains(spocLogs.Text(), fmt.Sprintf("record pid exit: %d.", cmd2.Process.Pid)) {
@@ -175,6 +176,12 @@ func recordAppArmorTest(t *testing.T) {
 			strconv.Itoa(cmd.Process.Pid),
 		).Run()
 		require.Nil(t, err)
+
+		// useful when binary crashed.
+		for spocLogs.Scan() {
+			t.Log(spocLogs.Text())
+		}
+
 		err = cmd.Wait()
 		require.Nil(t, err)
 

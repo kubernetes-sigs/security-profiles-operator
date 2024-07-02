@@ -37,6 +37,7 @@ import (
 	libseccomp "github.com/seccomp/libseccomp-golang"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/printers"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
@@ -44,6 +45,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/recordingmerger"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -95,22 +97,6 @@ func (r *Recorder) Run() error {
 		ch := make(chan os.Signal, 1)
 		r.Notify(ch, os.Interrupt)
 		log.Print(WaitForSigIntMessage)
-
-		// searching the mntns of the process started outside of spoc
-		cmd := r.options.commandOptions.Command()
-		if err := util.Retry(func() (err error) {
-			pid, err := r.ProcessIDByName(cmd)
-			if err != nil {
-				return fmt.Errorf("getting PID by name: %w", err)
-			}
-			mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(pid))
-			if err != nil {
-				return fmt.Errorf("finding mntns of PID %d: %w", pid, err)
-			}
-			return nil
-		}, func(err error) bool { return true }); err != nil {
-			return fmt.Errorf("searching the PID of %q command: %w", cmd, err)
-		}
 		<-ch
 	} else {
 		cmd := command.New(r.options.commandOptions)
@@ -296,10 +282,35 @@ func (r *Recorder) generateAppArmorProfile(mntns uint32) apparmorprofileapi.AppA
 }
 
 func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
-	abstract := r.generateAppArmorProfile(mntns)
-	spec := apparmorprofileapi.AppArmorProfileSpec{
-		Abstract: abstract,
+	var spec apparmorprofileapi.AppArmorProfileSpec
+	if mntns > 0 {
+		abstract := r.generateAppArmorProfile(mntns)
+		spec = apparmorprofileapi.AppArmorProfileSpec{
+			Abstract: abstract,
+		}
+	} else {
+		// Special case of CLI recording with --no-proc: We span all mount namespaces.
+		mountNamespaces := r.bpfRecorder.AppArmor.GetKnownMntns()
+		parts := make([]client.Object, 0, len(mountNamespaces))
+		for _, mntns := range mountNamespaces {
+			profile := apparmorprofileapi.AppArmorProfile{
+				Spec: apparmorprofileapi.AppArmorProfileSpec{
+					Abstract: r.generateAppArmorProfile(uint32(mntns)),
+				},
+			}
+			parts = append(parts, &profile)
+		}
+		profile, err := recordingmerger.MergeProfiles(parts)
+		if err != nil {
+			return fmt.Errorf("merge profiles: %w", err)
+		}
+		prof, ok := profile.(*apparmorprofileapi.AppArmorProfile)
+		if !ok {
+			return fmt.Errorf("unexpected non-apparmor profile: %+v", prof)
+		}
+		spec = prof.Spec
 	}
+
 	defer func() {
 		log.Printf("Wrote apparmor profile to: %s", r.outFile())
 	}()
