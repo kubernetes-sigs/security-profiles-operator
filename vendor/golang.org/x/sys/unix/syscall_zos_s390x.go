@@ -760,6 +760,14 @@ func Madvise(b []byte, advice int) (err error) {
 	return
 }
 
+func Mmap(fd int, offset int64, length int, prot int, flags int) (data []byte, err error) {
+	return mapper.Mmap(fd, offset, length, prot, flags)
+}
+
+func Munmap(b []byte) (err error) {
+	return mapper.Munmap(b)
+}
+
 //sys   Gethostname(buf []byte) (err error) = SYS___GETHOSTNAME_A
 //sysnb	Getgid() (gid int)
 //sysnb	Getpid() (pid int)

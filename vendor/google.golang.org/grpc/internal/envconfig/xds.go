@@ -53,8 +53,4 @@ var (
 
 	// C2PResolverTestOnlyTrafficDirectorURI is the TD URI for testing.
 	C2PResolverTestOnlyTrafficDirectorURI = os.Getenv("GRPC_TEST_ONLY_GOOGLE_C2P_RESOLVER_TRAFFIC_DIRECTOR_URI")
-	// XDSCustomLBPolicy indicates whether Custom LB Policies are enabled, which
-	// can be disabled by setting the environment variable
-	// "GRPC_EXPERIMENTAL_XDS_CUSTOM_LB_CONFIG" to "false".
-	XDSCustomLBPolicy = boolFromEnv("GRPC_EXPERIMENTAL_XDS_CUSTOM_LB_CONFIG", true)
 )

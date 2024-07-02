@@ -2828,13 +2828,6 @@ func (x *FieldOptions) GetFeatureSupport() *FieldOptions_FeatureSupport {
 	return nil
 }
 
-func (x *FieldOptions) GetTargets() []FieldOptions_OptionTargetType {
-	if x != nil {
-		return x.Targets
-	}
-	return nil
-}
-
 func (x *FieldOptions) GetUninterpretedOption() []*UninterpretedOption {
 	if x != nil {
 		return x.UninterpretedOption

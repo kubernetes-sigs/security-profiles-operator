@@ -53,11 +53,7 @@ func newPickerWrapper(statsHandlers []stats.Handler) *pickerWrapper {
 // updatePicker is called by UpdateBalancerState. It unblocks all blocked pick.
 func (pw *pickerWrapper) updatePicker(p balancer.Picker) {
 	pw.mu.Lock()
-	if pw.done || pw.idle {
-		// There is a small window where a picker update from the LB policy can
-		// race with the channel going to idle mode. If the picker is idle here,
-		// it is because the channel asked it to do so, and therefore it is sage
-		// to ignore the update from the LB policy.
+	if pw.done {
 		pw.mu.Unlock()
 		return
 	}

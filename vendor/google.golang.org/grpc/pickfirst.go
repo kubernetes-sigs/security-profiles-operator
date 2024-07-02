@@ -149,21 +149,6 @@ func (b *pickfirstBalancer) UpdateClientConnState(state balancer.ClientConnState
 		}
 	}
 
-	// We don't have to guard this block with the env var because ParseConfig
-	// already does so.
-	cfg, ok := state.BalancerConfig.(pfConfig)
-	if state.BalancerConfig != nil && !ok {
-		return fmt.Errorf("pickfirst: received illegal BalancerConfig (type %T): %v", state.BalancerConfig, state.BalancerConfig)
-	}
-	if cfg.ShuffleAddressList {
-		addrs = append([]resolver.Address{}, addrs...)
-		grpcrand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
-	}
-
-	if b.logger.V(2) {
-		b.logger.Infof("Received new config %s, resolver state %s", pretty.ToJSON(cfg), pretty.ToJSON(state.ResolverState))
-	}
-
 	if b.subConn != nil {
 		b.cc.UpdateAddresses(b.subConn, addrs)
 		return nil

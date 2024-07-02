@@ -161,21 +161,6 @@ func Getresgid() (rgid, egid, sgid int) {
 	return int(r), int(e), int(s)
 }
 
-//sysnb	getresuid(ruid *_C_int, euid *_C_int, suid *_C_int)
-//sysnb	getresgid(rgid *_C_int, egid *_C_int, sgid *_C_int)
-
-func Getresuid() (ruid, euid, suid int) {
-	var r, e, s _C_int
-	getresuid(&r, &e, &s)
-	return int(r), int(e), int(s)
-}
-
-func Getresgid() (rgid, egid, sgid int) {
-	var r, e, s _C_int
-	getresgid(&r, &e, &s)
-	return int(r), int(e), int(s)
-}
-
 //sys	ioctl(fd int, req uint, arg uintptr) (err error)
 //sys	ioctlPtr(fd int, req uint, arg unsafe.Pointer) (err error) = SYS_IOCTL
 

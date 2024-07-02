@@ -187,17 +187,6 @@ type Endpoint struct {
 	Attributes *attributes.Attributes
 }
 
-// An Endpoint is one network endpoint, or server, which may have multiple
-// addresses with which it can be accessed.
-type Endpoint struct {
-	// Addresses contains a list of addresses used to access this endpoint.
-	Addresses []Address
-
-	// Attributes contains arbitrary data about this endpoint intended for
-	// consumption by the LB policy.
-	Attributes *attributes.Attributes
-}
-
 // State contains the current Resolver state relevant to the ClientConn.
 type State struct {
 	// Addresses is the latest set of resolved addresses for the target.

@@ -133,7 +133,6 @@ func NewClient(target string, opts ...DialOption) (conn *ClientConn, err error) 
 	cc.retryThrottler.Store((*retryThrottler)(nil))
 	cc.safeConfigSelector.UpdateConfigSelector(&defaultConfigSelector{nil})
 	cc.ctx, cc.cancel = context.WithCancel(context.Background())
-	cc.exitIdleCond = sync.NewCond(&cc.mu)
 
 	// Apply dial options.
 	disableGlobalOpts := false
@@ -619,37 +618,6 @@ type ClientConn struct {
 
 	lceMu               sync.Mutex // protects lastConnectionError
 	lastConnectionError error
-}
-
-// ccIdlenessState tracks the idleness state of the channel.
-//
-// Channels start off in `active` and move to `idle` after a period of
-// inactivity. When moving back to `active` upon an incoming RPC, they
-// transition through `exiting_idle`. This state is useful for synchronization
-// with Close().
-//
-// This state tracking is mostly for self-protection. The idlenessManager is
-// expected to keep track of the state as well, and is expected not to call into
-// the ClientConn unnecessarily.
-type ccIdlenessState int8
-
-const (
-	ccIdlenessStateActive ccIdlenessState = iota
-	ccIdlenessStateIdle
-	ccIdlenessStateExitingIdle
-)
-
-func (s ccIdlenessState) String() string {
-	switch s {
-	case ccIdlenessStateActive:
-		return "active"
-	case ccIdlenessStateIdle:
-		return "idle"
-	case ccIdlenessStateExitingIdle:
-		return "exitingIdle"
-	default:
-		return "unknown"
-	}
 }
 
 // WaitForStateChange waits until the connectivity.State of ClientConn changes from sourceState or
