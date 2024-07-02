@@ -180,19 +180,6 @@ type FakeImpl struct {
 	printObjReturnsOnCall map[int]struct {
 		result1 error
 	}
-	ProcessIDByNameStub        func(string) (int, error)
-	processIDByNameMutex       sync.RWMutex
-	processIDByNameArgsForCall []struct {
-		arg1 string
-	}
-	processIDByNameReturns struct {
-		result1 int
-		result2 error
-	}
-	processIDByNameReturnsOnCall map[int]struct {
-		result1 int
-		result2 error
-	}
 	SyscallsGetValueStub        func(*bpfrecorder.BpfRecorder, uint32) ([]byte, error)
 	syscallsGetValueMutex       sync.RWMutex
 	syscallsGetValueArgsForCall []struct {
@@ -967,70 +954,6 @@ func (fake *FakeImpl) PrintObjReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) ProcessIDByName(arg1 string) (int, error) {
-	fake.processIDByNameMutex.Lock()
-	ret, specificReturn := fake.processIDByNameReturnsOnCall[len(fake.processIDByNameArgsForCall)]
-	fake.processIDByNameArgsForCall = append(fake.processIDByNameArgsForCall, struct {
-		arg1 string
-	}{arg1})
-	stub := fake.ProcessIDByNameStub
-	fakeReturns := fake.processIDByNameReturns
-	fake.recordInvocation("ProcessIDByName", []interface{}{arg1})
-	fake.processIDByNameMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) ProcessIDByNameCallCount() int {
-	fake.processIDByNameMutex.RLock()
-	defer fake.processIDByNameMutex.RUnlock()
-	return len(fake.processIDByNameArgsForCall)
-}
-
-func (fake *FakeImpl) ProcessIDByNameCalls(stub func(string) (int, error)) {
-	fake.processIDByNameMutex.Lock()
-	defer fake.processIDByNameMutex.Unlock()
-	fake.ProcessIDByNameStub = stub
-}
-
-func (fake *FakeImpl) ProcessIDByNameArgsForCall(i int) string {
-	fake.processIDByNameMutex.RLock()
-	defer fake.processIDByNameMutex.RUnlock()
-	argsForCall := fake.processIDByNameArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) ProcessIDByNameReturns(result1 int, result2 error) {
-	fake.processIDByNameMutex.Lock()
-	defer fake.processIDByNameMutex.Unlock()
-	fake.ProcessIDByNameStub = nil
-	fake.processIDByNameReturns = struct {
-		result1 int
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) ProcessIDByNameReturnsOnCall(i int, result1 int, result2 error) {
-	fake.processIDByNameMutex.Lock()
-	defer fake.processIDByNameMutex.Unlock()
-	fake.ProcessIDByNameStub = nil
-	if fake.processIDByNameReturnsOnCall == nil {
-		fake.processIDByNameReturnsOnCall = make(map[int]struct {
-			result1 int
-			result2 error
-		})
-	}
-	fake.processIDByNameReturnsOnCall[i] = struct {
-		result1 int
-		result2 error
-	}{result1, result2}
-}
-
 func (fake *FakeImpl) SyscallsGetValue(arg1 *bpfrecorder.BpfRecorder, arg2 uint32) ([]byte, error) {
 	fake.syscallsGetValueMutex.Lock()
 	ret, specificReturn := fake.syscallsGetValueReturnsOnCall[len(fake.syscallsGetValueArgsForCall)]
@@ -1279,8 +1202,6 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.notifyMutex.RUnlock()
 	fake.printObjMutex.RLock()
 	defer fake.printObjMutex.RUnlock()
-	fake.processIDByNameMutex.RLock()
-	defer fake.processIDByNameMutex.RUnlock()
 	fake.syscallsGetValueMutex.RLock()
 	defer fake.syscallsGetValueMutex.RUnlock()
 	fake.syscallsIteratorMutex.RLock()
