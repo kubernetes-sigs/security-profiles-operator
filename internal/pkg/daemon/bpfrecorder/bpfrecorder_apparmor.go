@@ -199,6 +199,35 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 	b.recordedCapabilities[mid] = append(b.recordedCapabilities[mid], requestedCap)
 }
 
+func (b *AppArmorRecorder) GetKnownMntns() []mntnsID {
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+
+	known := make(map[mntnsID]bool, len(b.recordedFiles))
+	for mntns := range b.recordedFiles {
+		known[mntns] = true
+	}
+	for mntns := range b.recordedCapabilities {
+		known[mntns] = true
+	}
+	for mntns := range b.recordedSocketsUse {
+		known[mntns] = true
+	}
+
+	// Go 1.23: slices.Collect(maps.Keys(known))
+	lst := make([]mntnsID, len(known))
+	i := 0
+	for k := range known {
+		lst[i] = k
+		i++
+	}
+	return lst
+}
+
 func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcessed {
 	var processed BpfAppArmorProcessed
 
