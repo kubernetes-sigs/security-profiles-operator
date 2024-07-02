@@ -151,7 +151,7 @@ func recordAppArmorTest(t *testing.T) {
 			}
 		}
 		// Run binary...
-		cmd2 := exec.Command(demobinary, "--net-tcp", "--sleep", "30")
+		cmd2 := exec.Command(demobinary, "--net-tcp")
 		err = cmd2.Run()
 		require.Nil(t, err)
 
