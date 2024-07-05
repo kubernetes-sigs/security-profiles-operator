@@ -540,10 +540,10 @@ func TestSyscallsForProfile(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
 				require.Nil(t, err)
-				require.Len(t, resp.Syscalls, 3)
-				require.Equal(t, "syscall_a", resp.Syscalls[0])
-				require.Equal(t, "syscall_b", resp.Syscalls[1])
-				require.Equal(t, "syscall_c", resp.Syscalls[2])
+				require.Len(t, resp.GetSyscalls(), 3)
+				require.Equal(t, "syscall_a", resp.GetSyscalls()[0])
+				require.Equal(t, "syscall_b", resp.GetSyscalls()[1])
+				require.Equal(t, "syscall_c", resp.GetSyscalls()[2])
 			},
 		},
 		{ // Success with unable to resolve syscall name
@@ -561,9 +561,9 @@ func TestSyscallsForProfile(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
 				require.Nil(t, err)
-				require.Len(t, resp.Syscalls, 2)
-				require.Equal(t, "syscall_a", resp.Syscalls[0])
-				require.Equal(t, "syscall_b", resp.Syscalls[1])
+				require.Len(t, resp.GetSyscalls(), 2)
+				require.Equal(t, "syscall_a", resp.GetSyscalls()[0])
+				require.Equal(t, "syscall_b", resp.GetSyscalls()[1])
 			},
 		},
 		{ // recorder not running
@@ -618,10 +618,10 @@ func TestSyscallsForProfile(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
 				require.Nil(t, err)
-				require.Len(t, resp.Syscalls, 3)
-				require.Equal(t, "syscall_a", resp.Syscalls[0])
-				require.Equal(t, "syscall_b", resp.Syscalls[1])
-				require.Equal(t, "syscall_c", resp.Syscalls[2])
+				require.Len(t, resp.GetSyscalls(), 3)
+				require.Equal(t, "syscall_a", resp.GetSyscalls()[0])
+				require.Equal(t, "syscall_b", resp.GetSyscalls()[1])
+				require.Equal(t, "syscall_c", resp.GetSyscalls()[2])
 			},
 		},
 	} {
@@ -675,11 +675,11 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
 				require.Nil(t, err)
-				require.Len(t, resp.Capabilities, 3)
-				require.Len(t, resp.Files.AllowedExecutables, 1)
-				require.False(t, resp.Socket.UseRaw)
-				require.True(t, resp.Socket.UseTcp)
-				require.False(t, resp.Socket.UseUdp)
+				require.Len(t, resp.GetCapabilities(), 3)
+				require.Len(t, resp.GetFiles().GetAllowedExecutables(), 1)
+				require.False(t, resp.GetSocket().GetUseRaw())
+				require.True(t, resp.GetSocket().GetUseTcp())
+				require.False(t, resp.GetSocket().GetUseUdp())
 			},
 		},
 		{ // Success only for right mntns
@@ -711,11 +711,11 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
 				require.Nil(t, err)
-				require.Len(t, resp.Capabilities, 3)
-				require.Len(t, resp.Files.AllowedExecutables, 1)
-				require.False(t, resp.Socket.UseRaw)
-				require.True(t, resp.Socket.UseTcp)
-				require.False(t, resp.Socket.UseUdp)
+				require.Len(t, resp.GetCapabilities(), 3)
+				require.Len(t, resp.GetFiles().GetAllowedExecutables(), 1)
+				require.False(t, resp.GetSocket().GetUseRaw())
+				require.True(t, resp.GetSocket().GetUseTcp())
+				require.False(t, resp.GetSocket().GetUseUdp())
 			},
 		},
 		{ // recorder not running

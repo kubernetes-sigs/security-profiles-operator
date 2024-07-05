@@ -507,7 +507,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 		return fmt.Errorf("retrieve syscalls for profile %s: %w", profileID, err)
 	}
 
-	arch, err := r.goArchToSeccompArch(response.GoArch)
+	arch, err := r.goArchToSeccompArch(response.GetGoArch())
 	if err != nil {
 		return fmt.Errorf("get seccomp arch: %w", err)
 	}
@@ -781,7 +781,7 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 		return nil, fmt.Errorf("getting syscalls for profile: %w", err)
 	}
 
-	arch, err := r.goArchToSeccompArch(response.GoArch)
+	arch, err := r.goArchToSeccompArch(response.GetGoArch())
 	if err != nil {
 		return nil, fmt.Errorf("getting seccomp arch: %w", err)
 	}
@@ -885,66 +885,66 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 ) apparmorprofileapi.AppArmorAbstract {
 	abstract := apparmorprofileapi.AppArmorAbstract{}
 	enabled := true
-	if len(response.Files.AllowedExecutables) != 0 || len(response.Files.AllowedLibraries) != 0 {
+	if len(response.GetFiles().GetAllowedExecutables()) != 0 || len(response.GetFiles().GetAllowedLibraries()) != 0 {
 		abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
-		if len(response.Files.AllowedExecutables) != 0 {
-			sort.Strings(response.Files.AllowedExecutables)
-			ExecutableAllowedExecCopy := make([]string, len(response.Files.AllowedExecutables))
-			copy(ExecutableAllowedExecCopy, response.Files.AllowedExecutables)
+		if len(response.GetFiles().GetAllowedExecutables()) != 0 {
+			sort.Strings(response.GetFiles().GetAllowedExecutables())
+			ExecutableAllowedExecCopy := make([]string, len(response.GetFiles().GetAllowedExecutables()))
+			copy(ExecutableAllowedExecCopy, response.GetFiles().GetAllowedExecutables())
 			abstract.Executable.AllowedExecutables = &ExecutableAllowedExecCopy
 		}
-		if len(response.Files.AllowedLibraries) != 0 {
-			sort.Strings(response.Files.AllowedLibraries)
-			ExecutableAllowedLibCopy := make([]string, len(response.Files.AllowedLibraries))
-			copy(ExecutableAllowedLibCopy, response.Files.AllowedLibraries)
+		if len(response.GetFiles().GetAllowedLibraries()) != 0 {
+			sort.Strings(response.GetFiles().GetAllowedLibraries())
+			ExecutableAllowedLibCopy := make([]string, len(response.GetFiles().GetAllowedLibraries()))
+			copy(ExecutableAllowedLibCopy, response.GetFiles().GetAllowedLibraries())
 			abstract.Executable.AllowedLibraries = &ExecutableAllowedLibCopy
 		}
 	}
-	if (len(response.Files.ReadonlyPaths) != 0) ||
-		(len(response.Files.WriteonlyPaths) != 0) ||
-		(len(response.Files.ReadwritePaths) != 0) {
+	if (len(response.GetFiles().GetReadonlyPaths()) != 0) ||
+		(len(response.GetFiles().GetWriteonlyPaths()) != 0) ||
+		(len(response.GetFiles().GetReadwritePaths()) != 0) {
 		files := apparmorprofileapi.AppArmorFsRules{}
-		if len(response.Files.ReadonlyPaths) != 0 {
-			sort.Strings(response.Files.ReadonlyPaths)
-			FileReadOnlyCopy := make([]string, len(response.Files.ReadonlyPaths))
-			copy(FileReadOnlyCopy, response.Files.ReadonlyPaths)
+		if len(response.GetFiles().GetReadonlyPaths()) != 0 {
+			sort.Strings(response.GetFiles().GetReadonlyPaths())
+			FileReadOnlyCopy := make([]string, len(response.GetFiles().GetReadonlyPaths()))
+			copy(FileReadOnlyCopy, response.GetFiles().GetReadonlyPaths())
 			files.ReadOnlyPaths = &FileReadOnlyCopy
 		}
-		if len(response.Files.WriteonlyPaths) != 0 {
-			sort.Strings(response.Files.WriteonlyPaths)
-			FileWriteOnlyCopy := make([]string, len(response.Files.WriteonlyPaths))
-			copy(FileWriteOnlyCopy, response.Files.WriteonlyPaths)
+		if len(response.GetFiles().GetWriteonlyPaths()) != 0 {
+			sort.Strings(response.GetFiles().GetWriteonlyPaths())
+			FileWriteOnlyCopy := make([]string, len(response.GetFiles().GetWriteonlyPaths()))
+			copy(FileWriteOnlyCopy, response.GetFiles().GetWriteonlyPaths())
 			files.WriteOnlyPaths = &FileWriteOnlyCopy
 		}
-		if len(response.Files.ReadwritePaths) != 0 {
-			sort.Strings(response.Files.ReadwritePaths)
-			FileReadWriteCopy := make([]string, len(response.Files.ReadwritePaths))
-			copy(FileReadWriteCopy, response.Files.ReadwritePaths)
+		if len(response.GetFiles().GetReadwritePaths()) != 0 {
+			sort.Strings(response.GetFiles().GetReadwritePaths())
+			FileReadWriteCopy := make([]string, len(response.GetFiles().GetReadwritePaths()))
+			copy(FileReadWriteCopy, response.GetFiles().GetReadwritePaths())
 			files.ReadWritePaths = &FileReadWriteCopy
 		}
 		abstract.Filesystem = &files
 	}
 
-	if response.Socket.UseRaw || response.Socket.UseTcp || response.Socket.UseUdp {
+	if response.GetSocket().GetUseRaw() || response.GetSocket().GetUseTcp() || response.GetSocket().GetUseUdp() {
 		net := apparmorprofileapi.AppArmorNetworkRules{}
 		proto := apparmorprofileapi.AppArmorAllowedProtocols{}
-		if response.Socket.UseRaw {
+		if response.GetSocket().GetUseRaw() {
 			net.AllowRaw = &enabled
 		}
-		if response.Socket.UseTcp {
+		if response.GetSocket().GetUseTcp() {
 			proto.AllowTCP = &enabled
 			net.Protocols = &proto
 		}
-		if response.Socket.UseTcp {
+		if response.GetSocket().GetUseTcp() {
 			proto.AllowUDP = &enabled
 			net.Protocols = &proto
 		}
 		abstract.Network = &net
 	}
 
-	if len(response.Capabilities) != 0 {
+	if len(response.GetCapabilities()) != 0 {
 		capabilities := apparmorprofileapi.AppArmorCapabilityRules{}
-		capabilities.AllowedCapabilities = response.Capabilities
+		capabilities.AllowedCapabilities = response.GetCapabilities()
 		abstract.Capability = &capabilities
 	}
 
@@ -1103,9 +1103,9 @@ func newSeProfileBuilder(usageCtx string, log logr.Logger) *seProfileBuilder {
 func (sb *seProfileBuilder) AddAvcList(avcs []*enricherapi.AvcResponse_SelinuxAvc) error {
 	for _, avc := range avcs {
 		sb.log.Info("Received an AVC response",
-			"perm", avc.Perm, "tclass",
-			avc.Tclass, "scontext", avc.Scontext,
-			"tcontext", avc.Tcontext)
+			"perm", avc.GetPerm(), "tclass",
+			avc.GetTclass(), "scontext", avc.GetScontext(),
+			"tcontext", avc.GetTcontext())
 
 		if err := sb.addAvc(avc); err != nil {
 			return fmt.Errorf("adding AVC: %w", err)
@@ -1116,19 +1116,19 @@ func (sb *seProfileBuilder) AddAvcList(avcs []*enricherapi.AvcResponse_SelinuxAv
 }
 
 func (sb *seProfileBuilder) addAvc(avc *enricherapi.AvcResponse_SelinuxAvc) error {
-	ctxType, err := ctxt2type(avc.Tcontext)
+	ctxType, err := ctxt2type(avc.GetTcontext())
 	if err != nil {
 		return fmt.Errorf("converting context to type: %w", err)
 	}
 
-	key := avc.Tclass + " " + ctxType
+	key := avc.GetTclass() + " " + ctxType
 	sb.keys = append(sb.keys, key)
 
 	perms, ok := sb.permMap[key]
 	if ok {
-		perms.Insert(avc.Perm)
+		perms.Insert(avc.GetPerm())
 	} else {
-		sb.permMap[key] = sets.New(avc.Perm)
+		sb.permMap[key] = sets.New(avc.GetPerm())
 	}
 	return nil
 }

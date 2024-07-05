@@ -95,10 +95,10 @@ func (r *PodReconciler) Setup(
 		Named(name).
 		For(&corev1.Pod{}).
 		WithEventFilter(predicate.Funcs{
-			CreateFunc:  func(e event.CreateEvent) bool { return r.hasValidProfile(e.Object) },
-			DeleteFunc:  func(e event.DeleteEvent) bool { return r.hasValidProfile(e.Object) },
-			UpdateFunc:  func(e event.UpdateEvent) bool { return r.hasValidProfile(e.ObjectNew) },
-			GenericFunc: func(e event.GenericEvent) bool { return r.hasValidProfile(e.Object) },
+			CreateFunc:  func(e event.CreateEvent) bool { return r.hasValidProfile(ctx, e.Object) },
+			DeleteFunc:  func(e event.DeleteEvent) bool { return r.hasValidProfile(ctx, e.Object) },
+			UpdateFunc:  func(e event.UpdateEvent) bool { return r.hasValidProfile(ctx, e.ObjectNew) },
+			GenericFunc: func(e event.GenericEvent) bool { return r.hasValidProfile(ctx, e.Object) },
 		}).
 		Complete(r)
 }
@@ -112,15 +112,15 @@ func hasSeccompProfile(obj runtime.Object) bool {
 	return len(getSeccompProfilesFromPod(pod)) > 0
 }
 
-func hasSelinuxProfile(r *PodReconciler, obj runtime.Object) bool {
+func hasSelinuxProfile(ctx context.Context, r *PodReconciler, obj runtime.Object) bool {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
 		return false
 	}
 
-	return len(getSelinuxProfilesFromPod(context.TODO(), r, pod)) > 0
+	return len(getSelinuxProfilesFromPod(ctx, r, pod)) > 0
 }
 
-func (r *PodReconciler) hasValidProfile(obj runtime.Object) bool {
-	return hasSeccompProfile(obj) || hasSelinuxProfile(r, obj)
+func (r *PodReconciler) hasValidProfile(ctx context.Context, obj runtime.Object) bool {
+	return hasSeccompProfile(obj) || hasSelinuxProfile(ctx, r, obj)
 }

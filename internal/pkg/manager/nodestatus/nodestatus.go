@@ -137,7 +137,7 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		if instance.Status != "" {
 			targetStatus = instance.Status
 		}
-		return r.reconcileStatus(ctx, prof, targetStatus, lprof)
+		return reconcile.Result{}, r.reconcileStatus(ctx, prof, targetStatus, lprof)
 	}
 
 	// get all the other statuses
@@ -221,7 +221,7 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 	}
 	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", lowestCommonState)
 
-	return r.reconcileStatus(ctx, prof, lowestCommonState, lprof)
+	return reconcile.Result{}, r.reconcileStatus(ctx, prof, lowestCommonState, lprof)
 }
 
 // removeStatusForDeletedNode removes the status for a node that has been deleted.
@@ -308,7 +308,7 @@ func (r *StatusReconciler) reconcileStatus(
 	prof pbv1alpha1.StatusBaseUser,
 	state statusv1alpha1.ProfileState,
 	l logr.Logger,
-) (reconcile.Result, error) {
+) error {
 	pCopy := prof.DeepCopyToStatusBaseIf()
 
 	// We always set this status
@@ -341,10 +341,10 @@ func (r *StatusReconciler) reconcileStatus(
 
 	l.V(config.VerboseLevel).Info("Updating status")
 	if updateErr := r.client.Status().Update(ctx, pCopy); updateErr != nil {
-		return reconcile.Result{}, fmt.Errorf("updating policy status: %w", updateErr)
+		return fmt.Errorf("updating policy status: %w", updateErr)
 	}
 
-	return reconcile.Result{}, nil
+	return nil
 }
 
 func daemonSetIsReady(ds *appsv1.DaemonSet) bool {
