@@ -147,7 +147,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	}
 
 	if spod.Status.State == "" {
-		return r.handleInitialStatus(ctx, spod, logger)
+		return reconcile.Result{}, r.handleInitialStatus(ctx, spod, logger)
 	}
 
 	deploymentKey := types.NamespacedName{
@@ -197,7 +197,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 				r.record.Event(spod, util.EventTypeWarning, reasonCannotCreateSPOD, createErr.Error())
 				return reconcile.Result{}, createErr
 			}
-			return r.handleCreatingStatus(ctx, spod, logger)
+			return reconcile.Result{}, r.handleCreatingStatus(ctx, spod, logger)
 		}
 		return reconcile.Result{}, fmt.Errorf("getting spod DaemonSet: %w", err)
 	}
@@ -223,14 +223,14 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 			r.record.Event(spod, util.EventTypeWarning, reasonCannotUpdateSPOD, updateErr.Error())
 			return reconcile.Result{}, updateErr
 		}
-		return r.handleUpdatingStatus(ctx, spod, logger)
+		return reconcile.Result{}, r.handleUpdatingStatus(ctx, spod, logger)
 	}
 
 	if foundSPOd.Status.NumberReady == foundSPOd.Status.DesiredNumberScheduled {
 		condready := spod.Status.GetReadyCondition()
 		// Don't pollute the logs. Let's only update when needed.
 		if condready.Status != corev1.ConditionTrue {
-			return r.handleRunningStatus(ctx, spod, logger)
+			return reconcile.Result{}, r.handleRunningStatus(ctx, spod, logger)
 		}
 	}
 	return reconcile.Result{}, nil
@@ -240,45 +240,45 @@ func (r *ReconcileSPOd) handleInitialStatus(
 	ctx context.Context,
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
-) (res reconcile.Result, err error) {
+) (err error) {
 	l.Info("Adding an initial status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StatePending()
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
-		return reconcile.Result{}, fmt.Errorf("updating spod initial status: %w", updateErr)
+		return fmt.Errorf("updating spod initial status: %w", updateErr)
 	}
-	return reconcile.Result{}, nil
+	return nil
 }
 
 func (r *ReconcileSPOd) handleCreatingStatus(
 	ctx context.Context,
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
-) (res reconcile.Result, err error) {
+) (err error) {
 	l.Info("Adding 'Creating' status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateCreating()
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
-		return reconcile.Result{}, fmt.Errorf("updating spod status to creating: %w", updateErr)
+		return fmt.Errorf("updating spod status to creating: %w", updateErr)
 	}
-	return reconcile.Result{}, nil
+	return nil
 }
 
 func (r *ReconcileSPOd) handleUpdatingStatus(
 	ctx context.Context,
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
-) (res reconcile.Result, err error) {
+) (err error) {
 	l.Info("Adding 'Updating' status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateUpdating()
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
-		return reconcile.Result{}, fmt.Errorf("updating spod status to 'updating': %w", updateErr)
+		return fmt.Errorf("updating spod status to 'updating': %w", updateErr)
 	}
-	return reconcile.Result{}, nil
+	return nil
 }
 
 func (r *ReconcileSPOd) defaultProfiles(
@@ -294,15 +294,15 @@ func (r *ReconcileSPOd) handleRunningStatus(
 	ctx context.Context,
 	spod *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	l logr.Logger,
-) (res reconcile.Result, err error) {
+) (err error) {
 	l.Info("Adding 'Running' status to the SPOD instance")
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateRunning()
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
-		return reconcile.Result{}, fmt.Errorf("updating spod status to running: %w", updateErr)
+		return fmt.Errorf("updating spod status to running: %w", updateErr)
 	}
-	return reconcile.Result{}, nil
+	return nil
 }
 
 func (r *ReconcileSPOd) handleCreate(

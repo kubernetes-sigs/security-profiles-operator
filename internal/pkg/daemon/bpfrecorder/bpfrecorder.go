@@ -314,9 +314,9 @@ func (b *BpfRecorder) SyscallsForProfile(
 	if b.Seccomp == nil {
 		return nil, errors.New("not seccomp profiles recording running")
 	}
-	b.logger.Info("Getting syscalls for profile " + r.Name)
+	b.logger.Info("Getting syscalls for profile " + r.GetName())
 
-	mntns, err := b.getMntnsForProfileWithRetry(r.Name)
+	mntns, err := b.getMntnsForProfileWithRetry(r.GetName())
 	if err != nil {
 		return nil, err
 	}
@@ -343,9 +343,9 @@ func (b *BpfRecorder) ApparmorForProfile(
 	if b.AppArmor == nil {
 		return nil, errors.New("no apparmor profiles recording running")
 	}
-	b.logger.Info("Getting apparmor profile for profile " + r.Name)
+	b.logger.Info("Getting apparmor profile for profile " + r.GetName())
 
-	mntns, err := b.getMntnsForProfileWithRetry(r.Name)
+	mntns, err := b.getMntnsForProfileWithRetry(r.GetName())
 	if err != nil {
 		return nil, err
 	}
