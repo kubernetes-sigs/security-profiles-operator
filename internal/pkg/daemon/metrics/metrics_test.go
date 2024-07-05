@@ -71,7 +71,7 @@ func TestSeccompProfile(t *testing.T) {
 		m := dto.Metric{}
 		err := (<-c).Write(&m)
 		require.Nil(t, err)
-		return int(*m.Counter.Value)
+		return int(m.GetCounter().GetValue())
 	}
 
 	for _, tc := range []struct {
@@ -179,7 +179,7 @@ func TestSeccompProfileBpf(t *testing.T) {
 		m := dto.Metric{}
 		err := (<-c).Write(&m)
 		require.Nil(t, err)
-		return int(*m.Counter.Value)
+		return int(m.GetCounter().GetValue())
 	}
 
 	for _, tc := range []struct {

@@ -78,13 +78,13 @@ spec:
 	e.waitForProfile(profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
-	const max = 20
-	for i := 0; i <= max; i++ {
+	const maximum = 20
+	for i := 0; i <= maximum; i++ {
 		output := e.kubectl("get", "pod", podName)
 		if strings.Contains(output, "Running") {
 			break
 		}
-		if i == max {
+		if i == maximum {
 			e.Fail("Unable to get pod in running state")
 		}
 		time.Sleep(5 * time.Second)

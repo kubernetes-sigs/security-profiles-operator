@@ -97,12 +97,12 @@ func TestRun(t *testing.T) {
 				}
 
 				_, res := mock.SendMetricArgsForCall(0)
-				require.Equal(t, node, res.Node)
-				require.Equal(t, namespace, res.Namespace)
-				require.Equal(t, pod, res.Pod)
-				require.Equal(t, executable, res.Executable)
-				require.NotNil(t, res.SeccompReq)
-				require.Equal(t, syscall, res.SeccompReq.Syscall)
+				require.Equal(t, node, res.GetNode())
+				require.Equal(t, namespace, res.GetNamespace())
+				require.Equal(t, pod, res.GetPod())
+				require.Equal(t, executable, res.GetExecutable())
+				require.NotNil(t, res.GetSeccompReq())
+				require.Equal(t, syscall, res.GetSeccompReq().GetSyscall())
 
 				require.Equal(t, 0, mock.AddToBacklogCallCount())
 
