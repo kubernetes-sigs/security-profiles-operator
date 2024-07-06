@@ -190,7 +190,7 @@ jobs:
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-spoc.sh
 
-  e2e-baseprofiles:
+  e2e-seccomp-profile:
     needs: image
     runs-on: ubuntu-22.04
     timeout-minutes: 90
@@ -217,8 +217,8 @@ jobs:
       - name: Set up git config
         run: |
           $RUN git config --global --add safe.directory /vagrant
-      - name: Run E2E test to record baseprofiles
-        run: $RUN hack/ci/e2e-baseprofiles.sh
+      - name: Run E2E test to record seccomp profile
+        run: $RUN hack/ci/e2e-seccomp.sh
 
   typos:
     runs-on: ubuntu-22.04
