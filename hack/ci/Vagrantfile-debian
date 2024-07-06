@@ -38,10 +38,11 @@ Vagrant.configure("2") do |config|
       sysctl -w kernel.printk_ratelimit=0
       sysctl -w kernel.printk_ratelimit_burst=0
 
-      # Install dependencies such as eBPF and seccomp libs
+      # Install dependencies for eBPF and seccomp libs
       apt-get update
       apt-get install -y \
           build-essential \
+          moreutils \
           pkg-config \
           jq \
           apparmor \
@@ -53,6 +54,31 @@ Vagrant.configure("2") do |config|
 
       /vagrant/hack/install-libbpf.sh
 
+      # Insatll kubernetes related binaries
+      KUBERNETES_VERSION=v1.30
+      curl -fsSL https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
+      curl -fsSL https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/cri-o-apt-keyring.gpg
+      echo "deb [signed-by=/etc/apt/keyrings/cri-o-apt-keyring.gpg] https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/deb/ /" | tee /etc/apt/sources.list.d/cri-o.list
+      apt-get update
+      apt-get install -y \
+        kubelet \
+        kubeadm \
+        kubectl \
+        podman
+
+      # Load the prebuilt container image
+      podman load -i /vagrant/image.tar
+
+      # Remove podman, this package conflicts with CRI-O
+      apt-get remove --purge -y podman
+      apt-get autoremove -y
+
+      # Setup CRI-O
+      apt-get install -y cri-o
+      systemctl enable --now crio
+
+      /vagrant/hack/ci/install-kubernetes.sh
     SHELL
   end
 end
