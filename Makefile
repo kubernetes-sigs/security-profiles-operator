@@ -310,7 +310,7 @@ vagrant-up-ubuntu: ## Boot the Vagrant Ubuntu based test VM
 
 .PHONY: vagrant-up-debian
 vagrant-up-debian: ## Boot the Vagrant Debian based test VM
-	$(call vagrant-up,debian,no)
+	$(call vagrant-up,debian,build)
 
 .PHONY: vagrant-up-flatcar
 vagrant-up-flatcar: ## Boot the Vagrant Flatcar based test VM

@@ -54,6 +54,12 @@ Vagrant.configure("2") do |config|
 
       /vagrant/hack/install-libbpf.sh
 
+      # Install cosign (required by e2e-baseprofile test)
+      COSIGN_VERSION=v2.2.1
+      COSIGN_BINARY=/usr/bin/cosign
+      curl -sSfL --retry 5 --retry-delay 3 "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64" -o "$COSIGN_BINARY"
+      chmod +x "$COSIGN_BINARY"
+
       # Insatll kubernetes related binaries
       KUBERNETES_VERSION=v1.30
       curl -fsSL https://pkgs.k8s.io/core:/stable:/$KUBERNETES_VERSION/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
