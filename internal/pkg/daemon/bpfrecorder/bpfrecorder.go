@@ -822,17 +822,21 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 						"containerName", containerName,
 					)
 
-					key := config.SeccompProfileRecordBpfAnnotationKey + containerName
-					profile, ok := pod.Annotations[key]
-					if ok && profile != "" {
-						b.logger.Info(
-							"Cache this profile found in cluster",
-							"profile", profile,
-							"containerID", containerID,
-							"podName", pod.Name,
-							"containerName", containerName,
-						)
-						b.containerIDToProfileMap.Insert(containerID, profile)
+					for _, annotation := range []string{
+						config.SeccompProfileRecordBpfAnnotationKey,
+						config.ApparmorProfileRecordBpfAnnotationKey} {
+						key := annotation + containerName
+						profile, ok := pod.Annotations[key]
+						if ok && profile != "" {
+							b.logger.Info(
+								"Cache this profile found in cluster",
+								"profile", profile,
+								"containerID", containerID,
+								"podName", pod.Name,
+								"containerName", containerName,
+							)
+							b.containerIDToProfileMap.Insert(containerID, profile)
+						}
 					}
 
 					// Stop looking for this container ID regadless of a profile was found or not.

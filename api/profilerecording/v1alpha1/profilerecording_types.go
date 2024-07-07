@@ -61,7 +61,7 @@ const (
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
 type ProfileRecordingSpec struct {
 	// Kind of object to be recorded.
-	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile
+	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile;ApparmorProfile
 	Kind ProfileRecordingKind `json:"kind"`
 
 	// Recorder to be used.
@@ -120,9 +120,7 @@ func (pr *ProfileRecording) CtrAnnotation(ctrName string) (key, value string, er
 	case ProfileRecordingKindSelinuxProfile:
 		return pr.ctrAnnotationSelinux(ctrName)
 	case ProfileRecordingKindAppArmorProfile:
-		return "", "", fmt.Errorf(
-			"invalid kind: %s", pr.Spec.Kind,
-		)
+		return pr.ctrAnnotationApparmor(ctrName)
 	default:
 		return "", "", fmt.Errorf(
 			"invalid kind: %s", pr.Spec.Kind,
@@ -132,10 +130,10 @@ func (pr *ProfileRecording) CtrAnnotation(ctrName string) (key, value string, er
 
 func (pr *ProfileRecording) IsKindSupported() bool {
 	switch pr.Spec.Kind {
-	case ProfileRecordingKindSelinuxProfile, ProfileRecordingKindSeccompProfile:
+	case ProfileRecordingKindSelinuxProfile,
+		ProfileRecordingKindSeccompProfile,
+		ProfileRecordingKindAppArmorProfile:
 		return true
-	case ProfileRecordingKindAppArmorProfile:
-		return false
 	default:
 		return false
 	}
@@ -188,6 +186,22 @@ func (pr *ProfileRecording) ctrAnnotationSelinux(ctrName string) (key, value str
 	value = pr.ctrAnnotationValue(ctrName)
 	key = annotationPrefix + ctrName
 	return
+}
+
+func (pr *ProfileRecording) ctrAnnotationApparmor(ctrName string) (key, value string, err error) {
+	var annotationPrefix string
+
+	switch pr.Spec.Recorder {
+	case ProfileRecorderBpf:
+		annotationPrefix = config.ApparmorProfileRecordBpfAnnotationKey
+	default:
+		return "", "", fmt.Errorf(
+			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderBpf,
+		)
+	}
+	key = annotationPrefix + ctrName
+	value = pr.ctrAnnotationValue(ctrName)
+	return key, value, err
 }
 
 // +kubebuilder:object:root=true

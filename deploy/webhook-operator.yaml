@@ -220,6 +220,7 @@ spec:
                 enum:
                 - SeccompProfile
                 - SelinuxProfile
+                - ApparmorProfile
                 type: string
               mergeStrategy:
                 default: none
