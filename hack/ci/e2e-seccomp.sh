@@ -15,8 +15,8 @@
 
 set -euo pipefail
 
-record_seccomp_baseprofile() {
-  echo "Recording seccomp baseprofile"
+record_seccomp_profiles() {
+  echo "Recording seccomp profiles"
   PODNAME=test-pod
   RECORDING=test-recording-$PODNAME
 
@@ -111,4 +111,4 @@ EOT
 
 install_yq
 install_operator
-record_seccomp_baseprofile
+record_seccomp_profiles

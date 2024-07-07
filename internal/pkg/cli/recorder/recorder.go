@@ -393,6 +393,16 @@ func (r *Recorder) buildProfileCRD(writer io.Writer, spec *seccompprofileapi.Sec
 }
 
 func (r *Recorder) buildAppArmorProfileCRD(writer io.Writer, spec *apparmorprofileapi.AppArmorProfileSpec) error {
+	programName, err := filepath.Abs(r.options.commandOptions.Command())
+	if err != nil {
+		return fmt.Errorf("get program name: %w", err)
+	}
+	// Raw apparmor profile is expected in the required policy field.
+	policy, err := crd2armor.GenerateProfile(programName, &spec.Abstract)
+	if err != nil {
+		return fmt.Errorf("generating raw apparmor profile: %w", err)
+	}
+	spec.Policy = policy
 	profile := &apparmorprofileapi.AppArmorProfile{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "AppArmorProfile",

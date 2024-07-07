@@ -57,6 +57,7 @@ const (
 	SelinuxdDBPath                             = SelinuxdPrivateDir + "/selinuxd.db"
 	MetricsImage                               = "gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0"
 	sysKernelDebugPath                         = "/sys/kernel/debug"
+	sysKernelSecurityPath                      = "/sys/kernel/security"
 	InitContainerIDNonRootenabler              = 0
 	InitContainerIDSelinuxSharedPoliciesCopier = 1
 	ContainerIDDaemon                          = 0
@@ -86,6 +87,7 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		EnableSelinux:       nil,
 		EnableLogEnricher:   false,
 		EnableBpfRecorder:   false,
+		EnableAppArmor:      false,
 		StaticWebhookConfig: false,
 		HostProcVolumePath:  DefaultHostProcPath,
 		PriorityClassName:   DefaultPriorityClassName,
@@ -551,6 +553,11 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								ReadOnly:  true,
 							},
 							{
+								Name:      "sys-kernel-security-volume",
+								MountPath: sysKernelSecurityPath,
+								ReadOnly:  true,
+							},
+							{
 								Name:      "host-etc-osrelease-volume",
 								MountPath: etcOSReleasePath,
 							},
@@ -751,6 +758,15 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
 								Path: sysKernelDebugPath,
+								Type: &hostPathDirectory,
+							},
+						},
+					},
+					{
+						Name: "sys-kernel-security-volume",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: sysKernelSecurityPath,
 								Type: &hostPathDirectory,
 							},
 						},
