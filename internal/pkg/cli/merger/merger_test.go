@@ -100,7 +100,7 @@ func TestRun(t *testing.T) {
 				return defaultOptions()
 			},
 			assert: func(mock *mergerfakes.FakeImpl, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				_, merged, _ := mock.WriteFileArgsForCall(0)
 				require.Equal(t, SeccompMerged, string(merged))
 			},

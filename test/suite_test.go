@@ -309,7 +309,7 @@ func (e *kinde2e) SetupSuite() {
 	e.e2e.setupRecordingSa = e.deployRecordingSa
 	parentCwd := e.setWorkDir()
 	buildDir := filepath.Join(parentCwd, "build")
-	e.Nil(os.MkdirAll(buildDir, 0o755))
+	e.Require().NoError(os.MkdirAll(buildDir, 0o755))
 
 	e.kindPath = filepath.Join(buildDir, "kind")
 	SHA512 := ""
@@ -329,7 +329,7 @@ func (e *kinde2e) SetupSuite() {
 	var err error
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
-	e.Nil(err)
+	e.NoError(err)
 }
 
 // SetupTest starts a fresh kind cluster for each test.
@@ -347,7 +347,7 @@ func (e *kinde2e) SetupTest() {
 	)
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
-	e.Nil(cmd.Run())
+	e.Require().NoError(cmd.Run())
 
 	// Wait for the nodes to  be ready
 	e.logf("Waiting for cluster to be ready")
@@ -409,7 +409,7 @@ func (e *openShifte2e) SetupSuite() {
 	e.setWorkDir()
 
 	e.kubectlPath, err = exec.LookPath("oc")
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	e.logf("Using deployed OpenShift cluster")
 
@@ -520,7 +520,7 @@ func (e *vanilla) SetupSuite() {
 	e.e2e.deployCertManager = e.deployCertManagerVanilla
 	e.e2e.setupRecordingSa = e.deployRecordingSa
 	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
-	e.Nil(err)
+	e.NoError(err)
 }
 
 func (e *vanilla) SetupTest() {
@@ -547,10 +547,10 @@ func (e *e2e) deployCertManagerVanilla() {
 
 func (e *e2e) setWorkDir() string {
 	cwd, err := os.Getwd()
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	parentCwd := filepath.Dir(cwd)
-	e.Nil(os.Chdir(parentCwd))
+	e.NoError(os.Chdir(parentCwd))
 	return parentCwd
 }
 
@@ -586,7 +586,7 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 
 func (e *e2e) run(cmd string, args ...string) string {
 	output, err := command.New(cmd, args...).RunSuccessOutput()
-	e.Nil(err)
+	e.NoError(err)
 	if output != nil {
 		return output.OutputTrimNL()
 	}
@@ -597,13 +597,13 @@ func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
 	if !util.Exists(binaryPath) {
 		e.logf("Downloading %s", binaryPath)
 		e.run("curl", "-o", binaryPath, "-fL", url)
-		e.Nil(os.Chmod(binaryPath, 0o700))
+		e.Require().NoError(os.Chmod(binaryPath, 0o700))
 		e.verifySHA512(binaryPath, sha512)
 	}
 }
 
 func (e *e2e) verifySHA512(binaryPath, sha512 string) {
-	e.Nil(command.New("sha512sum", binaryPath).
+	e.NoError(command.New("sha512sum", binaryPath).
 		Pipe("grep", sha512).
 		RunSilentSuccess(),
 	)

@@ -35,8 +35,8 @@ func TestFromContext(t *testing.T) {
 			name: "success",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagUsername, "", "")
-				require.Nil(t, set.Set(FlagUsername, "username"))
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Set(FlagUsername, "username"))
+				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(opts *Options, err error) {
 				require.NoError(t, err)
@@ -47,8 +47,8 @@ func TestFromContext(t *testing.T) {
 			name: "success with verify signature disabled",
 			prepare: func(set *flag.FlagSet) {
 				set.Bool(FlagDisableSignatureVerification, true, "")
-				require.Nil(t, set.Set(FlagDisableSignatureVerification, "true"))
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Set(FlagDisableSignatureVerification, "true"))
+				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(opts *Options, err error) {
 				require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestFromContext(t *testing.T) {
 			name: "failure no image provided",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagOutputFile, "", "")
-				require.Nil(t, set.Set(FlagOutputFile, ""))
+				require.NoError(t, set.Set(FlagOutputFile, ""))
 			},
 			assert: func(_ *Options, err error) {
 				require.Error(t, err)
@@ -69,8 +69,8 @@ func TestFromContext(t *testing.T) {
 			name: "failure no output file provided",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagOutputFile, "", "")
-				require.Nil(t, set.Set(FlagOutputFile, ""))
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Set(FlagOutputFile, ""))
+				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(_ *Options, err error) {
 				require.Error(t, err)
@@ -80,8 +80,8 @@ func TestFromContext(t *testing.T) {
 			name: "failure parse platform",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagPlatform, "", "")
-				require.Nil(t, set.Set(FlagPlatform, "os//var"))
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Set(FlagPlatform, "os//var"))
+				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(_ *Options, err error) {
 				require.Error(t, err)

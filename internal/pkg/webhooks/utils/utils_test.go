@@ -162,9 +162,9 @@ func TestUpdateResource(t *testing.T) {
 			context.Background(), logr.Discard(), tc.client, nil, "",
 		)
 		if tc.shouldErr {
-			require.NotNil(t, err)
+			require.Error(t, err)
 		} else {
-			require.Nil(t, err)
+			require.NoError(t, err)
 		}
 	}
 }

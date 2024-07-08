@@ -109,9 +109,9 @@ func TestMergeProfiles(t *testing.T) {
 
 				mergedProf := ifaceAsSortedSeccompProfile(mergedProfIface)
 				require.Equal(t, mergedProf.Spec.Syscalls[0].Action, seccomp.Action("foo"))
-				require.Equal(t, mergedProf.Spec.Syscalls[0].Names, []string{"a", "b", "c"})
+				require.Equal(t, []string{"a", "b", "c"}, mergedProf.Spec.Syscalls[0].Names)
 				require.Equal(t, mergedProf.Spec.Syscalls[1].Action, seccomp.Action("foo"))
-				require.Equal(t, mergedProf.Spec.Syscalls[1].Names, []string{"c", "d", "e"})
+				require.Equal(t, []string{"c", "d", "e"}, mergedProf.Spec.Syscalls[1].Names)
 				return nil
 			},
 		},
@@ -160,10 +160,10 @@ func TestMergeProfiles(t *testing.T) {
 				t.Helper()
 
 				mergedProf := ifaceAsSortedSelinuxProfile(profile)
-				require.Equal(t, mergedProf.Spec.Allow, selinuxprofileapi.Allow{
+				require.Equal(t, selinuxprofileapi.Allow{
 					"label_foo": {"oc_baz": {"do_baz"}, "oc_bar": {"do_bar"}, "oc_bar2": {"do_bar2"}, "oc_baz2": {"do_baz2"}},
 					"label_aaa": {"oc_aaa": {"do_aaa"}, "oc_bbb": {"do_bbb"}},
-				})
+				}, mergedProf.Spec.Allow)
 				return nil
 			},
 		},
@@ -230,7 +230,7 @@ func TestMergeProfiles(t *testing.T) {
 				prof, ok := profile.(*apparmorprofileapi.AppArmorProfile)
 				require.True(t, ok)
 
-				require.Equal(t, prof.Spec.Abstract, apparmorprofileapi.AppArmorAbstract{
+				require.Equal(t, apparmorprofileapi.AppArmorAbstract{
 					Executable: &apparmorprofileapi.AppArmorExecutablesRules{
 						AllowedExecutables: &[]string{"execA", "execB", "execC"},
 						AllowedLibraries:   &[]string{"libA"},
@@ -249,7 +249,7 @@ func TestMergeProfiles(t *testing.T) {
 					Capability: &apparmorprofileapi.AppArmorCapabilityRules{
 						AllowedCapabilities: []string{"net_admin", "net_raw", "sys_admin"},
 					},
-				})
+				}, prof.Spec.Abstract)
 				return nil
 			},
 		},
@@ -260,9 +260,9 @@ func TestMergeProfiles(t *testing.T) {
 
 			partialProfiles := tc.prepare(t)
 			mergedProfIface, err := MergeProfiles(partialProfiles)
-			require.Nil(t, err)
+			require.NoError(t, err)
 			err = tc.assert(mergedProfIface)
-			require.Nil(t, err)
+			require.NoError(t, err)
 		})
 	}
 }

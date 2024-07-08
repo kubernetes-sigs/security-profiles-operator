@@ -127,7 +127,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -171,7 +171,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -241,7 +241,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -306,7 +306,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -364,7 +364,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -372,7 +372,7 @@ func TestHandle(t *testing.T) {
 			},
 			assert: func(resp admission.Response) {
 				require.True(t, resp.AdmissionResponse.Allowed)
-				require.Len(t, resp.Patches, 0)
+				require.Empty(t, resp.Patches)
 			},
 		},
 		{ // success pod deleted
@@ -529,7 +529,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},

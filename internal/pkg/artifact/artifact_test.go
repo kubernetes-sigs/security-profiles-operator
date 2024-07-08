@@ -42,7 +42,7 @@ func defaultDescriptor() ocispec.Descriptor {
 
 func TestPush(t *testing.T) {
 	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	t.Parallel()
 	for _, tc := range []struct {
@@ -222,7 +222,7 @@ func TestPush(t *testing.T) {
 
 func TestPull(t *testing.T) {
 	testRef, err := name.ParseReference("docker.io/foo/bar:v1")
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	t.Parallel()
 	for _, tc := range []struct {
