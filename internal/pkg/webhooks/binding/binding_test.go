@@ -121,7 +121,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -160,7 +160,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -199,7 +199,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -238,7 +238,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -276,7 +276,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -310,7 +310,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -341,7 +341,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -381,7 +381,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},
@@ -421,7 +421,7 @@ func TestHandle(t *testing.T) {
 					Object: runtime.RawExtension{
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
-							require.Nil(t, err)
+							require.NoError(t, err)
 							return b
 						}(),
 					},

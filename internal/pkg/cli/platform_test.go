@@ -22,6 +22,7 @@ import (
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParsePlatform(t *testing.T) {
@@ -35,7 +36,7 @@ func TestParsePlatform(t *testing.T) {
 			name:  "success no input",
 			input: "",
 			assert: func(platform *v1.Platform, err error) {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, runtime.GOOS, platform.OS)
 				assert.Equal(t, runtime.GOARCH, platform.Architecture)
 				assert.Empty(t, platform.OSFeatures)
@@ -47,7 +48,7 @@ func TestParsePlatform(t *testing.T) {
 			name:  "success only OS",
 			input: "os",
 			assert: func(platform *v1.Platform, err error) {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, "os", platform.OS)
 				assert.Equal(t, runtime.GOARCH, platform.Architecture)
 				assert.Empty(t, platform.OSFeatures)
@@ -59,7 +60,7 @@ func TestParsePlatform(t *testing.T) {
 			name:  "success OS and architecture",
 			input: "os/arch",
 			assert: func(platform *v1.Platform, err error) {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, "os", platform.OS)
 				assert.Equal(t, "arch", platform.Architecture)
 				assert.Empty(t, platform.OSFeatures)
@@ -71,7 +72,7 @@ func TestParsePlatform(t *testing.T) {
 			name:  "success OS, architecture and variant",
 			input: "os/arch/var",
 			assert: func(platform *v1.Platform, err error) {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, "os", platform.OS)
 				assert.Equal(t, "arch", platform.Architecture)
 				assert.Equal(t, "var", platform.Variant)
@@ -83,7 +84,7 @@ func TestParsePlatform(t *testing.T) {
 			name:  "failure too many parts",
 			input: "os/arch/var/wrong",
 			assert: func(platform *v1.Platform, err error) {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, platform)
 			},
 		},
@@ -91,7 +92,7 @@ func TestParsePlatform(t *testing.T) {
 			name:  "failure empty OS",
 			input: "/arch/var",
 			assert: func(platform *v1.Platform, err error) {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, platform)
 			},
 		},
@@ -99,7 +100,7 @@ func TestParsePlatform(t *testing.T) {
 			name:  "failure empty architecture",
 			input: "os//var",
 			assert: func(platform *v1.Platform, err error) {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, platform)
 			},
 		},

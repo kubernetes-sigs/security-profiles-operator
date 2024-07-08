@@ -34,7 +34,7 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "success",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(err error) {
 				require.NoError(t, err)

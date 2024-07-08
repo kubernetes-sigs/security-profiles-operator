@@ -106,7 +106,7 @@ func TestRun(t *testing.T) {
 
 				require.Equal(t, 0, mock.AddToBacklogCallCount())
 
-				require.Nil(t, err)
+				require.NoError(t, err)
 			},
 		},
 		{ // failure on Getenv
@@ -115,7 +115,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns("")
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // failure on Dial
@@ -125,7 +125,7 @@ func TestRun(t *testing.T) {
 				mock.DialReturns(nil, nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // failure on MetricsAuditInc
@@ -136,7 +136,7 @@ func TestRun(t *testing.T) {
 				mock.AuditIncReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // failure on Tail
@@ -147,7 +147,7 @@ func TestRun(t *testing.T) {
 				mock.TailFileReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // failure on Listen
@@ -158,7 +158,7 @@ func TestRun(t *testing.T) {
 				mock.ListenReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // failure on Chown
@@ -169,7 +169,7 @@ func TestRun(t *testing.T) {
 				mock.ChownReturns(errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // failure on Lines
@@ -182,7 +182,7 @@ func TestRun(t *testing.T) {
 				mock.ReasonReturns(errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // success, but metrics send failed
@@ -218,7 +218,7 @@ func TestRun(t *testing.T) {
 					// Wait for MetricsAuditIncCallCount to be called
 				}
 
-				require.Nil(t, err)
+				require.NoError(t, err)
 			},
 		},
 		{ // success, but using the backlog
@@ -278,7 +278,7 @@ func TestRun(t *testing.T) {
 					// pod information shouldn't be available yet
 				}
 				// nothing should be read from the backlog yet
-				require.Equal(t, mock.GetFromBacklogCallCount(), 0)
+				require.Equal(t, 0, mock.GetFromBacklogCallCount())
 
 				lineChan <- &tail.Line{
 					Text: avcLine,
@@ -287,7 +287,7 @@ func TestRun(t *testing.T) {
 
 				// the other line shouldn't hit the backlog, so there
 				// should be still only one write to backlog
-				require.Equal(t, mock.AddToBacklogCallCount(), 1)
+				require.Equal(t, 1, mock.AddToBacklogCallCount())
 
 				// add something to the mock backlog
 				mock.GetFromBacklogReturns(
@@ -316,7 +316,7 @@ func TestRun(t *testing.T) {
 					// that it was not empty and the mock entry was
 					// actually processed
 				}
-				require.Nil(t, err)
+				require.NoError(t, err)
 			},
 		},
 	} {

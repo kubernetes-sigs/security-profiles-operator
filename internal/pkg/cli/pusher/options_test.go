@@ -36,8 +36,8 @@ func TestFromContext(t *testing.T) {
 			name: "success",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagUsername, "", "")
-				require.Nil(t, set.Set(FlagUsername, "username"))
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Set(FlagUsername, "username"))
+				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(_ *Options, err error) {
 				assert.NoError(t, err)
@@ -46,12 +46,12 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "success with annotations",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagAnnotations, "")
-				require.Nil(t, set.Set(FlagAnnotations, "foo:bar,hello:world"))
+				require.NoError(t, set.Set(FlagAnnotations, "foo:bar,hello:world"))
 			},
 			assert: func(res *Options, err error) {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Len(t, res.annotations, 2)
 				assert.Equal(t, "bar", res.annotations["foo"])
 				assert.Equal(t, "world", res.annotations["hello"])
@@ -60,12 +60,12 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "success one profile but no platform",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
-				require.Nil(t, set.Set(FlagProfiles, "foo"))
+				require.NoError(t, set.Set(FlagProfiles, "foo"))
 			},
 			assert: func(res *Options, err error) {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Len(t, res.inputFiles, 1)
 				assert.Equal(t, "foo", res.inputFiles[DefaultPlatform])
 			},
@@ -73,12 +73,12 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "success one platform but no profile",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
-				require.Nil(t, set.Set(FlagPlatforms, "foo"))
+				require.NoError(t, set.Set(FlagPlatforms, "foo"))
 			},
 			assert: func(res *Options, err error) {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Len(t, res.inputFiles, 1)
 				for k, v := range res.inputFiles {
 					assert.Equal(t, "foo", k.OS)
@@ -89,14 +89,14 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "success multiple profiles and platforms",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
-				require.Nil(t, set.Set(FlagPlatforms, "foo,bar"))
+				require.NoError(t, set.Set(FlagPlatforms, "foo,bar"))
 				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
-				require.Nil(t, set.Set(FlagProfiles, "foo,bar"))
+				require.NoError(t, set.Set(FlagProfiles, "foo,bar"))
 			},
 			assert: func(res *Options, err error) {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Len(t, res.inputFiles, 2)
 				for k, v := range res.inputFiles {
 					assert.Equal(t, v, k.OS)
@@ -113,9 +113,9 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "failure wrong annotation format",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagAnnotations, "")
-				require.Nil(t, set.Set(FlagAnnotations, "foo"))
+				require.NoError(t, set.Set(FlagAnnotations, "foo"))
 			},
 			assert: func(_ *Options, err error) {
 				assert.Error(t, err)
@@ -124,11 +124,11 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "failure amount of profiles and platforms does not match",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
-				require.Nil(t, set.Set(FlagProfiles, "foo,bar"))
+				require.NoError(t, set.Set(FlagProfiles, "foo,bar"))
 				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
-				require.Nil(t, set.Set(FlagPlatforms, "foo,bar,baz"))
+				require.NoError(t, set.Set(FlagPlatforms, "foo,bar,baz"))
 			},
 			assert: func(_ *Options, err error) {
 				assert.Error(t, err)
@@ -137,9 +137,9 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "failure multiple profiles but no platforms",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagProfiles, "")
-				require.Nil(t, set.Set(FlagProfiles, "foo,bar"))
+				require.NoError(t, set.Set(FlagProfiles, "foo,bar"))
 			},
 			assert: func(_ *Options, err error) {
 				assert.Error(t, err)
@@ -148,9 +148,9 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "failure duplicate platforms",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
-				require.Nil(t, set.Set(FlagPlatforms, "foo,foo"))
+				require.NoError(t, set.Set(FlagPlatforms, "foo,foo"))
 			},
 			assert: func(_ *Options, err error) {
 				assert.Error(t, err)
@@ -159,9 +159,9 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "failure parse platforms",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 				set.Var(cli.NewStringSlice(""), FlagPlatforms, "")
-				require.Nil(t, set.Set(FlagPlatforms, "this/is/a/wrong/platform"))
+				require.NoError(t, set.Set(FlagPlatforms, "this/is/a/wrong/platform"))
 			},
 			assert: func(_ *Options, err error) {
 				assert.Error(t, err)

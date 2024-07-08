@@ -104,9 +104,9 @@ func TestRun(t *testing.T) {
 
 		err := sut.Run(logr.Discard(), "", config.KubeletDir())
 		if tc.shouldError {
-			require.NotNil(t, err)
+			require.Error(t, err)
 		} else {
-			require.Nil(t, err)
+			require.NoError(t, err)
 		}
 	}
 }

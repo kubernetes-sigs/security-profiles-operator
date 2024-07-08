@@ -78,7 +78,7 @@ func TestRun(t *testing.T) {
 				mock.DialMetricsReturns(&grpc.ClientConn{}, func() {}, nil)
 			},
 			assert: func(err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 			},
 		},
 		{ // Getenv returns nothing
@@ -86,7 +86,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns("")
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // InClusterConfig fails
@@ -95,7 +95,7 @@ func TestRun(t *testing.T) {
 				mock.InClusterConfigReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // NewForConfig fails
@@ -104,7 +104,7 @@ func TestRun(t *testing.T) {
 				mock.NewForConfigReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // RemoveAll fails
@@ -113,7 +113,7 @@ func TestRun(t *testing.T) {
 				mock.RemoveAllReturns(errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // Listen fails
@@ -122,7 +122,7 @@ func TestRun(t *testing.T) {
 				mock.ListenReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // Chown fails
@@ -131,7 +131,7 @@ func TestRun(t *testing.T) {
 				mock.ChownReturns(errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // connectMetrics:DialMetrics fails
@@ -140,7 +140,7 @@ func TestRun(t *testing.T) {
 				mock.DialMetricsReturns(nil, nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // connectMetrics:BpfIncClient fails
@@ -151,7 +151,7 @@ func TestRun(t *testing.T) {
 				mock.BpfIncClientReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // Readlink fails
@@ -160,7 +160,7 @@ func TestRun(t *testing.T) {
 				mock.ReadlinkReturns("", errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // Atoi fails
@@ -169,7 +169,7 @@ func TestRun(t *testing.T) {
 				mock.ParseUintReturns(0, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // ServeFails
@@ -178,7 +178,7 @@ func TestRun(t *testing.T) {
 				mock.ServeReturns(errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load wrong GOARCH
@@ -187,7 +187,7 @@ func TestRun(t *testing.T) {
 				mock.GoArchReturns("invalid")
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:NewModuleFromBufferArgs fails
@@ -197,7 +197,7 @@ func TestRun(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:InitGlobalVariable fails
@@ -207,7 +207,7 @@ func TestRun(t *testing.T) {
 				mock.InitGlobalVariableReturns(errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:BPFLoadObject fails
@@ -217,7 +217,7 @@ func TestRun(t *testing.T) {
 				mock.BPFLoadObjectReturns(errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:GetProgram fails
@@ -227,7 +227,7 @@ func TestRun(t *testing.T) {
 				mock.GetProgramReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:AttachGeneric fails
@@ -237,7 +237,7 @@ func TestRun(t *testing.T) {
 				mock.AttachGenericReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:GetMap fails
@@ -247,7 +247,7 @@ func TestRun(t *testing.T) {
 				mock.GetMapReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 
@@ -258,7 +258,7 @@ func TestRun(t *testing.T) {
 				mock.InitRingBufReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath:Unmarshal fails
@@ -268,7 +268,7 @@ func TestRun(t *testing.T) {
 				mock.UnmarshalReturns(errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath:ReadOSRelease fails
@@ -278,7 +278,7 @@ func TestRun(t *testing.T) {
 				mock.ReadOSReleaseReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath succeeds
@@ -297,7 +297,7 @@ func TestRun(t *testing.T) {
 				mock.TempFileCalls(os.CreateTemp)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath:Write fails
@@ -316,7 +316,7 @@ func TestRun(t *testing.T) {
 				mock.WriteReturns(0, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath:TempFile fails
@@ -335,7 +335,7 @@ func TestRun(t *testing.T) {
 				mock.TempFileReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath kernel not found
@@ -352,7 +352,7 @@ func TestRun(t *testing.T) {
 				})
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath architecture not found
@@ -365,7 +365,7 @@ func TestRun(t *testing.T) {
 				}, nil)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath:Uname fails
@@ -379,7 +379,7 @@ func TestRun(t *testing.T) {
 				mock.UnameReturns(errTest)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath OS version ID not found
@@ -390,7 +390,7 @@ func TestRun(t *testing.T) {
 				mock.ReadOSReleaseReturns(map[string]string{"ID": "centos"}, nil)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // load:findBtfPath OS ID not found
@@ -401,7 +401,7 @@ func TestRun(t *testing.T) {
 				mock.ReadOSReleaseReturns(map[string]string{}, nil)
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 	} {
@@ -427,7 +427,7 @@ func TestStart(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 			},
 			assert: func(sut *BpfRecorder, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.EqualValues(t, 1, sut.startRequests)
 			},
 		},
@@ -436,10 +436,10 @@ func TestStart(t *testing.T) {
 				mock.GoArchReturns(validGoArch)
 			},
 			assert: func(sut *BpfRecorder, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.EqualValues(t, 1, sut.startRequests)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.EqualValues(t, 2, sut.startRequests)
 			},
 		},
@@ -448,7 +448,7 @@ func TestStart(t *testing.T) {
 				mock.GoArchReturns("invalid")
 			},
 			assert: func(sut *BpfRecorder, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 				require.EqualValues(t, 0, sut.startRequests)
 			},
 		},
@@ -474,7 +474,7 @@ func TestStop(t *testing.T) {
 		{ // Success
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
 			assert: func(sut *BpfRecorder, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.EqualValues(t, 0, sut.startRequests)
 			},
 		},
@@ -482,10 +482,10 @@ func TestStop(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.EqualValues(t, 0, sut.startRequests)
 			},
 		},
@@ -493,12 +493,12 @@ func TestStop(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.EqualValues(t, 1, sut.startRequests)
 			},
 		},
@@ -526,7 +526,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				mock.GetValueReturns([]byte{0, 1, 1, 1}, nil)
@@ -539,7 +539,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.DeleteKeyReturnsOnCall(0, errTest)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Len(t, resp.GetSyscalls(), 3)
 				require.Equal(t, "syscall_a", resp.GetSyscalls()[0])
 				require.Equal(t, "syscall_b", resp.GetSyscalls()[1])
@@ -550,7 +550,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				mock.GetValueReturns([]byte{1, 1, 1}, nil)
@@ -560,7 +560,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.GetNameReturnsOnCall(3, "syscall_a", nil)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Len(t, resp.GetSyscalls(), 2)
 				require.Equal(t, "syscall_a", resp.GetSyscalls()[0])
 				require.Equal(t, "syscall_b", resp.GetSyscalls()[1])
@@ -569,7 +569,7 @@ func TestSyscallsForProfile(t *testing.T) {
 		{ // recorder not running
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // not recording seccomp
@@ -577,37 +577,37 @@ func TestSyscallsForProfile(t *testing.T) {
 				sut.Seccomp = nil
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // no PID for container
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // no syscall found for profile
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				mock.GetValueReturns(nil, errTest)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // Failed to clean syscalls map
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				mock.GetValueReturns([]byte{1, 1, 1}, nil)
@@ -617,7 +617,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.DeleteKeyReturns(errTest)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Len(t, resp.GetSyscalls(), 3)
 				require.Equal(t, "syscall_a", resp.GetSyscalls()[0])
 				require.Equal(t, "syscall_b", resp.GetSyscalls()[1])
@@ -654,7 +654,7 @@ func TestApparmorForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
@@ -674,7 +674,7 @@ func TestApparmorForProfile(t *testing.T) {
 				}
 			},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Len(t, resp.GetCapabilities(), 3)
 				require.Len(t, resp.GetFiles().GetAllowedExecutables(), 1)
 				require.False(t, resp.GetSocket().GetUseRaw())
@@ -687,7 +687,7 @@ func TestApparmorForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
 				sut.AppArmor.recordedSocketsUse = map[mntnsID]*BpfAppArmorSocketTypes{
@@ -710,7 +710,7 @@ func TestApparmorForProfile(t *testing.T) {
 				}
 			},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Len(t, resp.GetCapabilities(), 3)
 				require.Len(t, resp.GetFiles().GetAllowedExecutables(), 1)
 				require.False(t, resp.GetSocket().GetUseRaw())
@@ -722,7 +722,7 @@ func TestApparmorForProfile(t *testing.T) {
 			name:    "recorder not running",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // not recording apparmor
@@ -731,7 +731,7 @@ func TestApparmorForProfile(t *testing.T) {
 				sut.AppArmor = nil
 			},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // no PID for container
@@ -739,10 +739,10 @@ func TestApparmorForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				_, err := sut.Start(context.Background(), &api.EmptyRequest{})
-				require.Nil(t, err)
+				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 	} {
@@ -800,7 +800,7 @@ func TestProcessEvents(t *testing.T) {
 		Mntns: 0x1010,
 		Type:  uint8(eventTypeExit),
 	})
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	ch := make(chan []byte, 1)
 	ch <- buf.Bytes()
@@ -811,7 +811,7 @@ func TestProcessEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	err = sut.WaitForPidExit(ctx, 42)
-	require.Nil(t, err)
+	require.NoError(t, err)
 }
 
 func TestHandleEvent(t *testing.T) {

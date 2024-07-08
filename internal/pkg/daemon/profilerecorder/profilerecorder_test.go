@@ -26,6 +26,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,7 +52,7 @@ var errTest = errors.New("error")
 func TestName(t *testing.T) {
 	t.Parallel()
 	sut := NewController()
-	assert.Equal(t, sut.Name(), "recorder-spod")
+	assert.Equal(t, "recorder-spod", sut.Name())
 }
 
 func TestSchemeBuilder(t *testing.T) {
@@ -86,7 +87,7 @@ func TestSetup(t *testing.T) {
 				})
 			},
 			assert: func(err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ // NewClient fails
@@ -94,7 +95,7 @@ func TestSetup(t *testing.T) {
 				mock.NewClientReturns(nil, errTest)
 			},
 			assert: func(err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // ClientGet fails
@@ -102,13 +103,13 @@ func TestSetup(t *testing.T) {
 				mock.ClientGetReturns(errTest)
 			},
 			assert: func(err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // no node addresses
 			prepare: func(mock *profilerecorderfakes.FakeImpl) {},
 			assert: func(err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // NewControllerManagedBy fails
@@ -116,7 +117,7 @@ func TestSetup(t *testing.T) {
 				mock.NewControllerManagedByReturns(errTest)
 			},
 			assert: func(err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 	} {
@@ -151,7 +152,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ // success pod not found
@@ -159,7 +160,7 @@ func TestReconcile(t *testing.T) {
 				mock.GetPodReturns(nil, kerrors.NewNotFound(schema.GroupResource{}, ""))
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -179,7 +180,7 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, func() {}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
@@ -190,7 +191,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, "profile", pod.profiles[0].name)
 				// already tracking
 				_, retryErr := sut.Reconcile(context.Background(), testRequest)
-				assert.Nil(t, retryErr)
+				assert.NoError(t, retryErr)
 			},
 		},
 		{ // seccomp BPF success collect
@@ -232,7 +233,7 @@ func TestReconcile(t *testing.T) {
 					f controllerutil.MutateFn,
 				) (controllerutil.OperationResult, error) {
 					err := f()
-					assert.Nil(t, err)
+					assert.NoError(t, err)
 					return "", nil
 				})
 				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
@@ -242,7 +243,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -281,7 +282,7 @@ func TestReconcile(t *testing.T) {
 				mock.GoArchToSeccompArchReturns("", errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -320,7 +321,7 @@ func TestReconcile(t *testing.T) {
 				mock.CreateOrUpdateReturns("", errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -352,7 +353,7 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, func() {}, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // seccomp BPF DialBpfRecorder fails on StopBpfRecorder
@@ -391,7 +392,7 @@ func TestReconcile(t *testing.T) {
 				mock.StopBpfRecorderReturns(errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // seccomp BPF invalid profile name
@@ -428,7 +429,7 @@ func TestReconcile(t *testing.T) {
 				)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -462,7 +463,7 @@ func TestReconcile(t *testing.T) {
 				mock.StopBpfRecorderReturns(nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -495,7 +496,7 @@ func TestReconcile(t *testing.T) {
 				mock.SyscallsForProfileReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // seccomp BPF DialBpfRecorder fails
@@ -514,7 +515,7 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, func() {}, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // seccomp BPF StartBpfRecorder fails
@@ -534,7 +535,7 @@ func TestReconcile(t *testing.T) {
 				mock.StartBpfRecorderReturns(errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // seccomp BPF GetSPOD fails
@@ -550,7 +551,7 @@ func TestReconcile(t *testing.T) {
 				mock.GetSPODReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // seccomp BPF not enabled
@@ -568,7 +569,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -588,7 +589,7 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, func() {}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
@@ -599,7 +600,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, "profile", pod.profiles[0].name)
 				// already tracking
 				_, retryErr := sut.Reconcile(context.Background(), testRequest)
-				assert.Nil(t, retryErr)
+				assert.NoError(t, retryErr)
 			},
 		},
 		{ // apparmor BPF success collect
@@ -646,7 +647,7 @@ func TestReconcile(t *testing.T) {
 					f controllerutil.MutateFn,
 				) (controllerutil.OperationResult, error) {
 					err := f()
-					assert.Nil(t, err)
+					assert.NoError(t, err)
 					return "", nil
 				})
 				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
@@ -656,7 +657,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ // apparmor BPF CreateOrUpdate fails
@@ -699,7 +700,7 @@ func TestReconcile(t *testing.T) {
 				mock.CreateOrUpdateReturns("", errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -731,7 +732,7 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, func() {}, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // apparmor BPF DialBpfRecorder fails on StopBpfRecorder
@@ -775,7 +776,7 @@ func TestReconcile(t *testing.T) {
 				mock.StopBpfRecorderReturns(errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // apparmor BPF invalid profile name
@@ -817,7 +818,7 @@ func TestReconcile(t *testing.T) {
 				)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -851,7 +852,7 @@ func TestReconcile(t *testing.T) {
 				mock.StopBpfRecorderReturns(nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -884,7 +885,7 @@ func TestReconcile(t *testing.T) {
 				mock.ApparmorForProfileReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // apparmor BPF DialBpfRecorder fails
@@ -903,7 +904,7 @@ func TestReconcile(t *testing.T) {
 				mock.DialBpfRecorderReturns(nil, func() {}, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // apparmor BPF StartBpfRecorder fails
@@ -923,7 +924,7 @@ func TestReconcile(t *testing.T) {
 				mock.StartBpfRecorderReturns(errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // apparmor BPF GetSPOD fails
@@ -939,7 +940,7 @@ func TestReconcile(t *testing.T) {
 				mock.GetSPODReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // seccomp BPF not enabled
@@ -957,7 +958,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // parseBpfAnnotations failed
@@ -972,7 +973,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ // parseLogAnnotations failed
@@ -987,7 +988,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ // failure GetPod (error reading pod)
@@ -995,7 +996,7 @@ func TestReconcile(t *testing.T) {
 				mock.GetPodReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -1011,7 +1012,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
@@ -1022,7 +1023,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, "profile", pod.profiles[0].name)
 				// already tracking
 				_, retryErr := sut.Reconcile(context.Background(), testRequest)
-				assert.Nil(t, retryErr)
+				assert.NoError(t, retryErr)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -1038,7 +1039,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
@@ -1049,7 +1050,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, "profile", pod.profiles[0].name)
 				// already tracking
 				_, retryErr := sut.Reconcile(context.Background(), testRequest)
-				assert.Nil(t, retryErr)
+				assert.NoError(t, retryErr)
 			},
 		},
 		{ // logs seccomp success collect
@@ -1088,7 +1089,7 @@ func TestReconcile(t *testing.T) {
 					f controllerutil.MutateFn,
 				) (controllerutil.OperationResult, error) {
 					err := f()
-					assert.Nil(t, err)
+					assert.NoError(t, err)
 					return "", nil
 				})
 				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
@@ -1098,7 +1099,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ // logs seccomp failed ResetSyscalls
@@ -1133,7 +1134,7 @@ func TestReconcile(t *testing.T) {
 				mock.ResetSyscallsReturns(errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -1169,7 +1170,7 @@ func TestReconcile(t *testing.T) {
 				mock.CreateOrUpdateReturns("", errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -1205,7 +1206,7 @@ func TestReconcile(t *testing.T) {
 				mock.GoArchToSeccompArchReturns("", errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -1238,7 +1239,7 @@ func TestReconcile(t *testing.T) {
 				mock.SyscallsReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // logs seccomp failed unknown kind
@@ -1270,7 +1271,7 @@ func TestReconcile(t *testing.T) {
 				mock.DialEnricherReturns(nil, func() {}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // logs seccomp wrong profile name
@@ -1301,7 +1302,7 @@ func TestReconcile(t *testing.T) {
 				mock.DialEnricherReturns(nil, func() {}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -1333,7 +1334,7 @@ func TestReconcile(t *testing.T) {
 				mock.DialEnricherReturns(nil, func() {}, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // logs seccomp EnableLogEnricher false
@@ -1363,7 +1364,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // logs seccomp failed GetSPOD
@@ -1391,7 +1392,7 @@ func TestReconcile(t *testing.T) {
 				mock.GetSPODReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // logs selinux success collect
@@ -1435,7 +1436,7 @@ func TestReconcile(t *testing.T) {
 					f controllerutil.MutateFn,
 				) (controllerutil.OperationResult, error) {
 					err := f()
-					assert.Nil(t, err)
+					assert.NoError(t, err)
 					return "", nil
 				})
 				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
@@ -1445,7 +1446,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.Nil(t, err)
+				assert.NoError(t, err)
 			},
 		},
 		{ // logs selinux failed ResetAvcs
@@ -1477,7 +1478,7 @@ func TestReconcile(t *testing.T) {
 				mock.ResetAvcsReturns(errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // logs selinux failed CreateOrUpdate
@@ -1509,7 +1510,7 @@ func TestReconcile(t *testing.T) {
 				mock.CreateOrUpdateReturns("", errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ // logs selinux failed formatSelinuxProfile
@@ -1545,7 +1546,7 @@ func TestReconcile(t *testing.T) {
 				}, nil)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 		{ //nolint:dupl // test duplicates are fine
@@ -1578,7 +1579,7 @@ func TestReconcile(t *testing.T) {
 				mock.AvcsReturns(nil, errTest)
 			},
 			assert: func(sut *RecorderReconciler, err error) {
-				assert.NotNil(t, err)
+				assert.Error(t, err)
 			},
 		},
 	} {
