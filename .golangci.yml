@@ -88,6 +88,7 @@ linters:
     - tagliatelle
     - tenv
     - testableexamples
+    - testifylint
     - thelper
     - tparallel
     - typecheck
@@ -112,7 +113,6 @@ linters:
     # - mnd
     # - nlreturn
     # - nonamedreturns
-    # - testifylint
     # - testpackage
     # - varnamelen
     # - wrapcheck

@@ -156,8 +156,8 @@ func TestSaveProfileOnDisk(t *testing.T) {
 			name: "NoPermissionToWriteFile",
 			setup: func() {
 				targetDir := path.Join(dir, "/test/nopermissions")
-				require.Nil(t, os.MkdirAll(targetDir, dirPermissionMode))
-				require.Nil(t, os.Chmod(targetDir, 0))
+				require.NoError(t, os.MkdirAll(targetDir, dirPermissionMode))
+				require.NoError(t, os.Chmod(targetDir, 0))
 			},
 			fileName:    path.Join(dir, "/test/nopermissions/filename.json"),
 			contents:    "some content",
@@ -168,8 +168,8 @@ func TestSaveProfileOnDisk(t *testing.T) {
 			name: "NoPermissionToWriteDir",
 			setup: func() {
 				targetDir := path.Join(dir, "/nopermissions")
-				require.Nil(t, os.MkdirAll(targetDir, dirPermissionMode))
-				require.Nil(t, os.Chmod(targetDir, 0))
+				require.NoError(t, os.MkdirAll(targetDir, dirPermissionMode))
+				require.NoError(t, os.Chmod(targetDir, 0))
 			},
 			fileName:    path.Join(dir, "/nopermissions/test/filename.json"),
 			contents:    "some content",

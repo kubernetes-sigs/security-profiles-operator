@@ -97,7 +97,7 @@ spec:
 			mock.ReadFileReturns([]byte(input), nil)
 
 			err := sut.Run()
-			require.Nil(t, err)
+			require.NoError(t, err)
 			_, actual, _ := mock.WriteFileArgsForCall(0)
 			require.Contains(t, string(actual), outputContains)
 		})

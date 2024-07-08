@@ -47,11 +47,11 @@ const spocPath = "../../build/spoc"
 func TestSpoc(t *testing.T) {
 	cmd := exec.Command("go", "build", "demobinary.go")
 	err := cmd.Run()
-	require.Nil(t, err, "failed to build demobinary.go")
+	require.NoError(t, err, "failed to build demobinary.go")
 	err = util.CopyFileLocal("demobinary", "demobinary-child", true)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	err = os.Chmod("demobinary-child", 0o700)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	t.Run("record", recordTest)
 }
@@ -68,7 +68,7 @@ func recordAppArmorTest(t *testing.T) {
 		}
 		profile := recordAppArmor(t, "--file-read", "../../README.md", "--file-write", "/dev/null")
 		readme, err := filepath.Abs("../../README.md")
-		require.Nil(t, err)
+		require.NoError(t, err)
 		require.NotNil(t, profile.Filesystem)
 		require.NotNil(t, profile.Filesystem.ReadOnlyPaths)
 		require.NotNil(t, profile.Filesystem.WriteOnlyPaths)
@@ -122,7 +122,7 @@ func recordAppArmorTest(t *testing.T) {
 			t.Skip("BPF LSM disabled")
 		}
 		demobinary, err := filepath.Abs("./demobinary")
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		cmd := exec.Command(
 			"sudo",
@@ -135,13 +135,13 @@ func recordAppArmorTest(t *testing.T) {
 		)
 		stderr, err := cmd.StderrPipe()
 		spocLogs := bufio.NewScanner(stderr)
-		require.Nil(t, err)
+		require.NoError(t, err)
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
 
 		// Start recorder and wait for it to set itself up.
 		err = cmd.Start()
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		t.Log("waiting for SPOC to set up...")
 		for spocLogs.Scan() {
@@ -153,7 +153,7 @@ func recordAppArmorTest(t *testing.T) {
 		// Run binary...
 		cmd2 := exec.Command(demobinary, "--net-tcp")
 		err = cmd2.Run()
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		t.Log("waiting for SPOC to register process exit...")
 		for spocLogs.Scan() {
@@ -175,7 +175,7 @@ func recordAppArmorTest(t *testing.T) {
 			"-SIGINT",
 			strconv.Itoa(cmd.Process.Pid),
 		).Run()
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		// useful when binary crashed.
 		for spocLogs.Scan() {
@@ -183,7 +183,7 @@ func recordAppArmorTest(t *testing.T) {
 		}
 
 		err = cmd.Wait()
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		require.Contains(t, stdout.String(), "allowTcp", "did not find TCP permission in profile")
 	})
@@ -203,7 +203,7 @@ func runSpoc(t *testing.T, args ...string) []byte {
 	)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
-	require.Nil(t, err, "failed to run spoc")
+	require.NoError(t, err, "failed to run spoc")
 	return out
 }
 
@@ -214,7 +214,7 @@ func record(t *testing.T, typ string, profile client.Object, args ...string) {
 	}, args...)
 	content := runSpoc(t, args...)
 	err := yaml.Unmarshal(content, &profile)
-	require.Nil(t, err, "failed to parse yaml")
+	require.NoError(t, err, "failed to parse yaml")
 }
 
 func recordAppArmor(t *testing.T, args ...string) apparmorprofileapi.AppArmorAbstract {

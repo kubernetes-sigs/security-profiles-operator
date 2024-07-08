@@ -64,19 +64,19 @@ func TestReadProfile(t *testing.T) {
 	t.Run("AppArmor", func(t *testing.T) {
 		t.Parallel()
 		profile, err := ReadProfile([]byte(AppArmorProfileExample))
-		require.Nil(t, err)
+		require.NoError(t, err)
 		require.IsType(t, &apparmorprofileapi.AppArmorProfile{}, profile)
 	})
 	t.Run("SELinux", func(t *testing.T) {
 		t.Parallel()
 		profile, err := ReadProfile([]byte(SelinuxProfileExample))
-		require.Nil(t, err)
+		require.NoError(t, err)
 		require.IsType(t, &selinuxprofileapi.SelinuxProfile{}, profile)
 	})
 	t.Run("seccomp", func(t *testing.T) {
 		t.Parallel()
 		profile, err := ReadProfile([]byte(SeccompProfileExample))
-		require.Nil(t, err)
+		require.NoError(t, err)
 		require.IsType(t, &seccompprofile.SeccompProfile{}, profile)
 	})
 

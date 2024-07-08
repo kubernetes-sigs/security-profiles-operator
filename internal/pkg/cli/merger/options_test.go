@@ -32,26 +32,26 @@ func TestFromContext(t *testing.T) {
 	}{
 		{ // Success
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"foo.yaml", "bar.yaml"}))
+				require.NoError(t, set.Parse([]string{"foo.yaml", "bar.yaml"}))
 			},
 			assert: func(err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 			},
 		},
 		{ // failure: no profiles provided
 			prepare: func(set *flag.FlagSet) {},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 		{ // failure: no filename provided
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagOutputFile, "", "")
-				require.Nil(t, set.Set(FlagOutputFile, ""))
-				require.Nil(t, set.Parse([]string{"foo.yaml", "bar.yaml"}))
+				require.NoError(t, set.Set(FlagOutputFile, ""))
+				require.NoError(t, set.Parse([]string{"foo.yaml", "bar.yaml"}))
 			},
 			assert: func(err error) {
-				require.NotNil(t, err)
+				require.Error(t, err)
 			},
 		},
 	} {

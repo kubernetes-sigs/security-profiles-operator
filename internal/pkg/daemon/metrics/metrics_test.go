@@ -55,9 +55,9 @@ func TestRegister(t *testing.T) {
 		err := sut.Register()
 
 		if tc.shouldErr {
-			require.NotNil(t, err)
+			require.Error(t, err)
 		} else {
-			require.Nil(t, err)
+			require.NoError(t, err)
 		}
 	}
 }
@@ -70,7 +70,7 @@ func TestSeccompProfile(t *testing.T) {
 		col.Collect(c)
 		m := dto.Metric{}
 		err := (<-c).Write(&m)
-		require.Nil(t, err)
+		require.NoError(t, err)
 		return int(m.GetCounter().GetValue())
 	}
 
@@ -84,7 +84,7 @@ func TestSeccompProfile(t *testing.T) {
 			},
 			then: func(m *Metrics) {
 				ctr, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 1, getMetricValue(ctr))
 			},
 		},
@@ -94,7 +94,7 @@ func TestSeccompProfile(t *testing.T) {
 			},
 			then: func(m *Metrics) {
 				ctr, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 1, getMetricValue(ctr))
 			},
 		},
@@ -108,11 +108,11 @@ func TestSeccompProfile(t *testing.T) {
 			},
 			then: func(m *Metrics) {
 				ctrUpdate, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 3, getMetricValue(ctrUpdate))
 
 				ctrDelete, err := m.metricSeccompProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 2, getMetricValue(ctrDelete))
 			},
 		},
@@ -122,7 +122,7 @@ func TestSeccompProfile(t *testing.T) {
 			},
 			then: func(m *Metrics) {
 				ctr, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 1, getMetricValue(ctr))
 			},
 		},
@@ -132,7 +132,7 @@ func TestSeccompProfile(t *testing.T) {
 			},
 			then: func(m *Metrics) {
 				ctr, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 1, getMetricValue(ctr))
 			},
 		},
@@ -146,11 +146,11 @@ func TestSeccompProfile(t *testing.T) {
 			},
 			then: func(m *Metrics) {
 				ctrUpdate, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileUpdate)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 3, getMetricValue(ctrUpdate))
 
 				ctrDelete, err := m.metricSelinuxProfile.GetMetricWithLabelValues(metricLabelValueProfileDelete)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 2, getMetricValue(ctrDelete))
 			},
 		},
@@ -178,7 +178,7 @@ func TestSeccompProfileBpf(t *testing.T) {
 		col.Collect(c)
 		m := dto.Metric{}
 		err := (<-c).Write(&m)
-		require.Nil(t, err)
+		require.NoError(t, err)
 		return int(m.GetCounter().GetValue())
 	}
 
@@ -194,7 +194,7 @@ func TestSeccompProfileBpf(t *testing.T) {
 				ctr, err := m.metricSeccompProfileBpf.GetMetricWithLabelValues(
 					node, strconv.Itoa(mountNamespace), profile,
 				)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 1, getMetricValue(ctr))
 			},
 		},
@@ -208,7 +208,7 @@ func TestSeccompProfileBpf(t *testing.T) {
 				ctrUpdate, err := m.metricSeccompProfileBpf.GetMetricWithLabelValues(
 					node, strconv.Itoa(mountNamespace), profile,
 				)
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 3, getMetricValue(ctrUpdate))
 			},
 		},

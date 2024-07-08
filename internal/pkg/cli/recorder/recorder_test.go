@@ -68,7 +68,7 @@ func TestRun(t *testing.T) {
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 1, mock.PrintObjCallCount())
 			},
 		},
@@ -80,7 +80,7 @@ func TestRun(t *testing.T) {
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 1, mock.PrintObjCallCount())
 			},
 		},
@@ -95,7 +95,7 @@ func TestRun(t *testing.T) {
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 1, mock.PrintObjCallCount())
 			},
 		},
@@ -108,7 +108,7 @@ func TestRun(t *testing.T) {
 				return options
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 1, mock.CreateCallCount())
 			},
 		},
@@ -245,7 +245,7 @@ func TestRun(t *testing.T) {
 				return options
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
-				require.Nil(t, err)
+				require.NoError(t, err)
 				require.Equal(t, 2, mock.PrintObjCallCount())
 			},
 		},

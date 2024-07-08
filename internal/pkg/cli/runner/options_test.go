@@ -34,7 +34,7 @@ func TestFromContext(t *testing.T) {
 		{
 			name: "success",
 			prepare: func(set *flag.FlagSet) {
-				require.Nil(t, set.Parse([]string{"echo"}))
+				require.NoError(t, set.Parse([]string{"echo"}))
 			},
 			assert: func(err error) {
 				require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestFromContext(t *testing.T) {
 			name: "failure unsupported type",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagType, "", "")
-				require.Nil(t, set.Set(FlagType, "wrong"))
+				require.NoError(t, set.Set(FlagType, "wrong"))
 			},
 			assert: func(err error) {
 				require.Error(t, err)
@@ -61,7 +61,7 @@ func TestFromContext(t *testing.T) {
 			name: "failure no filename provided",
 			prepare: func(set *flag.FlagSet) {
 				set.String(FlagProfile, "", "")
-				require.Nil(t, set.Set(FlagProfile, ""))
+				require.NoError(t, set.Set(FlagProfile, ""))
 			},
 			assert: func(err error) {
 				require.Error(t, err)

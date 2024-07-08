@@ -26,7 +26,7 @@ func TestVersionText(t *testing.T) {
 	t.Parallel()
 
 	sut, err := Get()
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotEmpty(t, sut.BuildDate)
 	require.NotEmpty(t, sut.Compiler)
 	require.NotEmpty(t, sut.GitCommit)
@@ -41,16 +41,16 @@ func TestVersionJSON(t *testing.T) {
 	t.Parallel()
 
 	sut, err := Get()
-	require.Nil(t, err)
+	require.NoError(t, err)
 	json, err := sut.JSONString()
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotEmpty(t, json)
 }
 
 func TestAsKeyValues(t *testing.T) {
 	t.Parallel()
 	sut, err := Get()
-	require.Nil(t, err)
+	require.NoError(t, err)
 	kv := sut.AsKeyValues()
 	require.Len(t, kv, 2*14)
 }
