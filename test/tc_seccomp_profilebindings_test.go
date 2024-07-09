@@ -106,12 +106,21 @@ spec:
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 
-	e.logf("Testing that pod has securityContext")
-	output = e.kubectl(
-		"get", "pod", "hello",
-		"--output", "jsonpath={.spec.containers[0].securityContext.seccompProfile.localhostProfile}",
-	)
-	e.Equal(fmt.Sprintf("operator/%s/profile-allow-unsafe.json", namespace), output)
+	if image == "*" || image == "'*'" {
+		e.logf("Profile Binding has * image, Testing that pod has securityContext")
+		output = e.kubectl(
+			"get", "pod", "hello",
+			"--output", "jsonpath={.spec.securityContext.seccompProfile.localhostProfile}",
+		)
+		e.Equal(fmt.Sprintf("operator/%s/profile-allow-unsafe.json", namespace), output)
+	} else {
+		e.logf("Testing that pod container has securityContext for specific image")
+		output = e.kubectl(
+			"get", "pod", "hello",
+			"--output", "jsonpath={.spec.containers[0].securityContext.seccompProfile.localhostProfile}",
+		)
+		e.Equal(fmt.Sprintf("operator/%s/profile-allow-unsafe.json", namespace), output)
+	}
 
 	e.logf("Testing that profile binding has pod reference")
 	output = e.kubectl("get", "profilebinding", "hello-binding", "--output", "jsonpath={.status.activeWorkloads[0]}")
