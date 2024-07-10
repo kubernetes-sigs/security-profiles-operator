@@ -50,7 +50,7 @@ dependencies:
       match: cert-manager/cert-manager
     - path: hack/ci/e2e-olm.sh
       match: cert-manager/cert-manager
-    - path: hack/ci/e2e-seccomp.sh
+    - path: hack/ci/install-spo.sh
       match: cert-manager/cert-manager
 
   - name: kind
@@ -235,5 +235,5 @@ dependencies:
   - name: yq
     version: 4.35.2
     refPaths:
-      - path: hack/ci/e2e-seccomp.sh
+      - path: hack/ci/install-yq.sh
         match: YQ_VERSION

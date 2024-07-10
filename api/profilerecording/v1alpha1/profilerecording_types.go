@@ -194,6 +194,7 @@ func (pr *ProfileRecording) ctrAnnotationApparmor(ctrName string) (key, value st
 	switch pr.Spec.Recorder {
 	case ProfileRecorderBpf:
 		annotationPrefix = config.ApparmorProfileRecordBpfAnnotationKey
+	case ProfileRecorderLogs:
 	default:
 		return "", "", fmt.Errorf(
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderBpf,
