@@ -220,6 +220,36 @@ jobs:
       - name: Run E2E test to record seccomp profile
         run: $RUN hack/ci/e2e-seccomp.sh
 
+  e2e-apparmor-profile:
+    needs: image
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      RUN: ./hack/ci/run-ubuntu.sh
+    steps:
+      - name: Set up vagrant
+        run: |
+          curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y vagrant virtualbox
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
+        with:
+          name: image
+          path: .
+      - name: Boot Virtual Machine
+        run: make vagrant-up-debian
+      - name: Show environment information
+        run: |
+          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
+          $RUN kubectl get nodes -o wide
+      - name: Set up git config
+        run: |
+          $RUN git config --global --add safe.directory /vagrant
+      - name: Run E2E test to record apparmor profile
+        run: $RUN hack/ci/e2e-apparmor.sh
+
   typos:
     runs-on: ubuntu-22.04
     steps:
