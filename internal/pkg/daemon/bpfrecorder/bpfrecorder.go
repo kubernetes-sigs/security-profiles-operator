@@ -824,7 +824,8 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 
 					for _, annotation := range []string{
 						config.SeccompProfileRecordBpfAnnotationKey,
-						config.ApparmorProfileRecordBpfAnnotationKey} {
+						config.ApparmorProfileRecordBpfAnnotationKey,
+					} {
 						key := annotation + containerName
 						profile, ok := pod.Annotations[key]
 						if ok && profile != "" {
