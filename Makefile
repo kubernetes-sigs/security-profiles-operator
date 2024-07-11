@@ -19,6 +19,7 @@ REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 5.2.1
 OPERATOR_SDK_VERSION ?= v1.25.0
 ZEITGEIST_VERSION = v0.5.3
+MDTOC_VERSION = v1.4.0
 CI_IMAGE ?= golang:1.22
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
@@ -317,11 +318,13 @@ vagrant-up-flatcar: ## Boot the Vagrant Flatcar based test VM
 	$(call vagrant-up,flatcar,build)
 
 $(BUILD_DIR)/mdtoc: $(BUILD_DIR)
-	$(call go-build,./vendor/sigs.k8s.io/mdtoc)
+	curl -sSfL -o $(BUILD_DIR)/mdtoc \
+		https://storage.googleapis.com/k8s-artifacts-sig-release/kubernetes-sigs/mdtoc/$(MDTOC_VERSION)/mdtoc-$(ARCH)-$(OS)
+	chmod +x $(BUILD_DIR)/mdtoc
 
 .PHONY: update-toc
 update-toc: $(BUILD_DIR)/mdtoc ## Update the table of contents for the documentation
-	$(BUILD_DIR)/mdtoc --inplace installation-usage.md
+	git grep --name-only '<!-- toc -->' | grep -v Makefile | xargs $(BUILD_DIR)/mdtoc -i
 
 $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
 	$(CLANG) -g -O2 \

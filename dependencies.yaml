@@ -236,6 +236,12 @@ dependencies:
       - path: Makefile
         match: ZEITGEIST_VERSION
 
+  - name: mdtoc
+    version: v1.4.0
+    refPaths:
+      - path: Makefile
+        match: MDTOC_VERSION
+
   - name: yq
     version: 4.35.2
     refPaths:
