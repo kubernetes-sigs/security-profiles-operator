@@ -170,6 +170,7 @@ jobs:
           $RUN hack/ci/e2e-flatcar-dev-container.sh
 
   e2e-spoc:
+    needs: image
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
@@ -182,12 +183,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y vagrant virtualbox
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: image
+          path: .
       - name: Boot Virtual Machine
         run: make vagrant-up-debian
+      - name: Show environment information
+        run: |
+          $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
+          $RUN kubectl get nodes -o wide
       - name: Set up git config
         run: |
           $RUN git config --global --add safe.directory /vagrant
-      - name: Run E2E tests
+      - name: Run spoc E2E tests
         run: $RUN hack/ci/e2e-spoc.sh
 
   e2e-seccomp-profile:
