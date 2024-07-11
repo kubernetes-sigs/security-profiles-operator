@@ -80,6 +80,8 @@ dependencies:
       match: KUBERNETES_VERSION
     - path: hack/ci/Vagrantfile-ubuntu
       match: KUBERNETES_VERSION
+    - path: hack/ci/Vagrantfile-debian
+      match: KUBERNETES_VERSION
 
   - name: e2e-fedora
     version: 38
@@ -177,6 +179,8 @@ dependencies:
     version: v2.2.1
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
+      match: COSIGN_VERSION
+    - path: hack/ci/Vagrantfile-debian
       match: COSIGN_VERSION
 
   - name: bom
