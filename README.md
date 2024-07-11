@@ -6,6 +6,15 @@
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/5368/badge)](https://bestpractices.coreinfrastructure.org/projects/5368)
 [![OCI security profiles](https://img.shields.io/badge/oci%3A%2F%2F-security%20profiles-blue?logo=kubernetes&logoColor=white)](https://github.com/orgs/security-profiles/packages)
 
+<!-- toc -->
+- [About](#about)
+- [Features](#features)
+- [Personas &amp; User Stories](#personas--user-stories)
+- [Roadmap](#roadmap)
+- [Community, discussion, contribution, and support](#community-discussion-contribution-and-support)
+  - [Code of conduct](#code-of-conduct)
+<!-- /toc -->
+
 This project is the starting point for the _Security Profiles Operator_ (SPO), an
 out-of-tree Kubernetes enhancement which aims to make it easier for users to use
 SELinux, seccomp and AppArmor in Kubernetes clusters.
