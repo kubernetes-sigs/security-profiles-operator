@@ -256,7 +256,8 @@ func GetTOC(file string, opts Options) (string, error) {
 // A temporary file is used so no changes are made to the original in the case of an error.
 func atomicWrite(filePath string, chunks ...string) error {
 	tmpPath := filePath + "_tmp"
-	tmp, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	const perms = 0o600
+	tmp, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perms)
 	if err != nil {
 		return fmt.Errorf("unable to open tepmorary file %s: %w", tmpPath, err)
 	}
