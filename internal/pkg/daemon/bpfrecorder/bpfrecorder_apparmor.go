@@ -52,8 +52,6 @@ var appArmorHooks = []string{
 	"cap_capable",
 }
 
-var pathWithPid *regexp.Regexp = regexp.MustCompile(`^/proc/\d+/`)
-
 // mntnsID is a unique identifier for a group of processes usually running in a container
 // Note: on a host running concurrent containers, there will be multiple process running with
 // the same PID but they are assigned to different mntns since  they run in different containers.
@@ -241,6 +239,22 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 	return processed
 }
 
+func replaceVarianceInFilePath(filePath string) string {
+	filePath = filepath.Clean(filePath)
+
+	// Replace PID value with a apparmor variable.
+	pathWithPid := regexp.MustCompile(`^/proc/\d+/`)
+	filePath = pathWithPid.ReplaceAllString(filePath, "/proc/@{pid}/")
+
+	// Replace TID value with a apparmor variable.
+	pathWithTid := regexp.MustCompile(`^/proc/@{pid}/task/\d+/`)
+	filePath = pathWithTid.ReplaceAllString(filePath, "/proc/@{pid}/task/@{tid}/")
+
+	// Replace container ID with any container ID
+	pathWithCid := regexp.MustCompile(`^/var/lib/containers/storage/overlay/\w+/`)
+	return pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
+}
+
 func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProcessed {
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
@@ -252,8 +266,7 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	}
 
 	for fileName, access := range b.recordedFiles[mid] {
-		fileName = filepath.Clean(fileName)
-		fileName = pathWithPid.ReplaceAllString(fileName, "/proc/@{pid}/")
+		fileName = replaceVarianceInFilePath(fileName)
 
 		knownLibrary := isKnownFile(fileName, knownLibrariesPrefixes) || fileName == b.programName
 		knownRead := isKnownFile(fileName, knownReadPrefixes)

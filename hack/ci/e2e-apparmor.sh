@@ -30,8 +30,6 @@ check_apparmor_profile() {
   # clean up the variance in the recorded apparmor profile
   yq -i ".spec" $APPARMOR_PROFILE_FILE
   sed -i -e "s/\btest-recording_test-pod[^ ]*\b/test-sleep/g" $APPARMOR_PROFILE_FILE
-  sed -i -e '/\/var\/lib\/containers\/storage\/overlay/d' $APPARMOR_PROFILE_FILE
-  sed -i -e '/\/proc\/@{pid}\/task/d' $APPARMOR_PROFILE_FILE
 
   diff $APPARMOR_REFERENCE_PROFILE_FILE $APPARMOR_PROFILE_FILE
 }
