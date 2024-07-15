@@ -83,9 +83,9 @@ wait_for_pod_status() {
 }
 
 check_profile_enforcement() {
-  local comamnd="$1"
+  local command="$1"
   local apparmor_profile="$2"
-  local pid="$(pidof $comamnd)"
+  local pid="$(pidof $command)"
   local enforce="$(cat /proc/${pid}/attr/current)"
   local reference="$apparmor_profile (enforce)"
   if [[ "$reference" != "$enforce" ]]; then
@@ -122,7 +122,7 @@ record_apparmor_profile() {
 
   wait_for apparmorprofile $APPARMOR_PROFILE_NAME
 
-  echo "Verifing apparmor profile"
+  echo "Verifying apparmor profile"
   echo "-------------------------"
 
   echo "Checking the recorded appamror profile matches the reference"
