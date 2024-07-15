@@ -29,9 +29,70 @@ check_apparmor_profile() {
 
   # clean up the variance in the recorded apparmor profile
   yq -i ".spec" $APPARMOR_PROFILE_FILE
+  local name="$(grep -o '\btest-recording_test-pod[^ ]*\b' $APPARMOR_PROFILE_FILE)"
   sed -i -e "s/\btest-recording_test-pod[^ ]*\b/test-sleep/g" $APPARMOR_PROFILE_FILE
 
   diff $APPARMOR_REFERENCE_PROFILE_FILE $APPARMOR_PROFILE_FILE
+  echo "${name}"
+}
+
+create_pod() {
+  local pod_name="$1"
+  local pod_file="$2"
+  local apparmor_profile="${3-}"
+  cat <<EOT >"$pod_file"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $pod_name
+  labels:
+    app: alpine
+spec:
+  restartPolicy: Never
+  containers:
+  - name: $pod_name
+    image: alpine:3
+    command: ["sleep", "30"]
+EOT
+
+  if [[ -n "$apparmor_profile" ]]; then
+    cat <<EOT >>"$pod_file"
+    securityContext:
+      appArmorProfile:
+        type: Localhost
+        localhostProfile: $apparmor_profile
+EOT
+  fi
+  cat "$pod_file"
+  k apply -f "$pod_file"
+}
+
+wait_for_pod_status() {
+  local pod_name="$1"
+  local status="$2"
+  echo "Waiting for pod status: $status"
+  for ((i = 0; i < 10; i++)); do
+    if k get pods $pod_name | grep -q $status; then
+      echo "Pod reached status: $status "
+      break
+    fi
+    echo "Still waiting ($i)"
+    sleep 5
+  done
+}
+
+check_profile_enforcement() {
+  local comamnd="$1"
+  local apparmor_profile="$2"
+  local pid="$(pidof $comamnd)"
+  local enforce="$(cat /proc/${pid}/attr/current)"
+  local reference="$apparmor_profile (enforce)"
+  if [[ "$reference" != "$enforce" ]]; then
+    echo "Apparmor profile $apparmor_profile not enforced: $enforce"
+    exit 1
+  fi
+  echo "Apparmor profile successfully enforced: $enforce"
 }
 
 record_apparmor_profile() {
@@ -41,53 +102,44 @@ record_apparmor_profile() {
   k_wait spod spod
 
   echo "Recording apparmor profile"
+  echo "--------------------------"
+
+  echo "Creating profile recording $RECORDING_NAME"
+  k apply -f $APPARMOR_RECORDING_FILE
 
   TMP_DIR=$(mktemp -d)
   trap 'rm -rf $TMP_DIR' EXIT
 
-  echo "Creating profile recording"
-  k apply -f $APPARMOR_RECORDING_FILE
+  echo "Creating pod $PODNAME and start recording its apparmor profile"
+  pod_file="${TMP_DIR}/${PODNAME}.yml"
+  create_pod $PODNAME $pod_file
+  wait_for_pod_status "$PODNAME" "Completed"
+  echo "Deleting pod $PODNAME"
+  k delete -f "$pod_file"
 
-  POD_FILE="$TMP_DIR/pod.yml"
-  cat <<EOT >"$POD_FILE"
----
-apiVersion: v1
-kind: Pod
-metadata:
-  name: $PODNAME
-  labels:
-    app: alpine
-spec:
-  restartPolicy: Never
-  containers:
-  - name: $PODNAME
-    image: alpine:3
-    command: ["sleep", "20"]
-EOT
-  echo "Creating pod:"
-  cat "$POD_FILE"
-
-  k apply -f "$POD_FILE"
-
-  echo "Waiting for pod to be completed"
-  for ((i = 0; i < 10; i++)); do
-    if k get pods $PODNAME | grep -q Completed; then
-      echo "Pod completed"
-      break
-    fi
-    echo "Still waiting ($i)"
-    sleep 5
-  done
-
-  echo "Deleting pod"
-  k delete -f "$POD_FILE"
+  echo "Deleting profile recoridng $RECORDING_NAME"
+  k delete -f "$APPARMOR_RECORDING_FILE"
 
   wait_for apparmorprofile $APPARMOR_PROFILE_NAME
 
-  check_apparmor_profile
+  echo "Verifing apparmor profile"
+  echo "-------------------------"
 
-  echo "Cleaning up profile $APPARMOR_PROFILE_NAME and recording $RECORDING_NAME resources"
-  k delete -f "$APPARMOR_RECORDING_FILE"
+  echo "Checking the recorded appamror profile matches the reference"
+  apparmor_profile=$(check_apparmor_profile)
+
+  echo "Creating pod $PODNAME with recorded profile in security context"
+  sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
+  create_pod $PODNAME $sec_pod_file $apparmor_profile
+  wait_for_pod_status "$PODNAME" "Running"
+
+  echo "Checking apparmor profile enforcement on container"
+  check_profile_enforcement "sleep" $apparmor_profile
+
+  echo "Deleting pod $PODNAME"
+  k delete -f "$sec_pod_file"
+
+  echo "Deleting apparmor profile $APPARMOR_PROFILE_NAME"
   k delete apparmorprofile $APPARMOR_PROFILE_NAME
 }
 
