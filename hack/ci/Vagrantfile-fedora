@@ -57,7 +57,6 @@ gpgkey=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/repodata/repomd.x
 EOF
 
       dnf install -y \
-        cri-o \
         conntrack \
         container-selinux \
         gcc \
@@ -71,6 +70,11 @@ EOF
         make \
         openssl \
         podman
+
+      # conmon installs to /usr/libexec/crio/conmon
+      # https://github.com/containers/conmon/issues/517
+      dnf download --repo cri-o --arch x86_64 cri-o
+      rpm -i --nodeps --force cri-o-*.rpm
 
       # Load the prebuilt container image
       podman load -i /vagrant/image.tar
