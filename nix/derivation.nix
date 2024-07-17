@@ -1,7 +1,8 @@
 { pkgs, buildGoModule }:
 with pkgs; buildGo122Module rec {
   name = "security-profiles-operator";
-  src = ./..;
+  # Use Pure to avoid exuding the .git directory
+  src = nix-gitignore.gitignoreSourcePure [ ../.gitignore ] ./..;
   vendorHash = null;
   doCheck = false;
   outputs = [ "out" ];
