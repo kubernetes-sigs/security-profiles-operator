@@ -82,7 +82,7 @@ func recordAppArmorTest(t *testing.T) {
 				count++
 			}
 		}
-		require.Equal(t, count, 1)
+		require.Equal(t, 1, count)
 
 		profile = recordAppArmor(t, "--file-read", "/dev/null", "--file-write", "/dev/null")
 		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/dev/null")
