@@ -66,7 +66,8 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
-		profile := recordAppArmor(t, "--file-read", "../../README.md", "--file-write", "/dev/null")
+		fileRead := fmt.Sprintf("../../README.md,/proc/1/limits,/proc/%d/limits", os.Getpid())
+		profile := recordAppArmor(t, "--file-read", fileRead, "--file-write", "/dev/null")
 		readme, err := filepath.Abs("../../README.md")
 		require.NoError(t, err)
 		require.NotNil(t, profile.Filesystem)
@@ -74,6 +75,14 @@ func recordAppArmorTest(t *testing.T) {
 		require.NotNil(t, profile.Filesystem.WriteOnlyPaths)
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, readme)
 		require.Contains(t, *profile.Filesystem.WriteOnlyPaths, "/dev/null")
+
+		count := 0
+		for _, s := range *profile.Filesystem.ReadOnlyPaths {
+			if s == "/proc/@{pid}/limits" {
+				count++
+			}
+		}
+		require.Equal(t, count, 1)
 
 		profile = recordAppArmor(t, "--file-read", "/dev/null", "--file-write", "/dev/null")
 		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/dev/null")

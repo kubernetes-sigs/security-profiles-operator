@@ -133,6 +133,7 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	defer b.lockRecordedFiles.Unlock()
 
 	fileName := fileDataToString(&fileEvent.Data)
+	fileName = replaceVarianceInFilePath(fileName)
 
 	log.Printf("File access: %s, flags=%d pid=%d mntns=%d\n", fileName, fileEvent.Flags, fileEvent.Pid, fileEvent.Mntns)
 
@@ -266,8 +267,6 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	}
 
 	for fileName, access := range b.recordedFiles[mid] {
-		fileName = replaceVarianceInFilePath(fileName)
-
 		knownLibrary := isKnownFile(fileName, knownLibrariesPrefixes) || fileName == b.programName
 		knownRead := isKnownFile(fileName, knownReadPrefixes)
 		knownWrite := isKnownFile(fileName, knownWritePrefixes)
