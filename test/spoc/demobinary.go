@@ -42,7 +42,7 @@ func main() {
 
 	capSysAdmin := flag.Bool("cap-sys-admin", false, "exercise CAP_SYS_ADMIN")
 	fileWrite := flag.String("file-write", "", "write file (e.g. /dev/null)")
-	fileRead := flag.String("file-read", "", "read file (e.g. /dev/null)")
+	fileRead := flag.String("file-read", "", "read file (e.g. /dev/null). Multiple files may be separated by comma.")
 	fileSymlink := flag.String("file-symlink", "", "Create symlink using the following syntax: OLD:NEW")
 	netTCP := flag.Bool("net-tcp", false, "spawn a tcp server")
 	netUDP := flag.Bool("net-udp", false, "spawn a udp server")
@@ -88,11 +88,13 @@ func main() {
 		log.Println("✅ Symlink created:", newname, "->", oldname)
 	}
 	if *fileRead != "" {
-		_, err := os.ReadFile(*fileRead)
-		if err != nil {
-			log.Fatal("❌ Error reading file:", err)
+		for _, file := range strings.Split(*fileRead, ",") {
+			_, err := os.ReadFile(file)
+			if err != nil {
+				log.Fatal("❌ Error reading file:", err)
+			}
+			log.Println("✅ File read successful:", *fileRead)
 		}
-		log.Println("✅ File read successful:", *fileRead)
 	}
 	if *netTCP {
 		listener, err := net.Listen("tcp", ":0")
