@@ -1469,7 +1469,7 @@ google.golang.org/api/option
 google.golang.org/api/option/internaloption
 google.golang.org/api/transport/http
 google.golang.org/api/transport/http/internal/propagation
-# google.golang.org/genproto/googleapis/rpc v0.0.0-20240528184218-531527333157
+# google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117
 ## explicit; go 1.20
 google.golang.org/genproto/googleapis/rpc/status
 # google.golang.org/grpc v1.65.0
@@ -1525,7 +1525,7 @@ google.golang.org/grpc/serviceconfig
 google.golang.org/grpc/stats
 google.golang.org/grpc/status
 google.golang.org/grpc/tap
-# google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.4.0
+# google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1
 ## explicit; go 1.21
 google.golang.org/grpc/cmd/protoc-gen-go-grpc
 # google.golang.org/protobuf v1.34.2
