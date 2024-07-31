@@ -82,7 +82,7 @@ func (r *Recorder) Run() error {
 	// https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
 	// Explicitly check for BPF LSM support as the recorder fails silently
 	// to support seccomp-only use cases.
-	if recordAppArmor && !bpfrecorder.BPFLSMEnabled() {
+	if recordAppArmor && !r.BPFLSMEnabled() {
 		return errors.New("BPF LSM is not enabled for this kernel")
 	}
 

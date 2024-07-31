@@ -49,6 +49,7 @@ func TestRun(t *testing.T) {
 		mock.IteratorNextReturnsOnCall(0, true)
 		mock.IteratorKeyReturnsOnCall(0, []byte{1, 0, 0, 0, 0, 0, 0, 0})
 		mock.SyscallsGetValueReturns([]byte{1}, nil)
+		mock.BPFLSMEnabledReturns(true)
 	}
 
 	for _, tc := range []struct {
@@ -247,6 +248,19 @@ func TestRun(t *testing.T) {
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
 				require.NoError(t, err)
 				require.Equal(t, 2, mock.PrintObjCallCount())
+			},
+		},
+		{
+			name: "no BPF LSM",
+			prepare: func(mock *recorderfakes.FakeImpl) *Options {
+				defaultMock(mock)
+				mock.BPFLSMEnabledReturns(false)
+				options := Default()
+				options.typ = TypeApparmor
+				return options
+			},
+			assert: func(mock *recorderfakes.FakeImpl, err error) {
+				require.Error(t, err)
 			},
 		},
 	} {
