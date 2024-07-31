@@ -44,6 +44,7 @@ type defaultImpl struct{}
 type impl interface {
 	LoadBpfRecorder(*bpfrecorder.BpfRecorder) error
 	UnloadBpfRecorder(*bpfrecorder.BpfRecorder)
+	BPFLSMEnabled() bool
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
 	WaitForPidExit(*bpfrecorder.BpfRecorder, context.Context, uint32) error
@@ -66,6 +67,10 @@ func (*defaultImpl) LoadBpfRecorder(b *bpfrecorder.BpfRecorder) error {
 
 func (*defaultImpl) UnloadBpfRecorder(b *bpfrecorder.BpfRecorder) {
 	b.Unload()
+}
+
+func (*defaultImpl) BPFLSMEnabled() bool {
+	return bpfrecorder.BPFLSMEnabled()
 }
 
 func (*defaultImpl) CommandRun(cmd *command.Command) (uint32, error) {

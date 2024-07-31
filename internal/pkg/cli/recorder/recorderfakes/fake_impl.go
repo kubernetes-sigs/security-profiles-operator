@@ -36,6 +36,16 @@ import (
 )
 
 type FakeImpl struct {
+	BPFLSMEnabledStub        func() bool
+	bPFLSMEnabledMutex       sync.RWMutex
+	bPFLSMEnabledArgsForCall []struct {
+	}
+	bPFLSMEnabledReturns struct {
+		result1 bool
+	}
+	bPFLSMEnabledReturnsOnCall map[int]struct {
+		result1 bool
+	}
 	CommandRunStub        func(*command.Command) (uint32, error)
 	commandRunMutex       sync.RWMutex
 	commandRunArgsForCall []struct {
@@ -225,6 +235,59 @@ type FakeImpl struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeImpl) BPFLSMEnabled() bool {
+	fake.bPFLSMEnabledMutex.Lock()
+	ret, specificReturn := fake.bPFLSMEnabledReturnsOnCall[len(fake.bPFLSMEnabledArgsForCall)]
+	fake.bPFLSMEnabledArgsForCall = append(fake.bPFLSMEnabledArgsForCall, struct {
+	}{})
+	stub := fake.BPFLSMEnabledStub
+	fakeReturns := fake.bPFLSMEnabledReturns
+	fake.recordInvocation("BPFLSMEnabled", []interface{}{})
+	fake.bPFLSMEnabledMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) BPFLSMEnabledCallCount() int {
+	fake.bPFLSMEnabledMutex.RLock()
+	defer fake.bPFLSMEnabledMutex.RUnlock()
+	return len(fake.bPFLSMEnabledArgsForCall)
+}
+
+func (fake *FakeImpl) BPFLSMEnabledCalls(stub func() bool) {
+	fake.bPFLSMEnabledMutex.Lock()
+	defer fake.bPFLSMEnabledMutex.Unlock()
+	fake.BPFLSMEnabledStub = stub
+}
+
+func (fake *FakeImpl) BPFLSMEnabledReturns(result1 bool) {
+	fake.bPFLSMEnabledMutex.Lock()
+	defer fake.bPFLSMEnabledMutex.Unlock()
+	fake.BPFLSMEnabledStub = nil
+	fake.bPFLSMEnabledReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeImpl) BPFLSMEnabledReturnsOnCall(i int, result1 bool) {
+	fake.bPFLSMEnabledMutex.Lock()
+	defer fake.bPFLSMEnabledMutex.Unlock()
+	fake.BPFLSMEnabledStub = nil
+	if fake.bPFLSMEnabledReturnsOnCall == nil {
+		fake.bPFLSMEnabledReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.bPFLSMEnabledReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
 }
 
 func (fake *FakeImpl) CommandRun(arg1 *command.Command) (uint32, error) {
@@ -1178,6 +1241,8 @@ func (fake *FakeImpl) WaitForPidExitReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
+	fake.bPFLSMEnabledMutex.RLock()
+	defer fake.bPFLSMEnabledMutex.RUnlock()
 	fake.commandRunMutex.RLock()
 	defer fake.commandRunMutex.RUnlock()
 	fake.commandWaitMutex.RLock()
