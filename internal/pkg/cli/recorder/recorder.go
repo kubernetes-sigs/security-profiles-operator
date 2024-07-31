@@ -105,7 +105,7 @@ func (r *Recorder) Run() error {
 			return fmt.Errorf("run command: %w", err)
 		}
 
-		mntns, err = r.FindProcMountNamespace(r.bpfRecorder, pid)
+		mntns, err = r.FindProcMountNamespace(r.bpfRecorder, uint32(os.Getpid()))
 		if err != nil {
 			return fmt.Errorf("finding mntns of PID %d: %w", pid, err)
 		}
