@@ -22,6 +22,7 @@ package recorder
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -77,6 +78,13 @@ func (r *Recorder) Run() error {
 	recordSeccomp := ((r.options.typ == TypeSeccomp) ||
 		(r.options.typ == TypeRawSeccomp) ||
 		(r.options.typ == TypeAll))
+
+	// https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
+	// Explicitly check for BPF LSM support as the recorder fails silently
+	// to support seccomp-only use cases.
+	if recordAppArmor && !bpfrecorder.BPFLSMEnabled() {
+		return errors.New("BPF LSM is not enabled for this kernel")
+	}
 
 	r.bpfRecorder = bpfrecorder.New(
 		r.options.commandOptions.Command(),
