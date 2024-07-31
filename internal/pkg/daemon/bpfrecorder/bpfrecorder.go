@@ -476,6 +476,8 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 			// Only log an error here, if Apparmor cannot be loaded. This is because it is
 			// enabled by default, and there are Linux distributions which either do not
 			// support Apparmor or BPF LSM is not yet available.
+			//
+			// see also https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
 			b.logger.Error(err, "Loading bpf program")
 		}
 	}
