@@ -196,6 +196,21 @@ func recordAppArmorTest(t *testing.T) {
 
 		require.Contains(t, stdout.String(), "allowTcp", "did not find TCP permission in profile")
 	})
+	t.Run("unsupported", func(t *testing.T) {
+		if bpfrecorder.BPFLSMEnabled() {
+			t.Skip("BPF LSM enabled")
+		}
+		_, err := runSpoc(
+			t,
+			"record",
+			"-t",
+			"apparmor",
+			"-o",
+			"/dev/stdout",
+			"./demobinary",
+		)
+		require.Error(t, err)
+	})
 }
 
 func recordSeccompTest(t *testing.T) {
@@ -203,7 +218,7 @@ func recordSeccompTest(t *testing.T) {
 	require.Contains(t, profile.Syscalls[0].Names, "listen")
 }
 
-func runSpoc(t *testing.T, args ...string) []byte {
+func runSpoc(t *testing.T, args ...string) ([]byte, error) {
 	t.Helper()
 	args = append([]string{spocPath}, args...)
 	cmd := exec.Command(
@@ -212,8 +227,7 @@ func runSpoc(t *testing.T, args ...string) []byte {
 	)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
-	require.NoError(t, err, "failed to run spoc")
-	return out
+	return out, err
 }
 
 func record(t *testing.T, typ string, profile client.Object, args ...string) {
@@ -221,8 +235,9 @@ func record(t *testing.T, typ string, profile client.Object, args ...string) {
 	args = append([]string{
 		"record", "-t", typ, "-o", "/dev/stdout", "--no-base-syscalls", "./demobinary",
 	}, args...)
-	content := runSpoc(t, args...)
-	err := yaml.Unmarshal(content, &profile)
+	content, err := runSpoc(t, args...)
+	require.NoError(t, err, "failed to run spoc")
+	err = yaml.Unmarshal(content, &profile)
 	require.NoError(t, err, "failed to parse yaml")
 }
 
