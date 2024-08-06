@@ -82,6 +82,19 @@ func (e UnsetValueExpansion) Expand(env Env) (string, error) {
 	return val, nil
 }
 
+// EscapedExpansion is an expansion that is delayed until later on (usually by a later process)
+type EscapedExpansion struct {
+	Identifier string
+}
+
+func (e EscapedExpansion) Identifiers() []string {
+	return []string{"$" + e.Identifier}
+}
+
+func (e EscapedExpansion) Expand(Env) (string, error) {
+	return "$" + e.Identifier, nil
+}
+
 // SubstringExpansion returns a substring (or slice) of the env
 type SubstringExpansion struct {
 	Identifier string

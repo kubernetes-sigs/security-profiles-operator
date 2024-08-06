@@ -30,6 +30,7 @@ type CommonVerifyOptions struct {
 	// it for other verify options.
 	ExperimentalOCI11     bool
 	PrivateInfrastructure bool
+	UseSignedTimestamps   bool
 }
 
 func (o *CommonVerifyOptions) AddFlags(cmd *cobra.Command) {
@@ -39,6 +40,9 @@ func (o *CommonVerifyOptions) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.TSACertChainPath, "timestamp-certificate-chain", "",
 		"path to PEM-encoded certificate chain file for the RFC3161 timestamp authority. Must contain the root CA certificate. "+
 			"Optionally may contain intermediate CA certificates, and may contain the leaf TSA certificate if not present in the timestamp")
+
+	cmd.Flags().BoolVar(&o.UseSignedTimestamps, "use-signed-timestamps", false,
+		"use signed timestamps if available")
 
 	cmd.Flags().BoolVar(&o.IgnoreTlog, "insecure-ignore-tlog", false,
 		"ignore transparency log verification, to be used when an artifact signature has not been uploaded to the transparency log. Artifacts "+
@@ -143,7 +147,7 @@ func (o *VerifyAttestationOptions) AddFlags(cmd *cobra.Command) {
 		"whether to check the claims found")
 
 	cmd.Flags().StringSliceVar(&o.Policies, "policy", nil,
-		"specify CUE or Rego files will be using for validation")
+		"specify CUE or Rego files with policies to be used for validation")
 
 	cmd.Flags().StringVarP(&o.Output, "output", "o", "json",
 		"output format for the signing image information (json|text)")

@@ -294,16 +294,13 @@ type oauth2Token struct {
 	ExpiresAt time.Time
 }
 
-func (ap *oauth2ClientCredentialsAuthPlugin) createAuthJWT(ctx context.Context, claims map[string]interface{}, signingKey interface{}) (*string, error) {
+func (ap *oauth2ClientCredentialsAuthPlugin) createAuthJWT(ctx context.Context, extClaims map[string]interface{}, signingKey interface{}) (*string, error) {
 	now := time.Now()
-	baseClaims := map[string]interface{}{
+	claims := map[string]interface{}{
 		"iat": now.Unix(),
 		"exp": now.Add(10 * time.Minute).Unix(),
 	}
-	if claims == nil {
-		claims = make(map[string]interface{})
-	}
-	for k, v := range baseClaims {
+	for k, v := range extClaims {
 		claims[k] = v
 	}
 
@@ -541,6 +538,7 @@ func (ap *oauth2ClientCredentialsAuthPlugin) requestToken(ctx context.Context) (
 	if err != nil {
 		return nil, err
 	}
+	defer response.Body.Close()
 
 	bodyRaw, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -692,7 +690,7 @@ func (ap *clientTLSAuthPlugin) NewClient(c Config) (*http.Client, error) {
 	return client, nil
 }
 
-func (ap *clientTLSAuthPlugin) Prepare(req *http.Request) error {
+func (ap *clientTLSAuthPlugin) Prepare(_ *http.Request) error {
 	return nil
 }
 
@@ -700,12 +698,14 @@ func (ap *clientTLSAuthPlugin) Prepare(req *http.Request) error {
 type awsSigningAuthPlugin struct {
 	AWSEnvironmentCredentials *awsEnvironmentCredentialService `json:"environment_credentials,omitempty"`
 	AWSMetadataCredentials    *awsMetadataCredentialService    `json:"metadata_credentials,omitempty"`
+	AWSAssumeRoleCredentials  *awsAssumeRoleCredentialService  `json:"assume_role_credentials,omitempty"`
 	AWSWebIdentityCredentials *awsWebIdentityCredentialService `json:"web_identity_credentials,omitempty"`
 	AWSProfileCredentials     *awsProfileCredentialService     `json:"profile_credentials,omitempty"`
 
 	AWSService          string `json:"service,omitempty"`
 	AWSSignatureVersion string `json:"signature_version,omitempty"`
 
+	host          string
 	ecrAuthPlugin *ecrAuthPlugin
 	kmsSignPlugin *awsKMSSignPlugin
 
@@ -796,6 +796,11 @@ func (ap *awsSigningAuthPlugin) awsCredentialService() awsCredentialService {
 		chain.addService(ap.AWSEnvironmentCredentials)
 	}
 
+	if ap.AWSAssumeRoleCredentials != nil {
+		ap.AWSAssumeRoleCredentials.logger = ap.logger
+		chain.addService(ap.AWSAssumeRoleCredentials)
+	}
+
 	if ap.AWSWebIdentityCredentials != nil {
 		ap.AWSWebIdentityCredentials.logger = ap.logger
 		chain.addService(ap.AWSWebIdentityCredentials)
@@ -820,6 +825,13 @@ func (ap *awsSigningAuthPlugin) NewClient(c Config) (*http.Client, error) {
 		return nil, err
 	}
 
+	url, err := url.Parse(c.URL)
+	if err != nil {
+		return nil, err
+	}
+
+	ap.host = url.Host
+
 	if ap.logger == nil {
 		ap.logger = c.logger
 	}
@@ -832,6 +844,13 @@ func (ap *awsSigningAuthPlugin) NewClient(c Config) (*http.Client, error) {
 }
 
 func (ap *awsSigningAuthPlugin) Prepare(req *http.Request) error {
+	if ap.host != req.URL.Host {
+		// Return early if the host does not match.
+		// This can happen when the OCI registry responded with a redirect to another host.
+		// For instance, ECR redirects to S3 and the ECR auth header should not be included in the S3 request.
+		return nil
+	}
+
 	switch ap.AWSService {
 	case "ecr":
 		return ap.ecrAuthPlugin.Prepare(req)
@@ -851,6 +870,7 @@ func (ap *awsSigningAuthPlugin) validateAndSetDefaults(serviceType string) error
 	cfgs := map[bool]int{}
 	cfgs[ap.AWSEnvironmentCredentials != nil]++
 	cfgs[ap.AWSMetadataCredentials != nil]++
+	cfgs[ap.AWSAssumeRoleCredentials != nil]++
 	cfgs[ap.AWSWebIdentityCredentials != nil]++
 	cfgs[ap.AWSProfileCredentials != nil]++
 
@@ -861,6 +881,12 @@ func (ap *awsSigningAuthPlugin) validateAndSetDefaults(serviceType string) error
 	if ap.AWSMetadataCredentials != nil {
 		if ap.AWSMetadataCredentials.RegionName == "" {
 			return errors.New("at least aws_region must be specified for AWS metadata credential service")
+		}
+	}
+
+	if ap.AWSAssumeRoleCredentials != nil {
+		if err := ap.AWSAssumeRoleCredentials.populateFromEnv(); err != nil {
+			return err
 		}
 	}
 
