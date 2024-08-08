@@ -52,7 +52,9 @@ func (s *labelSimplifier) processDecls(decls []ast.Decl) {
 	for _, d := range decls {
 		switch x := d.(type) {
 		case *ast.Field:
-			x.Label = astutil.Apply(x.Label, sc.replace, nil).(ast.Label)
+			if _, ok := x.Label.(*ast.BasicLit); ok {
+				x.Label = astutil.Apply(x.Label, nil, sc.replace).(ast.Label)
+			}
 		}
 	}
 }
@@ -109,5 +111,5 @@ func (s *labelSimplifier) replace(c astutil.Cursor) bool {
 			c.Replace(ast.NewIdent(str))
 		}
 	}
-	return true
+	return false
 }

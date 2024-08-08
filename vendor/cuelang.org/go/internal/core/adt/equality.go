@@ -42,12 +42,24 @@ func equalVertex(ctx *OpContext, x *Vertex, v Value, flags Flag) bool {
 	if !ok {
 		return false
 	}
-	if x == y {
-		return true
-	}
+
+	// Note that the arc type of an originating node may be different than
+	// the one we are sharing. So do this check before dereferencing.
+	// For instance:
+	//
+	//    a?: #B  // ArcOptional
+	//    #B: {}  // ArcMember
 	if x.ArcType != y.ArcType {
 		return false
 	}
+
+	x = x.DerefValue()
+	y = y.DerefValue()
+
+	if x == y {
+		return true
+	}
+
 	xk := x.Kind()
 	yk := y.Kind()
 
@@ -65,6 +77,9 @@ func equalVertex(ctx *OpContext, x *Vertex, v Value, flags Flag) bool {
 	// TODO: this really should be subsumption.
 	if flags != 0 {
 		if x.IsClosedStruct() != y.IsClosedStruct() {
+			return false
+		}
+		if x.IsClosedList() != y.IsClosedList() {
 			return false
 		}
 		if !equalClosed(ctx, x, y, flags) {
@@ -159,6 +174,10 @@ func equalTerminal(ctx *OpContext, v, w Value, flags Flag) bool {
 	case *Bottom:
 		// All errors are logically the same.
 		_, ok := w.(*Bottom)
+		return ok
+
+	case *Top:
+		_, ok := w.(*Top)
 		return ok
 
 	case *Num, *String, *Bool, *Bytes, *Null:

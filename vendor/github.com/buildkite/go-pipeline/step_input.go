@@ -15,16 +15,26 @@ type InputStep struct {
 	Contents map[string]any `yaml:",inline"`
 }
 
+// MarshalJSON marshals s.Scalar if it's not empty, otherwise s.Contents if that
+// is not empty. If both s.Scalar and s.Contents are empty, it reports an error.
 func (s *InputStep) MarshalJSON() ([]byte, error) {
+	o, err := s.MarshalYAML()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(o)
+}
+
+// MarshalYAML returns s.Scalar if it's not empty, otherwise s.Contents if that
+// is not empty. If both s.Scalar and s.Contents are empty, it reports an error.
+func (s *InputStep) MarshalYAML() (any, error) {
 	if s.Scalar != "" {
-		return json.Marshal(s.Scalar)
+		return s.Scalar, nil
 	}
-
 	if len(s.Contents) == 0 {
-		return []byte{}, errors.New("empty input step")
+		return nil, errors.New("empty input step")
 	}
-
-	return json.Marshal(s.Contents)
+	return s.Contents, nil
 }
 
 func (s InputStep) interpolate(tf stringTransformer) error {

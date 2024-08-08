@@ -10,9 +10,9 @@ and an HTTP server that implements the [OCI registry protocol](https://github.co
 
 The server currently passes the [conformance tests](https://pkg.go.dev/github.com/opencontainers/distribution-spec/conformance).
 
-That said, it is in total flux at the moment! Do not use it as a dependency, as the API is changing hourly.
-
-The aim, however, is to provide an ergonomic interface for defining and layering
+The aim is to provide an ergonomic interface for defining and layering
 OCI registry implementations.
+
+Although the API is fairly stable, it's still in v0 currently, so incompatible changes can't be ruled out.
 
 The code was originally derived from the [go-containerregistry](https://pkg.go.dev/github.com/google/go-containerregistry/pkg/registry) registry, but has considerably diverged since then.

@@ -9,7 +9,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Options are functional options for creating a new Env.
+type Options func(*Pipeline)
+
 // Parse parses a pipeline. It does not apply interpolation.
+// Warnings are passed through the err return:
+//
+//	p, err := Parse(src)
+//	if w := warning.As(err); w != nil {
+//		// Here are some warnings that should be shown
+//		log.Printf("*Warning* - pipeline is not fully parsed:\n%v", w)
+//	} else if err != nil {
+//	    // Parse could not understand src at all
+//	    return err
+//	}
+//	// Use p
 func Parse(src io.Reader) (*Pipeline, error) {
 	// First get yaml.v3 to give us a raw document (*yaml.Node).
 	n := new(yaml.Node)
@@ -24,6 +38,7 @@ func Parse(src io.Reader) (*Pipeline, error) {
 	// with when handling different structural representations of the same
 	// configuration. Then decode _that_ into a pipeline.
 	p := new(Pipeline)
+
 	return p, ordered.Unmarshal(n, p)
 }
 

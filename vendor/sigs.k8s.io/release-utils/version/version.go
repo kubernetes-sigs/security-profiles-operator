@@ -40,13 +40,13 @@ var (
 	// Output of "git describe". The prerequisite is that the
 	// branch should be tagged using the correct versioning strategy.
 	gitVersion = "devel"
-	// SHA1 from git, output of $(git rev-parse HEAD)
+	// SHA1 from git, output of $(git rev-parse HEAD).
 	gitCommit = unknown
-	// State of git tree, either "clean" or "dirty"
+	// State of git tree, either "clean" or "dirty".
 	gitTreeState = unknown
-	// Build date in ISO8601 format, output of $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+	// Build date in ISO8601 format, output of $(date -u +'%Y-%m-%dT%H:%M:%SZ').
 	buildDate = unknown
-	// flag to print the ascii name banner
+	// flag to print the ascii name banner.
 	asciiName = "true"
 	// goVersion is the used golang version.
 	goVersion = unknown
@@ -175,7 +175,7 @@ func GetVersionInfo() Info {
 	return info
 }
 
-// String returns the string representation of the version info
+// String returns the string representation of the version info.
 func (i *Info) String() string {
 	b := strings.Builder{}
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
@@ -205,7 +205,7 @@ func (i *Info) String() string {
 	return b.String()
 }
 
-// JSONString returns the JSON representation of the version info
+// JSONString returns the JSON representation of the version info.
 func (i *Info) JSONString() (string, error) {
 	b, err := json.MarshalIndent(i, "", "  ")
 	if err != nil {
