@@ -22,14 +22,14 @@
 // # Package Paths
 //
 // If a .proto file contains a go_package directive, it will be used as the
-// destination package fo the generated .cue files. A common use case is to
+// destination package for the generated .cue files. A common use case is to
 // generate the CUE in the same directory as the .proto definition. If a
 // destination package is not within the current CUE module, it will be written
 // relative to the pkg directory.
 //
 // If a .proto file does not specify go_package, it will convert a proto package
 // "google.parent.sub" to the import path "googleapis.com/google/parent/sub".
-// It is safe to mix package with and without a go_package within the same
+// It is safe to mix packages with and without a go_package within the same
 // project.
 //
 // # Type Mappings
@@ -64,6 +64,8 @@
 //	Timestamp      time.Time        See struct.proto.
 //	Duration       time.Duration    See struct.proto.
 //
+// # Annotations
+//
 // Protobuf definitions can be annotated with CUE constraints that are included
 // in the generated CUE:
 //
@@ -87,10 +89,8 @@ package protobuf
 import (
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
-
-	"github.com/mpvl/unique"
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/build"
@@ -99,6 +99,7 @@ import (
 	"cuelang.org/go/cue/parser"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal"
+	"cuelang.org/go/mod/module"
 
 	// Generated protobuf CUE may use builtins. Ensure that these can always be
 	// found, even if the user does not use cue/load or another package that
@@ -181,13 +182,27 @@ type result struct {
 // it will be observable by the Err method fo the Extractor. It is safe,
 // however, to only check errors after building the output.
 func NewExtractor(c *Config) *Extractor {
+	var modulePath string
+	// We don't want to consider the module's major version as
+	// part of the path when checking to see a protobuf package
+	// declares itself as part of that module.
+	// TODO(rogpeppe) the Go package path might itself include a major
+	// version, so we should probably consider that too.
+	if c.Module != "" {
+		var ok bool
+		modulePath, _, ok = module.SplitPathVersion(c.Module)
+		if !ok {
+			modulePath = c.Module
+
+		}
+	}
 	cwd, _ := os.Getwd()
 	b := &Extractor{
 		root:      c.Root,
 		cwd:       cwd,
 		paths:     c.Paths,
 		pkgName:   c.PkgName,
-		module:    c.Module,
+		module:    modulePath,
 		enumMode:  c.EnumMode,
 		fileCache: map[string]result{},
 		imports:   map[string]*build.Instance{},
@@ -300,20 +315,20 @@ func (b *Extractor) Instances() (instances []*build.Instance, err error) {
 
 	for _, p := range b.imports {
 		instances = append(instances, p)
-		sort.Strings(p.ImportPaths)
-		unique.Strings(&p.ImportPaths)
+		slices.Sort(p.ImportPaths)
+		p.ImportPaths = slices.Compact(p.ImportPaths)
 		for _, i := range p.ImportPaths {
 			if imp := b.imports[i]; imp != nil {
 				p.Imports = append(p.Imports, imp)
 			}
 		}
 
-		sort.Slice(p.Files, func(i, j int) bool {
-			return p.Files[i].Filename < p.Files[j].Filename
+		slices.SortFunc(p.Files, func(a, b *ast.File) int {
+			return strings.Compare(a.Filename, b.Filename)
 		})
 	}
-	sort.Slice(instances, func(i, j int) bool {
-		return instances[i].ImportPath < instances[j].ImportPath
+	slices.SortFunc(instances, func(a, b *build.Instance) int {
+		return strings.Compare(a.ImportPath, b.ImportPath)
 	})
 
 	if err != nil {

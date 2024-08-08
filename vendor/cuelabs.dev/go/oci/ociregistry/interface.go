@@ -210,20 +210,24 @@ type Deleter interface {
 // Lister defines registry operations that enumerate objects within the registry.
 // TODO support resumption from a given point.
 type Lister interface {
-	// Repositories returns an iterator that can be used to iterate over all the repositories
-	// in the registry.
-	Repositories(ctx context.Context) Iter[string]
+	// Repositories returns an iterator that can be used to iterate
+	// over all the repositories in the registry in lexical order.
+	// If startAfter is non-empty, the iteration starts lexically
+	// after, but not including, that repository.
+	Repositories(ctx context.Context, startAfter string) Seq[string]
 
-	// Tags returns an iterator that can be used to iterate over all the tags
-	// in the given repository.
-	Tags(ctx context.Context, repo string) Iter[string]
+	// Tags returns an iterator that can be used to iterate over all
+	// the tags in the given repository in lexical order. If
+	// startAfter is non-empty, the tags start lexically after, but
+	// not including that tag.
+	Tags(ctx context.Context, repo string, startAfter string) Seq[string]
 
 	// Referrers returns an iterator that can be used to iterate over all
 	// the manifests that have the given digest as their Subject.
 	// If artifactType is non-zero, the results will be restricted to
 	// only manifests with that type.
 	// TODO is it possible to ask for multiple artifact types?
-	Referrers(ctx context.Context, repo string, digest Digest, artifactType string) Iter[Descriptor]
+	Referrers(ctx context.Context, repo string, digest Digest, artifactType string) Seq[Descriptor]
 }
 
 // BlobWriter provides a handle for uploading a blob to a registry.

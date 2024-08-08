@@ -45,13 +45,8 @@ func (c *execCmd) Run(ctx *task.Context) (res interface{}, err error) {
 
 	// TODO: set environment variables, if defined.
 	stream := func(name string) (stream cue.Value, ok bool) {
-		c := ctx.Obj.Lookup(name)
-		// Although the schema defines a default versions, older implementations
-		// may not use it yet.
-		if !c.Exists() {
-			return
-		}
-		if err := c.Null(); ctx.Err != nil || err == nil {
+		c := ctx.Obj.LookupPath(cue.ParsePath(name))
+		if err := c.Null(); c.Err() != nil || err == nil {
 			return
 		}
 		return c, true
@@ -71,14 +66,10 @@ func (c *execCmd) Run(ctx *task.Context) (res interface{}, err error) {
 		cmd.Stderr = ctx.Stderr
 	}
 
-	// TODO(mvdan): exec.Run declares mustSucceed as a regular field with a default of true.
-	// We should be able to rely on that here, removing the need for Exists and repeating the default.
-	mustSucceed := true
-	if v := ctx.Obj.LookupPath(cue.ParsePath("mustSucceed")); v.Exists() {
-		mustSucceed, err = v.Bool()
-		if err != nil {
-			return nil, errors.Wrapf(err, v.Pos(), "invalid bool value")
-		}
+	v := ctx.Obj.LookupPath(cue.ParsePath("mustSucceed"))
+	mustSucceed, err := v.Bool()
+	if err != nil {
+		return nil, errors.Wrapf(err, v.Pos(), "invalid bool value")
 	}
 
 	update := map[string]interface{}{}
@@ -102,6 +93,7 @@ func (c *execCmd) Run(ctx *task.Context) (res interface{}, err error) {
 			update["stderr"] = err.Error()
 		}
 	}
+
 	if !mustSucceed {
 		return update, nil
 	}
@@ -152,13 +144,14 @@ func mkCommand(ctx *task.Context) (c *exec.Cmd, doc string, err error) {
 
 	cmd := exec.CommandContext(ctx.Context, bin, args...)
 
-	cmd.Dir, _ = ctx.Obj.Lookup("dir").String()
+	cmd.Dir, _ = ctx.Obj.LookupPath(cue.ParsePath("dir")).String()
 
-	env := ctx.Obj.Lookup("env")
+	env := ctx.Obj.LookupPath(cue.ParsePath("env"))
 
 	// List case.
 	for iter, _ := env.List(); iter.Next(); {
-		str, err := iter.Value().String()
+		v, _ := iter.Value().Default()
+		str, err := v.String()
 		if err != nil {
 			return nil, "", errors.Wrapf(err, v.Pos(),
 				"invalid environment variable value %q", v)
@@ -167,9 +160,9 @@ func mkCommand(ctx *task.Context) (c *exec.Cmd, doc string, err error) {
 	}
 
 	// Struct case.
-	for iter, _ := ctx.Obj.Lookup("env").Fields(); iter.Next(); {
+	for iter, _ := env.Fields(); iter.Next(); {
 		label := iter.Label()
-		v := iter.Value()
+		v, _ := iter.Value().Default()
 		var str string
 		switch v.Kind() {
 		case cue.StringKind:

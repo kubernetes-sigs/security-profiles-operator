@@ -102,7 +102,7 @@ type cacheKey struct {
 }
 
 func (e *Environment) up(ctx *OpContext, count int32) *Environment {
-	for ; count > 0; count-- {
+	for i := int32(0); i < count; i++ {
 		e = e.Up
 		ctx.Assertf(ctx.Pos(), e.Vertex != nil, "Environment.up encountered a nil vertex")
 	}
@@ -127,7 +127,7 @@ func (e *Environment) evalCached(c *OpContext, x Expr) Value {
 		// Save and restore errors to ensure that only relevant errors are
 		// associated with the cash.
 		err := c.errs
-		v = c.evalState(x, partial) // TODO: should this be finalized?
+		v = c.evalState(x, require(partial, allKnown)) // TODO: should this be finalized?
 		c.e, c.src = env, src
 		c.errs = err
 		if b, ok := v.(*Bottom); !ok || !b.IsIncomplete() {
@@ -157,12 +157,16 @@ type Vertex struct {
 	//   eval: *,   BaseValue: *   -- finalized
 	//
 	state *nodeContext
-	// TODO: move the following status fields to nodeContext.
+
+	// cc manages the closedness logic for this Vertex. It is created
+	// by rootCloseContext.
+	// TODO: move back to nodeContext, but be sure not to clone it.
+	cc *closeContext
 
 	// Label is the feature leading to this vertex.
 	Label Feature
 
-	// TODO: move the following status fields to nodeContext.
+	// TODO: move the following fields to nodeContext.
 
 	// status indicates the evaluation progress of this vertex.
 	status vertexStatus
@@ -182,6 +186,10 @@ type Vertex struct {
 	// conjuncts, or ancestor conjuncts, is a definition.
 	Closed bool
 
+	// HasEllipsis indicates that this Vertex is open by means of an ellipsis.
+	// TODO: combine this field with Closed once we removed the old evaluator.
+	HasEllipsis bool
+
 	// MultiLet indicates whether multiple let fields were added from
 	// different sources. If true, a LetReference must be resolved using
 	// the per-Environment value cache.
@@ -192,11 +200,6 @@ type Vertex struct {
 	// or any other operation that relies on the set of arcs being constant.
 	LockArcs bool
 
-	// disallowedField means that this arc is not allowed according
-	// to the closedness rules. This is used to avoid duplicate error reporting.
-	// TODO: perhaps rename to notAllowedErrorEmitted.
-	disallowedField bool
-
 	// IsDynamic signifies whether this struct is computed as part of an
 	// expression and not part of the static evaluation tree.
 	// Used for cycle detection.
@@ -206,6 +209,20 @@ type Vertex struct {
 
 	// hasPendingArc is set if this Vertex has a void arc (e.g. for comprehensions)
 	hasPendingArc bool
+
+	// IsDisjunct indicates this Vertex is a disjunct resulting from a
+	// disjunction evaluation.
+	IsDisjunct bool
+
+	// IsShared is true if BaseValue holds a Vertex of a node of another path.
+	// If a node is shared, the user should be careful with traversal.
+	// The debug printer, for instance, takes extra care not to print in a loop.
+	IsShared bool
+
+	// IsCyclic is true if a node is cyclic, for instance if its value is
+	// a cyclic reference to a shared node or if the value is a conjunction
+	// of which at least one value is cyclic (not yet supported).
+	IsCyclic bool
 
 	// ArcType indicates the level of optionality of this arc.
 	ArcType ArcType
@@ -238,11 +255,46 @@ type Vertex struct {
 	//
 	// This value may be nil, in which case the Arcs are considered to define
 	// the final value of this Vertex.
+	//
+	// TODO: all access to Conjuncts should go through functions like
+	// VisitLeafConjuncts and VisitAllConjuncts. We should probably make this
+	// an unexported field.
 	Conjuncts []Conjunct
 
 	// Structs is a slice of struct literals that contributed to this value.
 	// This information is used to compute the topological sort of arcs.
 	Structs []*StructInfo
+}
+
+func deref(v *Vertex) *Vertex {
+	v = v.DerefValue()
+	n := v.state
+	if n != nil {
+		v = n.underlying
+	}
+	if v == nil {
+		panic("unexpected nil underlying with non-nil state")
+	}
+	return v
+}
+
+func equalDeref(a, b *Vertex) bool {
+	return deref(a) == deref(b)
+}
+
+// rootCloseContext creates a closeContext for this Vertex or returns the
+// existing one.
+func (v *Vertex) rootCloseContext(ctx *OpContext) *closeContext {
+	if v.cc == nil {
+		v.cc = &closeContext{
+			group:           (*ConjunctGroup)(&v.Conjuncts),
+			parent:          nil,
+			src:             v,
+			parentConjuncts: v,
+		}
+		v.cc.incDependent(ctx, ROOT, nil) // matched in REF(decrement:nodeDone)
+	}
+	return v.cc
 }
 
 // newInlineVertex creates a Vertex that is needed for computation, but for
@@ -259,9 +311,26 @@ func (ctx *OpContext) newInlineVertex(parent *Vertex, v BaseValue, a ...Conjunct
 
 // updateArcType updates v.ArcType if t is more restrictive.
 func (v *Vertex) updateArcType(t ArcType) {
-	if t < v.ArcType {
-		v.ArcType = t
+	if t >= v.ArcType {
+		return
 	}
+	if v.ArcType == ArcNotPresent {
+		return
+	}
+	s := v.state
+	if (s != nil || v.isFinal()) && s.ctx.isDevVersion() {
+		c := s.ctx
+		if s.scheduler.frozen.meets(arcTypeKnown) {
+			parent := v.Parent
+			parent.reportFieldCycleError(c, c.Source().Pos(), v.Label)
+			return
+		}
+	}
+	if v.Parent != nil && v.Parent.ArcType == ArcPending && v.Parent.state != nil && v.Parent.state.ctx.isDevVersion() {
+		// TODO: check that state is always non-nil.
+		v.Parent.state.unshare()
+	}
+	v.ArcType = t
 }
 
 // isDefined indicates whether this arc is a "value" field, and not a constraint
@@ -323,6 +392,22 @@ const (
 	// structure sharing, among other things.
 	// We could also define types for required fields and potentially lets.
 )
+
+func (a ArcType) String() string {
+	switch a {
+	case ArcMember:
+		return "Member"
+	case ArcOptional:
+		return "Optional"
+	case ArcRequired:
+		return "Required"
+	case ArcPending:
+		return "Pending"
+	case ArcNotPresent:
+		return "NotPresent"
+	}
+	return fmt.Sprintf("ArcType(%d)", a)
+}
 
 // definitelyExists reports whether an arc is a constraint or member arc.
 // TODO: we should check that users of this call ensure there are no
@@ -471,7 +556,11 @@ func (v *Vertex) IsUnprocessed() bool {
 }
 
 func (v *Vertex) updateStatus(s vertexStatus) {
-	Assertf(v.status <= s+1, "attempt to regress status from %d to %d", v.Status(), s)
+	if !isCyclePlaceholder(v.BaseValue) {
+		if !v.IsErr() && v.state != nil {
+			Assertf(v.state.ctx, v.status <= s+1, "attempt to regress status from %d to %d", v.Status(), s)
+		}
+	}
 
 	if s == finalized && v.BaseValue == nil {
 		// TODO: for debugging.
@@ -501,6 +590,65 @@ func (v *Vertex) setParentDone() {
 	}
 }
 
+// VisitLeafConjuncts visits all conjuncts that are leafs of the ConjunctGroup tree.
+func (v *Vertex) VisitLeafConjuncts(f func(Conjunct) bool) {
+	visitConjuncts(v.Conjuncts, f)
+}
+
+func visitConjuncts(a []Conjunct, f func(Conjunct) bool) bool {
+	for _, c := range a {
+		switch x := c.x.(type) {
+		case *ConjunctGroup:
+			if !visitConjuncts(*x, f) {
+				return false
+			}
+		default:
+			if !f(c) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// VisitAllConjuncts visits all conjuncts of v, including ConjunctGroups.
+// Note that ConjunctGroups do not have an Environment associated with them.
+func (v *Vertex) VisitAllConjuncts(f func(c Conjunct, isLeaf bool)) {
+	visitAllConjuncts(v.Conjuncts, f)
+}
+
+func visitAllConjuncts(a []Conjunct, f func(c Conjunct, isLeaf bool)) {
+	for _, c := range a {
+		switch x := c.x.(type) {
+		case *ConjunctGroup:
+			f(c, false)
+			visitAllConjuncts(*x, f)
+		default:
+			f(c, true)
+		}
+	}
+}
+
+// SingleConjunct reports whether there is a single leaf conjunct and returns 1
+// if so. It will return 0 if there are no conjuncts or 2 if there are more than
+// 1.
+//
+// This is an often-used operation.
+func (v *Vertex) SingleConjunct() (c Conjunct, count int) {
+	if v == nil {
+		return c, 0
+	}
+	v.VisitLeafConjuncts(func(x Conjunct) bool {
+		c = x
+		if count++; count > 1 {
+			return false
+		}
+		return true
+	})
+
+	return c, count
+}
+
 // Value returns the Value of v without definitions if it is a scalar
 // or itself otherwise.
 func (v *Vertex) Value() Value {
@@ -527,6 +675,15 @@ func (v *Vertex) isUndefined() bool {
 		return true
 	}
 	return false
+}
+
+// isFinal reports whether this node may no longer be modified.
+func (v *Vertex) isFinal() bool {
+	// TODO(deref): the accounting of what is final should be recorded
+	// in the original node. Remove this dereference once the old
+	// evaluator has been removed.
+	v = v.DerefValue()
+	return v.status == finalized
 }
 
 func (x *Vertex) IsConcrete() bool {
@@ -623,17 +780,26 @@ func toDataAll(ctx *OpContext, v BaseValue) BaseValue {
 // 	return v.Value == cycle
 // }
 
+// IsErr is a convenience function to check whether a Vertex represents an
+// error currently. It does not finalize the value, so it is possible that
+// v may become erroneous after this call.
 func (v *Vertex) IsErr() bool {
 	// if v.Status() > Evaluating {
-	if _, ok := v.BaseValue.(*Bottom); ok {
-		return true
-	}
-	// }
-	return false
+	return v.Bottom() != nil
 }
 
+// Err finalizes v, if it isn't yet, and returns an error if v evaluates to an
+// error or nil otherwise.
 func (v *Vertex) Err(c *OpContext) *Bottom {
 	v.Finalize(c)
+	return v.Bottom()
+}
+
+// Bottom reports whether v is currently erroneous It does not finalize the
+// value, so it is possible that v may become erroneous after this call.
+func (v *Vertex) Bottom() *Bottom {
+	// TODO: should we consider errors recorded in the state?
+	v = v.DerefValue()
 	if b, ok := v.BaseValue.(*Bottom); ok {
 		return b
 	}
@@ -647,13 +813,17 @@ func (v *Vertex) Finalize(c *OpContext) {
 	// case the caller did not handle existing errors in the context.
 	err := c.errs
 	c.errs = nil
-	c.unify(v, finalized)
+	c.unify(v, final(finalized, allKnown))
 	c.errs = err
 }
 
 // CompleteArcs ensures the set of arcs has been computed.
 func (v *Vertex) CompleteArcs(c *OpContext) {
-	c.unify(v, conjuncts)
+	c.unify(v, final(conjuncts, allKnown))
+}
+
+func (v *Vertex) CompleteArcsOnly(c *OpContext) {
+	c.unify(v, final(conjuncts, fieldSetKnown))
 }
 
 func (v *Vertex) AddErr(ctx *OpContext, b *Bottom) {
@@ -667,6 +837,7 @@ func (v *Vertex) SetValue(ctx *OpContext, value BaseValue) *Bottom {
 
 func (v *Vertex) setValue(ctx *OpContext, state vertexStatus, value BaseValue) *Bottom {
 	v.BaseValue = value
+	// TODO: should not set status here for new evaluator.
 	v.updateStatus(state)
 	return nil
 }
@@ -693,7 +864,11 @@ func Unwrap(v Value) Value {
 	if !ok {
 		return v
 	}
-	x = x.Indirect()
+	// TODO(deref): BaseValue is currently overloaded to track cycles as well
+	// as the actual or dereferenced value. Once the old evaluator can be
+	// removed, we should use the new cycle tracking mechanism for cycle
+	// detection and keep BaseValue clean.
+	x = x.DerefValue()
 	if n := x.state; n != nil && isCyclePlaceholder(x.BaseValue) {
 		if n.errs != nil && !n.errs.IsIncomplete() {
 			return n.errs
@@ -703,19 +878,6 @@ func Unwrap(v Value) Value {
 		}
 	}
 	return x.Value()
-}
-
-// Indirect unrolls indirections of Vertex values. These may be introduced,
-// for instance, by temporary bindings such as comprehension values.
-// It returns v itself if v does not point to another Vertex.
-func (v *Vertex) Indirect() *Vertex {
-	for {
-		arc, ok := v.BaseValue.(*Vertex)
-		if !ok {
-			return v
-		}
-		v = arc
-	}
 }
 
 // OptionalType is a bit field of the type of optional constraints in use by an
@@ -735,14 +897,14 @@ func (v *Vertex) Kind() Kind {
 	// This is possible when evaluating comprehensions. It is potentially
 	// not known at this time what the type is.
 	switch {
-	// TODO: using this line would be more stable.
-	// case v.status != finalized && v.state != nil:
+	case v.state != nil && v.state.kind == BottomKind:
+		return BottomKind
+	case v.BaseValue != nil && !isCyclePlaceholder(v.BaseValue):
+		return v.BaseValue.Kind()
 	case v.state != nil:
 		return v.state.kind
-	case v.BaseValue == nil:
-		return TopKind
 	default:
-		return v.BaseValue.Kind()
+		return TopKind
 	}
 }
 
@@ -770,9 +932,21 @@ func (v *Vertex) accepts(ok, required bool) bool {
 }
 
 func (v *Vertex) IsClosedStruct() bool {
+	// TODO: uncomment this. This fixes a bunch of closedness bugs
+	// in the old and new evaluator. For compability sake, though, we
+	// keep it as is for now.
+	// if v.Closed {
+	// 	return true
+	// }
+	// if v.HasEllipsis {
+	// 	return false
+	// }
 	switch x := v.BaseValue.(type) {
 	default:
 		return false
+
+	case *Vertex:
+		return v.Closed && !v.HasEllipsis
 
 	case *StructMarker:
 		if x.NeedClose {
@@ -793,10 +967,23 @@ func (v *Vertex) IsClosedList() bool {
 
 // TODO: return error instead of boolean? (or at least have version that does.)
 func (v *Vertex) Accept(ctx *OpContext, f Feature) bool {
+	// TODO(#543): remove this check.
+	if f.IsDef() {
+		return true
+	}
+
 	if f.IsHidden() || f.IsLet() {
 		return true
 	}
 
+	// TODO(deref): right now a dereferenced value holds all the necessary
+	// closedness information. In the future we may want to allow sharing nodes
+	// with different closedness information. In that case, we should reconsider
+	// the use of this dereference. Consider, for instance:
+	//
+	//     #a: b     // this node is currently not shared, but could be.
+	//     b: {c: 1}
+	v = v.DerefValue()
 	if x, ok := v.BaseValue.(*Disjunction); ok {
 		for _, v := range x.Values {
 			if x, ok := v.(*Vertex); ok && x.Accept(ctx, f) {
@@ -828,6 +1015,14 @@ func (v *Vertex) Accept(ctx *OpContext, f Feature) bool {
 		}
 	}
 
+	// TODO: move this check to IsClosedStruct. Right now this causes too many
+	// changes in the debug output, and it also appears to be not entirely
+	// correct.
+	if v.HasEllipsis {
+		return true
+
+	}
+
 	if !v.IsClosedStruct() || v.Lookup(f) != nil {
 		return true
 	}
@@ -854,6 +1049,24 @@ func (v *Vertex) MatchAndInsert(ctx *OpContext, arc *Vertex) {
 		}
 		s.MatchAndInsert(ctx, arc)
 	}
+
+	// This is the equivalent for the new implementation.
+	if pcs := v.PatternConstraints; pcs != nil {
+		for _, pc := range pcs.Pairs {
+			if matchPattern(ctx, pc.Pattern, arc.Label) {
+				for _, c := range pc.Constraint.Conjuncts {
+					env := *(c.Env)
+					if arc.Label.Index() < MaxIndex {
+						env.DynamicLabel = arc.Label
+					}
+					c.Env = &env
+
+					root := arc.rootCloseContext(ctx)
+					root.insertConjunct(ctx, root, c, c.CloseInfo, ArcMember, true, false)
+				}
+			}
+		}
+	}
 }
 
 func (v *Vertex) IsList() bool {
@@ -865,7 +1078,28 @@ func (v *Vertex) IsList() bool {
 func (v *Vertex) Lookup(f Feature) *Vertex {
 	for _, a := range v.Arcs {
 		if a.Label == f {
-			a = a.Indirect()
+			// TODO(P1)/TODO(deref): this indirection should ultimately be
+			// eliminated: the original node may have useful information (like
+			// original conjuncts) that are eliminated after indirection. We
+			// should leave it up to the user of Lookup at what point an
+			// indirection is necessary.
+			a = a.DerefValue()
+			return a
+		}
+	}
+	return nil
+}
+
+// LookupRaw returns the Arc with label f if it exists or nil otherwise.
+//
+// TODO: with the introduction of structure sharing, it is not always correct
+// to indirect the arc. At the very least, this discards potential useful
+// information. We introduce LookupRaw to avoid having to delete the
+// information. Ultimately, this should become Lookup, or better, we should
+// have a higher-level API for accessing values.
+func (v *Vertex) LookupRaw(f Feature) *Vertex {
+	for _, a := range v.Arcs {
+		if a.Label == f {
 			return a
 		}
 	}
@@ -884,6 +1118,10 @@ func (v *Vertex) Elems() []*Vertex {
 	return a
 }
 
+func (v *Vertex) Init(c *OpContext) {
+	v.getState(c)
+}
+
 // GetArc returns a Vertex for the outgoing arc with label f. It creates and
 // ads one if it doesn't yet exist.
 func (v *Vertex) GetArc(c *OpContext, f Feature, t ArcType) (arc *Vertex, isNew bool) {
@@ -891,6 +1129,10 @@ func (v *Vertex) GetArc(c *OpContext, f Feature, t ArcType) (arc *Vertex, isNew 
 	if arc != nil {
 		arc.updateArcType(t)
 		return arc, false
+	}
+
+	if c.isDevVersion() {
+		return nil, false
 	}
 
 	if v.LockArcs {
@@ -951,7 +1193,11 @@ func (v *Vertex) hasConjunct(c Conjunct) (added bool) {
 	default:
 		v.ArcType = ArcMember
 	}
-	for _, x := range v.Conjuncts {
+	return hasConjunct(v.Conjuncts, c)
+}
+
+func hasConjunct(cs []Conjunct, c Conjunct) bool {
+	for _, x := range cs {
 		// TODO: disregard certain fields from comparison (e.g. Refs)?
 		if x.CloseInfo.closeInfo == c.CloseInfo.closeInfo &&
 			x.x == c.x &&
@@ -963,6 +1209,8 @@ func (v *Vertex) hasConjunct(c Conjunct) (added bool) {
 }
 
 func (n *nodeContext) addConjunction(c Conjunct, index int) {
+	unreachableForDev(n.ctx)
+
 	// NOTE: This does not split binary expressions for comprehensions.
 	// TODO: split for comprehensions and rewrap?
 	if x, ok := c.Elem().(*BinaryExpr); ok && x.Op == AndOp {
@@ -978,7 +1226,11 @@ func (n *nodeContext) addConjunction(c Conjunct, index int) {
 func (v *Vertex) addConjunctUnchecked(c Conjunct) {
 	index := len(v.Conjuncts)
 	v.Conjuncts = append(v.Conjuncts, c)
-	if n := v.state; n != nil {
+	if n := v.state; n != nil && !n.ctx.isDevVersion() {
+		// TODO(notify): consider this as a central place to send out
+		// notifications. At the moment this is not necessary, but it may
+		// be if we move the notification mechanism outside of the path of
+		// running tasks.
 		n.addConjunction(c, index)
 
 		// TODO: can we remove notifyConjunct here? This method is only
@@ -992,6 +1244,8 @@ func (v *Vertex) addConjunctUnchecked(c Conjunct) {
 // addConjunctDynamic adds a conjunct to a vertex and immediately evaluates
 // it, whilst doing the same for any vertices on the notify list, recursively.
 func (n *nodeContext) addConjunctDynamic(c Conjunct) {
+	unreachableForDev(n.ctx)
+
 	n.node.Conjuncts = append(n.node.Conjuncts, c)
 	n.addExprConjunct(c, partial)
 	n.notifyConjunct(c)
@@ -999,6 +1253,8 @@ func (n *nodeContext) addConjunctDynamic(c Conjunct) {
 }
 
 func (n *nodeContext) notifyConjunct(c Conjunct) {
+	unreachableForDev(n.ctx)
+
 	for _, rec := range n.notify {
 		arc := rec.v
 		if !arc.hasConjunct(c) {
@@ -1006,7 +1262,7 @@ func (n *nodeContext) notifyConjunct(c Conjunct) {
 				// TODO: continuing here is likely to result in a faulty
 				// (incomplete) configuration. But this may be okay. The
 				// CUE_DEBUG=0 flag disables this assertion.
-				n.ctx.Assertf(n.ctx.pos(), Debug, "unexpected nil state")
+				n.ctx.Assertf(n.ctx.pos(), !n.ctx.Strict, "unexpected nil state")
 				n.ctx.addErrf(0, n.ctx.pos(), "cannot add to field %v", arc.Label)
 				continue
 			}
@@ -1051,7 +1307,7 @@ func appendPath(a []Feature, v *Vertex) []Feature {
 	return a
 }
 
-// An Conjunct is an Environment-Expr pair. The Environment is the starting
+// A Conjunct is an Environment-Expr pair. The Environment is the starting
 // point for reference lookup for any reference contained in X.
 type Conjunct struct {
 	Env *Environment
@@ -1109,24 +1365,66 @@ func (c *Conjunct) Elem() Elem {
 	}
 }
 
-// Expr retrieves the expression form of the contained conjunct.
-// If it is a field or comprehension, it will return its associated value.
+// Expr retrieves the expression form of the contained conjunct. If it is a
+// field or comprehension, it will return its associated value. This is only to
+// be used for syntactic operations where evaluation of the expression is not
+// required. To get an expression paired with the correct environment, use
+// EnvExpr.
+//
+// TODO: rename to RawExpr.
 func (c *Conjunct) Expr() Expr {
 	return ToExpr(c.x)
+}
+
+// EnvExpr returns the expression form of the contained conjunct alongside an
+// Environment in which this expression should be evaluated.
+func (c Conjunct) EnvExpr() (*Environment, Expr) {
+	return EnvExpr(c.Env, c.Elem())
+}
+
+// EnvExpr returns the expression represented by Elem alongside an Environment
+// with the necessary adjustments in which the resulting expression can be
+// evaluated.
+func EnvExpr(env *Environment, elem Elem) (*Environment, Expr) {
+	for {
+		switch x := elem.(type) {
+		case *ConjunctGroup:
+			if len(*x) == 1 {
+				c := (*x)[0]
+				env = c.Env
+				elem = c.Elem()
+				continue
+			}
+		case *Comprehension:
+			env = linkChildren(env, x)
+			c := MakeConjunct(env, x.Value, CloseInfo{})
+			elem = c.Elem()
+			continue
+		}
+		break
+	}
+	return env, ToExpr(elem)
 }
 
 // ToExpr extracts the underlying expression for a Node. If something is already
 // an Expr, it will return it as is, if it is a field, it will return its value,
 // and for comprehensions it returns the yielded struct.
 func ToExpr(n Node) Expr {
-	switch x := n.(type) {
-	case Expr:
-		return x
-	case interface{ expr() Expr }:
-		return x.expr()
-	case *Comprehension:
-		return ToExpr(x.Value)
-	default:
-		panic("unreachable")
+	for {
+		switch x := n.(type) {
+		case *ConjunctGroup:
+			if len(*x) != 1 {
+				return x
+			}
+			n = (*x)[0].x
+		case Expr:
+			return x
+		case interface{ expr() Expr }:
+			n = x.expr()
+		case *Comprehension:
+			n = x.Value
+		default:
+			panic("unreachable")
+		}
 	}
 }

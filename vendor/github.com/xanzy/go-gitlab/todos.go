@@ -58,8 +58,8 @@ type TodoTarget struct {
 	CreatedAt            *time.Time             `json:"created_at"`
 	Description          string                 `json:"description"`
 	Downvotes            int                    `json:"downvotes"`
-	ID                   int                    `json:"id"`
-	IID                  interface{}            `json:"iid"`
+	ID                   interface{}            `json:"id"`
+	IID                  int                    `json:"iid"`
 	Labels               []string               `json:"labels"`
 	Milestone            *Milestone             `json:"milestone"`
 	ProjectID            int                    `json:"project_id"`
@@ -82,6 +82,7 @@ type TodoTarget struct {
 	Weight       int         `json:"weight"`
 
 	// Only available for type MergeRequest
+	MergedAt                  *time.Time   `json:"merged_at"`
 	ApprovalsBeforeMerge      int          `json:"approvals_before_merge"`
 	ForceRemoveSourceBranch   bool         `json:"force_remove_source_branch"`
 	MergeCommitSHA            string       `json:"merge_commit_sha"`

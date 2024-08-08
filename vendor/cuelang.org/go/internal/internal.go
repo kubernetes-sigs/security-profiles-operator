@@ -15,14 +15,13 @@
 // Package internal exposes some cue internals to other packages.
 //
 // A better name for this package would be technicaldebt.
-package internal // import "cuelang.org/go/internal"
+package internal
 
 // TODO: refactor packages as to make this package unnecessary.
 
 import (
 	"bufio"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -91,9 +90,6 @@ func (c Context) Sqrt(d, x *apd.Decimal) (apd.Condition, error) {
 // incomplete.
 var ErrIncomplete = errors.New("incomplete value")
 
-// MakeInstance makes a new instance from a value.
-var MakeInstance func(value interface{}) (instance interface{})
-
 // BaseContext is used as CUE's default context for arbitrary-precision decimals.
 var BaseContext = Context{*apd.BaseContext.WithPrecision(34)}
 
@@ -110,6 +106,16 @@ const (
 func Version(minor, patch int) int {
 	return -1000 + 100*minor + patch
 }
+
+type EvaluatorVersion int
+
+const (
+	DefaultVersion EvaluatorVersion = iota
+
+	// The DevVersion is used for new implementations of the evaluator that
+	// do not cover all features of the CUE language yet.
+	DevVersion
+)
 
 // ListEllipsis reports the list type and remaining elements of a list. If we
 // ever relax the usage of ellipsis, this function will likely change. Using
@@ -144,31 +150,23 @@ func GetPackageInfo(f *ast.File) PkgInfo {
 		case *ast.Attribute:
 		case *ast.Package:
 			if x.Name == nil {
-				break
+				return PkgInfo{}
 			}
 			return PkgInfo{x, i, x.Name.Name}
+		default:
+			return PkgInfo{}
 		}
 	}
 	return PkgInfo{}
 }
 
-// Deprecated: use GetPackageInfo
-func PackageInfo(f *ast.File) (p *ast.Package, name string, tok token.Pos) {
-	x := GetPackageInfo(f)
-	if p := x.Package; p != nil {
-		return p, x.Name, p.Name.Pos()
-	}
-	return nil, "", f.Pos()
-}
-
 func SetPackage(f *ast.File, name string, overwrite bool) {
-	p, str, _ := PackageInfo(f)
-	if p != nil {
-		if !overwrite || str == name {
+	if pi := GetPackageInfo(f); pi.Package != nil {
+		if !overwrite || pi.Name == name {
 			return
 		}
 		ident := ast.NewIdent(name)
-		astutil.CopyMeta(ident, p.Name)
+		astutil.CopyMeta(ident, pi.Package.Name)
 		return
 	}
 
@@ -229,9 +227,8 @@ func NewComment(isDoc bool, s string) *ast.CommentGroup {
 }
 
 func FileComment(f *ast.File) *ast.CommentGroup {
-	pkg, _, _ := PackageInfo(f)
 	var cgs []*ast.CommentGroup
-	if pkg != nil {
+	if pkg := GetPackageInfo(f).Package; pkg != nil {
 		cgs = pkg.Comments()
 	} else if cgs = f.Comments(); len(cgs) > 0 {
 		// Use file comment.
@@ -309,18 +306,22 @@ func ToExpr(n ast.Node) ast.Expr {
 //
 // Adjusts the spacing of x when needed.
 func ToFile(n ast.Node) *ast.File {
-	switch x := n.(type) {
-	case nil:
+	if n == nil {
 		return nil
+	}
+	switch n := n.(type) {
 	case *ast.StructLit:
-		return &ast.File{Decls: x.Elts}
+		f := &ast.File{Decls: n.Elts}
+		// Ensure that the comments attached to the struct literal are not lost.
+		ast.SetComments(f, ast.Comments(n))
+		return f
 	case ast.Expr:
-		ast.SetRelPos(x, token.NoSpace)
-		return &ast.File{Decls: []ast.Decl{&ast.EmbedDecl{Expr: x}}}
+		ast.SetRelPos(n, token.NoSpace)
+		return &ast.File{Decls: []ast.Decl{&ast.EmbedDecl{Expr: n}}}
 	case *ast.File:
-		return x
+		return n
 	default:
-		panic(fmt.Sprintf("Unsupported node type %T", x))
+		panic(fmt.Sprintf("Unsupported node type %T", n))
 	}
 }
 
@@ -435,17 +436,6 @@ func IsEllipsis(x ast.Decl) bool {
 
 // GenPath reports the directory in which to store generated files.
 func GenPath(root string) string {
-	info, err := os.Stat(filepath.Join(root, "cue.mod"))
-	if os.IsNotExist(err) || !info.IsDir() {
-		// Try legacy pkgDir mode
-		pkgDir := filepath.Join(root, "pkg")
-		if err == nil && !info.IsDir() {
-			return pkgDir
-		}
-		if info, err := os.Stat(pkgDir); err == nil && info.IsDir() {
-			return pkgDir
-		}
-	}
 	return filepath.Join(root, "cue.mod", "gen")
 }
 

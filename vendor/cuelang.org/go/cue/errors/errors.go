@@ -17,17 +17,16 @@
 // The pivotal error type in CUE packages is the interface type Error.
 // The information available in such errors can be most easily retrieved using
 // the Path, Positions, and Print functions.
-package errors // import "cuelang.org/go/cue/errors"
+package errors
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
-
-	"github.com/mpvl/unique"
 
 	"cuelang.org/go/cue/token"
 )
@@ -85,7 +84,8 @@ func NewMessagef(format string, args ...interface{}) Message {
 }
 
 // NewMessage creates an error message for human consumption.
-// Deprecated: Use NewMessagef instead.
+//
+// Deprecated: Use [NewMessagef] instead.
 func NewMessage(format string, args []interface{}) Message {
 	return NewMessagef(format, args...)
 }
@@ -133,12 +133,11 @@ func Positions(err error) []token.Pos {
 
 	a := make([]token.Pos, 0, 3)
 
-	sortOffset := 0
 	pos := e.Position()
 	if pos.IsValid() {
 		a = append(a, pos)
-		sortOffset = 1
 	}
+	sortOffset := len(a)
 
 	for _, p := range e.InputPositions() {
 		if p.IsValid() && p != pos {
@@ -146,18 +145,9 @@ func Positions(err error) []token.Pos {
 		}
 	}
 
-	byPos := byPos(a[sortOffset:])
-	sort.Sort(byPos)
-	k := unique.ToFront(byPos)
-	return a[:k+sortOffset]
+	slices.SortFunc(a[sortOffset:], comparePos)
+	return slices.Compact(a)
 }
-
-type byPos []token.Pos
-
-func (s *byPos) Truncate(n int)    { (*s) = (*s)[:n] }
-func (s byPos) Len() int           { return len(s) }
-func (s byPos) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s byPos) Less(i, j int) bool { return comparePos(s[i], s[j]) == -1 }
 
 // Path returns the path of an Error if err is of that type.
 func Path(err error) []string {
@@ -274,13 +264,12 @@ var _ Error = &posError{}
 // the offending token, and the error condition is described
 // by Msg.
 type posError struct {
-	pos    token.Pos
-	inputs []token.Pos
+	pos token.Pos
 	Message
 }
 
 func (e *posError) Path() []string              { return nil }
-func (e *posError) InputPositions() []token.Pos { return e.inputs }
+func (e *posError) InputPositions() []token.Pos { return nil }
 func (e *posError) Position() token.Pos         { return e.pos }
 
 // Append combines two errors, flattening Lists as necessary.
@@ -367,66 +356,26 @@ func (p *list) Add(err Error) {
 // Reset resets an List to no errors.
 func (p *list) Reset() { *p = (*p)[:0] }
 
-// List implements the sort Interface.
-func (p list) Len() int      { return len(p) }
-func (p list) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
-
-func (p list) Less(i, j int) bool {
-	if c := comparePos(p[i].Position(), p[j].Position()); c != 0 {
-		return c == -1
-	}
-	// Note that it is not sufficient to simply compare file offsets because
-	// the offsets do not reflect modified line information (through //line
-	// comments).
-
-	if !equalPath(p[i].Path(), p[j].Path()) {
-		return lessPath(p[i].Path(), p[j].Path())
-	}
-	return p[i].Error() < p[j].Error()
-}
-
-func lessOrMore(isLess bool) int {
-	if isLess {
-		return -1
-	}
-	return 1
-}
-
 func comparePos(a, b token.Pos) int {
-	if a.Filename() != b.Filename() {
-		return lessOrMore(a.Filename() < b.Filename())
+	if c := cmp.Compare(a.Filename(), b.Filename()); c != 0 {
+		return c
 	}
-	if a.Line() != b.Line() {
-		return lessOrMore(a.Line() < b.Line())
+	if c := cmp.Compare(a.Line(), b.Line()); c != 0 {
+		return c
 	}
-	if a.Column() != b.Column() {
-		return lessOrMore(a.Column() < b.Column())
-	}
-	return 0
+	return cmp.Compare(a.Column(), b.Column())
 }
 
-func lessPath(a, b []string) bool {
+func comparePath(a, b []string) int {
 	for i, x := range a {
 		if i >= len(b) {
-			return false
+			break
 		}
-		if x != b[i] {
-			return x < b[i]
-		}
-	}
-	return len(a) < len(b)
-}
-
-func equalPath(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i, x := range a {
-		if x != b[i] {
-			return false
+		if c := cmp.Compare(x, b[i]); c != 0 {
+			return c
 		}
 	}
-	return true
+	return cmp.Compare(len(a), len(b))
 }
 
 // Sanitize sorts multiple errors and removes duplicates on a best effort basis.
@@ -459,7 +408,19 @@ func (p list) sanitize() list {
 // other errors are sorted by error message, and before any *posError
 // entry.
 func (p list) Sort() {
-	sort.Sort(p)
+	slices.SortFunc(p, func(a, b Error) int {
+		if c := comparePos(a.Position(), b.Position()); c != 0 {
+			return c
+		}
+		// Note that it is not sufficient to simply compare file offsets because
+		// the offsets do not reflect modified line information (through //line
+		// comments).
+		if c := comparePath(a.Path(), b.Path()); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Error(), b.Error())
+
+	})
 }
 
 // RemoveMultiples sorts an List and removes all but the first error per line.
@@ -486,7 +447,7 @@ func approximateEqual(a, b Error) bool {
 	return aPos.Filename() == bPos.Filename() &&
 		aPos.Line() == bPos.Line() &&
 		aPos.Column() == bPos.Column() &&
-		equalPath(a.Path(), b.Path())
+		comparePath(a.Path(), b.Path()) == 0
 }
 
 // An List implements the error interface.
@@ -589,19 +550,14 @@ func writeErr(w io.Writer, err Error) {
 	for {
 		u := errors.Unwrap(err)
 
-		printed := false
 		msg, args := err.Msg()
-		s := fmt.Sprintf(msg, args...)
-		if s != "" || u == nil { // print at least something
-			_, _ = io.WriteString(w, s)
-			printed = true
-		}
+		n, _ := fmt.Fprintf(w, msg, args...)
 
 		if u == nil {
 			break
 		}
 
-		if printed {
+		if n > 0 {
 			_, _ = io.WriteString(w, ": ")
 		}
 		err, _ = u.(Error)
