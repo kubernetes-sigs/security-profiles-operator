@@ -2,7 +2,7 @@
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  name: crun-v1.15
+  name: crun-v1.16
 spec:
   defaultAction: SCMP_ACT_ERRNO
   architectures:
@@ -24,6 +24,7 @@ spec:
         - exit_group
         - fchdir
         - fchown
+        - fstat
         - fstatfs
         - getcwd
         - getegid
