@@ -156,7 +156,7 @@ dependencies:
       match: VERSION
 
   - name: crun
-    version: 1.16
+    version: 1.16.1
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
