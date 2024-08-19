@@ -69,6 +69,19 @@ type FakeImpl struct {
 	commandReturnsOnCall map[int]struct {
 		result1 *exec.Cmd
 	}
+	GetHomeDirectoryStub        func(uint32) (string, error)
+	getHomeDirectoryMutex       sync.RWMutex
+	getHomeDirectoryArgsForCall []struct {
+		arg1 uint32
+	}
+	getHomeDirectoryReturns struct {
+		result1 string
+		result2 error
+	}
+	getHomeDirectoryReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
+	}
 	NotifyStub        func(chan<- os.Signal, ...os.Signal)
 	notifyMutex       sync.RWMutex
 	notifyArgsForCall []struct {
@@ -336,6 +349,70 @@ func (fake *FakeImpl) CommandReturnsOnCall(i int, result1 *exec.Cmd) {
 	}{result1}
 }
 
+func (fake *FakeImpl) GetHomeDirectory(arg1 uint32) (string, error) {
+	fake.getHomeDirectoryMutex.Lock()
+	ret, specificReturn := fake.getHomeDirectoryReturnsOnCall[len(fake.getHomeDirectoryArgsForCall)]
+	fake.getHomeDirectoryArgsForCall = append(fake.getHomeDirectoryArgsForCall, struct {
+		arg1 uint32
+	}{arg1})
+	stub := fake.GetHomeDirectoryStub
+	fakeReturns := fake.getHomeDirectoryReturns
+	fake.recordInvocation("GetHomeDirectory", []interface{}{arg1})
+	fake.getHomeDirectoryMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetHomeDirectoryCallCount() int {
+	fake.getHomeDirectoryMutex.RLock()
+	defer fake.getHomeDirectoryMutex.RUnlock()
+	return len(fake.getHomeDirectoryArgsForCall)
+}
+
+func (fake *FakeImpl) GetHomeDirectoryCalls(stub func(uint32) (string, error)) {
+	fake.getHomeDirectoryMutex.Lock()
+	defer fake.getHomeDirectoryMutex.Unlock()
+	fake.GetHomeDirectoryStub = stub
+}
+
+func (fake *FakeImpl) GetHomeDirectoryArgsForCall(i int) uint32 {
+	fake.getHomeDirectoryMutex.RLock()
+	defer fake.getHomeDirectoryMutex.RUnlock()
+	argsForCall := fake.getHomeDirectoryArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) GetHomeDirectoryReturns(result1 string, result2 error) {
+	fake.getHomeDirectoryMutex.Lock()
+	defer fake.getHomeDirectoryMutex.Unlock()
+	fake.GetHomeDirectoryStub = nil
+	fake.getHomeDirectoryReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetHomeDirectoryReturnsOnCall(i int, result1 string, result2 error) {
+	fake.getHomeDirectoryMutex.Lock()
+	defer fake.getHomeDirectoryMutex.Unlock()
+	fake.GetHomeDirectoryStub = nil
+	if fake.getHomeDirectoryReturnsOnCall == nil {
+		fake.getHomeDirectoryReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.getHomeDirectoryReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) Notify(arg1 chan<- os.Signal, arg2 ...os.Signal) {
 	fake.notifyMutex.Lock()
 	fake.notifyArgsForCall = append(fake.notifyArgsForCall, struct {
@@ -442,6 +519,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.cmdWaitMutex.RUnlock()
 	fake.commandMutex.RLock()
 	defer fake.commandMutex.RUnlock()
+	fake.getHomeDirectoryMutex.RLock()
+	defer fake.getHomeDirectoryMutex.RUnlock()
 	fake.notifyMutex.RLock()
 	defer fake.notifyMutex.RUnlock()
 	fake.signalMutex.RLock()

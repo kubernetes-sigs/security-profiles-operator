@@ -67,7 +67,7 @@ func recordAppArmorTest(t *testing.T) {
 			t.Skip("BPF LSM disabled")
 		}
 		fileRead := fmt.Sprintf("../../README.md,/proc/1/limits,/proc/%d/limits", os.Getpid())
-		profile := recordAppArmor(t, "--file-read", fileRead, "--file-write", "/dev/null")
+		profile := recordAppArmor(t, "./demobinary", "--file-read", fileRead, "--file-write", "/dev/null")
 		readme, err := filepath.Abs("../../README.md")
 		require.NoError(t, err)
 		require.NotNil(t, profile.Filesystem)
@@ -84,20 +84,20 @@ func recordAppArmorTest(t *testing.T) {
 		}
 		require.Equal(t, 1, count)
 
-		profile = recordAppArmor(t, "--file-read", "/dev/null", "--file-write", "/dev/null")
+		profile = recordAppArmor(t, "./demobinary", "--file-read", "/dev/null", "--file-write", "/dev/null")
 		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/dev/null")
 	})
 	t.Run("sockets", func(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
-		profile := recordAppArmor(t, "--net-tcp")
+		profile := recordAppArmor(t, "./demobinary", "--net-tcp")
 		require.True(t, *profile.Network.Protocols.AllowTCP)
 		require.Nil(t, profile.Capability)
-		profile = recordAppArmor(t, "--net-udp")
+		profile = recordAppArmor(t, "./demobinary", "--net-udp")
 		require.True(t, *profile.Network.Protocols.AllowUDP)
 		require.Nil(t, profile.Capability)
-		profile = recordAppArmor(t, "--net-icmp")
+		profile = recordAppArmor(t, "--privileged", "./demobinary", "--net-icmp")
 		require.True(t, *profile.Network.AllowRaw)
 		require.Contains(t, profile.Capability.AllowedCapabilities, "net_raw")
 	})
@@ -105,23 +105,26 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
-		profile := recordAppArmor(t, "--cap-sys-admin")
+		profile := recordAppArmor(t, "--privileged", "./demobinary", "--cap-sys-admin")
 		require.Contains(t, profile.Capability.AllowedCapabilities, "sys_admin")
+
+		profile = recordAppArmor(t, "./demobinary", "--cap-sys-admin")
+		require.NotContains(t, profile.Capability.AllowedCapabilities, "sys_admin")
 	})
 
 	t.Run("subprocess", func(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
-		profile := recordAppArmor(t, "./demobinary-child", "--file-read", "/dev/null")
+		profile := recordAppArmor(t, "./demobinary", "./demobinary-child", "--file-read", "/dev/null")
 		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary-child")
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
 
-		profile = recordAppArmor(t, "./demobinary", "--file-read", "/dev/null")
+		profile = recordAppArmor(t, "./demobinary", "./demobinary", "--file-read", "/dev/null")
 		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary")
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
 
-		profile = recordAppArmor(t, "./demobinary-child", "./demobinary-child", "--file-read", "/dev/null")
+		profile = recordAppArmor(t, "./demobinary", "./demobinary-child", "./demobinary-child", "--file-read", "/dev/null")
 		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary-child")
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
 	})
@@ -214,7 +217,7 @@ func recordAppArmorTest(t *testing.T) {
 }
 
 func recordSeccompTest(t *testing.T) {
-	profile := recordSeccomp(t, "--net-tcp")
+	profile := recordSeccomp(t, "./demobinary", "--net-tcp")
 	require.Contains(t, profile.Syscalls[0].Names, "listen")
 }
 
@@ -233,7 +236,7 @@ func runSpoc(t *testing.T, args ...string) ([]byte, error) {
 func record(t *testing.T, typ string, profile client.Object, args ...string) {
 	t.Helper()
 	args = append([]string{
-		"record", "-t", typ, "-o", "/dev/stdout", "--no-base-syscalls", "./demobinary",
+		"record", "-t", typ, "-o", "/dev/stdout", "--no-base-syscalls",
 	}, args...)
 	content, err := runSpoc(t, args...)
 	require.NoError(t, err, "failed to run spoc")

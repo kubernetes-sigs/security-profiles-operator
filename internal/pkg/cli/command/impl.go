@@ -33,6 +33,7 @@ type impl interface {
 	CmdStart(*exec.Cmd) error
 	CmdPid(*exec.Cmd) uint32
 	CmdWait(*exec.Cmd) error
+	GetHomeDirectory(uid uint32) (string, error)
 }
 
 func (*defaultImpl) Notify(c chan<- os.Signal, sig ...os.Signal) {
@@ -60,4 +61,8 @@ func (*defaultImpl) CmdPid(cmd *exec.Cmd) uint32 {
 
 func (*defaultImpl) CmdWait(cmd *exec.Cmd) error {
 	return cmd.Wait()
+}
+
+func (*defaultImpl) GetHomeDirectory(uid uint32) (string, error) {
+	return getHomeDirectory(uid)
 }
