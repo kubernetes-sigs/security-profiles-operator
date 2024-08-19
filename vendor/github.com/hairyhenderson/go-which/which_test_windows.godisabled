@@ -1,0 +1,60 @@
+package which
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+)
+
+func initFS() {
+	fs = afero.NewMemMapFs()
+	contents := "#!/bin/sh\necho hello world"
+
+	root := afero.FilePathSeparator
+	bin := filepath.Join(root, "bin")
+	usrBin := filepath.Join(root, "usr", "bin")
+	usrLocalBin := filepath.Join(root, "usr", "local", "bin")
+	opt := filepath.Join(root, "opt")
+	optBin := filepath.Join(opt, "bin")
+	fs.MkdirAll(bin, 0755)
+	fs.MkdirAll(usrBin, 0755)
+	fs.MkdirAll(usrLocalBin, 0755)
+	fs.MkdirAll(opt, 0755)
+	fs.MkdirAll(optBin, 0755)
+
+	// create some executables
+	files := []string{
+		filepath.Join(bin, "foo"),
+		filepath.Join(usrBin, "foo"),
+		filepath.Join(bin, "bar"),
+		filepath.Join(usrLocalBin, "bar"),
+		filepath.Join(usrLocalBin, "qux"),
+	}
+	for _, n := range files {
+		f, _ := fs.OpenFile(n, os.O_CREATE, 0755)
+		f.WriteString(contents)
+	}
+
+	// create some non-executable files
+	files = []string{
+		filepath.Join(usrLocalBin, "foo"),
+		filepath.Join(opt, "bar"),
+		filepath.Join(opt, "qux"),
+	}
+	for _, n := range files {
+		f, _ := fs.OpenFile(n, os.O_CREATE, 0644)
+		f.WriteString(contents)
+	}
+}
+
+func TestWhich(t *testing.T) {
+	initFS()
+
+	os.Setenv("PATH", "/usr/local/bin:/usr/bin:/bin:/opt")
+	assert.Equal(t, "/usr/bin/foo", Which("foo"))
+	assert.Equal(t, "/usr/local/bin/bar", Which("bar"))
+	assert.Equal(t, "", Which("bin"))
+}
