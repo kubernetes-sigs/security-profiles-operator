@@ -73,7 +73,7 @@ func main() {
 		// make file writable for other users so that sudo/non-sudo testing works.
 		err = os.Chmod(*fileWrite, fileMode)
 		if err != nil {
-			log.Fatal("❌ Error setting file permissions:", err)
+			log.Println("Error setting file permissions:", err)
 		}
 	}
 	if *fileSymlink != "" {
