@@ -83,6 +83,10 @@ func main() {
 					Name:  recorder.FlagNoProcStart,
 					Usage: "do not start the target command and record until ctrl+c/SIGINT.",
 				},
+				&cli.BoolFlag{
+					Name:  recorder.FlagPrivileged,
+					Usage: "do not drop sudo privileges when running the target command.",
+				},
 			},
 		},
 		&cli.Command{

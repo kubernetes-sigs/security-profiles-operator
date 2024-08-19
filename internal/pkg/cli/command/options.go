@@ -24,8 +24,9 @@ import (
 
 // Options define all possible options for the command.
 type Options struct {
-	command string
-	args    []string
+	command            string
+	args               []string
+	DropSudoPrivileges bool
 }
 
 // Command returns the command name.
@@ -35,7 +36,9 @@ func (o *Options) Command() string {
 
 // Default returns a default options instance.
 func Default() *Options {
-	return &Options{}
+	return &Options{
+		DropSudoPrivileges: true,
+	}
 }
 
 // FromContext can be used to create Options from an CLI context.
@@ -48,6 +51,10 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	}
 	options.command = args[0]
 	options.args = args[1:]
+
+	if ctx.IsSet(FlagPrivileged) {
+		options.DropSudoPrivileges = false
+	}
 
 	return options, nil
 }
