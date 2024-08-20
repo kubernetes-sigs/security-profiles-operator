@@ -2,8 +2,6 @@ module sigs.k8s.io/security-profiles-operator
 
 go 1.21.0
 
-toolchain go1.22.5
-
 require (
 	github.com/acobaugh/osrelease v0.1.0
 	github.com/aquasecurity/libbpfgo v0.7.0-libbpf-1.4
