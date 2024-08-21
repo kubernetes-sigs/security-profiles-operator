@@ -17,7 +17,7 @@ FROM quay.io/security-profiles-operator/build:latest AS build
 
 COPY . /work
 
-FROM build as make
+FROM build AS make
 
 ARG target=nix
 RUN nix-build $target
