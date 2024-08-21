@@ -48,7 +48,7 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	whDefault := e.getAllWebhookAttributes()
 
 	whPatch := fmt.Sprintf(`{"spec":{"webhookOptions":[{"name":"binding.spo.io","failurePolicy":"Ignore","namespaceSelector":%s, "objectSelector":%s}]}}`, whNamespaceSelector, whObjectSelector) //nolint:lll // very long patch line
-	e.logf(whPatch)
+	e.logf("Using patch: %s", whPatch)
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p", whPatch, "--type=merge")
 	time.Sleep(defaultWaitTime)
 

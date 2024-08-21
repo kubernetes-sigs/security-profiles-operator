@@ -29,7 +29,6 @@ linters:
     - errname
     - errorlint
     - exhaustive
-    - exportloopref
     - fatcontext
     - forcetypeassert
     - gci
@@ -101,6 +100,7 @@ linters:
     - zerologlint
     # - cyclop
     # - depguard
+    # - err113
     # - exhaustruct
     # - forbidigo
     # - funlen
@@ -129,6 +129,9 @@ linters-settings:
       - golang.org/x/sys
   gocognit:
     min-complexity: 40
+  gosec:
+    excludes:
+      - G115  # Potential integer overflow when converting between types
   nestif:
     min-complexity: 15
   gci:
