@@ -127,7 +127,7 @@ func (e *e2e) assertAppArmorProfileIsInstalled(
 					profile, missingPolName,
 				))
 			} else {
-				e.logf(fmt.Sprintf("The profile %s wasn't found, trying again", profile))
+				e.logf("The profile %s wasn't found, trying again", profile)
 				time.Sleep(sleep)
 			}
 		}
