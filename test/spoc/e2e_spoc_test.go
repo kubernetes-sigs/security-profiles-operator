@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -127,6 +128,17 @@ func recordAppArmorTest(t *testing.T) {
 		profile = recordAppArmor(t, "./demobinary", "./demobinary-child", "./demobinary-child", "--file-read", "/dev/null")
 		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary-child")
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
+	})
+
+	t.Run("huge pages", func(t *testing.T) {
+		page, err := syscall.Mmap(-1, 0, 8192, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_HUGETLB)
+		if err != nil {
+			t.Skip("No huge page support.")
+		} else {
+			syscall.Munmap(page)
+		}
+		profile := recordAppArmor(t, "./demobinary", "./demobinary-child", "--hugepage")
+		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/")
 	})
 
 	t.Run("no-proc-start", func(t *testing.T) {
