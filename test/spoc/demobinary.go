@@ -48,6 +48,7 @@ func main() {
 	netUDP := flag.Bool("net-udp", false, "spawn a udp server")
 	netIcmp := flag.Bool("net-icmp", false, "open an icmp socket, exercise NET_RAW capability.")
 	library := flag.String("load-library", "", "load a shared library")
+	hugepage := flag.Bool("hugepage", false, "allocate a huge page.")
 	sleep := flag.Int("sleep", 0, "sleep N seconds before exiting.")
 	crash := flag.Bool("crash", false, "crash instead of exiting.")
 
@@ -137,6 +138,12 @@ func main() {
 			log.Fatal("❌ Error loading library: ", C.GoString(C.dlerror()))
 		}
 		log.Println("✅ Library loaded successfully:", *library)
+	}
+	if *hugepage {
+		if _, err := syscall.Mmap(-1, 0, 8192, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_HUGETLB); err != nil {
+			log.Fatal("❌ Error allocating huge page:", err)
+		}
+		log.Println("✅ Huge page allocated successfully.")
 	}
 	if *sleep > 0 {
 		log.Println("⏳ Sleeping for", *sleep, "seconds...")

@@ -267,6 +267,22 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	}
 
 	for fileName, access := range b.recordedFiles[mid] {
+
+		// Workaround for HUGETLB support with apparmor:
+		// AppArmor treats mmap(..., MAP_ANONYMOUS | MAP_HUGETLB) calls as
+		// file access to "", which is then attached to "/" (attach_disconnected).
+		// So for HUGETLB to work with AppArmor, we need a `/ rw` rule in our profile.
+		// (note that there is no wildcard here - subdirectories/files are not affected).
+		// https://gitlab.com/apparmor/apparmor/-/issues/345
+		//
+		// At the same time, eBPF's bpf_d_path is also slightly confused and reports
+		// access to a path named "/anon_hugepage (deleted)" on mmap. Instead of building complex
+		// workarounds and hooking mmap, we just treat that as a canary for HUGETLB usage.
+		if fileName == "/anon_hugepage (deleted)" {
+			processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, "/")
+			continue
+		}
+
 		knownLibrary := isKnownFile(fileName, knownLibrariesPrefixes) || fileName == b.programName
 		knownRead := isKnownFile(fileName, knownReadPrefixes)
 		knownWrite := isKnownFile(fileName, knownWritePrefixes)
