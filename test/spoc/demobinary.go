@@ -1,3 +1,6 @@
+//go:build linux && !no_bpf
+// +build linux,!no_bpf
+
 /*
 Copyright 2024 The Kubernetes Authors.
 
