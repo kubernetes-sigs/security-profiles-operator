@@ -38,6 +38,8 @@ import (
 const LogPrefixEnvVar = "LOGPREFIX"
 
 // Demo binary to exercise various capabilities that may be restricted by seccomp/apparmor.
+//
+//nolint:gocognit // complexity is ok
 func main() {
 	log.SetPrefix(fmt.Sprintf("%s[pid:%d] ", os.Getenv(LogPrefixEnvVar), os.Getpid()))
 	log.SetFlags(log.Lshortfile)
@@ -143,8 +145,15 @@ func main() {
 		log.Println("✅ Library loaded successfully:", *library)
 	}
 	if *hugepage {
-		if _, err := syscall.Mmap(-1, 0, 8192, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_HUGETLB); err != nil {
+		data, err := syscall.Mmap(-1, 0, 8192,
+			syscall.PROT_READ|syscall.PROT_WRITE,
+			syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_HUGETLB)
+		if err != nil {
 			log.Fatal("❌ Error allocating huge page:", err)
+		}
+		err = syscall.Munmap(data)
+		if err != nil {
+			log.Fatal("❌ Error deallocating huge page:", err)
 		}
 		log.Println("✅ Huge page allocated successfully.")
 	}
