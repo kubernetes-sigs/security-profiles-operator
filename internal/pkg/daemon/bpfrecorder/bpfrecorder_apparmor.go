@@ -267,7 +267,6 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	}
 
 	for fileName, access := range b.recordedFiles[mid] {
-
 		// Workaround for HUGETLB support with apparmor:
 		// AppArmor treats mmap(..., MAP_ANONYMOUS | MAP_HUGETLB) calls as
 		// file access to "", which is then attached to "/" (attach_disconnected).
