@@ -128,11 +128,14 @@ func recordAppArmorTest(t *testing.T) {
 	})
 
 	t.Run("huge pages", func(t *testing.T) {
-		page, err := syscall.Mmap(-1, 0, 8192, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_HUGETLB)
+		page, err := syscall.Mmap(-1, 0, 8192,
+			syscall.PROT_READ|syscall.PROT_WRITE,
+			syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_HUGETLB)
 		if err != nil {
 			t.Skip("No huge page support.")
 		} else {
-			syscall.Munmap(page)
+			err = syscall.Munmap(page)
+			require.NoError(t, err)
 		}
 		profile := recordAppArmor(t, "./demobinary", "./demobinary-child", "--hugepage")
 		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/")
