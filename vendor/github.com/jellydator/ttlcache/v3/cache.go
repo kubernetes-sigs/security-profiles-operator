@@ -445,14 +445,45 @@ func (c *Cache[K, V]) Len() int {
 	c.items.mu.RLock()
 	defer c.items.mu.RUnlock()
 
-	size := 0
-	for _, elem := range c.items.values {
-		if !elem.Value.(*Item[K, V]).isExpiredUnsafe() {
-			size++
-		}
+	total := c.items.expQueue.Len()
+	if total == 0 {
+		return 0
 	}
 
-	return size
+	// search the heap-based expQueue by BFS
+	countExpired := func() int {
+		var (
+			q   []int
+			res int
+		)
+
+		item := c.items.expQueue[0].Value.(*Item[K, V])
+		if !item.isExpiredUnsafe() {
+			return res
+		}
+
+		q = append(q, 0)
+		for len(q) > 0 {
+			pop := q[0]
+			q = q[1:]
+			res++
+
+			for i := 1; i <= 2; i++ {
+				idx := 2*pop + i
+				if idx >= total {
+					break
+				}
+
+				item = c.items.expQueue[idx].Value.(*Item[K, V])
+				if item.isExpiredUnsafe() {
+					q = append(q, idx)
+				}
+			}
+		}
+		return res
+	}
+
+	return total - countExpired()
 }
 
 // Keys returns all unexpired keys in the cache.
@@ -508,6 +539,32 @@ func (c *Cache[K, V]) Range(fn func(item *Item[K, V]) bool) {
 		}
 
 		if item.Next() != nil {
+			c.items.mu.RLock()
+		}
+	}
+}
+
+// RangeBackwards calls fn for each unexpired item in the cache in reverse order.
+// If fn returns false, RangeBackwards stops the iteration.
+func (c *Cache[K, V]) RangeBackwards(fn func(item *Item[K, V]) bool) {
+	c.items.mu.RLock()
+
+	// Check if cache is empty
+	if c.items.lru.Len() == 0 {
+		c.items.mu.RUnlock()
+		return
+	}
+
+	for item := c.items.lru.Back(); item != c.items.lru.Front().Prev(); item = item.Prev() {
+		i := item.Value.(*Item[K, V])
+		expired := i.isExpiredUnsafe()
+		c.items.mu.RUnlock()
+
+		if !expired && !fn(i) {
+			return
+		}
+
+		if item.Prev() != nil {
 			c.items.mu.RLock()
 		}
 	}
