@@ -521,7 +521,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.1.13
+  baseProfileName: runc-v1.1.14
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -1998,7 +1998,7 @@ The following checks were performed on each of these signatures:
 16:32:33.208743 Copying profile from repository
 16:32:34.119652 Reading profile
 16:32:34.119677 Trying to unmarshal seccomp profile
-16:32:34.120114 Got SeccompProfile: runc-v1.1.4
+16:32:34.120114 Got SeccompProfile: runc-v1.1.14
 16:32:34.120119 Saving profile in: /tmp/profile.yaml
 ```
 
@@ -2134,7 +2134,7 @@ way, for example if a profile does not support any platform:
 11:07:18.359152 Trying to read profile: profile-linux-amd64.yaml
 11:07:18.359209 Trying to read profile: profile.yaml
 11:07:18.359224 Trying to unmarshal seccomp profile
-11:07:18.359728 Got SeccompProfile: runc-v1.1.13
+11:07:18.359728 Got SeccompProfile: runc-v1.1.14
 11:07:18.359732 Saving profile in: /tmp/profile.yaml
 ```
 
