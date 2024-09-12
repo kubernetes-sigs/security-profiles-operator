@@ -25,7 +25,7 @@ import (
 
 const (
 	baseProfileNameRunc = "runc-v1.1.14"
-	baseProfileNameCrun = "crun-v1.16.1"
+	baseProfileNameCrun = "crun-v1.17"
 )
 
 func (e *e2e) testCaseBaseProfile([]string) {
