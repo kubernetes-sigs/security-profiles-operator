@@ -162,8 +162,6 @@ dependencies:
       match: name
     - path: test/tc_base_profiles_test.go
       match: baseProfileNameCrun
-    - path: hack/install-crun
-      match: CRUN_VERSION
 
   - name: runc
     version: v1.1.14
