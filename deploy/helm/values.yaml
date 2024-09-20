@@ -69,6 +69,14 @@ daemon:
   - effect: NoExecute
     key: node.kubernetes.io/not-ready
     operator: Exists
+  resources:
+    limits:
+      memory: 128Mi
+      ephemeral-storage: 200Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+      ephemeral-storage: 50Mi
 
 autoscaling:
   enabled: false

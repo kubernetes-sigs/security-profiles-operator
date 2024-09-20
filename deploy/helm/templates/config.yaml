@@ -10,6 +10,8 @@ spec:
   affinity:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  daemonResourceRequirements:
+    {{- toYaml .Values.daemon.resources | nindent 4 }}
   enableSelinux: {{ .Values.enableSelinux }}
   enableLogEnricher: {{ .Values.enableLogEnricher }}
   enableAppArmor: {{ .Values.enableAppArmor }}
