@@ -13,8 +13,14 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | `pod affinity rules` |
-| autoscaling.enabled | bool | `false` | `enable autosclaing or not` |
+| autoscaling.enabled | bool | `false` | `enable autoscaling or not` |
 | daemon.affinity | object | `{}` | `daemonset affinity rules` |
+| daemon.resources.limits.cpu | string | unlimited | `cpu limits for the daemonset` |
+| daemon.resources.limits.ephemeral-storage | string | `"200Mi"` | `storage limits for the daemonset` |
+| daemon.resources.limits.memory  | string | `"128Mi"` | `memory limits for the daemonset` |
+| daemon.resources.requests.cpu | string | `"100m"` | `cpu requests for the daemonset` |
+| daemon.resources.requests.ephemeral-storage | string | `"50Mi"` | `storage requests for the daemonset` |
+| daemon.resources.requests.memory | string | `"64Mi"` | `memory requests for the daemonset` |
 | daemon.tolerations | list | `[]` | `a list of daemonset tolerations rules` |
 | enableAppArmor | bool | `false` | `enable apparmor or not` |
 | enableBpfRecorder | bool | `false` | `enable BpfRecorder or not` |
