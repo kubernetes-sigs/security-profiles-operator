@@ -351,6 +351,8 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p
 '{"spec":{"daemonResourceRequirements": {"requests": {"memory": "256Mi", "cpu": "250m"}, "limits": {"memory": "512Mi", "cpu": "500m"}}}}'
 ```
 
+These values can also be specified via the Helm chart.
+
 ## Restrict the allowed syscalls in seccomp profiles
 
 The operator doesn't restrict by default the allowed syscalls in the seccomp profiles. This means that any
