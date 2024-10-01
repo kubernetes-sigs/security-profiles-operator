@@ -6,9 +6,17 @@ metadata:
   name: spod
   namespace: {{ .Release.Namespace }}
 spec:
+  {{- with .Values.daemon.affinity }}
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   enableSelinux: {{ .Values.enableSelinux }}
   enableLogEnricher: {{ .Values.enableLogEnricher }}
   enableAppArmor: {{ .Values.enableAppArmor }}
   enableBpfRecorder: {{ .Values.enableBpfRecorder }}
   enableProfiling: {{ .Values.enableProfiling }}
+  {{- with .Values.daemon.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   verbosity: {{ .Values.verbosity }}
