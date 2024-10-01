@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -32,6 +33,7 @@ import (
 
 	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile/crd2armor"
 )
 
 var (
@@ -74,7 +76,23 @@ func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser)
 		return false, errors.New(errInvalidCustomResourceType)
 	}
 
-	return a.loadProfile(a.logger, profile.GetProfileName(), profile.Spec.Policy)
+	// AppArmor profiles can currently have either an abstract or a concrete representation.
+	// This mostly is an XOR, but we also permit the case where both match.
+	var policy string
+	if profile.Spec.Abstract != (v1alpha1.AppArmorAbstract{}) {
+		var err error
+		policy, err = crd2armor.GenerateProfile(profile.GetProfileName(), &profile.Spec.Abstract)
+		if err != nil {
+			return false, fmt.Errorf("generating raw apparmor profile: %w", err)
+		}
+	}
+	if profile.Spec.Policy != "" {
+		if policy != "" && policy != profile.Spec.Policy {
+			return false, errors.New("abstract and concrete policy do not match")
+		}
+		policy = profile.Spec.Policy
+	}
+	return a.loadProfile(a.logger, profile.GetProfileName(), policy)
 }
 
 func (a *aaProfileManager) CustomResourceTypeName() string {
@@ -86,6 +104,8 @@ func loadProfile(_ logr.Logger, name, content string) (bool, error) {
 	a := aa.NewAppArmor()
 
 	err := mount.Do(func() error {
+		// AppArmor convention: A profile for /bin/foo is typically named `bin.foo`.
+		name := strings.Trim(strings.ReplaceAll(name, "/", "."), ".")
 		path := filepath.Join(targetProfileDir, name)
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint // file permissions are fine
 			return err
