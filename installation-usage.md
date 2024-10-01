@@ -382,6 +382,8 @@ kubectl -n security-profiles-operator patch spod spod --type merge -p
 '{"spec":{"affinity": {...}}}'
 ```
 
+These settings are also available in the Helm chart.
+
 ## Enable memory optimization in spod
 
 The controller running inside of spod daemon process is watching all pods available in the cluster when profile recording
