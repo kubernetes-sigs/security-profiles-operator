@@ -60,7 +60,10 @@ func (tc *typeChecker) copy() *typeChecker {
 		WithVarRewriter(tc.varRewriter).
 		WithSchemaSet(tc.ss).
 		WithAllowNet(tc.allowNet).
-		WithInputType(tc.input)
+		WithInputType(tc.input).
+		WithAllowUndefinedFunctionCalls(tc.allowUndefinedFuncs).
+		WithBuiltins(tc.builtins).
+		WithRequiredCapabilities(tc.required)
 }
 
 func (tc *typeChecker) WithRequiredCapabilities(c *Capabilities) *typeChecker {
@@ -93,6 +96,8 @@ func (tc *typeChecker) WithInputType(tpe types.Type) *typeChecker {
 	return tc
 }
 
+// WithAllowUndefinedFunctionCalls sets the type checker to allow references to undefined functions.
+// Additionally, the 'CheckUndefinedFuncs' and 'CheckSafetyRuleBodies' compiler stages are skipped.
 func (tc *typeChecker) WithAllowUndefinedFunctionCalls(allow bool) *typeChecker {
 	tc.allowUndefinedFuncs = allow
 	return tc
