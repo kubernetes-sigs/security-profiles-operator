@@ -28,6 +28,9 @@ type Opts struct {
 
 	// RegoVersion is the version of Rego to format code for.
 	RegoVersion ast.RegoVersion
+
+	// ParserOptions is the parser options used when parsing the module to be formatted.
+	ParserOptions *ast.ParserOptions
 }
 
 // defaultLocationFile is the file name used in `Ast()` for terms
@@ -43,11 +46,15 @@ func Source(filename string, src []byte) ([]byte, error) {
 }
 
 func SourceWithOpts(filename string, src []byte, opts Opts) ([]byte, error) {
-	parserOpts := ast.ParserOptions{}
-	if opts.RegoVersion == ast.RegoV1 {
-		// If the rego version is V1, wee need to parse it as such, to allow for future keywords not being imported.
-		// Otherwise, we'll default to RegoV0
-		parserOpts.RegoVersion = ast.RegoV1
+	var parserOpts ast.ParserOptions
+	if opts.ParserOptions != nil {
+		parserOpts = *opts.ParserOptions
+	} else {
+		if opts.RegoVersion == ast.RegoV1 {
+			// If the rego version is V1, we need to parse it as such, to allow for future keywords not being imported.
+			// Otherwise, we'll default to RegoV0
+			parserOpts.RegoVersion = ast.RegoV1
+		}
 	}
 
 	module, err := ast.ParseModuleWithOpts(filename, string(src), parserOpts)
@@ -56,7 +63,12 @@ func SourceWithOpts(filename string, src []byte, opts Opts) ([]byte, error) {
 	}
 
 	if opts.RegoVersion == ast.RegoV0CompatV1 || opts.RegoVersion == ast.RegoV1 {
-		errors := ast.CheckRegoV1(module)
+		checkOpts := ast.NewRegoCheckOptions()
+		// The module is parsed as v0, so we need to disable checks that will be automatically amended by the AstWithOpts call anyways.
+		checkOpts.RequireIfKeyword = false
+		checkOpts.RequireContainsKeyword = false
+		checkOpts.RequireRuleBodyOrValue = false
+		errors := ast.CheckRegoV1WithOptions(module, checkOpts)
 		if len(errors) > 0 {
 			return nil, errors
 		}
@@ -1106,15 +1118,44 @@ func (w *writer) writeIterableLine(elements []interface{}, comments []*ast.Comme
 func (w *writer) objectWriter() entryWriter {
 	return func(x interface{}, comments []*ast.Comment) []*ast.Comment {
 		entry := x.([2]*ast.Term)
+
+		call, isCall := entry[0].Value.(ast.Call)
+
+		paren := false
+		if isCall && ast.Or.Ref().Equal(call[0].Value) && entry[0].Location.Text[0] == 40 { // Starts with "("
+			paren = true
+			w.write("(")
+		}
+
 		comments = w.writeTerm(entry[0], comments)
+		if paren {
+			w.write(")")
+		}
+
 		w.write(": ")
+
+		call, isCall = entry[1].Value.(ast.Call)
+		if isCall && ast.Or.Ref().Equal(call[0].Value) && entry[1].Location.Text[0] == 40 { // Starts with "("
+			w.write("(")
+			defer w.write(")")
+		}
+
 		return w.writeTerm(entry[1], comments)
 	}
 }
 
 func (w *writer) listWriter() entryWriter {
 	return func(x interface{}, comments []*ast.Comment) []*ast.Comment {
-		return w.writeTerm(x.(*ast.Term), comments)
+		t, ok := x.(*ast.Term)
+		if ok {
+			call, isCall := t.Value.(ast.Call)
+			if isCall && ast.Or.Ref().Equal(call[0].Value) && t.Location.Text[0] == 40 { // Starts with "("
+				w.write("(")
+				defer w.write(")")
+			}
+		}
+
+		return w.writeTerm(t, comments)
 	}
 }
 
@@ -1311,7 +1352,10 @@ func closingLoc(skipOpen, skipClose, open, close byte, loc *ast.Location) *ast.L
 		i, offset = skipPast(skipOpen, skipClose, loc)
 	}
 
-	for ; i < len(loc.Text) && loc.Text[i] != open; i++ {
+	for ; i < len(loc.Text); i++ {
+		if loc.Text[i] == open {
+			break
+		}
 	}
 
 	if i >= len(loc.Text) {
@@ -1340,7 +1384,10 @@ func closingLoc(skipOpen, skipClose, open, close byte, loc *ast.Location) *ast.L
 
 func skipPast(open, close byte, loc *ast.Location) (int, int) {
 	i := 0
-	for ; i < len(loc.Text) && loc.Text[i] != open; i++ {
+	for ; i < len(loc.Text); i++ {
+		if loc.Text[i] == open {
+			break
+		}
 	}
 
 	state := 1

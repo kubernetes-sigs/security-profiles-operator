@@ -24,13 +24,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
-	"github.com/sigstore/cosign/v2/cmd/cosign/cli/fulcio"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/options"
 	"github.com/sigstore/cosign/v2/cmd/cosign/cli/rekor"
-	"github.com/sigstore/cosign/v2/internal/pkg/cosign/tsa"
 	"github.com/sigstore/cosign/v2/internal/ui"
 	"github.com/sigstore/cosign/v2/pkg/blob"
 	"github.com/sigstore/cosign/v2/pkg/cosign"
@@ -53,8 +52,11 @@ type VerifyBlobCmd struct {
 	options.KeyOpts
 	options.CertVerifyOptions
 	CertRef                      string
+	CAIntermediates              string
+	CARoots                      string
 	CertChain                    string
 	SigRef                       string
+	TrustedRootPath              string
 	CertGithubWorkflowTrigger    string
 	CertGithubWorkflowSHA        string
 	CertGithubWorkflowName       string
@@ -63,14 +65,23 @@ type VerifyBlobCmd struct {
 	IgnoreSCT                    bool
 	SCTRef                       string
 	Offline                      bool
+	UseSignedTimestamps          bool
 	IgnoreTlog                   bool
+}
+
+func (c *VerifyBlobCmd) loadTSACertificates(ctx context.Context) (*cosign.TSACertificates, error) {
+	if c.TSACertChainPath == "" && !c.UseSignedTimestamps {
+		return nil, fmt.Errorf("either TSA certificate chain path must be provided or use-signed-timestamps must be set")
+	}
+	tsaCertificates, err := cosign.GetTSACerts(ctx, c.TSACertChainPath, cosign.GetTufTargets)
+	if err != nil {
+		return nil, fmt.Errorf("unable to load TSA certificates: %w", err)
+	}
+	return tsaCertificates, nil
 }
 
 // nolint
 func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
-	var cert *x509.Certificate
-	opts := make([]static.Option, 0)
-
 	// Require a certificate/key OR a local bundle file that has the cert.
 	if options.NOf(c.KeyRef, c.CertRef, c.Sk, c.BundlePath) == 0 {
 		return fmt.Errorf("provide a key with --key or --sk, a certificate to verify against with --certificate, or a bundle with --bundle")
@@ -80,6 +91,22 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 	if options.NOf(c.KeyRef, c.Sk, c.CertRef) > 1 {
 		return &options.PubKeyParseError{}
 	}
+
+	if c.KeyOpts.NewBundleFormat {
+		if options.NOf(c.RFC3161TimestampPath, c.TSACertChainPath, c.RekorURL, c.CertChain, c.CARoots, c.CAIntermediates, c.CertRef, c.SigRef, c.SCTRef) > 1 {
+			return fmt.Errorf("when using --new-bundle-format, please supply signed content with --bundle and verification content with --trusted-root")
+		}
+		err := verifyNewBundle(ctx, c.BundlePath, c.TrustedRootPath, c.KeyRef, c.Slot, c.CertVerifyOptions.CertOidcIssuer, c.CertVerifyOptions.CertOidcIssuerRegexp, c.CertVerifyOptions.CertIdentity, c.CertVerifyOptions.CertIdentityRegexp, c.CertGithubWorkflowTrigger, c.CertGithubWorkflowSHA, c.CertGithubWorkflowName, c.CertGithubWorkflowRepository, c.CertGithubWorkflowRef, blobRef, c.Sk, c.IgnoreTlog, c.UseSignedTimestamps, c.IgnoreSCT)
+		if err == nil {
+			ui.Infof(ctx, "Verified OK")
+		}
+		return err
+	} else if c.TrustedRootPath != "" {
+		return fmt.Errorf("--trusted-root only supported with --new-bundle-format")
+	}
+
+	var cert *x509.Certificate
+	opts := make([]static.Option, 0)
 
 	var identities []cosign.Identity
 	var err error
@@ -111,32 +138,17 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 		Offline:                      c.Offline,
 		IgnoreTlog:                   c.IgnoreTlog,
 	}
-	if c.RFC3161TimestampPath != "" && c.KeyOpts.TSACertChainPath == "" {
-		return fmt.Errorf("timestamp-certificate-chain is required to validate a RFC3161 timestamp")
+	if c.RFC3161TimestampPath != "" && !(c.TSACertChainPath != "" || c.UseSignedTimestamps) {
+		return fmt.Errorf("either TSA certificate chain path must be provided or use-signed-timestamps must be set when using RFC3161 timestamp path")
 	}
-	if c.KeyOpts.TSACertChainPath != "" {
-		_, err := os.Stat(c.KeyOpts.TSACertChainPath)
+	if c.TSACertChainPath != "" || c.UseSignedTimestamps {
+		tsaCertificates, err := c.loadTSACertificates(ctx)
 		if err != nil {
-			return fmt.Errorf("unable to open timestamp certificate chain file '%s: %w", c.KeyOpts.TSACertChainPath, err)
+			return err
 		}
-		// TODO: Add support for TUF certificates.
-		pemBytes, err := os.ReadFile(filepath.Clean(c.KeyOpts.TSACertChainPath))
-		if err != nil {
-			return fmt.Errorf("error reading certification chain path file: %w", err)
-		}
-
-		leaves, intermediates, roots, err := tsa.SplitPEMCertificateChain(pemBytes)
-		if err != nil {
-			return fmt.Errorf("error splitting certificates: %w", err)
-		}
-		if len(leaves) > 1 {
-			return fmt.Errorf("certificate chain must contain at most one TSA certificate")
-		}
-		if len(leaves) == 1 {
-			co.TSACertificate = leaves[0]
-		}
-		co.TSAIntermediateCertificates = intermediates
-		co.TSARootCertificates = roots
+		co.TSACertificate = tsaCertificates.LeafCert
+		co.TSARootCertificates = tsaCertificates.RootCert
+		co.TSAIntermediateCertificates = tsaCertificates.IntermediateCerts
 	}
 
 	if !c.IgnoreTlog {
@@ -154,19 +166,10 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 			return fmt.Errorf("getting Rekor public keys: %w", err)
 		}
 	}
+
 	if keylessVerification(c.KeyRef, c.Sk) {
-		// Use default TUF roots if a cert chain is not provided.
-		// This performs an online fetch of the Fulcio roots. This is needed
-		// for verifying keyless certificates (both online and offline).
-		if c.CertChain == "" {
-			co.RootCerts, err = fulcio.GetRoots()
-			if err != nil {
-				return fmt.Errorf("getting Fulcio roots: %w", err)
-			}
-			co.IntermediateCerts, err = fulcio.GetIntermediates()
-			if err != nil {
-				return fmt.Errorf("getting Fulcio intermediates: %w", err)
-			}
+		if err := loadCertsKeylessVerification(c.CertChain, c.CARoots, c.CAIntermediates, co); err != nil {
+			return err
 		}
 	}
 
@@ -252,7 +255,8 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 	}
 	// Set a cert chain if provided.
 	var chainPEM []byte
-	if c.CertChain != "" {
+	switch {
+	case c.CertChain != "":
 		chain, err := loadCertChainFromFileOrURL(c.CertChain)
 		if err != nil {
 			return err
@@ -272,6 +276,9 @@ func (c *VerifyBlobCmd) Exec(ctx context.Context, blobRef string) error {
 		if err != nil {
 			return err
 		}
+	case c.CARoots != "":
+		// CA roots + possible intermediates are already loaded into co.RootCerts with the call to
+		// loadCertsKeylessVerification above.
 	}
 
 	// Gather the cert for the signature and add the cert along with the
@@ -313,7 +320,7 @@ func base64signature(sigRef, bundlePath string) (string, error) {
 	case sigRef != "":
 		targetSig, err = blob.LoadFileOrURL(sigRef)
 		if err != nil {
-			if !os.IsNotExist(err) {
+			if !errors.Is(err, fs.ErrNotExist) {
 				// ignore if file does not exist, it can be a base64 encoded string as well
 				return "", err
 			}

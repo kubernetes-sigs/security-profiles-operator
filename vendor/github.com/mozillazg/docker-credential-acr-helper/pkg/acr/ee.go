@@ -2,6 +2,7 @@ package acr
 
 import (
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"time"
 
 	cr2018 "github.com/alibabacloud-go/cr-20181201/client"
@@ -14,8 +15,8 @@ type eeClient struct {
 	client *cr2018.Client
 }
 
-func newEEClient(region string) (*eeClient, error) {
-	cred, err := getOpenapiAuth()
+func newEEClient(region string, logger *logrus.Logger) (*eeClient, error) {
+	cred, err := getOpenapiAuth(logger)
 	if err != nil {
 		return nil, err
 	}
@@ -46,11 +47,13 @@ func (c *eeClient) getInstanceId(instanceName string) (string, error) {
 		return "", fmt.Errorf("get ACR EE instance id for name %q failed: %s", instanceName, resp.Body.String())
 	}
 	instances := resp.Body.Instances
-	if len(instances) == 0 {
-		return "", fmt.Errorf("get ACR EE instance id for name %q failed: instance name is not found", instanceName)
+	for _, item := range instances {
+		if tea.StringValue(item.InstanceName) == instanceName {
+			return tea.StringValue(item.InstanceId), nil
+		}
 	}
 
-	return tea.StringValue(instances[0].InstanceId), nil
+	return "", fmt.Errorf("get ACR EE instance id for name %q failed: instance name is not found", instanceName)
 }
 
 func (c *eeClient) getCredentials(instanceId string) (*Credentials, error) {
@@ -73,7 +76,7 @@ func (c *eeClient) getCredentials(instanceId string) (*Credentials, error) {
 	cred := &Credentials{
 		UserName:   tea.StringValue(resp.Body.TempUsername),
 		Password:   tea.StringValue(resp.Body.AuthorizationToken),
-		ExpireTime: expTime,
+		ExpireTime: expTime.Add(-time.Minute),
 	}
 	return cred, nil
 }

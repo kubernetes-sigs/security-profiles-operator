@@ -60,6 +60,11 @@ type Profile struct {
 	// SelfContained exports a schema such that it does not rely on any imports.
 	SelfContained bool
 
+	// Fragment disables printing a value as self contained. To successfully
+	// parse a fragment, the compiler needs to be given a scope with the value
+	// from which the fragment was extracted.
+	Fragment bool
+
 	// AddPackage causes a package clause to be added.
 	AddPackage bool
 
@@ -135,7 +140,7 @@ func (p *Profile) Def(r adt.Runtime, pkgID string, v *adt.Vertex) (f *ast.File, 
 
 		// TODO: embed an empty definition instead once we verify that this
 		// preserves semantics.
-		if v.Kind() == adt.StructKind {
+		if v.Kind() == adt.StructKind && !p.Fragment {
 			expr = ast.NewStruct(
 				ast.Embed(ast.NewIdent("_#def")),
 				ast.NewIdent("_#def"), expr,
@@ -183,13 +188,13 @@ func (e *exporter) toFile(v *adt.Vertex, x ast.Expr) *ast.File {
 	if e.cfg.AddPackage {
 		pkgName := ""
 		pkg := &ast.Package{}
-		for _, c := range v.Conjuncts {
+		v.VisitLeafConjuncts(func(c adt.Conjunct) bool {
 			f, _ := c.Source().(*ast.File)
 			if f == nil {
-				continue
+				return true
 			}
 
-			if _, name, _ := internal.PackageInfo(f); name != "" {
+			if name := f.PackageName(); name != "" {
 				pkgName = name
 			}
 
@@ -198,7 +203,8 @@ func (e *exporter) toFile(v *adt.Vertex, x ast.Expr) *ast.File {
 					ast.AddComment(pkg, doc)
 				}
 			}
-		}
+			return true
+		})
 
 		if pkgName != "" {
 			pkg.Name = ast.NewIdent(pkgName)
@@ -357,12 +363,12 @@ func newExporter(p *Profile, r adt.Runtime, pkgID string, v adt.Value) *exporter
 // initPivot initializes the pivotter to allow aligning a configuration around
 // a new root, if needed.
 func (e *exporter) initPivot(n *adt.Vertex) {
-	if !e.cfg.InlineImports &&
-		!e.cfg.SelfContained &&
-		n.Parent == nil {
+	switch {
+	case e.cfg.SelfContained, e.cfg.InlineImports:
+		// Explicitly enabled.
+	case n.Parent == nil, e.cfg.Fragment:
 		return
 	}
-
 	e.initPivotter(n)
 }
 
@@ -389,9 +395,10 @@ func (e *exporter) markUsedFeatures(x adt.Expr) {
 		switch x := n.(type) {
 		case *adt.Vertex:
 			if !x.IsData() {
-				for _, c := range x.Conjuncts {
+				x.VisitLeafConjuncts(func(c adt.Conjunct) bool {
 					w.Elem(c.Elem())
-				}
+					return true
+				})
 			}
 
 		case *adt.DynamicReference:
@@ -571,7 +578,8 @@ func (e *exporter) resolveLet(env *adt.Environment, x *adt.LetReference) ast.Exp
 
 			return e.expr(env, x.X)
 		}
-		return e.expr(env, ref.Conjuncts[0].Expr())
+		c, _ := ref.SingleConjunct()
+		return e.expr(c.EnvExpr())
 
 	case let.Expr == nil:
 		label := e.uniqueLetIdent(x.Label, x.X)
@@ -633,7 +641,7 @@ func (e *exporter) makeFeature(s string) (f adt.Feature, ok bool) {
 
 // uniqueFeature returns a name for an identifier that uniquely identifies
 // the given expression. If the preferred name is already taken, a new globally
-// unique name of the form base_X ... base_XXXXXXXXXXXXXX is generated.
+// unique name of the form base_N ... base_NNNNNNNNNNNNNN is generated.
 //
 // It prefers short extensions over large ones, while ensuring the likelihood of
 // fast termination is high. There are at least two digits to make it visually
