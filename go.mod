@@ -1,6 +1,7 @@
 module sigs.k8s.io/security-profiles-operator
 
 go 1.21.0
+toolchain go1.22.5
 
 require (
 	github.com/acobaugh/osrelease v0.1.0
@@ -13,7 +14,7 @@ require (
 	github.com/google/go-containerregistry v0.20.2
 	github.com/imdario/mergo v0.3.16
 	github.com/jellydator/ttlcache/v3 v3.3.0
-	github.com/maxbrunsfeld/counterfeiter/v6 v6.8.1
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.9.0
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
 	github.com/nxadm/tail v1.4.11
 	github.com/opencontainers/image-spec v1.1.0
@@ -28,7 +29,7 @@ require (
 	github.com/sigstore/cosign/v2 v2.2.3
 	github.com/stretchr/testify v1.9.0
 	github.com/urfave/cli/v2 v2.27.4
-	golang.org/x/mod v0.20.0
+	golang.org/x/mod v0.21.0
 	golang.org/x/net v0.29.0
 	golang.org/x/sync v0.8.0
 	google.golang.org/grpc v1.66.2
@@ -252,7 +253,7 @@ require (
 	golang.org/x/term v0.24.0 // indirect
 	golang.org/x/text v0.18.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.24.0 // indirect
+	golang.org/x/tools v0.25.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/api v0.172.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117 // indirect
