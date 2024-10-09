@@ -7,6 +7,7 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	mr "math/rand"
 	"sync"
@@ -24,7 +25,6 @@ import (
 	"github.com/open-policy-agent/opa/hooks"
 	bundleUtils "github.com/open-policy-agent/opa/internal/bundle"
 	cfg "github.com/open-policy-agent/opa/internal/config"
-	"github.com/open-policy-agent/opa/internal/errors"
 	initload "github.com/open-policy-agent/opa/internal/runtime/init"
 	"github.com/open-policy-agent/opa/keys"
 	"github.com/open-policy-agent/opa/loader"
@@ -286,11 +286,10 @@ func ValidateAndInjectDefaultsForTriggerMode(a, b *TriggerMode) (*TriggerMode, e
 			return nil, err
 		}
 		return a, nil
-
-	} else {
-		t := DefaultTriggerMode
-		return &t, nil
 	}
+
+	t := DefaultTriggerMode
+	return &t, nil
 }
 
 type namedplugin struct {
