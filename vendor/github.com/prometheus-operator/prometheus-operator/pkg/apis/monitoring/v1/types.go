@@ -15,7 +15,9 @@
 package v1
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -78,7 +80,6 @@ type PrometheusRuleExcludeConfig struct {
 type ProxyConfig struct {
 	// `proxyURL` defines the HTTP proxy server to use.
 	//
-	// It requires Prometheus >= v2.43.0.
 	// +kubebuilder:validation:Pattern:="^http(s)?://.+$"
 	// +optional
 	ProxyURL *string `json:"proxyUrl,omitempty"`
@@ -86,22 +87,41 @@ type ProxyConfig struct {
 	// that should be excluded from proxying. IP and domain names can
 	// contain port numbers.
 	//
-	// It requires Prometheus >= v2.43.0.
+	// It requires Prometheus >= v2.43.0 or Alertmanager >= 0.25.0.
 	// +optional
 	NoProxy *string `json:"noProxy,omitempty"`
 	// Whether to use the proxy configuration defined by environment variables (HTTP_PROXY, HTTPS_PROXY, and NO_PROXY).
-	// If unset, Prometheus uses its default value.
 	//
-	// It requires Prometheus >= v2.43.0.
+	// It requires Prometheus >= v2.43.0 or Alertmanager >= 0.25.0.
 	// +optional
 	ProxyFromEnvironment *bool `json:"proxyFromEnvironment,omitempty"`
 	// ProxyConnectHeader optionally specifies headers to send to
 	// proxies during CONNECT requests.
 	//
-	// It requires Prometheus >= v2.43.0.
+	// It requires Prometheus >= v2.43.0 or Alertmanager >= 0.25.0.
 	// +optional
 	// +mapType:=atomic
 	ProxyConnectHeader map[string][]v1.SecretKeySelector `json:"proxyConnectHeader,omitempty"`
+}
+
+// Validate semantically validates the given ProxyConfig.
+func (c *ProxyConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	for _, v := range c.ProxyConnectHeader {
+		if len(v) == 0 {
+			return errors.New("ProxyConnectHeader selectors must not be empty")
+		}
+		for _, k := range v {
+			if k == (v1.SecretKeySelector{}) {
+				return errors.New("ProxyConnectHeader selector must be defined")
+			}
+		}
+	}
+
+	return nil
 }
 
 // ObjectReference references a PodMonitor, ServiceMonitor, Probe or PrometheusRule object.
@@ -313,16 +333,16 @@ type WebHTTPHeaders struct {
 // WebTLSConfig defines the TLS parameters for HTTPS.
 // +k8s:openapi-gen=true
 type WebTLSConfig struct {
-	// Secret containing the TLS key for the server.
-	KeySecret v1.SecretKeySelector `json:"keySecret"`
 	// Contains the TLS certificate for the server.
-	Cert SecretOrConfigMap `json:"cert"`
+	Cert SecretOrConfigMap `json:"cert,omitempty"`
+	// Contains the CA certificate for client certificate authentication to the server.
+	ClientCA SecretOrConfigMap `json:"client_ca,omitempty"`
+	// Secret containing the TLS key for the server.
+	KeySecret v1.SecretKeySelector `json:"keySecret,omitempty"`
 	// Server policy for client authentication. Maps to ClientAuth Policies.
 	// For more detail on clientAuth options:
 	// https://golang.org/pkg/crypto/tls/#ClientAuthType
 	ClientAuthType string `json:"clientAuthType,omitempty"`
-	// Contains the CA certificate for client certificate authentication to the server.
-	ClientCA SecretOrConfigMap `json:"client_ca,omitempty"`
 	// Minimum TLS version that is acceptable. Defaults to TLS12.
 	MinVersion string `json:"minVersion,omitempty"`
 	// Maximum TLS version that is acceptable. Defaults to TLS13.
@@ -340,40 +360,57 @@ type WebTLSConfig struct {
 	// order. Available curves are documented in the go documentation:
 	// https://golang.org/pkg/crypto/tls/#CurveID
 	CurvePreferences []string `json:"curvePreferences,omitempty"`
+	// Path to the TLS key file in the Prometheus container for the server.
+	// Mutually exclusive with `keySecret`.
+	KeyFile string `json:"keyFile,omitempty"`
+	// Path to the TLS certificate file in the Prometheus container for the server.
+	// Mutually exclusive with `cert`.
+	CertFile string `json:"certFile,omitempty"`
+	// Path to the CA certificate file for client certificate authentication to the server.
+	// Mutually exclusive with `client_ca`.
+	ClientCAFile string `json:"clientCAFile,omitempty"`
 }
 
-// WebTLSConfigError is returned by WebTLSConfig.Validate() on
-// semantically invalid configurations.
-// +k8s:openapi-gen=false
-type WebTLSConfigError struct {
-	err string
-}
-
-func (e *WebTLSConfigError) Error() string {
-	return e.err
-}
-
+// Validate returns an error if one of the WebTLSConfig fields is invalid.
+// A valid WebTLSConfig should have (Cert or CertFile) and (KeySecret or KeyFile) fields which are not
+// zero values.
 func (c *WebTLSConfig) Validate() error {
 	if c == nil {
 		return nil
 	}
 
 	if c.ClientCA != (SecretOrConfigMap{}) {
+		if c.ClientCAFile != "" {
+			return errors.New("cannot specify both clientCAFile and clientCA")
+		}
+
 		if err := c.ClientCA.Validate(); err != nil {
-			msg := fmt.Sprintf("invalid web tls config: %s", err.Error())
-			return &WebTLSConfigError{msg}
+			return fmt.Errorf("invalid web tls config: %s", err.Error())
 		}
 	}
 
-	if c.Cert == (SecretOrConfigMap{}) {
-		return &WebTLSConfigError{"invalid web tls config: cert must be defined"}
-	} else if err := c.Cert.Validate(); err != nil {
-		msg := fmt.Sprintf("invalid web tls config: %s", err.Error())
-		return &WebTLSConfigError{msg}
+	if c.Cert != (SecretOrConfigMap{}) {
+		if c.CertFile != "" {
+			return errors.New("cannot specify both cert and certFile")
+		}
+		if err := c.Cert.Validate(); err != nil {
+			return fmt.Errorf("invalid web tls config: %s", err.Error())
+		}
 	}
 
-	if c.KeySecret == (v1.SecretKeySelector{}) {
-		return &WebTLSConfigError{"invalid web tls config: key must be defined"}
+	if c.KeyFile != "" && c.KeySecret != (v1.SecretKeySelector{}) {
+		return errors.New("cannot specify both keyFile and keySecret")
+	}
+
+	hasCert := c.CertFile != "" || c.Cert != (SecretOrConfigMap{})
+	hasKey := c.KeyFile != "" || c.KeySecret != (v1.SecretKeySelector{})
+
+	if !hasKey {
+		return errors.New("TLS key must be defined")
+	}
+
+	if !hasCert {
+		return errors.New("TLS certificate must be defined")
 	}
 
 	return nil
@@ -540,8 +577,11 @@ type Endpoint struct {
 }
 
 type AttachMetadata struct {
-	// When set to true, Prometheus must have the `get` permission on the
-	// `Nodes` objects.
+	// When set to true, Prometheus attaches node metadata to the discovered
+	// targets.
+	//
+	// The Prometheus service account must have the `list` and `watch`
+	// permissions on the `Nodes` objects.
 	//
 	// +optional
 	Node *bool `json:"node,omitempty"`
@@ -574,6 +614,18 @@ type OAuth2 struct {
 	//
 	// +optional
 	EndpointParams map[string]string `json:"endpointParams,omitempty"`
+
+	// TLS configuration to use when connecting to the OAuth2 server.
+	// It requires Prometheus >= v2.43.0.
+	//
+	// +optional
+	TLSConfig *SafeTLSConfig `json:"tlsConfig,omitempty"`
+
+	// Proxy configuration to use when connecting to the OAuth2 server.
+	// It requires Prometheus >= v2.43.0.
+	//
+	// +optional
+	ProxyConfig `json:",inline"`
 }
 
 type OAuth2ValidationError struct {
@@ -596,6 +648,12 @@ func (o *OAuth2) Validate() error {
 	if err := o.ClientID.Validate(); err != nil {
 		return &OAuth2ValidationError{
 			err: fmt.Sprintf("invalid OAuth2 client id: %s", err.Error()),
+		}
+	}
+
+	if err := o.TLSConfig.Validate(); err != nil {
+		return &OAuth2ValidationError{
+			err: fmt.Sprintf("invalid OAuth2 tlsConfig: %s", err.Error()),
 		}
 	}
 
@@ -651,6 +709,16 @@ func (c *SecretOrConfigMap) String() string {
 	return "<empty>"
 }
 
+// +kubebuilder:validation:Enum=TLS10;TLS11;TLS12;TLS13
+type TLSVersion string
+
+const (
+	TLSVersion10 TLSVersion = "TLS10"
+	TLSVersion11 TLSVersion = "TLS11"
+	TLSVersion12 TLSVersion = "TLS12"
+	TLSVersion13 TLSVersion = "TLS13"
+)
+
 // SafeTLSConfig specifies safe TLS configuration parameters.
 // +k8s:openapi-gen=true
 type SafeTLSConfig struct {
@@ -664,16 +732,32 @@ type SafeTLSConfig struct {
 	KeySecret *v1.SecretKeySelector `json:"keySecret,omitempty"`
 
 	// Used to verify the hostname for the targets.
-	//+optional
+	// +optional
 	ServerName *string `json:"serverName,omitempty"`
 
 	// Disable target certificate validation.
-	//+optional
+	// +optional
 	InsecureSkipVerify *bool `json:"insecureSkipVerify,omitempty"`
+
+	// Minimum acceptable TLS version.
+	//
+	// It requires Prometheus >= v2.35.0.
+	// +optional
+	MinVersion *TLSVersion `json:"minVersion,omitempty"`
+
+	// Maximum acceptable TLS version.
+	//
+	// It requires Prometheus >= v2.41.0.
+	// +optional
+	MaxVersion *TLSVersion `json:"maxVersion,omitempty"`
 }
 
 // Validate semantically validates the given SafeTLSConfig.
 func (c *SafeTLSConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
 	if c.CA != (SecretOrConfigMap{}) {
 		if err := c.CA.Validate(); err != nil {
 			return fmt.Errorf("ca %s: %w", c.CA.String(), err)
@@ -694,6 +778,10 @@ func (c *SafeTLSConfig) Validate() error {
 		return fmt.Errorf("client key specified without client cert")
 	}
 
+	if c.MaxVersion != nil && c.MinVersion != nil && strings.Compare(string(*c.MaxVersion), string(*c.MinVersion)) == -1 {
+		return fmt.Errorf("maxVersion must more than or equal to minVersion")
+	}
+
 	return nil
 }
 
@@ -711,6 +799,10 @@ type TLSConfig struct {
 
 // Validate semantically validates the given TLSConfig.
 func (c *TLSConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
 	if c.CA != (SecretOrConfigMap{}) {
 		if c.CAFile != "" {
 			return fmt.Errorf("cannot specify both caFile and ca")
@@ -742,6 +834,10 @@ func (c *TLSConfig) Validate() error {
 
 	if hasKey && !hasCert {
 		return fmt.Errorf("cannot specify client key without client cert")
+	}
+
+	if c.MaxVersion != nil && c.MinVersion != nil && strings.Compare(string(*c.MaxVersion), string(*c.MinVersion)) == -1 {
+		return fmt.Errorf("maxVersion must more than or equal to minVersion")
 	}
 
 	return nil
