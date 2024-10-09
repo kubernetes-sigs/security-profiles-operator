@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	baseProfileNameRunc = "runc-v1.1.14"
+	baseProfileNameRunc = "runc-v1.1.15"
 	baseProfileNameCrun = "crun-v1.17"
 )
 
