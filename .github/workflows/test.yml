@@ -60,7 +60,8 @@ jobs:
 
   e2e-fedora:
     needs: image
-    runs-on: ubuntu-22.04
+    # TODO: move back to 22.04 when https://github.com/actions/runner-images/issues/10678 got resolved
+    runs-on: ubuntu-20.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-fedora.sh
@@ -95,7 +96,8 @@ jobs:
 
   e2e-ubuntu:
     needs: image
-    runs-on: ubuntu-22.04
+    # TODO: move back to 22.04 when https://github.com/actions/runner-images/issues/10678 got resolved
+    runs-on: ubuntu-20.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
@@ -130,7 +132,8 @@ jobs:
 
   e2e-flatcar:
     needs: image
-    runs-on: ubuntu-22.04
+    # TODO: move back to 22.04 when https://github.com/actions/runner-images/issues/10678 got resolved
+    runs-on: ubuntu-20.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-flatcar.sh
@@ -171,7 +174,8 @@ jobs:
 
   e2e-spoc:
     needs: image
-    runs-on: ubuntu-22.04
+    # TODO: move back to 22.04 when https://github.com/actions/runner-images/issues/10678 got resolved
+    runs-on: ubuntu-20.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-debian.sh
@@ -201,7 +205,8 @@ jobs:
 
   e2e-seccomp-profile:
     needs: image
-    runs-on: ubuntu-22.04
+    # TODO: move back to 22.04 when https://github.com/actions/runner-images/issues/10678 got resolved
+    runs-on: ubuntu-20.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
@@ -231,7 +236,8 @@ jobs:
 
   e2e-apparmor-profile:
     needs: image
-    runs-on: ubuntu-22.04
+    # TODO: move back to 22.04 when https://github.com/actions/runner-images/issues/10678 got resolved
+    runs-on: ubuntu-20.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-ubuntu.sh
