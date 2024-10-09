@@ -68,6 +68,7 @@ var allowedKeyNames = [...]string{
 	"raise_error",
 	"caching_mode",
 	"max_retry_attempts",
+	"cache_ignored_headers",
 }
 
 // ref: https://www.rfc-editor.org/rfc/rfc7231#section-6.1
@@ -114,14 +115,24 @@ const (
 )
 
 func builtinHTTPSend(bctx BuiltinContext, operands []*ast.Term, iter func(*ast.Term) error) error {
-	req, err := validateHTTPRequestOperand(operands[0], 1)
+
+	obj, err := builtins.ObjectOperand(operands[0].Value, 1)
 	if err != nil {
 		return handleBuiltinErr(ast.HTTPSend.Name, bctx.Location, err)
 	}
 
-	raiseError, err := getRaiseErrorValue(req)
+	raiseError, err := getRaiseErrorValue(obj)
 	if err != nil {
 		return handleBuiltinErr(ast.HTTPSend.Name, bctx.Location, err)
+	}
+
+	req, err := validateHTTPRequestOperand(operands[0], 1)
+	if err != nil {
+		if raiseError {
+			return handleHTTPSendErr(bctx, err)
+		}
+
+		return iter(generateRaiseErrorResult(handleBuiltinErr(ast.HTTPSend.Name, bctx.Location, err)))
 	}
 
 	result, err := getHTTPResponse(bctx, req)
@@ -130,36 +141,45 @@ func builtinHTTPSend(bctx BuiltinContext, operands []*ast.Term, iter func(*ast.T
 			return handleHTTPSendErr(bctx, err)
 		}
 
-		obj := ast.NewObject()
-		obj.Insert(ast.StringTerm("status_code"), ast.IntNumberTerm(0))
-
-		errObj := ast.NewObject()
-
-		switch err.(type) {
-		case *url.Error:
-			errObj.Insert(ast.StringTerm("code"), ast.StringTerm(HTTPSendNetworkErr))
-		default:
-			errObj.Insert(ast.StringTerm("code"), ast.StringTerm(HTTPSendInternalErr))
-		}
-
-		errObj.Insert(ast.StringTerm("message"), ast.StringTerm(err.Error()))
-		obj.Insert(ast.StringTerm("error"), ast.NewTerm(errObj))
-
-		result = ast.NewTerm(obj)
+		result = generateRaiseErrorResult(err)
 	}
 	return iter(result)
+}
+
+func generateRaiseErrorResult(err error) *ast.Term {
+	obj := ast.NewObject()
+	obj.Insert(ast.StringTerm("status_code"), ast.IntNumberTerm(0))
+
+	errObj := ast.NewObject()
+
+	switch err.(type) {
+	case *url.Error:
+		errObj.Insert(ast.StringTerm("code"), ast.StringTerm(HTTPSendNetworkErr))
+	default:
+		errObj.Insert(ast.StringTerm("code"), ast.StringTerm(HTTPSendInternalErr))
+	}
+
+	errObj.Insert(ast.StringTerm("message"), ast.StringTerm(err.Error()))
+	obj.Insert(ast.StringTerm("error"), ast.NewTerm(errObj))
+
+	return ast.NewTerm(obj)
 }
 
 func getHTTPResponse(bctx BuiltinContext, req ast.Object) (*ast.Term, error) {
 
 	bctx.Metrics.Timer(httpSendLatencyMetricKey).Start()
 
-	reqExecutor, err := newHTTPRequestExecutor(bctx, req)
+	key, err := getKeyFromRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
+	reqExecutor, err := newHTTPRequestExecutor(bctx, req, key)
+	if err != nil {
+		return nil, err
+	}
 	// Check if cache already has a response for this query
+	// set headers to exclude cache_ignored_headers
 	resp, err := reqExecutor.CheckCache()
 	if err != nil {
 		return nil, err
@@ -182,6 +202,43 @@ func getHTTPResponse(bctx BuiltinContext, req ast.Object) (*ast.Term, error) {
 	bctx.Metrics.Timer(httpSendLatencyMetricKey).Stop()
 
 	return ast.NewTerm(resp), nil
+}
+
+// getKeyFromRequest returns a key to be used for caching HTTP responses
+// deletes headers from request object mentioned in cache_ignored_headers
+func getKeyFromRequest(req ast.Object) (ast.Object, error) {
+	// deep copy so changes to key do not reflect in the request object
+	key := req.Copy()
+	cacheIgnoredHeadersTerm := req.Get(ast.StringTerm("cache_ignored_headers"))
+	allHeadersTerm := req.Get(ast.StringTerm("headers"))
+	// skip because no headers to delete
+	if cacheIgnoredHeadersTerm == nil || allHeadersTerm == nil {
+		// need to explicitly set cache_ignored_headers to null
+		// equivalent requests might have different sets of exclusion lists
+		key.Insert(ast.StringTerm("cache_ignored_headers"), ast.NullTerm())
+		return key, nil
+	}
+	var cacheIgnoredHeaders []string
+	var allHeaders map[string]interface{}
+	err := ast.As(cacheIgnoredHeadersTerm.Value, &cacheIgnoredHeaders)
+	if err != nil {
+		return nil, err
+	}
+	err = ast.As(allHeadersTerm.Value, &allHeaders)
+	if err != nil {
+		return nil, err
+	}
+	for _, header := range cacheIgnoredHeaders {
+		delete(allHeaders, header)
+	}
+	val, err := ast.InterfaceToValue(allHeaders)
+	if err != nil {
+		return nil, err
+	}
+	key.Insert(ast.StringTerm("headers"), ast.NewTerm(val))
+	// remove cache_ignored_headers key
+	key.Insert(ast.StringTerm("cache_ignored_headers"), ast.NullTerm())
+	return key, nil
 }
 
 func init() {
@@ -289,7 +346,7 @@ func useSocket(rawURL string, tlsConfig *tls.Config) (bool, string, *http.Transp
 	u.RawQuery = v.Encode()
 
 	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+	tr.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return http.DefaultTransport.(*http.Transport).DialContext(ctx, "unix", socket)
 	}
 	tr.TLSClientConfig = tlsConfig
@@ -468,7 +525,7 @@ func createHTTPRequest(bctx BuiltinContext, obj ast.Object) (*http.Request, *htt
 		case "cache", "caching_mode",
 			"force_cache", "force_cache_duration_seconds",
 			"force_json_decode", "force_yaml_decode",
-			"raise_error", "max_retry_attempts": // no-op
+			"raise_error", "max_retry_attempts", "cache_ignored_headers": // no-op
 		default:
 			return nil, nil, fmt.Errorf("invalid parameter %q", key)
 		}
@@ -715,13 +772,13 @@ func newHTTPSendCache() *httpSendCache {
 }
 
 func valueHash(v util.T) int {
-	return v.(ast.Value).Hash()
+	return ast.StringTerm(v.(ast.Value).String()).Hash()
 }
 
 func valueEq(a, b util.T) bool {
 	av := a.(ast.Value)
 	bv := b.(ast.Value)
-	return av.Compare(bv) == 0
+	return av.String() == bv.String()
 }
 
 func (cache *httpSendCache) get(k ast.Value) *httpSendCacheEntry {
@@ -1368,20 +1425,21 @@ type httpRequestExecutor interface {
 
 // newHTTPRequestExecutor returns a new HTTP request executor that wraps either an inter-query or
 // intra-query cache implementation
-func newHTTPRequestExecutor(bctx BuiltinContext, key ast.Object) (httpRequestExecutor, error) {
-	useInterQueryCache, forceCacheParams, err := useInterQueryCache(key)
+func newHTTPRequestExecutor(bctx BuiltinContext, req ast.Object, key ast.Object) (httpRequestExecutor, error) {
+	useInterQueryCache, forceCacheParams, err := useInterQueryCache(req)
 	if err != nil {
 		return nil, handleHTTPSendErr(bctx, err)
 	}
 
 	if useInterQueryCache && bctx.InterQueryBuiltinCache != nil {
-		return newInterQueryCache(bctx, key, forceCacheParams)
+		return newInterQueryCache(bctx, req, key, forceCacheParams)
 	}
-	return newIntraQueryCache(bctx, key)
+	return newIntraQueryCache(bctx, req, key)
 }
 
 type interQueryCache struct {
 	bctx             BuiltinContext
+	req              ast.Object
 	key              ast.Object
 	httpReq          *http.Request
 	httpClient       *http.Client
@@ -1390,8 +1448,8 @@ type interQueryCache struct {
 	forceCacheParams *forceCacheParams
 }
 
-func newInterQueryCache(bctx BuiltinContext, key ast.Object, forceCacheParams *forceCacheParams) (*interQueryCache, error) {
-	return &interQueryCache{bctx: bctx, key: key, forceCacheParams: forceCacheParams}, nil
+func newInterQueryCache(bctx BuiltinContext, req ast.Object, key ast.Object, forceCacheParams *forceCacheParams) (*interQueryCache, error) {
+	return &interQueryCache{bctx: bctx, req: req, key: key, forceCacheParams: forceCacheParams}, nil
 }
 
 // CheckCache checks the cache for the value of the key set on this object
@@ -1450,21 +1508,22 @@ func (c *interQueryCache) InsertErrorIntoCache(err error) {
 // ExecuteHTTPRequest executes a HTTP request
 func (c *interQueryCache) ExecuteHTTPRequest() (*http.Response, error) {
 	var err error
-	c.httpReq, c.httpClient, err = createHTTPRequest(c.bctx, c.key)
+	c.httpReq, c.httpClient, err = createHTTPRequest(c.bctx, c.req)
 	if err != nil {
 		return nil, handleHTTPSendErr(c.bctx, err)
 	}
 
-	return executeHTTPRequest(c.httpReq, c.httpClient, c.key)
+	return executeHTTPRequest(c.httpReq, c.httpClient, c.req)
 }
 
 type intraQueryCache struct {
 	bctx BuiltinContext
+	req  ast.Object
 	key  ast.Object
 }
 
-func newIntraQueryCache(bctx BuiltinContext, key ast.Object) (*intraQueryCache, error) {
-	return &intraQueryCache{bctx: bctx, key: key}, nil
+func newIntraQueryCache(bctx BuiltinContext, req ast.Object, key ast.Object) (*intraQueryCache, error) {
+	return &intraQueryCache{bctx: bctx, req: req, key: key}, nil
 }
 
 // CheckCache checks the cache for the value of the key set on this object
@@ -1501,11 +1560,11 @@ func (c *intraQueryCache) InsertErrorIntoCache(err error) {
 
 // ExecuteHTTPRequest executes a HTTP request
 func (c *intraQueryCache) ExecuteHTTPRequest() (*http.Response, error) {
-	httpReq, httpClient, err := createHTTPRequest(c.bctx, c.key)
+	httpReq, httpClient, err := createHTTPRequest(c.bctx, c.req)
 	if err != nil {
 		return nil, handleHTTPSendErr(c.bctx, err)
 	}
-	return executeHTTPRequest(httpReq, httpClient, c.key)
+	return executeHTTPRequest(httpReq, httpClient, c.req)
 }
 
 func useInterQueryCache(req ast.Object) (bool, *forceCacheParams, error) {
