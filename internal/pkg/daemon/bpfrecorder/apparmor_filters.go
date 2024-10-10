@@ -47,6 +47,7 @@ var knownReadPrefixes = []string{
 	"/sys/kernel/mm/transparent_hugepage/hpage_pmd_size",
 	"/usr/share/locale/",
 	"/usr/lib/locale/",
+	"/etc/locale.alias",
 }
 
 // List of known paths for commonly written to files.
