@@ -14,6 +14,8 @@ please refer to [Installation Guide](https://github.com/kubernetes-sigs/security
 |-----|------|---------|-------------|
 | affinity | object | `{}` | `pod affinity rules` |
 | autoscaling.enabled | bool | `false` | `enable autosclaing or not` |
+| daemon.affinity | object | `{}` | `daemonset affinity rules` |
+| daemon.tolerations | list | `[]` | `a list of daemonset tolerations rules` |
 | enableAppArmor | bool | `false` | `enable apparmor or not` |
 | enableBpfRecorder | bool | `false` | `enable BpfRecorder or not` |
 | enableLogEnricher | bool | `false` | `enable log enricher or not` |
