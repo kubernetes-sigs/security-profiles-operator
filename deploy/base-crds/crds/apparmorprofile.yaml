@@ -40,8 +40,54 @@ spec:
             properties:
               policy:
                 type: string
-            required:
-            - policy
+              abstract:
+                type: object
+                properties:
+                  executable:
+                    type: object
+                    properties:
+                      allowedExecutables:
+                        type: array
+                        items:
+                          type: string
+                      allowedLibraries:
+                        type: array
+                        items:
+                          type: string
+                  filesystem:
+                    type: object
+                    properties:
+                      readOnlyPaths:
+                        type: array
+                        items:
+                          type: string
+                      writeOnlyPaths:
+                        type: array
+                        items:
+                          type: string
+                      readWritePaths:
+                        type: array
+                        items:
+                          type: string
+                  network:
+                    type: object
+                    properties:
+                      allowRaw:
+                        type: boolean
+                      allowedProtocols:
+                        type: object
+                        properties:
+                          allowTcp:
+                            type: boolean
+                          allowUdp:
+                            type: boolean
+                  capability:
+                    type: object
+                    properties:
+                      allowedCapabilities:
+                        type: array
+                        items:
+                          type: string
             type: object
           status:
             description: AppArmorProfileStatus defines the observed state of AppArmorProfile
