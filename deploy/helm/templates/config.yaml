@@ -6,6 +6,8 @@ metadata:
   name: spod
   namespace: {{ .Release.Namespace }}
 spec:
+  daemonResourceRequirements:
+    {{- toYaml .Values.daemon.resources | nindent 4 }}
   enableSelinux: {{ .Values.enableSelinux }}
   enableLogEnricher: {{ .Values.enableLogEnricher }}
   enableAppArmor: {{ .Values.enableAppArmor }}
