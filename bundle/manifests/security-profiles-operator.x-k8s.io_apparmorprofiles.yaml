@@ -38,10 +38,56 @@ spec:
           spec:
             description: AppArmorProfileSpec defines the desired state of AppArmorProfile
             properties:
+              abstract:
+                properties:
+                  capability:
+                    properties:
+                      allowedCapabilities:
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  executable:
+                    properties:
+                      allowedExecutables:
+                        items:
+                          type: string
+                        type: array
+                      allowedLibraries:
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  filesystem:
+                    properties:
+                      readOnlyPaths:
+                        items:
+                          type: string
+                        type: array
+                      readWritePaths:
+                        items:
+                          type: string
+                        type: array
+                      writeOnlyPaths:
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  network:
+                    properties:
+                      allowRaw:
+                        type: boolean
+                      allowedProtocols:
+                        properties:
+                          allowTcp:
+                            type: boolean
+                          allowUdp:
+                            type: boolean
+                        type: object
+                    type: object
+                type: object
               policy:
                 type: string
-            required:
-            - policy
             type: object
           status:
             description: AppArmorProfileStatus defines the observed state of AppArmorProfile
