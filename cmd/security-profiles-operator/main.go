@@ -45,6 +45,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	profilerecording1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilerecording/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
@@ -332,6 +333,9 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	}
 	if err := selxv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add selinuxprofile API to scheme: %w", err)
+	}
+	if err := apparmorprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("add apparmorprofile API to scheme: %w", err)
 	}
 	if err := monitoringv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add ServiceMonitor API to scheme: %w", err)

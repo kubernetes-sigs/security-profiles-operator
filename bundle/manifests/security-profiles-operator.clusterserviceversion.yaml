@@ -317,7 +317,14 @@ spec:
         - apiGroups:
           - ""
           resources:
+          - events
+          verbs:
+          - create
+        - apiGroups:
+          - ""
+          resources:
           - nodes
+          - pods
           verbs:
           - get
           - list
@@ -348,7 +355,6 @@ spec:
           - apps
           resources:
           - daemonsets
-          - deployments
           verbs:
           - create
           - get
@@ -360,7 +366,6 @@ spec:
           - apps
           resources:
           - daemonsets/finalizers
-          - deployments
           verbs:
           - delete
           - get
@@ -371,8 +376,12 @@ spec:
           resources:
           - deployments
           verbs:
+          - create
+          - delete
           - get
           - list
+          - patch
+          - update
           - watch
         - apiGroups:
           - cert-manager.io
@@ -395,20 +404,6 @@ spec:
           - list
           - watch
         - apiGroups:
-          - ""
-          resources:
-          - events
-          verbs:
-          - create
-        - apiGroups:
-          - ""
-          resources:
-          - pods
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
           - monitoring.coreos.com
           resources:
           - servicemonitors
@@ -423,13 +418,6 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - profilerecordings
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
           - profilerecordings/finalizers
           verbs:
           - get
@@ -450,6 +438,9 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - rawselinuxprofiles/finalizers
+          - seccompprofiles/finalizers
+          - securityprofilesoperatordaemons/finalizers
+          - selinuxprofiles/finalizers
           verbs:
           - delete
           - get
@@ -459,6 +450,9 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - rawselinuxprofiles/status
+          - seccompprofiles/status
+          - securityprofilesoperatordaemons/status
+          - selinuxprofiles/status
           verbs:
           - get
           - patch
@@ -467,6 +461,7 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - seccompprofiles
+          - selinuxprofiles
           verbs:
           - create
           - delete
@@ -476,23 +471,6 @@ spec:
           - patch
           - update
           - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - seccompprofiles/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - seccompprofiles/status
-          verbs:
-          - get
-          - patch
-          - update
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
@@ -512,53 +490,6 @@ spec:
           - list
           - update
           - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - securityprofilesoperatordaemons/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - securityprofilesoperatordaemons/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - selinuxprofiles
-          verbs:
-          - create
-          - delete
-          - deletecollection
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - selinuxprofiles/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - selinuxprofiles/status
-          verbs:
-          - get
-          - patch
-          - update
         serviceAccountName: security-profiles-operator
       - rules:
         - apiGroups:
@@ -578,34 +509,17 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
-          - profilebindings
+          - apparmorprofiles
+          - seccompprofiles
+          - selinuxprofiles
           verbs:
-          - create
           - get
           - list
-          - patch
-          - update
           - watch
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
-          - profilebindings/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - profilebindings/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
+          - profilebindings
           - profilerecordings
           verbs:
           - create
@@ -617,6 +531,7 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
+          - profilebindings/finalizers
           - profilerecordings/finalizers
           verbs:
           - delete
@@ -626,29 +541,32 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
+          - profilebindings/status
           - profilerecordings/status
           verbs:
           - get
           - patch
           - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - seccompprofiles
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - selinuxprofiles
-          verbs:
-          - get
-          - list
-          - watch
         serviceAccountName: spo-webhook
       - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - events
+          verbs:
+          - create
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - ""
+          resources:
+          - nodes
+          - pods
+          verbs:
+          - get
+          - list
+          - watch
         - apiGroups:
           - authentication.k8s.io
           resources:
@@ -663,34 +581,11 @@ spec:
           verbs:
           - create
         - apiGroups:
-          - ""
-          resources:
-          - events
-          verbs:
-          - create
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - ""
-          resources:
-          - nodes
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
-          - ""
-          resources:
-          - pods
-          verbs:
-          - get
-          - list
-          - watch
-        - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles
+          - rawselinuxprofiles
+          - selinuxprofiles
           verbs:
           - create
           - get
@@ -702,6 +597,9 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles/finalizers
+          - rawselinuxprofiles/finalizers
+          - seccompprofiles/finalizers
+          - selinuxprofiles/finalizers
           verbs:
           - delete
           - get
@@ -711,6 +609,9 @@ spec:
           - security-profiles-operator.x-k8s.io
           resources:
           - apparmorprofiles/status
+          - rawselinuxprofiles/status
+          - seccompprofiles/status
+          - selinuxprofiles/status
           verbs:
           - get
           - patch
@@ -728,63 +629,7 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
-          - rawselinuxprofiles
-          verbs:
-          - create
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - rawselinuxprofiles/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - rawselinuxprofiles/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
           - seccompprofiles
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - seccompprofiles/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - seccompprofiles/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
           - securityprofilenodestatuses
           verbs:
           - create
@@ -802,34 +647,6 @@ spec:
           - get
           - list
           - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - selinuxprofiles
-          verbs:
-          - create
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - selinuxprofiles/finalizers
-          verbs:
-          - delete
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - selinuxprofiles/status
-          verbs:
-          - get
-          - patch
-          - update
         serviceAccountName: spod
       deployments:
       - label:

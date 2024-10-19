@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -65,6 +66,17 @@ func (r *PodReconciler) Setup(
 		return fmt.Errorf("creating pod index: %w", err)
 	}
 
+	// Index Pods using AppArmor profiles
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, aaOwnerKey, func(rawObj client.Object) []string {
+		pod, ok := rawObj.(*corev1.Pod)
+		if !ok {
+			return []string{}
+		}
+		return getAppArmorProfilesFromPod(ctx, r, pod)
+	}); err != nil {
+		return fmt.Errorf("creating pod index: %w", err)
+	}
+
 	// Index SeccompProfiles with active pods
 	if err := mgr.GetFieldIndexer().IndexField(
 		ctx, &seccompprofileapi.SeccompProfile{}, linkedPodsKey, func(rawObj client.Object) []string {
@@ -88,6 +100,18 @@ func (r *PodReconciler) Setup(
 			return sp.Status.ActiveWorkloads
 		}); err != nil {
 		return fmt.Errorf("creating selinux profile index: %w", err)
+	}
+
+	// Index AppArmorProfiles with active pods
+	if err := mgr.GetFieldIndexer().IndexField(
+		ctx, &apparmorprofileapi.AppArmorProfile{}, linkedPodsKey, func(rawObj client.Object) []string {
+			aaProfile, ok := rawObj.(*apparmorprofileapi.AppArmorProfile)
+			if !ok {
+				return []string{}
+			}
+			return aaProfile.Status.ActiveWorkloads
+		}); err != nil {
+		return fmt.Errorf("creating AppArmor profile index: %w", err)
 	}
 
 	// Register a special reconciler for pod events
@@ -121,6 +145,16 @@ func hasSelinuxProfile(ctx context.Context, r *PodReconciler, obj runtime.Object
 	return len(getSelinuxProfilesFromPod(ctx, r, pod)) > 0
 }
 
+func hasAppArmorProfile(r *PodReconciler, obj runtime.Object) bool {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return false
+	}
+
+	profiles := getAppArmorProfilesFromPod(context.TODO(), r, pod)
+	return len(profiles) > 0
+}
+
 func (r *PodReconciler) hasValidProfile(ctx context.Context, obj runtime.Object) bool {
-	return hasSeccompProfile(obj) || hasSelinuxProfile(ctx, r, obj)
+	return hasSeccompProfile(obj) || hasSelinuxProfile(ctx, r, obj) || hasAppArmorProfile(r, obj)
 }

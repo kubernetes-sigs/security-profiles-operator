@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
@@ -34,7 +35,7 @@ import (
 
 type defaultImpl struct {
 	client  client.Client
-	decoder *admission.Decoder
+	decoder admission.Decoder
 }
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
@@ -46,6 +47,7 @@ type impl interface {
 	DecodePod(admission.Request) (*corev1.Pod, error)
 	GetSeccompProfile(context.Context, types.NamespacedName) (*seccompprofileapi.SeccompProfile, error)
 	GetSelinuxProfile(context.Context, types.NamespacedName) (*selinuxprofileapi.SelinuxProfile, error)
+	GetAppArmorProfile(context.Context, types.NamespacedName) (*apparmorprofileapi.AppArmorProfile, error)
 }
 
 func (d *defaultImpl) ListProfileBindings(
@@ -104,4 +106,15 @@ func (d *defaultImpl) GetSelinuxProfile(
 		return nil, fmt.Errorf("get selinux profile: %w", err)
 	}
 	return selinuxProfile, nil
+}
+
+func (d *defaultImpl) GetAppArmorProfile(
+	ctx context.Context, key types.NamespacedName,
+) (*apparmorprofileapi.AppArmorProfile, error) {
+	appArmorProfile := &apparmorprofileapi.AppArmorProfile{}
+	err := d.client.Get(ctx, key, appArmorProfile)
+	if err != nil {
+		return nil, fmt.Errorf("get apparmor profile: %w", err)
+	}
+	return appArmorProfile, nil
 }
