@@ -2,7 +2,7 @@
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  name: runc-v1.1.15
+  name: runc-v1.2.0
 spec:
   defaultAction: SCMP_ACT_ERRNO
   architectures:
@@ -18,17 +18,23 @@ spec:
         - clone
         - clone3
         - close
+        - close_range
         - dup3
         - epoll_create1
         - epoll_ctl
         - epoll_pwait
         - execve
+        - exit
         - exit_group
+        - faccessat
         - faccessat2
         - fchdir
         - fchmodat
         - fchownat
         - fcntl
+        - fsconfig
+        - fsmount
+        - fsopen
         - fstat
         - fstatfs
         - futex
@@ -49,6 +55,7 @@ spec:
         - munmap
         - nanosleep
         - newfstatat
+        - open_tree
         - openat
         - openat2
         - pipe2
@@ -57,6 +64,7 @@ spec:
         - prlimit64
         - read
         - readlinkat
+        - recvfrom
         - rseq
         - rt_sigaction
         - rt_sigprocmask
@@ -73,11 +81,11 @@ spec:
         - setuid
         - sigaltstack
         - statfs
+        - statx
         - symlinkat
         - tgkill
         - umask
         - umount2
         - unlinkat
-        - unshare
         - utimensat
         - write

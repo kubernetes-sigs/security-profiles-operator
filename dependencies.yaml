@@ -156,7 +156,7 @@ dependencies:
       match: VERSION
 
   - name: crun
-    version: 1.17
+    version: 1.18
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
@@ -166,7 +166,7 @@ dependencies:
       match: CRUN_VERSION
 
   - name: runc
-    version: v1.1.15
+    version: v1.2.0
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: name
@@ -231,7 +231,7 @@ dependencies:
       match: flatcar_developer_container
 
   - name: zeitgeist
-    version: 0.5.3
+    version: 0.5.4
     refPaths:
       - path: Makefile
         match: ZEITGEIST_VERSION
