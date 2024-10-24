@@ -27,7 +27,7 @@ import (
 //
 //	rootCmd.AddCommand(version.Version())
 //
-// ```
+// ```.
 func Version() *cobra.Command {
 	return version("")
 }
@@ -37,7 +37,7 @@ func Version() *cobra.Command {
 //
 //	rootCmd.AddCommand(version.WithFont("starwars"))
 //
-// ```
+// ```.
 func WithFont(fontName string) *cobra.Command {
 	return version(fontName)
 }
