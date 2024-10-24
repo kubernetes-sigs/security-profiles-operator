@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilebindingv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
@@ -99,6 +100,7 @@ func initContainerMap(m *sync.Map, spec *corev1.PodSpec) {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilebindings/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=seccompprofiles,verbs=get;list;watch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=selinuxprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch
 
 //nolint:lll // required for kubebuilder
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create
@@ -156,8 +158,10 @@ func (p *podBinder) updatePod(
 		profileKind := profilebindings[i].Spec.ProfileRef.Kind
 		if profileKind != profilebindingv1alpha1.ProfileBindingKindSeccompProfile {
 			if profileKind != profilebindingv1alpha1.ProfileBindingKindSelinuxProfile {
-				p.log.Info(fmt.Sprintf("profile kind %s not yet supported", profileKind))
-				continue
+				if profileKind != profilebindingv1alpha1.ProfileBindingKindAppArmorProfile {
+					p.log.Info(fmt.Sprintf("profile kind %s not yet supported", profileKind))
+					continue
+				}
 			}
 		}
 
@@ -178,6 +182,10 @@ func (p *podBinder) updatePod(
 
 		if profileKind == profilebindingv1alpha1.ProfileBindingKindSelinuxProfile {
 			bindProfile, err = p.getSelinuxProfile(ctx, namespacedName)
+		}
+
+		if profileKind == profilebindingv1alpha1.ProfileBindingKindAppArmorProfile {
+			bindProfile, err = p.getAppArmorProfile(ctx, namespacedName)
 		}
 
 		if err != nil {
@@ -268,6 +276,27 @@ func (p *podBinder) getSelinuxProfile(
 	return selinuxProfile, err
 }
 
+func (p *podBinder) getAppArmorProfile(
+	ctx context.Context,
+	key types.NamespacedName,
+) (apparmorProfile *apparmorprofileapi.AppArmorProfile, err error) {
+	err = util.Retry(
+		func() (retryErr error) {
+			apparmorProfile, retryErr = p.GetAppArmorProfile(ctx, key)
+			if retryErr != nil {
+				return fmt.Errorf("getting profile: %w", retryErr)
+			}
+			if apparmorProfile.Status.Status == "" {
+				return fmt.Errorf("getting profile: %w", ErrProfWithoutStatus)
+			}
+			return nil
+		}, func(inErr error) bool {
+			return errors.Is(inErr, ErrProfWithoutStatus) || kerrors.IsNotFound(inErr)
+		})
+	//nolint:wrapcheck // error is already wrapped
+	return apparmorProfile, err
+}
+
 func (p *podBinder) addSecurityContext(
 	c *corev1.Container, bindProfile interface{},
 ) bool {
@@ -278,6 +307,8 @@ func (p *podBinder) addSecurityContext(
 		podChanged = p.addSeccompContext(c, v)
 	case *selinuxprofileapi.SelinuxProfile:
 		podChanged = p.addSelinuxContext(c, v)
+	case *apparmorprofileapi.AppArmorProfile:
+		podChanged = p.addAppArmorContext(c, v)
 	default:
 		p.log.Info("Unexpected Profile Type")
 		return false
@@ -327,6 +358,27 @@ func (p *podBinder) addSelinuxContext(
 	return podChanged
 }
 
+func (p *podBinder) addAppArmorContext(
+	c *corev1.Container, appArmorProfile *apparmorprofileapi.AppArmorProfile,
+) bool {
+	podChanged := false
+	profileRef := appArmorProfile.GetProfileName()
+	ap := corev1.AppArmorProfile{
+		Type:             corev1.AppArmorProfileTypeLocalhost,
+		LocalhostProfile: &profileRef,
+	}
+	if c.SecurityContext == nil {
+		c.SecurityContext = &corev1.SecurityContext{}
+	}
+	if c.SecurityContext.AppArmorProfile != nil {
+		p.log.Info("cannot override existing AppArmor profile for pod or container")
+	} else {
+		c.SecurityContext.AppArmorProfile = &ap
+		podChanged = true
+	}
+	return podChanged
+}
+
 func (p *podBinder) addPodSecurityContext(
 	pod *corev1.Pod, bindProfile interface{},
 ) bool {
@@ -337,6 +389,8 @@ func (p *podBinder) addPodSecurityContext(
 		podChanged = p.addPodSeccompContext(pod, v)
 	case *selinuxprofileapi.SelinuxProfile:
 		podChanged = p.addPodSelinuxContext(pod, v)
+	case *apparmorprofileapi.AppArmorProfile:
+		podChanged = p.addPodAppArmorContext(pod, v)
 	default:
 		p.log.Info("Unexpected Profile Type")
 		return false
@@ -381,6 +435,27 @@ func (p *podBinder) addPodSelinuxContext(
 		p.log.Info("cannot override existing selinux profile for pod or container")
 	} else {
 		pod.Spec.SecurityContext.SELinuxOptions = &sl
+		podChanged = true
+	}
+	return podChanged
+}
+
+func (p *podBinder) addPodAppArmorContext(
+	pod *corev1.Pod, appArmorProfile *apparmorprofileapi.AppArmorProfile,
+) bool {
+	podChanged := false
+	profileRef := appArmorProfile.Spec.Policy
+	ap := corev1.AppArmorProfile{
+		Type:             corev1.AppArmorProfileTypeLocalhost,
+		LocalhostProfile: &profileRef,
+	}
+	if pod.Spec.SecurityContext == nil {
+		pod.Spec.SecurityContext = &corev1.PodSecurityContext{}
+	}
+	if pod.Spec.SecurityContext.AppArmorProfile != nil {
+		p.log.Info("cannot override existing AppArmor profile for pod or container")
+	} else {
+		pod.Spec.SecurityContext.AppArmorProfile = &ap
 		podChanged = true
 	}
 	return podChanged

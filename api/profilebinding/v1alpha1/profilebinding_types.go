@@ -23,9 +23,10 @@ import (
 type ProfileBindingKind string
 
 const (
-	ProfileBindingKindSeccompProfile ProfileBindingKind = "SeccompProfile"
-	ProfileBindingKindSelinuxProfile ProfileBindingKind = "SelinuxProfile"
-	SelectAllContainersImage         string             = "*"
+	ProfileBindingKindSeccompProfile  ProfileBindingKind = "SeccompProfile"
+	ProfileBindingKindSelinuxProfile  ProfileBindingKind = "SelinuxProfile"
+	ProfileBindingKindAppArmorProfile ProfileBindingKind = "AppArmorProfile"
+	SelectAllContainersImage          string             = "*"
 )
 
 // ProfileBindingSpec defines the desired state of ProfileBinding.
@@ -40,7 +41,7 @@ type ProfileBindingSpec struct {
 // ProfileRef contains information that points to the profile being used.
 type ProfileRef struct {
 	// Kind of object to be bound.
-	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile
+	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile;AppArmorProfile
 	Kind ProfileBindingKind `json:"kind"`
 	// Name of the profile within the current namespace to which to bind the selected pods.
 	Name string `json:"name"`

@@ -75,6 +75,7 @@ type AppArmorProfileSpec struct {
 // AppArmorProfileStatus defines the observed state of AppArmorProfile.
 type AppArmorProfileStatus struct {
 	profilebasev1alpha1.StatusBase `json:",inline"`
+	ActiveWorkloads                []string `json:"activeWorkloads,omitempty"`
 }
 
 // +kubebuilder:object:root=true
