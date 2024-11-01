@@ -20,17 +20,21 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	errors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	selinuxprofileapi "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
@@ -40,6 +44,7 @@ import (
 const (
 	spOwnerKey        = ".metadata.seccompProfileOwner"
 	seOwnerKey        = ".metadata.selinuxProfileOwner"
+	aaOwnerKey        = ".metadata.appArmorProfileOwner"
 	linkedPodsKey     = ".metadata.activeWorkloads"
 	StatusToProfLabel = "spo.x-k8s.io/profile-id"
 	reconcileTimeout  = 1 * time.Minute
@@ -95,6 +100,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	if errors.IsNotFound(err) { // this is a pod deletion, so update all seccomp/selinux profiles that were using it
 		seccompProfiles := &seccompprofileapi.SeccompProfileList{}
 		selinuxProfiles := &selinuxprofileapi.SelinuxProfileList{}
+		apparmorProfiles := &apparmorprofileapi.AppArmorProfileList{}
 
 		if err = r.client.List(ctx, seccompProfiles, client.MatchingFields{linkedPodsKey: podID}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("listing SeccompProfiles for deleted pod: %w", err)
@@ -102,6 +108,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 		if err = r.client.List(ctx, selinuxProfiles, client.MatchingFields{linkedPodsKey: podID}); err != nil {
 			return reconcile.Result{}, fmt.Errorf("listing SelinuxProfiles for deleted pod: %w", err)
+		}
+
+		if err = r.client.List(ctx, apparmorProfiles, client.MatchingFields{linkedPodsKey: podID}); err != nil {
+			return reconcile.Result{}, fmt.Errorf("listing AppArmorProfiles for deleted pod: %w", err)
 		}
 
 		for i := range seccompProfiles.Items {
@@ -113,6 +123,12 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		for j := range selinuxProfiles.Items {
 			if err = r.updatePodReferencesForSelinux(ctx, &selinuxProfiles.Items[j]); err != nil {
 				return reconcile.Result{}, fmt.Errorf("updating SelinuxProfile for deleted pod: %w", err)
+			}
+		}
+
+		for k := range apparmorProfiles.Items {
+			if err = r.updatePodReferencesForAppArmor(ctx, &apparmorProfiles.Items[k]); err != nil {
+				return reconcile.Result{}, fmt.Errorf("updating AppArmorProfile for deleted pod: %w", err)
 			}
 		}
 		return reconcile.Result{}, nil
@@ -150,6 +166,21 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		if err := r.updatePodReferencesForSelinux(ctx, selinuxProfile); err != nil {
 			logger.Error(err, "could not update selinux profile for pod")
 			return reconcile.Result{}, fmt.Errorf("updating SelinuxProfile pod references for new or updated pod: %w", err)
+		}
+	}
+
+	// pod is being created or updated so ensure it is linked to an AppArmor profile
+	for _, profileName := range getAppArmorProfilesFromPod(ctx, r, pod) {
+		appArmorProfile := &apparmorprofileapi.AppArmorProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: profileName, Namespace: pod.Namespace},
+		}
+		if err := r.client.Get(ctx, util.NamespacedName(profileName, pod.Namespace), appArmorProfile); err != nil {
+			logger.Error(err, "could not get AppArmor profile for pod")
+			return reconcile.Result{}, fmt.Errorf("looking up AppArmor profile for new or updated pod: %w", err)
+		}
+		if err := r.updatePodReferencesForAppArmor(ctx, appArmorProfile); err != nil {
+			logger.Error(err, "could not update AppArmor profile for pod")
+			return reconcile.Result{}, fmt.Errorf("updating AppArmor profile pod references for new or updated pod: %w", err)
 		}
 	}
 	return reconcile.Result{}, nil
@@ -243,6 +274,49 @@ func (r *PodReconciler) updatePodReferencesForSelinux(ctx context.Context, se *s
 	return nil
 }
 
+// updatePodReferencesForAppArmor updates an AppArmorProfile with the identifiers of pods using it and ensures
+// it has a finalizer indicating it is in use to prevent it from being deleted.
+func (r *PodReconciler) updatePodReferencesForAppArmor(ctx context.Context, aa *apparmorprofileapi.AppArmorProfile) error {
+	linkedPods := &corev1.PodList{}
+	profileReference := aa.GetProfileName()
+	err := r.client.List(ctx, linkedPods, client.MatchingFields{aaOwnerKey: profileReference})
+	if util.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("listing pods to update AppArmorProfile: %w", err)
+	}
+	podList := make([]string, len(linkedPods.Items))
+	for i := range linkedPods.Items {
+		pod := linkedPods.Items[i]
+		podList[i] = pod.ObjectMeta.Namespace + "/" + pod.ObjectMeta.Name
+	}
+	if err := util.Retry(func() error {
+		aa.Status.ActiveWorkloads = podList
+		updateErr := r.client.Status().Update(ctx, aa)
+		if updateErr != nil {
+			if err := r.client.Get(ctx, util.NamespacedName(aa.GetName(), aa.GetNamespace()), aa); err != nil {
+				return fmt.Errorf("retrieving profile: %w", err)
+			}
+			return fmt.Errorf("updating profile: %w", updateErr)
+		}
+		return nil
+	}, util.IsNotFoundOrConflict); err != nil {
+		return fmt.Errorf("updating AppArmorProfile status: %w", err)
+	}
+	if len(linkedPods.Items) > 0 {
+		if err := util.Retry(func() error {
+			return util.AddFinalizer(ctx, r.client, aa, util.HasActivePodsFinalizerString)
+		}, util.IsNotFoundOrConflict); err != nil {
+			return fmt.Errorf("adding finalizer: %w", err)
+		}
+	} else {
+		if err := util.Retry(func() error {
+			return util.RemoveFinalizer(ctx, r.client, aa, util.HasActivePodsFinalizerString)
+		}, util.IsNotFoundOrConflict); err != nil {
+			return fmt.Errorf("removing finalizer: %w", err)
+		}
+	}
+	return nil
+}
+
 // getSeccompProfilesFromPod returns a slice of strings representing seccomp profiles required by the pod.
 // It looks first at the pod spec level, then in each container and init container, then in the annotations.
 func getSeccompProfilesFromPod(pod *corev1.Pod) []string {
@@ -307,6 +381,33 @@ func getSelinuxProfilesFromPod(ctx context.Context, r *PodReconciler, pod *corev
 	return profiles
 }
 
+// getAppArmorProfilesFromPod returns a slice of strings representing AppArmor profiles required by the pod.
+// It first looks at the pod spec level, then in each container and init container, and then in the annotations.
+func getAppArmorProfilesFromPod(ctx context.Context, r *PodReconciler, pod *corev1.Pod) []string {
+	profiles := []string{}
+	// Try to get profile from pod securityContext
+	sc := pod.Spec.SecurityContext
+	if sc != nil && sc.AppArmorProfile != nil {
+		appArmorProfile, _ := isOperatorAppArmorProfile(ctx, r, sc.AppArmorProfile, pod.Namespace)
+		if appArmorProfile != nil {
+			profiles = append(profiles, appArmorProfile.Name)
+		}
+	}
+	// Try to get profile(s) from securityContext in containers
+	containers := pod.Spec.Containers
+	containers = append(containers, pod.Spec.InitContainers...)
+	for _, container := range containers {
+		sc := container.SecurityContext
+		if sc != nil && sc.AppArmorProfile != nil {
+			appArmorProfile, _ := isOperatorAppArmorProfile(ctx, r, sc.AppArmorProfile, pod.Namespace)
+			if appArmorProfile != nil && !util.Contains(profiles, appArmorProfile.Name) {
+				profiles = append(profiles, appArmorProfile.Name)
+			}
+		}
+	}
+	return profiles
+}
+
 // isOperatorSeccompProfile checks whether a corev1.SeccompProfile object belongs to the operator.
 // SeccompProfiles controlled by the operator are of type "Localhost" and have a path of the form
 // "operator/namespace/profile-name.json".
@@ -347,4 +448,28 @@ func isOperatorSelinuxType(ctx context.Context, r *PodReconciler, se *corev1.SEL
 		return hasLabel
 	}
 	return false
+}
+
+// isOperatorAppArmorProfile checks whether the AppArmor profile is created by the operator.
+func isOperatorAppArmorProfile(ctx context.Context, r *PodReconciler, profile *corev1.AppArmorProfile, ns string) (*apparmorprofileapi.AppArmorProfile, error) {
+	if profile == nil || profile.Type != corev1.AppArmorProfileTypeLocalhost || profile.LocalhostProfile == nil {
+		return nil, nil // Invalid AppArmor profile
+	}
+
+	profileName := *profile.LocalhostProfile
+	profileFile := filepath.Join("/etc/apparmor.d/", profileName)
+
+	// Check if the profile file exists
+	if _, err := os.Stat(profileFile); os.IsNotExist(err) {
+		return nil, nil // Profile file does not exist, not operator managed
+	}
+
+	// Check if the profile exists in the cluster
+	appArmorProfile := &apparmorprofileapi.AppArmorProfile{}
+	err := r.client.Get(ctx, util.NamespacedName(profileName, ns), appArmorProfile)
+	if err != nil {
+		return nil, err
+	}
+
+	return appArmorProfile, nil
 }
