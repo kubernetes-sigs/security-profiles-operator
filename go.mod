@@ -1,6 +1,7 @@
 module sigs.k8s.io/security-profiles-operator
 
 go 1.21.0
+toolchain go1.22.5
 
 require (
 	github.com/acobaugh/osrelease v0.1.0
@@ -28,7 +29,7 @@ require (
 	github.com/sigstore/cosign/v2 v2.2.3
 	github.com/stretchr/testify v1.9.0
 	github.com/urfave/cli/v2 v2.27.5
-	golang.org/x/mod v0.20.0
+	golang.org/x/mod v0.22.0
 	golang.org/x/net v0.30.0
 	golang.org/x/sync v0.8.0
 	google.golang.org/grpc v1.67.1
