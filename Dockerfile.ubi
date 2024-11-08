@@ -23,7 +23,8 @@ USER root
 WORKDIR /work
 
 RUN dnf install -y \
-  libseccomp-devel
+  libseccomp-devel \
+  libbpf
 
 ADD . /work
 RUN mkdir -p build
@@ -42,7 +43,8 @@ ARG version
 USER root
 
 RUN microdnf install -y \
-  libseccomp
+  libseccomp\
+  libbpf
 
 LABEL name="Security Profiles Operator" \
   version=$version \
