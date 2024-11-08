@@ -32,6 +32,7 @@ func NewMountHostOp(opts ...HostOpOption) HostOp {
 	o := hostOpOpts{
 		logger:          logr.Discard(),
 		insideContainer: InsideContainer,
+		hostPidCheck:    func() bool { return true },
 	}
 
 	o.applyOpts(opts...)
@@ -50,16 +51,16 @@ func NewMountHostOp(opts ...HostOpOption) HostOp {
 func (m *mountHostOp) Do(action func() error) error {
 	if m.opts.insideContainer() {
 		m.opts.logger.V(2).Info("running inside container")
+		if m.opts.hostPidCheck() {
+			hostPidNs, err := HostPidNamespace()
+			if err != nil {
+				return fmt.Errorf("identifying pid namespace: %w", err)
+			}
 
-		hostPidNs, err := HostPidNamespace()
-		if err != nil {
-			return fmt.Errorf("identifying pid namespace: %w", err)
+			if !hostPidNs {
+				return fmt.Errorf("must run within host PID namespace: %w", err)
+			}
 		}
-
-		if !hostPidNs {
-			return fmt.Errorf("must run within host PID namespace: %w", err)
-		}
-
 		return m.containerDo(action)
 	}
 
