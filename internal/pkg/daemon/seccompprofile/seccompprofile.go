@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -75,6 +75,8 @@ const (
 	// MkdirAll won't create a directory if it does not have the execute bit.
 	// https://github.com/golang/go/issues/22323#issuecomment-340568811
 	dirPermissionMode os.FileMode = 0o744
+
+	// dirPermissionMode os.FileMode = 0o755.
 
 	reasonSeccompNotSupported   string = "SeccompNotSupportedOnNode"
 	reasonInvalidSeccompProfile string = "InvalidSeccompProfile"
@@ -610,13 +612,23 @@ func (r *Reconciler) validateProfile(ctx context.Context, profile *seccompprofil
 }
 
 func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error) {
-	if err := os.MkdirAll(path.Dir(fileName), dirPermissionMode); err != nil {
-		return false, fmt.Errorf("%s: %w", errCreatingOperatorDir, err)
+	// Split the full path into directory and filename
+	mainDirPath := filepath.Dir(fileName)
+
+	// Check if the main directory exists, create it if it does not
+	if _, err := os.Stat(mainDirPath); os.IsNotExist(err) {
+		if err := os.MkdirAll(mainDirPath, dirPermissionMode); err != nil {
+			return false, err
+		}
+	} else if err != nil {
+		return false, err
 	}
 
 	existingContent, err := os.ReadFile(fileName)
 	if err == nil && bytes.Equal(existingContent, content) {
 		return false, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("ReadFile err: %w", err)
 	}
 
 	if err := os.WriteFile(fileName, content, filePermissionMode); err != nil {
