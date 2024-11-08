@@ -128,7 +128,7 @@ func (a *AppArmor) LoadPolicy(fileName string) error {
 
 	err = cmd.Run()
 	if err != nil {
-		return err
+		return fmt.Errorf("parsing profile: %w", err)
 	}
 
 	runtime.LockOSThread()
