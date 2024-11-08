@@ -50,8 +50,11 @@ const (
 
 func (a *aaProfileManager) Enabled() bool {
 	checkHostSupport.Do(func() {
-		mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
-		a := aa.NewAppArmor()
+		mount := hostop.NewMountHostOp(
+			hostop.WithLogger(a.logger),
+			hostop.WithAssumeContainer(),
+			hostop.WithAssumeHostPidNamespace())
+		a := aa.NewAppArmor(aa.WithLogger(a.logger))
 
 		_ = mount.Do(func() (err error) { //nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
 			hostSupportsAppArmor, err = a.Enabled()
@@ -103,9 +106,12 @@ func (a *aaProfileManager) CustomResourceTypeName() string {
 	return customResourceTypeName
 }
 
-func loadProfile(_ logr.Logger, name, content string) (bool, error) {
-	mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
-	a := aa.NewAppArmor()
+func loadProfile(logger logr.Logger, name, content string) (bool, error) {
+	mount := hostop.NewMountHostOp(
+		hostop.WithLogger(logger),
+		hostop.WithAssumeContainer(),
+		hostop.WithAssumeHostPidNamespace())
+	a := aa.NewAppArmor(aa.WithLogger(logger))
 
 	err := mount.Do(func() error {
 		// AppArmor convention: A profile for /bin/foo is typically named `bin.foo`.
@@ -133,8 +139,11 @@ func loadProfile(_ logr.Logger, name, content string) (bool, error) {
 }
 
 func removeProfile(logger logr.Logger, profileName string) error {
-	mount := hostop.NewMountHostOp(hostop.WithAssumeContainer())
-	a := aa.NewAppArmor()
+	mount := hostop.NewMountHostOp(
+		hostop.WithLogger(logger),
+		hostop.WithAssumeContainer(),
+		hostop.WithAssumeHostPidNamespace())
+	a := aa.NewAppArmor(aa.WithLogger(logger))
 
 	err := mount.Do(func() error {
 		loaded, err := a.PolicyLoaded(profileName)
