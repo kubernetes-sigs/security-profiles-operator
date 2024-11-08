@@ -7,6 +7,7 @@ import (
 type hostOpOpts struct {
 	logger          logr.Logger
 	insideContainer func() bool
+	hostPidCheck    func() bool
 }
 
 type HostOpOption func(*hostOpOpts)
@@ -38,5 +39,13 @@ func WithAssumeContainer() HostOpOption {
 func WithAssumeHost() HostOpOption {
 	return func(o *hostOpOpts) {
 		o.insideContainer = func() bool { return false }
+	}
+}
+
+// WithAssumeHostPidNamespace ensures that HostOp always assume that the container
+// runs into the host PID namespace.
+func WithAssumeHostPidNamespace() HostOpOption {
+	return func(o *hostOpOpts) {
+		o.hostPidCheck = func() bool { return false }
 	}
 }

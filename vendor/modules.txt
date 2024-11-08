@@ -927,8 +927,8 @@ github.com/pelletier/go-toml/v2/internal/characters
 github.com/pelletier/go-toml/v2/internal/danger
 github.com/pelletier/go-toml/v2/internal/tracker
 github.com/pelletier/go-toml/v2/unstable
-# github.com/pjbgf/go-apparmor v0.1.2
-## explicit; go 1.20
+# github.com/pjbgf/go-apparmor v0.1.3-0.20241107184909-1375e5e7aa89
+## explicit; go 1.21
 github.com/pjbgf/go-apparmor/pkg/apparmor
 github.com/pjbgf/go-apparmor/pkg/hostop
 # github.com/pkg/errors v0.9.1
