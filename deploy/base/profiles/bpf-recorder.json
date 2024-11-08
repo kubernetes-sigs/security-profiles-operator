@@ -1,10 +1,32 @@
 {
   "defaultAction": "SCMP_ACT_ERRNO",
-  "architectures": [
-    "SCMP_ARCH_X86_64",
-    "SCMP_ARCH_X86",
-    "SCMP_ARCH_X32",
-    "SCMP_ARCH_AARCH64"
+  "archMap": [
+    {
+      "architecture": "SCMP_ARCH_X86_64",
+      "subArchitectures": [
+        "SCMP_ARCH_X86",
+        "SCMP_ARCH_X32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_AARCH64",
+      "subArchitectures": [
+        "SCMP_ARCH_ARM"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_PPC64LE",
+      "subArchitectures": [
+        "SCMP_ARCH_PPC64",
+        "SCMP_ARCH_PPC"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_S390X",
+      "subArchitectures": [
+        "SCMP_ARCH_S390"
+      ]
+    }
   ],
   "syscalls": [
     {
@@ -78,6 +100,7 @@
         "setuid",
         "sigaltstack",
         "socket",
+        "stat",
         "statfs",
         "tgkill",
         "uname",

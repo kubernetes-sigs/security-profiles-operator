@@ -11,6 +11,7 @@ metadata:
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift Container Platform", "OpenShift Platform Plus"]'
     operatorframework.io/cluster-monitoring: "true"
+    operatorframework.io/os.linux: supported
   name: security-profiles-operator.v0.0.0
   namespace: placeholder
 spec:
