@@ -781,24 +781,6 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	return file.Name(), nil
 }
 
-func toStringInt8(array [65]int8) string {
-	var buf [65]byte
-	for i, b := range array {
-		buf[i] = byte(b)
-	}
-
-	return toStringByte(buf[:])
-}
-
-func toStringByte(array []byte) string {
-	str := string(array)
-	if i := strings.Index(str, "\x00"); i != -1 {
-		str = str[:i]
-	}
-
-	return str
-}
-
 func (b *BpfRecorder) processEvents(events chan []byte) {
 	b.logger.Info("Processing bpf events")
 	defer b.logger.Info("Stopped processing bpf events")

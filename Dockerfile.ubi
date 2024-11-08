@@ -23,15 +23,17 @@ USER root
 WORKDIR /work
 
 RUN dnf install -y \
-  libseccomp-devel
+  libseccomp-devel \
+  libbpf
 
 ADD . /work
 RUN mkdir -p build
 
 # Use latest golang
-RUN GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1) && \
-    curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz | \
-        tar xfz - -C /usr/local
+RUN ARCH=$(arch | sed 's|x86_64|amd64|g' | sed 's|aarch64|arm64|g') && \
+    GO_VERSION=$(curl -sSfL https://go.dev/VERSION?m=text | head -n1) && \
+    curl -sSfL https://go.dev/dl/${GO_VERSION}.linux-${ARCH}.tar.gz | \
+    tar -xzf - -C /usr/local
 ENV PATH="/usr/local/go/bin:$PATH"
 
 ARG APPARMOR_ENABLED=0
@@ -48,7 +50,8 @@ ARG version
 USER root
 
 RUN microdnf install -y \
-  libseccomp
+  libseccomp \
+  libbpf
 
 LABEL name="Security Profiles Operator" \
   version=$version \

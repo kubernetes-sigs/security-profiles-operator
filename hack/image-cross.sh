@@ -22,7 +22,7 @@ REGISTRY=gcr.io/k8s-staging-sp-operator
 IMAGE=$REGISTRY/security-profiles-operator
 TAG=${TAG:-$(git describe --tags --always --dirty)}
 
-ARCHES=(amd64 arm64)
+ARCHES=(amd64 arm64 ppc64le s390x)
 VERSION=v$(cat VERSION)
 TAGS=("$TAG" "$VERSION" latest)
 
