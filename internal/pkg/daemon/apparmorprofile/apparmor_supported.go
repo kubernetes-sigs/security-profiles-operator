@@ -112,11 +112,11 @@ func loadProfile(_ logr.Logger, name, content string) (bool, error) {
 		name := strings.Trim(strings.ReplaceAll(name, "/", "."), ".")
 		path := filepath.Join(targetProfileDir, name)
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint // file permissions are fine
-			return err
+			return fmt.Errorf("writing policy file: %w", err)
 		}
 
 		if err := a.LoadPolicy(path); err != nil {
-			return err
+			return fmt.Errorf("load policy: %w", err)
 		}
 
 		loaded, err := a.PolicyLoaded(name)

@@ -282,6 +282,14 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 			continue
 		}
 
+		// This is retuned by the kernel when a dentry is removed.
+		// https://github.com/torvalds/linux/blob/2e1b3cc9d7f790145a80cb705b168f05dab65df2/fs/d_path.c#L255-L288
+		//
+		// It should be ignored since is an invalid path in the apparmor profile.
+		if fileName == "/ (deleted)" {
+			continue
+		}
+
 		knownLibrary := isKnownFile(fileName, knownLibrariesPrefixes) || fileName == b.programName
 		knownRead := isKnownFile(fileName, knownReadPrefixes)
 		knownWrite := isKnownFile(fileName, knownWritePrefixes)
