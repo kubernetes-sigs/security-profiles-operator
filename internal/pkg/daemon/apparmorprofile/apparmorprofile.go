@@ -276,7 +276,10 @@ func (r *Reconciler) handleDeletion(sp *v1alpha1.AppArmorProfile) error {
 func (r *Reconciler) logNodeInfo() {
 	r.log.Info("detecting apparmor support...")
 
-	mount := hostop.NewMountHostOp(hostop.WithLogger(r.log), hostop.WithAssumeContainer())
+	mount := hostop.NewMountHostOp(
+		hostop.WithLogger(r.log),
+		hostop.WithAssumeContainer(),
+		hostop.WithAssumeHostPidNamespace())
 	a := aa.NewAppArmor(aa.WithLogger(r.log))
 
 	err := mount.Do(func() error {
