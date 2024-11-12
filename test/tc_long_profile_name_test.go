@@ -55,7 +55,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 		id, strings.Join(nodes, ","))
 
 	const maxTries = 10
-	for i := 0; i < maxTries; i++ {
+	for i := range maxTries {
 		e.logf("Comparing node status items with node length (try %d)", i+1)
 
 		seccompProfileNodeStatusJSON := e.kubectl(

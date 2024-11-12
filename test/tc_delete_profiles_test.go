@@ -174,7 +174,7 @@ spec:
 
 		e.logf("Waiting for profile to be marked as terminating but not deleted")
 		// TODO(jhrozek): deleting manifests as Ready=False, reason=Deleting, can we wait in a nicer way?
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			sp := e.getSeccompProfile(deleteProfileName, namespace)
 			conReady := sp.Status.GetReadyCondition()
 			if conReady.Reason == spodv1alpha1.ReasonDeleting {

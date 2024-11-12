@@ -60,7 +60,6 @@ func TestAppArmorGlobToRegex(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			result, err := appArmorGlobToRegex(tc.globPattern)
@@ -168,7 +167,6 @@ func TestMergeFilesystem(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := base.DeepCopy()

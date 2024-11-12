@@ -35,7 +35,7 @@ const (
 )
 
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		e.logf("Waiting for enricher to record syscalls")
 		logs := e.kubectlOperatorNS(
 			"logs",

@@ -109,7 +109,7 @@ spec:
 	e.waitFor("condition=initialized", "pod", podName)
 
 	e.logf("Waiting for pod to be completed")
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		output := e.kubectl("get", "pod", podName)
 		if strings.Contains(output, "Completed") {
 			break

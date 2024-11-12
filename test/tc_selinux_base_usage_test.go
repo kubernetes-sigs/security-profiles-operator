@@ -226,7 +226,7 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 	// note: this would have been much nicer with kubectl wait --jsonpath, but I found it racy incase the status
 	// doesn't exist yet. So we're using a loop instead.
 	var exitCode string
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		exitCode = e.kubectl("get", "pods", "errorlogger",
 			"-o", "jsonpath={.status.containerStatuses[0].state.terminated.exitCode}")
 		if exitCode == "1" {
@@ -318,7 +318,7 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 	e.writeAndCreate(podWithPolicy, "pod-w-incomplete-disabled-policy.yml")
 
 	var exitCode string
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		// loop a few times, because the pod might be in creating state
 		exitCode = e.kubectl("get", "pods", "errorlogger",
 			"-o", "jsonpath={.status.containerStatuses[0].state.waiting.reason}")
@@ -340,7 +340,7 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 }
 
 func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, nodeIterations int, sleep time.Duration) {
-	for i := 0; i < nodeIterations; i++ {
+	for i := range nodeIterations {
 		var missingPolName string
 
 		for _, node := range nodes {
@@ -366,7 +366,7 @@ func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, node
 }
 
 func (e *e2e) assertSelinuxPolicyIsRemoved(nodes []string, policy string, nodeIterations int, sleep time.Duration) {
-	for i := 0; i < nodeIterations; i++ {
+	for i := range nodeIterations {
 		var missingPolName string
 
 		for _, node := range nodes {
