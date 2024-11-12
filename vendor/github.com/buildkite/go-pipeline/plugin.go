@@ -35,13 +35,27 @@ func (p *Plugin) MarshalJSON() ([]byte, error) {
 	return json.Marshal(o)
 }
 
-// MarshalYAML returns the plugin in either "one-item map" form. Plugin sources
+// MarshalYAML returns the plugin in "one-item map" form. Plugin sources
 // are marshalled into "full" form.  Plugins originally specified as a single
 // string (no config, only source) are canonicalised into "one-item map" with
-// config nil.
+// config nil. Configs that are zero-length maps are canonicalised to nil.
 func (p *Plugin) MarshalYAML() (any, error) {
+	cfg := p.Config
+	switch x := cfg.(type) {
+	case map[string]any:
+		if len(x) == 0 {
+			cfg = nil
+		}
+
+	case []any:
+		// Should be invalid, but a different part of the process should be
+		// responsible for checking and complaining.
+		if len(x) == 0 {
+			cfg = nil
+		}
+	}
 	return map[string]any{
-		p.FullSource(): p.Config,
+		p.FullSource(): cfg,
 	}, nil
 }
 

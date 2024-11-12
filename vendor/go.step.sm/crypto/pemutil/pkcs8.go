@@ -174,7 +174,6 @@ func (c rfc1423Algo) deriveKey(password, salt []byte, h func() hash.Hash) []byte
 // key derived using PBKDF2 over the given password.
 func DecryptPEMBlock(block *pem.Block, password []byte) ([]byte, error) {
 	if block.Headers["Proc-Type"] == "4,ENCRYPTED" {
-		//nolint:staticcheck // required for legacy compatibility
 		return x509.DecryptPEMBlock(block, password)
 	}
 

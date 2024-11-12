@@ -94,6 +94,7 @@ type MergeRequestApprovalRule struct {
 	ID                   int                  `json:"id"`
 	Name                 string               `json:"name"`
 	RuleType             string               `json:"rule_type"`
+	ReportType           string               `json:"report_type"`
 	EligibleApprovers    []*BasicUser         `json:"eligible_approvers"`
 	ApprovalsRequired    int                  `json:"approvals_required"`
 	SourceRule           *ProjectApprovalRule `json:"source_rule"`
@@ -173,6 +174,26 @@ func (s *MergeRequestApprovalsService) UnapproveMergeRequest(pid interface{}, mr
 	u := fmt.Sprintf("projects/%s/merge_requests/%d/unapprove", PathEscape(project), mr)
 
 	req, err := s.client.NewRequest(http.MethodPost, u, nil, options)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.client.Do(req, nil)
+}
+
+// ResetApprovalsOfMergeRequest clear all approvals of merge request on GitLab.
+// Available only for bot users based on project or group tokens.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/merge_request_approvals.html#reset-approvals-of-a-merge-request
+func (s *MergeRequestApprovalsService) ResetApprovalsOfMergeRequest(pid interface{}, mr int, options ...RequestOptionFunc) (*Response, error) {
+	project, err := parseID(pid)
+	if err != nil {
+		return nil, err
+	}
+	u := fmt.Sprintf("projects/%s/merge_requests/%d/reset_approvals", PathEscape(project), mr)
+
+	req, err := s.client.NewRequest(http.MethodPut, u, nil, options)
 	if err != nil {
 		return nil, err
 	}

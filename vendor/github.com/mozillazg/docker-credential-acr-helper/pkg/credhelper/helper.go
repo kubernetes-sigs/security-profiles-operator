@@ -34,7 +34,7 @@ func (a *ACRHelper) WithLoggerOut(w io.Writer) *ACRHelper {
 
 func (a *ACRHelper) Get(serverURL string) (string, string, error) {
 	// TODO: add cache
-	cred, err := a.client.GetCredentials(serverURL)
+	cred, err := a.client.GetCredentials(serverURL, a.logger)
 	if err != nil {
 		a.logger.WithField("name", version.ProjectName).
 			WithField("serverURL", serverURL).

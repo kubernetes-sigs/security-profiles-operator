@@ -2,6 +2,7 @@ package acr
 
 import (
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"time"
 
 	cr2016 "github.com/alibabacloud-go/cr-20160607/client"
@@ -15,8 +16,8 @@ type personClient struct {
 	client *cr2016.Client
 }
 
-func newPersonClient(region string) (*personClient, error) {
-	cred, err := getOpenapiAuth()
+func newPersonClient(region string, logger *logrus.Logger) (*personClient, error) {
+	cred, err := getOpenapiAuth(logger)
 	if err != nil {
 		return nil, err
 	}

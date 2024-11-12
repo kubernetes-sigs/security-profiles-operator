@@ -61,7 +61,7 @@ wait_for() {
 
 install_operator() {
   echo "Installing security-profiles-operator"
-  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.0/cert-manager.yaml
+  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml
   k_wait -n cert-manager pod -l app.kubernetes.io/instance=cert-manager
 
   git apply hack/deploy-localhost.patch

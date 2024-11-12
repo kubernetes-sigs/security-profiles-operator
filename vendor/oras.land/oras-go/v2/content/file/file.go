@@ -283,7 +283,8 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 	return nil
 }
 
-// restoreDuplicates restores successor files with same content but different names.
+// restoreDuplicates restores successor files with same content but different
+// names.
 // See Store.ForceCAS for more info.
 func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) error {
 	successors, err := content.Successors(ctx, s, desc)
@@ -310,8 +311,16 @@ func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) 
 				return fmt.Errorf("%q: %s: %w", name, desc.MediaType, err)
 			}
 			return nil
-		}(); err != nil && !errors.Is(err, errdef.ErrNotFound) {
-			return err
+		}(); err != nil {
+			switch {
+			case errors.Is(err, errdef.ErrNotFound):
+				// allow pushing manifests before blobs
+			case errors.Is(err, ErrDuplicateName):
+				// in case multiple goroutines are pushing or restoring the same
+				// named content, the error is ignored
+			default:
+				return err
+			}
 		}
 	}
 	return nil

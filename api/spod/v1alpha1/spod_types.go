@@ -73,7 +73,7 @@ type Condition struct {
 // ignoring the LastTransitionTime.
 //
 //nolint:gocritic // just a few bytes too heavy
-func (c Condition) Equal(other Condition) bool {
+func (c *Condition) Equal(other Condition) bool {
 	return c.Type == other.Type &&
 		c.Status == other.Status &&
 		c.Reason == other.Reason &&

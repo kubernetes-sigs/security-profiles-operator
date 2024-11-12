@@ -1,17 +1,26 @@
 package acr
 
 import (
+	"github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
+	"time"
 
-	"github.com/AliyunContainerService/ack-ram-tool/pkg/credentials/alibabacloudsdkgo/helper"
+	"github.com/AliyunContainerService/ack-ram-tool/pkg/credentials/provider"
 	"github.com/aliyun/credentials-go/credentials"
-	"github.com/mozillazg/docker-credential-acr-helper/pkg/version"
 )
 
 var defaultProfilePath = filepath.Join("~", ".alibabacloud", "credentials")
 
-func getOpenapiAuth() (credentials.Credential, error) {
+type credentialForV2SDK struct {
+	*provider.CredentialForV2SDK
+}
+
+type logWrapper struct {
+	logger *logrus.Logger
+}
+
+func getOpenapiAuth(logger *logrus.Logger) (credentials.Credential, error) {
 	profilePath := defaultProfilePath
 	if os.Getenv(credentials.ENVCredentialFile) != "" {
 		profilePath = os.Getenv(credentials.ENVCredentialFile)
@@ -20,16 +29,55 @@ func getOpenapiAuth() (credentials.Credential, error) {
 	if err == nil {
 		if _, err := os.Stat(path); err == nil {
 			_ = os.Setenv(credentials.ENVCredentialFile, path)
+			return credentials.NewCredential(nil)
 		}
 	}
-	var conf *credentials.Config
 
-	if helper.HaveOidcCredentialRequiredEnv() {
-		return helper.NewOidcCredential(version.ProjectName)
+	cp := provider.NewDefaultChainProvider(provider.DefaultChainProviderOptions{
+		Logger: &logWrapper{logger: logger},
+	})
+	cred := &credentialForV2SDK{
+		CredentialForV2SDK: provider.NewCredentialForV2SDK(cp, provider.CredentialForV2SDKOptions{
+			CredentialRetrievalTimeout: time.Second * 30,
+			Logger:                     &logWrapper{logger: logger},
+		}),
 	}
 
-	cred, err := credentials.NewCredential(conf)
 	return cred, err
+}
+
+func (c *credentialForV2SDK) GetCredential() (*credentials.CredentialModel, error) {
+	ak, err := c.GetAccessKeyId()
+	if err != nil {
+		return nil, err
+	}
+	sk, err := c.GetAccessKeySecret()
+	if err != nil {
+		return nil, err
+	}
+	token, err := c.GetSecurityToken()
+	if err != nil {
+		return nil, err
+	}
+	return &credentials.CredentialModel{
+		AccessKeyId:     ak,
+		AccessKeySecret: sk,
+		SecurityToken:   token,
+		BearerToken:     nil,
+		Type:            c.GetType(),
+	}, err
+}
+
+func (l *logWrapper) Info(msg string) {
+	l.logger.Debug(msg)
+}
+
+func (l *logWrapper) Debug(msg string) {
+	l.logger.Debug(msg)
+}
+
+func (l *logWrapper) Error(err error, msg string) {
+	l.logger.WithError(err).Error(msg)
 }
 
 func expandPath(path string) (string, error) {
