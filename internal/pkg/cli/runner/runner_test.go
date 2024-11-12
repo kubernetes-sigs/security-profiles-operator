@@ -142,7 +142,7 @@ func waitForFunctionCall(t *testing.T, fn func() int) {
 	t.Helper()
 
 	countGreaterZero := false
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		if fn() > 0 {
 			countGreaterZero = true
 			break

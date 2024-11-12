@@ -29,7 +29,7 @@ const (
 )
 
 func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		e.logf("Waiting for bpf recorder to start recording profiles %v", profiles)
 		logs := e.kubectlOperatorNS(
 			"logs",

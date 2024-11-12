@@ -186,7 +186,6 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -228,7 +227,6 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 		},
 	}
 	for _, tc := range badCases {
-		tc := tc
 		badPod.Spec.SecurityContext.SeccompProfile.LocalhostProfile = &tc.profile
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

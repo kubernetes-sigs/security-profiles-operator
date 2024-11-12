@@ -229,7 +229,7 @@ spec:
 	// Retry a couple of times because removing the partial policies is not atomic. In prod you'd probably list the
 	// profiles and check the absence of the partial label.
 	policiesRecorded := make([]string, 0)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		policiesRecordedString := e.kubectl("get", resource,
 			"-l", "spo.x-k8s.io/recording-id="+mergeProfileRecordingName,
 			"-o", "jsonpath={.items[*].metadata.name}")
@@ -259,7 +259,7 @@ spec:
 func retryAssertPrfStatus(e *e2e, kind, name, enabledState string, isPolicyEnabled policyDisableSwitch) {
 	var profileStatus string
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		profileStatus = e.kubectl(
 			"get", kind, name, "-o", "jsonpath={.status.status}")
 		if profileStatus != "" {

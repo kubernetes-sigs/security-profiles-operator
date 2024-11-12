@@ -82,7 +82,6 @@ func TestGetSeccompLocalhostProfilePath(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := GetSeccompLocalhostProfilePath(tt.node)
@@ -127,7 +126,6 @@ func TestGetContainerRuntime(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := GetContainerRuntime(tt.node)
@@ -156,7 +154,6 @@ func TestGetVersion(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := GetVersion(tt.node)
@@ -221,7 +218,6 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := MatchSelinuxdImageJSONMapping(tt.node, []byte(mappingJSON))
