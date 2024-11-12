@@ -69,7 +69,7 @@ function deploy_deps() {
 
     # cert-manager first. This should be done using dependencies in the
     # future
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.0/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml
     kubectl_wait -ncert-manager --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
     # All installation methods run off the same catalog
@@ -205,19 +205,19 @@ function deploy_spo() {
 }
 
 function try_until_ok() {
-    { set +x; } 2>/dev/null  # disable trace output temporarily
+    { set +x; } 2>/dev/null # disable trace output temporarily
 
     local cmd="$1"
-    shift  # Remove the command from the argument list
+    shift # Remove the command from the argument list
 
     # retry until it succeeds or until time is up
     local end_time=$(($(date +%s) + 180))
-    while (( $(date +%s) < end_time )); do
+    while (($(date +%s) < end_time)); do
         local cmd_start_time=$(date +%s)
         if "$cmd" "$@" 1>/dev/null 2>/dev/null; then
             break
         fi
-        if (( $(date +%s) == $cmd_start_time )); then
+        if (($(date +%s) == $cmd_start_time)); then
             sleep 1
         fi
     done

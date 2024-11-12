@@ -50,6 +50,12 @@ type Matrix struct {
 	RemainingFields map[string]any `yaml:",inline"`
 }
 
+// IsEmpty reports whether the matrix is empty (is nil, or has no setup,
+// no adjustments, and no other data within it).
+func (m *Matrix) IsEmpty() bool {
+	return m == nil || (len(m.Setup) == 0 && len(m.Adjustments) == 0 && len(m.RemainingFields) == 0)
+}
+
 // UnmarshalOrdererd unmarshals from either []any or *ordered.MapSA.
 func (m *Matrix) UnmarshalOrdered(o any) error {
 	switch src := o.(type) {

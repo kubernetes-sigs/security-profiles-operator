@@ -17,10 +17,9 @@ package auth
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"strings"
 
-	"oras.land/oras-go/v2/internal/slices"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -276,14 +275,14 @@ func CleanScopes(scopes []string) []string {
 				}
 				actions = append(actions, action)
 			}
-			sort.Strings(actions)
+			slices.Sort(actions)
 			scope := resourceType + ":" + resourceName + ":" + strings.Join(actions, ",")
 			result = append(result, scope)
 		}
 	}
 
 	// sort and return
-	sort.Strings(result)
+	slices.Sort(result)
 	return result
 }
 
@@ -302,7 +301,7 @@ func cleanActions(actions []string) []string {
 	}
 
 	// slow path
-	sort.Strings(actions)
+	slices.Sort(actions)
 	n := 0
 	for i := 0; i < len(actions); i++ {
 		if actions[i] == "*" {

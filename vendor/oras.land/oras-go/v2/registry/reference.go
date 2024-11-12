@@ -34,13 +34,13 @@ var (
 	//
 	// References:
 	//   - https://github.com/distribution/distribution/blob/v2.7.1/reference/regexp.go#L53
-	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc4/spec.md#pulling-manifests
+	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0/spec.md#pulling-manifests
 	repositoryRegexp = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)*$`)
 
 	// tagRegexp checks the tag name.
 	// The docker and OCI spec have the same regular expression.
 	//
-	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc4/spec.md#pulling-manifests
+	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0/spec.md#pulling-manifests
 	tagRegexp = regexp.MustCompile(`^[\w][\w.-]{0,127}$`)
 )
 
@@ -192,7 +192,7 @@ func (r Reference) Validate() error {
 
 // ValidateRegistry validates the registry.
 func (r Reference) ValidateRegistry() error {
-	if uri, err := url.ParseRequestURI("dummy://" + r.Registry); err != nil || uri.Host != r.Registry {
+	if uri, err := url.ParseRequestURI("dummy://" + r.Registry); err != nil || uri.Host == "" || uri.Host != r.Registry {
 		return fmt.Errorf("%w: invalid registry %q", errdef.ErrInvalidReference, r.Registry)
 	}
 	return nil

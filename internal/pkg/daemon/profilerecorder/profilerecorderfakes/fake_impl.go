@@ -219,14 +219,14 @@ type FakeImpl struct {
 		result1 client.Client
 		result2 error
 	}
-	NewControllerManagedByStub        func(manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.Reconciler) error
+	NewControllerManagedByStub        func(manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.TypedReconciler[reconcile.Request]) error
 	newControllerManagedByMutex       sync.RWMutex
 	newControllerManagedByArgsForCall []struct {
 		arg1 manager.Manager
 		arg2 string
 		arg3 func(obj runtime.Object) bool
 		arg4 func(obj runtime.Object) bool
-		arg5 reconcile.Reconciler
+		arg5 reconcile.TypedReconciler[reconcile.Request]
 	}
 	newControllerManagedByReturns struct {
 		result1 error
@@ -1147,7 +1147,7 @@ func (fake *FakeImpl) NewClientReturnsOnCall(i int, result1 client.Client, resul
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) NewControllerManagedBy(arg1 manager.Manager, arg2 string, arg3 func(obj runtime.Object) bool, arg4 func(obj runtime.Object) bool, arg5 reconcile.Reconciler) error {
+func (fake *FakeImpl) NewControllerManagedBy(arg1 manager.Manager, arg2 string, arg3 func(obj runtime.Object) bool, arg4 func(obj runtime.Object) bool, arg5 reconcile.TypedReconciler[reconcile.Request]) error {
 	fake.newControllerManagedByMutex.Lock()
 	ret, specificReturn := fake.newControllerManagedByReturnsOnCall[len(fake.newControllerManagedByArgsForCall)]
 	fake.newControllerManagedByArgsForCall = append(fake.newControllerManagedByArgsForCall, struct {
@@ -1155,7 +1155,7 @@ func (fake *FakeImpl) NewControllerManagedBy(arg1 manager.Manager, arg2 string, 
 		arg2 string
 		arg3 func(obj runtime.Object) bool
 		arg4 func(obj runtime.Object) bool
-		arg5 reconcile.Reconciler
+		arg5 reconcile.TypedReconciler[reconcile.Request]
 	}{arg1, arg2, arg3, arg4, arg5})
 	stub := fake.NewControllerManagedByStub
 	fakeReturns := fake.newControllerManagedByReturns
@@ -1176,13 +1176,13 @@ func (fake *FakeImpl) NewControllerManagedByCallCount() int {
 	return len(fake.newControllerManagedByArgsForCall)
 }
 
-func (fake *FakeImpl) NewControllerManagedByCalls(stub func(manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.Reconciler) error) {
+func (fake *FakeImpl) NewControllerManagedByCalls(stub func(manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.TypedReconciler[reconcile.Request]) error) {
 	fake.newControllerManagedByMutex.Lock()
 	defer fake.newControllerManagedByMutex.Unlock()
 	fake.NewControllerManagedByStub = stub
 }
 
-func (fake *FakeImpl) NewControllerManagedByArgsForCall(i int) (manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.Reconciler) {
+func (fake *FakeImpl) NewControllerManagedByArgsForCall(i int) (manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.TypedReconciler[reconcile.Request]) {
 	fake.newControllerManagedByMutex.RLock()
 	defer fake.newControllerManagedByMutex.RUnlock()
 	argsForCall := fake.newControllerManagedByArgsForCall[i]

@@ -45,6 +45,7 @@ func (d *Disjunction) Default() Value {
 //
 // It also closes a list, representing its default value.
 func (v *Vertex) Default() *Vertex {
+	v = v.DerefValue()
 	switch d := v.BaseValue.(type) {
 	default:
 		return v
@@ -123,6 +124,22 @@ func stripNonDefaults(elem Elem) (r Elem, stripped bool) {
 			bin.X = a.(Expr)
 			bin.Y = b.(Expr)
 			return &bin, true
+		}
+		return x, false
+
+	case *ConjunctGroup:
+		// NOTE: this code requires allocations unconditional. This should be
+		// mitigated once we optimize conjunct groupings.
+		isNew := false
+		var a ConjunctGroup = make([]Conjunct, len(*x))
+		for i, c := range *x {
+			a[i].x, ok = stripNonDefaults(c.Expr())
+			if ok {
+				isNew = true
+			}
+		}
+		if isNew {
+			return &a, true
 		}
 		return x, false
 

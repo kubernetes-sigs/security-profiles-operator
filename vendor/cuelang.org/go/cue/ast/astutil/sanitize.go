@@ -31,7 +31,7 @@ import (
 // - change a predeclared identifier reference to use the __ident form,
 //   instead of introducing an alias.
 
-// Sanitize rewrites File f in place to be well formed after automated
+// Sanitize rewrites File f in place to be well-formed after automated
 // construction of an AST.
 //
 // Rewrites:
@@ -50,11 +50,11 @@ func Sanitize(f *ast.File) error {
 	}
 
 	// Gather all names.
-	walk(&scope{
+	walkVisitor(f, &scope{
 		errFn:   z.errf,
 		nameFn:  z.addName,
 		identFn: z.markUsed,
-	}, f)
+	})
 	if z.errs != nil {
 		return z.errs
 	}
@@ -67,7 +67,7 @@ func Sanitize(f *ast.File) error {
 		index:   make(map[string]entry),
 	}
 	z.fileScope = s
-	walk(s, f)
+	walkVisitor(f, s)
 	if z.errs != nil {
 		return z.errs
 	}
@@ -317,7 +317,7 @@ func (z *sanitizer) handleIdent(s *scope, n *ast.Ident) bool {
 }
 
 // uniqueName returns a new name globally unique name of the form
-// base_XX ... base_XXXXXXXXXXXXXX or _base or the same pattern with a '_'
+// base_NN ... base_NNNNNNNNNNNNNN or _base or the same pattern with a '_'
 // prefix if hidden is true.
 //
 // It prefers short extensions over large ones, while ensuring the likelihood of
