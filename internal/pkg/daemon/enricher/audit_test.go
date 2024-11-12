@@ -87,7 +87,6 @@ func Test_isAuditLine(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := IsAuditLine(tt.logLine)
@@ -205,7 +204,6 @@ func Test_extractAuditLine(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, gotErr := ExtractAuditLine(tt.logLine)

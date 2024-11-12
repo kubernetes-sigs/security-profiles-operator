@@ -104,7 +104,7 @@ func (e *e2e) testCaseAppArmorBaseUsage(nodes []string) {
 func (e *e2e) assertAppArmorProfileIsInstalled(
 	nodes []string, profile string, nodeIterations int, sleep time.Duration,
 ) {
-	for i := 0; i < nodeIterations; i++ {
+	for i := range nodeIterations {
 		var missingPolName string
 
 		for _, node := range nodes {
@@ -135,7 +135,7 @@ func (e *e2e) assertAppArmorProfileIsInstalled(
 }
 
 func (e *e2e) assertAppArmorProfileIsRemoved(nodes []string, profile string, nodeIterations int, sleep time.Duration) {
-	for i := 0; i < nodeIterations; i++ {
+	for i := range nodeIterations {
 		var missingPolName string
 
 		for _, node := range nodes {

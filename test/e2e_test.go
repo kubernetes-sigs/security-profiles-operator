@@ -282,7 +282,7 @@ spec:
 	_, err = file.WriteString(certManifest)
 	e.Nil(err)
 	defer os.Remove(file.Name())
-	for i := 0; i < tries; i++ {
+	for range tries {
 		output, err := command.New(e.kubectlPath, "apply", "-f", file.Name()).Run()
 		e.Nil(err)
 		if output.Success() {
@@ -459,7 +459,7 @@ func (e *e2e) sliceContainsString(slice []string, s string) bool {
 }
 
 func (e *e2e) waitForSpod() {
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		output, err := command.New(
 			e.kubectlPath, "-n", config.OperatorName,
 			"get", "pod", "-l", "name=spod",
@@ -476,7 +476,7 @@ func (e *e2e) waitForSpod() {
 }
 
 func (e *e2e) retryGet(args ...string) string {
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		output, err := command.New(
 			e.kubectlPath, append([]string{"get"}, args...)...,
 		).RunSilent()

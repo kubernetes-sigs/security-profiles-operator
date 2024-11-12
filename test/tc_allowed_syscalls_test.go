@@ -137,7 +137,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	// Wait for profile to be deleted by the operator because it is not allowed anymore by the
 	// allowedSyscalls list.
 	exists := true
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		exists = e.existsSeccompProfile(name, "-n", namespace)
 		if !exists {
 			break
@@ -216,7 +216,7 @@ spec:
 	// Check that the profile is not deleted while the pod is active but only mark as
 	// terminated.
 	e.logf("Ensuring profile cannot be deleted while pod is active")
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sp := e.getSeccompProfile(allowProfileName, namespace)
 		conReady := sp.Status.GetReadyCondition()
 		if conReady.Reason == spodv1alpha1.ReasonDeleting {
@@ -232,7 +232,7 @@ spec:
 
 	// Wait for profile to be deleted by the operator
 	exists := true
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		exists = e.existsSeccompProfile(allowProfileName, "-n", namespace)
 		if !exists {
 			break

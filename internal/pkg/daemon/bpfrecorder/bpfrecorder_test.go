@@ -746,7 +746,6 @@ func TestApparmorForProfile(t *testing.T) {
 			},
 		},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -864,7 +863,7 @@ func TestNewPidEvent(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
 				var foundMntns uint32
-				for i := 0; i < 100; i++ {
+				for range 100 {
 					if containerID, ok := sut.containerIDToProfileMap.GetBackwards("profile.json"); ok {
 						if actualMntns, ok := sut.mntnsToContainerIDMap.GetBackwards(containerID); ok {
 							foundMntns = actualMntns
@@ -887,7 +886,7 @@ func TestNewPidEvent(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
 				success := false
-				for i := 0; i < 100; i++ {
+				for range 100 {
 					logger.mutex.RLock()
 					success = util.Contains(logger.messages, "No container ID found for PID")
 					logger.mutex.RUnlock()
@@ -911,7 +910,7 @@ func TestNewPidEvent(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
 				success := false
-				for i := 0; i < 100; i++ {
+				for range 100 {
 					logger.mutex.RLock()
 					success = util.Contains(logger.messages, "Unable to find profile in cluster for container ID")
 					logger.mutex.RUnlock()
