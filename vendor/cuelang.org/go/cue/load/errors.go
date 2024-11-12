@@ -65,7 +65,7 @@ func (p *PackageError) Error() string {
 type NoFilesError struct {
 	Package *build.Instance
 
-	ignored bool // whether any Go files were ignored due to build tags
+	ignored bool // whether any CUE files were ignored due to build tags
 }
 
 func (e *NoFilesError) Position() token.Pos         { return token.NoPos }
@@ -126,7 +126,7 @@ func (e *MultiplePackageError) InputPositions() []token.Pos { return nil }
 func (e *MultiplePackageError) Path() []string              { return nil }
 
 func (e *MultiplePackageError) Msg() (string, []interface{}) {
-	return "found packages %q (%s) and %s (%s) in %q", []interface{}{
+	return "found packages %q (%s) and %q (%s) in %q", []interface{}{
 		e.Packages[0],
 		e.Files[0],
 		e.Packages[1],

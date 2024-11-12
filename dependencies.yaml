@@ -12,7 +12,7 @@ dependencies:
       match: CI_IMAGE
 
   - name: golangci-lint
-    version: 1.60.2
+    version: 1.62.0
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -42,7 +42,7 @@ dependencies:
       match: OLM_VERSION
 
   - name: cert-manager
-    version: 1.15.0
+    version: 1.16.1
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -54,13 +54,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.23.0
+    version: 0.25.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.30.0
+    version: 1.31.2
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -74,7 +74,7 @@ dependencies:
       match: QEMUVERSION
 
   - name: e2e-kubernetes
-    version: 1.30
+    version: 1.31
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: KUBERNETES_VERSION
