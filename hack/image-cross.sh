@@ -24,12 +24,12 @@ TAG=${TAG:-$(git describe --tags --always --dirty)}
 
 ARCHES=(amd64 arm64)
 VERSION=v$(cat VERSION)
-QEMUVERSION=7.2.0-1
+QEMUVERSION=7.0.0-28
 TAGS=("$TAG" "$VERSION" latest)
 
 # Build and push the main image
 docker run --rm --privileged \
-    multiarch/qemu-user-static:$QEMUVERSION --reset -p yes
+    tonistiigi/binfmt:qemu-v$QEMUVERSION@sha256:66e11bea77a5ea9d6f0fe79b57cd2b189b5d15b93a2bdb925be22949232e4e55 --install all
 docker buildx version
 BUILDER=$(docker buildx create --use)
 
