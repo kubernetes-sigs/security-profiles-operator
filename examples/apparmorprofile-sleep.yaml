@@ -6,7 +6,7 @@ policy: |2
 
     # Executable rules
 
-    /bin/busybox ix,
+    /bin/busybox ixr,
 
 
     /lib/ld-musl-x86_64.so.1 mr,

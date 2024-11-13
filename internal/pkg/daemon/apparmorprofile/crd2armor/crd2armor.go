@@ -32,7 +32,7 @@ profile {{.Name}} flags=(attach_disconnected,mediate_deleted) {
 
   # Executable rules
 {{ if ne .Abstract.Executable nil }}{{ if ne .Abstract.Executable.AllowedExecutables nil }}
-{{range $allowed := .Abstract.Executable.AllowedExecutables}}  {{$allowed}} ix,
+{{range $allowed := .Abstract.Executable.AllowedExecutables}}  {{$allowed}} ixr,
 {{end}}{{end}}
 {{ if ne .Abstract.Executable.AllowedLibraries nil }}
 {{range $allowedlib := .Abstract.Executable.AllowedLibraries}}  {{$allowedlib}} mr,
