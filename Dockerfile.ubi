@@ -18,7 +18,7 @@
 # for more details
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi8/go-toolset@sha256:bd2057262d0876188976f79d2246717994de9e03dd589b1e6471dd2b2777204f AS build
+FROM registry.access.redhat.com/ubi8/go-toolset@sha256:fe1c5eee22c78e1a9806323ee46329a41ac99521c5022c84765c4d698abb4e81 AS build
 USER root
 WORKDIR /work
 
@@ -37,7 +37,7 @@ ARG STATIC_LINK=no
 RUN make
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:c0e70387664f30cd9cf2795b547e4a9a51002c44a4a86aa9335ab030134bf392
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:ba0d97dd43fea58f9bdcc4488c60a3869827e1e30a51c11bbfae3fb7dc91e6f5
 ARG version
 USER root
 
