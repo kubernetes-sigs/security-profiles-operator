@@ -57,7 +57,7 @@ Vagrant.configure("2") do |config|
       podman load -i /vagrant/image.tar
 
       # Baseprofile recording requires cosign
-      COSIGN_VERSION=v2.2.1
+      COSIGN_VERSION=v2.4.1
       COSIGN_BINARY=/usr/bin/cosign
       curl -sSfL --retry 5 --retry-delay 3 "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64" -o "$COSIGN_BINARY"
       chmod +x "$COSIGN_BINARY"

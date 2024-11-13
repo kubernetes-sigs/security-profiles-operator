@@ -24,19 +24,19 @@ dependencies:
       match: REPO_INFRA_VERSION
 
   - name: kustomize
-    version: 5.2.1
+    version: 5.5.0
     refPaths:
     - path: Makefile
       match: KUSTOMIZE_VERSION
 
   - name: operator-sdk
-    version: v1.25.0
+    version: v1.37.0
     refPaths:
     - path: Makefile
       match: OPERATOR_SDK_VERSION
 
   - name: olm
-    version: v0.18.2
+    version: v0.30.0
     refPaths:
     - path: hack/ci/e2e-olm.sh
       match: OLM_VERSION
@@ -96,19 +96,19 @@ dependencies:
       match: config.vm.box
 
   - name: debian-base-digest
-    version: sha256:b30608f5a81f8ba99b287322d0bfb77ec506adcce396147aa4a59699d69be3e0
+    version: sha256:0a17678966f63e82e9c5e246d9e654836a33e13650a698adefede61bb5ca099e
     refPaths:
     - path: Dockerfile.build-image
       match: registry.k8s.io/build-image/debian-base
 
   - name: debian-base
-    version: bookworm-v1.0.3
+    version: bookworm-v1.0.4
     refPaths:
     - path: Dockerfile.build-image
       match: tag
 
   - name: nix
-    version: 2.18.1
+    version: 2.25.0
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION
@@ -116,7 +116,7 @@ dependencies:
       match: NIX_VERSION
 
   - name: kube-rbac-proxy
-    version: 0.15.0
+    version: 0.16.0
     refPaths:
     - path: internal/pkg/manager/spod/bindata/spod.go
       match: gcr.io/kubebuilder/kube-rbac-proxy
@@ -138,13 +138,13 @@ dependencies:
       match: gcr.io/kubebuilder/kube-rbac-proxy
 
   - name: gcb-docker-gcloud
-    version: v20231105-52c482caa0
+    version: v20241111-71c32dbdcc
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   - name: libbpf
-    version: 1.4.0
+    version: 1.5.0
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
@@ -176,7 +176,7 @@ dependencies:
       match: baseProfileName
 
   - name: cosign
-    version: v2.2.1
+    version: v2.4.1
     refPaths:
     - path: hack/ci/Vagrantfile-ubuntu
       match: COSIGN_VERSION
@@ -184,7 +184,7 @@ dependencies:
       match: COSIGN_VERSION
 
   - name: bom
-    version: v0.5.1
+    version: v0.6.0
     refPaths:
     - path: .github/workflows/build.yml
       match: BOM_VERSION
@@ -243,7 +243,7 @@ dependencies:
         match: MDTOC_VERSION
 
   - name: yq
-    version: 4.35.2
+    version: 4.44.3
     refPaths:
       - path: hack/ci/install-yq.sh
         match: YQ_VERSION
