@@ -49,6 +49,7 @@ func main() {
 	fileWrite := flag.String("file-write", "", "write file (e.g. /dev/null)")
 	fileRead := flag.String("file-read", "", "read file (e.g. /dev/null). Multiple files may be separated by comma.")
 	fileSymlink := flag.String("file-symlink", "", "Create symlink using the following syntax: OLD:NEW")
+	dirRead := flag.String("dir-read", "", "read directory (e.g. /dev/). Multiple directories may be separated by comma.")
 	netTCP := flag.Bool("net-tcp", false, "spawn a tcp server")
 	netUDP := flag.Bool("net-udp", false, "spawn a udp server")
 	netIcmp := flag.Bool("net-icmp", false, "open an icmp socket, exercise NET_RAW capability.")
@@ -99,7 +100,16 @@ func main() {
 			if err != nil {
 				log.Fatal("❌ Error reading file:", err)
 			}
-			log.Println("✅ File read successful:", *fileRead)
+			log.Println("✅ File read successful:", file)
+		}
+	}
+	if *dirRead != "" {
+		for _, dir := range strings.Split(*dirRead, ",") {
+			_, err := os.ReadDir(dir)
+			if err != nil {
+				log.Fatal("❌ Error reading directory:", err)
+			}
+			log.Println("✅ Directory read successful:", dir)
 		}
 	}
 	if *netTCP {

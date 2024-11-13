@@ -36,6 +36,7 @@
 #define PROT_NONE 0x0
 
 #define S_IFIFO 0010000
+#define S_IFDIR 0040000
 
 #define CAP_OPT_NOAUDIT 0b10
 
@@ -165,11 +166,24 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
         return 0;
     }
 
-    int ok = bpf_d_path(&file->f_path, event->data, sizeof(event->data));
-    if (ok < 0) {
-        bpf_printk("register_file_event bpf_d_path failed: %i\n", ok);
+    int pathlen = bpf_d_path(&file->f_path, event->data, sizeof(event->data));
+    if (pathlen < 0) {
+        bpf_printk("register_file_event bpf_d_path failed: %i\n", pathlen);
         bpf_ringbuf_discard(event, 0);
         return 0;
+    }
+
+    if (file->f_inode->i_mode & S_IFDIR) {
+        // overly pedantic check to make ebpf verifier happy
+        if (pathlen - 2 < sizeof(event->data) && pathlen - 1 < sizeof(event->data) && pathlen < sizeof(event->data)){
+            if(event->data[pathlen - 2] != '/') {
+                // No trailing slash, add `/` and move null byte.
+                event->data[pathlen - 1] = '/';
+                event->data[pathlen] = '\0';
+            }
+        } else {
+            bpf_printk("failed to fixup directory entry, not enough space.");
+        }
     }
 
     event->pid = pid;
