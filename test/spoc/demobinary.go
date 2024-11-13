@@ -39,7 +39,7 @@ const LogPrefixEnvVar = "LOGPREFIX"
 
 // Demo binary to exercise various capabilities that may be restricted by seccomp/apparmor.
 //
-//nolint:gocognit // complexity is ok
+//nolint:gocyclo,gocognit // complexity is ok
 func main() {
 	log.SetPrefix(fmt.Sprintf("%s[pid:%d] ", os.Getenv(LogPrefixEnvVar), os.Getpid()))
 	log.SetFlags(log.Lshortfile)
