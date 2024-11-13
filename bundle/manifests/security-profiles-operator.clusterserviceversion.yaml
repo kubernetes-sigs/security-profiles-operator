@@ -242,13 +242,14 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.8.4
+    createdAt: "2024-11-13T09:48:41Z"
     olm.skipRange: '>=0.4.1 <0.8.5-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
       Container Platform", "OpenShift Platform Plus"]'
-    operators.operatorframework.io/builder: operator-sdk-v1.25.0
-    operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
+    operators.operatorframework.io/builder: operator-sdk-v1.37.0
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
   name: security-profiles-operator.v0.8.5-dev
   namespace: placeholder
 spec:
@@ -669,7 +670,7 @@ spec:
                 - manager
                 env:
                 - name: RELATED_IMAGE_RBAC_PROXY
-                  value: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+                  value: gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0
                 - name: RELATED_IMAGE_SELINUXD
                   value: quay.io/security-profiles-operator/selinuxd
                 - name: RELATED_IMAGE_SELINUXD_EL8
@@ -795,7 +796,7 @@ spec:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
   relatedImages:
-  - image: gcr.io/kubebuilder/kube-rbac-proxy:v0.15.0
+  - image: gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0
     name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd

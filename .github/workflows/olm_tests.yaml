@@ -25,8 +25,7 @@ jobs:
       run: |
         mkdir -p ${GITHUB_WORKSPACE}/build
         echo "${GITHUB_WORKSPACE}/build" >> ${GITHUB_PATH}
-        make operator-sdk
-        make opm
+        make operator-sdk opm
 
     - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
       with:

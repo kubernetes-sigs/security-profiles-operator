@@ -15,7 +15,7 @@
 
 set -euox pipefail
 
-OLM_VERSION=v0.18.2
+OLM_VERSION=v0.30.0
 
 REPO=localhost:5000
 IMG=${REPO}/security-profiles-operator:${GITHUB_SHA}
