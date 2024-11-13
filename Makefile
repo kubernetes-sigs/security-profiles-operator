@@ -16,8 +16,8 @@ GO ?= go
 
 GOLANGCI_LINT_VERSION = v1.62.0
 REPO_INFRA_VERSION = v0.2.5
-KUSTOMIZE_VERSION = 5.2.1
-OPERATOR_SDK_VERSION ?= v1.25.0
+KUSTOMIZE_VERSION = 5.5.0
+OPERATOR_SDK_VERSION ?= v1.37.0
 ZEITGEIST_VERSION = v0.5.4
 MDTOC_VERSION = v1.4.0
 CI_IMAGE ?= golang:1.23
@@ -581,7 +581,7 @@ bundle-push: ## Push the bundle image.
 
 .PHONY: verify-bundle
 verify-bundle: bundle ## Verify the bundle doesn't alter the state of the tree
-	hack/tree-status
+	git diff -I'^    createdAt: '
 
 .PHONY: opm
 OPM = $(BUILD_DIR)/opm

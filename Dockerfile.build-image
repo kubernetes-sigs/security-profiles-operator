@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# hash below relates to tag: bookworm-v1.0.3
-FROM registry.k8s.io/build-image/debian-base@sha256:b30608f5a81f8ba99b287322d0bfb77ec506adcce396147aa4a59699d69be3e0
+# hash below relates to tag: bookworm-v1.0.4
+FROM registry.k8s.io/build-image/debian-base@sha256:0a17678966f63e82e9c5e246d9e654836a33e13650a698adefede61bb5ca099e
 WORKDIR /work
 
 RUN apt-get update && \
@@ -24,7 +24,7 @@ RUN apt-get update && \
 
 ENV USER=root
 
-ARG NIX_VERSION=2.18.1
+ARG NIX_VERSION=2.25.0
 RUN wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
   tar xf nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
   groupadd -r -g 30000 nixbld && \

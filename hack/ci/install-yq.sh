@@ -17,7 +17,7 @@ set -euo pipefail
 
 install_yq() {
   echo "Installing yq"
-  YQ_VERSION=4.35.2
+  YQ_VERSION=4.44.3
   curl_retry -o /usr/bin/yq \
     https://github.com/mikefarah/yq/releases/download/v$YQ_VERSION/yq_linux_amd64
   sudo chmod +x /usr/bin/yq
