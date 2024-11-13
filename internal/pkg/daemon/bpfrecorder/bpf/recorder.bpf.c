@@ -174,9 +174,12 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
     }
 
     if (file->f_inode->i_mode & S_IFDIR) {
-        // overly pedantic check to make ebpf verifier happy
-        if (pathlen - 2 < sizeof(event->data) && pathlen - 1 < sizeof(event->data) && pathlen < sizeof(event->data)){
-            if(event->data[pathlen - 2] != '/') {
+        // more checks than necessary, but only checking each offset
+        // individually makes the ebpf verifier happy.
+        if (pathlen >= 2 && pathlen - 2 < sizeof(event->data) &&
+            pathlen - 1 < sizeof(event->data) &&
+            pathlen < sizeof(event->data)) {
+            if (event->data[pathlen - 2] != '/') {
                 // No trailing slash, add `/` and move null byte.
                 event->data[pathlen - 1] = '/';
                 event->data[pathlen] = '\0';
