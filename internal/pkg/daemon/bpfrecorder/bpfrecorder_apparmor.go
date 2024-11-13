@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -241,8 +240,6 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 }
 
 func replaceVarianceInFilePath(filePath string) string {
-	filePath = filepath.Clean(filePath)
-
 	// Replace PID value with a apparmor variable.
 	pathWithPid := regexp.MustCompile(`^/proc/\d+/`)
 	filePath = pathWithPid.ReplaceAllString(filePath, "/proc/@{pid}/")
