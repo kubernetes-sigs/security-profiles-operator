@@ -25,13 +25,20 @@ RUN apt-get update && \
 ENV USER=root
 
 ARG NIX_VERSION=2.25.0
-RUN wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
-  tar xf nix-${NIX_VERSION}-x86_64-linux.tar.xz && \
+
+RUN \
+  if [ "$TARGETARCH" = "amd64" ]; then \
+    export ARCH=x86_64; \
+  else \
+    export ARCH=aarch64; \
+  fi && \
+  wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-${ARCH}-linux.tar.xz && \
+  tar xf nix-${NIX_VERSION}-${ARCH}-linux.tar.xz && \
   groupadd -r -g 30000 nixbld && \
   for i in $(seq 1 30); do useradd -rM -u $((30000 + i)) -G nixbld nixbld$i ; done && \
   mkdir -m 0755 /etc/nix /nix && \
   printf "sandbox = false\nfilter-syscalls = false\n" > /etc/nix/nix.conf && \
-  nix-${NIX_VERSION}-x86_64-linux/install && \
+  nix-${NIX_VERSION}-${ARCH}-linux/install && \
   ln -s /nix/var/nix/profiles/default/etc/profile.d/nix.sh /etc/profile.d && \
   rm -rf nix-*
 
