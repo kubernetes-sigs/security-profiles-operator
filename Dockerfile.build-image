@@ -25,14 +25,9 @@ RUN apt-get update && \
 ENV USER=root
 
 ARG NIX_VERSION=2.25.0
-ARG TARGETARCH
 
 RUN \
-  if [ "$TARGETARCH" = "amd64" ]; then \
-    export ARCH=x86_64; \
-  else \
-    export ARCH=aarch64; \
-  fi && \
+  export ARCH=x86_64 && \
   wget https://nixos.org/releases/nix/nix-${NIX_VERSION}/nix-${NIX_VERSION}-${ARCH}-linux.tar.xz && \
   tar xf nix-${NIX_VERSION}-${ARCH}-linux.tar.xz && \
   groupadd -r -g 30000 nixbld && \

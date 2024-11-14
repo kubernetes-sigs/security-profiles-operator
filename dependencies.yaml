@@ -67,12 +67,6 @@ dependencies:
     - path: .github/workflows/olm_tests.yaml
       match: KIND_IMG_TAG
 
-  - name: qemu
-    version: 7.2.0-1
-    refPaths:
-    - path: hack/image-cross.sh
-      match: QEMUVERSION
-
   - name: e2e-kubernetes
     version: 1.31
     refPaths:
