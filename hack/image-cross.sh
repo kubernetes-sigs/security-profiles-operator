@@ -24,20 +24,10 @@ TAG=${TAG:-$(git describe --tags --always --dirty)}
 
 ARCHES=(amd64 arm64)
 VERSION=v$(cat VERSION)
-QEMUVERSION=7.2.0-1
 TAGS=("$TAG" "$VERSION" latest)
 
-# Build and push the main image
-docker run --rm --privileged \
-    multiarch/qemu-user-static:$QEMUVERSION --reset -p yes
-docker buildx version
-BUILDER=$(docker buildx create --use)
-
 for ARCH in "${ARCHES[@]}"; do
-    docker buildx build \
-        --pull \
-        --load \
-        --platform "linux/$ARCH" \
+    docker build \
         -t "$IMAGE-$ARCH:$TAG" \
         -t "$IMAGE-$ARCH:$VERSION" \
         -t "$IMAGE-$ARCH:latest" \
@@ -48,8 +38,6 @@ for ARCH in "${ARCHES[@]}"; do
         docker push "$IMAGE-$ARCH:$T"
     done
 done
-
-docker buildx rm "$BUILDER"
 
 for T in "${TAGS[@]}"; do
     docker manifest create --amend "$IMAGE:$T" \
@@ -70,7 +58,7 @@ CATALOG_IMG_BASE=$IMAGE-catalog
 export BUNDLE_IMG=$BUNDLE_IMG_BASE:$VERSION
 export CATALOG_IMG=$CATALOG_IMG_BASE:$VERSION
 
-make bundle-build bundle-push catalog-build catalog-push
+make bundle-build bundle-push catalog-build catalog-push CONTAINER_RUNTIME=docker
 
 # Ensure all tags are up to date
 IMAGES=("$BUNDLE_IMG_BASE" "$CATALOG_IMG_BASE")
