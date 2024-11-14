@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # to pin base image below may require further changes on build/release processes
-FROM quay.io/security-profiles-operator/build:latest AS build
+FROM quay.io/security-profiles-operator/build:main AS build
 
 COPY . /work
 
