@@ -25,6 +25,7 @@ RUN apt-get update && \
 ENV USER=root
 
 ARG NIX_VERSION=2.25.0
+ARG TARGETARCH
 
 RUN \
   if [ "$TARGETARCH" = "amd64" ]; then \
