@@ -79,8 +79,10 @@ func TestAllowAnyFiles(t *testing.T) {
 		},
 		{
 			name: "allow any files if more than two files are already allowed",
-			paths: []string{"/etc/nginx/conf.d/default.conf", "/dev/null",
-				"/etc/nginx/conf.d/sedIWASqqq", "/etc/nginx/conf.d/abcd"},
+			paths: []string{
+				"/etc/nginx/conf.d/default.conf", "/dev/null",
+				"/etc/nginx/conf.d/sedIWASqqq", "/etc/nginx/conf.d/abcd",
+			},
 			want: []string{"/etc/nginx/conf.d/*", "/dev/null"},
 		},
 		{
