@@ -63,3 +63,43 @@ func TestReplaceVarianceInFilePath(t *testing.T) {
 		})
 	}
 }
+
+func TestAllowAnyFiles(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		paths []string
+		want  []string
+	}{
+		{
+			name:  "allow any files if at least two files are already allowed",
+			paths: []string{"/etc/nginx/conf.d/default.conf", "/dev/null", "/etc/nginx/conf.d/sedIWASqqq"},
+			want:  []string{"/etc/nginx/conf.d/*", "/dev/null"},
+		},
+		{
+			name: "allow any files if more than two files are already allowed",
+			paths: []string{"/etc/nginx/conf.d/default.conf", "/dev/null",
+				"/etc/nginx/conf.d/sedIWASqqq", "/etc/nginx/conf.d/abcd"},
+			want: []string{"/etc/nginx/conf.d/*", "/dev/null"},
+		},
+		{
+			name:  "do not allow any files ",
+			paths: []string{"/etc/nginx/conf.d/default.conf", "/dev/null"},
+			want:  []string{"/etc/nginx/conf.d/default.conf", "/dev/null"},
+		},
+		{
+			name:  "do not allow anything if nothing is allowed",
+			paths: []string{},
+			want:  []string{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := allowAnyFiles(test.paths)
+			require.Equal(t, test.want, got)
+		})
+	}
+}

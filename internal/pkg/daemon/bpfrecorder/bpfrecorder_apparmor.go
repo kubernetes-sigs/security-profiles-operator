@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -264,7 +265,7 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	}
 
 	for fileName, access := range b.recordedFiles[mid] {
-		if ok := b.processDeletedFiles(fileName, &processedEvents); ok {
+		if ok := processDeletedFiles(fileName, &processedEvents); ok {
 			continue
 		}
 
@@ -294,6 +295,14 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 		}
 	}
 
+	// Allow any files in a directory if already at least two files are allowed to have read-write
+	// permissions. There are binaries like nginx which typically create files with random name on
+	// every start in the /etc/nginx/config.d/ directory. These random named files cannot be captured
+	// in advance and allowed in the apparmor profile. This logic SHOULD NOT be applied to read-only
+	// files because in that case the file paths are static and should be captured up-front by the
+	// recorder.
+	processedEvents.ReadWritePaths = allowAnyFiles(processedEvents.ReadWritePaths)
+
 	slices.Sort(processedEvents.AllowedExecutables)
 	slices.Sort(processedEvents.AllowedLibraries)
 	slices.Sort(processedEvents.ReadOnlyPaths)
@@ -303,7 +312,8 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	return processedEvents
 }
 
-func (b *AppArmorRecorder) processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProcessed) bool {
+// processDeletedFiles process file paths which are marked as deleted by the Linux kernel.
+func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProcessed) bool {
 	// Workaround for HUGETLB support with apparmor:
 	// AppArmor treats mmap(..., MAP_ANONYMOUS | MAP_HUGETLB) calls as
 	// file access to "", which is then attached to "/" (attach_disconnected).
@@ -328,6 +338,26 @@ func (b *AppArmorRecorder) processDeletedFiles(fileName string, processedEvents 
 	}
 
 	return false
+}
+
+// allowAnyFiles allows any file in a directory if more than two files are allowed.
+func allowAnyFiles(filePaths []string) []string {
+	dupDirs := map[string]int{}
+	for _, fp := range filePaths {
+		dir := filepath.Dir(fp)
+		dupDirs[dir] += 1
+	}
+	result := []string{}
+	for _, fp := range filePaths {
+		dir := filepath.Dir(fp)
+		if dupDirs[dir] > 1 {
+			result = append(result, filepath.Join(dir, "*"))
+			dupDirs[dir] = 0
+		} else if dupDirs[dir] == 1 {
+			result = append(result, fp)
+		}
+	}
+	return result
 }
 
 func (b *AppArmorRecorder) processCapabilities(mid mntnsID) []string {
