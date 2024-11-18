@@ -264,26 +264,7 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	}
 
 	for fileName, access := range b.recordedFiles[mid] {
-		// Workaround for HUGETLB support with apparmor:
-		// AppArmor treats mmap(..., MAP_ANONYMOUS | MAP_HUGETLB) calls as
-		// file access to "", which is then attached to "/" (attach_disconnected).
-		// So for HUGETLB to work with AppArmor, we need a `/ rw` rule in our profile.
-		// (note that there is no wildcard here - subdirectories/files are not affected).
-		// https://gitlab.com/apparmor/apparmor/-/issues/345
-		//
-		// At the same time, eBPF's bpf_d_path is also slightly confused and reports
-		// access to a path named "/anon_hugepage (deleted)" on mmap. Instead of building complex
-		// workarounds and hooking mmap, we just treat that as a canary for HUGETLB usage.
-		if fileName == "/anon_hugepage (deleted)" {
-			processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, "/")
-			continue
-		}
-
-		// This is returned by the kernel when a dentry is removed.
-		// https://github.com/torvalds/linux/blob/2e1b3cc9d7f790145a80cb705b168f05dab65df2/fs/d_path.c#L255-L288
-		//
-		// It should be ignored since is an invalid path in the apparmor profile.
-		if fileName == "/ (deleted)" {
+		if ok := b.processDeletedFiles(fileName, &processedEvents); ok {
 			continue
 		}
 
@@ -320,6 +301,33 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	slices.Sort(processedEvents.ReadWritePaths)
 
 	return processedEvents
+}
+
+func (b *AppArmorRecorder) processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProcessed) bool {
+	// Workaround for HUGETLB support with apparmor:
+	// AppArmor treats mmap(..., MAP_ANONYMOUS | MAP_HUGETLB) calls as
+	// file access to "", which is then attached to "/" (attach_disconnected).
+	// So for HUGETLB to work with AppArmor, we need a `/ rw` rule in our profile.
+	// (note that there is no wildcard here - subdirectories/files are not affected).
+	// https://gitlab.com/apparmor/apparmor/-/issues/345
+	//
+	// At the same time, eBPF's bpf_d_path is also slightly confused and reports
+	// access to a path named "/anon_hugepage (deleted)" on mmap. Instead of building complex
+	// workarounds and hooking mmap, we just treat that as a canary for HUGETLB usage.
+	if fileName == "/anon_hugepage (deleted)" {
+		processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, "/")
+		return true
+	}
+
+	// This is returned by the kernel when a dentry is removed.
+	// https://github.com/torvalds/linux/blob/2e1b3cc9d7f790145a80cb705b168f05dab65df2/fs/d_path.c#L255-L288
+	//
+	// It should be ignored since is an invalid path in the apparmor profile.
+	if fileName == "/ (deleted)" {
+		return true
+	}
+
+	return false
 }
 
 func (b *AppArmorRecorder) processCapabilities(mid mntnsID) []string {
