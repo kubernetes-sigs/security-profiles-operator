@@ -77,6 +77,11 @@ Vagrant.configure("2") do |config|
       # Load the prebuilt container image
       podman load -i /vagrant/image.tar
 
+      # Setup CNI to disable IPv6
+      CNI_CONFIG=/etc/cni/net.d/10-crio-bridge.conflist
+      jq 'del(.plugins[0].ipam.routes[1], .plugins[0].ipam.ranges[1])' $CNI_CONFIG >tmp
+      mv tmp $CNI_CONFIG
+
       # Setup CRI-O
       systemctl enable --now crio
 
