@@ -2225,8 +2225,8 @@ sigs.k8s.io/gateway-api/apis/v1
 ## explicit; go 1.18
 sigs.k8s.io/json
 sigs.k8s.io/json/internal/golang/encoding/json
-# sigs.k8s.io/release-utils v0.8.4
-## explicit; go 1.21
+# sigs.k8s.io/release-utils v0.8.5
+## explicit; go 1.23
 sigs.k8s.io/release-utils/command
 sigs.k8s.io/release-utils/env
 sigs.k8s.io/release-utils/env/internal
