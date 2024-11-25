@@ -28,7 +28,7 @@ require (
 	github.com/prometheus/client_model v0.6.1
 	github.com/seccomp/libseccomp-golang v0.10.0
 	github.com/sigstore/cosign/v2 v2.4.1
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli/v2 v2.27.5
 	golang.org/x/mod v0.22.0
 	golang.org/x/net v0.31.0
