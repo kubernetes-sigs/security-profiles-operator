@@ -137,6 +137,11 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 
 	log.Printf("File access: %s, flags=%d pid=%d mntns=%d\n", fileName, fileEvent.Flags, fileEvent.Pid, fileEvent.Mntns)
 
+	if shouldExcludeFile(fileName) {
+		log.Printf("Excluded File: %s", fileName)
+		return
+	}
+
 	mid := mntnsID(fileEvent.Mntns)
 	if _, ok := b.recordedFiles[mid]; !ok {
 		b.recordedFiles[mid] = map[string]*fileAccess{}
@@ -252,6 +257,15 @@ func replaceVarianceInFilePath(filePath string) string {
 	// Replace container ID with any container ID
 	pathWithCid := regexp.MustCompile(`^/var/lib/containers/storage/overlay/\w+/`)
 	return pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
+}
+
+func shouldExcludeFile(filePath string) bool {
+	for _, f := range excludedFilePrefixes {
+		if strings.HasPrefix(filePath, f) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProcessed {
