@@ -116,7 +116,7 @@ func TestShouldExcludeFile(t *testing.T) {
 	}{
 		{
 			name:     "Should exclude containerd file",
-			filePath: "/run/containerd/io.containerd.runtime.v2.task/k8s.io/1806f41e981228490db1cf974bcec4e137762e99f31d5fe81be3672baa5be2eb/rootfs",
+			filePath: "/run/containerd/io.containerd.runtime.v2.task/k8s.io/1806f41e981228490db/rootfs",
 			want:     true,
 		},
 		{
