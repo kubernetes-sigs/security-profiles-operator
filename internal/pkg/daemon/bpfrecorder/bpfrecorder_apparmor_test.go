@@ -105,3 +105,42 @@ func TestAllowAnyFiles(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldExcludeFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		filePath string
+		want     bool
+	}{
+		{
+			name:     "Should exclude containerd file",
+			filePath: "/run/containerd/io.containerd.runtime.v2.task/k8s.io/1806f41e981228490db1cf974bcec4e137762e99f31d5fe81be3672baa5be2eb/rootfs",
+			want:     true,
+		},
+		{
+			name:     "Should exclude runc binary",
+			filePath: "/usr/bin/runc",
+			want:     true,
+		},
+		{
+			name:     "Should exclude apparmor/exec",
+			filePath: "/proc/@{pid}/attr/apparmor/exec",
+			want:     true,
+		},
+		{
+			name:     "Should not exclude normal files",
+			filePath: "/etc/group",
+			want:     false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := shouldExcludeFile(test.filePath)
+			require.Equal(t, test.want, got)
+		})
+	}
+}

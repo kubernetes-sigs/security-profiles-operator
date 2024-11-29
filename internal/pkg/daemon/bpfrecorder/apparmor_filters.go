@@ -54,3 +54,11 @@ var knownReadPrefixes = []string{
 var knownWritePrefixes = []string{
 	"/dev/log",
 }
+
+// excludedFilePrefixes of known file paths which should be filter out
+// from the apparmor profile.
+var excludedFilePrefixes = []string{
+	"/run/containerd/io.containerd.runtime.v2.task/k8s.io",
+	"/usr/bin/runc",
+	"/proc/@{pid}/attr/apparmor/exec",
+}
