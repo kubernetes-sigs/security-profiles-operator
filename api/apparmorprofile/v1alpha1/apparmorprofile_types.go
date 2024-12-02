@@ -68,7 +68,6 @@ type AppArmorProfileSpec struct {
 	// Common spec fields for all profiles.
 	profilebasev1alpha1.SpecBase `json:",inline"`
 
-	Policy   string           `json:"policy,omitempty"`
 	Abstract AppArmorAbstract `json:"abstract,omitempty"`
 }
 
