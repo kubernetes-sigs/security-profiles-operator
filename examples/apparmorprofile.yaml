@@ -6,14 +6,5 @@ metadata:
   annotations:
     description: Block writing to any files in the disk.
 spec:
-  policy: |
-    #include <tunables/global>
-
-    profile test-profile flags=(attach_disconnected) {
-      #include <abstractions/base>
-
-      file,
-
-      # Deny all file writes.
-      deny /** w,
-    }
+  abstract:
+    filesystem: [] # denies all file write and read access
