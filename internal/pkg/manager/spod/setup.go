@@ -44,16 +44,14 @@ type CtxKey string
 
 const (
 	// ManageWebhookKey value key used in the Setup.Context for ManageWebhook value.
-	ManageWebhookKey  CtxKey = "ManageWebhook"
-	selinuxdImageKey  string = "RELATED_IMAGE_SELINUXD"
-	rbacProxyImageKey string = "RELATED_IMAGE_RBAC_PROXY"
+	ManageWebhookKey CtxKey = "ManageWebhook"
+	selinuxdImageKey string = "RELATED_IMAGE_SELINUXD"
 )
 
 // daemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type daemonTunables struct {
 	selinuxdImage           string
-	rbacProxyImage          string
 	logEnricherImage        string
 	watchNamespace          string
 	seccompLocalhostProfile string
@@ -125,12 +123,6 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 
 	dt := &daemonTunables{}
 	dt.watchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
-
-	rbacProxyImage := os.Getenv(rbacProxyImageKey)
-	if rbacProxyImage == "" {
-		return dt, errors.New("invalid rbac proxy image")
-	}
-	dt.rbacProxyImage = rbacProxyImage
 
 	node := &corev1.Node{}
 	nodeName := os.Getenv(config.NodeNameEnvKey)
@@ -207,9 +199,6 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 
 	logEnricher := &refSPOd.Spec.Template.Spec.Containers[2]
 	logEnricher.Image = dt.logEnricherImage
-
-	metrixCtr := &refSPOd.Spec.Template.Spec.Containers[4]
-	metrixCtr.Image = dt.rbacProxyImage
 
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well

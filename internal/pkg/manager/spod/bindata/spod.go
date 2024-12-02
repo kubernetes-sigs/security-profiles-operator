@@ -17,7 +17,6 @@ limitations under the License.
 package bindata
 
 import (
-	"fmt"
 	"path/filepath"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -32,48 +31,45 @@ import (
 
 var (
 	userRoot                  int64
-	falsely                         = false
-	truly                           = true
-	userRootless                    = int64(config.UserRootless)
-	hostPathDirectory               = corev1.HostPathDirectory
-	hostPathDirectoryOrCreate       = corev1.HostPathDirectoryOrCreate
-	hostPathFile                    = corev1.HostPathFile
-	servicePort               int32 = 443
-	healthzPath                     = "/healthz"
-	etcOSReleasePath                = "/etc/os-release"
-	metricsPort               int32 = 9443
-	metricsCertPath                 = "/var/run/secrets/metrics"
-	metricsServerCert               = "metrics-server-cert"
-	openshiftCertAnnotation         = "service.beta.openshift.io/serving-cert-secret-name"
-	localSeccompProfilePath         = LocalSeccompProfilePath
+	falsely                   = false
+	truly                     = true
+	userRootless              = int64(config.UserRootless)
+	hostPathDirectory         = corev1.HostPathDirectory
+	hostPathDirectoryOrCreate = corev1.HostPathDirectoryOrCreate
+	hostPathFile              = corev1.HostPathFile
+	healthzPath               = "/healthz"
+	etcOSReleasePath          = "/etc/os-release"
+	openshiftCertAnnotation   = "service.beta.openshift.io/serving-cert-secret-name"
+	localSeccompProfilePath   = LocalSeccompProfilePath
 )
 
 const (
-	HomeDirectory                              = "/home"
-	TempDirectory                              = "/tmp"
-	SelinuxDropDirectory                       = "/etc/selinux.d"
-	SelinuxdPrivateDir                         = "/var/run/selinuxd"
-	SelinuxdSocketPath                         = SelinuxdPrivateDir + "/selinuxd.sock"
-	SelinuxdDBPath                             = SelinuxdPrivateDir + "/selinuxd.db"
-	MetricsImage                               = "gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0"
-	sysKernelDebugPath                         = "/sys/kernel/debug"
-	sysKernelSecurityPath                      = "/sys/kernel/security"
-	InitContainerIDNonRootenabler              = 0
-	InitContainerIDSelinuxSharedPoliciesCopier = 1
-	ContainerIDDaemon                          = 0
-	ContainerIDSelinuxd                        = 1
-	ContainerIDLogEnricher                     = 2
-	ContainerIDBpfRecorder                     = 3
-	ContainerIDMetrics                         = 4
-	DefaultHostProcPath                        = "/proc"
-	MetricsContainerName                       = "metrics"
-	SelinuxContainerName                       = "selinuxd"
-	LogEnricherContainerName                   = "log-enricher"
-	BpfRecorderContainerName                   = "bpf-recorder"
-	NonRootEnablerContainerName                = "non-root-enabler"
-	SelinuxPoliciesCopierContainerName         = "selinux-shared-policies-copier"
-	LocalSeccompProfilePath                    = "security-profiles-operator.json"
-	DefaultPriorityClassName                   = "system-node-critical"
+	HomeDirectory                                    = "/home"
+	TempDirectory                                    = "/tmp"
+	SelinuxDropDirectory                             = "/etc/selinux.d"
+	SelinuxdPrivateDir                               = "/var/run/selinuxd"
+	SelinuxdSocketPath                               = SelinuxdPrivateDir + "/selinuxd.sock"
+	SelinuxdDBPath                                   = SelinuxdPrivateDir + "/selinuxd.db"
+	sysKernelDebugPath                               = "/sys/kernel/debug"
+	sysKernelSecurityPath                            = "/sys/kernel/security"
+	InitContainerIDNonRootenabler                    = 0
+	InitContainerIDSelinuxSharedPoliciesCopier       = 1
+	ContainerIDDaemon                                = 0
+	ContainerIDSelinuxd                              = 1
+	ContainerIDLogEnricher                           = 2
+	ContainerIDBpfRecorder                           = 3
+	DefaultHostProcPath                              = "/proc"
+	SelinuxContainerName                             = "selinuxd"
+	LogEnricherContainerName                         = "log-enricher"
+	BpfRecorderContainerName                         = "bpf-recorder"
+	NonRootEnablerContainerName                      = "non-root-enabler"
+	SelinuxPoliciesCopierContainerName               = "selinux-shared-policies-copier"
+	LocalSeccompProfilePath                          = "security-profiles-operator.json"
+	DefaultPriorityClassName                         = "system-node-critical"
+	servicePort                                int32 = 443
+	ContainerPort                              int32 = 9443
+	metricsServerCert                                = "metrics-server-cert"
+	MetricsCertPath                                  = "/var/run/secrets/metrics"
 )
 
 var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
@@ -171,10 +167,6 @@ var Manifest = &appsv1.DaemonSet{
 							{
 								Name:      "host-root-volume",
 								MountPath: config.HostRoot,
-							},
-							{
-								Name:      "metrics-cert-volume",
-								MountPath: metricsCertPath,
 							},
 						},
 						SecurityContext: &corev1.SecurityContext{
@@ -332,6 +324,11 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							{
 								Name:      "tmp-volume",
 								MountPath: TempDirectory,
+							},
+							{
+								Name:      "metrics-cert-volume",
+								MountPath: MetricsCertPath,
+								ReadOnly:  true,
 							},
 						},
 						SecurityContext: &corev1.SecurityContext{
@@ -606,44 +603,6 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							},
 						},
 					},
-					{
-						Name:            MetricsContainerName,
-						Image:           MetricsImage,
-						ImagePullPolicy: corev1.PullIfNotPresent,
-						Args: []string{
-							fmt.Sprintf("--secure-listen-address=0.0.0.0:%d", metricsPort),
-							"--upstream=http://127.0.0.1:8080",
-							"--v=10",
-							"--tls-cert-file=" + filepath.Join(metricsCertPath, "tls.crt"),
-							"--tls-private-key-file=" + filepath.Join(metricsCertPath, "tls.key"),
-							"--http2-disable",
-						},
-						Resources: corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{
-								corev1.ResourceMemory:           resource.MustParse("32Mi"),
-								corev1.ResourceCPU:              resource.MustParse("50m"),
-								corev1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
-							},
-							Limits: corev1.ResourceList{
-								corev1.ResourceMemory:           resource.MustParse("128Mi"),
-								corev1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
-							},
-						},
-						SecurityContext: &corev1.SecurityContext{
-							AllowPrivilegeEscalation: &falsely,
-							ReadOnlyRootFilesystem:   &truly,
-						},
-						Ports: []corev1.ContainerPort{
-							{Name: "https", ContainerPort: metricsPort},
-						},
-						VolumeMounts: []corev1.VolumeMount{
-							{
-								Name:      "metrics-cert-volume",
-								MountPath: metricsCertPath,
-								ReadOnly:  true,
-							},
-						},
-					},
 				},
 				Volumes: []corev1.Volume{
 					// /var/lib is used as symlinks cannot be created across
@@ -858,9 +817,9 @@ var metricsService = &corev1.Service{
 	Spec: corev1.ServiceSpec{
 		Ports: []corev1.ServicePort{
 			{
-				Name:       "https",
+				Name:       "http",
 				Port:       servicePort,
-				TargetPort: intstr.FromInt(int(metricsPort)),
+				TargetPort: intstr.FromInt32(ContainerPort),
 			},
 		},
 		Selector: map[string]string{
