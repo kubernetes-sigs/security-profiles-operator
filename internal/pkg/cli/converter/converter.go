@@ -59,26 +59,22 @@ func (p *Converter) Run() error {
 
 	switch obj := profile.(type) {
 	case *apparmorprofileapi.AppArmorProfile:
-		if obj.Spec.Policy != "" {
-			out = []byte(obj.Spec.Policy)
-		} else {
-			programName := p.options.programName
-			if programName == "" {
-				//nolint:lll  // long url is long
-				log.Printf("Creating an unattached AppArmor profile '%s'. "+
-					"Unattached profiles are not automatically attached to applications, see "+
-					"https://web.archive.org/web/20231211031731/https://documentation.suse.com/sles/15-SP3/html/SLES-all/cha-apparmor-profiles.html#sec-apparmor-profiles-types. "+
-					"Pass --%s to create a standard profile.",
-					obj.Name, FlagProgramName)
-				programName = obj.Name
-			}
-
-			outStr, err := crd2armor.GenerateProfile(programName, &obj.Spec.Abstract)
-			if err != nil {
-				return fmt.Errorf("build raw apparmor profile: %w", err)
-			}
-			out = []byte(outStr)
+		programName := p.options.programName
+		if programName == "" {
+			//nolint:lll  // long url is long
+			log.Printf("Creating an unattached AppArmor profile '%s'. "+
+				"Unattached profiles are not automatically attached to applications, see "+
+				"https://web.archive.org/web/20231211031731/https://documentation.suse.com/sles/15-SP3/html/SLES-all/cha-apparmor-profiles.html#sec-apparmor-profiles-types. "+
+				"Pass --%s to create a standard profile.",
+				obj.Name, FlagProgramName)
+			programName = obj.Name
 		}
+
+		outStr, err := crd2armor.GenerateProfile(programName, &obj.Spec.Abstract)
+		if err != nil {
+			return fmt.Errorf("build raw apparmor profile: %w", err)
+		}
+		out = []byte(outStr)
 	case *seccompprofileapi.SeccompProfile:
 		out, err = json.MarshalIndent(obj.Spec, "", "  ")
 		if err != nil {
