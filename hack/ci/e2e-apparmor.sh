@@ -21,6 +21,9 @@ APPARMOR_RECORDING_FILE="examples/profilerecording-apparmor-bpf.yaml"
 APPARMOR_PROFILE_NAME="test-recording-$PODNAME"
 APPARMOR_PROFILE_FILE="/tmp/apparmorprofile-sleep.yaml"
 APPARMOR_REFERENCE_PROFILE_FILE="examples/apparmorprofile-sleep.yaml"
+APPARMOR_REFERENCE_TMP_PROFILE_FILE="/tmp/apparmorprofile-sleep-reference.yaml"
+SLEEP_INTERVAL_RECORDING="30"     # 30s sleep interval during recording.
+SLEEP_INTERVAL_VERIFICATION="300" # 5min to make sure that the enforcement check finds a running  PID.
 
 # Retrieves the recorded apaprmor profile from the cluster and
 # cleans up the variances.
@@ -29,17 +32,17 @@ check_apparmor_profile() {
 
   # clean up the variance in the recorded apparmor profile
   yq -i ".spec" $APPARMOR_PROFILE_FILE
-  local name="$(grep -o '\btest-recording_test-pod[^ ]*\b' $APPARMOR_PROFILE_FILE)"
-  sed -i -e "s/\btest-recording_test-pod[^ ]*\b/test-sleep/g" $APPARMOR_PROFILE_FILE
+  cp $APPARMOR_REFERENCE_PROFILE_FILE $APPARMOR_REFERENCE_TMP_PROFILE_FILE
+  yq -i ".spec" $APPARMOR_REFERENCE_TMP_PROFILE_FILE
 
-  diff $APPARMOR_REFERENCE_PROFILE_FILE $APPARMOR_PROFILE_FILE
-  echo "${name}"
+  diff $APPARMOR_REFERENCE_TMP_PROFILE_FILE $APPARMOR_PROFILE_FILE
 }
 
 create_pod() {
   local pod_name="$1"
   local pod_file="$2"
-  local apparmor_profile="${3-}"
+  local sleep_interval="$3"
+  local apparmor_profile="${4-}"
   cat <<EOT >"$pod_file"
 ---
 apiVersion: v1
@@ -53,7 +56,7 @@ spec:
   containers:
   - name: $pod_name
     image: alpine:3
-    command: ["sleep", "30"]
+    command: ["sleep", "$sleep_interval"]
 EOT
 
   if [[ -n "$apparmor_profile" ]]; then
@@ -112,7 +115,7 @@ record_apparmor_profile() {
 
   echo "Creating pod $PODNAME and start recording its apparmor profile"
   pod_file="${TMP_DIR}/${PODNAME}.yml"
-  create_pod $PODNAME $pod_file
+  create_pod $PODNAME $pod_file $SLEEP_INTERVAL_RECORDING
   wait_for_pod_status "$PODNAME" "Completed"
   echo "Deleting pod $PODNAME"
   k delete -f "$pod_file"
@@ -126,21 +129,18 @@ record_apparmor_profile() {
   echo "-------------------------"
 
   echo "Checking the recorded appamror profile matches the reference"
-  apparmor_profile=$(check_apparmor_profile)
+  check_apparmor_profile
 
-  # TODO: Something is wrong with AppArmor throwing the following error
-  # "container create failed: write file `/proc/thread-self/attr/apparmor/exec`: No such file or directory"
+  echo "Creating pod $PODNAME with recorded profile in security context"
+  sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
+  create_pod $PODNAME $sec_pod_file $SLEEP_INTERVAL_VERIFICATION $APPARMOR_PROFILE_NAME
+  wait_for_pod_status "$PODNAME" "Running"
 
-  #echo "Creating pod $PODNAME with recorded profile in security context"
-  #sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
-  #create_pod $PODNAME $sec_pod_file $apparmor_profile
-  #wait_for_pod_status "$PODNAME" "Running"
+  echo "Checking apparmor profile enforcement on container"
+  check_profile_enforcement "sleep" $APPARMOR_PROFILE_NAME
 
-  #echo "Checking apparmor profile enforcement on container"
-  #check_profile_enforcement "sleep" $apparmor_profile
-
-  #echo "Deleting pod $PODNAME"
-  #k delete -f "$sec_pod_file"
+  echo "Deleting pod $PODNAME"
+  k delete -f "$sec_pod_file"
 
   echo "Deleting apparmor profile $APPARMOR_PROFILE_NAME"
   k delete apparmorprofile $APPARMOR_PROFILE_NAME
