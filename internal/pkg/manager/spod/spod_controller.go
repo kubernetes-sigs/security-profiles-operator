@@ -607,12 +607,6 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-mem-optim=true")
 	}
 
-	// Metrics parameters
-	templateSpec.Containers = append(
-		templateSpec.Containers,
-		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDMetrics],
-	)
-
 	for i := range templateSpec.InitContainers {
 		// Set image pull policy
 		templateSpec.InitContainers[i].ImagePullPolicy = pullPolicy
@@ -631,10 +625,6 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	}
 
 	for i := range templateSpec.Containers {
-		// The metrics image should be pulled always as IfNotPresent
-		if templateSpec.Containers[i].Name == bindata.MetricsContainerName {
-			continue
-		}
 		// Set image pull policy
 		templateSpec.Containers[i].ImagePullPolicy = pullPolicy
 

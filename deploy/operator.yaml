@@ -3091,8 +3091,6 @@ spec:
       - args:
         - manager
         env:
-        - name: RELATED_IMAGE_RBAC_PROXY
-          value: gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0
         - name: RELATED_IMAGE_SELINUXD
           value: quay.io/security-profiles-operator/selinuxd
         - name: RELATED_IMAGE_SELINUXD_EL8

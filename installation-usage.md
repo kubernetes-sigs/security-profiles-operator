@@ -1189,8 +1189,8 @@ for more details on tuning the operator's configuration with the `Subscription` 
 ## Using metrics
 
 The security-profiles-operator provides two metrics endpoints, which are secured
-by a [kube-rbac-proxy](https://github.com/brancz/kube-rbac-proxy) sidecar
-container. All metrics are exposd via the `metrics` service within the
+by default using the [`WithAuthenticationAndAuthorization`](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/metrics/filters#WithAuthenticationAndAuthorization)
+feature of the controller-runtime. All metrics are exposed via the `metrics` service within the
 `security-profiles-operator` namespace:
 
 ```
