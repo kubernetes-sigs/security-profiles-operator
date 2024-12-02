@@ -1777,17 +1777,8 @@ metadata:
   annotations:
     description: Block writing to any files in the disk.
 spec:
-  policy: |
-    #include <tunables/global>
-
-    profile test-profile flags=(attach_disconnected) {
-      #include <abstractions/base>
-
-      file,
-
-      # Deny all file writes.
-      deny /** w,
-    }
+  abstract:
+    filesystem: []
 ```
 
 Note that the name of the profile inside `spec.policy` matches the `metadata.name`,
