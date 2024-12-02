@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsfilters "sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -460,18 +461,18 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 
-	disableHTTP2 := func(c *tls.Config) {
-		c.NextProtos = []string{"http/1.1"}
-	}
 	ctrlOpts := ctrl.Options{
 		Cache:                  cache.Options{SyncPeriod: &sync},
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
 		NewCache:               newMemoryOptimizedCache(ctx),
 		Metrics: metricsserver.Options{
+			BindAddress:    fmt.Sprintf(":%d", bindata.ContainerPort),
+			CertDir:        bindata.MetricsCertPath,
+			SecureServing:  true,
+			FilterProvider: metricsfilters.WithAuthenticationAndAuthorization,
 			ExtraHandlers: map[string]http.Handler{
 				metrics.HandlerPath: met.Handler(),
 			},
-			TLSOpts: []func(*tls.Config){disableHTTP2},
 		},
 	}
 

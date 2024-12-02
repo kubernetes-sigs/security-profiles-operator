@@ -24,8 +24,6 @@ spec:
       - args:
         - manager
         env:
-        - name: RELATED_IMAGE_RBAC_PROXY
-          value: gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0
         - name: RELATED_IMAGE_SELINUXD
           value: {{ .Values.selinuxdImage.default.registry }}/{{ .Values.selinuxdImage.default.repository }}:{{ .Values.selinuxdImage.default.tag }}
         - name: RELATED_IMAGE_SELINUXD_EL8
