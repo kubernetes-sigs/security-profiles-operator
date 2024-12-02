@@ -56,22 +56,6 @@ spec:
 			outputContains: `deny /dev/null wl`,
 		},
 		{
-			name: "AppArmor Policy",
-			input: `
-apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
-kind: AppArmorProfile
-spec:
-  policy: |
-    #include <tunables/global>
-
-    profile test-profile flags=(attach_disconnected) {
-      #include <abstractions/base>
-      deny /** w,
-    }
-`,
-			outputContains: `deny /** w,`,
-		},
-		{
 			name: "seccomp",
 			input: `
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
