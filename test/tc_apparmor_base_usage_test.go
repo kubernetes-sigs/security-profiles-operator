@@ -30,17 +30,8 @@ kind: AppArmorProfile
 metadata:
   name: aa-errorlogger-profile
 spec:
-  policy: |
-    #include <tunables/global>
-
-    profile aa-errorlogger-profile flags=(attach_disconnected) {
-      #include <abstractions/base>
-
-      file,
-
-      # Deny all file writes.
-      deny /** w,
-    }
+  abstract:
+    filesystem: []
 `
 
 	aaPodWithPolicyFmt = `
