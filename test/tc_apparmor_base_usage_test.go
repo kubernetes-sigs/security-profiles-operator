@@ -31,7 +31,10 @@ metadata:
   name: aa-errorlogger-profile
 spec:
   abstract:
-    filesystem: []
+    filesystem:
+      readOnlyPaths: []
+      writeOnlyPaths: []
+      readWritePaths: []
 `
 
 	aaPodWithPolicyFmt = `
