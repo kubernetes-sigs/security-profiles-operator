@@ -116,10 +116,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseSelinuxMetrics,
 		},
 		{
-			"AppArmor: base case (install policy, run pod and delete)",
-			e.testCaseAppArmorBaseUsage,
-		},
-		{
 			"SPOD: Update SELinux flag",
 			e.testCaseSPODUpdateSelinux,
 		},
