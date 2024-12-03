@@ -81,6 +81,9 @@ EOF
 
       # Setup CRI-O
       printf '[crio.runtime]\nselinux = true' >/etc/crio/crio.conf.d/30-selinux.conf
+      # Setup CNI to disable IPv6
+      CNI_CONFIG=/etc/cni/net.d/10-crio-bridge.conflist
+      jq 'del(.plugins[0].ipam.routes[1], .plugins[0].ipam.ranges[1])' $CNI_CONFIG.disabled >$CNI_CONFIG
       systemctl enable --now crio
 
       dnf remove -y \
