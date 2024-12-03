@@ -7,4 +7,7 @@ metadata:
     description: Block writing to any files in the disk.
 spec:
   abstract:
-    filesystem: [] # denies all file write and read access
+    filesystem: # Denies all file write and read access.
+      readOnlyPaths: []
+      writeOnlyPaths: []
+      readWritePaths: []
