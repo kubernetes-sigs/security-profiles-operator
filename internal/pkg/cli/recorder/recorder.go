@@ -432,7 +432,7 @@ func (r *Recorder) buildAppArmorProfileRaw(writer io.Writer, spec *apparmorprofi
 	}
 
 	abstract := spec.Abstract
-	raw, err := crd2armor.GenerateProfile(programName, &abstract)
+	raw, err := crd2armor.GenerateProfile(programName, spec.ComplainMode, &abstract)
 	if err != nil {
 		return fmt.Errorf("build raw apparmor profile: %w", err)
 	}
