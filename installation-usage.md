@@ -1,7 +1,6 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
@@ -54,7 +53,7 @@
   - [Replicating controllers and SCCs](#replicating-controllers-and-sccs)
 - [Create an AppArmor profile](#create-an-apparmor-profile)
   - [Apply an AppArmor profile to a pod](#apply-an-apparmor-profile-to-a-pod)
-  - [Record a AppArmor profile](#record-a-apparmor-profile)
+  - [Record an AppArmor profile](#record-an-apparmor-profile)
   - [Known limitations](#known-limitations)
 - [Command Line Interface (CLI)](#command-line-interface-cli)
   - [Record seccomp profiles for a command](#record-seccomp-profiles-for-a-command)
