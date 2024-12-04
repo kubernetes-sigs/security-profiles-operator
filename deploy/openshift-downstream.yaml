@@ -2240,47 +2240,64 @@ spec:
                   executable, file, network and capabilities access.
                 properties:
                   capability:
+                    description: Capability rules for Linux capabilities.
                     properties:
                       allowedCapabilities:
+                        description: AllowedCapabilities lost of allowed capabilities.
                         items:
                           type: string
                         type: array
                     type: object
                   executable:
+                    description: Executable rules for allowed executables.
                     properties:
                       allowedExecutables:
+                        description: AllowedExecutables list of allowed executables.
                         items:
                           type: string
                         type: array
                       allowedLibraries:
+                        description: AllowedLibraries list of allowed libraries.
                         items:
                           type: string
                         type: array
                     type: object
                   filesystem:
+                    description: Filesystem rules for filesystem access.
                     properties:
                       readOnlyPaths:
+                        description: ReadOnlyPaths list of allowed read only file
+                          paths.
                         items:
                           type: string
                         type: array
                       readWritePaths:
+                        description: ReadWritePaths list of allowed read write file
+                          paths.
                         items:
                           type: string
                         type: array
                       writeOnlyPaths:
+                        description: WriteOnlyPaths list of allowed write only file
+                          paths.
                         items:
                           type: string
                         type: array
                     type: object
                   network:
+                    description: Network rules for network access.
                     properties:
                       allowRaw:
+                        description: AllowRaw allows raw sockets.
                         type: boolean
                       allowedProtocols:
+                        description: Protocols keeps the allowed networking protocols.
                         properties:
                           allowTcp:
+                            description: AllowTCP allows TCP socket connections.
                             type: boolean
                           allowUdp:
+                            description: AllowUDP allows UDP sockets connections.
                             type: boolean
                         type: object
                     type: object

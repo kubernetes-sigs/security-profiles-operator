@@ -31,36 +31,57 @@ var (
 	_ profilebasev1alpha1.SecurityProfileBase = &AppArmorProfile{}
 )
 
+// AppArmorExecutablesRules stores the rules for allowed executable.
 type AppArmorExecutablesRules struct {
+	// AllowedExecutables list of allowed executables.
 	AllowedExecutables *[]string `json:"allowedExecutables,omitempty"`
-	AllowedLibraries   *[]string `json:"allowedLibraries,omitempty"`
+	// AllowedLibraries list of allowed libraries.
+	AllowedLibraries *[]string `json:"allowedLibraries,omitempty"`
 }
 
+// AppArmorFsRules stores the rules for file system access.
 type AppArmorFsRules struct {
-	ReadOnlyPaths  *[]string `json:"readOnlyPaths,omitempty"`
+	// ReadOnlyPaths list of allowed read only file paths.
+	ReadOnlyPaths *[]string `json:"readOnlyPaths,omitempty"`
+	// WriteOnlyPaths list of allowed write only file paths.
 	WriteOnlyPaths *[]string `json:"writeOnlyPaths,omitempty"`
+	// ReadWritePaths list of allowed read write file paths.
 	ReadWritePaths *[]string `json:"readWritePaths,omitempty"`
 }
 
+// AppArmorAllowedProtocols stores the rules for allowed networking protocols.
 type AppArmorAllowedProtocols struct {
+	// AllowTCP allows TCP socket connections.
 	AllowTCP *bool `json:"allowTcp,omitempty"`
+	// AllowUDP allows UDP sockets connections.
 	AllowUDP *bool `json:"allowUdp,omitempty"`
 }
 
+// AppArmorNetworkRules stores the rules for network access.
 type AppArmorNetworkRules struct {
-	AllowRaw  *bool                     `json:"allowRaw,omitempty"`
+	// AllowRaw allows raw sockets.
+	AllowRaw *bool `json:"allowRaw,omitempty"`
+	// Protocols keeps the allowed networking protocols.
 	Protocols *AppArmorAllowedProtocols `json:"allowedProtocols,omitempty"`
 }
 
+// AllowedCapabilities stores the rules of allowed Linux capabilities.
 type AppArmorCapabilityRules struct {
+	// AllowedCapabilities lost of allowed capabilities.
 	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
 }
 
+// AppArmorAbstract AppArmor profile which stores various allowed list for
+// executable, file, network, capabilities access.
 type AppArmorAbstract struct {
+	// Executable rules for allowed executables.
 	Executable *AppArmorExecutablesRules `json:"executable,omitempty"`
-	Filesystem *AppArmorFsRules          `json:"filesystem,omitempty"`
-	Network    *AppArmorNetworkRules     `json:"network,omitempty"`
-	Capability *AppArmorCapabilityRules  `json:"capability,omitempty"`
+	// Filesystem rules for filesystem access.
+	Filesystem *AppArmorFsRules `json:"filesystem,omitempty"`
+	// Network rules for network access.
+	Network *AppArmorNetworkRules `json:"network,omitempty"`
+	// Capability rules for Linux capabilities.
+	Capability *AppArmorCapabilityRules `json:"capability,omitempty"`
 }
 
 // AppArmorProfileSpec defines the desired state of AppArmorProfile.
