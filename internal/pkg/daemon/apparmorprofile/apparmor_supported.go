@@ -79,7 +79,7 @@ func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser)
 		return false, errors.New(errInvalidCustomResourceType)
 	}
 
-	policy, err := crd2armor.GenerateProfile(profile.GetProfileName(), &profile.Spec.Abstract)
+	policy, err := crd2armor.GenerateProfile(profile.GetProfileName(), profile.Spec.ComplainMode, &profile.Spec.Abstract)
 	if err != nil {
 		return false, fmt.Errorf("generating raw apparmor profile: %w", err)
 	}
