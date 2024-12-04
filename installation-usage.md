@@ -1778,26 +1778,37 @@ metadata:
     description: Block writing to any files in the disk.
 spec:
   abstract:
-    filesystem: []
+    filesystem:
+      readOnlyPaths: []
+      readWritePaths: []
+      writeOnlyPaths: []
+  complainMode: false
+  disabled: false
 ```
 
 Note that the name of the profile inside `spec.policy` matches the `metadata.name`,
 this is currently a requirement as mentioned within the known limitations below.
 
 Based on the policy above, an AppArmor profile `test-profile` will be created and
-loaded in all nodes within the cluster.
+loaded in all nodes within the cluster. The profile will be placed in `enforce` mode.
+If you want to switch it to complain mode, you need to change the `complainMode` flag
+to `true`.  In this mode, if the profile rules don't grant permissions to an action,
+that action will be allowed, but the violation will be logged with a tag of ALLOWED unconfined.
 
 ### Apply an AppArmor profile to a pod
 
 Once the AppArmor profile is created and loaded in all cluster nodes,
-you can restrict Pod's access with the annotation:
+you can restrict Pod's access in its security context as following:
+```
+    securityContext:
+      appArmorProfile:
+        type: Localhost
+        localhostProfile: test-profile
+```
 
-`container.apparmor.security.beta.kubernetes.io/<container_name>: test-profile`
+You can see more details in the [official documentation](https://kubernetes.io/docs/tutorials/security/apparmor/).
 
-When [AppArmor becomes GA](https://github.com/kubernetes/enhancements/pull/3298) a new field within SecurityContext will be created to replace the annotations above.
-For up-to-date information on how to use AppArmor in Kubernetes, refer to the [official documentation](https://kubernetes.io/docs/tutorials/security/apparmor/).
-
-### Record a AppArmor profile
+### Record an AppArmor profile
 
 The operator is able to record AppArmor profiles for a workload using the build-in eBPF recorder. For more details, please
 refer to the [eBPF based recording](#ebpf-based-recording)) section.
@@ -1808,21 +1819,11 @@ Note that log enricher doesn't support recording of AppArmor profiles.
 
 ### Known limitations
 
-- The name set for the AppArmorProfile CRD must match the policy name
-  defined within `spec.policy`. Otherwise the reconciler will fail as it
-  won't be able to confirm the policy was correctly loaded.
 - The reconciler will simply load the profiles across the cluster. If an
-  existing profile with the same name exists, it will be replaced.
-- The SPO does not validate the profile contents. Invalid profiles
-  will error when loading into the kernel. The error can be found on the spod
-  pod and the message will roughly look like:
-  ```
-  E1112 08:35:24.072544    8668 controller.go:326]  "msg"="Reconciler error" "error"="cannot load profile into node: running action: exit status 1" "appArmorProfile"={"name":"<NAME_OF_PROFILE>","namespace":"security-profiles-operator"} "controller"="apparmorprofile" "controllerGroup"="security-profiles-operator.x-k8s.io" "controllerKind"="AppArmorProfile" "name"="<NAME_OF_PROFILE>" "namespace"="security-profiles-operator" "reconcileID"="035a4edd-cdd9-4c35-a1be-924939538ce4"
-  ```
+  existing profile with the same name exists, it will be replaced. This might cause
+  an existing profile to be overwritten (See [issue 2582](https://github.com/kubernetes-sigs/security-profiles-operator/issues/2582) for details).
 - Restrictive profiles may block sub processes to be created, or a container from
-  successfully loading. In such cases, the denied rules may not show up in the
-  log-enricher logs, as SPO may fail to find the running process to correlate to the
-  pod information. To work around the issue, set the AppArmor profile to complain mode.
+  successfully loading. To work around the issue, set the AppArmor profile to complain mode.
 
 ## Command Line Interface (CLI)
 
