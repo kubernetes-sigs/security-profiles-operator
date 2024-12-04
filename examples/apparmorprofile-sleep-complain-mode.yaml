@@ -11,6 +11,7 @@ spec:
   # Deny all file access to check if the pod stats in complain mode.
   complainMode: true
   abstract:
+    filesystem:
       readOnlyPaths: []
       readWritePaths: []
       writeOnlyPaths: []

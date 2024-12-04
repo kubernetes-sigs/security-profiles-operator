@@ -133,9 +133,9 @@ check_apparmor_profile_recording() {
 
   wait_for apparmorprofile $APPARMOR_PROFILE_NAME
 
-  echo "-------------------------"
+  echo "--------------------------"
   echo "Verifying apparmor profile"
-  echo "-------------------------"
+  echo "--------------------------"
 
   echo "Checking the recorded appamror profile matches the reference"
   check_apparmor_profile
@@ -167,17 +167,20 @@ check_apparmor_complain_mode() {
   k rollout status ds spod --timeout 360s
   k_wait spod spod
 
-  echo "--------------------------"
+  echo "---------------------------"
   echo "Installing apparmor profile"
-  echo "--------------------------"
+  echo "---------------------------"
 
   echo "Install apparmor profile in complain mode $APPARMOR_PROFILE_FILE_COMPLAIN_MODE"
   k apply -f $APPARMOR_PROFILE_FILE_COMPLAIN_MODE
   wait_for apparmorprofile $APPARMOR_PROFILE_NAME
 
-  echo "-------------------------"
+  echo "--------------------------"
   echo "Verifying apparmor profile"
-  echo "-------------------------"
+  echo "--------------------------"
+
+  TMP_DIR=$(mktemp -d)
+  trap 'rm -rf $TMP_DIR' EXIT
 
   echo "Creating pod $PODNAME with apparmor profile in complain mode in security context"
   sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
