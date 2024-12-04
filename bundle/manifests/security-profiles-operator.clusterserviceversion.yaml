@@ -248,7 +248,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.8.4
-    createdAt: "2024-12-03T12:04:53Z"
+    createdAt: "2024-12-04T09:14:26Z"
     olm.skipRange: '>=0.4.1 <0.8.5-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/suggested-namespace: security-profiles-operator
