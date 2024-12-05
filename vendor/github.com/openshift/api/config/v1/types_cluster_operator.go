@@ -15,8 +15,22 @@ import (
 //
 // Compatibility level 1: Stable within a major release for a minimum of 12 months or 3 minor releases (whichever is longer).
 // +openshift:compatibility-gen:level=1
+// +openshift:api-approved.openshift.io=https://github.com/openshift/api/pull/497
+// +openshift:file-pattern=cvoRunLevel=0000_00,operatorName=cluster-version-operator,operatorOrdering=01
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:path=clusteroperators,scope=Cluster,shortName=co
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name=Version,JSONPath=.status.versions[?(@.name=="operator")].version,type=string,description=The version the operator is at.
+// +kubebuilder:printcolumn:name=Available,JSONPath=.status.conditions[?(@.type=="Available")].status,type=string,description=Whether the operator is running and stable.
+// +kubebuilder:printcolumn:name=Progressing,JSONPath=.status.conditions[?(@.type=="Progressing")].status,type=string,description=Whether the operator is processing changes.
+// +kubebuilder:printcolumn:name=Degraded,JSONPath=.status.conditions[?(@.type=="Degraded")].status,type=string,description=Whether the operator is degraded.
+// +kubebuilder:printcolumn:name=Since,JSONPath=.status.conditions[?(@.type=="Available")].lastTransitionTime,type=date,description=The time the operator's Available status last changed.
+// +kubebuilder:metadata:annotations=include.release.openshift.io/self-managed-high-availability=true
 type ClusterOperator struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is the standard object's metadata.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	metav1.ObjectMeta `json:"metadata"`
 
 	// spec holds configuration that could apply to any operator.
@@ -204,6 +218,9 @@ const (
 // +openshift:compatibility-gen:level=1
 type ClusterOperatorList struct {
 	metav1.TypeMeta `json:",inline"`
+
+	// metadata is the standard list's metadata.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	metav1.ListMeta `json:"metadata"`
 
 	Items []ClusterOperator `json:"items"`

@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/imdario/mergo"
+	"dario.cat/mergo"
 
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 )
