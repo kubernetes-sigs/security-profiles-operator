@@ -18,7 +18,7 @@ limitations under the License.
 package pullerfakes
 
 import (
-	"io/fs"
+	"os"
 	"sync"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -43,12 +43,12 @@ type FakeImpl struct {
 		result1 *artifact.PullResult
 		result2 error
 	}
-	WriteFileStub        func(string, []byte, fs.FileMode) error
+	WriteFileStub        func(string, []byte, os.FileMode) error
 	writeFileMutex       sync.RWMutex
 	writeFileArgsForCall []struct {
 		arg1 string
 		arg2 []byte
-		arg3 fs.FileMode
+		arg3 os.FileMode
 	}
 	writeFileReturns struct {
 		result1 error
@@ -128,7 +128,7 @@ func (fake *FakeImpl) PullReturnsOnCall(i int, result1 *artifact.PullResult, res
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) WriteFile(arg1 string, arg2 []byte, arg3 fs.FileMode) error {
+func (fake *FakeImpl) WriteFile(arg1 string, arg2 []byte, arg3 os.FileMode) error {
 	var arg2Copy []byte
 	if arg2 != nil {
 		arg2Copy = make([]byte, len(arg2))
@@ -139,7 +139,7 @@ func (fake *FakeImpl) WriteFile(arg1 string, arg2 []byte, arg3 fs.FileMode) erro
 	fake.writeFileArgsForCall = append(fake.writeFileArgsForCall, struct {
 		arg1 string
 		arg2 []byte
-		arg3 fs.FileMode
+		arg3 os.FileMode
 	}{arg1, arg2Copy, arg3})
 	stub := fake.WriteFileStub
 	fakeReturns := fake.writeFileReturns
@@ -160,13 +160,13 @@ func (fake *FakeImpl) WriteFileCallCount() int {
 	return len(fake.writeFileArgsForCall)
 }
 
-func (fake *FakeImpl) WriteFileCalls(stub func(string, []byte, fs.FileMode) error) {
+func (fake *FakeImpl) WriteFileCalls(stub func(string, []byte, os.FileMode) error) {
 	fake.writeFileMutex.Lock()
 	defer fake.writeFileMutex.Unlock()
 	fake.WriteFileStub = stub
 }
 
-func (fake *FakeImpl) WriteFileArgsForCall(i int) (string, []byte, fs.FileMode) {
+func (fake *FakeImpl) WriteFileArgsForCall(i int) (string, []byte, os.FileMode) {
 	fake.writeFileMutex.RLock()
 	defer fake.writeFileMutex.RUnlock()
 	argsForCall := fake.writeFileArgsForCall[i]

@@ -19,8 +19,8 @@ package enricherfakes
 
 import (
 	"context"
-	"io/fs"
 	"net"
+	"os"
 	"sync"
 
 	ttlcache "github.com/jellydator/ttlcache/v3"
@@ -246,17 +246,17 @@ type FakeImpl struct {
 	serveReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StatStub        func(string) (fs.FileInfo, error)
+	StatStub        func(string) (os.FileInfo, error)
 	statMutex       sync.RWMutex
 	statArgsForCall []struct {
 		arg1 string
 	}
 	statReturns struct {
-		result1 fs.FileInfo
+		result1 os.FileInfo
 		result2 error
 	}
 	statReturnsOnCall map[int]struct {
-		result1 fs.FileInfo
+		result1 os.FileInfo
 		result2 error
 	}
 	TailFileStub        func(string, tail.Config) (*tail.Tail, error)
@@ -1342,7 +1342,7 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) Stat(arg1 string) (fs.FileInfo, error) {
+func (fake *FakeImpl) Stat(arg1 string) (os.FileInfo, error) {
 	fake.statMutex.Lock()
 	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
 	fake.statArgsForCall = append(fake.statArgsForCall, struct {
@@ -1367,7 +1367,7 @@ func (fake *FakeImpl) StatCallCount() int {
 	return len(fake.statArgsForCall)
 }
 
-func (fake *FakeImpl) StatCalls(stub func(string) (fs.FileInfo, error)) {
+func (fake *FakeImpl) StatCalls(stub func(string) (os.FileInfo, error)) {
 	fake.statMutex.Lock()
 	defer fake.statMutex.Unlock()
 	fake.StatStub = stub
@@ -1380,28 +1380,28 @@ func (fake *FakeImpl) StatArgsForCall(i int) string {
 	return argsForCall.arg1
 }
 
-func (fake *FakeImpl) StatReturns(result1 fs.FileInfo, result2 error) {
+func (fake *FakeImpl) StatReturns(result1 os.FileInfo, result2 error) {
 	fake.statMutex.Lock()
 	defer fake.statMutex.Unlock()
 	fake.StatStub = nil
 	fake.statReturns = struct {
-		result1 fs.FileInfo
+		result1 os.FileInfo
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) StatReturnsOnCall(i int, result1 fs.FileInfo, result2 error) {
+func (fake *FakeImpl) StatReturnsOnCall(i int, result1 os.FileInfo, result2 error) {
 	fake.statMutex.Lock()
 	defer fake.statMutex.Unlock()
 	fake.StatStub = nil
 	if fake.statReturnsOnCall == nil {
 		fake.statReturnsOnCall = make(map[int]struct {
-			result1 fs.FileInfo
+			result1 os.FileInfo
 			result2 error
 		})
 	}
 	fake.statReturnsOnCall[i] = struct {
-		result1 fs.FileInfo
+		result1 os.FileInfo
 		result2 error
 	}{result1, result2}
 }
