@@ -578,15 +578,15 @@ func (r *RecorderReconciler) collectLogSelinuxProfile(
 		return fmt.Errorf("creating profile labels: %w", err)
 	}
 
-	// Do this BEFORE reading the syscalls to hopefully minimize the
-	// race window in case reading the syscalls failed. In that case we just reconcile
+	// Do this BEFORE reading the AVCs to hopefully minimize the
+	// race window in case reading the AVCs failed. In that case we just reconcile
 	// back here and loop through again
 	err = r.setRecordingFinalizers(ctx, labels, parsedProfileName.profileName, profileNamespacedName.Namespace)
 	if err != nil {
 		return fmt.Errorf("setting finalizer on profilerecording: %w", err)
 	}
 
-	// Retrieve the syscalls for the recording
+	// Retrieve the AVCs for the recording
 	request := &enricherapi.AvcRequest{Profile: profileID}
 	response, err := r.Avcs(ctx, enricherClient, request)
 	if err != nil {
