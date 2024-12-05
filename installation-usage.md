@@ -503,7 +503,7 @@ recording in that namespaces, as following:
 $ kubectl label ns spo-test spo.x-k8s.io/enable-recording=
 ```
 
-Note that the label value are not important, only their presence matters.
+Note that the label value is not important, only their presence matters.
 
 ### Seccomp profile
 
@@ -933,7 +933,11 @@ EOF
 
 We can now let the container run for at least a few minutes to make sure that the required system resources are collected.
 
+Stop the nginx pod, this will make the operator to save and install the apparmor profile in the cluster.
+
+```
 kubectl delete pod -n security-profiles-operator nginx-pod
+```
 
 We can check now that the profile was properly installed:
 
@@ -1118,7 +1122,7 @@ To record by using the log enricher, create a `ProfileRecording` which is using
 `recorder: logs`:
 
 
-You can now record a SELinux profile for `nginx`` by creating the following `ProfileRecording` configuration:
+You can now record a SELinux profile for `nginx` container by creating the following `ProfileRecording` configuration:
 
 ```
 kubectl apply -f - <<EOF
@@ -1160,8 +1164,10 @@ EOF
 
 We can now let the container run for at least a few minutes to make sure that the required system resources are collected.
 
+Stop the nginx pod, this will make the operator to save and install the apparmor profile in the cluster.
+```
 kubectl delete pod -n security-profiles-operator nginx-pod
-
+```
 We can check now that the profile was properly installed:
 
 ```
@@ -1179,7 +1185,7 @@ kubectl get selinuxprofile -n security-profiles-operator -o yaml
 
 #### Use SELinux profile
 
-SELinux profiles are referenced based on their "USAGE" type name.
+SELinux profiles are referenced based on their `USAGE` type name.
 
 Use this SELinux type in the workload manifest in the `.spec.containers[].securityContext.seLinuxOptions` attribute:
 
