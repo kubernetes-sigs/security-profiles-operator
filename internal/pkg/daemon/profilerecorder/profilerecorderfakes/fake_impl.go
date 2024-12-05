@@ -25,8 +25,8 @@ import (
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -68,12 +68,12 @@ type FakeImpl struct {
 		result1 *api_enricher.AvcResponse
 		result2 error
 	}
-	ClientGetStub        func(context.Context, client.Client, types.NamespacedName, client.Object) error
+	ClientGetStub        func(context.Context, client.Client, client.ObjectKey, client.Object) error
 	clientGetMutex       sync.RWMutex
 	clientGetArgsForCall []struct {
 		arg1 context.Context
 		arg2 client.Client
-		arg3 types.NamespacedName
+		arg3 client.ObjectKey
 		arg4 client.Object
 	}
 	clientGetReturns struct {
@@ -126,12 +126,12 @@ type FakeImpl struct {
 		result2 context.CancelFunc
 		result3 error
 	}
-	GetPodStub        func(context.Context, client.Client, types.NamespacedName) (*v1.Pod, error)
+	GetPodStub        func(context.Context, client.Client, client.ObjectKey) (*v1.Pod, error)
 	getPodMutex       sync.RWMutex
 	getPodArgsForCall []struct {
 		arg1 context.Context
 		arg2 client.Client
-		arg3 types.NamespacedName
+		arg3 client.ObjectKey
 	}
 	getPodReturns struct {
 		result1 *v1.Pod
@@ -141,12 +141,12 @@ type FakeImpl struct {
 		result1 *v1.Pod
 		result2 error
 	}
-	GetRecordingStub        func(context.Context, client.Client, types.NamespacedName) (*v1alpha1.ProfileRecording, error)
+	GetRecordingStub        func(context.Context, client.Client, client.ObjectKey) (*v1alpha1.ProfileRecording, error)
 	getRecordingMutex       sync.RWMutex
 	getRecordingArgsForCall []struct {
 		arg1 context.Context
 		arg2 client.Client
-		arg3 types.NamespacedName
+		arg3 client.ObjectKey
 	}
 	getRecordingReturns struct {
 		result1 *v1alpha1.ProfileRecording
@@ -206,10 +206,10 @@ type FakeImpl struct {
 	managerGetEventRecorderForReturnsOnCall map[int]struct {
 		result1 record.EventRecorder
 	}
-	NewClientStub        func(manager.Manager) (client.Client, error)
+	NewClientStub        func(controllerruntime.Manager) (client.Client, error)
 	newClientMutex       sync.RWMutex
 	newClientArgsForCall []struct {
-		arg1 manager.Manager
+		arg1 controllerruntime.Manager
 	}
 	newClientReturns struct {
 		result1 client.Client
@@ -219,14 +219,14 @@ type FakeImpl struct {
 		result1 client.Client
 		result2 error
 	}
-	NewControllerManagedByStub        func(manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.TypedReconciler[reconcile.Request]) error
+	NewControllerManagedByStub        func(manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.Reconciler) error
 	newControllerManagedByMutex       sync.RWMutex
 	newControllerManagedByArgsForCall []struct {
 		arg1 manager.Manager
 		arg2 string
 		arg3 func(obj runtime.Object) bool
 		arg4 func(obj runtime.Object) bool
-		arg5 reconcile.TypedReconciler[reconcile.Request]
+		arg5 reconcile.Reconciler
 	}
 	newControllerManagedByReturns struct {
 		result1 error
@@ -450,13 +450,13 @@ func (fake *FakeImpl) AvcsReturnsOnCall(i int, result1 *api_enricher.AvcResponse
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ClientGet(arg1 context.Context, arg2 client.Client, arg3 types.NamespacedName, arg4 client.Object) error {
+func (fake *FakeImpl) ClientGet(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey, arg4 client.Object) error {
 	fake.clientGetMutex.Lock()
 	ret, specificReturn := fake.clientGetReturnsOnCall[len(fake.clientGetArgsForCall)]
 	fake.clientGetArgsForCall = append(fake.clientGetArgsForCall, struct {
 		arg1 context.Context
 		arg2 client.Client
-		arg3 types.NamespacedName
+		arg3 client.ObjectKey
 		arg4 client.Object
 	}{arg1, arg2, arg3, arg4})
 	stub := fake.ClientGetStub
@@ -478,13 +478,13 @@ func (fake *FakeImpl) ClientGetCallCount() int {
 	return len(fake.clientGetArgsForCall)
 }
 
-func (fake *FakeImpl) ClientGetCalls(stub func(context.Context, client.Client, types.NamespacedName, client.Object) error) {
+func (fake *FakeImpl) ClientGetCalls(stub func(context.Context, client.Client, client.ObjectKey, client.Object) error) {
 	fake.clientGetMutex.Lock()
 	defer fake.clientGetMutex.Unlock()
 	fake.ClientGetStub = stub
 }
 
-func (fake *FakeImpl) ClientGetArgsForCall(i int) (context.Context, client.Client, types.NamespacedName, client.Object) {
+func (fake *FakeImpl) ClientGetArgsForCall(i int) (context.Context, client.Client, client.ObjectKey, client.Object) {
 	fake.clientGetMutex.RLock()
 	defer fake.clientGetMutex.RUnlock()
 	argsForCall := fake.clientGetArgsForCall[i]
@@ -699,13 +699,13 @@ func (fake *FakeImpl) DialEnricherReturnsOnCall(i int, result1 *grpc.ClientConn,
 	}{result1, result2, result3}
 }
 
-func (fake *FakeImpl) GetPod(arg1 context.Context, arg2 client.Client, arg3 types.NamespacedName) (*v1.Pod, error) {
+func (fake *FakeImpl) GetPod(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey) (*v1.Pod, error) {
 	fake.getPodMutex.Lock()
 	ret, specificReturn := fake.getPodReturnsOnCall[len(fake.getPodArgsForCall)]
 	fake.getPodArgsForCall = append(fake.getPodArgsForCall, struct {
 		arg1 context.Context
 		arg2 client.Client
-		arg3 types.NamespacedName
+		arg3 client.ObjectKey
 	}{arg1, arg2, arg3})
 	stub := fake.GetPodStub
 	fakeReturns := fake.getPodReturns
@@ -726,13 +726,13 @@ func (fake *FakeImpl) GetPodCallCount() int {
 	return len(fake.getPodArgsForCall)
 }
 
-func (fake *FakeImpl) GetPodCalls(stub func(context.Context, client.Client, types.NamespacedName) (*v1.Pod, error)) {
+func (fake *FakeImpl) GetPodCalls(stub func(context.Context, client.Client, client.ObjectKey) (*v1.Pod, error)) {
 	fake.getPodMutex.Lock()
 	defer fake.getPodMutex.Unlock()
 	fake.GetPodStub = stub
 }
 
-func (fake *FakeImpl) GetPodArgsForCall(i int) (context.Context, client.Client, types.NamespacedName) {
+func (fake *FakeImpl) GetPodArgsForCall(i int) (context.Context, client.Client, client.ObjectKey) {
 	fake.getPodMutex.RLock()
 	defer fake.getPodMutex.RUnlock()
 	argsForCall := fake.getPodArgsForCall[i]
@@ -765,13 +765,13 @@ func (fake *FakeImpl) GetPodReturnsOnCall(i int, result1 *v1.Pod, result2 error)
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) GetRecording(arg1 context.Context, arg2 client.Client, arg3 types.NamespacedName) (*v1alpha1.ProfileRecording, error) {
+func (fake *FakeImpl) GetRecording(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey) (*v1alpha1.ProfileRecording, error) {
 	fake.getRecordingMutex.Lock()
 	ret, specificReturn := fake.getRecordingReturnsOnCall[len(fake.getRecordingArgsForCall)]
 	fake.getRecordingArgsForCall = append(fake.getRecordingArgsForCall, struct {
 		arg1 context.Context
 		arg2 client.Client
-		arg3 types.NamespacedName
+		arg3 client.ObjectKey
 	}{arg1, arg2, arg3})
 	stub := fake.GetRecordingStub
 	fakeReturns := fake.getRecordingReturns
@@ -792,13 +792,13 @@ func (fake *FakeImpl) GetRecordingCallCount() int {
 	return len(fake.getRecordingArgsForCall)
 }
 
-func (fake *FakeImpl) GetRecordingCalls(stub func(context.Context, client.Client, types.NamespacedName) (*v1alpha1.ProfileRecording, error)) {
+func (fake *FakeImpl) GetRecordingCalls(stub func(context.Context, client.Client, client.ObjectKey) (*v1alpha1.ProfileRecording, error)) {
 	fake.getRecordingMutex.Lock()
 	defer fake.getRecordingMutex.Unlock()
 	fake.GetRecordingStub = stub
 }
 
-func (fake *FakeImpl) GetRecordingArgsForCall(i int) (context.Context, client.Client, types.NamespacedName) {
+func (fake *FakeImpl) GetRecordingArgsForCall(i int) (context.Context, client.Client, client.ObjectKey) {
 	fake.getRecordingMutex.RLock()
 	defer fake.getRecordingMutex.RUnlock()
 	argsForCall := fake.getRecordingArgsForCall[i]
@@ -1083,11 +1083,11 @@ func (fake *FakeImpl) ManagerGetEventRecorderForReturnsOnCall(i int, result1 rec
 	}{result1}
 }
 
-func (fake *FakeImpl) NewClient(arg1 manager.Manager) (client.Client, error) {
+func (fake *FakeImpl) NewClient(arg1 controllerruntime.Manager) (client.Client, error) {
 	fake.newClientMutex.Lock()
 	ret, specificReturn := fake.newClientReturnsOnCall[len(fake.newClientArgsForCall)]
 	fake.newClientArgsForCall = append(fake.newClientArgsForCall, struct {
-		arg1 manager.Manager
+		arg1 controllerruntime.Manager
 	}{arg1})
 	stub := fake.NewClientStub
 	fakeReturns := fake.newClientReturns
@@ -1108,13 +1108,13 @@ func (fake *FakeImpl) NewClientCallCount() int {
 	return len(fake.newClientArgsForCall)
 }
 
-func (fake *FakeImpl) NewClientCalls(stub func(manager.Manager) (client.Client, error)) {
+func (fake *FakeImpl) NewClientCalls(stub func(controllerruntime.Manager) (client.Client, error)) {
 	fake.newClientMutex.Lock()
 	defer fake.newClientMutex.Unlock()
 	fake.NewClientStub = stub
 }
 
-func (fake *FakeImpl) NewClientArgsForCall(i int) manager.Manager {
+func (fake *FakeImpl) NewClientArgsForCall(i int) controllerruntime.Manager {
 	fake.newClientMutex.RLock()
 	defer fake.newClientMutex.RUnlock()
 	argsForCall := fake.newClientArgsForCall[i]
@@ -1147,7 +1147,7 @@ func (fake *FakeImpl) NewClientReturnsOnCall(i int, result1 client.Client, resul
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) NewControllerManagedBy(arg1 manager.Manager, arg2 string, arg3 func(obj runtime.Object) bool, arg4 func(obj runtime.Object) bool, arg5 reconcile.TypedReconciler[reconcile.Request]) error {
+func (fake *FakeImpl) NewControllerManagedBy(arg1 manager.Manager, arg2 string, arg3 func(obj runtime.Object) bool, arg4 func(obj runtime.Object) bool, arg5 reconcile.Reconciler) error {
 	fake.newControllerManagedByMutex.Lock()
 	ret, specificReturn := fake.newControllerManagedByReturnsOnCall[len(fake.newControllerManagedByArgsForCall)]
 	fake.newControllerManagedByArgsForCall = append(fake.newControllerManagedByArgsForCall, struct {
@@ -1155,7 +1155,7 @@ func (fake *FakeImpl) NewControllerManagedBy(arg1 manager.Manager, arg2 string, 
 		arg2 string
 		arg3 func(obj runtime.Object) bool
 		arg4 func(obj runtime.Object) bool
-		arg5 reconcile.TypedReconciler[reconcile.Request]
+		arg5 reconcile.Reconciler
 	}{arg1, arg2, arg3, arg4, arg5})
 	stub := fake.NewControllerManagedByStub
 	fakeReturns := fake.newControllerManagedByReturns
@@ -1176,13 +1176,13 @@ func (fake *FakeImpl) NewControllerManagedByCallCount() int {
 	return len(fake.newControllerManagedByArgsForCall)
 }
 
-func (fake *FakeImpl) NewControllerManagedByCalls(stub func(manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.TypedReconciler[reconcile.Request]) error) {
+func (fake *FakeImpl) NewControllerManagedByCalls(stub func(manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.Reconciler) error) {
 	fake.newControllerManagedByMutex.Lock()
 	defer fake.newControllerManagedByMutex.Unlock()
 	fake.NewControllerManagedByStub = stub
 }
 
-func (fake *FakeImpl) NewControllerManagedByArgsForCall(i int) (manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.TypedReconciler[reconcile.Request]) {
+func (fake *FakeImpl) NewControllerManagedByArgsForCall(i int) (manager.Manager, string, func(obj runtime.Object) bool, func(obj runtime.Object) bool, reconcile.Reconciler) {
 	fake.newControllerManagedByMutex.RLock()
 	defer fake.newControllerManagedByMutex.RUnlock()
 	argsForCall := fake.newControllerManagedByArgsForCall[i]

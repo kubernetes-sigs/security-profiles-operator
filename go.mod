@@ -1,8 +1,6 @@
 module sigs.k8s.io/security-profiles-operator
 
-go 1.22.7
-
-toolchain go1.23.2
+go 1.23
 
 require (
 	github.com/acobaugh/osrelease v0.1.0
@@ -15,7 +13,7 @@ require (
 	github.com/google/go-containerregistry v0.20.2
 	github.com/imdario/mergo v0.3.16
 	github.com/jellydator/ttlcache/v3 v3.3.0
-	github.com/maxbrunsfeld/counterfeiter/v6 v6.9.0
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.10.0
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
 	github.com/nxadm/tail v1.4.11
 	github.com/opencontainers/image-spec v1.1.0

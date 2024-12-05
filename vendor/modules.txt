@@ -829,8 +829,8 @@ github.com/mattn/go-colorable
 # github.com/mattn/go-isatty v0.0.20
 ## explicit; go 1.15
 github.com/mattn/go-isatty
-# github.com/maxbrunsfeld/counterfeiter/v6 v6.9.0
-## explicit; go 1.22.0
+# github.com/maxbrunsfeld/counterfeiter/v6 v6.10.0
+## explicit; go 1.23
 github.com/maxbrunsfeld/counterfeiter/v6
 github.com/maxbrunsfeld/counterfeiter/v6/arguments
 github.com/maxbrunsfeld/counterfeiter/v6/command

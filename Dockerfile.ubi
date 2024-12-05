@@ -28,6 +28,12 @@ RUN dnf install -y \
 ADD . /work
 RUN mkdir -p build
 
+# Use latest golang
+RUN GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1) && \
+    curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz | \
+        tar xfz - -C /usr/local
+ENV PATH="/usr/local/go/bin:$PATH"
+
 ARG APPARMOR_ENABLED=0
 ARG BPF_ENABLED=0
 
