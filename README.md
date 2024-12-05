@@ -6,27 +6,39 @@
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/5368/badge)](https://bestpractices.coreinfrastructure.org/projects/5368)
 [![OCI security profiles](https://img.shields.io/badge/oci%3A%2F%2F-security%20profiles-blue?logo=kubernetes&logoColor=white)](https://github.com/orgs/security-profiles/packages)
 
-<!-- toc -->
-- [About](#about)
-- [Features](#features)
-- [Personas &amp; User Stories](#personas--user-stories)
-- [Roadmap](#roadmap)
-- [Community, discussion, contribution, and support](#community-discussion-contribution-and-support)
-  - [Code of conduct](#code-of-conduct)
-<!-- /toc -->
 
-This project is the starting point for the _Security Profiles Operator_ (SPO), an
-out-of-tree Kubernetes enhancement which aims to make it easier for users to use
-SELinux, seccomp and AppArmor in Kubernetes clusters.
+The_Security Profiles Operator_ (SPO) is an out-of-tree Kubernetes enhancement which aims to make
+it easier to create and use SELinux, seccomp and AppArmor security profiles in Kubernetes clusters.
 
-- [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
 - [Installation and Usage](installation-usage.md)
 - [Container Images](https://console.cloud.google.com/gcr/images/k8s-staging-sp-operator/GLOBAL/security-profiles-operator)
 - [Release Process](./release.md)
+- [Testgrid Dashboard](https://testgrid.k8s.io/sig-node-security-profiles-operator)
 
-## About
+## Features
+
+This is the features parity across various security profiles supported by the SPO:
+
+|                                  | Seccomp | SELinux | AppArmor |
+|----------------------------------|---------|---------|----------|
+|                      Profile CRD |   Yes   |   Yes   |    Yes   |
+| Install profiles in cluster      |   Yes   |   Yes   |    Yes    |
+| Remove unused profiles from cluster |   Yes   |   Yes   |    Yes   |
+|   Profile Recording (audit logs)       |   Yes   |   Yes   |    No     |
+|   Profile Recording (eBPF)            |   Yes   |   No    |    Yes    |
+| Profile Binding to container images     |   Yes   |   No    |    No     |
+|             Audit log enrichment |   Yes   |   Yes   |    Yes   |
+
+For information about the security model and what permissions each features requires,
+refer to SPO's [security model](security-model.md).
+
+## Resources
 
 The motivation behind the project can be found in the corresponding [RFC][0].
+
+- [Architecture](doc/architecture.svg)
+- [Use Stories](doc/user-stories.md)
+- [Personas](doc/personas.md)
 
 [0]: RFC.md
 
@@ -52,52 +64,9 @@ the Kubernetes world:
 [6]: https://github.com/UKHomeOffice/seccomp-config
 
 
-## Features
+## Community, discussions, contributions, and support
 
-The SPO's features are implemented for each one of the underlying
-supported technologies, namely: Seccomp, SELinux and AppArmor. 
-Here's the feature parity status across them:
-
-|                                  | Seccomp | SELinux | AppArmor |
-|----------------------------------|---------|---------|----------|
-|                      Profile CRD |   Yes   |   Yes   |    Yes   |
-|                   ProfileBinding |   Yes   |   No    |    No    |
-|       Deploy profiles into nodes |   Yes   |   Yes   |    Yes   |
-| Remove profiles no longer in use |   Yes   |   Yes   |    Yes   |
-|   Profile Auto-generation (logs) |   Yes   |   WIP   |    No    |
-|   Profile Auto-generation (ebpf) |   Yes   |   No    |    No    |
-|             Audit log enrichment |   Yes   |   WIP   |    Yes   |
-
-For information about the security model and what permissions each features requires,
-refer to SPO's [security model](security-model.md).
-
-## Personas & User Stories
-
-As any other piece of software, this operator is meant to help people. Thus,
-the target personas have been reflected in [a document in this repo](doc/personas.md).
-
-The functionality that this operator is meant to enable is captured
-[as user stories](doc/user-stories.md). If you feel that a user story is not captured
-properly, feel free to submit a Pull Request. The team will be more than happy
-to review and help you reflect the requirement.
-
-## Roadmap
-
-The project tries to not overlap with those existing implementations to provide
-valuable additions in a more secure Kubernetes context. We created a mind map to
-get a better feeling about all features we want to implement to better support
-some security areas within Kubernetes:
-
-![mind-map](.github/roadmap.svg)
-
-Going forwards, the operator will extend its purpose to assist Kubernetes users
-to create, distribute and apply security profiles for seccomp, AppArmor, SeLinux,
-PodSecurityPolicies and RBAC permissions.
-
-## Community, discussion, contribution, and support
-
-If you're interested in contributing to SPO, please see the [developer focused 
-document](hacking.md)
+If you're interested in contributing to SPO, please see the [developer focused document](hacking.md)
 
 We schedule a monthly meeting every last Thursday of a month.
 
@@ -105,8 +74,7 @@ We schedule a monthly meeting every last Thursday of a month.
 
 [8]: https://docs.google.com/document/d/1FQHYdyd7PTCi7_Vd8erPS4nztp0blvivK87HhXqz4uc/edit?usp=sharing
 
-Learn how to engage with the Kubernetes community on the [community
-page](http://kubernetes.io/community/).
+Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
 
 You can reach the maintainers of this project at:
 
@@ -115,8 +83,7 @@ You can reach the maintainers of this project at:
 
 ### Code of conduct
 
-Participation in the Kubernetes community is governed by the [Kubernetes Code of
-Conduct](code-of-conduct.md).
+Participation in the Kubernetes community is governed by the [Kubernetes Code of Conduct](code-of-conduct.md).
 
 [owners]: https://git.k8s.io/community/contributors/guide/owners.md
 [creative commons 4.0]: https://git.k8s.io/website/LICENSE
