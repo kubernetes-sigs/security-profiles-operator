@@ -7,7 +7,7 @@
 [![OCI security profiles](https://img.shields.io/badge/oci%3A%2F%2F-security%20profiles-blue?logo=kubernetes&logoColor=white)](https://github.com/orgs/security-profiles/packages)
 
 
-The_Security Profiles Operator_ (SPO) is an out-of-tree Kubernetes enhancement which aims to make
+The _Security Profiles Operator_ (SPO) is an out-of-tree Kubernetes enhancement which aims to make
 it easier to create and use SELinux, seccomp and AppArmor security profiles in Kubernetes clusters.
 
 - [Installation and Usage](installation-usage.md)
@@ -17,7 +17,7 @@ it easier to create and use SELinux, seccomp and AppArmor security profiles in K
 
 ## Features
 
-This is the features parity across various security profiles supported by the SPO:
+This is the parity of features across various security profiles supported by the SPO:
 
 |                                  | Seccomp | SELinux | AppArmor |
 |----------------------------------|---------|---------|----------|
@@ -29,7 +29,7 @@ This is the features parity across various security profiles supported by the SP
 | Profile Binding to container images     |   Yes   |   No    |    No     |
 |             Audit log enrichment |   Yes   |   Yes   |    Yes   |
 
-For information about the security model and what permissions each features requires,
+For information about the security model and what permissions each feature requires,
 refer to SPO's [security model](security-model.md).
 
 ## Resources
@@ -66,7 +66,7 @@ the Kubernetes world:
 
 ## Community, discussions, contributions, and support
 
-If you're interested in contributing to SPO, please see the [developer focused document](hacking.md)
+If you're interested in contributing to SPO, please see the [developer focused document](hacking.md).
 
 We schedule a monthly meeting every last Thursday of a month.
 
