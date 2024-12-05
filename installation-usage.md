@@ -1033,7 +1033,7 @@ environment variable.
 Ensure that the running daemon has SELinux enabled:
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableSelinux":"true"}}'
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableSelinux":true}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
