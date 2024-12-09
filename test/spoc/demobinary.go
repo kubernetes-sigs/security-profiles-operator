@@ -49,6 +49,7 @@ func main() {
 	fileWrite := flag.String("file-write", "", "write file (e.g. /dev/null)")
 	fileRead := flag.String("file-read", "", "read file (e.g. /dev/null). Multiple files may be separated by comma.")
 	fileSymlink := flag.String("file-symlink", "", "Create symlink using the following syntax: OLD:NEW")
+	dirCreate := flag.String("dir-create", "", "create directory (e.g. /tmp/dir)")
 	dirRead := flag.String("dir-read", "", "read directory (e.g. /dev/). Multiple directories may be separated by comma.")
 	netTCP := flag.Bool("net-tcp", false, "spawn a tcp server")
 	netUDP := flag.Bool("net-udp", false, "spawn a udp server")
@@ -70,17 +71,27 @@ func main() {
 		}
 		log.Println("✅ CAP_SYS_ADMIN is available.")
 	}
+	if *dirCreate != "" {
+		const fileMode = 0o777
+		err := os.Mkdir(*dirCreate, fileMode)
+		if err != nil {
+			log.Fatal("❌ Error creating directory:", err)
+		}
+		log.Println("✅ Directory creation successful:", *dirCreate)
+	}
 	if *fileWrite != "" {
 		const fileMode = 0o666
-		err := os.WriteFile(*fileWrite, []byte{}, fileMode)
-		if err != nil {
-			log.Fatal("❌ Error creating file:", err)
-		}
-		log.Println("✅ File write successful:", *fileWrite)
-		// make file writable for other users so that sudo/non-sudo testing works.
-		err = os.Chmod(*fileWrite, fileMode)
-		if err != nil {
-			log.Println("Error setting file permissions:", err)
+		for _, file := range strings.Split(*fileWrite, ",") {
+			err := os.WriteFile(file, []byte{}, fileMode)
+			if err != nil {
+				log.Fatal("❌ Error creating file:", err)
+			}
+			log.Println("✅ File write successful:", *fileWrite)
+			// make file writable for other users so that sudo/non-sudo testing works.
+			err = os.Chmod(*fileWrite, fileMode)
+			if err != nil {
+				log.Println("Error setting file permissions:", err)
+			}
 		}
 	}
 	if *fileSymlink != "" {

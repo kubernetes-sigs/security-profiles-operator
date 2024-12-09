@@ -47,6 +47,7 @@ var appArmorHooks = []string{
 	"file_open",
 	"file_lock",
 	"mmap_file",
+	"path_mkdir",
 	"bprm_check_security",
 	"sys_enter_socket",
 	"cap_capable",
