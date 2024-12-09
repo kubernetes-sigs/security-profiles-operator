@@ -478,7 +478,7 @@ test-flaky-e2e: ## Only run the flaky end-to-end tests
 
 .PHONY: test-spoc-e2e
 test-spoc-e2e: build/spoc
-	$(GO) test -v ./test/spoc
+	$(GO) test -v ./test/spoc $(ARGS)
 
 # Generate CRD manifests
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
