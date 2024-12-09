@@ -293,6 +293,61 @@ int BPF_PROG(bprm_check_security, struct linux_binprm * bprm)
     return register_file_event(bprm->file, FLAG_SPAWN);
 }
 
+SEC("lsm/path_mkdir")
+int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry, umode_t mode)
+{
+    // bpf_printk("path_mkdir");
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+
+    event_data_t * event;
+    event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (!event) {
+        return 0;
+    }
+
+    int pathlen = bpf_d_path(dir, event->data, sizeof(event->data));
+    if (pathlen < 0) {
+        bpf_printk("register_file_event bpf_d_path failed: %i\n", pathlen);
+        bpf_ringbuf_discard(event, 0);
+        return 0;
+    }
+
+    // more checks than necessary, but only checking each offset
+    // individually makes the ebpf verifier happy.
+    if (
+        pathlen >= 1 &&
+        pathlen - 1 < sizeof(event->data) &&
+        pathlen + 0 < sizeof(event->data) &&
+        pathlen + 1 < sizeof(event->data) &&
+        pathlen + 2 < sizeof(event->data)
+    ) {
+        event->data[pathlen - 1] = '/';
+        event->data[pathlen - 0] = '*';
+        event->data[pathlen + 1] = '*';
+        event->data[pathlen + 2] = '\0';
+    } else {
+        bpf_printk("failed to fixup directory entry, not enough space: %s", event->data);
+        bpf_ringbuf_discard(event, 0);
+        return 0;
+    }
+
+    event->pid = bpf_get_current_pid_tgid() >> 32;
+    event->mntns = mntns;
+    event->type = EVENT_TYPE_APPARMOR_FILE;
+    event->flags = FLAG_WRITE | FLAG_READ;
+
+    // This debug log does not work on old kernels, see
+    // https://github.com/libbpf/libbpf-bootstrap/issues/206#issuecomment-1694085235
+    // bpf_printk(
+    //    "register_file_event: %i, %s with flags=%d, mode=%d, inode_mode=%d\n",
+    //    file, event->data, flags, file->f_mode, file->f_inode->i_mode);
+    bpf_ringbuf_submit(event, 0);
+
+    return 0;
+}
+
 SEC("tracepoint/syscalls/sys_enter_socket")
 int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 {
