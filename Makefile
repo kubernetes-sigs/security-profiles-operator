@@ -346,6 +346,7 @@ update-btf: update-bpf ## Build and update all generated BTF code for supported 
 
 .PHONY: update-bpf
 update-bpf: $(BUILD_DIR) ## Build and update all generated BPF code with nix
+	set -e; \
 	for arch in amd64 arm64; do \
 		nix-build nix/default-bpf-$$arch.nix ;\
 		cp -f result/recorder.bpf.o $(BUILD_DIR)/recorder.bpf.o.$$arch ;\
