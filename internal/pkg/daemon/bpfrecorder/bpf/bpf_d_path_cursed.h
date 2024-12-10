@@ -1,8 +1,12 @@
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 // A cursed reimplementation of bpf_d_path for use in hooks where bpf_d_path
-// is unavailable. When working on this, make sure to check that the BPF
-// verifier remains happy.
+// is unavailable.
+// This implementation is cursed in the sense that changes to it will break the
+// ebpf verifier in unexpected ways. When working on this, re-run spoc
+// frequently to make sure the verifier remains happy. It can be extremely hard
+// to figure out what particular change caused a verifier issue and how to fix
+// it.
 //
 // TODO: Use loop helpers (https://docs.ebpf.io/linux/concepts/loops/)
 // if verifier starts to spit out complexity errors.
