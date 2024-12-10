@@ -336,8 +336,7 @@ int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
              umode_t mode)
 {
     // bpf_printk("path_mkdir");
-    return register_fs_event(dir, mode | S_IFDIR, FLAG_READ | FLAG_WRITE,
-                             false);
+    return register_fs_event(dir, mode | S_IFDIR, FLAG_READ | FLAG_WRITE, true);
 }
 
 SEC("lsm/path_mknod")
