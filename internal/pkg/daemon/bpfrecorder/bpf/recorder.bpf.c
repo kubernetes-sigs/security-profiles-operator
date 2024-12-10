@@ -2,6 +2,7 @@
 
 #include <linux/limits.h>
 
+#include "bpf_d_path_cursed.h"
 #include <asm-generic/errno.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
@@ -38,6 +39,9 @@
 
 #define S_IFIFO 0010000
 #define S_IFDIR 0040000
+#define S_IFBLK 0060000
+#define S_IFCHR 0020000
+#define S_IFSOCK 0140000
 
 #define CAP_OPT_NOAUDIT 0b10
 
@@ -109,6 +113,7 @@ typedef struct __attribute__((__packed__)) event_data {
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
 
+static const char WILDCARD[] = "/**";
 static const char RUNC_INIT[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
@@ -175,10 +180,12 @@ static u64 _file_event_inode;
 static u64 _file_event_flags;
 static u32 _file_event_pid;
 
-static __always_inline int register_file_event(struct file * file, u64 flags)
+static __always_inline int register_fs_event(struct path * filename,
+                                             umode_t i_mode, u64 flags,
+                                             bool custom_bpf_d_path)
 {
     // ignore unix pipes
-    if (file == NULL || file->f_inode->i_mode & S_IFIFO) {
+    if ((i_mode & S_IFIFO) == S_IFIFO) {
         return 0;
     }
 
@@ -186,10 +193,12 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
     if (!mntns)
         return 0;
 
+    u64 inode_number = BPF_CORE_READ(filename, dentry, d_inode, i_ino);
+
     // discard repeated calls
-    u64 inode = file->f_inode->i_ino;
     u32 pid = bpf_get_current_pid_tgid() >> 32;
-    bool same_file = inode == _file_event_inode && pid == _file_event_pid;
+    bool same_file = inode_number && inode_number == _file_event_inode &&
+                     pid == _file_event_pid;
     bool flags_are_subset = (flags | _file_event_flags) == _file_event_flags;
     if (same_file && flags_are_subset) {
         bpf_printk("register_file_event skipped");
@@ -202,26 +211,36 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
         return 0;
     }
 
-    int pathlen = bpf_d_path(&file->f_path, event->data, sizeof(event->data));
+    int pathlen;
+    // Some BPF hooks cannot use bpf_d_path, for these cases we swap in our own
+    // implementation.
+    if (custom_bpf_d_path) {
+        pathlen = bpf_d_path_cursed(filename, event->data, sizeof(event->data));
+    } else {
+        pathlen = bpf_d_path(filename, event->data, sizeof(event->data));
+    }
+
     if (pathlen < 0) {
         bpf_printk("register_file_event bpf_d_path failed: %i\n", pathlen);
         bpf_ringbuf_discard(event, 0);
         return 0;
     }
 
-    if (file->f_inode->i_mode & S_IFDIR) {
-        // more checks than necessary, but only checking each offset
-        // individually makes the ebpf verifier happy.
-        if (pathlen >= 2 && pathlen - 2 < sizeof(event->data) &&
-            pathlen - 1 < sizeof(event->data) &&
-            pathlen < sizeof(event->data)) {
-            if (event->data[pathlen - 2] != '/') {
-                // No trailing slash, add `/` and move null byte.
-                event->data[pathlen - 1] = '/';
-                event->data[pathlen] = '\0';
-            }
+    if ((i_mode & S_IFDIR) == S_IFDIR) {
+        // Somehow this makes the verifier happy.
+        u16 idx = pathlen - 1;
+        if (idx < sizeof(event->data) - 4) {
+            bpf_core_read(event->data + idx, 4, &WILDCARD);
         } else {
-            bpf_printk("failed to fixup directory entry, not enough space.");
+            // pathlen is close to PATH_MAX.
+            // We could overwrite the last last directory in the path with ** in
+            // that case, but for now we keep things simple.
+            bpf_printk(
+                "failed to fixup directory entry, pathlen is too close to "
+                "PATH_MAX: %s",
+                event->data);
+            bpf_ringbuf_discard(event, 0);
+            return 0;
         }
     }
 
@@ -233,15 +252,26 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
     // This debug log does not work on old kernels, see
     // https://github.com/libbpf/libbpf-bootstrap/issues/206#issuecomment-1694085235
     // bpf_printk(
-    //    "register_file_event: %i, %s with flags=%d, mode=%d, inode_mode=%d\n",
-    //    file, event->data, flags, file->f_mode, file->f_inode->i_mode);
+    //     "register_file_event: %s with flags=%d, i_mode=%d, pathlen=%d\n",
+    //     event->data, flags, i_mode, pathlen);
     bpf_ringbuf_submit(event, 0);
 
-    _file_event_inode = inode;
-    _file_event_pid = pid;
-    _file_event_flags = same_file ? (flags | _file_event_flags) : flags;
+    if (inode_number) {
+        _file_event_inode = inode_number;
+        _file_event_pid = pid;
+        _file_event_flags = same_file ? (flags | _file_event_flags) : flags;
+    }
 
     return 0;
+}
+
+static __always_inline int register_file_event(struct file * file, u64 flags)
+{
+    if (file == NULL) {
+        return 0;
+    }
+    return register_fs_event(&file->f_path, file->f_inode->i_mode, flags,
+                             false);
 }
 
 SEC("lsm/file_open")
@@ -293,63 +323,37 @@ int BPF_PROG(bprm_check_security, struct linux_binprm * bprm)
     return register_file_event(bprm->file, FLAG_SPAWN);
 }
 
+SEC("lsm/path_unlink")
+int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
+{
+    // bpf_printk("path_unlink");
+    struct path path = make_path(dentry, dir);
+    return register_fs_event(&path, 0, FLAG_READ | FLAG_WRITE, true);
+}
+
 SEC("lsm/path_mkdir")
 int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
              umode_t mode)
 {
     // bpf_printk("path_mkdir");
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
+    return register_fs_event(dir, mode | S_IFDIR, FLAG_READ | FLAG_WRITE,
+                             false);
+}
 
-    event_data_t * event;
-    event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
-    if (!event) {
-        return 0;
+SEC("lsm/path_mknod")
+int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
+             umode_t mode, unsigned int dev)
+{
+    bpf_printk("path_mknod %d", mode);
+    bool not_a_regular_file =
+        ((mode & S_IFCHR) == S_IFCHR || (mode & S_IFBLK) == S_IFBLK ||
+         (mode & S_IFIFO) == S_IFIFO || (mode & S_IFSOCK) == S_IFSOCK);
+    u64 file_flags = FLAG_WRITE;
+    if (not_a_regular_file) {
+        file_flags |= FLAG_READ;
     }
-
-    int pathlen = bpf_d_path(dir, event->data, sizeof(event->data));
-    if (pathlen < 0) {
-        bpf_printk("register_file_event bpf_d_path failed: %i\n", pathlen);
-        bpf_ringbuf_discard(event, 0);
-        return 0;
-    }
-
-    // more checks than necessary, but only checking each offset
-    // individually makes the ebpf verifier happy.
-    if (pathlen >= 1 && pathlen - 1 < sizeof(event->data) &&
-        pathlen + 0 < sizeof(event->data) &&
-        pathlen + 1 < sizeof(event->data) &&
-        pathlen + 2 < sizeof(event->data)) {
-        event->data[pathlen - 1] = '/';
-        event->data[pathlen - 0] = '*';
-        event->data[pathlen + 1] = '*';
-        event->data[pathlen + 2] = '\0';
-    } else {
-        // pathlen is close to PATH_MAX.
-        // We could overwrite the last last directory in the path with ** in
-        // that case, but for now we keep things simple.
-        bpf_printk(
-            "failed to fixup directory entry, pathlen is too close to "
-            "PATH_MAX: %s",
-            event->data);
-        bpf_ringbuf_discard(event, 0);
-        return 0;
-    }
-
-    event->pid = bpf_get_current_pid_tgid() >> 32;
-    event->mntns = mntns;
-    event->type = EVENT_TYPE_APPARMOR_FILE;
-    event->flags = FLAG_WRITE | FLAG_READ;
-
-    // This debug log does not work on old kernels, see
-    // https://github.com/libbpf/libbpf-bootstrap/issues/206#issuecomment-1694085235
-    // bpf_printk(
-    //    "register_file_event: %i, %s with flags=%d, mode=%d, inode_mode=%d\n",
-    //    file, event->data, flags, file->f_mode, file->f_inode->i_mode);
-    bpf_ringbuf_submit(event, 0);
-
-    return 0;
+    struct path path = make_path(dentry, dir);
+    return register_fs_event(&path, 0, file_flags, true);
 }
 
 SEC("tracepoint/syscalls/sys_enter_socket")

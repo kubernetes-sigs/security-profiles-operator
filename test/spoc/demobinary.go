@@ -46,14 +46,17 @@ func main() {
 	log.Println("⏩", os.Args)
 
 	capSysAdmin := flag.Bool("cap-sys-admin", false, "exercise CAP_SYS_ADMIN")
+	fileCreate := flag.String("file-create", "", "create file (e.g. /tmp/test)")
 	fileWrite := flag.String("file-write", "", "write file (e.g. /dev/null)")
 	fileRead := flag.String("file-read", "", "read file (e.g. /dev/null). Multiple files may be separated by comma.")
 	fileSymlink := flag.String("file-symlink", "", "Create symlink using the following syntax: OLD:NEW")
+	fileRemove := flag.String("file-remove", "", "delete file (e.g. /tmp/test)")
 	dirCreate := flag.String("dir-create", "", "create directory (e.g. /tmp/dir)")
 	dirRead := flag.String("dir-read", "", "read directory (e.g. /dev/). Multiple directories may be separated by comma.")
 	netTCP := flag.Bool("net-tcp", false, "spawn a tcp server")
 	netUDP := flag.Bool("net-udp", false, "spawn a udp server")
 	netIcmp := flag.Bool("net-icmp", false, "open an icmp socket, exercise NET_RAW capability.")
+	netUnix := flag.String("net-unix", "", "open a unix socket at the specified path.")
 	library := flag.String("load-library", "", "load a shared library")
 	hugepage := flag.Bool("hugepage", false, "allocate a huge page.")
 	sleep := flag.Int("sleep", 0, "sleep N seconds before exiting.")
@@ -78,6 +81,18 @@ func main() {
 			log.Fatal("❌ Error creating directory:", err)
 		}
 		log.Println("✅ Directory creation successful:", *dirCreate)
+	}
+	if *fileCreate != "" {
+		const fileMode = 0o666 | syscall.S_IFREG
+		err := syscall.Mknod(*fileCreate, fileMode, 0)
+		if err != nil {
+			log.Fatal("❌ Error creating file:", err)
+		}
+		log.Println("✅ File creation successful:", *fileWrite)
+		err = os.Chmod(*fileCreate, fileMode)
+		if err != nil {
+			log.Println("Error setting file permissions:", err)
+		}
 	}
 	if *fileWrite != "" {
 		const fileMode = 0o666
@@ -123,6 +138,13 @@ func main() {
 			log.Println("✅ Directory read successful:", dir)
 		}
 	}
+	if *fileRemove != "" {
+		err := os.Remove(*fileRemove)
+		if err != nil {
+			log.Fatal("❌ Error deleting file:", err)
+		}
+		log.Println("✅ File deletion successful:", *fileRemove)
+	}
 	if *netTCP {
 		listener, err := net.Listen("tcp", ":0")
 		if err != nil {
@@ -147,6 +169,15 @@ func main() {
 		}
 		log.Println("✅ ICMP socket opened: fd", fd)
 		defer syscall.Close(fd)
+	}
+	if *netUnix != "" {
+		server, err := net.ListenPacket("unix", *netUnix)
+		if err != nil {
+			//nolint:gocritic  // gocritic is terminally confused here.
+			log.Fatal("❌ Error starting Unix server:", err)
+		}
+		log.Println("✅ Unix server spawned:", server.LocalAddr())
+		defer server.Close()
 	}
 	if len(subprocess) > 0 {
 		cmd := exec.Command(subprocess[0], subprocess[1:]...)
