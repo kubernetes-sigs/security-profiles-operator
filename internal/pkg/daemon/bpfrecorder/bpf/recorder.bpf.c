@@ -328,7 +328,10 @@ int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry, umode_t mode
         event->data[pathlen + 1] = '*';
         event->data[pathlen + 2] = '\0';
     } else {
-        bpf_printk("failed to fixup directory entry, not enough space: %s", event->data);
+        // pathlen is close to PATH_MAX.
+        // We could overwrite the last last directory in the path with ** in that case,
+        // but for now we keep things simple.
+        bpf_printk("failed to fixup directory entry, pathlen is too close to PATH_MAX: %s", event->data);
         bpf_ringbuf_discard(event, 0);
         return 0;
     }
