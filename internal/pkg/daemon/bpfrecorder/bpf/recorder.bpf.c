@@ -294,7 +294,8 @@ int BPF_PROG(bprm_check_security, struct linux_binprm * bprm)
 }
 
 SEC("lsm/path_mkdir")
-int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry, umode_t mode)
+int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
+             umode_t mode)
 {
     // bpf_printk("path_mkdir");
     u32 mntns = get_mntns();
@@ -316,22 +317,22 @@ int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry, umode_t mode
 
     // more checks than necessary, but only checking each offset
     // individually makes the ebpf verifier happy.
-    if (
-        pathlen >= 1 &&
-        pathlen - 1 < sizeof(event->data) &&
+    if (pathlen >= 1 && pathlen - 1 < sizeof(event->data) &&
         pathlen + 0 < sizeof(event->data) &&
         pathlen + 1 < sizeof(event->data) &&
-        pathlen + 2 < sizeof(event->data)
-    ) {
+        pathlen + 2 < sizeof(event->data)) {
         event->data[pathlen - 1] = '/';
         event->data[pathlen - 0] = '*';
         event->data[pathlen + 1] = '*';
         event->data[pathlen + 2] = '\0';
     } else {
         // pathlen is close to PATH_MAX.
-        // We could overwrite the last last directory in the path with ** in that case,
-        // but for now we keep things simple.
-        bpf_printk("failed to fixup directory entry, pathlen is too close to PATH_MAX: %s", event->data);
+        // We could overwrite the last last directory in the path with ** in
+        // that case, but for now we keep things simple.
+        bpf_printk(
+            "failed to fixup directory entry, pathlen is too close to "
+            "PATH_MAX: %s",
+            event->data);
         bpf_ringbuf_discard(event, 0);
         return 0;
     }
