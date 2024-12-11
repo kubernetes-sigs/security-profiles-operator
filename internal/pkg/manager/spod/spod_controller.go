@@ -576,15 +576,14 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	if cfg.Spec.EnableAppArmor {
 		falsely, truly := false, true
 		var userRoot int64
-		// a more privileged mode is required when apparmor is enabled
+		// A more privileged mode is required when apparmor is enabled.
 		// TODO: review security model and provide a dynamic approach that can be case specific
-		templateSpec.Containers[bindata.ContainerIDDaemon].SecurityContext = &corev1.SecurityContext{
-			AllowPrivilegeEscalation: &truly,
-			Privileged:               &truly,
-			ReadOnlyRootFilesystem:   &falsely,
-			RunAsUser:                &userRoot,
-			RunAsGroup:               &userRoot,
-		}
+		sc := templateSpec.Containers[bindata.ContainerIDDaemon].SecurityContext
+		sc.AllowPrivilegeEscalation = &truly
+		sc.Privileged = &truly
+		sc.ReadOnlyRootFilesystem = &falsely
+		sc.RunAsUser = &userRoot
+		sc.RunAsGroup = &userRoot
 
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
