@@ -34,6 +34,10 @@ static __always_inline int bpf_d_path_cursed(struct path* path, char* buf, size_
               // ...and this filesystem is the root filesystem. We're done!
               break;
             }
+            if (BPF_CORE_READ(mnt, mnt_ns) != BPF_CORE_READ(mnt_parent, mnt_ns)) {
+              // ...and this is the end of the current mount namespace.
+              break;
+            }
             // ...so we traverse one filesystem up.
             dentry = BPF_CORE_READ(mnt, mnt_mountpoint);
             mnt = mnt_parent;
