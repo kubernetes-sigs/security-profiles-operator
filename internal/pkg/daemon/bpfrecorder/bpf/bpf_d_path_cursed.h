@@ -20,7 +20,7 @@ static __always_inline int bpf_d_path_cursed(struct path* path, char* buf, size_
     struct mount* mnt = container_of(path->mnt, struct mount, mnt);
 
     const unsigned char * names[MAX_PATH_COMPONENTS] = {};
-    u32 lens[MAX_PATH_COMPONENTS] = {};
+    u8 lens[MAX_PATH_COMPONENTS] = {};
 
     // Walk to the top of the filesystem and store all components in the array.
     int component = 0;
@@ -41,7 +41,7 @@ static __always_inline int bpf_d_path_cursed(struct path* path, char* buf, size_
         } else {
             // Add to names and traverse one directory up.
             struct qstr d_name = BPF_CORE_READ(dentry, d_name);
-            if(d_name.len > 256) {
+            if(d_name.len >= 256) {
               bpf_printk("bpf_d_path_cursed: cannot handle directory length > 256");
               return -1;
             }
