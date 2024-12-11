@@ -1,0 +1,20 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: metrics-cert
+  namespace: security-profiles-operator
+  labels:
+    app: security-profiles-operator
+spec:
+  dnsNames:
+  - metrics.security-profiles-operator
+  - metrics.security-profiles-operator.svc
+  - metrics.security-profiles-operator.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: metrics-server-cert
+  subject:
+    organizations:
+    - security-profiles-operator

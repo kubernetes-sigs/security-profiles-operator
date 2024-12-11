@@ -15,9 +15,11 @@ patches:
 - path: deployment.yaml
 
 resources:
+- webhook_issuer.yaml
 - webhook_cert.yaml
 - webhook_deployment.yaml
 - webhook_service.yaml
+- metrics_cert.yaml
 - ../cluster
 
 images:
