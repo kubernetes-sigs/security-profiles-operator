@@ -1,6 +1,7 @@
 # Installation and Usage
 
 <!-- toc -->
+
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
@@ -496,7 +497,7 @@ $ kubectl get MutatingWebhookConfiguration spo-mutating-webhook-configuration -o
 ## Create and Install Security Profiles
 
 The next sections will describe how to record and install security profiles for a container. The namespace
-where the recording takes place needs to be labeled with  `spo.x-k8s.io/enable-recording` in order to enable
+where the recording takes place needs to be labeled with `spo.x-k8s.io/enable-recording` in order to enable
 recording in that namespaces, as following:
 
 ```sh
@@ -897,6 +898,7 @@ I1115 12:02:48.411636  110307 bpfrecorder.go:176] bpf-recorder "msg"="Starting G
 ```
 
 You can now set up an apparmor profile recording for `nginx` container by creating the following configuration:
+
 ```
 kubectl apply -f - <<EOF
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
@@ -913,6 +915,7 @@ spec:
 EOF
 
 ```
+
 Now, a nginx container can be started. The operator will record in background an apparmor profile for it.
 
 ```
@@ -961,7 +964,6 @@ _Known limitations:_
   an existing profile to be overwritten (See [issue 2582](https://github.com/kubernetes-sigs/security-profiles-operator/issues/2582) for details).
 - Restrictive profiles may block sub processes to be created, or a container from
   successfully loading. To work around the issue, set the AppArmor profile to complain mode.
-
 
 #### Use AppArmor profile
 
@@ -1121,7 +1123,6 @@ I0623 12:51:04.258061 1854764 enricher.go:69] log-enricher "msg"="Reading from f
 To record by using the log enricher, create a `ProfileRecording` which is using
 `recorder: logs`:
 
-
 You can now record a SELinux profile for `nginx` container by creating the following `ProfileRecording` configuration:
 
 ```
@@ -1165,9 +1166,11 @@ EOF
 We can now let the container run for at least a few minutes to make sure that the required system resources are collected.
 
 Stop the nginx pod, this will make the operator to save and install the apparmor profile in the cluster.
+
 ```
 kubectl delete pod -n security-profiles-operator nginx-pod
 ```
+
 We can check now that the profile was properly installed:
 
 ```
@@ -1204,8 +1207,8 @@ spec:
           # NOTE: This uses an appropriate SELinux type
           type: nginx-recording-nginx-container_security-profiles-operator.process
 ```
-The pod should properly start and run.
 
+The pod should properly start and run.
 
 ### General Considerations
 
@@ -1228,7 +1231,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: runc-v1.2.2
+  baseProfileName: runc-v1.2.3
   syscalls:
     - action: SCMP_ACT_ALLOW
       names:
@@ -1295,7 +1298,7 @@ metadata:
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
-  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.2.2
+  baseProfileName: oci://ghcr.io/security-profiles/runc:v1.2.3
 ```
 
 The resulting profile `profile1` will then contain all base syscalls from the
@@ -1329,7 +1332,6 @@ API Version:  security-profiles-operator.x-k8s.io/v1beta1
 We provide all available base profiles as part of the ["Security Profiles"
 GitHub organization](https://github.com/orgs/security-profiles/packages).
 
-
 #### Bind workloads to profiles with ProfileBindings
 
 If you do not want to directly modify the SecurityContext of a Pod, for instance
@@ -1338,7 +1340,6 @@ resource to bind a security profile to a container's securityContext.
 
 You need to enable the profile binding for a namespace by applying the label
 `spo.x-k8s.io/enable-binding` as following:
-
 
 ```sh
 $ kubectl label ns spo-test spo.x-k8s.io/enable-binding=
@@ -1387,7 +1388,6 @@ $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.sec
 
 Binding a SELinux profile works in the same way, except you'd use the `SelinuxProfile` kind.
 `RawSelinuxProfiles` are currently not supported.
-
 
 #### Merging per-container profile instances
 
@@ -1661,24 +1661,24 @@ The `spoc` client is able to pull security profiles from OCI artifact compatible
 registries. To do that, just run `spoc pull`:
 
 ```console
-> spoc pull ghcr.io/security-profiles/runc:v1.2.2
-16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.2.2
+> spoc pull ghcr.io/security-profiles/runc:v1.2.3
+16:32:29.795597 Pulling profile from: ghcr.io/security-profiles/runc:v1.2.3
 16:32:29.795610 Verifying signature
 
-Verification for ghcr.io/security-profiles/runc:v1.2.2 --
+Verification for ghcr.io/security-profiles/runc:v1.2.3 --
 The following checks were performed on each of these signatures:
   - Existence of the claims in the transparency log was verified offline
   - The code-signing certificate was verified using trusted certificate authority certificates
 
 [{"critical":{"identity":{"docker-reference":"ghcr.io/security-profiles/runc"},…}}]
 16:32:33.208695 Creating file store in: /tmp/pull-3199397214
-16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.2.2
+16:32:33.208713 Verifying reference: ghcr.io/security-profiles/runc:v1.2.3
 16:32:33.208718 Creating repository for ghcr.io/security-profiles/runc
-16:32:33.208742 Using tag: v1.2.2
+16:32:33.208742 Using tag: v1.2.3
 16:32:33.208743 Copying profile from repository
 16:32:34.119652 Reading profile
 16:32:34.119677 Trying to unmarshal seccomp profile
-16:32:34.120114 Got SeccompProfile: runc-v1.2.2
+16:32:34.120114 Got SeccompProfile: runc-v1.2.3
 16:32:34.120119 Saving profile in: /tmp/profile.yaml
 ```
 
@@ -1806,15 +1806,15 @@ The Security Profiles Operator will try to pull the correct profile by using
 way, for example if a profile does not support any platform:
 
 ```
-> spoc pull ghcr.io/security-profiles/runc:v1.2.2
-11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.2.2
+> spoc pull ghcr.io/security-profiles/runc:v1.2.3
+11:07:14.788840 Pulling profile from: ghcr.io/security-profiles/runc:v1.2.3
 11:07:14.788852 Verifying signature
 …
 11:07:17.559037 Copying profile from repository
 11:07:18.359152 Trying to read profile: profile-linux-amd64.yaml
 11:07:18.359209 Trying to read profile: profile.yaml
 11:07:18.359224 Trying to unmarshal seccomp profile
-11:07:18.359728 Got SeccompProfile: runc-v1.2.2
+11:07:18.359728 Got SeccompProfile: runc-v1.2.3
 11:07:18.359732 Saving profile in: /tmp/profile.yaml
 ```
 
@@ -1987,7 +1987,6 @@ Forwarding from [::1]:9090 -> 9090
 The OpenShift UI is now able to display the operator metrics, too:
 
 ![prometheus targets](doc/img/openshift-metrics.png)
-
 
 ## Troubleshooting
 
