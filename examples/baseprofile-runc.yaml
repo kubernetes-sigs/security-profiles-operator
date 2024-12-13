@@ -15,6 +15,7 @@ spec:
         - capget
         - capset
         - chdir
+        - chroot
         - clone
         - clone3
         - close
