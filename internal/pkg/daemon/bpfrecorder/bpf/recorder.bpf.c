@@ -326,15 +326,10 @@ int BPF_KPROBE(cap_capable)
     return 0;
 }
 
-SEC("tracepoint/sched/sched_prepare_exec")
-int sched_prepare_exec(struct trace_event_raw_sched_process_exec * ctx)
-{
-    u32 mntns = get_mntns();
-    if (!mntns)
-        return 0;
+static __always_inline u32 clear_mntns(u32 mntns) {
     char comm[TASK_COMM_LEN] = {};
     bpf_get_current_comm(comm, sizeof(comm));
-    // trace_hook("sched_prepare_exec mntns=%u comm=%s", mntns, comm);
+    trace_hook("clear_mntns mntns=%u comm=%s", mntns, comm);
 
     for (int i = 0; i < sizeof(RUNC_DONE); i++) {
         if (comm[i] != RUNC_DONE[i]) {
@@ -351,7 +346,19 @@ int sched_prepare_exec(struct trace_event_raw_sched_process_exec * ctx)
         event->mntns = mntns;
         event->type = EVENT_TYPE_CLEAR_MNTNS;
         bpf_ringbuf_submit(event, 0);
+        return 0;
+    } else {
+        return -1;
     }
+}
+
+SEC("tracepoint/sched/sched_prepare_exec")
+int sched_prepare_exec(struct trace_event_raw_sched_process_exec * ctx)
+{
+    bpf_printk("sched_prepare_exec");
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u32 mntns2 = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+    //clear_mntns(mntns2);
 
     return 0;
 }
@@ -381,6 +388,11 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 SEC("tracepoint/sched/sched_process_exit")
 int sched_process_exit(void * ctx)
 {
+    trace_hook("sched_process_exit");
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u32 mntns2 = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+    clear_mntns(mntns2);
+
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
