@@ -20,6 +20,7 @@
 #define EVENT_TYPE_APPARMOR_FILE 2
 #define EVENT_TYPE_APPARMOR_SOCKET 3
 #define EVENT_TYPE_APPARMOR_CAP 4
+#define EVENT_TYPE_CLEAR_MNTNS 5
 
 #define FLAG_READ 0x1
 #define FLAG_WRITE 0x2
@@ -50,6 +51,8 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #ifndef unlikely
 #define unlikely(x) __builtin_expect((x), 0)
 #endif
+
+#define trace_hook(...) bpf_printk(__VA_ARGS__)
 
 // Track syscalls for each mtnns
 struct {
@@ -93,6 +96,7 @@ typedef struct __attribute__((__packed__)) event_data {
 const volatile char filter_name[MAX_COMM_LEN] = {};
 const volatile u32 exclude_mntns = 0;
 
+static const char RUNC_DONE[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
 static inline bool matches_filter(char * comm);
@@ -316,6 +320,36 @@ int BPF_KPROBE(cap_capable)
 
         event->flags = cap;
 
+        bpf_ringbuf_submit(event, 0);
+    }
+
+    return 0;
+}
+
+SEC("tracepoint/sched/sched_prepare_exec")
+int sched_prepare_exec(struct trace_event_raw_sched_process_exec * ctx)
+{
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    // trace_hook("sched_prepare_exec mntns=%u comm=%s", mntns, comm);
+
+    for (int i = 0; i < sizeof(RUNC_DONE); i++) {
+        if (comm[i] != RUNC_DONE[i]) {
+            return 0;
+        }
+    }
+
+    trace_hook("clearing mount namespace: %u", mntns);
+
+    bpf_map_delete_elem(&mntns_syscalls, &mntns);
+    event_data_t * event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (event) {
+        event->pid = bpf_get_current_pid_tgid() >> 32;
+        event->mntns = mntns;
+        event->type = EVENT_TYPE_CLEAR_MNTNS;
         bpf_ringbuf_submit(event, 0);
     }
 

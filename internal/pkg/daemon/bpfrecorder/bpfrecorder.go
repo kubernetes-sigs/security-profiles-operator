@@ -71,6 +71,7 @@ const (
 	eventTypeAppArmorFile   int           = 2
 	eventTypeAppArmorSocket int           = 3
 	eventTypeAppArmorCap    int           = 4
+	eventTypeClearMntns     int           = 5
 )
 
 // BpfRecorder is the main structure of this package.
@@ -409,6 +410,7 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 
 var baseHooks = []string{
 	"sys_enter",
+	"sched_prepare_exec",
 	"sched_process_exec",
 	"sched_process_exit",
 }
@@ -667,6 +669,8 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 		b.AppArmor.handleSocketEvent(&event)
 	case uint8(eventTypeAppArmorCap):
 		b.AppArmor.handleCapabilityEvent(&event)
+	case uint8(eventTypeClearMntns):
+		b.AppArmor.clearMntns(&event)
 	}
 }
 
