@@ -271,7 +271,7 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 }
 
 func (b *BpfRecorder) Start(
-	context.Context, *api.EmptyRequest,
+		context.Context, *api.EmptyRequest,
 ) (*api.EmptyResponse, error) {
 	if b.startRequests == 0 {
 		b.logger.Info("Starting bpf recorder")
@@ -288,7 +288,7 @@ func (b *BpfRecorder) Start(
 }
 
 func (b *BpfRecorder) Stop(
-	context.Context, *api.EmptyRequest,
+		context.Context, *api.EmptyRequest,
 ) (*api.EmptyResponse, error) {
 	if b.startRequests == 0 {
 		b.logger.Info("bpf recorder not running")
@@ -307,7 +307,7 @@ func (b *BpfRecorder) Stop(
 
 // SyscallsForProfile returns the syscall names for the provided profile name.
 func (b *BpfRecorder) SyscallsForProfile(
-	_ context.Context, r *api.ProfileRequest,
+		_ context.Context, r *api.ProfileRequest,
 ) (*api.SyscallsResponse, error) {
 	if b.startRequests == 0 {
 		return nil, errors.New("bpf recorder not running")
@@ -336,7 +336,7 @@ func (b *BpfRecorder) SyscallsForProfile(
 }
 
 func (b *BpfRecorder) ApparmorForProfile(
-	_ context.Context, r *api.ProfileRequest,
+		_ context.Context, r *api.ProfileRequest,
 ) (*api.ApparmorResponse, error) {
 	if b.startRequests == 0 {
 		return nil, errors.New("bpf recorder not running")
@@ -410,7 +410,7 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 
 var baseHooks = []string{
 	"sys_enter",
-	"sched_prepare_exec",
+	// FIXME "sched_prepare_exec",
 	"sched_process_exec",
 	"sched_process_exit",
 }
