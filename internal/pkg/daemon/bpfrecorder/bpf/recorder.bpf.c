@@ -363,6 +363,20 @@ int sched_prepare_exec(struct trace_event_raw_sched_process_exec * ctx)
     return 0;
 }
 
+SEC("tracepoint/syscalls/sys_enter_execve")
+int syscall__execve(struct trace_event_raw_sys_enter * ctx)
+{
+    trace_hook("sys_enter_execve");
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+    clear_mntns(mntns);
+
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    trace_hook("sys_enter_execve mntns=%u comm=%s", mntns, comm);
+    return 0;
+}
+
 SEC("tracepoint/sched/sched_process_exec")
 int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 {
@@ -388,10 +402,12 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 SEC("tracepoint/sched/sched_process_exit")
 int sched_process_exit(void * ctx)
 {
+    /*
     trace_hook("sched_process_exit");
     struct task_struct * task = (struct task_struct *)bpf_get_current_task();
     u32 mntns2 = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
     clear_mntns(mntns2);
+    */
 
     u32 mntns = get_mntns();
     if (!mntns)
