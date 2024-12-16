@@ -84,7 +84,7 @@ func TestGetSeccompLocalhostProfilePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := GetSeccompLocalhostProfilePath(tt.node)
+			got := GetSeccompLocalhostProfilePath(tt.node, bindata.LocalSeccompProfilePath)
 			require.Equal(t, tt.want, got)
 		})
 	}

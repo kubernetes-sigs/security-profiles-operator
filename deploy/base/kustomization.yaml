@@ -12,6 +12,7 @@ resources:
 
 configMapGenerator:
 - files:
+  - profiles/bpf-recorder.json
   - profiles/security-profiles-operator.json
   - profiles/selinuxd.cil
   - profiles/selinuxrecording.cil
