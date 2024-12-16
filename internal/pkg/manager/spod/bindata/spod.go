@@ -30,17 +30,18 @@ import (
 )
 
 var (
-	userRoot                  int64
-	falsely                   = false
-	truly                     = true
-	userRootless              = int64(config.UserRootless)
-	hostPathDirectory         = corev1.HostPathDirectory
-	hostPathDirectoryOrCreate = corev1.HostPathDirectoryOrCreate
-	hostPathFile              = corev1.HostPathFile
-	healthzPath               = "/healthz"
-	etcOSReleasePath          = "/etc/os-release"
-	openshiftCertAnnotation   = "service.beta.openshift.io/serving-cert-secret-name"
-	localSeccompProfilePath   = LocalSeccompProfilePath
+	userRoot                           int64
+	falsely                            = false
+	truly                              = true
+	userRootless                       = int64(config.UserRootless)
+	hostPathDirectory                  = corev1.HostPathDirectory
+	hostPathDirectoryOrCreate          = corev1.HostPathDirectoryOrCreate
+	hostPathFile                       = corev1.HostPathFile
+	healthzPath                        = "/healthz"
+	etcOSReleasePath                   = "/etc/os-release"
+	openshiftCertAnnotation            = "service.beta.openshift.io/serving-cert-secret-name"
+	localSeccompProfilePath            = LocalSeccompProfilePath
+	localSeccompBpfRecorderProfilePath = LocalSeccompBpfRecorderProfilePath
 )
 
 const (
@@ -65,6 +66,7 @@ const (
 	NonRootEnablerContainerName                      = "non-root-enabler"
 	SelinuxPoliciesCopierContainerName               = "selinux-shared-policies-copier"
 	LocalSeccompProfilePath                          = "security-profiles-operator.json"
+	LocalSeccompBpfRecorderProfilePath               = "bpf-recorder.json"
 	DefaultPriorityClassName                         = "system-node-critical"
 	servicePort                                int32 = 443
 	ContainerPort                              int32 = 9443
@@ -575,6 +577,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
 								Type: "spc_t",
+							},
+							SeccompProfile: &corev1.SeccompProfile{
+								Type:             corev1.SeccompProfileTypeLocalhost,
+								LocalhostProfile: &localSeccompBpfRecorderProfilePath,
 							},
 						},
 						Resources: corev1.ResourceRequirements{

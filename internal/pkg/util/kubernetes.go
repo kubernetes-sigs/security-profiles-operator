@@ -30,14 +30,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
 const kubeVersionWithFields = "v1.23.0"
 
 // GetSeccompLocalhostProfilePath returns the path of local seccomp profile
 // according to the runtime.
-func GetSeccompLocalhostProfilePath(node *corev1.Node) string {
+func GetSeccompLocalhostProfilePath(node *corev1.Node, seccompProfile string) string {
 	containerRuntime := GetContainerRuntime(node)
 	kubeVersion := GetVersion(node)
 	// cri-o expects the local seccomp profile to be prefixed with 'localhost' when seccomp is set up
@@ -47,9 +46,9 @@ func GetSeccompLocalhostProfilePath(node *corev1.Node) string {
 	//
 	// Note: the newer Kubernetes versions set up the seccomp from fields and it doesn't require this fix.
 	if containerRuntime == "cri-o" && semver.Compare(kubeVersion, kubeVersionWithFields) == -1 {
-		return path.Join("localhost", bindata.LocalSeccompProfilePath)
+		return path.Join("localhost", seccompProfile)
 	}
-	return bindata.LocalSeccompProfilePath
+	return seccompProfile
 }
 
 // GetContainerRuntime parses the container runtime from a node object.
