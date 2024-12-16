@@ -12,6 +12,7 @@ spec:
       names:
         - arch_prctl
         - brk
+        - getpid
         - exit_group
         - getuid
         - mmap

@@ -351,7 +351,7 @@ static __always_inline u32 clear_mntns(u32 mntns) {
         return -1;
     }
 }
-
+/*
 SEC("tracepoint/sched/sched_prepare_exec")
 int sched_prepare_exec(struct trace_event_raw_sched_process_exec * ctx)
 {
@@ -362,6 +362,7 @@ int sched_prepare_exec(struct trace_event_raw_sched_process_exec * ctx)
 
     return 0;
 }
+*/
 
 SEC("tracepoint/syscalls/sys_enter_execve")
 int syscall__execve(struct trace_event_raw_sys_enter * ctx)
