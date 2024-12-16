@@ -1,6 +1,9 @@
 module sigs.k8s.io/security-profiles-operator
 
-go 1.23
+go 1.23.0
+
+toolchain go1.23.3
+
 require (
 	dario.cat/mergo v1.0.1
 	github.com/acobaugh/osrelease v0.1.0
