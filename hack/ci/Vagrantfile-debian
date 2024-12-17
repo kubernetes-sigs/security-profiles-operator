@@ -13,7 +13,8 @@ Vagrant.configure("2") do |config|
 
   config.vm.provider :libvirt do |v|
     v.memory = memory
-    v.cpus = cpus end
+    v.cpus = cpus
+  end
 
   if File.exist?("./ssh-config")
     config.ssh.config = "./ssh-config"
