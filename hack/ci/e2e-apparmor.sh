@@ -20,30 +20,52 @@ RECORDING_NAME="test-recording"
 APPARMOR_RECORDING_FILE="examples/profilerecording-apparmor-bpf.yaml"
 APPARMOR_PROFILE_NAME="test-recording-$PODNAME"
 APPARMOR_PROFILE_FILE="/tmp/apparmorprofile-sleep.yaml"
-APPARMOR_REFERENCE_PROFILE_FILE="examples/apparmorprofile-sleep.yaml"
+APPARMOR_REFERENCE_PROFILE_FILE="examples/apparmorprofile-sleep"
 APPARMOR_REFERENCE_TMP_PROFILE_FILE="/tmp/apparmorprofile-sleep-reference.yaml"
 APPARMOR_PROFILE_FILE_COMPLAIN_MODE="examples/apparmorprofile-sleep-complain-mode.yaml"
 SLEEP_INTERVAL_RECORDING="30"     # 30s sleep interval during recording.
 SLEEP_INTERVAL_VERIFICATION="300" # 5min to make sure that the enforcement check finds a running  PID.
+RUNTIMES=(runc crun)
+# Default location for CRI-O specific runtime binaries
+export PATH="/usr/libexec/crio:$PATH"
 
 # Retrieves the recorded apaprmor profile from the cluster and
 # cleans up the variances.
 check_apparmor_profile() {
+  local runtime="$1"
   k get apparmorprofile -o yaml "$APPARMOR_PROFILE_NAME" >"$APPARMOR_PROFILE_FILE"
 
   # clean up the variance in the recorded apparmor profile
   yq -i ".spec" $APPARMOR_PROFILE_FILE
-  cp $APPARMOR_REFERENCE_PROFILE_FILE $APPARMOR_REFERENCE_TMP_PROFILE_FILE
+  cp "$APPARMOR_REFERENCE_PROFILE_FILE-$runtime.yaml" $APPARMOR_REFERENCE_TMP_PROFILE_FILE
   yq -i ".spec" $APPARMOR_REFERENCE_TMP_PROFILE_FILE
 
   diff $APPARMOR_REFERENCE_TMP_PROFILE_FILE $APPARMOR_PROFILE_FILE
+}
+create_runtimeclass() {
+  local rc_file="$1"
+  local runtime="$2"
+
+  cat <<EOT >"$rc_file"
+---
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: $runtime
+handler: $runtime
+EOT
+  echo "Creating runtime class"
+  cat "$rc_file"
+
+  k apply -f "$rc_file"
 }
 
 create_pod() {
   local pod_name="$1"
   local pod_file="$2"
   local sleep_interval="$3"
-  local apparmor_profile="${4-}"
+  local runtime="$4"
+  local apparmor_profile="${5-}"
   cat <<EOT >"$pod_file"
 ---
 apiVersion: v1
@@ -53,6 +75,7 @@ metadata:
   labels:
     app: alpine
 spec:
+  runtimeClassName: $runtime
   restartPolicy: Never
   containers:
   - name: $pod_name
@@ -111,48 +134,54 @@ check_apparmor_profile_recording() {
   k rollout status ds spod --timeout 360s
   k_wait spod spod
 
-  echo "--------------------------"
-  echo "Recording apparmor profile"
-  echo "--------------------------"
+  for runtime in "${RUNTIMES[@]}"; do
+    echo "--------------------------"
+    echo "Recording apparmor profile"
+    echo "--------------------------"
 
-  echo "Creating profile recording $RECORDING_NAME"
-  k apply -f $APPARMOR_RECORDING_FILE
+    echo "Creating profile recording $RECORDING_NAME"
+    k apply -f $APPARMOR_RECORDING_FILE
 
-  TMP_DIR=$(mktemp -d)
-  trap 'rm -rf $TMP_DIR' EXIT
+    TMP_DIR=$(mktemp -d)
+    trap 'rm -rf $TMP_DIR' EXIT
 
-  echo "Creating pod $PODNAME and start recording its apparmor profile"
-  pod_file="${TMP_DIR}/${PODNAME}.yml"
-  create_pod $PODNAME $pod_file $SLEEP_INTERVAL_RECORDING
-  wait_for_pod_status "$PODNAME" "Completed"
-  echo "Deleting pod $PODNAME"
-  k delete -f "$pod_file"
+    rc_file="${TMP_DIR}/rc.yml"
+    create_runtimeclass $rc_file $runtime
 
-  echo "Deleting profile recoridng $RECORDING_NAME"
-  k delete -f "$APPARMOR_RECORDING_FILE"
+    echo "Creating pod $PODNAME and start recording its apparmor profile"
+    pod_file="${TMP_DIR}/${PODNAME}.yml"
+    create_pod $PODNAME $pod_file $SLEEP_INTERVAL_RECORDING $runtime
+    wait_for_pod_status "$PODNAME" "Completed"
+    echo "Deleting pod $PODNAME"
+    k delete -f "$pod_file"
 
-  wait_for apparmorprofile $APPARMOR_PROFILE_NAME
+    echo "Deleting profile recoridng $RECORDING_NAME"
+    k delete -f "$APPARMOR_RECORDING_FILE"
 
-  echo "--------------------------"
-  echo "Verifying apparmor profile"
-  echo "--------------------------"
+    wait_for apparmorprofile $APPARMOR_PROFILE_NAME
 
-  echo "Checking the recorded appamror profile matches the reference"
-  check_apparmor_profile
+    echo "--------------------------"
+    echo "Verifying apparmor profile"
+    echo "--------------------------"
 
-  echo "Creating pod $PODNAME with recorded profile in security context"
-  sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
-  create_pod $PODNAME $sec_pod_file $SLEEP_INTERVAL_VERIFICATION $APPARMOR_PROFILE_NAME
-  wait_for_pod_status "$PODNAME" "Running"
+    echo "Checking the recorded appamror profile matches the reference"
+    check_apparmor_profile $runtime
 
-  echo "Checking apparmor profile enforcement on container"
-  check_profile_mode "sleep" $APPARMOR_PROFILE_NAME "enforce"
+    echo "Creating pod $PODNAME with recorded profile in security context"
+    sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
+    create_pod $PODNAME $sec_pod_file $SLEEP_INTERVAL_VERIFICATION $runtime $APPARMOR_PROFILE_NAME
+    wait_for_pod_status "$PODNAME" "Running"
 
-  echo "Deleting pod $PODNAME"
-  k delete -f "$sec_pod_file"
+    echo "Checking apparmor profile enforcement on container"
+    check_profile_mode "sleep" $APPARMOR_PROFILE_NAME "enforce"
 
-  echo "Deleting apparmor profile $APPARMOR_PROFILE_NAME"
-  k delete apparmorprofile $APPARMOR_PROFILE_NAME
+    echo "Deleting pod $PODNAME"
+    k delete -f "$sec_pod_file"
+
+    echo "Deleting apparmor profile $APPARMOR_PROFILE_NAME"
+    k delete apparmorprofile $APPARMOR_PROFILE_NAME
+
+  done
 }
 
 # Install a profile in complain mode, and checks if the pod properly starts
@@ -183,8 +212,9 @@ check_apparmor_complain_mode() {
   trap 'rm -rf $TMP_DIR' EXIT
 
   echo "Creating pod $PODNAME with apparmor profile in complain mode in security context"
+  runtime="crun"
   sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
-  create_pod $PODNAME $sec_pod_file $SLEEP_INTERVAL_VERIFICATION $APPARMOR_PROFILE_NAME
+  create_pod $PODNAME $sec_pod_file $SLEEP_INTERVAL_VERIFICATION $runtime $APPARMOR_PROFILE_NAME
   wait_for_pod_status "$PODNAME" "Running"
 
   echo "Checking apparmor profile is in complain mode on container"
