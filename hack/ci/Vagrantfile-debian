@@ -13,8 +13,7 @@ Vagrant.configure("2") do |config|
 
   config.vm.provider :libvirt do |v|
     v.memory = memory
-    v.cpus = cpus
-  end
+    v.cpus = cpus end
 
   if File.exist?("./ssh-config")
     config.ssh.config = "./ssh-config"
@@ -82,6 +81,8 @@ Vagrant.configure("2") do |config|
       jq 'del(.plugins[0].ipam.routes[1], .plugins[0].ipam.ranges[1])' $CNI_CONFIG.disabled >$CNI_CONFIG
 
       # Setup CRI-O
+      # Change default runtime form crun to runc
+      cat /etc/crio/crio.conf.d/10-crio.conf | sed -i 's/\"crun\"/\"runc\"/' /etc/crio/crio.conf.d/10-crio.conf
       systemctl enable --now crio
 
       /vagrant/hack/ci/install-kubernetes.sh
