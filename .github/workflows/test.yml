@@ -209,7 +209,7 @@ jobs:
     runs-on: ubuntu-20.04
     timeout-minutes: 90
     env:
-      RUN: ./hack/ci/run-ubuntu.sh
+      RUN: ./hack/ci/run-debian.sh
     steps:
       - name: Set up vagrant
         run: |
@@ -223,7 +223,7 @@ jobs:
           name: image
           path: .
       - name: Boot Virtual Machine
-        run: make vagrant-up-ubuntu
+        run: make vagrant-up-debian
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
