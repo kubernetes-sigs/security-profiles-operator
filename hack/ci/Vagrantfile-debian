@@ -82,7 +82,7 @@ Vagrant.configure("2") do |config|
       jq 'del(.plugins[0].ipam.routes[1], .plugins[0].ipam.ranges[1])' $CNI_CONFIG.disabled >$CNI_CONFIG
 
       # Setup CRI-O
-      # Change default runtime form crun to runc
+      # Change default runtime from crun to runc
       cat /etc/crio/crio.conf.d/10-crio.conf | sed -i 's/\"crun\"/\"runc\"/' /etc/crio/crio.conf.d/10-crio.conf
       systemctl enable --now crio
 
