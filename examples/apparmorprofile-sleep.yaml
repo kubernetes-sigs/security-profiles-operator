@@ -18,6 +18,7 @@ spec:
       - mknod
       - setgid
       - setpcap
+      - setuid
       - sys_admin
       - sys_chroot
     executable:
@@ -27,27 +28,32 @@ spec:
       - /lib/ld-musl-x86_64.so.1
     filesystem:
       readOnlyPaths:
-      - /proc/@{pid}/cgroup
-      - /proc/@{pid}/mounts
+      - /
+      - /etc/
+      - /proc/@{pid}/maps
       - /proc/@{pid}/setgroups
-      - /proc/@{pid}/task/@{tid}/attr/apparmor/current
+      - /proc/@{pid}/task/@{tid}/fd/
       - /proc/@{pid}/uid_map
+      - /proc/filesystems
       - /proc/sys/kernel/cap_last_cap
       - /run/
-      - /sys/module/apparmor/parameters/enabled
+      - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
       - /var/lib/containers/storage/overlay/*/merged/
       - /var/lib/containers/storage/overlay/*/merged/dev/
+      - /var/lib/containers/storage/overlay/*/merged/dev/mqueue/
+      - /var/lib/containers/storage/overlay/*/merged/dev/pts/
+      - /var/lib/containers/storage/overlay/*/merged/dev/shm/
       - /var/lib/containers/storage/overlay/*/merged/etc/
       - /var/lib/containers/storage/overlay/*/merged/proc/
       - /var/lib/containers/storage/overlay/*/merged/run/
       - /var/lib/containers/storage/overlay/*/merged/run/secrets/
       - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/
+      - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/serviceaccount/
       - /var/lib/containers/storage/overlay/*/merged/sys/
-      - /var/lib/containers/storage/overlay/*/merged/var/
+      - /var/lib/containers/storage/overlay/*/merged/sys/fs/cgroup/
       readWritePaths:
       - /dev/null
-      - /etc/passwd
-      - /proc/@{pid}/oom_score_adj
+      - /etc/*
       writeOnlyPaths:
       - /etc/alpine-release
       - /etc/apk/arch
@@ -61,7 +67,6 @@ spec:
       - /etc/busybox-paths.d/busybox
       - /etc/crontabs/root
       - /etc/fstab
-      - /etc/group
       - /etc/hostname
       - /etc/hosts
       - /etc/inittab
@@ -135,7 +140,4 @@ spec:
       - /usr/share/apk/keys/alpine-devel@lists.alpinelinux.org-616db30d.rsa.pub
       - /usr/share/apk/keys/alpine-devel@lists.alpinelinux.org-66ba20fe.rsa.pub
       - /usr/share/udhcpc/default.script
-      - /var/lib/containers/storage/overlay/*/merged/dev/termination-log
-      - /var/lib/containers/storage/overlay/*/merged/etc/resolv.conf
-      - /var/lib/containers/storage/overlay/*/merged/run/.containerenv
   disabled: false
