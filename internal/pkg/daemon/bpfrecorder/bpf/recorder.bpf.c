@@ -329,7 +329,6 @@ int BPF_KPROBE(cap_capable)
 static __always_inline u32 clear_mntns(u32 mntns) {
     char comm[TASK_COMM_LEN] = {};
     bpf_get_current_comm(comm, sizeof(comm));
-    trace_hook("clear_mntns mntns=%u comm=%s", mntns, comm);
 
     for (int i = 0; i < sizeof(RUNC_DONE); i++) {
         if (comm[i] != RUNC_DONE[i]) {
@@ -337,7 +336,7 @@ static __always_inline u32 clear_mntns(u32 mntns) {
         }
     }
 
-    trace_hook("clearing mount namespace: %u", mntns);
+    trace_hook("clear_mntns mntns=%u comm=%s", mntns, comm);
 
     bpf_map_delete_elem(&mntns_syscalls, &mntns);
     event_data_t * event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
@@ -370,11 +369,25 @@ int syscall__execve(struct trace_event_raw_sys_enter * ctx)
     trace_hook("sys_enter_execve");
     struct task_struct * task = (struct task_struct *)bpf_get_current_task();
     u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    clear_mntns(mntns);
+    // clear_mntns(mntns);
 
     char comm[TASK_COMM_LEN] = {};
     bpf_get_current_comm(comm, sizeof(comm));
     trace_hook("sys_enter_execve mntns=%u comm=%s", mntns, comm);
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_getppid")
+int syscall__getppid(struct trace_event_raw_sys_enter * ctx)
+{
+    trace_hook("sys_enter_getppid");
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+    clear_mntns(mntns);
+
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    trace_hook("sys_enter_getppid mntns=%u comm=%s", mntns, comm);
     return 0;
 }
 

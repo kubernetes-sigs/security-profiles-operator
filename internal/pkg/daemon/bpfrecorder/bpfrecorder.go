@@ -411,6 +411,7 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 var baseHooks = []string{
 	"sys_enter",
 	"syscall__execve",
+	"syscall__getppid",
 	// FIXME "sched_prepare_exec",
 	"sched_process_exec",
 	"sched_process_exit",
@@ -671,7 +672,9 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	case uint8(eventTypeAppArmorCap):
 		b.AppArmor.handleCapabilityEvent(&event)
 	case uint8(eventTypeClearMntns):
-		b.AppArmor.clearMntns(&event)
+		if b.AppArmor != nil {
+			b.AppArmor.clearMntns(&event)
+		}
 	}
 }
 
