@@ -349,8 +349,8 @@ static __always_inline u32 clear_mntns(u32 mntns) {
     }
 }
 
-SEC("tracepoint/syscalls/sys_enter_getppid")
-int syscall__getppid(struct trace_event_raw_sys_enter * ctx)
+SEC("tracepoint/syscalls/sys_enter_setgid")
+int syscall__setgid(struct trace_event_raw_sys_enter * ctx)
 {
     u32 mntns = get_mntns();
     if (!mntns)
