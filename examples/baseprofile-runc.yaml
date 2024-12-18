@@ -12,9 +12,27 @@ spec:
       names:
         - arch_prctl
         - brk
+        - close
+        - epoll_ctl
+        - epoll_pwait
+        - execve
+        - exit
         - exit_group
+        - faccessat2
+        - fcntl
+        - fstatfs
+        - futex
+        - getdents64
+        - getpid
         - getuid
+        - madvise
         - mmap
         - mprotect
         - nanosleep
+        - newfstatat
+        - openat
+        - rt_sigprocmask
         - set_tid_address
+        - sigaltstack
+        - tgkill
+        - write
