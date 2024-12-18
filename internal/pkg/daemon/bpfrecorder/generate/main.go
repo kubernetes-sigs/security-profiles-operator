@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -180,7 +179,6 @@ func generateBtf(builder *strings.Builder) error {
 			lowestMinor = 8
 		)
 		if kernelVersion.LT(semver.Version{Major: lowestMajor, Minor: lowestMinor}) {
-			log.Printf("Skipping unsupported kernel %s", kernel)
 			return nil
 		}
 
