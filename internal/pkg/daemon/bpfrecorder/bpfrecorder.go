@@ -410,9 +410,7 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 
 var baseHooks = []string{
 	"sys_enter",
-	// FIXME "syscall__execve",
 	"syscall__getppid",
-	// FIXME "sched_prepare_exec",
 	"sched_process_exec",
 	"sched_process_exit",
 }

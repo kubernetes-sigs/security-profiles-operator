@@ -96,7 +96,7 @@ typedef struct __attribute__((__packed__)) event_data {
 const volatile char filter_name[MAX_COMM_LEN] = {};
 const volatile u32 exclude_mntns = 0;
 
-static const char RUNC_DONE[] = "runc:[2:INIT]";
+static const char RUNC_INIT[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
 static inline bool matches_filter(char * comm);
@@ -330,15 +330,15 @@ static __always_inline u32 clear_mntns(u32 mntns) {
     char comm[TASK_COMM_LEN] = {};
     bpf_get_current_comm(comm, sizeof(comm));
 
-    for (int i = 0; i < sizeof(RUNC_DONE); i++) {
-        if (comm[i] != RUNC_DONE[i]) {
+    for (int i = 0; i < sizeof(RUNC_INIT); i++) {
+        if (comm[i] != RUNC_INIT[i]) {
             return 0;
         }
     }
     long ok = bpf_map_delete_elem(&mntns_syscalls, &mntns);
+    trace_hook("clear_mntns mntns=%u comm=%s ok=%d", mntns, comm, ok);
     event_data_t * event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (event) {
-        trace_hook("clear_mntns mntns=%u comm=%s ok=%d", mntns, comm, ok);
         event->pid = bpf_get_current_pid_tgid() >> 32;
         event->mntns = mntns;
         event->type = EVENT_TYPE_CLEAR_MNTNS;
@@ -348,34 +348,7 @@ static __always_inline u32 clear_mntns(u32 mntns) {
         return -1;
     }
 }
-/*
-SEC("tracepoint/sched/sched_prepare_exec")
-int sched_prepare_exec(struct trace_event_raw_sched_process_exec * ctx)
-{
-    bpf_printk("sched_prepare_exec");
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns2 = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    //clear_mntns(mntns2);
 
-    return 0;
-}
-*/
-/*
-SEC("tracepoint/syscalls/sys_enter_execve")
-int syscall__execve(struct trace_event_raw_sys_enter * ctx)
-{
-    trace_hook("sys_enter_execve");
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-
-    char comm[TASK_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    trace_hook("sys_enter_execve mntns=%u comm=%s", mntns, comm);
-    // clear_mntns(mntns);
-
-    return 0;
-}
-*/
 SEC("tracepoint/syscalls/sys_enter_getppid")
 int syscall__getppid(struct trace_event_raw_sys_enter * ctx)
 {
@@ -415,13 +388,6 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 SEC("tracepoint/sched/sched_process_exit")
 int sched_process_exit(void * ctx)
 {
-    /*
-    trace_hook("sched_process_exit");
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns2 = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    clear_mntns(mntns2);
-    */
-
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;

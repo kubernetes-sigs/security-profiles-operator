@@ -94,12 +94,14 @@ EOT
     VERSION=$("$RUNTIME" --version | grep "$RUNTIME version" | grep -oP '\d+.*')
     yq -i '.metadata.name = "'"$RUNTIME"'-v'"$VERSION"'"' "$BASEPROFILE"
 
+    cat $BASEPROFILE
+
     echo "Deleting seccomp profile"
     k delete seccompprofile $RECORDING
   done
 
-  echo "Diffing output, while ignoring flaky syscalls 'rt_sigreturn', 'sched_yield', 'tgkill', 'getpid', and 'exit'"
-  git diff --exit-code -U0 -I rt_sigreturn -I sched_yield -I tgkill -I exit -I getpid examples
+  echo "Diffing output, while ignoring flaky syscalls 'rt_sigreturn', 'sched_yield', 'tgkill', and 'exit'"
+  git diff --exit-code -U0 -I rt_sigreturn -I sched_yield -I tgkill -I exit examples
 
   for RUNTIME in "${RUNTIMES[@]}"; do
     echo "Verifying that the profile for runtime $RUNTIME is available in the GitHub container registry"
