@@ -11,6 +11,7 @@ spec:
   abstract:
     capability:
       allowedCapabilities:
+      - setpcap
       - sys_admin
     executable:
       allowedExecutables:
