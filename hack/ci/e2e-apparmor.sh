@@ -80,7 +80,7 @@ spec:
   containers:
   - name: $pod_name
     image: alpine:3
-    command: ["/bin/sh", "-c", "touch /tmp/foo && sleep $sleep_interval"]
+    command: ["sleep", "$sleep_interval"]
 EOT
 
   if [[ -n "$apparmor_profile" ]]; then
