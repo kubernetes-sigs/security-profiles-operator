@@ -13,7 +13,6 @@ spec:
         - arch_prctl
         - brk
         - exit_group
-        - getpid
         - getuid
         - mmap
         - mprotect
