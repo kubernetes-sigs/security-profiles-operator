@@ -352,14 +352,10 @@ static __always_inline u32 clear_mntns(u32 mntns) {
 SEC("tracepoint/syscalls/sys_enter_getppid")
 int syscall__getppid(struct trace_event_raw_sys_enter * ctx)
 {
-    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
-    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-    char comm[TASK_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    trace_hook("sys_enter_getppid mntns=%u comm=%s", mntns, comm);
-
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
     clear_mntns(mntns);
-
     return 0;
 }
 

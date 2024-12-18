@@ -25,7 +25,6 @@ spec:
         - getdents64
         - getpid
         - getuid
-        - madvise
         - mmap
         - mprotect
         - nanosleep
