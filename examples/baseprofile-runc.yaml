@@ -12,8 +12,8 @@ spec:
       names:
         - arch_prctl
         - brk
-        - getpid
         - exit_group
+        - getpid
         - getuid
         - mmap
         - mprotect
