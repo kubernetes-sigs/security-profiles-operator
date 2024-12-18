@@ -208,8 +208,6 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 // The recorder triggers this after container initialization to make sure that
 // permissions needed for setup are not included in the final profile.
 func (b *AppArmorRecorder) clearMntns(event *bpfEvent) {
-	// Everything we captured so far is container initialization.
-	// Let's get rid of it.
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
 	b.lockRecordedCapabilities.Lock()
