@@ -17,4 +17,7 @@ spec:
       - /bin/busybox
       allowedLibraries:
       - /lib/ld-musl-x86_64.so.1
+    filesystem:
+      readOnlyPaths:
+        - /proc/@{pid}/task/@{tid}/fd/
   disabled: false
