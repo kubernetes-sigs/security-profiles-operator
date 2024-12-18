@@ -29,14 +29,17 @@ spec:
         - getpid
         - getppid
         - getuid
+        - madvise
         - mmap
         - mprotect
         - nanosleep
         - newfstatat
         - openat
         - prctl
+        - rt_sigprocmask
         - rt_sigreturn
         - set_tid_address
         - setuid
+        - sigaltstack
         - tgkill
         - write
