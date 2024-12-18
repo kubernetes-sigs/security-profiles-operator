@@ -155,7 +155,7 @@ check_apparmor_profile_recording() {
     echo "Deleting pod $PODNAME"
     k delete -f "$pod_file"
 
-    echo "Deleting profile recoridng $RECORDING_NAME"
+    echo "Deleting profile recording $RECORDING_NAME"
     k delete -f "$APPARMOR_RECORDING_FILE"
 
     wait_for apparmorprofile $APPARMOR_PROFILE_NAME
@@ -164,7 +164,7 @@ check_apparmor_profile_recording() {
     echo "Verifying apparmor profile"
     echo "--------------------------"
 
-    echo "Checking the recorded appamror profile matches the reference"
+    echo "Checking the recorded apparmor profile matches the reference for $runtime"
     check_apparmor_profile $runtime
 
     echo "Creating pod $PODNAME with recorded profile in security context"
