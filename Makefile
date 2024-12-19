@@ -88,7 +88,8 @@ endif
 export CGO_LDFLAGS
 export CGO_ENABLED=1
 
-BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
+BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' -not -name '*_test.go')
+BPF_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name '*.c' -or -name '*.h')
 export GOFLAGS?=-mod=vendor
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
@@ -345,10 +346,11 @@ update-btf: $(BUILD_DIR) ## Build and update all generated BTF code for supporte
 	$(GO) run ./internal/pkg/daemon/bpfrecorder/generate
 
 .PHONY: update-bpf
-update-bpf: update-bpf-amd64 update-bpf-arm64
+update-bpf: \
+    internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.amd64 \
+    internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.arm64
 
-.PHONY: update-bpf-%
-update-bpf-%: $(BUILD_DIR) ## Build and update all generated BPF code with nix
+internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_FILES) ## Build and update all generated BPF code with nix
 	nix-build nix/default-bpf-$*.nix
 	cp -f result/recorder.bpf.o ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 	chmod 0644 ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
