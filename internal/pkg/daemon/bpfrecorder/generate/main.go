@@ -52,11 +52,10 @@ limitations under the License.
 
 package bpfrecorder
 
+import _ "embed"
 `
 
 const (
-	buildDir    = "build/"
-	bpfObj      = "recorder.bpf.o"
 	baseDir     = "internal/pkg/daemon/bpfrecorder/"
 	generatedGo = baseDir + "generated.go"
 	btfDir      = baseDir + "btf"
@@ -99,33 +98,14 @@ func run() error {
 
 func generateBpfObj(builder *strings.Builder) error {
 	builder.WriteString(header)
-	builder.WriteString("var bpfObjects = map[string][]byte{\n")
+	builder.WriteString(`
 
-	for _, arch := range []string{"amd64", "arm64"} {
-		fmt.Fprintf(builder, "%q: {\n", arch)
+//go:embed bpf/recorder.bpf.o.amd64
+var bpfAmd64 []byte
+//go:embed bpf/recorder.bpf.o.arm64
+var bpfArm64 []byte
 
-		file, err := os.ReadFile(filepath.Join(buildDir, bpfObj+"."+arch))
-		if err != nil {
-			return fmt.Errorf("read bpf object path: %w", err)
-		}
-
-		size := len(file)
-		for k, v := range file {
-			fmt.Fprint(builder, v)
-
-			if k < size-1 {
-				builder.WriteString(", ")
-			}
-
-			if k != 0 && k%16 == 0 {
-				builder.WriteString("\n\t")
-			}
-		}
-
-		builder.WriteString("},\n")
-	}
-
-	builder.WriteString("}\n\n")
+`)
 	return nil
 }
 
