@@ -463,6 +463,11 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		}
 	}
 
+	b.logger.Info("Loading bpf object from module")
+	if err := b.BPFLoadObject(module); err != nil {
+		return fmt.Errorf("load bpf object: %w", err)
+	}
+
 	if b.excludeMountNamespace != 0 {
 		excludeMntns, err := b.GetMap(module, "exclude_mntns")
 		if err != nil {
@@ -471,11 +476,6 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		if err := b.UpdateValue(excludeMntns, b.excludeMountNamespace, []byte{1}); err != nil {
 			return fmt.Errorf("updating exclude_mntns map failed: %w", err)
 		}
-	}
-
-	b.logger.Info("Loading bpf object from module")
-	if err := b.BPFLoadObject(module); err != nil {
-		return fmt.Errorf("load bpf object: %w", err)
 	}
 
 	b.logger.Info("Attach all bpf programs")
