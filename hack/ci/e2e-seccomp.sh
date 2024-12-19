@@ -94,6 +94,9 @@ EOT
     VERSION=$("$RUNTIME" --version | grep "$RUNTIME version" | grep -oP '\d+.*')
     yq -i '.metadata.name = "'"$RUNTIME"'-v'"$VERSION"'"' "$BASEPROFILE"
 
+    echo $BASEPROFILE
+    cat $BASEPROFILE
+
     echo "Deleting seccomp profile"
     k delete seccompprofile $RECORDING
   done

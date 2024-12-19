@@ -71,6 +71,7 @@ const (
 	eventTypeAppArmorFile   int           = 2
 	eventTypeAppArmorSocket int           = 3
 	eventTypeAppArmorCap    int           = 4
+	eventTypeClearMntns     int           = 5
 )
 
 // BpfRecorder is the main structure of this package.
@@ -409,6 +410,9 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 
 var baseHooks = []string{
 	"sys_enter",
+	"sys_enter_getppid",
+	"sys_enter_unshare",
+	"sys_exit_unshare",
 	"sched_process_exec",
 	"sched_process_exit",
 }
@@ -423,8 +427,13 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("find btf: %w", err)
 	}
 
-	bpfObject, ok := bpfObjects[b.GoArch()]
-	if !ok {
+	var bpfObject []byte
+	switch b.GoArch() {
+	case "amd64":
+		bpfObject = bpfAmd64
+	case "arm64":
+		bpfObject = bpfArm64
+	default:
 		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
 
@@ -662,6 +671,10 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 		b.AppArmor.handleSocketEvent(&event)
 	case uint8(eventTypeAppArmorCap):
 		b.AppArmor.handleCapabilityEvent(&event)
+	case uint8(eventTypeClearMntns):
+		if b.AppArmor != nil {
+			b.AppArmor.clearMntns(&event)
+		}
 	}
 }
 
