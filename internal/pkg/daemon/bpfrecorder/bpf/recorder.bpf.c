@@ -39,6 +39,8 @@
 #define S_IFIFO 0010000
 #define S_IFDIR 0040000
 
+#define CLONE_NEWNS	0x00020000
+
 #define CAP_OPT_NOAUDIT 0b10
 
 #define SOCK_RAW 3
@@ -85,6 +87,21 @@ struct {
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 10);
+    __type(key, u32);
+    __type(value, bool);
+} unshare_with_mntns SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1000);
+    __type(key, u32);
+    __type(value, u8);
+} exclude_mntns_map SEC(".maps");
+
+
 typedef struct __attribute__((__packed__)) event_data {
     u32 pid;
     u32 mntns;
@@ -96,6 +113,7 @@ typedef struct __attribute__((__packed__)) event_data {
 const volatile char filter_name[MAX_COMM_LEN] = {};
 const volatile u32 exclude_mntns = 0;
 
+static const char RUNC_CHILD[] = "runc:[1:CHILD]";
 static const char RUNC_INIT[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
@@ -121,6 +139,9 @@ static __always_inline u32 get_mntns()
     // When running in a Kubernetes context:
     // Filter out mntns of the host PID to exclude host processes
     if (exclude_mntns == mntns) {
+        return 0; // FIXME remove
+    }
+    if (bpf_map_lookup_elem(&exclude_mntns_map, &mntns) != NULL) {
         return 0;
     }
 
@@ -349,13 +370,79 @@ static __always_inline u32 clear_mntns(u32 mntns) {
     }
 }
 
-SEC("tracepoint/syscalls/sys_enter_setgid")
-int syscall__setgid(struct trace_event_raw_sys_enter * ctx)
+SEC("tracepoint/syscalls/sys_enter_unshare")
+int sys_enter_unshare(struct trace_event_raw_sys_enter* ctx)
+{
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    for (int i = 0; i < sizeof(RUNC_CHILD); i++) {
+        if (comm[i] != RUNC_CHILD[i]) {
+            return 0;
+        }
+    }
+
+    int flags = ctx->args[0];
+    bool is_mnt = flags & CLONE_NEWNS;
+
+    trace_hook("sys_enter_unshare mntns=%u comm=%s flags=%d, mnt=%d", get_mntns(), comm, flags, is_mnt);
+
+    if(is_mnt) {
+        u32 pid = bpf_get_current_pid_tgid() >> 32;
+        bpf_map_update_elem(&unshare_with_mntns, &pid, &TRUE, BPF_ANY);
+    }
+
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_exit_unshare")
+int sys_exit_unshare(struct trace_event_raw_sys_exit* ctx)
 {
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
-    clear_mntns(mntns);
+
+    trace_hook("sys_exit_unshare mntns=%u", mntns);
+
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    if (bpf_map_delete_elem(&unshare_with_mntns, &pid) == 0) {
+        trace_hook("marking mntns for exclusion", mntns);
+        bpf_map_update_elem(&exclude_mntns_map, &mntns, &TRUE, BPF_ANY);
+    }
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_getppid")
+int sys_enter_getppid(struct trace_event_raw_sys_enter * ctx)
+{
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    trace_hook("sys_enter_getppid comm=%s", comm);
+
+    for (int i = 0; i < sizeof(RUNC_INIT); i++) {
+        if (comm[i] != RUNC_INIT[i]) {
+            return 0;
+        }
+    }
+
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+
+    bool * val = bpf_map_lookup_elem(&exclude_mntns_map, &mntns);
+    if(val == NULL) {
+        bpf_printk("unexpected getppid call", mntns);
+        return 0;
+    }
+
+    (*val)--;
+
+    if(*val > 0) {
+        bpf_printk("exclude_mntns_map[%u]--;", mntns);
+        bpf_map_update_elem(&exclude_mntns_map, &mntns, val, BPF_ANY);
+    } else {
+        bpf_printk("del exclude_mntns_map[%u]", mntns);
+        bpf_map_delete_elem(&exclude_mntns_map, &mntns);
+    }
+
     return 0;
 }
 
