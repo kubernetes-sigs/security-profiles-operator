@@ -25,7 +25,7 @@ APPARMOR_REFERENCE_TMP_PROFILE_FILE="/tmp/apparmorprofile-sleep-reference.yaml"
 APPARMOR_PROFILE_FILE_COMPLAIN_MODE="examples/apparmorprofile-sleep-complain-mode.yaml"
 SLEEP_INTERVAL_RECORDING="30"     # 30s sleep interval during recording.
 SLEEP_INTERVAL_VERIFICATION="300" # 5min to make sure that the enforcement check finds a running  PID.
-RUNTIMES=(runc crun)
+RUNTIMES=(crun runc)
 # Default location for CRI-O specific runtime binaries
 export PATH="/usr/libexec/crio:$PATH"
 
