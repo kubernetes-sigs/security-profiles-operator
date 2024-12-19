@@ -409,6 +409,10 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 
 var baseHooks = []string{
 	"sys_enter",
+	"sys_exit_clone",
+	"sys_enter_getppid",
+	"sys_enter_unshare",
+	"sys_exit_unshare",
 	"sched_process_exec",
 	"sched_process_exit",
 }
@@ -423,8 +427,13 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("find btf: %w", err)
 	}
 
-	bpfObject, ok := bpfObjects[b.GoArch()]
-	if !ok {
+	var bpfObject []byte
+	switch b.GoArch() {
+	case "amd64":
+		bpfObject = bpfAmd64
+	case "arm64":
+		bpfObject = bpfArm64
+	default:
 		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
 
@@ -454,15 +463,19 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		}
 	}
 
-	if err := b.InitGlobalVariable(
-		module, "exclude_mntns", b.excludeMountNamespace,
-	); err != nil {
-		return fmt.Errorf("update system_mntns map failed: %w", err)
-	}
-
 	b.logger.Info("Loading bpf object from module")
 	if err := b.BPFLoadObject(module); err != nil {
 		return fmt.Errorf("load bpf object: %w", err)
+	}
+
+	if b.excludeMountNamespace != 0 {
+		excludeMntns, err := b.GetMap(module, "exclude_mntns")
+		if err != nil {
+			return fmt.Errorf("getting exclude_mntns map failed: %w", err)
+		}
+		if err := b.UpdateValue(excludeMntns, b.excludeMountNamespace, []byte{1}); err != nil {
+			return fmt.Errorf("updating exclude_mntns map failed: %w", err)
+		}
 	}
 
 	b.logger.Info("Attach all bpf programs")
