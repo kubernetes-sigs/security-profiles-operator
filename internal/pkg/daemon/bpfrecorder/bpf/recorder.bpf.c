@@ -380,6 +380,12 @@ int sys_exit_unshare(struct trace_event_raw_sys_exit* ctx)
     if (bpf_map_delete_elem(&runc_unshare, &pid) == 0) {
         trace_hook("detected runc init 2/2, marking new mntns for exclusion: %u", mntns);
         u8 expected_ppid_calls = 2;
+        // We could further minimize things by waiting until execve.
+        // This would immediately work for AppArmor (which becomes active from the next execve),
+        // but would miss the syscalls for seccomp (which becomes active immediately, so we need to include permissions
+        // for the time between enforcement and the execve call).
+        // Not doing that yet because splitting AppArmor and seccomp logic adds a lot of complexity;
+        // hardcoding a list of syscalls required by runc creates maintenance burden.
         bpf_map_update_elem(&exclude_mntns, &mntns, &expected_ppid_calls, BPF_ANY);
     }
     return 0;
