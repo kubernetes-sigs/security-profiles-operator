@@ -423,8 +423,13 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("find btf: %w", err)
 	}
 
-	bpfObject, ok := bpfObjects[b.GoArch()]
-	if !ok {
+	var bpfObject []byte
+	switch b.GoArch() {
+	case "amd64":
+		bpfObject = bpfAmd64
+	case "arm64":
+		bpfObject = bpfArm64
+	default:
 		return fmt.Errorf("architecture %s is currently unsupported", runtime.GOARCH)
 	}
 
