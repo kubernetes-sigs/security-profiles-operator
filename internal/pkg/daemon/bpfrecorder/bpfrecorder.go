@@ -71,7 +71,6 @@ const (
 	eventTypeAppArmorFile   int           = 2
 	eventTypeAppArmorSocket int           = 3
 	eventTypeAppArmorCap    int           = 4
-	eventTypeClearMntns     int           = 5
 )
 
 // BpfRecorder is the main structure of this package.
@@ -410,6 +409,7 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 
 var baseHooks = []string{
 	"sys_enter",
+	"sys_exit_clone",
 	"sys_enter_getppid",
 	"sys_enter_unshare",
 	"sys_exit_unshare",
@@ -463,10 +463,14 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		}
 	}
 
-	if err := b.InitGlobalVariable(
-		module, "exclude_mntns", b.excludeMountNamespace,
-	); err != nil {
-		return fmt.Errorf("update system_mntns map failed: %w", err)
+	if b.excludeMountNamespace != 0 {
+		excludeMntns, err := b.GetMap(module, "exclude_mntns")
+		if err != nil {
+			return fmt.Errorf("getting exclude_mntns map failed: %w", err)
+		}
+		if err := b.UpdateValue(excludeMntns, b.excludeMountNamespace, []byte{1}); err != nil {
+			return fmt.Errorf("updating exclude_mntns map failed: %w", err)
+		}
 	}
 
 	b.logger.Info("Loading bpf object from module")
@@ -671,10 +675,6 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 		b.AppArmor.handleSocketEvent(&event)
 	case uint8(eventTypeAppArmorCap):
 		b.AppArmor.handleCapabilityEvent(&event)
-	case uint8(eventTypeClearMntns):
-		if b.AppArmor != nil {
-			b.AppArmor.clearMntns(&event)
-		}
 	}
 }
 

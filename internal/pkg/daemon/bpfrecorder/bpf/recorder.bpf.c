@@ -20,7 +20,6 @@
 #define EVENT_TYPE_APPARMOR_FILE 2
 #define EVENT_TYPE_APPARMOR_SOCKET 3
 #define EVENT_TYPE_APPARMOR_CAP 4
-#define EVENT_TYPE_CLEAR_MNTNS 5
 
 #define FLAG_READ 0x1
 #define FLAG_WRITE 0x2
@@ -92,14 +91,14 @@ struct {
     __uint(max_entries, 10);
     __type(key, u32);
     __type(value, bool);
-} unshare_with_mntns SEC(".maps");
+} runc_unshare SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1000);
     __type(key, u32);
     __type(value, u8);
-} exclude_mntns_map SEC(".maps");
+} exclude_mntns SEC(".maps");
 
 
 typedef struct __attribute__((__packed__)) event_data {
@@ -111,7 +110,6 @@ typedef struct __attribute__((__packed__)) event_data {
 } event_data_t;
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
-const volatile u32 exclude_mntns = 0;
 
 static const char RUNC_CHILD[] = "runc:[1:CHILD]";
 static const char RUNC_INIT[] = "runc:[2:INIT]";
@@ -138,10 +136,7 @@ static __always_inline u32 get_mntns()
 
     // When running in a Kubernetes context:
     // Filter out mntns of the host PID to exclude host processes
-    if (exclude_mntns == mntns) {
-        return 0; // FIXME remove
-    }
-    if (bpf_map_lookup_elem(&exclude_mntns_map, &mntns) != NULL) {
+    if (bpf_map_lookup_elem(&exclude_mntns, &mntns) != NULL) {
         return 0;
     }
 
@@ -347,49 +342,28 @@ int BPF_KPROBE(cap_capable)
     return 0;
 }
 
-static __always_inline u32 clear_mntns(u32 mntns) {
-    char comm[TASK_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-
-    for (int i = 0; i < sizeof(RUNC_INIT); i++) {
-        if (comm[i] != RUNC_INIT[i]) {
-            return 0;
-        }
-    }
-    long ok = bpf_map_delete_elem(&mntns_syscalls, &mntns);
-    trace_hook("clear_mntns mntns=%u comm=%s ok=%d", mntns, comm, ok);
-    event_data_t * event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
-    if (event) {
-        event->pid = bpf_get_current_pid_tgid() >> 32;
-        event->mntns = mntns;
-        event->type = EVENT_TYPE_CLEAR_MNTNS;
-        bpf_ringbuf_submit(event, 0);
-        return 0;
-    } else {
-        return -1;
-    }
-}
-
 SEC("tracepoint/syscalls/sys_enter_unshare")
 int sys_enter_unshare(struct trace_event_raw_sys_enter* ctx)
 {
-    char comm[TASK_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    for (int i = 0; i < sizeof(RUNC_CHILD); i++) {
-        if (comm[i] != RUNC_CHILD[i]) {
-            return 0;
-        }
-    }
+    trace_hook("sys_enter_unshare");
 
     int flags = ctx->args[0];
     bool is_mnt = flags & CLONE_NEWNS;
-
-    trace_hook("sys_enter_unshare mntns=%u comm=%s flags=%d, mnt=%d", get_mntns(), comm, flags, is_mnt);
-
-    if(is_mnt) {
-        u32 pid = bpf_get_current_pid_tgid() >> 32;
-        bpf_map_update_elem(&unshare_with_mntns, &pid, &TRUE, BPF_ANY);
+    if(!is_mnt) {
+        return 0;
     }
+
+    // Detect runc initialization
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    for (int i = 0; i < sizeof(RUNC_CHILD); i++) {
+        if (comm[i] != RUNC_CHILD[i])
+            return 0;
+    }
+
+    trace_hook("detected runc init 1/2, waiting for exit...");
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    bpf_map_update_elem(&runc_unshare, &pid, &TRUE, BPF_ANY);
 
     return 0;
 }
@@ -400,13 +374,13 @@ int sys_exit_unshare(struct trace_event_raw_sys_exit* ctx)
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
-
-    trace_hook("sys_exit_unshare mntns=%u", mntns);
+    //trace_hook("sys_exit_unshare mntns=%u", mntns);
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
-    if (bpf_map_delete_elem(&unshare_with_mntns, &pid) == 0) {
-        trace_hook("marking mntns for exclusion", mntns);
-        bpf_map_update_elem(&exclude_mntns_map, &mntns, &TRUE, BPF_ANY);
+    if (bpf_map_delete_elem(&runc_unshare, &pid) == 0) {
+        trace_hook("detected runc init 2/2, marking new mntns for exclusion: %u", mntns);
+        u8 expected_ppid_calls = 2;
+        bpf_map_update_elem(&exclude_mntns, &mntns, &expected_ppid_calls, BPF_ANY);
     }
     return 0;
 }
@@ -414,35 +388,52 @@ int sys_exit_unshare(struct trace_event_raw_sys_exit* ctx)
 SEC("tracepoint/syscalls/sys_enter_getppid")
 int sys_enter_getppid(struct trace_event_raw_sys_enter * ctx)
 {
+    // trace_hook("sys_enter_getppid");
+
+    // Handle runc init.
     char comm[TASK_COMM_LEN] = {};
     bpf_get_current_comm(comm, sizeof(comm));
-    trace_hook("sys_enter_getppid comm=%s", comm);
-
     for (int i = 0; i < sizeof(RUNC_INIT); i++) {
-        if (comm[i] != RUNC_INIT[i]) {
+        if (comm[i] != RUNC_INIT[i])
             return 0;
-        }
     }
 
+    // We expect 2 getppid calls in runc's init,
+    // and we want to stop ignoring events on the second one.
     struct task_struct * task = (struct task_struct *)bpf_get_current_task();
     u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
-
-    bool * val = bpf_map_lookup_elem(&exclude_mntns_map, &mntns);
-    if(val == NULL) {
-        bpf_printk("unexpected getppid call", mntns);
+    u8 * calls = bpf_map_lookup_elem(&exclude_mntns, &mntns);
+    if(calls == NULL) {
+        bpf_printk("runc: unexpected getppid call", mntns);
         return 0;
     }
-
-    (*val)--;
-
-    if(*val > 0) {
-        bpf_printk("exclude_mntns_map[%u]--;", mntns);
-        bpf_map_update_elem(&exclude_mntns_map, &mntns, val, BPF_ANY);
+    (*calls)--;
+    if(*calls >  0) {
+        bpf_printk("exclude_mntns[%u]--", mntns);
+        bpf_map_update_elem(&exclude_mntns, &mntns, calls, BPF_ANY);
     } else {
-        bpf_printk("del exclude_mntns_map[%u]", mntns);
-        bpf_map_delete_elem(&exclude_mntns_map, &mntns);
+        bpf_printk("del exclude_mntns[%u]", mntns);
+        bpf_map_delete_elem(&exclude_mntns, &mntns);
     }
 
+    return 0;
+}
+
+// Detect clone() from PIDs in child_pids and add the new PIDs to the map.
+SEC("tracepoint/syscalls/sys_exit_clone")
+int sys_exit_clone(struct trace_event_raw_sys_exit * ctx)
+{
+    u32 ret = ctx->ret;
+    // We only want the fork.
+    if(ret == 0)
+        return 0;
+
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    bool is_child = bpf_map_lookup_elem(&child_pids, &pid) != NULL;
+    if (is_child) {
+        bpf_printk("adding child pid from clone: %u", ret);
+        bpf_map_update_elem(&child_pids, &ret, &TRUE, BPF_ANY);
+    }
     return 0;
 }
 
@@ -462,7 +453,7 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 
     if (is_child || matches_filter(comm)) {
         u32 pid = bpf_get_current_pid_tgid() >> 32;
-        bpf_printk("adding child pid: %u\n", pid);
+        bpf_printk("adding child pid: %u comm=%s", pid, comm);
         bpf_map_update_elem(&child_pids, &pid, &TRUE, BPF_ANY);
     }
     return 0;
