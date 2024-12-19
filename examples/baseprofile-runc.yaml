@@ -29,6 +29,7 @@ spec:
         - getdents64
         - getpid
         - getuid
+        - madvise
         - mkdirat
         - mmap
         - mount
@@ -43,6 +44,7 @@ spec:
         - rt_sigreturn
         - sched_yield
         - set_tid_address
+        - sigaltstack
         - symlinkat
         - unlinkat
         - utimensat
