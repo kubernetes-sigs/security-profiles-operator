@@ -71,6 +71,7 @@ const (
 	eventTypeAppArmorFile   int           = 2
 	eventTypeAppArmorSocket int           = 3
 	eventTypeAppArmorCap    int           = 4
+	excludeMntnsEnabled     byte          = 1
 )
 
 // BpfRecorder is the main structure of this package.
@@ -469,7 +470,7 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		if err != nil {
 			return fmt.Errorf("getting exclude_mntns map failed: %w", err)
 		}
-		if err := b.UpdateValue(excludeMntns, b.excludeMountNamespace, []byte{1}); err != nil {
+		if err := b.UpdateValue(excludeMntns, b.excludeMountNamespace, []byte{excludeMntnsEnabled}); err != nil {
 			return fmt.Errorf("updating exclude_mntns map failed: %w", err)
 		}
 	}
