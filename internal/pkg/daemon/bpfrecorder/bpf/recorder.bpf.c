@@ -53,7 +53,8 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define unlikely(x) __builtin_expect((x), 0)
 #endif
 
-#define trace_hook(...) bpf_printk(__VA_ARGS__)
+#define trace_hook(...)
+// #define trace_hook(...) bpf_printk(__VA_ARGS__)
 
 // Keep track of all mount namespaces that should be (temporarily) excluded from
 // recording. When running in Kubernetes, we generally ignore the host mntns.
@@ -163,6 +164,7 @@ static __always_inline u32 get_mntns()
 static __always_inline void debug_add_canary_file(char * filename) {
     event_data_t * event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (!event) {
+        bpf_printk("Failed to add canary file: %s", filename);
         return;
     }
     bpf_core_read_str(event->data, sizeof(event->data), filename);
@@ -367,7 +369,7 @@ int sys_enter_unshare(struct trace_event_raw_sys_enter* ctx)
 
     int flags = ctx->args[0];
     bool is_mnt = flags & CLONE_NEWNS;
-    trace_hook("sys_enter_unshare mntns=%u is_mnt=%u", get_mntns(), is_mnt);
+    // trace_hook("sys_enter_unshare mntns=%u is_mnt=%u", get_mntns(), is_mnt);
     if(!is_mnt) {
         return 0;
     }
@@ -379,8 +381,6 @@ int sys_enter_unshare(struct trace_event_raw_sys_enter* ctx)
         if (comm[i] != RUNC_CHILD[i])
             return 0;
     }
-
-    debug_add_canary_file("/wat/runc/init/1/4");
 
     trace_hook("detected runc init 1/3, waiting for exit...");
     u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -399,15 +399,8 @@ int sys_exit_unshare(struct trace_event_raw_sys_exit* ctx)
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     if (bpf_map_delete_elem(&runc_unshare, &pid) == 0) {
-        debug_add_canary_file("/wat/runc/init/2/4");
         trace_hook("detected runc init 2/3, marking new mntns for exclusion: %u", mntns);
         u8 expected_ppid_calls = 2;
-        // We could further minimize things by waiting until execve.
-        // This would immediately work for AppArmor (which becomes active from the next execve),
-        // but would miss the syscalls for seccomp (which becomes active immediately, so we need to include permissions
-        // for the time between enforcement and the execve call).
-        // Not doing that yet because splitting AppArmor and seccomp logic adds a lot of complexity;
-        // hardcoding a list of syscalls required by runc creates maintenance burden.
         bpf_map_update_elem(&exclude_mntns, &mntns, &expected_ppid_calls, BPF_ANY);
 
         // FIXME: delete to figure out what's going on here.
@@ -431,37 +424,27 @@ int sys_enter_getppid(struct trace_event_raw_sys_enter * ctx)
 
     // We expect 2 getppid calls in runc's init,
     // and we want to stop ignoring events on the second one.
+    //
+    // We could further minimize profiles by waiting until execve instead of getppid.
+    // This would immediately work for AppArmor (which becomes active from the next execve),
+    // but would miss the syscalls for seccomp (which becomes active immediately, so we need to include permissions
+    // for the time between enforcement and the execve call).
+    // Not doing that yet because splitting AppArmor and seccomp logic adds a lot of complexity;
+    // hardcoding a list of syscalls required by runc creates maintenance burden.
     struct task_struct * task = (struct task_struct *)bpf_get_current_task();
     u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
     u8 * calls = bpf_map_lookup_elem(&exclude_mntns, &mntns);
     if(calls == NULL) {
-        debug_add_canary_file("/wat/runc/more/ppid/calls");
-        bpf_printk("runc: unexpected getppid call", mntns);
+        trace_hook("runc: unexpected getppid call", mntns);
         return 0;
     }
     (*calls)--;
-    if(*calls >  0) {
-        debug_add_canary_file("/wat/runc/init/3/4");
-        bpf_printk("detected runc init 3/4, waiting for %u more calls for mntns %u", *calls, mntns);
+    if(*calls > 0) {
+        trace_hook("detected runc init 3/4, waiting for %u more calls for mntns %u", *calls, mntns);
         bpf_map_update_elem(&exclude_mntns, &mntns, calls, BPF_ANY);
     } else {
-        debug_add_canary_file("/wat/runc/init/4/4");
-        bpf_printk("detected runc init 4/4, reenabling mntns %u", mntns);
+        trace_hook("detected runc init 4/4, reenabling mntns %u", mntns);
         bpf_map_delete_elem(&exclude_mntns, &mntns);
-
-        // FIXME: Add a canary to show that we detected runc.
-        u8 * const mntns_syscall_value =
-            bpf_map_lookup_elem(&mntns_syscalls, &mntns);
-        if (mntns_syscall_value) {
-            mntns_syscall_value[425] = 1; // io_uring_setup
-        } else {
-            static const char init[MAX_SYSCALLS];
-            bpf_map_update_elem(&mntns_syscalls, &mntns, &init, BPF_ANY);
-            u8 * const value = bpf_map_lookup_elem(&mntns_syscalls, &mntns);
-            if (value) {
-                value[427] = 1; // io_uring_register
-            }
-        }
     }
 
     return 0;
@@ -483,7 +466,7 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 
     if (is_child || matches_filter(comm)) {
         u32 pid = bpf_get_current_pid_tgid() >> 32;
-        bpf_printk("adding child pid: %u comm=%s", pid, comm);
+        trace_hook("adding child pid: %u comm=%s", pid, comm);
         bpf_map_update_elem(&child_pids, &pid, &TRUE, BPF_ANY);
     }
     return 0;
