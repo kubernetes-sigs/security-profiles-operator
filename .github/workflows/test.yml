@@ -164,6 +164,8 @@ jobs:
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=600s node localhost
           $RUN kubectl get nodes -o wide
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
       - name: Run E2E tests
         run: $RUN hack/ci/e2e-flatcar-dev-container.sh
       - name: Run Flaky E2E tests
