@@ -38,6 +38,8 @@
 #define S_IFIFO 0010000
 #define S_IFDIR 0040000
 
+#define CLONE_NEWNS	0x00020000
+
 #define CAP_OPT_NOAUDIT 0b10
 
 #define SOCK_RAW 3
@@ -96,6 +98,13 @@ struct {
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1000);
+    __type(key, u32);
+    __type(value, bool);
+} runc_unshare SEC(".maps");
+
 typedef struct __attribute__((__packed__)) event_data {
     u32 pid;
     u32 mntns;
@@ -106,6 +115,8 @@ typedef struct __attribute__((__packed__)) event_data {
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
 
+static const char RUNC_CHILD[] = "runc:[1:CHILD]";
+static const char RUNC_INIT[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
 static inline bool matches_filter(char * comm);
@@ -349,6 +360,94 @@ int BPF_KPROBE(cap_capable)
         event->flags = cap;
 
         bpf_ringbuf_submit(event, 0);
+    }
+
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_unshare")
+int sys_enter_unshare(struct trace_event_raw_sys_enter* ctx)
+{
+    trace_hook("sys_enter_unshare");
+
+    int flags = ctx->args[0];
+    bool is_mnt = flags & CLONE_NEWNS;
+    // trace_hook("sys_enter_unshare mntns=%u is_mnt=%u", get_mntns(), is_mnt);
+    if(!is_mnt) {
+        return 0;
+    }
+
+    // Detect runc initialization
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    for (int i = 0; i < sizeof(RUNC_CHILD); i++) {
+        if (comm[i] != RUNC_CHILD[i])
+            return 0;
+    }
+
+    trace_hook("detected runc init 1/3, waiting for exit...");
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    bpf_map_update_elem(&runc_unshare, &pid, &TRUE, BPF_ANY);
+
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_exit_unshare")
+int sys_exit_unshare(struct trace_event_raw_sys_exit* ctx)
+{
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+    trace_hook("sys_exit_unshare mntns=%u", mntns);
+
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    if (bpf_map_delete_elem(&runc_unshare, &pid) == 0) {
+        trace_hook("detected runc init 2/3, marking new mntns for exclusion: %u", mntns);
+        u8 expected_ppid_calls = 2;
+        bpf_map_update_elem(&exclude_mntns, &mntns, &expected_ppid_calls, BPF_ANY);
+
+        // FIXME: delete to figure out what's going on here.
+        // bpf_map_delete_elem(&mntns_syscalls, &mntns);
+    }
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_getppid")
+int sys_enter_getppid(struct trace_event_raw_sys_enter * ctx)
+{
+    // trace_hook("sys_enter_getppid");
+
+    // Handle runc init.
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    for (int i = 0; i < sizeof(RUNC_INIT); i++) {
+        if (comm[i] != RUNC_INIT[i])
+            return 0;
+    }
+
+    // We expect 2 getppid calls in runc's init,
+    // and we want to stop ignoring events on the second one.
+    //
+    // We could further minimize profiles by waiting until execve instead of getppid.
+    // This would immediately work for AppArmor (which becomes active from the next execve),
+    // but would miss the syscalls for seccomp (which becomes active immediately, so we need to include permissions
+    // for the time between enforcement and the execve call).
+    // Not doing that yet because splitting AppArmor and seccomp logic adds a lot of complexity;
+    // hardcoding a list of syscalls required by runc creates maintenance burden.
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+    u8 * calls = bpf_map_lookup_elem(&exclude_mntns, &mntns);
+    if(calls == NULL) {
+        trace_hook("runc: unexpected getppid call", mntns);
+        return 0;
+    }
+    (*calls)--;
+    if(*calls > 0) {
+        trace_hook("detected runc init 3/4, waiting for %u more calls for mntns %u", *calls, mntns);
+        bpf_map_update_elem(&exclude_mntns, &mntns, calls, BPF_ANY);
+    } else {
+        trace_hook("detected runc init 4/4, reenabling mntns %u", mntns);
+        bpf_map_delete_elem(&exclude_mntns, &mntns);
     }
 
     return 0;
