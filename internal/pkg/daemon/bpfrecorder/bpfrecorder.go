@@ -459,15 +459,19 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		}
 	}
 
-	if err := b.InitGlobalVariable(
-		module, "exclude_mntns", b.excludeMountNamespace,
-	); err != nil {
-		return fmt.Errorf("update system_mntns map failed: %w", err)
-	}
-
 	b.logger.Info("Loading bpf object from module")
 	if err := b.BPFLoadObject(module); err != nil {
 		return fmt.Errorf("load bpf object: %w", err)
+	}
+
+	if b.excludeMountNamespace != 0 {
+		excludeMntns, err := b.GetMap(module, "exclude_mntns")
+		if err != nil {
+			return fmt.Errorf("getting exclude_mntns map failed: %w", err)
+		}
+		if err := b.UpdateValue(excludeMntns, b.excludeMountNamespace, []byte{1}); err != nil {
+			return fmt.Errorf("updating exclude_mntns map failed: %w", err)
+		}
 	}
 
 	b.logger.Info("Attach all bpf programs")
