@@ -347,7 +347,7 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 
     if (is_child || matches_filter(comm)) {
         u32 pid = bpf_get_current_pid_tgid() >> 32;
-        bpf_printk("adding child pid: %u\n", pid);
+        bpf_printk("adding child pid: %u", pid);
         bpf_map_update_elem(&child_pids, &pid, &TRUE, BPF_ANY);
     }
     return 0;
@@ -374,6 +374,24 @@ int sched_process_exit(void * ctx)
         event->mntns = mntns;
         event->type = EVENT_TYPE_EXIT;
         bpf_ringbuf_submit(event, 0);
+    }
+    return 0;
+}
+
+// Detect clone() from PIDs in child_pids and add the new PIDs to the map.
+SEC("tracepoint/syscalls/sys_exit_clone")
+int sys_exit_clone(struct trace_event_raw_sys_exit * ctx)
+{
+    u32 ret = ctx->ret;
+    // We only need the fork, the existing process is already traced.
+    if (ret == 0)
+        return 0;
+
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    bool is_child = bpf_map_lookup_elem(&child_pids, &pid) != NULL;
+    if (is_child) {
+        bpf_printk("adding child pid from clone: %u", ret);
+        bpf_map_update_elem(&child_pids, &ret, &TRUE, BPF_ANY);
     }
     return 0;
 }
