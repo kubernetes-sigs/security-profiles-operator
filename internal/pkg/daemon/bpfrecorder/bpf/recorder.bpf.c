@@ -51,6 +51,16 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define unlikely(x) __builtin_expect((x), 0)
 #endif
 
+// Keep track of all mount namespaces that should be (temporarily) excluded from recording.
+// When running in Kubernetes, we generally ignore the host mntns.
+// Additionally, we exclude individual containers during startup.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, u32);
+    __type(value, u8);
+} exclude_mntns SEC(".maps");
+
 // Track syscalls for each mtnns
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -91,7 +101,6 @@ typedef struct __attribute__((__packed__)) event_data {
 } event_data_t;
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
-const volatile u32 exclude_mntns = 0;
 
 static const bool TRUE = true;
 static inline bool has_filter();
@@ -116,7 +125,7 @@ static __always_inline u32 get_mntns()
 
     // When running in a Kubernetes context:
     // Filter out mntns of the host PID to exclude host processes
-    if (exclude_mntns == mntns) {
+    if (bpf_map_lookup_elem(&exclude_mntns, &mntns) != NULL) {
         return 0;
     }
 
