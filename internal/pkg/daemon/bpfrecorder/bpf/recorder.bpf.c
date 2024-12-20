@@ -51,8 +51,8 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define unlikely(x) __builtin_expect((x), 0)
 #endif
 
-// Keep track of all mount namespaces that should be (temporarily) excluded from recording.
-// When running in Kubernetes, we generally ignore the host mntns.
+// Keep track of all mount namespaces that should be (temporarily) excluded from
+// recording. When running in Kubernetes, we generally ignore the host mntns.
 // Additionally, we exclude individual containers during startup.
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
