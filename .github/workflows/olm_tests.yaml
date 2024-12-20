@@ -6,7 +6,7 @@ on:
   pull_request:
 env:
   GO_VERSION: '1.23'
-  KIND_IMG_TAG: v1.31.2
+  KIND_IMG_TAG: v1.32.0
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
