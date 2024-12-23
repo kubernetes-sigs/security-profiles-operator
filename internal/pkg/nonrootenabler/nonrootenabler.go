@@ -131,7 +131,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 		for _, p := range []string{config.SpoApparmorProfile, config.BpfRecorderApparmorProfile} {
 			profile := path.Join(config.DefaultSpoProfilePath, p)
 			logger.Info("Installing apparmor profile: " + profile)
-			if err := n.impl.InsatllApparmor(aaManager, profile); err != nil {
+			if err := n.impl.InstallApparmor(aaManager, profile); err != nil {
 				return fmt.Errorf("installing apparmor profile: %w", err)
 			}
 		}
@@ -150,7 +150,7 @@ type impl interface {
 	Chown(name string, uid, gid int) error
 	CopyDirContentsLocal(src, dst string) error
 	SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error
-	InsatllApparmor(manager apparmorprofile.ProfileManager, filename string) error
+	InstallApparmor(manager apparmorprofile.ProfileManager, filename string) error
 }
 
 type defaultImpl struct{}
@@ -183,7 +183,7 @@ func (*defaultImpl) SaveKubeletConfig(filename string, kubeletConfig []byte, per
 	return os.WriteFile(filename, kubeletConfig, perm)
 }
 
-func (*defaultImpl) InsatllApparmor(manager apparmorprofile.ProfileManager, filename string) error {
+func (*defaultImpl) InstallApparmor(manager apparmorprofile.ProfileManager, filename string) error {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("reading apparmor profile content: %w", err)
