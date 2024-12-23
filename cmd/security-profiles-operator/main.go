@@ -185,6 +185,12 @@ func main() {
 					Value:   "",
 					Usage:   "the container runtime in the cluster (values: cri-o, containerd, docker)",
 				},
+				&cli.BoolFlag{
+					Name:    "apparmor",
+					Aliases: []string{"a"},
+					Usage:   "enable installation of apparmor profiles for spo",
+					EnvVars: []string{config.AppArmorEnvKey},
+				},
 			},
 		},
 		&cli.Command{
@@ -262,7 +268,9 @@ func initLogging(ctx *cli.Context) error {
 		return fmt.Errorf("parse verbosity flag: %w", err)
 	}
 
+	ctrl.SetLogger(ctrl.Log.V(int(level)))
 	ctrl.Log.Info(fmt.Sprintf("Set logging verbosity to %d", level))
+
 	return nil
 }
 
@@ -525,6 +533,7 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 	const component = "non-root-enabler"
 	printInfo(component, info)
 	runtime := ctx.String("runtime")
+	apparmor := ctx.Bool("apparmor")
 
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
@@ -538,7 +547,7 @@ func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 	if err != nil {
 		kubeletDir = config.KubeletDir()
 	}
-	return nonrootenabler.New().Run(ctrl.Log.WithName(component), runtime, kubeletDir)
+	return nonrootenabler.New().Run(ctrl.Log.WithName(component), runtime, kubeletDir, apparmor)
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {

@@ -17,6 +17,8 @@ configMapGenerator:
   - profiles/selinuxd.cil
   - profiles/selinuxrecording.cil
   - profiles/selinuxd-image-mapping.json
+  - profiles/spo-apparmor.yaml
+  - profiles/bpfrecorder-apparmor.yaml
   name: security-profiles-operator-profile
 
 generatorOptions:
