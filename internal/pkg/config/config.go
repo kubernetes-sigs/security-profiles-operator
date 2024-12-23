@@ -181,7 +181,7 @@ const (
 	SpoApparmorProfileName = "spo-apparmor"
 
 	// BpfRecorderApparmorProfile is the default file name for apparmor profile used
-	// by the bpf-recorder contaienr part of spod daemonset.
+	// by the bpf-recorder container part of spod daemonset.
 	BpfRecorderApparmorProfile = "bpfrecorder-apparmor.yaml"
 
 	// BpfRecorderApparmorProfileName is the name of the apparmor profile used by
