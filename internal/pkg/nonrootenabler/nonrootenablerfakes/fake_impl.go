@@ -20,6 +20,8 @@ package nonrootenablerfakes
 import (
 	"os"
 	"sync"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
 
 type FakeImpl struct {
@@ -58,6 +60,18 @@ type FakeImpl struct {
 		result1 error
 	}
 	copyDirContentsLocalReturnsOnCall map[int]struct {
+		result1 error
+	}
+	InsatllApparmorStub        func(apparmorprofile.ProfileManager, string) error
+	insatllApparmorMutex       sync.RWMutex
+	insatllApparmorArgsForCall []struct {
+		arg1 apparmorprofile.ProfileManager
+		arg2 string
+	}
+	insatllApparmorReturns struct {
+		result1 error
+	}
+	insatllApparmorReturnsOnCall map[int]struct {
 		result1 error
 	}
 	MkdirAllStub        func(string, os.FileMode) error
@@ -297,6 +311,68 @@ func (fake *FakeImpl) CopyDirContentsLocalReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.copyDirContentsLocalReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) InsatllApparmor(arg1 apparmorprofile.ProfileManager, arg2 string) error {
+	fake.insatllApparmorMutex.Lock()
+	ret, specificReturn := fake.insatllApparmorReturnsOnCall[len(fake.insatllApparmorArgsForCall)]
+	fake.insatllApparmorArgsForCall = append(fake.insatllApparmorArgsForCall, struct {
+		arg1 apparmorprofile.ProfileManager
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.InsatllApparmorStub
+	fakeReturns := fake.insatllApparmorReturns
+	fake.recordInvocation("InsatllApparmor", []interface{}{arg1, arg2})
+	fake.insatllApparmorMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) InsatllApparmorCallCount() int {
+	fake.insatllApparmorMutex.RLock()
+	defer fake.insatllApparmorMutex.RUnlock()
+	return len(fake.insatllApparmorArgsForCall)
+}
+
+func (fake *FakeImpl) InsatllApparmorCalls(stub func(apparmorprofile.ProfileManager, string) error) {
+	fake.insatllApparmorMutex.Lock()
+	defer fake.insatllApparmorMutex.Unlock()
+	fake.InsatllApparmorStub = stub
+}
+
+func (fake *FakeImpl) InsatllApparmorArgsForCall(i int) (apparmorprofile.ProfileManager, string) {
+	fake.insatllApparmorMutex.RLock()
+	defer fake.insatllApparmorMutex.RUnlock()
+	argsForCall := fake.insatllApparmorArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) InsatllApparmorReturns(result1 error) {
+	fake.insatllApparmorMutex.Lock()
+	defer fake.insatllApparmorMutex.Unlock()
+	fake.InsatllApparmorStub = nil
+	fake.insatllApparmorReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) InsatllApparmorReturnsOnCall(i int, result1 error) {
+	fake.insatllApparmorMutex.Lock()
+	defer fake.insatllApparmorMutex.Unlock()
+	fake.InsatllApparmorStub = nil
+	if fake.insatllApparmorReturnsOnCall == nil {
+		fake.insatllApparmorReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.insatllApparmorReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -566,6 +642,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.chownMutex.RUnlock()
 	fake.copyDirContentsLocalMutex.RLock()
 	defer fake.copyDirContentsLocalMutex.RUnlock()
+	fake.insatllApparmorMutex.RLock()
+	defer fake.insatllApparmorMutex.RUnlock()
 	fake.mkdirAllMutex.RLock()
 	defer fake.mkdirAllMutex.RUnlock()
 	fake.saveKubeletConfigMutex.RLock()

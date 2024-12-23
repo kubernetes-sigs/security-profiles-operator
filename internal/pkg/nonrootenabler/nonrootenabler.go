@@ -18,6 +18,7 @@ package nonrootenabler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -25,7 +26,10 @@ import (
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/release-utils/util"
 
+	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
 
 // NonRootEnabler is the main type of this package.
@@ -45,7 +49,7 @@ func (n *NonRootEnabler) SetImpl(i impl) {
 }
 
 // Run executes the NonRootEnabler and returns an error if anything fails.
-func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string) error {
+func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, apparmor bool) error {
 	const dirPermissions os.FileMode = 0o744
 	const filePermissions os.FileMode = 0o644
 
@@ -122,6 +126,17 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string) err
 		return fmt.Errorf("copy local security profiles: %w", err)
 	}
 
+	aaManager := apparmorprofile.NewAppArmorProfileManager(logger)
+	if apparmor && aaManager.Enabled() {
+		for _, p := range []string{config.SpoApparmorProfile, config.BpfRecorderApparmorProfile} {
+			profile := path.Join(config.DefaultSpoProfilePath, p)
+			logger.Info("Installing apparmor profile: " + profile)
+			if err := n.impl.InsatllApparmor(aaManager, profile); err != nil {
+				return fmt.Errorf("installing apparmor profile: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -135,6 +150,7 @@ type impl interface {
 	Chown(name string, uid, gid int) error
 	CopyDirContentsLocal(src, dst string) error
 	SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error
+	InsatllApparmor(manager apparmorprofile.ProfileManager, filename string) error
 }
 
 type defaultImpl struct{}
@@ -165,4 +181,23 @@ func (*defaultImpl) CopyDirContentsLocal(src, dst string) error {
 
 func (*defaultImpl) SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error {
 	return os.WriteFile(filename, kubeletConfig, perm)
+}
+
+func (*defaultImpl) InsatllApparmor(manager apparmorprofile.ProfileManager, filename string) error {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("reading apparmor profile content: %w", err)
+	}
+	profile, err := artifact.ReadProfile(content)
+	if err != nil {
+		return fmt.Errorf("parsing apparmor profile: %w", err)
+	}
+	ap, ok := profile.(*v1alpha1.AppArmorProfile)
+	if !ok {
+		return errors.New("failed converting apparmor profile")
+	}
+	if _, err := manager.InstallProfile(ap); err != nil {
+		return fmt.Errorf("installing apparmor profile: %w", err)
+	}
+	return nil
 }

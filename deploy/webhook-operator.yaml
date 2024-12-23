@@ -3043,6 +3043,61 @@ data:
         }
       ]
     }
+  bpfrecorder-apparmor.yaml: |
+    apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+    kind: AppArmorProfile
+    metadata:
+      labels:
+        spo.x-k8s.io/container-id: bpf-recorder
+      name: bpfrecorder-apparmor
+      namespace: security-profiles-operator
+    spec:
+      abstract:
+        capability:
+          allowedCapabilities:
+          - bpf
+          - chown
+          - dac_override
+          - dac_read_search
+          - mknod
+          - perfmon
+          - setgid
+          - setuid
+          - sys_admin
+          - sys_resource
+        executable:
+          allowedExecutables:
+          - /security-profiles-operator
+        filesystem:
+          readOnlyPaths:
+          - /
+          - /proc/@{pid}/cgroup
+          - /proc/@{pid}/fd/
+          - /proc/@{pid}/maps
+          - /proc/@{pid}/mountinfo
+          - /proc/@{pid}/setgroups
+          - /proc/@{pid}/status
+          - /proc/@{pid}/uid_map
+          - /proc/filesystems
+          - /proc/sys/kernel/cap_last_cap
+          - /proc/sys/net/core/somaxconn
+          - /sys/devices/kprobe/type
+          - /sys/devices/system/cpu/online
+          - /sys/fs/bpf/
+          - /sys/kernel/btf/vmlinux
+          - /sys/kernel/debug/tracing/events/raw_syscalls/sys_enter/id
+          - /sys/kernel/debug/tracing/events/sched/sched_process_exec/id
+          - /sys/kernel/debug/tracing/events/sched/sched_process_exit/id
+          - /sys/kernel/debug/tracing/events/syscalls/sys_enter_socket/id
+          - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+          - /sys/kernel/security/lsm
+          readWritePaths:
+          - /dev/null
+        network:
+          allowedProtocols:
+            allowTcp: true
+            allowUdp: true
+      disabled: false
   security-profiles-operator.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
@@ -3209,6 +3264,55 @@ data:
       (blockinherit container)
       (typepermissive process)
     )
+  spo-apparmor.yaml: |+
+    apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+    kind: AppArmorProfile
+    metadata:
+      labels:
+        spo.x-k8s.io/container-id: security-profiles-operator
+      name: spo-apprmor
+      namespace: security-profiles-operator
+    spec:
+      abstract:
+        capability:
+          allowedCapabilities:
+          - chown
+          - dac_override
+          - dac_read_search
+          - fowner
+          - fsetid
+          - mknod
+          - setgid
+          - setpcap
+          - setuid
+          - sys_admin
+        executable:
+          allowedExecutables:
+          - /security-profiles-operator
+        filesystem:
+          readOnlyPaths:
+          - /
+          - /opt/spo-profiles/**
+          - /proc/@{pid}/fd/
+          - /proc/@{pid}/maps
+          - /proc/@{pid}/mountinfo
+          - /proc/@{pid}/setgroups
+          - /proc/@{pid}/status
+          - /proc/@{pid}/uid_map
+          - /proc/filesystems
+          - /proc/sys/kernel/cap_last_cap
+          - /proc/sys/net/core/somaxconn
+          - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+          readWritePaths:
+          - /dev/null
+          - /host/var/lib/kubelet/seccomp/**
+          - /var/lib/security-profiles-operator/kubelet-config.json
+        network:
+          allowedProtocols:
+            allowTcp: true
+            allowUdp: true
+      disabled: false
+
 kind: ConfigMap
 metadata:
   labels:

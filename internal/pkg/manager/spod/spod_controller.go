@@ -570,6 +570,15 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
 		// pass the bpf recorder env var to the daemon as the profile recorder is otherwise disabled
 		addEnvVar(templateSpec, config.EnableBpfRecorderEnvKey)
+
+		// Configure the apparmor profile for bpf-recorder when apparmor is enabled.
+		if cfg.Spec.EnableAppArmor {
+			localApparmorProfile := config.BpfRecorderApparmorProfileName
+			ctr.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
+				Type:             corev1.AppArmorProfileTypeLocalhost,
+				LocalhostProfile: &localApparmorProfile,
+			}
+		}
 	}
 
 	// AppArmor parameters
@@ -585,6 +594,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		sc.RunAsUser = &userRoot
 		sc.RunAsGroup = &userRoot
 
+		localSpoApparmorProfile := config.SpoApparmorProfileName
+		sc.AppArmorProfile = &corev1.AppArmorProfile{
+			Type:             corev1.AppArmorProfileTypeLocalhost,
+			LocalhostProfile: &localSpoApparmorProfile,
+		}
+
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			"--with-apparmor=true")
@@ -595,7 +610,20 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		}
 		newSPOd.ObjectMeta.Annotations[appArmorAnnotation] = "unconfined"
 
-		// HostPID is required for AppArmor when trying to get access to the host ns
+		// A more privileged init container is required when apparmor is enabled, in order
+		// to install the apparmor profile for spo itself.
+		templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Args = append(
+			templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Args,
+			"--apparmor=true")
+		isc := templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].SecurityContext
+		isc.AllowPrivilegeEscalation = &truly
+		isc.Privileged = &truly
+		isc.ReadOnlyRootFilesystem = &falsely
+		isc.RunAsUser = &userRoot
+		isc.RunAsGroup = &userRoot
+
+		// HostPID is required for AppArmor in order to get access to the host ns
+		// when installing the Apparmor profiles.
 		templateSpec.HostPID = true
 	}
 
