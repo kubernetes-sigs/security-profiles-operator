@@ -411,6 +411,9 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 var baseHooks = []string{
 	"sys_enter",
 	"sys_exit_clone",
+	"sys_enter_getppid",
+	"sys_enter_unshare",
+	"sys_exit_unshare",
 	"sched_process_exec",
 	"sched_process_exit",
 }
@@ -668,7 +671,9 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	case uint8(eventTypeExit):
 		b.handleExitEvent(&event)
 	case uint8(eventTypeAppArmorFile):
-		b.AppArmor.handleFileEvent(&event)
+		if b.AppArmor != nil {
+			b.AppArmor.handleFileEvent(&event)
+		}
 	case uint8(eventTypeAppArmorSocket):
 		b.AppArmor.handleSocketEvent(&event)
 	case uint8(eventTypeAppArmorCap):
