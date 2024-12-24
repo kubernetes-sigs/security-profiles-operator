@@ -2958,7 +2958,9 @@ data:
         "SCMP_ARCH_X86_64",
         "SCMP_ARCH_X86",
         "SCMP_ARCH_X32",
-        "SCMP_ARCH_AARCH64"
+        "SCMP_ARCH_AARCH64",
+        "SCMP_ARCH_PPC64LE",
+        "SCMP_ARCH_PPC"
       ],
       "syscalls": [
         {
@@ -3061,7 +3063,9 @@ data:
         "SCMP_ARCH_X86_64",
         "SCMP_ARCH_X86",
         "SCMP_ARCH_X32",
-        "SCMP_ARCH_AARCH64"
+        "SCMP_ARCH_AARCH64",
+        "SCMP_ARCH_PPC64LE",
+        "SCMP_ARCH_PPC"
       ],
       "syscalls": [
         {
