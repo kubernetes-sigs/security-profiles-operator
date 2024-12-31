@@ -334,6 +334,8 @@ func (e *e2e) deployOperator(manifest string) {
 	e.waitForSpod()
 	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "name=spod")
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=spod")
+	// Log SPOD pod details
+	e.kubectl("logs", "-l", "spod-labels")
 	// Wait for spod to be available
 	for {
 		if res, err := command.New(
