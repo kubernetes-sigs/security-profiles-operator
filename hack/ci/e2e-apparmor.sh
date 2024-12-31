@@ -25,7 +25,7 @@ APPARMOR_REFERENCE_TMP_PROFILE_FILE="/tmp/apparmorprofile-sleep-reference.yaml"
 APPARMOR_PROFILE_FILE_COMPLAIN_MODE="examples/apparmorprofile-sleep-complain-mode.yaml"
 SLEEP_INTERVAL_RECORDING="30"     # 30s sleep interval during recording.
 SLEEP_INTERVAL_VERIFICATION="300" # 5min to make sure that the enforcement check finds a running  PID.
-RUNTIMES=(runc crun)
+RUNTIMES=(crun runc)
 # Default location for CRI-O specific runtime binaries
 export PATH="/usr/libexec/crio:$PATH"
 
@@ -39,6 +39,8 @@ check_apparmor_profile() {
   yq -i ".spec" $APPARMOR_PROFILE_FILE
   cp "$APPARMOR_REFERENCE_PROFILE_FILE-$runtime.yaml" $APPARMOR_REFERENCE_TMP_PROFILE_FILE
   yq -i ".spec" $APPARMOR_REFERENCE_TMP_PROFILE_FILE
+
+  cat $APPARMOR_PROFILE_FILE
 
   diff $APPARMOR_REFERENCE_TMP_PROFILE_FILE $APPARMOR_PROFILE_FILE
 }
@@ -155,7 +157,7 @@ check_apparmor_profile_recording() {
     echo "Deleting pod $PODNAME"
     k delete -f "$pod_file"
 
-    echo "Deleting profile recoridng $RECORDING_NAME"
+    echo "Deleting profile recording $RECORDING_NAME"
     k delete -f "$APPARMOR_RECORDING_FILE"
 
     wait_for apparmorprofile $APPARMOR_PROFILE_NAME
@@ -164,7 +166,7 @@ check_apparmor_profile_recording() {
     echo "Verifying apparmor profile"
     echo "--------------------------"
 
-    echo "Checking the recorded appamror profile matches the reference"
+    echo "Checking the recorded apparmor profile matches the reference for $runtime"
     check_apparmor_profile $runtime
 
     echo "Creating pod $PODNAME with recorded profile in security context"
