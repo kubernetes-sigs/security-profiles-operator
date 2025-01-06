@@ -94,12 +94,30 @@ EOT
     VERSION=$("$RUNTIME" --version | grep "$RUNTIME version" | grep -oP '\d+.*')
     yq -i '.metadata.name = "'"$RUNTIME"'-v'"$VERSION"'"' "$BASEPROFILE"
 
+    echo "-----------------------"
+    echo "$BASEPROFILE"
+    echo "-----------------------"
+    cat "$BASEPROFILE"
+    echo "-----------------------"
+
     echo "Deleting seccomp profile"
     k delete seccompprofile $RECORDING
   done
 
-  echo "Diffing output, while ignoring flaky syscalls 'rt_sigreturn', 'sched_yield', 'tgkill', and 'exit'"
-  git diff --exit-code -U0 -I rt_sigreturn -I sched_yield -I tgkill -I exit examples
+  # There is a weird phenomenon where we have a `runc` process
+  # that uses `setns` to join the container mount namespace.
+  # As a consequence, we sometimes get all the funny syscalls emitted
+  # by the Go runtime, which we need to ignore.
+  echo "Diffing output while ignoring flaky syscalls"
+  git diff --exit-code -U0 \
+    -I rt_sigreturn \
+    -I sched_yield \
+    -I tgkill \
+    -I exit \
+    -I madvise \
+    -I rt_sigprocmask \
+    -I sigaltstack\
+    examples
 
   for RUNTIME in "${RUNTIMES[@]}"; do
     echo "Verifying that the profile for runtime $RUNTIME is available in the GitHub container registry"
