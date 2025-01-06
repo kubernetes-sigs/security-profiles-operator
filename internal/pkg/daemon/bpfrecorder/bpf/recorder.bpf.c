@@ -151,8 +151,10 @@ static __always_inline u32 get_mntns()
 // Debug method to report access to a canary file.
 // This is useful during development to see if a particular code path is hit
 // and bpf_printk output is inaccessible.
-static __always_inline void debug_add_canary_file(char * filename) {
-    event_data_t * event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+static __always_inline void debug_add_canary_file(char * filename)
+{
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (!event) {
         bpf_printk("Failed to add canary file: %s", filename);
         return;
