@@ -405,9 +405,6 @@ int sys_exit_unshare(struct trace_event_raw_sys_exit* ctx)
         trace_hook("detected runc init 2/3, marking new mntns for exclusion: %u", mntns);
         u8 expected_ppid_calls = 2;
         bpf_map_update_elem(&exclude_mntns, &mntns, &expected_ppid_calls, BPF_ANY);
-
-        // FIXME: delete to figure out what's going on here.
-        // bpf_map_delete_elem(&mntns_syscalls, &mntns);
     }
     return 0;
 }
@@ -448,6 +445,8 @@ int sys_enter_getppid(struct trace_event_raw_sys_enter * ctx)
     } else {
         trace_hook("detected runc init 4/4, reenabling mntns %u", mntns);
         bpf_map_delete_elem(&exclude_mntns, &mntns);
+        // Remove taint (???)
+        bpf_map_delete_elem(&mntns_syscalls, &mntns);
     }
 
     return 0;
