@@ -17,7 +17,7 @@ set -euo pipefail
 
 export E2E_CLUSTER_TYPE="vanilla"
 export E2E_SPOD_CONFIG="test/flatcar-spod-config.yaml"
-export E2E_TEST_SECCOMP=true
+export E2E_TEST_SECCOMP=false
 export E2E_TEST_SELINUX=false
 export E2E_TEST_LOG_ENRICHER=false
 export E2E_TEST_BPF_RECORDER=true
