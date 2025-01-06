@@ -51,6 +51,10 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define unlikely(x) __builtin_expect((x), 0)
 #endif
 
+// toggle this for additional debug output
+#define trace_hook(...)
+// #define trace_hook(...) bpf_printk(__VA_ARGS__)
+
 // Keep track of all mount namespaces that should be (temporarily) excluded from
 // recording. When running in Kubernetes, we generally ignore the host mntns.
 // Additionally, we exclude individual containers during startup.
@@ -142,6 +146,23 @@ static __always_inline u32 get_mntns()
     }
 
     return mntns;
+}
+
+// Debug method to report access to a canary file.
+// This is useful during development to see if a particular code path is hit
+// and bpf_printk output is inaccessible.
+static __always_inline void debug_add_canary_file(char * filename) {
+    event_data_t * event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (!event) {
+        bpf_printk("Failed to add canary file: %s", filename);
+        return;
+    }
+    bpf_core_read_str(event->data, sizeof(event->data), filename);
+    event->pid = bpf_get_current_pid_tgid() >> 32;
+    event->mntns = get_mntns();
+    event->type = EVENT_TYPE_APPARMOR_FILE;
+    event->flags = FLAG_READ | FLAG_WRITE;
+    bpf_ringbuf_submit(event, 0);
 }
 
 static u64 _file_event_inode;
@@ -347,7 +368,7 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 
     if (is_child || matches_filter(comm)) {
         u32 pid = bpf_get_current_pid_tgid() >> 32;
-        bpf_printk("adding child pid: %u", pid);
+        trace_hook("adding child pid: %u", pid);
         bpf_map_update_elem(&child_pids, &pid, &TRUE, BPF_ANY);
     }
     return 0;
