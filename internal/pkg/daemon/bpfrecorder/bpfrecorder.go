@@ -668,7 +668,10 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	case uint8(eventTypeExit):
 		b.handleExitEvent(&event)
 	case uint8(eventTypeAppArmorFile):
-		b.AppArmor.handleFileEvent(&event)
+		// b.AppArmor may be null if debug_add_canary_file reports a file event.
+		if b.AppArmor != nil {
+			b.AppArmor.handleFileEvent(&event)
+		}
 	case uint8(eventTypeAppArmorSocket):
 		b.AppArmor.handleSocketEvent(&event)
 	case uint8(eventTypeAppArmorCap):
