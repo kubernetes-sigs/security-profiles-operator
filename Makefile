@@ -90,6 +90,7 @@ export CGO_ENABLED=1
 
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' -not -name '*_test.go')
 BPF_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name '*.c' -or -name '*.h')
+BPF_OUTPUT_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name 'recorder.bpf.o.*')
 export GOFLAGS?=-mod=vendor
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
@@ -161,7 +162,7 @@ $(BUILD_DIR)/$(CLI_BINARY): $(BUILD_DIR) $(BUILD_FILES)
 
 .PHONY: clean
 clean: ## Clean the build directory
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) $(BPF_OUTPUT_FILES)
 
 .PHONY: $(BUILD_DIR)/kustomize
 $(BUILD_DIR)/kustomize: $(BUILD_DIR)
@@ -346,7 +347,7 @@ update-btf: $(BUILD_DIR) ## Build and update all generated BTF code for supporte
 	$(GO) run ./internal/pkg/daemon/bpfrecorder/generate
 
 .PHONY: update-bpf
-update-bpf: \
+update-bpf: clean \
     internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.amd64 \
     internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.arm64
 
