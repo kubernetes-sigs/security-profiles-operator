@@ -56,6 +56,10 @@ wait_for() {
   done
 
   echo "Timed out waiting for $*"
+  echo "---------------------------------"
+  echo "Logs"
+  echo "---------------------------------"
+  k logs --selector name=spod --all-containers
   exit 1
 }
 

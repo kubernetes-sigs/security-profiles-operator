@@ -69,6 +69,7 @@ const (
 	eventTypeAppArmorFile   int           = 2
 	eventTypeAppArmorSocket int           = 3
 	eventTypeAppArmorCap    int           = 4
+	eventTypeClearMntns     int           = 5
 	excludeMntnsEnabled     byte          = 1
 )
 
@@ -408,8 +409,6 @@ var baseHooks = []string{
 	"sys_enter",
 	"sys_exit_clone",
 	"sys_enter_getppid",
-	"sys_enter_unshare",
-	"sys_exit_unshare",
 	"sched_process_exec",
 	"sched_process_exit",
 }
@@ -664,6 +663,10 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 		b.AppArmor.handleSocketEvent(&event)
 	case uint8(eventTypeAppArmorCap):
 		b.AppArmor.handleCapabilityEvent(&event)
+	case uint8(eventTypeClearMntns):
+		if b.AppArmor != nil {
+			b.AppArmor.clearMntns(&event)
+		}
 	}
 }
 
