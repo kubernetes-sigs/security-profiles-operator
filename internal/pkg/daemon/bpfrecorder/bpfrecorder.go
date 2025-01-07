@@ -40,7 +40,6 @@ import (
 	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
-	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -56,7 +55,6 @@ import (
 
 const (
 	defaultTimeout          time.Duration = time.Minute
-	maxEventWorkers         int64         = 1024
 	maxMsgSize              int           = 16 * 1024 * 1024
 	maxCommLen              int           = 64
 	defaultCacheTimeout     time.Duration = time.Hour
@@ -91,7 +89,6 @@ type BpfRecorder struct {
 	metricsClient           apimetrics.Metrics_BpfIncClient
 	programName             string
 	module                  *bpf.Module
-	eventWorkers            semaphore.Weighted
 
 	AppArmor *AppArmorRecorder
 	Seccomp  *SeccompRecorder
@@ -131,7 +128,6 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 		containerIDToProfileMap: bimap.New[string, string](),
 		loadUnloadMutex:         sync.RWMutex{},
 		programName:             programName,
-		eventWorkers:            *semaphore.NewWeighted(maxEventWorkers),
 		AppArmor:                appArmor,
 		Seccomp:                 seccomp,
 		recordedExits:           sync.Map{},
@@ -636,20 +632,8 @@ func toStringByte(array []byte) string {
 func (b *BpfRecorder) processEvents(events chan []byte) {
 	b.logger.Info("Processing bpf events")
 	defer b.logger.Info("Stopped processing bpf events")
-
-	sem := &b.eventWorkers
-
 	for event := range events {
-		if err := sem.Acquire(context.Background(), 1); err != nil {
-			b.logger.Error(err, "Unable to acquire semaphore, stopping event processor")
-			break
-		}
-		eventCopy := event
-
-		go func() {
-			b.handleEvent(eventCopy)
-			sem.Release(1)
-		}()
+		b.handleEvent(event)
 	}
 }
 
@@ -664,7 +648,8 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 
 	switch event.Type {
 	case uint8(eventTypeNewPid):
-		b.handleNewPidEvent(&event)
+		// handleNewPidEvent can be slow, and we don't want to block the event processing loop.
+		go b.handleNewPidEvent(&event)
 	case uint8(eventTypeExit):
 		b.handleExitEvent(&event)
 	case uint8(eventTypeAppArmorFile):
@@ -912,10 +897,6 @@ func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
 		return fmt.Errorf("waiting for pid exit: %w", ctx.Err())
 	}
 
-	if err := b.eventWorkers.Acquire(ctx, maxEventWorkers); err != nil {
-		return fmt.Errorf("waiting for event workers: %w", ctx.Err())
-	}
-	b.eventWorkers.Release(maxEventWorkers)
 	return nil
 }
 
