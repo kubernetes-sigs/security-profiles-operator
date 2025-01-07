@@ -260,6 +260,8 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 	if sockets, ok := b.recordedSocketsUse[mid]; ok && sockets != nil {
 		processed.Socket = *b.recordedSocketsUse[mid]
 	}
+	// Clean up the recorded sockets after processing to avoid keeping global state.
+	delete(b.recordedSocketsUse, mid)
 	processed.Capabilities = b.processCapabilities(mid)
 
 	return processed
@@ -328,6 +330,8 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 			}
 		}
 	}
+	// Clean up the recorded files after processing to avoid keeping global state.
+	delete(b.recordedFiles, mid)
 
 	// Allow any files in a directory if already at least two files are allowed to have read-write
 	// permissions. There are binaries like nginx which typically create files with random name on
@@ -402,6 +406,10 @@ func (b *AppArmorRecorder) processCapabilities(mid mntnsID) []string {
 	for _, capID := range b.recordedCapabilities[mid] {
 		ret = append(ret, capabilityToString(capID))
 	}
+
+	// Clean up recorded capabilities after processing to avoid keeping global state.
+	delete(b.recordedCapabilities, mid)
+
 	slices.Sort(ret)
 	return ret
 }
