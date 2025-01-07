@@ -203,6 +203,25 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 	b.recordedCapabilities[mid] = append(b.recordedCapabilities[mid], requestedCap)
 }
 
+// Delete all data recorded for a particular mount namespace.
+//
+// The recorder triggers this after container initialization to make sure that
+// permissions needed for setup are not included in the final profile.
+func (b *AppArmorRecorder) clearMntns(event *bpfEvent) {
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+
+	mntns := mntnsID(event.Mntns)
+	log.Printf("Clearing mntns: %d\n", mntns)
+	delete(b.recordedFiles, mntns)
+	delete(b.recordedCapabilities, mntns)
+	delete(b.recordedSocketsUse, mntns)
+}
+
 func (b *AppArmorRecorder) GetKnownMntns() []mntnsID {
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
