@@ -11,10 +11,8 @@ spec:
   abstract:
     capability:
       allowedCapabilities:
-      - chown
       - dac_override
       - dac_read_search
-      - fsetid
       - mknod
       - setgid
       - setpcap
