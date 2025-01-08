@@ -471,7 +471,7 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 test-e2e: ## Run the end-to-end tests
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=true \
-	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v
+	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v $(ARGS)
 
 .PHONY: test-flaky-e2e
 test-flaky-e2e: ## Only run the flaky end-to-end tests
