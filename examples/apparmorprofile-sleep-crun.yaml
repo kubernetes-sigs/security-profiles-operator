@@ -31,7 +31,7 @@ spec:
         - /proc/@{pid}/mounts
         - /proc/@{pid}/setgroups
         - /proc/@{pid}/task/@{tid}/attr/apparmor/current
-        - /proc/@{pid}/task/@{tid}/fd/
+        - /proc/@{pid}/task/@{tid}/fd/**
         - /proc/@{pid}/uid_map
         - /proc/sys/kernel/cap_last_cap
         - /run/
