@@ -50,6 +50,7 @@ func main() {
 	fileRead := flag.String("file-read", "", "read file (e.g. /dev/null). Multiple files may be separated by comma.")
 	fileSymlink := flag.String("file-symlink", "", "Create symlink using the following syntax: OLD:NEW")
 	dirRead := flag.String("dir-read", "", "read directory (e.g. /dev/). Multiple directories may be separated by comma.")
+	dirCreate := flag.String("dir-create", "", "create directory (e.g. /tmp/dir)")
 	netTCP := flag.Bool("net-tcp", false, "spawn a tcp server")
 	netUDP := flag.Bool("net-udp", false, "spawn a udp server")
 	netIcmp := flag.Bool("net-icmp", false, "open an icmp socket, exercise NET_RAW capability.")
@@ -69,6 +70,14 @@ func main() {
 			log.Fatal("❌ Error exercising CAP_SYS_ADMIN:", err)
 		}
 		log.Println("✅ CAP_SYS_ADMIN is available.")
+	}
+	if *dirCreate != "" {
+		const fileMode = 0o777
+		err := os.Mkdir(*dirCreate, fileMode)
+		if err != nil {
+			log.Fatal("❌ Error creating directory:", err)
+		}
+		log.Println("✅ Directory creation successful:", *dirCreate)
 	}
 	if *fileWrite != "" {
 		const fileMode = 0o666
