@@ -2,6 +2,7 @@
 
 #include <linux/limits.h>
 
+#include "bpf_d_path_cursed.h"
 #include <asm-generic/errno.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
@@ -156,6 +157,17 @@ static __always_inline u32 get_mntns()
     return mntns;
 }
 
+static __always_inline bool is_runc_init()
+{
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    for (int i = 0; i < sizeof(RUNC_INIT); i++) {
+        if (comm[i] != RUNC_INIT[i])
+            return false;
+    }
+    return true;
+}
+
 // Debug method to report access to a canary file.
 // This is useful during development to see if a particular code path is hit
 // and bpf_printk output is inaccessible.
@@ -173,6 +185,38 @@ static __always_inline void debug_add_canary_file(char * filename)
     event->type = EVENT_TYPE_APPARMOR_FILE;
     event->flags = FLAG_READ | FLAG_WRITE;
     bpf_ringbuf_submit(event, 0);
+}
+
+static __always_inline void debug_path_d(struct path * filename) {
+
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+
+    event_data_t * event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (!event) {
+        return;
+    }
+    bpf_d_path(filename, event->data, sizeof(event->data));
+
+    event_data_t * event2 = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (!event2) {
+        bpf_ringbuf_discard(event, 0);
+        return;
+    }
+    bpf_d_path_cursed(filename, event2->data, sizeof(event2->data));
+
+    bpf_printk(
+        "debug_path_d mntns=%u comm=%s\n bpf_d_path=%s\n cursd_path=%s",
+        mntns,
+        comm,
+        event->data,
+        event2->data
+    );
+    bpf_ringbuf_discard(event, 0);
+    bpf_ringbuf_discard(event2, 0);
 }
 
 static u64 _file_event_inode;
@@ -210,7 +254,14 @@ static __always_inline int register_fs_event(struct path * filename,
         return 0;
     }
 
-    int pathlen = bpf_d_path(filename, event->data, sizeof(event->data));
+    int pathlen;
+    // Some BPF hooks cannot use bpf_d_path, for these cases we swap in our own
+    // implementation.
+    if (custom_bpf_d_path) {
+        pathlen = bpf_d_path_cursed(filename, event->data, sizeof(event->data));
+    } else {
+        pathlen = bpf_d_path(filename, event->data, sizeof(event->data));
+    }
     if (pathlen < 0) {
         bpf_printk("register_file_event bpf_d_path failed: %i\n", pathlen);
         bpf_ringbuf_discard(event, 0);
@@ -314,6 +365,20 @@ int BPF_PROG(bprm_check_security, struct linux_binprm * bprm)
     return register_file_event(bprm->file, FLAG_SPAWN);
 }
 
+SEC("lsm/path_mkdir")
+int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
+             umode_t mode)
+{
+    if (is_runc_init()) {
+        // There are a few weird mkdir calls with comm=RUNC_INIT in the container mntns, e.g. for
+        // /storage/overlay/var/lib/containers/storage/overlay/5512764944d06f06315f414587cb256de2f6069413e781963d25152e44931570/merged/run/secrets/kubernetes.io
+        // Not exactly sure what's going on here as these paths are not in the final mount namespace.
+        return 0;
+    }
+    struct path filename = make_path(dentry, dir);
+    return register_fs_event(&filename, mode | S_IFDIR, FLAG_READ | FLAG_WRITE, true);
+}
+
 SEC("tracepoint/syscalls/sys_enter_socket")
 int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 {
@@ -401,10 +466,10 @@ static __always_inline u32 clear_mntns(u32 mntns)
 SEC("tracepoint/syscalls/sys_enter_prctl")
 int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
 {
-    // trace_hook("sys_enter_prctl");
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
+    trace_hook("sys_enter_prctl");
 
     // Handle runc init.
     //
@@ -418,16 +483,9 @@ int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
     // time between enforcement and the execve call). Not doing that yet because
     // splitting AppArmor and seccomp logic adds a lot of complexity; hardcoding
     // a list of syscalls required by runc creates maintenance burden.
-    if (ctx->args[0] != PR_GET_PDEATHSIG) {
-        return 0;
+    if (ctx->args[0] == PR_GET_PDEATHSIG && is_runc_init()) {
+        clear_mntns(mntns);
     }
-    char comm[TASK_COMM_LEN] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-    for (int i = 0; i < sizeof(RUNC_INIT); i++) {
-        if (comm[i] != RUNC_INIT[i])
-            return 0;
-    }
-    clear_mntns(mntns);
 
     return 0;
 }
