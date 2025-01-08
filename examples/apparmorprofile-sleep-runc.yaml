@@ -25,5 +25,5 @@ spec:
         - /etc/group
         - /etc/passwd
         - /proc/@{pid}/setgroups
-        - /proc/@{pid}/task/@{tid}/fd/
+        - /proc/@{pid}/task/@{tid}/fd/**
   disabled: false
