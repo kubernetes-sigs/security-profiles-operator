@@ -116,7 +116,7 @@ EOT
     -I exit \
     -I madvise \
     -I rt_sigprocmask \
-    -I sigaltstack\
+    -I sigaltstack \
     examples
 
   for RUNTIME in "${RUNTIMES[@]}"; do
