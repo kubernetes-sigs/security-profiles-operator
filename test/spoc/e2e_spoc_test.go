@@ -95,8 +95,8 @@ func recordAppArmorTest(t *testing.T) {
 		profile := recordAppArmor(t, "./demobinary", "--dir-read", "/tmp,/usr/")
 		require.NotNil(t, profile.Filesystem)
 		require.NotNil(t, profile.Filesystem.ReadOnlyPaths)
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/tmp/")
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/usr/")
+		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/tmp/**")
+		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/usr/**")
 	})
 	t.Run("sockets", func(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
