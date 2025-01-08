@@ -41,6 +41,8 @@
 
 #define CAP_OPT_NOAUDIT 0b10
 
+#define PR_GET_PDEATHSIG 2
+
 #define SOCK_RAW 3
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
@@ -375,23 +377,29 @@ static __always_inline u32 clear_mntns(u32 mntns)
     }
 }
 
-SEC("tracepoint/syscalls/sys_enter_getppid")
-int sys_enter_getppid(struct trace_event_raw_sys_enter * ctx)
+SEC("tracepoint/syscalls/sys_enter_prctl")
+int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
 {
-    // trace_hook("sys_enter_getppid");
+    // trace_hook("sys_enter_prctl");
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
 
     // Handle runc init.
     //
+    // Hooking here:
+    // https://github.com/opencontainers/runc/blob/81b13172bea2e6e4cf50f6bdd29a5fdeb5a6acf5/libcontainer/standard_init_linux.go#L148
+    //
     // We could further minimize profiles by waiting until execve instead of
-    // getppid. This would immediately work for AppArmor (which becomes active
+    // prctl. This would immediately work for AppArmor (which becomes active
     // from the next execve), but would miss the syscalls for seccomp (which
     // becomes active immediately, so we need to include permissions for the
     // time between enforcement and the execve call). Not doing that yet because
     // splitting AppArmor and seccomp logic adds a lot of complexity; hardcoding
     // a list of syscalls required by runc creates maintenance burden.
+    if (ctx->args[0] != PR_GET_PDEATHSIG) {
+        return 0;
+    }
     char comm[TASK_COMM_LEN] = {};
     bpf_get_current_comm(comm, sizeof(comm));
     for (int i = 0; i < sizeof(RUNC_INIT); i++) {

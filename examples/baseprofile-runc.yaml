@@ -12,29 +12,38 @@ spec:
       names:
         - arch_prctl
         - brk
+        - capget
+        - capset
+        - chdir
         - close
+        - close_range
         - epoll_ctl
         - epoll_pwait
         - execve
-        - exit
         - exit_group
         - faccessat2
         - fcntl
+        - fstat
         - fstatfs
         - futex
+        - getcwd
         - getdents64
         - getpid
+        - getppid
         - getuid
-        - madvise
         - mmap
         - mprotect
         - nanosleep
         - newfstatat
         - openat
-        - rt_sigprocmask
+        - prctl
+        - read
+        - recvfrom
         - rt_sigreturn
         - sched_yield
         - set_tid_address
-        - sigaltstack
+        - setgid
+        - setgroups
+        - setuid
         - tgkill
         - write
