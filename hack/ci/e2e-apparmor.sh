@@ -29,47 +29,6 @@ RUNTIMES=(runc crun)
 # Default location for CRI-O specific runtime binaries
 export PATH="/usr/libexec/crio:$PATH"
 
-# Retrieves the recorded apaprmor profile from the cluster and
-# cleans up the variances.
-check_apparmor_profile() {
-  local runtime="$1"
-  k get apparmorprofile -o yaml "$APPARMOR_PROFILE_NAME" >"$APPARMOR_PROFILE_FILE"
-
-  # clean up the variance in the recorded apparmor profile
-  yq -i ".spec" $APPARMOR_PROFILE_FILE
-  cp "$APPARMOR_REFERENCE_PROFILE_FILE-$runtime.yaml" $APPARMOR_REFERENCE_TMP_PROFILE_FILE
-  yq -i ".spec" $APPARMOR_REFERENCE_TMP_PROFILE_FILE
-
-  echo "-----------------------------"
-  echo "Recorded profile for $runtime"
-  echo "-----------------------------"
-  cat "$APPARMOR_PROFILE_FILE"
-  echo "------------------------------"
-  echo "Reference profile for $runtime"
-  echo "------------------------------"
-  cat "$APPARMOR_REFERENCE_TMP_PROFILE_FILE"
-  echo "------------------------------"
-
-  diff $APPARMOR_REFERENCE_TMP_PROFILE_FILE $APPARMOR_PROFILE_FILE
-}
-create_runtimeclass() {
-  local rc_file="$1"
-  local runtime="$2"
-
-  cat <<EOT >"$rc_file"
----
-apiVersion: node.k8s.io/v1
-kind: RuntimeClass
-metadata:
-  name: $runtime
-handler: $runtime
-EOT
-  echo "Creating runtime class"
-  cat "$rc_file"
-
-  k apply -f "$rc_file"
-}
-
 create_pod() {
   local pod_name="$1"
   local pod_file="$2"
@@ -144,6 +103,8 @@ check_apparmor_profile_recording() {
   k rollout status ds spod --timeout 360s
   k_wait spod spod
 
+  ensure_runtime_classes
+
   for runtime in "${RUNTIMES[@]}"; do
     echo "--------------------------"
     echo "Recording apparmor profile"
@@ -154,9 +115,6 @@ check_apparmor_profile_recording() {
 
     TMP_DIR=$(mktemp -d)
     trap 'rm -rf $TMP_DIR' EXIT
-
-    rc_file="${TMP_DIR}/rc.yml"
-    create_runtimeclass $rc_file $runtime
 
     echo "Creating pod $PODNAME and start recording its apparmor profile"
     pod_file="${TMP_DIR}/${PODNAME}.yml"
@@ -170,12 +128,22 @@ check_apparmor_profile_recording() {
 
     wait_for apparmorprofile $APPARMOR_PROFILE_NAME
 
-    echo "--------------------------"
-    echo "Verifying apparmor profile"
-    echo "--------------------------"
+    k get apparmorprofile -o yaml "$APPARMOR_PROFILE_NAME" \
+      >"$APPARMOR_REFERENCE_PROFILE_FILE-$runtime.yaml"
 
-    echo "Checking the recorded apparmor profile matches the reference for $runtime"
-    check_apparmor_profile $runtime
+    yq -i '
+      del(.metadata.creationTimestamp,
+          .metadata.finalizers,
+          .metadata.generation,
+          .metadata.resourceVersion,
+          .metadata.uid)
+      ' "$APPARMOR_REFERENCE_PROFILE_FILE-$runtime.yaml"
+
+    echo "------------------------------------"
+    echo "$APPARMOR_REFERENCE_PROFILE_FILE-$runtime.yaml"
+    echo "------------------------------------"
+    cat "$APPARMOR_REFERENCE_PROFILE_FILE-$runtime.yaml"
+    echo "------------------------------------"
 
     echo "Creating pod $PODNAME with recorded profile in security context"
     sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
@@ -192,6 +160,8 @@ check_apparmor_profile_recording() {
     k delete apparmorprofile $APPARMOR_PROFILE_NAME
 
   done
+
+  git diff --exit-code examples
 }
 
 # Install a profile in complain mode, and checks if the pod properly starts

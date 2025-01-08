@@ -23,6 +23,8 @@ record_seccomp_profiles() {
   TMP_DIR=$(mktemp -d)
   trap 'rm -rf $TMP_DIR' EXIT
 
+  ensure_runtime_classes
+
   echo "Creating profile recording"
   k apply -f examples/profilerecording-seccomp-bpf.yaml
 
@@ -33,20 +35,6 @@ record_seccomp_profiles() {
   for RUNTIME in "${RUNTIMES[@]}"; do
     echo "For runtime $RUNTIME"
     BASEPROFILE=examples/baseprofile-$RUNTIME.yaml
-
-    RC_FILE="$TMP_DIR/rc.yml"
-    cat <<EOT >"$RC_FILE"
----
-apiVersion: node.k8s.io/v1
-kind: RuntimeClass
-metadata:
-  name: $RUNTIME
-handler: $RUNTIME
-EOT
-    echo "Creating runtime class"
-    cat "$RC_FILE"
-
-    k apply -f "$RC_FILE"
 
     POD_FILE="$TMP_DIR/pod.yml"
     cat <<EOT >"$POD_FILE"

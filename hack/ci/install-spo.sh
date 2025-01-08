@@ -63,6 +63,21 @@ wait_for() {
   exit 1
 }
 
+ensure_runtime_classes() {
+  RUNTIMES=(runc crun)
+  for RUNTIME in "${RUNTIMES[@]}"; do
+    echo "Installing RuntimeClass $RUNTIME..."
+    cat <<EOF | k apply -f -
+---
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: $RUNTIME
+handler: $RUNTIME
+EOF
+  done
+}
+
 install_operator() {
   echo "Installing security-profiles-operator"
   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml
