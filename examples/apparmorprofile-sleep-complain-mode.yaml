@@ -8,7 +8,6 @@ metadata:
   name: test-recording-test-pod
   namespace: security-profiles-operator
 spec:
-  # Deny all file access to check if the pod stats in complain mode.
   complainMode: true
   abstract:
     filesystem:
