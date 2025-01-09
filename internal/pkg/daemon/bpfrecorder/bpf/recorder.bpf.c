@@ -368,12 +368,6 @@ SEC("lsm/path_mkdir")
 int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
              umode_t mode)
 {
-    if (is_runc_init()) {
-        // There are a few weird mkdir calls with comm=RUNC_INIT in the container mntns, e.g. for
-        // /storage/overlay/var/lib/containers/storage/overlay/5512764944d06f06315f414587cb256de2f6069413e781963d25152e44931570/merged/run/secrets/kubernetes.io
-        // Not exactly sure what's going on here as these paths are not in the final mount namespace.
-        return 0;
-    }
     struct path filename = make_path(dentry, dir);
     return register_fs_event(&filename, mode | S_IFDIR, FLAG_READ | FLAG_WRITE,
                              true);
