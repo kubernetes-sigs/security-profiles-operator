@@ -59,6 +59,20 @@ struct ring_buffer *cgo_init_ring_buf(int map_fd, uintptr_t ctx)
     return rb;
 }
 
+int cgo_add_ring_buf(struct ring_buffer *rb, int map_fd, uintptr_t ctx)
+{
+    int ret = ring_buffer__add(rb, map_fd, ringbufferCallback, (void *) ctx);
+    if (ret != 0) {
+        int saved_errno = errno;
+        fprintf(stderr, "Failed to add ring buffer: %s\n", strerror(errno));
+        errno = saved_errno;
+
+        return ret;
+    }
+
+    return ret;
+}
+
 struct perf_buffer *cgo_init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx)
 {
     struct perf_buffer_opts pb_opts = {};
@@ -162,6 +176,49 @@ void cgo_bpf_iter_attach_opts_free(struct bpf_iter_attach_opts *opts)
         return;
 
     free(opts->link_info);
+    free(opts);
+}
+
+struct bpf_test_run_opts *cgo_bpf_test_run_opts_new(const void *data_in,
+                                                    void *data_out,
+                                                    __u32 data_size_in,
+                                                    __u32 data_size_out,
+                                                    const void *ctx_in,
+                                                    void *ctx_out,
+                                                    __u32 ctx_size_in,
+                                                    __u32 ctx_size_out,
+                                                    int repeat,
+                                                    __u32 flags,
+                                                    __u32 cpu,
+                                                    __u32 batch_size)
+{
+    struct bpf_test_run_opts *opts;
+    opts = calloc(1, sizeof(*opts));
+    if (!opts)
+        return NULL;
+
+    opts->sz = sizeof(*opts);
+    opts->data_in = data_in;
+    opts->data_out = data_out;
+    opts->data_size_in = data_size_in;
+    opts->data_size_out = data_size_out;
+    opts->ctx_in = ctx_in;
+    opts->ctx_out = ctx_out;
+    opts->ctx_size_in = ctx_size_in;
+    opts->ctx_size_out = ctx_size_out;
+    opts->repeat = repeat;
+    opts->flags = flags;
+    opts->cpu = cpu;
+    opts->batch_size = batch_size;
+
+    return opts;
+}
+
+void cgo_bpf_test_run_opts_free(struct bpf_test_run_opts *opts)
+{
+    if (!opts)
+        return;
+
     free(opts);
 }
 
@@ -492,4 +549,22 @@ __u32 cgo_bpf_tc_opts_priority(struct bpf_tc_opts *opts)
         return 0;
 
     return opts->priority;
+}
+
+struct bpf_xdp_attach_opts *cgo_bpf_xdp_attach_opts_new(__u32 fd)
+{
+    struct bpf_xdp_attach_opts *opts;
+    opts = calloc(1, sizeof(*opts));
+
+    if (!opts)
+        return NULL;
+    opts->sz = sizeof(*opts);
+    opts->old_prog_fd = fd;
+
+    return opts;
+}
+
+void cgo_bpf_xdp_attach_opts_free(struct bpf_xdp_attach_opts *opts)
+{
+    free(opts);
 }

@@ -119,14 +119,21 @@ func NewModuleFromBufferArgs(args NewModuleArgs) (*Module, error) {
 		return nil, err
 	}
 
-	if args.BTFObjPath == "" {
-		args.BTFObjPath = "/sys/kernel/btf/vmlinux"
+	var btfFilePathC *C.char
+	var kConfigPathC *C.char
+
+	// instruct libbpf to use user provided kernel BTF file
+	if args.BTFObjPath != "" {
+		btfFilePathC = C.CString(args.BTFObjPath)
+		defer C.free(unsafe.Pointer(btfFilePathC))
 	}
 
-	btfFilePathC := C.CString(args.BTFObjPath)
-	defer C.free(unsafe.Pointer(btfFilePathC))
-	kConfigPathC := C.CString(args.KConfigFilePath)
-	defer C.free(unsafe.Pointer(kConfigPathC))
+	// instruct libbpf to use user provided KConfigFile
+	if args.KConfigFilePath != "" {
+		kConfigPathC = C.CString(args.KConfigFilePath)
+		defer C.free(unsafe.Pointer(kConfigPathC))
+	}
+
 	bpfObjNameC := C.CString(args.BPFObjName)
 	defer C.free(unsafe.Pointer(bpfObjNameC))
 	bpfBuffC := unsafe.Pointer(C.CBytes(args.BPFObjBuff))
@@ -195,6 +202,7 @@ func (m *Module) BPFLoadObject() error {
 	}
 	m.loaded = true
 	m.elf.Close()
+	m.elf = nil
 
 	return nil
 }
@@ -336,16 +344,41 @@ func (m *Module) InitRingBuf(mapName string, eventsChan chan []byte) (*RingBuffe
 
 	rbC, errno := C.cgo_init_ring_buf(C.int(bpfMap.FileDescriptor()), C.uintptr_t(slot))
 	if rbC == nil {
+		eventChannels.remove(uint(slot))
 		return nil, fmt.Errorf("failed to initialize ring buffer: %w", errno)
 	}
 
 	ringBuf := &RingBuffer{
 		rb:     rbC,
 		bpfMap: bpfMap,
-		slot:   uint(slot),
+		slots:  []uint{uint(slot)},
 	}
 	m.ringBufs = append(m.ringBufs, ringBuf)
 	return ringBuf, nil
+}
+
+func (m *Module) AddRingBuf(ringBuf *RingBuffer, mapName string, eventsChan chan []byte) (bool, error) {
+	bpfMap, err := m.GetMap(mapName)
+	if err != nil {
+		return false, err
+	}
+
+	if eventsChan == nil {
+		return false, fmt.Errorf("events channel can not be nil")
+	}
+
+	slot := eventChannels.put(eventsChan)
+	if slot == -1 {
+		return false, fmt.Errorf("max ring buffers reached")
+	}
+	ringBuf.slots = append(ringBuf.slots, uint(slot))
+
+	ret, errno := C.cgo_add_ring_buf(ringBuf.rb, C.int(bpfMap.FileDescriptor()), C.uintptr_t(slot))
+	if ret != 0 {
+		eventChannels.remove(uint(slot))
+		return false, fmt.Errorf("failed to add ring buffer: %w", errno)
+	}
+	return true, nil
 }
 
 func (m *Module) InitPerfBuf(mapName string, eventsChan chan []byte, lostChan chan uint64, pageCnt int) (*PerfBuffer, error) {
