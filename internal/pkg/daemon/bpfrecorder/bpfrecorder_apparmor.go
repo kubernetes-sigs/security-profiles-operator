@@ -275,7 +275,7 @@ func replaceVarianceInFilePath(filePath string) string {
 	filePath = pathWithTid.ReplaceAllString(filePath, "/proc/@{pid}/task/@{tid}/")
 
 	// Replace container ID with any container ID
-	pathWithCid := regexp.MustCompile(`^/var/lib/containers/storage/overlay/\w+/`)
+	pathWithCid := regexp.MustCompile(`/var/lib/containers/storage/overlay/\w+/`)
 	return pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
 }
 
