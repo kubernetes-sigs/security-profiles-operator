@@ -187,34 +187,33 @@ static __always_inline void debug_add_canary_file(char * filename)
     bpf_ringbuf_submit(event, 0);
 }
 
-static __always_inline void debug_path_d(struct path * filename) {
-
+static __always_inline void debug_path_d(struct path * filename,
+                                         bool use_bpf_d_path)
+{
     struct task_struct * task = (struct task_struct *)bpf_get_current_task();
     u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
 
     char comm[TASK_COMM_LEN] = {};
     bpf_get_current_comm(comm, sizeof(comm));
 
-    event_data_t * event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (!event) {
         return;
     }
-    bpf_d_path(filename, event->data, sizeof(event->data));
+    if (use_bpf_d_path)
+        bpf_d_path(filename, event->data, sizeof(event->data));
 
-    event_data_t * event2 = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    event_data_t * event2 =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (!event2) {
         bpf_ringbuf_discard(event, 0);
         return;
     }
     bpf_d_path_cursed(filename, event2->data, sizeof(event2->data));
 
-    bpf_printk(
-        "debug_path_d mntns=%u comm=%s\n bpf_d_path=%s\n cursd_path=%s",
-        mntns,
-        comm,
-        event->data,
-        event2->data
-    );
+    bpf_printk("debug_path_d mntns=%u comm=%s\n bpf_d_path=%s\n cursd_path=%s",
+               mntns, comm, event->data, event2->data);
     bpf_ringbuf_discard(event, 0);
     bpf_ringbuf_discard(event2, 0);
 }
@@ -376,7 +375,8 @@ int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
         return 0;
     }
     struct path filename = make_path(dentry, dir);
-    return register_fs_event(&filename, mode | S_IFDIR, FLAG_READ | FLAG_WRITE, true);
+    return register_fs_event(&filename, mode | S_IFDIR, FLAG_READ | FLAG_WRITE,
+                             true);
 }
 
 SEC("tracepoint/syscalls/sys_enter_socket")
