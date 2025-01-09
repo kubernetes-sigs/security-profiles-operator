@@ -125,8 +125,8 @@ github.com/aliyun/credentials-go v1.3.2 h1:L4WppI9rctC8PdlMgyTkF8bBsy9pyKQEzBD1b
 github.com/aliyun/credentials-go v1.3.2/go.mod h1:tlpz4uys4Rn7Ik4/piGRrTbXy2uLKvePgQJJduE+Y5c=
 github.com/antlr4-go/antlr/v4 v4.13.0 h1:lxCg3LAv+EUK6t1i0y1V6/SLeUi0eKEKdhQAlS8TVTI=
 github.com/antlr4-go/antlr/v4 v4.13.0/go.mod h1:pfChB/xh/Unjila75QW7+VU4TSnWnnk9UTnmpPaOR2g=
-github.com/aquasecurity/libbpfgo v0.7.0-libbpf-1.4 h1:rQ94U12Xlz2tncE8Rxnw3vpp/9hgUIEu3/Lv0/XQM0Q=
-github.com/aquasecurity/libbpfgo v0.7.0-libbpf-1.4/go.mod h1:iI7QCIZ3kXG0MR+FHsDZck6cYs1y1HyZP3sMObBg0sk=
+github.com/aquasecurity/libbpfgo v0.8.0-libbpf-1.5 h1:YWh+wmaGTM3+q+v+Xevi1ASkyBFozcVMpYTBLbdz4cE=
+github.com/aquasecurity/libbpfgo v0.8.0-libbpf-1.5/go.mod h1:HB2DYWHuMraOB0IFcfjL8tsxN8TcFOdWKTrNqnHrTrs=
 github.com/arbovm/levenshtein v0.0.0-20160628152529-48b4e1c0c4d0 h1:jfIu9sQUG6Ig+0+Ap1h4unLjW6YQJpKZVmUzxsD4E/Q=
 github.com/arbovm/levenshtein v0.0.0-20160628152529-48b4e1c0c4d0/go.mod h1:t2tdKJDJF9BV14lnkjHmOQgcvEKgtqs5a1N3LNdJhGE=
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 h1:DklsrG3dyBCFEj5IhUbnKptjxatkF07cF2ak3yi77so=
@@ -1028,6 +1028,10 @@ k8s.io/kube-openapi v0.0.0-20241105132330-32ad38e42d3f h1:GA7//TjRY9yWGy1poLzYYJ
 k8s.io/kube-openapi v0.0.0-20241105132330-32ad38e42d3f/go.mod h1:R/HEjbvWI0qdfb8viZUeVZm0X6IZnxAydC7YU42CMw4=
 k8s.io/utils v0.0.0-20241210054802-24370beab758 h1:sdbE21q2nlQtFh65saZY+rRM6x6aJJI8IUa1AmH/qa0=
 k8s.io/utils v0.0.0-20241210054802-24370beab758/go.mod h1:OLgZIPagt7ERELqWJFomSt595RzquPNLL48iOWgYOg0=
+kernel.org/pub/linux/libs/security/libcap/cap v1.2.73 h1:Th2b8jljYqkyZKS3aD3N9VpYsQpHuXLgea+SZUIfODA=
+kernel.org/pub/linux/libs/security/libcap/cap v1.2.73/go.mod h1:hbeKwKcboEsxARYmcy/AdPVN11wmT/Wnpgv4k4ftyqY=
+kernel.org/pub/linux/libs/security/libcap/psx v1.2.73 h1:SEAEUiPVylTD4vqqi+vtGkSnXeP2FcRO3FoZB1MklMw=
+kernel.org/pub/linux/libs/security/libcap/psx v1.2.73/go.mod h1:+l6Ee2F59XiJ2I6WR5ObpC1utCQJZ/VLsEbQCD8RG24=
 oras.land/oras-go/v2 v2.5.0 h1:o8Me9kLY74Vp5uw07QXPiitjsw7qNXi8Twd+19Zf02c=
 oras.land/oras-go/v2 v2.5.0/go.mod h1:z4eisnLP530vwIOUOJeBIj0aGI0L1C3d53atvCBqZHg=
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.0 h1:CPT0ExVicCzcpeN4baWEV2ko2Z/AsiZgEdwgcfwLgMo=

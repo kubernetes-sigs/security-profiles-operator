@@ -96,6 +96,23 @@ func BPFMapTypeIsSupported(mapType MapType) (bool, error) {
 	return supportedC == 1, nil
 }
 
+// BPFHelperIsSupported checks if a BPF helper function is supported for a given program type.
+// Specific capabilities are required depending on the program type to probe the bpf helper function.
+func BPFHelperIsSupported(progType BPFProgType, funcId BPFFunc) (bool, error) {
+	retC, errno := C.libbpf_probe_bpf_helper(C.enum_bpf_prog_type(int(progType)), C.enum_bpf_func_id(int(funcId)), nil)
+
+	if errno != nil {
+		return false, fmt.Errorf("operation failed for function `%s` with program type `%s`: %w", funcId, progType, errno)
+	}
+
+	// helper not supported
+	if retC < 0 {
+		return false, fmt.Errorf("operation failed for function `%s` with program type `%s`: %w", funcId, progType, syscall.Errno(-retC))
+	}
+
+	return retC == 1, nil
+}
+
 //
 // Misc
 //

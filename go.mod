@@ -7,7 +7,7 @@ toolchain go1.23.3
 require (
 	dario.cat/mergo v1.0.1
 	github.com/acobaugh/osrelease v0.1.0
-	github.com/aquasecurity/libbpfgo v0.7.0-libbpf-1.4
+	github.com/aquasecurity/libbpfgo v0.8.0-libbpf-1.5
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cert-manager/cert-manager v1.16.2
 	github.com/containers/common v0.61.0
