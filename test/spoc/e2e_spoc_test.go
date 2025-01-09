@@ -104,7 +104,7 @@ func recordAppArmorTest(t *testing.T) {
 		require.NotNil(t, profile.Filesystem.ReadWritePaths)
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/var/**")
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/usr/**")
-		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/tmp/**")
+		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/tmp/spoc-test-dir/**")
 	})
 	t.Run("sockets", func(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
