@@ -12,9 +12,10 @@ CLANG := clang
 CC := $(CLANG)
 GO := go
 VAGRANT := vagrant
-CLANG_FMT := clang-format-12
+CLANG_FMT := clang-format-14
 GIT := $(shell which git || /bin/false)
 REVIVE := revive
+PKGCONFIG := pkg-config
 
 HOSTOS = $(shell uname)
 ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/g; s/aarch64/arm64/g')
@@ -23,6 +24,7 @@ ARCH ?= $(shell uname -m | sed 's/x86_64/amd64/g; s/aarch64/arm64/g')
 # libbpf
 
 LIBBPF_SRC = $(abspath ./libbpf/src)
+LIBBPF_INCLUDE_UAPI = $(abspath ./libbpf/include/uapi)
 LIBBPF_OBJ = $(abspath ./$(OUTPUT)/libbpf.a)
 LIBBPF_OBJDIR = $(abspath ./$(OUTPUT)/libbpf)
 LIBBPF_DESTDIR = $(abspath ./$(OUTPUT))
@@ -32,12 +34,12 @@ LDFLAGS =
 
 # golang
 
-CGO_CFLAGS_STATIC = "-I$(abspath $(OUTPUT))"
-CGO_LDFLAGS_STATIC = "-lelf -lz $(LIBBPF_OBJ)"
+CGO_CFLAGS_STATIC = "-I$(abspath $(OUTPUT)) -I$(LIBBPF_INCLUDE_UAPI)"
+CGO_LDFLAGS_STATIC = "$(shell PKG_CONFIG_PATH=$(LIBBPF_OBJDIR) $(PKGCONFIG) --static --libs libbpf)"
 CGO_EXTLDFLAGS_STATIC = '-w -extldflags "-static"'
 
 CGO_CFLAGS_DYN = "-I. -I/usr/include/"
-CGO_LDFLAGS_DYN = "-lelf -lz -lbpf"
+CGO_LDFLAGS_DYN = "$(shell $(PKGCONFIG) --shared --libs libbpf)"
 
 # default == shared lib from OS package
 
@@ -110,8 +112,9 @@ $(LIBBPF_OBJ): $(LIBBPF_SRC) $(wildcard $(LIBBPF_SRC)/*.[ch]) | $(OUTPUT)/libbpf
 	   $(MAKE) -C $(LIBBPF_SRC) \
 		BUILD_STATIC_ONLY=1 \
 		OBJDIR=$(LIBBPF_OBJDIR) \
+		LIBDIR=$(LIBBPF_OBJDIR) \
 		DESTDIR=$(LIBBPF_DESTDIR) \
-		INCLUDEDIR= LIBDIR= UAPIDIR= install
+		INCLUDEDIR= UAPIDIR= install
 
 $(LIBBPF_SRC):
 ifeq ($(wildcard $@), )

@@ -19,7 +19,7 @@ import (
 type RingBuffer struct {
 	rb     *C.struct_ring_buffer
 	bpfMap *BPFMap
-	slot   uint
+	slots  []uint
 	stop   chan struct{}
 	closed bool
 	wg     sync.WaitGroup
@@ -50,20 +50,25 @@ func (rb *RingBuffer) Stop() {
 	// may have stopped at this point. Failure to drain it will
 	// result in a deadlock: the channel will fill up and the poll
 	// goroutine will block in the callback.
-	eventChan := eventChannels.get(rb.slot).(chan []byte)
-	go func() {
-		// revive:disable:empty-block
-		for range eventChan {
-		}
-		// revive:enable:empty-block
-	}()
+	for _, slot := range rb.slots {
+		eventChan := eventChannels.get(slot).(chan []byte)
+		go func() {
+			// revive:disable:empty-block
+			for range eventChan {
+			}
+			// revive:enable:empty-block
+		}()
+	}
 
 	// Wait for the poll goroutine to exit
 	rb.wg.Wait()
 
 	// Close the channel -- this is useful for the consumer but
 	// also to terminate the drain goroutine above.
-	close(eventChan)
+	for _, slot := range rb.slots {
+		eventChan := eventChannels.get(slot).(chan []byte)
+		close(eventChan)
+	}
 
 	// Reset pb.stop to allow multiple safe calls to Stop()
 	rb.stop = nil
@@ -76,7 +81,9 @@ func (rb *RingBuffer) Close() {
 
 	rb.Stop()
 	C.ring_buffer__free(rb.rb)
-	eventChannels.remove(rb.slot)
+	for _, slot := range rb.slots {
+		eventChannels.remove(slot)
+	}
 	rb.closed = true
 }
 
