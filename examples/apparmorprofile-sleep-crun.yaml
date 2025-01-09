@@ -46,8 +46,14 @@ spec:
         - /var/lib/containers/storage/overlay/*/merged/sys/**
         - /var/lib/containers/storage/overlay/*/merged/var/**
       readWritePaths:
+        - /containers/storage/overlay/var/lib/containers/storage/overlay/*/merged/run/secrets/**
         - /dev/null
+        - /overlay/var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/serviceaccount/**
         - /proc/@{pid}/oom_score_adj
+        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/dev/mqueue/**
+        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/dev/pts/**
+        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/dev/shm/**
+        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/**
       writeOnlyPaths:
         - /proc/@{pid}/task/@{tid}/attr/apparmor/exec
         - /var/lib/containers/storage/overlay/*/merged/dev/termination-log
