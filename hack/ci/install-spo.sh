@@ -69,16 +69,16 @@ print_spo_logs() {
 }
 
 ensure_runtime_classes() {
-  RUNTIMES=(runc crun)
-  for RUNTIME in "${RUNTIMES[@]}"; do
-    echo "Installing RuntimeClass $RUNTIME..."
+  local runtimes=(runc crun)
+  for runtime in "${runtimes[@]}"; do
+    echo "Installing RuntimeClass $runtime..."
     cat <<EOF | k apply -f -
 ---
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
-  name: $RUNTIME
-handler: $RUNTIME
+  name: $runtime
+handler: $runtime
 EOF
   done
 }
