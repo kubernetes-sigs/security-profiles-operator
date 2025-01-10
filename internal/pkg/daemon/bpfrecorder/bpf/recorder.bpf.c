@@ -373,6 +373,22 @@ int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
                              true);
 }
 
+SEC("lsm/path_mknod")
+int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
+             umode_t mode, unsigned int dev)
+{
+    bpf_printk("path_mknod %d", mode);
+    bool not_a_regular_file =
+        ((mode & S_IFCHR) == S_IFCHR || (mode & S_IFBLK) == S_IFBLK ||
+         (mode & S_IFIFO) == S_IFIFO || (mode & S_IFSOCK) == S_IFSOCK);
+    u64 file_flags = FLAG_WRITE;
+    if (not_a_regular_file) {
+        file_flags |= FLAG_READ;
+    }
+    struct path path = make_path(dentry, dir);
+    return register_fs_event(&path, 0, file_flags, true);
+}
+
 SEC("lsm/path_unlink")
 int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
 {
