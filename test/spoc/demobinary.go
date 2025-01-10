@@ -50,6 +50,7 @@ func main() {
 	fileRead := flag.String("file-read", "", "read file (e.g. /dev/null). Multiple files may be separated by comma.")
 	fileSymlink := flag.String("file-symlink", "", "Create symlink using the following syntax: OLD:NEW")
 	dirRead := flag.String("dir-read", "", "read directory (e.g. /dev/). Multiple directories may be separated by comma.")
+	fileRemove := flag.String("file-remove", "", "delete file (e.g. /tmp/test)")
 	dirCreate := flag.String("dir-create", "", "create directory (e.g. /tmp/dir)")
 	netTCP := flag.Bool("net-tcp", false, "spawn a tcp server")
 	netUDP := flag.Bool("net-udp", false, "spawn a udp server")
@@ -120,6 +121,13 @@ func main() {
 			}
 			log.Println("✅ Directory read successful:", dir)
 		}
+	}
+	if *fileRemove != "" {
+		err := os.Remove(*fileRemove)
+		if err != nil {
+			log.Fatal("❌ Error deleting file:", err)
+		}
+		log.Println("✅ File deletion successful:", *fileRemove)
 	}
 	if *netTCP {
 		listener, err := net.Listen("tcp", ":0")

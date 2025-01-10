@@ -373,6 +373,14 @@ int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
                              true);
 }
 
+SEC("lsm/path_unlink")
+int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
+{
+    // trace_hook("path_unlink");
+    struct path path = make_path(dentry, dir);
+    return register_fs_event(&path, 0, FLAG_READ | FLAG_WRITE, true);
+}
+
 SEC("tracepoint/syscalls/sys_enter_socket")
 int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 {
