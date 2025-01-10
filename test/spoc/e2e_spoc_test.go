@@ -67,15 +67,26 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
+		fileToRemove, err := os.CreateTemp("/tmp", "spoc-test")
+		require.NoError(t, err)
+		err = fileToRemove.Close()
+		require.NoError(t, err)
 		fileRead := fmt.Sprintf("../../README.md,/proc/1/limits,/proc/%d/limits", os.Getpid())
-		profile := recordAppArmor(t, "./demobinary", "--file-read", fileRead, "--file-write", "/dev/null")
+		profile := recordAppArmor(t,
+			"./demobinary",
+			"--file-read", fileRead,
+			"--file-write", "/dev/null",
+			"--file-remove", fileToRemove.Name(),
+		)
 		readme, err := filepath.Abs("../../README.md")
 		require.NoError(t, err)
 		require.NotNil(t, profile.Filesystem)
 		require.NotNil(t, profile.Filesystem.ReadOnlyPaths)
 		require.NotNil(t, profile.Filesystem.WriteOnlyPaths)
+		require.NotNil(t, profile.Filesystem.ReadWritePaths)
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, readme)
 		require.Contains(t, *profile.Filesystem.WriteOnlyPaths, "/dev/null")
+		require.Contains(t, *profile.Filesystem.ReadWritePaths, fileToRemove.Name())
 
 		count := 0
 		for _, s := range *profile.Filesystem.ReadOnlyPaths {
