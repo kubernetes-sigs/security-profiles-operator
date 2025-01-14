@@ -105,6 +105,7 @@ EOT
     -I madvise \
     -I rt_sigprocmask \
     -I sigaltstack \
+    -I epoll_pwait \
     examples
 
   for RUNTIME in "${RUNTIMES[@]}"; do
