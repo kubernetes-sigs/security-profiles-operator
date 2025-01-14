@@ -326,6 +326,12 @@ func (b *BpfRecorder) SyscallsForProfile(
 		return nil, err
 	}
 
+	b.logger.Info(
+		fmt.Sprintf("Found %d syscalls for profile", len(syscalls)),
+		"profile", r.GetName(),
+		"mntns", mntns,
+	)
+
 	return &api.SyscallsResponse{
 		Syscalls: syscalls,
 		GoArch:   runtime.GOARCH,
@@ -384,6 +390,7 @@ func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error
 			b.logger.Info("Looking up mount namespace for profile", "profile", profile, "try", try)
 			if foundMntns, ok := b.getMntnsForProfile(profile); ok {
 				mntns = foundMntns
+				b.logger.Info("Found mount namespace for profile", "profile", profile, "mntns", mntns)
 				return nil
 			}
 			b.logger.Info("No mount namespace found for profile", "profile", profile)
@@ -398,6 +405,7 @@ func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error
 
 func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 	if containerID, ok := b.containerIDToProfileMap.GetBackwards(profile); ok {
+		b.logger.Info("Found container id for profile", "containerID", containerID, "profile", profile)
 		if mntns, ok := b.mntnsToContainerIDMap.GetBackwards(containerID); ok {
 			return mntns, true
 		}
