@@ -96,6 +96,7 @@ EOT
   # that uses `setns` to join the container mount namespace.
   # As a consequence, we sometimes get all the funny syscalls emitted
   # by the Go runtime, which we need to ignore.
+  print_spo_logs
   echo "Diffing output while ignoring flaky syscalls"
   git diff --exit-code -U0 \
     -I rt_sigreturn \

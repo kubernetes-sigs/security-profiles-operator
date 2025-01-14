@@ -161,6 +161,7 @@ check_apparmor_profile_recording() {
 
   done
 
+  print_spo_logs
   git diff --exit-code examples
 }
 
