@@ -56,11 +56,16 @@ wait_for() {
   done
 
   echo "Timed out waiting for $*"
-  echo "---------------------------------"
-  echo "Logs"
-  echo "---------------------------------"
-  k logs --selector name=spod --all-containers
+  print_spo_logs
   exit 1
+}
+
+print_spo_logs() {
+    echo "---------------------------------"
+    echo "Logs"
+    echo "---------------------------------"
+    k logs --selector name!=nonexistent --all-pods --all-containers --since=10m --prefix --tail=-1
+    echo "---------------------------------"
 }
 
 ensure_runtime_classes() {
