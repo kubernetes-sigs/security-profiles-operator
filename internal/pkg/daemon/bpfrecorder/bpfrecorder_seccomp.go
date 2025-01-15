@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"unsafe"
 
 	bpf "github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
@@ -52,8 +53,20 @@ func (s *SeccompRecorder) Load(b *BpfRecorder) error {
 	return nil
 }
 
-func (s *SeccompRecorder) Unload() {
-	s.syscalls = nil
+func (s *SeccompRecorder) StartRecording(b *BpfRecorder) error {
+	// This uses one of the base hooks, no need to attach here.
+	return nil
+}
+
+func (s *SeccompRecorder) StopRecording(b *BpfRecorder) error {
+	it := b.BPFMapIterator(s.syscalls)
+	for b.BPFMapIteratorNext(it) {
+		key := it.Key()
+		if err := s.syscalls.DeleteKey(unsafe.Pointer(&key[0])); err != nil {
+			return fmt.Errorf("failed to clean up syscalls map: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *SeccompRecorder) PopSyscalls(b *BpfRecorder, mntns uint32) ([]string, error) {
