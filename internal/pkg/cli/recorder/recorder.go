@@ -96,7 +96,15 @@ func (r *Recorder) Run() error {
 	if err := r.LoadBpfRecorder(r.bpfRecorder); err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	defer r.UnloadBpfRecorder(r.bpfRecorder)
+	if err := r.StartBpfRecording(r.bpfRecorder); err != nil {
+		return fmt.Errorf("record: %w", err)
+	}
+	defer func(r *Recorder, recorder *bpfrecorder.BpfRecorder) {
+		err := r.StopBpfRecording(recorder)
+		if err != nil {
+			log.Println(fmt.Errorf("stop BPF recording: %w", err))
+		}
+	}(r, r.bpfRecorder)
 
 	var mntns uint32
 	if r.options.noProcStart {

@@ -56,9 +56,12 @@ type impl interface {
 	Listen(string, string) (net.Listener, error)
 	Serve(*grpc.Server, net.Listener) error
 	NewModuleFromBufferArgs(*bpf.NewModuleArgs) (*bpf.Module, error)
+	BPFMapIterator(*bpf.BPFMap) *bpf.BPFMapIterator
+	BPFMapIteratorNext(*bpf.BPFMapIterator) bool
 	BPFLoadObject(*bpf.Module) error
 	GetProgram(*bpf.Module, string) (*bpf.BPFProg, error)
 	AttachGeneric(*bpf.BPFProg) (*bpf.BPFLink, error)
+	DestroyLink(*bpf.BPFLink) error
 	GetMap(*bpf.Module, string) (*bpf.BPFMap, error)
 	InitRingBuf(*bpf.Module, string, chan []byte) (*bpf.RingBuffer, error)
 	Stat(string) (os.FileInfo, error)
@@ -116,6 +119,14 @@ func (d *defaultImpl) NewModuleFromBufferArgs(args *bpf.NewModuleArgs) (*bpf.Mod
 	return bpf.NewModuleFromBufferArgs(*args)
 }
 
+func (*defaultImpl) BPFMapIterator(m *bpf.BPFMap) *bpf.BPFMapIterator {
+	return m.Iterator()
+}
+
+func (*defaultImpl) BPFMapIteratorNext(it *bpf.BPFMapIterator) bool {
+	return it.Next()
+}
+
 func (d *defaultImpl) BPFLoadObject(module *bpf.Module) error {
 	return module.BPFLoadObject()
 }
@@ -126,6 +137,10 @@ func (d *defaultImpl) GetProgram(module *bpf.Module, progName string) (*bpf.BPFP
 
 func (d *defaultImpl) AttachGeneric(prog *bpf.BPFProg) (*bpf.BPFLink, error) {
 	return prog.AttachGeneric()
+}
+
+func (d *defaultImpl) DestroyLink(link *bpf.BPFLink) error {
+	return link.Destroy()
 }
 
 func (d *defaultImpl) GetMap(module *bpf.Module, mapName string) (*bpf.BPFMap, error) {
