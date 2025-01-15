@@ -127,6 +127,15 @@ func (*AppArmorRecorder) Load(b *BpfRecorder) error {
 }
 
 func (b *AppArmorRecorder) Unload() {
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
+	clear(b.recordedSocketsUse)
+	clear(b.recordedCapabilities)
+	clear(b.recordedFiles)
 }
 
 func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
