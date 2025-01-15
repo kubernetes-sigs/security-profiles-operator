@@ -20,3 +20,5 @@ import "errors"
 
 // ErrNotFound is the GRPC error if no recorded profile found.
 var ErrNotFound = errors.New("no recorded profile found")
+
+var ErrStartBeforeLoad = errors.New("BPF module must be loaded before a recording can be started")

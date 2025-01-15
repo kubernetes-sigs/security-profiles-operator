@@ -72,6 +72,7 @@ type AppArmorRecorder struct {
 
 	recordedFiles     map[mntnsID]map[string]*fileAccess
 	lockRecordedFiles sync.Mutex
+	bpfPrograms       *bpfProgramCollection
 }
 
 type fileAccess struct {
@@ -114,19 +115,42 @@ func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecord
 	}
 }
 
-func (*AppArmorRecorder) Load(b *BpfRecorder) error {
+func (b *AppArmorRecorder) Load(r *BpfRecorder) error {
 	if !BPFLSMEnabled() {
 		return errors.New("BPF LSM is not enabled for this kernel")
 	}
-	for _, hook := range appArmorHooks {
-		if err := b.attachBpfProgram(hook); err != nil {
-			return err
-		}
+	programs, err := newProgramCollection(r, b.logger, r.module, appArmorHooks)
+	if err != nil {
+		return fmt.Errorf("load apparmor hooks: %w", err)
 	}
+	b.bpfPrograms = programs
 	return nil
 }
 
-func (b *AppArmorRecorder) Unload() {
+func (b *AppArmorRecorder) StartRecording(r *BpfRecorder) error {
+	if b.bpfPrograms == nil {
+		return ErrStartBeforeLoad
+	}
+	return b.bpfPrograms.attachAll(r)
+}
+
+func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) (err error) {
+	if b.bpfPrograms == nil {
+		return nil
+	}
+	err = b.bpfPrograms.detachAll(r)
+
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
+
+	clear(b.recordedSocketsUse)
+	clear(b.recordedCapabilities)
+	clear(b.recordedFiles)
+	return err
 }
 
 func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
@@ -261,6 +285,11 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 		processed.Socket = *b.recordedSocketsUse[mid]
 	}
 	processed.Capabilities = b.processCapabilities(mid)
+
+	// Clean up the recorded data after processing to avoid keeping global state.
+	delete(b.recordedSocketsUse, mid)
+	delete(b.recordedFiles, mid)
+	delete(b.recordedCapabilities, mid)
 
 	return processed
 }

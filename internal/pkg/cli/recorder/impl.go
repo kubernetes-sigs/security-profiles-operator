@@ -43,7 +43,8 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	LoadBpfRecorder(*bpfrecorder.BpfRecorder) error
-	UnloadBpfRecorder(*bpfrecorder.BpfRecorder)
+	StartBpfRecording(*bpfrecorder.BpfRecorder) error
+	StopBpfRecording(*bpfrecorder.BpfRecorder) error
 	BPFLSMEnabled() bool
 	CommandRun(*command.Command) (uint32, error)
 	CommandWait(*command.Command) error
@@ -62,11 +63,15 @@ type impl interface {
 }
 
 func (*defaultImpl) LoadBpfRecorder(b *bpfrecorder.BpfRecorder) error {
-	return b.Load(true)
+	return b.Load()
 }
 
-func (*defaultImpl) UnloadBpfRecorder(b *bpfrecorder.BpfRecorder) {
-	b.Unload()
+func (*defaultImpl) StartBpfRecording(b *bpfrecorder.BpfRecorder) error {
+	return b.StartRecording()
+}
+
+func (*defaultImpl) StopBpfRecording(b *bpfrecorder.BpfRecorder) error {
+	return b.StopRecording()
 }
 
 func (*defaultImpl) BPFLSMEnabled() bool {

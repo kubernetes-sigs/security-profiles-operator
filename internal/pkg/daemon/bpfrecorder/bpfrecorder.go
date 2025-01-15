@@ -86,10 +86,11 @@ type BpfRecorder struct {
 	nodeName                string
 	clientset               *kubernetes.Clientset
 	excludeMountNamespace   uint32
-	loadUnloadMutex         sync.RWMutex
+	attachUnattachMutex     sync.RWMutex
 	metricsClient           apimetrics.Metrics_BpfIncClient
 	programName             string
 	module                  *bpf.Module
+	bpfPrograms             *bpfProgramCollection
 
 	AppArmor *AppArmorRecorder
 	Seccomp  *SeccompRecorder
@@ -127,7 +128,7 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 		),
 		mntnsToContainerIDMap:   bimap.New[uint32, string](),
 		containerIDToProfileMap: bimap.New[string, string](),
-		loadUnloadMutex:         sync.RWMutex{},
+		attachUnattachMutex:     sync.RWMutex{},
 		programName:             programName,
 		AppArmor:                appArmor,
 		Seccomp:                 seccomp,
@@ -209,11 +210,19 @@ func (b *BpfRecorder) Run() error {
 	}
 	b.logger.Info("Got system mount namespace: " + strconv.FormatUint(uint64(b.excludeMountNamespace), 10))
 
-	b.logger.Info("Doing BPF load/unload self-test")
-	if err := b.Load(false); err != nil {
-		return fmt.Errorf("load self-test: %w", err)
+	b.logger.Info("Loading BPF program")
+	if err := b.Load(); err != nil {
+		return fmt.Errorf("bpf load: %w", err)
 	}
-	b.Unload()
+
+	b.logger.Info("Doing BPF start/stop self-test...")
+	if err := b.StartRecording(); err != nil {
+		return fmt.Errorf("StartRecording self-test: %w", err)
+	}
+	if err := b.StopRecording(); err != nil {
+		return fmt.Errorf("StopRecording self-test: %w", err)
+	}
+	b.logger.Info("BPF start/stop self-test successful.")
 
 	b.logger.Info("Starting GRPC API server")
 	grpcServer := grpc.NewServer(
@@ -272,9 +281,8 @@ func (b *BpfRecorder) Start(
 ) (*api.EmptyResponse, error) {
 	if b.startRequests == 0 {
 		b.logger.Info("Starting bpf recorder")
-		//nolint:contextcheck // no context intended here
-		if err := b.Load(true); err != nil {
-			return nil, fmt.Errorf("load bpf: %w", err)
+		if err := b.StartRecording(); err != nil {
+			return nil, fmt.Errorf("start recording: %w", err)
 		}
 	} else {
 		b.logger.Info("bpf recorder already running")
@@ -295,7 +303,9 @@ func (b *BpfRecorder) Stop(
 	atomic.AddInt64(&b.startRequests, -1)
 	if b.startRequests == 0 {
 		b.logger.Info("Stopping bpf recorder")
-		b.Unload()
+		if err := b.StopRecording(); err != nil {
+			return nil, fmt.Errorf("start recording: %w", err)
+		}
 	} else {
 		b.logger.Info("Not stopping because another recording is in progress")
 	}
@@ -318,9 +328,9 @@ func (b *BpfRecorder) SyscallsForProfile(
 	if err != nil {
 		return nil, err
 	}
-	b.loadUnloadMutex.RLock()
+	b.attachUnattachMutex.RLock()
 	syscalls, err := b.Seccomp.PopSyscalls(b, mntns)
-	b.loadUnloadMutex.RUnlock()
+	b.attachUnattachMutex.RUnlock()
 	if err != nil {
 		b.logger.Error(err, "Failed to get syscalls for mntns", "mntns", mntns)
 		return nil, err
@@ -353,9 +363,9 @@ func (b *BpfRecorder) ApparmorForProfile(
 	if err != nil {
 		return nil, err
 	}
-	b.loadUnloadMutex.RLock()
+	b.attachUnattachMutex.RLock()
 	apparmor := b.AppArmor.GetAppArmorProcessed(mntns)
-	b.loadUnloadMutex.RUnlock()
+	b.attachUnattachMutex.RUnlock()
 	return &api.ApparmorResponse{
 		Files: &api.ApparmorResponse_Files{
 			AllowedExecutables: apparmor.FileProcessed.AllowedExecutables,
@@ -421,11 +431,15 @@ var baseHooks = []string{
 	"sched_process_exit",
 }
 
-// Load prestarts the bpf recorder.
-func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
+// Load loads the BPF code, does relocations, and gets references to the programs we want to attach.
+// We try to front load as much work as possible so that starting a recording is quick.
+// Recorder start races with container initialization, so we can't spend too much time then.
+//
+// Unloading is currently done implicitly on process exit.
+func (b *BpfRecorder) Load() (err error) {
 	var module *bpf.Module
 
-	b.logger.Info("Loading bpf module")
+	b.logger.Info("Loading bpf module...")
 	b.btfPath, err = b.findBtfPath()
 	if err != nil {
 		return fmt.Errorf("find btf: %w", err)
@@ -450,6 +464,26 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		return fmt.Errorf("load bpf module: %w", err)
 	}
 	b.module = module
+	programs, err := newProgramCollection(b, b.logger, module, baseHooks)
+	if err != nil {
+		return err
+	}
+	b.bpfPrograms = programs
+	if b.AppArmor != nil {
+		if err := b.AppArmor.Load(b); err != nil {
+			// Only log an error here, if Apparmor cannot be loaded. This is because it is
+			// enabled by default, and there are Linux distributions which either do not
+			// support Apparmor or BPF LSM is not yet available.
+			//
+			// see also https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
+			b.logger.Error(err, "load AppArmor bpf hooks")
+		}
+	}
+	if b.Seccomp != nil {
+		if err := b.Seccomp.Load(b); err != nil {
+			return err
+		}
+	}
 
 	if b.programName != "" {
 		programName := []byte(filepath.Base(b.programName))
@@ -480,28 +514,7 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 		if err := b.UpdateValue(excludeMntns, b.excludeMountNamespace, []byte{excludeMntnsEnabled}); err != nil {
 			return fmt.Errorf("updating exclude_mntns map failed: %w", err)
 		}
-	}
-
-	b.logger.Info("Attach all bpf programs")
-	for _, hook := range baseHooks {
-		if err := b.attachBpfProgram(hook); err != nil {
-			return fmt.Errorf("attach bpf program: %w", err)
-		}
-	}
-	if b.AppArmor != nil {
-		if err := b.AppArmor.Load(b); err != nil {
-			// Only log an error here, if Apparmor cannot be loaded. This is because it is
-			// enabled by default, and there are Linux distributions which either do not
-			// support Apparmor or BPF LSM is not yet available.
-			//
-			// see also https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
-			b.logger.Error(err, "Loading bpf program")
-		}
-	}
-	if b.Seccomp != nil {
-		if err := b.Seccomp.Load(b); err != nil {
-			return err
-		}
+		b.logger.Info("Excluding mount namespace", "mntns", b.excludeMountNamespace)
 	}
 
 	const timeout = 300
@@ -516,23 +529,65 @@ func (b *BpfRecorder) Load(startEventProcessor bool) (err error) {
 	}
 	b.PollRingBuffer(ringbuf, timeout)
 
-	if startEventProcessor {
-		go b.processEvents(events)
-	}
+	go b.processEvents(events)
 
 	b.logger.Info("BPF module successfully loaded.")
 	return nil
 }
 
-func (b *BpfRecorder) attachBpfProgram(name string) error {
-	program, err := b.GetProgram(b.module, name)
-	if err != nil {
-		return fmt.Errorf("get %s bpf program: %w", name, err)
+func (b *BpfRecorder) StartRecording() (err error) {
+	b.attachUnattachMutex.Lock()
+	defer b.attachUnattachMutex.Unlock()
+	b.logger.Info("Start BPF recording: Attaching all programs...")
+
+	if b.bpfPrograms == nil {
+		return ErrStartBeforeLoad
 	}
-	if _, err := b.AttachGeneric(program); err != nil {
-		return fmt.Errorf("attach %s bpf program: %w", name, err)
+
+	if err := b.bpfPrograms.attachAll(b); err != nil {
+		return fmt.Errorf("attach base hooks: %w", err)
 	}
-	b.logger.Info("Attached bpf program " + name + ".")
+	if b.AppArmor != nil {
+		if err := b.AppArmor.StartRecording(b); err != nil {
+			// Only log an error here, if Apparmor cannot be loaded. This is because it is
+			// enabled by default, and there are Linux distributions which either do not
+			// support Apparmor or BPF LSM is not yet available.
+			//
+			// see also https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
+			b.logger.Error(err, "attach AppArmor bpf hooks")
+		}
+	}
+	if b.Seccomp != nil {
+		if err := b.Seccomp.StartRecording(b); err != nil {
+			return err
+		}
+	}
+	b.logger.Info("Recording started.")
+
+	return nil
+}
+
+func (b *BpfRecorder) StopRecording() error {
+	b.attachUnattachMutex.Lock()
+	defer b.attachUnattachMutex.Unlock()
+	b.logger.Info("Stop BPF recording: Detaching all programs...")
+
+	if err := b.bpfPrograms.detachAll(b); err != nil {
+		return fmt.Errorf("detach base hooks: %w", err)
+	}
+	if b.Seccomp != nil {
+		if err := b.Seccomp.StopRecording(b); err != nil {
+			return err
+		}
+	}
+	if b.AppArmor != nil {
+		if err := b.AppArmor.StopRecording(b); err != nil {
+			return err
+		}
+	}
+	b.logger.Info("Recording stopped.")
+
+	// XXX: It may be useful to clear out all existing maps here.
 	return nil
 }
 
@@ -878,23 +933,6 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 	}
 
 	return "", fmt.Errorf("container ID not found: %s", id)
-}
-
-// Unload can be used to reset the bpf recorder.
-func (b *BpfRecorder) Unload() {
-	b.logger.Info("Unloading bpf module")
-	b.loadUnloadMutex.Lock()
-	b.CloseModule(b.module)
-
-	if b.Seccomp != nil {
-		b.Seccomp.Unload()
-	}
-	if b.AppArmor != nil {
-		b.AppArmor.Unload()
-	}
-
-	os.RemoveAll(b.btfPath)
-	b.loadUnloadMutex.Unlock()
 }
 
 // When running outside of Kubernetes as spoc, we have the use case of waiting for a specific PID to exit.
