@@ -171,7 +171,6 @@ func main() {
 	if *netUnix != "" {
 		server, err := net.ListenPacket("unix", *netUnix)
 		if err != nil {
-			//nolint:gocritic  // gocritic is terminally confused here.
 			log.Fatal("❌ Error starting Unix server:", err)
 		}
 		log.Println("✅ Unix server spawned:", server.LocalAddr())
