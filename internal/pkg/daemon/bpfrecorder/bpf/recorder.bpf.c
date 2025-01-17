@@ -157,6 +157,25 @@ static __always_inline u32 get_mntns()
     return mntns;
 }
 
+static __always_inline u32 clear_mntns(u32 mntns)
+{
+    trace_hook("clear_mntns mntns=%u", mntns);
+    // Seccomp
+    bpf_map_delete_elem(&mntns_syscalls, &mntns);
+    // AppArmor
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (event) {
+        event->pid = bpf_get_current_pid_tgid() >> 32;
+        event->mntns = mntns;
+        event->type = EVENT_TYPE_CLEAR_MNTNS;
+        bpf_ringbuf_submit(event, 0);
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
 static __always_inline bool is_runc_init()
 {
     char comm[TASK_COMM_LEN] = {};
@@ -243,7 +262,7 @@ static __always_inline int register_fs_event(struct path * filename,
                      pid == _file_event_pid;
     bool flags_are_subset = (flags | _file_event_flags) == _file_event_flags;
     if (same_file && flags_are_subset) {
-        bpf_printk("register_file_event skipped");
+        trace_hook("register_file_event skipped");
         return 0;
     }
 
@@ -262,7 +281,7 @@ static __always_inline int register_fs_event(struct path * filename,
         pathlen = bpf_d_path(filename, event->data, sizeof(event->data));
     }
     if (pathlen < 0) {
-        bpf_printk("register_file_event bpf_d_path failed: %i\n", pathlen);
+        bpf_printk("register_file_event bpf_d_path failed: %i", pathlen);
         bpf_ringbuf_discard(event, 0);
         return 0;
     }
@@ -290,11 +309,8 @@ static __always_inline int register_fs_event(struct path * filename,
     event->type = EVENT_TYPE_APPARMOR_FILE;
     event->flags = flags;
 
-    // This debug log does not work on old kernels, see
-    // https://github.com/libbpf/libbpf-bootstrap/issues/206#issuecomment-1694085235
-    // bpf_printk(
-    //     "register_file_event: %s with flags=%d, i_mode=%d, pathlen=%d\n",
-    //     event->data, flags, i_mode, pathlen);
+    trace_hook("register_file_event: %s with flags=%d, i_mode=%d", event->data,
+               flags, i_mode);
     bpf_ringbuf_submit(event, 0);
 
     if (inode_number) {
@@ -318,7 +334,7 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
 SEC("lsm/file_open")
 int BPF_PROG(file_open, struct file * file)
 {
-    // bpf_printk("file_open");
+    trace_hook("file_open");
     u64 flags = 0;
     if (file->f_mode & FMODE_READ) {
         flags |= FLAG_READ;
@@ -335,7 +351,7 @@ int BPF_PROG(file_open, struct file * file)
 SEC("lsm/file_lock")
 int BPF_PROG(file_lock, struct file * file)
 {
-    // bpf_printk("file_lock");
+    trace_hook("file_lock");
     return register_file_event(file, FLAG_WRITE);
 }
 
@@ -343,7 +359,7 @@ SEC("lsm/mmap_file")
 int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
              unsigned long flags)
 {
-    // bpf_printk("mmap_file");
+    trace_hook("mmap_file");
     u64 file_flags = 0;
     if (prot & PROT_READ) {
         file_flags |= FLAG_READ;
@@ -360,7 +376,7 @@ int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
 SEC("lsm/bprm_check_security")
 int BPF_PROG(bprm_check_security, struct linux_binprm * bprm)
 {
-    // bpf_printk("bprm_check_security");
+    trace_hook("bprm_check_security");
     return register_file_event(bprm->file, FLAG_SPAWN);
 }
 
@@ -368,6 +384,7 @@ SEC("lsm/path_mkdir")
 int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
              umode_t mode)
 {
+    trace_hook("path_mkdir");
     struct path filename = make_path(dentry, dir);
     return register_fs_event(&filename, mode | S_IFDIR, FLAG_READ | FLAG_WRITE,
                              true);
@@ -377,7 +394,7 @@ SEC("lsm/path_mknod")
 int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
              umode_t mode, unsigned int dev)
 {
-    bpf_printk("path_mknod %d", mode);
+    trace_hook("path_mknod %d", mode);
     bool not_a_regular_file =
         ((mode & S_IFCHR) == S_IFCHR || (mode & S_IFBLK) == S_IFBLK ||
          (mode & S_IFIFO) == S_IFIFO || (mode & S_IFSOCK) == S_IFSOCK);
@@ -392,7 +409,7 @@ int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
 SEC("lsm/path_unlink")
 int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
 {
-    // trace_hook("path_unlink");
+    trace_hook("path_unlink");
     struct path path = make_path(dentry, dir);
     return register_fs_event(&path, 0, FLAG_READ | FLAG_WRITE, true);
 }
@@ -400,15 +417,15 @@ int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
 SEC("tracepoint/syscalls/sys_enter_socket")
 int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 {
-    event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
+    trace_hook("sys_enter_socket");
 
-    event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (event) {
         event->pid = pid;
         event->mntns = mntns;
@@ -418,14 +435,14 @@ int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
         int res;
         res = bpf_core_read(&type, sizeof(type), &ctx->args[1]);
         if (res != 0) {
-            bpf_printk("failed to get socket type\n");
+            bpf_printk("failed to get socket type");
             bpf_ringbuf_discard(event, 0);
             return 0;
         }
 
         event->flags = type;
 
-        bpf_printk("requesting raw socket\n");
+        trace_hook("requesting raw socket");
         bpf_ringbuf_submit(event, 0);
     }
 
@@ -441,7 +458,7 @@ int BPF_KPROBE(cap_capable)
 
     unsigned long cap = PT_REGS_PARM3(ctx);
     unsigned long cap_opt = PT_REGS_PARM4(ctx);
-    // bpf_printk("requesting capability: cap=%i cap_opt=%i\n", cap, cap_opt);
+    trace_hook("requesting capability: cap=%i cap_opt=%i", cap, cap_opt);
 
     if (cap_opt & CAP_OPT_NOAUDIT)
         return 0;
@@ -460,25 +477,6 @@ int BPF_KPROBE(cap_capable)
     }
 
     return 0;
-}
-
-static __always_inline u32 clear_mntns(u32 mntns)
-{
-    trace_hook("clear_mntns mntns=%u", mntns);
-    // Seccomp
-    bpf_map_delete_elem(&mntns_syscalls, &mntns);
-    // AppArmor
-    event_data_t * event =
-        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
-    if (event) {
-        event->pid = bpf_get_current_pid_tgid() >> 32;
-        event->mntns = mntns;
-        event->type = EVENT_TYPE_CLEAR_MNTNS;
-        bpf_ringbuf_submit(event, 0);
-        return 0;
-    } else {
-        return -1;
-    }
 }
 
 SEC("tracepoint/syscalls/sys_enter_prctl")
@@ -542,6 +540,7 @@ int sched_process_exit(void * ctx)
     if (ok != 0) {
         return 0;  // key not found
     }
+    trace_hook("removing child pid: %u", pid);
     bpf_map_delete_elem(&child_pids, &pid);
 
     event_data_t * event =
@@ -567,7 +566,7 @@ int sys_exit_clone(struct trace_event_raw_sys_exit * ctx)
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     bool is_child = bpf_map_lookup_elem(&child_pids, &pid) != NULL;
     if (is_child) {
-        bpf_printk("adding child pid from clone: %u", ret);
+        trace_hook("adding child pid from clone: %u", ret);
         bpf_map_update_elem(&child_pids, &ret, &TRUE, BPF_ANY);
     }
     return 0;
@@ -597,7 +596,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         event_data_t * event =
             bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
         if (event) {
-            bpf_printk("send event pid: %u, mntns: %u\n", pid, mntns);
+            trace_hook("new pid observed: %u, mntns: %u", pid, mntns);
 
             event->type = EVENT_TYPE_NEWPID;
             event->pid = pid;
@@ -622,8 +621,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         if (!value) {
             // Should not happen, we updated the element straight ahead
             bpf_printk(
-                "look up item in mntns_syscalls map failed pid: %u, mntns: "
-                "%u\n",
+                "look up item in mntns_syscalls map failed pid: %u, mntns: %u",
                 pid, mntns);
             return 0;
         }
