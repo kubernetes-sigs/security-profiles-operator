@@ -9,14 +9,7 @@ spec:
   abstract:
     capability:
       allowedCapabilities:
-      - chown
-      - dac_override
-      - dac_read_search
-      - fowner
-      - fsetid
-      - mknod
       - setgid
-      - setpcap
       - setuid
       - sys_admin
     executable:
@@ -24,25 +17,16 @@ spec:
       - /security-profiles-operator
     filesystem:
       readOnlyPaths:
-      - /
-      - /opt/spo-profiles/**
-      - /proc/@{pid}/fd/
+      - /proc/@{pid}/fd/**
       - /proc/@{pid}/maps
-      - /proc/@{pid}/mountinfo
       - /proc/@{pid}/setgroups
       - /proc/@{pid}/status
-      - /proc/@{pid}/uid_map
-      - /proc/filesystems
-      - /proc/sys/kernel/cap_last_cap
       - /proc/sys/net/core/somaxconn
       - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
       readWritePaths:
-      - /dev/null
-      - /host/var/lib/kubelet/seccomp/**
-      - /var/lib/security-profiles-operator/kubelet-config.json
+      - /var/run/**
     network:
       allowedProtocols:
         allowTcp: true
         allowUdp: true
   disabled: false
-
