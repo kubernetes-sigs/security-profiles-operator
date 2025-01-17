@@ -3166,6 +3166,7 @@ data:
             "inotify_init1",
             "listen",
             "madvise",
+            "mkdirat",
             "mmap",
             "mprotect",
             "munmap",
@@ -3196,6 +3197,7 @@ data:
             "tgkill",
             "uname",
             "unshare",
+            "unlinkat",
             "write"
           ],
           "action": "SCMP_ACT_ALLOW"
