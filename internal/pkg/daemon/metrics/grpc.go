@@ -125,7 +125,7 @@ func (m *Metrics) AuditInc(
 				r.GetApparmorReq().GetProfile(),
 				r.GetApparmorReq().GetOperation(),
 				r.GetApparmorReq().GetApparmor(),
-				r.GetApparmorReq().GetReason(),
+				r.GetApparmorReq().GetName(),
 			)
 		}
 	}
