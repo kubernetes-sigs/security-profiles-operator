@@ -30,6 +30,12 @@ message AuditRequest {
     string scontext = 1;
     string tcontext = 2;
   }
+  message ApparmorAuditReq {
+    string profile = 1;
+    string operation = 2;
+    string apparmor = 3;
+    string reason = 5;
+  }
   string node = 1;
   string namespace = 2;
   string pod = 3;
@@ -37,6 +43,7 @@ message AuditRequest {
   string executable = 5;
   SeccompAuditReq seccompReq = 6;
   SelinuxAuditReq selinuxReq = 7;
+  ApparmorAuditReq apparmorReq = 8;
 }
 
 message BpfRequest {

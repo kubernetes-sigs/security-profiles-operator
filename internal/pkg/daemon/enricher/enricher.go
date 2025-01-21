@@ -360,7 +360,7 @@ func (e *Enricher) dispatchAuditLine(
 	case types.AuditTypeSeccomp:
 		e.dispatchSeccompLine(metricsClient, nodeName, auditLine, info)
 	case types.AuditTypeApparmor:
-		e.dispatchApparmorLine(nodeName, auditLine, info)
+		e.dispatchApparmorLine(metricsClient, nodeName, auditLine, info)
 	default:
 		return fmt.Errorf("unknown audit line type %s", auditLine.AuditType)
 	}
@@ -482,6 +482,7 @@ func (e *Enricher) dispatchSeccompLine(
 }
 
 func (e *Enricher) dispatchApparmorLine(
+	metricsClient apimetrics.Metrics_AuditIncClient,
 	nodeName string,
 	auditLine *types.AuditLine,
 	info *types.ContainerInfo,
@@ -506,6 +507,25 @@ func (e *Enricher) dispatchApparmorLine(
 	}
 
 	e.logger.Info("audit", values...)
+
+	if err := e.SendMetric(
+		metricsClient,
+		&apimetrics.AuditRequest{
+			Node:       nodeName,
+			Namespace:  info.Namespace,
+			Pod:        info.PodName,
+			Container:  info.ContainerName,
+			Executable: auditLine.Executable,
+			ApparmorReq: &apimetrics.AuditRequest_ApparmorAuditReq{
+				Profile:   auditLine.Profile,
+				Operation: auditLine.Operation,
+				Apparmor:  auditLine.Apparmor,
+				Reason:    auditLine.Name,
+			},
+		},
+	); err != nil {
+		e.logger.Error(err, "unable to update the metrics")
+	}
 }
 
 // LogFilePath returns either the path to the audit logs or falls back to

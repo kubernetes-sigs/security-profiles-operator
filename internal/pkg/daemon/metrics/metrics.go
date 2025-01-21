@@ -65,6 +65,7 @@ const (
 	metricsLabelScontext       = "scontext"
 	metricsLabelTcontext       = "tcontext"
 	metricsLabelMountNamespace = "mount_namespace"
+	metricsLabelApparmor       = "apparmor"
 
 	// HandlerPath is the default path for serving metrics.
 	HandlerPath = "/metrics-spod"
@@ -187,7 +188,10 @@ func New() *Metrics {
 				metricsLabelPod,
 				metricsLabelContainer,
 				metricsLabelExecutable,
-				metricsLabelSyscall,
+				metricsLabelProfile,
+				metricLabelOperation,
+				metricsLabelApparmor,
+				metricsLabelReason,
 			},
 		),
 		metricAppArmorProfileError: prometheus.NewCounterVec(
@@ -311,10 +315,10 @@ func (m *Metrics) IncAppArmorProfileDelete() {
 // IncAppArmorProfileAudit increments the apparmor profile audit counter for the
 // provided labels.
 func (m *Metrics) IncAppArmorProfileAudit(
-	node, namespace, pod, container, executable, syscall string,
+	node, namespace, pod, container, executable, profile, operation, apparmor, reason string,
 ) {
 	m.metricAppArmorProfileAudit.WithLabelValues(
-		node, namespace, pod, container, executable, syscall,
+		node, namespace, pod, container, executable, profile, operation, apparmor, reason,
 	).Inc()
 }
 
