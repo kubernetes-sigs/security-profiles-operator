@@ -200,7 +200,10 @@ func New() *Metrics {
 				Namespace: metricNamespace,
 				Help:      "Counter about apparmor profile errors.",
 			},
-			[]string{metricsLabelReason},
+			[]string{
+				metricsLabelProfile,
+				metricsLabelReason,
+			},
 		),
 	}
 }
@@ -324,6 +327,6 @@ func (m *Metrics) IncAppArmorProfileAudit(
 
 // IncAppArmorProfileError increments the apparmor profile error counter for the
 // provided reason.
-func (m *Metrics) IncAppArmorProfileError(reason string) {
-	m.metricAppArmorProfileError.WithLabelValues(reason).Inc()
+func (m *Metrics) IncAppArmorProfileError(profile, reason string) {
+	m.metricAppArmorProfileError.WithLabelValues(profile, reason).Inc()
 }
