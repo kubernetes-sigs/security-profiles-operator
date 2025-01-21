@@ -40,10 +40,10 @@ func TestRun(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		input          string
-		outputContains string
+		outputContains []string
 	}{
 		{
-			name: "AppArmor CRD",
+			name: "AppArmor CRD in enforce mode by default",
 			input: `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: AppArmorProfile
@@ -53,23 +53,35 @@ spec:
       readOnlyPaths:
       - /dev/null
 `,
-			outputContains: `deny /dev/null wl`,
+			outputContains: []string{`deny /dev/null wl`, `flags=(enforce,attach_disconnected,mediate_deleted)`},
 		},
 		{
-			name: "AppArmor Policy",
+			name: "AppArmor CRD in enforce mode",
 			input: `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: AppArmorProfile
 spec:
-  policy: |
-    #include <tunables/global>
-
-    profile test-profile flags=(attach_disconnected) {
-      #include <abstractions/base>
-      deny /** w,
-    }
+  complainMode: false
+  abstract:
+    filesystem:
+      readOnlyPaths:
+      - /dev/null
 `,
-			outputContains: `deny /** w,`,
+			outputContains: []string{`deny /dev/null wl`, `flags=(enforce,attach_disconnected,mediate_deleted)`},
+		},
+		{
+			name: "AppArmor CRD in complain mode",
+			input: `
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: AppArmorProfile
+spec:
+  complainMode: true
+  abstract:
+    filesystem:
+      readOnlyPaths:
+      - /dev/null
+`,
+			outputContains: []string{`deny /dev/null wl`, `flags=(complain,attach_disconnected,mediate_deleted)`},
 		},
 		{
 			name: "seccomp",
@@ -83,7 +95,7 @@ spec:
     names:
     - foo
 `,
-			outputContains: `"defaultAction": "SCMP_ACT_ERRNO"`,
+			outputContains: []string{`"defaultAction": "SCMP_ACT_ERRNO"`},
 		},
 	} {
 		input := tc.input
@@ -99,7 +111,9 @@ spec:
 			err := sut.Run()
 			require.NoError(t, err)
 			_, actual, _ := mock.WriteFileArgsForCall(0)
-			require.Contains(t, string(actual), outputContains)
+			for _, contain := range outputContains {
+				require.Contains(t, string(actual), contain)
+			}
 		})
 	}
 

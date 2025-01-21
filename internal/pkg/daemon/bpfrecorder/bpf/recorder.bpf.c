@@ -2,6 +2,7 @@
 
 #include <linux/limits.h>
 
+#include "bpf_d_path_cursed.h"
 #include <asm-generic/errno.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
@@ -20,6 +21,7 @@
 #define EVENT_TYPE_APPARMOR_FILE 2
 #define EVENT_TYPE_APPARMOR_SOCKET 3
 #define EVENT_TYPE_APPARMOR_CAP 4
+#define EVENT_TYPE_CLEAR_MNTNS 5
 
 #define FLAG_READ 0x1
 #define FLAG_WRITE 0x2
@@ -36,9 +38,14 @@
 #define PROT_NONE 0x0
 
 #define S_IFIFO 0010000
+#define S_IFCHR 0020000
 #define S_IFDIR 0040000
+#define S_IFBLK 0060000
+#define S_IFSOCK 0140000
 
 #define CAP_OPT_NOAUDIT 0b10
+
+#define PR_GET_PDEATHSIG 2
 
 #define SOCK_RAW 3
 
@@ -50,6 +57,20 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #ifndef unlikely
 #define unlikely(x) __builtin_expect((x), 0)
 #endif
+
+// toggle this for additional debug output
+#define trace_hook(...)
+// #define trace_hook(...) bpf_printk(__VA_ARGS__)
+
+// Keep track of all mount namespaces that should be (temporarily) excluded from
+// recording. When running in Kubernetes, we generally ignore the host mntns.
+// Additionally, we exclude individual containers during startup.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, u32);
+    __type(value, u8);
+} exclude_mntns SEC(".maps");
 
 // Track syscalls for each mtnns
 struct {
@@ -91,8 +112,9 @@ typedef struct __attribute__((__packed__)) event_data {
 } event_data_t;
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
-const volatile u32 exclude_mntns = 0;
 
+static const char WILDCARD[] = "/**";
+static const char RUNC_INIT[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
 static inline bool matches_filter(char * comm);
@@ -116,7 +138,7 @@ static __always_inline u32 get_mntns()
 
     // When running in a Kubernetes context:
     // Filter out mntns of the host PID to exclude host processes
-    if (exclude_mntns == mntns) {
+    if (bpf_map_lookup_elem(&exclude_mntns, &mntns) != NULL) {
         return 0;
     }
 
@@ -135,14 +157,96 @@ static __always_inline u32 get_mntns()
     return mntns;
 }
 
+static __always_inline u32 clear_mntns(u32 mntns)
+{
+    trace_hook("clear_mntns mntns=%u", mntns);
+    // Seccomp
+    bpf_map_delete_elem(&mntns_syscalls, &mntns);
+    // AppArmor
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (event) {
+        event->pid = bpf_get_current_pid_tgid() >> 32;
+        event->mntns = mntns;
+        event->type = EVENT_TYPE_CLEAR_MNTNS;
+        bpf_ringbuf_submit(event, 0);
+        return 0;
+    } else {
+        return -1;
+    }
+}
+
+static __always_inline bool is_runc_init()
+{
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    for (int i = 0; i < sizeof(RUNC_INIT); i++) {
+        if (comm[i] != RUNC_INIT[i])
+            return false;
+    }
+    return true;
+}
+
+// Debug method to report access to a canary file.
+// This is useful during development to see if a particular code path is hit
+// and bpf_printk output is inaccessible.
+static __always_inline void debug_add_canary_file(char * filename)
+{
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (!event) {
+        bpf_printk("Failed to add canary file: %s", filename);
+        return;
+    }
+    bpf_core_read_str(event->data, sizeof(event->data), filename);
+    event->pid = bpf_get_current_pid_tgid() >> 32;
+    event->mntns = get_mntns();
+    event->type = EVENT_TYPE_APPARMOR_FILE;
+    event->flags = FLAG_READ | FLAG_WRITE;
+    bpf_ringbuf_submit(event, 0);
+}
+
+static __always_inline void debug_path_d(struct path * filename,
+                                         bool use_bpf_d_path)
+{
+    struct task_struct * task = (struct task_struct *)bpf_get_current_task();
+    u32 mntns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+
+    char comm[TASK_COMM_LEN] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (!event) {
+        return;
+    }
+    if (use_bpf_d_path)
+        bpf_d_path(filename, event->data, sizeof(event->data));
+
+    event_data_t * event2 =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    if (!event2) {
+        bpf_ringbuf_discard(event, 0);
+        return;
+    }
+    bpf_d_path_cursed(filename, event2->data, sizeof(event2->data));
+
+    bpf_printk("debug_path_d mntns=%u comm=%s\n bpf_d_path=%s\n cursd_path=%s",
+               mntns, comm, event->data, event2->data);
+    bpf_ringbuf_discard(event, 0);
+    bpf_ringbuf_discard(event2, 0);
+}
+
 static u64 _file_event_inode;
 static u64 _file_event_flags;
 static u32 _file_event_pid;
 
-static __always_inline int register_file_event(struct file * file, u64 flags)
+static __always_inline int register_fs_event(struct path * filename,
+                                             umode_t i_mode, u64 flags,
+                                             bool custom_bpf_d_path)
 {
     // ignore unix pipes
-    if (file == NULL || file->f_inode->i_mode & S_IFIFO) {
+    if ((i_mode & S_IFIFO) == S_IFIFO) {
         return 0;
     }
 
@@ -150,13 +254,15 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
     if (!mntns)
         return 0;
 
+    u64 inode_number = BPF_CORE_READ(filename, dentry, d_inode, i_ino);
+
     // discard repeated calls
-    u64 inode = file->f_inode->i_ino;
     u32 pid = bpf_get_current_pid_tgid() >> 32;
-    bool same_file = inode == _file_event_inode && pid == _file_event_pid;
+    bool same_file = inode_number && inode_number == _file_event_inode &&
+                     pid == _file_event_pid;
     bool flags_are_subset = (flags | _file_event_flags) == _file_event_flags;
     if (same_file && flags_are_subset) {
-        bpf_printk("register_file_event skipped");
+        trace_hook("register_file_event skipped");
         return 0;
     }
 
@@ -166,26 +272,35 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
         return 0;
     }
 
-    int pathlen = bpf_d_path(&file->f_path, event->data, sizeof(event->data));
+    int pathlen;
+    // Some BPF hooks cannot use bpf_d_path, for these cases we swap in our own
+    // implementation.
+    if (custom_bpf_d_path) {
+        pathlen = bpf_d_path_cursed(filename, event->data, sizeof(event->data));
+    } else {
+        pathlen = bpf_d_path(filename, event->data, sizeof(event->data));
+    }
     if (pathlen < 0) {
-        bpf_printk("register_file_event bpf_d_path failed: %i\n", pathlen);
+        bpf_printk("register_file_event bpf_d_path failed: %i", pathlen);
         bpf_ringbuf_discard(event, 0);
         return 0;
     }
 
-    if (file->f_inode->i_mode & S_IFDIR) {
-        // more checks than necessary, but only checking each offset
-        // individually makes the ebpf verifier happy.
-        if (pathlen >= 2 && pathlen - 2 < sizeof(event->data) &&
-            pathlen - 1 < sizeof(event->data) &&
-            pathlen < sizeof(event->data)) {
-            if (event->data[pathlen - 2] != '/') {
-                // No trailing slash, add `/` and move null byte.
-                event->data[pathlen - 1] = '/';
-                event->data[pathlen] = '\0';
-            }
+    if ((i_mode & S_IFDIR) == S_IFDIR) {
+        // Somehow this makes the verifier happy.
+        u16 idx = pathlen - 1;
+        if (idx < sizeof(event->data) - 4) {
+            bpf_core_read(event->data + idx, 4, &WILDCARD);
         } else {
-            bpf_printk("failed to fixup directory entry, not enough space.");
+            // pathlen is close to PATH_MAX.
+            // We could overwrite the last last directory in the path with ** in
+            // that case, but for now we keep things simple.
+            bpf_printk(
+                "failed to fixup directory entry, pathlen is too close to "
+                "PATH_MAX: %s",
+                event->data);
+            bpf_ringbuf_discard(event, 0);
+            return 0;
         }
     }
 
@@ -194,24 +309,32 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
     event->type = EVENT_TYPE_APPARMOR_FILE;
     event->flags = flags;
 
-    // This debug log does not work on old kernels, see
-    // https://github.com/libbpf/libbpf-bootstrap/issues/206#issuecomment-1694085235
-    // bpf_printk(
-    //    "register_file_event: %i, %s with flags=%d, mode=%d, inode_mode=%d\n",
-    //    file, event->data, flags, file->f_mode, file->f_inode->i_mode);
+    trace_hook("register_file_event: %s with flags=%d, i_mode=%d", event->data,
+               flags, i_mode);
     bpf_ringbuf_submit(event, 0);
 
-    _file_event_inode = inode;
-    _file_event_pid = pid;
-    _file_event_flags = same_file ? (flags | _file_event_flags) : flags;
+    if (inode_number) {
+        _file_event_inode = inode_number;
+        _file_event_pid = pid;
+        _file_event_flags = same_file ? (flags | _file_event_flags) : flags;
+    }
 
     return 0;
+}
+
+static __always_inline int register_file_event(struct file * file, u64 flags)
+{
+    if (file == NULL) {
+        return 0;
+    }
+    return register_fs_event(&file->f_path, file->f_inode->i_mode, flags,
+                             false);
 }
 
 SEC("lsm/file_open")
 int BPF_PROG(file_open, struct file * file)
 {
-    // bpf_printk("file_open");
+    trace_hook("file_open");
     u64 flags = 0;
     if (file->f_mode & FMODE_READ) {
         flags |= FLAG_READ;
@@ -228,7 +351,7 @@ int BPF_PROG(file_open, struct file * file)
 SEC("lsm/file_lock")
 int BPF_PROG(file_lock, struct file * file)
 {
-    // bpf_printk("file_lock");
+    trace_hook("file_lock");
     return register_file_event(file, FLAG_WRITE);
 }
 
@@ -236,7 +359,7 @@ SEC("lsm/mmap_file")
 int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
              unsigned long flags)
 {
-    // bpf_printk("mmap_file");
+    trace_hook("mmap_file");
     u64 file_flags = 0;
     if (prot & PROT_READ) {
         file_flags |= FLAG_READ;
@@ -253,22 +376,56 @@ int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
 SEC("lsm/bprm_check_security")
 int BPF_PROG(bprm_check_security, struct linux_binprm * bprm)
 {
-    // bpf_printk("bprm_check_security");
+    trace_hook("bprm_check_security");
     return register_file_event(bprm->file, FLAG_SPAWN);
+}
+
+SEC("lsm/path_mkdir")
+int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
+             umode_t mode)
+{
+    trace_hook("path_mkdir");
+    struct path filename = make_path(dentry, dir);
+    return register_fs_event(&filename, mode | S_IFDIR, FLAG_READ | FLAG_WRITE,
+                             true);
+}
+
+SEC("lsm/path_mknod")
+int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
+             umode_t mode, unsigned int dev)
+{
+    trace_hook("path_mknod %d", mode);
+    bool not_a_regular_file =
+        ((mode & S_IFCHR) == S_IFCHR || (mode & S_IFBLK) == S_IFBLK ||
+         (mode & S_IFIFO) == S_IFIFO || (mode & S_IFSOCK) == S_IFSOCK);
+    u64 file_flags = FLAG_WRITE;
+    if (not_a_regular_file) {
+        file_flags |= FLAG_READ;
+    }
+    struct path path = make_path(dentry, dir);
+    return register_fs_event(&path, 0, file_flags, true);
+}
+
+SEC("lsm/path_unlink")
+int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
+{
+    trace_hook("path_unlink");
+    struct path path = make_path(dentry, dir);
+    return register_fs_event(&path, 0, FLAG_READ | FLAG_WRITE, true);
 }
 
 SEC("tracepoint/syscalls/sys_enter_socket")
 int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 {
-    event_data_t * event;
-
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
+    trace_hook("sys_enter_socket");
 
-    event = bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+
+    event_data_t * event =
+        bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (event) {
         event->pid = pid;
         event->mntns = mntns;
@@ -278,14 +435,14 @@ int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
         int res;
         res = bpf_core_read(&type, sizeof(type), &ctx->args[1]);
         if (res != 0) {
-            bpf_printk("failed to get socket type\n");
+            bpf_printk("failed to get socket type");
             bpf_ringbuf_discard(event, 0);
             return 0;
         }
 
         event->flags = type;
 
-        bpf_printk("requesting raw socket\n");
+        trace_hook("requesting raw socket");
         bpf_ringbuf_submit(event, 0);
     }
 
@@ -301,7 +458,7 @@ int BPF_KPROBE(cap_capable)
 
     unsigned long cap = PT_REGS_PARM3(ctx);
     unsigned long cap_opt = PT_REGS_PARM4(ctx);
-    // bpf_printk("requesting capability: cap=%i cap_opt=%i\n", cap, cap_opt);
+    trace_hook("requesting capability: cap=%i cap_opt=%i", cap, cap_opt);
 
     if (cap_opt & CAP_OPT_NOAUDIT)
         return 0;
@@ -317,6 +474,33 @@ int BPF_KPROBE(cap_capable)
         event->flags = cap;
 
         bpf_ringbuf_submit(event, 0);
+    }
+
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_prctl")
+int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
+{
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+    trace_hook("sys_enter_prctl");
+
+    // Handle runc init.
+    //
+    // Hooking here:
+    // https://github.com/opencontainers/runc/blob/81b13172bea2e6e4cf50f6bdd29a5fdeb5a6acf5/libcontainer/standard_init_linux.go#L148
+    //
+    // We could further minimize profiles by waiting until execve instead of
+    // prctl. This would immediately work for AppArmor (which becomes active
+    // from the next execve), but would miss the syscalls for seccomp (which
+    // becomes active immediately, so we need to include permissions for the
+    // time between enforcement and the execve call). Not doing that yet because
+    // splitting AppArmor and seccomp logic adds a lot of complexity; hardcoding
+    // a list of syscalls required by runc creates maintenance burden.
+    if (ctx->args[0] == PR_GET_PDEATHSIG && is_runc_init()) {
+        clear_mntns(mntns);
     }
 
     return 0;
@@ -338,7 +522,7 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 
     if (is_child || matches_filter(comm)) {
         u32 pid = bpf_get_current_pid_tgid() >> 32;
-        bpf_printk("adding child pid: %u\n", pid);
+        trace_hook("adding child pid: %u", pid);
         bpf_map_update_elem(&child_pids, &pid, &TRUE, BPF_ANY);
     }
     return 0;
@@ -356,6 +540,7 @@ int sched_process_exit(void * ctx)
     if (ok != 0) {
         return 0;  // key not found
     }
+    trace_hook("removing child pid: %u", pid);
     bpf_map_delete_elem(&child_pids, &pid);
 
     event_data_t * event =
@@ -365,6 +550,24 @@ int sched_process_exit(void * ctx)
         event->mntns = mntns;
         event->type = EVENT_TYPE_EXIT;
         bpf_ringbuf_submit(event, 0);
+    }
+    return 0;
+}
+
+// Detect clone() from PIDs in child_pids and add the new PIDs to the map.
+SEC("tracepoint/syscalls/sys_exit_clone")
+int sys_exit_clone(struct trace_event_raw_sys_exit * ctx)
+{
+    u32 ret = ctx->ret;
+    // We only need the fork, the existing process is already traced.
+    if (ret == 0)
+        return 0;
+
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    bool is_child = bpf_map_lookup_elem(&child_pids, &pid) != NULL;
+    if (is_child) {
+        trace_hook("adding child pid from clone: %u", ret);
+        bpf_map_update_elem(&child_pids, &ret, &TRUE, BPF_ANY);
     }
     return 0;
 }
@@ -393,7 +596,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         event_data_t * event =
             bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
         if (event) {
-            bpf_printk("send event pid: %u, mntns: %u\n", pid, mntns);
+            trace_hook("new pid observed: %u, mntns: %u", pid, mntns);
 
             event->type = EVENT_TYPE_NEWPID;
             event->pid = pid;
@@ -418,8 +621,7 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         if (!value) {
             // Should not happen, we updated the element straight ahead
             bpf_printk(
-                "look up item in mntns_syscalls map failed pid: %u, mntns: "
-                "%u\n",
+                "look up item in mntns_syscalls map failed pid: %u, mntns: %u",
                 pid, mntns);
             return 0;
         }

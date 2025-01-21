@@ -44,7 +44,6 @@ var knownReadPrefixes = []string{
 	"/etc/locale/",
 	"/etc/locale.alias/",
 	"/etc/localtime",
-	"/sys/kernel/mm/transparent_hugepage/hpage_pmd_size",
 	"/usr/share/locale/",
 	"/usr/lib/locale/",
 	"/etc/locale.alias",
@@ -53,4 +52,12 @@ var knownReadPrefixes = []string{
 // List of known paths for commonly written to files.
 var knownWritePrefixes = []string{
 	"/dev/log",
+}
+
+// excludedFilePrefixes of known file paths which should be filter out
+// from the apparmor profile.
+var excludedFilePrefixes = []string{
+	"/run/containerd/io.containerd.runtime.v2.task/k8s.io",
+	"/usr/bin/runc",
+	"/proc/@{pid}/attr/apparmor/exec",
 }

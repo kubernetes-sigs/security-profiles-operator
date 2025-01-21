@@ -79,25 +79,9 @@ func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser)
 		return false, errors.New(errInvalidCustomResourceType)
 	}
 
-	// AppArmor profiles can currently have either an abstract or a concrete representation.
-	// This mostly is an XOR, but we also permit the case where both match.
-	var policy string
-	hasAbstractPolicy := profile.Spec.Abstract != (v1alpha1.AppArmorAbstract{})
-	hasConcretePolicy := profile.Spec.Policy != ""
-	switch {
-	case hasAbstractPolicy:
-		var err error
-		policy, err = crd2armor.GenerateProfile(profile.GetProfileName(), &profile.Spec.Abstract)
-		if err != nil {
-			return false, fmt.Errorf("generating raw apparmor profile: %w", err)
-		}
-		if hasConcretePolicy && policy != profile.Spec.Policy {
-			return false, errors.New("abstract and concrete policy do not match")
-		}
-	case hasConcretePolicy:
-		policy = profile.Spec.Policy
-	default:
-		return false, errors.New("profile has neither an abstract nor a concrete policy")
+	policy, err := crd2armor.GenerateProfile(profile.GetProfileName(), profile.Spec.ComplainMode, &profile.Spec.Abstract)
+	if err != nil {
+		return false, fmt.Errorf("generating raw apparmor profile: %w", err)
 	}
 	return a.loadProfile(a.logger, profile.GetProfileName(), policy)
 }

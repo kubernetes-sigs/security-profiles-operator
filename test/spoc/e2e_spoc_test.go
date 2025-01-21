@@ -67,15 +67,30 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
+		fileToRemove, err := os.CreateTemp("/tmp", "spoc-test")
+		require.NoError(t, err)
+		err = fileToRemove.Close()
+		require.NoError(t, err)
 		fileRead := fmt.Sprintf("../../README.md,/proc/1/limits,/proc/%d/limits", os.Getpid())
-		profile := recordAppArmor(t, "./demobinary", "--file-read", fileRead, "--file-write", "/dev/null")
+		profile := recordAppArmor(t,
+			"./demobinary",
+			"--file-read", fileRead,
+			"--file-write", "/dev/null",
+			"--file-create", "/tmp/spoc-test-file",
+			"--file-remove", fileToRemove.Name(),
+		)
+		err = os.Remove("/tmp/spoc-test-file")
+		require.NoError(t, err)
 		readme, err := filepath.Abs("../../README.md")
 		require.NoError(t, err)
 		require.NotNil(t, profile.Filesystem)
 		require.NotNil(t, profile.Filesystem.ReadOnlyPaths)
 		require.NotNil(t, profile.Filesystem.WriteOnlyPaths)
+		require.NotNil(t, profile.Filesystem.ReadWritePaths)
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, readme)
 		require.Contains(t, *profile.Filesystem.WriteOnlyPaths, "/dev/null")
+		require.Contains(t, *profile.Filesystem.WriteOnlyPaths, "/tmp/spoc-test-file")
+		require.Contains(t, *profile.Filesystem.ReadWritePaths, fileToRemove.Name())
 
 		count := 0
 		for _, s := range *profile.Filesystem.ReadOnlyPaths {
@@ -92,11 +107,30 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
-		profile := recordAppArmor(t, "./demobinary", "--dir-read", "/tmp,/usr/")
+		profile := recordAppArmor(t,
+			"./demobinary",
+			"--dir-read", "/var,/usr/",
+			"--dir-create", "/tmp/spoc-test-dir",
+		)
+		err := os.Remove("/tmp/spoc-test-dir")
+		require.NoError(t, err)
 		require.NotNil(t, profile.Filesystem)
 		require.NotNil(t, profile.Filesystem.ReadOnlyPaths)
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/tmp/")
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/usr/")
+		require.NotNil(t, profile.Filesystem.ReadWritePaths)
+		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/var/**")
+		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/usr/**")
+		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/tmp/spoc-test-dir/**")
+	})
+	t.Run("unix-sockets", func(t *testing.T) {
+		if !bpfrecorder.BPFLSMEnabled() {
+			t.Skip("BPF LSM disabled")
+		}
+		profile := recordAppArmor(t, "./demobinary", "--net-unix", "/tmp/spoc-test.sock")
+		err := os.Remove("/tmp/spoc-test.sock")
+		require.NoError(t, err)
+		require.NotNil(t, profile.Filesystem)
+		require.NotNil(t, profile.Filesystem.ReadWritePaths)
+		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/tmp/spoc-test.sock")
 	})
 	t.Run("sockets", func(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {

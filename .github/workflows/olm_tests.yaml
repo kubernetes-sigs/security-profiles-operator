@@ -6,7 +6,7 @@ on:
   pull_request:
 env:
   GO_VERSION: '1.23'
-  KIND_IMG_TAG: v1.31.2
+  KIND_IMG_TAG: v1.32.0
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -27,7 +27,7 @@ jobs:
         echo "${GITHUB_WORKSPACE}/build" >> ${GITHUB_PATH}
         make operator-sdk opm
 
-    - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+    - uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
       with:
         go-version: ${{ env.GO_VERSION }}
 

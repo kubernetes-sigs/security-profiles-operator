@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.17.1
   labels:
     app: security-profiles-operator
   name: profilebindings.security-profiles-operator.x-k8s.io
@@ -85,7 +85,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.17.1
   labels:
     app: security-profiles-operator
   name: profilerecordings.security-profiles-operator.x-k8s.io
@@ -238,7 +238,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.17.1
   labels:
     app: security-profiles-operator
   name: seccompprofiles.security-profiles-operator.x-k8s.io
@@ -501,7 +501,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.17.1
   labels:
     app: security-profiles-operator
   name: securityprofilenodestatuses.security-profiles-operator.x-k8s.io
@@ -571,7 +571,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.17.1
   labels:
     app: security-profiles-operator
   name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
@@ -1913,7 +1913,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.17.1
   labels:
     app: security-profiles-operator
   name: rawselinuxprofiles.security-profiles-operator.x-k8s.io
@@ -2031,7 +2031,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.17.1
   labels:
     app: security-profiles-operator
   name: selinuxprofiles.security-profiles-operator.x-k8s.io
@@ -2190,8 +2190,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.8.0
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.17.1
   labels:
     app: security-profiles-operator
   name: apparmorprofiles.security-profiles-operator.x-k8s.io
@@ -2206,91 +2205,166 @@ spec:
     singular: apparmorprofile
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: AppArmorProfile is the Schema for the apparmorprofiles API
+        description: AppArmorProfile is a cluster level specification for an AppArmor
+          profile.
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           spec:
-            description: AppArmorProfileSpec defines the desired state of AppArmorProfile
+            description: AppArmorProfileSpec defines the desired state of AppArmorProfile.
             properties:
               abstract:
+                description: Abstract stores the apparmor profile allow lists for
+                  executable, file, network and capabilities access.
                 properties:
                   capability:
+                    description: Capability rules for Linux capabilities.
                     properties:
                       allowedCapabilities:
+                        description: AllowedCapabilities lost of allowed capabilities.
                         items:
                           type: string
                         type: array
                     type: object
                   executable:
+                    description: Executable rules for allowed executables.
                     properties:
                       allowedExecutables:
+                        description: AllowedExecutables list of allowed executables.
                         items:
                           type: string
                         type: array
                       allowedLibraries:
+                        description: AllowedLibraries list of allowed libraries.
                         items:
                           type: string
                         type: array
                     type: object
                   filesystem:
+                    description: Filesystem rules for filesystem access.
                     properties:
                       readOnlyPaths:
+                        description: ReadOnlyPaths list of allowed read only file
+                          paths.
                         items:
                           type: string
                         type: array
                       readWritePaths:
+                        description: ReadWritePaths list of allowed read write file
+                          paths.
                         items:
                           type: string
                         type: array
                       writeOnlyPaths:
+                        description: WriteOnlyPaths list of allowed write only file
+                          paths.
                         items:
                           type: string
                         type: array
                     type: object
                   network:
+                    description: Network rules for network access.
                     properties:
                       allowRaw:
+                        description: AllowRaw allows raw sockets.
                         type: boolean
                       allowedProtocols:
+                        description: Protocols keeps the allowed networking protocols.
                         properties:
                           allowTcp:
+                            description: AllowTCP allows TCP socket connections.
                             type: boolean
                           allowUdp:
+                            description: AllowUDP allows UDP sockets connections.
                             type: boolean
                         type: object
                     type: object
                 type: object
-              policy:
-                type: string
+              complainMode:
+                description: |-
+                  ComplainMode places the apparmor profile into "complain" mode, by default is placed in "enforce" mode.
+                  In complain mode, if a given action is not allowed, it will be allowed, but this violation will be
+                  logged with a tag of access being "ALLOWED unconfined".
+                type: boolean
+              disabled:
+                default: false
+                description: Whether the profile is disabled and should be skipped
+                  during reconciliation.
+                type: boolean
             type: object
           status:
-            description: AppArmorProfileStatus defines the observed state of AppArmorProfile
+            description: AppArmorProfileStatus defines the observed state of AppArmorProfile.
+            properties:
+              conditions:
+                description: Conditions of the resource.
+                items:
+                  description: A Condition that may apply to a resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        LastTransitionTime is the last time this condition transitioned from one
+                        status to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        A Message containing details about this condition's last transition from
+                        one status to another, if any.
+                      type: string
+                    reason:
+                      description: A Reason for this condition's last transition from
+                        one status to another.
+                      type: string
+                    status:
+                      description: Status of this condition; is it currently True,
+                        False, or Unknown?
+                      type: string
+                    type:
+                      description: |-
+                        Type of this condition. At most one of each condition type may apply to
+                        a resource at any point in time.
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              status:
+                description: |-
+                  ProfileState defines the state that the profile is in. A profile in this context
+                  refers to a SeccompProfile or a SELinux profile, the states are shared between them
+                  as well as the management API.
+                type: string
             type: object
         type: object
     served: true
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: v1
 kind: Namespace
@@ -2895,6 +2969,109 @@ type: kubernetes.io/service-account-token
 ---
 apiVersion: v1
 data:
+  bpf-recorder.json: |
+    {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "architectures": [
+        "SCMP_ARCH_X86_64",
+        "SCMP_ARCH_X86",
+        "SCMP_ARCH_X32",
+        "SCMP_ARCH_AARCH64"
+      ],
+      "syscalls": [
+        {
+          "names": [
+            "accept4",
+            "arch_prctl",
+            "bind",
+            "bpf",
+            "brk",
+            "capget",
+            "capset",
+            "chdir",
+            "clone",
+            "clone3",
+            "close",
+            "connect",
+            "dup3",
+            "epoll_create1",
+            "epoll_ctl",
+            "epoll_pwait",
+            "epoll_wait",
+            "eventfd2",
+            "execve",
+            "exit_group",
+            "faccessat2",
+            "fchdir",
+            "fchownat",
+            "fcntl",
+            "fstat",
+            "fstatfs",
+            "futex",
+            "getcwd",
+            "getdents64",
+            "getpeername",
+            "getpid",
+            "getppid",
+            "getrandom",
+            "getrlimit",
+            "getsockname",
+            "getsockopt",
+            "gettid",
+            "ioctl",
+            "keyctl",
+            "listen",
+            "lseek",
+            "madvise",
+            "memfd_create",
+            "mkdirat",
+            "mknodat",
+            "mmap",
+            "mount",
+            "mprotect",
+            "mremap",
+            "munmap",
+            "nanosleep",
+            "newfstatat",
+            "openat",
+            "perf_event_open",
+            "pipe2",
+            "pivot_root",
+            "prctl",
+            "pread64",
+            "prlimit64",
+            "read",
+            "readlinkat",
+            "rseq",
+            "rt_sigaction",
+            "rt_sigprocmask",
+            "rt_sigreturn",
+            "sched_getaffinity",
+            "sched_yield",
+            "seccomp",
+            "set_robust_list",
+            "set_tid_address",
+            "setgid",
+            "setgroups",
+            "setrlimit",
+            "setsid",
+            "setsockopt",
+            "setuid",
+            "sigaltstack",
+            "socket",
+            "statfs",
+            "symlinkat",
+            "tgkill",
+            "umask",
+            "umount2",
+            "uname",
+            "unlinkat",
+            "write"
+          ],
+          "action": "SCMP_ACT_ALLOW"
+        }
+      ]
+    }
   security-profiles-operator.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
@@ -3093,8 +3270,6 @@ spec:
         env:
         - name: RESTRICT_TO_NAMESPACE
           value: NS_REPLACE
-        - name: RELATED_IMAGE_RBAC_PROXY
-          value: gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0
         - name: RELATED_IMAGE_SELINUXD
           value: quay.io/security-profiles-operator/selinuxd
         - name: RELATED_IMAGE_SELINUXD_EL8

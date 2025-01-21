@@ -22,7 +22,6 @@ package bpfrecorderfakes
 
 import (
 	"context"
-	"io/fs"
 	"net"
 	"os"
 	"sync"
@@ -62,6 +61,28 @@ type FakeImpl struct {
 	}
 	bPFLoadObjectReturnsOnCall map[int]struct {
 		result1 error
+	}
+	BPFMapIteratorStub        func(*libbpfgo.BPFMap) *libbpfgo.BPFMapIterator
+	bPFMapIteratorMutex       sync.RWMutex
+	bPFMapIteratorArgsForCall []struct {
+		arg1 *libbpfgo.BPFMap
+	}
+	bPFMapIteratorReturns struct {
+		result1 *libbpfgo.BPFMapIterator
+	}
+	bPFMapIteratorReturnsOnCall map[int]struct {
+		result1 *libbpfgo.BPFMapIterator
+	}
+	BPFMapIteratorNextStub        func(*libbpfgo.BPFMapIterator) bool
+	bPFMapIteratorNextMutex       sync.RWMutex
+	bPFMapIteratorNextArgsForCall []struct {
+		arg1 *libbpfgo.BPFMapIterator
+	}
+	bPFMapIteratorNextReturns struct {
+		result1 bool
+	}
+	bPFMapIteratorNextReturnsOnCall map[int]struct {
+		result1 bool
 	}
 	BpfIncClientStub        func(api_metrics.MetricsClient) (api_metrics.Metrics_BpfIncClient, error)
 	bpfIncClientMutex       sync.RWMutex
@@ -141,6 +162,17 @@ type FakeImpl struct {
 		result1 error
 	}
 	deleteKey64ReturnsOnCall map[int]struct {
+		result1 error
+	}
+	DestroyLinkStub        func(*libbpfgo.BPFLink) error
+	destroyLinkMutex       sync.RWMutex
+	destroyLinkArgsForCall []struct {
+		arg1 *libbpfgo.BPFLink
+	}
+	destroyLinkReturns struct {
+		result1 error
+	}
+	destroyLinkReturnsOnCall map[int]struct {
 		result1 error
 	}
 	DialMetricsStub        func() (*grpc.ClientConn, context.CancelFunc, error)
@@ -421,17 +453,17 @@ type FakeImpl struct {
 	serveReturnsOnCall map[int]struct {
 		result1 error
 	}
-	StatStub        func(string) (fs.FileInfo, error)
+	StatStub        func(string) (os.FileInfo, error)
 	statMutex       sync.RWMutex
 	statArgsForCall []struct {
 		arg1 string
 	}
 	statReturns struct {
-		result1 fs.FileInfo
+		result1 os.FileInfo
 		result2 error
 	}
 	statReturnsOnCall map[int]struct {
-		result1 fs.FileInfo
+		result1 os.FileInfo
 		result2 error
 	}
 	TempFileStub        func(string, string) (*os.File, error)
@@ -637,6 +669,128 @@ func (fake *FakeImpl) BPFLoadObjectReturnsOnCall(i int, result1 error) {
 	}
 	fake.bPFLoadObjectReturnsOnCall[i] = struct {
 		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) BPFMapIterator(arg1 *libbpfgo.BPFMap) *libbpfgo.BPFMapIterator {
+	fake.bPFMapIteratorMutex.Lock()
+	ret, specificReturn := fake.bPFMapIteratorReturnsOnCall[len(fake.bPFMapIteratorArgsForCall)]
+	fake.bPFMapIteratorArgsForCall = append(fake.bPFMapIteratorArgsForCall, struct {
+		arg1 *libbpfgo.BPFMap
+	}{arg1})
+	stub := fake.BPFMapIteratorStub
+	fakeReturns := fake.bPFMapIteratorReturns
+	fake.recordInvocation("BPFMapIterator", []interface{}{arg1})
+	fake.bPFMapIteratorMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) BPFMapIteratorCallCount() int {
+	fake.bPFMapIteratorMutex.RLock()
+	defer fake.bPFMapIteratorMutex.RUnlock()
+	return len(fake.bPFMapIteratorArgsForCall)
+}
+
+func (fake *FakeImpl) BPFMapIteratorCalls(stub func(*libbpfgo.BPFMap) *libbpfgo.BPFMapIterator) {
+	fake.bPFMapIteratorMutex.Lock()
+	defer fake.bPFMapIteratorMutex.Unlock()
+	fake.BPFMapIteratorStub = stub
+}
+
+func (fake *FakeImpl) BPFMapIteratorArgsForCall(i int) *libbpfgo.BPFMap {
+	fake.bPFMapIteratorMutex.RLock()
+	defer fake.bPFMapIteratorMutex.RUnlock()
+	argsForCall := fake.bPFMapIteratorArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) BPFMapIteratorReturns(result1 *libbpfgo.BPFMapIterator) {
+	fake.bPFMapIteratorMutex.Lock()
+	defer fake.bPFMapIteratorMutex.Unlock()
+	fake.BPFMapIteratorStub = nil
+	fake.bPFMapIteratorReturns = struct {
+		result1 *libbpfgo.BPFMapIterator
+	}{result1}
+}
+
+func (fake *FakeImpl) BPFMapIteratorReturnsOnCall(i int, result1 *libbpfgo.BPFMapIterator) {
+	fake.bPFMapIteratorMutex.Lock()
+	defer fake.bPFMapIteratorMutex.Unlock()
+	fake.BPFMapIteratorStub = nil
+	if fake.bPFMapIteratorReturnsOnCall == nil {
+		fake.bPFMapIteratorReturnsOnCall = make(map[int]struct {
+			result1 *libbpfgo.BPFMapIterator
+		})
+	}
+	fake.bPFMapIteratorReturnsOnCall[i] = struct {
+		result1 *libbpfgo.BPFMapIterator
+	}{result1}
+}
+
+func (fake *FakeImpl) BPFMapIteratorNext(arg1 *libbpfgo.BPFMapIterator) bool {
+	fake.bPFMapIteratorNextMutex.Lock()
+	ret, specificReturn := fake.bPFMapIteratorNextReturnsOnCall[len(fake.bPFMapIteratorNextArgsForCall)]
+	fake.bPFMapIteratorNextArgsForCall = append(fake.bPFMapIteratorNextArgsForCall, struct {
+		arg1 *libbpfgo.BPFMapIterator
+	}{arg1})
+	stub := fake.BPFMapIteratorNextStub
+	fakeReturns := fake.bPFMapIteratorNextReturns
+	fake.recordInvocation("BPFMapIteratorNext", []interface{}{arg1})
+	fake.bPFMapIteratorNextMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) BPFMapIteratorNextCallCount() int {
+	fake.bPFMapIteratorNextMutex.RLock()
+	defer fake.bPFMapIteratorNextMutex.RUnlock()
+	return len(fake.bPFMapIteratorNextArgsForCall)
+}
+
+func (fake *FakeImpl) BPFMapIteratorNextCalls(stub func(*libbpfgo.BPFMapIterator) bool) {
+	fake.bPFMapIteratorNextMutex.Lock()
+	defer fake.bPFMapIteratorNextMutex.Unlock()
+	fake.BPFMapIteratorNextStub = stub
+}
+
+func (fake *FakeImpl) BPFMapIteratorNextArgsForCall(i int) *libbpfgo.BPFMapIterator {
+	fake.bPFMapIteratorNextMutex.RLock()
+	defer fake.bPFMapIteratorNextMutex.RUnlock()
+	argsForCall := fake.bPFMapIteratorNextArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) BPFMapIteratorNextReturns(result1 bool) {
+	fake.bPFMapIteratorNextMutex.Lock()
+	defer fake.bPFMapIteratorNextMutex.Unlock()
+	fake.BPFMapIteratorNextStub = nil
+	fake.bPFMapIteratorNextReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeImpl) BPFMapIteratorNextReturnsOnCall(i int, result1 bool) {
+	fake.bPFMapIteratorNextMutex.Lock()
+	defer fake.bPFMapIteratorNextMutex.Unlock()
+	fake.BPFMapIteratorNextStub = nil
+	if fake.bPFMapIteratorNextReturnsOnCall == nil {
+		fake.bPFMapIteratorNextReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.bPFMapIteratorNextReturnsOnCall[i] = struct {
+		result1 bool
 	}{result1}
 }
 
@@ -1045,6 +1199,67 @@ func (fake *FakeImpl) DeleteKey64ReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.deleteKey64ReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) DestroyLink(arg1 *libbpfgo.BPFLink) error {
+	fake.destroyLinkMutex.Lock()
+	ret, specificReturn := fake.destroyLinkReturnsOnCall[len(fake.destroyLinkArgsForCall)]
+	fake.destroyLinkArgsForCall = append(fake.destroyLinkArgsForCall, struct {
+		arg1 *libbpfgo.BPFLink
+	}{arg1})
+	stub := fake.DestroyLinkStub
+	fakeReturns := fake.destroyLinkReturns
+	fake.recordInvocation("DestroyLink", []interface{}{arg1})
+	fake.destroyLinkMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) DestroyLinkCallCount() int {
+	fake.destroyLinkMutex.RLock()
+	defer fake.destroyLinkMutex.RUnlock()
+	return len(fake.destroyLinkArgsForCall)
+}
+
+func (fake *FakeImpl) DestroyLinkCalls(stub func(*libbpfgo.BPFLink) error) {
+	fake.destroyLinkMutex.Lock()
+	defer fake.destroyLinkMutex.Unlock()
+	fake.DestroyLinkStub = stub
+}
+
+func (fake *FakeImpl) DestroyLinkArgsForCall(i int) *libbpfgo.BPFLink {
+	fake.destroyLinkMutex.RLock()
+	defer fake.destroyLinkMutex.RUnlock()
+	argsForCall := fake.destroyLinkArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) DestroyLinkReturns(result1 error) {
+	fake.destroyLinkMutex.Lock()
+	defer fake.destroyLinkMutex.Unlock()
+	fake.DestroyLinkStub = nil
+	fake.destroyLinkReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) DestroyLinkReturnsOnCall(i int, result1 error) {
+	fake.destroyLinkMutex.Lock()
+	defer fake.destroyLinkMutex.Unlock()
+	fake.DestroyLinkStub = nil
+	if fake.destroyLinkReturnsOnCall == nil {
+		fake.destroyLinkReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.destroyLinkReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -2392,7 +2607,7 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) Stat(arg1 string) (fs.FileInfo, error) {
+func (fake *FakeImpl) Stat(arg1 string) (os.FileInfo, error) {
 	fake.statMutex.Lock()
 	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
 	fake.statArgsForCall = append(fake.statArgsForCall, struct {
@@ -2417,7 +2632,7 @@ func (fake *FakeImpl) StatCallCount() int {
 	return len(fake.statArgsForCall)
 }
 
-func (fake *FakeImpl) StatCalls(stub func(string) (fs.FileInfo, error)) {
+func (fake *FakeImpl) StatCalls(stub func(string) (os.FileInfo, error)) {
 	fake.statMutex.Lock()
 	defer fake.statMutex.Unlock()
 	fake.StatStub = stub
@@ -2430,28 +2645,28 @@ func (fake *FakeImpl) StatArgsForCall(i int) string {
 	return argsForCall.arg1
 }
 
-func (fake *FakeImpl) StatReturns(result1 fs.FileInfo, result2 error) {
+func (fake *FakeImpl) StatReturns(result1 os.FileInfo, result2 error) {
 	fake.statMutex.Lock()
 	defer fake.statMutex.Unlock()
 	fake.StatStub = nil
 	fake.statReturns = struct {
-		result1 fs.FileInfo
+		result1 os.FileInfo
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) StatReturnsOnCall(i int, result1 fs.FileInfo, result2 error) {
+func (fake *FakeImpl) StatReturnsOnCall(i int, result1 os.FileInfo, result2 error) {
 	fake.statMutex.Lock()
 	defer fake.statMutex.Unlock()
 	fake.StatStub = nil
 	if fake.statReturnsOnCall == nil {
 		fake.statReturnsOnCall = make(map[int]struct {
-			result1 fs.FileInfo
+			result1 os.FileInfo
 			result2 error
 		})
 	}
 	fake.statReturnsOnCall[i] = struct {
-		result1 fs.FileInfo
+		result1 os.FileInfo
 		result2 error
 	}{result1, result2}
 }
@@ -2862,6 +3077,10 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.attachGenericMutex.RUnlock()
 	fake.bPFLoadObjectMutex.RLock()
 	defer fake.bPFLoadObjectMutex.RUnlock()
+	fake.bPFMapIteratorMutex.RLock()
+	defer fake.bPFMapIteratorMutex.RUnlock()
+	fake.bPFMapIteratorNextMutex.RLock()
+	defer fake.bPFMapIteratorNextMutex.RUnlock()
 	fake.bpfIncClientMutex.RLock()
 	defer fake.bpfIncClientMutex.RUnlock()
 	fake.chownMutex.RLock()
@@ -2876,6 +3095,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.deleteKeyMutex.RUnlock()
 	fake.deleteKey64Mutex.RLock()
 	defer fake.deleteKey64Mutex.RUnlock()
+	fake.destroyLinkMutex.RLock()
+	defer fake.destroyLinkMutex.RUnlock()
 	fake.dialMetricsMutex.RLock()
 	defer fake.dialMetricsMutex.RUnlock()
 	fake.getMapMutex.RLock()

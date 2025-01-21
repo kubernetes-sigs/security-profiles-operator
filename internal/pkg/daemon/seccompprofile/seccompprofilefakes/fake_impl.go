@@ -24,7 +24,6 @@ import (
 	"github.com/go-logr/logr"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
@@ -34,12 +33,12 @@ import (
 )
 
 type FakeImpl struct {
-	ClientGetProfileStub        func(context.Context, client.Client, types.NamespacedName, ...client.GetOption) (*v1beta1.SeccompProfile, error)
+	ClientGetProfileStub        func(context.Context, client.Client, client.ObjectKey, ...client.GetOption) (*v1beta1.SeccompProfile, error)
 	clientGetProfileMutex       sync.RWMutex
 	clientGetProfileArgsForCall []struct {
 		arg1 context.Context
 		arg2 client.Client
-		arg3 types.NamespacedName
+		arg3 client.ObjectKey
 		arg4 []client.GetOption
 	}
 	clientGetProfileReturns struct {
@@ -124,13 +123,13 @@ type FakeImpl struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeImpl) ClientGetProfile(arg1 context.Context, arg2 client.Client, arg3 types.NamespacedName, arg4 ...client.GetOption) (*v1beta1.SeccompProfile, error) {
+func (fake *FakeImpl) ClientGetProfile(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey, arg4 ...client.GetOption) (*v1beta1.SeccompProfile, error) {
 	fake.clientGetProfileMutex.Lock()
 	ret, specificReturn := fake.clientGetProfileReturnsOnCall[len(fake.clientGetProfileArgsForCall)]
 	fake.clientGetProfileArgsForCall = append(fake.clientGetProfileArgsForCall, struct {
 		arg1 context.Context
 		arg2 client.Client
-		arg3 types.NamespacedName
+		arg3 client.ObjectKey
 		arg4 []client.GetOption
 	}{arg1, arg2, arg3, arg4})
 	stub := fake.ClientGetProfileStub
@@ -152,13 +151,13 @@ func (fake *FakeImpl) ClientGetProfileCallCount() int {
 	return len(fake.clientGetProfileArgsForCall)
 }
 
-func (fake *FakeImpl) ClientGetProfileCalls(stub func(context.Context, client.Client, types.NamespacedName, ...client.GetOption) (*v1beta1.SeccompProfile, error)) {
+func (fake *FakeImpl) ClientGetProfileCalls(stub func(context.Context, client.Client, client.ObjectKey, ...client.GetOption) (*v1beta1.SeccompProfile, error)) {
 	fake.clientGetProfileMutex.Lock()
 	defer fake.clientGetProfileMutex.Unlock()
 	fake.ClientGetProfileStub = stub
 }
 
-func (fake *FakeImpl) ClientGetProfileArgsForCall(i int) (context.Context, client.Client, types.NamespacedName, []client.GetOption) {
+func (fake *FakeImpl) ClientGetProfileArgsForCall(i int) (context.Context, client.Client, client.ObjectKey, []client.GetOption) {
 	fake.clientGetProfileMutex.RLock()
 	defer fake.clientGetProfileMutex.RUnlock()
 	argsForCall := fake.clientGetProfileArgsForCall[i]

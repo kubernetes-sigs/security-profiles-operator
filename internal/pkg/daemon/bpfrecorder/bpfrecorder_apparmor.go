@@ -47,6 +47,9 @@ var appArmorHooks = []string{
 	"file_open",
 	"file_lock",
 	"mmap_file",
+	"path_mkdir",
+	"path_mknod",
+	"path_unlink",
 	"bprm_check_security",
 	"sys_enter_socket",
 	"cap_capable",
@@ -71,6 +74,7 @@ type AppArmorRecorder struct {
 
 	recordedFiles     map[mntnsID]map[string]*fileAccess
 	lockRecordedFiles sync.Mutex
+	bpfPrograms       *bpfProgramCollection
 }
 
 type fileAccess struct {
@@ -113,19 +117,42 @@ func newAppArmorRecorder(logger logr.Logger, programName string) *AppArmorRecord
 	}
 }
 
-func (*AppArmorRecorder) Load(b *BpfRecorder) error {
+func (b *AppArmorRecorder) Load(r *BpfRecorder) error {
 	if !BPFLSMEnabled() {
 		return errors.New("BPF LSM is not enabled for this kernel")
 	}
-	for _, hook := range appArmorHooks {
-		if err := b.attachBpfProgram(hook); err != nil {
-			return err
-		}
+	programs, err := newProgramCollection(r, b.logger, r.module, appArmorHooks)
+	if err != nil {
+		return fmt.Errorf("load apparmor hooks: %w", err)
 	}
+	b.bpfPrograms = programs
 	return nil
 }
 
-func (b *AppArmorRecorder) Unload() {
+func (b *AppArmorRecorder) StartRecording(r *BpfRecorder) error {
+	if b.bpfPrograms == nil {
+		return ErrStartBeforeLoad
+	}
+	return b.bpfPrograms.attachAll(r)
+}
+
+func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) (err error) {
+	if b.bpfPrograms == nil {
+		return nil
+	}
+	err = b.bpfPrograms.detachAll(r)
+
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
+
+	clear(b.recordedSocketsUse)
+	clear(b.recordedCapabilities)
+	clear(b.recordedFiles)
+	return err
 }
 
 func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
@@ -136,6 +163,11 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	fileName = replaceVarianceInFilePath(fileName)
 
 	log.Printf("File access: %s, flags=%d pid=%d mntns=%d\n", fileName, fileEvent.Flags, fileEvent.Pid, fileEvent.Mntns)
+
+	if shouldExcludeFile(fileName) {
+		log.Printf("Excluded File: %s", fileName)
+		return
+	}
 
 	mid := mntnsID(fileEvent.Mntns)
 	if _, ok := b.recordedFiles[mid]; !ok {
@@ -198,6 +230,25 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 	b.recordedCapabilities[mid] = append(b.recordedCapabilities[mid], requestedCap)
 }
 
+// Delete all data recorded for a particular mount namespace.
+//
+// The recorder triggers this after container initialization to make sure that
+// permissions needed for setup are not included in the final profile.
+func (b *AppArmorRecorder) clearMntns(event *bpfEvent) {
+	b.lockRecordedFiles.Lock()
+	defer b.lockRecordedFiles.Unlock()
+	b.lockRecordedCapabilities.Lock()
+	defer b.lockRecordedCapabilities.Unlock()
+	b.lockRecordedSocketsUse.Lock()
+	defer b.lockRecordedSocketsUse.Unlock()
+
+	mntns := mntnsID(event.Mntns)
+	log.Printf("Clearing mntns: %d\n", mntns)
+	delete(b.recordedFiles, mntns)
+	delete(b.recordedCapabilities, mntns)
+	delete(b.recordedSocketsUse, mntns)
+}
+
 func (b *AppArmorRecorder) GetKnownMntns() []mntnsID {
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
@@ -237,6 +288,11 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 	}
 	processed.Capabilities = b.processCapabilities(mid)
 
+	// Clean up the recorded data after processing to avoid keeping global state.
+	delete(b.recordedSocketsUse, mid)
+	delete(b.recordedFiles, mid)
+	delete(b.recordedCapabilities, mid)
+
 	return processed
 }
 
@@ -250,8 +306,17 @@ func replaceVarianceInFilePath(filePath string) string {
 	filePath = pathWithTid.ReplaceAllString(filePath, "/proc/@{pid}/task/@{tid}/")
 
 	// Replace container ID with any container ID
-	pathWithCid := regexp.MustCompile(`^/var/lib/containers/storage/overlay/\w+/`)
+	pathWithCid := regexp.MustCompile(`/var/lib/containers/storage/overlay/\w+/`)
 	return pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
+}
+
+func shouldExcludeFile(filePath string) bool {
+	for _, f := range excludedFilePrefixes {
+		if strings.HasPrefix(filePath, f) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProcessed {

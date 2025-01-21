@@ -32,13 +32,13 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+      - uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install dependencies
         run: sudo hack/install-packages
       - run: make test-unit
-      - uses: codecov/codecov-action@5c47607acb93fed5485fdbf7232e8a31425f672a # v5.0.2
+      - uses: codecov/codecov-action@1e68e06f1dbfde0e4cefc87efeba9e4643565303 # v5.1.2
         with:
           files: build/coverage.out
           flags: unittests
@@ -53,7 +53,7 @@ jobs:
         env:
           XDG_RUNTIME_DIR: ''
       - run: podman save -o image.tar security-profiles-operator
-      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+      - uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b # v4.5.0
         with:
           name: image
           path: image.tar
@@ -209,7 +209,7 @@ jobs:
     runs-on: ubuntu-20.04
     timeout-minutes: 90
     env:
-      RUN: ./hack/ci/run-ubuntu.sh
+      RUN: ./hack/ci/run-debian.sh
     steps:
       - name: Set up vagrant
         run: |
@@ -223,7 +223,7 @@ jobs:
           name: image
           path: .
       - name: Boot Virtual Machine
-        run: make vagrant-up-ubuntu
+        run: make vagrant-up-debian
       - name: Show environment information
         run: |
           $RUN kubectl wait --for=condition=ready --timeout=60s nodes --all
@@ -240,7 +240,7 @@ jobs:
     runs-on: ubuntu-20.04
     timeout-minutes: 90
     env:
-      RUN: ./hack/ci/run-ubuntu.sh
+      RUN: ./hack/ci/run-debian.sh
     steps:
       - name: Set up vagrant
         run: |
@@ -269,6 +269,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: crate-ci/typos@b74202f74b4346efdbce7801d187ec57b266bac8 # v1.27.3
+      - uses: crate-ci/typos@9d890159570d5018df91fedfa40b4730cd4a81b1 # v1.28.4
         with:
           config: .typos.toml

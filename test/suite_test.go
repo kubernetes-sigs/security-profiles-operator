@@ -40,10 +40,10 @@ import (
 )
 
 const (
-	kindVersion      = "v0.25.0"
-	kindImage        = "kindest/node:v1.31.2@sha256:18fbefc20a7113353c7b75b5c869d7145a6abd6269154825872dc59c1329912e"
-	kindDarwinSHA512 = "6a8b00c4a159e5230b9c5f110092e3e59fd084a912ddc4f8665bd577a31648268e7fa721665b4fe8293f457f50ef4fa87f9a23b694d5a26d7965cf008047d07c" //nolint:lll // full length SHA
-	kindLinuxSHA512  = "0f96f2cf337c1861db748e40fd8cb4e05eacd3fa55152eb5408c02541d9bdf43c64fc9be111321b6d065dd2c44076ca596a652a5c81c4e8cfa4d73f5501e94ba" //nolint:lll // full length SHA
+	kindVersion      = "v0.26.0"
+	kindImage        = "kindest/node:v1.32.0@sha256:c48c62eac5da28cdadcf560d1d8616cfa6783b58f0d94cf63ad1bf49600cb027"
+	kindDarwinSHA512 = "e40861aa6c9ac9ac36da5067272f5e9b9548c0f37d00fe0aaa52a3bd92f3608fb1155bd4e598083ff77cb38c8e2633ccb4138667912f34be783af34c055804f2" //nolint:lll // full length SHA
+	kindLinuxSHA512  = "15ba3777f5c4f17b3cc90eee62549cb42c6106a40fe115c8524d72f3a8601362d50890c52fc2561d0fe77e15865a274ca67600903ef2dde00780aad1dccffc1e" //nolint:lll // full length SHA
 )
 
 var (
@@ -55,7 +55,6 @@ var (
 	envSkipFlakyTests            = os.Getenv("E2E_SKIP_FLAKY_TESTS")
 	envSkipNamespacedTests       = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
 	envSelinuxTestsEnabled       = os.Getenv("E2E_TEST_SELINUX")
-	envApparmorTestsEnabled      = os.Getenv("E2E_TEST_APPARMOR")
 	envLogEnricherTestsEnabled   = os.Getenv("E2E_TEST_LOG_ENRICHER")
 	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
 	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
@@ -99,7 +98,6 @@ type e2e struct {
 	nodeRootfsPrefix      string
 	operatorManifest      string
 	selinuxEnabled        bool
-	apparmorEnabled       bool
 	logEnricherEnabled    bool
 	testSeccomp           bool
 	bpfRecorderEnabled    bool
@@ -149,10 +147,6 @@ func TestSuite(t *testing.T) {
 	selinuxEnabled, err := strconv.ParseBool(envSelinuxTestsEnabled)
 	if err != nil {
 		selinuxEnabled = false
-	}
-	apparmorEnabled, err := strconv.ParseBool(envApparmorTestsEnabled)
-	if err != nil {
-		apparmorEnabled = false
 	}
 	logEnricherEnabled, err := strconv.ParseBool(envLogEnricherTestsEnabled)
 	if err != nil {
@@ -215,7 +209,6 @@ func TestSuite(t *testing.T) {
 				containerRuntime:    containerRuntime,
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
-				apparmorEnabled:     apparmorEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
@@ -249,7 +242,6 @@ func TestSuite(t *testing.T) {
 				containerRuntime:    containerRuntime,
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
-				apparmorEnabled:     apparmorEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
@@ -277,7 +269,6 @@ func TestSuite(t *testing.T) {
 				containerRuntime:    containerRuntime,
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
-				apparmorEnabled:     apparmorEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
@@ -710,13 +701,6 @@ func (e *e2e) selinuxOnlyTestCase() {
 	e.enableSelinuxInSpod()
 }
 
-func (e *e2e) apparmorOnlyTestCase() {
-	if !e.apparmorEnabled {
-		e.T().Skip("Skipping AppArmor-related test")
-	}
-	e.enableApparmorInSpod()
-}
-
 func (e *e2e) enableSelinuxInSpod() {
 	selinuxEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
@@ -726,18 +710,6 @@ func (e *e2e) enableSelinuxInSpod() {
 			`{"spec":{"selinuxOptions":{"allowedSystemProfiles":["container","net_container"]}}}`,
 			"--type=merge")
 
-		time.Sleep(defaultWaitTime)
-		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
-
-		e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultSelinuxOpTimeout)
-	}
-}
-
-func (e *e2e) enableApparmorInSpod() {
-	apparmorEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
-	if !strings.Contains(apparmorEnabledInSPODDS, "--with-apparmor=true") {
-		e.logf("Enable AppArmor in SPOD")
-		e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableAppArmor": true}}`, "--type=merge")
 		time.Sleep(defaultWaitTime)
 		e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 

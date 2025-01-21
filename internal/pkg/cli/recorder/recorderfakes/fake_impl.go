@@ -190,6 +190,28 @@ type FakeImpl struct {
 	printObjReturnsOnCall map[int]struct {
 		result1 error
 	}
+	StartBpfRecordingStub        func(*bpfrecorder.BpfRecorder) error
+	startBpfRecordingMutex       sync.RWMutex
+	startBpfRecordingArgsForCall []struct {
+		arg1 *bpfrecorder.BpfRecorder
+	}
+	startBpfRecordingReturns struct {
+		result1 error
+	}
+	startBpfRecordingReturnsOnCall map[int]struct {
+		result1 error
+	}
+	StopBpfRecordingStub        func(*bpfrecorder.BpfRecorder) error
+	stopBpfRecordingMutex       sync.RWMutex
+	stopBpfRecordingArgsForCall []struct {
+		arg1 *bpfrecorder.BpfRecorder
+	}
+	stopBpfRecordingReturns struct {
+		result1 error
+	}
+	stopBpfRecordingReturnsOnCall map[int]struct {
+		result1 error
+	}
 	SyscallsGetValueStub        func(*bpfrecorder.BpfRecorder, uint32) ([]byte, error)
 	syscallsGetValueMutex       sync.RWMutex
 	syscallsGetValueArgsForCall []struct {
@@ -214,11 +236,6 @@ type FakeImpl struct {
 	}
 	syscallsIteratorReturnsOnCall map[int]struct {
 		result1 *libbpfgo.BPFMapIterator
-	}
-	UnloadBpfRecorderStub        func(*bpfrecorder.BpfRecorder)
-	unloadBpfRecorderMutex       sync.RWMutex
-	unloadBpfRecorderArgsForCall []struct {
-		arg1 *bpfrecorder.BpfRecorder
 	}
 	WaitForPidExitStub        func(*bpfrecorder.BpfRecorder, context.Context, uint32) error
 	waitForPidExitMutex       sync.RWMutex
@@ -1017,6 +1034,128 @@ func (fake *FakeImpl) PrintObjReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) StartBpfRecording(arg1 *bpfrecorder.BpfRecorder) error {
+	fake.startBpfRecordingMutex.Lock()
+	ret, specificReturn := fake.startBpfRecordingReturnsOnCall[len(fake.startBpfRecordingArgsForCall)]
+	fake.startBpfRecordingArgsForCall = append(fake.startBpfRecordingArgsForCall, struct {
+		arg1 *bpfrecorder.BpfRecorder
+	}{arg1})
+	stub := fake.StartBpfRecordingStub
+	fakeReturns := fake.startBpfRecordingReturns
+	fake.recordInvocation("StartBpfRecording", []interface{}{arg1})
+	fake.startBpfRecordingMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) StartBpfRecordingCallCount() int {
+	fake.startBpfRecordingMutex.RLock()
+	defer fake.startBpfRecordingMutex.RUnlock()
+	return len(fake.startBpfRecordingArgsForCall)
+}
+
+func (fake *FakeImpl) StartBpfRecordingCalls(stub func(*bpfrecorder.BpfRecorder) error) {
+	fake.startBpfRecordingMutex.Lock()
+	defer fake.startBpfRecordingMutex.Unlock()
+	fake.StartBpfRecordingStub = stub
+}
+
+func (fake *FakeImpl) StartBpfRecordingArgsForCall(i int) *bpfrecorder.BpfRecorder {
+	fake.startBpfRecordingMutex.RLock()
+	defer fake.startBpfRecordingMutex.RUnlock()
+	argsForCall := fake.startBpfRecordingArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) StartBpfRecordingReturns(result1 error) {
+	fake.startBpfRecordingMutex.Lock()
+	defer fake.startBpfRecordingMutex.Unlock()
+	fake.StartBpfRecordingStub = nil
+	fake.startBpfRecordingReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) StartBpfRecordingReturnsOnCall(i int, result1 error) {
+	fake.startBpfRecordingMutex.Lock()
+	defer fake.startBpfRecordingMutex.Unlock()
+	fake.StartBpfRecordingStub = nil
+	if fake.startBpfRecordingReturnsOnCall == nil {
+		fake.startBpfRecordingReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.startBpfRecordingReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) StopBpfRecording(arg1 *bpfrecorder.BpfRecorder) error {
+	fake.stopBpfRecordingMutex.Lock()
+	ret, specificReturn := fake.stopBpfRecordingReturnsOnCall[len(fake.stopBpfRecordingArgsForCall)]
+	fake.stopBpfRecordingArgsForCall = append(fake.stopBpfRecordingArgsForCall, struct {
+		arg1 *bpfrecorder.BpfRecorder
+	}{arg1})
+	stub := fake.StopBpfRecordingStub
+	fakeReturns := fake.stopBpfRecordingReturns
+	fake.recordInvocation("StopBpfRecording", []interface{}{arg1})
+	fake.stopBpfRecordingMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) StopBpfRecordingCallCount() int {
+	fake.stopBpfRecordingMutex.RLock()
+	defer fake.stopBpfRecordingMutex.RUnlock()
+	return len(fake.stopBpfRecordingArgsForCall)
+}
+
+func (fake *FakeImpl) StopBpfRecordingCalls(stub func(*bpfrecorder.BpfRecorder) error) {
+	fake.stopBpfRecordingMutex.Lock()
+	defer fake.stopBpfRecordingMutex.Unlock()
+	fake.StopBpfRecordingStub = stub
+}
+
+func (fake *FakeImpl) StopBpfRecordingArgsForCall(i int) *bpfrecorder.BpfRecorder {
+	fake.stopBpfRecordingMutex.RLock()
+	defer fake.stopBpfRecordingMutex.RUnlock()
+	argsForCall := fake.stopBpfRecordingArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) StopBpfRecordingReturns(result1 error) {
+	fake.stopBpfRecordingMutex.Lock()
+	defer fake.stopBpfRecordingMutex.Unlock()
+	fake.StopBpfRecordingStub = nil
+	fake.stopBpfRecordingReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) StopBpfRecordingReturnsOnCall(i int, result1 error) {
+	fake.stopBpfRecordingMutex.Lock()
+	defer fake.stopBpfRecordingMutex.Unlock()
+	fake.StopBpfRecordingStub = nil
+	if fake.stopBpfRecordingReturnsOnCall == nil {
+		fake.stopBpfRecordingReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.stopBpfRecordingReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeImpl) SyscallsGetValue(arg1 *bpfrecorder.BpfRecorder, arg2 uint32) ([]byte, error) {
 	fake.syscallsGetValueMutex.Lock()
 	ret, specificReturn := fake.syscallsGetValueReturnsOnCall[len(fake.syscallsGetValueArgsForCall)]
@@ -1143,38 +1282,6 @@ func (fake *FakeImpl) SyscallsIteratorReturnsOnCall(i int, result1 *libbpfgo.BPF
 	}{result1}
 }
 
-func (fake *FakeImpl) UnloadBpfRecorder(arg1 *bpfrecorder.BpfRecorder) {
-	fake.unloadBpfRecorderMutex.Lock()
-	fake.unloadBpfRecorderArgsForCall = append(fake.unloadBpfRecorderArgsForCall, struct {
-		arg1 *bpfrecorder.BpfRecorder
-	}{arg1})
-	stub := fake.UnloadBpfRecorderStub
-	fake.recordInvocation("UnloadBpfRecorder", []interface{}{arg1})
-	fake.unloadBpfRecorderMutex.Unlock()
-	if stub != nil {
-		fake.UnloadBpfRecorderStub(arg1)
-	}
-}
-
-func (fake *FakeImpl) UnloadBpfRecorderCallCount() int {
-	fake.unloadBpfRecorderMutex.RLock()
-	defer fake.unloadBpfRecorderMutex.RUnlock()
-	return len(fake.unloadBpfRecorderArgsForCall)
-}
-
-func (fake *FakeImpl) UnloadBpfRecorderCalls(stub func(*bpfrecorder.BpfRecorder)) {
-	fake.unloadBpfRecorderMutex.Lock()
-	defer fake.unloadBpfRecorderMutex.Unlock()
-	fake.UnloadBpfRecorderStub = stub
-}
-
-func (fake *FakeImpl) UnloadBpfRecorderArgsForCall(i int) *bpfrecorder.BpfRecorder {
-	fake.unloadBpfRecorderMutex.RLock()
-	defer fake.unloadBpfRecorderMutex.RUnlock()
-	argsForCall := fake.unloadBpfRecorderArgsForCall[i]
-	return argsForCall.arg1
-}
-
 func (fake *FakeImpl) WaitForPidExit(arg1 *bpfrecorder.BpfRecorder, arg2 context.Context, arg3 uint32) error {
 	fake.waitForPidExitMutex.Lock()
 	ret, specificReturn := fake.waitForPidExitReturnsOnCall[len(fake.waitForPidExitArgsForCall)]
@@ -1267,12 +1374,14 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.notifyMutex.RUnlock()
 	fake.printObjMutex.RLock()
 	defer fake.printObjMutex.RUnlock()
+	fake.startBpfRecordingMutex.RLock()
+	defer fake.startBpfRecordingMutex.RUnlock()
+	fake.stopBpfRecordingMutex.RLock()
+	defer fake.stopBpfRecordingMutex.RUnlock()
 	fake.syscallsGetValueMutex.RLock()
 	defer fake.syscallsGetValueMutex.RUnlock()
 	fake.syscallsIteratorMutex.RLock()
 	defer fake.syscallsIteratorMutex.RUnlock()
-	fake.unloadBpfRecorderMutex.RLock()
-	defer fake.unloadBpfRecorderMutex.RUnlock()
 	fake.waitForPidExitMutex.RLock()
 	defer fake.waitForPidExitMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}

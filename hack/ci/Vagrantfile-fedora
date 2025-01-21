@@ -37,7 +37,7 @@ Vagrant.configure("2") do |config|
       echo 'export GOPATH="$HOME/go"' >> /etc/profile
       echo 'export GOBIN="$GOPATH/bin"' >> /etc/profile
 
-      KUBERNETES_VERSION=v1.31
+      KUBERNETES_VERSION=v1.32
       cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
@@ -81,6 +81,9 @@ EOF
 
       # Setup CRI-O
       printf '[crio.runtime]\nselinux = true' >/etc/crio/crio.conf.d/30-selinux.conf
+      # Setup CNI to disable IPv6
+      CNI_CONFIG=/etc/cni/net.d/10-crio-bridge.conflist
+      jq 'del(.plugins[0].ipam.routes[1], .plugins[0].ipam.ranges[1])' $CNI_CONFIG.disabled >$CNI_CONFIG
       systemctl enable --now crio
 
       dnf remove -y \

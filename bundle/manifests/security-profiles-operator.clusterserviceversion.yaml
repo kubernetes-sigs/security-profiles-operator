@@ -14,7 +14,13 @@ metadata:
             "name": "test-profile"
           },
           "spec": {
-            "policy": "#include \u003ctunables/global\u003e\n\nprofile test-profile flags=(attach_disconnected) {\n  #include \u003cabstractions/base\u003e\n\n  file,\n\n  # Deny all file writes.\n  deny /** w,\n}\n"
+            "abstract": {
+              "filesystem": {
+                "readOnlyPaths": [],
+                "readWritePaths": [],
+                "writeOnlyPaths": []
+              }
+            }
           }
         },
         {
@@ -242,7 +248,7 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.8.4
-    createdAt: "2024-11-13T09:48:41Z"
+    createdAt: "2024-12-04T09:25:56Z"
     olm.skipRange: '>=0.4.1 <0.8.5-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/suggested-namespace: security-profiles-operator
@@ -669,8 +675,6 @@ spec:
               - args:
                 - manager
                 env:
-                - name: RELATED_IMAGE_RBAC_PROXY
-                  value: gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0
                 - name: RELATED_IMAGE_SELINUXD
                   value: quay.io/security-profiles-operator/selinuxd
                 - name: RELATED_IMAGE_SELINUXD_EL8
@@ -796,8 +800,6 @@ spec:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
   relatedImages:
-  - image: gcr.io/kubebuilder/kube-rbac-proxy:v0.16.0
-    name: rbac-proxy
   - image: quay.io/security-profiles-operator/selinuxd
     name: selinuxd
   - image: quay.io/security-profiles-operator/selinuxd-el8:latest

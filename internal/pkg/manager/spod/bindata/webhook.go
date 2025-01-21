@@ -82,7 +82,6 @@ const (
 	webhookConfigName  = "spo-mutating-webhook-configuration"
 	serviceAccountName = "spo-webhook"
 	certsMountPath     = "/tmp/k8s-webhook-server/serving-certs"
-	containerPort      = 9443
 	serviceName        = "webhook-service"
 	webhookServerCert  = "webhook-server-cert"
 )
@@ -390,7 +389,7 @@ var webhookDeployment = &appsv1.Deployment{
 						Ports: []corev1.ContainerPort{
 							{
 								Name:          "webhook",
-								ContainerPort: containerPort,
+								ContainerPort: ContainerPort,
 								Protocol:      corev1.ProtocolTCP,
 							},
 						},
@@ -490,7 +489,7 @@ var webhookService = &corev1.Service{
 		Ports: []corev1.ServicePort{
 			{
 				Port:       servicePort,
-				TargetPort: intstr.FromInt(containerPort),
+				TargetPort: intstr.FromInt32(ContainerPort),
 			},
 		},
 		Selector: map[string]string{

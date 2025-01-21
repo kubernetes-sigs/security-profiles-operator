@@ -88,7 +88,9 @@ endif
 export CGO_LDFLAGS
 export CGO_ENABLED=1
 
-BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -not -name '*_test.go')
+BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' -not -name '*_test.go')
+BPF_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name '*.c' -or -name '*.h')
+BPF_OUTPUT_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name 'recorder.bpf.o.*')
 export GOFLAGS?=-mod=vendor
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
@@ -160,7 +162,7 @@ $(BUILD_DIR)/$(CLI_BINARY): $(BUILD_DIR) $(BUILD_FILES)
 
 .PHONY: clean
 clean: ## Clean the build directory
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) $(BPF_OUTPUT_FILES)
 
 .PHONY: $(BUILD_DIR)/kustomize
 $(BUILD_DIR)/kustomize: $(BUILD_DIR)
@@ -341,17 +343,18 @@ update-vmlinux: ## Generate the vmlinux.h required for building the BPF modules.
 	./hack/update-vmlinux
 
 .PHONY: update-btf
-update-btf: update-bpf ## Build and update all generated BTF code for supported kernels
-	./hack/update-btf
+update-btf: $(BUILD_DIR) ## Build and update all generated BTF code for supported kernels
+	$(GO) run ./internal/pkg/daemon/bpfrecorder/generate
 
 .PHONY: update-bpf
-update-bpf: $(BUILD_DIR) ## Build and update all generated BPF code with nix
-	for arch in amd64 arm64; do \
-		nix-build nix/default-bpf-$$arch.nix ;\
-		cp -f result/recorder.bpf.o $(BUILD_DIR)/recorder.bpf.o.$$arch ;\
-	done
-	chmod 0644 $(BUILD_DIR)/recorder.bpf.o.*
-	$(GO) run ./internal/pkg/daemon/bpfrecorder/generate
+update-bpf: clean \
+    internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.amd64 \
+    internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.arm64
+
+internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_FILES) ## Build and update all generated BPF code with nix
+	nix-build nix/default-bpf-$*.nix
+	cp -f result/recorder.bpf.o ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
+	chmod 0644 ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 
 # Verification targets
 
@@ -468,7 +471,7 @@ test-unit: $(BUILD_DIR) ## Run the unit tests
 test-e2e: ## Run the end-to-end tests
 	CGO_LDFLAGS= \
 	E2E_SKIP_FLAKY_TESTS=true \
-	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v
+	$(GO) test -parallel 1 -timeout 60m -count=1 ./test -v $(ARGS)
 
 .PHONY: test-flaky-e2e
 test-flaky-e2e: ## Only run the flaky end-to-end tests
@@ -478,7 +481,7 @@ test-flaky-e2e: ## Only run the flaky end-to-end tests
 
 .PHONY: test-spoc-e2e
 test-spoc-e2e: build/spoc
-	$(GO) test -v ./test/spoc
+	$(GO) test -v ./test/spoc $(ARGS)
 
 # Generate CRD manifests
 manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
@@ -488,6 +491,7 @@ manifests: $(BUILD_DIR)/kubernetes-split-yaml $(BUILD_DIR)/kustomize
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/selinuxprofile/...' output:crd:stdout" "deploy/base-crds/crds/selinuxpolicy.yaml"
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilebinding/...' output:crd:stdout" "deploy/base-crds/crds/profilebinding.yaml"
 	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/profilerecording/...' output:crd:stdout" "deploy/base-crds/crds/profilerecording.yaml"
+	./hack/sort-crds.sh "$(CONTROLLER_GEN_CMD) $(CRD_OPTIONS) paths='./api/apparmorprofile/...' output:crd:stdout" "deploy/base-crds/crds/apparmorprofile.yaml"
 
 # Generate deepcopy code
 generate:

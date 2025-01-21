@@ -16,11 +16,13 @@
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
-#include <linux/bpf.h> // uapi
+#include <linux/bpf.h>     // uapi
+#include <linux/if_link.h> // uapi
 
 void cgo_libbpf_set_print_fn();
 
 struct ring_buffer *cgo_init_ring_buf(int map_fd, uintptr_t ctx);
+int cgo_add_ring_buf(struct ring_buffer *rb, int map_fd, uintptr_t ctx);
 struct perf_buffer *cgo_init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx);
 
 void cgo_bpf_map__initial_value(struct bpf_map *map, void *value);
@@ -40,6 +42,20 @@ struct bpf_iter_attach_opts *cgo_bpf_iter_attach_opts_new(__u32 map_fd,
                                                           __u32 pid,
                                                           __u32 pid_fd);
 void cgo_bpf_iter_attach_opts_free(struct bpf_iter_attach_opts *opts);
+
+struct bpf_test_run_opts *cgo_bpf_test_run_opts_new(const void *data_in,
+                                                    void *data_out,
+                                                    __u32 data_size_in,
+                                                    __u32 data_size_out,
+                                                    const void *ctx_in,
+                                                    void *ctx_out,
+                                                    __u32 ctx_size_in,
+                                                    __u32 ctx_size_out,
+                                                    int repeat,
+                                                    __u32 flags,
+                                                    __u32 cpu,
+                                                    __u32 batch_size);
+void cgo_bpf_test_run_opts_free(struct bpf_test_run_opts *opts);
 
 struct bpf_object_open_opts *cgo_bpf_object_open_opts_new(const char *btf_file_path,
                                                           const char *kconfig_path,
@@ -107,5 +123,10 @@ __u32 cgo_bpf_tc_opts_flags(struct bpf_tc_opts *opts);
 __u32 cgo_bpf_tc_opts_prog_id(struct bpf_tc_opts *opts);
 __u32 cgo_bpf_tc_opts_handle(struct bpf_tc_opts *opts);
 __u32 cgo_bpf_tc_opts_priority(struct bpf_tc_opts *opts);
+
+// bpf_xdp_attach_opts
+
+struct bpf_xdp_attach_opts *cgo_bpf_xdp_attach_opts_new(__u32 fd);
+void cgo_bpf_xdp_attach_opts_free(struct bpf_xdp_attach_opts *opts);
 
 #endif

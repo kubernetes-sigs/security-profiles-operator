@@ -44,20 +44,19 @@ type CtxKey string
 
 const (
 	// ManageWebhookKey value key used in the Setup.Context for ManageWebhook value.
-	ManageWebhookKey  CtxKey = "ManageWebhook"
-	selinuxdImageKey  string = "RELATED_IMAGE_SELINUXD"
-	rbacProxyImageKey string = "RELATED_IMAGE_RBAC_PROXY"
+	ManageWebhookKey CtxKey = "ManageWebhook"
+	selinuxdImageKey string = "RELATED_IMAGE_SELINUXD"
 )
 
 // daemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type daemonTunables struct {
-	selinuxdImage           string
-	rbacProxyImage          string
-	logEnricherImage        string
-	watchNamespace          string
-	seccompLocalhostProfile string
-	containerRuntime        string
+	selinuxdImage             string
+	logEnricherImage          string
+	watchNamespace            string
+	seccompLocalhostProfile   string
+	containerRuntime          string
+	bpfRecorderSeccompProfile string
 }
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -126,12 +125,6 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 	dt := &daemonTunables{}
 	dt.watchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
 
-	rbacProxyImage := os.Getenv(rbacProxyImageKey)
-	if rbacProxyImage == "" {
-		return dt, errors.New("invalid rbac proxy image")
-	}
-	dt.rbacProxyImage = rbacProxyImage
-
 	node := &corev1.Node{}
 	nodeName := os.Getenv(config.NodeNameEnvKey)
 	if nodeName != "" {
@@ -141,7 +134,8 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 			return dt, fmt.Errorf("getting cluster node object: %w", err)
 		}
 	}
-	dt.seccompLocalhostProfile = util.GetSeccompLocalhostProfilePath(node)
+	dt.seccompLocalhostProfile = util.GetSeccompLocalhostProfilePath(node, bindata.LocalSeccompProfilePath)
+	dt.bpfRecorderSeccompProfile = util.GetSeccompLocalhostProfilePath(node, bindata.LocalSeccompBpfRecorderProfilePath)
 	dt.containerRuntime = util.GetContainerRuntime(node)
 	dt.selinuxdImage, err = r.getSelinuxdImage(ctx, node)
 	if err != nil {
@@ -188,7 +182,7 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 	refSPOd := bindata.Manifest.DeepCopy()
 	refSPOd.SetNamespace(config.GetOperatorNamespace())
 
-	daemon := &refSPOd.Spec.Template.Spec.Containers[0]
+	daemon := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDDaemon]
 	if dt.watchNamespace != "" {
 		daemon.Env = append(daemon.Env, corev1.EnvVar{
 			Name:  config.RestrictNamespaceEnvKey,
@@ -199,19 +193,21 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 		daemon.SecurityContext.SeccompProfile.LocalhostProfile = &dt.seccompLocalhostProfile
 	}
 
-	nonRootEnabler := &refSPOd.Spec.Template.Spec.InitContainers[0]
+	nonRootEnabler := &refSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDNonRootenabler]
 	nonRootEnabler.Args = append(nonRootEnabler.Args, "--runtime="+dt.containerRuntime)
 
-	selinuxd := &refSPOd.Spec.Template.Spec.Containers[1]
+	selinuxd := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDSelinuxd]
 	selinuxd.Image = dt.selinuxdImage
 
-	logEnricher := &refSPOd.Spec.Template.Spec.Containers[2]
+	logEnricher := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher]
 	logEnricher.Image = dt.logEnricherImage
 
-	metrixCtr := &refSPOd.Spec.Template.Spec.Containers[4]
-	metrixCtr.Image = dt.rbacProxyImage
+	bpfRecorder := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDBpfRecorder]
+	if dt.bpfRecorderSeccompProfile != "" {
+		bpfRecorder.SecurityContext.SeccompProfile.LocalhostProfile = &dt.bpfRecorderSeccompProfile
+	}
 
-	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[1]
+	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDSelinuxSharedPoliciesCopier]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well
 
 	return refSPOd

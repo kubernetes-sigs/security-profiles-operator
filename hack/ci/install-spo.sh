@@ -56,7 +56,31 @@ wait_for() {
   done
 
   echo "Timed out waiting for $*"
+  print_spo_logs
   exit 1
+}
+
+print_spo_logs() {
+    echo "---------------------------------"
+    echo "Logs"
+    echo "---------------------------------"
+    k logs --selector name!=nonexistent --all-pods --all-containers --since=10m --prefix --tail=-1
+    echo "---------------------------------"
+}
+
+ensure_runtime_classes() {
+  RUNTIMES=(runc crun)
+  for RUNTIME in "${RUNTIMES[@]}"; do
+    echo "Installing RuntimeClass $RUNTIME..."
+    cat <<EOF | k apply -f -
+---
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: $RUNTIME
+handler: $RUNTIME
+EOF
+  done
 }
 
 install_operator() {

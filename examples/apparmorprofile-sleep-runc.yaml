@@ -1,0 +1,29 @@
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: AppArmorProfile
+metadata:
+  labels:
+    spo.x-k8s.io/container-id: test-pod
+    spo.x-k8s.io/profile-id: AppArmorProfile-test-recording-test-pod
+    spo.x-k8s.io/recording-id: test-recording
+  name: test-recording-test-pod
+  namespace: security-profiles-operator
+spec:
+  abstract:
+    capability:
+      allowedCapabilities:
+        - setgid
+        - setpcap
+        - setuid
+        - sys_admin
+    executable:
+      allowedExecutables:
+        - /bin/busybox
+      allowedLibraries:
+        - /lib/ld-musl-x86_64.so.1
+    filesystem:
+      readOnlyPaths:
+        - /etc/group
+        - /etc/passwd
+        - /proc/@{pid}/setgroups
+        - /proc/@{pid}/task/@{tid}/fd/**
+  disabled: false

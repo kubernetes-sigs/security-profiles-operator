@@ -23,6 +23,8 @@ record_seccomp_profiles() {
   TMP_DIR=$(mktemp -d)
   trap 'rm -rf $TMP_DIR' EXIT
 
+  ensure_runtime_classes
+
   echo "Creating profile recording"
   k apply -f examples/profilerecording-seccomp-bpf.yaml
 
@@ -33,20 +35,6 @@ record_seccomp_profiles() {
   for RUNTIME in "${RUNTIMES[@]}"; do
     echo "For runtime $RUNTIME"
     BASEPROFILE=examples/baseprofile-$RUNTIME.yaml
-
-    RC_FILE="$TMP_DIR/rc.yml"
-    cat <<EOT >"$RC_FILE"
----
-apiVersion: node.k8s.io/v1
-kind: RuntimeClass
-metadata:
-  name: $RUNTIME
-handler: $RUNTIME
-EOT
-    echo "Creating runtime class"
-    cat "$RC_FILE"
-
-    k apply -f "$RC_FILE"
 
     POD_FILE="$TMP_DIR/pod.yml"
     cat <<EOT >"$POD_FILE"
@@ -94,12 +82,32 @@ EOT
     VERSION=$("$RUNTIME" --version | grep "$RUNTIME version" | grep -oP '\d+.*')
     yq -i '.metadata.name = "'"$RUNTIME"'-v'"$VERSION"'"' "$BASEPROFILE"
 
+    echo "-----------------------"
+    echo "$BASEPROFILE"
+    echo "-----------------------"
+    cat "$BASEPROFILE"
+    echo "-----------------------"
+
     echo "Deleting seccomp profile"
     k delete seccompprofile $RECORDING
   done
 
-  echo "Diffing output, while ignoring flaky syscalls 'rt_sigreturn', 'sched_yield', 'tgkill', and 'exit'"
-  git diff --exit-code -U0 -I rt_sigreturn -I sched_yield -I tgkill -I exit examples
+  # There is a weird phenomenon where we have a `runc` process
+  # that uses `setns` to join the container mount namespace.
+  # As a consequence, we sometimes get all the funny syscalls emitted
+  # by the Go runtime, which we need to ignore.
+  print_spo_logs
+  echo "Diffing output while ignoring flaky syscalls"
+  git diff --exit-code -U0 \
+    -I rt_sigreturn \
+    -I sched_yield \
+    -I tgkill \
+    -I exit \
+    -I madvise \
+    -I rt_sigprocmask \
+    -I sigaltstack \
+    -I epoll_pwait \
+    examples
 
   for RUNTIME in "${RUNTIMES[@]}"; do
     echo "Verifying that the profile for runtime $RUNTIME is available in the GitHub container registry"
