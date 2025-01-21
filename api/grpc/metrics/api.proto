@@ -34,7 +34,7 @@ message AuditRequest {
     string profile = 1;
     string operation = 2;
     string apparmor = 3;
-    string reason = 5;
+    string name = 5;
   }
   string node = 1;
   string namespace = 2;
