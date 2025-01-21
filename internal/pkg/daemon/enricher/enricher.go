@@ -520,7 +520,7 @@ func (e *Enricher) dispatchApparmorLine(
 				Profile:   auditLine.Profile,
 				Operation: auditLine.Operation,
 				Apparmor:  auditLine.Apparmor,
-				Reason:    auditLine.Name,
+				Name:      auditLine.Name,
 			},
 		},
 	); err != nil {
