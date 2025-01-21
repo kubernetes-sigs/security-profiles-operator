@@ -115,6 +115,18 @@ func (m *Metrics) AuditInc(
 				r.GetSelinuxReq().GetScontext(),
 				r.GetSelinuxReq().GetTcontext(),
 			)
+		} else if r.GetApparmorReq() != nil {
+			m.IncAppArmorProfileAudit(
+				r.GetNode(),
+				r.GetNamespace(),
+				r.GetPod(),
+				r.GetContainer(),
+				r.GetExecutable(),
+				r.GetApparmorReq().GetProfile(),
+				r.GetApparmorReq().GetOperation(),
+				r.GetApparmorReq().GetApparmor(),
+				r.GetApparmorReq().GetReason(),
+			)
 		}
 	}
 }
