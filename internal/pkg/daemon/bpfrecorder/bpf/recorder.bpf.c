@@ -2,7 +2,7 @@
 
 #include <linux/limits.h>
 
-#include "bpf_d_path_cursed.h"
+#include "bpf_d_path_tetragon.h"
 #include <asm-generic/errno.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
@@ -206,6 +206,33 @@ static __always_inline void debug_add_canary_file(char * filename)
     bpf_ringbuf_submit(event, 0);
 }
 
+// Create a struct path for a given dentry by combining it with the mount point
+// of its parent path. Note that the returned path does not work with the
+// kernel's bpf_d_path, as it does not like stack pointers.
+static __always_inline struct path make_path(struct dentry * dentry,
+                                             struct path * path)
+{
+    struct path ret = {
+        .mnt = BPF_CORE_READ(path, mnt),
+        .dentry = dentry,
+    };
+    return ret;
+}
+
+static __always_inline int bpf_d_path_tetragon(struct path * path, char * buf,
+                                               size_t sz)
+{
+    int size = 0, error = 0;
+    char * fullpath = d_path_local(path, &size, &error);
+    if (!fullpath) {
+        return -1;
+    }
+    // make the ebpf verifier happy
+    asm volatile("%[size] &= 0xfff;\n" : [size] "+r"(size));
+    probe_read(buf, size, fullpath);
+    return size;
+}
+
 static __always_inline void debug_path_d(struct path * filename,
                                          bool use_bpf_d_path)
 {
@@ -229,9 +256,9 @@ static __always_inline void debug_path_d(struct path * filename,
         bpf_ringbuf_discard(event, 0);
         return;
     }
-    bpf_d_path_cursed(filename, event2->data, sizeof(event2->data));
+    bpf_d_path_tetragon(filename, event2->data, sizeof(event2->data));
 
-    bpf_printk("debug_path_d mntns=%u comm=%s\n bpf_d_path=%s\n cursd_path=%s",
+    bpf_printk("debug_path_d mntns=%u comm=%s\n bpf_d_path=%s\n tetra_path=%s",
                mntns, comm, event->data, event2->data);
     bpf_ringbuf_discard(event, 0);
     bpf_ringbuf_discard(event2, 0);
@@ -262,7 +289,8 @@ static __always_inline int register_fs_event(struct path * filename,
                      pid == _file_event_pid;
     bool flags_are_subset = (flags | _file_event_flags) == _file_event_flags;
     if (same_file && flags_are_subset) {
-        trace_hook("register_file_event skipped");
+        // very noisy
+        // trace_hook("register_file_event skipped");
         return 0;
     }
 
@@ -276,7 +304,8 @@ static __always_inline int register_fs_event(struct path * filename,
     // Some BPF hooks cannot use bpf_d_path, for these cases we swap in our own
     // implementation.
     if (custom_bpf_d_path) {
-        pathlen = bpf_d_path_cursed(filename, event->data, sizeof(event->data));
+        pathlen =
+            bpf_d_path_tetragon(filename, event->data, sizeof(event->data));
     } else {
         pathlen = bpf_d_path(filename, event->data, sizeof(event->data));
     }
@@ -351,7 +380,8 @@ int BPF_PROG(file_open, struct file * file)
 SEC("lsm/file_lock")
 int BPF_PROG(file_lock, struct file * file)
 {
-    trace_hook("file_lock");
+    // very noisy
+    // trace_hook("file_lock");
     return register_file_event(file, FLAG_WRITE);
 }
 
