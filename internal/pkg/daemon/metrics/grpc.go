@@ -96,7 +96,7 @@ func (m *Metrics) AuditInc(
 			return fmt.Errorf("record syscalls: %w", err)
 		}
 
-		if r.GetSeccompReq() != nil {
+		if r.GetSeccompReq() != nil { //nolint:gocritic
 			m.IncSeccompProfileAudit(
 				r.GetNode(),
 				r.GetNamespace(),
