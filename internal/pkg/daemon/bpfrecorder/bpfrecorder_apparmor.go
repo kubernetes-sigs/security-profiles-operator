@@ -65,6 +65,7 @@ type mntnsID uint32
 type AppArmorRecorder struct {
 	logger      logr.Logger
 	programName string
+	loaded      bool
 
 	recordedSocketsUse     map[mntnsID]*BpfAppArmorSocketTypes
 	lockRecordedSocketsUse sync.Mutex
@@ -74,7 +75,6 @@ type AppArmorRecorder struct {
 
 	recordedFiles     map[mntnsID]map[string]*fileAccess
 	lockRecordedFiles sync.Mutex
-	bpfPrograms       *bpfProgramCollection
 }
 
 type fileAccess struct {
@@ -121,27 +121,21 @@ func (b *AppArmorRecorder) Load(r *BpfRecorder) error {
 	if !BPFLSMEnabled() {
 		return errors.New("BPF LSM is not enabled for this kernel")
 	}
-	programs, err := newProgramCollection(r, b.logger, r.module, appArmorHooks)
-	if err != nil {
+	if err := r.loadPrograms(appArmorHooks); err != nil {
 		return fmt.Errorf("load apparmor hooks: %w", err)
 	}
-	b.bpfPrograms = programs
+	b.loaded = true
 	return nil
 }
 
 func (b *AppArmorRecorder) StartRecording(r *BpfRecorder) error {
-	if b.bpfPrograms == nil {
+	if !b.loaded {
 		return ErrStartBeforeLoad
 	}
-	return b.bpfPrograms.attachAll(r)
+	return nil
 }
 
-func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) (err error) {
-	if b.bpfPrograms == nil {
-		return nil
-	}
-	err = b.bpfPrograms.detachAll(r)
-
+func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
 	b.lockRecordedCapabilities.Lock()
@@ -152,7 +146,7 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) (err error) {
 	clear(b.recordedSocketsUse)
 	clear(b.recordedCapabilities)
 	clear(b.recordedFiles)
-	return err
+	return nil
 }
 
 func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
