@@ -330,7 +330,7 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	}
 
 	for fileName, access := range b.recordedFiles[mid] {
-		if ok := processDeletedFiles(fileName, &processedEvents); ok {
+		if ok := processDeletedFiles(fileName, &processedEvents, b.logger); ok {
 			continue
 		}
 
@@ -378,7 +378,7 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 }
 
 // processDeletedFiles process file paths which are marked as deleted by the Linux kernel.
-func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProcessed) bool {
+func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProcessed, logger logr.Logger) bool {
 	// Workaround for HUGETLB support with apparmor:
 	// AppArmor treats mmap(..., MAP_ANONYMOUS | MAP_HUGETLB) calls as
 	// file access to "", which is then attached to "/" (attach_disconnected).
@@ -390,6 +390,7 @@ func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProces
 	// access to a path named "/anon_hugepage (deleted)" on mmap. Instead of building complex
 	// workarounds and hooking mmap, we just treat that as a canary for HUGETLB usage.
 	if fileName == "/anon_hugepage (deleted)" {
+		logger.Info("Adding `/` to ReadWritePath as a workaround to enable anonymous huge pages")
 		processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, "/")
 		return true
 	}
@@ -398,7 +399,8 @@ func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProces
 	// https://github.com/torvalds/linux/blob/2e1b3cc9d7f790145a80cb705b168f05dab65df2/fs/d_path.c#L255-L288
 	//
 	// It should be ignored since is an invalid path in the apparmor profile.
-	if fileName == "/ (deleted)" {
+	if strings.HasSuffix(fileName, " (deleted)") {
+		logger.Info("Skipping deleted file: '%s'", fileName)
 		return true
 	}
 
