@@ -400,7 +400,7 @@ func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProces
 	//
 	// It should be ignored since is an invalid path in the apparmor profile.
 	if strings.HasSuffix(fileName, " (deleted)") {
-		logger.Info("Skipping deleted file: '%s'", fileName)
+		logger.Info("Skipping deleted file", "fileName", fileName)
 		return true
 	}
 
