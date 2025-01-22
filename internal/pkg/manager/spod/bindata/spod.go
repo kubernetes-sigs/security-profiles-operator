@@ -53,6 +53,7 @@ const (
 	SelinuxdDBPath                                   = SelinuxdPrivateDir + "/selinuxd.db"
 	sysKernelDebugPath                               = "/sys/kernel/debug"
 	sysKernelSecurityPath                            = "/sys/kernel/security"
+	sysKernelTracingPath                             = "/sys/kernel/tracing"
 	InitContainerIDNonRootenabler                    = 0
 	InitContainerIDSelinuxSharedPoliciesCopier       = 1
 	ContainerIDDaemon                                = 0
@@ -557,6 +558,11 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								ReadOnly:  true,
 							},
 							{
+								Name:      "sys-kernel-tracing-volume",
+								MountPath: sysKernelTracingPath,
+								ReadOnly:  true,
+							},
+							{
 								Name:      "host-etc-osrelease-volume",
 								MountPath: etcOSReleasePath,
 							},
@@ -732,6 +738,15 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
 								Path: sysKernelSecurityPath,
+								Type: &hostPathDirectory,
+							},
+						},
+					},
+					{
+						Name: "sys-kernel-tracing-volume",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: sysKernelTracingPath,
 								Type: &hostPathDirectory,
 							},
 						},
