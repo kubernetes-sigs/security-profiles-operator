@@ -38,25 +38,20 @@ spec:
         - /var/lib/containers/storage/overlay/*/merged/etc/**
         - /var/lib/containers/storage/overlay/*/merged/proc/**
         - /var/lib/containers/storage/overlay/*/merged/run/**
-        - /var/lib/containers/storage/overlay/*/merged/run/secrets/**
-        - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/**
         - /var/lib/containers/storage/overlay/*/merged/sys/**
         - /var/lib/containers/storage/overlay/*/merged/var/**
       readWritePaths:
-        - /containers/storage/overlay/var/lib/containers/storage/overlay/*/merged/run/secrets/**
         - /dev/null
-        - /overlay/var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/serviceaccount/**
         - /proc/@{pid}/oom_score_adj
-        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/dev/*
-        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/dev/mqueue/**
-        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/dev/pts/**
-        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/dev/shm/**
-        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/**
+        - /var/lib/containers/storage/overlay/*/merged/dev/*
+        - /var/lib/containers/storage/overlay/*/merged/dev/mqueue/**
+        - /var/lib/containers/storage/overlay/*/merged/dev/pts/**
+        - /var/lib/containers/storage/overlay/*/merged/dev/shm/**
+        - /var/lib/containers/storage/overlay/*/merged/run/secrets/**
+        - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/**
+        - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/serviceaccount/**
       writeOnlyPaths:
-        - /containers/storage/overlay/var/lib/containers/storage/overlay/*/merged/etc/resolv.conf
-        - /containers/storage/overlay/var/lib/containers/storage/overlay/*/merged/run/.containerenv
         - /proc/@{pid}/task/@{tid}/attr/apparmor/exec
-        - /storage/overlay/var/lib/containers/storage/overlay/*/merged/dev/termination-log
         - /var/lib/containers/storage/overlay/*/merged/dev/termination-log
         - /var/lib/containers/storage/overlay/*/merged/etc/resolv.conf
         - /var/lib/containers/storage/overlay/*/merged/run/.containerenv
