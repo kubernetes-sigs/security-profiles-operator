@@ -16,6 +16,7 @@ spec:
         - mknod
         - setgid
         - setpcap
+        - setuid
         - sys_admin
     executable:
       allowedExecutables:
@@ -24,11 +25,13 @@ spec:
         - /lib/ld-musl-x86_64.so.1
     filesystem:
       readOnlyPaths:
+        - /etc/group
         - /etc/passwd
         - /proc/@{pid}/cgroup
         - /proc/@{pid}/mounts
         - /proc/@{pid}/setgroups
         - /proc/@{pid}/task/@{tid}/attr/apparmor/current
+        - /proc/@{pid}/task/@{tid}/fd/**
         - /proc/@{pid}/uid_map
         - /proc/sys/kernel/cap_last_cap
         - /run/**
