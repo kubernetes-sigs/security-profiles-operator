@@ -25,6 +25,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	bpf "github.com/aquasecurity/libbpfgo"
+	"github.com/blang/semver/v4"
+	"github.com/go-logr/logr"
+	"github.com/jellydator/ttlcache/v3"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,15 +43,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	bpf "github.com/aquasecurity/libbpfgo"
-	"github.com/blang/semver/v4"
-	"github.com/go-logr/logr"
-	"github.com/jellydator/ttlcache/v3"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
@@ -90,7 +89,7 @@ type BpfRecorder struct {
 	metricsClient           apimetrics.Metrics_BpfIncClient
 	programName             string
 	module                  *bpf.Module
-	bpfPrograms             *bpfProgramCollection
+	isRecordingBpfMap       *bpf.BPFMap
 
 	AppArmor *AppArmorRecorder
 	Seccomp  *SeccompRecorder
@@ -464,26 +463,6 @@ func (b *BpfRecorder) Load() (err error) {
 		return fmt.Errorf("load bpf module: %w", err)
 	}
 	b.module = module
-	programs, err := newProgramCollection(b, b.logger, module, baseHooks)
-	if err != nil {
-		return err
-	}
-	b.bpfPrograms = programs
-	if b.AppArmor != nil {
-		if err := b.AppArmor.Load(b); err != nil {
-			// Only log an error here, if Apparmor cannot be loaded. This is because it is
-			// enabled by default, and there are Linux distributions which either do not
-			// support Apparmor or BPF LSM is not yet available.
-			//
-			// see also https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
-			b.logger.Error(err, "load AppArmor bpf hooks")
-		}
-	}
-	if b.Seccomp != nil {
-		if err := b.Seccomp.Load(b); err != nil {
-			return err
-		}
-	}
 
 	if b.programName != "" {
 		programName := []byte(filepath.Base(b.programName))
@@ -517,6 +496,31 @@ func (b *BpfRecorder) Load() (err error) {
 		b.logger.Info("Excluding mount namespace", "mntns", b.excludeMountNamespace)
 	}
 
+	if err := b.loadPrograms(baseHooks); err != nil {
+		return fmt.Errorf("loading base hooks: %w", err)
+	}
+
+	if b.AppArmor != nil {
+		if err := b.AppArmor.Load(b); err != nil {
+			// Only log an error here, if Apparmor cannot be loaded. This is because it is
+			// enabled by default, and there are Linux distributions which either do not
+			// support Apparmor or BPF LSM is not yet available.
+			//
+			// see also https://github.com/kubernetes-sigs/security-profiles-operator/issues/2384
+			b.logger.Error(err, "load AppArmor bpf hooks")
+		}
+	}
+	if b.Seccomp != nil {
+		if err := b.Seccomp.Load(b); err != nil {
+			return err
+		}
+	}
+
+	b.isRecordingBpfMap, err = b.GetMap(b.module, "is_recording")
+	if err != nil {
+		return fmt.Errorf("getting `is_recording` map: %w", err)
+	}
+
 	const timeout = 300
 	events := make(chan []byte)
 	ringbuf, err := b.InitRingBuf(
@@ -535,18 +539,34 @@ func (b *BpfRecorder) Load() (err error) {
 	return nil
 }
 
+func (b *BpfRecorder) loadPrograms(programNames []string) error {
+	for _, name := range programNames {
+		prog, err := b.GetProgram(b.module, name)
+		if err != nil {
+			return fmt.Errorf("get bpf program %s: %w", name, err)
+		}
+		_, err = b.AttachGeneric(prog)
+		if err != nil {
+			return fmt.Errorf("attach bpf program %s: %w", name, err)
+		}
+		b.logger.Info("attached bpf program", "name", name)
+	}
+	return nil
+}
+
 func (b *BpfRecorder) StartRecording() (err error) {
 	b.attachUnattachMutex.Lock()
 	defer b.attachUnattachMutex.Unlock()
-	b.logger.Info("Start BPF recording: Attaching all programs...")
+	b.logger.Info("Start BPF recording...")
 
-	if b.bpfPrograms == nil {
+	if b.module == nil {
 		return ErrStartBeforeLoad
 	}
 
-	if err := b.bpfPrograms.attachAll(b); err != nil {
-		return fmt.Errorf("attach base hooks: %w", err)
+	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
+		return fmt.Errorf("failed to update `is_recording`: %w", err)
 	}
+
 	if b.AppArmor != nil {
 		if err := b.AppArmor.StartRecording(b); err != nil {
 			// Only log an error here, if Apparmor cannot be loaded. This is because it is
@@ -572,9 +592,10 @@ func (b *BpfRecorder) StopRecording() error {
 	defer b.attachUnattachMutex.Unlock()
 	b.logger.Info("Stop BPF recording: Detaching all programs...")
 
-	if err := b.bpfPrograms.detachAll(b); err != nil {
-		return fmt.Errorf("detach base hooks: %w", err)
+	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
+		return fmt.Errorf("failed to update `is_recording`: %w", err)
 	}
+
 	if b.Seccomp != nil {
 		if err := b.Seccomp.StopRecording(b); err != nil {
 			return err

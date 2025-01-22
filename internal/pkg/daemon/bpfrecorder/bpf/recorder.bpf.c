@@ -62,6 +62,15 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define trace_hook(...)
 // #define trace_hook(...) bpf_printk(__VA_ARGS__)
 
+// are we currently recording?
+// If yes, the only map element is set to true.
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, bool);
+} is_recording SEC(".maps");
+
 // Keep track of all mount namespaces that should be (temporarily) excluded from
 // recording. When running in Kubernetes, we generally ignore the host mntns.
 // Additionally, we exclude individual containers during startup.
@@ -118,6 +127,13 @@ static const char RUNC_INIT[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
 static inline bool matches_filter(char * comm);
+
+static __always_inline bool recording()
+{
+    const int key = 0;
+    bool * value = bpf_map_lookup_elem(&is_recording, &key);
+    return value && *value;
+}
 
 /**
  * get_mntns returns the mntns in case the call should be taken into account.
@@ -363,6 +379,8 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
 SEC("lsm/file_open")
 int BPF_PROG(file_open, struct file * file)
 {
+    if (!recording())
+        return 0;
     trace_hook("file_open");
     u64 flags = 0;
     if (file->f_mode & FMODE_READ) {
@@ -380,6 +398,8 @@ int BPF_PROG(file_open, struct file * file)
 SEC("lsm/file_lock")
 int BPF_PROG(file_lock, struct file * file)
 {
+    if (!recording())
+        return 0;
     // very noisy
     // trace_hook("file_lock");
     return register_file_event(file, FLAG_WRITE);
@@ -389,6 +409,8 @@ SEC("lsm/mmap_file")
 int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
              unsigned long flags)
 {
+    if (!recording())
+        return 0;
     trace_hook("mmap_file");
     u64 file_flags = 0;
     if (prot & PROT_READ) {
@@ -406,6 +428,8 @@ int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
 SEC("lsm/bprm_check_security")
 int BPF_PROG(bprm_check_security, struct linux_binprm * bprm)
 {
+    if (!recording())
+        return 0;
     trace_hook("bprm_check_security");
     return register_file_event(bprm->file, FLAG_SPAWN);
 }
@@ -414,6 +438,8 @@ SEC("lsm/path_mkdir")
 int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
              umode_t mode)
 {
+    if (!recording())
+        return 0;
     trace_hook("path_mkdir");
     struct path filename = make_path(dentry, dir);
     return register_fs_event(&filename, mode | S_IFDIR, FLAG_READ | FLAG_WRITE,
@@ -424,6 +450,8 @@ SEC("lsm/path_mknod")
 int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
              umode_t mode, unsigned int dev)
 {
+    if (!recording())
+        return 0;
     trace_hook("path_mknod %d", mode);
     bool not_a_regular_file =
         ((mode & S_IFCHR) == S_IFCHR || (mode & S_IFBLK) == S_IFBLK ||
@@ -439,6 +467,8 @@ int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
 SEC("lsm/path_unlink")
 int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
 {
+    if (!recording())
+        return 0;
     trace_hook("path_unlink");
     struct path path = make_path(dentry, dir);
     return register_fs_event(&path, 0, FLAG_READ | FLAG_WRITE, true);
@@ -447,6 +477,8 @@ int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
 SEC("tracepoint/syscalls/sys_enter_socket")
 int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 {
+    if (!recording())
+        return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -482,6 +514,8 @@ int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 SEC("kprobe/cap_capable")
 int BPF_KPROBE(cap_capable)
 {
+    if (!recording())
+        return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -512,6 +546,8 @@ int BPF_KPROBE(cap_capable)
 SEC("tracepoint/syscalls/sys_enter_prctl")
 int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
 {
+    if (!recording())
+        return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -539,6 +575,8 @@ int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
 SEC("tracepoint/sched/sched_process_exec")
 int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 {
+    if (!recording())
+        return 0;
     if (!has_filter()) {
         return 0;
     }
@@ -561,6 +599,8 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 SEC("tracepoint/sched/sched_process_exit")
 int sched_process_exit(void * ctx)
 {
+    if (!recording())
+        return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -588,6 +628,8 @@ int sched_process_exit(void * ctx)
 SEC("tracepoint/syscalls/sys_exit_clone")
 int sys_exit_clone(struct trace_event_raw_sys_exit * ctx)
 {
+    if (!recording())
+        return 0;
     u32 ret = ctx->ret;
     // We only need the fork, the existing process is already traced.
     if (ret == 0)
@@ -605,6 +647,8 @@ int sys_exit_clone(struct trace_event_raw_sys_exit * ctx)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int sys_enter(struct trace_event_raw_sys_enter * args)
 {
+    if (!recording())
+        return 0;
     // Sanity check for syscall ID range
     u32 syscall_id = args->id;
     if (syscall_id < 0 || syscall_id >= MAX_SYSCALLS) {
