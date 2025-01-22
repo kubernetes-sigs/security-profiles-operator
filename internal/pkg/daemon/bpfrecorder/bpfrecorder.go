@@ -425,6 +425,7 @@ func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 var baseHooks = []string{
 	"sys_enter",
 	"sys_exit_clone",
+	"sys_enter_getgid",
 	"sys_enter_prctl",
 	"sched_process_exec",
 	"sched_process_exit",
@@ -566,6 +567,7 @@ func (b *BpfRecorder) StartRecording() (err error) {
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
 		return fmt.Errorf("failed to update `is_recording`: %w", err)
 	}
+	syscall.Getgid() // Notify BPF program that is_recording has changed.
 
 	if b.AppArmor != nil {
 		if err := b.AppArmor.StartRecording(b); err != nil {
@@ -595,6 +597,7 @@ func (b *BpfRecorder) StopRecording() error {
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
 		return fmt.Errorf("failed to update `is_recording`: %w", err)
 	}
+	syscall.Getgid() // Notify BPF program that is_recording has changed.
 
 	if b.Seccomp != nil {
 		if err := b.Seccomp.StopRecording(b); err != nil {
