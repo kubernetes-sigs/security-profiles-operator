@@ -59,5 +59,4 @@ var knownWritePrefixes = []string{
 var excludedFilePrefixes = []string{
 	"/run/containerd/io.containerd.runtime.v2.task/k8s.io",
 	"/usr/bin/runc",
-	"/proc/@{pid}/attr/apparmor/exec",
 }

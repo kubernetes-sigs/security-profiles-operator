@@ -125,11 +125,6 @@ func TestShouldExcludeFile(t *testing.T) {
 			want:     true,
 		},
 		{
-			name:     "Should exclude apparmor/exec",
-			filePath: "/proc/@{pid}/attr/apparmor/exec",
-			want:     true,
-		},
-		{
 			name:     "Should not exclude normal files",
 			filePath: "/etc/group",
 			want:     false,
