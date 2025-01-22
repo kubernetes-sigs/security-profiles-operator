@@ -230,7 +230,7 @@ static __always_inline int bpf_d_path_tetragon(struct path * path, char * buf,
     // make the ebpf verifier happy
     asm volatile("%[size] &= 0xfff;\n" : [size] "+r"(size));
     probe_read(buf, size, fullpath);
-    return size;
+    return size + 1;  // +1 to match bpf_d_path.
 }
 
 static __always_inline void debug_path_d(struct path * filename,
