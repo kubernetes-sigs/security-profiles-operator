@@ -25,12 +25,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"github.com/aquasecurity/libbpfgo"
 	"os"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/aquasecurity/libbpfgo"
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
