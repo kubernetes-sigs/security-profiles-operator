@@ -60,7 +60,7 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 // toggle this for additional debug output
 #define trace_hook(...)
-// #define trace_hook(...) bpf_printk(__VA_ARGS__)
+// #define trace_hook(...) if(get_mntns()) { bpf_printk(__VA_ARGS__) }
 
 // are we currently recording?
 // If yes, the only map element is set to true.
@@ -168,12 +168,16 @@ static __always_inline u32 get_mntns()
     return mntns;
 }
 
-static __always_inline u32 clear_mntns(u32 mntns)
+static __always_inline u32 clear_mntns_seccomp(u32 mntns)
 {
-    trace_hook("clear_mntns mntns=%u", mntns);
-    // Seccomp
+    trace_hook("clear_mntns_seccomp mntns=%u", mntns);
     bpf_map_delete_elem(&mntns_syscalls, &mntns);
-    // AppArmor
+    return 0;
+}
+
+static __always_inline u32 clear_mntns_apparmor(u32 mntns)
+{
+    trace_hook("clear_mntns_apparmor mntns=%u", mntns);
     event_data_t * event =
         bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (event) {
@@ -521,6 +525,9 @@ int BPF_KPROBE(cap_capable)
 
     if (cap_opt & CAP_OPT_NOAUDIT)
         return 0;
+    if (is_runc_init())  // there are some SYS_ADMIN privileges exercised after
+                         // sys_enter_execve
+        return 0;
 
     // TODO: This should be implemented like the seccomp syscalls map.
     event_data_t * event =
@@ -552,16 +559,29 @@ int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
     //
     // Hooking here:
     // https://github.com/opencontainers/runc/blob/81b13172bea2e6e4cf50f6bdd29a5fdeb5a6acf5/libcontainer/standard_init_linux.go#L148
-    //
-    // We could further minimize profiles by waiting until execve instead of
-    // prctl. This would immediately work for AppArmor (which becomes active
-    // from the next execve), but would miss the syscalls for seccomp (which
-    // becomes active immediately, so we need to include permissions for the
-    // time between enforcement and the execve call). Not doing that yet because
-    // splitting AppArmor and seccomp logic adds a lot of complexity; hardcoding
-    // a list of syscalls required by runc creates maintenance burden.
     if (ctx->args[0] == PR_GET_PDEATHSIG && is_runc_init()) {
-        clear_mntns(mntns);
+        clear_mntns_seccomp(mntns);
+    }
+
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_execve")
+int sys_enter_execve(struct trace_event_raw_sys_enter * ctx)
+{
+    if (!_is_recording_cached)
+        return 0;
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+    trace_hook("sys_enter_execve");
+
+    // Handle runc init.
+    //
+    // Hooking here:
+    // https://github.com/opencontainers/runc/blob/81b13172bea2e6e4cf50f6bdd29a5fdeb5a6acf5/libcontainer/standard_init_linux.go#L288
+    if (is_runc_init()) {
+        clear_mntns_apparmor(mntns);
     }
 
     return 0;
