@@ -2978,6 +2978,7 @@ data:
             "futex",
             "getcwd",
             "getdents64",
+            "getgid",
             "getpeername",
             "getpid",
             "getppid",
@@ -3044,9 +3045,6 @@ data:
           - bpf
           - chown
           - perfmon
-          - setgid
-          - setuid
-          - sys_admin
           - sys_resource
         executable:
           allowedExecutables:
@@ -3054,24 +3052,26 @@ data:
         filesystem:
           readOnlyPaths:
           - /proc/@{pid}/cgroup
-          - /proc/@{pid}/fd/**
           - /proc/@{pid}/maps
-          - /proc/@{pid}/setgroups
-          - /proc/@{pid}/status
           - /proc/sys/net/core/somaxconn
           - /sys/devices/kprobe/type
+          - /sys/devices/system/cpu/online
           - /sys/fs/bpf/**
           - /sys/kernel/btf/vmlinux
           - /sys/kernel/debug/tracing/events/raw_syscalls/sys_enter/id
           - /sys/kernel/debug/tracing/events/sched/sched_process_exec/id
           - /sys/kernel/debug/tracing/events/sched/sched_process_exit/id
+          - /sys/kernel/debug/tracing/events/syscalls/sys_enter_execve/id
+          - /sys/kernel/debug/tracing/events/syscalls/sys_enter_getgid/id
           - /sys/kernel/debug/tracing/events/syscalls/sys_enter_prctl/id
           - /sys/kernel/debug/tracing/events/syscalls/sys_enter_socket/id
           - /sys/kernel/debug/tracing/events/syscalls/sys_exit_clone/id
           - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
           - /sys/kernel/security/lsm
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
           readWritePaths:
-          - /var/run/**
+          - /var/run/grpc/bpf-recorder.sock
         network:
           allowedProtocols:
             allowTcp: true
@@ -3238,22 +3238,24 @@ data:
       abstract:
         capability:
           allowedCapabilities:
-          - setgid
-          - setuid
+          - dac_read_search
           - sys_admin
         executable:
           allowedExecutables:
           - /security-profiles-operator
         filesystem:
           readOnlyPaths:
-          - /proc/@{pid}/fd/**
           - /proc/@{pid}/maps
-          - /proc/@{pid}/setgroups
-          - /proc/@{pid}/status
           - /proc/sys/net/core/somaxconn
           - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+          - /var/lib/kubelet/seccomp/operator/security-profiles-operator/spo-recording-seccomp-bpf-recorder.json
+          - /var/lib/kubelet/seccomp/operator/security-profiles-operator/spo-recording-seccomp-security-profiles-operator.json
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
+          - /var/run/secrets/metrics/**
+          - /var/run/secrets/metrics/**
           readWritePaths:
-          - /var/run/**
+          - /var/run/grpc/metrics.sock
         network:
           allowedProtocols:
             allowTcp: true

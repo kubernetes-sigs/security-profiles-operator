@@ -35,6 +35,7 @@
         "futex",
         "getcwd",
         "getdents64",
+        "getgid",
         "getpeername",
         "getpid",
         "getppid",
