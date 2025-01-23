@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"github.com/aquasecurity/libbpfgo"
-
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
