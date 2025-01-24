@@ -9,13 +9,16 @@ spec:
   abstract:
     capability:
       allowedCapabilities:
+      - dac_override
       - dac_read_search
       - sys_admin
+      - sys_chroot
     executable:
       allowedExecutables:
       - /security-profiles-operator
     filesystem:
       readOnlyPaths:
+      - /  # workaround for apparmor bug
       - /proc/@{pid}/maps
       - /proc/sys/net/core/somaxconn
       - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
@@ -25,7 +28,12 @@ spec:
       - /var/run/secrets/kubernetes.io/serviceaccount/**
       - /var/run/secrets/metrics/**
       - /var/run/secrets/metrics/**
+      - /sys/module/apparmor/parameters/enabled
+      writeOnlyPaths:
+      - /etc/apparmor.d/**
+      - /tmp/aa_profile_bin_*
       readWritePaths:
+      - "ptrace (read),  # ugly template injection hack"
       - /var/run/grpc/metrics.sock
     network:
       allowedProtocols:
