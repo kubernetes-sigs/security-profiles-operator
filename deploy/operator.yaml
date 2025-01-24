@@ -251,7 +251,7 @@ spec:
     shortNames:
     - sp
     singular: seccompprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.status
@@ -2203,7 +2203,7 @@ spec:
     shortNames:
     - aa
     singular: apparmorprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.status
