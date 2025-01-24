@@ -802,21 +802,15 @@ data:
           - /proc/sys/net/core/somaxconn
           - /sys/devices/kprobe/type
           - /sys/devices/system/cpu/online
-          - /sys/fs/bpf/**
+          - /sys/fs/bpf/
           - /sys/kernel/btf/vmlinux
-          - /sys/kernel/debug/tracing/events/raw_syscalls/sys_enter/id
-          - /sys/kernel/debug/tracing/events/sched/sched_process_exec/id
-          - /sys/kernel/debug/tracing/events/sched/sched_process_exit/id
-          - /sys/kernel/debug/tracing/events/syscalls/sys_enter_execve/id
-          - /sys/kernel/debug/tracing/events/syscalls/sys_enter_getgid/id
-          - /sys/kernel/debug/tracing/events/syscalls/sys_enter_prctl/id
-          - /sys/kernel/debug/tracing/events/syscalls/sys_enter_socket/id
-          - /sys/kernel/debug/tracing/events/syscalls/sys_exit_clone/id
+          - /sys/kernel/debug/tracing/events/**/id
           - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
           - /sys/kernel/security/lsm
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           readWritePaths:
+          - "ptrace (read),\n# ugly template injection hack"
           - /var/run/grpc/bpf-recorder.sock
         network:
           allowedProtocols:
@@ -984,13 +978,16 @@ data:
       abstract:
         capability:
           allowedCapabilities:
+          - dac_override
           - dac_read_search
           - sys_admin
+          - sys_chroot
         executable:
           allowedExecutables:
           - /security-profiles-operator
         filesystem:
           readOnlyPaths:
+          - /  # workaround for apparmor bug
           - /proc/@{pid}/maps
           - /proc/sys/net/core/somaxconn
           - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
@@ -1000,7 +997,12 @@ data:
           - /var/run/secrets/kubernetes.io/serviceaccount/**
           - /var/run/secrets/metrics/**
           - /var/run/secrets/metrics/**
+          - /sys/module/apparmor/parameters/enabled
+          writeOnlyPaths:
+          - /etc/apparmor.d/**
+          - /tmp/aa_profile_bin_*
           readWritePaths:
+          - "ptrace (read),  # ugly template injection hack"
           - /var/run/grpc/metrics.sock
         network:
           allowedProtocols:
