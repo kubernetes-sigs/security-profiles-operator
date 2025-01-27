@@ -3234,30 +3234,34 @@ data:
           allowedCapabilities:
           - dac_override
           - dac_read_search
+          - mac_admin
           - sys_admin
           - sys_chroot
         executable:
           allowedExecutables:
           - /security-profiles-operator
+          - /sbin/apparmor_parser
         filesystem:
           readOnlyPaths:
           - /  # workaround for apparmor bug
+          - /etc/apparmor/parser.conf
           - /proc/@{pid}/maps
+          - /proc/@{pid}/mounts
+          - /proc/sys/kernel/osrelease
           - /proc/sys/net/core/somaxconn
           - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
-          - /var/lib/kubelet/seccomp/operator/security-profiles-operator/spo-recording-seccomp-bpf-recorder.json
-          - /var/lib/kubelet/seccomp/operator/security-profiles-operator/spo-recording-seccomp-security-profiles-operator.json
+          - /var/lib/kubelet/seccomp/operator/security-profiles-operator/*
           - /var/run/secrets/kubernetes.io/serviceaccount/**
-          - /var/run/secrets/kubernetes.io/serviceaccount/**
-          - /var/run/secrets/metrics/**
           - /var/run/secrets/metrics/**
           - /sys/module/apparmor/parameters/enabled
-          writeOnlyPaths:
-          - /etc/apparmor.d/**
-          - /tmp/aa_profile_bin_*
+          - /sys/devices/system/cpu/possible
           readWritePaths:
           - "ptrace (read),  # ugly template injection hack"
           - /var/run/grpc/metrics.sock
+          - /tmp/aa_profile_bin_*
+          - /etc/apparmor.d/**
+          - /sys/kernel/security/apparmor/
+          - /sys/kernel/security/apparmor/**
         network:
           allowedProtocols:
             allowTcp: true
