@@ -117,10 +117,12 @@ func Get() (*Info, error) {
 // String returns the string representation of the version info.
 func (i *Info) String() string {
 	b := strings.Builder{}
+
 	const padding = 2
 	w := tabwriter.NewWriter(&b, 0, 0, padding, ' ', 0)
 
 	v := reflect.ValueOf(*i)
+
 	t := v.Type()
 	for i := range t.NumField() {
 		field := t.Field(i)
@@ -145,6 +147,7 @@ func (i *Info) String() string {
 
 		if valueString != "" {
 			fmt.Fprintf(w, "%s:\t%s", field.Name, valueString)
+
 			if i+1 < t.NumField() {
 				fmt.Fprintf(w, "\n")
 			}
@@ -152,6 +155,7 @@ func (i *Info) String() string {
 	}
 
 	w.Flush()
+
 	return b.String()
 }
 
@@ -161,6 +165,7 @@ func (i *Info) JSONString() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal info as JSON: %w", err)
 	}
+
 	return string(b), nil
 }
 

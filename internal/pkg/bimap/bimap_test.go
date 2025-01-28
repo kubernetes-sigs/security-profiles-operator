@@ -26,12 +26,14 @@ import (
 
 func TestNew(t *testing.T) {
 	t.Parallel()
+
 	actual := bimap.New[string, string]()
 	assert.NotNil(t, actual, "should create an empty map")
 }
 
 func TestNewFromMap(t *testing.T) {
 	t.Parallel()
+
 	input := map[string]string{"1": "a", "2": "b", "3": "c"}
 	actual := bimap.NewFromMap(input)
 
@@ -43,11 +45,13 @@ func TestNewFromMap(t *testing.T) {
 
 func TestInsert(t *testing.T) {
 	t.Parallel()
+
 	actual := bimap.New[string, int]()
 	actual.Insert("test", 1)
 	v, ok := actual.Get("test")
 	assert.True(t, ok, "should find element in forward direction")
 	assert.Equal(t, 1, v, "should get element in forward direction")
+
 	k, ok := actual.GetBackwards(1)
 	assert.True(t, ok, "should find element in backward direction")
 	assert.Equal(t, "test", k, "should find element in backward direction")
@@ -55,6 +59,7 @@ func TestInsert(t *testing.T) {
 
 func TestExists(t *testing.T) {
 	t.Parallel()
+
 	actual := bimap.New[string, int]()
 	actual.Insert("test", 1)
 	assert.True(t, actual.Exists("test"), "element should exist")
@@ -62,6 +67,7 @@ func TestExists(t *testing.T) {
 
 func TestExistsBackwards(t *testing.T) {
 	t.Parallel()
+
 	actual := bimap.New[string, int]()
 	actual.Insert("test", 1)
 	assert.True(t, actual.ExistsBackwards(1), "element should exist")
@@ -69,6 +75,7 @@ func TestExistsBackwards(t *testing.T) {
 
 func TestGet(t *testing.T) {
 	t.Parallel()
+
 	actual := bimap.New[string, int]()
 	actual.Insert("test", 1)
 	v, ok := actual.Get("test")
@@ -78,6 +85,7 @@ func TestGet(t *testing.T) {
 
 func TestGetBackwards(t *testing.T) {
 	t.Parallel()
+
 	actual := bimap.New[string, int]()
 	actual.Insert("test", 1)
 	v, ok := actual.GetBackwards(1)
@@ -87,6 +95,7 @@ func TestGetBackwards(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	t.Parallel()
+
 	actual := bimap.New[string, int]()
 	actual.Insert("test", 1)
 	actual.Delete("test")
@@ -96,6 +105,7 @@ func TestDelete(t *testing.T) {
 
 func TestDeleteBackwards(t *testing.T) {
 	t.Parallel()
+
 	actual := bimap.New[string, int]()
 	actual.Insert("test", 1)
 	actual.DeleteBackwards(1)
@@ -105,6 +115,7 @@ func TestDeleteBackwards(t *testing.T) {
 
 func TestSize(t *testing.T) {
 	t.Parallel()
+
 	actual := bimap.New[string, int]()
 	actual.Insert("test1", 1)
 	actual.Insert("test2", 2)

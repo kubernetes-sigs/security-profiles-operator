@@ -31,6 +31,7 @@ func AppendIfNotExists(list []string, item string) []string {
 			return list
 		}
 	}
+
 	return append(list, item)
 }
 
@@ -41,6 +42,7 @@ func RemoveIfExists(list []string, item string) []string {
 			return append(list[:i], list[i+1:]...)
 		}
 	}
+
 	return list
 }
 
@@ -57,8 +59,10 @@ func UpdateResource(
 	if err := c.Update(ctx, object); err != nil {
 		msg := "failed to update resource " + name
 		logger.Error(err, msg)
+
 		return fmt.Errorf("%s: %w", msg, err)
 	}
+
 	return nil
 }
 
@@ -75,7 +79,9 @@ func UpdateResourceStatus(
 	if err := c.Update(ctx, object); err != nil {
 		msg := "failed to update resource " + name
 		logger.Error(err, msg)
+
 		return fmt.Errorf("%s: %w", msg, err)
 	}
+
 	return nil
 }

@@ -43,7 +43,9 @@ func (e *e2e) testCaseSameProfileMultipleNs() {
 	e.logf("Create the same profile in two namespaces")
 
 	e.logf("creating policy in the current namespace")
+
 	manifest := fmt.Sprintf(dupProfileTemplate, dupProfileName, config.OperatorName)
+
 	deleteCurNsFn := e.writeAndCreate(manifest, currentNsManifest)
 	defer deleteCurNsFn()
 
@@ -53,6 +55,7 @@ func (e *e2e) testCaseSameProfileMultipleNs() {
 	e.logf("Create a new NS")
 	e.kubectl("create", "ns", dupNsName)
 	manifest = fmt.Sprintf(dupProfileTemplate, dupProfileName, dupNsName)
+
 	deleteNewNsFn := e.writeAndCreate(manifest, newNsManifest)
 	defer deleteNewNsFn()
 

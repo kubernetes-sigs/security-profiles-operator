@@ -45,6 +45,7 @@ func TestPush(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Parallel()
+
 	for _, tc := range []struct {
 		name    string
 		prepare func(mock *artifactfakes.FakeImpl)
@@ -225,6 +226,7 @@ func TestPull(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Parallel()
+
 	for _, tc := range []struct {
 		name    string
 		prepare func(mock *artifactfakes.FakeImpl)

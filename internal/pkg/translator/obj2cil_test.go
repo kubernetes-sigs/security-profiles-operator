@@ -27,6 +27,7 @@ import (
 
 func TestObject2CIL(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name        string
 		profile     *selxv1alpha2.SelinuxProfile
@@ -309,6 +310,7 @@ func TestObject2CIL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := Object2CIL(tt.inheritsys, tt.inheritobjs, tt.profile)
 			for _, wantMatch := range tt.wantMatches {
 				matched, err := regexp.MatchString(wantMatch, got)
@@ -318,6 +320,7 @@ func TestObject2CIL(t *testing.T) {
 					t.Errorf("The generated CIL didn't match expectation.\nExpected match for: %s\nGenerated CIL: %s", wantMatch, got)
 				}
 			}
+
 			for _, doNotMatch := range tt.doNotMatch {
 				matched, err := regexp.MatchString(doNotMatch, got)
 				if err != nil {

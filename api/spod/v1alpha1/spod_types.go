@@ -109,6 +109,7 @@ func (s *ConditionedStatus) GetReadyCondition() Condition {
 func (s *ConditionedStatus) SetConditions(c ...Condition) {
 	for _, new := range c {
 		exists := false
+
 		for i, existing := range s.Conditions {
 			if existing.Type != new.Type {
 				continue
@@ -116,12 +117,14 @@ func (s *ConditionedStatus) SetConditions(c ...Condition) {
 
 			if existing.Equal(new) {
 				exists = true
+
 				continue
 			}
 
 			s.Conditions[i] = new
 			exists = true
 		}
+
 		if !exists {
 			s.Conditions = append(s.Conditions, new)
 		}

@@ -31,6 +31,7 @@ func ParsePlatform(input string) (*v1.Platform, error) {
 	if input == "" {
 		res.Architecture = runtime.GOARCH
 		res.OS = runtime.GOOS
+
 		return res, nil
 	}
 
@@ -41,6 +42,7 @@ func ParsePlatform(input string) (*v1.Platform, error) {
 	switch len(parts) {
 	case 3: //nolint:gomnd // intentional
 		res.Variant = parts[2]
+
 		fallthrough
 	case 2: //nolint:gomnd // intentional
 		res.Architecture = parts[1]

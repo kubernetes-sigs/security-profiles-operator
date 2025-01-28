@@ -74,6 +74,7 @@ func ContainerIDForPID(cache *ttlcache.Cache[string, string], pid int) (string, 
 			containerID := containerIDs[len(containerIDs)-1]
 			// Update the cache
 			cache.Set(strconv.Itoa(pid), containerID, ttlcache.DefaultTTL)
+
 			return containerID, nil
 		}
 	}

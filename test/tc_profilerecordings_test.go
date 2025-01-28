@@ -45,11 +45,13 @@ func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp)
 		)
 
 		matchAll := true
+
 		for _, condition := range conditions {
 			if !condition.MatchString(logs) {
 				matchAll = false
 			}
 		}
+
 		if matchAll {
 			break
 		}
@@ -60,6 +62,7 @@ func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp)
 
 func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 	e.logEnricherOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -72,6 +75,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodLogs() {
 func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogs() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -84,6 +88,7 @@ func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogs() {
 func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+
 	restoreNs := e.switchToNs(nsRecordingDisabled)
 	defer restoreNs()
 
@@ -141,6 +146,7 @@ func (e *e2e) profileRecordingStaticPod(recording string, waitConditions ...*reg
 
 func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 	e.logEnricherOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 	e.profileRecordingMultiContainer(
@@ -152,6 +158,7 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 
 func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 	e.logEnricherOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 	e.profileRecordingSpecificContainer(exampleRecordingSeccompSpecificContainerLogsPath,
@@ -162,6 +169,7 @@ func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 func (e *e2e) testCaseProfileRecordingMultiContainerSELinuxLogs() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -265,6 +273,7 @@ func (e *e2e) profileRecordingSpecificContainer(
 
 func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 	e.logEnricherOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 	e.profileRecordingDeployment(
@@ -277,6 +286,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 
 func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
 	e.logEnricherOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 	e.profileRecordingScaleDeployment(
@@ -290,6 +300,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
 func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -302,6 +313,7 @@ func (e *e2e) testCaseProfileRecordingSelinuxDeploymentLogs() {
 
 func (e *e2e) testCaseRecordingFinalizers() {
 	e.logEnricherOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -316,12 +328,14 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	// Check that the recording's status contains the resource. Retry to avoid
 	// test races.
 	e.logf("Testing that profile binding has pod reference")
+
 	if err := spoutil.Retry(func() error {
 		output := e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.status.activeWorkloads[0]}")
 		fmt.Println(output)
 		if output != podName {
 			return fmt.Errorf("pod name %s not found in status", podName)
 		}
+
 		return nil
 	}, func(err error) bool {
 		return true
@@ -347,6 +361,7 @@ func (e *e2e) testCaseRecordingFinalizers() {
 func (e *e2e) testCaseProfileRecordingWithMemoryOptimization() {
 	e.logEnricherOnlyTestCase()
 	e.testCaseMemOptmEnable([]string{})
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -435,11 +450,13 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 5
 `
+
 	return e.createRecordingTestDeploymentFromManifest(testDeployment)
 }
 
 func (e *e2e) createRecordingTestDeploymentFromManifest(manifest string) (since time.Time, deployName string) {
 	e.logf("Creating test deployment")
+
 	deployName = "my-deployment"
 
 	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
@@ -452,6 +469,7 @@ func (e *e2e) createRecordingTestDeploymentFromManifest(manifest string) (since 
 	e.Nil(err)
 
 	since = time.Now()
+
 	e.kubectl("create", "-f", testFile.Name())
 
 	e.retryGet("deploy", deployName)
@@ -479,11 +497,13 @@ func (e *e2e) existsSelinuxProfile(args ...string) bool {
 
 func (e *e2e) retryGetSelinuxJsonpath(jsonpath string, args ...string) string {
 	jsonpatharg := "jsonpath=" + jsonpath
+
 	return e.retryGet(append([]string{"selinuxprofile", "-o", jsonpatharg}, args...)...)
 }
 
 func (e *e2e) createRecordingTestPod() (since time.Time, podName string) {
 	e.logf("Creating test pod")
+
 	podName = "recording"
 
 	const testPod = `
@@ -507,6 +527,7 @@ spec:
       periodSeconds: 5
   restartPolicy: Never
 `
+
 	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
 	e.Nil(err)
 	_, err = testPodFile.WriteString(testPod)
@@ -515,6 +536,7 @@ spec:
 	e.Nil(err)
 
 	since = time.Now()
+
 	e.kubectl("create", "-f", testPodFile.Name())
 
 	e.logf("Waiting for test pod to be initialized")
@@ -527,6 +549,7 @@ spec:
 
 func (e *e2e) createRecordingTestMultiPod() (since time.Time, podName string) {
 	e.logf("Creating test pod")
+
 	podName = "my-pod"
 
 	const testPod = `
@@ -557,6 +580,7 @@ spec:
       periodSeconds: 5
   restartPolicy: Never
 `
+
 	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
 	e.Nil(err)
 	_, err = testPodFile.WriteString(testPod)
@@ -565,6 +589,7 @@ spec:
 	e.Nil(err)
 
 	since = time.Now()
+
 	e.kubectl("create", "-f", testPodFile.Name())
 
 	e.logf("Waiting for test pod to be initialized")
@@ -611,6 +636,7 @@ func (e *e2e) profileRecordingScaleDeployment(
 func (e *e2e) getPodSuffixesByLabel(label string) []string { //nolint:unparam // it's better to keep the param around
 	suffixes := make([]string, 0)
 	podNamesString := e.kubectl("get", "pods", "-l", label, "-o", "jsonpath={.items[*].metadata.name}")
+
 	podNames := strings.Fields(podNamesString)
 	for _, podName := range podNames {
 		suffixIdx := strings.LastIndex(podName, "-")

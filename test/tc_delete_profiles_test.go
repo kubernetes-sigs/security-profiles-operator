@@ -27,6 +27,7 @@ import (
 
 func (e *e2e) testCaseDeleteProfiles(nodes []string) {
 	e.seccompOnlyTestCase()
+
 	const (
 		deleteProfile = `
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
@@ -125,15 +126,18 @@ spec:
 
 	e.logf("Verifying profile exists")
 	time.Sleep(time.Second)
+
 	for _, node := range nodes {
 		e.execNode(node, "test", "-f", profileOperatorPath)
 	}
+
 	e.logf("Create fake node status for profile")
 	e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
 	time.Sleep(time.Second)
 	e.logf("Verifying profile deleted")
 	e.kubectl("delete", "seccompprofile", deleteProfileName)
 	time.Sleep(time.Second)
+
 	for _, node := range nodes {
 		e.execNode(node, "test", "!", "-f", profileOperatorPath)
 	}
@@ -161,11 +165,13 @@ spec:
 		},
 	} {
 		e.logf("> > Running test case for deleted profiles and pods: %s", testCase.description)
+
 		profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 		defer profileCleanup() //nolint:gocritic // TODO: is this intentional?
 		e.waitForProfile(deleteProfileName)
 		e.logf("Create fake node status for profile")
 		e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
+
 		podCleanup := e.writeAndCreate(fmt.Sprintf(testCase.podManifest, namespace), "delete-pod*.yaml")
 		defer podCleanup() //nolint:gocritic // TODO: is this intention?
 		e.waitFor("condition=ready", "pod", deletePodName)
@@ -176,10 +182,12 @@ spec:
 		// TODO(jhrozek): deleting manifests as Ready=False, reason=Deleting, can we wait in a nicer way?
 		for range 10 {
 			sp := e.getSeccompProfile(deleteProfileName, namespace)
+
 			conReady := sp.Status.GetReadyCondition()
 			if conReady.Reason == spodv1alpha1.ReasonDeleting {
 				break
 			}
+
 			time.Sleep(time.Second)
 		}
 

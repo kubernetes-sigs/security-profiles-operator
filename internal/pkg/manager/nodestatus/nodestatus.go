@@ -137,6 +137,7 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		if instance.Status != "" {
 			targetStatus = instance.Status
 		}
+
 		return reconcile.Result{}, r.reconcileStatus(ctx, prof, targetStatus, lprof)
 	}
 
@@ -164,12 +165,14 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 	if !daemonSetIsReady(spodDS) || daemonSetIsUpdating(spodDS) {
 		// If the DS is not ready or updating, don't bother updating the status
 		logger.Info("Not updating policy because the SPOd is not ready")
+
 		return reconcile.Result{RequeueAfter: dsWait}, nil
 	}
 
 	// make sure we have all the statuses already
 	hasStatuses := len(nodeStatusList.Items)
 	wantsStatuses := spodDS.Status.DesiredNumberScheduled
+
 	if wantsStatuses > int32(hasStatuses) {
 		logger.Info("Not updating policy: not all statuses are ready",
 			"has", hasStatuses, "wants", wantsStatuses)
@@ -178,17 +181,21 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 	} else if wantsStatuses < int32(hasStatuses) {
 		// this happens when nodes are removed from the cluster
 		logger.Info("Removing extra statuses", "has", hasStatuses, "wants", wantsStatuses)
+
 		nodeName, err := r.removeStatusForDeletedNode(ctx, nodeStatusList, lprof)
 		if err != nil {
 			return reconcile.Result{}, fmt.Errorf("cannot remove extra statuses: %w", err)
 		}
+
 		if nodeName != "" {
 			// remove the deleted node finalizer string from the profile
 			logger.Info("Removing finalizer from profile", "profile", prof.GetName(), "node", nodeName)
+
 			if err := util.RemoveFinalizer(ctx, r.client, prof, util.GetFinalizerNodeString(nodeName)); err != nil {
 				return reconcile.Result{}, fmt.Errorf("cannot remove finalizer from profile: %w", err)
 			}
 		}
+
 		return reconcile.Result{Requeue: true}, nil
 	}
 
@@ -196,6 +203,7 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("cannot compare statuses and finalizers: %w", err)
 	}
+
 	if !statusMatch { // if the finalizers don't match the current nodes
 		// Get current list of nodes
 		currentNodeNames, err := util.GetNodeList(ctx)
@@ -219,6 +227,7 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 	for i := range nodeStatusList.Items {
 		lowestCommonState = statusv1alpha1.LowerOfTwoStates(lowestCommonState, nodeStatusList.Items[i].Status)
 	}
+
 	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", lowestCommonState)
 
 	return reconcile.Result{}, r.reconcileStatus(ctx, prof, lowestCommonState, lprof)
@@ -231,26 +240,33 @@ func (r *StatusReconciler) removeStatusForDeletedNode(ctx context.Context,
 	for i := range nodeStatusList.Items {
 		nodeName := nodeStatusList.Items[i].NodeName
 		node := &v1.Node{}
+
 		if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
 			if util.IsNotFoundOrConflict(err) {
 				logger.Info("Removing node status for removed node", "node", nodeName)
+
 				if err := r.client.Delete(ctx, &nodeStatusList.Items[i]); err != nil {
 					return "", fmt.Errorf("cannot delete node status: %w", err)
 				}
+
 				return nodeName, nil
 			}
+
 			return "", fmt.Errorf("cannot get node: %w", err)
 		}
 	}
+
 	return "", nil
 }
 
 func (r *StatusReconciler) getDS(ctx context.Context, namespace string, l logr.Logger) (*appsv1.DaemonSet, error) {
 	dsSelect := labels.NewSelector()
+
 	spodDSFilter, err := labels.NewRequirement("spod", selection.Exists, []string{})
 	if err != nil {
 		return nil, fmt.Errorf("cannot create DS list label: %w", err)
 	}
+
 	dsSelect.Add(*spodDSFilter)
 	dsListOpts := client.ListOptions{
 		LabelSelector: dsSelect,
@@ -265,6 +281,7 @@ func (r *StatusReconciler) getDS(ctx context.Context, namespace string, l logr.L
 	if len(spodDSList.Items) != 1 {
 		retErr := errors.New("did not find exactly one DS")
 		l.Error(retErr, "Expected to find 1 DS", "len(dsList.Items)", len(spodDSList.Items))
+
 		return nil, fmt.Errorf("listing DS: %w", retErr)
 	}
 
@@ -284,7 +301,9 @@ func (r *StatusReconciler) getProfileFromStatus(
 		Name:      ctrl.Name,
 		Namespace: s.GetNamespace(),
 	}
+
 	var prof pbv1alpha1.StatusBaseUser
+
 	switch ctrl.Kind {
 	case "SeccompProfile":
 		prof = &seccompprofileapi.SeccompProfile{}
@@ -297,9 +316,11 @@ func (r *StatusReconciler) getProfileFromStatus(
 	default:
 		return nil, fmt.Errorf("getting owner profile: %w", ErrUnknownOwnerKind)
 	}
+
 	if err := r.client.Get(ctx, key, prof); err != nil {
 		return nil, fmt.Errorf("getting owner profile: %s/%s: %w", s.GetNamespace(), ctrl.Name, err)
 	}
+
 	return prof, nil
 }
 
@@ -315,6 +336,7 @@ func (r *StatusReconciler) reconcileStatus(
 	pCopy.SetImplementationStatus()
 
 	outStatus := pCopy.GetStatusBase()
+
 	switch state {
 	case statusv1alpha1.ProfileStatePending, "":
 		outStatus.Status = statusv1alpha1.ProfileStatePending
@@ -340,6 +362,7 @@ func (r *StatusReconciler) reconcileStatus(
 	}
 
 	l.V(config.VerboseLevel).Info("Updating status")
+
 	if updateErr := r.client.Status().Update(ctx, pCopy); updateErr != nil {
 		return fmt.Errorf("updating policy status: %w", updateErr)
 	}
@@ -360,10 +383,12 @@ func listStatusesForProfile(
 	ctx context.Context, c client.Client, namespace string, labelVal string,
 ) (*statusv1alpha1.SecurityProfileNodeStatusList, error) {
 	statusSelect := labels.NewSelector()
+
 	statusFilter, err := labels.NewRequirement(statusv1alpha1.StatusToProfLabel, selection.Equals, []string{labelVal})
 	if err != nil {
 		return nil, fmt.Errorf("cannot create node status list label: %w", err)
 	}
+
 	statusSelect = statusSelect.Add(*statusFilter)
 	statusListOpts := client.ListOptions{
 		LabelSelector: statusSelect,

@@ -121,10 +121,13 @@ func (b *AppArmorRecorder) Load(r *BpfRecorder) error {
 	if !BPFLSMEnabled() {
 		return errors.New("BPF LSM is not enabled for this kernel")
 	}
+
 	if err := r.loadPrograms(appArmorHooks); err != nil {
 		return fmt.Errorf("load apparmor hooks: %w", err)
 	}
+
 	b.loaded = true
+
 	return nil
 }
 
@@ -132,6 +135,7 @@ func (b *AppArmorRecorder) StartRecording(r *BpfRecorder) error {
 	if !b.loaded {
 		return ErrStartBeforeLoad
 	}
+
 	return nil
 }
 
@@ -146,6 +150,7 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	clear(b.recordedSocketsUse)
 	clear(b.recordedCapabilities)
 	clear(b.recordedFiles)
+
 	return nil
 }
 
@@ -160,6 +165,7 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 
 	if shouldExcludeFile(fileName) {
 		log.Printf("Excluded File: %s", fileName)
+
 		return
 	}
 
@@ -188,6 +194,7 @@ func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
 	if _, ok := b.recordedSocketsUse[mid]; !ok {
 		b.recordedSocketsUse[mid] = &BpfAppArmorSocketTypes{}
 	}
+
 	socketType := socketEvent.Flags & sockTypeMask
 	switch socketType {
 	case sockRaw:
@@ -221,6 +228,7 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 		capEvent.Pid,
 		capEvent.Mntns,
 	)
+
 	b.recordedCapabilities[mid] = append(b.recordedCapabilities[mid], requestedCap)
 }
 
@@ -255,9 +263,11 @@ func (b *AppArmorRecorder) GetKnownMntns() []mntnsID {
 	for mntns := range b.recordedFiles {
 		known[mntns] = true
 	}
+
 	for mntns := range b.recordedCapabilities {
 		known[mntns] = true
 	}
+
 	for mntns := range b.recordedSocketsUse {
 		known[mntns] = true
 	}
@@ -265,10 +275,12 @@ func (b *AppArmorRecorder) GetKnownMntns() []mntnsID {
 	// Go 1.23: slices.Collect(maps.Keys(known))
 	lst := make([]mntnsID, len(known))
 	i := 0
+
 	for k := range known {
 		lst[i] = k
 		i++
 	}
+
 	return lst
 }
 
@@ -277,9 +289,11 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 
 	mid := mntnsID(mntns)
 	processed.FileProcessed = b.processExecFsEvents(mid)
+
 	if sockets, ok := b.recordedSocketsUse[mid]; ok && sockets != nil {
 		processed.Socket = *b.recordedSocketsUse[mid]
 	}
+
 	processed.Capabilities = b.processCapabilities(mid)
 
 	// Clean up the recorded data after processing to avoid keeping global state.
@@ -301,6 +315,7 @@ func replaceVarianceInFilePath(filePath string) string {
 
 	// Replace container ID with any container ID
 	pathWithCid := regexp.MustCompile(`/var/lib/containers/storage/overlay/\w+/`)
+
 	return pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
 }
 
@@ -310,6 +325,7 @@ func shouldExcludeFile(filePath string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -385,7 +401,9 @@ func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProces
 	// workarounds and hooking mmap, we just treat that as a canary for HUGETLB usage.
 	if fileName == "/anon_hugepage (deleted)" {
 		logger.Info("Adding `/` to ReadWritePath as a workaround to enable anonymous huge pages")
+
 		processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, "/")
+
 		return true
 	}
 
@@ -395,6 +413,7 @@ func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProces
 	// It should be ignored since is an invalid path in the apparmor profile.
 	if strings.HasSuffix(fileName, " (deleted)") {
 		logger.Info("Skipping deleted file", "fileName", fileName)
+
 		return true
 	}
 
@@ -404,11 +423,14 @@ func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProces
 // allowAnyFiles allows any file in a directory if more than two files are allowed.
 func allowAnyFiles(filePaths []string) []string {
 	dupDirs := map[string]int{}
+
 	for _, fp := range filePaths {
 		dir := filepath.Dir(fp)
 		dupDirs[dir] += 1
 	}
+
 	result := []string{}
+
 	for _, fp := range filePaths {
 		dir := filepath.Dir(fp)
 		if dupDirs[dir] > 1 {
@@ -418,6 +440,7 @@ func allowAnyFiles(filePaths []string) []string {
 			result = append(result, fp)
 		}
 	}
+
 	return result
 }
 
@@ -425,22 +448,28 @@ func (b *AppArmorRecorder) processCapabilities(mid mntnsID) []string {
 	if _, ok := b.recordedCapabilities[mid]; !ok {
 		return []string{}
 	}
+
 	ret := make([]string, 0, len(b.recordedCapabilities[mid]))
 	for _, capID := range b.recordedCapabilities[mid] {
 		ret = append(ret, capabilityToString(capID))
 	}
+
 	slices.Sort(ret)
+
 	return ret
 }
 
 func fileDataToString(data *[pathMax]uint8) string {
 	var eos int
+
 	for i, c := range data {
 		if c == 0 {
 			eos = i
+
 			break
 		}
 	}
+
 	return string(data[:eos])
 }
 
@@ -450,6 +479,7 @@ func isKnownFile(path string, knownPrefixes []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -502,5 +532,6 @@ func capabilityToString(capID int) string {
 	if !ok {
 		return fmt.Sprintf("CAPABILITY_%d", capID)
 	}
+
 	return val
 }

@@ -183,6 +183,7 @@ func (d *defaultImpl) GetValue(m *bpf.BPFMap, key uint32) ([]byte, error) {
 	if m == nil {
 		return nil, errors.New("provided bpf map is nil")
 	}
+
 	return m.GetValue(unsafe.Pointer(&key))
 }
 
@@ -190,6 +191,7 @@ func (d *defaultImpl) GetValue64(m *bpf.BPFMap, key uint64) ([]byte, error) {
 	if m == nil {
 		return nil, errors.New("provided bpf map is nil")
 	}
+
 	return m.GetValue(unsafe.Pointer(&key))
 }
 
@@ -197,6 +199,7 @@ func (d *defaultImpl) UpdateValue(m *bpf.BPFMap, key uint32, value []byte) error
 	if m == nil {
 		return errors.New("provided bpf map is nil")
 	}
+
 	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
 }
 
@@ -204,6 +207,7 @@ func (d *defaultImpl) UpdateValue64(m *bpf.BPFMap, key uint64, value []byte) err
 	if m == nil {
 		return errors.New("provided bpf map is nil")
 	}
+
 	return m.Update(unsafe.Pointer(&key), unsafe.Pointer(&value[0]))
 }
 
@@ -211,6 +215,7 @@ func (d *defaultImpl) DeleteKey(m *bpf.BPFMap, key uint32) error {
 	if m == nil {
 		return errors.New("provided bpf map is nil")
 	}
+
 	return m.DeleteKey(unsafe.Pointer(&key))
 }
 
@@ -218,6 +223,7 @@ func (d *defaultImpl) DeleteKey64(m *bpf.BPFMap, key uint64) error {
 	if m == nil {
 		return errors.New("provided bpf map is nil")
 	}
+
 	return m.DeleteKey(unsafe.Pointer(&key))
 }
 
@@ -259,6 +265,7 @@ func (d *defaultImpl) Readlink(name string) (string, error) {
 
 func (d *defaultImpl) ParseUint(s string) (uint32, error) {
 	value, err := strconv.ParseUint(s, 10, 32)
+
 	return uint32(value), err
 }
 

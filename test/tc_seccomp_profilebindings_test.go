@@ -26,6 +26,7 @@ func (e *e2e) testCaseSeccompProfileBinding(_ []string, image string) {
 	e.seccompOnlyTestCase()
 
 	const exampleProfilePath = "examples/seccompprofile.yaml"
+
 	testBinding := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: ProfileBinding
@@ -37,6 +38,7 @@ spec:
     name: profile-allow-unsafe
   image: %s
 `, image)
+
 	const testPod = `
 apiVersion: v1
 kind: Pod
@@ -66,19 +68,24 @@ spec:
 	e.waitFor("condition=ready", "seccompprofile", "profile-allow-unsafe")
 
 	e.logf("Creating test profile binding")
+
 	testBindingFile, err := os.CreateTemp("", "hello-binding*.yaml")
 	e.Nil(err)
+
 	defer os.Remove(testBindingFile.Name())
 	_, err = testBindingFile.WriteString(testBinding)
 	e.Nil(err)
 	err = testBindingFile.Close()
 	e.Nil(err)
 	e.kubectl("create", "-f", testBindingFile.Name())
+
 	defer e.kubectl("delete", "-f", testBindingFile.Name())
 
 	e.logf("Creating test pod")
+
 	testPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
 	e.Nil(err)
+
 	defer os.Remove(testPodFile.Name())
 
 	_, err = testPodFile.WriteString(testPod)
@@ -86,6 +93,7 @@ spec:
 	err = testPodFile.Close()
 	e.Nil(err)
 	e.kubectl("create", "-f", testPodFile.Name())
+
 	defer e.kubectl("delete", "pod", "hello")
 
 	e.logf("Waiting for test pod to be initialized")

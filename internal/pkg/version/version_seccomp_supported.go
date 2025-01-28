@@ -28,5 +28,6 @@ import (
 // libseccompVersion returns a human readable string of the libseccomp version.
 func libseccompVersion() string {
 	major, minor, patch := seccomp.GetLibraryVersion()
+
 	return fmt.Sprintf("%d.%d.%d", major, minor, patch)
 }

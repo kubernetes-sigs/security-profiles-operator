@@ -57,10 +57,13 @@ func GetCAInjectType(
 	)
 	if err == nil {
 		log.Info("Using OpenShift as certificate provider")
+
 		return CAInjectTypeOpenShift, nil
 	}
+
 	if IsNotFound(err) {
 		log.Info("Using cert-manager as certificate provider")
+
 		return CAInjectTypeCertManager, nil
 	}
 
@@ -131,9 +134,11 @@ func (c *CertManagerResources) Create(ctx context.Context, cl client.Client) err
 			if apierrors.IsAlreadyExists(err) {
 				continue
 			}
+
 			return fmt.Errorf("creating %s: %w", k, err)
 		}
 	}
+
 	return nil
 }
 
@@ -143,6 +148,7 @@ func (c *CertManagerResources) Update(ctx context.Context, cl client.Client) err
 			return fmt.Errorf("updating %s: %w", k, err)
 		}
 	}
+
 	return nil
 }
 

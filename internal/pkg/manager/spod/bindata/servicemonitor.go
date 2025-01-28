@@ -90,6 +90,7 @@ func endpointFor(path string, caInjectType CAInjectType) v1.Endpoint {
 			},
 		}
 	}
+
 	return ep
 }
 

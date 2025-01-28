@@ -165,6 +165,7 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 	e.logf("The 'errorlogger' workload should be able to use SELinux policy")
 
 	e.logf("creating policy")
+
 	rmFn := e.writeAndCreate(policy, "errorlogger-policy.yml")
 	defer rmFn()
 
@@ -205,11 +206,13 @@ func (e *e2e) selinuxBaseUsage(kind, policy, polName string, nodes []string) {
 
 func (e *e2e) testCaseSelinuxIncompletePolicy() {
 	e.selinuxOnlyTestCase()
+
 	enforcingProfileName := "errorlogger-incomplete-enforcing"
 
 	e.logf("The 'errorlogger' workload should error out with a wrong policy")
 
 	e.logf("creating incomplete policy")
+
 	removeFn := e.writeAndCreate(
 		fmt.Sprintf(errorloggerIncompletePolFmt, "enforcing", "permissive", "false"),
 		"errorlogger-policy-incomplete-enforcing.yml")
@@ -232,8 +235,10 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 		if exitCode == "1" {
 			break
 		}
+
 		time.Sleep(2 * time.Second)
 	}
+
 	if exitCode != "1" {
 		e.Fail("The pod should have failed, but it didn't")
 	}
@@ -270,11 +275,13 @@ func (e *e2e) testCaseSelinuxNonDefaultTemplate(nodes []string) {
 
 func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 	e.selinuxOnlyTestCase()
+
 	permissiveProfileName := "errorlogger-incomplete-permissive"
 
 	e.logf("The 'errorlogger' workload should run fine with a wrong policy in permissive mode")
 
 	e.logf("creating incomplete policy")
+
 	removeFn := e.writeAndCreate(
 		fmt.Sprintf(errorloggerIncompletePolFmt, "permissive", "permissive", "true"),
 		"errorlogger-policy-incomplete-permissive.yml")
@@ -299,11 +306,13 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 
 func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 	e.selinuxOnlyTestCase()
+
 	disabledProfileName := "errorlogger-incomplete-disabled"
 
 	e.logf("A disabled policy should be possible to install, but not to use")
 
 	e.logf("creating disabled policy")
+
 	removeFn := e.writeAndCreate(
 		fmt.Sprintf(errorloggerIncompletePolFmt, "disabled", "disabled", "true"),
 		"errorlogger-policy-incomplete-disabled.yml")
@@ -325,9 +334,12 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 		if exitCode == "CreateContainerError" {
 			break
 		}
+
 		time.Sleep(2 * time.Second)
+
 		continue
 	}
+
 	if exitCode != "CreateContainerError" {
 		e.Fail("The pod should have failed, but it didn't")
 	}
@@ -347,6 +359,7 @@ func (e *e2e) assertSelinuxPolicyIsInstalled(nodes []string, policy string, node
 			policiesRaw := e.execNode(node, "semodule", "-l")
 			if !e.sliceContainsString(strings.Split(policiesRaw, "\n"), policy) {
 				missingPolName = node
+
 				break
 			}
 		}
@@ -373,6 +386,7 @@ func (e *e2e) assertSelinuxPolicyIsRemoved(nodes []string, policy string, nodeIt
 			policiesRaw := e.execNode(node, "semodule", "-l")
 			if e.sliceContainsString(strings.Split(policiesRaw, "\n"), policy) {
 				missingPolName = node
+
 				break
 			}
 		}

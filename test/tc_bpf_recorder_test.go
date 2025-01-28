@@ -39,24 +39,29 @@ func (e *e2e) waitForBpfRecorderLogs(since time.Time, profiles ...string) {
 		)
 
 		matches := 0
+
 		for _, profile := range profiles {
 			pattern := "Found profile in cluster for container ID.+" + profile
+
 			testRegex := regexp.MustCompile(pattern)
 			if testRegex.MatchString(logs) {
 				matches++
 			}
 		}
+
 		if matches == len(profiles) {
 			return
 		}
 
 		time.Sleep(3 * time.Second)
 	}
+
 	e.logf("Timeout waiting for bpf recorder to start recording profiles %v", profiles)
 }
 
 func (e *e2e) testCaseBpfRecorderKubectlRun() {
 	e.bpfRecorderOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -76,6 +81,7 @@ func (e *e2e) testCaseBpfRecorderKubectlRun() {
 
 func (e *e2e) testCaseBpfRecorderStaticPod() {
 	e.bpfRecorderOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -109,6 +115,7 @@ func (e *e2e) testCaseBpfRecorderStaticPod() {
 
 func (e *e2e) testCaseBpfRecorderMultiContainer() {
 	e.bpfRecorderOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -118,8 +125,11 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 	since, podName := e.createRecordingTestMultiPod()
 
 	const profileNameRedis = recordingName + "-redis"
+
 	const profileNameNginx = recordingName + "-nginx"
+
 	const profileNameInit = recordingName + "-init"
+
 	e.waitForBpfRecorderLogs(since, profileNameRedis, profileNameNginx)
 
 	e.kubectl("delete", "pod", podName)
@@ -139,6 +149,7 @@ func (e *e2e) testCaseBpfRecorderMultiContainer() {
 
 func (e *e2e) testCaseBpfRecorderDeployment() {
 	e.bpfRecorderOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -146,6 +157,7 @@ func (e *e2e) testCaseBpfRecorderDeployment() {
 	e.kubectl("create", "-f", exampleRecordingBpfPath)
 
 	e.logf("Creating test deployment")
+
 	const testDeployment = `
 apiVersion: apps/v1
 kind: Deployment
@@ -172,6 +184,7 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 5
 `
+
 	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
 	e.Nil(err)
 	_, err = testFile.WriteString(testDeployment)
@@ -182,6 +195,7 @@ spec:
 	e.kubectl("create", "-f", testFile.Name())
 
 	const deployName = "my-deployment"
+
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
 
@@ -207,6 +221,7 @@ spec:
 
 func (e *e2e) testCaseBpfRecorderParallel() {
 	e.bpfRecorderOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -216,7 +231,9 @@ func (e *e2e) testCaseBpfRecorderParallel() {
 	since, podNames := e.createRecordingTestParallelPods()
 
 	const profileNameFirstCtr = recordingName + "-rec-0"
+
 	const profileNameSecondCtr = recordingName + "-rec-1"
+
 	e.waitForBpfRecorderLogs(since, profileNameFirstCtr, profileNameSecondCtr)
 
 	for _, podName := range podNames {
@@ -235,6 +252,7 @@ func (e *e2e) testCaseBpfRecorderParallel() {
 
 func (e *e2e) createRecordingTestParallelPods() (since time.Time, podNames []string) {
 	e.logf("Creating test pod")
+
 	since = time.Now()
 
 	for i, image := range []string{
@@ -278,6 +296,7 @@ spec:
 
 func (e *e2e) testCaseBpfRecorderSelectContainer() {
 	e.bpfRecorderOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -287,6 +306,7 @@ func (e *e2e) testCaseBpfRecorderSelectContainer() {
 	since, podName := e.createRecordingTestMultiPod()
 
 	const profileNameNginx = recordingName + "-nginx"
+
 	e.waitForBpfRecorderLogs(since, profileNameNginx)
 
 	e.kubectl("delete", "pod", podName)

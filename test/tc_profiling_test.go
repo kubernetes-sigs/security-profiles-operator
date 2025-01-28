@@ -67,6 +67,7 @@ func (e *e2e) getProfilingEndpoint(i int) string {
 		fmt.Sprintf("jsonpath={.items[?(@.metadata.name=='%s')]"+
 			".spec.containers[?(@.name=='security-profiles-operator')]"+
 			".env[?(@.name=='SPO_PROFILING_PORT')].value}", podName))
+
 	return "http://" + podIP + ":" + podPort + "/debug/pprof/heap"
 }
 
@@ -75,21 +76,25 @@ func (e *e2e) getProfilingHTTPVersion() string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
+
 	for i := range b {
 		b[i] = letters[r.Intn(len(letters))]
 	}
 
 	nPodsOutput := e.kubectlOperatorNS("get", "daemonsets", "spod", "-o",
 		"jsonpath={.status.numberAvailable}")
+
 	nPods, err := strconv.Atoi(nPodsOutput)
 	if err != nil {
 		e.Failf("could not get size of spod daemonset", "error: %s", err)
 	}
+
 	index := 0
 
 	// Sometimes the endpoint does not output anything in CI. We fix
 	// that by retrying the endpoint several times.
 	var output string
+
 	if err := spoutil.Retry(func() error {
 		profilingEndpoint := e.getProfilingEndpoint(index)
 		profilingCurlCMD := curlHTTPVerCMD + profilingEndpoint
@@ -98,16 +103,20 @@ func (e *e2e) getProfilingHTTPVersion() string {
 			return nil
 		}
 		output = ""
+
 		return errors.New("no output from profiling curl command")
 	}, func(err error) bool {
 		e.logf("retry on error: %s", err)
 		if index < nPods {
 			index++
+
 			return true
 		}
+
 		return false
 	}); err != nil {
 		e.Failf("unable to get profiling endpoint http version", "error: %s", err)
 	}
+
 	return output
 }

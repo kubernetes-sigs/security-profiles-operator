@@ -63,6 +63,7 @@ func (*LogSink) Print(msg string, err error, keysAndValues ...interface{}) {
 		if i == 0 {
 			builder.WriteString(" (")
 		}
+
 		builder.WriteString(fmt.Sprintf("%v", kv))
 		//nolint:gocritic // this is intentionally an else-if-chain
 		if i%2 == 0 {

@@ -54,6 +54,7 @@ type policyDisableSwitch int
 
 func (e *e2e) testSeccompBpfProfileMerging() {
 	e.bpfRecorderOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -71,6 +72,7 @@ func (e *e2e) testSeccompBpfProfileMerging() {
 
 func (e *e2e) testSeccompLogsProfileMerging() {
 	e.logEnricherOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -88,6 +90,7 @@ func (e *e2e) testSeccompLogsProfileMerging() {
 func (e *e2e) testSelinuxLogsProfileMerging() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -105,6 +108,7 @@ func (e *e2e) testSelinuxLogsProfileMerging() {
 func (e *e2e) testSelinuxLogsDisabledProfileMerging() {
 	e.logEnricherOnlyTestCase()
 	e.selinuxOnlyTestCase()
+
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
 
@@ -160,7 +164,9 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 5
 `
+
 	e.logf("Creating a profile recording with merge strategy 'containers'")
+
 	deleteManifestFn := createTemplatedProfileRecording(e, &profileRecTmplMetadata{
 		name:           mergeProfileRecordingName,
 		recorderKind:   recorderKind,
@@ -184,6 +190,7 @@ spec:
 		for _, sfx := range suffixes {
 			profileNames = append(profileNames, mergeProfileRecordingName+"-"+containerNameNginx+"-"+sfx)
 		}
+
 		e.waitForBpfRecorderLogs(since, profileNames...)
 
 	default:
@@ -229,19 +236,25 @@ spec:
 	// Retry a couple of times because removing the partial policies is not atomic. In prod you'd probably list the
 	// profiles and check the absence of the partial label.
 	policiesRecorded := make([]string, 0)
+
 	for range 3 {
 		policiesRecordedString := e.kubectl("get", resource,
 			"-l", "spo.x-k8s.io/recording-id="+mergeProfileRecordingName,
 			"-o", "jsonpath={.items[*].metadata.name}")
+
 		policiesRecorded = strings.Fields(policiesRecordedString)
 		if len(policiesRecorded) > 1 {
 			time.Sleep(5 * time.Second)
+
 			continue
 		}
 	}
+
 	e.Len(policiesRecorded, 2)
+
 	mergedProfileNginx := fmt.Sprintf("%s-%s", mergeProfileRecordingName, containerNameNginx)
 	mergedProfileRedis := fmt.Sprintf("%s-%s", mergeProfileRecordingName, containerNameRedis)
+
 	e.Contains(policiesRecorded, mergedProfileNginx)
 	e.Contains(policiesRecorded, mergedProfileRedis)
 
@@ -264,12 +277,14 @@ func retryAssertPrfStatus(e *e2e, kind, name, enabledState string, isPolicyEnabl
 			"get", kind, name, "-o", "jsonpath={.status.status}")
 		if profileStatus != "" {
 			e.logf("The profile %s/%s has a status %s", kind, name, profileStatus)
+
 			break
 		}
 		// it might take a bit for the nodestatus controller to pick
 		// up the profile, so retry a couple of times
 		time.Sleep(5 * time.Second)
 		e.logf("Waiting for the profile %s/%s to have a status", kind, name)
+
 		continue
 	}
 
@@ -307,5 +322,6 @@ func createTemplatedProfileRecording(e *e2e, metadata *profileRecTmplMetadata) f
 		metadata.recorderKind, metadata.recorder,
 		metadata.mergeStrategy, metadata.labelKey, metadata.labelValue)
 	deleteFn := e.writeAndCreate(manifest, metadata.name+".yml")
+
 	return deleteFn
 }

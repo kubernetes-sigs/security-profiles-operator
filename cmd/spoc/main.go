@@ -36,6 +36,7 @@ import (
 
 func main() {
 	log.SetFlags(log.Lmicroseconds)
+
 	app, _ := cmd.DefaultApp()
 	app.Usage = "Security Profiles Operator CLI"
 

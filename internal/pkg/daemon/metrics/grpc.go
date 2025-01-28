@@ -58,6 +58,7 @@ func (m *Metrics) ServeGRPC() error {
 
 	go func() {
 		m.log.Info("Starting GRPC server API")
+
 		if err := grpcServer.Serve(listener); err != nil {
 			m.log.Error(err, "unable to run GRPC server")
 		}
@@ -78,8 +79,10 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	)
 	if err != nil {
 		cancel()
+
 		return nil, nil, fmt.Errorf("GRPC dial: %w", err)
 	}
+
 	return conn, cancel, nil
 }
 
@@ -92,6 +95,7 @@ func (m *Metrics) AuditInc(
 		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(&api.EmptyResponse{})
 		}
+
 		if err != nil {
 			return fmt.Errorf("record syscalls: %w", err)
 		}
@@ -138,6 +142,7 @@ func (m *Metrics) BpfInc(stream api.Metrics_BpfIncServer) error {
 		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(&api.EmptyResponse{})
 		}
+
 		if err != nil {
 			return fmt.Errorf("record bpf metrics: %w", err)
 		}

@@ -33,6 +33,7 @@ var errTest = errors.New("error")
 
 func TestRun(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		prepare     func(*nonrootenablerfakes.FakeImpl)
 		shouldError bool

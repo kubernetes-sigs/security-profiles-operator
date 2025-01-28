@@ -67,10 +67,12 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
+
 		fileToRemove, err := os.CreateTemp("/tmp", "spoc-test")
 		require.NoError(t, err)
 		err = fileToRemove.Close()
 		require.NoError(t, err)
+
 		fileRead := fmt.Sprintf("../../README.md,/proc/1/limits,/proc/%d/limits", os.Getpid())
 		profile := recordAppArmor(t,
 			"./demobinary",
@@ -93,11 +95,13 @@ func recordAppArmorTest(t *testing.T) {
 		require.Contains(t, *profile.Filesystem.ReadWritePaths, fileToRemove.Name())
 
 		count := 0
+
 		for _, s := range *profile.Filesystem.ReadOnlyPaths {
 			if s == "/proc/@{pid}/limits" {
 				count++
 			}
 		}
+
 		require.Equal(t, 1, count)
 
 		profile = recordAppArmor(t, "./demobinary", "--file-read", "/dev/null", "--file-write", "/dev/null")
@@ -107,6 +111,7 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
+
 		profile := recordAppArmor(t,
 			"./demobinary",
 			"--dir-read", "/var,/usr/",
@@ -125,6 +130,7 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
+
 		profile := recordAppArmor(t, "./demobinary", "--net-unix", "/tmp/spoc-test.sock")
 		err := os.Remove("/tmp/spoc-test.sock")
 		require.NoError(t, err)
@@ -136,6 +142,7 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
+
 		profile := recordAppArmor(t, "./demobinary", "--net-tcp")
 		require.True(t, *profile.Network.Protocols.AllowTCP)
 		require.Nil(t, profile.Capability)
@@ -150,6 +157,7 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
+
 		profile := recordAppArmor(t, "--privileged", "./demobinary", "--cap-sys-admin")
 		require.Contains(t, profile.Capability.AllowedCapabilities, "sys_admin")
 
@@ -161,6 +169,7 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
+
 		profile := recordAppArmor(t, "./demobinary", "./demobinary-child", "--file-read", "/dev/null")
 		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary-child")
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
@@ -184,6 +193,7 @@ func recordAppArmorTest(t *testing.T) {
 			err = syscall.Munmap(page)
 			require.NoError(t, err)
 		}
+
 		profile := recordAppArmor(t, "./demobinary", "./demobinary-child", "--hugepage")
 		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/")
 	})
@@ -192,6 +202,7 @@ func recordAppArmorTest(t *testing.T) {
 		if !bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM disabled")
 		}
+
 		demobinary, err := filepath.Abs("./demobinary")
 		require.NoError(t, err)
 
@@ -206,7 +217,9 @@ func recordAppArmorTest(t *testing.T) {
 		)
 		stderr, err := cmd.StderrPipe()
 		spocLogs := bufio.NewScanner(stderr)
+
 		require.NoError(t, err)
+
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
 
@@ -215,8 +228,10 @@ func recordAppArmorTest(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Log("waiting for SPOC to set up...")
+
 		for spocLogs.Scan() {
 			t.Log(spocLogs.Text())
+
 			if strings.Contains(spocLogs.Text(), recorder.WaitForSigIntMessage) {
 				break
 			}
@@ -227,8 +242,10 @@ func recordAppArmorTest(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Log("waiting for SPOC to register process exit...")
+
 		for spocLogs.Scan() {
 			t.Log(spocLogs.Text())
+
 			if strings.Contains(spocLogs.Text(), fmt.Sprintf("record pid exit: %d.", cmd2.Process.Pid)) {
 				break
 			}
@@ -262,6 +279,7 @@ func recordAppArmorTest(t *testing.T) {
 		if bpfrecorder.BPFLSMEnabled() {
 			t.Skip("BPF LSM enabled")
 		}
+
 		_, err := runSpoc(
 			t,
 			"record",
@@ -282,6 +300,7 @@ func recordSeccompTest(t *testing.T) {
 
 func runSpoc(t *testing.T, args ...string) ([]byte, error) {
 	t.Helper()
+
 	args = append([]string{spocPath}, args...)
 	cmd := exec.Command(
 		"sudo",
@@ -289,11 +308,13 @@ func runSpoc(t *testing.T, args ...string) ([]byte, error) {
 	)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
+
 	return out, err
 }
 
 func record(t *testing.T, typ string, profile client.Object, args ...string) {
 	t.Helper()
+
 	args = append([]string{
 		"record", "-t", typ, "-o", "/dev/stdout", "--no-base-syscalls",
 	}, args...)
@@ -305,14 +326,18 @@ func record(t *testing.T, typ string, profile client.Object, args ...string) {
 
 func recordAppArmor(t *testing.T, args ...string) apparmorprofileapi.AppArmorAbstract {
 	t.Helper()
+
 	profile := apparmorprofileapi.AppArmorProfile{}
 	record(t, "apparmor", &profile, args...)
+
 	return profile.Spec.Abstract
 }
 
 func recordSeccomp(t *testing.T, args ...string) seccompprofileapi.SeccompProfileSpec {
 	t.Helper()
+
 	profile := seccompprofileapi.SeccompProfile{}
 	record(t, "seccomp", &profile, args...)
+
 	return profile.Spec
 }

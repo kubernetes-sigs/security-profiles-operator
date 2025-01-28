@@ -84,6 +84,7 @@ func TestRun(t *testing.T) {
 	defaultOptions := func() *Options {
 		options := Default()
 		options.inputFiles = []string{"foo.yaml", "bar.yaml"}
+
 		return options
 	}
 
@@ -97,6 +98,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(SeccompA), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(SeccompB), nil)
+
 				return defaultOptions()
 			},
 			assert: func(mock *mergerfakes.FakeImpl, err error) {
@@ -110,6 +112,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte(SeccompA), nil)
 				mock.ReadFileReturnsOnCall(1, []byte(SelinuxA), nil)
+
 				return defaultOptions()
 			},
 			assert: func(mock *mergerfakes.FakeImpl, err error) {
@@ -121,6 +124,7 @@ func TestRun(t *testing.T) {
 			name: "input file not found",
 			prepare: func(mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, nil, errors.New("file not found"))
+
 				return defaultOptions()
 			},
 			assert: func(mock *mergerfakes.FakeImpl, err error) {
@@ -131,6 +135,7 @@ func TestRun(t *testing.T) {
 			name: "input file is not yaml",
 			prepare: func(mock *mergerfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte("% this is not yaml"), nil)
+
 				return defaultOptions()
 			},
 			assert: func(mock *mergerfakes.FakeImpl, err error) {
