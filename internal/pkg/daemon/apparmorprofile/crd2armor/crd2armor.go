@@ -80,13 +80,7 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
   deny @{PROC}/kmem rwklx,
   deny @{PROC}/kcore rwklx,
   deny mount,
-  deny /sys/[^f]*/** wklx,
-  deny /sys/f[^s]*/** wklx,
-  deny /sys/fs/[^c]*/** wklx,
-  deny /sys/fs/c[^g]*/** wklx,
-  deny /sys/fs/cg[^r]*/** wklx,
   deny /sys/firmware/efi/efivars/** rwklx,
-  deny /sys/kernel/security/** rwklx,
 }
 `
 
