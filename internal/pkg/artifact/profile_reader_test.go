@@ -63,18 +63,21 @@ func TestReadProfile(t *testing.T) {
 	t.Parallel()
 	t.Run("AppArmor", func(t *testing.T) {
 		t.Parallel()
+
 		profile, err := ReadProfile([]byte(AppArmorProfileExample))
 		require.NoError(t, err)
 		require.IsType(t, &apparmorprofileapi.AppArmorProfile{}, profile)
 	})
 	t.Run("SELinux", func(t *testing.T) {
 		t.Parallel()
+
 		profile, err := ReadProfile([]byte(SelinuxProfileExample))
 		require.NoError(t, err)
 		require.IsType(t, &selinuxprofileapi.SelinuxProfile{}, profile)
 	})
 	t.Run("seccomp", func(t *testing.T) {
 		t.Parallel()
+
 		profile, err := ReadProfile([]byte(SeccompProfileExample))
 		require.NoError(t, err)
 		require.IsType(t, &seccompprofile.SeccompProfile{}, profile)
@@ -82,18 +85,21 @@ func TestReadProfile(t *testing.T) {
 
 	t.Run("invalid file", func(t *testing.T) {
 		t.Parallel()
+
 		_, err := ReadProfile([]byte("\x00"))
 		require.ErrorContains(t, err, "cannot parse yaml")
 	})
 
 	t.Run("invalid yaml", func(t *testing.T) {
 		t.Parallel()
+
 		_, err := ReadProfile([]byte("{}"))
 		require.ErrorContains(t, err, "kind missing")
 	})
 
 	t.Run("unknown kind", func(t *testing.T) {
 		t.Parallel()
+
 		_, err := ReadProfile([]byte("kind: unknown"))
 		require.ErrorContains(t, err, "unexpected YAML kind")
 	})

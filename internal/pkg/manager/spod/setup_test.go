@@ -27,6 +27,7 @@ import (
 
 func Test_getEffectiveSPOd(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name    string
 		dt      daemonTunables
@@ -58,17 +59,23 @@ func Test_getEffectiveSPOd(t *testing.T) {
 			t.Parallel()
 			//nolint:tenv // cannot use tenv after t.Parallel()
 			os.Setenv("OPERATOR_NAMESPACE", "default")
+
 			got := getEffectiveSPOd(&tt.dt)
 			require.Equal(t, tt.dt.selinuxdImage, got.Spec.Template.Spec.Containers[1].Image)
 			require.Equal(t, tt.dt.logEnricherImage, got.Spec.Template.Spec.Containers[2].Image)
+
 			var found bool
+
 			for _, env := range got.Spec.Template.Spec.Containers[0].Env {
 				if env.Name == config.RestrictNamespaceEnvKey {
 					require.Equal(t, tt.dt.watchNamespace, env.Value)
+
 					found = true
+
 					break
 				}
 			}
+
 			if tt.nsIsSet && !found {
 				t.Errorf("%s env variable wasn't set", config.RestrictNamespaceEnvKey)
 			}

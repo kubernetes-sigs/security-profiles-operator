@@ -30,10 +30,13 @@ func AddFinalizer(ctx context.Context, c client.Client, pol client.Object, final
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
 		return fmt.Errorf("%s: %w", ErrGetProfile, err)
 	}
+
 	if controllerutil.ContainsFinalizer(pol, finalizer) {
 		return nil
 	}
+
 	controllerutil.AddFinalizer(pol, finalizer)
+
 	return c.Update(ctx, pol)
 }
 
@@ -42,10 +45,13 @@ func RemoveFinalizer(ctx context.Context, c client.Client, pol client.Object, fi
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
 		return fmt.Errorf("%s: %w", ErrGetProfile, err)
 	}
+
 	if !controllerutil.ContainsFinalizer(pol, finalizer) {
 		return nil
 	}
+
 	controllerutil.RemoveFinalizer(pol, finalizer)
+
 	return c.Update(ctx, pol)
 }
 
@@ -56,5 +62,6 @@ func GetFinalizerNodeString(nodeName string) string {
 	if len(nodeName)+len("-deleted") > validation.DNS1123LabelMaxLength {
 		finalizerString = nodeName[:validation.DNS1123LabelMaxLength-len("-deleted")] + "-deleted"
 	}
+
 	return finalizerString
 }

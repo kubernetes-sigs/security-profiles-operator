@@ -132,6 +132,7 @@ func (*defaultImpl) GetPod(
 ) (*corev1.Pod, error) {
 	pod := &corev1.Pod{}
 	err := c.Get(ctx, key, pod)
+
 	return pod, err
 }
 
@@ -149,6 +150,7 @@ func (*defaultImpl) StartBpfRecorder(
 	ctx context.Context, c bpfrecorderapi.BpfRecorderClient,
 ) error {
 	_, err := c.Start(ctx, &bpfrecorderapi.EmptyRequest{})
+
 	return err
 }
 
@@ -156,6 +158,7 @@ func (*defaultImpl) StopBpfRecorder(
 	ctx context.Context, c bpfrecorderapi.BpfRecorderClient,
 ) error {
 	_, err := c.Stop(ctx, &bpfrecorderapi.EmptyRequest{})
+
 	return err
 }
 
@@ -198,6 +201,7 @@ func (*defaultImpl) ResetSyscalls(
 	ctx context.Context, c enricherapi.EnricherClient, in *enricherapi.SyscallsRequest,
 ) error {
 	_, err := c.ResetSyscalls(ctx, in)
+
 	return err
 }
 
@@ -211,6 +215,7 @@ func (*defaultImpl) ResetAvcs(
 	ctx context.Context, c enricherapi.EnricherClient, in *enricherapi.AvcRequest,
 ) error {
 	_, err := c.ResetAvcs(ctx, in)
+
 	return err
 }
 
@@ -226,5 +231,6 @@ func (*defaultImpl) GetRecording(
 	recording := profilerecording1alpha1.ProfileRecording{}
 
 	err := cli.Get(ctx, key, &recording)
+
 	return &recording, err
 }

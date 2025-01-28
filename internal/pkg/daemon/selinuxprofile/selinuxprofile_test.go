@@ -35,19 +35,23 @@ import (
 
 func Test_selinuxProfileHandler(t *testing.T) {
 	t.Parallel()
+
 	ns := "security-profiles-operator"
 	//nolint:tenv // we want to set the env here
 	os.Setenv("OPERATOR_NAMESPACE", ns)
+
 	schemeInstance := scheme.Scheme
 	if err := spodv1alpha1.AddToScheme(schemeInstance); err != nil {
 		t.Fatalf("couldn't add SPOD API to scheme")
 	}
+
 	if err := selxv1alpha2.AddToScheme(schemeInstance); err != nil {
 		t.Fatalf("couldn't add SPOD API to scheme")
 	}
 
 	spodinstance := bindata.DefaultSPOD.DeepCopy()
 	spodinstance.Namespace = ns
+
 	tests := []struct {
 		name            string
 		profile         selxv1alpha2.SelinuxProfileObject
@@ -363,9 +367,11 @@ func Test_selinuxProfileHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if !tt.missingProfile {
 				tt.existingObjs = append(tt.existingObjs, tt.profile)
 			}
+
 			cli := fake.NewClientBuilder().WithScheme(schemeInstance).WithObjects(tt.existingObjs...).Build()
 			key := types.NamespacedName{Name: tt.profile.GetName(), Namespace: tt.profile.GetNamespace()}
 			sph, initerr := newSelinuxProfileHandler(context.TODO(), cli, key)
@@ -383,6 +389,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 						t.Errorf("The error didn't match expectation.\nExpected match for: %s\nGot instead: %s", wantMatch, initerr)
 					}
 				}
+
 				return
 			}
 

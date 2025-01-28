@@ -43,6 +43,7 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	if !e.testWebhookConfig {
 		e.T().Skip("Skipping webhook config related tests")
 	}
+
 	e.logf("Change webhook options")
 
 	whDefault := e.getAllWebhookAttributes()
@@ -78,6 +79,7 @@ func getWhConfigs() []*whConfigOutput {
 	whConfigs := make([]*whConfigOutput, numWebhooks)
 	whConfigs[0] = &whConfigOutput{name: "binding.spo.io"}
 	whConfigs[1] = &whConfigOutput{name: "recording.spo.io"}
+
 	return whConfigs
 }
 
@@ -88,11 +90,13 @@ func (e *e2e) getAllWebhookAttributes() []*whConfigOutput {
 		out[i].namespaceSelector = e.getWebhookAttribute(out[i].name, "namespaceSelector")
 		out[i].failurePolicy = e.getWebhookAttribute(out[i].name, "failurePolicy")
 	}
+
 	return out
 }
 
 func (e *e2e) getWebhookAttribute(hook, attr string) string {
 	jsonPath := fmt.Sprintf("{.webhooks[?(@.name==%q)].%s}", hook, attr)
+
 	return e.kubectlOperatorNS("get", "MutatingWebhookConfiguration",
 		"spo-mutating-webhook-configuration",
 		"--output", "jsonpath="+jsonPath)
@@ -102,6 +106,7 @@ func (e *e2e) testCaseWebhookHTTP([]string) {
 	if !e.testWebhookHTTP {
 		e.T().Skip("Skipping webhook HTTP version related tests")
 	}
+
 	e.logf("Test webhook HTTP version")
 
 	endpoints := []string{

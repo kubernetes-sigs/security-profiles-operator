@@ -98,6 +98,7 @@ func (a *Artifact) Push(
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
+
 	defer func() {
 		if err := a.RemoveAll(dir); err != nil {
 			a.logger.Info("Unable to remove temp dir: " + err.Error())
@@ -105,10 +106,12 @@ func (a *Artifact) Push(
 	}()
 
 	a.logger.Info("Creating file store in: " + dir)
+
 	store, err := a.FileNew(dir)
 	if err != nil {
 		return fmt.Errorf("create file store: %w", err)
 	}
+
 	defer func() {
 		if err := a.FileClose(store); err != nil {
 			a.logger.Info("Unable to close file store: " + err.Error())
@@ -119,7 +122,9 @@ func (a *Artifact) Push(
 	defer cancel()
 
 	fileDescriptors := []v1.Descriptor{}
+
 	a.logger.Info("Adding " + strconv.Itoa(len(files)) + " profiles")
+
 	for platform, file := range files {
 		a.logger.Info(
 			"Adding profile " + file +
@@ -127,24 +132,29 @@ func (a *Artifact) Push(
 				platformToString(platform) +
 				" to store",
 		)
+
 		absPath, err := a.FilepathAbs(file)
 		if err != nil {
 			return fmt.Errorf("get absolute file path: %w", err)
 		}
+
 		fileDescriptor, err := a.StoreAdd(
 			ctx, store, profileName(platform), "", absPath,
 		)
 		if err != nil {
 			return fmt.Errorf("add profile to store: %w", err)
 		}
+
 		for k, v := range annotations {
 			fileDescriptor.Annotations[k] = v
 		}
+
 		fileDescriptor.Platform = platform
 		fileDescriptors = append(fileDescriptors, fileDescriptor)
 	}
 
 	a.logger.Info("Packing files")
+
 	manifestDescriptor, err := a.PackManifest(
 		ctx,
 		store,
@@ -159,10 +169,12 @@ func (a *Artifact) Push(
 	}
 
 	a.logger.Info("Verifying reference: " + to)
+
 	parsedRef, err := a.ParseReference(to)
 	if err != nil {
 		return fmt.Errorf("parse reference: %w", err)
 	}
+
 	tag := parsedRef.Identifier()
 
 	a.logger.Info("Using tag: " + tag)
@@ -173,6 +185,7 @@ func (a *Artifact) Push(
 
 	ref := parsedRef.Context().Name()
 	a.logger.Info("Creating repository for " + ref)
+
 	repo, err := a.NewRepository(ref)
 	if err != nil {
 		return fmt.Errorf("create repository: %w", err)
@@ -192,12 +205,14 @@ func (a *Artifact) Push(
 	}
 
 	a.logger.Info("Copying profile to repository")
+
 	descriptor, err := a.Copy(ctx, store, tag, repo, tag, oras.DefaultCopyOptions)
 	if err != nil {
 		return fmt.Errorf("copy to repository: %w", err)
 	}
 
 	a.logger.Info("Signing OCI artifact")
+
 	o := &options.SignOptions{
 		Upload:           true,
 		TlogUpload:       true,
@@ -209,10 +224,12 @@ func (a *Artifact) Push(
 			ClientID: "sigstore",
 		},
 	}
+
 	oidcClientSecret, err := a.ClientSecret(o.OIDC)
 	if err != nil {
 		return fmt.Errorf("get OIDC client secret: %w", err)
 	}
+
 	if err := a.SignCmd(
 		&options.RootOptions{Timeout: defaultTimeout},
 		options.KeyOpts{
@@ -255,7 +272,9 @@ func (a *Artifact) Pull(
 
 	if !disableSignatureVerification {
 		a.logger.Info("Verifying signature")
+
 		const all = ".*"
+
 		v := verify.VerifyCommand{
 			CertVerifyOptions: options.CertVerifyOptions{
 				CertIdentityRegexp:   all,
@@ -271,6 +290,7 @@ func (a *Artifact) Pull(
 	if err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
 	}
+
 	defer func() {
 		if err := a.RemoveAll(dir); err != nil {
 			a.logger.Info("Unable to remove temp dir: " + err.Error())
@@ -278,10 +298,12 @@ func (a *Artifact) Pull(
 	}()
 
 	a.logger.Info("Creating file store in: " + dir)
+
 	store, err := a.FileNew(dir)
 	if err != nil {
 		return nil, fmt.Errorf("create file store: %w", err)
 	}
+
 	defer func() {
 		if err := a.FileClose(store); err != nil {
 			a.logger.Info("Unable to close file store: " + err.Error())
@@ -289,6 +311,7 @@ func (a *Artifact) Pull(
 	}()
 
 	a.logger.Info("Verifying reference: " + from)
+
 	parsedRef, err := a.ParseReference(from)
 	if err != nil {
 		return nil, fmt.Errorf("parse reference: %w", err)
@@ -296,6 +319,7 @@ func (a *Artifact) Pull(
 
 	ref := parsedRef.Context().Name()
 	a.logger.Info("Creating repository for " + ref)
+
 	repo, err := a.NewRepository(ref)
 	if err != nil {
 		return nil, fmt.Errorf("create repository: %w", err)
@@ -318,6 +342,7 @@ func (a *Artifact) Pull(
 	a.logger.Info("Using tag: " + tag)
 
 	a.logger.Info("Copying profile from repository")
+
 	if _, err := a.Copy(
 		ctx, repo, tag, store, tag, oras.DefaultCopyOptions,
 	); err != nil {
@@ -328,13 +353,16 @@ func (a *Artifact) Pull(
 
 	// Allow a fallback to defaultProfileYAML if no platform is available.
 	content := []byte{}
+
 	for _, name := range []string{profileName(platform), defaultProfileYAML} {
 		a.logger.Info("Trying to read profile: " + name)
+
 		content, err = a.ReadFile(filepath.Join(dir, name))
 		if err == nil {
 			break
 		}
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("read profile: %w", err)
 	}
@@ -388,6 +416,7 @@ func profileName(platform *v1.Platform) string {
 	}
 
 	name.WriteString(".yaml")
+
 	return name.String()
 }
 
@@ -404,6 +433,7 @@ func platformToString(platform *v1.Platform) string {
 			if i > 0 {
 				name.WriteRune('/')
 			}
+
 			name.WriteString(part)
 		}
 	}

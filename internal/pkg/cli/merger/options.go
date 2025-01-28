@@ -44,6 +44,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	if len(args) == 0 {
 		return nil, errors.New("no profiles provided")
 	}
+
 	options.inputFiles = args
 
 	options.check = ctx.IsSet(FlagCheck)
@@ -51,6 +52,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)
 	}
+
 	if options.outputFile == "" {
 		return nil, errors.New("no filename provided")
 	}

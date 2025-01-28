@@ -42,6 +42,7 @@ func GetDynamicClient() (dynamic.Interface, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load dynamic client: %w", err)
 	}
+
 	return dynamicClient, nil
 }
 
@@ -61,16 +62,20 @@ func GetNodeList(ctx context.Context) ([]string, error) {
 
 	// Extract node names
 	nodeNames := make([]string, 0, len(nodeList.Items))
+
 	for _, item := range nodeList.Items {
 		var node map[string]interface{}
+
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(item.Object, &node)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read node object: %w", err)
 		}
+
 		nodeName, _, err := unstructured.NestedString(node, "metadata", "name")
 		if err != nil {
 			return nil, fmt.Errorf("unable to extract nodeName from node object: %w", err)
 		}
+
 		nodeNames = append(nodeNames, nodeName)
 	}
 
@@ -93,6 +98,7 @@ func FinalizersMatchCurrentNodes(ctx context.Context,
 			return false, nil
 		}
 	}
+
 	return true, nil
 }
 
@@ -102,5 +108,6 @@ func ContainsSubstring(list []string, str string) bool {
 			return true
 		}
 	}
+
 	return false
 }

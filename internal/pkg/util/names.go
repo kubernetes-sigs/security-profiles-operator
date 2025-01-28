@@ -42,6 +42,7 @@ func Contains(a []string, b string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -60,14 +61,17 @@ func lengthName(maxLen int, hashPrefix, format string, a ...interface{}) (string
 
 	hashStr := hex.EncodeToString(hasher.Sum(nil))
 	hashUseLen := maxLen - len(hashPrefix) - 1 // -1 for the dash separator
+
 	if hashUseLen < maxLen {
 		hashStr = hashStr[:hashUseLen]
 	}
+
 	hashedName := fmt.Sprintf("%s-%s", hashPrefix, hashStr)
 
 	if len(hashedName) > maxLen {
 		return "", errors.New("shortening string")
 	}
+
 	return hashedName, nil
 }
 
@@ -76,10 +80,12 @@ func dnsLengthName(hashPrefix, format string, a ...interface{}) string {
 	// 					  function return error, but here I think it's OK to
 	// 					  just ignore
 	name, _ := lengthName(validation.DNS1123LabelMaxLength, hashPrefix, format, a...)
+
 	return name
 }
 
 func KindBasedDNSLengthName(obj client.Object) string {
 	kind := obj.GetObjectKind().GroupVersionKind().Kind
+
 	return dnsLengthName(kind, "%s-%s", kind, obj.GetName())
 }

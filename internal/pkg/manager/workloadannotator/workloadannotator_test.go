@@ -226,6 +226,7 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 			profile: "runtime/default",
 		},
 	}
+
 	for _, tc := range badCases {
 		badPod.Spec.SecurityContext.SeccompProfile.LocalhostProfile = &tc.profile
 		t.Run(tc.name, func(t *testing.T) {

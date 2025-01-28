@@ -43,6 +43,7 @@ type SecurityProfileBase interface {
 
 func IsPartial(obj metav1.Object) bool {
 	_, ok := obj.GetLabels()[ProfilePartialLabel]
+
 	return ok
 }
 
@@ -70,11 +71,14 @@ func ListProfilesByRecording(
 	}
 
 	recProfiles := make([]metav1.Object, 0)
+
 	if err := meta.EachListItem(list, func(obj runtime.Object) error {
 		if prf, ok := obj.(metav1.Object); ok {
 			recProfiles = append(recProfiles, prf)
+
 			return nil
 		}
+
 		return fmt.Errorf("object %T is not a metav1.Object", obj)
 	}); err != nil {
 		return nil, fmt.Errorf("iterating over partial profiles: %w", err)

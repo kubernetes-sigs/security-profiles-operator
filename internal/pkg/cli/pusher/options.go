@@ -53,6 +53,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	if len(args) == 0 {
 		return nil, errors.New("no remote location provided")
 	}
+
 	options.pushTo = args[0]
 
 	profiles := ctx.StringSlice(FlagProfiles)
@@ -73,11 +74,13 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 		}
 
 		parsedPlatforms := []*v1.Platform{}
+
 		for _, platform := range platforms {
 			parsedPlatform, err := cli.ParsePlatform(platform)
 			if err != nil {
 				return nil, fmt.Errorf("parse platform %s: %w", platform, err)
 			}
+
 			parsedPlatforms = append(parsedPlatforms, parsedPlatform)
 		}
 
@@ -98,12 +101,16 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 
 	options.password = os.Getenv(cli.EnvKeyPassword)
 	options.annotations = map[string]string{}
+
 	for _, a := range ctx.StringSlice(FlagAnnotations) {
 		split := strings.Split(a, ":")
+
 		const minparts = 2
+
 		if len(split) < minparts {
 			return nil, fmt.Errorf("wrong annotation format: %s", a)
 		}
+
 		key := strings.TrimSpace(split[0])
 		value := strings.TrimSpace(split[1])
 		options.annotations[key] = value

@@ -115,9 +115,11 @@ func GenerateProfile(name string, complainMode bool, abstract *apparmorprofileap
 	if err != nil {
 		return "", err
 	}
+
 	if err := tpl.Execute(&generated, templateArgs); err != nil {
 		return "", err
 	}
+
 	return generated.String(), nil
 }
 
@@ -125,5 +127,6 @@ func profileMode(complainMode bool) string {
 	if complainMode {
 		return "complain"
 	}
+
 	return "enforce"
 }

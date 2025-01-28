@@ -58,6 +58,7 @@ func TestReplaceVarianceInFilePath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := replaceVarianceInFilePath(tc.path)
 			require.Equal(t, tc.want, got)
 		})
@@ -100,6 +101,7 @@ func TestAllowAnyFiles(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := allowAnyFiles(test.paths)
 			require.Equal(t, test.want, got)
 		})
@@ -134,6 +136,7 @@ func TestShouldExcludeFile(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := shouldExcludeFile(test.filePath)
 			require.Equal(t, test.want, got)
 		})

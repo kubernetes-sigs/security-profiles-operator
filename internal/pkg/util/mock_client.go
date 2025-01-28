@@ -95,6 +95,7 @@ func NewMockGetFn(err error, ofn ...ObjectFn) MockGetFn {
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -107,6 +108,7 @@ func NewMockListFn(err error, ofn ...ObjectListFn) MockListFn {
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -119,6 +121,7 @@ func NewMockCreateFn(err error, ofn ...ObjectFn) MockCreateFn {
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -131,6 +134,7 @@ func NewMockDeleteFn(err error, ofn ...ObjectFn) MockDeleteFn {
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -143,6 +147,7 @@ func NewMockDeleteAllOfFn(err error, ofn ...ObjectFn) MockDeleteAllOfFn {
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -155,6 +160,7 @@ func NewMockUpdateFn(err error, ofn ...ObjectFn) MockUpdateFn {
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -167,6 +173,7 @@ func NewMockPatchFn(err error, ofn ...ObjectFn) MockPatchFn {
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -179,6 +186,7 @@ func NewMockSubResourceWriterCreateFn(err error, ofn ...ObjectFn) MockSubResourc
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -191,6 +199,7 @@ func NewMockSubResourceWriterUpdateFn(err error, ofn ...ObjectFn) MockSubResourc
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -203,6 +212,7 @@ func NewMockSubResourceWriterPatchFn(err error, ofn ...ObjectFn) MockSubResource
 				return err
 			}
 		}
+
 		return err
 	}
 }
@@ -222,6 +232,7 @@ func NewMockGroupVersionKindForFn(err error, ofn ...RuntimeObjectFn) MockGroupVe
 				return schema.GroupVersionKind{}, err
 			}
 		}
+
 		return schema.GroupVersionKind{}, err
 	}
 }
@@ -234,6 +245,7 @@ func NewMockIsObjectNamespacedFn(err error, ofn ...RuntimeObjectFn) MockIsObject
 				return false, err
 			}
 		}
+
 		return false, err
 	}
 }

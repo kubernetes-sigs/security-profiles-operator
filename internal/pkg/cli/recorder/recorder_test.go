@@ -66,6 +66,7 @@ func TestRun(t *testing.T) {
 				mock.SyscallsGetValueReturns([]byte{1}, nil)
 				mock.FindProcMountNamespaceReturns(1, nil)
 				defaultMock(mock)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -78,6 +79,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
 				mock.CommandWaitReturns(errTest)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -93,6 +95,7 @@ func TestRun(t *testing.T) {
 				mock.IteratorKeyReturnsOnCall(0, []byte{2, 0, 0, 0, 0, 0, 0, 0})
 				mock.IteratorNextReturnsOnCall(1, true)
 				mock.IteratorKeyReturnsOnCall(1, []byte{1, 0, 0, 0, 0, 0, 0, 0})
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -106,6 +109,7 @@ func TestRun(t *testing.T) {
 				defaultMock(mock)
 				options := Default()
 				options.typ = TypeRawSeccomp
+
 				return options
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -118,6 +122,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
 				mock.CreateReturns(nil, errTest)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -129,6 +134,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
 				mock.PrintObjReturns(errTest)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -142,6 +148,7 @@ func TestRun(t *testing.T) {
 				mock.CreateReturns(nil, errTest)
 				options := Default()
 				options.typ = TypeRawSeccomp
+
 				return options
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -155,6 +162,7 @@ func TestRun(t *testing.T) {
 				mock.MarshalIndentReturns(nil, errTest)
 				options := Default()
 				options.typ = TypeRawSeccomp
+
 				return options
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -166,6 +174,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
 				mock.GoArchToSeccompArchReturns(seccomp.Arch(""), errTest)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -177,6 +186,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
 				mock.SyscallsGetValueReturns(nil, errTest)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -188,6 +198,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				defaultMock(mock)
 				mock.GetNameReturns("", errTest)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -199,6 +210,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				mock.FindProcMountNamespaceReturns(1, nil)
 				mock.FindProcMountNamespaceReturns(1, nil)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -210,6 +222,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				mock.FindProcMountNamespaceReturns(1, nil)
 				mock.FindProcMountNamespaceReturns(0, errTest)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -220,6 +233,7 @@ func TestRun(t *testing.T) {
 			name: "failure seccomp on CmdStart",
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				mock.CommandRunReturns(0, errTest)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -230,6 +244,7 @@ func TestRun(t *testing.T) {
 			name: "failure seccomp on LoadBpfRecorder",
 			prepare: func(mock *recorderfakes.FakeImpl) *Options {
 				mock.LoadBpfRecorderReturns(errTest)
+
 				return Default()
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -243,6 +258,7 @@ func TestRun(t *testing.T) {
 				defaultMock(mock)
 				options := Default()
 				options.typ = TypeAll
+
 				return options
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {
@@ -257,6 +273,7 @@ func TestRun(t *testing.T) {
 				mock.BPFLSMEnabledReturns(false)
 				options := Default()
 				options.typ = TypeApparmor
+
 				return options
 			},
 			assert: func(mock *recorderfakes.FakeImpl, err error) {

@@ -209,6 +209,7 @@ func GetOperatorNamespace() string {
 	if err != nil {
 		panic(err)
 	}
+
 	return ns
 }
 
@@ -219,6 +220,7 @@ func TryToGetOperatorNamespace() (string, error) {
 	if operatorNS == "" {
 		return "", ErrPodNamespaceEnvNotFound
 	}
+
 	return operatorNS, nil
 }
 
@@ -229,10 +231,12 @@ func KubeletDir() string {
 	if err == nil {
 		return cfg.KubeletDir
 	}
+
 	kubeletDir := env.Default(KubeletDirEnvKey, "")
 	if kubeletDir == "" {
 		return DefaultKubeletPath
 	}
+
 	return kubeletDir
 }
 
@@ -259,9 +263,11 @@ func GetKubeletConfigFromFile() (*KubeletConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading kubelet config: %w", err)
 	}
+
 	kubeletCfg := &KubeletConfig{}
 	if err := json.Unmarshal(cfg, kubeletCfg); err != nil {
 		return nil, fmt.Errorf("parsing kubelet config: %w", err)
 	}
+
 	return kubeletCfg, nil
 }

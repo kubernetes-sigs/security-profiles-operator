@@ -44,12 +44,15 @@ func (e *Enricher) Syscalls(
 	syscalls, ok := e.syscalls.Load(r.GetProfile())
 	if !ok {
 		st := status.New(codes.NotFound, ErrorNoSyscalls)
+
 		return nil, st.Err()
 	}
+
 	stringSet, ok := syscalls.(sets.Set[string])
 	if !ok {
 		return nil, errors.New("syscalls are no string set")
 	}
+
 	return &api.SyscallsResponse{
 		Syscalls: stringSet.UnsortedList(),
 		GoArch:   runtime.GOARCH,
@@ -61,6 +64,7 @@ func (e *Enricher) ResetSyscalls(
 	_ context.Context, r *api.SyscallsRequest,
 ) (*api.EmptyResponse, error) {
 	e.syscalls.Delete(r.GetProfile())
+
 	return &api.EmptyResponse{}, nil
 }
 
@@ -71,21 +75,26 @@ func (e *Enricher) Avcs(
 	avcs, ok := e.avcs.Load(r.GetProfile())
 	if !ok {
 		st := status.New(codes.NotFound, ErrorNoAvcs)
+
 		return nil, st.Err()
 	}
 
 	avcList := make([]*api.AvcResponse_SelinuxAvc, 0)
+
 	stringSet, ok := avcs.(sets.Set[string])
 	if !ok {
 		return nil, errors.New("avcs are no string set")
 	}
+
 	jsonList := stringSet.UnsortedList()
 	for i := range jsonList {
 		avc := &api.AvcResponse_SelinuxAvc{}
+
 		err := protojson.Unmarshal([]byte(jsonList[i]), avc)
 		if err != nil {
 			return nil, fmt.Errorf("unmarshall JSON: %w", err)
 		}
+
 		avcList = append(avcList, avc)
 	}
 
@@ -97,5 +106,6 @@ func (e *Enricher) ResetAvcs(
 	_ context.Context, r *api.AvcRequest,
 ) (*api.EmptyResponse, error) {
 	e.avcs.Delete(r.GetProfile())
+
 	return &api.EmptyResponse{}, nil
 }

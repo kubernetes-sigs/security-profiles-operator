@@ -27,6 +27,7 @@ import (
 
 func Test_isAuditLine(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name    string
 		logLine string
@@ -89,6 +90,7 @@ func Test_isAuditLine(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := IsAuditLine(tt.logLine)
 			require.Equal(t, tt.want, got)
 		})
@@ -97,6 +99,7 @@ func Test_isAuditLine(t *testing.T) {
 
 func Test_extractAuditLine(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name    string
 		logLine string
@@ -206,6 +209,7 @@ func Test_extractAuditLine(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			got, gotErr := ExtractAuditLine(tt.logLine)
 
 			require.Equal(t, tt.want, got)

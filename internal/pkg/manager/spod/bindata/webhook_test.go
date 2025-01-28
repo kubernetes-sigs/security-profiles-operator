@@ -27,6 +27,7 @@ const testLabel = "test"
 
 func TestNamespaceSelectorUnequalForLabel(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		name                 string
 		existing, configured *metav1.LabelSelector
@@ -105,6 +106,7 @@ func TestNamespaceSelectorUnequalForLabel(t *testing.T) {
 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			res := namespaceSelectorUnequalForLabel(testLabel, existing, configured)
 			assert.Equal(t, expected, res)
 		})

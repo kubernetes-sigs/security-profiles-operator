@@ -54,6 +54,7 @@ func (p *Puller) Run() error {
 	}
 
 	name := ""
+
 	switch result.Type() {
 	case artifact.PullResultTypeSeccompProfile:
 		name = result.SeccompProfile().GetName()
@@ -64,9 +65,11 @@ func (p *Puller) Run() error {
 	case artifact.PullResultTypeApparmorProfile:
 		name = result.ApparmorProfile().GetName()
 	}
+
 	log.Printf("Got %s: %s", result.Type(), name)
 
 	log.Printf("Saving profile in: %s", p.options.outputFile)
+
 	const defaultFileMode = os.FileMode(0o644)
 	if err := p.WriteFile(
 		p.options.outputFile, result.Content(), defaultFileMode,

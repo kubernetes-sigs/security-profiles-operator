@@ -35,6 +35,7 @@ var errTest = errors.New("test")
 
 func TestRun(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		name    string
 		prepare func(mock *runnerfakes.FakeImpl)
@@ -142,13 +143,17 @@ func waitForFunctionCall(t *testing.T, fn func() int) {
 	t.Helper()
 
 	countGreaterZero := false
+
 	for range 5 {
 		if fn() > 0 {
 			countGreaterZero = true
+
 			break
 		}
+
 		time.Sleep(time.Second)
 	}
+
 	require.True(t, countGreaterZero)
 }
 
@@ -156,6 +161,7 @@ func TestStartEnricher(t *testing.T) {
 	const testPid = 123
 
 	t.Parallel()
+
 	for _, tc := range []struct {
 		name    string
 		prepare func(*runnerfakes.FakeImpl, chan *tail.Line)

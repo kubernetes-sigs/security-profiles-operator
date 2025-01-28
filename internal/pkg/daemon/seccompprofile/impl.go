@@ -71,6 +71,7 @@ func (*defaultImpl) ClientGetProfile(
 ) (*seccompprofileapi.SeccompProfile, error) {
 	profile := &seccompprofileapi.SeccompProfile{}
 	err := c.Get(ctx, key, profile, opts...)
+
 	return profile, err
 }
 

@@ -88,6 +88,7 @@ func TestReconcile(t *testing.T) {
 				if seccomp.IsEnabled() {
 					return fmt.Errorf("%s: %w", errGetProfile, errOops)
 				}
+
 				return nil
 			}(),
 		},
@@ -118,6 +119,7 @@ func TestReconcile(t *testing.T) {
 			if tc.wantErr != nil {
 				require.EqualError(t, gotErr, tc.wantErr.Error())
 			}
+
 			require.Equal(t, tc.wantResult, gotResult)
 		})
 	}
@@ -131,12 +133,8 @@ func TestSaveProfileOnDisk(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("Test does not work as root user")
 	}
-	dir, err := os.MkdirTemp("", config.OperatorName)
-	if err != nil {
-		t.Error(fmt.Errorf("creating temp file for tests: %w", err))
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
 
+	dir := t.TempDir()
 	cases := []struct {
 		name        string
 		setup       func()
@@ -196,6 +194,7 @@ func TestSaveProfileOnDisk(t *testing.T) {
 				require.Equal(t, tc.wantErr, gotErr.Error())
 				require.Error(t, statErr)
 			}
+
 			require.Equal(t, tc.fileCreated, gotFileCreated, "was file created?")
 		})
 	}
@@ -578,6 +577,7 @@ var errTest = errors.New("test")
 
 func TestResolveSyscallsForProfile(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		name    string
 		prepare func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile
@@ -682,6 +682,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			name: "failure on wrong PullResultTypeSeccompProfile",
 			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				mock.PullResultTypeReturns(artifact.PullResultTypeSelinuxProfile)
+
 				return &seccompprofileapi.SeccompProfile{
 					Spec: seccompprofileapi.SeccompProfileSpec{
 						BaseProfileName: config.OCIProfilePrefix + "test",
@@ -696,6 +697,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 			name: "failure on Pull",
 			prepare: func(mock *seccompprofilefakes.FakeImpl) *seccompprofileapi.SeccompProfile {
 				mock.PullReturns(nil, errTest)
+
 				return &seccompprofileapi.SeccompProfile{
 					Spec: seccompprofileapi.SeccompProfileSpec{
 						BaseProfileName: config.OCIProfilePrefix + "test",
@@ -759,6 +761,7 @@ func TestResolveSyscallsForProfile(t *testing.T) {
 
 			sut, ok := NewController().(*Reconciler)
 			require.True(t, ok)
+
 			sut.impl = mock
 
 			syscalls, err := sut.resolveSyscallsForProfile(

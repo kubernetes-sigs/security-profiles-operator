@@ -126,17 +126,21 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 	dt.watchNamespace = os.Getenv(config.RestrictNamespaceEnvKey)
 
 	node := &corev1.Node{}
+
 	nodeName := os.Getenv(config.NodeNameEnvKey)
 	if nodeName != "" {
 		objectKey := client.ObjectKey{Name: nodeName}
+
 		err := r.clientReader.Get(ctx, objectKey, node)
 		if err != nil {
 			return dt, fmt.Errorf("getting cluster node object: %w", err)
 		}
 	}
+
 	dt.seccompLocalhostProfile = util.GetSeccompLocalhostProfilePath(node, bindata.LocalSeccompProfilePath)
 	dt.bpfRecorderSeccompProfile = util.GetSeccompLocalhostProfilePath(node, bindata.LocalSeccompBpfRecorderProfilePath)
 	dt.containerRuntime = util.GetContainerRuntime(node)
+
 	dt.selinuxdImage, err = r.getSelinuxdImage(ctx, node)
 	if err != nil {
 		return dt, fmt.Errorf("could not determine selinuxd image: %w", err)
@@ -147,6 +151,7 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 
 func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node) (string, error) {
 	var operatorCm corev1.ConfigMap
+
 	operatorCmName := types.NamespacedName{
 		Namespace: config.GetOperatorNamespace(),
 		Name:      util.OperatorConfigMap,
@@ -155,6 +160,7 @@ func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node)
 	if err := r.clientReader.Get(ctx, operatorCmName, &operatorCm); err != nil {
 		return "", err
 	}
+
 	selinuxdImageMapping := operatorCm.Data[util.SelinuxdImageMappingKey]
 
 	selinuxdImageEnvVar, err := util.MatchSelinuxdImageJSONMapping(node, []byte(selinuxdImageMapping))
@@ -166,12 +172,14 @@ func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node)
 	selinuxdImage := os.Getenv(selinuxdImageEnvVar)
 	if selinuxdImage != "" {
 		r.log.Info("matched selinuxd image against nodeInfo", "image", selinuxdImage)
+
 		return selinuxdImage, nil
 	}
 
 	selinuxdImage = os.Getenv(selinuxdImageKey)
 	if selinuxdImage != "" {
 		r.log.Info("using selinuxd image from envVar", "image", selinuxdImage)
+
 		return selinuxdImage, nil
 	}
 
@@ -189,6 +197,7 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 			Value: dt.watchNamespace,
 		})
 	}
+
 	if dt.seccompLocalhostProfile != "" {
 		daemon.SecurityContext.SeccompProfile.LocalhostProfile = &dt.seccompLocalhostProfile
 	}

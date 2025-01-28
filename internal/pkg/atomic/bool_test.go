@@ -26,6 +26,7 @@ func Test(t *testing.T) {
 	t.Parallel()
 
 	var sut Bool
+
 	require.False(t, sut.Get())
 
 	sut.Set(false)

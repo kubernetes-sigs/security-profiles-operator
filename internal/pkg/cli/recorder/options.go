@@ -52,6 +52,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)
 	}
+
 	if options.outputFile == "" {
 		return nil, errors.New("no filename provided")
 	}
@@ -59,6 +60,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	if ctx.IsSet(FlagType) {
 		options.typ = Type(ctx.String(FlagType))
 	}
+
 	if options.typ != TypeSeccomp && options.typ != TypeRawSeccomp &&
 		options.typ != TypeApparmor && options.typ != TypeRawAppArmor && options.typ != TypeAll {
 		return nil, fmt.Errorf("unsupported %s: %s", FlagType, options.typ)
@@ -67,9 +69,11 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	if ctx.IsSet(FlagBaseSyscalls) {
 		options.baseSyscalls = ctx.StringSlice(FlagBaseSyscalls)
 	}
+
 	if ctx.IsSet(FlagNoBaseSyscalls) {
 		options.baseSyscalls = nil
 	}
+
 	if ctx.IsSet(FlagNoProcStart) {
 		options.noProcStart = true
 	}
@@ -78,6 +82,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get command options: %w", err)
 	}
+
 	options.commandOptions = commandOptions
 
 	return options, nil
