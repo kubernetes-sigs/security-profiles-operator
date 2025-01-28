@@ -66,6 +66,7 @@ func (sph *rawSelinuxProfileHandler) Init(
 	key types.NamespacedName,
 ) error {
 	err := cli.Get(ctx, key, sph.rsp)
+
 	return err
 }
 
@@ -96,10 +97,13 @@ func (sph *rawSelinuxProfileHandler) wrapPolicy() (string, error) {
 		Namespace: sph.rsp.GetNamespace(),
 		Policy:    parsedpolicy,
 	}
+
 	var result bytes.Buffer
+
 	if err := sph.policyTemplate.Execute(&result, data); err != nil {
 		return "", fmt.Errorf("couldn't render policy: %w", err)
 	}
+
 	return result.String(), nil
 }
 
@@ -114,10 +118,12 @@ func newRawSelinuxProfileHandler(
 	if tmplerr != nil {
 		return nil, tmplerr
 	}
+
 	oh := &rawSelinuxProfileHandler{
 		rsp:            &selxv1alpha2.RawSelinuxProfile{},
 		policyTemplate: tmpl,
 	}
 	err := oh.Init(ctx, cli, key)
+
 	return oh, err
 }

@@ -49,8 +49,10 @@ func (p *Merger) Run() error {
 	log.Printf("Merging %d profiles into %s", len(p.options.inputFiles), p.options.outputFile)
 
 	contents := make([]client.Object, len(p.options.inputFiles))
+
 	for i, filepath := range p.options.inputFiles {
 		log.Printf("Reading file %s", filepath)
+
 		content, err := p.ReadFile(filepath)
 		if err != nil {
 			return fmt.Errorf("open profile: %w", err)
@@ -77,9 +79,11 @@ func (p *Merger) Run() error {
 			os.Exit(0)
 		} else {
 			log.Println("Base profile needs an update.")
+
 			if err := printer.PrintObj(merged, os.Stderr); err != nil {
 				return fmt.Errorf("print YAML: %w", err)
 			}
+
 			os.Exit(1)
 		}
 	}
@@ -88,6 +92,7 @@ func (p *Merger) Run() error {
 	if err := printer.PrintObj(merged, &buffer); err != nil {
 		return fmt.Errorf("print YAML: %w", err)
 	}
+
 	const filePermissions = 0o600
 	if err := p.WriteFile(p.options.outputFile, buffer.Bytes(), filePermissions); err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)

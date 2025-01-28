@@ -52,11 +52,13 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	if len(args) == 0 {
 		return nil, errors.New("no remote image provided")
 	}
+
 	options.pullFrom = args[0]
 
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)
 	}
+
 	if options.outputFile == "" {
 		return nil, errors.New("no filename provided")
 	}
@@ -75,6 +77,7 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse platform: %w", err)
 	}
+
 	options.platform = platform
 
 	return options, nil

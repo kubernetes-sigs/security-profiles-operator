@@ -100,6 +100,7 @@ func (r *PolicyMergeReconciler) Reconcile(ctx context.Context, req reconcile.Req
 		if util.IgnoreNotFound(err) == nil {
 			return reconcile.Result{}, nil
 		}
+
 		return reconcile.Result{}, fmt.Errorf("%s: %w", errGetRecording, err)
 	}
 
@@ -109,6 +110,7 @@ func (r *PolicyMergeReconciler) Reconcile(ctx context.Context, req reconcile.Req
 		if err := r.mergeProfiles(ctx, profileRecording); err != nil {
 			return reconcile.Result{}, fmt.Errorf("%s: %w", errMergingRec, err)
 		}
+
 		return reconcile.Result{}, nil
 	}
 
@@ -156,6 +158,7 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 	if len(partialProfiles) == 0 {
 		r.record.Event(profileRecording, util.EventTypeWarning, reasonNoPartialProfiles, errNoPartialProfiles)
 		r.log.Info(errNoPartialProfiles)
+
 		return nil
 	}
 
@@ -170,15 +173,19 @@ func (r *PolicyMergeReconciler) mergeTypedProfiles(
 		if mergedProfile == nil {
 			r.record.Event(profileRecording, util.EventTypeWarning, reasonMergedEmptyProfile, errEmptyMergedProfile)
 			r.log.Info(errEmptyMergedProfile)
+
 			return nil
 		}
 
 		mergedRecordingName := mergedProfileName(profileRecording.Name, cntPartialProfiles[0])
+
 		res, err := createUpdateMergedProfile(ctx, r.client, profileRecording, mergedRecordingName, mergedProfile)
 		if err != nil {
 			r.record.Event(profileRecording, util.EventTypeWarning, reasonCannotCreateUpdate, err.Error())
+
 			return fmt.Errorf("cannot create or update merged profile: action:  %w", err)
 		}
+
 		r.log.Info("Created/updated profile", "action", res, "name", mergedRecordingName)
 	}
 
@@ -299,11 +306,14 @@ func createUpdateProfile(
 		if !ok {
 			return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SeccompProfile")
 		}
+
 		mergedSpec := mergedProf.Spec.DeepCopy()
 		mergedSp.Spec = *mergedSpec
+
 		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
 			func() error {
 				mergedSp.Spec = *mergedSpec
+
 				return nil
 			},
 		)
@@ -312,15 +322,19 @@ func createUpdateProfile(
 		mergedSp := &selinuxprofileapi.SelinuxProfile{
 			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
 		}
+
 		mergedProf, ok := mergedProfiles.getProfile().(*selinuxprofileapi.SelinuxProfile)
 		if !ok {
 			return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to SelinuxProfile")
 		}
+
 		mergedSpec := mergedProf.Spec.DeepCopy()
 		mergedSp.Spec = *mergedSpec
+
 		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
 			func() error {
 				mergedSp.Spec = *mergedSpec
+
 				return nil
 			},
 		)
@@ -328,15 +342,19 @@ func createUpdateProfile(
 		mergedSp := &apparmorprofileapi.AppArmorProfile{
 			ObjectMeta: *mergedObjectMeta(mergedRecordingName, profileRecording.Name, profileRecording.Namespace),
 		}
+
 		mergedProf, ok := mergedProfiles.getProfile().(*apparmorprofileapi.AppArmorProfile)
 		if !ok {
 			return controllerutil.OperationResultNone, errors.New("cannot convert merged profile to AppArmorProfile")
 		}
+
 		mergedSpec := mergedProf.Spec.DeepCopy()
 		mergedSp.Spec = *mergedSpec
+
 		return controllerutil.CreateOrUpdate(ctx, cl, mergedSp,
 			func() error {
 				mergedSp.Spec = *mergedSpec
+
 				return nil
 			},
 		)

@@ -156,6 +156,7 @@ spec:
 `, testPodName)
 
 	restoreNs := e.switchToNs(ns)
+
 	if labelNs {
 		e.enableBindingHookInNs(ns)
 	}
@@ -179,6 +180,7 @@ spec:
 	}
 
 	e.waitFor("condition=ready", "pod", testPodName)
+
 	return func() {
 		defer restoreNs()
 		defer e.kubectl("delete", "selinuxprofile", selinuxTestProfileName)

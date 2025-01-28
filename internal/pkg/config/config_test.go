@@ -42,11 +42,14 @@ func TestGetOperatorNamespace(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("OPERATOR_NAMESPACE", tt.want)
+
 			got, err := TryToGetOperatorNamespace()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetOperatorNamespace() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if got != tt.want {
 				t.Errorf("GetOperatorNamespace() = %v, want %v", got, tt.want)
 			}

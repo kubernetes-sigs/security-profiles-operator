@@ -144,18 +144,22 @@ func TestSuite(t *testing.T) {
 	fmt.Printf("container-runtime: %s\n", containerRuntime)
 
 	testImage := envTestImage
+
 	selinuxEnabled, err := strconv.ParseBool(envSelinuxTestsEnabled)
 	if err != nil {
 		selinuxEnabled = false
 	}
+
 	logEnricherEnabled, err := strconv.ParseBool(envLogEnricherTestsEnabled)
 	if err != nil {
 		logEnricherEnabled = false
 	}
+
 	testSeccomp, err := strconv.ParseBool(envSeccompTestsEnabled)
 	if err != nil {
 		testSeccomp = true
 	}
+
 	bpfRecorderEnabled, err := strconv.ParseBool(envBpfRecorderTestsEnabled)
 	if err != nil {
 		bpfRecorderEnabled = false
@@ -200,6 +204,7 @@ func TestSuite(t *testing.T) {
 		if testImage == "" {
 			testImage = config.OperatorName + ":latest"
 		}
+
 		suite.Run(t, &kinde2e{
 			e2e{
 				logger:              textlogger.NewLogger(textlogger.NewConfig()),
@@ -260,6 +265,7 @@ func TestSuite(t *testing.T) {
 		if testImage == "" {
 			testImage = "localhost/" + config.OperatorName + ":latest"
 		}
+
 		suite.Run(t, &vanilla{
 			e2e{
 				logger:              textlogger.NewLogger(textlogger.NewConfig()),
@@ -305,6 +311,7 @@ func (e *kinde2e) SetupSuite() {
 	e.kindPath = filepath.Join(buildDir, "kind")
 	SHA512 := ""
 	kindOS := ""
+
 	switch runtime.GOOS {
 	case "darwin":
 		SHA512 = kindDarwinSHA512
@@ -390,6 +397,7 @@ func (e *e2e) deployCertManagerKind() {
 
 func (e *openShifte2e) SetupSuite() {
 	var err error
+
 	e.logf("Setting up suite")
 	command.SetGlobalVerbose(true)
 	// Override execNode and waitForReadyPods functions
@@ -444,6 +452,7 @@ func (e *openShifte2e) pushImageToRegistry() {
 		e.logf("Building operator container image")
 		e.run("make", "image", "IMAGE="+testImageRef)
 	}
+
 	e.logf("Loading container image into nodes")
 
 	// Get credentials
@@ -482,7 +491,6 @@ func (e *openShifte2e) execNodeOCP(node string, args ...string) string {
 func (e *e2e) waitForReadyPodsOCP() {
 	// intentionally not waiting for pods, it is presumed a test driver or the developer
 	// ensure the cluster is up before the test runs. At least for now.
-
 	// this is a kludge to help run the tests on OCP CI where there's a ephemeral namespace that goes away
 	// as the test is starting. Without explicitly setting the namespace, the OCP CI tests fail with:
 	// error when creating "test/recording_sa.yaml": namespaces "ci-op-hq1cv14k" not found
@@ -501,6 +509,7 @@ func (e *e2e) deployRecordingSaOcp(namespace string) {
 
 func (e *vanilla) SetupSuite() {
 	var err error
+
 	e.logf("Setting up suite")
 	e.setWorkDir()
 
@@ -516,6 +525,7 @@ func (e *vanilla) SetupSuite() {
 
 func (e *vanilla) SetupTest() {
 	e.logf("Setting up test")
+
 	if e.selinuxEnabled {
 		e.run(containerRuntime, "pull", e.selinuxdImage)
 	}
@@ -542,6 +552,7 @@ func (e *e2e) setWorkDir() string {
 
 	parentCwd := filepath.Dir(cwd)
 	e.NoError(os.Chdir(parentCwd))
+
 	return parentCwd
 }
 
@@ -554,8 +565,10 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 	tmpfile, err := os.CreateTemp("", "testBreakpoint*.lock")
 	if err != nil {
 		e.logger.Error(err, "Can't create breakpoint file")
+
 		return
 	}
+
 	tmpfile.Close()
 
 	delChannel := make(chan struct{})
@@ -565,8 +578,10 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 			if err == nil {
 				e.logger.Info("breakpoint: File exists, waiting 5 secs", "fileName", tmpfile.Name())
 				time.Sleep(time.Second * 5)
+
 				continue
 			}
+
 			break
 		}
 		delChannel <- struct{}{}
@@ -578,9 +593,11 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 func (e *e2e) run(cmd string, args ...string) string {
 	output, err := command.New(cmd, args...).RunSuccessOutput()
 	e.NoError(err)
+
 	if output != nil {
 		return output.OutputTrimNL()
 	}
+
 	return ""
 }
 
@@ -644,30 +661,37 @@ func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec
 	letters := []rune("abcdefghijklmnopqrstuvwxyz")
 	b := make([]rune, 10)
+
 	for i := range b {
 		b[i] = letters[r.Intn(len(letters))]
 	}
+
 	maxTries := 0
 	// Sometimes the metrics command does not output anything in CI. We fix
 	// that by retrying the metrics retrieval several times.
 	var output string
+
 	if err := spoutil.Retry(func() error {
 		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", podCMD)
 		if len(strings.Split(output, "\n")) > 1 {
 			return nil
 		}
 		output = ""
+
 		return errors.New("no output from pod command")
 	}, func(err error) bool {
 		e.logf("retry on error: %s", err)
 		if maxTries < 3 {
 			maxTries++
+
 			return true
 		}
+
 		return false
 	}); err != nil {
 		e.Failf("unable to run pod command", "error: %s", err)
 	}
+
 	return output
 }
 
@@ -863,12 +887,14 @@ func (e *e2e) switchToNs(ns string) func() {
 	nsManifest := "\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: " + ns
 
 	e.logf("creating ns %s", ns)
+
 	deleteFn := e.writeAndApply(nsManifest, ns+".yml")
 	defer deleteFn()
 
 	e.logf("switching to ns %s", ns)
 	curNs := e.getCurrentContextNamespace(config.OperatorName)
 	e.kubectl("config", "set-context", "--current", "--namespace", ns)
+
 	return func() {
 		e.logf("switching back to ns %s", curNs)
 		e.kubectl("config", "set-context", "--current", "--namespace", curNs)
@@ -879,5 +905,6 @@ func (e *e2e) switchToNs(ns string) func() {
 func (e *e2e) switchToRecordingNs(ns string) func() {
 	retFunc := e.switchToNs(ns)
 	e.enableRecordingHookInNs(ns)
+
 	return retFunc
 }

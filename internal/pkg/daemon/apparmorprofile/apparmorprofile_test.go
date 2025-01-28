@@ -105,6 +105,7 @@ func TestReconcile(t *testing.T) {
 			if tc.wantErr != nil {
 				require.EqualError(t, gotErr, tc.wantErr.Error())
 			}
+
 			require.Equal(t, tc.wantResult, gotResult)
 		})
 	}

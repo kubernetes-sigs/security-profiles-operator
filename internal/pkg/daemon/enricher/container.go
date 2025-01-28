@@ -121,8 +121,10 @@ func (e *Enricher) populateCacheEntryForContainer(
 				idemptyErr := e.handleContainerIDEmpty(pod.Name, containerName, &containerStatus)
 				if errors.Is(idemptyErr, errContainerIDEmpty) {
 					errorToRetry = idemptyErr
+
 					continue
 				}
+
 				return idemptyErr
 			}
 
@@ -133,6 +135,7 @@ func (e *Enricher) populateCacheEntryForContainer(
 					"podName", pod.Name,
 					"containerName", containerName,
 				)
+
 				continue
 			}
 
@@ -140,6 +143,7 @@ func (e *Enricher) populateCacheEntryForContainer(
 			if !ok {
 				recordProfile = pod.Annotations[config.SelinuxProfileRecordLogsAnnotationKey+containerName]
 			}
+
 			info := &types.ContainerInfo{
 				PodName:       pod.Name,
 				ContainerName: containerStatus.Name,
@@ -165,6 +169,7 @@ func (e *Enricher) handleContainerIDEmpty(podName, containerName string, contain
 			"podName", podName,
 			"containerName", containerName,
 		)
+
 		return errContainerIDEmpty
 	}
 

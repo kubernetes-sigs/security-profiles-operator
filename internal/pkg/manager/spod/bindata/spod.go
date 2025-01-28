@@ -854,6 +854,7 @@ var metricsService = &corev1.Service{
 // corresponding mount used for the log-enricher or bpf-recorder.
 func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "host-proc-volume"
+
 	return corev1.Volume{
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
@@ -873,6 +874,7 @@ func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 // as well as corresponding mount used for non-root-enabler.
 func CustomHostKubeletVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "host-kubelet-volume"
+
 	return corev1.Volume{
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{

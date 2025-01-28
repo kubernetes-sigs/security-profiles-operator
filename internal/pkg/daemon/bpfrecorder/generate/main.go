@@ -94,18 +94,22 @@ func run() error {
 	); err != nil {
 		return fmt.Errorf("writing generated object: %w", err)
 	}
+
 	if err := exec.Command("go", "fmt", generatedGo).Run(); err != nil {
 		return fmt.Errorf("format go code: %w", err)
 	}
+
 	return nil
 }
 
 func generateBtf(builder *strings.Builder) error {
 	builder.WriteString("var btfJSON = `")
+
 	btfs := types.Btf{}
 
 	docs := &bytes.Buffer{}
 	docs.WriteString(docsHeader)
+
 	kernels := 0
 
 	if err := filepath.Walk(btfDir, func(path string, info fs.FileInfo, retErr error) error {
@@ -175,14 +179,17 @@ func generateBtf(builder *strings.Builder) error {
 	}); err != nil {
 		return fmt.Errorf("walk btf files: %w", err)
 	}
+
 	jsonBytes, err := json.MarshalIndent(btfs, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal btf JSON: %w", err)
 	}
+
 	builder.Write(jsonBytes)
 	builder.WriteString("`\n")
 
 	fmt.Fprintf(docs, "\nSum: %d\n", kernels)
+
 	if err := os.WriteFile(
 		docsFile, docs.Bytes(), fs.FileMode(0o644), //nolint:gomnd // filemode is fine
 	); err != nil {

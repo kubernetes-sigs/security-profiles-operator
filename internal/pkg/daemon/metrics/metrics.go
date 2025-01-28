@@ -241,10 +241,12 @@ func (m *Metrics) Register() error {
 		metricNameAppArmorProfileDenial: m.metricAppArmorProfileDenial,
 	} {
 		m.log.Info("Registering metric: " + name)
+
 		if err := m.impl.Register(collector); err != nil {
 			return fmt.Errorf("register collector for %s metric: %w", name, err)
 		}
 	}
+
 	return nil
 }
 
@@ -252,6 +254,7 @@ func (m *Metrics) Register() error {
 func (m *Metrics) Handler() http.Handler {
 	handler := &http.ServeMux{}
 	handler.Handle(HandlerPath, promhttp.Handler())
+
 	return handler
 }
 

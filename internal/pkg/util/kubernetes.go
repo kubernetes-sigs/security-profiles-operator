@@ -48,6 +48,7 @@ func GetSeccompLocalhostProfilePath(node *corev1.Node, seccompProfile string) st
 	if containerRuntime == "cri-o" && semver.Compare(kubeVersion, kubeVersionWithFields) == -1 {
 		return path.Join("localhost", seccompProfile)
 	}
+
 	return seccompProfile
 }
 
@@ -56,12 +57,15 @@ func GetContainerRuntime(node *corev1.Node) string {
 	if node == nil {
 		return ""
 	}
+
 	containerRuntimeVersion := node.Status.NodeInfo.ContainerRuntimeVersion
 	parts := strings.Split(containerRuntimeVersion, ":")
 	containerRuntime := ""
+
 	if len(parts) > 0 {
 		containerRuntime = parts[0]
 	}
+
 	return containerRuntime
 }
 
@@ -83,6 +87,7 @@ func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, e
 
 	node := &corev1.Node{}
 	objectKey := client.ObjectKey{Name: nodeName}
+
 	err := c.Get(ctx, objectKey, node)
 	if err != nil {
 		return "", fmt.Errorf("getting node object for %s: %w", nodeName, err)
@@ -91,6 +96,7 @@ func GetKubeletDirFromNodeLabel(ctx context.Context, c client.Reader) (string, e
 	if kubeletDir, ok := node.Labels[config.KubeletDirNodeLabelKey]; ok {
 		return strings.ReplaceAll(kubeletDir, "-", "/"), nil
 	}
+
 	return "", fmt.Errorf("no %s label found on node %s", config.KubeletDirNodeLabelKey, nodeName)
 }
 
@@ -118,6 +124,7 @@ func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) string {
 		if m.Regex == "" {
 			continue
 		}
+
 		if matched, err := regexp.MatchString(m.Regex, node.Status.NodeInfo.OSImage); err == nil && matched {
 			return m.ImageFromVar
 		}

@@ -28,6 +28,7 @@ import (
 func DefaultLogEnricherProfile() *seccompprofileapi.SeccompProfile {
 	namespace := config.GetOperatorNamespace()
 	labels := map[string]string{"app": config.OperatorName}
+
 	return &seccompprofileapi.SeccompProfile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      config.LogEnricherProfile,

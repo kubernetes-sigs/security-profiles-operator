@@ -91,6 +91,7 @@ func mergePaths(a, b *[]string) *[]string {
 	if a == nil {
 		return b
 	}
+
 	if b == nil {
 		return a
 	}
@@ -125,6 +126,7 @@ func mergeFilesystem(base, additions *apparmorprofileapi.AppArmorAbstract) {
 				}
 			}
 		}
+
 		if additions.Filesystem.ReadOnlyPaths != nil {
 			for _, p := range *additions.Filesystem.ReadOnlyPaths {
 				if rw.Matches(p) {
@@ -138,6 +140,7 @@ func mergeFilesystem(base, additions *apparmorprofileapi.AppArmorAbstract) {
 				}
 			}
 		}
+
 		if additions.Filesystem.WriteOnlyPaths != nil {
 			for _, p := range *additions.Filesystem.WriteOnlyPaths {
 				if rw.Matches(p) {
@@ -151,6 +154,7 @@ func mergeFilesystem(base, additions *apparmorprofileapi.AppArmorAbstract) {
 				}
 			}
 		}
+
 		base.Filesystem = &apparmorprofileapi.AppArmorFsRules{
 			ReadOnlyPaths:  r.Patterns(),
 			WriteOnlyPaths: w.Patterns(),
@@ -163,11 +167,13 @@ func mergeFilesystem(base, additions *apparmorprofileapi.AppArmorAbstract) {
 
 func newAppArmorPathSet(patterns *[]string) appArmorPathSet {
 	m := appArmorPathSet{}
+
 	if patterns != nil {
 		for _, p := range *patterns {
 			m.Add(p)
 		}
 	}
+
 	return m
 }
 
@@ -185,10 +191,12 @@ func (m *appArmorPathSet) findMatch(path string) int {
 		if p.pattern == path {
 			return i
 		}
+
 		if p.expr != nil && p.expr.MatchString(path) {
 			return i
 		}
 	}
+
 	return -1
 }
 
@@ -202,8 +210,10 @@ func (m *appArmorPathSet) PopMatching(path string) *string {
 		ret := m.paths[i].pattern
 		m.paths[i] = m.paths[len(m.paths)-1]
 		m.paths = m.paths[:len(m.paths)-1]
+
 		return &ret
 	}
+
 	return nil
 }
 
@@ -212,6 +222,7 @@ func (m *appArmorPathSet) Add(pattern string) {
 	if err != nil {
 		log.Printf("Failed to parse AppArmor glob pattern '%s': %x\n", pattern, err)
 	}
+
 	m.paths = append(m.paths, apparmorPath{
 		pattern: pattern,
 		expr:    rex,
@@ -222,11 +233,14 @@ func (m *appArmorPathSet) Patterns() *[]string {
 	if len(m.paths) == 0 {
 		return nil
 	}
+
 	ret := make([]string, 0, len(m.paths))
 	for _, p := range m.paths {
 		ret = append(ret, p.pattern)
 	}
+
 	sort.Strings(ret)
+
 	return &ret
 }
 
@@ -248,10 +262,12 @@ func appArmorGlobToRegex(pattern string) (*regexp.Regexp, error) {
 			default:
 				inner := regexp.QuoteMeta(match[1 : len(match)-1])
 				inner = strings.ReplaceAll(inner, ",", "|")
+
 				return "(" + inner + ")"
 			}
 		},
 	) + "$"
+
 	return regexp.Compile(expr)
 }
 
@@ -259,10 +275,13 @@ func mergeBools(a, b *bool) *bool {
 	if a == nil {
 		return b
 	}
+
 	if b == nil {
 		return a
 	}
+
 	merged := (*a || *b)
+
 	return &merged
 }
 
@@ -270,12 +289,15 @@ func mergeDedupSortStrings(a, b *[]string) *[]string {
 	if a == nil {
 		return b
 	}
+
 	if b == nil {
 		return a
 	}
+
 	merged := append(*a, *b...)
 	sort.Strings(merged)
 	merged = compact(merged)
+
 	return &merged
 }
 
@@ -285,14 +307,18 @@ func compact(s []string) []string {
 	if len(s) < 2 {
 		return s
 	}
+
 	i := 1
+
 	for k := 1; k < len(s); k++ {
 		if s[k] != s[k-1] {
 			if i != k {
 				s[i] = s[k]
 			}
+
 			i++
 		}
 	}
+
 	return s[:i]
 }

@@ -122,6 +122,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -161,6 +162,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -200,6 +202,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -239,6 +242,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -277,6 +281,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -311,6 +316,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -342,6 +348,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -382,6 +389,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -422,6 +430,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -626,6 +635,7 @@ func TestNewContainerMap(t *testing.T) {
 			t.Parallel()
 
 			var result sync.Map
+
 			initContainerMap(&result, tc.podSpec)
 			result.Range(func(k, v interface{}) bool {
 				ks, ok := k.(string)
@@ -635,6 +645,7 @@ func TestNewContainerMap(t *testing.T) {
 				require.True(t, ok)
 
 				require.Equal(t, tc.want[ks], vl)
+
 				return true
 			})
 		})

@@ -22,12 +22,14 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 	e.selinuxOnlyTestCase()
 
 	e.logf("assert selinux is enabled in the spod object")
+
 	selinuxEnabledInSPODObj := e.kubectlOperatorNS("get", "spod", "spod", "-o", "jsonpath={.spec.enableSelinux}")
 	if clusterType == clusterTypeOpenShift {
 		// OCP enables SELinux by default, so both no value and explicit true are OK
 		if selinuxEnabledInSPODObj != "" && selinuxEnabledInSPODObj != "true" {
 			e.Fail("Expected that SELinux is enabled explicitly or by default on OCP")
 		}
+
 		e.Equal("", selinuxEnabledInSPODObj)
 	} else {
 		e.Equal("true", selinuxEnabledInSPODObj)

@@ -41,6 +41,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 	e.logf("List node statuses for a policy with a very long name")
 
 	e.logf("Creating policy")
+
 	deleteFn := e.writeAndCreate(longNamePolicy, "longname-policy.yml")
 	defer deleteFn()
 
@@ -67,6 +68,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 
 		if len(nodes) == len(secpolNodeStatusList.Items) {
 			e.logf("Node status successfully reconciled")
+
 			return
 		}
 

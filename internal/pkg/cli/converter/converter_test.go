@@ -34,6 +34,7 @@ func TestRun(t *testing.T) {
 	defaultOptions := func() *Options {
 		options := Default()
 		options.inputFile = "input.yaml"
+
 		return options
 	}
 
@@ -110,6 +111,7 @@ spec:
 
 			err := sut.Run()
 			require.NoError(t, err)
+
 			_, actual, _ := mock.WriteFileArgsForCall(0)
 			for _, contain := range outputContains {
 				require.Contains(t, string(actual), contain)
@@ -126,6 +128,7 @@ spec:
 			name: "input file not found",
 			prepare: func(mock *converterfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, nil, errors.New("file not found"))
+
 				return defaultOptions()
 			},
 			assert: func(mock *converterfakes.FakeImpl, err error) {
@@ -136,6 +139,7 @@ spec:
 			name: "input file is not yaml",
 			prepare: func(mock *converterfakes.FakeImpl) *Options {
 				mock.ReadFileReturnsOnCall(0, []byte("% this is not yaml"), nil)
+
 				return defaultOptions()
 			},
 			assert: func(mock *converterfakes.FakeImpl, err error) {

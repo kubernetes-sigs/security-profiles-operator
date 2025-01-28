@@ -39,6 +39,7 @@ func (r *PodReconciler) Setup(
 	_ *metrics.Metrics,
 ) error {
 	const name = "pods"
+
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
 	r.record = mgr.GetEventRecorderFor(name)
@@ -49,6 +50,7 @@ func (r *PodReconciler) Setup(
 		if !ok {
 			return []string{}
 		}
+
 		return getSeccompProfilesFromPod(pod)
 	}); err != nil {
 		return fmt.Errorf("creating pod index: %w", err)
@@ -60,6 +62,7 @@ func (r *PodReconciler) Setup(
 		if !ok {
 			return []string{}
 		}
+
 		return getSelinuxProfilesFromPod(ctx, r, pod)
 	}); err != nil {
 		return fmt.Errorf("creating pod index: %w", err)
@@ -85,6 +88,7 @@ func (r *PodReconciler) Setup(
 			if !ok {
 				return []string{}
 			}
+
 			return sp.Status.ActiveWorkloads
 		}); err != nil {
 		return fmt.Errorf("creating selinux profile index: %w", err)

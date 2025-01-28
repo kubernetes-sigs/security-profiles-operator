@@ -114,10 +114,12 @@ func New(programName string, logger logr.Logger, recordSeccomp, recordAppArmor b
 	if recordSeccomp {
 		seccomp = newSeccompRecorder(logger)
 	}
+
 	var appArmor *AppArmorRecorder
 	if recordAppArmor {
 		appArmor = newAppArmorRecorder(logger, programName)
 	}
+
 	return &BpfRecorder{
 		impl:   &defaultImpl{},
 		logger: logger,
@@ -145,6 +147,7 @@ func (b *BpfRecorder) Syscalls() *bpf.BPFMap {
 // Run the BpfRecorder.
 func (b *BpfRecorder) Run() error {
 	b.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
+
 	for _, cache := range []*ttlcache.Cache[string, string]{
 		b.pidToContainerIDCache,
 	} {
@@ -155,8 +158,10 @@ func (b *BpfRecorder) Run() error {
 	if b.nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		b.logger.Error(err, "unable to run recorder")
+
 		return err
 	}
+
 	b.logger.Info("Starting ebpf recorder on node: " + b.nodeName)
 
 	clusterConfig, err := b.InClusterConfig()
@@ -189,13 +194,16 @@ func (b *BpfRecorder) Run() error {
 	}
 
 	b.logger.Info("Connecting to metrics server")
+
 	conn, cancel, err := b.connectMetrics()
 	if err != nil {
 		return fmt.Errorf("connect to metrics server: %w", err)
 	}
+
 	if cancel != nil {
 		defer cancel()
 	}
+
 	if conn != nil {
 		defer func() {
 			if err := b.CloseGRPC(conn); err != nil {
@@ -208,23 +216,29 @@ func (b *BpfRecorder) Run() error {
 	if err != nil {
 		return fmt.Errorf("retrieve current mount namespace: %w", err)
 	}
+
 	b.logger.Info("Got system mount namespace: " + strconv.FormatUint(uint64(b.excludeMountNamespace), 10))
 
 	b.logger.Info("Loading BPF program")
+
 	if err := b.Load(); err != nil {
 		return fmt.Errorf("bpf load: %w", err)
 	}
 
 	b.logger.Info("Doing BPF start/stop self-test...")
+
 	if err := b.StartRecording(); err != nil {
 		return fmt.Errorf("StartRecording self-test: %w", err)
 	}
+
 	if err := b.StopRecording(); err != nil {
 		return fmt.Errorf("StopRecording self-test: %w", err)
 	}
+
 	b.logger.Info("BPF start/stop self-test successful.")
 
 	b.logger.Info("Starting GRPC API server")
+
 	grpcServer := grpc.NewServer(
 		grpc.MaxSendMsgSize(maxMsgSize),
 		grpc.MaxRecvMsgSize(maxMsgSize),
@@ -248,6 +262,7 @@ func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.Ca
 			if err := b.CloseGRPC(conn); err != nil {
 				b.logger.Error(err, "Unable to close GRPC connection")
 			}
+
 			return fmt.Errorf("create metrics bpf client: %w", err)
 		}
 
@@ -271,8 +286,10 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	)
 	if err != nil {
 		cancel()
+
 		return nil, nil, fmt.Errorf("GRPC dial: %w", err)
 	}
+
 	return conn, cancel, nil
 }
 
@@ -281,6 +298,7 @@ func (b *BpfRecorder) Start(
 ) (*api.EmptyResponse, error) {
 	if b.startRequests == 0 {
 		b.logger.Info("Starting bpf recorder")
+
 		if err := b.StartRecording(); err != nil {
 			return nil, fmt.Errorf("start recording: %w", err)
 		}
@@ -289,6 +307,7 @@ func (b *BpfRecorder) Start(
 	}
 
 	atomic.AddInt64(&b.startRequests, 1)
+
 	return &api.EmptyResponse{}, nil
 }
 
@@ -297,18 +316,22 @@ func (b *BpfRecorder) Stop(
 ) (*api.EmptyResponse, error) {
 	if b.startRequests == 0 {
 		b.logger.Info("bpf recorder not running")
+
 		return &api.EmptyResponse{}, nil
 	}
 
 	atomic.AddInt64(&b.startRequests, -1)
+
 	if b.startRequests == 0 {
 		b.logger.Info("Stopping bpf recorder")
+
 		if err := b.StopRecording(); err != nil {
 			return nil, fmt.Errorf("start recording: %w", err)
 		}
 	} else {
 		b.logger.Info("Not stopping because another recording is in progress")
 	}
+
 	return &api.EmptyResponse{}, nil
 }
 
@@ -319,20 +342,25 @@ func (b *BpfRecorder) SyscallsForProfile(
 	if b.startRequests == 0 {
 		return nil, errors.New("bpf recorder not running")
 	}
+
 	if b.Seccomp == nil {
 		return nil, errors.New("not seccomp profiles recording running")
 	}
+
 	b.logger.Info("Getting syscalls for profile " + r.GetName())
 
 	mntns, err := b.getMntnsForProfileWithRetry(r.GetName())
 	if err != nil {
 		return nil, err
 	}
+
 	b.attachUnattachMutex.RLock()
 	syscalls, err := b.Seccomp.PopSyscalls(b, mntns)
 	b.attachUnattachMutex.RUnlock()
+
 	if err != nil {
 		b.logger.Error(err, "Failed to get syscalls for mntns", "mntns", mntns)
+
 		return nil, err
 	}
 
@@ -354,18 +382,22 @@ func (b *BpfRecorder) ApparmorForProfile(
 	if b.startRequests == 0 {
 		return nil, errors.New("bpf recorder not running")
 	}
+
 	if b.AppArmor == nil {
 		return nil, errors.New("no apparmor profiles recording running")
 	}
+
 	b.logger.Info("Getting apparmor profile for profile " + r.GetName())
 
 	mntns, err := b.getMntnsForProfileWithRetry(r.GetName())
 	if err != nil {
 		return nil, err
 	}
+
 	b.attachUnattachMutex.RLock()
 	apparmor := b.AppArmor.GetAppArmorProcessed(mntns)
 	b.attachUnattachMutex.RUnlock()
+
 	return &api.ApparmorResponse{
 		Files: &api.ApparmorResponse_Files{
 			AllowedExecutables: apparmor.FileProcessed.AllowedExecutables,
@@ -394,6 +426,7 @@ func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error
 		mntns uint32
 		try   = -1
 	)
+
 	if err := util.Retry(
 		func() error {
 			try++
@@ -401,25 +434,30 @@ func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error
 			if foundMntns, ok := b.getMntnsForProfile(profile); ok {
 				mntns = foundMntns
 				b.logger.Info("Found mount namespace for profile", "profile", profile, "mntns", mntns)
+
 				return nil
 			}
 			b.logger.Info("No mount namespace found for profile", "profile", profile)
+
 			return ErrNotFound
 		},
 		func(error) bool { return true },
 	); err != nil {
 		return mntns, ErrNotFound
 	}
+
 	return mntns, nil
 }
 
 func (b *BpfRecorder) getMntnsForProfile(profile string) (uint32, bool) {
 	if containerID, ok := b.containerIDToProfileMap.GetBackwards(profile); ok {
 		b.logger.Info("Found container id for profile", "containerID", containerID, "profile", profile)
+
 		if mntns, ok := b.mntnsToContainerIDMap.GetBackwards(containerID); ok {
 			return mntns, true
 		}
 	}
+
 	return 0, false
 }
 
@@ -442,12 +480,14 @@ func (b *BpfRecorder) Load() (err error) {
 	var module *bpf.Module
 
 	b.logger.Info("Loading bpf module...")
+
 	b.btfPath, err = b.findBtfPath()
 	if err != nil {
 		return fmt.Errorf("find btf: %w", err)
 	}
 
 	var bpfObject []byte
+
 	switch b.GoArch() {
 	case "amd64":
 		bpfObject = bpfAmd64
@@ -465,6 +505,7 @@ func (b *BpfRecorder) Load() (err error) {
 	if err != nil {
 		return fmt.Errorf("load bpf module: %w", err)
 	}
+
 	b.module = module
 
 	if b.programName != "" {
@@ -475,6 +516,7 @@ func (b *BpfRecorder) Load() (err error) {
 		} else {
 			b.logger.Info(fmt.Sprintf("Set program name filter: '%s'", programName))
 		}
+
 		programName = append(programName, 0)
 		if err := b.InitGlobalVariable(
 			module, "filter_name", programName,
@@ -484,6 +526,7 @@ func (b *BpfRecorder) Load() (err error) {
 	}
 
 	b.logger.Info("Loading bpf object from module")
+
 	if err := b.BPFLoadObject(module); err != nil {
 		return fmt.Errorf("load bpf object: %w", err)
 	}
@@ -493,9 +536,11 @@ func (b *BpfRecorder) Load() (err error) {
 		if err != nil {
 			return fmt.Errorf("getting exclude_mntns map failed: %w", err)
 		}
+
 		if err := b.UpdateValue(excludeMntns, b.excludeMountNamespace, []byte{excludeMntnsEnabled}); err != nil {
 			return fmt.Errorf("updating exclude_mntns map failed: %w", err)
 		}
+
 		b.logger.Info("Excluding mount namespace", "mntns", b.excludeMountNamespace)
 	}
 
@@ -513,6 +558,7 @@ func (b *BpfRecorder) Load() (err error) {
 			b.logger.Error(err, "load AppArmor bpf hooks")
 		}
 	}
+
 	if b.Seccomp != nil {
 		if err := b.Seccomp.Load(b); err != nil {
 			return err
@@ -525,7 +571,9 @@ func (b *BpfRecorder) Load() (err error) {
 	}
 
 	const timeout = 300
+
 	events := make(chan []byte)
+
 	ringbuf, err := b.InitRingBuf(
 		b.module,
 		"events",
@@ -534,11 +582,13 @@ func (b *BpfRecorder) Load() (err error) {
 	if err != nil {
 		return fmt.Errorf("init events ringbuffer: %w", err)
 	}
+
 	b.PollRingBuffer(ringbuf, timeout)
 
 	go b.processEvents(events)
 
 	b.logger.Info("BPF module successfully loaded.")
+
 	return nil
 }
 
@@ -548,12 +598,15 @@ func (b *BpfRecorder) loadPrograms(programNames []string) error {
 		if err != nil {
 			return fmt.Errorf("get bpf program %s: %w", name, err)
 		}
+
 		_, err = b.AttachGeneric(prog)
 		if err != nil {
 			return fmt.Errorf("attach bpf program %s: %w", name, err)
 		}
+
 		b.logger.Info("attached bpf program", "name", name)
 	}
+
 	return nil
 }
 
@@ -569,6 +622,7 @@ func (b *BpfRecorder) StartRecording() (err error) {
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
 		return fmt.Errorf("failed to update `is_recording`: %w", err)
 	}
+
 	syscall.Getgid() // Notify BPF program that is_recording has changed.
 
 	if b.AppArmor != nil {
@@ -581,11 +635,13 @@ func (b *BpfRecorder) StartRecording() (err error) {
 			b.logger.Error(err, "attach AppArmor bpf hooks")
 		}
 	}
+
 	if b.Seccomp != nil {
 		if err := b.Seccomp.StartRecording(b); err != nil {
 			return err
 		}
 	}
+
 	b.logger.Info("Recording started.")
 
 	return nil
@@ -599,6 +655,7 @@ func (b *BpfRecorder) StopRecording() error {
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
 		return fmt.Errorf("failed to update `is_recording`: %w", err)
 	}
+
 	syscall.Getgid() // Notify BPF program that is_recording has changed.
 
 	if b.Seccomp != nil {
@@ -606,11 +663,13 @@ func (b *BpfRecorder) StopRecording() error {
 			return err
 		}
 	}
+
 	if b.AppArmor != nil {
 		if err := b.AppArmor.StopRecording(b); err != nil {
 			return err
 		}
 	}
+
 	b.logger.Info("Recording stopped.")
 
 	// XXX: It may be useful to clear out all existing maps here.
@@ -621,6 +680,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	// Use the system btf if possible
 	if _, err := b.Stat("/sys/kernel/btf/vmlinux"); err == nil {
 		b.logger.Info("Using system btf file")
+
 		return "", nil
 	}
 
@@ -638,18 +698,24 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 
 	osID := types.Os(res["ID"])
 	btfOs, ok := btf[osID]
+
 	if !ok {
 		b.logger.Info(fmt.Sprintf("OS not found in btf map: %s", osID))
+
 		return "", nil
 	}
+
 	b.logger.Info(fmt.Sprintf("OS found in btf map: %s", osID))
 
 	osVersion := types.OsVersion(res["VERSION_ID"])
 	btfOsVersion, ok := btfOs[osVersion]
+
 	if !ok {
 		b.logger.Info(fmt.Sprintf("OS version not found in btf map: %s", osVersion))
+
 		return "", nil
 	}
+
 	b.logger.Info(fmt.Sprintf("OS version found in btf map: %s", osVersion))
 
 	uname := syscall.Utsname{}
@@ -659,32 +725,42 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 
 	arch := types.Arch(toStringInt8(uname.Machine))
 	btfArch, ok := btfOsVersion[arch]
+
 	if !ok {
 		b.logger.Info(fmt.Sprintf("Architecture not found in btf map: %s", arch))
+
 		return "", nil
 	}
+
 	b.logger.Info(fmt.Sprintf("Architecture found in btf map: %s", arch))
 
 	release := toStringInt8(uname.Release)
+
 	version, err := semver.Parse(release)
 	if err != nil {
 		return "", fmt.Errorf("unable to parse semver for release %s: %w", release, err)
 	}
+
 	version.Pre = nil
+
 	const (
 		lowestMajor = 5
 		lowestMinor = 8
 	)
+
 	if version.LT(semver.Version{Major: lowestMajor, Minor: lowestMinor}) {
 		return "", fmt.Errorf("unsupported kernel version %s: at least Linux 5.8 is required", release)
 	}
 
 	kernel := types.Kernel(release)
 	btfBytes, ok := btfArch[kernel]
+
 	if !ok {
 		b.logger.Info(fmt.Sprintf("Kernel not found in btf map: %s", kernel))
+
 		return "", nil
 	}
+
 	b.logger.Info(fmt.Sprintf("Kernel found in btf map: %s", kernel))
 
 	file, err := b.TempFile(
@@ -701,6 +777,7 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 	}
 
 	b.logger.Info("Wrote BTF to file: " + file.Name())
+
 	return file.Name(), nil
 }
 
@@ -709,6 +786,7 @@ func toStringInt8(array [65]int8) string {
 	for i, b := range array {
 		buf[i] = byte(b)
 	}
+
 	return toStringByte(buf[:])
 }
 
@@ -717,12 +795,14 @@ func toStringByte(array []byte) string {
 	if i := strings.Index(str, "\x00"); i != -1 {
 		str = str[:i]
 	}
+
 	return str
 }
 
 func (b *BpfRecorder) processEvents(events chan []byte) {
 	b.logger.Info("Processing bpf events")
 	defer b.logger.Info("Stopped processing bpf events")
+
 	for event := range events {
 		b.handleEvent(event)
 	}
@@ -734,6 +814,7 @@ func (b *BpfRecorder) handleEvent(eventBytes []byte) {
 	err := binary.Read(bytes.NewReader(eventBytes), binary.LittleEndian, &event)
 	if err != nil {
 		b.logger.Error(err, "Couldn't read event structure")
+
 		return
 	}
 
@@ -777,18 +858,22 @@ func (b *BpfRecorder) handleNewPidEvent(e *bpfEvent) {
 			"No container ID found for PID",
 			"pid", pid, "mntns", mntns, "err", err.Error(),
 		)
+
 		return
 	}
+
 	b.mntnsToContainerIDMap.Insert(mntns, containerID)
 
 	b.logger.V(config.VerboseLevel).Info(
 		"Found container ID for PID", "pid", pid,
 		"mntns", mntns, "containerID", containerID,
 	)
+
 	profile, err := b.findProfileForContainerID(containerID)
 	if err != nil {
 		b.logger.Error(err, "Unable to find profile in cluster for container ID",
 			"id", containerID, "pid", pid, "mntns", mntns)
+
 		return
 	}
 
@@ -803,9 +888,11 @@ func (b *BpfRecorder) handleNewPidEvent(e *bpfEvent) {
 func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
 	b.logger.Info(fmt.Sprintf("record pid exit: %d.", exitEvent.Pid))
 	d, _ := b.recordedExits.LoadOrStore(exitEvent.Pid, make(chan bool))
+
 	done, ok := d.(chan bool)
 	if !ok {
 		b.logger.Info("unexpected recordedExits type")
+
 		return
 	}
 	select {
@@ -821,10 +908,12 @@ func (b *BpfRecorder) FindProcMountNamespace(pid uint32) (uint32, error) {
 	// This requires the container to run with host PID, otherwise we will get
 	// the namespace from the container.
 	procLink := fmt.Sprintf("/proc/%d/ns/mnt", pid)
+
 	res, err := b.Readlink(procLink)
 	if err != nil {
 		return 0, fmt.Errorf("read mount namespace link: %w", err)
 	}
+
 	stripped := strings.TrimPrefix(res, "mnt:[")
 	stripped = strings.TrimSuffix(stripped, "]")
 
@@ -849,6 +938,7 @@ func (b *BpfRecorder) trackProfileMetric(mntns uint32, profile string) {
 func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 	if profile, ok := b.containerIDToProfileMap.Get(id); ok {
 		b.logger.Info("Found profile in cache", "containerID", id, "profile", profile)
+
 		return profile, nil
 	}
 
@@ -862,6 +952,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 	)
 
 	try := -1
+
 	if err := util.RetryEx(
 		&wait.Backoff{
 			Duration: backoffDuration,
@@ -897,6 +988,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 							"podName", pod.Name,
 							"containerName", containerName,
 						)
+
 						continue
 					}
 
@@ -908,6 +1000,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 							"podName", pod.Name,
 							"containerName", containerName,
 						)
+
 						continue
 					}
 
@@ -942,6 +1035,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 					}
 				}
 			}
+
 			return fmt.Errorf("container ID not found in cluster: %s", id)
 		},
 		func(error) bool { return true },
@@ -955,6 +1049,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 			"profile", profile,
 			"containerID", id,
 		)
+
 		return profile, nil
 	}
 
@@ -965,6 +1060,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
 	d, _ := b.recordedExits.LoadOrStore(pid, make(chan bool))
 	done, ok := d.(chan bool)
+
 	if !ok {
 		return fmt.Errorf("unexpected type: %T", d)
 	}
@@ -983,5 +1079,6 @@ func BPFLSMEnabled() bool {
 	if err != nil {
 		return false
 	}
+
 	return regexp.MustCompile(`(^|,)bpf(,|$)`).Match(contents)
 }

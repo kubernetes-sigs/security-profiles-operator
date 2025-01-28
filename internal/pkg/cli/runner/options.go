@@ -48,6 +48,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	if ctx.IsSet(FlagProfile) {
 		options.profile = ctx.String(FlagProfile)
 	}
+
 	if options.profile == "" {
 		return nil, errors.New("no profile provided")
 	}
@@ -55,6 +56,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	if ctx.IsSet(FlagType) {
 		options.typ = Type(ctx.String(FlagType))
 	}
+
 	if options.typ != TypeSeccomp {
 		return nil, fmt.Errorf("unsupported %s: %s", FlagType, options.typ)
 	}
@@ -63,6 +65,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get command options: %w", err)
 	}
+
 	options.commandOptions = commandOptions
 
 	return options, nil

@@ -128,6 +128,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -172,6 +173,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -242,6 +244,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -307,6 +310,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -365,6 +369,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},
@@ -530,6 +535,7 @@ func TestHandle(t *testing.T) {
 						Raw: func() []byte {
 							b, err := json.Marshal(testPod.DeepCopy())
 							require.NoError(t, err)
+
 							return b
 						}(),
 					},

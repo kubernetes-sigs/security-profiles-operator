@@ -33,6 +33,7 @@ func (e *e2e) testCaseLogEnricher([]string) {
 	)
 
 	e.logf("Creating test profile")
+
 	profile := fmt.Sprintf(`
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
@@ -45,6 +46,7 @@ spec:
     names:
     - listen
 `, profileName)
+
 	profileCleanup := e.writeAndCreate(profile, "test-profile-*.yaml")
 	defer profileCleanup()
 	defer e.kubectl("delete", "sp", profileName)
@@ -72,21 +74,25 @@ spec:
 `, podName, containerName, namespace, profileName)
 
 	since := time.Now()
+
 	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
 	defer podCleanup()
 	defer e.kubectl("delete", "pod", podName)
 	e.waitForProfile(profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
+
 	const maximum = 20
 	for i := 0; i <= maximum; i++ {
 		output := e.kubectl("get", "pod", podName)
 		if strings.Contains(output, "Running") {
 			break
 		}
+
 		if i == maximum {
 			e.Fail("Unable to get pod in running state")
 		}
+
 		time.Sleep(5 * time.Second)
 	}
 
@@ -112,7 +118,6 @@ spec:
 	if e.singleNodeEnvironment {
 		// we only run the metrics checks in a single node environment because otherwise it's a lottery
 		// which spod instance do we hit and the test is not stable
-
 		metrics := e.runAndRetryPodCMD(curlSpodCMD)
 		e.Regexp(fmt.Sprintf(`(?m)security_profiles_operator_seccomp_profile_audit_total{`+
 			`container="%s",`+

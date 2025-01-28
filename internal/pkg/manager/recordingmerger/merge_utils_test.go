@@ -35,12 +35,15 @@ func ifaceAsSortedSeccompProfile(iface client.Object) *seccompprofile.SeccompPro
 	if !ok {
 		return nil
 	}
+
 	for i := range prof.Spec.Syscalls {
 		sort.Strings(prof.Spec.Syscalls[i].Names)
 	}
+
 	sort.Slice(prof.Spec.Syscalls, func(i, j int) bool {
 		return prof.Spec.Syscalls[i].Action < prof.Spec.Syscalls[j].Action
 	})
+
 	return prof
 }
 
@@ -49,12 +52,14 @@ func ifaceAsSortedSelinuxProfile(iface client.Object) *selinuxprofileapi.Selinux
 	if !ok {
 		return nil
 	}
+
 	for label, permMap := range prof.Spec.Allow {
 		for oc, perms := range permMap {
 			sort.Strings(perms)
 			prof.Spec.Allow[label][oc] = perms
 		}
 	}
+
 	return prof
 }
 
@@ -112,6 +117,7 @@ func TestMergeProfiles(t *testing.T) {
 				require.Equal(t, []string{"a", "b", "c"}, mergedProf.Spec.Syscalls[0].Names)
 				require.Equal(t, mergedProf.Spec.Syscalls[1].Action, seccomp.Action("foo"))
 				require.Equal(t, []string{"c", "d", "e"}, mergedProf.Spec.Syscalls[1].Names)
+
 				return nil
 			},
 		},
@@ -164,6 +170,7 @@ func TestMergeProfiles(t *testing.T) {
 					"label_foo": {"oc_baz": {"do_baz"}, "oc_bar": {"do_bar"}, "oc_bar2": {"do_bar2"}, "oc_baz2": {"do_baz2"}},
 					"label_aaa": {"oc_aaa": {"do_aaa"}, "oc_bbb": {"do_bbb"}},
 				}, mergedProf.Spec.Allow)
+
 				return nil
 			},
 		},
@@ -189,7 +196,11 @@ func TestMergeProfiles(t *testing.T) {
 									ReadWritePaths: &[]string{"readwrite1"},
 								},
 								Network: &apparmorprofileapi.AppArmorNetworkRules{
-									AllowRaw: func() *bool { b := true; return &b }(),
+									AllowRaw: func() *bool {
+										b := true
+
+										return &b
+									}(),
 								},
 								Capability: &apparmorprofileapi.AppArmorCapabilityRules{
 									AllowedCapabilities: []string{"sys_admin", "net_admin"},
@@ -211,9 +222,17 @@ func TestMergeProfiles(t *testing.T) {
 									ReadWritePaths: &[]string{"merged-rw2"},
 								},
 								Network: &apparmorprofileapi.AppArmorNetworkRules{
-									AllowRaw: func() *bool { b := false; return &b }(),
+									AllowRaw: func() *bool {
+										b := false
+
+										return &b
+									}(),
 									Protocols: &apparmorprofileapi.AppArmorAllowedProtocols{
-										AllowTCP: func() *bool { b := true; return &b }(),
+										AllowTCP: func() *bool {
+											b := true
+
+											return &b
+										}(),
 									},
 								},
 								Capability: &apparmorprofileapi.AppArmorCapabilityRules{
@@ -241,15 +260,24 @@ func TestMergeProfiles(t *testing.T) {
 						ReadWritePaths: &[]string{"merged-rw1", "merged-rw2", "readwrite1"},
 					},
 					Network: &apparmorprofileapi.AppArmorNetworkRules{
-						AllowRaw: func() *bool { b := true; return &b }(),
+						AllowRaw: func() *bool {
+							b := true
+
+							return &b
+						}(),
 						Protocols: &apparmorprofileapi.AppArmorAllowedProtocols{
-							AllowTCP: func() *bool { b := true; return &b }(),
+							AllowTCP: func() *bool {
+								b := true
+
+								return &b
+							}(),
 						},
 					},
 					Capability: &apparmorprofileapi.AppArmorCapabilityRules{
 						AllowedCapabilities: []string{"net_admin", "net_raw", "sys_admin"},
 					},
 				}, prof.Spec.Abstract)
+
 				return nil
 			},
 		},

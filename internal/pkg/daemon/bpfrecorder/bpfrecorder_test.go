@@ -68,6 +68,7 @@ var (
 
 func TestRun(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		prepare func(*bpfrecorderfakes.FakeImpl)
 		assert  func(error)
@@ -294,6 +295,7 @@ func TestRun(t *testing.T) {
 				mock.UnameCalls(func(res *syscall.Utsname) error {
 					copy(res.Machine[:], machine)
 					copy(res.Release[:], release)
+
 					return nil
 				})
 				mock.TempFileCalls(os.CreateTemp)
@@ -313,6 +315,7 @@ func TestRun(t *testing.T) {
 				mock.UnameCalls(func(res *syscall.Utsname) error {
 					copy(res.Machine[:], machine)
 					copy(res.Release[:], release)
+
 					return nil
 				})
 				mock.WriteReturns(0, errTest)
@@ -332,6 +335,7 @@ func TestRun(t *testing.T) {
 				mock.UnameCalls(func(res *syscall.Utsname) error {
 					copy(res.Machine[:], machine)
 					copy(res.Release[:], release)
+
 					return nil
 				})
 				mock.TempFileReturns(nil, errTest)
@@ -350,6 +354,7 @@ func TestRun(t *testing.T) {
 				}, nil)
 				mock.UnameCalls(func(res *syscall.Utsname) error {
 					copy(res.Machine[:], machine)
+
 					return nil
 				})
 			},
@@ -409,6 +414,7 @@ func TestRun(t *testing.T) {
 	} {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		tc.prepare(mock)
+
 		sut := New("test", logr.Discard(), true, false)
 		sut.impl = mock
 
@@ -503,6 +509,7 @@ func TestStart(t *testing.T) {
 
 		mock.GoArchReturns(validGoArch)
 		mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 		err := sut.Load()
 		require.NoError(t, err)
 
@@ -513,6 +520,7 @@ func TestStart(t *testing.T) {
 
 func TestStartNotLoaded(t *testing.T) {
 	t.Parallel()
+
 	mock := &bpfrecorderfakes.FakeImpl{}
 	sut := New("", logr.Discard(), true, true)
 	sut.impl = mock
@@ -895,6 +903,7 @@ func TestProcessEvents(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
 	err = sut.WaitForPidExit(ctx, 42)
 	require.NoError(t, err)
 }
@@ -941,6 +950,7 @@ func TestNewPidEvent(t *testing.T) {
 						}},
 					},
 				}}}, nil)
+
 				return bpfEvent{
 					Pid:   42,
 					Mntns: 0x1010,
@@ -953,6 +963,7 @@ func TestNewPidEvent(t *testing.T) {
 					if containerID, ok := sut.containerIDToProfileMap.GetBackwards("profile.json"); ok {
 						if actualMntns, ok := sut.mntnsToContainerIDMap.GetBackwards(containerID); ok {
 							foundMntns = actualMntns
+
 							break
 						}
 					}
@@ -964,6 +975,7 @@ func TestNewPidEvent(t *testing.T) {
 		{ // unable to find container ID for PID
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
 				mock.ContainerIDForPIDReturns(containerID, errTest)
+
 				return bpfEvent{
 					Pid:   42,
 					Mntns: 0x1010,
@@ -988,6 +1000,7 @@ func TestNewPidEvent(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				mock.ListPodsReturns(nil, errTest)
+
 				return bpfEvent{
 					Pid:   42,
 					Mntns: 0x1010,

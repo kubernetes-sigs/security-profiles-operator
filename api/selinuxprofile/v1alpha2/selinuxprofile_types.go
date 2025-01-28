@@ -93,6 +93,7 @@ func SortLabelKeys(allow Allow) []LabelKey {
 	sort.SliceStable(keys, func(i, j int) bool {
 		return keys[i].String() < keys[j].String()
 	})
+
 	return keys
 }
 
@@ -101,6 +102,7 @@ func SortObjectClassKeys(ock map[ObjectClassKey]PermissionSet) []ObjectClassKey 
 	sort.SliceStable(keys, func(i, j int) bool {
 		return keys[i].String() < keys[j].String()
 	})
+
 	return keys
 }
 

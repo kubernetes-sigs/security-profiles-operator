@@ -67,6 +67,7 @@ func (p *Converter) Run() error {
 				"https://web.archive.org/web/20231211031731/https://documentation.suse.com/sles/15-SP3/html/SLES-all/cha-apparmor-profiles.html#sec-apparmor-profiles-types. "+
 				"Pass --%s to create a standard profile.",
 				obj.Name, FlagProgramName)
+
 			programName = obj.Name
 		}
 
@@ -74,6 +75,7 @@ func (p *Converter) Run() error {
 		if err != nil {
 			return fmt.Errorf("build raw apparmor profile: %w", err)
 		}
+
 		out = []byte(outStr)
 	case *seccompprofileapi.SeccompProfile:
 		out, err = json.MarshalIndent(obj.Spec, "", "  ")
@@ -90,5 +92,6 @@ func (p *Converter) Run() error {
 	}
 
 	log.Printf("Successfully wrote raw profile to %s.", p.options.outputFile)
+
 	return nil
 }

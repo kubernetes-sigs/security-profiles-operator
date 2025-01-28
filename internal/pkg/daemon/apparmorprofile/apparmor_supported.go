@@ -56,9 +56,12 @@ func (a *aaProfileManager) Enabled() bool {
 			hostop.WithAssumeHostPidNamespace())
 		a := aa.NewAppArmor(aa.WithLogger(a.logger))
 
-		_ = mount.Do(func() (err error) { //nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
-			hostSupportsAppArmor, err = a.Enabled()
-			return
+		//nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
+		_ = mount.Do(func() (err error) {
+			//nolint:errcheck //(pjbgf): default to false if we are not privileged enough.
+			hostSupportsAppArmor, _ = a.Enabled()
+
+			return nil
 		})
 	})
 
@@ -70,6 +73,7 @@ func (a *aaProfileManager) RemoveProfile(bp profilebasev1alpha1.StatusBaseUser) 
 	if !ok {
 		return errors.New(errInvalidCustomResourceType)
 	}
+
 	return a.removeProfile(a.logger, profile.GetProfileName())
 }
 
@@ -83,6 +87,7 @@ func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser)
 	if err != nil {
 		return false, fmt.Errorf("generating raw apparmor profile: %w", err)
 	}
+
 	return a.loadProfile(a.logger, profile.GetProfileName(), policy)
 }
 
@@ -113,9 +118,11 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 		if err != nil {
 			return fmt.Errorf("cannot check policy status: %w", err)
 		}
+
 		if !loaded {
 			return fmt.Errorf("policy %q is not loaded: AppArmorProfile name must match defined policy", name)
 		}
+
 		return nil
 	})
 
@@ -137,6 +144,7 @@ func removeProfile(logger logr.Logger, profileName string) error {
 
 		if !loaded {
 			logger.Info("profile is not loaded into host: skipping deletion", "profile-name", profileName)
+
 			return nil
 		}
 

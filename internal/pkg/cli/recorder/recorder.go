@@ -96,6 +96,7 @@ func (r *Recorder) Run() error {
 	if err := r.LoadBpfRecorder(r.bpfRecorder); err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
+
 	if err := r.StartBpfRecording(r.bpfRecorder); err != nil {
 		return fmt.Errorf("record: %w", err)
 	}
@@ -107,6 +108,7 @@ func (r *Recorder) Run() error {
 	}(r, r.bpfRecorder)
 
 	var mntns uint32
+
 	if r.options.noProcStart {
 		// command execution is managed externally,
 		// so we play dumb and just wait for SIGINT.
@@ -116,6 +118,7 @@ func (r *Recorder) Run() error {
 		<-ch
 	} else {
 		cmd := command.New(r.options.commandOptions)
+
 		pid, err := r.CommandRun(cmd)
 		if err != nil {
 			return fmt.Errorf("run command: %w", err)
@@ -131,6 +134,7 @@ func (r *Recorder) Run() error {
 		}
 
 		log.Println("Waiting for events processor to catch up...")
+
 		ctx, cancel := context.WithTimeout(context.Background(), waitForPidExitTimeout)
 		defer cancel()
 
@@ -150,6 +154,7 @@ func (r *Recorder) Run() error {
 			return fmt.Errorf("build apparmor profile: %w", err)
 		}
 	}
+
 	if recordSeccomp {
 		if err := r.processSeccomp(file, mntns); err != nil {
 			return fmt.Errorf("build seccomp profile: %w", err)
@@ -165,10 +170,12 @@ func (r *Recorder) outFile() string {
 		if r.options.typ == TypeRawAppArmor {
 			outFile = strings.TrimSuffix(outFile, ".yaml") + ".json"
 		}
+
 		if r.options.typ == TypeRawSeccomp {
 			outFile = strings.TrimSuffix(outFile, ".yaml") + ".apparmor"
 		}
 	}
+
 	return outFile
 }
 
@@ -179,13 +186,16 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 	// We may iterate over multiple mount namespaces if mntns is 0, so we need to remove duplicates
 	syscallsMap := map[string]bool{}
 	foundMntns := false
+
 	it := r.SyscallsIterator(r.bpfRecorder)
 	for r.IteratorNext(it) {
 		currentMntns := binary.LittleEndian.Uint32(r.IteratorKey(it))
 		if mntns != 0 && currentMntns != mntns {
 			continue
 		}
+
 		foundMntns = true
+
 		log.Printf("Found process mntns %d in bpf map", currentMntns)
 
 		syscallsValue, err := r.SyscallsGetValue(r.bpfRecorder, currentMntns)
@@ -204,6 +214,7 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 			}
 		}
 	}
+
 	if !foundMntns {
 		return fmt.Errorf("find mntns %d in bpf data map", mntns)
 	}
@@ -211,12 +222,14 @@ func (r *Recorder) processSeccomp(writer io.Writer, mntns uint32) error {
 	// map -> slice
 	syscalls := make([]string, len(syscallsMap))
 	i := 0
+
 	for k := range syscallsMap {
 		syscalls[i] = k
 		i++
 	}
 
 	log.Printf("Got syscalls: %s", strings.Join(syscalls, ", "))
+
 	if err := r.buildProfile(writer, syscalls); err != nil {
 		return fmt.Errorf("build profile: %w", err)
 	}
@@ -232,12 +245,14 @@ func (r *Recorder) generateAppArmorProfile(mntns uint32) apparmorprofileapi.AppA
 
 	if len(processed.FileProcessed.AllowedExecutables) != 0 || len(processed.FileProcessed.AllowedLibraries) != 0 {
 		abstract.Executable = &apparmorprofileapi.AppArmorExecutablesRules{}
+
 		if len(processed.FileProcessed.AllowedExecutables) != 0 {
 			sort.Strings(processed.FileProcessed.AllowedExecutables)
 			ExecutableAllowedExecCopy := make([]string, len(processed.FileProcessed.AllowedExecutables))
 			copy(ExecutableAllowedExecCopy, processed.FileProcessed.AllowedExecutables)
 			abstract.Executable.AllowedExecutables = &ExecutableAllowedExecCopy
 		}
+
 		if len(processed.FileProcessed.AllowedLibraries) != 0 {
 			sort.Strings(processed.FileProcessed.AllowedLibraries)
 			ExecutableAllowedLibCopy := make([]string, len(processed.FileProcessed.AllowedLibraries))
@@ -250,41 +265,49 @@ func (r *Recorder) generateAppArmorProfile(mntns uint32) apparmorprofileapi.AppA
 		(len(processed.FileProcessed.WriteOnlyPaths) != 0) ||
 		(len(processed.FileProcessed.ReadWritePaths) != 0) {
 		files := apparmorprofileapi.AppArmorFsRules{}
+
 		if len(processed.FileProcessed.ReadOnlyPaths) != 0 {
 			sort.Strings(processed.FileProcessed.ReadOnlyPaths)
 			FileReadOnlyCopy := make([]string, len(processed.FileProcessed.ReadOnlyPaths))
 			copy(FileReadOnlyCopy, processed.FileProcessed.ReadOnlyPaths)
 			files.ReadOnlyPaths = &FileReadOnlyCopy
 		}
+
 		if len(processed.FileProcessed.WriteOnlyPaths) != 0 {
 			sort.Strings(processed.FileProcessed.WriteOnlyPaths)
 			FileWriteOnlyCopy := make([]string, len(processed.FileProcessed.WriteOnlyPaths))
 			copy(FileWriteOnlyCopy, processed.FileProcessed.WriteOnlyPaths)
 			files.WriteOnlyPaths = &FileWriteOnlyCopy
 		}
+
 		if len(processed.FileProcessed.ReadWritePaths) != 0 {
 			sort.Strings(processed.FileProcessed.ReadWritePaths)
 			FileReadWriteCopy := make([]string, len(processed.FileProcessed.ReadWritePaths))
 			copy(FileReadWriteCopy, processed.FileProcessed.ReadWritePaths)
 			files.ReadWritePaths = &FileReadWriteCopy
 		}
+
 		abstract.Filesystem = &files
 	}
 
 	if processed.Socket.UseRaw || processed.Socket.UseTCP || processed.Socket.UseUDP {
 		net := apparmorprofileapi.AppArmorNetworkRules{}
 		proto := apparmorprofileapi.AppArmorAllowedProtocols{}
+
 		if processed.Socket.UseRaw {
 			net.AllowRaw = &enabled
 		}
+
 		if processed.Socket.UseTCP {
 			proto.AllowTCP = &enabled
 			net.Protocols = &proto
 		}
+
 		if processed.Socket.UseUDP {
 			proto.AllowUDP = &enabled
 			net.Protocols = &proto
 		}
+
 		abstract.Network = &net
 	}
 
@@ -299,6 +322,7 @@ func (r *Recorder) generateAppArmorProfile(mntns uint32) apparmorprofileapi.AppA
 
 func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 	var spec apparmorprofileapi.AppArmorProfileSpec
+
 	if mntns > 0 {
 		abstract := r.generateAppArmorProfile(mntns)
 		spec = apparmorprofileapi.AppArmorProfileSpec{
@@ -308,6 +332,7 @@ func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 		// Special case of CLI recording with --no-proc: We span all mount namespaces.
 		mountNamespaces := r.bpfRecorder.AppArmor.GetKnownMntns()
 		parts := make([]client.Object, 0, len(mountNamespaces))
+
 		for _, mntns := range mountNamespaces {
 			profile := apparmorprofileapi.AppArmorProfile{
 				Spec: apparmorprofileapi.AppArmorProfileSpec{
@@ -316,14 +341,17 @@ func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 			}
 			parts = append(parts, &profile)
 		}
+
 		profile, err := recordingmerger.MergeProfiles(parts)
 		if err != nil {
 			return fmt.Errorf("merge profiles: %w", err)
 		}
+
 		prof, ok := profile.(*apparmorprofileapi.AppArmorProfile)
 		if !ok {
 			return fmt.Errorf("unexpected non-apparmor profile: %+v", prof)
 		}
+
 		spec = prof.Spec
 	}
 
@@ -334,6 +362,7 @@ func (r *Recorder) processAppArmor(writer io.Writer, mntns uint32) error {
 	if r.options.typ == TypeRawAppArmor {
 		return r.buildAppArmorProfileRaw(writer, &spec)
 	}
+
 	return r.buildAppArmorProfileCRD(writer, &spec)
 }
 
@@ -345,14 +374,17 @@ func (r *Recorder) buildProfile(writer io.Writer, names []string) error {
 
 	if len(r.options.baseSyscalls) > 0 {
 		diff := []string{}
+
 		for _, syscall := range r.options.baseSyscalls {
 			if !util.Contains(names, syscall) {
 				names = append(names, syscall)
 				diff = append(diff, syscall)
 			}
 		}
+
 		log.Printf("Adding base syscalls: %s", strings.Join(diff, ", "))
 	}
+
 	sort.Strings(names)
 
 	spec := seccompprofileapi.SeccompProfileSpec{
@@ -430,6 +462,7 @@ func (r *Recorder) buildAppArmorProfileCRD(writer io.Writer, spec *apparmorprofi
 			return fmt.Errorf("write combined profile: %w", err)
 		}
 	}
+
 	return nil
 }
 
@@ -440,6 +473,7 @@ func (r *Recorder) buildAppArmorProfileRaw(writer io.Writer, spec *apparmorprofi
 	}
 
 	abstract := spec.Abstract
+
 	raw, err := crd2armor.GenerateProfile(programName, spec.ComplainMode, &abstract)
 	if err != nil {
 		return fmt.Errorf("build raw apparmor profile: %w", err)
@@ -457,5 +491,6 @@ func (r *Recorder) goArchToSeccompArch(goarch string) (seccompprofileapi.Arch, e
 	if err != nil {
 		return "", fmt.Errorf("convert golang to seccomp arch: %w", err)
 	}
+
 	return seccompprofileapi.Arch(seccompArch), nil
 }

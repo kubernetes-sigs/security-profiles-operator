@@ -49,6 +49,7 @@ func FromContext(ctx *cli.Context) (*Options, error) {
 	if len(args) == 0 {
 		return nil, errors.New("no command provided")
 	}
+
 	options.command = args[0]
 	options.args = args[1:]
 

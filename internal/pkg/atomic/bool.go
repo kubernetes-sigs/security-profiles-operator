@@ -27,6 +27,7 @@ func (b *Bool) Set(yes bool) {
 	if yes {
 		value = 1
 	}
+
 	atomic.StoreInt32((*int32)(b), value)
 }
 

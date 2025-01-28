@@ -35,6 +35,7 @@ func GetSPODName() string {
 		// Return the default spod name
 		return config.SPOdName
 	}
+
 	return name
 }
 

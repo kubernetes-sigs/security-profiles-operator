@@ -27,7 +27,9 @@ func (in *StatusBase) DeepCopy() *StatusBase {
 	if in == nil {
 		return nil
 	}
+
 	out := new(StatusBase)
 	in.DeepCopyInto(out)
+
 	return out
 }

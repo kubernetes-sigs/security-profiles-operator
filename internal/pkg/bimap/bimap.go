@@ -39,6 +39,7 @@ func NewFromMap[K comparable, V comparable](values map[K]V) *BiMap[K, V] {
 	for k, v := range values {
 		biMap.Insert(k, v)
 	}
+
 	return biMap
 }
 
@@ -57,6 +58,7 @@ func (m *BiMap[K, V]) Exists(k K) bool {
 	defer m.l.RUnlock()
 
 	_, ok := m.forward[k]
+
 	return ok
 }
 
@@ -66,6 +68,7 @@ func (m *BiMap[K, V]) ExistsBackwards(v V) bool {
 	defer m.l.RUnlock()
 
 	_, ok := m.backward[v]
+
 	return ok
 }
 
@@ -74,6 +77,7 @@ func (m *BiMap[K, V]) Get(k K) (V, bool) {
 	m.l.RLock()
 	defer m.l.RUnlock()
 	v, ok := m.forward[k]
+
 	return v, ok
 }
 
@@ -82,6 +86,7 @@ func (m *BiMap[K, V]) GetBackwards(v V) (K, bool) {
 	m.l.RLock()
 	defer m.l.RUnlock()
 	k, ok := m.backward[v]
+
 	return k, ok
 }
 
@@ -115,5 +120,6 @@ func (m *BiMap[K, V]) DeleteBackwards(v V) {
 func (m *BiMap[K, V]) Size() int {
 	m.l.RLock()
 	defer m.l.RUnlock()
+
 	return len(m.forward)
 }

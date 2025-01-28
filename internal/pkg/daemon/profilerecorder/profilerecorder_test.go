@@ -51,12 +51,14 @@ var errTest = errors.New("error")
 
 func TestName(t *testing.T) {
 	t.Parallel()
+
 	sut := NewController()
 	assert.Equal(t, "recorder-spod", sut.Name())
 }
 
 func TestSchemeBuilder(t *testing.T) {
 	t.Parallel()
+
 	sut := NewController()
 	assert.Equal(t, sut.SchemeBuilder(), recordingapi.SchemeBuilder)
 }
@@ -83,6 +85,7 @@ func TestSetup(t *testing.T) {
 							{Type: corev1.NodeInternalIP, Address: "127.0.0.1"},
 						},
 					}
+
 					return nil
 				})
 			},
@@ -234,6 +237,7 @@ func TestReconcile(t *testing.T) {
 				) (controllerutil.OperationResult, error) {
 					err := f()
 					assert.NoError(t, err)
+
 					return "", nil
 				})
 				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
@@ -648,6 +652,7 @@ func TestReconcile(t *testing.T) {
 				) (controllerutil.OperationResult, error) {
 					err := f()
 					assert.NoError(t, err)
+
 					return "", nil
 				})
 				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
@@ -1090,6 +1095,7 @@ func TestReconcile(t *testing.T) {
 				) (controllerutil.OperationResult, error) {
 					err := f()
 					assert.NoError(t, err)
+
 					return "", nil
 				})
 				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
@@ -1437,6 +1443,7 @@ func TestReconcile(t *testing.T) {
 				) (controllerutil.OperationResult, error) {
 					err := f()
 					assert.NoError(t, err)
+
 					return "", nil
 				})
 				mock.GetRecordingReturns(&recordingapi.ProfileRecording{
@@ -1600,6 +1607,7 @@ func TestIsPodOnLocalNode(t *testing.T) {
 	t.Parallel()
 
 	const ip = "127.0.0.1"
+
 	for _, tc := range []struct {
 		prepare func(*RecorderReconciler) apiruntime.Object
 		assert  func(bool)
@@ -1607,6 +1615,7 @@ func TestIsPodOnLocalNode(t *testing.T) {
 		{ // success
 			prepare: func(sut *RecorderReconciler) apiruntime.Object {
 				sut.nodeAddresses = []string{ip}
+
 				return &corev1.Pod{Status: corev1.PodStatus{HostIP: ip}}
 			},
 			assert: func(res bool) {

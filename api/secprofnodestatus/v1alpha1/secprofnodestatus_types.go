@@ -76,6 +76,7 @@ func LowerOfTwoStates(currentLowest, candidate ProfileState) ProfileState {
 	if orderedStates[currentLowest] > orderedStates[candidate] {
 		return candidate
 	}
+
 	return currentLowest
 }
 
