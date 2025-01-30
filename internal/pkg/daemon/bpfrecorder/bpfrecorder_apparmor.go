@@ -315,8 +315,16 @@ func replaceVarianceInFilePath(filePath string) string {
 
 	// Replace container ID with any container ID
 	pathWithCid := regexp.MustCompile(`/var/lib/containers/storage/overlay/\w+/`)
+	filePath = pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
 
-	return pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
+	// Assume that long digit sequences are random, replace them with a placeholder
+	digitSequence := regexp.MustCompile(`\d{6,}`)
+	// Beware: This is not a regex. `[0-9]*` would mean "a digit followed by arbitrary characters"
+	// AppArmor syntax doesn't have regex quantifiers. So we approximate with
+	// "a digit followed by arbitrary characters followed by a digit".
+	filePath = digitSequence.ReplaceAllString(filePath, "[0-9]*[0-9]")
+
+	return filePath
 }
 
 func shouldExcludeFile(filePath string) bool {
