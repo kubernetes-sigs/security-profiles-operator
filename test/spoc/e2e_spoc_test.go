@@ -92,7 +92,7 @@ func recordAppArmorTest(t *testing.T) {
 		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, readme)
 		require.Contains(t, *profile.Filesystem.WriteOnlyPaths, "/dev/null")
 		require.Contains(t, *profile.Filesystem.WriteOnlyPaths, "/tmp/spoc-test-file")
-		require.Contains(t, *profile.Filesystem.ReadWritePaths, fileToRemove.Name())
+		require.Contains(t, *profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(fileToRemove.Name()))
 
 		count := 0
 

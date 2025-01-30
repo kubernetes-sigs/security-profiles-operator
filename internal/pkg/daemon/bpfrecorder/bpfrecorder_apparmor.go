@@ -159,7 +159,7 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	defer b.lockRecordedFiles.Unlock()
 
 	fileName := fileDataToString(&fileEvent.Data)
-	fileName = replaceVarianceInFilePath(fileName)
+	fileName = ReplaceVarianceInFilePath(fileName)
 
 	log.Printf("File access: %s, flags=%d pid=%d mntns=%d\n", fileName, fileEvent.Flags, fileEvent.Pid, fileEvent.Mntns)
 
@@ -304,7 +304,7 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 	return processed
 }
 
-func replaceVarianceInFilePath(filePath string) string {
+func ReplaceVarianceInFilePath(filePath string) string {
 	// Replace PID value with a apparmor variable.
 	pathWithPid := regexp.MustCompile(`^/proc/\d+/`)
 	filePath = pathWithPid.ReplaceAllString(filePath, "/proc/@{pid}/")
