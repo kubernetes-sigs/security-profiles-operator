@@ -69,7 +69,7 @@ func TestReplaceVarianceInFilePath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := replaceVarianceInFilePath(tc.path)
+			got := ReplaceVarianceInFilePath(tc.path)
 			require.Equal(t, tc.want, got)
 		})
 	}
