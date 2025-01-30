@@ -53,6 +53,16 @@ func TestReplaceVarianceInFilePath(t *testing.T) {
 			path: "/var/lib/containers/storage/overlay/8a0a50ee00/merged/dev",
 			want: "/var/lib/containers/storage/overlay/*/merged/dev",
 		},
+		{
+			name: "generalize os.MkdirTemp() directories",
+			path: "/tmp/kubelet-detect-safe-umount1404256428",
+			want: "/tmp/kubelet-detect-safe-umount[0-9]*[0-9]",
+		},
+		{
+			name: "generalize os.MkdirTemp() directories",
+			path: "/tmp/kubelet-detect-safe-umount1404256428/test",
+			want: "/tmp/kubelet-detect-safe-umount[0-9]*[0-9]/test",
+		},
 	}
 
 	for _, tc := range cases {
