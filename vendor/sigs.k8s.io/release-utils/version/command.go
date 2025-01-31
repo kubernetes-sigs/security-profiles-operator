@@ -44,6 +44,7 @@ func WithFont(fontName string) *cobra.Command {
 
 func version(fontName string) *cobra.Command {
 	var outputJSON bool
+
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Prints the version",
@@ -67,6 +68,7 @@ func version(fontName string) *cobra.Command {
 			} else {
 				cmd.Println(v.String())
 			}
+
 			return nil
 		},
 	}
