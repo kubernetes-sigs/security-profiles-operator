@@ -94,6 +94,11 @@ func (sv *RSAPSSSignerVerifier) Public() crypto.PublicKey {
 
 // LoadRSAPSSKeyFromFile returns an SSLibKey instance for an RSA key stored in a
 // file.
+//
+// Deprecated: use LoadKey(). The custom serialization format has been
+// deprecated. Use
+// https://github.com/secure-systems-lab/securesystemslib/blob/main/docs/migrate_key.py
+// to convert your key.
 func LoadRSAPSSKeyFromFile(path string) (*SSLibKey, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
@@ -103,9 +108,13 @@ func LoadRSAPSSKeyFromFile(path string) (*SSLibKey, error) {
 	return LoadRSAPSSKeyFromBytes(contents)
 }
 
-// LoadRSAPSSKeyFromBytes is a function that takes a byte array as input. This byte array should represent a PEM encoded RSA key, as PEM encoding is required.
-// The function returns an SSLibKey instance, which is a struct that holds the key data.
-
+// LoadRSAPSSKeyFromBytes is a function that takes a byte array as input. This
+// byte array should represent a PEM encoded RSA key, as PEM encoding is
+// required.  The function returns an SSLibKey instance, which is a struct that
+// holds the key data.
+//
+// Deprecated: use LoadKey() for all key types, RSA is no longer the only key
+// that uses PEM serialization.
 func LoadRSAPSSKeyFromBytes(contents []byte) (*SSLibKey, error) {
 	pemData, keyObj, err := decodeAndParsePEM(contents)
 	if err != nil {
