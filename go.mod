@@ -44,7 +44,7 @@ require (
 	oras.land/oras-go/v2 v2.5.0
 	sigs.k8s.io/controller-runtime v0.20.1
 	sigs.k8s.io/controller-tools v0.17.1
-	sigs.k8s.io/release-utils v0.10.0
+	sigs.k8s.io/release-utils v0.11.0
 	sigs.k8s.io/yaml v1.4.0
 )
 
