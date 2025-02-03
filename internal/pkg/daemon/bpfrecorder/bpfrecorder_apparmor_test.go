@@ -56,12 +56,17 @@ func TestReplaceVarianceInFilePath(t *testing.T) {
 		{
 			name: "generalize os.MkdirTemp() directories",
 			path: "/tmp/kubelet-detect-safe-umount1404256428",
-			want: "/tmp/kubelet-detect-safe-umount[0-9]*[0-9]",
+			want: "/tmp/kubelet-detect-safe-umount*",
 		},
 		{
-			name: "generalize os.MkdirTemp() directories",
-			path: "/tmp/kubelet-detect-safe-umount1404256428/test",
-			want: "/tmp/kubelet-detect-safe-umount[0-9]*[0-9]/test",
+			name: "generalize uuids",
+			path: "/var/lib/kubelet/pods/00112233-4455-6677-8899-aabbccddeeff/",
+			want: "/var/lib/kubelet/pods/*/",
+		},
+		{
+			name: "generalize hashes",
+			path: "/var/lib/kubelet/plugins/kubernetes.io/csi/pd.csi.storage.gke.io/3c5928afbbefea1b0acf34b9acd866d2bcb3d6b6955d4e1fe095a97d487bcb45/globalmountroblem-detector.db",
+			want: "/var/lib/kubelet/plugins/kubernetes.io/csi/pd.csi.storage.gke.io/*/globalmountroblem-detector.db",
 		},
 	}
 
