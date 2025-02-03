@@ -317,12 +317,15 @@ func ReplaceVarianceInFilePath(filePath string) string {
 	pathWithCid := regexp.MustCompile(`/var/lib/containers/storage/overlay/\w+/`)
 	filePath = pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
 
+	uuid := regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	filePath = uuid.ReplaceAllString(filePath, "*")
+
+	hash := regexp.MustCompile(`[0-9a-fA-F]{32,}`)
+	filePath = hash.ReplaceAllString(filePath, "*")
+
 	// Assume that long digit sequences are random, replace them with a placeholder
 	digitSequence := regexp.MustCompile(`\d{6,}`)
-	// Beware: This is not a regex. `[0-9]*` would mean "a digit followed by arbitrary characters"
-	// AppArmor syntax doesn't have regex quantifiers. So we approximate with
-	// "a digit followed by arbitrary characters followed by a digit".
-	filePath = digitSequence.ReplaceAllString(filePath, "[0-9]*[0-9]")
+	filePath = digitSequence.ReplaceAllString(filePath, "*")
 
 	return filePath
 }
