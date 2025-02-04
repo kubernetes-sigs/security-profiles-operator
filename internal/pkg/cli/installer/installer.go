@@ -17,11 +17,13 @@ limitations under the License.
 package installer
 
 import (
+	"errors"
 	"fmt"
+
 	"github.com/go-logr/logr"
 	"github.com/hairyhenderson/go-which"
-	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
@@ -44,8 +46,8 @@ func New(options *Options, logger logr.Logger) *Installer {
 
 // Run the Installer.
 func (p *Installer) Run() error {
-
 	p.logger.Info("Reading profile file", "filename", p.options.ProfilePath)
+
 	content, err := p.ReadFile(p.options.ProfilePath)
 	if err != nil {
 		return fmt.Errorf("open profile: %w", err)
@@ -60,7 +62,7 @@ func (p *Installer) Run() error {
 	case *apparmorprofileapi.AppArmorProfile:
 		manager := apparmorprofile.NewAppArmorProfileManager(p.logger)
 		if !p.AppArmorEnabled(manager) {
-			return fmt.Errorf("insufficient permissions or AppArmor is unavailable")
+			return errors.New("insufficient permissions or AppArmor is unavailable")
 		}
 
 		if err := PatchProfileName(obj, p.options); err != nil {
@@ -68,6 +70,7 @@ func (p *Installer) Run() error {
 		}
 
 		p.logger.Info("Installing AppArmor profile", "profileName", obj.Name)
+
 		if _, err := p.AppArmorInstallProfile(manager, obj); err != nil {
 			return fmt.Errorf("install apparmor profile: %w", err)
 		}
@@ -86,8 +89,10 @@ func PatchProfileName(profile *apparmorprofileapi.AppArmorProfile, options *Opti
 			profile.Name = resolved
 		}
 	}
+
 	if profile.Name == "" {
-		return fmt.Errorf("apparmor profile has an empty name")
+		return errors.New("apparmor profile has an empty name")
 	}
+
 	return nil
 }

@@ -21,14 +21,15 @@ package remover
 
 import (
 	"errors"
-	"github.com/go-logr/logr"
 	"os"
+	"testing"
+
+	"github.com/go-logr/logr"
+	"github.com/stretchr/testify/require"
+
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/installer"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/remover/removerfakes"
-	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestRun(t *testing.T) {
