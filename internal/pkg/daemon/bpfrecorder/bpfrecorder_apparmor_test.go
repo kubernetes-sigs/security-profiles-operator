@@ -65,8 +65,8 @@ func TestReplaceVarianceInFilePath(t *testing.T) {
 		},
 		{
 			name: "generalize hashes",
-			path: "/var/lib/kubelet/plugins/kubernetes.io/csi/pd.csi.storage.gke.io/3c5928afbbefea1b0acf34b9acd866d2bcb3d6b6955d4e1fe095a97d487bcb45/globalmountroblem-detector.db",
-			want: "/var/lib/kubelet/plugins/kubernetes.io/csi/pd.csi.storage.gke.io/*/globalmountroblem-detector.db",
+			path: "/tmp/3c5928afbbefea1b0acf34b9acd866d2bcb3d6b6955d4e1fe095a97d487bcb45/foo",
+			want: "/tmp/*/foo",
 		},
 	}
 
