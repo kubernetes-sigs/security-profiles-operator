@@ -21,6 +21,7 @@ import (
 	"github.com/go-logr/logr"
 	"log"
 	"os"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/remover"
 	"strings"
 
 	"github.com/urfave/cli/v2"
@@ -142,6 +143,13 @@ func main() {
 			Aliases:   []string{"i"},
 			Usage:     "install a security profile on the local machine",
 			Action:    install,
+			ArgsUsage: "PROFILE EXECUTABLE",
+		},
+		&cli.Command{
+			Name:      "remove",
+			Aliases:   []string{"rm"},
+			Usage:     "remove a security profile from the local machine",
+			Action:    remove,
 			ArgsUsage: "PROFILE EXECUTABLE",
 		},
 		&cli.Command{
@@ -295,6 +303,20 @@ func install(ctx *cli.Context) error {
 
 	if err := installer.New(options, logr.New(&spocli.LogSink{})).Run(); err != nil {
 		return fmt.Errorf("launch installer: %w", err)
+	}
+
+	return nil
+}
+
+// remove runs the `spoc remove` subcommand.
+func remove(ctx *cli.Context) error {
+	options, err := installer.FromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("build options: %w", err)
+	}
+
+	if err := remover.New(options, logr.New(&spocli.LogSink{})).Run(); err != nil {
+		return fmt.Errorf("launch profile remover: %w", err)
 	}
 
 	return nil
