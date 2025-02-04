@@ -124,7 +124,7 @@ typedef struct __attribute__((__packed__)) event_data {
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
 
-static const char WILDCARD[] = "/**";
+static const char FORWARD_SLASH[] = "/";
 static const char RUNC_INIT[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
@@ -336,12 +336,10 @@ static __always_inline int register_fs_event(struct path * filename,
     if ((i_mode & S_IFDIR) == S_IFDIR) {
         // Somehow this makes the verifier happy.
         u16 idx = pathlen - 1;
-        if (idx < sizeof(event->data) - 4) {
-            bpf_core_read(event->data + idx, 4, &WILDCARD);
+        if (idx < sizeof(event->data) - sizeof(FORWARD_SLASH)) {
+            bpf_core_read(event->data + idx, sizeof(FORWARD_SLASH), &FORWARD_SLASH);
         } else {
             // pathlen is close to PATH_MAX.
-            // We could overwrite the last last directory in the path with ** in
-            // that case, but for now we keep things simple.
             bpf_printk(
                 "failed to fixup directory entry, pathlen is too close to "
                 "PATH_MAX: %s",
