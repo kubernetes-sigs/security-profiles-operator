@@ -95,6 +95,10 @@ func (a *aaProfileManager) CustomResourceTypeName() string {
 	return customResourceTypeName
 }
 
+func profileFilename(profileName string) string {
+	return strings.Trim(strings.ReplaceAll(profileName, "/", "."), ".")
+}
+
 func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 	mount := hostop.NewMountHostOp(
 		hostop.WithLogger(logger),
@@ -104,8 +108,10 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 
 	err := mount.Do(func() error {
 		// AppArmor convention: A profile for /bin/foo is typically named `bin.foo`.
-		name := strings.Trim(strings.ReplaceAll(name, "/", "."), ".")
-		path := filepath.Join(targetProfileDir, name)
+		path := filepath.Join(
+			targetProfileDir,
+			profileFilename(name),
+		)
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint // file permissions are fine
 			return fmt.Errorf("writing policy file: %w", err)
 		}
@@ -152,7 +158,7 @@ func removeProfile(logger logr.Logger, profileName string) error {
 			return err
 		}
 
-		return os.Remove(filepath.Join(targetProfileDir, profileName))
+		return os.Remove(filepath.Join(targetProfileDir, profileFilename(profileName)))
 	})
 
 	return err
