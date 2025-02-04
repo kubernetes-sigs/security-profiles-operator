@@ -18,12 +18,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/go-logr/logr"
 	"log"
 	"os"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/remover"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"github.com/urfave/cli/v2"
 
 	"sigs.k8s.io/security-profiles-operator/cmd"
@@ -34,6 +33,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/puller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/pusher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/remover"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/runner"
 )
 

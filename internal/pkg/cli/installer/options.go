@@ -40,12 +40,15 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	options := Default()
 
 	args := ctx.Args().Slice()
+
 	if len(args) >= 1 {
 		options.ProfilePath = args[0]
 	}
+
 	if len(args) >= 2 {
 		options.ExecutablePath = args[1]
 	}
+
 	if len(args) >= 3 {
 		return nil, errors.New("too many arguments")
 	}
