@@ -86,7 +86,7 @@ func TestRun(t *testing.T) {
 				mock.ReadFileReturns(apparmorProfile, nil)
 				mock.AppArmorEnabledReturns(true)
 				mock.AppArmorRemoveProfileReturns(errors.New("profile syntax error"))
-				
+
 				return defaultOptions()
 			},
 			assert: func(mock *removerfakes.FakeImpl, err error) {
