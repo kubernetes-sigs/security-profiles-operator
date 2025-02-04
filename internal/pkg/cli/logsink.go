@@ -33,8 +33,8 @@ func (*LogSink) Init(logr.RuntimeInfo) {}
 // Enabled tests whether this LogSink is enabled at the specified V-level.
 // For example, commandline flags might be used to set the logging
 // verbosity and disable some info logs.
-func (*LogSink) Enabled(int) bool {
-	return true
+func (*LogSink) Enabled(level int) bool {
+	return level <= 0
 }
 
 // Info logs a non-error message with the given key/value pairs as context.
