@@ -63,7 +63,7 @@ func TestRun(t *testing.T) {
 			},
 			assert: func(mock *removerfakes.FakeImpl, err error) {
 				require.NoError(t, err)
-				require.Equal(t, mock.ReadFileArgsForCall(0), "/foo")
+				require.Equal(t, "/foo", mock.ReadFileArgsForCall(0))
 			},
 		},
 		{
