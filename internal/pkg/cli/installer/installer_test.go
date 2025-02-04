@@ -21,13 +21,14 @@ package installer
 
 import (
 	"errors"
-	"github.com/go-logr/logr"
 	"os"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/installer/installerfakes"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/installer/installerfakes"
 )
 
 func TestRun(t *testing.T) {
