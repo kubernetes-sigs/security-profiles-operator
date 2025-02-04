@@ -37,6 +37,7 @@ func TestRun(t *testing.T) {
 
 	defaultOptions := func() *installer.Options {
 		options := installer.Default()
+
 		return options
 	}
 
@@ -57,6 +58,7 @@ func TestRun(t *testing.T) {
 				mock.ReadFileReturns(apparmorProfile, nil)
 				mock.AppArmorEnabledReturns(true)
 				mock.AppArmorRemoveProfileReturns(nil)
+
 				return &installer.Options{
 					ProfilePath: "/foo",
 				}
@@ -71,6 +73,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *removerfakes.FakeImpl) *installer.Options {
 				mock.ReadFileReturns(apparmorProfile, nil)
 				mock.AppArmorEnabledReturns(false)
+
 				return defaultOptions()
 			},
 			assert: func(mock *removerfakes.FakeImpl, err error) {
