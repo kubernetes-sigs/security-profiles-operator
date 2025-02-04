@@ -85,6 +85,7 @@ func TestRun(t *testing.T) {
 				mock.ReadFileReturns(apparmorProfile, nil)
 				mock.AppArmorEnabledReturns(true)
 				mock.AppArmorInstallProfileReturns(false, errors.New("profile syntax error"))
+
 				return defaultOptions()
 			},
 			assert: func(mock *installerfakes.FakeImpl, err error) {
@@ -95,6 +96,7 @@ func TestRun(t *testing.T) {
 			name: "unsupported profile type",
 			prepare: func(mock *installerfakes.FakeImpl) *Options {
 				mock.ReadFileReturns(seccompProfile, nil)
+
 				return defaultOptions()
 			},
 			assert: func(mock *installerfakes.FakeImpl, err error) {
@@ -105,6 +107,7 @@ func TestRun(t *testing.T) {
 			name: "invalid file",
 			prepare: func(mock *installerfakes.FakeImpl) *Options {
 				mock.ReadFileReturns([]byte{}, nil)
+
 				return defaultOptions()
 			},
 			assert: func(mock *installerfakes.FakeImpl, err error) {
