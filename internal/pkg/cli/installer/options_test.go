@@ -57,8 +57,8 @@ func TestFromContext(t *testing.T) {
 			},
 			assert: func(options *Options, err error) {
 				require.NoError(t, err)
-				require.Equal(t, options.ExecutablePath, "")
-				require.Equal(t, options.ProfilePath, DefaultProfileFile)
+				require.Equal(t, "", options.ExecutablePath)
+				require.Equal(t, DefaultProfileFile, options.ProfilePath)
 			},
 		},
 		{ // failure: too many args

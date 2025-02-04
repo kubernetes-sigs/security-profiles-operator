@@ -36,6 +36,7 @@ func TestRun(t *testing.T) {
 
 	defaultOptions := func() *Options {
 		options := Default()
+
 		return options
 	}
 
@@ -56,13 +57,14 @@ func TestRun(t *testing.T) {
 				mock.ReadFileReturns(apparmorProfile, nil)
 				mock.AppArmorEnabledReturns(true)
 				mock.AppArmorInstallProfileReturns(true, nil)
+
 				return &Options{
 					ProfilePath: "/foo",
 				}
 			},
 			assert: func(mock *installerfakes.FakeImpl, err error) {
 				require.NoError(t, err)
-				require.Equal(t, mock.ReadFileArgsForCall(0), "/foo")
+				require.Equal(t, "/foo", mock.ReadFileArgsForCall(0))
 			},
 		},
 		{
@@ -70,6 +72,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *installerfakes.FakeImpl) *Options {
 				mock.ReadFileReturns(apparmorProfile, nil)
 				mock.AppArmorEnabledReturns(false)
+
 				return defaultOptions()
 			},
 			assert: func(mock *installerfakes.FakeImpl, err error) {
