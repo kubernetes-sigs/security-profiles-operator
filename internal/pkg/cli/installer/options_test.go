@@ -26,6 +26,7 @@ import (
 
 func TestFromContext(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		prepare func(*flag.FlagSet)
 		assert  func(*Options, error)
@@ -36,8 +37,8 @@ func TestFromContext(t *testing.T) {
 			},
 			assert: func(options *Options, err error) {
 				require.NoError(t, err)
-				require.Equal(t, options.ExecutablePath, "tail")
-				require.Equal(t, options.ProfilePath, "profile.yml")
+				require.Equal(t, "tail", options.ExecutablePath)
+				require.Equal(t, "profile.yml", options.ProfilePath)
 			},
 		},
 		{ // Success: profile specified
@@ -46,8 +47,8 @@ func TestFromContext(t *testing.T) {
 			},
 			assert: func(options *Options, err error) {
 				require.NoError(t, err)
-				require.Equal(t, options.ExecutablePath, "")
-				require.Equal(t, options.ProfilePath, "profile.yml")
+				require.Equal(t, "", options.ExecutablePath)
+				require.Equal(t, "profile.yml", options.ProfilePath)
 			},
 		},
 		{ // Success: all defaults

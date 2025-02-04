@@ -18,6 +18,7 @@ package installer
 
 import (
 	"os"
+
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/apparmorprofile"
 )
@@ -40,6 +41,9 @@ func (*defaultImpl) AppArmorEnabled(manager apparmorprofile.ProfileManager) bool
 	return manager.Enabled()
 }
 
-func (*defaultImpl) AppArmorInstallProfile(manager apparmorprofile.ProfileManager, p profilebasev1alpha1.StatusBaseUser) (bool, error) {
+func (*defaultImpl) AppArmorInstallProfile(
+	manager apparmorprofile.ProfileManager,
+	p profilebasev1alpha1.StatusBaseUser,
+) (bool, error) {
 	return manager.InstallProfile(p)
 }
