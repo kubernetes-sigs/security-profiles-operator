@@ -52,8 +52,10 @@ func main() {
 	fileSymlink := flag.String("file-symlink", "", "Create symlink using the following syntax: OLD:NEW")
 	dirRead := flag.String("dir-read", "", "read directory (e.g. /dev/). Multiple directories may be separated by comma.")
 	fileRemove := flag.String("file-remove", "", "delete file (e.g. /tmp/test)")
-	dirCreate := flag.String("dir-create", "", "create directory (e.g. /tmp/dir). Multiple directories may be separated by comma.")
-	dirRemove := flag.String("dir-remove", "", "remove directory (e.g. /tmp/dir). Multiple directories may be separated by comma.")
+	dirCreate := flag.String("dir-create", "",
+		"create directory (e.g. /tmp/dir). Multiple directories may be separated by comma.")
+	dirRemove := flag.String("dir-remove", "",
+		"remove directory (e.g. /tmp/dir). Multiple directories may be separated by comma.")
 	netTCP := flag.Bool("net-tcp", false, "spawn a tcp server")
 	netUDP := flag.Bool("net-udp", false, "spawn a udp server")
 	netIcmp := flag.Bool("net-icmp", false, "open an icmp socket, exercise NET_RAW capability.")
@@ -84,6 +86,7 @@ func main() {
 			if err != nil {
 				log.Fatal("❌ Error creating directory:", err)
 			}
+
 			log.Println("✅ Directory creation successful:", dir)
 		}
 	}
@@ -171,6 +174,7 @@ func main() {
 			if err != nil {
 				log.Fatal("❌ Error removing directory:", err)
 			}
+
 			log.Println("✅ Directory removal successful:", dir)
 		}
 	}
