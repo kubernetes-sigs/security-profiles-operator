@@ -212,8 +212,6 @@ func recordAppArmorTest(t *testing.T) {
 			profile := recordAppArmor(t, "--privileged", "./demobinary", "--net-icmp")
 			require.True(t, *profile.Network.AllowRaw)
 			require.Contains(t, profile.Capability.AllowedCapabilities, "net_raw")
-			//nolint:wsl // XXX: this fails in CI but works locally, unsure why
-			// runWithProfile(t, profile, "./demobinary", "--net-icmp")
 		})
 	})
 	t.Run("capabilities", func(t *testing.T) {
