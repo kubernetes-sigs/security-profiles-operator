@@ -212,7 +212,7 @@ func recordAppArmorTest(t *testing.T) {
 			profile := recordAppArmor(t, "--privileged", "./demobinary", "--net-icmp")
 			require.True(t, *profile.Network.AllowRaw)
 			require.Contains(t, profile.Capability.AllowedCapabilities, "net_raw")
-			// XXX: this fails in CI but works locally, unsure why
+			//nolint:wsl // XXX: this fails in CI but works locally, unsure why
 			// runWithProfile(t, profile, "./demobinary", "--net-icmp")
 		})
 	})
@@ -364,6 +364,7 @@ func runSpoc(t *testing.T, args ...string) ([]byte, error) {
 	return out, err
 }
 
+//nolint:unparam // `binary` arg for consistency with `record`/`recordAppArmor`.
 func runWithProfile(t *testing.T, profile apparmorprofileapi.AppArmorAbstract, binary string, args ...string) {
 	t.Helper()
 	// Create profile file
