@@ -31,25 +31,25 @@ spec:
         - /proc/@{pid}/task/@{tid}/attr/apparmor/current
         - /proc/@{pid}/uid_map
         - /proc/sys/kernel/cap_last_cap
-        - /run/**
+        - /run/
         - /sys/module/apparmor/parameters/enabled
-        - /var/lib/containers/storage/overlay/*/merged/**
-        - /var/lib/containers/storage/overlay/*/merged/dev/**
-        - /var/lib/containers/storage/overlay/*/merged/etc/**
-        - /var/lib/containers/storage/overlay/*/merged/proc/**
-        - /var/lib/containers/storage/overlay/*/merged/run/**
-        - /var/lib/containers/storage/overlay/*/merged/sys/**
-        - /var/lib/containers/storage/overlay/*/merged/var/**
+        - /var/lib/containers/storage/overlay/*/merged/
+        - /var/lib/containers/storage/overlay/*/merged/dev/
+        - /var/lib/containers/storage/overlay/*/merged/etc/
+        - /var/lib/containers/storage/overlay/*/merged/proc/
+        - /var/lib/containers/storage/overlay/*/merged/run/
+        - /var/lib/containers/storage/overlay/*/merged/sys/
+        - /var/lib/containers/storage/overlay/*/merged/var/
       readWritePaths:
         - /dev/null
         - /proc/@{pid}/oom_score_adj
         - /var/lib/containers/storage/overlay/*/merged/dev/*
-        - /var/lib/containers/storage/overlay/*/merged/dev/mqueue/**
-        - /var/lib/containers/storage/overlay/*/merged/dev/pts/**
-        - /var/lib/containers/storage/overlay/*/merged/dev/shm/**
-        - /var/lib/containers/storage/overlay/*/merged/run/secrets/**
-        - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/**
-        - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/serviceaccount/**
+        - /var/lib/containers/storage/overlay/*/merged/dev/mqueue/
+        - /var/lib/containers/storage/overlay/*/merged/dev/pts/
+        - /var/lib/containers/storage/overlay/*/merged/dev/shm/
+        - /var/lib/containers/storage/overlay/*/merged/run/secrets/
+        - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/
+        - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/serviceaccount/
       writeOnlyPaths:
         - /proc/@{pid}/task/@{tid}/attr/apparmor/exec
         - /var/lib/containers/storage/overlay/*/merged/dev/termination-log
