@@ -68,6 +68,11 @@ func TestReplaceVarianceInFilePath(t *testing.T) {
 			path: "/tmp/3c5928afbbefea1b0acf34b9acd866d2bcb3d6b6955d4e1fe095a97d487bcb45/foo",
 			want: "/tmp/*/foo",
 		},
+		{
+			name: "sys devices",
+			path: "/sys/devices/pci0000:00/0000:00:03.0/virtio0/host0/target0:0:7/0:0:7:0/block/sdb/",
+			want: "/sys/devices/**",
+		},
 	}
 
 	for _, tc := range cases {
