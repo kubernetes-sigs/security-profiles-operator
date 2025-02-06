@@ -337,7 +337,8 @@ static __always_inline int register_fs_event(struct path * filename,
         // Somehow this makes the verifier happy.
         u16 idx = pathlen - 1;
         if (idx < sizeof(event->data) - sizeof(FORWARD_SLASH)) {
-            bpf_core_read(event->data + idx, sizeof(FORWARD_SLASH), &FORWARD_SLASH);
+            bpf_core_read(event->data + idx, sizeof(FORWARD_SLASH),
+                          &FORWARD_SLASH);
         } else {
             // pathlen is close to PATH_MAX.
             bpf_printk(
