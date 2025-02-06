@@ -38,6 +38,9 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
 {{ if ne .Abstract.Executable.AllowedLibraries nil }}
 {{range $allowedlib := .Abstract.Executable.AllowedLibraries}}  {{$allowedlib}} mr,
 {{end}}{{end}}{{end}}
+{{ if .AllowMount }}
+/sbin/fsck.ext4 ixr,
+{{end}}
 
   # Filesystem rules
 {{ if ne .Abstract.Filesystem nil }}{{ if ne .Abstract.Filesystem.ReadOnlyPaths nil }}
