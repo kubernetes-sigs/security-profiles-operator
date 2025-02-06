@@ -36,7 +36,7 @@ require (
 	golang.org/x/sync v0.11.0
 	google.golang.org/grpc v1.70.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1
-	google.golang.org/protobuf v1.36.4
+	google.golang.org/protobuf v1.36.5
 	k8s.io/api v0.32.1
 	k8s.io/apimachinery v0.32.1
 	k8s.io/cli-runtime v0.32.1
