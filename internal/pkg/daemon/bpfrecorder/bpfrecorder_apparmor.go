@@ -327,6 +327,11 @@ func ReplaceVarianceInFilePath(filePath string) string {
 	digitSequence := regexp.MustCompile(`\d{6,}`)
 	filePath = digitSequence.ReplaceAllString(filePath, "*")
 
+	// Replace the sys devices with a generic path
+	if strings.HasPrefix(filePath, "/sys/devices/") {
+		filePath = "/sys/devices/**"
+	}
+
 	return filePath
 }
 
