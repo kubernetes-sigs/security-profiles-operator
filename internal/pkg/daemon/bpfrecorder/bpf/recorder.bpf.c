@@ -37,6 +37,7 @@
 #define PROT_EXEC 0x4  /* Page can be executed.  */
 #define PROT_NONE 0x0
 
+#define S_IFMT 0170000
 #define S_IFIFO 0010000
 #define S_IFCHR 0020000
 #define S_IFDIR 0040000
@@ -291,7 +292,7 @@ static __always_inline int register_fs_event(struct path * filename,
                                              bool custom_bpf_d_path)
 {
     // ignore unix pipes
-    if ((i_mode & S_IFIFO) == S_IFIFO) {
+    if ((i_mode & S_IFMT) == S_IFIFO) {
         return 0;
     }
 
@@ -333,7 +334,7 @@ static __always_inline int register_fs_event(struct path * filename,
         return 0;
     }
 
-    if ((i_mode & S_IFDIR) == S_IFDIR) {
+    if ((i_mode & S_IFMT) == S_IFDIR) {
         // Somehow this makes the verifier happy.
         u16 idx = pathlen - 1;
         if (idx < sizeof(event->data) - sizeof(FORWARD_SLASH)) {
@@ -454,10 +455,10 @@ int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
     if (!_is_recording_cached)
         return 0;
     trace_hook("path_mknod %d", mode);
-    bool not_a_regular_file =
-        ((mode & S_IFCHR) == S_IFCHR || (mode & S_IFBLK) == S_IFBLK ||
-         (mode & S_IFIFO) == S_IFIFO || (mode & S_IFSOCK) == S_IFSOCK);
-    u64 file_flags = FLAG_WRITE;
+    umode_t filetype = mode & S_IFMT;
+    bool not_a_regular_file = (filetype == S_IFCHR || filetype == S_IFBLK ||
+                               filetype == S_IFIFO || filetype == S_IFSOCK);
+    umode_t file_flags = FLAG_WRITE;
     if (not_a_regular_file) {
         file_flags |= FLAG_READ;
     }
