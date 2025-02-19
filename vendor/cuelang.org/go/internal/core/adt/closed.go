@@ -84,16 +84,13 @@ func (v *Vertex) IsInOneOf(mask SpanType) bool {
 // IsRecursivelyClosed returns true if this value is either a definition or unified
 // with a definition.
 func (v *Vertex) IsRecursivelyClosed() bool {
-	return v.Closed || v.IsInOneOf(DefinitionSpan)
+	return v.ClosedRecursive || v.IsInOneOf(DefinitionSpan)
 }
 
 type closeNodeType uint8
 
 const (
 	// a closeRef node is created when there is a non-definition reference.
-	// These nodes are not necessary for computing results, but may be
-	// relevant down the line to group closures through embedded values and
-	// to track position information for failures.
 	closeRef closeNodeType = iota
 
 	// closeDef indicates this node was introduced as a result of referencing
@@ -102,8 +99,6 @@ const (
 
 	// closeEmbed indicates this node was added as a result of an embedding.
 	closeEmbed
-
-	_ = closeRef // silence the linter
 )
 
 // TODO: merge with closeInfo: this is a leftover of the refactoring.
@@ -126,6 +121,11 @@ type CloseInfo struct {
 	// from fields defined by this conjunct.
 	// NOTE: only used when using closeContext.
 	FromDef bool
+
+	// GroupUnify indicates that this conjunct needs to spawn its own
+	// closeContext. This is necessary when programmatically combining
+	// top-level values, such as with Value.Unify.
+	GroupUnify bool
 
 	// FieldTypes indicates which kinds of fields (optional, dynamic, patterns,
 	// etc.) are contained in this conjunct.
@@ -243,21 +243,23 @@ func (c CloseInfo) SpawnRef(arc *Vertex, isDef bool, x Expr) CloseInfo {
 //
 // TODO(performance): this should be merged with resolve(). But for now keeping
 // this code isolated makes it easier to see what it is for.
-func IsDef(x Expr) bool {
+func IsDef(x Expr) (isDef bool, depth int) {
 	switch r := x.(type) {
 	case *FieldReference:
-		return r.Label.IsDef()
+		isDef = r.Label.IsDef()
 
 	case *SelectorExpr:
+		isDef, depth = IsDef(r.X)
+		depth++
 		if r.Sel.IsDef() {
-			return true
+			isDef = true
 		}
-		return IsDef(r.X)
 
 	case *IndexExpr:
-		return IsDef(r.X)
+		isDef, depth = IsDef(r.X)
+		depth++
 	}
-	return false
+	return isDef, depth
 }
 
 // A SpanType is used to indicate whether a CUE value is within the scope of
@@ -294,6 +296,10 @@ type closeInfo struct {
 
 	root SpanType
 	span SpanType
+
+	// decl is the parent declaration which contains the conjuct which
+	// gave rise to this closeInfo.
+	decl Decl
 }
 
 // closeStats holds the administrative fields for a closeInfo value. Each
@@ -330,9 +336,10 @@ func isClosed(v *Vertex) bool {
 	// We could have used IsRecursivelyClosed here, but (effectively)
 	// implementing it again here allows us to only have to iterate over
 	// Structs once.
-	if v.Closed {
+	if v.ClosedRecursive || v.ClosedNonRecursive {
 		return true
 	}
+	// TODO(evalv3): this can be removed once we delete the evalv2 code.
 	for _, s := range v.Structs {
 		if s.IsClosed || s.IsInOneOf(DefinitionSpan) {
 			return true

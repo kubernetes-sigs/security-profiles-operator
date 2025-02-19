@@ -140,6 +140,18 @@ type EnumField struct {
 	Parent        Visitee
 }
 
+// elements is part of elementContainer
+func (f *EnumField) elements() []Visitee {
+	return f.Elements
+}
+
+// takeLastComment is part of elementContainer
+// removes and returns the last element of the list if it is a Comment.
+func (f *EnumField) takeLastComment(expectedOnLine int) (last *Comment) {
+	last, f.Elements = takeLastCommentIfEndsOnLine(f.Elements, expectedOnLine)
+	return
+}
+
 // Accept dispatches the call to the visitor.
 func (f *EnumField) Accept(v Visitor) {
 	v.VisitEnumField(f)

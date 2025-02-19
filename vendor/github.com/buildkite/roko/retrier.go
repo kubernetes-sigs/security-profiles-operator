@@ -10,12 +10,13 @@ import (
 
 var defaultRandom = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-const jitterInterval = 1000 * time.Millisecond
+const defaultJitterInterval = 1000 * time.Millisecond
 
 type Retrier struct {
 	maxAttempts  int
 	attemptCount int
 	jitter       bool
+	jitterRange  jitterRange
 	forever      bool
 	rand         *rand.Rand
 
@@ -24,8 +25,10 @@ type Retrier struct {
 
 	intervalCalculator Strategy
 	strategyType       string
-	manualInterval     *time.Duration
+	nextInterval       time.Duration
 }
+
+type jitterRange struct{ min, max time.Duration }
 
 type Strategy func(*Retrier) time.Duration
 
@@ -119,6 +122,26 @@ func WithStrategy(strategy Strategy, strategyType string) retrierOpt {
 func WithJitter() retrierOpt {
 	return func(r *Retrier) {
 		r.jitter = true
+		r.jitterRange = jitterRange{min: 0, max: defaultJitterInterval}
+	}
+}
+
+// WithJitterRange enables jitter as [WithJitter] does, but allows the user to specify the range of the jitter as a
+// half-open range [min, max) of time.Duration values. The jitter will be a random value in the range [min, max) added
+// to the interval calculated by the retry strategy. The jitter will be recalculated for each retry. Both min and max may
+// be negative, but min must be less than max. min and max may both be zero, which is equivalent to disabling jitter.
+// If a negative jitter causes a negative interval, the interval will be clamped to zero.
+func WithJitterRange(min, max time.Duration) retrierOpt {
+	if min >= max {
+		panic("min must be less than max")
+	}
+
+	return func(r *Retrier) {
+		r.jitter = true
+		r.jitterRange = jitterRange{
+			min: min,
+			max: max,
+		}
 	}
 }
 
@@ -161,7 +184,7 @@ func NewRetrier(opts ...retrierOpt) *Retrier {
 
 	oldJitter := r.jitter
 	r.jitter = false // Temporarily turn off jitter while we check if the interval is 0
-	if r.forever && r.strategyType == constantStrategy && r.NextInterval() == 0 {
+	if r.forever && r.strategyType == constantStrategy && r.intervalCalculator(r) == 0 {
 		panic("retriers using the constant strategy that run forever must have an interval")
 	}
 	r.jitter = oldJitter // and now set it back to what it was previously
@@ -169,12 +192,16 @@ func NewRetrier(opts ...retrierOpt) *Retrier {
 	return r
 }
 
-// Jitter returns a duration in the interval (0, 1] s if jitter is enabled, or 0 s if it's not
+// Jitter returns a duration in the interval in the range [0, r.jitterRange.max - r.jitterRange.min). When no jitter range
+// is defined, the default range is [0, 1 second). The jitter is recalculated for each retry.
+// If jitter is disabled, this method will always return 0.
 func (r *Retrier) Jitter() time.Duration {
 	if !r.jitter {
 		return 0
 	}
-	return time.Duration((1.0 - r.rand.Float64()) * float64(jitterInterval))
+
+	min, max := float64(r.jitterRange.min), float64(r.jitterRange.max)
+	return time.Duration(min + (max-min)*rand.Float64())
 }
 
 // MarkAttempt increments the attempt count for the retrier. This affects ShouldGiveUp, and also affects the retry interval
@@ -190,7 +217,7 @@ func (r *Retrier) Break() {
 
 // SetNextInterval overrides the strategy for the interval before the next try
 func (r *Retrier) SetNextInterval(d time.Duration) {
-	r.manualInterval = &d
+	r.nextInterval = d
 }
 
 // ShouldGiveUp returns whether the retrier should stop trying do do the thing it's been asked to do
@@ -208,14 +235,9 @@ func (r *Retrier) ShouldGiveUp() bool {
 	return r.attemptCount >= r.maxAttempts
 }
 
-// NextInterval returns the next interval that the retrier will use. Behind the scenes, it calls the function generated
-// by either retrier's strategy
+// NextInterval returns the length of time that the retrier will wait before the next retry
 func (r *Retrier) NextInterval() time.Duration {
-	if r.manualInterval != nil {
-		return *r.manualInterval
-	}
-
-	return r.intervalCalculator(r)
+	return r.nextInterval
 }
 
 func (r *Retrier) String() string {
@@ -231,9 +253,8 @@ func (r *Retrier) String() string {
 		return str
 	}
 
-	nextInterval := r.NextInterval()
-	if nextInterval > 0 {
-		str = str + fmt.Sprintf(" Retrying in %s", nextInterval)
+	if r.nextInterval > 0 {
+		str = str + fmt.Sprintf(" Retrying in %s", r.nextInterval)
 	} else {
 		str = str + " Retrying immediately"
 	}
@@ -255,20 +276,15 @@ func (r *Retrier) Do(callback func(*Retrier) error) error {
 // DoWithContext is a context-aware variant of Do.
 func (r *Retrier) DoWithContext(ctx context.Context, callback func(*Retrier) error) error {
 	for {
+		// Calculate the next interval before we do work - this way, the calls to r.NextInterval() in the callback will be
+		// accurate and include the calculated jitter, if present
+		r.nextInterval = r.intervalCalculator(r)
+
 		// Perform the action the user has requested we retry
 		err := callback(r)
 		if err == nil {
 			return nil
 		}
-
-		// Calculate the next interval before we increment the attempt count
-		// In the exponential case, if we didn't do this, we'd skip the first interval
-		// ie, we would wait 2^1, 2^2, 2^3, ..., 2^n+1 seconds (bad)
-		// instead of        2^0, 2^1, 2^2, ..., 2^n seconds (good)
-		nextInterval := r.NextInterval()
-
-		// Reset the manualInterval now that the nextInterval has been acquired.
-		r.manualInterval = nil
 
 		r.MarkAttempt()
 
@@ -277,7 +293,7 @@ func (r *Retrier) DoWithContext(ctx context.Context, callback func(*Retrier) err
 			return err
 		}
 
-		if err := r.sleepOrDone(ctx, nextInterval); err != nil {
+		if err := r.sleepOrDone(ctx, r.nextInterval); err != nil {
 			return err
 		}
 	}

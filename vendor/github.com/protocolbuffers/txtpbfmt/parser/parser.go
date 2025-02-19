@@ -1,6 +1,5 @@
 // Package parser edits text proto files, applies standard formatting
 // and preserves comments.
-// See also: https://github.com/golang/protobuf/blob/master/proto/text_parser.go
 //
 // To disable a specific file from getting formatted, add '# txtpbfmt: disable'
 // at the top of the file.
@@ -73,6 +72,9 @@ type Config struct {
 	// Wrap string field values after each newline.
 	// Should not be used with other Wrap* options.
 	WrapStringsAfterNewlines bool
+
+	// Wrap strictly at the column instead of a word boundary.
+	WrapStringsWithoutWordwrap bool
 
 	// Whether angle brackets used instead of curly braces should be preserved
 	// when outputting a formatted textproto.
@@ -206,7 +208,7 @@ func sameLineBrackets(in []byte, allowTripleQuotedStrings bool) (map[int]bool, e
 				continue
 			}
 			if len(open) == 0 {
-				return nil, fmt.Errorf("too many '}' or '>' at index %d", i)
+				return nil, fmt.Errorf("too many '}' or '>' at line %d, index %d", line, i)
 			}
 			last := len(open) - 1
 			br := open[last]
@@ -302,8 +304,8 @@ func removeDeleted(nodes []*ast.Node) []*ast.Node {
 }
 
 var (
-	spaceSeparators = []byte(" \t\n")
-	valueSeparators = []byte(" \t\n{}:,[]<>;#")
+	spaceSeparators = []byte(" \t\n\r")
+	valueSeparators = []byte(" \t\n\r{}:,[]<>;#")
 )
 
 // Parse returns a tree representation of a textproto file.
@@ -342,7 +344,7 @@ func parseWithMetaCommentConfig(in []byte, c Config) ([]*ast.Node, error) {
 	if err := wrapStrings(nodes, 0, c); err != nil {
 		return nil, err
 	}
-	if err := sortAndFilterNodes( /*parent=*/ nil, nodes, nodeSortFunction(c), nodeFilterFunction(c)); err != nil {
+	if err := sortAndFilterNodes( /*parent=*/ nil, nodes, nodeSortFunction(c), nodeFilterFunction(c), valuesSortFunction(c)); err != nil {
 		return nil, err
 	}
 	return nodes, nil
@@ -399,6 +401,10 @@ func addToConfig(metaComment string, c *Config) error {
 		c.WrapHTMLStrings = true
 	case "wrap_strings_after_newlines":
 		c.WrapStringsAfterNewlines = true
+	case "wrap_strings_without_wordwrap":
+		c.WrapStringsWithoutWordwrap = true
+	case "on": // This doesn't change the overall config.
+	case "off": // This doesn't change the overall config.
 	default:
 		return fmt.Errorf("unrecognized MetaComment: %s", metaComment)
 	}
@@ -540,11 +546,19 @@ func (p *parser) position() ast.Position {
 	}
 }
 
+// Modifies the parser by rewinding to the given position.
+// A position can be snapshotted by using the `position()` function above.
+func (p *parser) rollbackPosition(pos ast.Position) {
+	p.index = int(pos.Byte)
+	p.line = int(pos.Line)
+	p.column = int(pos.Column)
+}
+
 func (p *parser) consumeOptionalSeparator() error {
 	if p.index > 0 && !p.isBlankSep(p.index-1) {
 		// If an unnamed field immediately follows non-whitespace, we require a separator character first (key_one:,:value_two instead of key_one::value_two)
 		if p.consume(':') {
-			return fmt.Errorf("parser encountered unexpected : character (should be whitespace, or a ,; separator)")
+			return fmt.Errorf("parser encountered unexpected character ':' (should be whitespace, ',', or ';')")
 		}
 	}
 
@@ -567,24 +581,33 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 			return nil, ast.Position{}, err
 		}
 
+		// p.parse is often invoked with the index pointing at the newline character
+		// after the previous item. We should still report that this item starts in
+		// the next line.
+		p.consume('\n')
 		startPos := p.position()
-		if p.nextInputIs('\n') {
-			// p.parse is often invoked with the index pointing at the
-			// newline character after the previous item.
-			// We should still report that this item starts in the next line.
-			startPos.Byte++
-			startPos.Line++
-			startPos.Column = 1
+
+		fmtDisabled, err := p.readFormatterDisabledBlock()
+		if err != nil {
+			return nil, startPos, err
+		}
+		if len(fmtDisabled) > 0 {
+			res = append(res, &ast.Node{
+				Start: startPos,
+				Raw:   fmtDisabled,
+			})
+			continue
 		}
 
 		// Read PreComments.
 		comments, blankLines := p.skipWhiteSpaceAndReadComments(true /* multiLine */)
 
 		// Handle blank lines.
-		if blankLines > 1 {
+		if blankLines > 0 {
 			if p.config.infoLevel() {
 				p.config.infof("blankLines: %v", blankLines)
 			}
+			// Here we collapse the leading blank lines into one blank line.
 			comments = append([]string{""}, comments...)
 		}
 
@@ -763,9 +786,7 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 			}
 		} else {
 			// Rewind comments.
-			p.index = int(previousPos.Byte)
-			p.line = int(previousPos.Line)
-			p.column = int(previousPos.Column)
+			p.rollbackPosition(previousPos)
 			// Handle Values.
 			nd.Values, err = p.readValues()
 			if err != nil {
@@ -821,18 +842,67 @@ func (p *parser) readContinuousBlocksOfComments() []string {
 	return preComments
 }
 
+// Returns the exact text within the block flanked by "# txtpbfmt: off" and "# txtpbfmt: on".
+// The 'off' directive must be on its own line, and it cannot be preceded by a comment line. Any
+// preceding whitespace on this line and up to one blank line will be retained.
+// The 'on' directive must followed by a line break. Only full nodes of a AST can be
+// within this block. Partially disabled sections, like just the first line of a for loop without
+// body or closing brace, are not supported. Value lists are not supported. No parsing happens
+// within this block, and as parsing errors will be ignored, please exercise caution.
+func (p *parser) readFormatterDisabledBlock() (string, error) {
+	previousPos := p.position()
+	start := p.index
+	for p.index < p.length && p.isBlankSep(p.index) {
+		if p.consume('\n') {
+			// Include up to one blank line before the 'off' directive.
+			start = p.index - 1
+		} else if p.consume(' ') {
+			// Do nothing. Side-effect is to advance p.index.
+		} else if p.consume('\t') {
+			// Do nothing. Side-effect is to advance p.index.
+		}
+	}
+	offStart := p.position()
+	if !p.consumeString("# txtpbfmt: off") {
+		// Directive not found. Rollback to start.
+		p.rollbackPosition(previousPos)
+		return "", nil
+	}
+	if !p.consume('\n') {
+		return "", fmt.Errorf("txtpbfmt off should be followed by newline at %s", p.errorContext())
+	}
+	for ; p.index < p.length; p.index++ {
+		if p.consumeString("# txtpbfmt: on") {
+			if !p.consume('\n') {
+				return "", fmt.Errorf("txtpbfmt on should be followed by newline at %s", p.errorContext())
+			}
+			// Retain up to one blank line.
+			p.consume('\n')
+			return string(p.in[start:p.index]), nil
+		}
+	}
+	// We reached the end of the file without finding the 'on' directive.
+	p.rollbackPosition(offStart)
+	return "", fmt.Errorf("unterminated txtpbfmt off at %s", p.errorContext())
+}
+
 // skipWhiteSpaceAndReadComments has multiple cases:
 //   - (1) reading a block of comments followed by a blank line
 //   - (2) reading a block of comments followed by non-blank content
-//   - (3) reading the inline comments between the current char and the end of the
-//     current line
+//   - (3) reading the inline comments between the current char and the end of
+//     the current line
 //
-// Lines of comments and number of blank lines will be returned.
+// In both cases (1) and (2), there can also be blank lines before the comment
+// starts.
+//
+// Lines of comments and number of blank lines before the comment will be
+// returned. If there is no comment, the returned slice will be empty.
 func (p *parser) skipWhiteSpaceAndReadComments(multiLine bool) ([]string, int) {
 	i := p.index
 	var foundComment, insideComment bool
 	commentBegin := 0
 	var comments []string
+	// Number of blanks lines *before* the comment (if any) starts.
 	blankLines := 0
 	for ; i < p.length; i++ {
 		if p.in[i] == '#' && !insideComment {
@@ -945,9 +1015,7 @@ func (p *parser) readValues() ([]*ast.Value, error) {
 	}
 	if previousPos != (ast.Position{}) {
 		// Rewind comments.
-		p.index = int(previousPos.Byte)
-		p.line = int(previousPos.Line)
-		p.column = int(previousPos.Column)
+		p.rollbackPosition(previousPos)
 	} else {
 		i := p.index
 		// Handle other values.
@@ -1048,7 +1116,10 @@ type NodeSortFunction func(parent *ast.Node, nodes []*ast.Node) error
 // NodeFilterFunction filters the given nodes.
 type NodeFilterFunction func(nodes []*ast.Node)
 
-func sortAndFilterNodes(parent *ast.Node, nodes []*ast.Node, sortFunction NodeSortFunction, filterFunction NodeFilterFunction) error {
+// ValuesSortFunction sorts the given values.
+type ValuesSortFunction func(values []*ast.Value)
+
+func sortAndFilterNodes(parent *ast.Node, nodes []*ast.Node, sortFunction NodeSortFunction, filterFunction NodeFilterFunction, valuesSortFunction ValuesSortFunction) error {
 	if len(nodes) == 0 {
 		return nil
 	}
@@ -1056,9 +1127,12 @@ func sortAndFilterNodes(parent *ast.Node, nodes []*ast.Node, sortFunction NodeSo
 		filterFunction(nodes)
 	}
 	for _, nd := range nodes {
-		err := sortAndFilterNodes(nd, nd.Children, sortFunction, filterFunction)
+		err := sortAndFilterNodes(nd, nd.Children, sortFunction, filterFunction, valuesSortFunction)
 		if err != nil {
 			return err
+		}
+		if valuesSortFunction != nil && nd.ValuesAsList {
+			valuesSortFunction(nd.Values)
 		}
 	}
 	if sortFunction != nil {
@@ -1074,7 +1148,7 @@ func RemoveDuplicates(nodes []*ast.Node) {
 	}
 	seen := make(map[nameAndValue]bool)
 	for _, nd := range nodes {
-		if seen != nil && len(nd.Values) == 1 {
+		if len(nd.Values) == 1 {
 			key := nameAndValue{nd.Name, nd.Values[0].Value}
 			if _, value := seen[key]; value {
 				// Name-Value pair found in the same nesting level, deleting.
@@ -1134,7 +1208,7 @@ func needsWrappingAtColumn(nd *ast.Node, depth int, c Config) bool {
 			// Only wrap strings
 			return false
 		}
-		if len(v.Value) > maxLength {
+		if len(v.Value) > maxLength || c.WrapStringsWithoutWordwrap {
 			return true
 		}
 	}
@@ -1148,17 +1222,41 @@ func wrapLinesAtColumn(nd *ast.Node, depth int, c Config) error {
 	// This function looks at the unquoted ast.Value.Value string (i.e., with each Value's wrapping
 	// quote chars removed). We need to remove these quotes, since otherwise they'll be re-flowed into
 	// the body of the text.
-	lengthBuffer := 4 // Even at depth 0 we have a 2-space indent and a pair of quotes
+	const lengthBuffer = 4 // Even at depth 0 we have a 2-space indent and a pair of quotes
 	maxLength := c.WrapStringsAtColumn - lengthBuffer - (depth * len(indentSpaces))
 
-	str, err := unquote.Raw(nd)
+	str, quote, err := unquote.Raw(nd)
 	if err != nil {
 		return fmt.Errorf("skipping string wrapping on node %q (error unquoting string): %v", nd.Name, err)
 	}
 
-	// Remove one from the max length since a trailing space may be added below.
-	wrappedStr := wordwrap.WrapString(str, uint(maxLength)-1)
-	lines := strings.Split(wrappedStr, "\n")
+	var lines []string
+	if c.WrapStringsWithoutWordwrap {
+		// https://protobuf.dev/reference/protobuf/textformat-spec/#string.
+		// String literals can contain octal, hex, unicode, and C-style escape
+		// sequences: \a \b \f \n \r \t \v \? \' \"\ ? \\
+		re := regexp.MustCompile(`\\[abfnrtv?\\'"]` +
+			`|\\[0-7]{1,3}` +
+			`|\\x[0-9a-fA-F]{1,2}` +
+			`|\\u[0-9a-fA-F]{4}` +
+			`|\\U000[0-9a-fA-F]{5}` +
+			`|\\U0010[0-9a-fA-F]{4}` +
+			`|.`)
+		var line strings.Builder
+		for _, t := range re.FindAllString(str, -1) {
+			if line.Len()+len(t) > maxLength {
+				lines = append(lines, line.String())
+				line.Reset()
+			}
+			line.WriteString(t)
+		}
+		lines = append(lines, line.String())
+	} else {
+		// Remove one from the max length since a trailing space may be added below.
+		wrappedStr := wordwrap.WrapString(str, uint(maxLength)-1)
+		lines = strings.Split(wrappedStr, "\n")
+	}
+
 	newValues := make([]*ast.Value, 0, len(lines))
 	// The Value objects have more than just the string in them. They also have any leading and
 	// trailing comments. To maintain these comments we recycle the existing Value objects if
@@ -1172,10 +1270,34 @@ func wrapLinesAtColumn(nd *ast.Node, depth int, c Config) error {
 		} else {
 			v = &ast.Value{}
 		}
-		if i < len(lines)-1 {
+
+		if !c.WrapStringsWithoutWordwrap && i < len(lines)-1 {
 			line = line + " "
 		}
-		v.Value = fmt.Sprintf(`"%s"`, line)
+
+		if c.WrapStringsWithoutWordwrap {
+			var lineLength = len(line)
+			if v.InlineComment != "" {
+				lineLength += len(indentSpaces) + len(v.InlineComment)
+			}
+			// field name and field value are inlined for single strings, adjust for that.
+			if i == 0 && len(lines) == 1 {
+				lineLength += len(nd.Name)
+			}
+			if lineLength > maxLength {
+				// If there's an inline comment, promote it to a pre-comment which will
+				// emit a newline.
+				if v.InlineComment != "" {
+					v.PreComments = append(v.PreComments, v.InlineComment)
+					v.InlineComment = ""
+				} else if i == 0 && len(v.PreComments) == 0 {
+					// It's too long and we don't have any comments.
+					nd.PutSingleValueOnNextLine = true
+				}
+			}
+		}
+
+		v.Value = fmt.Sprintf(`%c%s%c`, quote, line, quote)
 		newValues = append(newValues, v)
 	}
 
@@ -1215,7 +1337,7 @@ func needsWrappingAfterNewlines(nd *ast.Node, c Config) bool {
 // then wrap the string so each line ends with a newline.
 // Wraps only the current Node (does not recurse into Children).
 func wrapLinesAfterNewlines(nd *ast.Node, c Config) error {
-	str, err := unquote.Raw(nd)
+	str, quote, err := unquote.Raw(nd)
 	if err != nil {
 		return fmt.Errorf("skipping string wrapping on node %q (error unquoting string): %v", nd.Name, err)
 	}
@@ -1237,7 +1359,7 @@ func wrapLinesAfterNewlines(nd *ast.Node, c Config) error {
 		} else {
 			v = &ast.Value{}
 		}
-		v.Value = fmt.Sprintf(`"%s"`, line)
+		v.Value = fmt.Sprintf(`%c%s%c`, quote, line, quote)
 		newValues = append(newValues, v)
 	}
 
@@ -1422,6 +1544,13 @@ func nodeFilterFunction(c Config) NodeFilterFunction {
 	return nil
 }
 
+func valuesSortFunction(c Config) ValuesSortFunction {
+	if c.SortRepeatedFieldsByContent {
+		return ast.SortValues
+	}
+	return nil
+}
+
 func getNodePriorityForByFieldOrder(parent, node *ast.Node, name string, priorities map[string]int, unsortedCollector UnsortedFieldCollectorFunc) *int {
 	if parent != nil && parent.Name != name {
 		return nil
@@ -1494,6 +1623,10 @@ func (f formatter) writeNodes(nodes []*ast.Node, depth int, isSameLine, asListIt
 	}
 
 	for index, nd := range nodes {
+		if len(nd.Raw) > 0 {
+			f.WriteString(nd.Raw)
+			continue
+		}
 		for _, comment := range nd.PreComments {
 			if len(comment) == 0 {
 				if !(depth == 0 && index == 0) {
@@ -1527,7 +1660,11 @@ func (f formatter) writeNodes(nodes []*ast.Node, depth int, isSameLine, asListIt
 			//   metadata: { ... }
 			// In other cases, there is a newline right after the colon, so no space required.
 			if nd.Children != nil || (len(nd.Values) == 1 && len(nd.Values[0].PreComments) == 0) || nd.ValuesAsList {
-				f.WriteString(" ")
+				if nd.PutSingleValueOnNextLine {
+					f.WriteString("\n" + indent + indentSpaces)
+				} else {
+					f.WriteString(" ")
+				}
 			}
 		}
 
@@ -1536,6 +1673,7 @@ func (f formatter) writeNodes(nodes []*ast.Node, depth int, isSameLine, asListIt
 		} else if len(nd.Values) > 0 {
 			f.writeValues(nd, nd.Values, indent+indentSpaces)
 		}
+
 		if nd.Children != nil { // Also for 0 Children.
 			if nd.ChildrenAsList {
 				f.writeChildrenAsListItems(nd.Children, depth+1, isSameLine || nd.ChildrenSameLine)

@@ -24,6 +24,7 @@ import (
 	"hash"
 	"io"
 
+	in_toto "github.com/in-toto/attestation/go/v1"
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore/pkg/signature"
@@ -94,10 +95,10 @@ func VerifySignatureWithArtifactDigest(sigContent SignatureContent, verification
 }
 
 func getSignatureVerifier(verificationContent VerificationContent, tm root.TrustedMaterial) (signature.Verifier, error) {
-	if leafCert := verificationContent.GetCertificate(); leafCert != nil {
+	if leafCert := verificationContent.Certificate(); leafCert != nil {
 		// TODO: Inspect certificate's SignatureAlgorithm to determine hash function
 		return signature.LoadVerifier(leafCert.PublicKey, crypto.SHA256)
-	} else if pk, ok := verificationContent.HasPublicKey(); ok {
+	} else if pk := verificationContent.PublicKey(); pk != nil {
 		return tm.PublicKeyVerifier(pk.Hint())
 	}
 
@@ -142,6 +143,10 @@ func verifyEnvelopeWithArtifact(verifier signature.Verifier, envelope EnvelopeCo
 	if err != nil {
 		return fmt.Errorf("could not verify artifact: unable to extract statement from envelope: %w", err)
 	}
+	if err = limitSubjects(statement); err != nil {
+		return err
+	}
+
 	var artifactDigestAlgorithm string
 	var artifactDigest []byte
 
@@ -182,17 +187,8 @@ func verifyEnvelopeWithArtifact(verifier signature.Verifier, envelope EnvelopeCo
 	}
 	artifactDigest = hasher.Sum(nil)
 
-	// limit the number of subjects to prevent DoS
-	if len(statement.Subject) > maxAllowedSubjects {
-		return fmt.Errorf("too many subjects: %d > %d", len(statement.Subject), maxAllowedSubjects)
-	}
-
 	// Look for artifact digest in statement
 	for _, subject := range statement.Subject {
-		// limit the number of digests to prevent DoS
-		if len(subject.Digest) > maxAllowedSubjectDigests {
-			return fmt.Errorf("too many digests: %d > %d", len(subject.Digest), maxAllowedSubjectDigests)
-		}
 		for alg, digest := range subject.Digest {
 			hexdigest, err := hex.DecodeString(digest)
 			if err != nil {
@@ -215,17 +211,11 @@ func verifyEnvelopeWithArtifactDigest(verifier signature.Verifier, envelope Enve
 	if err != nil {
 		return fmt.Errorf("could not verify artifact: unable to extract statement from envelope: %w", err)
 	}
-
-	// limit the number of subjects to prevent DoS
-	if len(statement.Subject) > maxAllowedSubjects {
-		return fmt.Errorf("too many subjects: %d > %d", len(statement.Subject), maxAllowedSubjects)
+	if err = limitSubjects(statement); err != nil {
+		return err
 	}
 
 	for _, subject := range statement.Subject {
-		// limit the number of digests to prevent DoS
-		if len(subject.Digest) > maxAllowedSubjectDigests {
-			return fmt.Errorf("too many digests: %d > %d", len(subject.Digest), maxAllowedSubjectDigests)
-		}
 		for alg, digest := range subject.Digest {
 			if alg == artifactDigestAlgorithm {
 				hexdigest, err := hex.DecodeString(digest)
@@ -263,5 +253,19 @@ func verifyMessageSignatureWithArtifactDigest(verifier signature.Verifier, msg M
 		return fmt.Errorf("could not verify message: %w", err)
 	}
 
+	return nil
+}
+
+// limitSubjects limits the number of subjects and digests in a statement to prevent DoS.
+func limitSubjects(statement *in_toto.Statement) error {
+	if len(statement.Subject) > maxAllowedSubjects {
+		return fmt.Errorf("too many subjects: %d > %d", len(statement.Subject), maxAllowedSubjects)
+	}
+	for _, subject := range statement.Subject {
+		// limit the number of digests too
+		if len(subject.Digest) > maxAllowedSubjectDigests {
+			return fmt.Errorf("too many digests: %d > %d", len(subject.Digest), maxAllowedSubjectDigests)
+		}
+	}
 	return nil
 }
