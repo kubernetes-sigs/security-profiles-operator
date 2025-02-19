@@ -122,7 +122,7 @@ type SelinuxProfileStatus struct {
 // SelinuxProfile is the Schema for the selinuxprofiles API.
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=selinuxprofiles,scope=Namespaced
+// +kubebuilder:resource:path=selinuxprofiles,scope=Cluster
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
 type SelinuxProfile struct {
