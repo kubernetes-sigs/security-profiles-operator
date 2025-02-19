@@ -31,20 +31,15 @@ type Option struct {
 	apply func(r *runtime.Runtime)
 }
 
-// defaultFlags defines the debug flags that are set by default.
-var defaultFlags cuedebug.Config
-
-func init() {
-	if err := envflag.Parse(&defaultFlags, ""); err != nil {
-		panic(err)
-	}
-}
-
-// New creates a new Context.
+// New creates a new [*cue.Context].
+//
+// The environment variables CUE_EXPERIMENT and CUE_DEBUG are followed to configure
+// the evaluator, just like the cue tool documents via [cue help environment].
+// You can override these settings via options like [EvaluatorVersion] and [CUE_DEBUG].
+//
+// [cue help environment]: https://cuelang.org/docs/reference/command/cue-help-environment/
 func New(options ...Option) *cue.Context {
 	r := runtime.New()
-	// Ensure default behavior if the flags are not set explicitly.
-	r.SetDebugOptions(&defaultFlags)
 	for _, o := range options {
 		o.apply(r)
 	}
@@ -67,21 +62,21 @@ type EvalVersion = internal.EvaluatorVersion
 
 const (
 	// EvalDefault is the latest stable version of the evaluator.
-	EvalDefault EvalVersion = EvalV2
+	EvalDefault EvalVersion = internal.DefaultVersion
 
 	// EvalExperiment refers to the latest unstable version of the evaluator.
 	// Note that this version may change without notice.
-	EvalExperiment EvalVersion = EvalV3
+	EvalExperiment EvalVersion = internal.DevVersion
 
 	// EvalV2 is the currently latest stable version of the evaluator.
 	// It was introduced in CUE version 0.3 and is being maintained until 2024.
-	EvalV2 EvalVersion = internal.DefaultVersion
+	EvalV2 EvalVersion = internal.EvalV2
 
 	// EvalV3 is the currently experimental version of the evaluator.
 	// It was introduced in 2024 and brought a new disjunction algorithm,
 	// a new closedness algorithm, a new core scheduler, and adds performance
 	// enhancements like structure sharing.
-	EvalV3 EvalVersion = internal.DevVersion
+	EvalV3 EvalVersion = internal.EvalV3
 )
 
 // EvaluatorVersion indicates which version of the evaluator to use. Currently

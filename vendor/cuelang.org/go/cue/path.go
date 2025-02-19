@@ -139,7 +139,7 @@ func (sel Selector) String() string {
 }
 
 // Unquoted returns the unquoted value of a string label.
-// It panics unless sel.LabelType is StringLabel and has a concrete name.
+// It panics unless [Selector.LabelType] is [StringLabel] and has a concrete name.
 func (sel Selector) Unquoted() string {
 	if sel.LabelType() != StringLabel ||
 		sel.ConstraintType() >= PatternConstraint {
@@ -197,8 +197,8 @@ func (sel Selector) PkgPath() string {
 	return s.pkg
 }
 
-// Index returns the index of the selector. It panics
-// unless sel.Type is IndexLabel.
+// Index returns the index of the selector.
+// It panics unless [Selector.Type] is [IndexLabel].
 func (sel Selector) Index() int {
 	// Note that lists will eventually have constraint types too,
 	// and in that case sel.sel would be of type constraintSelector,
@@ -211,19 +211,18 @@ func (sel Selector) Index() int {
 }
 
 var (
-
-	// AnyDefinition can be used to ask for any definition.
+	// AnyDefinition is a [Selector] which can be used to ask for any definition.
 	//
 	// In paths it is used to select constraints that apply to all elements.
 	// AnyDefinition = anyDefinition
 	anyDefinition = Selector{sel: anySelector(adt.AnyDefinition)}
-	// AnyIndex can be used to ask for any index.
+	// AnyIndex is a [Selector] which can be used to ask for any index.
 	//
 	// In paths it is used to select constraints that apply to all elements.
 	AnyIndex = anyIndex
 	anyIndex = Selector{sel: anySelector(adt.AnyIndex)}
 
-	// AnyString can be used to ask for any regular string field.
+	// AnyString is a [Selector] which can be used to ask for any regular string field.
 	//
 	// In paths it is used to select constraints that apply to all elements.
 	AnyString = anyString
@@ -258,6 +257,7 @@ type selector interface {
 }
 
 // A Path is series of selectors to query a CUE value.
+// The zero value corresponds to an empty path.
 type Path struct {
 	path []Selector
 }
@@ -408,7 +408,7 @@ func basicLitSelector(b *ast.BasicLit) Selector {
 				errors.Newf(token.NoPos, "integer %s out of range", b.Value),
 			}}
 		}
-		return Index(int(i))
+		return Index(i)
 
 	case token.STRING:
 		info, _, _, _ := literal.ParseQuotes(b.Value, b.Value)
@@ -561,7 +561,8 @@ func (s stringSelector) feature(r adt.Runtime) adt.Feature {
 }
 
 // An Index selects a list element by index.
-func Index(x int) Selector {
+// It returns an invalid selector if the index is out of range.
+func Index[T interface{ int | int64 }](x T) Selector {
 	f, err := adt.MakeLabel(nil, int64(x), adt.IntLabel)
 	if err != nil {
 		return Selector{pathError{err}}
@@ -688,7 +689,7 @@ func valueToSel(v adt.Value) Selector {
 		if err != nil {
 			return Selector{&pathError{errors.Promote(err, "invalid number")}}
 		}
-		return Index(int(i))
+		return Index(i)
 	case *adt.String:
 		return Str(x.Str)
 	default:

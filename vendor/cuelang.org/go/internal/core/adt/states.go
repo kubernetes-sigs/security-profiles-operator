@@ -138,7 +138,11 @@ const (
 	// This is a signal condition that is reached when:
 	//    - allFieldsKnown is reached (all expressions have )
 	//    - it is unified with an associative list type
-	listTypeKnown
+	//
+	// TODO(assoclist): this is set to 0 below: This mode is only needed for
+	// associative lists and is not yet used. We should use this again and fix
+	// any performance issues when we implement associative lists.
+	// listTypeKnown
 
 	// fieldConjunctsKnown means that all the conjuncts of all fields are
 	// known.
@@ -224,6 +228,9 @@ const (
 	// concreteKnown means that we know whether a value is concrete or not.
 	// At the moment this is equal to 'scalarKnown'.
 	concreteKnown = scalarKnown
+
+	// TODO(assoclist): see comment above.
+	listTypeKnown condition = 0
 )
 
 // schedConfig configures a taskContext with the states needed for the
@@ -243,8 +250,9 @@ func stateCompletions(s *scheduler) condition {
 	s.node.Logf("=== stateCompletions: %v  %v", v.Label, s.completed)
 	if x.meets(allAncestorsProcessed) {
 		x |= conditionsUsingCounters &^ s.provided
-		// If we have a pending arc, a sub arc may still cause the arc to
-		// become not pending. For instance, if 'a' is pending in the following
+		// If we have a pending or constraint arc, a sub arc may still cause the
+		// arc to become a member. For instance, if 'a' is pending in the
+		// following
 		//   if x != _!_ {
 		//       a: b: 1
 		//   }
@@ -291,6 +299,15 @@ func stateCompletions(s *scheduler) condition {
 // processed.
 func (v *Vertex) allChildConjunctsKnown() bool {
 	if v == nil {
+		return true
+	}
+
+	if v.Status() == finalized {
+		// This can happen, for instance, if this is called on a parent of a
+		// rooted node that is marked as a parent for a dynamic node.
+		// In practice this should be handled by the caller, but we add this
+		// as an extra safeguard.
+		// TODO: remove this check at some point.
 		return true
 	}
 
