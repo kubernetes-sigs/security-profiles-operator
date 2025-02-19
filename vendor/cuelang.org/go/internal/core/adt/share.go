@@ -45,7 +45,76 @@ func (n *nodeContext) unshare() {
 	// Find another mechanism once we get rid of the old evaluator.
 	n.node.BaseValue = n.origBaseValue
 
-	n.scheduleVertexConjuncts(n.shared, v, n.sharedID)
+	for _, id := range n.sharedIDs {
+		n.scheduleVertexConjuncts(n.shared, v, id)
+	}
+
+	n.decSharedIDs()
+}
+
+// finalizeSharing should be called when it is known for sure a node can be
+// shared.
+func (n *nodeContext) finalizeSharing() {
+	n.decSharedIDs()
+	if !n.isShared {
+		return
+	}
+	switch v := n.node.BaseValue.(type) {
+	case *Vertex:
+		if n.shareCycleType == NoCycle {
+			v.Finalize(n.ctx)
+		} else if !v.isFinal() {
+			// TODO: ideally we just handle cycles in optional chains directly,
+			// rather than relying on this mechanism. This requires us to add
+			// a mechanism to detect that.
+			n.ctx.toFinalize = append(n.ctx.toFinalize, v)
+		}
+		// If state.parent is non-nil, we determined earlier that this Vertex
+		// is not rooted and that it can safely be shared. Because it is
+		// not-rooted, though, it will not have a path location, resulting in
+		// bad error messages, and in some cases dropped errors. To avoid this,
+		// we reset the parent and label of the Vertex so that its path reflects
+		// its assigned location.
+		if v.state != nil && v.state.parent != nil {
+			v.Parent = v.state.parent
+
+			// TODO: see if this can be removed and why some errors are not
+			// propagated when removed.
+			n.isShared = false
+		}
+	case *Bottom:
+		// An error trumps sharing. We can leave it as is.
+	default:
+		panic("unreachable")
+	}
+}
+
+func (n *nodeContext) addShared(id CloseInfo) {
+	if len(n.sharedIDs) == 0 || n.shareCycleType < id.CycleType {
+		n.shareCycleType = id.CycleType
+	}
+
+	// At this point, the node may still be unshared at a later point. For this
+	// purpose we need to keep the retain count above zero until all conjuncts
+	// have been processed and it is clear that sharing is possible. Delaying
+	// such a count should not hurt performance, as a shared node is completed
+	// anyway.
+	n.sharedIDs = append(n.sharedIDs, id)
+	if id.cc != nil {
+		id.cc.incDependent(n.ctx, SHARED, n.node.cc())
+	}
+}
+
+func (n *nodeContext) decSharedIDs() {
+	if n.shareDecremented {
+		return
+	}
+	n.shareDecremented = true
+	for _, id := range n.sharedIDs {
+		if cc := id.cc; cc != nil {
+			cc.decDependent(n.ctx, SHARED, n.node.cc())
+		}
+	}
 }
 
 func (n *nodeContext) share(c Conjunct, arc *Vertex, id CloseInfo) {
@@ -57,13 +126,31 @@ func (n *nodeContext) share(c Conjunct, arc *Vertex, id CloseInfo) {
 	n.node.IsShared = true
 	n.isShared = true
 	n.shared = c
-	n.sharedID = id
+	n.addShared(id)
+
+	if arc.IsDetached() && arc.MayAttach() { // TODO: Second check necessary?
+		// This node can safely be shared. Since it is not rooted, though, it
+		// does not have a path location. Instead of setting the parent path
+		// directly, though, we record the prospective parent in the state: as
+		// the evaluator uses the Parent field during evaluation, setting the
+		// field directly here can result in incorrect evaluation results.
+		// Setting the parent in the state instead allows us to defer setting
+		// Parent until it is safe to do so..
+		if s := arc.getState(n.ctx); s != nil {
+			s.parent = n.node
+		}
+	}
 }
 
 func (n *nodeContext) shareIfPossible(c Conjunct, arc *Vertex, id CloseInfo) bool {
-	// TODO: have an experiment here to enable or disable structure sharing.
-	// return false
 	if !n.ctx.Sharing {
+		return false
+	}
+
+	// We do not allowing sharing if the conjunct has a cycle. Sharing is only
+	// possible if there is a single conjunct. We want to further evaluate this
+	// conjunct to force recognition of a structural cycle.
+	if id.CycleType == IsCyclic && (n.node.nonRooted || n.node.IsDynamic) {
 		return false
 	}
 
@@ -83,7 +170,7 @@ func (n *nodeContext) shareIfPossible(c Conjunct, arc *Vertex, id CloseInfo) boo
 	// probably a good idea anyway.
 	//
 	// TODO: come up with a mechanism to allow this case.
-	if n.node.Closed && !arc.Closed {
+	if n.node.ClosedRecursive && !arc.ClosedRecursive {
 		return false
 	}
 
@@ -92,13 +179,7 @@ func (n *nodeContext) shareIfPossible(c Conjunct, arc *Vertex, id CloseInfo) boo
 	// result will result in an infinite loop.
 	//
 	// TODO: allow this case.
-	if n.node.Label.IsLet() {
-		return false
-	}
-
-	// If an arc is a computed intermediate result and not part of a CUE output,
-	// it should not be shared.
-	if n.node.nonRooted || arc.nonRooted {
+	if arc.Label.IsLet() {
 		return false
 	}
 

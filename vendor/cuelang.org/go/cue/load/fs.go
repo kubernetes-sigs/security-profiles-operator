@@ -24,11 +24,16 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/ast"
+	"cuelang.org/go/cue/build"
+	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
+	"cuelang.org/go/internal/encoding"
 	"cuelang.org/go/mod/module"
 )
 
@@ -56,6 +61,7 @@ func (f *overlayFile) Sys() interface{}   { return nil }
 type fileSystem struct {
 	overlayDirs map[string]map[string]*overlayFile
 	cwd         string
+	fileCache   *fileCache
 }
 
 func (fs *fileSystem) getDir(dir string, create bool) map[string]*overlayFile {
@@ -81,24 +87,22 @@ func (fs *fileSystem) getDir(dir string, create bool) map[string]*overlayFile {
 // paths required by most of the `cue/load` package
 // implementation.
 func (fs *fileSystem) ioFS(root string) iofs.FS {
-	dir := fs.getDir(root, false)
-	if dir == nil {
-		return module.OSDirFS(root)
-	}
 	return &ioFS{
 		fs:   fs,
 		root: root,
 	}
 }
 
-func (fs *fileSystem) init(cwd string, overlay map[string]Source) error {
-	fs.cwd = cwd
-	fs.overlayDirs = map[string]map[string]*overlayFile{}
+func newFileSystem(cfg *Config) (*fileSystem, error) {
+	fs := &fileSystem{
+		cwd:         cfg.Dir,
+		overlayDirs: map[string]map[string]*overlayFile{},
+	}
 
 	// Organize overlay
-	for filename, src := range overlay {
+	for filename, src := range cfg.Overlay {
 		if !filepath.IsAbs(filename) {
-			return fmt.Errorf("non-absolute file path %q in overlay", filename)
+			return nil, fmt.Errorf("non-absolute file path %q in overlay", filename)
 		}
 		// TODO: do we need to further clean the path or check that the
 		// specified files are within the root/ absolute files?
@@ -106,7 +110,7 @@ func (fs *fileSystem) init(cwd string, overlay map[string]Source) error {
 		m := fs.getDir(dir, true)
 		b, file, err := src.contents()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		m[base] = &overlayFile{
 			basename: base,
@@ -131,7 +135,8 @@ func (fs *fileSystem) init(cwd string, overlay map[string]Source) error {
 			}
 		}
 	}
-	return nil
+	fs.fileCache = newFileCache(cfg)
+	return fs, nil
 }
 
 func (fs *fileSystem) makeAbs(path string) string {
@@ -334,6 +339,49 @@ func (fs *ioFS) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(fpath)
 }
 
+var _ module.ReadCUEFS = (*ioFS)(nil)
+
+// ReadCUEFile implements [module.ReadCUEFS] by
+// reading and updating the syntax file cache, which
+// is shared with the cache used by the [fileSystem.getCUESyntax]
+// method.
+func (fs *ioFS) ReadCUEFile(path string) (*ast.File, error) {
+	fpath, err := fs.absPathFromFSPath(path)
+	if err != nil {
+		return nil, err
+	}
+	cache := fs.fs.fileCache
+	cache.mu.Lock()
+	entry, ok := cache.entries[fpath]
+	cache.mu.Unlock()
+	if ok {
+		return entry.file, entry.err
+	}
+	var data []byte
+	if fi := fs.fs.getOverlay(fpath); fi != nil {
+		if fi.file != nil {
+			// No need for a cache if we've got the contents in *ast.File
+			// form already.
+			return fi.file, nil
+		}
+		data = fi.contents
+	} else {
+		data, err = os.ReadFile(fpath)
+		if err != nil {
+			cache.mu.Lock()
+			defer cache.mu.Unlock()
+			cache.entries[fpath] = fileCacheEntry{nil, err}
+			return nil, err
+		}
+	}
+	return fs.fs.getCUESyntax(&build.File{
+		Filename: fpath,
+		Encoding: build.CUE,
+		//		Form:     build.Schema,
+		Source: data,
+	})
+}
+
 // ioFSFile implements [io/fs.File] for the overlay filesystem.
 type ioFSFile struct {
 	fs      *fileSystem
@@ -383,4 +431,58 @@ func (f *ioFSFile) ReadDir(n int) ([]iofs.DirEntry, error) {
 	entries := f.entries[:n]
 	f.entries = f.entries[n:]
 	return entries, err
+}
+
+func (fs *fileSystem) getCUESyntax(bf *build.File) (*ast.File, error) {
+	fs.fileCache.mu.Lock()
+	defer fs.fileCache.mu.Unlock()
+	if bf.Encoding != build.CUE {
+		panic("getCUESyntax called with non-CUE file encoding")
+	}
+	// When it's a regular CUE file with no funny stuff going on, we
+	// check and update the syntax cache.
+	useCache := bf.Form == "" && bf.Interpretation == ""
+	if useCache {
+		if syntax, ok := fs.fileCache.entries[bf.Filename]; ok {
+			return syntax.file, syntax.err
+		}
+	}
+	d := encoding.NewDecoder(fs.fileCache.ctx, bf, &fs.fileCache.config)
+	defer d.Close()
+	// Note: CUE files can never have multiple file parts.
+	f, err := d.File(), d.Err()
+	if useCache {
+		fs.fileCache.entries[bf.Filename] = fileCacheEntry{f, err}
+	}
+	return f, err
+}
+
+func newFileCache(c *Config) *fileCache {
+	return &fileCache{
+		config: encoding.Config{
+			// Note: no need to pass Stdin, as we take care
+			// always to pass a non-nil source when the file is "-".
+			ParseFile: c.ParseFile,
+		},
+		ctx:     cuecontext.New(),
+		entries: make(map[string]fileCacheEntry),
+	}
+}
+
+// fileCache caches data derived from the file system.
+type fileCache struct {
+	config  encoding.Config
+	ctx     *cue.Context
+	mu      sync.Mutex
+	entries map[string]fileCacheEntry
+}
+
+type fileCacheEntry struct {
+	// TODO cache directory information too.
+
+	// file caches the work involved when decoding a file into an *ast.File.
+	// This can happen multiple times for the same file, for example when it is present in
+	// multiple different build instances in the same directory hierarchy.
+	file *ast.File
+	err  error
 }

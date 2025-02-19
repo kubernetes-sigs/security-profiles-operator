@@ -233,6 +233,16 @@ func (e *httpError) ResponseBody() []byte {
 	return e.body
 }
 
+// WriteError marshals the given error as JSON using [MarshalError] and
+// then writes it to w. It returns the error returned from w.Write.
+func WriteError(w http.ResponseWriter, err error) error {
+	data, httpStatus := MarshalError(err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(httpStatus)
+	_, err = w.Write(data)
+	return err
+}
+
 // MarshalError marshals the given error as JSON according
 // to the OCI distribution specification. It also returns
 // the associated HTTP status code, or [http.StatusInternalServerError]

@@ -22,20 +22,10 @@ package load
 import (
 	"path/filepath"
 
-	"cuelang.org/go/cue"
-	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/build"
-	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
-	"cuelang.org/go/internal/encoding"
 	"cuelang.org/go/internal/mod/modpkgload"
-
-	// Trigger the unconditional loading of all core builtin packages if load
-	// is used. This was deemed the simplest way to avoid having to import
-	// this line explicitly, and thus breaking existing code, for the majority
-	// of cases, while not introducing an import cycle.
-	_ "cuelang.org/go/pkg"
 )
 
 type loader struct {
@@ -44,33 +34,25 @@ type loader struct {
 	stk    importStack
 	pkgs   *modpkgload.Packages
 
-	// syntaxCache caches the work involved when decoding a file into an *ast.File.
-	// This can happen multiple times for the same file, for example when it is present in
-	// multiple different build instances in the same directory hierarchy.
-	syntaxCache *syntaxCache
-
-	// dirCachedBuildFiles caches the work involved when reading a directory
-	// and determining what build files it contains.
-	// It is keyed by directory name.
-	// When we descend into subdirectories to load patterns such as ./...
-	// we often end up loading parent directories many times over;
-	// this cache amortizes that work.
-	dirCachedBuildFiles map[string]cachedFileFiles
+	// dirCachedBuildFiles caches the work involved when reading a
+	// directory. It is keyed by directory name. When we descend into
+	// subdirectories to load patterns such as ./... we often end up
+	// loading parent directories many times over; this cache
+	// amortizes that work.
+	dirCachedBuildFiles map[string]cachedDirFiles
 }
 
-type cachedFileFiles struct {
-	err          errors.Error
-	buildFiles   []*build.File
-	unknownFiles []*build.File
+type cachedDirFiles struct {
+	err       errors.Error
+	filenames []string
 }
 
-func newLoader(c *Config, tg *tagger, syntaxCache *syntaxCache, pkgs *modpkgload.Packages) *loader {
+func newLoader(c *Config, tg *tagger, pkgs *modpkgload.Packages) *loader {
 	return &loader{
 		cfg:                 c,
 		tagger:              tg,
 		pkgs:                pkgs,
-		dirCachedBuildFiles: map[string]cachedFileFiles{},
-		syntaxCache:         syntaxCache,
+		dirCachedBuildFiles: make(map[string]cachedDirFiles),
 	}
 }
 
@@ -94,7 +76,7 @@ func (l *loader) errPkgf(importPos []token.Pos, format string, args ...interface
 // (typically named on the command line).
 func (l *loader) cueFilesPackage(files []*build.File) *build.Instance {
 	// ModInit() // TODO: support modules
-	pkg := l.cfg.Context.NewInstance(l.cfg.Dir, l.loadFunc)
+	pkg := l.cfg.Context.NewInstance(l.cfg.Dir, l.loadFunc())
 
 	for _, bf := range files {
 		f := bf.Filename
@@ -150,50 +132,10 @@ func (l *loader) cueFilesPackage(files []*build.File) *build.Instance {
 // addFiles populates p.Files by reading CUE syntax from p.BuildFiles.
 func (l *loader) addFiles(p *build.Instance) {
 	for _, bf := range p.BuildFiles {
-		files, err := l.syntaxCache.getSyntax(bf)
+		f, err := l.cfg.fileSystem.getCUESyntax(bf)
 		if err != nil {
 			p.ReportError(errors.Promote(err, "load"))
 		}
-		for _, f := range files {
-			_ = p.AddSyntax(f)
-		}
+		_ = p.AddSyntax(f)
 	}
-}
-
-type syntaxCache struct {
-	config encoding.Config
-	ctx    *cue.Context
-	cache  map[string]syntaxCacheEntry
-}
-
-type syntaxCacheEntry struct {
-	err   error
-	files []*ast.File
-}
-
-func newSyntaxCache(cfg *Config) *syntaxCache {
-	return &syntaxCache{
-		config: encoding.Config{
-			Stdin:     cfg.stdin(),
-			ParseFile: cfg.ParseFile,
-		},
-		ctx:   cuecontext.New(),
-		cache: make(map[string]syntaxCacheEntry),
-	}
-}
-
-// getSyntax returns the CUE syntax corresponding to the file argument f.
-func (c *syntaxCache) getSyntax(bf *build.File) ([]*ast.File, error) {
-	syntax, ok := c.cache[bf.Filename]
-	if ok {
-		return syntax.files, syntax.err
-	}
-	d := encoding.NewDecoder(c.ctx, bf, &c.config)
-	for ; !d.Done(); d.Next() {
-		syntax.files = append(syntax.files, d.File())
-	}
-	d.Close()
-	syntax.err = d.Err()
-	c.cache[bf.Filename] = syntax
-	return syntax.files, syntax.err
 }

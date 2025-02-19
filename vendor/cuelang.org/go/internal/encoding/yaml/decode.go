@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -16,8 +17,6 @@ import (
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal"
-	"cuelang.org/go/internal/cueexperiment"
-	tpyaml "cuelang.org/go/internal/third_party/yaml"
 )
 
 // TODO(mvdan): we should sanity check that the decoder always produces valid CUE,
@@ -32,20 +31,6 @@ import (
 type Decoder interface {
 	// Decode consumes a YAML value and returns it in CUE syntax tree node.
 	Decode() (ast.Expr, error)
-}
-
-// NewDecoder is a temporary constructor compatible with both the old and new yaml decoders.
-// Note that the signature matches the new yaml decoder, as the old signature can only error
-// when reading a source that isn't []byte.
-func NewDecoder(filename string, b []byte) Decoder {
-	if cueexperiment.Flags.YAMLV3Decoder {
-		return newDecoder(filename, b)
-	}
-	dec, err := tpyaml.NewDecoder(filename, b)
-	if err != nil {
-		panic(err) // should never happen as we give it []byte
-	}
-	return dec
 }
 
 // decoder wraps a [yaml.Decoder] to extract CUE syntax tree nodes.
@@ -86,11 +71,11 @@ type decoder struct {
 // With json we can use RawMessage to know the size of the input
 // before we extract into ast.Expr, but unfortunately, yaml.Node has no size.
 
-// newDecoder creates a decoder for YAML values to extract CUE syntax tree nodes.
+// NewDecoder creates a decoder for YAML values to extract CUE syntax tree nodes.
 //
 // The filename is used for position information in CUE syntax tree nodes
 // as well as any errors encountered while decoding YAML.
-func newDecoder(filename string, b []byte) *decoder {
+func NewDecoder(filename string, b []byte) *decoder {
 	// Note that yaml.v3 can insert a null node just past the end of the input
 	// in some edge cases, so we pretend that there's an extra newline
 	// so that we don't panic when handling such a position.
@@ -120,10 +105,7 @@ func (d *decoder) Decode() (ast.Expr, error) {
 			// If the input is empty, we produce a single null literal with EOF.
 			// Note that when the input contains "---", we get an empty document
 			// with a null scalar value inside instead.
-			//
-			// TODO(mvdan): the old decoder seemingly intended to do this,
-			// but returned a "null" literal with io.EOF, which consumers ignored.
-			if false && !d.yamlNonEmpty {
+			if !d.yamlNonEmpty {
 				return &ast.BasicLit{
 					Kind:  token.NULL,
 					Value: "null",
@@ -401,7 +383,7 @@ outer:
 		if err != nil {
 			return err
 		}
-		d.addCommentsToNode(label, yk, 1)
+		d.addCommentsToNode(field, yk, 2)
 		field.Label = label
 
 		if mergeValues {
@@ -496,7 +478,9 @@ const (
 
 // rxAnyOctalYaml11 uses the implicit tag resolution regular expression for base-8 integers
 // from YAML's 1.1 spec, but including the 8 and 9 digits which aren't valid for octal integers.
-var rxAnyOctalYaml11 = regexp.MustCompile(`^[-+]?0[0-9_]+$`)
+var rxAnyOctalYaml11 = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[-+]?0[0-9_]+$`)
+})
 
 func (d *decoder) scalar(yn *yaml.Node) (ast.Expr, error) {
 	tag := yn.ShortTag()
@@ -504,7 +488,7 @@ func (d *decoder) scalar(yn *yaml.Node) (ast.Expr, error) {
 	// and the value looks like a YAML 1.1 octal literal,
 	// that means the input value was like `01289` and not a valid octal integer.
 	// The safest thing to do, and what most YAML decoders do, is to interpret as a string.
-	if yn.Style&yaml.TaggedStyle == 0 && tag == floatTag && rxAnyOctalYaml11.MatchString(yn.Value) {
+	if yn.Style&yaml.TaggedStyle == 0 && tag == floatTag && rxAnyOctalYaml11().MatchString(yn.Value) {
 		tag = strTag
 	}
 	switch tag {
