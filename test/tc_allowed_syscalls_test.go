@@ -76,7 +76,6 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 			namespace := e.getCurrentContextNamespace(defaultNamespace)
 			e.waitFor(
 				"condition=ready",
-				"--namespace", namespace,
 				"seccompprofile", name,
 			)
 
@@ -119,7 +118,6 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	e.waitFor(
 		"condition=ready",
-		"--namespace", namespace,
 		"seccompprofile", name,
 	)
 
@@ -146,7 +144,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	// allowedSyscalls list.
 	exists := true
 	for range 10 {
-		exists = e.existsSeccompProfile(name, "-n", namespace)
+		exists = e.existsSeccompProfile(name)
 		if !exists {
 			break
 		}
@@ -201,7 +199,6 @@ spec:
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	e.waitFor(
 		"condition=ready",
-		"--namespace", namespace,
 		"seccompprofile", allowProfileName,
 	)
 
@@ -249,7 +246,7 @@ spec:
 	// Wait for profile to be deleted by the operator
 	exists := true
 	for range 10 {
-		exists = e.existsSeccompProfile(allowProfileName, "-n", namespace)
+		exists = e.existsSeccompProfile(allowProfileName)
 		if !exists {
 			break
 		}
@@ -270,7 +267,7 @@ spec:
 func (e *e2e) existsSeccompProfileNodeStatus(id, namespace, node string) bool {
 	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
 	seccompProfileNodeStatusJSON := e.kubectl(
-		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
 	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
