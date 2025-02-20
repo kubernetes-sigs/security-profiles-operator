@@ -63,7 +63,6 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		for _, name := range exampleProfileNames {
 			e.waitFor(
 				"condition=ready",
-				"--namespace", namespace,
 				"seccompprofile", name,
 			)
 
