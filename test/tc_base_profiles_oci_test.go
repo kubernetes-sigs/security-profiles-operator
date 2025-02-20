@@ -48,7 +48,6 @@ apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
   name: %s
-  namespace: %s
 spec:
   defaultAction: SCMP_ACT_ERRNO
   baseProfileName: %s
@@ -58,7 +57,7 @@ spec:
     - arch_prctl
     - set_tid_address
     - exit_group
-`, profileName, namespace, baseProfileName)
+`, profileName, baseProfileName)
 
 	podName := fmt.Sprintf("pod-%v", time.Now().Unix())
 	podYAML := fmt.Sprintf(`
