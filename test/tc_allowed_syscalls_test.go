@@ -73,16 +73,15 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 		}
 
 		for _, name := range allowedProfileNames {
-			namespace := e.getCurrentContextNamespace(defaultNamespace)
 			e.waitFor(
 				"condition=ready",
 				"seccompprofile", name,
 			)
 
-			sp := e.getSeccompProfile(name, namespace)
+			sp := e.getSeccompProfile(name)
 			e.verifyCRDProfileContent(node, sp)
 
-			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
+			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
 				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 			}
@@ -115,17 +114,16 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 
 	// Check that the seccomp profile was allowed and installed
 	name := "profile-allowed-syscalls"
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	e.waitFor(
 		"condition=ready",
 		"seccompprofile", name,
 	)
 
-	sp := e.getSeccompProfile(name, namespace)
+	sp := e.getSeccompProfile(name)
 	for _, node := range nodes {
 		e.verifyCRDProfileContent(node, sp)
 
-		spns := e.getSeccompProfileNodeStatus(name, namespace, node)
+		spns := e.getSeccompProfileNodeStatus(name, node)
 		if e.NotNil(spns) {
 			e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 		}
@@ -202,7 +200,7 @@ spec:
 		"seccompprofile", allowProfileName,
 	)
 
-	sp := e.getSeccompProfile(allowProfileName, namespace)
+	sp := e.getSeccompProfile(allowProfileName)
 	e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 
 	// Create the pod which reference the allowed profile
@@ -227,7 +225,7 @@ spec:
 	e.logf("Ensuring profile cannot be deleted while pod is active")
 
 	for range 10 {
-		sp := e.getSeccompProfile(allowProfileName, namespace)
+		sp := e.getSeccompProfile(allowProfileName)
 
 		conReady := sp.Status.GetReadyCondition()
 		if conReady.Reason == spodv1alpha1.ReasonDeleting {
@@ -237,7 +235,7 @@ spec:
 		time.Sleep(time.Second)
 	}
 
-	sp = e.getSeccompProfile(allowProfileName, namespace)
+	sp = e.getSeccompProfile(allowProfileName)
 	e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
 
 	// Remove the pod, after this point the profile should be complete cleaned-up
