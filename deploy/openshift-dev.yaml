@@ -26,7 +26,7 @@ spec:
     shortNames:
     - aa
     singular: apparmorprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.status
@@ -440,7 +440,7 @@ spec:
     listKind: RawSelinuxProfileList
     plural: rawselinuxprofiles
     singular: rawselinuxprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.usage
@@ -560,7 +560,7 @@ spec:
     shortNames:
     - sp
     singular: seccompprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.status
@@ -823,7 +823,7 @@ spec:
     shortNames:
     - spns
     singular: securityprofilenodestatus
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status
@@ -2233,7 +2233,7 @@ spec:
     listKind: SelinuxProfileList
     plural: selinuxprofiles
     singular: selinuxprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.usage

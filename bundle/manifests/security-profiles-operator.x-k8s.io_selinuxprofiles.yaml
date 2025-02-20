@@ -14,7 +14,7 @@ spec:
     listKind: SelinuxProfileList
     plural: selinuxprofiles
     singular: selinuxprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.usage

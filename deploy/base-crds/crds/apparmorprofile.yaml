@@ -13,7 +13,7 @@ spec:
     shortNames:
     - aa
     singular: apparmorprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.status

@@ -179,10 +179,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled()
 	})
 
-	e.Run("cluster-wide: Same profile in multiple namespaces", func() {
-		e.testCaseSameProfileMultipleNs()
-	})
-
 	e.Run("cluster-wide: profile merging", func() {
 		e.testSeccompBpfProfileMerging()
 		e.testSeccompLogsProfileMerging()
@@ -378,9 +374,9 @@ func (e *e2e) getWorkerNodes() []string {
 	return nodes
 }
 
-func (e *e2e) getSeccompProfile(name, namespace string) *seccompprofileapi.SeccompProfile {
+func (e *e2e) getSeccompProfile(name string) *seccompprofileapi.SeccompProfile {
 	seccompProfileJSON := e.kubectl(
-		"-n", namespace, "get", "seccompprofile", name, "-o", "json",
+		"get", "seccompprofile", name, "-o", "json",
 	)
 	seccompProfile := &seccompprofileapi.SeccompProfile{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileJSON), seccompProfile))
@@ -389,11 +385,11 @@ func (e *e2e) getSeccompProfile(name, namespace string) *seccompprofileapi.Secco
 }
 
 func (e *e2e) getSeccompProfileNodeStatus(
-	id, namespace, node string,
+	id, node string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatus {
 	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
 	seccompProfileNodeStatusJSON := e.kubectl(
-		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
 	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
@@ -406,11 +402,11 @@ func (e *e2e) getSeccompProfileNodeStatus(
 }
 
 func (e *e2e) getAllSeccompProfileNodeStatuses(
-	id, namespace string,
+	id string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatusList {
 	selector := "spo.x-k8s.io/profile-id=SeccompProfile-" + id
 	seccompProfileNodeStatusJSON := e.kubectl(
-		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
 	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))

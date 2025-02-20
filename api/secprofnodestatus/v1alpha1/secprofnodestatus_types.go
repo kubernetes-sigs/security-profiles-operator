@@ -83,7 +83,7 @@ func LowerOfTwoStates(currentLowest, candidate ProfileState) ProfileState {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // SecurityProfileNodeStatus is a per-node status of a security profile
-// +kubebuilder:resource:shortName=spns
+// +kubebuilder:resource:shortName=spns,scope=Cluster
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:printcolumn:name="Node",type=string,priority=10,JSONPath=`.nodeName`

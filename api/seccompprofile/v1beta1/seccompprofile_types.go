@@ -129,7 +129,7 @@ type SeccompProfileStatus struct {
 
 // SeccompProfile is a cluster level specification for a seccomp profile.
 // See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
-// +kubebuilder:resource:shortName=sp
+// +kubebuilder:resource:shortName=sp,scope=Cluster
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

@@ -73,25 +73,22 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 		}
 
 		for _, name := range allowedProfileNames {
-			namespace := e.getCurrentContextNamespace(defaultNamespace)
 			e.waitFor(
 				"condition=ready",
-				"--namespace", namespace,
 				"seccompprofile", name,
 			)
 
-			sp := e.getSeccompProfile(name, namespace)
+			sp := e.getSeccompProfile(name)
 			e.verifyCRDProfileContent(node, sp)
 
-			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
+			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
 				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 			}
 		}
 
 		for _, name := range deniedProfileNames {
-			namespace := e.getCurrentContextNamespace(defaultNamespace)
-			e.Falsef(e.existsSeccompProfileNodeStatus(name, namespace, node),
+			e.Falsef(e.existsSeccompProfileNodeStatus(name, node),
 				"node status should not be updated for a denied seccomp profile")
 		}
 	}
@@ -116,18 +113,16 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 
 	// Check that the seccomp profile was allowed and installed
 	name := "profile-allowed-syscalls"
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	e.waitFor(
 		"condition=ready",
-		"--namespace", namespace,
 		"seccompprofile", name,
 	)
 
-	sp := e.getSeccompProfile(name, namespace)
+	sp := e.getSeccompProfile(name)
 	for _, node := range nodes {
 		e.verifyCRDProfileContent(node, sp)
 
-		spns := e.getSeccompProfileNodeStatus(name, namespace, node)
+		spns := e.getSeccompProfileNodeStatus(name, node)
 		if e.NotNil(spns) {
 			e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 		}
@@ -146,7 +141,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 	// allowedSyscalls list.
 	exists := true
 	for range 10 {
-		exists = e.existsSeccompProfile(name, "-n", namespace)
+		exists = e.existsSeccompProfile(name)
 		if !exists {
 			break
 		}
@@ -201,11 +196,10 @@ spec:
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	e.waitFor(
 		"condition=ready",
-		"--namespace", namespace,
 		"seccompprofile", allowProfileName,
 	)
 
-	sp := e.getSeccompProfile(allowProfileName, namespace)
+	sp := e.getSeccompProfile(allowProfileName)
 	e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 
 	// Create the pod which reference the allowed profile
@@ -230,7 +224,7 @@ spec:
 	e.logf("Ensuring profile cannot be deleted while pod is active")
 
 	for range 10 {
-		sp := e.getSeccompProfile(allowProfileName, namespace)
+		sp := e.getSeccompProfile(allowProfileName)
 
 		conReady := sp.Status.GetReadyCondition()
 		if conReady.Reason == spodv1alpha1.ReasonDeleting {
@@ -240,7 +234,7 @@ spec:
 		time.Sleep(time.Second)
 	}
 
-	sp = e.getSeccompProfile(allowProfileName, namespace)
+	sp = e.getSeccompProfile(allowProfileName)
 	e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
 
 	// Remove the pod, after this point the profile should be complete cleaned-up
@@ -249,7 +243,7 @@ spec:
 	// Wait for profile to be deleted by the operator
 	exists := true
 	for range 10 {
-		exists = e.existsSeccompProfile(allowProfileName, "-n", namespace)
+		exists = e.existsSeccompProfile(allowProfileName)
 		if !exists {
 			break
 		}
@@ -267,10 +261,10 @@ spec:
 	}
 }
 
-func (e *e2e) existsSeccompProfileNodeStatus(id, namespace, node string) bool {
+func (e *e2e) existsSeccompProfileNodeStatus(id, node string) bool {
 	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
 	seccompProfileNodeStatusJSON := e.kubectl(
-		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
 	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
