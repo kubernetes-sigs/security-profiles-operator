@@ -374,7 +374,7 @@ func (e *e2e) getWorkerNodes() []string {
 	return nodes
 }
 
-func (e *e2e) getSeccompProfile(name, namespace string) *seccompprofileapi.SeccompProfile {
+func (e *e2e) getSeccompProfile(name string) *seccompprofileapi.SeccompProfile {
 	seccompProfileJSON := e.kubectl(
 		"get", "seccompprofile", name, "-o", "json",
 	)
@@ -385,7 +385,7 @@ func (e *e2e) getSeccompProfile(name, namespace string) *seccompprofileapi.Secco
 }
 
 func (e *e2e) getSeccompProfileNodeStatus(
-	id, namespace, node string,
+	id, node string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatus {
 	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
 	seccompProfileNodeStatusJSON := e.kubectl(
@@ -402,7 +402,7 @@ func (e *e2e) getSeccompProfileNodeStatus(
 }
 
 func (e *e2e) getAllSeccompProfileNodeStatuses(
-	id, namespace string,
+	id string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatusList {
 	selector := "spo.x-k8s.io/profile-id=SeccompProfile-" + id
 	seccompProfileNodeStatusJSON := e.kubectl(
