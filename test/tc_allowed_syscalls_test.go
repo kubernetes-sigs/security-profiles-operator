@@ -88,8 +88,7 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 		}
 
 		for _, name := range deniedProfileNames {
-			namespace := e.getCurrentContextNamespace(defaultNamespace)
-			e.Falsef(e.existsSeccompProfileNodeStatus(name, namespace, node),
+			e.Falsef(e.existsSeccompProfileNodeStatus(name, node),
 				"node status should not be updated for a denied seccomp profile")
 		}
 	}
@@ -262,7 +261,7 @@ spec:
 	}
 }
 
-func (e *e2e) existsSeccompProfileNodeStatus(id, namespace, node string) bool {
+func (e *e2e) existsSeccompProfileNodeStatus(id, node string) bool {
 	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
 	seccompProfileNodeStatusJSON := e.kubectl(
 		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
