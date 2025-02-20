@@ -59,17 +59,16 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		}
 
 		// Example profile verification
-		namespace := e.getCurrentContextNamespace(defaultNamespace)
 		for _, name := range exampleProfileNames {
 			e.waitFor(
 				"condition=ready",
 				"seccompprofile", name,
 			)
 
-			sp := e.getSeccompProfile(name, namespace)
+			sp := e.getSeccompProfile(name)
 			e.verifyCRDProfileContent(node, sp)
 
-			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
+			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
 				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 			}

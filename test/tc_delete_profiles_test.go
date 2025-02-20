@@ -118,7 +118,7 @@ spec:
 	defer profileCleanup()
 
 	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	sp := e.getSeccompProfile(deleteProfileName, namespace)
+	sp := e.getSeccompProfile(deleteProfileName)
 	profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
 
 	e.logf("Waiting for profile to be reconciled")
@@ -181,7 +181,7 @@ spec:
 		e.logf("Waiting for profile to be marked as terminating but not deleted")
 		// TODO(jhrozek): deleting manifests as Ready=False, reason=Deleting, can we wait in a nicer way?
 		for range 10 {
-			sp := e.getSeccompProfile(deleteProfileName, namespace)
+			sp := e.getSeccompProfile(deleteProfileName)
 
 			conReady := sp.Status.GetReadyCondition()
 			if conReady.Reason == spodv1alpha1.ReasonDeleting {
@@ -192,11 +192,11 @@ spec:
 		}
 
 		// At this point it must be terminating or else we haven't matched the condition above
-		sp := e.getSeccompProfile(deleteProfileName, namespace)
+		sp := e.getSeccompProfile(deleteProfileName)
 		e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
 
 		// The node statuses should still be there, just terminating
-		nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName, namespace)
+		nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName)
 		for i := range nodeStatuses.Items {
 			e.Equal(nodeStatuses.Items[i].Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
 			// On each node, there should still be the profile on the disk
