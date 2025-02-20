@@ -14,7 +14,7 @@ spec:
     listKind: RawSelinuxProfileList
     plural: rawselinuxprofiles
     singular: rawselinuxprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.usage
