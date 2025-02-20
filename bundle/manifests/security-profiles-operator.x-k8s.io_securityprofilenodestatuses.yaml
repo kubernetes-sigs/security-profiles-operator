@@ -16,7 +16,7 @@ spec:
     shortNames:
     - spns
     singular: securityprofilenodestatus
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status

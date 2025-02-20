@@ -16,7 +16,7 @@ spec:
     shortNames:
     - sp
     singular: seccompprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.status
