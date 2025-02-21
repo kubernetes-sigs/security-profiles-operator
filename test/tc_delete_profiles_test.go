@@ -17,7 +17,6 @@ limitations under the License.
 package e2e_test
 
 import (
-	"fmt"
 	"path"
 	"time"
 
@@ -66,7 +65,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/%s/delete-me.json
+      localhostProfile: operator/delete-me.json
 `
 		deletePodSecurityContextInContainer = `
 apiVersion: v1
@@ -80,7 +79,7 @@ spec:
     securityContext:
       seccompProfile:
         type: Localhost
-        localhostProfile: operator/%s/delete-me.json
+        localhostProfile: operator/delete-me.json
 `
 		deletePodSecurityContextInInitContainer = `
 apiVersion: v1
@@ -94,7 +93,7 @@ spec:
     securityContext:
       seccompProfile:
         type: Localhost
-        localhostProfile: operator/%s/delete-me.json
+        localhostProfile: operator/delete-me.json
   containers:
   - name: test-container
     image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
@@ -105,7 +104,7 @@ kind: Pod
 metadata:
   name: test-pod
   annotations:
-    seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/%s/delete-me.json'
+    seccomp.security.alpha.kubernetes.io/pod: 'localhost/operator/delete-me.json'
 spec:
   containers:
   - name: test-container
@@ -117,7 +116,6 @@ spec:
 	profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 	defer profileCleanup()
 
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	sp := e.getSeccompProfile(deleteProfileName)
 	profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
 
@@ -172,7 +170,7 @@ spec:
 		e.logf("Create fake node status for profile")
 		e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
 
-		podCleanup := e.writeAndCreate(fmt.Sprintf(testCase.podManifest, namespace), "delete-pod*.yaml")
+		podCleanup := e.writeAndCreate(testCase.podManifest, "delete-pod*.yaml")
 		defer podCleanup() //nolint:gocritic // TODO: is this intention?
 		e.waitFor("condition=ready", "pod", deletePodName)
 		e.logf("Ensuring profile cannot be deleted while pod is active")

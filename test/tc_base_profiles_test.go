@@ -67,7 +67,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/%s/hello.json
+      localhostProfile: operator/hello.json
   restartPolicy: OnFailure
 `
 
@@ -99,8 +99,7 @@ spec:
 
 	defer os.Remove(helloPodFile.Name())
 
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	_, err = fmt.Fprintf(helloPodFile, helloPod, namespace)
+	_, err = fmt.Fprintf(helloPodFile, helloPod)
 	e.Nil(err)
 	err = helloPodFile.Close()
 	e.Nil(err)
