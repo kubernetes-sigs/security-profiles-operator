@@ -185,7 +185,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/%s/allow-me.json
+      localhostProfile: operator/allow-me.json
 `
 	)
 
@@ -193,7 +193,6 @@ spec:
 	defer profileCleanup()
 
 	// Check that the seccomp profile was allowed and installed
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	e.waitFor(
 		"condition=ready",
 		"seccompprofile", allowProfileName,
@@ -203,7 +202,7 @@ spec:
 	e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 
 	// Create the pod which reference the allowed profile
-	podCleanup := e.writeAndCreate(fmt.Sprintf(allowPod, namespace), "allow-pod*.yaml")
+	podCleanup := e.writeAndCreate(allowPod, "allow-pod*.yaml")
 	defer podCleanup()
 	e.waitFor("condition=ready", "pod", allowPodName)
 
