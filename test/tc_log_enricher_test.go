@@ -69,9 +69,9 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/%s/%s.json
+      localhostProfile: operator/%s.json
   restartPolicy: Never
-`, podName, containerName, namespace, profileName)
+`, podName, containerName, profileName)
 
 	since := time.Now()
 
