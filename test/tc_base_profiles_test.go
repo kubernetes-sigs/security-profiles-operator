@@ -99,7 +99,7 @@ spec:
 
 	defer os.Remove(helloPodFile.Name())
 
-	_, err = fmt.Fprintf(helloPodFile, helloPod)
+	_, err = helloPodFile.WriteString(helloPod)
 	e.Nil(err)
 	err = helloPodFile.Close()
 	e.Nil(err)
