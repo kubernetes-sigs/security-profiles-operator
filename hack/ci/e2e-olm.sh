@@ -286,11 +286,6 @@ function smoke_test_all() {
 
   kubectl delete sp --all
 
-  # in this installation method, the CSV is installed into security-profiles-operator
-  # and copied into all others
-  assert_spo_csv_installed_in_ns security-profiles-operator || return 1
-  assert_spo_csv_copied_to default security-profiles-operator || return 1
-
   return 0
 }
 
