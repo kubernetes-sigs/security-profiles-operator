@@ -17,18 +17,21 @@ set -euo pipefail
 
 export E2E_CLUSTER_TYPE=vanilla
 # TODO: re-enable when SELinux tests are fixed
+#
 export E2E_TEST_SELINUX=false
 export E2E_TEST_LOG_ENRICHER=true
-export E2E_TEST_BPF_RECORDER=true
-export E2E_SELINUXD_IMAGE=quay.io/security-profiles-operator/selinuxd-fedora
-export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}
-
+# Disable the eBPF recorder since seccomp is disabled, and apparmor
+# is not supported.
+export E2E_TEST_BPF_RECORDER=false
 # These are already tested in the standard e2e test.
 # No need to test them here.
 export E2E_TEST_SECCOMP=false
 
+export E2E_SELINUXD_IMAGE=quay.io/security-profiles-operator/selinuxd-fedora
+export E2E_TEST_FLAKY_TESTS_ONLY=${E2E_TEST_FLAKY_TESTS_ONLY:-false}
+
 if "${E2E_TEST_FLAKY_TESTS_ONLY}"; then
-    make test-flaky-e2e
+  make test-flaky-e2e
 else
-    make test-e2e
+  make test-e2e
 fi
