@@ -335,14 +335,19 @@ for method in all; do
   smoke_test $method || rv=1
 
   teardown_spo $method
+
+  if [ $rv -gt 0 ]; then
+    echo "SPO deployment in $method namespace(s) failed"
+    exit $rv
+  fi
 done
 
 # deployment into the custom namespace is a bit special
 echo "Testing SPO deployment in custom namespace(s)"
-deploy_spo_in_custom_ns spo-lives-here || rv=1
-check_spo_is_running spo-lives-here || rv=1
+deploy_spo_in_custom_ns spo-lives-here || exit 1
+check_spo_is_running spo-lives-here || exit 1
 kubectl get csv -A --show-labels
-smoke_test_all || rv=1
+smoke_test_all || exit 1
 
 # This is actually part of the next test, but saves us one deployment..
 echo "Checking that there's no profilerecording by default"
@@ -352,15 +357,15 @@ teardown_spo custom
 
 # Test that deploying with ENABLE_BPF/ENABLE_LOG_ENRICHER enables the profilerecorder
 echo "Testing SPO deployment with ENABLE_LOG_ENRICHER"
-deploy_spo_with_variable ENABLE_LOG_ENRICHER || rv=1
-check_spo_is_running security-profiles-operator || rv=1
-check_spod_property with-recording=true || rv=1
+deploy_spo_with_variable ENABLE_LOG_ENRICHER || exit 1
+check_spo_is_running security-profiles-operator || exit 1
+check_spod_property with-recording=true || exit 1
 teardown_spo ENABLE_LOG_ENRICHER
 
 echo "Testing SPO deployment with ENABLE_BPF_RECORDER"
-deploy_spo_with_variable ENABLE_BPF_RECORDER || rv=1
-check_spo_is_running security-profiles-operator || rv=1
-check_spod_property with-recording=true || rv=1
+deploy_spo_with_variable ENABLE_BPF_RECORDER || exit 1
+check_spo_is_running security-profiles-operator || exit 1
+check_spod_property with-recording=true || exit 1
 teardown_spo ENABLE_BPF_RECORDER
 
-exit $rv
+exit 0
