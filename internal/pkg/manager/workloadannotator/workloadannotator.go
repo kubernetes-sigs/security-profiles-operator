@@ -172,7 +172,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 // it has a finalizer indicating it is in use to prevent it from being deleted.
 func (r *PodReconciler) updatePodReferencesForSeccomp(ctx context.Context, sp *seccompprofileapi.SeccompProfile) error {
 	linkedPods := &corev1.PodList{}
-	profileReference := fmt.Sprintf("operator/%s/%s.json", sp.GetNamespace(), sp.GetName())
+	profileReference := fmt.Sprintf("operator/%s.json", sp.GetName())
 
 	err := r.client.List(ctx, linkedPods, client.MatchingFields{spOwnerKey: profileReference})
 	if util.IgnoreNotFound(err) != nil {
