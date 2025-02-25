@@ -43,7 +43,7 @@ const (
 	linkedPodsKey     = ".metadata.activeWorkloads"
 	StatusToProfLabel = "spo.x-k8s.io/profile-id"
 	reconcileTimeout  = 1 * time.Minute
-	pathParts         = 3
+	pathParts         = 2
 )
 
 // NewController returns a new empty controller instance.
@@ -129,8 +129,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 			continue
 		}
 
-		profileNamespace := profileElements[1]
-		profileName := strings.TrimSuffix(profileElements[2], ".json")
+		profileNamespace := "" // It is a cluster wide profile.
+		profileName := strings.TrimSuffix(profileElements[1], ".json")
 		seccompProfile := &seccompprofileapi.SeccompProfile{}
 
 		if err := r.client.Get(ctx, util.NamespacedName(profileName, profileNamespace), seccompProfile); err != nil {
@@ -152,7 +152,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 		profileName := strings.TrimSuffix(profileIndex, profileSuffix)
 
 		selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
-		if err := r.client.Get(ctx, util.NamespacedName(profileName, pod.GetNamespace()), selinuxProfile); err != nil {
+		if err := r.client.Get(ctx, util.NamespacedName(profileName, ""), selinuxProfile); err != nil {
 			logger.Error(err, "could not get selinux profile for pod")
 
 			return reconcile.Result{}, fmt.Errorf("looking up SelinuxProfile for new or updated pod: %w", err)
@@ -317,7 +317,7 @@ func getSelinuxProfilesFromPod(ctx context.Context, r *PodReconciler, pod *corev
 	// try to get profile from pod securityContext
 	sc := pod.Spec.SecurityContext
 	if sc != nil {
-		if isOperatorSelinuxType(ctx, r, sc.SELinuxOptions, pod.GetNamespace()) {
+		if isOperatorSelinuxType(ctx, r, sc.SELinuxOptions, "") {
 			profiles = append(profiles, sc.SELinuxOptions.Type)
 		}
 	}
@@ -328,7 +328,7 @@ func getSelinuxProfilesFromPod(ctx context.Context, r *PodReconciler, pod *corev
 	for i := range containers {
 		sc := containers[i].SecurityContext
 		if sc != nil {
-			if isOperatorSelinuxType(ctx, r, sc.SELinuxOptions, pod.GetNamespace()) {
+			if isOperatorSelinuxType(ctx, r, sc.SELinuxOptions, "") {
 				profileString := containers[i].SecurityContext.SELinuxOptions.Type
 				if !util.Contains(profiles, profileString) {
 					profiles = append(profiles, profileString)
