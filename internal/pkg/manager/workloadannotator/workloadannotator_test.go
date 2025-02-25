@@ -27,8 +27,8 @@ import (
 func TestGetSeccompProfilesFromPod(t *testing.T) {
 	t.Parallel()
 
-	profilePath := "operator/default/test.json"
-	profilePath2 := "operator/default/test2.json"
+	profilePath := "operator/test.json"
+	profilePath2 := "operator/test2.json"
 	cases := []struct {
 		name string
 		pod  corev1.Pod
@@ -211,11 +211,11 @@ func TestGetSeccompProfilesFromPod(t *testing.T) {
 	}{
 		{
 			name:    "NoSuffix",
-			profile: "operator/default/test",
+			profile: "operator/test",
 		},
 		{
 			name:    "BadSuffix",
-			profile: "operator/default/test.js",
+			profile: "operator/test.js",
 		},
 		{
 			name:    "WrongPath",
