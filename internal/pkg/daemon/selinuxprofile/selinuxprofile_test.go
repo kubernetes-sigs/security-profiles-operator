@@ -37,7 +37,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 	t.Parallel()
 
 	ns := "security-profiles-operator"
-	//nolint:tenv // we want to set the env here
+	//nolint:usetesting // we want to set the env here
 	os.Setenv("OPERATOR_NAMESPACE", ns)
 
 	schemeInstance := scheme.Scheme
