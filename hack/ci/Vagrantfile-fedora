@@ -50,10 +50,10 @@ EOF
 cat <<EOF | tee /etc/yum.repos.d/cri-o.repo
 [cri-o]
 name=CRI-O
-baseurl=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/
+baseurl=https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/rpm/
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/repodata/repomd.xml.key
+gpgkey=https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/rpm/repodata/repomd.xml.key
 EOF
 
       dnf install -y \
