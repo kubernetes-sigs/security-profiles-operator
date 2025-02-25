@@ -3362,7 +3362,7 @@ spec:
               fieldPath: spec.nodeName
         - name: KUBELET_DIR
           value: /var/lib/kubelet
-        image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
+        image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.9.0
         imagePullPolicy: Always
         name: security-profiles-operator
         resources:
