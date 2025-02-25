@@ -247,16 +247,16 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
-    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.8.4
-    createdAt: "2025-02-20T09:23:51Z"
-    olm.skipRange: '>=0.4.1 <0.8.5-dev'
+    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.9.0
+    createdAt: "2025-02-25T13:34:54Z"
+    olm.skipRange: '>=0.4.1 <0.9.0'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
       Container Platform", "OpenShift Platform Plus"]'
     operators.operatorframework.io/builder: operator-sdk-v1.37.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
-  name: security-profiles-operator.v0.8.5-dev
+  name: security-profiles-operator.v0.9.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -697,7 +697,7 @@ spec:
                       fieldPath: spec.nodeName
                 - name: KUBELET_DIR
                   value: /var/lib/kubelet
-                image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
+                image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.9.0
                 imagePullPolicy: Always
                 name: security-profiles-operator
                 resources:
@@ -808,5 +808,5 @@ spec:
     name: selinuxd-el9
   - image: quay.io/security-profiles-operator/selinuxd-fedora:latest
     name: selinuxd-fedora
-  replaces: security-profiles-operator.v0.8.3
-  version: 0.8.5-dev
+  replaces: security-profiles-operator.v0.8.4
+  version: 0.9.0
