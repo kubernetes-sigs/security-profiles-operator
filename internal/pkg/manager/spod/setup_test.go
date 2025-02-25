@@ -57,7 +57,7 @@ func Test_getEffectiveSPOd(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			//nolint:tenv // cannot use tenv after t.Parallel()
+			//nolint:usetesting // cannot use tenv after t.Parallel()
 			os.Setenv("OPERATOR_NAMESPACE", "default")
 
 			got := getEffectiveSPOd(&tt.dt)
