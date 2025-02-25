@@ -15,7 +15,9 @@
 package filetypes
 
 import (
+	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -78,7 +80,7 @@ func FromFile(b *build.File, mode Mode) (*FileInfo, error) {
 	// isolation without interference from evaluating these files.
 	if mode == Input &&
 		b.Encoding == build.CUE &&
-		b.Form == build.Schema &&
+		b.Form == "" &&
 		b.Interpretation == "" {
 		return &FileInfo{
 			File: b,
@@ -92,7 +94,6 @@ func FromFile(b *build.File, mode Mode) (*FileInfo, error) {
 			KeepDefaults: true,
 			Incomplete:   true,
 			Imports:      true,
-			Stream:       true,
 			Docs:         true,
 			Attributes:   true,
 		}, nil
@@ -175,22 +176,10 @@ func ParseArgs(args []string) (files []*build.File, err error) {
 			if !fileVal.Exists() {
 				if len(a) == 1 && strings.HasSuffix(a[0], ".cue") {
 					// Handle majority case.
-					files = append(files, &build.File{
-						Filename: a[0],
-						Encoding: build.CUE,
-						Form:     build.Schema,
-					})
+					f := *fileForCUE
+					f.Filename = a[0]
+					files = append(files, &f)
 					hasFiles = true
-					continue
-				}
-
-				// The CUE command works just fine without this (how?),
-				// but the API tests require this for some reason.
-				//
-				// This is almost certainly wrong, and in the wrong place.
-				//
-				// TODO(aram): why do we need this here?
-				if len(a) == 1 && strings.HasSuffix(a[0], ".wasm") {
 					continue
 				}
 
@@ -236,6 +225,27 @@ func ParseArgs(args []string) (files []*build.File, err error) {
 	return files, nil
 }
 
+// DefaultTagsForInterpretation returns any tags that would be set by default
+// in the given interpretation in the given mode.
+func DefaultTagsForInterpretation(interp build.Interpretation, mode Mode) map[string]bool {
+	if interp == "" {
+		return nil
+	}
+	// TODO this could be done once only.
+
+	// This should never fail if called with a legitimate build.Interpretation constant.
+
+	mv, fv, err := parseType(string(interp), mode)
+	if err != nil {
+		panic(err)
+	}
+	f, err := toFile(mv, fv, "-")
+	if err != nil {
+		panic(err)
+	}
+	return f.BoolTags
+}
+
 // ParseFile parses a single-argument file specifier, such as when a file is
 // passed to a command line argument.
 //
@@ -260,17 +270,28 @@ func ParseFile(s string, mode Mode) (*build.File, error) {
 		}
 		return nil, errors.Newf(token.NoPos, "empty file name")
 	}
+
+	return ParseFileAndType(file, scope, mode)
+}
+
+// ParseFileAndType parses a file and type combo.
+func ParseFileAndType(file, scope string, mode Mode) (*build.File, error) {
 	// Quickly discard files which we aren't interested in.
 	// These cases are very common when loading `./...` in a large repository.
 	typesInit()
-	if scope == "" {
+	if scope == "" && file != "-" {
 		ext := fileExt(file)
-		if file == "-" {
-			// not handled here
-		} else if ext == "" {
+		if ext == "" {
 			return nil, errors.Newf(token.NoPos, "no encoding specified for file %q", file)
-		} else if !knownExtensions[ext] {
+		}
+		f, ok := fileForExt[ext]
+		if !ok {
 			return nil, errors.Newf(token.NoPos, "unknown file extension %s", ext)
+		}
+		if mode == Input {
+			f1 := *f
+			f1.Filename = file
+			return &f1, nil
 		}
 	}
 	modeVal, fileVal, err := parseType(scope, mode)
@@ -313,23 +334,59 @@ func toFile(modeVal, fileVal cue.Value, filename string) (*build.File, error) {
 
 func parseType(scope string, mode Mode) (modeVal, fileVal cue.Value, _ error) {
 	modeVal = typesValue.LookupPath(cue.MakePath(cue.Str("modes"), cue.Str(mode.String())))
-	fileVal = modeVal.LookupPath(cue.MakePath(cue.Str("File")))
+	fileVal = modeVal.LookupPath(cue.MakePath(cue.Str("FileInfo")))
 
-	if scope != "" {
-		for _, tag := range strings.Split(scope, "+") {
-			tagName, tagVal, ok := strings.Cut(tag, "=")
-			if ok {
-				fileVal = fileVal.FillPath(cue.MakePath(cue.Str("tags"), cue.Str(tagName)), tagVal)
-			} else {
-				info := typesValue.LookupPath(cue.MakePath(cue.Str("tags"), cue.Str(tag)))
-				if !info.Exists() {
-					return cue.Value{}, cue.Value{}, errors.Newf(token.NoPos, "unknown filetype %s", tag)
-				}
+	if scope == "" {
+		return modeVal, fileVal, nil
+	}
+	var otherTags []string
+	for _, tag := range strings.Split(scope, "+") {
+		tagName, _, ok := strings.Cut(tag, "=")
+		if ok {
+			otherTags = append(otherTags, tag)
+		} else {
+			info := typesValue.LookupPath(cue.MakePath(cue.Str("tagInfo"), cue.Str(tagName)))
+			if info.Exists() {
 				fileVal = fileVal.Unify(info)
+			} else {
+				// The tag might only be available when all the
+				// other tags have been evaluated.
+				otherTags = append(otherTags, tag)
 			}
 		}
 	}
-
+	if len(otherTags) == 0 {
+		return modeVal, fileVal, nil
+	}
+	// There are tags that aren't mentioned in tagInfo.
+	// They might still be valid, but just only valid within the file types that
+	// have been specified above, so look at the schema that we've got
+	// and see if it specifies any tags.
+	allowedTags := fileVal.LookupPath(cue.MakePath(cue.Str("tags")))
+	allowedBoolTags := fileVal.LookupPath(cue.MakePath(cue.Str("boolTags")))
+	for _, tag := range otherTags {
+		tagName, tagVal, hasValue := strings.Cut(tag, "=")
+		tagNamePath := cue.MakePath(cue.Str(tagName)).Optional()
+		tagSchema := allowedTags.LookupPath(tagNamePath)
+		if tagSchema.Exists() {
+			fileVal = fileVal.FillPath(cue.MakePath(cue.Str("tags"), cue.Str(tagName)), tagVal)
+			continue
+		}
+		if !allowedBoolTags.LookupPath(tagNamePath).Exists() {
+			return cue.Value{}, cue.Value{}, errors.Newf(token.NoPos, "unknown filetype %s", tagName)
+		}
+		tagValBool := true
+		if hasValue {
+			// It's a boolean tag and an explicit value has been specified.
+			// Allow the usual boolean string values.
+			t, err := strconv.ParseBool(tagVal)
+			if err != nil {
+				return cue.Value{}, cue.Value{}, fmt.Errorf("invalid boolean value for tag %q", tagName)
+			}
+			tagValBool = t
+		}
+		fileVal = fileVal.FillPath(cue.MakePath(cue.Str("boolTags"), cue.Str(tagName)), tagValBool)
+	}
 	return modeVal, fileVal, nil
 }
 

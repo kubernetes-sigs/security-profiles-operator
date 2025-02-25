@@ -71,6 +71,12 @@ type Node struct {
 	PostValuesComments []string
 	// Whether the braces used for the children of this node are curly braces or angle brackets.
 	IsAngleBracket bool
+	// If this is not empty, it means that formatting was disabled for this node and it contains the
+	// raw, unformatted node string.
+	Raw string
+	// Used when we want to break between the field name and values when a
+	// single-line node exceeds the requested wrap column.
+	PutSingleValueOnNextLine bool
 }
 
 // NodeLess is a sorting function that compares two *Nodes, possibly using the parent Node
@@ -207,9 +213,16 @@ func (n *Node) getChildValue(field string) *Value {
 	return nil
 }
 
-// IsCommentOnly returns true if this is a comment-only node.
+// IsCommentOnly returns true if this is a comment-only node. Even a node that
+// only contains a blank line is considered a comment-only node in the sense
+// that it has no proto content.
 func (n *Node) IsCommentOnly() bool {
 	return n.Name == "" && n.Children == nil
+}
+
+// IsBlankLine returns true if this is a blank line node.
+func (n *Node) IsBlankLine() bool {
+	return n.IsCommentOnly() && len(n.PreComments) == 1 && n.PreComments[0] == ""
 }
 
 type fixData struct {
@@ -289,6 +302,13 @@ func (v *Value) fix() fixData {
 	return fixData{
 		inline: len(v.PreComments) == 0 && v.InlineComment == "",
 	}
+}
+
+// SortValues sorts values by their value.
+func SortValues(values []*Value) {
+	sort.SliceStable(values, func(i, j int) bool {
+		return values[i].Value < values[j].Value
+	})
 }
 
 // GetFromPath returns all nodes with a given string path in the parse tree. See ast_test.go for examples.

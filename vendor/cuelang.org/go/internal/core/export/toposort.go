@@ -15,9 +15,11 @@
 package export
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"cuelang.org/go/internal/core/adt"
+	"cuelang.org/go/internal/core/toposort"
 )
 
 // TODO: topological sort should go arguably in a more fundamental place as it
@@ -27,6 +29,14 @@ import (
 // features than for which there are arcs and also includes features for
 // optional fields. It assumes the Structs fields are initialized and evaluated.
 func VertexFeatures(c *adt.OpContext, v *adt.Vertex) []adt.Feature {
+	if c.TopoSort {
+		return toposort.VertexFeatures(c, v)
+	} else {
+		return vertexFeatures(v)
+	}
+}
+
+func vertexFeatures(v *adt.Vertex) []adt.Feature {
 	sets := extractFeatures(v.Structs)
 	m := sortArcs(sets) // TODO: use for convenience.
 
@@ -44,11 +54,7 @@ func VertexFeatures(c *adt.OpContext, v *adt.Vertex) []adt.Feature {
 		sets = append(sets, a)
 	}
 
-	a = sortedArcs(sets)
-	if adt.DebugSort > 0 {
-		adt.DebugSortFields(c, a)
-	}
-	return a
+	return sortedArcs(sets)
 }
 
 func extractFeatures(in []*adt.StructInfo) (a [][]adt.Feature) {
@@ -71,7 +77,40 @@ func extractFeatures(in []*adt.StructInfo) (a [][]adt.Feature) {
 	return a
 }
 
-// sortedArcs is like sortArcs, but returns a the features of optional and
+// VertexFeaturesUnsorted returns the feature list of v. There will be
+// no duplicate features in the returned list, but there is also no
+// attempt made to sort the list.
+func VertexFeaturesUnsorted(v *adt.Vertex) (features []adt.Feature) {
+	seen := make(map[adt.Feature]struct{})
+
+	for _, s := range v.Structs {
+		for _, decl := range s.Decls {
+			field, ok := decl.(*adt.Field)
+			if !ok {
+				continue
+			}
+			label := field.Label
+			if _, found := seen[label]; found {
+				continue
+			}
+			seen[label] = struct{}{}
+			features = append(features, label)
+		}
+	}
+
+	for _, arc := range v.Arcs {
+		label := arc.Label
+		if _, found := seen[label]; found {
+			continue
+		}
+		seen[label] = struct{}{}
+		features = append(features, label)
+	}
+
+	return features
+}
+
+// sortedArcs is like sortArcs, but returns the features of optional and
 // required fields in an sorted slice. Ultimately, the implementation should
 // use merge sort everywhere, and this will be the preferred method. Also,
 // when querying optional fields as well, this helps identifying the optional
@@ -88,7 +127,7 @@ func sortedArcsFromMap(m map[adt.Feature]int) []adt.Feature {
 		a = append(a, k)
 	}
 
-	sort.Slice(a, func(i, j int) bool { return m[a[i]] > m[a[j]] })
+	slices.SortFunc(a, func(a1, a2 adt.Feature) int { return -cmp.Compare(m[a1], m[a2]) })
 
 	return a
 }

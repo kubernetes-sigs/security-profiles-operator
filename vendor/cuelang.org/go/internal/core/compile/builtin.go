@@ -16,6 +16,7 @@ package compile
 
 import (
 	"cuelang.org/go/cue/errors"
+	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/adt"
 )
 
@@ -24,10 +25,10 @@ import (
 const supportedByLen = adt.StructKind | adt.BytesKind | adt.StringKind | adt.ListKind
 
 var (
-	stringParam = adt.Param{Value: &adt.BasicType{K: adt.StringKind}}
 	structParam = adt.Param{Value: &adt.BasicType{K: adt.StructKind}}
 	listParam   = adt.Param{Value: &adt.BasicType{K: adt.ListKind}}
 	intParam    = adt.Param{Value: &adt.BasicType{K: adt.IntKind}}
+	topParam    = adt.Param{Value: &adt.BasicType{K: adt.TopKind}}
 )
 
 var lenBuiltin = &adt.Builtin{
@@ -86,13 +87,21 @@ var closeBuiltin = &adt.Builtin{
 		if !ok {
 			return c.NewErrf("struct argument must be concrete")
 		}
-		if m, ok := s.BaseValue.(*adt.StructMarker); ok && m.NeedClose {
-			return s
+		var v *adt.Vertex
+		if c.Version == internal.DevVersion {
+			// TODO(evalv3) this is a rather convoluted and inefficient way to
+			// accomplish signaling vertex should be closed. In most cases, it
+			// would suffice to set IsClosed in the CloseInfo. However, that
+			// does not cover all code paths. Consider simplifying this.
+			v = c.Wrap(s, c.CloseInfo())
+			v.ClosedNonRecursive = true
+		} else {
+			if m, ok := s.BaseValue.(*adt.StructMarker); ok && m.NeedClose {
+				return s
+			}
+			v = s.Clone()
+			v.BaseValue = &adt.StructMarker{NeedClose: true}
 		}
-		v := s.Clone()
-		// TODO(perf): do not copy the arc, but rather find a way to mark the
-		// calling nodeContext.
-		v.BaseValue = &adt.StructMarker{NeedClose: true}
 		return v
 	},
 }
@@ -101,8 +110,10 @@ var andBuiltin = &adt.Builtin{
 	Name:   "and",
 	Params: []adt.Param{listParam},
 	Result: adt.IntKind,
-	Func: func(c *adt.OpContext, args []adt.Value) adt.Expr {
-		list := c.RawElems(args[0])
+	RawFunc: func(c *adt.OpContext, args []adt.Expr) adt.Value {
+		// Pass through the cycle information from evaluating the first argument.
+		v := c.EvaluateKeepState(args[0])
+		list := c.RawElems(v)
 		if len(list) == 0 {
 			return &adt.Top{}
 		}
@@ -115,9 +126,10 @@ var andBuiltin = &adt.Builtin{
 }
 
 var orBuiltin = &adt.Builtin{
-	Name:   "or",
-	Params: []adt.Param{listParam},
-	Result: adt.IntKind,
+	Name:        "or",
+	Params:      []adt.Param{listParam},
+	Result:      adt.IntKind,
+	NonConcrete: true,
 	Func: func(c *adt.OpContext, args []adt.Value) adt.Expr {
 		d := []adt.Disjunct{}
 		for _, c := range c.RawElems(args[0]) {
@@ -133,7 +145,8 @@ var orBuiltin = &adt.Builtin{
 			// status if the source is open.
 			return &adt.Bottom{
 				Code: adt.IncompleteError,
-				Err:  errors.Newf(c.Pos(), "empty list in call to or"),
+				// TODO: get and set Vertex
+				Err: errors.Newf(c.Pos(), "empty list in call to or"),
 			}
 		}
 		v := &adt.Vertex{}

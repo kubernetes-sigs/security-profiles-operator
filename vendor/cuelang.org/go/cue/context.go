@@ -15,6 +15,8 @@
 package cue
 
 import (
+	"cmp"
+
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/ast/astutil"
 	"cuelang.org/go/cue/build"
@@ -28,17 +30,13 @@ import (
 	"cuelang.org/go/internal/core/runtime"
 )
 
-// A Context is used for creating CUE Values.
+// A Context is used for creating CUE [Value]s.
 //
 // A Context keeps track of loaded instances, indices of internal
 // representations of values, and defines the set of supported builtins. Any
 // operation that involves two Values should originate from the same Context.
 //
-// Use
-//
-//	ctx := cuecontext.New()
-//
-// to create a new Context.
+// Use [cuelang.org/go/cue/cuecontext.New] to create a new context.
 type Context runtime.Runtime
 
 func (c *Context) runtime() *runtime.Runtime {
@@ -117,10 +115,10 @@ func (c *Context) parseOptions(options []BuildOption) (cfg runtime.Config) {
 	return cfg
 }
 
-// BuildInstance creates a Value from the given build.Instance.
+// BuildInstance creates a [Value] from the given [*build.Instance].
 //
-// The returned Value will represent an error, accessible through Err, if any
-// error occurred.
+// The returned value will represent an error, accessible through [Value.Err],
+// if any error occurred.
 func (c *Context) BuildInstance(i *build.Instance, options ...BuildOption) Value {
 	cfg := c.parseOptions(options)
 	v, err := c.runtime().Build(&cfg, i)
@@ -138,7 +136,7 @@ func (c *Context) makeError(err errors.Error) Value {
 	return c.make(node)
 }
 
-// BuildInstances creates a Value for each of the given instances and reports
+// BuildInstances creates a [Value] for each of the given [*build.Instance]s and reports
 // the combined errors or nil if there were no errors.
 func (c *Context) BuildInstances(instances []*build.Instance) ([]Value, error) {
 	var errs errors.Error
@@ -155,10 +153,10 @@ func (c *Context) BuildInstances(instances []*build.Instance) ([]Value, error) {
 	return a, errs
 }
 
-// BuildFile creates a Value from f.
+// BuildFile creates a [Value] from f.
 //
-// The returned Value will represent an error, accessible through Err, if any
-// error occurred.
+// The returned value will represent an error, accessible through [Value.Err],
+// if any error occurred.
 func (c *Context) BuildFile(f *ast.File, options ...BuildOption) Value {
 	cfg := c.parseOptions(options)
 	return c.compile(c.runtime().CompileFile(&cfg, f))
@@ -171,10 +169,10 @@ func (c *Context) compile(v *adt.Vertex, p *build.Instance) Value {
 	return c.make(v)
 }
 
-// BuildExpr creates a Value from x.
+// BuildExpr creates a [Value] from x.
 //
-// The returned Value will represent an error, accessible through Err, if any
-// error occurred.
+// The returned value will represent an error, accessible through [Value.Err],
+// if any error occurred.
 func (c *Context) BuildExpr(x ast.Expr, options ...BuildOption) Value {
 	r := c.runtime()
 	cfg := c.parseOptions(options)
@@ -185,10 +183,7 @@ func (c *Context) BuildExpr(x ast.Expr, options ...BuildOption) Value {
 	// and the expression resulting from CompileString differently.
 	astutil.ResolveExpr(x, errFn)
 
-	pkgPath := cfg.ImportPath
-	if pkgPath == "" {
-		pkgPath = anonymousPkg
-	}
+	pkgPath := cmp.Or(cfg.ImportPath, anonymousPkg)
 
 	conjunct, err := compile.Expr(&cfg.Config, r, pkgPath, x)
 	if err != nil {
@@ -217,19 +212,19 @@ func resolveExpr(ctx *adt.OpContext, v Value, x ast.Expr) adt.Value {
 // anonymousPkg reports a package path that can never resolve to a valid package.
 const anonymousPkg = "_"
 
-// CompileString parses and build a Value from the given source string.
+// CompileString parses and builds a [Value] from the given source string.
 //
-// The returned Value will represent an error, accessible through Err, if any
-// error occurred.
+// The returned value will represent an error, accessible through [Value.Err],
+// if any error occurred.
 func (c *Context) CompileString(src string, options ...BuildOption) Value {
 	cfg := c.parseOptions(options)
 	return c.compile(c.runtime().Compile(&cfg, src))
 }
 
-// CompileBytes parses and build a Value from the given source bytes.
+// CompileBytes parses and builds a [Value] from the given source bytes.
 //
-// The returned Value will represent an error, accessible through Err, if any
-// error occurred.
+// The returned value will represent an error, accessible through [Value.Err],
+// if any error occurred.
 func (c *Context) CompileBytes(b []byte, options ...BuildOption) Value {
 	cfg := c.parseOptions(options)
 	return c.compile(c.runtime().Compile(&cfg, b))
@@ -260,7 +255,7 @@ func (c *Context) make(v *adt.Vertex) Value {
 }
 
 // An EncodeOption defines options for the various encoding-related methods of
-// Context.
+// [Context].
 type EncodeOption func(*encodeOptions)
 
 type encodeOptions struct {
@@ -280,10 +275,10 @@ func NilIsAny(isAny bool) EncodeOption {
 	return func(o *encodeOptions) { o.nilIsTop = isAny }
 }
 
-// Encode converts a Go value to a CUE value.
+// Encode converts a Go value to a CUE [Value].
 //
-// The returned Value will represent an error, accessible through Err, if any
-// error occurred.
+// The returned value will represent an error, accessible through [Value.Err],
+// if any error occurred.
 //
 // Encode traverses the value v recursively. If an encountered value implements
 // the json.Marshaler interface and is not a nil pointer, Encode calls its
@@ -374,16 +369,21 @@ func (c *Context) Encode(x interface{}, option ...EncodeOption) Value {
 	ctx := c.ctx()
 	// TODO: is true the right default?
 	expr := convert.GoValueToValue(ctx, x, options.nilIsTop)
-	n := &adt.Vertex{}
-	n.AddConjunct(adt.MakeRootConjunct(nil, expr))
+	var n *adt.Vertex
+	if v, ok := expr.(*adt.Vertex); ok {
+		n = v
+	} else {
+		n = &adt.Vertex{}
+		n.AddConjunct(adt.MakeRootConjunct(nil, expr))
+	}
 	n.Finalize(ctx)
 	return c.make(n)
 }
 
-// Encode converts a Go type to a CUE value.
+// Encode converts a Go type to a CUE [Value].
 //
-// The returned Value will represent an error, accessible through Err, if any
-// error occurred.
+// The returned value will represent an error, accessible through [Value.Err],
+// if any error occurred.
 func (c *Context) EncodeType(x interface{}, option ...EncodeOption) Value {
 	switch v := x.(type) {
 	case *adt.Vertex:
@@ -395,8 +395,13 @@ func (c *Context) EncodeType(x interface{}, option ...EncodeOption) Value {
 	if err != nil {
 		return c.makeError(err)
 	}
-	n := &adt.Vertex{}
-	n.AddConjunct(adt.MakeRootConjunct(nil, expr))
+	var n *adt.Vertex
+	if v, ok := expr.(*adt.Vertex); ok {
+		n = v
+	} else {
+		n = &adt.Vertex{}
+		n.AddConjunct(adt.MakeRootConjunct(nil, expr))
+	}
 	n.Finalize(ctx)
 	return c.make(n)
 }
@@ -467,7 +472,7 @@ func str(c *adt.OpContext, v adt.Node) string {
 
 // eval returns the evaluated value. This may not be the vertex.
 //
-// Deprecated: use ctx.value
+// Deprecated: use [adt.OpContext.value].
 func (v Value) eval(ctx *adt.OpContext) adt.Value {
 	if v.v == nil {
 		panic("undefined value")
