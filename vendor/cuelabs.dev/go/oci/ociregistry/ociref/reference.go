@@ -19,8 +19,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
-	"cuelabs.dev/go/oci/ociregistry"
+	"github.com/opencontainers/go-digest"
 )
 
 // The following regular expressions derived from code in the
@@ -91,17 +92,23 @@ const (
 	repoName = pathComponent + `(?:` + `/` + pathComponent + `)*`
 )
 
-var referencePat = regexp.MustCompile(
-	`^(?:` +
-		`(?:` + `(` + domainAndPort + `)` + `/` + `)?` + // capture 1: host
-		`(` + repoName + `)` + // capture 2: repository name
-		`(?:` + `:([^@]+))?` + // capture 3: tag; rely on Go logic to test validity.
-		`(?:` + `@(.+))?` + // capture 4: digest; rely on go-digest to find issues
-		`)$`,
-)
+var referencePat = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`^(?:` +
+			`(?:` + `(` + domainAndPort + `)` + `/` + `)?` + // capture 1: host
+			`(` + repoName + `)` + // capture 2: repository name
+			`(?:` + `:([^@]+))?` + // capture 3: tag; rely on Go logic to test validity.
+			`(?:` + `@(.+))?` + // capture 4: digest; rely on go-digest to find issues
+			`)$`,
+	)
+})
 
-var hostPat = regexp.MustCompile(`^(?:` + domainAndPort + `)$`)
-var repoPat = regexp.MustCompile(`^(?:` + repoName + `)$`)
+var hostPat = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:` + domainAndPort + `)$`)
+})
+var repoPat = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:` + repoName + `)$`)
+})
 
 // Reference represents an entry in an OCI repository.
 type Reference struct {
@@ -120,23 +127,31 @@ type Reference struct {
 
 	// Digest holds the DIGEST part of an @DIGEST reference
 	// or of a :TAG@DIGEST reference.
-	Digest ociregistry.Digest
+	Digest Digest
 }
+
+type Digest = digest.Digest
 
 // IsValidHost reports whether s is a valid host (or host:port) part of a reference string.
 func IsValidHost(s string) bool {
-	return hostPat.MatchString(s)
+	return hostPat().MatchString(s)
 }
 
 // IsValidHost reports whether s is a valid repository part
 // of a reference string.
 func IsValidRepository(s string) bool {
-	return repoPat.MatchString(s)
+	return repoPat().MatchString(s)
 }
 
 // IsValidTag reports whether s is a valid reference tag.
 func IsValidTag(s string) bool {
 	return checkTag(s) == nil
+}
+
+// IsValidDigest reports whether the digest d is well formed.
+func IsValidDigest(d string) bool {
+	_, err := digest.Parse(d)
+	return err == nil
 }
 
 // Parse parses a reference string that must include
@@ -165,12 +180,12 @@ func Parse(refStr string) (Reference, error) {
 // Unlike "docker pull" however, there is no default registry: when
 // presented with a bare repository name, the Host field will be empty.
 func ParseRelative(refStr string) (Reference, error) {
-	m := referencePat.FindStringSubmatch(refStr)
+	m := referencePat().FindStringSubmatch(refStr)
 	if m == nil {
 		return Reference{}, fmt.Errorf("invalid reference syntax (%q)", refStr)
 	}
 	var ref Reference
-	ref.Host, ref.Repository, ref.Tag, ref.Digest = m[1], m[2], m[3], ociregistry.Digest(m[4])
+	ref.Host, ref.Repository, ref.Tag, ref.Digest = m[1], m[2], m[3], Digest(m[4])
 	// Check lengths and digest: we don't check these as part of the regexp
 	// because it's more efficient to do it in Go and we get
 	// nicer error messages as a result.

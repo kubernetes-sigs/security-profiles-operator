@@ -17,6 +17,7 @@ package dep
 
 import (
 	"cuelang.org/go/cue/errors"
+	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/adt"
 )
 
@@ -129,13 +130,16 @@ type Dependency struct {
 func (d *Dependency) Recurse() {
 	savedAll := d.visitor.all
 	savedTop := d.visitor.top
+	savedMarked := d.visitor.marked
 	d.visitor.all = d.visitor.recurse
 	d.visitor.top = true
+	d.visitor.marked = nil
 
 	d.visitor.visitReusingVisitor(d.Node, false)
 
 	d.visitor.all = savedAll
 	d.visitor.top = savedTop
+	d.visitor.marked = savedMarked
 }
 
 // Import returns the import reference or nil if the reference was within
@@ -146,7 +150,7 @@ func (d *Dependency) Import() *adt.ImportReference {
 
 // IsRoot reports whether the dependency is referenced by the root of the
 // original Vertex passed to any of the Visit* functions, and not one of its
-// descendent arcs. This always returns true for Visit().
+// descendent arcs. This always returns true for [Visit].
 func (d *Dependency) IsRoot() bool {
 	return d.top
 }
@@ -410,15 +414,37 @@ func (c *visitor) reportDependency(env *adt.Environment, ref adt.Resolver, v *ad
 		reference = c.topRef
 	}
 
-	if !v.Rooted() {
+	inspect := false
+
+	if c.ctxt.Version == internal.DevVersion {
+		inspect = v.IsDetached() || !v.MayAttach()
+	} else {
+		inspect = !v.Rooted()
+	}
+
+	if inspect {
+		// TODO: there is currently no way to inspect where a non-rooted node
+		// originated from. As of EvalV3, we allow non-rooted nodes to be
+		// structure shared. This makes them effectively rooted, with the
+		// difference that there is an indirection in BaseValue for the
+		// structure sharing. Nonetheless, this information is lost in the
+		// internal API when traversing.
+
+		// As an alternative we now do not skip processing the node if we
+		// an inlined, non-rooted node is associated with another node than
+		// the one we are currently processing.
+
+		// If a node is internal, we need to further investigate any references.
+		// If there are any, reference, even if it is otherwise not reported,
+		// we report this reference.
 		before := c.numRefs
 		c.markInternalResolvers(env, ref, v)
 		// TODO: this logic could probably be simplified if we let clients
 		// explicitly mark whether to visit rootless nodes. Visiting these
 		// may be necessary when substituting values.
 		switch _, ok := ref.(*adt.FieldReference); {
-		case !ok:
-			// Do not report rootless nodes for selectors.
+		case !ok && c.isLocal(env, ref):
+			// 	Do not report rootless nodes for selectors.
 			return
 		case c.numRefs > before:
 			// For FieldReferences that resolve to something we do not need
@@ -450,6 +476,9 @@ func (c *visitor) reportDependency(env *adt.Environment, ref adt.Resolver, v *ad
 		}
 		v = w
 	}
+	if inspect && len(c.pathStack) == 0 && c.topRef != nil {
+		altRef = c.topRef
+	}
 
 	// All resolvers are expressions.
 	if p := importRef(ref.(adt.Expr)); p != nil {
@@ -459,6 +488,10 @@ func (c *visitor) reportDependency(env *adt.Environment, ref adt.Resolver, v *ad
 	}
 
 	c.numRefs++
+
+	if c.ctxt.Version == internal.DevVersion {
+		v.Finalize(c.ctxt)
+	}
 
 	d := Dependency{
 		Node:      v,
@@ -470,6 +503,26 @@ func (c *visitor) reportDependency(env *adt.Environment, ref adt.Resolver, v *ad
 	if err := c.fn(d); err != nil {
 		c.err = err
 		panic(aborted)
+	}
+}
+
+// isLocal reports whether a non-rooted struct is an internal node or not.
+// If it is not, we need to further investigate any references.
+func (c *visitor) isLocal(env *adt.Environment, r adt.Resolver) bool {
+	for {
+		switch x := r.(type) {
+		case *adt.FieldReference:
+			for i := 0; i < int(x.UpCount); i++ {
+				env = env.Up
+			}
+			return env.Vertex == empty
+		case *adt.SelectorExpr:
+			r, _ = x.X.(adt.Resolver)
+		case *adt.IndexExpr:
+			r, _ = x.X.(adt.Resolver)
+		default:
+			return env.Vertex == empty
+		}
 	}
 }
 
