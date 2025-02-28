@@ -1067,10 +1067,10 @@ the resulting CIL policy:
 
 ```shell
 $ kubectl exec -it -c selinuxd spod-fm55x -- sh
-sh-4.4# cat /etc/selinux.d/nginx-secure_nginx-deploy.cil
-(block nginx-secure_nginx-deploy
+sh-4.4# cat /etc/selinux.d/nginx-secure.cil
+(block nginx-secure
 (blockinherit container)
-(allow process nginx-secure_nginx-deploy.process ( tcp_socket ( listen )))
+(allow process nginx-secure.process ( tcp_socket ( listen )))
 (allow process http_cache_port_t ( tcp_socket ( name_bind )))
 (allow process node_t ( tcp_socket ( node_bind )))
 )
@@ -1176,8 +1176,8 @@ kubectl get selinuxprofile
 
 # Output should show the selinux profile.
 
-NAME                              USAGE                                                                STATE
-nginx-recording-nginx-container   nginx-recording-nginx-container_security-profiles-operator.process   partial
+NAME                              USAGE                                     STATE
+nginx-recording-nginx-container   nginx-recording-nginx-container.process   partial
 
 # The content of the profile can be inspected.
 
@@ -1186,7 +1186,7 @@ kubectl get selinuxprofile -o yaml
 
 #### Use SELinux profile
 
-SELinux profiles are referenced based on their `USAGE` type name.
+SELinux profiles are referenced based on their `USAGE` type name, which is `<ProfileName>.process`.
 
 Use this SELinux type in the workload manifest in the `.spec.containers[].securityContext.seLinuxOptions` attribute:
 
@@ -1203,7 +1203,7 @@ spec:
       securityContext:
         seLinuxOptions:
           # NOTE: This uses an appropriate SELinux type
-          type: nginx-recording-nginx-container_security-profiles-operator.process
+          type: nginx-recording-nginx-container.process
 ```
 
 The pod should properly start and run.

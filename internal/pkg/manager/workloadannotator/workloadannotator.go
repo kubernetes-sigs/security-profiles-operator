@@ -148,7 +148,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 	// pod is being created or updated so ensure it is linked to a selinux profile
 	for _, profileIndex := range getSelinuxProfilesFromPod(ctx, r, pod) {
-		profileSuffix := "_" + pod.GetNamespace() + ".process"
+		profileSuffix := ".process"
 		profileName := strings.TrimSuffix(profileIndex, profileSuffix)
 
 		selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
@@ -371,7 +371,7 @@ func isOperatorSelinuxType(ctx context.Context, r *PodReconciler, se *corev1.SEL
 		return false
 	}
 
-	suffix := "_" + ns + ".process"
+	suffix := ".process"
 	selinuxProfileName := strings.TrimSuffix(se.Type, suffix)
 
 	if selinuxProfileName != se.Type {

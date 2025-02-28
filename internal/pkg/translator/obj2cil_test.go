@@ -40,8 +40,7 @@ func TestObject2CIL(t *testing.T) {
 			name: "Test errorlogger translation with system inheritance",
 			profile: &selxv1alpha2.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "foo",
-					Namespace: "bar",
+					Name: "foo-bar",
 				},
 				Spec: selxv1alpha2.SelinuxProfileSpec{
 					Inherit: []selxv1alpha2.PolicyRef{
@@ -85,7 +84,7 @@ func TestObject2CIL(t *testing.T) {
 				},
 			},
 			wantMatches: []string{
-				"\\(block foo_bar",
+				"\\(block foo-bar",
 				"\\(blockinherit container\\)",
 				// We match on several lines since we don't care about the order
 				"\\(allow process var_log_t \\( dir \\(.*open.*\\)\\)\\)\n",
@@ -107,8 +106,7 @@ func TestObject2CIL(t *testing.T) {
 			name: "Test translation with @self",
 			profile: &selxv1alpha2.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-selinux-recording-nginx",
-					Namespace: "default",
+					Name: "test-selinux-recording-nginx",
 				},
 				Spec: selxv1alpha2.SelinuxProfileSpec{
 					Inherit: []selxv1alpha2.PolicyRef{
@@ -142,13 +140,13 @@ func TestObject2CIL(t *testing.T) {
 				},
 			},
 			wantMatches: []string{
-				"\\(block test-selinux-recording-nginx_default",
+				"\\(block test-selinux-recording-nginx",
 				"\\(blockinherit container\\)",
 				// We match on several lines since we don't care about the order
 				"\\(allow process http_port_t \\( tcp_socket \\(.*name_bind.*\\)\\)\\)\n",
 				"\\(allow process node_t \\( tcp_socket \\(.*name_bind.*\\)\\)\\)\n",
 				"\\(allow process proc_t \\( filesystem \\(.*associate.*\\)\\)\\)\n",
-				"\\(allow process test-selinux-recording-nginx_default.process \\( tcp_socket " +
+				"\\(allow process test-selinux-recording-nginx.process \\( tcp_socket " +
 					"\\(.*listen.*\\)\\)\\)\n",
 			},
 			inheritsys: []string{
@@ -159,8 +157,7 @@ func TestObject2CIL(t *testing.T) {
 			name: "Test successful inherit reference",
 			profile: &selxv1alpha2.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-selinux-recording-nginx",
-					Namespace: "default",
+					Name: "test-selinux-recording-nginx",
 				},
 				Spec: selxv1alpha2.SelinuxProfileSpec{
 					Inherit: []selxv1alpha2.PolicyRef{
@@ -179,8 +176,8 @@ func TestObject2CIL(t *testing.T) {
 				},
 			},
 			wantMatches: []string{
-				"\\(block test-selinux-recording-nginx_default",
-				"\\(blockinherit foo_default\\)",
+				"\\(block test-selinux-recording-nginx",
+				"\\(blockinherit foo\\)",
 				"\\(allow process http_port_t \\( tcp_socket \\(.*name_bind.*\\)\\)\\)\\n",
 			},
 			doNotMatch: []string{
@@ -189,8 +186,7 @@ func TestObject2CIL(t *testing.T) {
 			inheritobjs: []selxv1alpha2.SelinuxProfileObject{
 				&selxv1alpha2.SelinuxProfile{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "foo",
-						Namespace: "default",
+						Name: "foo",
 					},
 				},
 			},
@@ -199,8 +195,7 @@ func TestObject2CIL(t *testing.T) {
 			name: "Test errorlogger translation with permissive mode",
 			profile: &selxv1alpha2.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "foo-permissive",
-					Namespace: "bar",
+					Name: "foo-permissive-bar",
 				},
 				Spec: selxv1alpha2.SelinuxProfileSpec{
 					Permissive: true,
@@ -245,7 +240,7 @@ func TestObject2CIL(t *testing.T) {
 				},
 			},
 			wantMatches: []string{
-				"\\(block foo-permissive_bar",
+				"\\(block foo-permissive-bar",
 				"\\(blockinherit container\\)",
 				"\\(typepermissive process\\)",
 				// We match on several lines since we don't care about the order
@@ -268,8 +263,7 @@ func TestObject2CIL(t *testing.T) {
 			name: "Test translation with another template than container",
 			profile: &selxv1alpha2.SelinuxProfile{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "foo",
-					Namespace: "bar",
+					Name: "foo-bar",
 				},
 				Spec: selxv1alpha2.SelinuxProfileSpec{
 					Inherit: []selxv1alpha2.PolicyRef{
@@ -293,7 +287,7 @@ func TestObject2CIL(t *testing.T) {
 				},
 			},
 			wantMatches: []string{
-				"\\(block foo_bar",
+				"\\(block foo-bar",
 				"\\(blockinherit container\\)",
 				"\\(blockinherit net_container\\)",
 				// We match on several lines since we don't care about the order

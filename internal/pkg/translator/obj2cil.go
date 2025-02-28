@@ -79,7 +79,7 @@ func Object2CIL(
 }
 
 func getCILStart(sp *selxv1alpha2.SelinuxProfile) string {
-	return fmt.Sprintf("(block %s_%s\n", sp.GetName(), sp.GetNamespace())
+	return fmt.Sprintf("(block %s\n", sp.GetName())
 }
 
 func getCILInheritline(i string) string {
