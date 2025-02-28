@@ -69,7 +69,7 @@ func (sp *RawSelinuxProfile) SetImplementationStatus() {
 // GetPolicyName gets the policy module name in the format that
 // we're expecting for parsing.
 func (sp *RawSelinuxProfile) GetPolicyName() string {
-	return sp.GetName() + "_" + sp.GetNamespace()
+	return sp.GetName()
 }
 
 // GetPolicyUsage is the representation of how a pod will call this
