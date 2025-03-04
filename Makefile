@@ -20,7 +20,7 @@ KUSTOMIZE_VERSION = 5.5.0
 OPERATOR_SDK_VERSION ?= v1.37.0
 ZEITGEIST_VERSION = v0.5.4
 MDTOC_VERSION = v1.4.0
-CI_IMAGE ?= golang:1.24
+CI_IMAGE ?= golang:$(shell sed -n 's;^go\s\(.*\);\1;p' go.mod)
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 

@@ -166,7 +166,7 @@ func TestUpdateResource(t *testing.T) {
 		},
 	} {
 		err := utils.UpdateResource(
-			context.Background(), logr.Discard(), tc.client, nil, "",
+			t.Context(), logr.Discard(), tc.client, nil, "",
 		)
 		if tc.shouldErr {
 			require.Error(t, err)

@@ -487,7 +487,7 @@ func TestStart(t *testing.T) {
 			assert: func(sut *BpfRecorder, err error) {
 				require.NoError(t, err)
 				require.EqualValues(t, 1, sut.startRequests)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				require.EqualValues(t, 2, sut.startRequests)
 			},
@@ -513,7 +513,7 @@ func TestStart(t *testing.T) {
 		err := sut.Load()
 		require.NoError(t, err)
 
-		_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+		_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 		tc.assert(sut, err)
 	}
 }
@@ -548,7 +548,7 @@ func TestStop(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, err error) {
@@ -562,9 +562,9 @@ func TestStop(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, err error) {
@@ -580,7 +580,7 @@ func TestStop(t *testing.T) {
 
 		tc.prepare(sut, mock)
 
-		_, err := sut.Stop(context.Background(), &api.EmptyRequest{})
+		_, err := sut.Stop(t.Context(), &api.EmptyRequest{})
 		tc.assert(sut, err)
 	}
 }
@@ -598,7 +598,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -625,7 +625,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -662,7 +662,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
@@ -675,7 +675,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -691,7 +691,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -718,7 +718,7 @@ func TestSyscallsForProfile(t *testing.T) {
 		tc.prepare(sut, mock)
 
 		resp, err := sut.SyscallsForProfile(
-			context.Background(), &api.ProfileRequest{Name: profile},
+			t.Context(), &api.ProfileRequest{Name: profile},
 		)
 		tc.assert(sut, resp, err)
 	}
@@ -741,7 +741,7 @@ func TestApparmorForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -777,7 +777,7 @@ func TestApparmorForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -832,7 +832,7 @@ func TestApparmorForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
@@ -851,7 +851,7 @@ func TestApparmorForProfile(t *testing.T) {
 			tc.prepare(sut, mock)
 
 			resp, err := sut.ApparmorForProfile(
-				context.Background(), &api.ProfileRequest{Name: profile},
+				t.Context(), &api.ProfileRequest{Name: profile},
 			)
 			tc.assert(sut, resp, err)
 		})
@@ -901,7 +901,7 @@ func TestProcessEvents(t *testing.T) {
 
 	go sut.processEvents(ch)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
 	err = sut.WaitForPidExit(ctx, 42)

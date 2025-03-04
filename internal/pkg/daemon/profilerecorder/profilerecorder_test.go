@@ -129,7 +129,7 @@ func TestSetup(t *testing.T) {
 
 		sut := &RecorderReconciler{impl: mock}
 
-		err := sut.Setup(context.Background(), nil, nil)
+		err := sut.Setup(t.Context(), nil, nil)
 		tc.assert(err)
 	}
 }
@@ -193,7 +193,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, recordingapi.ProfileRecordingKindSeccompProfile, pod.profiles[0].kind)
 				assert.Equal(t, "profile", pod.profiles[0].name)
 				// already tracking
-				_, retryErr := sut.Reconcile(context.Background(), testRequest)
+				_, retryErr := sut.Reconcile(t.Context(), testRequest)
 				assert.NoError(t, retryErr)
 			},
 		},
@@ -603,7 +603,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, recordingapi.ProfileRecordingKindAppArmorProfile, pod.profiles[0].kind)
 				assert.Equal(t, "profile", pod.profiles[0].name)
 				// already tracking
-				_, retryErr := sut.Reconcile(context.Background(), testRequest)
+				_, retryErr := sut.Reconcile(t.Context(), testRequest)
 				assert.NoError(t, retryErr)
 			},
 		},
@@ -1027,7 +1027,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, recordingapi.ProfileRecordingKindSeccompProfile, pod.profiles[0].kind)
 				assert.Equal(t, "profile", pod.profiles[0].name)
 				// already tracking
-				_, retryErr := sut.Reconcile(context.Background(), testRequest)
+				_, retryErr := sut.Reconcile(t.Context(), testRequest)
 				assert.NoError(t, retryErr)
 			},
 		},
@@ -1054,7 +1054,7 @@ func TestReconcile(t *testing.T) {
 				assert.Equal(t, recordingapi.ProfileRecordingKindSelinuxProfile, pod.profiles[0].kind)
 				assert.Equal(t, "profile", pod.profiles[0].name)
 				// already tracking
-				_, retryErr := sut.Reconcile(context.Background(), testRequest)
+				_, retryErr := sut.Reconcile(t.Context(), testRequest)
 				assert.NoError(t, retryErr)
 			},
 		},
@@ -1598,7 +1598,7 @@ func TestReconcile(t *testing.T) {
 		}
 		tc.prepare(sut, mock)
 
-		_, err := sut.Reconcile(context.Background(), testRequest)
+		_, err := sut.Reconcile(t.Context(), testRequest)
 		tc.assert(sut, err)
 	}
 }
