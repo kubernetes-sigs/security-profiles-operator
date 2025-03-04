@@ -4,8 +4,6 @@ on:
     branches:
       - main
   pull_request:
-env:
-  GO_VERSION: '1.24'
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -34,7 +32,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: ./go.mod
       - name: Install dependencies
         run: sudo hack/install-packages
       - run: make test-unit

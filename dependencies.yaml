@@ -1,16 +1,4 @@
 dependencies:
-  - name: go
-    version: 1.24
-    refPaths:
-    - path: .github/workflows/build.yml
-      match: GO_VERSION
-    - path: .github/workflows/test.yml
-      match: GO_VERSION
-    - path: .github/workflows/olm_tests.yaml
-      match: GO_VERSION
-    - path: Makefile
-      match: CI_IMAGE
-
   - name: golangci-lint
     version: 1.64.5
     refPaths:
