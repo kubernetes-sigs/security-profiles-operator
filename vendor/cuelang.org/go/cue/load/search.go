@@ -28,6 +28,14 @@ import (
 	"cuelang.org/go/mod/module"
 )
 
+// A match represents the result of matching a single package pattern.
+type match struct {
+	Pattern string // the pattern itself
+	Literal bool   // whether it is a literal (no wildcards)
+	Pkgs    []*build.Instance
+	Err     errors.Error
+}
+
 // TODO: should be matched from module file only.
 // The pattern is either "all" (all packages), "std" (standard packages),
 // "cmd" (standard commands), or a path including "...".
@@ -304,6 +312,9 @@ func appendExpandedPackageArg(c *Config, pkgPaths []resolvedPackageArg, p string
 	p = filepath.ToSlash(p)
 
 	ip := module.ParseImportPath(p)
+	if ip.Qualifier == "_" {
+		return nil, fmt.Errorf("invalid import path qualifier _ in %q", origp)
+	}
 
 	isRel := strings.HasPrefix(ip.Path, "./")
 	// Put argument in canonical form.
@@ -403,7 +414,7 @@ func appendExpandedUnqualifiedPackagePath(pkgPaths []resolvedPackageArg, origp s
 				_err = err
 				return false
 			}
-			if err := shouldBuildFile(f.Syntax, tg); err != nil {
+			if err := shouldBuildFile(f.Syntax, tg.tagIsSet); err != nil {
 				// Later build logic should pick up and report the same error.
 				return true
 			}
@@ -519,7 +530,7 @@ func appendExpandedWildcardPackagePath(pkgPaths []resolvedPackageArg, pattern mo
 		if err != nil {
 			return false
 		}
-		if err := shouldBuildFile(f.Syntax, tg); err != nil {
+		if err := shouldBuildFile(f.Syntax, tg.tagIsSet); err != nil {
 			// Later build logic should pick up and report the same error.
 			return true
 		}

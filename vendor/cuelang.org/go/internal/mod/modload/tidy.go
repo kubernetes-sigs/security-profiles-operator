@@ -10,7 +10,9 @@ import (
 	"path"
 	"runtime"
 	"slices"
+	"strings"
 
+	"cuelang.org/go/internal/buildattr"
 	"cuelang.org/go/internal/mod/modimports"
 	"cuelang.org/go/internal/mod/modpkgload"
 	"cuelang.org/go/internal/mod/modrequirements"
@@ -64,7 +66,10 @@ func tidy(ctx context.Context, fsys fs.FS, modRoot string, reg Registry, checkTi
 	}
 	// TODO check that module path is well formed etc
 	origRs := modrequirements.NewRequirements(mf.QualifiedModule(), reg, mf.DepVersions(), mf.DefaultMajorVersions())
-	rootPkgPaths, err := modimports.AllImports(modimports.AllModuleFiles(fsys, modRoot))
+	// Note: we can ignore build tags and the fact that we might
+	// have _tool.cue and _test.cue files, because we want to include
+	// all of those, but we do need to consider @ignore() attributes.
+	rootPkgPaths, err := modimports.AllImports(withoutIgnoredFiles(modimports.AllModuleFiles(fsys, modRoot)))
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +141,7 @@ func readModuleFile(fsys fs.FS, modRoot string) (module.Version, *modfile.File, 
 	}
 	mainModuleVersion, err := module.NewVersion(mf.QualifiedModule(), "")
 	if err != nil {
-		return module.Version{}, nil, fmt.Errorf("invalid module path %q: %v", mf.QualifiedModule(), err)
+		return module.Version{}, nil, fmt.Errorf("%s: invalid module path: %v", modFilePath, err)
 	}
 	return mainModuleVersion, mf, nil
 }
@@ -165,10 +170,39 @@ func modfileFromRequirements(old *modfile.File, rs *modrequirements.Requirements
 	return mf
 }
 
+// shouldIncludePkgFile reports whether a file from a package should be included
+// for dependency-analysis purposes.
+//
+// In general a file should always be considered unless it's a _tool.cue file
+// that's not in the main module.
+func (ld *loader) shouldIncludePkgFile(pkgPath string, mod module.Version, fsys fs.FS, mf modimports.ModuleFile) (_ok bool) {
+	if buildattr.ShouldIgnoreFile(mf.Syntax) {
+		// The file is marked to be explicitly ignored.
+		return false
+	}
+	if mod.Path() == ld.mainModule.Path() {
+		// All files in the main module are considered.
+		return true
+	}
+	if strings.HasSuffix(mf.FilePath, "_tool.cue") || strings.HasSuffix(mf.FilePath, "_test.cue") {
+		// tool and test files are only considered when they are part of the main module.
+		return false
+	}
+	ok, _, err := buildattr.ShouldBuildFile(mf.Syntax, func(key string) bool {
+		// Keys of build attributes are considered always false when
+		// outside the main module.
+		return false
+	})
+	if err != nil {
+		return false
+	}
+	return ok
+}
+
 func (ld *loader) resolveDependencies(ctx context.Context, rootPkgPaths []string, rs *modrequirements.Requirements) (*modrequirements.Requirements, *modpkgload.Packages, error) {
 	for {
 		logf("---- LOADING from requirements %q", rs.RootModules())
-		pkgs := modpkgload.LoadPackages(ctx, ld.mainModule.Path(), ld.mainModuleLoc, rs, ld.registry, rootPkgPaths)
+		pkgs := modpkgload.LoadPackages(ctx, ld.mainModule.Path(), ld.mainModuleLoc, rs, ld.registry, rootPkgPaths, ld.shouldIncludePkgFile)
 		if ld.checkTidy {
 			for _, pkg := range pkgs.All() {
 				err := pkg.Error()
@@ -492,7 +526,6 @@ func (ld *loader) resolveMissingImports(ctx context.Context, pkgs *modpkgload.Pa
 	var pkgMods []pkgMod
 	work := par.NewQueue(runtime.GOMAXPROCS(0))
 	for _, pkg := range pkgs.All() {
-		pkg := pkg
 		if pkg.Error() == nil {
 			continue
 		}
@@ -655,7 +688,6 @@ func (ld *loader) spotCheckRoots(ctx context.Context, rs *modrequirements.Requir
 
 	work := par.NewQueue(runtime.GOMAXPROCS(0))
 	for m := range mods {
-		m := m
 		work.Add(func() {
 			if ctx.Err() != nil {
 				return
@@ -684,6 +716,18 @@ func (ld *loader) spotCheckRoots(ctx context.Context, rs *modrequirements.Requir
 	}
 
 	return true
+}
+
+func withoutIgnoredFiles(iter func(func(modimports.ModuleFile, error) bool)) func(func(modimports.ModuleFile, error) bool) {
+	return func(yield func(modimports.ModuleFile, error) bool) {
+		// TODO for mf, err := range iter {
+		iter(func(mf modimports.ModuleFile, err error) bool {
+			if err == nil && buildattr.ShouldIgnoreFile(mf.Syntax) {
+				return true
+			}
+			return yield(mf, err)
+		})
+	}
 }
 
 func logf(f string, a ...any) {

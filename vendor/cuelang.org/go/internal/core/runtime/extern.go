@@ -58,12 +58,12 @@ type Compiler interface {
 	Compile(name string, scope adt.Value, a *internal.Attr) (adt.Expr, errors.Error)
 }
 
-// injectImplementations modifies v to include implementations of functions
+// InjectImplementations modifies v to include implementations of functions
 // for fields associated with the @extern attributes.
-func (r *Runtime) injectImplementations(b *build.Instance, v *adt.Vertex) (errs errors.Error) {
-	if r.interpreters == nil {
-		return nil
-	}
+//
+// TODO(mvdan): unexport again once cue.Instance.Build is no longer used by `cue cmd`
+// and can be removed entirely.
+func (r *Runtime) InjectImplementations(b *build.Instance, v *adt.Vertex) (errs errors.Error) {
 
 	d := &externDecorator{
 		runtime: r,
@@ -245,14 +245,15 @@ func (d *externDecorator) markExternFieldAttr(kind string, decls []ast.Decl) (er
 
 		case *ast.Attribute:
 			key, body := x.Split()
-			if key != "extern" {
+			// Support old-style and new-style extern attributes.
+			if key != "extern" && key != kind {
 				break
 			}
 
 			lastField := len(fieldStack) - 1
 			if lastField < 0 {
 				errs = errors.Append(errs, errors.Newf(x.Pos(),
-					"extern attribute not associated with field"))
+					"@%s attribute not associated with field", kind))
 				return true
 			}
 
@@ -260,15 +261,14 @@ func (d *externDecorator) markExternFieldAttr(kind string, decls []ast.Decl) (er
 
 			if _, ok := d.fields[f]; ok {
 				errs = errors.Append(errs, errors.Newf(x.Pos(),
-					"duplicate extern attributes"))
+					"duplicate @%s attributes", kind))
 				return true
 			}
 
-			name, isIdent, err := ast.LabelName(f.Label)
-			if err != nil || !isIdent {
+			name, _, err := ast.LabelName(f.Label)
+			if err != nil {
 				b, _ := format.Node(f.Label)
-				errs = errors.Append(errs, errors.Newf(x.Pos(),
-					"can only define functions for fields with identifier names, found %v", string(b)))
+				errs = errors.Append(errs, errors.Newf(x.Pos(), "external attribute has non-concrete label %s", b))
 				return true
 			}
 
@@ -331,7 +331,7 @@ func (d *externDecorator) processADTNode(n adt.Node, scope *adt.Vertex) bool {
 
 	b, err := c.Compile(name, scope, &attr)
 	if err != nil {
-		err = errors.Newf(info.attr.Pos(), "can't load from external module: %v", err)
+		err = errors.Wrap(errors.Newf(info.attr.Pos(), "@%s", info.extern), err)
 		d.errs = errors.Append(d.errs, err)
 		return true
 	}
