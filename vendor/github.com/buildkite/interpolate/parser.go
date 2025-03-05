@@ -87,7 +87,7 @@ func (p *Parser) parseExpression(stop ...rune) (Expression, error) {
 				return nil, err
 			}
 
-			expr = append(expr, ee)
+			expr = append(expr, ExpressionItem{Expansion: ee})
 			continue
 		}
 
@@ -100,11 +100,12 @@ func (p *Parser) parseExpression(stop ...rune) (Expression, error) {
 
 		// If we run into a dollar sign and it's not the last char, it's an expansion
 		if c == '$' && p.pos < (len(p.input)-1) {
-			expansion, err := p.parseExpansion()
+			expressionItem, err := p.parseExpansion()
 			if err != nil {
 				return nil, err
 			}
-			expr = append(expr, ExpressionItem{Expansion: expansion})
+
+			expr = append(expr, expressionItem)
 			continue
 		}
 
@@ -122,47 +123,74 @@ func (p *Parser) parseExpression(stop ...rune) (Expression, error) {
 	return expr, nil
 }
 
-func (p *Parser) parseEscapedExpansion() (ExpressionItem, error) {
+// parseEscapedExpansion attempts to extract a *potential* identifier or brace
+// expression from the text following the escaped dollarsign.
+func (p *Parser) parseEscapedExpansion() (EscapedExpansion, error) {
+	// Since it's not an expansion, we should treat the following text as text.
+	start := p.pos
+	defer func() { p.pos = start }()
+
 	next := p.peekRune()
 	switch {
 	case next == '{':
-		// if it's an escaped brace expansion, (eg $${MY_COOL_VAR:-5}) consume text until the close brace
-		id := p.scanUntil(func(r rune) bool { return r == '}' })
-		id = id + string(p.nextRune()) // we know that the next rune is a close brace, chuck it on the end
-		return ExpressionItem{Expansion: EscapedExpansion{Identifier: id}}, nil
+		// it *could be* an escaped brace expansion
+		if _, err := p.parseBraceExpansion(); err != nil {
+			return EscapedExpansion{}, nil
+		}
+		// it was! instead of storing the expansion itself, store the string
+		// that produced it.
+		return EscapedExpansion{PotentialIdentifier: p.input[start:p.pos]}, nil
 
 	case unicode.IsLetter(next):
-		// it's an escaped identifier (eg $$MY_COOL_VAR)
+		// it *could be* an escaped identifier (eg $$MY_COOL_VAR)
 		id, err := p.scanIdentifier()
 		if err != nil {
-			return ExpressionItem{}, err
+			// this should never happen, since scanIdentifier only errors if the
+			// first rune is not a letter, and we just checked that.
+			return EscapedExpansion{}, nil
 		}
 
-		return ExpressionItem{Expansion: EscapedExpansion{Identifier: id}}, nil
+		return EscapedExpansion{PotentialIdentifier: id}, nil
 
 	default:
-		// there's no identifier or brace afterward, so it's probably a literal escaped dollar sign
-		// just return a text item with the dollar sign
-		return ExpressionItem{Text: "$"}, nil
+		// there's no identifier or brace afterward, so it's probably a literal
+		// escaped dollar sign
+		return EscapedExpansion{}, nil
 	}
 }
 
-func (p *Parser) parseExpansion() (Expansion, error) {
+func (p *Parser) parseExpansion() (ExpressionItem, error) {
+	var empty ExpressionItem
+
 	if c := p.nextRune(); c != '$' {
-		return nil, fmt.Errorf("Expected expansion to start with $, got %c", c)
+		return empty, fmt.Errorf("Expected expansion to start with $, got %c", c)
 	}
+
+	c := p.peekRune()
 
 	// if we have an open brace, this is a brace expansion
-	if c := p.peekRune(); c == '{' {
-		return p.parseBraceExpansion()
+	if c == '{' {
+		expansion, err := p.parseBraceExpansion()
+		if err != nil {
+			return empty, err
+		}
+		return ExpressionItem{Expansion: expansion}, nil
 	}
 
+	// if not a letter, it's a literal dollar sign
+	if !unicode.IsLetter(c) {
+		return ExpressionItem{Text: "$"}, nil
+	}
+
+	// otherwise, it's a variable expansion
 	identifier, err := p.scanIdentifier()
 	if err != nil {
-		return nil, err
+		return empty, err
 	}
 
-	return VariableExpansion{Identifier: identifier}, nil
+	return ExpressionItem{Expansion: VariableExpansion{
+		Identifier: identifier,
+	}}, nil
 }
 
 func (p *Parser) parseBraceExpansion() (Expansion, error) {
@@ -177,7 +205,9 @@ func (p *Parser) parseBraceExpansion() (Expansion, error) {
 
 	if c := p.peekRune(); c == '}' {
 		_ = p.nextRune()
-		return VariableExpansion{Identifier: identifier}, nil
+		return VariableExpansion{
+			Identifier: identifier,
+		}, nil
 	}
 
 	var operator string
@@ -298,8 +328,8 @@ func (p *Parser) scanIdentifier() (string, error) {
 	if c := p.peekRune(); !unicode.IsLetter(c) {
 		return "", fmt.Errorf("Expected identifier to start with a letter, got %c", c)
 	}
-	var notIdentifierChar = func(r rune) bool {
-		return (!unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '_')
+	notIdentifierChar := func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_')
 	}
 	return p.scanUntil(notIdentifierChar), nil
 }

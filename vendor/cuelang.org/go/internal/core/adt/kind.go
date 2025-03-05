@@ -71,16 +71,14 @@ const (
 
 	_numberKind
 
-	NumberKind = IntKind | FloatKind
-
 	BottomKind Kind = 0
 
-	NumKind          = IntKind | FloatKind
+	NumberKind       = IntKind | FloatKind
 	TopKind     Kind = (allKinds - 1) // all kinds, but not references
 	ScalarKinds      = NullKind | BoolKind |
 		IntKind | FloatKind | StringKind | BytesKind
 
-	CompositKind = StructKind | ListKind
+	CompositeKind = StructKind | ListKind
 )
 
 func kind(v Value) Kind {

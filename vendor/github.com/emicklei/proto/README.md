@@ -1,6 +1,5 @@
 # proto
 
-[![Build Status](https://api.travis-ci.com/emicklei/proto.svg?branch=master)](https://travis-ci.com/github/emicklei/proto)
 [![Go Report Card](https://goreportcard.com/badge/github.com/emicklei/proto)](https://goreportcard.com/report/github.com/emicklei/proto)
 [![GoDoc](https://pkg.go.dev/badge/github.com/emicklei/proto)](https://pkg.go.dev/github.com/emicklei/proto)
 [![codecov](https://codecov.io/gh/emicklei/proto/branch/master/graph/badge.svg)](https://codecov.io/gh/emicklei/proto)
