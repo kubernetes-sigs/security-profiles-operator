@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -34,29 +35,24 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
-
+	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/digitorus/timestamp"
 	"github.com/go-openapi/runtime"
-	"github.com/nozzle/throttler"
-
-	"github.com/sigstore/cosign/v2/internal/pkg/cosign"
-	"github.com/sigstore/cosign/v2/pkg/blob"
-	cbundle "github.com/sigstore/cosign/v2/pkg/cosign/bundle"
-	"github.com/sigstore/cosign/v2/pkg/oci/static"
-	"github.com/sigstore/cosign/v2/pkg/types"
-
-	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
-
+	"github.com/nozzle/throttler"
 	ssldsse "github.com/secure-systems-lab/go-securesystemslib/dsse"
+	"github.com/sigstore/cosign/v2/internal/pkg/cosign"
 	ociexperimental "github.com/sigstore/cosign/v2/internal/pkg/oci/remote"
 	"github.com/sigstore/cosign/v2/internal/ui"
+	"github.com/sigstore/cosign/v2/pkg/blob"
+	cbundle "github.com/sigstore/cosign/v2/pkg/cosign/bundle"
 	"github.com/sigstore/cosign/v2/pkg/oci"
 	"github.com/sigstore/cosign/v2/pkg/oci/layout"
 	ociremote "github.com/sigstore/cosign/v2/pkg/oci/remote"
+	"github.com/sigstore/cosign/v2/pkg/oci/static"
+	"github.com/sigstore/cosign/v2/pkg/types"
 	"github.com/sigstore/rekor/pkg/generated/client"
 	"github.com/sigstore/rekor/pkg/generated/models"
 	rekor_types "github.com/sigstore/rekor/pkg/types"
@@ -65,6 +61,9 @@ import (
 	intoto_v001 "github.com/sigstore/rekor/pkg/types/intoto/v0.0.1"
 	intoto_v002 "github.com/sigstore/rekor/pkg/types/intoto/v0.0.2"
 	rekord_v001 "github.com/sigstore/rekor/pkg/types/rekord/v0.0.1"
+	"github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/verify"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/sigstore/sigstore/pkg/signature/dsse"
@@ -152,6 +151,8 @@ type CheckOpts struct {
 	TSARootCertificates []*x509.Certificate
 	// TSAIntermediateCertificates are the set of intermediates for chain building
 	TSAIntermediateCertificates []*x509.Certificate
+	// UseSignedTimestamps enables timestamp verification using a TSA
+	UseSignedTimestamps bool
 
 	// IgnoreTlog skip tlog verification
 	IgnoreTlog bool
@@ -163,6 +164,89 @@ type CheckOpts struct {
 	// Should the experimental OCI 1.1 behaviour be enabled or not.
 	// Defaults to false.
 	ExperimentalOCI11 bool
+
+	// NewBundleFormat enables the new bundle format (Cosign Bundle Spec) and the new verifier.
+	NewBundleFormat bool
+
+	// TrustedMaterial is the trusted material to use for verification.
+	// Currently, this is only applicable when NewBundleFormat is true.
+	TrustedMaterial root.TrustedMaterial
+}
+
+type verifyTrustedMaterial struct {
+	root.TrustedMaterial
+	keyTrustedMaterial root.TrustedMaterial
+}
+
+func (v *verifyTrustedMaterial) PublicKeyVerifier(hint string) (root.TimeConstrainedVerifier, error) {
+	return v.keyTrustedMaterial.PublicKeyVerifier(hint)
+}
+
+// verificationOptions returns the verification options for verifying with sigstore-go.
+func (co *CheckOpts) verificationOptions() (trustedMaterial root.TrustedMaterial, verifierOptions []verify.VerifierOption, policyOptions []verify.PolicyOption, err error) {
+	policyOptions = make([]verify.PolicyOption, 0)
+
+	if len(co.Identities) > 0 {
+		var sanMatcher verify.SubjectAlternativeNameMatcher
+		var issuerMatcher verify.IssuerMatcher
+		if len(co.Identities) > 1 {
+			return nil, nil, nil, fmt.Errorf("unsupported: multiple identities are not supported at this time")
+		}
+		sanMatcher, err = verify.NewSANMatcher(co.Identities[0].Subject, co.Identities[0].SubjectRegExp)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		issuerMatcher, err = verify.NewIssuerMatcher(co.Identities[0].Issuer, co.Identities[0].IssuerRegExp)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		extensions := certificate.Extensions{
+			GithubWorkflowTrigger:    co.CertGithubWorkflowTrigger,
+			GithubWorkflowSHA:        co.CertGithubWorkflowSha,
+			GithubWorkflowName:       co.CertGithubWorkflowName,
+			GithubWorkflowRepository: co.CertGithubWorkflowRepository,
+			GithubWorkflowRef:        co.CertGithubWorkflowRef,
+		}
+
+		certificateIdentities, err := verify.NewCertificateIdentity(sanMatcher, issuerMatcher, extensions)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		policyOptions = []verify.PolicyOption{verify.WithCertificateIdentity(certificateIdentities)}
+	}
+
+	// Wrap TrustedMaterial
+	vTrustedMaterial := &verifyTrustedMaterial{TrustedMaterial: co.TrustedMaterial}
+
+	verifierOptions = make([]verify.VerifierOption, 0)
+
+	if co.SigVerifier != nil {
+		// We are verifying with a public key
+		policyOptions = append(policyOptions, verify.WithKey())
+		newExpiringKey := root.NewExpiringKey(co.SigVerifier, time.Time{}, time.Time{})
+		vTrustedMaterial.keyTrustedMaterial = root.NewTrustedPublicKeyMaterial(func(_ string) (root.TimeConstrainedVerifier, error) {
+			return newExpiringKey, nil
+		})
+	} else { //nolint:gocritic
+		// We are verifying with a certificate
+		if !co.IgnoreSCT {
+			verifierOptions = append(verifierOptions, verify.WithSignedCertificateTimestamps(1))
+		}
+	}
+
+	if !co.IgnoreTlog {
+		verifierOptions = append(verifierOptions, verify.WithTransparencyLog(1), verify.WithIntegratedTimestamps(1))
+	}
+	if co.UseSignedTimestamps {
+		verifierOptions = append(verifierOptions, verify.WithSignedTimestamps(1))
+	}
+	if co.IgnoreTlog && !co.UseSignedTimestamps {
+		verifierOptions = append(verifierOptions, verify.WithCurrentTime())
+	}
+
+	return vTrustedMaterial, verifierOptions, policyOptions, nil
 }
 
 // This is a substitutable signature verification function that can be used for verifying
@@ -660,18 +744,21 @@ func verifySignatures(ctx context.Context, sigs oci.Signatures, h v1.Hash, co *C
 //     a. Verifies the Rekor entry in the bundle, if provided. This works offline OR
 //     b. If we don't have a Rekor entry retrieved via cert, do an online lookup (assuming
 //     we are in experimental mode).
-//  3. If a certificate is provided, check it's expiration using the transparency log timestamp.
+//  3. If a certificate is provided, check its expiration using the transparency log timestamp.
 func verifyInternal(ctx context.Context, sig oci.Signature, h v1.Hash,
 	verifyFn signatureVerificationFn, co *CheckOpts) (
 	bundleVerified bool, err error) {
 	var acceptableRFC3161Time, acceptableRekorBundleTime *time.Time // Timestamps for the signature we accept, or nil if not applicable.
 
-	acceptableRFC3161Timestamp, err := VerifyRFC3161Timestamp(sig, co)
-	if err != nil {
-		return false, fmt.Errorf("unable to verify RFC3161 timestamp bundle: %w", err)
-	}
-	if acceptableRFC3161Timestamp != nil {
-		acceptableRFC3161Time = &acceptableRFC3161Timestamp.Time
+	var acceptableRFC3161Timestamp *timestamp.Timestamp
+	if co.UseSignedTimestamps {
+		acceptableRFC3161Timestamp, err = VerifyRFC3161Timestamp(sig, co)
+		if err != nil {
+			return false, fmt.Errorf("unable to verify RFC3161 timestamp bundle: %w", err)
+		}
+		if acceptableRFC3161Timestamp != nil {
+			acceptableRFC3161Time = &acceptableRFC3161Timestamp.Time
+		}
 	}
 
 	if !co.IgnoreTlog {

@@ -16,13 +16,13 @@ package internal
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/scanner"
 	"cuelang.org/go/cue/token"
+	"github.com/cockroachdb/apd/v3"
 )
 
 // AttrKind indicates the location of an attribute within CUE source.
@@ -52,6 +52,7 @@ type Attr struct {
 	Kind   AttrKind
 	Fields []KeyValue
 	Err    errors.Error
+	Pos    token.Pos
 }
 
 // NewNonExisting creates a non-existing attribute.
@@ -109,9 +110,15 @@ func (a *Attr) Int(pos int) (int64, error) {
 	if err := a.hasPos(pos); err != nil {
 		return 0, err
 	}
-	// TODO: use CUE's literal parser once it exists, allowing any of CUE's
-	// number types.
-	return strconv.ParseInt(a.Fields[pos].Text(), 10, 64)
+	var ni literal.NumInfo
+	if err := literal.ParseNum(a.Fields[pos].Text(), &ni); err != nil {
+		return 0, err
+	}
+	var d apd.Decimal
+	if err := ni.Decimal(&d); err != nil {
+		return 0, err
+	}
+	return d.Int64()
 }
 
 // Flag reports whether an entry with the given name exists at position pos or
@@ -153,6 +160,7 @@ func ParseAttrBody(pos token.Pos, s string) (a Attr) {
 		tmpFile.AddLine(len(s) - 1)
 	}
 	a.Body = s
+	a.Pos = pos
 	var scan scanner.Scanner
 	scan.Init(tmpFile, []byte(s), nil, scanner.DontInsertCommas)
 	for {
