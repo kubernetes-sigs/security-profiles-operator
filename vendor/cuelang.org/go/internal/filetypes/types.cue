@@ -3,7 +3,7 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
@@ -26,12 +26,14 @@ package build
 	encoding!:       #Encoding
 	interpretation?: #Interpretation
 	form?:           #Form
+	// Note: tags includes values for non-boolean tags only.
 	tags?: [string]: string
+	boolTags?: [string]: bool
 }
 
 // Default is the file used for stdin and stdout. The settings depend
 // on the file mode.
-#Default: #File & {
+#Default: #FileInfo & {
 	filename: *"-" | string
 }
 
@@ -56,23 +58,27 @@ package build
 	attributes?:   bool          // include/allow attributes
 }
 
-// knownExtensions derives all the known file extensions
-// from those that are mentioned in modes,
-// allowing us to quickly discard files with unknown extensions.
-knownExtensions: {
-	for mode in modes
-	for ext, _ in mode.extensions {
-		(ext): true
-	}
-}
+// fileForExtVanilla holds the extensions supported in
+// input mode with scope="" - the most common form
+// of file type to evaluate.
+//
+// It's also used as a source of truth for all known file
+// extensions as all modes define attributes for
+// all file extensions. If that ever changed, we'd need
+// to change this.
+fileForExtVanilla: modes.input.extensions
 
 // modes sets defaults for different operational modes.
+// The key corresponds to the Go internal/filetypes.Mode type.
 modes: [string]: {
-	// TODO(mvdan): Document these once they are better understood.
-	// Perhaps make them required as well.
-	File:     #File
-	FileInfo: #FileInfo
-	Default:  #Default
+	// FileInfo holds the base file information for this mode.
+	// This will be unified with information derived from the
+	// file extension and any filetype tags explicitly provided.
+	FileInfo!: #FileInfo
+
+	// Default holds the base file information for standard input
+	// or output, where we don't have any file extension available.
+	Default!: #Default
 }
 
 // input defines modes for input, such as import, eval, vet or def.
@@ -92,6 +98,7 @@ modes: input: {
 	extensions: ".json": interpretation: *"auto" | _
 	extensions: ".yaml": interpretation: *"auto" | _
 	extensions: ".yml": interpretation:  *"auto" | _
+	extensions: ".toml": interpretation: *"auto" | _
 }
 
 modes: export: {
@@ -102,23 +109,7 @@ modes: export: {
 		docs:       true | *false
 		attributes: true | *false
 	}
-	encodings: cue: {
-		*forms.data | _
-	}
-}
-
-// TODO(mvdan): this "output" mode appears to be unused at the moment.
-modes: output: {
-	Default: {
-		encoding: *"cue" | _
-	}
-	FileInfo: {
-		docs:       true | *false
-		attributes: true | *false
-	}
-	encodings: cue: {
-		*forms.data | _
-	}
+	encodings: cue: forms.data
 }
 
 // eval is a legacy mode
@@ -130,9 +121,7 @@ modes: eval: {
 		docs:       true | *false
 		attributes: true | *false
 	}
-	encodings: cue: {
-		*forms.final | _
-	}
+	encodings: cue: forms.final
 }
 
 modes: def: {
@@ -143,9 +132,7 @@ modes: def: {
 		docs:       *true | false
 		attributes: *true | false
 	}
-	encodings: cue: {
-		*forms.schema | _
-	}
+	encodings: cue: forms.schema
 }
 
 // A Encoding indicates a file format for representing a program.
@@ -154,28 +141,34 @@ modes: def: {
 // An Interpretation determines how a certain program should be interpreted.
 // For instance, data may be interpreted as describing a schema, which itself
 // can be converted to a CUE schema.
+// This corresponds to the Go cue/build.Interpretation type.
 #Interpretation: string
-#Form:           string
+
+// A Form specifies the form in which a program should be represented.
+// It corresponds to the Go cue/build.Form type.
+#Form: string
 
 modes: [string]: {
 	// extensions maps a file extension to its associated default file properties.
 	extensions: {
 		// "":           _
-		".cue":       tags.cue
-		".json":      tags.json
-		".jsonl":     tags.jsonl
-		".ldjson":    tags.jsonl
-		".ndjson":    tags.jsonl
-		".yaml":      tags.yaml
-		".yml":       tags.yaml
-		".txt":       tags.text
-		".go":        tags.go
-		".proto":     tags.proto
-		".textproto": tags.textproto
-		".textpb":    tags.textproto // perhaps also pbtxt
+		".cue":       tagInfo.cue
+		".json":      tagInfo.json
+		".jsonl":     tagInfo.jsonl
+		".ldjson":    tagInfo.jsonl
+		".ndjson":    tagInfo.jsonl
+		".yaml":      tagInfo.yaml
+		".yml":       tagInfo.yaml
+		".toml":      tagInfo.toml
+		".txt":       tagInfo.text
+		".go":        tagInfo.go
+		".wasm":      tagInfo.binary
+		".proto":     tagInfo.proto
+		".textproto": tagInfo.textproto
+		".textpb":    tagInfo.textproto // perhaps also pbtxt
 
 		// TODO: jsonseq,
-		// ".pb":        tags.binpb // binarypb
+		// ".pb":        tagInfo.binpb // binarypb
 	}
 
 	// encodings: "": error("no encoding specified")
@@ -233,11 +226,6 @@ modes: [string]: {
 		stream:   false
 	}
 
-	// encodings: binproto: {
-	//  forms.DataEncoding
-	//  encoding: "binproto"
-	// }
-
 	encodings: code: {
 		forms.schema
 		stream: false
@@ -248,16 +236,15 @@ modes: [string]: {
 forms: [Name=string]: #FileInfo
 
 forms: schema: {
-	form:   *"schema" | "final" | "graph"
-	stream: true | *false
+	form: *"schema" | "final" | "graph"
 
+	stream:       true | *false
 	incomplete:   *true | false
 	definitions:  *true | false
 	optional:     *true | false
 	constraints:  *true | false
 	keepDefaults: *true | false
 	imports:      *true | false
-	optional:     *true | false
 }
 
 forms: final: {
@@ -298,20 +285,31 @@ forms: data: {
 	optional:    false
 }
 
-interpretations: [Name=string]: #FileInfo
-
-interpretations: auto: {
-	forms.schema
+interpretations: [Name=string]: #FileInfo & {
+	interpretation: Name
 }
+
+interpretations: auto: forms.schema
 
 interpretations: jsonschema: {
 	forms.schema
 	encoding: *"json" | _
+	boolTags: {
+		strict:         *false | bool
+		strictKeywords: *strict | bool
+		// TODO(v0.12): enable strictFeatures by default
+		strictFeatures: *strict | bool
+	}
 }
 
 interpretations: openapi: {
 	forms.schema
 	encoding: *"json" | _
+	boolTags: {
+		strict:         *false | bool
+		strictKeywords: *strict | bool
+		strictFeatures: *strict | bool
+	}
 }
 
 interpretations: pb: {
@@ -319,18 +317,18 @@ interpretations: pb: {
 	stream: true
 }
 
-// tags maps command line tags to file properties.
-tags: {
+// tagInfo maps command line tags to file properties.
+tagInfo: {
 	schema: form: "schema"
 	graph: form:  "graph"
 	dag: form:    "dag"
 	data: form:   "data"
 
-	cue: encoding: "cue"
-
+	cue: encoding:       "cue"
 	json: encoding:      "json"
 	jsonl: encoding:     "jsonl"
 	yaml: encoding:      "yaml"
+	toml: encoding:      "toml"
 	proto: encoding:     "proto"
 	textproto: encoding: "textproto"
 	// "binpb":  encodings.binproto
@@ -362,17 +360,9 @@ tags: {
 		interpretation: ""
 		tags: lang: *"" | string
 	}
-
-	auto: {
-		interpretation: "auto"
-		encoding:       *"json" | _
+	auto: interpretations.auto & {
+		encoding: *"json" | string
 	}
-	jsonschema: {
-		interpretation: "jsonschema"
-		encoding:       *"json" | _
-	}
-	openapi: {
-		interpretation: "openapi"
-		encoding:       *"json" | _
-	}
+	jsonschema: interpretations.jsonschema
+	openapi:    interpretations.openapi
 }

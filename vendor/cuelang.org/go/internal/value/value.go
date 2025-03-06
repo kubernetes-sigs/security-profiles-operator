@@ -27,10 +27,6 @@ import (
 	"cuelang.org/go/internal/types"
 )
 
-func ConvertToRuntime(c *cue.Context) *cue.Runtime {
-	return (*cue.Runtime)(c)
-}
-
 func ConvertToContext[Ctx *cue.Runtime | *cue.Context](ctx Ctx) *cue.Context {
 	if ctx, ok := any(ctx).(*cue.Runtime); ok {
 		(*runtime.Runtime)(ctx).Init()
@@ -52,7 +48,7 @@ func Make(ctx *adt.OpContext, v adt.Value) cue.Value {
 // UnifyBuiltin returns the given Value unified with the given builtin template.
 func UnifyBuiltin(v cue.Value, kind string) cue.Value {
 	pkg, name, _ := strings.Cut(kind, ".")
-	s := runtime.SharedRuntime.LoadImport(pkg)
+	s := runtime.SharedRuntime().LoadImport(pkg)
 	if s == nil {
 		return v
 	}
