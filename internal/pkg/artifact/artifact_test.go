@@ -17,7 +17,6 @@ limitations under the License.
 package artifact
 
 import (
-	"context"
 	"errors"
 	"runtime"
 	"testing"
@@ -400,7 +399,7 @@ func TestPull(t *testing.T) {
 			sut := New(logr.Discard())
 			sut.impl = mock
 
-			res, err := sut.Pull(context.Background(), "", "foo", "bar", nil, false)
+			res, err := sut.Pull(t.Context(), "", "foo", "bar", nil, false)
 			assert(res, err)
 		})
 	}

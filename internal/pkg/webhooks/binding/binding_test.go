@@ -17,7 +17,6 @@ limitations under the License.
 package binding
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -500,7 +499,7 @@ func TestHandle(t *testing.T) {
 		tc.prepare(mock)
 
 		binder := podBinder{impl: mock, log: logr.Discard()}
-		resp := binder.Handle(context.Background(), tc.request)
+		resp := binder.Handle(t.Context(), tc.request)
 		tc.assert(resp)
 	}
 }

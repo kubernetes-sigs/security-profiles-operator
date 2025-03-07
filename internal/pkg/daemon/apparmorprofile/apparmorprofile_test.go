@@ -17,7 +17,6 @@ limitations under the License.
 package apparmorprofile
 
 import (
-	"context"
 	"testing"
 
 	_ "github.com/go-logr/logr"
@@ -101,7 +100,7 @@ func TestReconcile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotResult, gotErr := tc.rec.Reconcile(context.Background(), tc.req)
+			gotResult, gotErr := tc.rec.Reconcile(t.Context(), tc.req)
 			if tc.wantErr != nil {
 				require.EqualError(t, gotErr, tc.wantErr.Error())
 			}

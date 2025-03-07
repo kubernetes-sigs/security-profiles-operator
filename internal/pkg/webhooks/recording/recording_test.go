@@ -17,7 +17,6 @@ limitations under the License.
 package recording
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -550,7 +549,7 @@ func TestHandle(t *testing.T) {
 		tc.prepare(mock)
 
 		recorder := podSeccompRecorder{impl: mock, log: logr.Discard(), record: utils.NewSafeRecorder(nil)}
-		resp := recorder.Handle(context.Background(), tc.request)
+		resp := recorder.Handle(t.Context(), tc.request)
 		tc.assert(resp)
 	}
 }

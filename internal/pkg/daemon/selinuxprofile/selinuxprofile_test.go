@@ -17,7 +17,6 @@ limitations under the License.
 package selinuxprofile
 
 import (
-	"context"
 	"os"
 	"regexp"
 	"testing"
@@ -374,7 +373,7 @@ func Test_selinuxProfileHandler(t *testing.T) {
 
 			cli := fake.NewClientBuilder().WithScheme(schemeInstance).WithObjects(tt.existingObjs...).Build()
 			key := types.NamespacedName{Name: tt.profile.GetName(), Namespace: tt.profile.GetNamespace()}
-			sph, initerr := newSelinuxProfileHandler(context.TODO(), cli, key)
+			sph, initerr := newSelinuxProfileHandler(t.Context(), cli, key)
 
 			if (initerr != nil) != tt.wantInitErr {
 				t.Errorf("newSelinuxProfileHandler() error = %v, wantErr %v", initerr, tt.wantInitErr)
