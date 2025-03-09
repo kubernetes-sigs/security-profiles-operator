@@ -32,9 +32,10 @@ import (
 	"cuelang.org/go/encoding/openapi"
 	"cuelang.org/go/encoding/protobuf/jsonpb"
 	"cuelang.org/go/encoding/protobuf/textproto"
+	"cuelang.org/go/encoding/toml"
+	"cuelang.org/go/encoding/yaml"
 	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/filetypes"
-	"cuelang.org/go/pkg/encoding/yaml"
 )
 
 // An Encoder converts CUE to various file formats, including CUE itself.
@@ -68,10 +69,7 @@ func (e Encoder) Close() error {
 
 // NewEncoder writes content to the file with the given specification.
 func NewEncoder(ctx *cue.Context, f *build.File, cfg *Config) (*Encoder, error) {
-	w, close, err := writer(f, cfg)
-	if err != nil {
-		return nil, err
-	}
+	w, close := writer(f, cfg)
 	e := &Encoder{
 		ctx:   ctx,
 		cfg:   cfg,
@@ -147,11 +145,14 @@ func NewEncoder(ctx *cue.Context, f *build.File, cfg *Config) (*Encoder, error) 
 			// with a newline.
 			f := internal.ToFile(n)
 			if e.cfg.PkgName != "" && f.PackageName() == "" {
-				f.Decls = append([]ast.Decl{
-					&ast.Package{
-						Name: ast.NewIdent(e.cfg.PkgName),
-					},
-				}, f.Decls...)
+				pkg := &ast.Package{
+					PackagePos: token.NoPos.WithRel(token.NewSection),
+					Name:       ast.NewIdent(e.cfg.PkgName),
+				}
+				doc, rest := internal.FileComments(f)
+				ast.SetComments(pkg, doc)
+				ast.SetComments(f, rest)
+				f.Decls = append([]ast.Decl{pkg}, f.Decls...)
 			}
 			b, err := format.Node(f, opts...)
 			if err != nil {
@@ -181,19 +182,25 @@ func NewEncoder(ctx *cue.Context, f *build.File, cfg *Config) (*Encoder, error) 
 	case build.YAML:
 		e.concrete = true
 		streamed := false
+		// TODO(mvdan): use a NewEncoder API like in TOML below.
 		e.encValue = func(v cue.Value) error {
 			if streamed {
 				fmt.Fprintln(w, "---")
 			}
 			streamed = true
 
-			str, err := yaml.Marshal(v)
+			b, err := yaml.Encode(v)
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprint(w, str)
+			_, err = w.Write(b)
 			return err
 		}
+
+	case build.TOML:
+		e.concrete = true
+		enc := toml.NewEncoder(w)
+		e.encValue = enc.Encode
 
 	case build.TextProto:
 		// TODO: verify that the schema is given. Otherwise err out.
@@ -283,16 +290,16 @@ func (e *Encoder) encodeFile(f *ast.File, interpret func(cue.Value) (*ast.File, 
 	return e.encValue(v)
 }
 
-func writer(f *build.File, cfg *Config) (_ io.Writer, close func() error, err error) {
+func writer(f *build.File, cfg *Config) (_ io.Writer, close func() error) {
 	if cfg.Out != nil {
-		return cfg.Out, nil, nil
+		return cfg.Out, nil
 	}
 	path := f.Filename
 	if path == "-" {
 		if cfg.Stdout == nil {
-			return os.Stdout, nil, nil
+			return os.Stdout, nil
 		}
-		return cfg.Stdout, nil, nil
+		return cfg.Stdout, nil
 	}
 	// Delay opening the file until we can write it to completion.
 	// This prevents clobbering the file in case of a crash.
@@ -303,7 +310,7 @@ func writer(f *build.File, cfg *Config) (_ io.Writer, close func() error, err er
 			// Swap O_EXCL for O_TRUNC to allow replacing an entire existing file.
 			mode = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 		}
-		f, err := os.OpenFile(path, mode, 0o644)
+		f, err := os.OpenFile(path, mode, 0o666)
 		if err != nil {
 			if errors.Is(err, fs.ErrExist) {
 				return errors.Wrapf(fs.ErrExist, token.NoPos, "error writing %q", path)
@@ -316,5 +323,5 @@ func writer(f *build.File, cfg *Config) (_ io.Writer, close func() error, err er
 		}
 		return err
 	}
-	return b, fn, nil
+	return b, fn
 }

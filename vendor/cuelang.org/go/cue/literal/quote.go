@@ -48,29 +48,15 @@ type Form struct {
 // WithTabIndent returns a new Form with indentation set to the given number
 // of tabs. The result will be a multiline string.
 func (f Form) WithTabIndent(n int) Form {
-	f.indent = tabs(n)
+	f.indent = strings.Repeat("\t", n)
 	f.multiline = true
 	return f
-}
-
-const tabIndent = "\t\t\t\t\t\t\t\t\t\t\t\t"
-
-func tabs(n int) string {
-	if n < len(tabIndent) {
-		return tabIndent[:n]
-	}
-	return strings.Repeat("\t", n)
 }
 
 // WithOptionalIndent is like WithTabIndent, but only returns a multiline
 // strings if it doesn't contain any newline characters.
 func (f Form) WithOptionalTabIndent(tabs int) Form {
-	// TODO(mvdan): remove this optimization once Go 1.23 lands with https://go.dev/cl/536615
-	if tabs < len(tabIndent) {
-		f.indent = tabIndent[:tabs]
-	} else {
-		f.indent = strings.Repeat("\t", tabs)
-	}
+	f.indent = strings.Repeat("\t", tabs)
 	f.auto = true
 	return f
 }
@@ -143,7 +129,7 @@ func (f Form) Append(buf []byte, s string) []byte {
 		copy(nBuf, buf)
 		buf = nBuf
 	}
-	for i := 0; i < f.hashCount; i++ {
+	for range f.hashCount {
 		buf = append(buf, '#')
 	}
 	if f.multiline {
@@ -169,7 +155,7 @@ func (f Form) Append(buf []byte, s string) []byte {
 	} else {
 		buf = append(buf, f.quote)
 	}
-	for i := 0; i < f.hashCount; i++ {
+	for range f.hashCount {
 		buf = append(buf, '#')
 	}
 
@@ -234,7 +220,7 @@ func (f *Form) appendEscapedRune(buf []byte, r rune) []byte {
 			buf = append(buf, byte(r))
 			return buf
 		}
-	} else if strconv.IsPrint(r) || f.graphicOnly && isInGraphicList(r) {
+	} else if strconv.IsPrint(r) || (f.graphicOnly && strconv.IsGraphic(r)) {
 		buf = utf8.AppendRune(buf, r)
 		return buf
 	}
@@ -280,7 +266,7 @@ func (f *Form) appendEscapedRune(buf []byte, r rune) []byte {
 
 func (f *Form) appendEscape(buf []byte) []byte {
 	buf = append(buf, '\\')
-	for i := 0; i < f.hashCount; i++ {
+	for range f.hashCount {
 		buf = append(buf, '#')
 	}
 	return buf
@@ -318,52 +304,4 @@ func (f *Form) requiredHashCount(s string) int {
 		}
 	}
 	return hashCount
-}
-
-// isInGraphicList reports whether the rune is in the isGraphic list. This separation
-// from IsGraphic allows quoteWith to avoid two calls to IsPrint.
-// Should be called only if IsPrint fails.
-func isInGraphicList(r rune) bool {
-	// We know r must fit in 16 bits - see makeisprint.go.
-	if r > 0xFFFF {
-		return false
-	}
-	rr := uint16(r)
-	i := bsearch16(isGraphic, rr)
-	return i < len(isGraphic) && rr == isGraphic[i]
-}
-
-// bsearch16 returns the smallest i such that a[i] >= x.
-// If there is no such i, bsearch16 returns len(a).
-func bsearch16(a []uint16, x uint16) int {
-	i, j := 0, len(a)
-	for i < j {
-		h := i + (j-i)/2
-		if a[h] < x {
-			i = h + 1
-		} else {
-			j = h
-		}
-	}
-	return i
-}
-
-// isGraphic lists the graphic runes not matched by IsPrint.
-var isGraphic = []uint16{
-	0x00a0,
-	0x1680,
-	0x2000,
-	0x2001,
-	0x2002,
-	0x2003,
-	0x2004,
-	0x2005,
-	0x2006,
-	0x2007,
-	0x2008,
-	0x2009,
-	0x200a,
-	0x202f,
-	0x205f,
-	0x3000,
 }

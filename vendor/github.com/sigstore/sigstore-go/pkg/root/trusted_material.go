@@ -22,7 +22,7 @@ import (
 )
 
 type TrustedMaterial interface {
-	TimestampingAuthorities() []CertificateAuthority
+	TimestampingAuthorities() []TimestampingAuthority
 	FulcioCertificateAuthorities() []CertificateAuthority
 	RekorLogs() map[string]*TransparencyLog
 	CTLogs() map[string]*TransparencyLog
@@ -31,8 +31,8 @@ type TrustedMaterial interface {
 
 type BaseTrustedMaterial struct{}
 
-func (b *BaseTrustedMaterial) TimestampingAuthorities() []CertificateAuthority {
-	return []CertificateAuthority{}
+func (b *BaseTrustedMaterial) TimestampingAuthorities() []TimestampingAuthority {
+	return []TimestampingAuthority{}
 }
 
 func (b *BaseTrustedMaterial) FulcioCertificateAuthorities() []CertificateAuthority {
@@ -67,12 +67,12 @@ func (tmc TrustedMaterialCollection) PublicKeyVerifier(keyID string) (TimeConstr
 	return nil, fmt.Errorf("public key verifier not found for keyID: %s", keyID)
 }
 
-func (tmc TrustedMaterialCollection) TimestampingAuthorities() []CertificateAuthority {
-	var certAuthorities []CertificateAuthority
+func (tmc TrustedMaterialCollection) TimestampingAuthorities() []TimestampingAuthority {
+	var timestampingAuthorities []TimestampingAuthority
 	for _, tm := range tmc {
-		certAuthorities = append(certAuthorities, tm.TimestampingAuthorities()...)
+		timestampingAuthorities = append(timestampingAuthorities, tm.TimestampingAuthorities()...)
 	}
-	return certAuthorities
+	return timestampingAuthorities
 }
 
 func (tmc TrustedMaterialCollection) FulcioCertificateAuthorities() []CertificateAuthority {

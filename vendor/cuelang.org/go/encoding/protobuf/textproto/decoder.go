@@ -39,14 +39,14 @@ type Option func(*options)
 type options struct {
 }
 
-// NewDecoder returns a new Decoder
+// NewDecoder returns a new [Decoder].
 func NewDecoder(option ...Option) *Decoder {
 	d := &Decoder{}
 	_ = d.m // work around linter bug.
 	return d
 }
 
-// A Decoder caches conversions of cue.Value between calls to its methods.
+// A Decoder caches conversions of [cue.Value] between calls to its methods.
 type Decoder struct {
 	m map[*adt.Vertex]*mapping
 }
@@ -143,7 +143,7 @@ func (d *decoder) parseSchema(schema cue.Value) *mapping {
 
 	m := &mapping{children: map[string]*fieldInfo{}}
 
-	i, err := schema.Fields()
+	i, err := schema.Fields(cue.Optional(true))
 	if err != nil {
 		d.addErr(err)
 		return nil
@@ -393,7 +393,7 @@ func (d *decoder) decodeValue(f *fieldInfo, n *pbast.Node) (x ast.Expr) {
 
 	switch f.ValueType {
 	case pbinternal.String, pbinternal.Bytes:
-		s, err := unquote.Unquote(n)
+		s, _, err := unquote.Unquote(n)
 		if err != nil {
 			d.addErrf(n.Start, "invalid string or bytes: %v", err)
 		}

@@ -24,7 +24,11 @@ import (
 )
 
 type Certificate struct {
-	*x509.Certificate
+	certificate *x509.Certificate
+}
+
+func NewCertificate(cert *x509.Certificate) *Certificate {
+	return &Certificate{certificate: cert}
 }
 
 type PublicKey struct {
@@ -41,19 +45,19 @@ func (c *Certificate) CompareKey(key any, _ root.TrustedMaterial) bool {
 		return false
 	}
 
-	return c.Certificate.Equal(x509Key)
+	return c.certificate.Equal(x509Key)
 }
 
 func (c *Certificate) ValidAtTime(t time.Time, _ root.TrustedMaterial) bool {
-	return !(c.Certificate.NotAfter.Before(t) || c.Certificate.NotBefore.After(t))
+	return !(c.certificate.NotAfter.Before(t) || c.certificate.NotBefore.After(t))
 }
 
-func (c *Certificate) GetCertificate() *x509.Certificate {
-	return c.Certificate
+func (c *Certificate) Certificate() *x509.Certificate {
+	return c.certificate
 }
 
-func (c *Certificate) HasPublicKey() (verify.PublicKeyProvider, bool) {
-	return PublicKey{}, false
+func (c *Certificate) PublicKey() verify.PublicKeyProvider {
+	return nil
 }
 
 func (pk *PublicKey) CompareKey(key any, tm root.TrustedMaterial) bool {
@@ -79,10 +83,10 @@ func (pk *PublicKey) ValidAtTime(t time.Time, tm root.TrustedMaterial) bool {
 	return verifier.ValidAtTime(t)
 }
 
-func (pk *PublicKey) GetCertificate() *x509.Certificate {
+func (pk *PublicKey) Certificate() *x509.Certificate {
 	return nil
 }
 
-func (pk *PublicKey) HasPublicKey() (verify.PublicKeyProvider, bool) {
-	return *pk, true
+func (pk *PublicKey) PublicKey() verify.PublicKeyProvider {
+	return pk
 }

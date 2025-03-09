@@ -1,3 +1,28 @@
+## v1.13.4 (2024-12-17)
+
+- fixed handling identifiers known as numbers by scanner (PR #146)
+
+## v1.13.3 (2024-12-04)
+
+- fixed inline comment in option (#143)
+
+## v1.13.2 (2024-01-24)
+
+- allow keyword as field name (such as message,service, etc)
+
+## v1.13.1 (2024-01-24)
+
+- allow embedded comment in between normal field parts (#131)
+
+## v1.13.0 (2023-12-09)
+
+- walk options in Enum fields (#140)
+
+## v1.12.2 (2023-11-02)
+
+- allow comments in array of literals of option (#138)
+- adds Comment field in Literal
+
 ## v1.12.1 (2023-07-18)
 
 - add IsDeprecated on EnumField

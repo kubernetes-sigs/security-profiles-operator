@@ -19,6 +19,7 @@
 package list
 
 import (
+	"slices"
 	"sort"
 
 	"cuelang.org/go/cue"
@@ -69,12 +70,8 @@ func (s *valueSorter) Less(i, j int) bool {
 	saveX := *s.x
 	saveY := *s.y
 
-	for _, c := range x.V.Conjuncts {
-		s.x.AddConjunct(c)
-	}
-	for _, c := range y.V.Conjuncts {
-		s.y.AddConjunct(c)
-	}
+	s.x.InsertConjunctsFrom(x.V)
+	s.y.InsertConjunctsFrom(y.V)
 
 	// TODO(perf): if we can determine that the comparator values for
 	// x and y are idempotent (no arcs and a basevalue being top or
@@ -121,12 +118,8 @@ func (s *valueSorter) lessNew(i, j int) bool {
 	s.a[i].Core(&x)
 	s.a[j].Core(&y)
 
-	for _, c := range x.V.Conjuncts {
-		xa.AddConjunct(c)
-	}
-	for _, c := range y.V.Conjuncts {
-		ya.AddConjunct(c)
-	}
+	xa.InsertConjunctsFrom(x.V)
+	ya.InsertConjunctsFrom(y.V)
 
 	// TODO(perf): if we can determine that the comparator values for
 	// x and y are idempotent (no arcs and a basevalue being top or
@@ -218,9 +211,9 @@ func SortStable(list []cue.Value, cmp cue.Value) (sorted []cue.Value, err error)
 	return s.ret()
 }
 
-// Strings sorts a list of strings in increasing order.
+// SortStrings sorts a list of strings in increasing order.
 func SortStrings(a []string) []string {
-	sort.Strings(a)
+	slices.Sort(a)
 	return a
 }
 
@@ -234,5 +227,5 @@ func IsSorted(list []cue.Value, cmp cue.Value) bool {
 
 // IsSortedStrings tests whether a list is a sorted lists of strings.
 func IsSortedStrings(a []string) bool {
-	return sort.StringsAreSorted(a)
+	return slices.IsSorted(a)
 }

@@ -160,6 +160,7 @@ func (n *nodeContext) insertComprehension(
 	if !n.ctx.isDevVersion() {
 		ci = ci.SpawnEmbed(c)
 		ci.closeInfo.span |= ComprehensionSpan
+		ci.decl = c
 	}
 
 	var decls []Decl
@@ -216,7 +217,11 @@ func (n *nodeContext) insertComprehension(
 				conjunct := MakeConjunct(env, c, ci)
 				n.assertInitialized()
 				arc := n.insertFieldUnchecked(f.Label, ArcMember, conjunct)
-				arc.MultiLet = f.IsMulti
+				if n.ctx.isDevVersion() {
+					arc.MultiLet = true
+				} else {
+					arc.MultiLet = f.IsMulti
+				}
 
 				fields = append(fields, f)
 
@@ -463,29 +468,20 @@ func (n *nodeContext) processComprehensionInner(d *envYield, state vertexStatus)
 	d.inserted = true
 
 	if len(d.envs) == 0 {
-		c := d.leaf
-		for p := c.arcCC; p != nil; p = p.parent {
-			// because the parent referrer will reach a zero count before this
-			// node will reach a zero count, we need to propagate the arcType.
-			p.updateArcType(ArcNotPresent)
-		}
+		c := d.leaf.arcCC
+		// because the parent referrer will reach a zero count before this
+		// node will reach a zero count, we need to propagate the arcType.
+		c.updateArcType(ctx, ArcNotPresent)
 		return nil
 	}
 
 	v := n.node
-	f := v.Label
 	for c := d.leaf; c.parent != nil; c = c.parent {
 		// because the parent referrer will reach a zero count before this
 		// node will reach a zero count, we need to propagate the arcType.
-		for arc, p := c.arcCC, c.cc; p != nil; arc, p = arc.parent, p.parent {
-			// TODO: remove this line once we use the arcType of the
-			// closeContext in notAllowedError.
-			arc.src.updateArcType(c.arcType)
-			t := arc.arcType
-			arc.updateArcType(c.arcType)
-			if p.isClosed && t >= ArcPending && !matchPattern(ctx, p.Expr, f) {
-				ctx.notAllowedError(p.src, arc.src)
-			}
+		if p := c.arcCC; p != nil {
+			p.src.updateArcType(c.arcType)
+			p.updateArcType(ctx, c.arcType)
 		}
 		v.updateArcType(c.arcType)
 		if v.ArcType == ArcNotPresent {
@@ -500,6 +496,9 @@ func (n *nodeContext) processComprehensionInner(d *envYield, state vertexStatus)
 	}
 
 	id := d.id
+	// TODO: should we treat comprehension values as optional?
+	// It seems so, but it causes some hangs.
+	// id.setOptional(nil)
 
 	for _, env := range d.envs {
 		if n.node.ArcType == ArcNotPresent {
