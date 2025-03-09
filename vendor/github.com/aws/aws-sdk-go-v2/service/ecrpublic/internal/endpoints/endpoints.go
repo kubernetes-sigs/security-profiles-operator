@@ -94,7 +94,7 @@ var partitionRegexp = struct {
 	AwsUsGov *regexp.Regexp
 }{
 
-	Aws:      regexp.MustCompile("^(us|eu|ap|sa|ca|me|af|il)\\-\\w+\\-\\d+$"),
+	Aws:      regexp.MustCompile("^(us|eu|ap|sa|ca|me|af|il|mx)\\-\\w+\\-\\d+$"),
 	AwsCn:    regexp.MustCompile("^cn\\-\\w+\\-\\d+$"),
 	AwsIso:   regexp.MustCompile("^us\\-iso\\-\\w+\\-\\d+$"),
 	AwsIsoB:  regexp.MustCompile("^us\\-isob\\-\\w+\\-\\d+$"),
@@ -143,6 +143,15 @@ var defaultPartitions = endpoints.Partitions{
 				Region: "us-east-1",
 			}: endpoints.Endpoint{
 				Hostname: "api.ecr-public.us-east-1.amazonaws.com",
+				CredentialScope: endpoints.CredentialScope{
+					Region: "us-east-1",
+				},
+			},
+			endpoints.EndpointKey{
+				Region:  "us-east-1",
+				Variant: endpoints.DualStackVariant,
+			}: {
+				Hostname: "ecr-public.us-east-1.api.aws",
 				CredentialScope: endpoints.CredentialScope{
 					Region: "us-east-1",
 				},

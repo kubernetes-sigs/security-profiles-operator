@@ -18,22 +18,14 @@
 package uuid
 
 import (
-	"fmt"
 	"math/big"
-	"regexp"
 
 	"github.com/google/uuid"
 )
 
-var valid = regexp.MustCompile(
-	"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-
-// Valid can be used to define a valid Valid.
+// Valid ensures that s is a valid UUID which would be accepted by Parse.
 func Valid(s string) error {
-	if !valid.MatchString(string(s)) {
-		return fmt.Errorf("invalid UUID %q", s)
-	}
-	return nil
+	return uuid.Validate(s)
 }
 
 // Parse decodes s into a UUID or returns an error. Both the standard UUID forms
@@ -45,6 +37,8 @@ func Parse(s string) (string, error) {
 	x, err := uuid.Parse(s)
 	return string(x.String()), err
 }
+
+// TODO(mvdan): what is ToString meant to do? it appears like a no-op?
 
 // String represents a 128-bit UUID value as a string.
 func ToString(x string) string {

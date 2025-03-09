@@ -156,7 +156,7 @@ func (f *File) Format() ([]byte, error) {
 	// before formatting the output.
 	f1, err := ParseNonStrict(data, "-")
 	if err != nil {
-		return nil, fmt.Errorf("cannot round-trip module file: %v", strings.TrimSuffix(errors.Details(err, nil), "\n"))
+		return nil, fmt.Errorf("cannot parse result: %v", strings.TrimSuffix(errors.Details(err, nil), "\n"))
 	}
 	if f.Language != nil && f1.actualSchemaVersion == "v0.0.0" {
 		// It's not a legacy module file (because the language field is present)
@@ -232,30 +232,20 @@ func lookup(v cue.Value, sels ...cue.Selector) cue.Value {
 // should be at least this, because that's when we added the language.version
 // field itself.
 func EarliestClosedSchemaVersion() string {
-	return schemaVersionLimits()[0]
+	return earliestClosedSchemaVersion()
 }
 
-// LatestKnownSchemaVersion returns the language version
-// associated with the most recent known schema.
-func LatestKnownSchemaVersion() string {
-	return schemaVersionLimits()[1]
-}
-
-var schemaVersionLimits = sync.OnceValue(func() [2]string {
-	limits, _ := moduleSchemaDo(func(info *schemaInfo) ([2]string, error) {
+var earliestClosedSchemaVersion = sync.OnceValue(func() string {
+	earliest, _ := moduleSchemaDo(func(info *schemaInfo) (string, error) {
 		earliest := ""
-		latest := ""
 		for v := range info.Versions {
 			if earliest == "" || semver.Compare(v, earliest) < 0 {
 				earliest = v
 			}
-			if latest == "" || semver.Compare(v, latest) > 0 {
-				latest = v
-			}
 		}
-		return [2]string{earliest, latest}, nil
+		return earliest, nil
 	})
-	return limits
+	return earliest
 })
 
 // Parse verifies that the module file has correct syntax
@@ -351,7 +341,12 @@ func FixLegacy(modfile []byte, filename string) (*File, error) {
 	f = &File{
 		Module: mpath,
 		Language: &Language{
-			Version: cueversion.LanguageVersion(),
+			// If there's a legacy module file, the CUE code
+			// is unlikely to be using new language features,
+			// so keep the language version fixed rather than
+			// using [cueversion.LanguageVersion].
+			// See https://cuelang.org/issue/3222.
+			Version: "v0.9.0",
 		},
 		Custom: custom,
 	}
@@ -364,7 +359,7 @@ func FixLegacy(modfile []byte, filename string) (*File, error) {
 	}
 	f, err = ParseNonStrict(data, "fixed-"+filename)
 	if err != nil {
-		return nil, fmt.Errorf("cannot round-trip fixed module file %q: %v", data, err)
+		return nil, fmt.Errorf("cannot parse resulting module file %q: %v", data, err)
 	}
 	return f, nil
 }

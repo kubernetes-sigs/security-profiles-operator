@@ -443,8 +443,11 @@ func (update *Updater) loadTargets(roleName, parentName string) (*metadata.Metad
 	if update.trusted.Snapshot == nil {
 		return nil, fmt.Errorf("trusted snapshot not set")
 	}
-	// extract the targets meta from the trusted snapshot metadata
-	metaInfo := update.trusted.Snapshot.Signed.Meta[fmt.Sprintf("%s.json", roleName)]
+	// extract the targets' meta from the trusted snapshot metadata
+	metaInfo, ok := update.trusted.Snapshot.Signed.Meta[fmt.Sprintf("%s.json", roleName)]
+	if !ok {
+		return nil, fmt.Errorf("role %s not found in snapshot", roleName)
+	}
 	// extract the length of the target metadata to be downloaded
 	length := metaInfo.Length
 	if length == 0 {

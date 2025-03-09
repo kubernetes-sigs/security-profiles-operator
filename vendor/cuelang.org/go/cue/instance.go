@@ -23,7 +23,7 @@ import (
 	"cuelang.org/go/internal/core/runtime"
 )
 
-// An InstanceOrValue is implemented by [Value] and *[Instance].
+// An InstanceOrValue is implemented by [Value] and [*Instance].
 //
 // This is a placeholder type that is used to allow Instance-based APIs to
 // transition to Value-based APIs. The goals is to get rid of the Instance
@@ -165,17 +165,6 @@ func (inst *Instance) setListOrError(err errors.Error) {
 	inst.Err = errors.Append(inst.Err, err)
 }
 
-func (inst *Instance) setError(err errors.Error) {
-	inst.Incomplete = true
-	inst.Err = errors.Append(inst.Err, err)
-}
-
-func (inst *Instance) eval(ctx *adt.OpContext) adt.Value {
-	// TODO: remove manifest here?
-	v := manifest(ctx, inst.root)
-	return v
-}
-
 // ID returns the package identifier that uniquely qualifies module and
 // package name.
 func (inst *Instance) ID() string {
@@ -183,13 +172,6 @@ func (inst *Instance) ID() string {
 		return ""
 	}
 	return inst.inst.ID()
-}
-
-// Doc returns the package comments for this instance.
-//
-// Deprecated: use inst.Value().Doc()
-func (inst *hiddenInstance) Doc() []*ast.CommentGroup {
-	return inst.Value().Doc()
 }
 
 // Value returns the root value of the configuration. If the configuration
@@ -255,6 +237,9 @@ func (inst *hiddenInstance) Build(p *build.Instance) *Instance {
 
 	cfg := &compile.Config{Scope: valueScope(Value{idx: r, v: inst.root})}
 	v, err := compile.Files(cfg, r, p.ID(), p.Files...)
+
+	// Just like [runtime.Runtime.Build], ensure that the @embed compiler is run as needed.
+	err = errors.Append(err, r.InjectImplementations(p, v))
 
 	v.AddConjunct(adt.MakeRootConjunct(nil, inst.root))
 

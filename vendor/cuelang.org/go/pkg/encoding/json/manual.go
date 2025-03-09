@@ -28,6 +28,7 @@ import (
 	"cuelang.org/go/cue/token"
 	cuejson "cuelang.org/go/encoding/json"
 	internaljson "cuelang.org/go/internal/encoding/json"
+	"cuelang.org/go/internal/pkg"
 )
 
 // Compact generates the JSON-encoded src with insignificant space characters
@@ -97,8 +98,7 @@ func MarshalStream(v cue.Value) (string, error) {
 
 // UnmarshalStream parses the JSON to a CUE instance.
 func UnmarshalStream(data []byte) (ast.Expr, error) {
-	var r cue.Runtime
-	d := cuejson.NewDecoder(&r, "", bytes.NewReader(data))
+	d := cuejson.NewDecoder(nil, "", bytes.NewReader(data))
 
 	a := []ast.Expr{}
 	for {
@@ -130,7 +130,7 @@ func Unmarshal(b []byte) (ast.Expr, error) {
 
 // Validate validates JSON and confirms it matches the constraints
 // specified by v.
-func Validate(b []byte, v cue.Value) (bool, error) {
+func Validate(b []byte, v pkg.Schema) (bool, error) {
 	err := cuejson.Validate(b, v)
 	if err != nil {
 		return false, err

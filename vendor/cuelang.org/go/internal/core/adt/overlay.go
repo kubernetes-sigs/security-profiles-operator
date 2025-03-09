@@ -74,12 +74,15 @@ type overlayContext struct {
 	vertices []*Vertex
 }
 
-// cloneRoot clones the a Vertex in which disjunctions are defined to allow
+// cloneRoot clones the Vertex in which disjunctions are defined to allow
 // inserting selected disjuncts into a new Vertex.
 func (ctx *overlayContext) cloneRoot(root *nodeContext) *nodeContext {
 	// Clone all vertices that need to be cloned to support the overlay.
 	v := ctx.cloneVertex(root.node)
 	v.IsDisjunct = true
+
+	// At this point we have copied all the mandatory closeContexts. There
+	// may be derivative closeContexts copied as well.
 
 	// TODO: patch notifications to any node that is within the disjunct to
 	// point to the new vertex instead.
@@ -87,8 +90,15 @@ func (ctx *overlayContext) cloneRoot(root *nodeContext) *nodeContext {
 	// Initialize closeContexts: at this point, all closeContexts that need to
 	// be cloned have been allocated and stored in closeContexts and can now be
 	// initialized.
-	for _, cc := range ctx.closeContexts {
+	// Use an explicit index as initCloneCC uses allocCC, which MAY allocate a
+	// new closeContext. It probably does not, but we use an index in case.
+	for i := 0; i < len(ctx.closeContexts); i++ {
+		cc := ctx.closeContexts[i]
 		ctx.initCloneCC(cc)
+	}
+
+	for _, cc := range ctx.closeContexts {
+		ctx.finishDependencies(cc)
 	}
 
 	// TODO: walk overlay vertices and decrement counters of non-disjunction
@@ -150,11 +160,16 @@ func (ctx *overlayContext) cloneVertex(x *Vertex) *Vertex {
 
 	ctx.vertices = append(ctx.vertices, v)
 
-	v.cc = ctx.allocCC(x.cc)
+	v._cc = ctx.allocCC(x.cc())
 
-	v.cc.src = v
-	v.cc.parentConjuncts = v
-	v.Conjuncts = *v.cc.group
+	v._cc.src = v
+	v._cc.parentConjuncts = v
+
+	// The group of the root closeContext should point to the Conjuncts field
+	// of the Vertex. As we already allocated the group, we use that allocation,
+	// but "move" it to v.Conjuncts.
+	v.Conjuncts = *v._cc.group
+	v._cc.group = &v.Conjuncts
 
 	if a := x.Arcs; len(a) > 0 {
 		// TODO(perf): reuse buffer.
@@ -193,9 +208,8 @@ func (ctx *overlayContext) cloneVertex(x *Vertex) *Vertex {
 }
 
 func (ctx *overlayContext) cloneNodeContext(n *nodeContext) *nodeContext {
-	if !n.isInitialized {
+	if !n.node.isInitialized() {
 		panic("unexpected uninitialized node")
-
 	}
 	d := n.ctx.newNodeContext(n.node)
 	d.underlying = n.underlying
@@ -213,6 +227,11 @@ func (ctx *overlayContext) cloneNodeContext(n *nodeContext) *nodeContext {
 	d.arcMap = append(d.arcMap, n.arcMap...)
 	d.checks = append(d.checks, n.checks...)
 
+	for _, s := range n.sharedIDs {
+		s.cc = ctx.allocCC(s.cc)
+		d.sharedIDs = append(d.sharedIDs, s)
+	}
+
 	// TODO: do we need to add cyclicConjuncts? Typically, cyclicConjuncts
 	// gets cleared at the end of a unify call. There are cases, however, where
 	// this is possible. We should decide whether cyclicConjuncts should be
@@ -223,12 +242,9 @@ func (ctx *overlayContext) cloneNodeContext(n *nodeContext) *nodeContext {
 	// d.cyclicConjuncts = append(d.cyclicConjuncts, n.cyclicConjuncts...)
 
 	if len(n.disjunctions) > 0 {
-		for _, de := range n.disjunctions {
-			// Do not clone cc, as it is identified by underlying. We only need
-			// to clone the cc in disjunctCCs.
-			// de.cloneID.cc = ctx.allocCC(de.cloneID.cc)
-			d.disjunctions = append(d.disjunctions, de)
-		}
+		// Do not clone cc in disjunctions, as it is identified by underlying.
+		// We only need to clone the cc in disjunctCCs.
+		d.disjunctions = append(d.disjunctions, n.disjunctions...)
 		for _, h := range n.disjunctCCs {
 			h.cc = ctx.allocCC(h.cc)
 			d.disjunctCCs = append(d.disjunctCCs, h)
@@ -265,6 +281,8 @@ func (ctx *overlayContext) allocCC(cc *closeContext) *closeContext {
 
 	o := &closeContext{generation: ctx.generation}
 	cc.overlay = o
+	o.depth = cc.depth
+	o.holeID = cc.holeID
 
 	if cc.parent != nil {
 		o.parent = ctx.allocCC(cc.parent)
@@ -280,13 +298,16 @@ func (ctx *overlayContext) allocCC(cc *closeContext) *closeContext {
 		}
 
 		if o.parent != nil {
-			// validate invariants
-			ca := *cc.parent.group
-			if ca[cc.parentIndex].x != cc.group {
-				panic("group misaligned")
-			}
+			// validate invariants.
+			// TODO: the group can sometimes be empty. Investigate why and
+			// whether this is valid.
+			if ca := *cc.parent.group; len(ca) > 0 {
+				if ca[cc.parentIndex].x != cc.group {
+					panic("group misaligned")
+				}
 
-			(*o.parent.group)[cc.parentIndex].x = o.group
+				(*o.parent.group)[cc.parentIndex].x = o.group
+			}
 		}
 	}
 
@@ -295,18 +316,10 @@ func (ctx *overlayContext) allocCC(cc *closeContext) *closeContext {
 	// src is set in the root closeContext when cloning a vertex.
 	ctx.closeContexts = append(ctx.closeContexts, cc)
 
-	// needsCloseInSchedule is used as a boolean. The pointer to the original
-	// closeContext is just used for reporting purposes.
-	if cc.needsCloseInSchedule != nil {
-		o.needsCloseInSchedule = ctx.allocCC(cc.needsCloseInSchedule)
-	}
-
 	// We only explicitly tag dependencies of type ARC. Notifications that
 	// point within the disjunct overlay will be tagged elsewhere.
 	for _, a := range cc.arcs {
-		if a.kind == ARC {
-			ctx.allocCC(a.cc)
-		}
+		ctx.allocCC(a.dst)
 	}
 
 	return o
@@ -320,10 +333,11 @@ func (ctx *overlayContext) initCloneCC(x *closeContext) {
 		o.src = o.parent.src
 	}
 
+	o.depth = x.depth
 	o.conjunctCount = x.conjunctCount
 	o.disjunctCount = x.disjunctCount
 	o.isDef = x.isDef
-	o.hasEllipsis = x.hasEllipsis
+	o.isDefOrig = x.isDefOrig
 	o.hasTop = x.hasTop
 	o.hasNonTop = x.hasNonTop
 	o.isClosedOnce = x.isClosedOnce
@@ -336,50 +350,36 @@ func (ctx *overlayContext) initCloneCC(x *closeContext) {
 	o.Expr = x.Expr
 	o.Patterns = append(o.Patterns, x.Patterns...)
 
+	// needsCloseInSchedule is a separate mechanism to signal nodes that have
+	// completed that corresponds to the EVAL mechanism. Since we have not
+	// processed the conjuncts yet, these are inherently initiated outside of
+	// this conjunct. By now, if a closeContext needs to remain open, other
+	// counters should have been added. As an example, the parent node of this
+	// disjunct is still processing. The disjunction will be fully added before
+	// processing, and thus their will be no direct EVAL dependency. However,
+	// this disjunct may depend on a NOTIFY that is kept open by an ancestor
+	// EVAL.
+	if x.needsCloseInSchedule != nil {
+		o.needsCloseInSchedule = nil
+	}
+
 	// child and next always point to completed closeContexts. Moreover, only
 	// fields that are immutable, such as Expr, are used. It is therefore not
 	// necessary to use overlays.
 	o.child = x.child
 	if x.child != nil && x.child.overlay != nil {
-		// TODO: there seem to be situations where this is possible after all.
-		// See if this is really true, and we should remove this panic, or if
-		// this underlies a bug of sorts.
+		// TODO(evalv3): there seem to be situations where this is possible
+		// after all. See if this is really true, and we should remove this
+		// panic, or if this underlies a bug of sorts.
 		// panic("unexpected overlay in child")
 	}
 	o.next = x.next
 	if x.next != nil && x.next.overlay != nil {
-		panic("unexpected overlay in next")
-	}
-
-	for _, d := range x.dependencies {
-		if d.decremented {
-			continue
-		}
-
-		if d.dependency.overlay == nil {
-			// This dependency is irrelevant for the current overlay. We can
-			// eliminate it as long as we decrement the accompanying counter.
-			if o.conjunctCount < 2 {
-				// This node can only be relevant if it has at least one other
-				// dependency. Check that we are not decrementing the counter
-				// to 0.
-				// TODO: this currently panics for some tests. Disabling does
-				// not seem to harm, though. Reconsider whether this is an issue.
-				// panic("unexpected conjunctCount: must be at least 2")
-			}
-			o.conjunctCount--
-			continue
-		}
-
-		dep := d.dependency
-		if dep.overlay != nil {
-			dep = dep.overlay
-		}
-		o.dependencies = append(o.dependencies, &ccDep{
-			dependency:  dep,
-			kind:        d.kind,
-			decremented: false,
-		})
+		// TODO(evalv3): there seem to be situations where this is possible
+		// after all. See if this is really true, and we should remove this
+		// panic, or if this underlies a bug of sorts.
+		// See Issue #3434.
+		// panic("unexpected overlay in next")
 	}
 
 	switch p := x.parentConjuncts.(type) {
@@ -405,22 +405,99 @@ func (ctx *overlayContext) initCloneCC(x *closeContext) {
 	if o.parentConjuncts == nil {
 		panic("expected parentConjuncts")
 	}
+}
+
+func (ctx *overlayContext) finishDependencies(x *closeContext) {
+	o := x.overlay
 
 	for _, a := range x.arcs {
 		// If an arc does not have an overlay, we should not decrement the
 		// dependency counter. We simply remove the dependency in that case.
-		if a.cc.overlay == nil {
+		if a.dst.overlay == nil || a.root.overlay == nil {
+			panic("arcs should always point inwards and thus included in the overlay")
+		}
+		if a.decremented {
 			continue
 		}
-		if a.key.overlay != nil {
-			a.key = a.key.overlay // TODO: is this necessary?
-		}
-		a.cc = a.cc.overlay
+		a.root = a.root.overlay // TODO: is this necessary?
+		a.dst = a.dst.overlay
 		o.arcs = append(o.arcs, a)
+
+		root := a.dst.src.cc()
+		root.externalDeps = append(root.externalDeps, ccDepRef{
+			src:   o,
+			kind:  ARC,
+			index: len(o.arcs) - 1,
+		})
 	}
 
-	// NOTE: copying externalDeps is hard and seems unnecessary, as it needs to
-	// be resolved in the base anyway.
+	for _, a := range x.notify {
+		// If a notification does not have an overlay, we should not decrement
+		// the dependency counter. We simply remove the dependency in that case.
+		// TODO: however, the original closeContext that it point to now will
+		// never be "filled". We should insert top in this gat or render it as
+		// "defunct", for instance, so that it will not leave an nondecremented
+		// counter.
+		if a.dst.overlay == nil {
+			for c := a.dst; c != nil; c = c.parent {
+				c.disjunctCount++
+			}
+			continue
+		}
+		if a.decremented {
+			continue
+		}
+		a.dst = a.dst.overlay
+		o.notify = append(o.notify, a)
+
+		root := a.dst.src.cc()
+		root.externalDeps = append(root.externalDeps, ccDepRef{
+			src:   o,
+			kind:  NOTIFY,
+			index: len(o.notify) - 1,
+		})
+	}
+
+	for _, d := range x.dependencies {
+		if d.decremented {
+			continue
+		}
+
+		if d.kind == DEFER {
+			o.decDependentNoMatch(ctx.ctx, DEFER, nil)
+			continue
+		}
+
+		// Since have not started processing the disjunct yet, all EVAL
+		// dependencies will have been initiated outside of this disjunct.
+		if d.kind == EVAL {
+			o.decDependentNoMatch(ctx.ctx, EVAL, nil)
+			continue
+		}
+
+		if d.dependency.overlay == nil {
+			// This dependency is irrelevant for the current overlay. We can
+			// eliminate it as long as we decrement the accompanying counter.
+			if o.conjunctCount < 2 {
+				// This node can only be relevant if it has at least one other
+				// dependency. Check that we are not decrementing the counter
+				// to 0.
+				// TODO: this currently panics for some tests. Disabling does
+				// not seem to harm, though. Reconsider whether this is an issue.
+				// panic("unexpected conjunctCount: must be at least 2")
+			}
+			o.conjunctCount--
+			continue
+		}
+
+		dep := d.dependency
+		dep = dep.overlay
+		o.dependencies = append(o.dependencies, &ccDep{
+			dependency:  dep,
+			kind:        d.kind,
+			decremented: false,
+		})
+	}
 }
 
 func (ctx *overlayContext) cloneScheduler(dst, src *nodeContext) {
@@ -431,8 +508,6 @@ func (ctx *overlayContext) cloneScheduler(dst, src *nodeContext) {
 	ds.completed = ss.completed
 	ds.needs = ss.needs
 	ds.provided = ss.provided
-	ds.frozen = ss.frozen
-	ds.isFrozen = ss.isFrozen
 	ds.counters = ss.counters
 
 	ss.blocking = ss.blocking[:0]
@@ -461,7 +536,7 @@ func (ctx *overlayContext) cloneScheduler(dst, src *nodeContext) {
 			ds.tasks = append(ds.tasks, t)
 
 		case taskRUNNING:
-			if t.run != handleResolver {
+			if t.run != handleResolver && t.run != handleExpr {
 				// TODO: consider whether this is also necessary for other
 				// types of tasks.
 				break

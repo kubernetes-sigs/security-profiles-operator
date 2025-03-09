@@ -24,6 +24,7 @@ import (
 	"unicode/utf8"
 
 	"cuelabs.dev/go/oci/ociregistry"
+	"cuelabs.dev/go/oci/ociregistry/ociref"
 )
 
 // ParseError represents an error that can happen when parsing.
@@ -225,7 +226,7 @@ func parse(method string, u *url.URL) (*Request, error) {
 	}
 	if ok {
 		rreq.Repo = uploadPath
-		if !ociregistry.IsValidRepoName(rreq.Repo) {
+		if !ociref.IsValidRepository(rreq.Repo) {
 			return nil, ociregistry.ErrNameInvalid
 		}
 		if method != "POST" {
@@ -234,7 +235,7 @@ func parse(method string, u *url.URL) (*Request, error) {
 		if d := urlq.Get("mount"); d != "" {
 			// end-11
 			rreq.Digest = d
-			if !ociregistry.IsValidDigest(rreq.Digest) {
+			if !ociref.IsValidDigest(rreq.Digest) {
 				return nil, ociregistry.ErrDigestInvalid
 			}
 			rreq.FromRepo = urlq.Get("from")
@@ -246,7 +247,7 @@ func parse(method string, u *url.URL) (*Request, error) {
 				rreq.Digest = ""
 				return &rreq, nil
 			}
-			if !ociregistry.IsValidRepoName(rreq.FromRepo) {
+			if !ociref.IsValidRepository(rreq.FromRepo) {
 				return nil, ociregistry.ErrNameInvalid
 			}
 			rreq.Kind = ReqBlobMount
@@ -255,7 +256,7 @@ func parse(method string, u *url.URL) (*Request, error) {
 		if d := urlq.Get("digest"); d != "" {
 			// end-4b
 			rreq.Digest = d
-			if !ociregistry.IsValidDigest(d) {
+			if !ociref.IsValidDigest(d) {
 				return nil, ErrBadlyFormedDigest
 			}
 			rreq.Kind = ReqBlobUploadBlob
@@ -276,10 +277,10 @@ func parse(method string, u *url.URL) (*Request, error) {
 	switch lastButOne {
 	case "blobs":
 		rreq.Repo = path
-		if !ociregistry.IsValidDigest(last) {
+		if !ociref.IsValidDigest(last) {
 			return nil, ErrBadlyFormedDigest
 		}
-		if !ociregistry.IsValidRepoName(rreq.Repo) {
+		if !ociref.IsValidRepository(rreq.Repo) {
 			return nil, ociregistry.ErrNameInvalid
 		}
 		rreq.Digest = last
@@ -302,7 +303,7 @@ func parse(method string, u *url.URL) (*Request, error) {
 			return nil, ErrNotFound
 		}
 		rreq.Repo = repo
-		if !ociregistry.IsValidRepoName(rreq.Repo) {
+		if !ociref.IsValidRepository(rreq.Repo) {
 			return nil, ociregistry.ErrNameInvalid
 		}
 		uploadID64 := last
@@ -326,7 +327,7 @@ func parse(method string, u *url.URL) (*Request, error) {
 		case "PUT":
 			rreq.Kind = ReqBlobCompleteUpload
 			rreq.Digest = urlq.Get("digest")
-			if !ociregistry.IsValidDigest(rreq.Digest) {
+			if !ociref.IsValidDigest(rreq.Digest) {
 				return nil, ErrBadlyFormedDigest
 			}
 		default:
@@ -335,13 +336,13 @@ func parse(method string, u *url.URL) (*Request, error) {
 		return &rreq, nil
 	case "manifests":
 		rreq.Repo = path
-		if !ociregistry.IsValidRepoName(rreq.Repo) {
+		if !ociref.IsValidRepository(rreq.Repo) {
 			return nil, ociregistry.ErrNameInvalid
 		}
 		switch {
-		case ociregistry.IsValidDigest(last):
+		case ociref.IsValidDigest(last):
 			rreq.Digest = last
-		case ociregistry.IsValidTag(last):
+		case ociref.IsValidTag(last):
 			rreq.Tag = last
 		default:
 			return nil, ErrNotFound
@@ -371,20 +372,20 @@ func parse(method string, u *url.URL) (*Request, error) {
 			return nil, ErrMethodNotAllowed
 		}
 		rreq.Repo = path
-		if !ociregistry.IsValidRepoName(rreq.Repo) {
+		if !ociref.IsValidRepository(rreq.Repo) {
 			return nil, ociregistry.ErrNameInvalid
 		}
 		rreq.Kind = ReqTagsList
 		return &rreq, nil
 	case "referrers":
-		if !ociregistry.IsValidDigest(last) {
+		if !ociref.IsValidDigest(last) {
 			return nil, ErrBadlyFormedDigest
 		}
 		if method != "GET" {
 			return nil, ErrMethodNotAllowed
 		}
 		rreq.Repo = path
-		if !ociregistry.IsValidRepoName(rreq.Repo) {
+		if !ociref.IsValidRepository(rreq.Repo) {
 			return nil, ociregistry.ErrNameInvalid
 		}
 		// TODO is there any kind of pagination for referrers?

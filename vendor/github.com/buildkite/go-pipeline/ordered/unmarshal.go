@@ -16,6 +16,7 @@ import (
 var (
 	ErrIntoNonPointer       = errors.New("cannot unmarshal into non-pointer")
 	ErrIntoNil              = errors.New("cannot unmarshal into nil")
+	ErrNotSettable          = errors.New("target value not settable")
 	ErrIncompatibleTypes    = errors.New("incompatible types")
 	ErrUnsupportedSrc       = errors.New("cannot unmarshal from src")
 	ErrMultipleInlineFields = errors.New(`multiple fields tagged with yaml:",inline"`)
@@ -163,10 +164,16 @@ func Unmarshal(src, dst any) error {
 			if sdst.Kind() != reflect.Slice {
 				return fmt.Errorf("%w: cannot unmarshal []any into %T", ErrIncompatibleTypes, dst)
 			}
-			etype := sdst.Type().Elem() // E = Type of the slice's elements
+			stype := sdst.Type()  // stype = []E = the type of the slice
+			etype := stype.Elem() // etype = E = Type of the slice's elements
+			if sdst.IsNil() {
+				// src isn't nil, so the output slice shouldn't be either.
+				// Use MakeSlice to preallocate the exact size required.
+				sdst = reflect.MakeSlice(stype, 0, len(tsrc))
+			}
 			var warns []error
 			for i, a := range tsrc {
-				x := reflect.New(etype) // *E
+				x := reflect.New(etype) // x := new(E) (type *E)
 				err := Unmarshal(a, x.Interface())
 				if w := warning.As(err); w != nil {
 					warns = append(warns, w.Wrapf("while unmarshaling item at index %d of %d", i, len(tsrc)))
@@ -236,42 +243,63 @@ func (m *Map[K, V]) decodeInto(target any) error {
 	if !ok {
 		return fmt.Errorf("%w: cannot unmarshal from %T, want K=string, V=any", ErrIncompatibleTypes, m)
 	}
+	// Note: m, and therefore tm, can be nil at this moment.
 
 	// Work out the kind of target being used.
 	// Dereference the target to find the inner value, if needed.
 	targetValue := reflect.ValueOf(target)
-	var innerValue reflect.Value
 	switch targetValue.Kind() {
 	case reflect.Pointer:
 		// Passed a pointer to something.
+		if tm == nil {
+			if targetValue.IsNil() {
+				return nil // nothing to do
+			}
+			if !targetValue.CanSet() {
+				return ErrNotSettable
+			}
+			targetValue.SetZero() // which is nil
+			return nil
+		}
 		if targetValue.IsNil() {
 			return ErrIntoNil
 		}
-		innerValue = targetValue.Elem()
+		targetValue = targetValue.Elem()
 
 	case reflect.Map:
-		// Passed a map directly.
-		innerValue = targetValue
-		if innerValue.IsNil() {
-			return ErrIntoNil
-		}
+		// Continue below.
 
 	default:
 		return fmt.Errorf("%w: cannot unmarshal %T into %T, want map or *struct{...}", ErrIncompatibleTypes, m, target)
 	}
 
-	switch innerValue.Kind() {
+	switch targetValue.Kind() {
 	case reflect.Map:
 		// Process the map directly.
-		mapType := innerValue.Type()
+		mapType := targetValue.Type()
 		// For simplicity, require the key type to be string.
 		if keyType := mapType.Key(); keyType.Kind() != reflect.String {
 			return fmt.Errorf("%w for map key: cannot unmarshal %T into %T", ErrIncompatibleTypes, m, target)
 		}
 
-		// If target is a pointer to a nil map (with type), create a new map.
-		if innerValue.IsNil() {
-			innerValue.Set(reflect.MakeMapWithSize(mapType, tm.Len()))
+		// If tm is nil, then set the target to nil.
+		if tm == nil {
+			if targetValue.IsNil() {
+				// Nothing to do.
+				return nil
+			}
+			if !targetValue.CanSet() {
+				return ErrNotSettable
+			}
+			targetValue.SetZero() // which is nil
+			return nil
+		}
+		// Otherwise, if target is a pointer to a nil map (with type), create a new map.
+		if targetValue.IsNil() {
+			if !targetValue.CanSet() {
+				return ErrNotSettable
+			}
+			targetValue.Set(reflect.MakeMapWithSize(mapType, tm.Len()))
 		}
 
 		valueType := mapType.Elem()
@@ -285,7 +313,7 @@ func (m *Map[K, V]) decodeInto(target any) error {
 				return fmt.Errorf("unmarshaling value for key %q: %w", k, err)
 			}
 
-			innerValue.SetMapIndex(reflect.ValueOf(k), nv.Elem())
+			targetValue.SetMapIndex(reflect.ValueOf(k), nv.Elem())
 			return nil
 		}); err != nil {
 			return err
@@ -300,7 +328,7 @@ func (m *Map[K, V]) decodeInto(target any) error {
 
 	// These are the (accessible by reflection) fields it has.
 	// This includes non-exported fields.
-	fields := reflect.VisibleFields(innerValue.Type())
+	fields := reflect.VisibleFields(targetValue.Type())
 
 	var inlineField reflect.StructField
 	outlineKeys := make(map[string]struct{})
@@ -362,7 +390,7 @@ func (m *Map[K, V]) decodeInto(target any) error {
 
 		// Now load value into the field recursively.
 		// Get a pointer to the field. This works because target is a pointer.
-		ptrToField := innerValue.FieldByIndex(field.Index).Addr()
+		ptrToField := targetValue.FieldByIndex(field.Index).Addr()
 		err := Unmarshal(value, ptrToField.Interface())
 		if w := warning.As(err); w != nil {
 			warns = append(warns, w.Wrapf("while unmarshaling the value for key %q into struct field %q", key, field.Name))
@@ -377,7 +405,7 @@ func (m *Map[K, V]) decodeInto(target any) error {
 	// The rest is handling the ",inline" field.
 	// We support any field that Unmarshal can unmarshal tm into.
 
-	inlinePtr := innerValue.FieldByIndex(inlineField.Index).Addr()
+	inlinePtr := targetValue.FieldByIndex(inlineField.Index).Addr()
 
 	// Copy all values that weren't non-inline fields into a temporary map.
 	// This is just to avoid mutating tm.
