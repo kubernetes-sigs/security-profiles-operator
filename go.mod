@@ -41,7 +41,7 @@ require (
 	k8s.io/client-go v0.32.2
 	k8s.io/klog/v2 v2.130.1
 	oras.land/oras-go/v2 v2.5.0
-	sigs.k8s.io/controller-runtime v0.20.2
+	sigs.k8s.io/controller-runtime v0.20.3
 	sigs.k8s.io/controller-tools v0.17.2
 	sigs.k8s.io/release-utils v0.11.0
 	sigs.k8s.io/yaml v1.4.0
