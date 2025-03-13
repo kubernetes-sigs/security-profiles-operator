@@ -3297,7 +3297,7 @@ data:
         executable:
           allowedExecutables:
           - /security-profiles-operator
-          - /sbin/apparmor_parser
+          - /usr/sbin/apparmor_parser
         filesystem:
           readOnlyPaths:
           - /  # workaround for apparmor bug
