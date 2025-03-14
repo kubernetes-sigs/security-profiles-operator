@@ -80,6 +80,7 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
   {{end}}
 
   # Raw rules placeholder
+  {{.Abstract.Extra}}
 
   # Add default deny for known information leak/priv esc paths
   deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
