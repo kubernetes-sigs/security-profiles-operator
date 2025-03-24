@@ -206,8 +206,9 @@ define nix-build-to
 	cp -f result/* $(BUILD_DIR)/$(1)
 endef
 
+# TODO: add nix-s390x when the nix toolchain is fixed
 .PHONY: nix
-nix: nix-amd64 nix-arm64 ## Build all binaries via nix and create a build.tar.gz
+nix: nix-amd64 nix-arm64 nix-ppc64le  ## Build all binaries via nix and create a build.tar.gz
 	tar cvfz build.tar.gz -C $(BUILD_DIR) amd64 arm64
 
 .PHONY: nix-amd64
@@ -217,6 +218,14 @@ nix-amd64: ## Build the binaries via nix for amd64
 .PHONY: nix-arm64
 nix-arm64: ## Build the binaries via nix for arm64
 	$(call nix-build-to,arm64)
+
+.PHONY: nix-ppc64le
+nix-ppc64le: ## Build the binaries via nix for ppc64le
+	$(call nix-build-to,ppc64le)
+
+.PHONY: nix-s390x
+nix-s390x: ## Build the binaries via nix for s390x
+	$(call nix-build-to,s390x)
 
 define nix-build-sign-spoc-to
 	nix-build nix/default-spoc-$(1).nix
@@ -229,7 +238,7 @@ define nix-build-sign-spoc-to
 endef
 
 .PHONY: nix-spoc
-nix-spoc: nix-spoc-amd64 nix-spoc-arm64 ## Build all spoc binaries via nix.
+nix-spoc: nix-spoc-amd64 nix-spoc-arm64 nix-spoc-ppc64le nix-spoc-s390x ## Build all spoc binaries via nix.
 	bom version
 	bom generate \
 		-l Apache-2.0 \
@@ -248,6 +257,14 @@ nix-spoc-amd64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for amd64
 .PHONY: nix-spoc-arm64
 nix-spoc-arm64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for arm64
 	$(call nix-build-sign-spoc-to,arm64)
+
+.PHONY: nix-spoc-ppc64le
+nix-spoc-ppc64le: $(BUILD_DIR) ## Build and sign the spoc binary via nix for ppc64le
+	$(call nix-build-sign-spoc-to,ppc64le)
+
+.PHONY: nix-spoc-s390x
+nix-spoc-s390x: $(BUILD_DIR) ## Build and sign the spoc binary via nix for s390x
+	$(call nix-build-sign-spoc-to,s390x)
 
 .PHONY: update-nixpkgs
 update-nixpkgs: ## Update the pinned nixpkgs to the latest master

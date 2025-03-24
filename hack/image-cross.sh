@@ -22,7 +22,9 @@ REGISTRY=gcr.io/k8s-staging-sp-operator
 IMAGE=$REGISTRY/security-profiles-operator
 TAG=${TAG:-$(git describe --tags --always --dirty)}
 
-ARCHES=(amd64 arm64 ppc64le s390x)
+# TODO: reenable s390x when the nix toolchain is fixed
+ARCHES=(amd64 arm64 ppc64le)
+#ARCHES=(amd64 arm64 ppc64le s390x)
 VERSION=v$(cat VERSION)
 TAGS=("$TAG" "$VERSION" latest)
 
