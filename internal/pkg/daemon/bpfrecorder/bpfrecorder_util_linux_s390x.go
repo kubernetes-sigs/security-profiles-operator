@@ -20,7 +20,6 @@ limitations under the License.
 package bpfrecorder
 
 import (
-	"strings"
 	"syscall"
 )
 
