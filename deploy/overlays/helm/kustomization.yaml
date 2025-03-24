@@ -8,6 +8,11 @@ sortOptions:
 
 resources:
 - ../../base
+
+labels:
+- pairs: { app: "{{.Release.Name}}" }
+  includeSelectors: true
+
 patches:
   # Target all namespaced resources present in the project.
 - patch: |
@@ -34,27 +39,6 @@ patches:
     kind: Deployment
     name: security-profiles-operator-webhook
 
-# Labels and Annotations
-# Kustomize doesn't support adding items as first child to a list, like:
-# - op: add
-#    path: /metadata/labels
-#    value: "{{- include \"security-profiles-operator.labels\" . | nindent 4 }}"
-# So values will be hardcoded.
-- patch: |-
-    - op: add
-      path:  "/metadata/labels/helm.sh~1chart"
-      value: "security-profiles-operator"
-    - op: add
-      path:  "/metadata/labels/app.kubernetes.io~1managed-by"
-      value: "Helm"
-    - op: add
-      path:  "/metadata/annotations/meta.helm.sh~1release-name"
-      value: "security-profiles-operator"
-    - op: add
-      path:  "/metadata/annotations/meta.helm.sh~1release-namespace"
-      value: "{{ .Release.Namespace }}"
-  target:
-    kind: (ClusterRole|ClusterRoleBinding|ConfigMap|MutatingWebhookConfiguration|Namespace|Role|RoleBinding|Secret|ServiceAccount)
 
 # Remove the namespace resource.
 - path: delete-ns.yaml
