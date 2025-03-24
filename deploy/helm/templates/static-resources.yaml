@@ -1,52 +1,32 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: security-profiles-operator
   namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spod
   namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spo-webhook
   namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: security-profiles-operator
 rules:
 - apiGroups:
@@ -237,13 +217,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: security-profiles-operator
   namespace: '{{ .Release.Namespace }}'
 rules:
@@ -265,13 +240,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spod
 rules:
 - apiGroups:
@@ -376,13 +346,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spod
   namespace: '{{ .Release.Namespace }}'
 rules:
@@ -396,13 +361,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spo-webhook
 rules:
 - apiGroups:
@@ -463,13 +423,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spo-webhook
   namespace: '{{ .Release.Namespace }}'
 rules:
@@ -499,13 +454,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: security-profiles-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -519,13 +469,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: security-profiles-operator
   namespace: '{{ .Release.Namespace }}'
 roleRef:
@@ -540,13 +485,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spod
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -560,13 +500,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spod
   namespace: '{{ .Release.Namespace }}'
 roleRef:
@@ -581,13 +516,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spo-webhook
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -601,13 +531,8 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spo-webhook
   namespace: '{{ .Release.Namespace }}'
 roleRef:
@@ -622,25 +547,15 @@ subjects:
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spo-mutating-webhook-configuration
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spo-metrics-client
 rules:
 - nonResourceURLs:
@@ -652,13 +567,8 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: spo-metrics-client
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -674,12 +584,8 @@ kind: Secret
 metadata:
   annotations:
     kubernetes.io/service-account.name: default
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: metrics-token
   namespace: '{{ .Release.Namespace }}'
 type: kubernetes.io/service-account-token
@@ -1069,12 +975,7 @@ data:
       disabled: false
 kind: ConfigMap
 metadata:
-  annotations:
-    meta.helm.sh/release-name: security-profiles-operator
-    meta.helm.sh/release-namespace: '{{ .Release.Namespace }}'
   labels:
-    app: security-profiles-operator
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: security-profiles-operator
+    app: '{{.Release.Name}}'
   name: security-profiles-operator-profile
   namespace: '{{ .Release.Namespace }}'
