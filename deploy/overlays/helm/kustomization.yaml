@@ -7,7 +7,7 @@ sortOptions:
   order: fifo
 
 resources:
-- ../../base
+- ../webhook
 
 labels:
 - pairs: { app: "{{.Release.Name}}" }
