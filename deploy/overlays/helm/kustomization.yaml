@@ -67,5 +67,36 @@ patches:
       path: /spec/selector/name
       value: '{{ include "security-profiles-operator.name" . }}-webhook'
 
+# Fix webhook/cert namespaces
+- target: { name: webhook-cert }
+  patch: |
+    - op: replace
+      path: /spec/dnsNames
+      value:
+      - webhook-service.{{.Release.Namespace}}.svc
+      - webhook-service.{{.Release.Namespace}}.svc.cluster.local
+- target: { name: metrics-cert }
+  patch: |
+    - op: replace
+      path: /spec/dnsNames
+      value:
+      - metrics.{{.Release.Namespace}}
+      - metrics.{{.Release.Namespace}}.svc
+      - metrics.{{.Release.Namespace}}.svc.cluster.local
+- target: { name: spo-mutating-webhook-configuration }
+  patch: |
+    - op: replace
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+      value: "{{.Release.Namespace}}/webhook-cert"
+    - op: replace
+      path: /webhooks/0/objectSelector/matchExpressions/0/values
+      value: &val
+      - '{{ include "security-profiles-operator.name" . }}'
+      - '{{ include "security-profiles-operator.name" . }}-webhook'
+    - op: replace
+      path: /webhooks/1/objectSelector/matchExpressions/0/values
+      value: *val
+
+
 # Remove the namespace resource.
 - path: delete-ns.yaml

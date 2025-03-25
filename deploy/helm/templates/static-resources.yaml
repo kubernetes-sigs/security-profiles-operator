@@ -17,8 +17,8 @@ metadata:
   namespace: '{{ .Release.Namespace }}'
 spec:
   dnsNames:
-  - webhook-service.security-profiles-operator.svc
-  - webhook-service.security-profiles-operator.svc.cluster.local
+  - webhook-service.{{.Release.Namespace}}.svc
+  - webhook-service.{{.Release.Namespace}}.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer
@@ -121,9 +121,9 @@ metadata:
   namespace: '{{ .Release.Namespace }}'
 spec:
   dnsNames:
-  - metrics.security-profiles-operator
-  - metrics.security-profiles-operator.svc
-  - metrics.security-profiles-operator.svc.cluster.local
+  - metrics.{{.Release.Namespace}}
+  - metrics.{{.Release.Namespace}}.svc
+  - metrics.{{.Release.Namespace}}.svc.cluster.local
   issuerRef:
     kind: Issuer
     name: selfsigned-issuer
@@ -3039,7 +3039,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: security-profiles-operator/webhook-cert
+    cert-manager.io/inject-ca-from: '{{.Release.Namespace}}/webhook-cert'
   labels:
     app: '{{.Release.Name}}'
   name: spo-mutating-webhook-configuration
@@ -3064,8 +3064,8 @@ webhooks:
     - key: name
       operator: NotIn
       values:
-      - security-profiles-operator
-      - security-profiles-operator-webhook
+      - '{{ include "security-profiles-operator.name" . }}'
+      - '{{ include "security-profiles-operator.name" . }}-webhook'
   rules:
   - apiGroups:
     - '*'
@@ -3099,8 +3099,8 @@ webhooks:
     - key: name
       operator: NotIn
       values:
-      - security-profiles-operator
-      - security-profiles-operator-webhook
+      - '{{ include "security-profiles-operator.name" . }}'
+      - '{{ include "security-profiles-operator.name" . }}-webhook'
   rules:
   - apiGroups:
     - '*'
