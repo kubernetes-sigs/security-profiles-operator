@@ -3618,3 +3618,95 @@ spec:
       - effect: NoExecute
         key: node.kubernetes.io/not-ready
         operator: Exists
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: AppArmorProfile
+metadata:
+  labels:
+    app: '{{.Release.Name}}'
+    spo.x-k8s.io/container-id: security-profiles-operator
+  name: spo-apparmor
+  namespace: '{{ .Release.Namespace }}'
+spec:
+  abstract:
+    capability:
+      allowedCapabilities:
+      - dac_override
+      - dac_read_search
+      - mac_admin
+      - sys_admin
+      - sys_chroot
+    executable:
+      allowedExecutables:
+      - /security-profiles-operator
+      - /usr/sbin/apparmor_parser
+    filesystem:
+      readOnlyPaths:
+      - /
+      - /etc/apparmor/parser.conf
+      - /proc/@{pid}/maps
+      - /proc/@{pid}/mounts
+      - /proc/sys/kernel/osrelease
+      - /proc/sys/net/core/somaxconn
+      - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+      - /var/run/secrets/kubernetes.io/serviceaccount/**
+      - /var/run/secrets/metrics/**
+      - /sys/module/apparmor/parameters/enabled
+      - /sys/devices/system/cpu/possible
+      readWritePaths:
+      - 'ptrace (read),  # ugly template injection hack'
+      - /var/run/grpc/metrics.sock
+      - /tmp/aa_profile_bin_*
+      - /etc/apparmor.d/**
+      - /sys/kernel/security/apparmor/
+      - /sys/kernel/security/apparmor/**
+      - /var/lib/kubelet/seccomp/operator/**
+    network:
+      allowedProtocols:
+        allowTcp: true
+        allowUdp: true
+  disabled: false
+---
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: AppArmorProfile
+metadata:
+  labels:
+    app: '{{.Release.Name}}'
+    spo.x-k8s.io/container-id: bpf-recorder
+  name: bpfrecorder-apparmor
+  namespace: '{{ .Release.Namespace }}'
+spec:
+  abstract:
+    capability:
+      allowedCapabilities:
+      - bpf
+      - chown
+      - perfmon
+      - sys_resource
+    executable:
+      allowedExecutables:
+      - /security-profiles-operator
+    filesystem:
+      readOnlyPaths:
+      - /proc/@{pid}/cgroup
+      - /proc/@{pid}/maps
+      - /proc/sys/net/core/somaxconn
+      - /sys/devices/kprobe/type
+      - /sys/devices/system/cpu/online
+      - /sys/fs/bpf/
+      - /sys/kernel/btf/vmlinux
+      - /sys/kernel/debug/tracing/events/**/id
+      - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+      - /sys/kernel/security/lsm
+      - /var/run/secrets/kubernetes.io/serviceaccount/**
+      - /var/run/secrets/kubernetes.io/serviceaccount/**
+      readWritePaths:
+      - |-
+        ptrace (read),
+        # ugly template injection hack
+      - /var/run/grpc/bpf-recorder.sock
+    network:
+      allowedProtocols:
+        allowTcp: true
+        allowUdp: true
+  disabled: false
