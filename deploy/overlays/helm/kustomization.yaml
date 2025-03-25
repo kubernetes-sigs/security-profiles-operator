@@ -39,6 +39,36 @@ patches:
     kind: Deployment
     name: security-profiles-operator-webhook
 
+# Respect fullnameOverride
+- target: { name: security-profiles-operator }
+  patch: |
+    - op: replace
+      path: /metadata/name
+      value: '{{ include "security-profiles-operator.name" . }}'
+- target: { name: security-profiles-operator-webhook }
+  patch: |
+    - op: replace
+      path: /metadata/name
+      value: &name '{{ include "security-profiles-operator.name" . }}-webhook'
+    - op: replace
+      path: /spec/template/metadata/labels/name
+      value: *name
+    - op: replace
+      path: /spec/selector/matchLabels/name
+      value: *name
+- target: { kind: Deployment, name: security-profiles-operator }
+  patch: |
+    - op: replace
+      path: /spec/template/metadata/labels/name
+      value: &name '{{ include "security-profiles-operator.name" . }}'
+    - op: replace
+      path: /spec/selector/matchLabels/name
+      value: *name
+- target: { name: webhook-service }
+  patch: |
+    - op: replace
+      path: /spec/selector/name
+      value: '{{ include "security-profiles-operator.name" . }}-webhook'
 
 # Remove the namespace resource.
 - path: delete-ns.yaml
