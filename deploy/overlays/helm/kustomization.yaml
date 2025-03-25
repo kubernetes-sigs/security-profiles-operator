@@ -30,14 +30,11 @@ patches:
   target:
     kind: (ClusterRoleBinding|RoleBinding)
 
-# TODO: get webhook deployment replicas from values file
 - patch: |
     - op: replace
       path: /spec/replicas
       value: "{{ .Values.replicaCount }}"
-  target:
-    kind: Deployment
-    name: security-profiles-operator-webhook
+  target: { kind: Deployment }
 
 # Respect fullnameOverride
 - target: { name: security-profiles-operator }
