@@ -8,6 +8,7 @@ sortOptions:
 
 resources:
 - ../webhook
+- ../../base/profiles
 
 labels:
 - pairs: { app: "{{.Release.Name}}" }
