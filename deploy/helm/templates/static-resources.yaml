@@ -3552,7 +3552,7 @@ metadata:
   name: '{{ include "security-profiles-operator.name" . }}'
   namespace: '{{ .Release.Namespace }}'
 spec:
-  replicas: 3
+  replicas: '{{ .Values.replicaCount }}'
   selector:
     matchLabels:
       app: '{{.Release.Name}}'
