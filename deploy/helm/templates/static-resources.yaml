@@ -3,7 +3,7 @@ kind: ServiceAccount
 metadata:
   labels:
     app: '{{.Release.Name}}'
-  name: security-profiles-operator
+  name: '{{ include "security-profiles-operator.name" . }}'
   namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: v1
@@ -27,7 +27,7 @@ kind: ClusterRole
 metadata:
   labels:
     app: '{{.Release.Name}}'
-  name: security-profiles-operator
+  name: '{{ include "security-profiles-operator.name" . }}'
 rules:
 - apiGroups:
   - ""
@@ -219,7 +219,7 @@ kind: Role
 metadata:
   labels:
     app: '{{.Release.Name}}'
-  name: security-profiles-operator
+  name: '{{ include "security-profiles-operator.name" . }}'
   namespace: '{{ .Release.Namespace }}'
 rules:
 - apiGroups:
@@ -456,14 +456,14 @@ kind: ClusterRoleBinding
 metadata:
   labels:
     app: '{{.Release.Name}}'
-  name: security-profiles-operator
+  name: '{{ include "security-profiles-operator.name" . }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: security-profiles-operator
+  name: '{{ include "security-profiles-operator.name" . }}'
 subjects:
 - kind: ServiceAccount
-  name: security-profiles-operator
+  name: '{{ include "security-profiles-operator.name" . }}'
   namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -471,15 +471,15 @@ kind: RoleBinding
 metadata:
   labels:
     app: '{{.Release.Name}}'
-  name: security-profiles-operator
+  name: '{{ include "security-profiles-operator.name" . }}'
   namespace: '{{ .Release.Namespace }}'
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: security-profiles-operator
+  name: '{{ include "security-profiles-operator.name" . }}'
 subjects:
 - kind: ServiceAccount
-  name: security-profiles-operator
+  name: '{{ include "security-profiles-operator.name" . }}'
   namespace: '{{ .Release.Namespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
