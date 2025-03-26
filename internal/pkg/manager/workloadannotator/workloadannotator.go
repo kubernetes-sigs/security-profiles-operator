@@ -183,7 +183,7 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(ctx context.Context, sp *s
 
 	for i := range linkedPods.Items {
 		pod := linkedPods.Items[i]
-		podList[i] = pod.ObjectMeta.Namespace + "/" + pod.ObjectMeta.Name
+		podList[i] = pod.Namespace + "/" + pod.Name
 	}
 
 	if err := util.Retry(func() error {
@@ -235,7 +235,7 @@ func (r *PodReconciler) updatePodReferencesForSelinux(ctx context.Context, se *s
 
 	for i := range linkedPods.Items {
 		pod := linkedPods.Items[i]
-		podList[i] = pod.ObjectMeta.Namespace + "/" + pod.ObjectMeta.Name
+		podList[i] = pod.Namespace + "/" + pod.Name
 	}
 
 	if err := util.Retry(func() error {

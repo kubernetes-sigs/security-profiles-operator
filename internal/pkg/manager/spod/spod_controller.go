@@ -656,11 +656,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-apparmor=true")
 
 		// Remove AppArmor constraints to be able to manage AppArmor.
-		if newSPOd.ObjectMeta.Annotations == nil {
-			newSPOd.ObjectMeta.Annotations = make(map[string]string)
+		if newSPOd.Annotations == nil {
+			newSPOd.Annotations = make(map[string]string)
 		}
 
-		newSPOd.ObjectMeta.Annotations[appArmorAnnotation] = "unconfined"
+		newSPOd.Annotations[appArmorAnnotation] = "unconfined"
 
 		// A more privileged init container is required when apparmor is enabled, in order
 		// to install the apparmor profile for spo itself.

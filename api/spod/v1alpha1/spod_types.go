@@ -382,22 +382,22 @@ type SecurityProfilesOperatorDaemonList struct {
 
 func (s *SPODStatus) StatePending() {
 	s.State = SPODStatePending
-	s.ConditionedStatus.SetConditions(Pending())
+	s.SetConditions(Pending())
 }
 
 func (s *SPODStatus) StateCreating() {
 	s.State = SPODStateCreating
-	s.ConditionedStatus.SetConditions(Creating())
+	s.SetConditions(Creating())
 }
 
 func (s *SPODStatus) StateUpdating() {
 	s.State = SPODStateUpdating
-	s.ConditionedStatus.SetConditions(Updating())
+	s.SetConditions(Updating())
 }
 
 func (s *SPODStatus) StateRunning() {
 	s.State = SPODStateRunning
-	s.ConditionedStatus.SetConditions(Available())
+	s.SetConditions(Available())
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme

@@ -184,7 +184,7 @@ func TestReconcile(t *testing.T) {
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
-				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
+				v, ok := sut.podsToWatch.Load(testRequest.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
 				assert.True(t, ok)
@@ -209,7 +209,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -263,7 +263,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -302,7 +302,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -341,7 +341,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -372,7 +372,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -411,7 +411,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -449,7 +449,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -483,7 +483,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -594,7 +594,7 @@ func TestReconcile(t *testing.T) {
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
-				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
+				v, ok := sut.podsToWatch.Load(testRequest.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
 				assert.True(t, ok)
@@ -619,7 +619,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), pod)
+				sut.podsToWatch.Store(testRequest.String(), pod)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -677,7 +677,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -721,7 +721,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -752,7 +752,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -796,7 +796,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -839,7 +839,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -873,7 +873,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1018,7 +1018,7 @@ func TestReconcile(t *testing.T) {
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
-				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
+				v, ok := sut.podsToWatch.Load(testRequest.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
 				assert.True(t, ok)
@@ -1045,7 +1045,7 @@ func TestReconcile(t *testing.T) {
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
-				v, ok := sut.podsToWatch.Load(testRequest.NamespacedName.String())
+				v, ok := sut.podsToWatch.Load(testRequest.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
 				assert.True(t, ok)
@@ -1070,7 +1070,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1120,7 +1120,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1156,7 +1156,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1192,7 +1192,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1228,7 +1228,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1260,7 +1260,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.DialEnricherReturns(nil, func() {}, nil)
 				mock.GetPodReturns(&corev1.Pod{
@@ -1292,7 +1292,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1324,7 +1324,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1355,7 +1355,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1385,7 +1385,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1413,7 +1413,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1468,7 +1468,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1500,7 +1500,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1532,7 +1532,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
@@ -1569,7 +1569,7 @@ func TestReconcile(t *testing.T) {
 						},
 					},
 				}
-				sut.podsToWatch.Store(testRequest.NamespacedName.String(), value)
+				sut.podsToWatch.Store(testRequest.String(), value)
 
 				mock.GetPodReturns(&corev1.Pod{
 					Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
