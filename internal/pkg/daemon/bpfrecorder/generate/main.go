@@ -89,7 +89,6 @@ func run() error {
 
 	//nolint:gosec // permissions are fine
 	if err := os.WriteFile(
-		//nolint:gomnd // filemode is fine
 		generatedGo, []byte(builder.String()), 0o644,
 	); err != nil {
 		return fmt.Errorf("writing generated object: %w", err)
@@ -168,11 +167,11 @@ func generateBtf(builder *strings.Builder) error {
 		}
 		if _, ok := btfs[os][osVersion][arch]; !ok {
 			btfs[os][osVersion][arch] = map[types.Kernel][]byte{}
-			fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 4), arch) //nolint:gomnd // indent
+			fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 4), arch)
 		}
 
 		btfs[os][osVersion][arch][kernel] = btfBytes
-		fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 6), kernel) //nolint:gomnd // indent
+		fmt.Fprintf(docs, "%s- %s\n", strings.Repeat(" ", 6), kernel)
 		kernels++
 
 		return nil
@@ -191,7 +190,7 @@ func generateBtf(builder *strings.Builder) error {
 	fmt.Fprintf(docs, "\nSum: %d\n", kernels)
 
 	if err := os.WriteFile(
-		docsFile, docs.Bytes(), fs.FileMode(0o644), //nolint:gomnd // filemode is fine
+		docsFile, docs.Bytes(), fs.FileMode(0o644),
 	); err != nil {
 		return fmt.Errorf("write docs file: %w", err)
 	}

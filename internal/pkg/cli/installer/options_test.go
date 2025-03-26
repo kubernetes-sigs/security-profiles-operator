@@ -47,7 +47,7 @@ func TestFromContext(t *testing.T) {
 			},
 			assert: func(options *Options, err error) {
 				require.NoError(t, err)
-				require.Equal(t, "", options.ExecutablePath)
+				require.Empty(t, options.ExecutablePath)
 				require.Equal(t, "profile.yml", options.ProfilePath)
 			},
 		},
@@ -57,7 +57,7 @@ func TestFromContext(t *testing.T) {
 			},
 			assert: func(options *Options, err error) {
 				require.NoError(t, err)
-				require.Equal(t, "", options.ExecutablePath)
+				require.Empty(t, options.ExecutablePath)
 				require.Equal(t, DefaultProfileFile, options.ProfilePath)
 			},
 		},

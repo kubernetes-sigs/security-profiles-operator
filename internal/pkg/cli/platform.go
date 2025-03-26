@@ -40,11 +40,11 @@ func ParsePlatform(input string) (*v1.Platform, error) {
 	parts := strings.Split(platformStr, "/")
 
 	switch len(parts) {
-	case 3: //nolint:gomnd // intentional
+	case 3:
 		res.Variant = parts[2]
 
 		fallthrough
-	case 2: //nolint:gomnd // intentional
+	case 2:
 		res.Architecture = parts[1]
 	case 1:
 		res.Architecture = runtime.GOARCH

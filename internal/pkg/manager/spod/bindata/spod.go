@@ -406,8 +406,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Port:   intstr.FromString("liveness-port"),
 								Scheme: corev1.URISchemeHTTP,
 							}},
-							FailureThreshold: 10, //nolint:gomnd // test number
-							PeriodSeconds:    3,  //nolint:gomnd // test number
+							FailureThreshold: 10,
+							PeriodSeconds:    3,
 							TimeoutSeconds:   1,
 							SuccessThreshold: 1,
 						},
@@ -418,7 +418,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Scheme: corev1.URISchemeHTTP,
 							}},
 							FailureThreshold: 1,
-							PeriodSeconds:    10, //nolint:gomnd // test number
+							PeriodSeconds:    10,
 							TimeoutSeconds:   1,
 							SuccessThreshold: 1,
 						},

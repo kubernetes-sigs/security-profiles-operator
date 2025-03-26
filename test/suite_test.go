@@ -300,10 +300,10 @@ func (e *kinde2e) SetupSuite() {
 	e.logf("Setting up suite")
 	command.SetGlobalVerbose(true)
 	// Override execNode and waitForReadyPods functions
-	e.e2e.execNode = e.execNodeKind
-	e.e2e.waitForReadyPods = e.waitForReadyPodsKind
-	e.e2e.deployCertManager = e.deployCertManagerKind
-	e.e2e.setupRecordingSa = e.deployRecordingSa
+	e.execNode = e.execNodeKind
+	e.waitForReadyPods = e.waitForReadyPodsKind
+	e.deployCertManager = e.deployCertManagerKind
+	e.setupRecordingSa = e.deployRecordingSa
 	parentCwd := e.setWorkDir()
 	buildDir := filepath.Join(parentCwd, "build")
 	e.Require().NoError(os.MkdirAll(buildDir, 0o755))
@@ -401,10 +401,10 @@ func (e *openShifte2e) SetupSuite() {
 	e.logf("Setting up suite")
 	command.SetGlobalVerbose(true)
 	// Override execNode and waitForReadyPods functions
-	e.e2e.execNode = e.execNodeOCP
-	e.e2e.waitForReadyPods = e.waitForReadyPodsOCP
-	e.e2e.deployCertManager = e.deployCertManagerOCP
-	e.e2e.setupRecordingSa = e.deployRecordingSaOcp
+	e.execNode = e.execNodeOCP
+	e.waitForReadyPods = e.waitForReadyPodsOCP
+	e.deployCertManager = e.deployCertManagerOCP
+	e.setupRecordingSa = e.deployRecordingSaOcp
 	e.setWorkDir()
 
 	e.kubectlPath, err = exec.LookPath("oc")
@@ -514,11 +514,11 @@ func (e *vanilla) SetupSuite() {
 	e.setWorkDir()
 
 	// Override execNode and waitForReadyPods functions
-	e.e2e.execNode = e.execNodeVanilla
+	e.execNode = e.execNodeVanilla
 	e.kubectlPath, err = exec.LookPath("kubectl")
-	e.e2e.waitForReadyPods = e.waitForReadyPodsVanilla
-	e.e2e.deployCertManager = e.deployCertManagerVanilla
-	e.e2e.setupRecordingSa = e.deployRecordingSa
+	e.waitForReadyPods = e.waitForReadyPodsVanilla
+	e.deployCertManager = e.deployCertManagerVanilla
+	e.setupRecordingSa = e.deployRecordingSa
 	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 	e.NoError(err)
 }
