@@ -209,7 +209,7 @@ endef
 # TODO: add nix-s390x when the nix toolchain is fixed
 .PHONY: nix
 nix: nix-amd64 nix-arm64 nix-ppc64le  ## Build all binaries via nix and create a build.tar.gz
-	tar cvfz build.tar.gz -C $(BUILD_DIR) amd64 arm64
+	tar cvfz build.tar.gz -C $(BUILD_DIR) amd64 arm64 ppc64le
 
 .PHONY: nix-amd64
 nix-amd64: ## Build the binaries via nix for amd64

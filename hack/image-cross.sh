@@ -44,7 +44,8 @@ done
 for T in "${TAGS[@]}"; do
     docker manifest create --amend "$IMAGE:$T" \
         "$IMAGE-amd64:$T" \
-        "$IMAGE-arm64:$T"
+        "$IMAGE-arm64:$T" \
+        "$IMAGE-ppc64le:$T"
 
     for ARCH in "${ARCHES[@]}"; do
         docker manifest annotate --arch "$ARCH" "$IMAGE:$T" "$IMAGE-$ARCH:$T"
