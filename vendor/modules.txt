@@ -1573,7 +1573,7 @@ golang.org/x/text/unicode/norm
 # golang.org/x/time v0.10.0
 ## explicit; go 1.18
 golang.org/x/time/rate
-# golang.org/x/tools v0.29.0
+# golang.org/x/tools v0.30.0
 ## explicit; go 1.22.0
 golang.org/x/tools/go/ast/astutil
 golang.org/x/tools/go/gcexportdata
@@ -2368,7 +2368,7 @@ sigs.k8s.io/gateway-api/apis/v1
 ## explicit; go 1.23
 sigs.k8s.io/json
 sigs.k8s.io/json/internal/golang/encoding/json
-# sigs.k8s.io/release-utils v0.11.0
+# sigs.k8s.io/release-utils v0.11.1
 ## explicit; go 1.23
 sigs.k8s.io/release-utils/command
 sigs.k8s.io/release-utils/env
