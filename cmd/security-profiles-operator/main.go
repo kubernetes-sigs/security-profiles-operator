@@ -78,10 +78,10 @@ import (
 const (
 	spocCmd                  string = "spoc"
 	jsonFlag                 string = "json"
+	nodeStatusControllerFlag string = "with-nodestatus-controller"
 	spodControllerFlag       string = "with-spod-controller"
 	workloadAnnotatorFlag    string = "with-workload-annotator"
 	recordingMergerFlag      string = "with-recording-merger"
-	nodeStatusControllerFlag string = "with-nodestatus-controller"
 	recordingFlag            string = "with-recording"
 	selinuxFlag              string = "with-selinux"
 	apparmorFlag             string = "with-apparmor"
@@ -117,6 +117,11 @@ func main() {
 					Aliases: []string{"w"},
 					Value:   true,
 					Usage:   "the webhook k8s resources are managed by the operator(default true)",
+				},
+				&cli.BoolFlag{
+					Name:  nodeStatusControllerFlag,
+					Value: true,
+					Usage: "Enable the node status controller.",
 				},
 				&cli.BoolFlag{
 					Name:  spodControllerFlag,
@@ -379,6 +384,9 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	}
 
 	enabledControllers := []controller.Controller{}
+	if ctx.Bool(nodeStatusControllerFlag) {
+		enabledControllers = append(enabledControllers, nodestatus.NewController())
+	}
 	if ctx.Bool(spodControllerFlag) {
 		enabledControllers = append(enabledControllers, spod.NewController())
 	}
@@ -387,9 +395,6 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	}
 	if ctx.Bool(recordingMergerFlag) {
 		enabledControllers = append(enabledControllers, recordingmerger.NewController())
-	}
-	if ctx.Bool(nodeStatusControllerFlag) {
-		enabledControllers = append(enabledControllers, nodestatus.NewController())
 	}
 	setupLog.Info("enabled controllers", "controllers", enabledControllers)
 
