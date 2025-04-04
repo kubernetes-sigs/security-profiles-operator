@@ -384,18 +384,23 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	}
 
 	enabledControllers := []controller.Controller{}
+
 	if ctx.Bool(nodeStatusControllerFlag) {
 		enabledControllers = append(enabledControllers, nodestatus.NewController())
 	}
+
 	if ctx.Bool(spodControllerFlag) {
 		enabledControllers = append(enabledControllers, spod.NewController())
 	}
+
 	if ctx.Bool(workloadAnnotatorFlag) {
 		enabledControllers = append(enabledControllers, workloadannotator.NewController())
 	}
+
 	if ctx.Bool(recordingMergerFlag) {
 		enabledControllers = append(enabledControllers, recordingmerger.NewController())
 	}
+
 	setupLog.Info("enabled controllers", "controllers", enabledControllers)
 
 	if err := setupEnabledControllers(
