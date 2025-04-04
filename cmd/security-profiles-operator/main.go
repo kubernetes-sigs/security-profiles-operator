@@ -76,14 +76,18 @@ import (
 )
 
 const (
-	spocCmd            string = "spoc"
-	jsonFlag           string = "json"
-	recordingFlag      string = "with-recording"
-	selinuxFlag        string = "with-selinux"
-	apparmorFlag       string = "with-apparmor"
-	webhookFlag        string = "webhook"
-	memOptimFlag       string = "with-mem-optim"
-	defaultWebhookPort int    = 9443
+	spocCmd                  string = "spoc"
+	jsonFlag                 string = "json"
+	nodeStatusControllerFlag string = "with-nodestatus-controller"
+	spodControllerFlag       string = "with-spod-controller"
+	workloadAnnotatorFlag    string = "with-workload-annotator"
+	recordingMergerFlag      string = "with-recording-merger"
+	recordingFlag            string = "with-recording"
+	selinuxFlag              string = "with-selinux"
+	apparmorFlag             string = "with-apparmor"
+	webhookFlag              string = "webhook"
+	memOptimFlag             string = "with-mem-optim"
+	defaultWebhookPort       int    = 9443
 )
 
 var (
@@ -113,6 +117,26 @@ func main() {
 					Aliases: []string{"w"},
 					Value:   true,
 					Usage:   "the webhook k8s resources are managed by the operator(default true)",
+				},
+				&cli.BoolFlag{
+					Name:  nodeStatusControllerFlag,
+					Value: true,
+					Usage: "Enable the node status controller.",
+				},
+				&cli.BoolFlag{
+					Name:  spodControllerFlag,
+					Value: true,
+					Usage: "Enable the SPOD controller.",
+				},
+				&cli.BoolFlag{
+					Name:  workloadAnnotatorFlag,
+					Value: true,
+					Usage: "Enable the workload annotator.",
+				},
+				&cli.BoolFlag{
+					Name:  recordingMergerFlag,
+					Value: true,
+					Usage: "Enable the recording merger.",
 				},
 			},
 		},
@@ -359,14 +383,29 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("add ServiceMonitor API to scheme: %w", err)
 	}
 
+	enabledControllers := []controller.Controller{}
+
+	if ctx.Bool(nodeStatusControllerFlag) {
+		enabledControllers = append(enabledControllers, nodestatus.NewController())
+	}
+
+	if ctx.Bool(spodControllerFlag) {
+		enabledControllers = append(enabledControllers, spod.NewController())
+	}
+
+	if ctx.Bool(workloadAnnotatorFlag) {
+		enabledControllers = append(enabledControllers, workloadannotator.NewController())
+	}
+
+	if ctx.Bool(recordingMergerFlag) {
+		enabledControllers = append(enabledControllers, recordingmerger.NewController())
+	}
+
+	setupLog.Info("enabled controllers", "controllers", enabledControllers)
+
 	if err := setupEnabledControllers(
 		context.WithValue(ctx.Context, spod.ManageWebhookKey, manageWebhook(ctx)),
-		[]controller.Controller{
-			nodestatus.NewController(),
-			spod.NewController(),
-			workloadannotator.NewController(),
-			recordingmerger.NewController(),
-		}, mgr, nil); err != nil {
+		enabledControllers, mgr, nil); err != nil {
 		return fmt.Errorf("enable controllers: %w", err)
 	}
 
