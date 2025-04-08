@@ -21,19 +21,28 @@ import (
 	"net/http"
 )
 
-// GroupEpicBoardsService handles communication with the group epic board
-// related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_epic_boards.html
-type GroupEpicBoardsService struct {
-	client *Client
-}
+type (
+	GroupEpicBoardsServiceInterface interface {
+		ListGroupEpicBoards(gid interface{}, opt *ListGroupEpicBoardsOptions, options ...RequestOptionFunc) ([]*GroupEpicBoard, *Response, error)
+		GetGroupEpicBoard(gid interface{}, board int, options ...RequestOptionFunc) (*GroupEpicBoard, *Response, error)
+	}
+
+	// GroupEpicBoardsService handles communication with the group epic board
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/api/group_epic_boards/
+	GroupEpicBoardsService struct {
+		client *Client
+	}
+)
+
+var _ GroupEpicBoardsServiceInterface = (*GroupEpicBoardsService)(nil)
 
 // GroupEpicBoard represents a GitLab group epic board.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_epic_boards.html
+// https://docs.gitlab.com/api/group_epic_boards/
 type GroupEpicBoard struct {
 	ID     int             `json:"id"`
 	Name   string          `json:"name"`
@@ -50,13 +59,13 @@ func (b GroupEpicBoard) String() string {
 // ListGroupEpicBoards() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_epic_boards.html#list-all-epic-boards-in-a-group
+// https://docs.gitlab.com/api/group_epic_boards/#list-all-epic-boards-in-a-group
 type ListGroupEpicBoardsOptions ListOptions
 
 // ListGroupEpicBoards gets a list of all epic boards in a group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_epic_boards.html#list-all-epic-boards-in-a-group
+// https://docs.gitlab.com/api/group_epic_boards/#list-all-epic-boards-in-a-group
 func (s *GroupEpicBoardsService) ListGroupEpicBoards(gid interface{}, opt *ListGroupEpicBoardsOptions, options ...RequestOptionFunc) ([]*GroupEpicBoard, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -81,7 +90,7 @@ func (s *GroupEpicBoardsService) ListGroupEpicBoards(gid interface{}, opt *ListG
 // GetGroupEpicBoard gets a single epic board of a group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_epic_boards.html#single-group-epic-board
+// https://docs.gitlab.com/api/group_epic_boards/#single-group-epic-board
 func (s *GroupEpicBoardsService) GetGroupEpicBoard(gid interface{}, board int, options ...RequestOptionFunc) (*GroupEpicBoard, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {

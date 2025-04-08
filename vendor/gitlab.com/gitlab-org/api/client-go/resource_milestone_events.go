@@ -22,13 +22,24 @@ import (
 	"time"
 )
 
-// ResourceMilestoneEventsService handles communication with the event related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/resource_milestone_events.html
-type ResourceMilestoneEventsService struct {
-	client *Client
-}
+type (
+	ResourceMilestoneEventsServiceInterface interface {
+		ListIssueMilestoneEvents(pid interface{}, issue int, opt *ListMilestoneEventsOptions, options ...RequestOptionFunc) ([]*MilestoneEvent, *Response, error)
+		GetIssueMilestoneEvent(pid interface{}, issue int, event int, options ...RequestOptionFunc) (*MilestoneEvent, *Response, error)
+		ListMergeMilestoneEvents(pid interface{}, request int, opt *ListMilestoneEventsOptions, options ...RequestOptionFunc) ([]*MilestoneEvent, *Response, error)
+		GetMergeRequestMilestoneEvent(pid interface{}, request int, event int, options ...RequestOptionFunc) (*MilestoneEvent, *Response, error)
+	}
+
+	// ResourceMilestoneEventsService handles communication with the event related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/resource_milestone_events.html
+	ResourceMilestoneEventsService struct {
+		client *Client
+	}
+)
+
+var _ ResourceMilestoneEventsServiceInterface = (*ResourceMilestoneEventsService)(nil)
 
 // MilestoneEvent represents a resource milestone event.
 //

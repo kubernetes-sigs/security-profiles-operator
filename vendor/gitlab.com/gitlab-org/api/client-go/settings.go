@@ -22,13 +22,22 @@ import (
 	"time"
 )
 
-// SettingsService handles communication with the application SettingsService
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/settings.html
-type SettingsService struct {
-	client *Client
-}
+type (
+	SettingsServiceInterface interface {
+		GetSettings(options ...RequestOptionFunc) (*Settings, *Response, error)
+		UpdateSettings(opt *UpdateSettingsOptions, options ...RequestOptionFunc) (*Settings, *Response, error)
+	}
+
+	// SettingsService handles communication with the application SettingsService
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/settings.html
+	SettingsService struct {
+		client *Client
+	}
+)
+
+var _ SettingsServiceInterface = (*SettingsService)(nil)
 
 // Settings represents the GitLab application settings.
 //

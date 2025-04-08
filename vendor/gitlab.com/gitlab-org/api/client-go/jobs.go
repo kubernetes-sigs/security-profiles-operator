@@ -23,13 +23,37 @@ import (
 	"time"
 )
 
-// JobsService handles communication with the ci builds related methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/jobs.html
-type JobsService struct {
-	client *Client
-}
+type (
+	JobsServiceInterface interface {
+		ListProjectJobs(pid interface{}, opts *ListJobsOptions, options ...RequestOptionFunc) ([]*Job, *Response, error)
+		ListPipelineJobs(pid interface{}, pipelineID int, opts *ListJobsOptions, options ...RequestOptionFunc) ([]*Job, *Response, error)
+		ListPipelineBridges(pid interface{}, pipelineID int, opts *ListJobsOptions, options ...RequestOptionFunc) ([]*Bridge, *Response, error)
+		GetJobTokensJob(opts *GetJobTokensJobOptions, options ...RequestOptionFunc) (*Job, *Response, error)
+		GetJob(pid interface{}, jobID int, options ...RequestOptionFunc) (*Job, *Response, error)
+		GetJobArtifacts(pid interface{}, jobID int, options ...RequestOptionFunc) (*bytes.Reader, *Response, error)
+		DownloadArtifactsFile(pid interface{}, refName string, opt *DownloadArtifactsFileOptions, options ...RequestOptionFunc) (*bytes.Reader, *Response, error)
+		DownloadSingleArtifactsFile(pid interface{}, jobID int, artifactPath string, options ...RequestOptionFunc) (*bytes.Reader, *Response, error)
+		DownloadSingleArtifactsFileByTagOrBranch(pid interface{}, refName string, artifactPath string, opt *DownloadArtifactsFileOptions, options ...RequestOptionFunc) (*bytes.Reader, *Response, error)
+		GetTraceFile(pid interface{}, jobID int, options ...RequestOptionFunc) (*bytes.Reader, *Response, error)
+		CancelJob(pid interface{}, jobID int, options ...RequestOptionFunc) (*Job, *Response, error)
+		RetryJob(pid interface{}, jobID int, options ...RequestOptionFunc) (*Job, *Response, error)
+		EraseJob(pid interface{}, jobID int, options ...RequestOptionFunc) (*Job, *Response, error)
+		KeepArtifacts(pid interface{}, jobID int, options ...RequestOptionFunc) (*Job, *Response, error)
+		PlayJob(pid interface{}, jobID int, opt *PlayJobOptions, options ...RequestOptionFunc) (*Job, *Response, error)
+		DeleteArtifacts(pid interface{}, jobID int, options ...RequestOptionFunc) (*Response, error)
+		DeleteProjectArtifacts(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// JobsService handles communication with the ci builds related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/jobs.html
+	JobsService struct {
+		client *Client
+	}
+)
+
+var _ JobsServiceInterface = (*JobsService)(nil)
 
 // Job represents a ci build.
 //

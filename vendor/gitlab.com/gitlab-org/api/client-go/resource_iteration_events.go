@@ -22,13 +22,22 @@ import (
 	"time"
 )
 
-// ResourceIterationEventsService handles communication with the event related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/resource_iteration_events.html
-type ResourceIterationEventsService struct {
-	client *Client
-}
+type (
+	ResourceIterationEventsServiceInterface interface {
+		ListIssueIterationEvents(pid interface{}, issue int, opt *ListIterationEventsOptions, options ...RequestOptionFunc) ([]*IterationEvent, *Response, error)
+		GetIssueIterationEvent(pid interface{}, issue int, event int, options ...RequestOptionFunc) (*IterationEvent, *Response, error)
+	}
+
+	// ResourceIterationEventsService handles communication with the event related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/resource_iteration_events.html
+	ResourceIterationEventsService struct {
+		client *Client
+	}
+)
+
+var _ ResourceIterationEventsServiceInterface = (*ResourceIterationEventsService)(nil)
 
 // IterationEvent represents a resource iteration event.
 //

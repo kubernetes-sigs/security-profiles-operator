@@ -22,14 +22,26 @@ import (
 	"net/url"
 )
 
-// ProjectVariablesService handles communication with the
-// project variables related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/project_level_variables.html
-type ProjectVariablesService struct {
-	client *Client
-}
+type (
+	ProjectVariablesServiceInterface interface {
+		ListVariables(pid interface{}, opt *ListProjectVariablesOptions, options ...RequestOptionFunc) ([]*ProjectVariable, *Response, error)
+		GetVariable(pid interface{}, key string, opt *GetProjectVariableOptions, options ...RequestOptionFunc) (*ProjectVariable, *Response, error)
+		CreateVariable(pid interface{}, opt *CreateProjectVariableOptions, options ...RequestOptionFunc) (*ProjectVariable, *Response, error)
+		UpdateVariable(pid interface{}, key string, opt *UpdateProjectVariableOptions, options ...RequestOptionFunc) (*ProjectVariable, *Response, error)
+		RemoveVariable(pid interface{}, key string, opt *RemoveProjectVariableOptions, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProjectVariablesService handles communication with the
+	// project variables related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/project_level_variables.html
+	ProjectVariablesService struct {
+		client *Client
+	}
+)
+
+var _ ProjectVariablesServiceInterface = (*ProjectVariablesService)(nil)
 
 // ProjectVariable represents a GitLab Project Variable.
 //

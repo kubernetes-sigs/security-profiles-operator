@@ -22,13 +22,21 @@ import (
 	"time"
 )
 
-// IterationsAPI handles communication with the project iterations related
-// methods of the GitLab API
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/iterations.html
-type ProjectIterationsService struct {
-	client *Client
-}
+type (
+	ProjectIterationsServiceInterface interface {
+		ListProjectIterations(pid interface{}, opt *ListProjectIterationsOptions, options ...RequestOptionFunc) ([]*ProjectIteration, *Response, error)
+	}
+
+	// ProjectIterationsService handles communication with the project iterations related
+	// methods of the GitLab API
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/iterations.html
+	ProjectIterationsService struct {
+		client *Client
+	}
+)
+
+var _ ProjectIterationsServiceInterface = (*ProjectIterationsService)(nil)
 
 // ProjectIteration represents a GitLab project iteration.
 //

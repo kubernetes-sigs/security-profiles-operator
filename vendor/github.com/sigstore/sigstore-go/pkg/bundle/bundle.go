@@ -80,7 +80,7 @@ func NewProtobufBundle(b *protobundle.Bundle) (*ProtobufBundle, error) {
 }
 
 func (b *Bundle) validate() error {
-	bundleVersion, err := getBundleVersion(b.Bundle.MediaType)
+	bundleVersion, err := getBundleVersion(b.MediaType)
 	if err != nil {
 		return fmt.Errorf("error getting bundle version: %w", err)
 	}
@@ -110,7 +110,7 @@ func (b *Bundle) validate() error {
 
 	// if bundle version >= v0.3, require verification material to not be X.509 certificate chain (only single certificate is allowed)
 	if semver.Compare(bundleVersion, "v0.3") >= 0 {
-		certs := b.Bundle.VerificationMaterial.GetX509CertificateChain()
+		certs := b.VerificationMaterial.GetX509CertificateChain()
 
 		if certs != nil {
 			return errors.New("verification material cannot be X.509 certificate chain (for bundle v0.3)")
@@ -317,7 +317,7 @@ func (b *Bundle) TlogEntries() ([]*tlog.Entry, error) {
 }
 
 func (b *Bundle) SignatureContent() (verify.SignatureContent, error) {
-	switch content := b.Bundle.Content.(type) { //nolint:gocritic
+	switch content := b.Content.(type) { //nolint:gocritic
 	case *protobundle.Bundle_DsseEnvelope:
 		envelope, err := parseEnvelope(content.DsseEnvelope)
 		if err != nil {
@@ -338,7 +338,7 @@ func (b *Bundle) SignatureContent() (verify.SignatureContent, error) {
 }
 
 func (b *Bundle) Envelope() (*Envelope, error) {
-	switch content := b.Bundle.Content.(type) { //nolint:gocritic
+	switch content := b.Content.(type) { //nolint:gocritic
 	case *protobundle.Bundle_DsseEnvelope:
 		envelope, err := parseEnvelope(content.DsseEnvelope)
 		if err != nil {
@@ -369,7 +369,7 @@ func (b *Bundle) Timestamps() ([][]byte, error) {
 
 // MinVersion returns true if the bundle version is greater than or equal to the expected version.
 func (b *Bundle) MinVersion(expectVersion string) bool {
-	version, err := getBundleVersion(b.Bundle.MediaType)
+	version, err := getBundleVersion(b.MediaType)
 	if err != nil {
 		return false
 	}

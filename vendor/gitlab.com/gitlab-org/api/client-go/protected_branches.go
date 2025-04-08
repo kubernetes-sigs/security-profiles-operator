@@ -22,14 +22,27 @@ import (
 	"net/url"
 )
 
-// ProtectedBranchesService handles communication with the protected branch
-// related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/protected_branches.html
-type ProtectedBranchesService struct {
-	client *Client
-}
+type (
+	ProtectedBranchesServiceInterface interface {
+		ListProtectedBranches(pid interface{}, opt *ListProtectedBranchesOptions, options ...RequestOptionFunc) ([]*ProtectedBranch, *Response, error)
+		GetProtectedBranch(pid interface{}, branch string, options ...RequestOptionFunc) (*ProtectedBranch, *Response, error)
+		ProtectRepositoryBranches(pid interface{}, opt *ProtectRepositoryBranchesOptions, options ...RequestOptionFunc) (*ProtectedBranch, *Response, error)
+		UnprotectRepositoryBranches(pid interface{}, branch string, options ...RequestOptionFunc) (*Response, error)
+		UpdateProtectedBranch(pid interface{}, branch string, opt *UpdateProtectedBranchOptions, options ...RequestOptionFunc) (*ProtectedBranch, *Response, error)
+		RequireCodeOwnerApprovals(pid interface{}, branch string, opt *RequireCodeOwnerApprovalsOptions, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProtectedBranchesService handles communication with the protected branch
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/protected_branches.html
+	ProtectedBranchesService struct {
+		client *Client
+	}
+)
+
+var _ ProtectedBranchesServiceInterface = (*ProtectedBranchesService)(nil)
 
 // ProtectedBranch represents a protected branch.
 //

@@ -22,13 +22,21 @@ import (
 	"time"
 )
 
-// ResourceWeightEventsService handles communication with the event related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/resource_weight_events.html
-type ResourceWeightEventsService struct {
-	client *Client
-}
+type (
+	ResourceWeightEventsServiceInterface interface {
+		ListIssueWeightEvents(pid interface{}, issue int, opt *ListWeightEventsOptions, options ...RequestOptionFunc) ([]*WeightEvent, *Response, error)
+	}
+
+	// ResourceWeightEventsService handles communication with the event related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/resource_weight_events.html
+	ResourceWeightEventsService struct {
+		client *Client
+	}
+)
+
+var _ ResourceWeightEventsServiceInterface = (*ResourceWeightEventsService)(nil)
 
 // WeightEvent represents a resource weight event.
 //

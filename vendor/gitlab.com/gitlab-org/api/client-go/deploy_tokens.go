@@ -22,13 +22,27 @@ import (
 	"time"
 )
 
-// DeployTokensService handles communication with the deploy tokens related methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/deploy_tokens.html
-type DeployTokensService struct {
-	client *Client
-}
+type (
+	DeployTokensServiceInterface interface {
+		ListAllDeployTokens(options ...RequestOptionFunc) ([]*DeployToken, *Response, error)
+		ListProjectDeployTokens(pid interface{}, opt *ListProjectDeployTokensOptions, options ...RequestOptionFunc) ([]*DeployToken, *Response, error)
+		GetProjectDeployToken(pid interface{}, deployToken int, options ...RequestOptionFunc) (*DeployToken, *Response, error)
+		CreateProjectDeployToken(pid interface{}, opt *CreateProjectDeployTokenOptions, options ...RequestOptionFunc) (*DeployToken, *Response, error)
+		DeleteProjectDeployToken(pid interface{}, deployToken int, options ...RequestOptionFunc) (*Response, error)
+		ListGroupDeployTokens(gid interface{}, opt *ListGroupDeployTokensOptions, options ...RequestOptionFunc) ([]*DeployToken, *Response, error)
+		GetGroupDeployToken(gid interface{}, deployToken int, options ...RequestOptionFunc) (*DeployToken, *Response, error)
+		CreateGroupDeployToken(gid interface{}, opt *CreateGroupDeployTokenOptions, options ...RequestOptionFunc) (*DeployToken, *Response, error)
+		DeleteGroupDeployToken(gid interface{}, deployToken int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// DeployTokensService handles communication with the deploy tokens related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/deploy_tokens.html
+	DeployTokensService struct {
+		client *Client
+	}
+)
 
 // DeployToken represents a GitLab deploy token.
 type DeployToken struct {

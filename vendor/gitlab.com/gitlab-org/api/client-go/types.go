@@ -59,26 +59,22 @@ func AccessControl(v AccessControlValue) *AccessControlValue {
 
 // AccessLevelValue represents a permission level within GitLab.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/user/permissions.html
+// GitLab API docs: https://docs.gitlab.com/user/permissions/#roles
 type AccessLevelValue int
 
 // List of available access levels.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/user/permissions.html
+// GitLab API docs: https://docs.gitlab.com/api/access_requests/#valid-access-levels
 const (
 	NoPermissions            AccessLevelValue = 0
 	MinimalAccessPermissions AccessLevelValue = 5
 	GuestPermissions         AccessLevelValue = 10
+	PlannerPermissions       AccessLevelValue = 15
 	ReporterPermissions      AccessLevelValue = 20
 	DeveloperPermissions     AccessLevelValue = 30
 	MaintainerPermissions    AccessLevelValue = 40
 	OwnerPermissions         AccessLevelValue = 50
 	AdminPermissions         AccessLevelValue = 60
-
-	// Deprecated: Renamed to MaintainerPermissions in GitLab 11.0.
-	MasterPermissions AccessLevelValue = 40
-	// Deprecated: Renamed to OwnerPermissions.
-	OwnerPermission AccessLevelValue = 50
 )
 
 // AccessLevel is a helper routine that allocates a new AccessLevelValue
@@ -286,6 +282,23 @@ const (
 	ContainerRegistryStatusDeleteScheduled ContainerRegistryStatus = "delete_scheduled"
 	ContainerRegistryStatusDeleteFailed    ContainerRegistryStatus = "delete_failed"
 	ContainerRegistryStatusDeleteOngoing   ContainerRegistryStatus = "delete_ongoing"
+)
+
+// ProtectionRuleAccessLevel represents the access level for a Container
+// Registry Protection Rule.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/container_repository_protection_rules/
+type ProtectionRuleAccessLevel string
+
+// These constants represent all valid protection rule access levels.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/container_repository_protection_rules/
+const (
+	ProtectionRuleAccessLevelMaintainer ProtectionRuleAccessLevel = "maintainer"
+	ProtectionRuleAccessLevelOwner      ProtectionRuleAccessLevel = "owner"
+	ProtectionRuleAccessLevelAdmin      ProtectionRuleAccessLevel = "admin"
 )
 
 // DeploymentApprovalStatus represents a Gitlab deployment approval status.

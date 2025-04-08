@@ -21,17 +21,26 @@ import (
 	"net/http"
 )
 
-// ValidateService handles communication with the validation related methods of
-// the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/lint.html
-type ValidateService struct {
-	client *Client
-}
+type (
+	ValidateServiceInterface interface {
+		ProjectNamespaceLint(pid interface{}, opt *ProjectNamespaceLintOptions, options ...RequestOptionFunc) (*ProjectLintResult, *Response, error)
+		ProjectLint(pid interface{}, opt *ProjectLintOptions, options ...RequestOptionFunc) (*ProjectLintResult, *Response, error)
+	}
+
+	// ValidateService handles communication with the validation related methods of
+	// the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/api/lint/
+	ValidateService struct {
+		client *Client
+	}
+)
+
+var _ ValidateServiceInterface = (*ValidateService)(nil)
 
 // LintResult represents the linting results.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/lint.html
+// GitLab API docs: https://docs.gitlab.com/api/lint/
 type LintResult struct {
 	Status     string   `json:"status"`
 	Errors     []string `json:"errors"`
@@ -42,7 +51,7 @@ type LintResult struct {
 // ProjectLintResult represents the linting results by project.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/lint.html#validate-a-projects-ci-configuration
+// https://docs.gitlab.com/api/lint/
 type ProjectLintResult struct {
 	Valid      bool      `json:"valid"`
 	Errors     []string  `json:"errors"`
@@ -66,40 +75,10 @@ type Include struct {
 	ContextSHA     string                 `json:"context_sha"`
 }
 
-// LintOptions represents the available Lint() options.
-//
-// Gitlab API docs:
-// https://docs.gitlab.com/ee/api/lint.html#validate-the-ci-yaml-configuration
-type LintOptions struct {
-	Content           string `url:"content,omitempty" json:"content,omitempty"`
-	IncludeMergedYAML bool   `url:"include_merged_yaml,omitempty" json:"include_merged_yaml,omitempty"`
-	IncludeJobs       bool   `url:"include_jobs,omitempty" json:"include_jobs,omitempty"`
-}
-
-// Lint validates .gitlab-ci.yml content.
-// Deprecated: This endpoint was removed in GitLab 16.0.
-//
-// Gitlab API docs:
-// https://docs.gitlab.com/ee/api/lint.html#validate-the-ci-yaml-configuration-deprecated
-func (s *ValidateService) Lint(opts *LintOptions, options ...RequestOptionFunc) (*LintResult, *Response, error) {
-	req, err := s.client.NewRequest(http.MethodPost, "ci/lint", &opts, options)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	l := new(LintResult)
-	resp, err := s.client.Do(req, l)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return l, resp, nil
-}
-
 // ProjectNamespaceLintOptions represents the available ProjectNamespaceLint() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/lint.html#validate-a-ci-yaml-configuration-with-a-namespace
+// https://docs.gitlab.com/api/lint/#validate-sample-cicd-configuration
 type ProjectNamespaceLintOptions struct {
 	Content     *string `url:"content,omitempty" json:"content,omitempty"`
 	DryRun      *bool   `url:"dry_run,omitempty" json:"dry_run,omitempty"`
@@ -110,7 +89,7 @@ type ProjectNamespaceLintOptions struct {
 // ProjectNamespaceLint validates .gitlab-ci.yml content by project.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/lint.html#validate-a-ci-yaml-configuration-with-a-namespace
+// https://docs.gitlab.com/api/lint/#validate-sample-cicd-configuration
 func (s *ValidateService) ProjectNamespaceLint(pid interface{}, opt *ProjectNamespaceLintOptions, options ...RequestOptionFunc) (*ProjectLintResult, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -135,7 +114,7 @@ func (s *ValidateService) ProjectNamespaceLint(pid interface{}, opt *ProjectName
 // ProjectLintOptions represents the available ProjectLint() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/lint.html#validate-a-projects-ci-configuration
+// https://docs.gitlab.com/api/lint/#validate-a-projects-cicd-configuration
 type ProjectLintOptions struct {
 	ContentRef  *string `url:"content_ref,omitempty" json:"content_ref,omitempty"`
 	DryRunRef   *string `url:"dry_run_ref,omitempty" json:"dry_run_ref,omitempty"`
@@ -147,7 +126,7 @@ type ProjectLintOptions struct {
 // ProjectLint validates .gitlab-ci.yml content by project.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/lint.html#validate-a-projects-ci-configuration
+// https://docs.gitlab.com/api/lint/#validate-a-projects-cicd-configuration
 func (s *ValidateService) ProjectLint(pid interface{}, opt *ProjectLintOptions, options ...RequestOptionFunc) (*ProjectLintResult, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {

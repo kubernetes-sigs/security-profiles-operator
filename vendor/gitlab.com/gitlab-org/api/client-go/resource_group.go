@@ -22,14 +22,25 @@ import (
 	"time"
 )
 
-// ResourceGroupService handles communication with the resource
-// group related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/resource_groups.html
-type ResourceGroupService struct {
-	client *Client
-}
+type (
+	ResourceGroupServiceInterface interface {
+		GetAllResourceGroupsForAProject(pid interface{}, options ...RequestOptionFunc) ([]*ResourceGroup, *Response, error)
+		GetASpecificResourceGroup(pid interface{}, key string, options ...RequestOptionFunc) (*ResourceGroup, *Response, error)
+		ListUpcomingJobsForASpecificResourceGroup(pid interface{}, key string, options ...RequestOptionFunc) ([]*Job, *Response, error)
+		EditAnExistingResourceGroup(pid interface{}, key string, opts *EditAnExistingResourceGroupOptions, options ...RequestOptionFunc) (*ResourceGroup, *Response, error)
+	}
+
+	// ResourceGroupService handles communication with the resource
+	// group related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/resource_groups.html
+	ResourceGroupService struct {
+		client *Client
+	}
+)
+
+var _ ResourceGroupServiceInterface = (*ResourceGroupService)(nil)
 
 // ResourceGrouop represents a GitLab Project Resource Group.
 //

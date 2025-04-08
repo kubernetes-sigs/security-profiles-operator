@@ -6,13 +6,24 @@ import (
 	"time"
 )
 
-// MergeTrainsService handles communication with the merge trains related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/merge_trains.html
-type MergeTrainsService struct {
-	client *Client
-}
+type (
+	MergeTrainsServiceInterface interface {
+		ListProjectMergeTrains(pid interface{}, opt *ListMergeTrainsOptions, options ...RequestOptionFunc) ([]*MergeTrain, *Response, error)
+		ListMergeRequestInMergeTrain(pid interface{}, targetBranch string, opts *ListMergeTrainsOptions, options ...RequestOptionFunc) ([]*MergeTrain, *Response, error)
+		GetMergeRequestOnAMergeTrain(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*MergeTrain, *Response, error)
+		AddMergeRequestToMergeTrain(pid interface{}, mergeRequest int, opts *AddMergeRequestToMergeTrainOptions, options ...RequestOptionFunc) ([]*MergeTrain, *Response, error)
+	}
+
+	// MergeTrainsService handles communication with the merge trains related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/merge_trains.html
+	MergeTrainsService struct {
+		client *Client
+	}
+)
+
+var _ MergeTrainsServiceInterface = (*MergeTrainsService)(nil)
 
 // MergeTrain represents a Gitlab merge train.
 //

@@ -199,9 +199,10 @@ func URLToPath(url string) string {
 	// Strip scheme, replace slashes with dashes
 	// e.g. https://github.github.com/prod-tuf-root -> github.github.com-prod-tuf-root
 	fn := url
-	if len(fn) > 8 && fn[:8] == "https://" {
-		fn = fn[8:]
-	}
+	fn, _ = strings.CutPrefix(fn, "https://")
+	fn, _ = strings.CutPrefix(fn, "http://")
 	fn = strings.ReplaceAll(fn, "/", "-")
-	return fn
+	fn = strings.ReplaceAll(fn, ":", "-")
+
+	return strings.ToLower(fn)
 }

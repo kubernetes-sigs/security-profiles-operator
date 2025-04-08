@@ -39,13 +39,22 @@ type LicenseTemplate struct {
 	Content     string   `json:"content"`
 }
 
-// LicenseTemplatesService handles communication with the license templates
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/templates/licenses.html
-type LicenseTemplatesService struct {
-	client *Client
-}
+type (
+	LicenseTemplatesServiceInterface interface {
+		ListLicenseTemplates(opt *ListLicenseTemplatesOptions, options ...RequestOptionFunc) ([]*LicenseTemplate, *Response, error)
+		GetLicenseTemplate(template string, opt *GetLicenseTemplateOptions, options ...RequestOptionFunc) (*LicenseTemplate, *Response, error)
+	}
+
+	// LicenseTemplatesService handles communication with the license templates
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/templates/licenses.html
+	LicenseTemplatesService struct {
+		client *Client
+	}
+)
+
+var _ LicenseTemplatesServiceInterface = (*LicenseTemplatesService)(nil)
 
 // ListLicenseTemplatesOptions represents the available
 // ListLicenseTemplates() options.

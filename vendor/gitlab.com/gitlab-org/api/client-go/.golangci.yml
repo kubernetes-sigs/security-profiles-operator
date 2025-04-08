@@ -31,6 +31,7 @@ linters:
     - errorlint
     - goconst
     - gosimple
+    - gofumpt
     - govet
     - ineffassign
     - misspell

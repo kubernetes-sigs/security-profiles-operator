@@ -21,13 +21,27 @@ import (
 	"time"
 )
 
-// DeploymentsService handles communication with the deployment related methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/deployments.html
-type DeploymentsService struct {
-	client *Client
-}
+type (
+	// DeploymentsServiceInterface defines all the API methods for the DeploymentsService
+	DeploymentsServiceInterface interface {
+		ListProjectDeployments(pid interface{}, opts *ListProjectDeploymentsOptions, options ...RequestOptionFunc) ([]*Deployment, *Response, error)
+		GetProjectDeployment(pid interface{}, deployment int, options ...RequestOptionFunc) (*Deployment, *Response, error)
+		CreateProjectDeployment(pid interface{}, opt *CreateProjectDeploymentOptions, options ...RequestOptionFunc) (*Deployment, *Response, error)
+		UpdateProjectDeployment(pid interface{}, deployment int, opt *UpdateProjectDeploymentOptions, options ...RequestOptionFunc) (*Deployment, *Response, error)
+		ApproveOrRejectProjectDeployment(pid interface{}, deployment int, opt *ApproveOrRejectProjectDeploymentOptions, options ...RequestOptionFunc) (*Response, error)
+		DeleteProjectDeployment(pid interface{}, deployment int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// DeploymentsService handles communication with the deployment related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/deployments.html
+	DeploymentsService struct {
+		client *Client
+	}
+)
+
+var _ DeploymentsServiceInterface = (*DeploymentsService)(nil)
 
 // Deployment represents the Gitlab deployment
 type Deployment struct {

@@ -24,86 +24,141 @@ import (
 	"time"
 )
 
-// MergeRequestsService handles communication with the merge requests related
-// methods of the GitLab API.
+type (
+	MergeRequestsServiceInterface interface {
+		ListMergeRequests(opt *ListMergeRequestsOptions, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error)
+		ListProjectMergeRequests(pid interface{}, opt *ListProjectMergeRequestsOptions, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error)
+		ListGroupMergeRequests(gid interface{}, opt *ListGroupMergeRequestsOptions, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error)
+		GetMergeRequest(pid interface{}, mergeRequest int, opt *GetMergeRequestsOptions, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		GetMergeRequestApprovals(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*MergeRequestApprovals, *Response, error)
+		GetMergeRequestCommits(pid interface{}, mergeRequest int, opt *GetMergeRequestCommitsOptions, options ...RequestOptionFunc) ([]*Commit, *Response, error)
+		GetMergeRequestChanges(pid interface{}, mergeRequest int, opt *GetMergeRequestChangesOptions, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		ListMergeRequestDiffs(pid interface{}, mergeRequest int, opt *ListMergeRequestDiffsOptions, options ...RequestOptionFunc) ([]*MergeRequestDiff, *Response, error)
+		ShowMergeRequestRawDiffs(pid interface{}, mergeRequest int, opt *ShowMergeRequestRawDiffsOptions, options ...RequestOptionFunc) ([]byte, *Response, error)
+		GetMergeRequestParticipants(pid interface{}, mergeRequest int, options ...RequestOptionFunc) ([]*BasicUser, *Response, error)
+		GetMergeRequestReviewers(pid interface{}, mergeRequest int, options ...RequestOptionFunc) ([]*MergeRequestReviewer, *Response, error)
+		ListMergeRequestPipelines(pid interface{}, mergeRequest int, options ...RequestOptionFunc) ([]*PipelineInfo, *Response, error)
+		CreateMergeRequestPipeline(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*PipelineInfo, *Response, error)
+		GetIssuesClosedOnMerge(pid interface{}, mergeRequest int, opt *GetIssuesClosedOnMergeOptions, options ...RequestOptionFunc) ([]*Issue, *Response, error)
+		CreateMergeRequest(pid interface{}, opt *CreateMergeRequestOptions, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		UpdateMergeRequest(pid interface{}, mergeRequest int, opt *UpdateMergeRequestOptions, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		DeleteMergeRequest(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*Response, error)
+		AcceptMergeRequest(pid interface{}, mergeRequest int, opt *AcceptMergeRequestOptions, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		CancelMergeWhenPipelineSucceeds(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		RebaseMergeRequest(pid interface{}, mergeRequest int, opt *RebaseMergeRequestOptions, options ...RequestOptionFunc) (*Response, error)
+		GetMergeRequestDiffVersions(pid interface{}, mergeRequest int, opt *GetMergeRequestDiffVersionsOptions, options ...RequestOptionFunc) ([]*MergeRequestDiffVersion, *Response, error)
+		GetSingleMergeRequestDiffVersion(pid interface{}, mergeRequest, version int, opt *GetSingleMergeRequestDiffVersionOptions, options ...RequestOptionFunc) (*MergeRequestDiffVersion, *Response, error)
+		SubscribeToMergeRequest(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		UnsubscribeFromMergeRequest(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		CreateTodo(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*Todo, *Response, error)
+		SetTimeEstimate(pid interface{}, mergeRequest int, opt *SetTimeEstimateOptions, options ...RequestOptionFunc) (*TimeStats, *Response, error)
+		ResetTimeEstimate(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*TimeStats, *Response, error)
+		AddSpentTime(pid interface{}, mergeRequest int, opt *AddSpentTimeOptions, options ...RequestOptionFunc) (*TimeStats, *Response, error)
+		ResetSpentTime(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*TimeStats, *Response, error)
+		GetTimeSpent(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*TimeStats, *Response, error)
+		CreateMergeRequestDependency(pid interface{}, mergeRequest int, opts CreateMergeRequestDependencyOptions, options ...RequestOptionFunc) (*MergeRequestDependency, *Response, error)
+		DeleteMergeRequestDependency(pid interface{}, mergeRequest int, blockingMergeRequest int, options ...RequestOptionFunc) (*Response, error)
+		GetMergeRequestDependencies(pid interface{}, mergeRequest int, options ...RequestOptionFunc) ([]MergeRequestDependency, *Response, error)
+	}
+
+	// MergeRequestsService handles communication with the merge requests related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/merge_requests.html
+	MergeRequestsService struct {
+		client    *Client
+		timeStats *timeStatsService
+	}
+)
+
+var _ MergeRequestsServiceInterface = (*MergeRequestsService)(nil)
+
+// BasicMergeRequest represents a basic GitLab merge request.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/merge_requests.html
-type MergeRequestsService struct {
-	client    *Client
-	timeStats *timeStatsService
+// GitLab API docs:
+// https://docs.gitlab.com/ee/api/merge_requests.html
+type BasicMergeRequest struct {
+	ID                          int                    `json:"id"`
+	IID                         int                    `json:"iid"`
+	TargetBranch                string                 `json:"target_branch"`
+	SourceBranch                string                 `json:"source_branch"`
+	ProjectID                   int                    `json:"project_id"`
+	Title                       string                 `json:"title"`
+	State                       string                 `json:"state"`
+	Imported                    bool                   `json:"imported"`
+	ImportedFrom                string                 `json:"imported_from"`
+	CreatedAt                   *time.Time             `json:"created_at"`
+	UpdatedAt                   *time.Time             `json:"updated_at"`
+	Upvotes                     int                    `json:"upvotes"`
+	Downvotes                   int                    `json:"downvotes"`
+	Author                      *BasicUser             `json:"author"`
+	Assignee                    *BasicUser             `json:"assignee"`
+	Assignees                   []*BasicUser           `json:"assignees"`
+	Reviewers                   []*BasicUser           `json:"reviewers"`
+	SourceProjectID             int                    `json:"source_project_id"`
+	TargetProjectID             int                    `json:"target_project_id"`
+	Labels                      Labels                 `json:"labels"`
+	LabelDetails                []*LabelDetails        `json:"label_details"`
+	Description                 string                 `json:"description"`
+	Draft                       bool                   `json:"draft"`
+	Milestone                   *Milestone             `json:"milestone"`
+	MergeWhenPipelineSucceeds   bool                   `json:"merge_when_pipeline_succeeds"`
+	DetailedMergeStatus         string                 `json:"detailed_merge_status"`
+	MergedBy                    *BasicUser             `json:"merged_by"`
+	MergeUser                   *BasicUser             `json:"merge_user"`
+	MergedAt                    *time.Time             `json:"merged_at"`
+	MergeAfter                  *time.Time             `json:"merge_after"`
+	PreparedAt                  *time.Time             `json:"prepared_at"`
+	ClosedBy                    *BasicUser             `json:"closed_by"`
+	ClosedAt                    *time.Time             `json:"closed_at"`
+	SHA                         string                 `json:"sha"`
+	MergeCommitSHA              string                 `json:"merge_commit_sha"`
+	SquashCommitSHA             string                 `json:"squash_commit_sha"`
+	UserNotesCount              int                    `json:"user_notes_count"`
+	ShouldRemoveSourceBranch    bool                   `json:"should_remove_source_branch"`
+	ForceRemoveSourceBranch     bool                   `json:"force_remove_source_branch"`
+	AllowCollaboration          bool                   `json:"allow_collaboration"`
+	AllowMaintainerToPush       bool                   `json:"allow_maintainer_to_push"`
+	WebURL                      string                 `json:"web_url"`
+	References                  *IssueReferences       `json:"references"`
+	DiscussionLocked            bool                   `json:"discussion_locked"`
+	TimeStats                   *TimeStats             `json:"time_stats"`
+	Squash                      bool                   `json:"squash"`
+	SquashOnMerge               bool                   `json:"squash_on_merge"`
+	TaskCompletionStatus        *TasksCompletionStatus `json:"task_completion_status"`
+	HasConflicts                bool                   `json:"has_conflicts"`
+	BlockingDiscussionsResolved bool                   `json:"blocking_discussions_resolved"`
+}
+
+func (m BasicMergeRequest) String() string {
+	return Stringify(m)
 }
 
 // MergeRequest represents a GitLab merge request.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/merge_requests.html
 type MergeRequest struct {
-	ID                        int                 `json:"id"`
-	IID                       int                 `json:"iid"`
-	TargetBranch              string              `json:"target_branch"`
-	SourceBranch              string              `json:"source_branch"`
-	ProjectID                 int                 `json:"project_id"`
-	Title                     string              `json:"title"`
-	State                     string              `json:"state"`
-	CreatedAt                 *time.Time          `json:"created_at"`
-	UpdatedAt                 *time.Time          `json:"updated_at"`
-	Upvotes                   int                 `json:"upvotes"`
-	Downvotes                 int                 `json:"downvotes"`
-	Author                    *BasicUser          `json:"author"`
-	Assignee                  *BasicUser          `json:"assignee"`
-	Assignees                 []*BasicUser        `json:"assignees"`
-	Reviewers                 []*BasicUser        `json:"reviewers"`
-	SourceProjectID           int                 `json:"source_project_id"`
-	TargetProjectID           int                 `json:"target_project_id"`
-	Labels                    Labels              `json:"labels"`
-	LabelDetails              []*LabelDetails     `json:"label_details"`
-	Description               string              `json:"description"`
-	Draft                     bool                `json:"draft"`
-	WorkInProgress            bool                `json:"work_in_progress"`
-	Milestone                 *Milestone          `json:"milestone"`
-	MergeWhenPipelineSucceeds bool                `json:"merge_when_pipeline_succeeds"`
-	DetailedMergeStatus       string              `json:"detailed_merge_status"`
-	MergeError                string              `json:"merge_error"`
-	MergedBy                  *BasicUser          `json:"merged_by"`
-	MergedAt                  *time.Time          `json:"merged_at"`
-	ClosedBy                  *BasicUser          `json:"closed_by"`
-	ClosedAt                  *time.Time          `json:"closed_at"`
-	Subscribed                bool                `json:"subscribed"`
-	SHA                       string              `json:"sha"`
-	MergeCommitSHA            string              `json:"merge_commit_sha"`
-	SquashCommitSHA           string              `json:"squash_commit_sha"`
-	UserNotesCount            int                 `json:"user_notes_count"`
-	ChangesCount              string              `json:"changes_count"`
-	ShouldRemoveSourceBranch  bool                `json:"should_remove_source_branch"`
-	ForceRemoveSourceBranch   bool                `json:"force_remove_source_branch"`
-	AllowCollaboration        bool                `json:"allow_collaboration"`
-	WebURL                    string              `json:"web_url"`
-	References                *IssueReferences    `json:"references"`
-	DiscussionLocked          bool                `json:"discussion_locked"`
-	Changes                   []*MergeRequestDiff `json:"changes"`
-	User                      struct {
+	BasicMergeRequest
+	WorkInProgress bool   `json:"work_in_progress"`
+	MergeError     string `json:"merge_error"`
+	Subscribed     bool   `json:"subscribed"`
+	ChangesCount   string `json:"changes_count"`
+	User           struct {
 		CanMerge bool `json:"can_merge"`
 	} `json:"user"`
-	TimeStats    *TimeStats    `json:"time_stats"`
-	Squash       bool          `json:"squash"`
-	Pipeline     *PipelineInfo `json:"pipeline"`
-	HeadPipeline *Pipeline     `json:"head_pipeline"`
-	DiffRefs     struct {
+	LatestBuildStartedAt        *time.Time    `json:"latest_build_started_at"`
+	LatestBuildFinishedAt       *time.Time    `json:"latest_build_finished_at"`
+	FirstDeployedToProductionAt *time.Time    `json:"first_deployed_to_production_at"`
+	Pipeline                    *PipelineInfo `json:"pipeline"`
+	HeadPipeline                *Pipeline     `json:"head_pipeline"`
+	DiffRefs                    struct {
 		BaseSha  string `json:"base_sha"`
 		HeadSha  string `json:"head_sha"`
 		StartSha string `json:"start_sha"`
 	} `json:"diff_refs"`
-	DivergedCommitsCount        int                    `json:"diverged_commits_count"`
-	RebaseInProgress            bool                   `json:"rebase_in_progress"`
-	ApprovalsBeforeMerge        int                    `json:"approvals_before_merge"`
-	Reference                   string                 `json:"reference"`
-	FirstContribution           bool                   `json:"first_contribution"`
-	TaskCompletionStatus        *TasksCompletionStatus `json:"task_completion_status"`
-	HasConflicts                bool                   `json:"has_conflicts"`
-	BlockingDiscussionsResolved bool                   `json:"blocking_discussions_resolved"`
-	Overflow                    bool                   `json:"overflow"`
-
-	// Deprecated: This parameter is replaced by DetailedMergeStatus in GitLab 15.6.
-	MergeStatus string `json:"merge_status"`
+	RebaseInProgress     bool `json:"rebase_in_progress"`
+	DivergedCommitsCount int  `json:"diverged_commits_count"`
+	FirstContribution    bool `json:"first_contribution"`
 }
 
 func (m MergeRequest) String() string {
@@ -226,13 +281,13 @@ type ListMergeRequestsOptions struct {
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/merge_requests.html#list-merge-requests
-func (s *MergeRequestsService) ListMergeRequests(opt *ListMergeRequestsOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error) {
+func (s *MergeRequestsService) ListMergeRequests(opt *ListMergeRequestsOptions, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error) {
 	req, err := s.client.NewRequest(http.MethodGet, "merge_requests", opt, options)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var m []*MergeRequest
+	var m []*BasicMergeRequest
 	resp, err := s.client.Do(req, &m)
 	if err != nil {
 		return nil, resp, err
@@ -283,7 +338,7 @@ type ListProjectMergeRequestsOptions struct {
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/merge_requests.html#list-project-merge-requests
-func (s *MergeRequestsService) ListProjectMergeRequests(pid interface{}, opt *ListProjectMergeRequestsOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error) {
+func (s *MergeRequestsService) ListProjectMergeRequests(pid interface{}, opt *ListProjectMergeRequestsOptions, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
@@ -295,7 +350,7 @@ func (s *MergeRequestsService) ListProjectMergeRequests(pid interface{}, opt *Li
 		return nil, nil, err
 	}
 
-	var m []*MergeRequest
+	var m []*BasicMergeRequest
 	resp, err := s.client.Do(req, &m)
 	if err != nil {
 		return nil, resp, err
@@ -346,7 +401,7 @@ type ListGroupMergeRequestsOptions struct {
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/merge_requests.html#list-group-merge-requests
-func (s *MergeRequestsService) ListGroupMergeRequests(gid interface{}, opt *ListGroupMergeRequestsOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error) {
+func (s *MergeRequestsService) ListGroupMergeRequests(gid interface{}, opt *ListGroupMergeRequestsOptions, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
 		return nil, nil, err
@@ -358,7 +413,7 @@ func (s *MergeRequestsService) ListGroupMergeRequests(gid interface{}, opt *List
 		return nil, nil, err
 	}
 
-	var m []*MergeRequest
+	var m []*BasicMergeRequest
 	resp, err := s.client.Do(req, &m)
 	if err != nil {
 		return nil, resp, err
@@ -1202,7 +1257,7 @@ type CreateMergeRequestDependencyOptions struct {
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/merge_requests.html#create-a-merge-request-dependency
-func (s *MergeRequestsService) CreateMergeRequestDependency(pid interface{}, mergeRequest int, opts CreateMergeRequestDependencyOptions, options ...RequestOptionFunc) ([]MergeRequestDependency, *Response, error) {
+func (s *MergeRequestsService) CreateMergeRequestDependency(pid interface{}, mergeRequest int, opts CreateMergeRequestDependencyOptions, options ...RequestOptionFunc) (*MergeRequestDependency, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
@@ -1214,13 +1269,13 @@ func (s *MergeRequestsService) CreateMergeRequestDependency(pid interface{}, mer
 		return nil, nil, err
 	}
 
-	var mrd []MergeRequestDependency
+	var mrd MergeRequestDependency
 	resp, err := s.client.Do(req, &mrd)
 	if err != nil {
 		return nil, resp, err
 	}
 
-	return mrd, resp, err
+	return &mrd, resp, err
 }
 
 // DeleteMergeRequestDependency deletes a merge request dependency for a given

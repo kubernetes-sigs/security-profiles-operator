@@ -22,13 +22,27 @@ import (
 	"time"
 )
 
-// PipelineTriggersService handles Project pipeline triggers.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/pipeline_triggers.html
-type PipelineTriggersService struct {
-	client *Client
-}
+type (
+	PipelineTriggersServiceInterface interface {
+		ListPipelineTriggers(pid interface{}, opt *ListPipelineTriggersOptions, options ...RequestOptionFunc) ([]*PipelineTrigger, *Response, error)
+		GetPipelineTrigger(pid interface{}, trigger int, options ...RequestOptionFunc) (*PipelineTrigger, *Response, error)
+		AddPipelineTrigger(pid interface{}, opt *AddPipelineTriggerOptions, options ...RequestOptionFunc) (*PipelineTrigger, *Response, error)
+		EditPipelineTrigger(pid interface{}, trigger int, opt *EditPipelineTriggerOptions, options ...RequestOptionFunc) (*PipelineTrigger, *Response, error)
+		TakeOwnershipOfPipelineTrigger(pid interface{}, trigger int, options ...RequestOptionFunc) (*PipelineTrigger, *Response, error)
+		DeletePipelineTrigger(pid interface{}, trigger int, options ...RequestOptionFunc) (*Response, error)
+		RunPipelineTrigger(pid interface{}, opt *RunPipelineTriggerOptions, options ...RequestOptionFunc) (*Pipeline, *Response, error)
+	}
+
+	// PipelineTriggersService handles Project pipeline triggers.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/pipeline_triggers.html
+	PipelineTriggersService struct {
+		client *Client
+	}
+)
+
+var _ PipelineTriggersServiceInterface = (*PipelineTriggersService)(nil)
 
 // PipelineTrigger represents a project pipeline trigger.
 //

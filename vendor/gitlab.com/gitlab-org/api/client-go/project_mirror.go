@@ -22,13 +22,26 @@ import (
 	"time"
 )
 
-// ProjectMirrorService handles communication with the project mirror
-// related methods of the GitLab API.
-//
-// GitLAb API docs: https://docs.gitlab.com/ee/api/remote_mirrors.html
-type ProjectMirrorService struct {
-	client *Client
-}
+type (
+	ProjectMirrorServiceInterface interface {
+		ListProjectMirror(pid interface{}, opt *ListProjectMirrorOptions, options ...RequestOptionFunc) ([]*ProjectMirror, *Response, error)
+		GetProjectMirror(pid interface{}, mirror int, options ...RequestOptionFunc) (*ProjectMirror, *Response, error)
+		GetProjectMirrorPublicKey(pid interface{}, mirror int, options ...RequestOptionFunc) (*ProjectMirrorPublicKey, *Response, error)
+		AddProjectMirror(pid interface{}, opt *AddProjectMirrorOptions, options ...RequestOptionFunc) (*ProjectMirror, *Response, error)
+		EditProjectMirror(pid interface{}, mirror int, opt *EditProjectMirrorOptions, options ...RequestOptionFunc) (*ProjectMirror, *Response, error)
+		DeleteProjectMirror(pid interface{}, mirror int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProjectMirrorService handles communication with the project mirror
+	// related methods of the GitLab API.
+	//
+	// GitLAb API docs: https://docs.gitlab.com/ee/api/remote_mirrors.html
+	ProjectMirrorService struct {
+		client *Client
+	}
+)
+
+var _ ProjectMirrorServiceInterface = (*ProjectMirrorService)(nil)
 
 // ProjectMirror represents a project mirror configuration.
 //
@@ -45,6 +58,11 @@ type ProjectMirror struct {
 	KeepDivergentRefs      bool       `json:"keep_divergent_refs"`
 	UpdateStatus           string     `json:"update_status"`
 	URL                    string     `json:"url"`
+	AuthMethod             string     `json:"auth_method"`
+}
+
+type ProjectMirrorPublicKey struct {
+	PublicKey string `json:"public_key"`
 }
 
 // ListProjectMirrorOptions represents the available ListProjectMirror() options.
@@ -100,6 +118,31 @@ func (s *ProjectMirrorService) GetProjectMirror(pid interface{}, mirror int, opt
 	return pm, resp, nil
 }
 
+// GetProjectMirrorPublicKey gets the SSH public key for a single mirror configured on the project.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/remote_mirrors/#get-a-single-projects-remote-mirror-public-key
+func (s *ProjectMirrorService) GetProjectMirrorPublicKey(pid interface{}, mirror int, options ...RequestOptionFunc) (*ProjectMirrorPublicKey, *Response, error) {
+	project, err := parseID(pid)
+	if err != nil {
+		return nil, nil, err
+	}
+	u := fmt.Sprintf("projects/%s/remote_mirrors/%d/public_key", PathEscape(project), mirror)
+
+	req, err := s.client.NewRequest(http.MethodGet, u, nil, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pmpk := new(ProjectMirrorPublicKey)
+	resp, err := s.client.Do(req, &pmpk)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return pmpk, resp, nil
+}
+
 // AddProjectMirrorOptions contains the properties requires to create
 // a new project mirror.
 //
@@ -111,6 +154,7 @@ type AddProjectMirrorOptions struct {
 	KeepDivergentRefs     *bool   `url:"keep_divergent_refs,omitempty" json:"keep_divergent_refs,omitempty"`
 	OnlyProtectedBranches *bool   `url:"only_protected_branches,omitempty" json:"only_protected_branches,omitempty"`
 	MirrorBranchRegex     *string `url:"mirror_branch_regex,omitempty" json:"mirror_branch_regex,omitempty"`
+	AuthMethod            *string `url:"auth_method,omitempty" json:"auth_method,omitempty"`
 }
 
 // AddProjectMirror creates a new mirror on the project.
@@ -148,6 +192,7 @@ type EditProjectMirrorOptions struct {
 	KeepDivergentRefs     *bool   `url:"keep_divergent_refs,omitempty" json:"keep_divergent_refs,omitempty"`
 	OnlyProtectedBranches *bool   `url:"only_protected_branches,omitempty" json:"only_protected_branches,omitempty"`
 	MirrorBranchRegex     *string `url:"mirror_branch_regex,omitempty" json:"mirror_branch_regex,omitempty"`
+	AuthMethod            *string `url:"auth_method,omitempty" json:"auth_method,omitempty"`
 }
 
 // EditProjectMirror updates a project team member to a specified access level..

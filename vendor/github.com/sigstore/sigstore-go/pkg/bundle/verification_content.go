@@ -49,7 +49,7 @@ func (c *Certificate) CompareKey(key any, _ root.TrustedMaterial) bool {
 }
 
 func (c *Certificate) ValidAtTime(t time.Time, _ root.TrustedMaterial) bool {
-	return !(c.certificate.NotAfter.Before(t) || c.certificate.NotBefore.After(t))
+	return !c.certificate.NotAfter.Before(t) && !c.certificate.NotBefore.After(t)
 }
 
 func (c *Certificate) Certificate() *x509.Certificate {

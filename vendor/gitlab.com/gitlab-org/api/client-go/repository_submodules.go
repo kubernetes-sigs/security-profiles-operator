@@ -22,13 +22,21 @@ import (
 	"time"
 )
 
-// RepositorySubmodulesService handles communication with the repository
-// submodules related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/repository_submodules.html
-type RepositorySubmodulesService struct {
-	client *Client
-}
+type (
+	RepositorySubmodulesServiceInterface interface {
+		UpdateSubmodule(pid interface{}, submodule string, opt *UpdateSubmoduleOptions, options ...RequestOptionFunc) (*SubmoduleCommit, *Response, error)
+	}
+
+	// RepositorySubmodulesService handles communication with the repository
+	// submodules related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/repository_submodules.html
+	RepositorySubmodulesService struct {
+		client *Client
+	}
+)
+
+var _ RepositorySubmodulesServiceInterface = (*RepositorySubmodulesService)(nil)
 
 // SubmoduleCommit represents a GitLab submodule commit.
 //

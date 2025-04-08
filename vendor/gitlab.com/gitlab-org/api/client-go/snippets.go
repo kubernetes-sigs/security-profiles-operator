@@ -23,13 +23,29 @@ import (
 	"time"
 )
 
-// SnippetsService handles communication with the snippets
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/snippets.html
-type SnippetsService struct {
-	client *Client
-}
+type (
+	SnippetsServiceInterface interface {
+		ListSnippets(opt *ListSnippetsOptions, options ...RequestOptionFunc) ([]*Snippet, *Response, error)
+		GetSnippet(snippet int, options ...RequestOptionFunc) (*Snippet, *Response, error)
+		SnippetContent(snippet int, options ...RequestOptionFunc) ([]byte, *Response, error)
+		SnippetFileContent(snippet int, ref, filename string, options ...RequestOptionFunc) ([]byte, *Response, error)
+		CreateSnippet(opt *CreateSnippetOptions, options ...RequestOptionFunc) (*Snippet, *Response, error)
+		UpdateSnippet(snippet int, opt *UpdateSnippetOptions, options ...RequestOptionFunc) (*Snippet, *Response, error)
+		DeleteSnippet(snippet int, options ...RequestOptionFunc) (*Response, error)
+		ExploreSnippets(opt *ExploreSnippetsOptions, options ...RequestOptionFunc) ([]*Snippet, *Response, error)
+		ListAllSnippets(opt *ListAllSnippetsOptions, options ...RequestOptionFunc) ([]*Snippet, *Response, error)
+	}
+
+	// SnippetsService handles communication with the snippets
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/snippets.html
+	SnippetsService struct {
+		client *Client
+	}
+)
+
+var _ SnippetsServiceInterface = (*SnippetsService)(nil)
 
 // Snippet represents a GitLab snippet.
 //

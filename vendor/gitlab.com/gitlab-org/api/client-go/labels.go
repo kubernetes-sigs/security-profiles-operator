@@ -22,13 +22,28 @@ import (
 	"net/http"
 )
 
-// LabelsService handles communication with the label related methods of the
-// GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/labels.html
-type LabelsService struct {
-	client *Client
-}
+type (
+	LabelsServiceInterface interface {
+		ListLabels(pid interface{}, opt *ListLabelsOptions, options ...RequestOptionFunc) ([]*Label, *Response, error)
+		GetLabel(pid interface{}, lid interface{}, options ...RequestOptionFunc) (*Label, *Response, error)
+		CreateLabel(pid interface{}, opt *CreateLabelOptions, options ...RequestOptionFunc) (*Label, *Response, error)
+		DeleteLabel(pid interface{}, lid interface{}, opt *DeleteLabelOptions, options ...RequestOptionFunc) (*Response, error)
+		UpdateLabel(pid interface{}, lid interface{}, opt *UpdateLabelOptions, options ...RequestOptionFunc) (*Label, *Response, error)
+		SubscribeToLabel(pid interface{}, lid interface{}, options ...RequestOptionFunc) (*Label, *Response, error)
+		UnsubscribeFromLabel(pid interface{}, lid interface{}, options ...RequestOptionFunc) (*Response, error)
+		PromoteLabel(pid interface{}, lid interface{}, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// LabelsService handles communication with the label related methods of the
+	// GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/labels.html
+	LabelsService struct {
+		client *Client
+	}
+)
+
+var _ LabelsServiceInterface = (*LabelsService)(nil)
 
 // Label represents a GitLab label.
 //

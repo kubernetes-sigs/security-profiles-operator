@@ -22,14 +22,32 @@ import (
 	"time"
 )
 
-// MergeRequestApprovalsService handles communication with the merge request
-// approvals related methods of the GitLab API. This includes reading/updating
-// approval settings and approve/unapproving merge requests
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/merge_request_approvals.html
-type MergeRequestApprovalsService struct {
-	client *Client
-}
+type (
+	MergeRequestApprovalsServiceInterface interface {
+		ApproveMergeRequest(pid interface{}, mr int, opt *ApproveMergeRequestOptions, options ...RequestOptionFunc) (*MergeRequestApprovals, *Response, error)
+		UnapproveMergeRequest(pid interface{}, mr int, options ...RequestOptionFunc) (*Response, error)
+		ResetApprovalsOfMergeRequest(pid interface{}, mr int, options ...RequestOptionFunc) (*Response, error)
+		GetConfiguration(pid interface{}, mr int, options ...RequestOptionFunc) (*MergeRequestApprovals, *Response, error)
+		ChangeApprovalConfiguration(pid interface{}, mergeRequest int, opt *ChangeMergeRequestApprovalConfigurationOptions, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		ChangeAllowedApprovers(pid interface{}, mergeRequest int, opt *ChangeMergeRequestAllowedApproversOptions, options ...RequestOptionFunc) (*MergeRequest, *Response, error)
+		GetApprovalRules(pid interface{}, mergeRequest int, options ...RequestOptionFunc) ([]*MergeRequestApprovalRule, *Response, error)
+		GetApprovalState(pid interface{}, mergeRequest int, options ...RequestOptionFunc) (*MergeRequestApprovalState, *Response, error)
+		CreateApprovalRule(pid interface{}, mergeRequest int, opt *CreateMergeRequestApprovalRuleOptions, options ...RequestOptionFunc) (*MergeRequestApprovalRule, *Response, error)
+		UpdateApprovalRule(pid interface{}, mergeRequest int, approvalRule int, opt *UpdateMergeRequestApprovalRuleOptions, options ...RequestOptionFunc) (*MergeRequestApprovalRule, *Response, error)
+		DeleteApprovalRule(pid interface{}, mergeRequest int, approvalRule int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// MergeRequestApprovalsService handles communication with the merge request
+	// approvals related methods of the GitLab API. This includes reading/updating
+	// approval settings and approve/unapproving merge requests
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/merge_request_approvals.html
+	MergeRequestApprovalsService struct {
+		client *Client
+	}
+)
+
+var _ MergeRequestApprovalsServiceInterface = (*MergeRequestApprovalsService)(nil)
 
 // MergeRequestApprovals represents GitLab merge request approvals.
 //

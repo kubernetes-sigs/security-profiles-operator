@@ -260,7 +260,7 @@ func publicKeyToProtobufPublicKey(publicKey crypto.PublicKey, start time.Time, e
 		default:
 			return nil, fmt.Errorf("unsupported public modulus for RSA key: %d", p.Size())
 		}
-	case *ed25519.PublicKey:
+	case ed25519.PublicKey:
 		pkd.KeyDetails = protocommon.PublicKeyDetails_PKIX_ED25519
 	default:
 		return nil, fmt.Errorf("unknown public key type: %T", p)

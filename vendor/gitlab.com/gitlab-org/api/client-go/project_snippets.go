@@ -22,13 +22,26 @@ import (
 	"net/http"
 )
 
-// ProjectSnippetsService handles communication with the project snippets
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/project_snippets.html
-type ProjectSnippetsService struct {
-	client *Client
-}
+type (
+	ProjectSnippetsServiceInterface interface {
+		ListSnippets(pid interface{}, opt *ListProjectSnippetsOptions, options ...RequestOptionFunc) ([]*Snippet, *Response, error)
+		GetSnippet(pid interface{}, snippet int, options ...RequestOptionFunc) (*Snippet, *Response, error)
+		CreateSnippet(pid interface{}, opt *CreateProjectSnippetOptions, options ...RequestOptionFunc) (*Snippet, *Response, error)
+		UpdateSnippet(pid interface{}, snippet int, opt *UpdateProjectSnippetOptions, options ...RequestOptionFunc) (*Snippet, *Response, error)
+		DeleteSnippet(pid interface{}, snippet int, options ...RequestOptionFunc) (*Response, error)
+		SnippetContent(pid interface{}, snippet int, options ...RequestOptionFunc) ([]byte, *Response, error)
+	}
+
+	// ProjectSnippetsService handles communication with the project snippets
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/project_snippets.html
+	ProjectSnippetsService struct {
+		client *Client
+	}
+)
+
+var _ ProjectSnippetsServiceInterface = (*ProjectSnippetsService)(nil)
 
 // ListProjectSnippetsOptions represents the available ListSnippets() options.
 //

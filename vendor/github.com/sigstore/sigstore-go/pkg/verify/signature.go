@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"slices"
 
 	in_toto "github.com/in-toto/attestation/go/v1"
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
@@ -56,42 +57,51 @@ func VerifySignature(sigContent SignatureContent, verificationContent Verificati
 	return fmt.Errorf("signature content has neither an envelope or a message")
 }
 
-func VerifySignatureWithArtifact(sigContent SignatureContent, verificationContent VerificationContent, trustedMaterial root.TrustedMaterial, artifact io.Reader) error { // nolint: revive
-	var verifier signature.Verifier
-	var err error
-
-	verifier, err = getSignatureVerifier(verificationContent, trustedMaterial)
+func VerifySignatureWithArtifacts(sigContent SignatureContent, verificationContent VerificationContent, trustedMaterial root.TrustedMaterial, artifacts []io.Reader) error { // nolint: revive
+	verifier, err := getSignatureVerifier(verificationContent, trustedMaterial)
 	if err != nil {
 		return fmt.Errorf("could not load signature verifier: %w", err)
 	}
 
-	if envelope := sigContent.EnvelopeContent(); envelope != nil {
-		return verifyEnvelopeWithArtifact(verifier, envelope, artifact)
-	} else if msg := sigContent.MessageSignatureContent(); msg != nil {
-		return verifyMessageSignature(verifier, msg, artifact)
+	envelope := sigContent.EnvelopeContent()
+	msg := sigContent.MessageSignatureContent()
+	if envelope == nil && msg == nil {
+		return fmt.Errorf("signature content has neither an envelope or a message")
+	}
+	// If there is only one artifact and no envelope,
+	// attempt to verify the message signature with the artifact.
+	if envelope == nil {
+		if len(artifacts) != 1 {
+			return fmt.Errorf("only one artifact can be verified with a message signature")
+		}
+		return verifyMessageSignature(verifier, msg, artifacts[0])
 	}
 
-	// handle an invalid signature content message
-	return fmt.Errorf("signature content has neither an envelope or a message")
+	// Otherwise, verify the envelope with the provided artifacts
+	return verifyEnvelopeWithArtifacts(verifier, envelope, artifacts)
 }
 
-func VerifySignatureWithArtifactDigest(sigContent SignatureContent, verificationContent VerificationContent, trustedMaterial root.TrustedMaterial, artifactDigest []byte, artifactDigestAlgorithm string) error { // nolint: revive
-	var verifier signature.Verifier
-	var err error
-
-	verifier, err = getSignatureVerifier(verificationContent, trustedMaterial)
+func VerifySignatureWithArtifactDigests(sigContent SignatureContent, verificationContent VerificationContent, trustedMaterial root.TrustedMaterial, digests []ArtifactDigest) error { // nolint: revive
+	verifier, err := getSignatureVerifier(verificationContent, trustedMaterial)
 	if err != nil {
 		return fmt.Errorf("could not load signature verifier: %w", err)
 	}
 
-	if envelope := sigContent.EnvelopeContent(); envelope != nil {
-		return verifyEnvelopeWithArtifactDigest(verifier, envelope, artifactDigest, artifactDigestAlgorithm)
-	} else if msg := sigContent.MessageSignatureContent(); msg != nil {
-		return verifyMessageSignatureWithArtifactDigest(verifier, msg, artifactDigest)
+	envelope := sigContent.EnvelopeContent()
+	msg := sigContent.MessageSignatureContent()
+	if envelope == nil && msg == nil {
+		return fmt.Errorf("signature content has neither an envelope or a message")
+	}
+	// If there is only one artifact and no envelope,
+	// attempt to verify the message signature with the artifact.
+	if envelope == nil {
+		if len(digests) != 1 {
+			return fmt.Errorf("only one artifact can be verified with a message signature")
+		}
+		return verifyMessageSignatureWithArtifactDigest(verifier, msg, digests[0].Digest)
 	}
 
-	// handle an invalid signature content message
-	return fmt.Errorf("signature content has neither an envelope or a message")
+	return verifyEnvelopeWithArtifactDigests(verifier, envelope, digests)
 }
 
 func getSignatureVerifier(verificationContent VerificationContent, tm root.TrustedMaterial) (signature.Verifier, error) {
@@ -134,9 +144,87 @@ func verifyEnvelope(verifier signature.Verifier, envelope EnvelopeContent) error
 	return nil
 }
 
-func verifyEnvelopeWithArtifact(verifier signature.Verifier, envelope EnvelopeContent, artifact io.Reader) error {
-	err := verifyEnvelope(verifier, envelope)
+func verifyEnvelopeWithArtifacts(verifier signature.Verifier, envelope EnvelopeContent, artifacts []io.Reader) error {
+	if err := verifyEnvelope(verifier, envelope); err != nil {
+		return err
+	}
+	statement, err := envelope.Statement()
 	if err != nil {
+		return fmt.Errorf("could not verify artifact: unable to extract statement from envelope: %w", err)
+	}
+	if err = limitSubjects(statement); err != nil {
+		return err
+	}
+	// Sanity check (no subjects)
+	if len(statement.Subject) == 0 {
+		return errors.New("no subjects found in statement")
+	}
+
+	// determine which hash functions to use
+	hashFuncs, err := getHashFunctions(statement)
+	if err != nil {
+		return fmt.Errorf("unable to determine hash functions: %w", err)
+	}
+
+	hashedArtifacts := make([]map[crypto.Hash][]byte, len(artifacts))
+	for i, artifact := range artifacts {
+		// Compute digest of the artifact.
+		hasher, err := newMultihasher(hashFuncs)
+		if err != nil {
+			return fmt.Errorf("could not verify artifact: unable to create hasher: %w", err)
+		}
+		if _, err = io.Copy(hasher, artifact); err != nil {
+			return fmt.Errorf("could not verify artifact: unable to calculate digest: %w", err)
+		}
+		hashedArtifacts[i] = hasher.Sum(nil)
+	}
+
+	// create a map based on the digests present in the statement
+	// the map key is the hash algorithm and the field is a slice of digests
+	// created using that hash algorithm
+	subjectDigests := make(map[crypto.Hash][][]byte)
+	for _, subject := range statement.Subject {
+		for alg, hexdigest := range subject.Digest {
+			hf, err := algStringToHashFunc(alg)
+			if err != nil {
+				continue
+			}
+			if _, ok := subjectDigests[hf]; !ok {
+				subjectDigests[hf] = make([][]byte, 0)
+			}
+			digest, err := hex.DecodeString(hexdigest)
+			if err != nil {
+				continue
+			}
+			subjectDigests[hf] = append(subjectDigests[hf], digest)
+		}
+	}
+
+	// now loop over the provided artifact digests and try to compare them
+	// to the mapped subject digests
+	// if we cannot find a match, exit with an error
+	for _, ha := range hashedArtifacts {
+		matchFound := false
+		for key, value := range ha {
+			statementDigests, ok := subjectDigests[key]
+			if !ok {
+				return fmt.Errorf("no matching artifact hash algorithm found in subject digests")
+			}
+			if ok := isDigestInSlice(value, statementDigests); ok {
+				matchFound = true
+				break
+			}
+		}
+		if !matchFound {
+			return fmt.Errorf("provided artifact digests do not match digests in statement")
+		}
+	}
+
+	return nil
+}
+
+func verifyEnvelopeWithArtifactDigests(verifier signature.Verifier, envelope EnvelopeContent, digests []ArtifactDigest) error {
+	if err := verifyEnvelope(verifier, envelope); err != nil {
 		return err
 	}
 	statement, err := envelope.Statement()
@@ -147,88 +235,45 @@ func verifyEnvelopeWithArtifact(verifier signature.Verifier, envelope EnvelopeCo
 		return err
 	}
 
-	var artifactDigestAlgorithm string
-	var artifactDigest []byte
-
-	// Determine artifact digest algorithm by looking at the first subject's
-	// digests. This assumes that if a statement contains multiple subjects,
-	// they all use the same digest algorithm(s).
-	if len(statement.Subject) == 0 {
-		return errors.New("no subjects found in statement")
-	}
-	if len(statement.Subject[0].Digest) == 0 {
-		return errors.New("no digests found in statement")
-	}
-
-	// Select the strongest digest algorithm available.
-	for _, alg := range []string{"sha512", "sha384", "sha256"} {
-		if _, ok := statement.Subject[0].Digest[alg]; ok {
-			artifactDigestAlgorithm = alg
-			continue
-		}
-	}
-	if artifactDigestAlgorithm == "" {
-		return errors.New("could not verify artifact: unsupported digest algorithm")
-	}
-
-	// Compute digest of the artifact.
-	var hasher hash.Hash
-	switch artifactDigestAlgorithm {
-	case "sha512":
-		hasher = crypto.SHA512.New()
-	case "sha384":
-		hasher = crypto.SHA384.New()
-	case "sha256":
-		hasher = crypto.SHA256.New()
-	}
-	_, err = io.Copy(hasher, artifact)
-	if err != nil {
-		return fmt.Errorf("could not verify artifact: unable to calculate digest: %w", err)
-	}
-	artifactDigest = hasher.Sum(nil)
-
-	// Look for artifact digest in statement
+	// create a map based on the digests present in the statement
+	// the map key is the hash algorithm and the field is a slice of digests
+	// created using that hash algorithm
+	subjectDigests := make(map[string][][]byte)
 	for _, subject := range statement.Subject {
 		for alg, digest := range subject.Digest {
+			if _, ok := subjectDigests[alg]; !ok {
+				subjectDigests[alg] = make([][]byte, 0)
+			}
 			hexdigest, err := hex.DecodeString(digest)
 			if err != nil {
 				return fmt.Errorf("could not verify artifact: unable to decode subject digest: %w", err)
 			}
-			if alg == artifactDigestAlgorithm && bytes.Equal(artifactDigest, hexdigest) {
-				return nil
-			}
+			subjectDigests[alg] = append(subjectDigests[alg], hexdigest)
 		}
 	}
-	return fmt.Errorf("could not verify artifact: unable to confirm artifact digest is present in subject digests: %w", err)
+
+	// now loop over the provided artifact digests and compare them to the mapped subject digests
+	// if we cannot find a match, exit with an error
+	for _, artifactDigest := range digests {
+		statementDigests, ok := subjectDigests[artifactDigest.Algorithm]
+		if !ok {
+			return fmt.Errorf("provided artifact digests does not match digests in statement")
+		}
+		if ok := isDigestInSlice(artifactDigest.Digest, statementDigests); !ok {
+			return fmt.Errorf("provided artifact digest does not match any digest in statement")
+		}
+	}
+
+	return nil
 }
 
-func verifyEnvelopeWithArtifactDigest(verifier signature.Verifier, envelope EnvelopeContent, artifactDigest []byte, artifactDigestAlgorithm string) error {
-	err := verifyEnvelope(verifier, envelope)
-	if err != nil {
-		return err
-	}
-	statement, err := envelope.Statement()
-	if err != nil {
-		return fmt.Errorf("could not verify artifact: unable to extract statement from envelope: %w", err)
-	}
-	if err = limitSubjects(statement); err != nil {
-		return err
-	}
-
-	for _, subject := range statement.Subject {
-		for alg, digest := range subject.Digest {
-			if alg == artifactDigestAlgorithm {
-				hexdigest, err := hex.DecodeString(digest)
-				if err != nil {
-					return fmt.Errorf("could not verify artifact: unable to decode subject digest: %w", err)
-				}
-				if bytes.Equal(hexdigest, artifactDigest) {
-					return nil
-				}
-			}
+func isDigestInSlice(digest []byte, digestSlice [][]byte) bool {
+	for _, el := range digestSlice {
+		if bytes.Equal(digest, el) {
+			return true
 		}
 	}
-	return errors.New("provided artifact digest does not match any digest in statement")
+	return false
 }
 
 func verifyMessageSignature(verifier signature.Verifier, msg MessageSignatureContent, artifact io.Reader) error {
@@ -268,4 +313,104 @@ func limitSubjects(statement *in_toto.Statement) error {
 		}
 	}
 	return nil
+}
+
+type multihasher struct {
+	io.Writer
+	hashfuncs []crypto.Hash
+	hashes    []io.Writer
+}
+
+func newMultihasher(hashfuncs []crypto.Hash) (*multihasher, error) {
+	if len(hashfuncs) == 0 {
+		return nil, errors.New("no hash functions specified")
+	}
+	hashes := make([]io.Writer, len(hashfuncs))
+	for i := range hashfuncs {
+		hashes[i] = hashfuncs[i].New()
+	}
+	return &multihasher{
+		Writer:    io.MultiWriter(hashes...),
+		hashfuncs: hashfuncs,
+		hashes:    hashes,
+	}, nil
+}
+
+func (m *multihasher) Sum(b []byte) map[crypto.Hash][]byte {
+	sums := make(map[crypto.Hash][]byte, len(m.hashes))
+	for i := range m.hashes {
+		sums[m.hashfuncs[i]] = m.hashes[i].(hash.Hash).Sum(b)
+	}
+	return sums
+}
+
+func algStringToHashFunc(alg string) (crypto.Hash, error) {
+	switch alg {
+	case "sha256":
+		return crypto.SHA256, nil
+	case "sha384":
+		return crypto.SHA384, nil
+	case "sha512":
+		return crypto.SHA512, nil
+	default:
+		return 0, errors.New("unsupported digest algorithm")
+	}
+}
+
+// getHashFunctions returns the smallest subset of supported hash functions
+// that are needed to verify all subjects in a statement.
+func getHashFunctions(statement *in_toto.Statement) ([]crypto.Hash, error) {
+	if len(statement.Subject) == 0 {
+		return nil, errors.New("no subjects found in statement")
+	}
+
+	supportedHashFuncs := []crypto.Hash{crypto.SHA512, crypto.SHA384, crypto.SHA256}
+	chosenHashFuncs := make([]crypto.Hash, 0, len(supportedHashFuncs))
+	subjectHashFuncs := make([][]crypto.Hash, len(statement.Subject))
+
+	// go through the statement and make a simple data structure to hold the
+	// list of hash funcs for each subject (subjectHashFuncs)
+	for i, subject := range statement.Subject {
+		for alg := range subject.Digest {
+			hf, err := algStringToHashFunc(alg)
+			if err != nil {
+				continue
+			}
+			subjectHashFuncs[i] = append(subjectHashFuncs[i], hf)
+		}
+	}
+
+	// for each subject, see if we have chosen a compatible hash func, and if
+	// not, add the first one that is supported
+	for _, hfs := range subjectHashFuncs {
+		// if any of the hash funcs are already in chosenHashFuncs, skip
+		if len(intersection(hfs, chosenHashFuncs)) > 0 {
+			continue
+		}
+
+		// check each supported hash func and add it if the subject
+		// has a digest for it
+		for _, hf := range supportedHashFuncs {
+			if slices.Contains(hfs, hf) {
+				chosenHashFuncs = append(chosenHashFuncs, hf)
+				break
+			}
+		}
+	}
+
+	if len(chosenHashFuncs) == 0 {
+		return nil, errors.New("no supported digest algorithms found")
+	}
+
+	return chosenHashFuncs, nil
+}
+
+func intersection(a, b []crypto.Hash) []crypto.Hash {
+	var result []crypto.Hash
+	for _, x := range a {
+		if slices.Contains(b, x) {
+			result = append(result, x)
+		}
+	}
+	return result
 }

@@ -7,9 +7,23 @@ import (
 	"net/http"
 )
 
-type DependencyListExportService struct {
-	client *Client
-}
+type (
+	DependencyListExportServiceInterface interface {
+		CreateDependencyListExport(pipelineID int, opt *CreateDependencyListExportOptions, options ...RequestOptionFunc) (*DependencyListExport, *Response, error)
+		GetDependencyListExport(id int, options ...RequestOptionFunc) (*DependencyListExport, *Response, error)
+		DownloadDependencyListExport(id int, options ...RequestOptionFunc) (io.Reader, *Response, error)
+	}
+
+	// DependencyListExportService handles communication with the dependency list export
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/dependency_list_export.html
+	DependencyListExportService struct {
+		client *Client
+	}
+)
+
+var _ DependencyListExportServiceInterface = (*DependencyListExportService)(nil)
 
 // CreateDependencyListExportOptions represents the available CreateDependencyListExport()
 // options.

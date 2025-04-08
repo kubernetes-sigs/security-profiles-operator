@@ -22,13 +22,27 @@ import (
 	"time"
 )
 
-// ProjectMembersService handles communication with the project members
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/members.html
-type ProjectMembersService struct {
-	client *Client
-}
+type (
+	ProjectMembersServiceInterface interface {
+		ListProjectMembers(pid interface{}, opt *ListProjectMembersOptions, options ...RequestOptionFunc) ([]*ProjectMember, *Response, error)
+		ListAllProjectMembers(pid interface{}, opt *ListProjectMembersOptions, options ...RequestOptionFunc) ([]*ProjectMember, *Response, error)
+		GetProjectMember(pid interface{}, user int, options ...RequestOptionFunc) (*ProjectMember, *Response, error)
+		GetInheritedProjectMember(pid interface{}, user int, options ...RequestOptionFunc) (*ProjectMember, *Response, error)
+		AddProjectMember(pid interface{}, opt *AddProjectMemberOptions, options ...RequestOptionFunc) (*ProjectMember, *Response, error)
+		EditProjectMember(pid interface{}, user int, opt *EditProjectMemberOptions, options ...RequestOptionFunc) (*ProjectMember, *Response, error)
+		DeleteProjectMember(pid interface{}, user int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProjectMembersService handles communication with the project members
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/members.html
+	ProjectMembersService struct {
+		client *Client
+	}
+)
+
+var _ ProjectMembersServiceInterface = (*ProjectMembersService)(nil)
 
 // ProjectMember represents a project member.
 //
@@ -169,6 +183,7 @@ func (s *ProjectMembersService) GetInheritedProjectMember(pid interface{}, user 
 // https://docs.gitlab.com/ee/api/members.html#add-a-member-to-a-group-or-project
 type AddProjectMemberOptions struct {
 	UserID       interface{}       `url:"user_id,omitempty" json:"user_id,omitempty"`
+	Username     *string           `url:"username,omitempty" json:"username,omitempty"`
 	AccessLevel  *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
 	ExpiresAt    *string           `url:"expires_at,omitempty" json:"expires_at"`
 	MemberRoleID *int              `url:"member_role_id,omitempty" json:"member_role_id,omitempty"`

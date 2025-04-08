@@ -22,18 +22,30 @@ import (
 	"time"
 )
 
-// GroupClustersService handles communication with the
-// group clusters related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_clusters.html
-type GroupClustersService struct {
-	client *Client
-}
+type (
+	GroupClustersServiceInterface interface {
+		ListClusters(pid interface{}, options ...RequestOptionFunc) ([]*GroupCluster, *Response, error)
+		GetCluster(pid interface{}, cluster int, options ...RequestOptionFunc) (*GroupCluster, *Response, error)
+		AddCluster(pid interface{}, opt *AddGroupClusterOptions, options ...RequestOptionFunc) (*GroupCluster, *Response, error)
+		EditCluster(pid interface{}, cluster int, opt *EditGroupClusterOptions, options ...RequestOptionFunc) (*GroupCluster, *Response, error)
+		DeleteCluster(pid interface{}, cluster int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// GroupClustersService handles communication with the
+	// group clusters related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/api/group_clusters/
+	GroupClustersService struct {
+		client *Client
+	}
+)
+
+var _ GroupClustersServiceInterface = (*GroupClustersService)(nil)
 
 // GroupCluster represents a GitLab Group Cluster.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/group_clusters.html
+// GitLab API docs: https://docs.gitlab.com/api/group_clusters/
 type GroupCluster struct {
 	ID                 int                 `json:"id"`
 	Name               string              `json:"name"`
@@ -58,7 +70,7 @@ func (v GroupCluster) String() string {
 // ListClusters gets a list of all clusters in a group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_clusters.html#list-group-clusters
+// https://docs.gitlab.com/api/group_clusters/#list-group-clusters
 func (s *GroupClustersService) ListClusters(pid interface{}, options ...RequestOptionFunc) ([]*GroupCluster, *Response, error) {
 	group, err := parseID(pid)
 	if err != nil {
@@ -83,7 +95,7 @@ func (s *GroupClustersService) ListClusters(pid interface{}, options ...RequestO
 // GetCluster gets a cluster.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_clusters.html#get-a-single-group-cluster
+// https://docs.gitlab.com/api/group_clusters/#get-a-single-group-cluster
 func (s *GroupClustersService) GetCluster(pid interface{}, cluster int, options ...RequestOptionFunc) (*GroupCluster, *Response, error) {
 	group, err := parseID(pid)
 	if err != nil {
@@ -108,7 +120,7 @@ func (s *GroupClustersService) GetCluster(pid interface{}, cluster int, options 
 // AddGroupClusterOptions represents the available AddCluster() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_clusters.html#add-existing-cluster-to-group
+// https://docs.gitlab.com/api/group_clusters/#add-existing-cluster-to-group
 type AddGroupClusterOptions struct {
 	Name                *string                            `url:"name,omitempty" json:"name,omitempty"`
 	Domain              *string                            `url:"domain,omitempty" json:"domain,omitempty"`
@@ -131,7 +143,7 @@ type AddGroupPlatformKubernetesOptions struct {
 // AddCluster adds an existing cluster to the group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_clusters.html#add-existing-cluster-to-group
+// https://docs.gitlab.com/api/group_clusters/#add-existing-cluster-to-group
 func (s *GroupClustersService) AddCluster(pid interface{}, opt *AddGroupClusterOptions, options ...RequestOptionFunc) (*GroupCluster, *Response, error) {
 	group, err := parseID(pid)
 	if err != nil {
@@ -156,7 +168,7 @@ func (s *GroupClustersService) AddCluster(pid interface{}, opt *AddGroupClusterO
 // EditGroupClusterOptions represents the available EditCluster() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_clusters.html#edit-group-cluster
+// https://docs.gitlab.com/api/group_clusters/#edit-group-cluster
 type EditGroupClusterOptions struct {
 	Name                *string                             `url:"name,omitempty" json:"name,omitempty"`
 	Domain              *string                             `url:"domain,omitempty" json:"domain,omitempty"`
@@ -175,7 +187,7 @@ type EditGroupPlatformKubernetesOptions struct {
 // EditCluster updates an existing group cluster.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_clusters.html#edit-group-cluster
+// https://docs.gitlab.com/api/group_clusters/#edit-group-cluster
 func (s *GroupClustersService) EditCluster(pid interface{}, cluster int, opt *EditGroupClusterOptions, options ...RequestOptionFunc) (*GroupCluster, *Response, error) {
 	group, err := parseID(pid)
 	if err != nil {
@@ -200,7 +212,7 @@ func (s *GroupClustersService) EditCluster(pid interface{}, cluster int, opt *Ed
 // DeleteCluster deletes an existing group cluster.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_clusters.html#delete-group-cluster
+// https://docs.gitlab.com/api/group_clusters/#delete-group-cluster
 func (s *GroupClustersService) DeleteCluster(pid interface{}, cluster int, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(pid)
 	if err != nil {

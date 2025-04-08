@@ -6,9 +6,30 @@ import (
 	"time"
 )
 
+type (
+	AuditEventsServiceInterface interface {
+		ListInstanceAuditEvents(opt *ListAuditEventsOptions, options ...RequestOptionFunc) ([]*AuditEvent, *Response, error)
+		GetInstanceAuditEvent(event int, options ...RequestOptionFunc) (*AuditEvent, *Response, error)
+		ListGroupAuditEvents(gid interface{}, opt *ListAuditEventsOptions, options ...RequestOptionFunc) ([]*AuditEvent, *Response, error)
+		GetGroupAuditEvent(gid interface{}, event int, options ...RequestOptionFunc) (*AuditEvent, *Response, error)
+		ListProjectAuditEvents(pid interface{}, opt *ListAuditEventsOptions, options ...RequestOptionFunc) ([]*AuditEvent, *Response, error)
+		GetProjectAuditEvent(pid interface{}, event int, options ...RequestOptionFunc) (*AuditEvent, *Response, error)
+	}
+
+	// AuditEventsService handles communication with the project/group/instance
+	// audit event related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/api/audit_events/
+	AuditEventsService struct {
+		client *Client
+	}
+)
+
+var _ AuditEventsServiceInterface = (*AuditEventsService)(nil)
+
 // AuditEvent represents an audit event for a group, a project or the instance.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/audit_events.html
+// GitLab API docs: https://docs.gitlab.com/api/audit_events/
 type AuditEvent struct {
 	ID         int               `json:"id"`
 	AuthorID   int               `json:"author_id"`
@@ -24,7 +45,7 @@ type AuditEvent struct {
 // a group, a project or the instance. The exact fields that are returned
 // for an audit event depend on the action being recorded.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/audit_events.html
+// GitLab API docs: https://docs.gitlab.com/api/audit_events/
 type AuditEventDetails struct {
 	With          string      `json:"with"`
 	Add           string      `json:"add"`
@@ -46,18 +67,10 @@ type AuditEventDetails struct {
 	EventName     string      `json:"event_name"`
 }
 
-// AuditEventsService handles communication with the project/group/instance
-// audit event related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/audit_events.html
-type AuditEventsService struct {
-	client *Client
-}
-
 // ListAuditEventsOptions represents the available ListProjectAuditEvents(),
 // ListGroupAuditEvents() or ListInstanceAuditEvents() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/audit_events.html
+// GitLab API docs: https://docs.gitlab.com/api/audit_events/
 type ListAuditEventsOptions struct {
 	ListOptions
 	CreatedAfter  *time.Time `url:"created_after,omitempty" json:"created_after,omitempty"`
@@ -67,7 +80,7 @@ type ListAuditEventsOptions struct {
 // ListInstanceAuditEvents gets a list of audit events for instance.
 // Authentication as Administrator is required.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/audit_events.html#retrieve-all-instance-audit-events
+// GitLab API docs: https://docs.gitlab.com/api/audit_events/#retrieve-all-instance-audit-events
 func (s *AuditEventsService) ListInstanceAuditEvents(opt *ListAuditEventsOptions, options ...RequestOptionFunc) ([]*AuditEvent, *Response, error) {
 	req, err := s.client.NewRequest(http.MethodGet, "audit_events", opt, options)
 	if err != nil {
@@ -86,7 +99,7 @@ func (s *AuditEventsService) ListInstanceAuditEvents(opt *ListAuditEventsOptions
 // GetInstanceAuditEvent gets a specific instance audit event.
 // Authentication as Administrator is required.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/audit_events.html#retrieve-single-instance-audit-event
+// GitLab API docs: https://docs.gitlab.com/api/audit_events/#retrieve-single-instance-audit-event
 func (s *AuditEventsService) GetInstanceAuditEvent(event int, options ...RequestOptionFunc) (*AuditEvent, *Response, error) {
 	u := fmt.Sprintf("audit_events/%d", event)
 
@@ -107,7 +120,7 @@ func (s *AuditEventsService) GetInstanceAuditEvent(event int, options ...Request
 // ListGroupAuditEvents gets a list of audit events for the specified group
 // viewable by the authenticated user.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/audit_events.html#retrieve-all-group-audit-events
+// GitLab API docs: https://docs.gitlab.com/api/audit_events/#retrieve-all-group-audit-events
 func (s *AuditEventsService) ListGroupAuditEvents(gid interface{}, opt *ListAuditEventsOptions, options ...RequestOptionFunc) ([]*AuditEvent, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -131,7 +144,7 @@ func (s *AuditEventsService) ListGroupAuditEvents(gid interface{}, opt *ListAudi
 
 // GetGroupAuditEvent gets a specific group audit event.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/audit_events.html#retrieve-a-specific-group-audit-event
+// GitLab API docs: https://docs.gitlab.com/api/audit_events/#retrieve-a-specific-group-audit-event
 func (s *AuditEventsService) GetGroupAuditEvent(gid interface{}, event int, options ...RequestOptionFunc) (*AuditEvent, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -156,7 +169,7 @@ func (s *AuditEventsService) GetGroupAuditEvent(gid interface{}, event int, opti
 // ListProjectAuditEvents gets a list of audit events for the specified project
 // viewable by the authenticated user.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/audit_events.html#retrieve-all-project-audit-events
+// GitLab API docs: https://docs.gitlab.com/api/audit_events/#retrieve-all-project-audit-events
 func (s *AuditEventsService) ListProjectAuditEvents(pid interface{}, opt *ListAuditEventsOptions, options ...RequestOptionFunc) ([]*AuditEvent, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -181,7 +194,7 @@ func (s *AuditEventsService) ListProjectAuditEvents(pid interface{}, opt *ListAu
 // GetProjectAuditEvent gets a specific project audit event.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/audit_events.html#retrieve-a-specific-project-audit-event
+// https://docs.gitlab.com/api/audit_events/#retrieve-a-specific-project-audit-event
 func (s *AuditEventsService) GetProjectAuditEvent(pid interface{}, event int, options ...RequestOptionFunc) (*AuditEvent, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {

@@ -24,13 +24,26 @@ import (
 	"time"
 )
 
-// ProjectMarkdownUploadsService handles communication with the project markdown uploads
-// related methods of the GitLab API.
-//
-// Gitlab API docs: https://docs.gitlab.com/ee/api/project_markdown_uploads.html
-type ProjectMarkdownUploadsService struct {
-	client *Client
-}
+type (
+	ProjectMarkdownUploadsServiceInterface interface {
+		UploadProjectMarkdown(pid interface{}, content io.Reader, filename string, options ...RequestOptionFunc) (*ProjectMarkdownUploadedFile, *Response, error)
+		ListProjectMarkdownUploads(pid interface{}, options ...RequestOptionFunc) ([]*ProjectMarkdownUpload, *Response, error)
+		DownloadProjectMarkdownUploadByID(pid interface{}, uploadID int, options ...RequestOptionFunc) ([]byte, *Response, error)
+		DownloadProjectMarkdownUploadBySecretAndFilename(pid interface{}, secret string, filename string, options ...RequestOptionFunc) ([]byte, *Response, error)
+		DeleteProjectMarkdownUploadByID(pid interface{}, uploadID int, options ...RequestOptionFunc) (*Response, error)
+		DeleteProjectMarkdownUploadBySecretAndFilename(pid interface{}, secret string, filename string, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProjectMarkdownUploadsService handles communication with the project markdown uploads
+	// related methods of the GitLab API.
+	//
+	// Gitlab API docs: https://docs.gitlab.com/ee/api/project_markdown_uploads.html
+	ProjectMarkdownUploadsService struct {
+		client *Client
+	}
+)
+
+var _ ProjectMarkdownUploadsServiceInterface = (*ProjectMarkdownUploadsService)(nil)
 
 // ProjectMarkdownUploadedFile represents a single project markdown uploaded file.
 //

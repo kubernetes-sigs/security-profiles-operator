@@ -27,9 +27,33 @@ import (
 // of the GitLab API.
 //
 // GitLab API docs: https://docs.gitlab.com/ee/api/commits.html
-type CommitsService struct {
-	client *Client
-}
+type (
+	CommitsServiceInterface interface {
+		ListCommits(pid interface{}, opt *ListCommitsOptions, options ...RequestOptionFunc) ([]*Commit, *Response, error)
+		GetCommitRefs(pid interface{}, sha string, opt *GetCommitRefsOptions, options ...RequestOptionFunc) ([]*CommitRef, *Response, error)
+		GetCommit(pid interface{}, sha string, opt *GetCommitOptions, options ...RequestOptionFunc) (*Commit, *Response, error)
+		CreateCommit(pid interface{}, opt *CreateCommitOptions, options ...RequestOptionFunc) (*Commit, *Response, error)
+		GetCommitDiff(pid interface{}, sha string, opt *GetCommitDiffOptions, options ...RequestOptionFunc) ([]*Diff, *Response, error)
+		GetCommitComments(pid interface{}, sha string, opt *GetCommitCommentsOptions, options ...RequestOptionFunc) ([]*CommitComment, *Response, error)
+		PostCommitComment(pid interface{}, sha string, opt *PostCommitCommentOptions, options ...RequestOptionFunc) (*CommitComment, *Response, error)
+		GetCommitStatuses(pid interface{}, sha string, opt *GetCommitStatusesOptions, options ...RequestOptionFunc) ([]*CommitStatus, *Response, error)
+		SetCommitStatus(pid interface{}, sha string, opt *SetCommitStatusOptions, options ...RequestOptionFunc) (*CommitStatus, *Response, error)
+		ListMergeRequestsByCommit(pid interface{}, sha string, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error)
+		CherryPickCommit(pid interface{}, sha string, opt *CherryPickCommitOptions, options ...RequestOptionFunc) (*Commit, *Response, error)
+		RevertCommit(pid interface{}, sha string, opt *RevertCommitOptions, options ...RequestOptionFunc) (*Commit, *Response, error)
+		GetGPGSignature(pid interface{}, sha string, options ...RequestOptionFunc) (*GPGSignature, *Response, error)
+	}
+
+	// CommitsService handles communication with the commit related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/commits.html
+	CommitsService struct {
+		client *Client
+	}
+)
+
+var _ CommitsServiceInterface = (*CommitsService)(nil)
 
 // Commit represents a GitLab commit.
 //
@@ -487,7 +511,7 @@ func (s *CommitsService) SetCommitStatus(pid interface{}, sha string, opt *SetCo
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/commits.html#list-merge-requests-associated-with-a-commit
-func (s *CommitsService) ListMergeRequestsByCommit(pid interface{}, sha string, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error) {
+func (s *CommitsService) ListMergeRequestsByCommit(pid interface{}, sha string, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
@@ -499,7 +523,7 @@ func (s *CommitsService) ListMergeRequestsByCommit(pid interface{}, sha string, 
 		return nil, nil, err
 	}
 
-	var mrs []*MergeRequest
+	var mrs []*BasicMergeRequest
 	resp, err := s.client.Do(req, &mrs)
 	if err != nil {
 		return nil, resp, err

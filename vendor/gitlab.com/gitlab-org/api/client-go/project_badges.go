@@ -21,6 +21,27 @@ import (
 	"net/http"
 )
 
+type (
+	ProjectBadgesServiceInterface interface {
+		ListProjectBadges(pid interface{}, opt *ListProjectBadgesOptions, options ...RequestOptionFunc) ([]*ProjectBadge, *Response, error)
+		GetProjectBadge(pid interface{}, badge int, options ...RequestOptionFunc) (*ProjectBadge, *Response, error)
+		AddProjectBadge(pid interface{}, opt *AddProjectBadgeOptions, options ...RequestOptionFunc) (*ProjectBadge, *Response, error)
+		EditProjectBadge(pid interface{}, badge int, opt *EditProjectBadgeOptions, options ...RequestOptionFunc) (*ProjectBadge, *Response, error)
+		DeleteProjectBadge(pid interface{}, badge int, options ...RequestOptionFunc) (*Response, error)
+		PreviewProjectBadge(pid interface{}, opt *ProjectBadgePreviewOptions, options ...RequestOptionFunc) (*ProjectBadge, *Response, error)
+	}
+
+	// ProjectBadgesService handles communication with the project badges
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/project_badges.html
+	ProjectBadgesService struct {
+		client *Client
+	}
+)
+
+var _ ProjectBadgesServiceInterface = (*ProjectBadgesService)(nil)
+
 // ProjectBadge represents a project badge.
 //
 // GitLab API docs:
@@ -34,14 +55,6 @@ type ProjectBadge struct {
 	RenderedImageURL string `json:"rendered_image_url"`
 	// Kind represents a project badge kind. Can be empty, when used PreviewProjectBadge().
 	Kind string `json:"kind"`
-}
-
-// ProjectBadgesService handles communication with the project badges
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/project_badges.html
-type ProjectBadgesService struct {
-	client *Client
 }
 
 // ListProjectBadgesOptions represents the available ListProjectBadges()

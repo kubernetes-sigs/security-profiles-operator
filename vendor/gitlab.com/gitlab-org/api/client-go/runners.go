@@ -22,13 +22,38 @@ import (
 	"time"
 )
 
-// RunnersService handles communication with the runner related methods of the
-// GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/runners.html
-type RunnersService struct {
-	client *Client
-}
+type (
+	RunnersServiceInterface interface {
+		ListRunners(opt *ListRunnersOptions, options ...RequestOptionFunc) ([]*Runner, *Response, error)
+		ListAllRunners(opt *ListRunnersOptions, options ...RequestOptionFunc) ([]*Runner, *Response, error)
+		GetRunnerDetails(rid interface{}, options ...RequestOptionFunc) (*RunnerDetails, *Response, error)
+		UpdateRunnerDetails(rid interface{}, opt *UpdateRunnerDetailsOptions, options ...RequestOptionFunc) (*RunnerDetails, *Response, error)
+		RemoveRunner(rid interface{}, options ...RequestOptionFunc) (*Response, error)
+		ListRunnerJobs(rid interface{}, opt *ListRunnerJobsOptions, options ...RequestOptionFunc) ([]*Job, *Response, error)
+		ListProjectRunners(pid interface{}, opt *ListProjectRunnersOptions, options ...RequestOptionFunc) ([]*Runner, *Response, error)
+		EnableProjectRunner(pid interface{}, opt *EnableProjectRunnerOptions, options ...RequestOptionFunc) (*Runner, *Response, error)
+		DisableProjectRunner(pid interface{}, runner int, options ...RequestOptionFunc) (*Response, error)
+		ListGroupsRunners(gid interface{}, opt *ListGroupsRunnersOptions, options ...RequestOptionFunc) ([]*Runner, *Response, error)
+		RegisterNewRunner(opt *RegisterNewRunnerOptions, options ...RequestOptionFunc) (*Runner, *Response, error)
+		DeleteRegisteredRunner(opt *DeleteRegisteredRunnerOptions, options ...RequestOptionFunc) (*Response, error)
+		DeleteRegisteredRunnerByID(rid int, options ...RequestOptionFunc) (*Response, error)
+		VerifyRegisteredRunner(opt *VerifyRegisteredRunnerOptions, options ...RequestOptionFunc) (*Response, error)
+		ResetInstanceRunnerRegistrationToken(options ...RequestOptionFunc) (*RunnerRegistrationToken, *Response, error)
+		ResetGroupRunnerRegistrationToken(gid interface{}, options ...RequestOptionFunc) (*RunnerRegistrationToken, *Response, error)
+		ResetProjectRunnerRegistrationToken(pid interface{}, options ...RequestOptionFunc) (*RunnerRegistrationToken, *Response, error)
+		ResetRunnerAuthenticationToken(rid int, options ...RequestOptionFunc) (*RunnerAuthenticationToken, *Response, error)
+	}
+
+	// RunnersService handles communication with the runner related methods of the
+	// GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/runners.html
+	RunnersService struct {
+		client *Client
+	}
+)
+
+var _ RunnersServiceInterface = (*RunnersService)(nil)
 
 // Runner represents a GitLab CI Runner.
 //

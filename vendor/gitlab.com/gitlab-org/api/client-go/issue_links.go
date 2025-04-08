@@ -22,17 +22,28 @@ import (
 	"time"
 )
 
-// IssueLinksService handles communication with the issue relations related methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/issue_links.html
-type IssueLinksService struct {
-	client *Client
-}
+type (
+	IssueLinksServiceInterface interface {
+		ListIssueRelations(pid interface{}, issue int, options ...RequestOptionFunc) ([]*IssueRelation, *Response, error)
+		GetIssueLink(pid interface{}, issue, issueLink int, options ...RequestOptionFunc) (*IssueLink, *Response, error)
+		CreateIssueLink(pid interface{}, issue int, opt *CreateIssueLinkOptions, options ...RequestOptionFunc) (*IssueLink, *Response, error)
+		DeleteIssueLink(pid interface{}, issue, issueLink int, options ...RequestOptionFunc) (*IssueLink, *Response, error)
+	}
+
+	// IssueLinksService handles communication with the issue relations related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/api/issue_links/
+	IssueLinksService struct {
+		client *Client
+	}
+)
+
+var _ IssueLinksServiceInterface = (*IssueLinksService)(nil)
 
 // IssueLink represents a two-way relation between two issues.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/issue_links.html
+// GitLab API docs: https://docs.gitlab.com/api/issue_links/
 type IssueLink struct {
 	SourceIssue *Issue `json:"source_issue"`
 	TargetIssue *Issue `json:"target_issue"`
@@ -42,7 +53,7 @@ type IssueLink struct {
 // IssueRelation gets a relation between two issues.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/issue_links.html#list-issue-relations
+// https://docs.gitlab.com/api/issue_links/#list-issue-relations
 type IssueRelation struct {
 	ID             int              `json:"id"`
 	IID            int              `json:"iid"`
@@ -75,7 +86,7 @@ type IssueRelation struct {
 // Issues will be filtered according to the user authorizations.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/issue_links.html#list-issue-relations
+// https://docs.gitlab.com/api/issue_links/#list-issue-relations
 func (s *IssueLinksService) ListIssueRelations(pid interface{}, issue int, options ...RequestOptionFunc) ([]*IssueRelation, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -100,7 +111,7 @@ func (s *IssueLinksService) ListIssueRelations(pid interface{}, issue int, optio
 // GetIssueLink gets a specific issue link.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/issue_links.html#get-an-issue-link
+// https://docs.gitlab.com/api/issue_links/#get-an-issue-link
 func (s *IssueLinksService) GetIssueLink(pid interface{}, issue, issueLink int, options ...RequestOptionFunc) (*IssueLink, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -124,7 +135,7 @@ func (s *IssueLinksService) GetIssueLink(pid interface{}, issue, issueLink int, 
 
 // CreateIssueLinkOptions represents the available CreateIssueLink() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/issue_links.html#create-an-issue-link
+// GitLab API docs: https://docs.gitlab.com/api/issue_links/#create-an-issue-link
 type CreateIssueLinkOptions struct {
 	TargetProjectID *string `json:"target_project_id"`
 	TargetIssueIID  *string `json:"target_issue_iid"`
@@ -135,7 +146,7 @@ type CreateIssueLinkOptions struct {
 // User must be allowed to update both issues in order to succeed.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/issue_links.html#create-an-issue-link
+// https://docs.gitlab.com/api/issue_links/#create-an-issue-link
 func (s *IssueLinksService) CreateIssueLink(pid interface{}, issue int, opt *CreateIssueLinkOptions, options ...RequestOptionFunc) (*IssueLink, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -160,7 +171,7 @@ func (s *IssueLinksService) CreateIssueLink(pid interface{}, issue int, opt *Cre
 // DeleteIssueLink deletes an issue link, thus removes the two-way relationship.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/issue_links.html#delete-an-issue-link
+// https://docs.gitlab.com/api/issue_links/#delete-an-issue-link
 func (s *IssueLinksService) DeleteIssueLink(pid interface{}, issue, issueLink int, options ...RequestOptionFunc) (*IssueLink, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {

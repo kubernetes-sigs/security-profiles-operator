@@ -21,14 +21,26 @@ import (
 	"net/http"
 )
 
-// ProtectedEnvironmentsService handles communication with the protected
-// environment methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/protected_environments.html
-type ProtectedEnvironmentsService struct {
-	client *Client
-}
+type (
+	ProtectedEnvironmentsServiceInterface interface {
+		ListProtectedEnvironments(pid interface{}, opt *ListProtectedEnvironmentsOptions, options ...RequestOptionFunc) ([]*ProtectedEnvironment, *Response, error)
+		GetProtectedEnvironment(pid interface{}, environment string, options ...RequestOptionFunc) (*ProtectedEnvironment, *Response, error)
+		ProtectRepositoryEnvironments(pid interface{}, opt *ProtectRepositoryEnvironmentsOptions, options ...RequestOptionFunc) (*ProtectedEnvironment, *Response, error)
+		UpdateProtectedEnvironments(pid interface{}, environment string, opt *UpdateProtectedEnvironmentsOptions, options ...RequestOptionFunc) (*ProtectedEnvironment, *Response, error)
+		UnprotectEnvironment(pid interface{}, environment string, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProtectedEnvironmentsService handles communication with the protected
+	// environment methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/protected_environments.html
+	ProtectedEnvironmentsService struct {
+		client *Client
+	}
+)
+
+var _ ProtectedEnvironmentsServiceInterface = (*ProtectedEnvironmentsService)(nil)
 
 // ProtectedEnvironment represents a protected environment.
 //

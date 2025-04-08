@@ -22,13 +22,30 @@ import (
 	"time"
 )
 
-// PipelinesService handles communication with the repositories related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/pipelines.html
-type PipelinesService struct {
-	client *Client
-}
+type (
+	PipelinesServiceInterface interface {
+		ListProjectPipelines(pid interface{}, opt *ListProjectPipelinesOptions, options ...RequestOptionFunc) ([]*PipelineInfo, *Response, error)
+		GetPipeline(pid interface{}, pipeline int, options ...RequestOptionFunc) (*Pipeline, *Response, error)
+		GetPipelineVariables(pid interface{}, pipeline int, options ...RequestOptionFunc) ([]*PipelineVariable, *Response, error)
+		GetPipelineTestReport(pid interface{}, pipeline int, options ...RequestOptionFunc) (*PipelineTestReport, *Response, error)
+		GetLatestPipeline(pid interface{}, opt *GetLatestPipelineOptions, options ...RequestOptionFunc) (*Pipeline, *Response, error)
+		CreatePipeline(pid interface{}, opt *CreatePipelineOptions, options ...RequestOptionFunc) (*Pipeline, *Response, error)
+		RetryPipelineBuild(pid interface{}, pipeline int, options ...RequestOptionFunc) (*Pipeline, *Response, error)
+		CancelPipelineBuild(pid interface{}, pipeline int, options ...RequestOptionFunc) (*Pipeline, *Response, error)
+		DeletePipeline(pid interface{}, pipeline int, options ...RequestOptionFunc) (*Response, error)
+		UpdatePipelineMetadata(pid interface{}, pipeline int, opt *UpdatePipelineMetadataOptions, options ...RequestOptionFunc) (*Pipeline, *Response, error)
+	}
+
+	// PipelinesService handles communication with the repositories related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/pipelines.html
+	PipelinesService struct {
+		client *Client
+	}
+)
+
+var _ PipelinesServiceInterface = (*PipelinesService)(nil)
 
 // PipelineVariable represents a pipeline variable.
 //

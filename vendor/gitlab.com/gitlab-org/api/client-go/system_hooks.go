@@ -22,13 +22,25 @@ import (
 	"time"
 )
 
-// SystemHooksService handles communication with the system hooks related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/system_hooks.html
-type SystemHooksService struct {
-	client *Client
-}
+type (
+	SystemHooksServiceInterface interface {
+		ListHooks(options ...RequestOptionFunc) ([]*Hook, *Response, error)
+		GetHook(hook int, options ...RequestOptionFunc) (*Hook, *Response, error)
+		AddHook(opt *AddHookOptions, options ...RequestOptionFunc) (*Hook, *Response, error)
+		TestHook(hook int, options ...RequestOptionFunc) (*HookEvent, *Response, error)
+		DeleteHook(hook int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// SystemHooksService handles communication with the system hooks related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/system_hooks.html
+	SystemHooksService struct {
+		client *Client
+	}
+)
+
+var _ SystemHooksServiceInterface = (*SystemHooksService)(nil)
 
 // Hook represents a GitLap system hook.
 //

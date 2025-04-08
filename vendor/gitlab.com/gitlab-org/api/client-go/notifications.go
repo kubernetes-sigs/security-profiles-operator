@@ -22,13 +22,26 @@ import (
 	"net/http"
 )
 
-// NotificationSettingsService handles communication with the notification settings
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/notification_settings.html
-type NotificationSettingsService struct {
-	client *Client
-}
+type (
+	NotificationSettingsServiceInterface interface {
+		GetGlobalSettings(options ...RequestOptionFunc) (*NotificationSettings, *Response, error)
+		UpdateGlobalSettings(opt *NotificationSettingsOptions, options ...RequestOptionFunc) (*NotificationSettings, *Response, error)
+		GetSettingsForGroup(gid interface{}, options ...RequestOptionFunc) (*NotificationSettings, *Response, error)
+		GetSettingsForProject(pid interface{}, options ...RequestOptionFunc) (*NotificationSettings, *Response, error)
+		UpdateSettingsForGroup(gid interface{}, opt *NotificationSettingsOptions, options ...RequestOptionFunc) (*NotificationSettings, *Response, error)
+		UpdateSettingsForProject(pid interface{}, opt *NotificationSettingsOptions, options ...RequestOptionFunc) (*NotificationSettings, *Response, error)
+	}
+
+	// NotificationSettingsService handles communication with the notification settings
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/notification_settings.html
+	NotificationSettingsService struct {
+		client *Client
+	}
+)
+
+var _ NotificationSettingsServiceInterface = (*NotificationSettingsService)(nil)
 
 // NotificationSettings represents the Gitlab notification setting.
 //

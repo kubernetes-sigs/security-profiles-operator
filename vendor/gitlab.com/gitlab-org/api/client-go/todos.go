@@ -22,13 +22,23 @@ import (
 	"time"
 )
 
-// TodosService handles communication with the todos related methods of
-// the Gitlab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/todos.html
-type TodosService struct {
-	client *Client
-}
+type (
+	TodosServiceInterface interface {
+		ListTodos(opt *ListTodosOptions, options ...RequestOptionFunc) ([]*Todo, *Response, error)
+		MarkTodoAsDone(id int, options ...RequestOptionFunc) (*Response, error)
+		MarkAllTodosAsDone(options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// TodosService handles communication with the todos related methods of
+	// the Gitlab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/todos.html
+	TodosService struct {
+		client *Client
+	}
+)
+
+var _ TodosServiceInterface = (*TodosService)(nil)
 
 // Todo represents a GitLab todo.
 //

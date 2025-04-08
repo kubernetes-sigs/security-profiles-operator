@@ -21,14 +21,23 @@ import (
 	"net/http"
 )
 
-// CIYMLTemplatesService handles communication with the gitlab
-// CI YML templates related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/templates/gitlab_ci_ymls.html
-type CIYMLTemplatesService struct {
-	client *Client
-}
+type (
+	CIYMLTemplatesServiceInterface interface {
+		ListAllTemplates(opt *ListCIYMLTemplatesOptions, options ...RequestOptionFunc) ([]*CIYMLTemplateListItem, *Response, error)
+		GetTemplate(key string, options ...RequestOptionFunc) (*CIYMLTemplate, *Response, error)
+	}
+
+	// CIYMLTemplatesService handles communication with the gitlab
+	// CI YML templates related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/templates/gitlab_ci_ymls.html
+	CIYMLTemplatesService struct {
+		client *Client
+	}
+)
+
+var _ CIYMLTemplatesServiceInterface = (*CIYMLTemplatesService)(nil)
 
 // CIYMLTemplate represents a GitLab CI YML template.
 //

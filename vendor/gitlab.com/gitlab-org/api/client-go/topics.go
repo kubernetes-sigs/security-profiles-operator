@@ -25,13 +25,25 @@ import (
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 )
 
-// TopicsService handles communication with the topics related methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/topics.html
-type TopicsService struct {
-	client *Client
-}
+type (
+	TopicsServiceInterface interface {
+		ListTopics(opt *ListTopicsOptions, options ...RequestOptionFunc) ([]*Topic, *Response, error)
+		GetTopic(topic int, options ...RequestOptionFunc) (*Topic, *Response, error)
+		CreateTopic(opt *CreateTopicOptions, options ...RequestOptionFunc) (*Topic, *Response, error)
+		UpdateTopic(topic int, opt *UpdateTopicOptions, options ...RequestOptionFunc) (*Topic, *Response, error)
+		DeleteTopic(topic int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// TopicsService handles communication with the topics related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/topics.html
+	TopicsService struct {
+		client *Client
+	}
+)
+
+var _ TopicsServiceInterface = (*TopicsService)(nil)
 
 // Topic represents a GitLab project topic.
 //

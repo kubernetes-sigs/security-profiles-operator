@@ -21,13 +21,46 @@ import (
 	"net/http"
 )
 
-// SearchService handles communication with the search related methods of the
-// GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/search.html
-type SearchService struct {
-	client *Client
-}
+type (
+	SearchServiceInterface interface {
+		Projects(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Project, *Response, error)
+		ProjectsByGroup(gid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Project, *Response, error)
+		Issues(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Issue, *Response, error)
+		IssuesByGroup(gid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Issue, *Response, error)
+		IssuesByProject(pid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Issue, *Response, error)
+		MergeRequests(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error)
+		MergeRequestsByGroup(gid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error)
+		MergeRequestsByProject(pid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error)
+		Milestones(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Milestone, *Response, error)
+		MilestonesByGroup(gid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Milestone, *Response, error)
+		MilestonesByProject(pid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Milestone, *Response, error)
+		SnippetTitles(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Snippet, *Response, error)
+		SnippetBlobs(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Snippet, *Response, error)
+		NotesByProject(pid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Note, *Response, error)
+		WikiBlobs(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Wiki, *Response, error)
+		WikiBlobsByGroup(gid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Wiki, *Response, error)
+		WikiBlobsByProject(pid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Wiki, *Response, error)
+		Commits(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Commit, *Response, error)
+		CommitsByGroup(gid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Commit, *Response, error)
+		CommitsByProject(pid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Commit, *Response, error)
+		Blobs(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Blob, *Response, error)
+		BlobsByGroup(gid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Blob, *Response, error)
+		BlobsByProject(pid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*Blob, *Response, error)
+		Users(query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*User, *Response, error)
+		UsersByGroup(gid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*User, *Response, error)
+		UsersByProject(pid interface{}, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*User, *Response, error)
+	}
+
+	// SearchService handles communication with the search related methods of the
+	// GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/search.html
+	SearchService struct {
+		client *Client
+	}
+)
+
+var _ SearchServiceInterface = (*SearchService)(nil)
 
 // SearchOptions represents the available options for all search methods.
 //

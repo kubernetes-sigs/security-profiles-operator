@@ -21,13 +21,25 @@ import (
 	"net/http"
 )
 
-// ManagedLicensesService handles communication with the managed licenses
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/managed_licenses.html
-type ManagedLicensesService struct {
-	client *Client
-}
+type (
+	ManagedLicensesServiceInterface interface {
+		ListManagedLicenses(pid interface{}, options ...RequestOptionFunc) ([]*ManagedLicense, *Response, error)
+		GetManagedLicense(pid, mlid interface{}, options ...RequestOptionFunc) (*ManagedLicense, *Response, error)
+		AddManagedLicense(pid interface{}, opt *AddManagedLicenseOptions, options ...RequestOptionFunc) (*ManagedLicense, *Response, error)
+		DeleteManagedLicense(pid, mlid interface{}, options ...RequestOptionFunc) (*Response, error)
+		EditManagedLicense(pid, mlid interface{}, opt *EditManagedLicenceOptions, options ...RequestOptionFunc) (*ManagedLicense, *Response, error)
+	}
+
+	// ManagedLicensesService handles communication with the managed licenses
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/managed_licenses.html
+	ManagedLicensesService struct {
+		client *Client
+	}
+)
+
+var _ ManagedLicensesServiceInterface = (*ManagedLicensesService)(nil)
 
 // ManagedLicense represents a managed license.
 //

@@ -6,13 +6,25 @@ import (
 	"time"
 )
 
-// ProjectFeatureFlagService handles operations on gitlab project feature
-// flags using the following api:
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/feature_flags.html
-type ProjectFeatureFlagService struct {
-	client *Client
-}
+type (
+	ProjectFeatureFlagServiceInterface interface {
+		ListProjectFeatureFlags(pid interface{}, opt *ListProjectFeatureFlagOptions, options ...RequestOptionFunc) ([]*ProjectFeatureFlag, *Response, error)
+		GetProjectFeatureFlag(pid interface{}, name string, options ...RequestOptionFunc) (*ProjectFeatureFlag, *Response, error)
+		CreateProjectFeatureFlag(pid interface{}, opt *CreateProjectFeatureFlagOptions, options ...RequestOptionFunc) (*ProjectFeatureFlag, *Response, error)
+		UpdateProjectFeatureFlag(pid interface{}, name string, opt *UpdateProjectFeatureFlagOptions, options ...RequestOptionFunc) (*ProjectFeatureFlag, *Response, error)
+		DeleteProjectFeatureFlag(pid interface{}, name string, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProjectFeatureFlagService handles operations on gitlab project feature
+	// flags using the following api:
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/feature_flags.html
+	ProjectFeatureFlagService struct {
+		client *Client
+	}
+)
+
+var _ ProjectFeatureFlagServiceInterface = (*ProjectFeatureFlagService)(nil)
 
 // ProjectFeatureFlag represents a GitLab project iteration.
 //

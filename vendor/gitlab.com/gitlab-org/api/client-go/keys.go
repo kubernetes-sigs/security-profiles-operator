@@ -22,14 +22,23 @@ import (
 	"time"
 )
 
-// KeysService handles communication with the
-// keys related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/keys.html
-type KeysService struct {
-	client *Client
-}
+type (
+	KeysServiceInterface interface {
+		GetKeyWithUser(key int, options ...RequestOptionFunc) (*Key, *Response, error)
+		GetKeyByFingerprint(opt *GetKeyByFingerprintOptions, options ...RequestOptionFunc) (*Key, *Response, error)
+	}
+
+	// KeysService handles communication with the
+	// keys related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/keys.html
+	KeysService struct {
+		client *Client
+	}
+)
+
+var _ KeysServiceInterface = (*KeysService)(nil)
 
 // Key represents a GitLab user's SSH key.
 //

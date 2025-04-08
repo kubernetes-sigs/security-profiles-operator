@@ -24,14 +24,26 @@ import (
 	"time"
 )
 
-// ProjectImportExportService handles communication with the project
-// import/export related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/project_import_export.html
-type ProjectImportExportService struct {
-	client *Client
-}
+type (
+	ProjectImportExportServiceInterface interface {
+		ScheduleExport(pid interface{}, opt *ScheduleExportOptions, options ...RequestOptionFunc) (*Response, error)
+		ExportStatus(pid interface{}, options ...RequestOptionFunc) (*ExportStatus, *Response, error)
+		ExportDownload(pid interface{}, options ...RequestOptionFunc) ([]byte, *Response, error)
+		ImportFromFile(archive io.Reader, opt *ImportFileOptions, options ...RequestOptionFunc) (*ImportStatus, *Response, error)
+		ImportStatus(pid interface{}, options ...RequestOptionFunc) (*ImportStatus, *Response, error)
+	}
+
+	// ProjectImportExportService handles communication with the project
+	// import/export related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/project_import_export.html
+	ProjectImportExportService struct {
+		client *Client
+	}
+)
+
+var _ ProjectImportExportServiceInterface = (*ProjectImportExportService)(nil)
 
 // ImportStatus represents a project import status.
 //

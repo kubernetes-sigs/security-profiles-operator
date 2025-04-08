@@ -22,14 +22,24 @@ import (
 	"time"
 )
 
-// LicenseService handles communication with the license
-// related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/license.html
-type LicenseService struct {
-	client *Client
-}
+type (
+	LicenseServiceInterface interface {
+		GetLicense(options ...RequestOptionFunc) (*License, *Response, error)
+		AddLicense(opt *AddLicenseOptions, options ...RequestOptionFunc) (*License, *Response, error)
+		DeleteLicense(licenseID int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// LicenseService handles communication with the license
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/license.html
+	LicenseService struct {
+		client *Client
+	}
+)
+
+var _ LicenseServiceInterface = (*LicenseService)(nil)
 
 // License represents a GitLab license.
 //

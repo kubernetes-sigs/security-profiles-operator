@@ -22,13 +22,25 @@ import (
 	"time"
 )
 
-// PackagesService handles communication with the packages related methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/packages.html
-type PackagesService struct {
-	client *Client
-}
+type (
+	PackagesServiceInterface interface {
+		ListProjectPackages(pid interface{}, opt *ListProjectPackagesOptions, options ...RequestOptionFunc) ([]*Package, *Response, error)
+		ListGroupPackages(gid interface{}, opt *ListGroupPackagesOptions, options ...RequestOptionFunc) ([]*GroupPackage, *Response, error)
+		ListPackageFiles(pid interface{}, pkg int, opt *ListPackageFilesOptions, options ...RequestOptionFunc) ([]*PackageFile, *Response, error)
+		DeleteProjectPackage(pid interface{}, pkg int, options ...RequestOptionFunc) (*Response, error)
+		DeletePackageFile(pid interface{}, pkg, file int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// PackagesService handles communication with the packages related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/packages.html
+	PackagesService struct {
+		client *Client
+	}
+)
+
+var _ PackagesServiceInterface = (*PackagesService)(nil)
 
 // Package represents a GitLab package.
 //

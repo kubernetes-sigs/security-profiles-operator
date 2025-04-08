@@ -16,16 +16,83 @@ var (
 	ErrRDRequiredField       = errors.New("at least one of name, URI, or digest are required")
 )
 
+type HashAlgorithm string
+
+const (
+	AlgorithmMD5        HashAlgorithm = "md5"
+	AlgorithmSHA1       HashAlgorithm = "sha1"
+	AlgorithmSHA224     HashAlgorithm = "sha224"
+	AlgorithmSHA512_224 HashAlgorithm = "sha512_224"
+	AlgorithmSHA256     HashAlgorithm = "sha256"
+	AlgorithmSHA512_256 HashAlgorithm = "sha512_256"
+	AlgorithmSHA384     HashAlgorithm = "sha384"
+	AlgorithmSHA512     HashAlgorithm = "sha512"
+	AlgorithmSHA3_224   HashAlgorithm = "sha3_224"
+	AlgorithmSHA3_256   HashAlgorithm = "sha3_256"
+	AlgorithmSHA3_384   HashAlgorithm = "sha3_384"
+	AlgorithmSHA3_512   HashAlgorithm = "sha3_512"
+	AlgorithmGitBlob    HashAlgorithm = "gitBlob"
+	AlgorithmGitCommit  HashAlgorithm = "gitCommit"
+	AlgorithmGitTag     HashAlgorithm = "gitTag"
+	AlgorithmGitTree    HashAlgorithm = "gitTree"
+	AlgorithmDirHash    HashAlgorithm = "dirHash"
+)
+
+// HashAlgorithms indexes the known algorithms in a dictionary
+// by their string value
+var HashAlgorithms = map[string]HashAlgorithm{
+	"md5":        AlgorithmMD5,
+	"sha1":       AlgorithmSHA1,
+	"sha224":     AlgorithmSHA224,
+	"sha512_224": AlgorithmSHA512_224,
+	"sha256":     AlgorithmSHA256,
+	"sha512_256": AlgorithmSHA512_256,
+	"sha384":     AlgorithmSHA384,
+	"sha512":     AlgorithmSHA512,
+	"sha3_224":   AlgorithmSHA3_224,
+	"sha3_256":   AlgorithmSHA3_256,
+	"sha3_384":   AlgorithmSHA3_384,
+	"sha3_512":   AlgorithmSHA3_512,
+	"gitBlob":    AlgorithmGitBlob,
+	"gitCommit":  AlgorithmGitCommit,
+	"gitTag":     AlgorithmGitTag,
+	"gitTree":    AlgorithmGitTree,
+	"dirHash":    AlgorithmDirHash,
+}
+
+// HexLength returns the expected length of an algorithm's hash when hexencoded
+func (algo HashAlgorithm) HexLength() int {
+	switch algo {
+	case AlgorithmMD5:
+		return 16
+	case AlgorithmSHA1, AlgorithmGitBlob, AlgorithmGitCommit, AlgorithmGitTag, AlgorithmGitTree:
+		return 20
+	case AlgorithmSHA224, AlgorithmSHA512_224, AlgorithmSHA3_224:
+		return 28
+	case AlgorithmSHA256, AlgorithmSHA512_256, AlgorithmSHA3_256, AlgorithmDirHash:
+		return 32
+	case AlgorithmSHA384, AlgorithmSHA3_384:
+		return 48
+	case AlgorithmSHA512, AlgorithmSHA3_512:
+		return 64
+	default:
+		return 0
+	}
+}
+
+// String returns the hash algorithm name as a string
+func (algo HashAlgorithm) String() string {
+	return string(algo)
+}
+
 // Indicates if a given fixed-size hash algorithm is supported by default and returns the algorithm's
 // digest size in bytes, if supported. We assume gitCommit and dirHash are aliases for sha1 and sha256, respectively.
 //
 // SHA digest sizes from https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf
 // MD5 digest size from https://www.rfc-editor.org/rfc/rfc1321.html#section-1
-func isSupportedFixedSizeAlgorithm(alg string) (bool, int) {
-	algos := map[string]int{"md5": 16, "sha1": 20, "sha224": 28, "sha512_224": 28, "sha256": 32, "sha512_256": 32, "sha384": 48, "sha512": 64, "sha3_224": 28, "sha3_256": 32, "sha3_384": 48, "sha3_512": 64, "gitCommit": 20, "dirHash": 32}
-
-	size, ok := algos[alg]
-	return ok, size
+func isSupportedFixedSizeAlgorithm(algString string) (bool, int) {
+	algo := HashAlgorithm(algString)
+	return algo.HexLength() > 0, algo.HexLength()
 }
 
 func (d *ResourceDescriptor) Validate() error {

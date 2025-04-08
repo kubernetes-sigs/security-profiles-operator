@@ -18,13 +18,28 @@ import (
 	"net/http"
 )
 
-// JobTokenScopeService handles communication with project CI settings
-// such as token permissions.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/project_job_token_scopes.html
-type JobTokenScopeService struct {
-	client *Client
-}
+type (
+	JobTokenScopeServiceInterface interface {
+		GetProjectJobTokenAccessSettings(pid interface{}, options ...RequestOptionFunc) (*JobTokenAccessSettings, *Response, error)
+		PatchProjectJobTokenAccessSettings(pid interface{}, opt *PatchProjectJobTokenAccessSettingsOptions, options ...RequestOptionFunc) (*Response, error)
+		GetProjectJobTokenInboundAllowList(pid interface{}, opt *GetJobTokenInboundAllowListOptions, options ...RequestOptionFunc) ([]*Project, *Response, error)
+		AddProjectToJobScopeAllowList(pid interface{}, opt *JobTokenInboundAllowOptions, options ...RequestOptionFunc) (*JobTokenInboundAllowItem, *Response, error)
+		RemoveProjectFromJobScopeAllowList(pid interface{}, targetProject int, options ...RequestOptionFunc) (*Response, error)
+		GetJobTokenAllowlistGroups(pid interface{}, opt *GetJobTokenAllowlistGroupsOptions, options ...RequestOptionFunc) ([]*Group, *Response, error)
+		AddGroupToJobTokenAllowlist(pid interface{}, opt *AddGroupToJobTokenAllowlistOptions, options ...RequestOptionFunc) (*JobTokenAllowlistItem, *Response, error)
+		RemoveGroupFromJobTokenAllowlist(pid interface{}, targetGroup int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// JobTokenScopeService handles communication with project CI settings
+	// such as token permissions.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/project_job_token_scopes.html
+	JobTokenScopeService struct {
+		client *Client
+	}
+)
+
+var _ JobTokenScopeServiceInterface = (*JobTokenScopeService)(nil)
 
 // JobTokenAccessSettings represents job token access attributes for this project.
 //
