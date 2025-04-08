@@ -18,13 +18,21 @@ package gitlab
 
 import "net/http"
 
-// VersionService handles communication with the GitLab server instance to
-// retrieve its version information via the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/version.html
-type VersionService struct {
-	client *Client
-}
+type (
+	VersionServiceInterface interface {
+		GetVersion(options ...RequestOptionFunc) (*Version, *Response, error)
+	}
+
+	// VersionService handles communication with the GitLab server instance to
+	// retrieve its version information via the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/version.html
+	VersionService struct {
+		client *Client
+	}
+)
+
+var _ VersionServiceInterface = (*VersionService)(nil)
 
 // Version represents a GitLab instance version.
 //

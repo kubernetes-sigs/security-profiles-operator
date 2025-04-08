@@ -22,14 +22,26 @@ import (
 	"time"
 )
 
-// ProjectClustersService handles communication with the
-// project clusters related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/project_clusters.html
-type ProjectClustersService struct {
-	client *Client
-}
+type (
+	ProjectClustersServiceInterface interface {
+		ListClusters(pid interface{}, options ...RequestOptionFunc) ([]*ProjectCluster, *Response, error)
+		GetCluster(pid interface{}, cluster int, options ...RequestOptionFunc) (*ProjectCluster, *Response, error)
+		AddCluster(pid interface{}, opt *AddClusterOptions, options ...RequestOptionFunc) (*ProjectCluster, *Response, error)
+		EditCluster(pid interface{}, cluster int, opt *EditClusterOptions, options ...RequestOptionFunc) (*ProjectCluster, *Response, error)
+		DeleteCluster(pid interface{}, cluster int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProjectClustersService handles communication with the
+	// project clusters related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/project_clusters.html
+	ProjectClustersService struct {
+		client *Client
+	}
+)
+
+var _ ProjectClustersServiceInterface = (*ProjectClustersService)(nil)
 
 // ProjectCluster represents a GitLab Project Cluster.
 //

@@ -22,14 +22,27 @@ import (
 	"time"
 )
 
-// SnippetRepositoryStorageMoveService handles communication with the
-// snippets related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/snippet_repository_storage_moves.html
-type SnippetRepositoryStorageMoveService struct {
-	client *Client
-}
+type (
+	SnippetRepositoryStorageMoveServiceInterface interface {
+		RetrieveAllStorageMoves(opts RetrieveAllSnippetStorageMovesOptions, options ...RequestOptionFunc) ([]*SnippetRepositoryStorageMove, *Response, error)
+		RetrieveAllStorageMovesForSnippet(snippet int, opts RetrieveAllSnippetStorageMovesOptions, options ...RequestOptionFunc) ([]*SnippetRepositoryStorageMove, *Response, error)
+		GetStorageMove(repositoryStorage int, options ...RequestOptionFunc) (*SnippetRepositoryStorageMove, *Response, error)
+		GetStorageMoveForSnippet(snippet int, repositoryStorage int, options ...RequestOptionFunc) (*SnippetRepositoryStorageMove, *Response, error)
+		ScheduleStorageMoveForSnippet(snippet int, opts ScheduleStorageMoveForSnippetOptions, options ...RequestOptionFunc) (*SnippetRepositoryStorageMove, *Response, error)
+		ScheduleAllStorageMoves(opts ScheduleAllSnippetStorageMovesOptions, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// SnippetRepositoryStorageMoveService handles communication with the
+	// snippets related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/snippet_repository_storage_moves.html
+	SnippetRepositoryStorageMoveService struct {
+		client *Client
+	}
+)
+
+var _ SnippetRepositoryStorageMoveServiceInterface = (*SnippetRepositoryStorageMoveService)(nil)
 
 // SnippetRepositoryStorageMove represents the status of a repository move.
 //

@@ -18,13 +18,21 @@ package gitlab
 
 import "net/http"
 
-// MetadataService handles communication with the GitLab server instance to
-// retrieve its metadata information via the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/metadata.html
-type MetadataService struct {
-	client *Client
-}
+type (
+	MetadataServiceInterface interface {
+		GetMetadata(options ...RequestOptionFunc) (*Metadata, *Response, error)
+	}
+
+	// MetadataService handles communication with the GitLab server instance to
+	// retrieve its metadata information via the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/metadata.html
+	MetadataService struct {
+		client *Client
+	}
+)
+
+var _ MetadataServiceInterface = (*MetadataService)(nil)
 
 // Metadata represents a GitLab instance version.
 //

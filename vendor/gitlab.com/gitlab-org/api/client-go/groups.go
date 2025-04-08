@@ -27,17 +27,82 @@ import (
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
 )
 
-// GroupsService handles communication with the group related methods of
-// the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html
-type GroupsService struct {
-	client *Client
-}
+type (
+	GroupsServiceInterface interface {
+		ListGroups(opt *ListGroupsOptions, options ...RequestOptionFunc) ([]*Group, *Response, error)
+		ListSubGroups(gid interface{}, opt *ListSubGroupsOptions, options ...RequestOptionFunc) ([]*Group, *Response, error)
+		ListDescendantGroups(gid interface{}, opt *ListDescendantGroupsOptions, options ...RequestOptionFunc) ([]*Group, *Response, error)
+		ListGroupProjects(gid interface{}, opt *ListGroupProjectsOptions, options ...RequestOptionFunc) ([]*Project, *Response, error)
+		GetGroup(gid interface{}, opt *GetGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error)
+		DownloadAvatar(gid interface{}, options ...RequestOptionFunc) (*bytes.Reader, *Response, error)
+		CreateGroup(opt *CreateGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error)
+		TransferGroup(gid interface{}, pid interface{}, options ...RequestOptionFunc) (*Group, *Response, error)
+		TransferSubGroup(gid interface{}, opt *TransferSubGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error)
+		UpdateGroup(gid interface{}, opt *UpdateGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error)
+		UploadAvatar(gid interface{}, avatar io.Reader, filename string, options ...RequestOptionFunc) (*Group, *Response, error)
+		DeleteGroup(gid interface{}, opt *DeleteGroupOptions, options ...RequestOptionFunc) (*Response, error)
+		RestoreGroup(gid interface{}, options ...RequestOptionFunc) (*Group, *Response, error)
+		SearchGroup(query string, options ...RequestOptionFunc) ([]*Group, *Response, error)
+		ListProvisionedUsers(gid interface{}, opt *ListProvisionedUsersOptions, options ...RequestOptionFunc) ([]*User, *Response, error)
+		ListGroupLDAPLinks(gid interface{}, options ...RequestOptionFunc) ([]*LDAPGroupLink, *Response, error)
+		AddGroupLDAPLink(gid interface{}, opt *AddGroupLDAPLinkOptions, options ...RequestOptionFunc) (*LDAPGroupLink, *Response, error)
+		DeleteGroupLDAPLink(gid interface{}, cn string, options ...RequestOptionFunc) (*Response, error)
+		DeleteGroupLDAPLinkWithCNOrFilter(gid interface{}, opts *DeleteGroupLDAPLinkWithCNOrFilterOptions, options ...RequestOptionFunc) (*Response, error)
+		DeleteGroupLDAPLinkForProvider(gid interface{}, provider, cn string, options ...RequestOptionFunc) (*Response, error)
+		ListGroupSAMLLinks(gid interface{}, options ...RequestOptionFunc) ([]*SAMLGroupLink, *Response, error)
+		ListGroupSharedProjects(gid interface{}, opt *ListGroupSharedProjectsOptions, options ...RequestOptionFunc) ([]*Project, *Response, error)
+		GetGroupSAMLLink(gid interface{}, samlGroupName string, options ...RequestOptionFunc) (*SAMLGroupLink, *Response, error)
+		AddGroupSAMLLink(gid interface{}, opt *AddGroupSAMLLinkOptions, options ...RequestOptionFunc) (*SAMLGroupLink, *Response, error)
+		DeleteGroupSAMLLink(gid interface{}, samlGroupName string, options ...RequestOptionFunc) (*Response, error)
+		ShareGroupWithGroup(gid interface{}, opt *ShareGroupWithGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error)
+		UnshareGroupFromGroup(gid interface{}, groupID int, options ...RequestOptionFunc) (*Response, error)
+		GetGroupPushRules(gid interface{}, options ...RequestOptionFunc) (*GroupPushRules, *Response, error)
+		AddGroupPushRule(gid interface{}, opt *AddGroupPushRuleOptions, options ...RequestOptionFunc) (*GroupPushRules, *Response, error)
+		EditGroupPushRule(gid interface{}, opt *EditGroupPushRuleOptions, options ...RequestOptionFunc) (*GroupPushRules, *Response, error)
+		DeleteGroupPushRule(gid interface{}, options ...RequestOptionFunc) (*Response, error)
+
+		// group_hooks.go
+		ListGroupHooks(gid interface{}, opt *ListGroupHooksOptions, options ...RequestOptionFunc) ([]*GroupHook, *Response, error)
+		GetGroupHook(gid interface{}, hook int, options ...RequestOptionFunc) (*GroupHook, *Response, error)
+		ResendGroupHookEvent(gid interface{}, hook int, hookEventID int, options ...RequestOptionFunc) (*Response, error)
+		AddGroupHook(gid interface{}, opt *AddGroupHookOptions, options ...RequestOptionFunc) (*GroupHook, *Response, error)
+		EditGroupHook(gid interface{}, hook int, opt *EditGroupHookOptions, options ...RequestOptionFunc) (*GroupHook, *Response, error)
+		DeleteGroupHook(gid interface{}, hook int, options ...RequestOptionFunc) (*Response, error)
+		TriggerTestGroupHook(pid interface{}, hook int, trigger GroupHookTrigger, options ...RequestOptionFunc) (*Response, error)
+		SetGroupCustomHeader(gid interface{}, hook int, key string, opt *SetHookCustomHeaderOptions, options ...RequestOptionFunc) (*Response, error)
+		DeleteGroupCustomHeader(gid interface{}, hook int, key string, options ...RequestOptionFunc) (*Response, error)
+		SetGroupHookURLVariable(gid interface{}, hook int, key string, opt *SetHookURLVariableOptions, options ...RequestOptionFunc) (*Response, error)
+		DeleteGroupHookURLVariable(gid interface{}, hook int, key string, options ...RequestOptionFunc) (*Response, error)
+
+		// group_serviceaccounts.go
+		ListServiceAccounts(gid interface{}, opt *ListServiceAccountsOptions, options ...RequestOptionFunc) ([]*GroupServiceAccount, *Response, error)
+		CreateServiceAccount(gid interface{}, opt *CreateServiceAccountOptions, options ...RequestOptionFunc) (*GroupServiceAccount, *Response, error)
+		DeleteServiceAccount(gid interface{}, serviceAccount int, opt *DeleteServiceAccountOptions, options ...RequestOptionFunc) (*Response, error)
+		CreateServiceAccountPersonalAccessToken(gid interface{}, serviceAccount int, opt *CreateServiceAccountPersonalAccessTokenOptions, options ...RequestOptionFunc) (*PersonalAccessToken, *Response, error)
+		RotateServiceAccountPersonalAccessToken(gid interface{}, serviceAccount, token int, opt *RotateServiceAccountPersonalAccessTokenOptions, options ...RequestOptionFunc) (*PersonalAccessToken, *Response, error)
+
+		// group_members.go
+		ListGroupMembers(gid interface{}, opt *ListGroupMembersOptions, options ...RequestOptionFunc) ([]*GroupMember, *Response, error)
+		ListAllGroupMembers(gid interface{}, opt *ListGroupMembersOptions, options ...RequestOptionFunc) ([]*GroupMember, *Response, error)
+		ListBillableGroupMembers(gid interface{}, opt *ListBillableGroupMembersOptions, options ...RequestOptionFunc) ([]*BillableGroupMember, *Response, error)
+		ListMembershipsForBillableGroupMember(gid interface{}, user int, opt *ListMembershipsForBillableGroupMemberOptions, options ...RequestOptionFunc) ([]*BillableUserMembership, *Response, error)
+		RemoveBillableGroupMember(gid interface{}, user int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// GroupsService handles communication with the group related methods of
+	// the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/api/groups/
+	GroupsService struct {
+		client *Client
+	}
+)
+
+var _ GroupsServiceInterface = (*GroupsService)(nil)
 
 // Group represents a GitLab group.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html
+// GitLab API docs: https://docs.gitlab.com/api/groups/
 type Group struct {
 	ID                              int                        `json:"id"`
 	Name                            string                     `json:"name"`
@@ -70,26 +135,19 @@ type Group struct {
 	RunnersToken                    string                     `json:"runners_token"`
 	SharedProjects                  []*Project                 `json:"shared_projects"`
 	SharedRunnersSetting            SharedRunnersSettingValue  `json:"shared_runners_setting"`
-	SharedWithGroups                []struct {
-		GroupID          int      `json:"group_id"`
-		GroupName        string   `json:"group_name"`
-		GroupFullPath    string   `json:"group_full_path"`
-		GroupAccessLevel int      `json:"group_access_level"`
-		ExpiresAt        *ISOTime `json:"expires_at"`
-		MemberRoleID     int      `json:"member_role_id"`
-	} `json:"shared_with_groups"`
-	LDAPCN                         string             `json:"ldap_cn"`
-	LDAPAccess                     AccessLevelValue   `json:"ldap_access"`
-	LDAPGroupLinks                 []*LDAPGroupLink   `json:"ldap_group_links"`
-	SAMLGroupLinks                 []*SAMLGroupLink   `json:"saml_group_links"`
-	SharedRunnersMinutesLimit      int                `json:"shared_runners_minutes_limit"`
-	ExtraSharedRunnersMinutesLimit int                `json:"extra_shared_runners_minutes_limit"`
-	PreventForkingOutsideGroup     bool               `json:"prevent_forking_outside_group"`
-	MarkedForDeletionOn            *ISOTime           `json:"marked_for_deletion_on"`
-	CreatedAt                      *time.Time         `json:"created_at"`
-	IPRestrictionRanges            string             `json:"ip_restriction_ranges"`
-	AllowedEmailDomainsList        string             `json:"allowed_email_domains_list"`
-	WikiAccessLevel                AccessControlValue `json:"wiki_access_level"`
+	SharedWithGroups                []SharedWithGroup          `json:"shared_with_groups"`
+	LDAPCN                          string                     `json:"ldap_cn"`
+	LDAPAccess                      AccessLevelValue           `json:"ldap_access"`
+	LDAPGroupLinks                  []*LDAPGroupLink           `json:"ldap_group_links"`
+	SAMLGroupLinks                  []*SAMLGroupLink           `json:"saml_group_links"`
+	SharedRunnersMinutesLimit       int                        `json:"shared_runners_minutes_limit"`
+	ExtraSharedRunnersMinutesLimit  int                        `json:"extra_shared_runners_minutes_limit"`
+	PreventForkingOutsideGroup      bool                       `json:"prevent_forking_outside_group"`
+	MarkedForDeletionOn             *ISOTime                   `json:"marked_for_deletion_on"`
+	CreatedAt                       *time.Time                 `json:"created_at"`
+	IPRestrictionRanges             string                     `json:"ip_restriction_ranges"`
+	AllowedEmailDomainsList         string                     `json:"allowed_email_domains_list"`
+	WikiAccessLevel                 AccessControlValue         `json:"wiki_access_level"`
 
 	// Deprecated: Use EmailsEnabled instead
 	EmailsDisabled bool `json:"emails_disabled"`
@@ -98,10 +156,22 @@ type Group struct {
 	DefaultBranchProtection int `json:"default_branch_protection"`
 }
 
+// SharedWithGroup represents a GitLab group shared with a group.
+//
+// GitLab API docs: https://docs.gitlab.com/api/groups/
+type SharedWithGroup struct {
+	GroupID          int      `json:"group_id"`
+	GroupName        string   `json:"group_name"`
+	GroupFullPath    string   `json:"group_full_path"`
+	GroupAccessLevel int      `json:"group_access_level"`
+	ExpiresAt        *ISOTime `json:"expires_at"`
+	MemberRoleID     int      `json:"member_role_id"`
+}
+
 // BranchProtectionDefaults represents default Git protected branch permissions.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#options-for-default_branch_protection_defaults
+// https://docs.gitlab.com/api/groups/#options-for-default_branch_protection_defaults
 type BranchProtectionDefaults struct {
 	AllowedToPush           []*GroupAccessLevel `json:"allowed_to_push,omitempty"`
 	AllowForcePush          bool                `json:"allow_force_push,omitempty"`
@@ -112,14 +182,14 @@ type BranchProtectionDefaults struct {
 // GroupAccessLevel represents default branch protection defaults access levels.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#options-for-default_branch_protection_defaults
+// https://docs.gitlab.com/api/groups/#options-for-default_branch_protection_defaults
 type GroupAccessLevel struct {
 	AccessLevel *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
 }
 
 // GroupAvatar represents a GitLab group avatar.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html
+// GitLab API docs: https://docs.gitlab.com/api/groups/
 type GroupAvatar struct {
 	Filename string
 	Image    io.Reader
@@ -136,17 +206,19 @@ func (a *GroupAvatar) MarshalJSON() ([]byte, error) {
 
 // LDAPGroupLink represents a GitLab LDAP group link.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#ldap-group-links
+// GitLab API docs:
+// https://docs.gitlab.com/api/group_ldap_links/
 type LDAPGroupLink struct {
-	CN          string           `json:"cn"`
-	Filter      string           `json:"filter"`
-	GroupAccess AccessLevelValue `json:"group_access"`
-	Provider    string           `json:"provider"`
+	CN           string           `json:"cn"`
+	Filter       string           `json:"filter"`
+	GroupAccess  AccessLevelValue `json:"group_access"`
+	Provider     string           `json:"provider"`
+	MemberRoleID int64            `json:"member_role_id"`
 }
 
 // SAMLGroupLink represents a GitLab SAML group link.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#saml-group-links
+// GitLab API docs: https://docs.gitlab.com/api/groups/#saml-group-links
 type SAMLGroupLink struct {
 	Name         string           `json:"name"`
 	AccessLevel  AccessLevelValue `json:"access_level"`
@@ -155,7 +227,7 @@ type SAMLGroupLink struct {
 
 // ListGroupsOptions represents the available ListGroups() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#list-groups
+// GitLab API docs: https://docs.gitlab.com/api/groups/#list-groups
 type ListGroupsOptions struct {
 	ListOptions
 	SkipGroups           *[]int            `url:"skip_groups,omitempty" del:"," json:"skip_groups,omitempty"`
@@ -174,7 +246,7 @@ type ListGroupsOptions struct {
 // ListGroups gets a list of groups (as user: my groups, as admin: all groups).
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-groups
+// https://docs.gitlab.com/api/groups/#list-groups
 func (s *GroupsService) ListGroups(opt *ListGroupsOptions, options ...RequestOptionFunc) ([]*Group, *Response, error) {
 	req, err := s.client.NewRequest(http.MethodGet, "groups", opt, options)
 	if err != nil {
@@ -193,13 +265,13 @@ func (s *GroupsService) ListGroups(opt *ListGroupsOptions, options ...RequestOpt
 // ListSubGroupsOptions represents the available ListSubGroups() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-a-groups-subgroups
+// https://docs.gitlab.com/api/groups/#list-subgroups
 type ListSubGroupsOptions ListGroupsOptions
 
 // ListSubGroups gets a list of subgroups for a given group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-a-groups-subgroups
+// https://docs.gitlab.com/api/groups/#list-subgroups
 func (s *GroupsService) ListSubGroups(gid interface{}, opt *ListSubGroupsOptions, options ...RequestOptionFunc) ([]*Group, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -225,13 +297,13 @@ func (s *GroupsService) ListSubGroups(gid interface{}, opt *ListSubGroupsOptions
 // options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-a-groups-descendant-groups
+// https://docs.gitlab.com/api/groups/#list-descendant-groups
 type ListDescendantGroupsOptions ListGroupsOptions
 
 // ListDescendantGroups gets a list of subgroups for a given project.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-a-groups-descendant-groups
+// https://docs.gitlab.com/api/groups/#list-descendant-groups
 func (s *GroupsService) ListDescendantGroups(gid interface{}, opt *ListDescendantGroupsOptions, options ...RequestOptionFunc) ([]*Group, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -256,7 +328,7 @@ func (s *GroupsService) ListDescendantGroups(gid interface{}, opt *ListDescendan
 // ListGroupProjectsOptions represents the available ListGroup() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-a-groups-projects
+// https://docs.gitlab.com/api/groups/#list-projects
 type ListGroupProjectsOptions struct {
 	ListOptions
 	Archived                 *bool             `url:"archived,omitempty" json:"archived,omitempty"`
@@ -280,7 +352,7 @@ type ListGroupProjectsOptions struct {
 // ListGroupProjects get a list of group projects
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-a-groups-projects
+// https://docs.gitlab.com/api/groups/#list-projects
 func (s *GroupsService) ListGroupProjects(gid interface{}, opt *ListGroupProjectsOptions, options ...RequestOptionFunc) ([]*Project, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -304,7 +376,7 @@ func (s *GroupsService) ListGroupProjects(gid interface{}, opt *ListGroupProject
 
 // GetGroupOptions represents the available GetGroup() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#details-of-a-group
+// GitLab API docs: https://docs.gitlab.com/api/groups/#get-a-single-group
 type GetGroupOptions struct {
 	ListOptions
 	WithCustomAttributes *bool `url:"with_custom_attributes,omitempty" json:"with_custom_attributes,omitempty"`
@@ -313,7 +385,7 @@ type GetGroupOptions struct {
 
 // GetGroup gets all details of a group.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#details-of-a-group
+// GitLab API docs: https://docs.gitlab.com/api/groups/#get-a-single-group
 func (s *GroupsService) GetGroup(gid interface{}, opt *GetGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -338,7 +410,7 @@ func (s *GroupsService) GetGroup(gid interface{}, opt *GetGroupOptions, options 
 // DownloadAvatar downloads a group avatar.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#download-a-group-avatar
+// https://docs.gitlab.com/api/groups/#download-a-group-avatar
 func (s *GroupsService) DownloadAvatar(gid interface{}, options ...RequestOptionFunc) (*bytes.Reader, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -362,7 +434,7 @@ func (s *GroupsService) DownloadAvatar(gid interface{}, options ...RequestOption
 
 // CreateGroupOptions represents the available CreateGroup() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#new-group
+// GitLab API docs: https://docs.gitlab.com/api/groups/#create-a-group
 type CreateGroupOptions struct {
 	Name                            *string                                 `url:"name,omitempty" json:"name,omitempty"`
 	Path                            *string                                 `url:"path,omitempty" json:"path,omitempty"`
@@ -398,7 +470,7 @@ type CreateGroupOptions struct {
 // using default_branch_protection_defaults in CreateGroup() or UpdateGroup()
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#options-for-default_branch_protection_defaults
+// https://docs.gitlab.com/api/groups/#options-for-default_branch_protection_defaults
 type DefaultBranchProtectionDefaultsOptions struct {
 	AllowedToPush           *[]*GroupAccessLevel `url:"allowed_to_push,omitempty" json:"allowed_to_push,omitempty"`
 	AllowForcePush          *bool                `url:"allow_force_push,omitempty" json:"allow_force_push,omitempty"`
@@ -409,7 +481,7 @@ type DefaultBranchProtectionDefaultsOptions struct {
 // CreateGroup creates a new project group. Available only for users who can
 // create groups.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#new-group
+// GitLab API docs: https://docs.gitlab.com/api/groups/#create-a-group
 func (s *GroupsService) CreateGroup(opt *CreateGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error) {
 	var err error
 	var req *retryablehttp.Request
@@ -444,7 +516,7 @@ func (s *GroupsService) CreateGroup(opt *CreateGroupOptions, options ...RequestO
 // for admin.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#transfer-project-to-group
+// https://docs.gitlab.com/api/groups/#transfer-a-project-to-a-group
 func (s *GroupsService) TransferGroup(gid interface{}, pid interface{}, options ...RequestOptionFunc) (*Group, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -473,7 +545,7 @@ func (s *GroupsService) TransferGroup(gid interface{}, pid interface{}, options 
 // TransferSubGroupOptions represents the available TransferSubGroup() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#transfer-a-group-to-a-new-parent-group--turn-a-subgroup-to-a-top-level-group
+// https://docs.gitlab.com/api/groups/#transfer-a-group
 type TransferSubGroupOptions struct {
 	GroupID *int `url:"group_id,omitempty" json:"group_id,omitempty"`
 }
@@ -482,7 +554,7 @@ type TransferSubGroupOptions struct {
 // to a top-level group. Available to administrators and users.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#transfer-a-group-to-a-new-parent-group--turn-a-subgroup-to-a-top-level-group
+// https://docs.gitlab.com/api/groups/#transfer-a-group
 func (s *GroupsService) TransferSubGroup(gid interface{}, opt *TransferSubGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -506,7 +578,7 @@ func (s *GroupsService) TransferSubGroup(gid interface{}, opt *TransferSubGroupO
 
 // UpdateGroupOptions represents the available UpdateGroup() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#update-group
+// GitLab API docs: https://docs.gitlab.com/api/groups/#update-group-attributes
 type UpdateGroupOptions struct {
 	Name                                 *string                                 `url:"name,omitempty" json:"name,omitempty"`
 	Path                                 *string                                 `url:"path,omitempty" json:"path,omitempty"`
@@ -546,7 +618,7 @@ type UpdateGroupOptions struct {
 // UpdateGroup updates an existing group; only available to group owners and
 // administrators.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#update-group
+// GitLab API docs: https://docs.gitlab.com/api/groups/#update-group-attributes
 func (s *GroupsService) UpdateGroup(gid interface{}, opt *UpdateGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -585,7 +657,7 @@ func (s *GroupsService) UpdateGroup(gid interface{}, opt *UpdateGroupOptions, op
 // UploadAvatar uploads a group avatar.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#upload-a-group-avatar
+// https://docs.gitlab.com/api/groups/#upload-a-group-avatar
 func (s *GroupsService) UploadAvatar(gid interface{}, avatar io.Reader, filename string, options ...RequestOptionFunc) (*Group, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -617,7 +689,7 @@ func (s *GroupsService) UploadAvatar(gid interface{}, avatar io.Reader, filename
 
 // DeleteGroupOptions represents the available DeleteGroup() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#update-group
+// GitLab API docs: https://docs.gitlab.com/api/groups/#delete-a-group
 type DeleteGroupOptions struct {
 	PermanentlyRemove *bool   `url:"permanently_remove,omitempty" json:"permanently_remove,omitempty"`
 	FullPath          *string `url:"full_path,omitempty" json:"full_path,omitempty"`
@@ -625,7 +697,7 @@ type DeleteGroupOptions struct {
 
 // DeleteGroup removes group with all projects inside.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#remove-group
+// GitLab API docs: https://docs.gitlab.com/api/groups/#delete-a-group
 func (s *GroupsService) DeleteGroup(gid interface{}, opt *DeleteGroupOptions, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -644,7 +716,7 @@ func (s *GroupsService) DeleteGroup(gid interface{}, opt *DeleteGroupOptions, op
 // RestoreGroup restores a previously deleted group
 //
 // GitLap API docs:
-// https://docs.gitlab.com/ee/api/groups.html#restore-group-marked-for-deletion
+// https://docs.gitlab.com/api/groups/#restore-a-group-marked-for-deletion
 func (s *GroupsService) RestoreGroup(gid interface{}, options ...RequestOptionFunc) (*Group, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -668,7 +740,7 @@ func (s *GroupsService) RestoreGroup(gid interface{}, options ...RequestOptionFu
 
 // SearchGroup get all groups that match your string in their name or path.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#search-for-group
+// GitLab API docs: https://docs.gitlab.com/api/groups/#search-for-a-group
 func (s *GroupsService) SearchGroup(query string, options ...RequestOptionFunc) ([]*Group, *Response, error) {
 	var q struct {
 		Search string `url:"search,omitempty" json:"search,omitempty"`
@@ -693,7 +765,7 @@ func (s *GroupsService) SearchGroup(query string, options ...RequestOptionFunc) 
 // options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-provisioned-users
+// https://docs.gitlab.com/api/groups/#list-provisioned-users
 type ListProvisionedUsersOptions struct {
 	ListOptions
 	Username      *string    `url:"username,omitempty" json:"username,omitempty"`
@@ -707,7 +779,7 @@ type ListProvisionedUsersOptions struct {
 // ListProvisionedUsers gets a list of users provisioned by the given group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-provisioned-users
+// https://docs.gitlab.com/api/groups/#list-provisioned-users
 func (s *GroupsService) ListProvisionedUsers(gid interface{}, opt *ListProvisionedUsersOptions, options ...RequestOptionFunc) ([]*User, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -733,7 +805,7 @@ func (s *GroupsService) ListProvisionedUsers(gid interface{}, opt *ListProvision
 // can edit groups.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-ldap-group-links
+// https://docs.gitlab.com/api/group_ldap_links/#list-ldap-group-links
 func (s *GroupsService) ListGroupLDAPLinks(gid interface{}, options ...RequestOptionFunc) ([]*LDAPGroupLink, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -758,29 +830,20 @@ func (s *GroupsService) ListGroupLDAPLinks(gid interface{}, options ...RequestOp
 // AddGroupLDAPLinkOptions represents the available AddGroupLDAPLink() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#add-ldap-group-link-with-cn-or-filter
+// https://docs.gitlab.com/api/group_ldap_links/#add-an-ldap-group-link-with-cn-or-filter
 type AddGroupLDAPLinkOptions struct {
-	CN          *string           `url:"cn,omitempty" json:"cn,omitempty"`
-	Filter      *string           `url:"filter,omitempty" json:"filter,omitempty"`
-	GroupAccess *AccessLevelValue `url:"group_access,omitempty" json:"group_access,omitempty"`
-	Provider    *string           `url:"provider,omitempty" json:"provider,omitempty"`
-}
-
-// DeleteGroupLDAPLinkWithCNOrFilterOptions represents the available DeleteGroupLDAPLinkWithCNOrFilter() options.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#delete-ldap-group-link-with-cn-or-filter
-type DeleteGroupLDAPLinkWithCNOrFilterOptions struct {
-	CN       *string `url:"cn,omitempty" json:"cn,omitempty"`
-	Filter   *string `url:"filter,omitempty" json:"filter,omitempty"`
-	Provider *string `url:"provider,omitempty" json:"provider,omitempty"`
+	CN           *string           `url:"cn,omitempty" json:"cn,omitempty"`
+	Filter       *string           `url:"filter,omitempty" json:"filter,omitempty"`
+	GroupAccess  *AccessLevelValue `url:"group_access,omitempty" json:"group_access,omitempty"`
+	Provider     *string           `url:"provider,omitempty" json:"provider,omitempty"`
+	MemberRoleID *int64            `url:"member_role_id,omitempty" json:"member_role_id,omitempty"`
 }
 
 // AddGroupLDAPLink creates a new group LDAP link. Available only for users who
 // can edit groups.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#add-ldap-group-link-with-cn-or-filter
+// https://docs.gitlab.com/api/group_ldap_links/#add-an-ldap-group-link-with-cn-or-filter
 func (s *GroupsService) AddGroupLDAPLink(gid interface{}, opt *AddGroupLDAPLinkOptions, options ...RequestOptionFunc) (*LDAPGroupLink, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -804,9 +867,10 @@ func (s *GroupsService) AddGroupLDAPLink(gid interface{}, opt *AddGroupLDAPLinkO
 
 // DeleteGroupLDAPLink deletes a group LDAP link. Available only for users who
 // can edit groups.
+// Deprecated as upstream API is deprecated. Use DeleteGroupLDAPLinkWithCNOrFilter() instead.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#delete-ldap-group-link
+// https://docs.gitlab.com/api/group_ldap_links/#delete-an-ldap-group-link-deprecated
 func (s *GroupsService) DeleteGroupLDAPLink(gid interface{}, cn string, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -822,11 +886,21 @@ func (s *GroupsService) DeleteGroupLDAPLink(gid interface{}, cn string, options 
 	return s.client.Do(req, nil)
 }
 
+// DeleteGroupLDAPLinkWithCNOrFilterOptions represents the available DeleteGroupLDAPLinkWithCNOrFilter() options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/group_ldap_links/#delete-an-ldap-group-link-with-cn-or-filter
+type DeleteGroupLDAPLinkWithCNOrFilterOptions struct {
+	CN       *string `url:"cn,omitempty" json:"cn,omitempty"`
+	Filter   *string `url:"filter,omitempty" json:"filter,omitempty"`
+	Provider *string `url:"provider,omitempty" json:"provider,omitempty"`
+}
+
 // DeleteGroupLDAPLinkWithCNOrFilter deletes a group LDAP link. Available only for users who
 // can edit groups.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#delete-ldap-group-link-with-cn-or-filter
+// https://docs.gitlab.com/api/group_ldap_links/#delete-an-ldap-group-link-with-cn-or-filter
 func (s *GroupsService) DeleteGroupLDAPLinkWithCNOrFilter(gid interface{}, opts *DeleteGroupLDAPLinkWithCNOrFilterOptions, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -846,7 +920,7 @@ func (s *GroupsService) DeleteGroupLDAPLinkWithCNOrFilter(gid interface{}, opts 
 // provider. Available only for users who can edit groups.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#delete-ldap-group-link
+// https://docs.gitlab.com/api/group_ldap_links/#delete-an-ldap-group-link-deprecated
 func (s *GroupsService) DeleteGroupLDAPLinkForProvider(gid interface{}, provider, cn string, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -871,7 +945,7 @@ func (s *GroupsService) DeleteGroupLDAPLinkForProvider(gid interface{}, provider
 // can edit groups.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#list-saml-group-links
+// https://docs.gitlab.com/api/saml/#list-saml-group-links
 func (s *GroupsService) ListGroupSAMLLinks(gid interface{}, options ...RequestOptionFunc) ([]*SAMLGroupLink, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -893,11 +967,55 @@ func (s *GroupsService) ListGroupSAMLLinks(gid interface{}, options ...RequestOp
 	return gl, resp, nil
 }
 
+// ListGroupSharedProjectsOptions represents the available ListGroupSharedProjects() options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/groups/#list-shared-projects
+type ListGroupSharedProjectsOptions struct {
+	ListOptions
+	Archived                 *bool             `url:"archived,omitempty" json:"archived,omitempty"`
+	MinAccessLevel           *AccessLevelValue `url:"min_access_level,omitempty" json:"min_access_level,omitempty"`
+	OrderBy                  *string           `url:"order_by,omitempty" json:"order_by,omitempty"`
+	Search                   *string           `url:"search,omitempty" json:"search,omitempty"`
+	Simple                   *bool             `url:"simple,omitempty" json:"simple,omitempty"`
+	Sort                     *string           `url:"sort,omitempty" json:"sort,omitempty"`
+	Starred                  *bool             `url:"starred,omitempty" json:"starred,omitempty"`
+	Visibility               *VisibilityValue  `url:"visibility,omitempty" json:"visibility,omitempty"`
+	WithCustomAttributes     *bool             `url:"with_custom_attributes,omitempty" json:"with_custom_attributes,omitempty"`
+	WithIssuesEnabled        *bool             `url:"with_issues_enabled,omitempty" json:"with_issues_enabled,omitempty"`
+	WithMergeRequestsEnabled *bool             `url:"with_merge_requests_enabled,omitempty" json:"with_merge_requests_enabled,omitempty"`
+}
+
+// ListGroupSharedProjects gets a list of projects shared to this group.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/groups/#list-shared-projects
+func (s *GroupsService) ListGroupSharedProjects(gid interface{}, opt *ListGroupSharedProjectsOptions, options ...RequestOptionFunc) ([]*Project, *Response, error) {
+	group, err := parseID(gid)
+	if err != nil {
+		return nil, nil, err
+	}
+	u := fmt.Sprintf("groups/%s/projects/shared", PathEscape(group))
+
+	req, err := s.client.NewRequest(http.MethodGet, u, opt, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var p []*Project
+	resp, err := s.client.Do(req, &p)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return p, resp, nil
+}
+
 // GetGroupSAMLLink get a specific group SAML link. Available only for users who
 // can edit groups.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#get-saml-group-link
+// https://docs.gitlab.com/api/saml/#get-a-saml-group-link
 func (s *GroupsService) GetGroupSAMLLink(gid interface{}, samlGroupName string, options ...RequestOptionFunc) (*SAMLGroupLink, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -922,7 +1040,7 @@ func (s *GroupsService) GetGroupSAMLLink(gid interface{}, samlGroupName string, 
 // AddGroupSAMLLinkOptions represents the available AddGroupSAMLLink() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#add-saml-group-link
+// https://docs.gitlab.com/api/saml/#add-a-saml-group-link
 type AddGroupSAMLLinkOptions struct {
 	SAMLGroupName *string           `url:"saml_group_name,omitempty" json:"saml_group_name,omitempty"`
 	AccessLevel   *AccessLevelValue `url:"access_level,omitempty" json:"access_level,omitempty"`
@@ -933,7 +1051,7 @@ type AddGroupSAMLLinkOptions struct {
 // can edit groups.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#add-saml-group-link
+// https://docs.gitlab.com/api/saml/#add-a-saml-group-link
 func (s *GroupsService) AddGroupSAMLLink(gid interface{}, opt *AddGroupSAMLLinkOptions, options ...RequestOptionFunc) (*SAMLGroupLink, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -959,7 +1077,7 @@ func (s *GroupsService) AddGroupSAMLLink(gid interface{}, opt *AddGroupSAMLLinkO
 // can edit groups.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#delete-saml-group-link
+// https://docs.gitlab.com/api/saml/#delete-a-saml-group-link
 func (s *GroupsService) DeleteGroupSAMLLink(gid interface{}, samlGroupName string, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -978,7 +1096,7 @@ func (s *GroupsService) DeleteGroupSAMLLink(gid interface{}, samlGroupName strin
 // ShareGroupWithGroupOptions represents the available ShareGroupWithGroup() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#share-groups-with-groups
+// https://docs.gitlab.com/api/groups/#share-groups-with-groups
 type ShareGroupWithGroupOptions struct {
 	GroupID      *int              `url:"group_id,omitempty" json:"group_id,omitempty"`
 	GroupAccess  *AccessLevelValue `url:"group_access,omitempty" json:"group_access,omitempty"`
@@ -989,7 +1107,7 @@ type ShareGroupWithGroupOptions struct {
 // ShareGroupWithGroup shares a group with another group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#create-a-link-to-share-a-group-with-another-group
+// https://docs.gitlab.com/api/groups/#create-a-link-to-share-a-group-with-another-group
 func (s *GroupsService) ShareGroupWithGroup(gid interface{}, opt *ShareGroupWithGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -1014,7 +1132,7 @@ func (s *GroupsService) ShareGroupWithGroup(gid interface{}, opt *ShareGroupWith
 // UnshareGroupFromGroup unshares a group from another group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#delete-link-sharing-group-with-another-group
+// https://docs.gitlab.com/api/groups/#delete-the-link-that-shares-a-group-with-another-group
 func (s *GroupsService) UnshareGroupFromGroup(gid interface{}, groupID int, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -1033,7 +1151,7 @@ func (s *GroupsService) UnshareGroupFromGroup(gid interface{}, groupID int, opti
 // GroupPushRules represents a group push rule.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#get-group-push-rules
+// https://docs.gitlab.com/api/group_push_rules/#get-the-push-rules-of-a-group
 type GroupPushRules struct {
 	ID                         int        `json:"id"`
 	CreatedAt                  *time.Time `json:"created_at"`
@@ -1055,7 +1173,7 @@ type GroupPushRules struct {
 // GetGroupPushRules gets the push rules of a group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#get-group-push-rules
+// https://docs.gitlab.com/api/group_push_rules/#get-the-push-rules-of-a-group
 func (s *GroupsService) GetGroupPushRules(gid interface{}, options ...RequestOptionFunc) (*GroupPushRules, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -1081,7 +1199,7 @@ func (s *GroupsService) GetGroupPushRules(gid interface{}, options ...RequestOpt
 // options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#add-group-push-rule
+// https://docs.gitlab.com/api/group_push_rules/#add-push-rules-to-a-group
 type AddGroupPushRuleOptions struct {
 	AuthorEmailRegex           *string `url:"author_email_regex,omitempty" json:"author_email_regex,omitempty"`
 	BranchNameRegex            *string `url:"branch_name_regex,omitempty" json:"branch_name_regex,omitempty"`
@@ -1101,7 +1219,7 @@ type AddGroupPushRuleOptions struct {
 // AddGroupPushRule adds push rules to the specified group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#add-group-push-rule
+// https://docs.gitlab.com/api/group_push_rules/#add-push-rules-to-a-group
 func (s *GroupsService) AddGroupPushRule(gid interface{}, opt *AddGroupPushRuleOptions, options ...RequestOptionFunc) (*GroupPushRules, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -1127,7 +1245,7 @@ func (s *GroupsService) AddGroupPushRule(gid interface{}, opt *AddGroupPushRuleO
 // options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#edit-group-push-rule
+// https://docs.gitlab.com/api/group_push_rules/#edit-the-push-rules-of-a-group
 type EditGroupPushRuleOptions struct {
 	AuthorEmailRegex           *string `url:"author_email_regex,omitempty" json:"author_email_regex,omitempty"`
 	BranchNameRegex            *string `url:"branch_name_regex,omitempty" json:"branch_name_regex,omitempty"`
@@ -1147,7 +1265,7 @@ type EditGroupPushRuleOptions struct {
 // EditGroupPushRule edits a push rule for a specified group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#edit-group-push-rule
+// https://docs.gitlab.com/api/group_push_rules/#edit-the-push-rules-of-a-group
 func (s *GroupsService) EditGroupPushRule(gid interface{}, opt *EditGroupPushRuleOptions, options ...RequestOptionFunc) (*GroupPushRules, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -1172,7 +1290,7 @@ func (s *GroupsService) EditGroupPushRule(gid interface{}, opt *EditGroupPushRul
 // DeleteGroupPushRule deletes the push rules of a group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#delete-group-push-rule
+// https://docs.gitlab.com/api/group_push_rules/#delete-the-push-rules-of-a-group
 func (s *GroupsService) DeleteGroupPushRule(gid interface{}, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(gid)
 	if err != nil {

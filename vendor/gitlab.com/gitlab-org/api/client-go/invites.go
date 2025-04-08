@@ -22,17 +22,28 @@ import (
 	"time"
 )
 
-// InvitesService handles communication with the invitation related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/invitations.html
-type InvitesService struct {
-	client *Client
-}
+type (
+	InvitesServiceInterface interface {
+		ListPendingGroupInvitations(gid interface{}, opt *ListPendingInvitationsOptions, options ...RequestOptionFunc) ([]*PendingInvite, *Response, error)
+		ListPendingProjectInvitations(pid interface{}, opt *ListPendingInvitationsOptions, options ...RequestOptionFunc) ([]*PendingInvite, *Response, error)
+		GroupInvites(gid interface{}, opt *InvitesOptions, options ...RequestOptionFunc) (*InvitesResult, *Response, error)
+		ProjectInvites(pid interface{}, opt *InvitesOptions, options ...RequestOptionFunc) (*InvitesResult, *Response, error)
+	}
+
+	// InvitesService handles communication with the invitation related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/api/invitations/
+	InvitesService struct {
+		client *Client
+	}
+)
+
+var _ InvitesServiceInterface = (*InvitesService)(nil)
 
 // PendingInvite represents a pending invite.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/invitations.html
+// GitLab API docs: https://docs.gitlab.com/api/invitations/
 type PendingInvite struct {
 	ID            int              `json:"id"`
 	InviteEmail   string           `json:"invite_email"`
@@ -47,7 +58,7 @@ type PendingInvite struct {
 // ListPendingInvitations() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/invitations.html#list-all-invitations-pending-for-a-group-or-project
+// https://docs.gitlab.com/api/invitations/#list-all-invitations-pending-for-a-group-or-project
 type ListPendingInvitationsOptions struct {
 	ListOptions
 	Query *string `url:"query,omitempty" json:"query,omitempty"`
@@ -56,7 +67,7 @@ type ListPendingInvitationsOptions struct {
 // ListPendingGroupInvitations gets a list of invited group members.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/invitations.html#list-all-invitations-pending-for-a-group-or-project
+// https://docs.gitlab.com/api/invitations/#list-all-invitations-pending-for-a-group-or-project
 func (s *InvitesService) ListPendingGroupInvitations(gid interface{}, opt *ListPendingInvitationsOptions, options ...RequestOptionFunc) ([]*PendingInvite, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -81,7 +92,7 @@ func (s *InvitesService) ListPendingGroupInvitations(gid interface{}, opt *ListP
 // ListPendingProjectInvitations gets a list of invited project members.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/invitations.html#list-all-invitations-pending-for-a-group-or-project
+// https://docs.gitlab.com/api/invitations/#list-all-invitations-pending-for-a-group-or-project
 func (s *InvitesService) ListPendingProjectInvitations(pid interface{}, opt *ListPendingInvitationsOptions, options ...RequestOptionFunc) ([]*PendingInvite, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -107,7 +118,7 @@ func (s *InvitesService) ListPendingProjectInvitations(pid interface{}, opt *Lis
 // options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/invitations.html#add-a-member-to-a-group-or-project
+// https://docs.gitlab.com/api/invitations/#add-a-member-to-a-group-or-project
 type InvitesOptions struct {
 	ID          interface{}       `url:"id,omitempty" json:"id,omitempty"`
 	Email       *string           `url:"email,omitempty" json:"email,omitempty"`
@@ -119,7 +130,7 @@ type InvitesOptions struct {
 // InvitesResult represents an invitations result.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/invitations.html#add-a-member-to-a-group-or-project
+// https://docs.gitlab.com/api/invitations/#add-a-member-to-a-group-or-project
 type InvitesResult struct {
 	Status  string            `json:"status"`
 	Message map[string]string `json:"message,omitempty"`
@@ -128,7 +139,7 @@ type InvitesResult struct {
 // GroupInvites invites new users by email to join a group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/invitations.html#add-a-member-to-a-group-or-project
+// https://docs.gitlab.com/api/invitations/#add-a-member-to-a-group-or-project
 func (s *InvitesService) GroupInvites(gid interface{}, opt *InvitesOptions, options ...RequestOptionFunc) (*InvitesResult, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -153,7 +164,7 @@ func (s *InvitesService) GroupInvites(gid interface{}, opt *InvitesOptions, opti
 // ProjectInvites invites new users by email to join a project.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/invitations.html#add-a-member-to-a-group-or-project
+// https://docs.gitlab.com/api/invitations/#add-a-member-to-a-group-or-project
 func (s *InvitesService) ProjectInvites(pid interface{}, opt *InvitesOptions, options ...RequestOptionFunc) (*InvitesResult, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {

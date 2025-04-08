@@ -22,13 +22,24 @@ import (
 	"time"
 )
 
-// ResourceStateEventsService handles communication with the event related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/resource_state_events.html
-type ResourceStateEventsService struct {
-	client *Client
-}
+type (
+	ResourceStateEventsServiceInterface interface {
+		ListIssueStateEvents(pid interface{}, issue int, opt *ListStateEventsOptions, options ...RequestOptionFunc) ([]*StateEvent, *Response, error)
+		GetIssueStateEvent(pid interface{}, issue int, event int, options ...RequestOptionFunc) (*StateEvent, *Response, error)
+		ListMergeStateEvents(pid interface{}, request int, opt *ListStateEventsOptions, options ...RequestOptionFunc) ([]*StateEvent, *Response, error)
+		GetMergeRequestStateEvent(pid interface{}, request int, event int, options ...RequestOptionFunc) (*StateEvent, *Response, error)
+	}
+
+	// ResourceStateEventsService handles communication with the event related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/resource_state_events.html
+	ResourceStateEventsService struct {
+		client *Client
+	}
+)
+
+var _ ResourceStateEventsServiceInterface = (*ResourceStateEventsService)(nil)
 
 // StateEvent represents a resource state event.
 //

@@ -22,13 +22,31 @@ import (
 	"time"
 )
 
-// PipelineSchedulesService handles communication with the pipeline
-// schedules related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/pipeline_schedules.html
-type PipelineSchedulesService struct {
-	client *Client
-}
+type (
+	PipelineSchedulesServiceInterface interface {
+		ListPipelineSchedules(pid interface{}, opt *ListPipelineSchedulesOptions, options ...RequestOptionFunc) ([]*PipelineSchedule, *Response, error)
+		GetPipelineSchedule(pid interface{}, schedule int, options ...RequestOptionFunc) (*PipelineSchedule, *Response, error)
+		ListPipelinesTriggeredBySchedule(pid interface{}, schedule int, opt *ListPipelinesTriggeredByScheduleOptions, options ...RequestOptionFunc) ([]*Pipeline, *Response, error)
+		CreatePipelineSchedule(pid interface{}, opt *CreatePipelineScheduleOptions, options ...RequestOptionFunc) (*PipelineSchedule, *Response, error)
+		EditPipelineSchedule(pid interface{}, schedule int, opt *EditPipelineScheduleOptions, options ...RequestOptionFunc) (*PipelineSchedule, *Response, error)
+		TakeOwnershipOfPipelineSchedule(pid interface{}, schedule int, options ...RequestOptionFunc) (*PipelineSchedule, *Response, error)
+		DeletePipelineSchedule(pid interface{}, schedule int, options ...RequestOptionFunc) (*Response, error)
+		RunPipelineSchedule(pid interface{}, schedule int, options ...RequestOptionFunc) (*Response, error)
+		CreatePipelineScheduleVariable(pid interface{}, schedule int, opt *CreatePipelineScheduleVariableOptions, options ...RequestOptionFunc) (*PipelineVariable, *Response, error)
+		EditPipelineScheduleVariable(pid interface{}, schedule int, key string, opt *EditPipelineScheduleVariableOptions, options ...RequestOptionFunc) (*PipelineVariable, *Response, error)
+		DeletePipelineScheduleVariable(pid interface{}, schedule int, key string, options ...RequestOptionFunc) (*PipelineVariable, *Response, error)
+	}
+
+	// PipelineSchedulesService handles communication with the pipeline
+	// schedules related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/pipeline_schedules.html
+	PipelineSchedulesService struct {
+		client *Client
+	}
+)
+
+var _ PipelineSchedulesServiceInterface = (*PipelineSchedulesService)(nil)
 
 // PipelineSchedule represents a pipeline schedule.
 //

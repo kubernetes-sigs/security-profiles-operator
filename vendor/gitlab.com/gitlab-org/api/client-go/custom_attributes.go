@@ -21,13 +21,32 @@ import (
 	"net/http"
 )
 
-// CustomAttributesService handles communication with the group, project and
-// user custom attributes related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/custom_attributes.html
-type CustomAttributesService struct {
-	client *Client
-}
+type (
+	CustomAttributesServiceInterface interface {
+		ListCustomUserAttributes(user int, options ...RequestOptionFunc) ([]*CustomAttribute, *Response, error)
+		ListCustomGroupAttributes(group int, options ...RequestOptionFunc) ([]*CustomAttribute, *Response, error)
+		ListCustomProjectAttributes(project int, options ...RequestOptionFunc) ([]*CustomAttribute, *Response, error)
+		GetCustomUserAttribute(user int, key string, options ...RequestOptionFunc) (*CustomAttribute, *Response, error)
+		GetCustomGroupAttribute(group int, key string, options ...RequestOptionFunc) (*CustomAttribute, *Response, error)
+		GetCustomProjectAttribute(project int, key string, options ...RequestOptionFunc) (*CustomAttribute, *Response, error)
+		SetCustomUserAttribute(user int, c CustomAttribute, options ...RequestOptionFunc) (*CustomAttribute, *Response, error)
+		SetCustomGroupAttribute(group int, c CustomAttribute, options ...RequestOptionFunc) (*CustomAttribute, *Response, error)
+		SetCustomProjectAttribute(project int, c CustomAttribute, options ...RequestOptionFunc) (*CustomAttribute, *Response, error)
+		DeleteCustomUserAttribute(user int, key string, options ...RequestOptionFunc) (*Response, error)
+		DeleteCustomGroupAttribute(group int, key string, options ...RequestOptionFunc) (*Response, error)
+		DeleteCustomProjectAttribute(project int, key string, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// CustomAttributesService handles communication with the group, project and
+	// user custom attributes related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/custom_attributes.html
+	CustomAttributesService struct {
+		client *Client
+	}
+)
+
+var _ CustomAttributesServiceInterface = (*CustomAttributesService)(nil)
 
 // CustomAttribute struct is used to unmarshal response to api calls.
 //

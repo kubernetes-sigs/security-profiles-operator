@@ -18,13 +18,22 @@ package gitlab
 
 import "net/http"
 
-// PlanLimitsService handles communication with the repositories related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/plan_limits.html
-type PlanLimitsService struct {
-	client *Client
-}
+type (
+	PlanLimitsServiceInterface interface {
+		GetCurrentPlanLimits(opt *GetCurrentPlanLimitsOptions, options ...RequestOptionFunc) (*PlanLimit, *Response, error)
+		ChangePlanLimits(opt *ChangePlanLimitOptions, options ...RequestOptionFunc) (*PlanLimit, *Response, error)
+	}
+
+	// PlanLimitsService handles communication with the repositories related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/plan_limits.html
+	PlanLimitsService struct {
+		client *Client
+	}
+)
+
+var _ PlanLimitsServiceInterface = (*PlanLimitsService)(nil)
 
 // PlanLimit represents a GitLab pipeline.
 //

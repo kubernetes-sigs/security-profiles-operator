@@ -22,19 +22,31 @@ import (
 	"net/url"
 )
 
-// InstanceVariablesService handles communication with the
-// instance level CI variables related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html
-type InstanceVariablesService struct {
-	client *Client
-}
+type (
+	InstanceVariablesServiceInterface interface {
+		ListVariables(opt *ListInstanceVariablesOptions, options ...RequestOptionFunc) ([]*InstanceVariable, *Response, error)
+		GetVariable(key string, options ...RequestOptionFunc) (*InstanceVariable, *Response, error)
+		CreateVariable(opt *CreateInstanceVariableOptions, options ...RequestOptionFunc) (*InstanceVariable, *Response, error)
+		UpdateVariable(key string, opt *UpdateInstanceVariableOptions, options ...RequestOptionFunc) (*InstanceVariable, *Response, error)
+		RemoveVariable(key string, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// InstanceVariablesService handles communication with the
+	// instance level CI variables related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/api/instance_level_ci_variables/
+	InstanceVariablesService struct {
+		client *Client
+	}
+)
+
+var _ InstanceVariablesServiceInterface = (*InstanceVariablesService)(nil)
 
 // InstanceVariable represents a GitLab instance level CI Variable.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html
+// https://docs.gitlab.com/api/instance_level_ci_variables/
 type InstanceVariable struct {
 	Key          string            `json:"key"`
 	Value        string            `json:"value"`
@@ -53,13 +65,13 @@ func (v InstanceVariable) String() string {
 // for an instance.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html#list-all-instance-variables
+// https://docs.gitlab.com/api/instance_level_ci_variables/#list-all-instance-variables
 type ListInstanceVariablesOptions ListOptions
 
 // ListVariables gets a list of all variables for an instance.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html#list-all-instance-variables
+// https://docs.gitlab.com/api/instance_level_ci_variables/#list-all-instance-variables
 func (s *InstanceVariablesService) ListVariables(opt *ListInstanceVariablesOptions, options ...RequestOptionFunc) ([]*InstanceVariable, *Response, error) {
 	u := "admin/ci/variables"
 
@@ -80,7 +92,7 @@ func (s *InstanceVariablesService) ListVariables(opt *ListInstanceVariablesOptio
 // GetVariable gets a variable.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html#show-instance-variable-details
+// https://docs.gitlab.com/api/instance_level_ci_variables/#show-instance-variable-details
 func (s *InstanceVariablesService) GetVariable(key string, options ...RequestOptionFunc) (*InstanceVariable, *Response, error) {
 	u := fmt.Sprintf("admin/ci/variables/%s", url.PathEscape(key))
 
@@ -102,7 +114,7 @@ func (s *InstanceVariablesService) GetVariable(key string, options ...RequestOpt
 // options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html#create-instance-variable
+// https://docs.gitlab.com/api/instance_level_ci_variables/#create-instance-variable
 type CreateInstanceVariableOptions struct {
 	Key          *string            `url:"key,omitempty" json:"key,omitempty"`
 	Value        *string            `url:"value,omitempty" json:"value,omitempty"`
@@ -116,7 +128,7 @@ type CreateInstanceVariableOptions struct {
 // CreateVariable creates a new instance level CI variable.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html#create-instance-variable
+// https://docs.gitlab.com/api/instance_level_ci_variables/#create-instance-variable
 func (s *InstanceVariablesService) CreateVariable(opt *CreateInstanceVariableOptions, options ...RequestOptionFunc) (*InstanceVariable, *Response, error) {
 	u := "admin/ci/variables"
 
@@ -138,7 +150,7 @@ func (s *InstanceVariablesService) CreateVariable(opt *CreateInstanceVariableOpt
 // options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html#update-instance-variable
+// https://docs.gitlab.com/api/instance_level_ci_variables/#update-instance-variable
 type UpdateInstanceVariableOptions struct {
 	Value        *string            `url:"value,omitempty" json:"value,omitempty"`
 	Description  *string            `url:"description,omitempty" json:"description,omitempty"`
@@ -152,7 +164,7 @@ type UpdateInstanceVariableOptions struct {
 // instance level CI variable.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html#update-instance-variable
+// https://docs.gitlab.com/api/instance_level_ci_variables/#update-instance-variable
 func (s *InstanceVariablesService) UpdateVariable(key string, opt *UpdateInstanceVariableOptions, options ...RequestOptionFunc) (*InstanceVariable, *Response, error) {
 	u := fmt.Sprintf("admin/ci/variables/%s", url.PathEscape(key))
 
@@ -173,7 +185,7 @@ func (s *InstanceVariablesService) UpdateVariable(key string, opt *UpdateInstanc
 // RemoveVariable removes an instance level CI variable.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_level_ci_variables.html#remove-instance-variable
+// https://docs.gitlab.com/api/instance_level_ci_variables/#remove-instance-variable
 func (s *InstanceVariablesService) RemoveVariable(key string, options ...RequestOptionFunc) (*Response, error) {
 	u := fmt.Sprintf("admin/ci/variables/%s", url.PathEscape(key))
 

@@ -57,6 +57,10 @@ type TransparencyLog struct {
 	SignatureHashFunc crypto.Hash
 }
 
+const (
+	defaultTrustedRoot = "trusted_root.json"
+)
+
 func (tr *TrustedRoot) TimestampingAuthorities() []TimestampingAuthority {
 	return tr.timestampingAuthorities
 }
@@ -397,7 +401,7 @@ func FetchTrustedRootWithOptions(opts *tuf.Options) (*TrustedRoot, error) {
 
 // GetTrustedRoot returns the trusted root
 func GetTrustedRoot(c *tuf.Client) (*TrustedRoot, error) {
-	jsonBytes, err := c.GetTarget("trusted_root.json")
+	jsonBytes, err := c.GetTarget(defaultTrustedRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -439,11 +443,23 @@ type LiveTrustedRoot struct {
 // NewLiveTrustedRoot returns a LiveTrustedRoot that will periodically
 // refresh the trusted root from TUF.
 func NewLiveTrustedRoot(opts *tuf.Options) (*LiveTrustedRoot, error) {
+	return NewLiveTrustedRootFromTarget(opts, defaultTrustedRoot)
+}
+
+// NewLiveTrustedRootFromTarget returns a LiveTrustedRoot that will
+// periodically refresh the trusted root from TUF using the provided target.
+func NewLiveTrustedRootFromTarget(opts *tuf.Options, target string) (*LiveTrustedRoot, error) {
 	client, err := tuf.New(opts)
 	if err != nil {
 		return nil, err
 	}
-	tr, err := GetTrustedRoot(client)
+
+	b, err := client.GetTarget(target)
+	if err != nil {
+		return nil, err
+	}
+
+	tr, err := NewTrustedRootFromJSON(b)
 	if err != nil {
 		return nil, err
 	}
@@ -453,22 +469,25 @@ func NewLiveTrustedRoot(opts *tuf.Options) (*LiveTrustedRoot, error) {
 	}
 	ticker := time.NewTicker(time.Hour * 24)
 	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				client, err = tuf.New(opts)
-				if err != nil {
-					log.Printf("error creating TUF client: %v", err)
-				}
-				newTr, err := GetTrustedRoot(client)
-				if err != nil {
-					log.Printf("error fetching trusted root: %v", err)
-					continue
-				}
-				ltr.mu.Lock()
-				ltr.TrustedRoot = newTr
-				ltr.mu.Unlock()
+		for range ticker.C {
+			client, err = tuf.New(opts)
+			if err != nil {
+				log.Printf("error creating TUF client: %v", err)
 			}
+
+			b, err := client.GetTarget(target)
+			if err != nil {
+				log.Printf("error fetching trusted root: %v", err)
+			}
+
+			newTr, err := NewTrustedRootFromJSON(b)
+			if err != nil {
+				log.Printf("error fetching trusted root: %v", err)
+				continue
+			}
+			ltr.mu.Lock()
+			ltr.TrustedRoot = newTr
+			ltr.mu.Unlock()
 		}
 	}()
 	return ltr, nil

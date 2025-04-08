@@ -22,13 +22,26 @@ import (
 	"time"
 )
 
-// ReleasesService handles communication with the releases methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/releases/index.html
-type ReleasesService struct {
-	client *Client
-}
+type (
+	ReleasesServiceInterface interface {
+		ListReleases(pid interface{}, opt *ListReleasesOptions, options ...RequestOptionFunc) ([]*Release, *Response, error)
+		GetRelease(pid interface{}, tagName string, options ...RequestOptionFunc) (*Release, *Response, error)
+		GetLatestRelease(pid interface{}, options ...RequestOptionFunc) (*Release, *Response, error)
+		CreateRelease(pid interface{}, opts *CreateReleaseOptions, options ...RequestOptionFunc) (*Release, *Response, error)
+		UpdateRelease(pid interface{}, tagName string, opts *UpdateReleaseOptions, options ...RequestOptionFunc) (*Release, *Response, error)
+		DeleteRelease(pid interface{}, tagName string, options ...RequestOptionFunc) (*Release, *Response, error)
+	}
+
+	// ReleasesService handles communication with the releases methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/releases/index.html
+	ReleasesService struct {
+		client *Client
+	}
+)
+
+var _ ReleasesServiceInterface = (*ReleasesService)(nil)
 
 // Release represents a project release.
 //

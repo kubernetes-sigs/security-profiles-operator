@@ -22,13 +22,22 @@ import (
 	"time"
 )
 
-// ProjectVulnerabilitiesService handles communication with the projects
-// vulnerabilities related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/project_vulnerabilities.html
-type ProjectVulnerabilitiesService struct {
-	client *Client
-}
+type (
+	ProjectVulnerabilitiesServiceInterface interface {
+		ListProjectVulnerabilities(pid interface{}, opt *ListProjectVulnerabilitiesOptions, options ...RequestOptionFunc) ([]*ProjectVulnerability, *Response, error)
+		CreateVulnerability(pid interface{}, opt *CreateVulnerabilityOptions, options ...RequestOptionFunc) (*ProjectVulnerability, *Response, error)
+	}
+
+	// ProjectVulnerabilitiesService handles communication with the projects
+	// vulnerabilities related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/project_vulnerabilities.html
+	ProjectVulnerabilitiesService struct {
+		client *Client
+	}
+)
+
+var _ ProjectVulnerabilitiesServiceInterface = (*ProjectVulnerabilitiesService)(nil)
 
 // Project represents a GitLab project vulnerability.
 //

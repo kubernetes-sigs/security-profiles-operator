@@ -22,13 +22,27 @@ import (
 	"time"
 )
 
-// MilestonesService handles communication with the milestone related methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/milestones.html
-type MilestonesService struct {
-	client *Client
-}
+type (
+	MilestonesServiceInterface interface {
+		ListMilestones(pid interface{}, opt *ListMilestonesOptions, options ...RequestOptionFunc) ([]*Milestone, *Response, error)
+		GetMilestone(pid interface{}, milestone int, options ...RequestOptionFunc) (*Milestone, *Response, error)
+		CreateMilestone(pid interface{}, opt *CreateMilestoneOptions, options ...RequestOptionFunc) (*Milestone, *Response, error)
+		UpdateMilestone(pid interface{}, milestone int, opt *UpdateMilestoneOptions, options ...RequestOptionFunc) (*Milestone, *Response, error)
+		DeleteMilestone(pid interface{}, milestone int, options ...RequestOptionFunc) (*Response, error)
+		GetMilestoneIssues(pid interface{}, milestone int, opt *GetMilestoneIssuesOptions, options ...RequestOptionFunc) ([]*Issue, *Response, error)
+		GetMilestoneMergeRequests(pid interface{}, milestone int, opt *GetMilestoneMergeRequestsOptions, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error)
+	}
+
+	// MilestonesService handles communication with the milestone related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/milestones.html
+	MilestonesService struct {
+		client *Client
+	}
+)
+
+var _ MilestonesServiceInterface = (*MilestonesService)(nil)
 
 // Milestone represents a GitLab milestone.
 //
@@ -250,7 +264,7 @@ type GetMilestoneMergeRequestsOptions ListOptions
 //
 // GitLab API docs:
 // https://docs.gitlab.com/ee/api/milestones.html#get-all-merge-requests-assigned-to-a-single-milestone
-func (s *MilestonesService) GetMilestoneMergeRequests(pid interface{}, milestone int, opt *GetMilestoneMergeRequestsOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error) {
+func (s *MilestonesService) GetMilestoneMergeRequests(pid interface{}, milestone int, opt *GetMilestoneMergeRequestsOptions, options ...RequestOptionFunc) ([]*BasicMergeRequest, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
@@ -262,7 +276,7 @@ func (s *MilestonesService) GetMilestoneMergeRequests(pid interface{}, milestone
 		return nil, nil, err
 	}
 
-	var mr []*MergeRequest
+	var mr []*BasicMergeRequest
 	resp, err := s.client.Do(req, &mr)
 	if err != nil {
 		return nil, resp, err

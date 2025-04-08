@@ -21,12 +21,23 @@ import (
 	"time"
 )
 
-// SidekiqService handles communication with the sidekiq service
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/sidekiq_metrics.html
-type SidekiqService struct {
-	client *Client
-}
+type (
+	SidekiqServiceInterface interface {
+		GetQueueMetrics(options ...RequestOptionFunc) (*QueueMetrics, *Response, error)
+		GetProcessMetrics(options ...RequestOptionFunc) (*ProcessMetrics, *Response, error)
+		GetJobStats(options ...RequestOptionFunc) (*JobStats, *Response, error)
+		GetCompoundMetrics(options ...RequestOptionFunc) (*CompoundMetrics, *Response, error)
+	}
+
+	// SidekiqService handles communication with the sidekiq service
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/sidekiq_metrics.html
+	SidekiqService struct {
+		client *Client
+	}
+)
+
+var _ SidekiqServiceInterface = (*SidekiqService)(nil)
 
 // QueueMetrics represents the GitLab sidekiq queue metrics.
 //

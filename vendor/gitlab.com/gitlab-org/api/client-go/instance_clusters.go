@@ -22,18 +22,30 @@ import (
 	"time"
 )
 
-// InstanceClustersService handles communication with the
-// instance clusters related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_clusters.html
-type InstanceClustersService struct {
-	client *Client
-}
+type (
+	InstanceClustersServiceInterface interface {
+		ListClusters(options ...RequestOptionFunc) ([]*InstanceCluster, *Response, error)
+		GetCluster(cluster int, options ...RequestOptionFunc) (*InstanceCluster, *Response, error)
+		AddCluster(opt *AddClusterOptions, options ...RequestOptionFunc) (*InstanceCluster, *Response, error)
+		EditCluster(cluster int, opt *EditClusterOptions, options ...RequestOptionFunc) (*InstanceCluster, *Response, error)
+		DeleteCluster(cluster int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// InstanceClustersService handles communication with the
+	// instance clusters related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/api/instance_clusters/
+	InstanceClustersService struct {
+		client *Client
+	}
+)
+
+var _ InstanceClustersServiceInterface = (*InstanceClustersService)(nil)
 
 // InstanceCluster represents a GitLab Instance Cluster.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/instance_clusters.html
+// GitLab API docs: https://docs.gitlab.com/api/instance_clusters/
 type InstanceCluster struct {
 	ID                 int                 `json:"id"`
 	Name               string              `json:"name"`
@@ -56,7 +68,7 @@ func (v InstanceCluster) String() string {
 // ListClusters gets a list of all instance clusters.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_clusters.html#list-instance-clusters
+// https://docs.gitlab.com/api/instance_clusters/#list-instance-clusters
 func (s *InstanceClustersService) ListClusters(options ...RequestOptionFunc) ([]*InstanceCluster, *Response, error) {
 	u := "admin/clusters"
 
@@ -77,7 +89,7 @@ func (s *InstanceClustersService) ListClusters(options ...RequestOptionFunc) ([]
 // GetCluster gets an instance cluster.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_clusters.html#get-a-single-instance-cluster
+// https://docs.gitlab.com/api/instance_clusters/#get-a-single-instance-cluster
 func (s *InstanceClustersService) GetCluster(cluster int, options ...RequestOptionFunc) (*InstanceCluster, *Response, error) {
 	u := fmt.Sprintf("admin/clusters/%d", cluster)
 
@@ -98,7 +110,7 @@ func (s *InstanceClustersService) GetCluster(cluster int, options ...RequestOpti
 // AddCluster adds an existing cluster to the instance.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_clusters.html#add-existing-instance-cluster
+// https://docs.gitlab.com/api/instance_clusters/#add-existing-instance-cluster
 func (s *InstanceClustersService) AddCluster(opt *AddClusterOptions, options ...RequestOptionFunc) (*InstanceCluster, *Response, error) {
 	u := "admin/clusters/add"
 
@@ -119,7 +131,7 @@ func (s *InstanceClustersService) AddCluster(opt *AddClusterOptions, options ...
 // EditCluster updates an existing instance cluster.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_clusters.html#edit-instance-cluster
+// https://docs.gitlab.com/api/instance_clusters/#edit-instance-cluster
 func (s *InstanceClustersService) EditCluster(cluster int, opt *EditClusterOptions, options ...RequestOptionFunc) (*InstanceCluster, *Response, error) {
 	u := fmt.Sprintf("admin/clusters/%d", cluster)
 
@@ -140,7 +152,7 @@ func (s *InstanceClustersService) EditCluster(cluster int, opt *EditClusterOptio
 // DeleteCluster deletes an existing instance cluster.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/instance_clusters.html#delete-instance-cluster
+// https://docs.gitlab.com/api/instance_clusters/#delete-instance-cluster
 func (s *InstanceClustersService) DeleteCluster(cluster int, options ...RequestOptionFunc) (*Response, error) {
 	u := fmt.Sprintf("admin/clusters/%d", cluster)
 

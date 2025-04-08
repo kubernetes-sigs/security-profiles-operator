@@ -22,13 +22,28 @@ import (
 	"time"
 )
 
-// ContainerRegistryService handles communication with the container registry
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/container_registry.html
-type ContainerRegistryService struct {
-	client *Client
-}
+type (
+	ContainerRegistryServiceInterface interface {
+		ListProjectRegistryRepositories(pid interface{}, opt *ListRegistryRepositoriesOptions, options ...RequestOptionFunc) ([]*RegistryRepository, *Response, error)
+		ListGroupRegistryRepositories(gid interface{}, opt *ListRegistryRepositoriesOptions, options ...RequestOptionFunc) ([]*RegistryRepository, *Response, error)
+		GetSingleRegistryRepository(pid interface{}, opt *GetSingleRegistryRepositoryOptions, options ...RequestOptionFunc) (*RegistryRepository, *Response, error)
+		DeleteRegistryRepository(pid interface{}, repository int, options ...RequestOptionFunc) (*Response, error)
+		ListRegistryRepositoryTags(pid interface{}, repository int, opt *ListRegistryRepositoryTagsOptions, options ...RequestOptionFunc) ([]*RegistryRepositoryTag, *Response, error)
+		GetRegistryRepositoryTagDetail(pid interface{}, repository int, tagName string, options ...RequestOptionFunc) (*RegistryRepositoryTag, *Response, error)
+		DeleteRegistryRepositoryTag(pid interface{}, repository int, tagName string, options ...RequestOptionFunc) (*Response, error)
+		DeleteRegistryRepositoryTags(pid interface{}, repository int, opt *DeleteRegistryRepositoryTagsOptions, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ContainerRegistryService handles communication with the container registry
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/container_registry.html
+	ContainerRegistryService struct {
+		client *Client
+	}
+)
+
+var _ ContainerRegistryServiceInterface = (*ContainerRegistryService)(nil)
 
 // RegistryRepository represents a GitLab content registry repository.
 //

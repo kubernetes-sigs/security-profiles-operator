@@ -24,13 +24,88 @@ import (
 	"time"
 )
 
-// ServicesService handles communication with the services related methods of
-// the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/integrations.html
-type ServicesService struct {
-	client *Client
-}
+type (
+	ServicesServiceInterface interface {
+		ListServices(pid interface{}, options ...RequestOptionFunc) ([]*Service, *Response, error)
+		GetCustomIssueTrackerService(pid interface{}, options ...RequestOptionFunc) (*CustomIssueTrackerService, *Response, error)
+		SetCustomIssueTrackerService(pid interface{}, opt *SetCustomIssueTrackerServiceOptions, options ...RequestOptionFunc) (*CustomIssueTrackerService, *Response, error)
+		DeleteCustomIssueTrackerService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetDataDogService(pid interface{}, options ...RequestOptionFunc) (*DataDogService, *Response, error)
+		SetDataDogService(pid interface{}, opt *SetDataDogServiceOptions, options ...RequestOptionFunc) (*DataDogService, *Response, error)
+		DeleteDataDogService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetDiscordService(pid interface{}, options ...RequestOptionFunc) (*DiscordService, *Response, error)
+		SetDiscordService(pid interface{}, opt *SetDiscordServiceOptions, options ...RequestOptionFunc) (*DiscordService, *Response, error)
+		DeleteDiscordService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetDroneCIService(pid interface{}, options ...RequestOptionFunc) (*DroneCIService, *Response, error)
+		SetDroneCIService(pid interface{}, opt *SetDroneCIServiceOptions, options ...RequestOptionFunc) (*DroneCIService, *Response, error)
+		DeleteDroneCIService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetEmailsOnPushService(pid interface{}, options ...RequestOptionFunc) (*EmailsOnPushService, *Response, error)
+		SetEmailsOnPushService(pid interface{}, opt *SetEmailsOnPushServiceOptions, options ...RequestOptionFunc) (*EmailsOnPushService, *Response, error)
+		DeleteEmailsOnPushService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetExternalWikiService(pid interface{}, options ...RequestOptionFunc) (*ExternalWikiService, *Response, error)
+		SetExternalWikiService(pid interface{}, opt *SetExternalWikiServiceOptions, options ...RequestOptionFunc) (*ExternalWikiService, *Response, error)
+		DeleteExternalWikiService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetGithubService(pid interface{}, options ...RequestOptionFunc) (*GithubService, *Response, error)
+		SetGithubService(pid interface{}, opt *SetGithubServiceOptions, options ...RequestOptionFunc) (*GithubService, *Response, error)
+		DeleteGithubService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetHarborService(pid interface{}, options ...RequestOptionFunc) (*HarborService, *Response, error)
+		SetHarborService(pid interface{}, opt *SetHarborServiceOptions, options ...RequestOptionFunc) (*HarborService, *Response, error)
+		DeleteHarborService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetSlackApplication(pid interface{}, options ...RequestOptionFunc) (*SlackApplication, *Response, error)
+		SetSlackApplication(pid interface{}, opt *SetSlackApplicationOptions, options ...RequestOptionFunc) (*SlackApplication, *Response, error)
+		DisableSlackApplication(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		SetGitLabCIService(pid interface{}, opt *SetGitLabCIServiceOptions, options ...RequestOptionFunc) (*Response, error)
+		DeleteGitLabCIService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		SetHipChatService(pid interface{}, opt *SetHipChatServiceOptions, options ...RequestOptionFunc) (*Response, error)
+		DeleteHipChatService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetJenkinsCIService(pid interface{}, options ...RequestOptionFunc) (*JenkinsCIService, *Response, error)
+		SetJenkinsCIService(pid interface{}, opt *SetJenkinsCIServiceOptions, options ...RequestOptionFunc) (*JenkinsCIService, *Response, error)
+		DeleteJenkinsCIService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetJiraService(pid interface{}, options ...RequestOptionFunc) (*JiraService, *Response, error)
+		SetJiraService(pid interface{}, opt *SetJiraServiceOptions, options ...RequestOptionFunc) (*JiraService, *Response, error)
+		DeleteJiraService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetMattermostService(pid interface{}, options ...RequestOptionFunc) (*MattermostService, *Response, error)
+		SetMattermostService(pid interface{}, opt *SetMattermostServiceOptions, options ...RequestOptionFunc) (*MattermostService, *Response, error)
+		DeleteMattermostService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetMattermostSlashCommandsService(pid interface{}, options ...RequestOptionFunc) (*MattermostSlashCommandsService, *Response, error)
+		SetMattermostSlashCommandsService(pid interface{}, opt *SetMattermostSlashCommandsServiceOptions, options ...RequestOptionFunc) (*MattermostSlashCommandsService, *Response, error)
+		DeleteMattermostSlashCommandsService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetMicrosoftTeamsService(pid interface{}, options ...RequestOptionFunc) (*MicrosoftTeamsService, *Response, error)
+		SetMicrosoftTeamsService(pid interface{}, opt *SetMicrosoftTeamsServiceOptions, options ...RequestOptionFunc) (*MicrosoftTeamsService, *Response, error)
+		DeleteMicrosoftTeamsService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetPipelinesEmailService(pid interface{}, options ...RequestOptionFunc) (*PipelinesEmailService, *Response, error)
+		SetPipelinesEmailService(pid interface{}, opt *SetPipelinesEmailServiceOptions, options ...RequestOptionFunc) (*PipelinesEmailService, *Response, error)
+		DeletePipelinesEmailService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetPrometheusService(pid interface{}, options ...RequestOptionFunc) (*PrometheusService, *Response, error)
+		SetPrometheusService(pid interface{}, opt *SetPrometheusServiceOptions, options ...RequestOptionFunc) (*PrometheusService, *Response, error)
+		DeletePrometheusService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetRedmineService(pid interface{}, options ...RequestOptionFunc) (*RedmineService, *Response, error)
+		SetRedmineService(pid interface{}, opt *SetRedmineServiceOptions, options ...RequestOptionFunc) (*RedmineService, *Response, error)
+		DeleteRedmineService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetSlackService(pid interface{}, options ...RequestOptionFunc) (*SlackService, *Response, error)
+		SetSlackService(pid interface{}, opt *SetSlackServiceOptions, options ...RequestOptionFunc) (*SlackService, *Response, error)
+		DeleteSlackService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetSlackSlashCommandsService(pid interface{}, options ...RequestOptionFunc) (*SlackSlashCommandsService, *Response, error)
+		SetSlackSlashCommandsService(pid interface{}, opt *SetSlackSlashCommandsServiceOptions, options ...RequestOptionFunc) (*SlackSlashCommandsService, *Response, error)
+		DeleteSlackSlashCommandsService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetTelegramService(pid interface{}, options ...RequestOptionFunc) (*TelegramService, *Response, error)
+		SetTelegramService(pid interface{}, opt *SetTelegramServiceOptions, options ...RequestOptionFunc) (*TelegramService, *Response, error)
+		DeleteTelegramService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetYouTrackService(pid interface{}, options ...RequestOptionFunc) (*YouTrackService, *Response, error)
+		SetYouTrackService(pid interface{}, opt *SetYouTrackServiceOptions, options ...RequestOptionFunc) (*YouTrackService, *Response, error)
+		DeleteYouTrackService(pid interface{}, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ServicesService handles communication with the services related methods of
+	// the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/integrations.html
+	ServicesService struct {
+		client *Client
+	}
+)
+
+var _ ServicesServiceInterface = (*ServicesService)(nil)
 
 // Service represents a GitLab service.
 //

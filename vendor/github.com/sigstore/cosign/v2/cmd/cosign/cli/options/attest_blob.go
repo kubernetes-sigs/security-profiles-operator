@@ -15,6 +15,8 @@
 package options
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 )
 
@@ -26,6 +28,10 @@ type AttestBlobOptions struct {
 
 	SkipConfirmation     bool
 	TlogUpload           bool
+	TSAClientCACert      string
+	TSAClientCert        string
+	TSAClientKey         string
+	TSAServerName        string
 	TSAServerURL         string
 	RFC3161TimestampPath string
 
@@ -93,6 +99,7 @@ func (o *AttestBlobOptions) AddFlags(cmd *cobra.Command) {
 
 	cmd.Flags().StringVar(&o.Hash, "hash", "",
 		"hash of blob in hexadecimal (base16). Used if you want to sign an artifact stored elsewhere and have the hash")
+	_ = cmd.RegisterFlagCompletionFunc("hash", cobra.NoFileCompletions)
 
 	cmd.Flags().BoolVarP(&o.SkipConfirmation, "yes", "y", false,
 		"skip confirmation prompts for non-destructive operations")
@@ -100,11 +107,25 @@ func (o *AttestBlobOptions) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&o.TlogUpload, "tlog-upload", true,
 		"whether or not to upload to the tlog")
 
-	cmd.Flags().StringVar(&o.RekorEntryType, "rekor-entry-type", "dsse",
-		"specifies the type to be used for a rekor entry upload. Options are intoto or dsse (default). ")
+	cmd.Flags().StringVar(&o.RekorEntryType, "rekor-entry-type", rekorEntryTypes[0],
+		"specifies the type to be used for a rekor entry upload ("+strings.Join(rekorEntryTypes, "|")+")")
+	_ = cmd.RegisterFlagCompletionFunc("rekor-entry-type", cobra.FixedCompletions(rekorEntryTypes, cobra.ShellCompDirectiveNoFileComp))
+
+	cmd.Flags().StringVar(&o.TSAClientCACert, "timestamp-client-cacert", "",
+		"path to the X.509 CA certificate file in PEM format to be used for the connection to the TSA Server")
+
+	cmd.Flags().StringVar(&o.TSAClientCert, "timestamp-client-cert", "",
+		"path to the X.509 certificate file in PEM format to be used for the connection to the TSA Server")
+
+	cmd.Flags().StringVar(&o.TSAClientKey, "timestamp-client-key", "",
+		"path to the X.509 private key file in PEM format to be used, together with the 'timestamp-client-cert' value, for the connection to the TSA Server")
+
+	cmd.Flags().StringVar(&o.TSAServerName, "timestamp-server-name", "",
+		"SAN name to use as the 'ServerName' tls.Config field to verify the mTLS connection to the TSA Server")
 
 	cmd.Flags().StringVar(&o.TSAServerURL, "timestamp-server-url", "",
 		"url to the Timestamp RFC3161 server, default none. Must be the path to the API to request timestamp responses, e.g. https://freetsa.org/tsr")
+	_ = cmd.RegisterFlagCompletionFunc("timestamp-server-url", cobra.NoFileCompletions)
 
 	cmd.Flags().StringVar(&o.RFC3161TimestampPath, "rfc3161-timestamp-bundle", "",
 		"path to an RFC 3161 timestamp bundle FILE")

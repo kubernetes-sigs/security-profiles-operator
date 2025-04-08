@@ -22,13 +22,26 @@ import (
 	"time"
 )
 
-// ResourceLabelEventsService handles communication with the event related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/resource_label_events.html
-type ResourceLabelEventsService struct {
-	client *Client
-}
+type (
+	ResourceLabelEventsServiceInterface interface {
+		ListIssueLabelEvents(pid interface{}, issue int, opt *ListLabelEventsOptions, options ...RequestOptionFunc) ([]*LabelEvent, *Response, error)
+		GetIssueLabelEvent(pid interface{}, issue int, event int, options ...RequestOptionFunc) (*LabelEvent, *Response, error)
+		ListGroupEpicLabelEvents(gid interface{}, epic int, opt *ListLabelEventsOptions, options ...RequestOptionFunc) ([]*LabelEvent, *Response, error)
+		GetGroupEpicLabelEvent(gid interface{}, epic int, event int, options ...RequestOptionFunc) (*LabelEvent, *Response, error)
+		ListMergeRequestsLabelEvents(pid interface{}, request int, opt *ListLabelEventsOptions, options ...RequestOptionFunc) ([]*LabelEvent, *Response, error)
+		GetMergeRequestLabelEvent(pid interface{}, request int, event int, options ...RequestOptionFunc) (*LabelEvent, *Response, error)
+	}
+
+	// ResourceLabelEventsService handles communication with the event related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/resource_label_events.html
+	ResourceLabelEventsService struct {
+		client *Client
+	}
+)
+
+var _ ResourceLabelEventsServiceInterface = (*ResourceLabelEventsService)(nil)
 
 // LabelEvent represents a resource label event.
 //

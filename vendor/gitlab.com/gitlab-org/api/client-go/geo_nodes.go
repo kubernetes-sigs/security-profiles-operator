@@ -21,9 +21,32 @@ import (
 	"net/http"
 )
 
+type (
+	GeoNodesServiceInterface interface {
+		CreateGeoNode(*CreateGeoNodesOptions, ...RequestOptionFunc) (*GeoNode, *Response, error)
+		ListGeoNodes(*ListGeoNodesOptions, ...RequestOptionFunc) ([]*GeoNode, *Response, error)
+		GetGeoNode(int, ...RequestOptionFunc) (*GeoNode, *Response, error)
+		EditGeoNode(int, *UpdateGeoNodesOptions, ...RequestOptionFunc) (*GeoNode, *Response, error)
+		DeleteGeoNode(int, ...RequestOptionFunc) (*Response, error)
+		RepairGeoNode(int, ...RequestOptionFunc) (*GeoNode, *Response, error)
+		RetrieveStatusOfAllGeoNodes(...RequestOptionFunc) ([]*GeoNodeStatus, *Response, error)
+		RetrieveStatusOfGeoNode(int, ...RequestOptionFunc) (*GeoNodeStatus, *Response, error)
+	}
+
+	// GeoNodesService handles communication with Geo Nodes related methods
+	// of GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/api/geo_nodes/
+	GeoNodesService struct {
+		client *Client
+	}
+)
+
+var _ GeoNodesServiceInterface = (*GeoNodesService)(nil)
+
 // GeoNode represents a GitLab Geo Node.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/geo_nodes.html
+// GitLab API docs: https://docs.gitlab.com/api/geo_nodes/
 type GeoNode struct {
 	ID                               int          `json:"id"`
 	Name                             string       `json:"name"`
@@ -49,25 +72,17 @@ type GeoNode struct {
 
 // GeoNodeLinks represents links for GitLab GeoNode.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/geo_nodes.html
+// GitLab API docs: https://docs.gitlab.com/api/geo_nodes/
 type GeoNodeLinks struct {
 	Self   string `json:"self"`
 	Status string `json:"status"`
 	Repair string `json:"repair"`
 }
 
-// GeoNodesService handles communication with Geo Nodes related methods
-// of GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/geo_nodes.html
-type GeoNodesService struct {
-	client *Client
-}
-
 // CreateGeoNodesOptions represents the available CreateGeoNode() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#create-a-new-geo-node
+// https://docs.gitlab.com/api/geo_nodes/#create-a-new-geo-node
 type CreateGeoNodesOptions struct {
 	Primary                          *bool     `url:"primary,omitempty" json:"primary,omitempty"`
 	Enabled                          *bool     `url:"enabled,omitempty" json:"enabled,omitempty"`
@@ -88,7 +103,7 @@ type CreateGeoNodesOptions struct {
 // CreateGeoNode creates a new Geo Node.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#create-a-new-geo-node
+// https://docs.gitlab.com/api/geo_nodes/#create-a-new-geo-node
 func (s *GeoNodesService) CreateGeoNode(opt *CreateGeoNodesOptions, options ...RequestOptionFunc) (*GeoNode, *Response, error) {
 	req, err := s.client.NewRequest(http.MethodPost, "geo_nodes", opt, options)
 	if err != nil {
@@ -107,13 +122,13 @@ func (s *GeoNodesService) CreateGeoNode(opt *CreateGeoNodesOptions, options ...R
 // ListGeoNodesOptions represents the available ListGeoNodes() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#retrieve-configuration-about-all-geo-nodes
+// https://docs.gitlab.com/api/geo_nodes/#retrieve-configuration-about-all-geo-nodes
 type ListGeoNodesOptions ListOptions
 
 // ListGeoNodes gets a list of geo nodes.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#retrieve-configuration-about-all-geo-nodes
+// https://docs.gitlab.com/api/geo_nodes/#retrieve-configuration-about-all-geo-nodes
 func (s *GeoNodesService) ListGeoNodes(opt *ListGeoNodesOptions, options ...RequestOptionFunc) ([]*GeoNode, *Response, error) {
 	req, err := s.client.NewRequest(http.MethodGet, "geo_nodes", opt, options)
 	if err != nil {
@@ -132,7 +147,7 @@ func (s *GeoNodesService) ListGeoNodes(opt *ListGeoNodesOptions, options ...Requ
 // GetGeoNode gets a specific geo node.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#retrieve-configuration-about-a-specific-geo-node
+// https://docs.gitlab.com/api/geo_nodes/#retrieve-configuration-about-a-specific-geo-node
 func (s *GeoNodesService) GetGeoNode(id int, options ...RequestOptionFunc) (*GeoNode, *Response, error) {
 	u := fmt.Sprintf("geo_nodes/%d", id)
 
@@ -153,7 +168,7 @@ func (s *GeoNodesService) GetGeoNode(id int, options ...RequestOptionFunc) (*Geo
 // UpdateGeoNodesOptions represents the available EditGeoNode() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#edit-a-geo-node
+// https://docs.gitlab.com/api/geo_nodes/#edit-a-geo-node
 type UpdateGeoNodesOptions struct {
 	ID                               *int      `url:"primary,omitempty" json:"primary,omitempty"`
 	Enabled                          *bool     `url:"enabled,omitempty" json:"enabled,omitempty"`
@@ -174,7 +189,7 @@ type UpdateGeoNodesOptions struct {
 // EditGeoNode updates settings of an existing Geo node.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#edit-a-geo-node
+// https://docs.gitlab.com/api/geo_nodes/#edit-a-geo-node
 func (s *GeoNodesService) EditGeoNode(id int, opt *UpdateGeoNodesOptions, options ...RequestOptionFunc) (*GeoNode, *Response, error) {
 	u := fmt.Sprintf("geo_nodes/%d", id)
 
@@ -195,7 +210,7 @@ func (s *GeoNodesService) EditGeoNode(id int, opt *UpdateGeoNodesOptions, option
 // DeleteGeoNode removes the Geo node.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#delete-a-geo-node
+// https://docs.gitlab.com/api/geo_nodes/#delete-a-geo-node
 func (s *GeoNodesService) DeleteGeoNode(id int, options ...RequestOptionFunc) (*Response, error) {
 	u := fmt.Sprintf("geo_nodes/%d", id)
 
@@ -210,7 +225,7 @@ func (s *GeoNodesService) DeleteGeoNode(id int, options ...RequestOptionFunc) (*
 // RepairGeoNode to repair the OAuth authentication of a Geo node.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#repair-a-geo-node
+// https://docs.gitlab.com/api/geo_nodes/#repair-a-geo-node
 func (s *GeoNodesService) RepairGeoNode(id int, options ...RequestOptionFunc) (*GeoNode, *Response, error) {
 	u := fmt.Sprintf("geo_nodes/%d/repair", id)
 
@@ -231,7 +246,7 @@ func (s *GeoNodesService) RepairGeoNode(id int, options ...RequestOptionFunc) (*
 // GeoNodeStatus represents the status of Geo Node.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#retrieve-status-about-all-geo-nodes
+// https://docs.gitlab.com/api/geo_nodes/#retrieve-status-about-all-geo-nodes
 type GeoNodeStatus struct {
 	GeoNodeID                                     int    `json:"geo_node_id"`
 	Healthy                                       bool   `json:"healthy"`
@@ -395,7 +410,7 @@ type GeoNodeStatus struct {
 // RetrieveStatusOfAllGeoNodes get the list of status of all Geo Nodes.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#retrieve-status-about-all-geo-nodes
+// https://docs.gitlab.com/api/geo_nodes/#retrieve-status-about-all-geo-nodes
 func (s *GeoNodesService) RetrieveStatusOfAllGeoNodes(options ...RequestOptionFunc) ([]*GeoNodeStatus, *Response, error) {
 	req, err := s.client.NewRequest(http.MethodGet, "geo_nodes/status", nil, options)
 	if err != nil {
@@ -414,7 +429,7 @@ func (s *GeoNodesService) RetrieveStatusOfAllGeoNodes(options ...RequestOptionFu
 // RetrieveStatusOfGeoNode get the of status of a specific Geo Nodes.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/geo_nodes.html#retrieve-status-about-a-specific-geo-node
+// https://docs.gitlab.com/api/geo_nodes/#retrieve-status-about-a-specific-geo-node
 func (s *GeoNodesService) RetrieveStatusOfGeoNode(id int, options ...RequestOptionFunc) (*GeoNodeStatus, *Response, error) {
 	u := fmt.Sprintf("geo_nodes/%d/status", id)
 

@@ -21,13 +21,22 @@ import (
 	"net/http"
 )
 
-// ProjectTemplatesService handles communication with the project templates
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/project_templates.html
-type ProjectTemplatesService struct {
-	client *Client
-}
+type (
+	ProjectTemplatesServiceInterface interface {
+		ListTemplates(pid interface{}, templateType string, opt *ListProjectTemplatesOptions, options ...RequestOptionFunc) ([]*ProjectTemplate, *Response, error)
+		GetProjectTemplate(pid interface{}, templateType string, templateName string, options ...RequestOptionFunc) (*ProjectTemplate, *Response, error)
+	}
+
+	// ProjectTemplatesService handles communication with the project templates
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/project_templates.html
+	ProjectTemplatesService struct {
+		client *Client
+	}
+)
+
+var _ ProjectTemplatesServiceInterface = (*ProjectTemplatesService)(nil)
 
 // ProjectTemplate represents a GitLab ProjectTemplate.
 //

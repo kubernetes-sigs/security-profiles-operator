@@ -21,14 +21,25 @@ import (
 	"net/http"
 )
 
-// ProtectedTagsService handles communication with the protected tag methods
-// of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/protected_tags.html
-type ProtectedTagsService struct {
-	client *Client
-}
+type (
+	ProtectedTagsServiceInterface interface {
+		ListProtectedTags(pid interface{}, opt *ListProtectedTagsOptions, options ...RequestOptionFunc) ([]*ProtectedTag, *Response, error)
+		GetProtectedTag(pid interface{}, tag string, options ...RequestOptionFunc) (*ProtectedTag, *Response, error)
+		ProtectRepositoryTags(pid interface{}, opt *ProtectRepositoryTagsOptions, options ...RequestOptionFunc) (*ProtectedTag, *Response, error)
+		UnprotectRepositoryTags(pid interface{}, tag string, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProtectedTagsService handles communication with the protected tag methods
+	// of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/protected_tags.html
+	ProtectedTagsService struct {
+		client *Client
+	}
+)
+
+var _ ProtectedTagsServiceInterface = (*ProtectedTagsService)(nil)
 
 // ProtectedTag represents a protected tag.
 //

@@ -21,17 +21,31 @@ import (
 	"net/http"
 )
 
-// GroupLabelsService handles communication with the label related methods of the
-// GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/group_labels.html
-type GroupLabelsService struct {
-	client *Client
-}
+type (
+	GroupLabelsServiceInterface interface {
+		ListGroupLabels(gid interface{}, opt *ListGroupLabelsOptions, options ...RequestOptionFunc) ([]*GroupLabel, *Response, error)
+		GetGroupLabel(gid interface{}, lid interface{}, options ...RequestOptionFunc) (*GroupLabel, *Response, error)
+		CreateGroupLabel(gid interface{}, opt *CreateGroupLabelOptions, options ...RequestOptionFunc) (*GroupLabel, *Response, error)
+		DeleteGroupLabel(gid interface{}, lid interface{}, opt *DeleteGroupLabelOptions, options ...RequestOptionFunc) (*Response, error)
+		UpdateGroupLabel(gid interface{}, lid interface{}, opt *UpdateGroupLabelOptions, options ...RequestOptionFunc) (*GroupLabel, *Response, error)
+		SubscribeToGroupLabel(gid interface{}, lid interface{}, options ...RequestOptionFunc) (*GroupLabel, *Response, error)
+		UnsubscribeFromGroupLabel(gid interface{}, lid interface{}, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// GroupLabelsService handles communication with the label related methods of the
+	// GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/api/group_labels/
+	GroupLabelsService struct {
+		client *Client
+	}
+)
+
+var _ GroupLabelsServiceInterface = (*GroupLabelsService)(nil)
 
 // GroupLabel represents a GitLab group label.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/group_labels.html
+// GitLab API docs: https://docs.gitlab.com/api/group_labels/
 type GroupLabel Label
 
 func (l GroupLabel) String() string {
@@ -40,7 +54,7 @@ func (l GroupLabel) String() string {
 
 // ListGroupLabelsOptions represents the available ListGroupLabels() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/group_labels.html#list-group-labels
+// GitLab API docs: https://docs.gitlab.com/api/group_labels/#list-group-labels
 type ListGroupLabelsOptions struct {
 	ListOptions
 	WithCounts               *bool   `url:"with_counts,omitempty" json:"with_counts,omitempty"`
@@ -53,7 +67,7 @@ type ListGroupLabelsOptions struct {
 // ListGroupLabels gets all labels for given group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#list-group-labels
+// https://docs.gitlab.com/api/group_labels/#list-group-labels
 func (s *GroupLabelsService) ListGroupLabels(gid interface{}, opt *ListGroupLabelsOptions, options ...RequestOptionFunc) ([]*GroupLabel, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -78,7 +92,7 @@ func (s *GroupLabelsService) ListGroupLabels(gid interface{}, opt *ListGroupLabe
 // GetGroupLabel get a single label for a given group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#get-a-single-group-label
+// https://docs.gitlab.com/api/group_labels/#get-a-single-group-label
 func (s *GroupLabelsService) GetGroupLabel(gid interface{}, lid interface{}, options ...RequestOptionFunc) (*GroupLabel, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -107,7 +121,7 @@ func (s *GroupLabelsService) GetGroupLabel(gid interface{}, lid interface{}, opt
 // CreateGroupLabelOptions represents the available CreateGroupLabel() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#create-a-new-group-label
+// https://docs.gitlab.com/api/group_labels/#create-a-new-group-label
 type CreateGroupLabelOptions struct {
 	Name        *string `url:"name,omitempty" json:"name,omitempty"`
 	Color       *string `url:"color,omitempty" json:"color,omitempty"`
@@ -119,7 +133,7 @@ type CreateGroupLabelOptions struct {
 // color.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#create-a-new-group-label
+// https://docs.gitlab.com/api/group_labels/#create-a-new-group-label
 func (s *GroupLabelsService) CreateGroupLabel(gid interface{}, opt *CreateGroupLabelOptions, options ...RequestOptionFunc) (*GroupLabel, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -144,7 +158,7 @@ func (s *GroupLabelsService) CreateGroupLabel(gid interface{}, opt *CreateGroupL
 // DeleteGroupLabelOptions represents the available DeleteGroupLabel() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#delete-a-group-label
+// https://docs.gitlab.com/api/group_labels/#delete-a-group-label
 type DeleteGroupLabelOptions struct {
 	Name *string `url:"name,omitempty" json:"name,omitempty"`
 }
@@ -152,7 +166,7 @@ type DeleteGroupLabelOptions struct {
 // DeleteGroupLabel deletes a group label given by its name or ID.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#delete-a-group-label
+// https://docs.gitlab.com/api/group_labels/#delete-a-group-label
 func (s *GroupLabelsService) DeleteGroupLabel(gid interface{}, lid interface{}, opt *DeleteGroupLabelOptions, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -179,7 +193,7 @@ func (s *GroupLabelsService) DeleteGroupLabel(gid interface{}, lid interface{}, 
 // UpdateGroupLabelOptions represents the available UpdateGroupLabel() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#update-a-group-label
+// https://docs.gitlab.com/api/group_labels/#update-a-group-label
 type UpdateGroupLabelOptions struct {
 	Name        *string `url:"name,omitempty" json:"name,omitempty"`
 	NewName     *string `url:"new_name,omitempty" json:"new_name,omitempty"`
@@ -192,7 +206,7 @@ type UpdateGroupLabelOptions struct {
 // one parameter is required, to update the label.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#update-a-group-label
+// https://docs.gitlab.com/api/group_labels/#update-a-group-label
 func (s *GroupLabelsService) UpdateGroupLabel(gid interface{}, lid interface{}, opt *UpdateGroupLabelOptions, options ...RequestOptionFunc) (*GroupLabel, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -227,7 +241,7 @@ func (s *GroupLabelsService) UpdateGroupLabel(gid interface{}, lid interface{}, 
 // code 304 is returned.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#subscribe-to-a-group-label
+// https://docs.gitlab.com/api/group_labels/#subscribe-to-a-group-label
 func (s *GroupLabelsService) SubscribeToGroupLabel(gid interface{}, lid interface{}, options ...RequestOptionFunc) (*GroupLabel, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -258,7 +272,7 @@ func (s *GroupLabelsService) SubscribeToGroupLabel(gid interface{}, lid interfac
 // status code 304 is returned.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_labels.html#unsubscribe-from-a-group-label
+// https://docs.gitlab.com/api/group_labels/#unsubscribe-from-a-group-label
 func (s *GroupLabelsService) UnsubscribeFromGroupLabel(gid interface{}, lid interface{}, options ...RequestOptionFunc) (*Response, error) {
 	group, err := parseID(gid)
 	if err != nil {

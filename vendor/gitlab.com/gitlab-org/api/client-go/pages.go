@@ -22,9 +22,23 @@ import (
 	"time"
 )
 
-type PagesService struct {
-	client *Client
-}
+type (
+	PagesServiceInterface interface {
+		UnpublishPages(gid interface{}, options ...RequestOptionFunc) (*Response, error)
+		GetPages(gid interface{}, options ...RequestOptionFunc) (*Pages, *Response, error)
+		UpdatePages(pid interface{}, opt UpdatePagesOptions, options ...RequestOptionFunc) (*Pages, *Response, error)
+	}
+
+	// PagesService handles communication with the pages related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/pages.html
+	PagesService struct {
+		client *Client
+	}
+)
+
+var _ PagesServiceInterface = (*PagesService)(nil)
 
 // Pages represents the Pages of a project.
 //

@@ -24,13 +24,30 @@ import (
 	"net/url"
 )
 
-// RepositoriesService handles communication with the repositories related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/repositories.html
-type RepositoriesService struct {
-	client *Client
-}
+type (
+	RepositoriesServiceInterface interface {
+		ListTree(pid interface{}, opt *ListTreeOptions, options ...RequestOptionFunc) ([]*TreeNode, *Response, error)
+		Blob(pid interface{}, sha string, options ...RequestOptionFunc) ([]byte, *Response, error)
+		RawBlobContent(pid interface{}, sha string, options ...RequestOptionFunc) ([]byte, *Response, error)
+		Archive(pid interface{}, opt *ArchiveOptions, options ...RequestOptionFunc) ([]byte, *Response, error)
+		StreamArchive(pid interface{}, w io.Writer, opt *ArchiveOptions, options ...RequestOptionFunc) (*Response, error)
+		Compare(pid interface{}, opt *CompareOptions, options ...RequestOptionFunc) (*Compare, *Response, error)
+		Contributors(pid interface{}, opt *ListContributorsOptions, options ...RequestOptionFunc) ([]*Contributor, *Response, error)
+		MergeBase(pid interface{}, opt *MergeBaseOptions, options ...RequestOptionFunc) (*Commit, *Response, error)
+		AddChangelog(pid interface{}, opt *AddChangelogOptions, options ...RequestOptionFunc) (*Response, error)
+		GenerateChangelogData(pid interface{}, opt GenerateChangelogDataOptions, options ...RequestOptionFunc) (*ChangelogData, *Response, error)
+	}
+
+	// RepositoriesService handles communication with the repositories related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/repositories.html
+	RepositoriesService struct {
+		client *Client
+	}
+)
+
+var _ RepositoriesServiceInterface = (*RepositoriesService)(nil)
 
 // TreeNode represents a GitLab repository file or directory.
 //

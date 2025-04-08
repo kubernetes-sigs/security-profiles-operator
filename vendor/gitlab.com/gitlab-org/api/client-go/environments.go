@@ -22,17 +22,31 @@ import (
 	"time"
 )
 
-// EnvironmentsService handles communication with the environment related methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/environments.html
-type EnvironmentsService struct {
-	client *Client
-}
+type (
+	// EnvironmentsServiceInterface defines all the API methods for the EnvironmentsService
+	EnvironmentsServiceInterface interface {
+		ListEnvironments(pid interface{}, opts *ListEnvironmentsOptions, options ...RequestOptionFunc) ([]*Environment, *Response, error)
+		GetEnvironment(pid interface{}, environment int, options ...RequestOptionFunc) (*Environment, *Response, error)
+		CreateEnvironment(pid interface{}, opt *CreateEnvironmentOptions, options ...RequestOptionFunc) (*Environment, *Response, error)
+		EditEnvironment(pid interface{}, environment int, opt *EditEnvironmentOptions, options ...RequestOptionFunc) (*Environment, *Response, error)
+		DeleteEnvironment(pid interface{}, environment int, options ...RequestOptionFunc) (*Response, error)
+		StopEnvironment(pid interface{}, environmentID int, opt *StopEnvironmentOptions, options ...RequestOptionFunc) (*Environment, *Response, error)
+	}
+
+	// EnvironmentsService handles communication with the environment related methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/api/environments/
+	EnvironmentsService struct {
+		client *Client
+	}
+)
+
+var _ EnvironmentsServiceInterface = (*EnvironmentsService)(nil)
 
 // Environment represents a GitLab environment.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/environments.html
+// GitLab API docs: https://docs.gitlab.com/api/environments/
 type Environment struct {
 	ID                  int         `json:"id"`
 	Name                string      `json:"name"`
@@ -59,7 +73,7 @@ func (env Environment) String() string {
 // ListEnvironmentsOptions represents the available ListEnvironments() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#list-environments
+// https://docs.gitlab.com/api/environments/#list-environments
 type ListEnvironmentsOptions struct {
 	ListOptions
 	Name   *string `url:"name,omitempty" json:"name,omitempty"`
@@ -71,7 +85,7 @@ type ListEnvironmentsOptions struct {
 // alphabetically.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#list-environments
+// https://docs.gitlab.com/api/environments/#list-environments
 func (s *EnvironmentsService) ListEnvironments(pid interface{}, opts *ListEnvironmentsOptions, options ...RequestOptionFunc) ([]*Environment, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -96,7 +110,7 @@ func (s *EnvironmentsService) ListEnvironments(pid interface{}, opts *ListEnviro
 // GetEnvironment gets a specific environment from a project.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#get-a-specific-environment
+// https://docs.gitlab.com/api/environments/#get-a-specific-environment
 func (s *EnvironmentsService) GetEnvironment(pid interface{}, environment int, options ...RequestOptionFunc) (*Environment, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -121,7 +135,7 @@ func (s *EnvironmentsService) GetEnvironment(pid interface{}, environment int, o
 // CreateEnvironmentOptions represents the available CreateEnvironment() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#create-a-new-environment
+// https://docs.gitlab.com/api/environments/#create-a-new-environment
 type CreateEnvironmentOptions struct {
 	Name                *string `url:"name,omitempty" json:"name,omitempty"`
 	Description         *string `url:"description,omitempty" json:"description,omitempty"`
@@ -139,7 +153,7 @@ type CreateEnvironmentOptions struct {
 // existing environmentship.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#create-a-new-environment
+// https://docs.gitlab.com/api/environments/#create-a-new-environment
 func (s *EnvironmentsService) CreateEnvironment(pid interface{}, opt *CreateEnvironmentOptions, options ...RequestOptionFunc) (*Environment, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -164,7 +178,7 @@ func (s *EnvironmentsService) CreateEnvironment(pid interface{}, opt *CreateEnvi
 // EditEnvironmentOptions represents the available EditEnvironment() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#update-an-existing-environment
+// https://docs.gitlab.com/api/environments/#update-an-existing-environment
 type EditEnvironmentOptions struct {
 	Name                *string `url:"name,omitempty" json:"name,omitempty"`
 	Description         *string `url:"description,omitempty" json:"description,omitempty"`
@@ -179,7 +193,7 @@ type EditEnvironmentOptions struct {
 // EditEnvironment updates a project team environment to a specified access level..
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#update-an-existing-environment
+// https://docs.gitlab.com/api/environments/#update-an-existing-environment
 func (s *EnvironmentsService) EditEnvironment(pid interface{}, environment int, opt *EditEnvironmentOptions, options ...RequestOptionFunc) (*Environment, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -204,7 +218,7 @@ func (s *EnvironmentsService) EditEnvironment(pid interface{}, environment int, 
 // DeleteEnvironment removes an environment from a project team.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#delete-an-environment
+// https://docs.gitlab.com/api/environments/#delete-an-environment
 func (s *EnvironmentsService) DeleteEnvironment(pid interface{}, environment int, options ...RequestOptionFunc) (*Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
@@ -223,7 +237,7 @@ func (s *EnvironmentsService) DeleteEnvironment(pid interface{}, environment int
 // StopEnvironmentOptions represents the available StopEnvironment() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#stop-an-environment
+// https://docs.gitlab.com/api/environments/#stop-an-environment
 type StopEnvironmentOptions struct {
 	Force *bool `url:"force,omitempty" json:"force,omitempty"`
 }
@@ -231,7 +245,7 @@ type StopEnvironmentOptions struct {
 // StopEnvironment stops an environment within a specific project.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/environments.html#stop-an-environment
+// https://docs.gitlab.com/api/environments/#stop-an-environment
 func (s *EnvironmentsService) StopEnvironment(pid interface{}, environmentID int, opt *StopEnvironmentOptions, options ...RequestOptionFunc) (*Environment, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {

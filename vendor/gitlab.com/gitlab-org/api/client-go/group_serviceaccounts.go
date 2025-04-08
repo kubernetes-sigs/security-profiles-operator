@@ -24,7 +24,7 @@ import (
 // GroupServiceAccount represents a GitLab service account user.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/groups.html#create-service-account-user
+// https://docs.gitlab.com/api/group_service_accounts/#create-a-service-account-user
 type GroupServiceAccount struct {
 	ID       int    `json:"id"`
 	Name     string `json:"name"`
@@ -33,7 +33,8 @@ type GroupServiceAccount struct {
 
 // ListServiceAccountsOptions represents the available ListServiceAccounts() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/group_service_accounts.html#list-service-account-users
+// GitLab API docs:
+// https://docs.gitlab.com/api/group_service_accounts/#list-all-service-account-users
 type ListServiceAccountsOptions struct {
 	ListOptions
 	OrderBy *string `url:"order_by,omitempty" json:"order_by,omitempty"`
@@ -42,7 +43,8 @@ type ListServiceAccountsOptions struct {
 
 // ListServiceAccounts gets a list of service acxcounts.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/group_service_accounts.html#list-service-account-users
+// GitLab API docs:
+// https://docs.gitlab.com/api/group_service_accounts/#list-all-service-account-users
 func (s *GroupsService) ListServiceAccounts(gid interface{}, opt *ListServiceAccountsOptions, options ...RequestOptionFunc) ([]*GroupServiceAccount, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -66,7 +68,8 @@ func (s *GroupsService) ListServiceAccounts(gid interface{}, opt *ListServiceAcc
 
 // CreateServiceAccountOptions represents the available CreateServiceAccount() options.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/group_service_accounts.html#create-a-service-account-user
+// GitLab API docs:
+// https://docs.gitlab.com/api/group_service_accounts/#create-a-service-account-user
 type CreateServiceAccountOptions struct {
 	Name     *string `url:"name,omitempty" json:"name,omitempty"`
 	Username *string `url:"username,omitempty" json:"username,omitempty"`
@@ -76,7 +79,8 @@ type CreateServiceAccountOptions struct {
 //
 // This API endpoint works on top-level groups only. It does not work on subgroups.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#create-service-account-user
+// GitLab API docs:
+// https://docs.gitlab.com/api/group_service_accounts/#create-a-service-account-user
 func (s *GroupsService) CreateServiceAccount(gid interface{}, opt *CreateServiceAccountOptions, options ...RequestOptionFunc) (*GroupServiceAccount, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -98,14 +102,43 @@ func (s *GroupsService) CreateServiceAccount(gid interface{}, opt *CreateService
 	return sa, resp, nil
 }
 
+// DeleteServiceAccountOptions represents the available DeleteServiceAccount() options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/group_service_accounts/#delete-a-service-account-user
+type DeleteServiceAccountOptions struct {
+	HardDelete *bool `url:"hard_delete,omitempty" json:"hard_delete,omitempty"`
+}
+
+// DeleteServiceAccount Deletes a service account user.
+//
+// This API endpoint works on top-level groups only. It does not work on subgroups.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/group_service_accounts/#delete-a-service-account-user
+func (s *GroupsService) DeleteServiceAccount(gid interface{}, serviceAccount int, opt *DeleteServiceAccountOptions, options ...RequestOptionFunc) (*Response, error) {
+	group, err := parseID(gid)
+	if err != nil {
+		return nil, err
+	}
+	u := fmt.Sprintf("groups/%s/service_accounts/%d", PathEscape(group), serviceAccount)
+
+	req, err := s.client.NewRequest(http.MethodDelete, u, opt, options)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.client.Do(req, nil)
+}
+
 // CreateServiceAccountPersonalAccessTokenOptions represents the available
 // CreateServiceAccountPersonalAccessToken() options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_service_accounts.html#create-a-personal-access-token-for-a-service-account-user
+// https://docs.gitlab.com/api/group_service_accounts/#create-a-personal-access-token-for-a-service-account-user
 type CreateServiceAccountPersonalAccessTokenOptions struct {
-	Scopes    *[]string `url:"scopes,omitempty" json:"scopes,omitempty"`
 	Name      *string   `url:"name,omitempty" json:"name,omitempty"`
+	Scopes    *[]string `url:"scopes,omitempty" json:"scopes,omitempty"`
 	ExpiresAt *ISOTime  `url:"expires_at,omitempty" json:"expires_at,omitempty"`
 }
 
@@ -113,7 +146,7 @@ type CreateServiceAccountPersonalAccessTokenOptions struct {
 // service account user for a group.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_service_accounts.html#create-a-personal-access-token-for-a-service-account-user
+// https://docs.gitlab.com/api/group_service_accounts/#create-a-personal-access-token-for-a-service-account-user
 func (s *GroupsService) CreateServiceAccountPersonalAccessToken(gid interface{}, serviceAccount int, opt *CreateServiceAccountPersonalAccessTokenOptions, options ...RequestOptionFunc) (*PersonalAccessToken, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -139,7 +172,7 @@ func (s *GroupsService) CreateServiceAccountPersonalAccessToken(gid interface{},
 // options.
 //
 // GitLab API docs:
-// https://docs.gitlab.com/ee/api/group_service_accounts.html#rotate-a-personal-access-token-for-a-service-account-user
+// https://docs.gitlab.com/api/group_service_accounts/#rotate-a-personal-access-token-for-a-service-account-user
 type RotateServiceAccountPersonalAccessTokenOptions struct {
 	ExpiresAt *ISOTime `url:"expires_at,omitempty" json:"expires_at,omitempty"`
 }
@@ -147,7 +180,8 @@ type RotateServiceAccountPersonalAccessTokenOptions struct {
 // RotateServiceAccountPersonalAccessToken rotates a Personal Access Token for a
 // service account user for a group.
 //
-// GitLab API docs: https://docs.gitlab.com/ee/api/groups.html#create-personal-access-token-for-service-account-user
+// GitLab API docs:
+// https://docs.gitlab.com/api/group_service_accounts/#rotate-a-personal-access-token-for-a-service-account-user
 func (s *GroupsService) RotateServiceAccountPersonalAccessToken(gid interface{}, serviceAccount, token int, opt *RotateServiceAccountPersonalAccessTokenOptions, options ...RequestOptionFunc) (*PersonalAccessToken, *Response, error) {
 	group, err := parseID(gid)
 	if err != nil {
@@ -167,24 +201,4 @@ func (s *GroupsService) RotateServiceAccountPersonalAccessToken(gid interface{},
 	}
 
 	return pat, resp, nil
-}
-
-// DeleteServiceAccount Deletes a service account user.
-//
-// This API endpoint works on top-level groups only. It does not work on subgroups.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/group_service_accounts.html#delete-a-service-account-user
-func (s *GroupsService) DeleteServiceAccount(gid interface{}, serviceAccount int, options ...RequestOptionFunc) (*Response, error) {
-	group, err := parseID(gid)
-	if err != nil {
-		return nil, err
-	}
-	u := fmt.Sprintf("groups/%s/service_accounts/%d", PathEscape(group), serviceAccount)
-
-	req, err := s.client.NewRequest(http.MethodDelete, u, nil, options)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(req, nil)
 }

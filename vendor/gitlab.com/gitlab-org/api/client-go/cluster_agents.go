@@ -22,13 +22,28 @@ import (
 	"time"
 )
 
-// ClusterAgentsService handles communication with the cluster agents related
-// methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/cluster_agents.html
-type ClusterAgentsService struct {
-	client *Client
-}
+type (
+	ClusterAgentsServiceInterface interface {
+		ListAgents(pid interface{}, opt *ListAgentsOptions, options ...RequestOptionFunc) ([]*Agent, *Response, error)
+		GetAgent(pid interface{}, id int, options ...RequestOptionFunc) (*Agent, *Response, error)
+		RegisterAgent(pid interface{}, opt *RegisterAgentOptions, options ...RequestOptionFunc) (*Agent, *Response, error)
+		DeleteAgent(pid interface{}, id int, options ...RequestOptionFunc) (*Response, error)
+		ListAgentTokens(pid interface{}, aid int, opt *ListAgentTokensOptions, options ...RequestOptionFunc) ([]*AgentToken, *Response, error)
+		GetAgentToken(pid interface{}, aid int, id int, options ...RequestOptionFunc) (*AgentToken, *Response, error)
+		CreateAgentToken(pid interface{}, aid int, opt *CreateAgentTokenOptions, options ...RequestOptionFunc) (*AgentToken, *Response, error)
+		RevokeAgentToken(pid interface{}, aid int, id int, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ClusterAgentsService handles communication with the cluster agents related
+	// methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/cluster_agents.html
+	ClusterAgentsService struct {
+		client *Client
+	}
+)
+
+var _ ClusterAgentsServiceInterface = (*ClusterAgentsService)(nil)
 
 // Agent represents a GitLab agent for Kubernetes.
 //

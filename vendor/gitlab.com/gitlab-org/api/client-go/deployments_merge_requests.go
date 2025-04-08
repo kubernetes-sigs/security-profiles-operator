@@ -18,14 +18,23 @@ import (
 	"net/http"
 )
 
-// DeploymentMergeRequestsService handles communication with the deployment's
-// merge requests related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/deployments.html#list-of-merge-requests-associated-with-a-deployment
-type DeploymentMergeRequestsService struct {
-	client *Client
-}
+type (
+	// DeploymentMergeRequestsServiceInterface defines all the API methods for the DeploymentMergeRequestsService
+	DeploymentMergeRequestsServiceInterface interface {
+		ListDeploymentMergeRequests(pid interface{}, deployment int, opts *ListMergeRequestsOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error)
+	}
+
+	// DeploymentMergeRequestsService handles communication with the deployment's
+	// merge requests related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/deployments.html#list-of-merge-requests-associated-with-a-deployment
+	DeploymentMergeRequestsService struct {
+		client *Client
+	}
+)
+
+var _ DeploymentMergeRequestsServiceInterface = (*DeploymentMergeRequestsService)(nil)
 
 // ListDeploymentMergeRequests get the merge requests associated with deployment.
 //

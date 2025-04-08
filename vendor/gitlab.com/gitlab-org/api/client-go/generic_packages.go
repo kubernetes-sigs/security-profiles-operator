@@ -24,14 +24,25 @@ import (
 	"time"
 )
 
-// GenericPackagesService handles communication with the packages related
-// methods of the GitLab API.
-//
-// GitLab docs:
-// https://docs.gitlab.com/ee/user/packages/generic_packages/index.html
-type GenericPackagesService struct {
-	client *Client
-}
+type (
+	// GenericPackagesServiceInterface defines all the API methods for the GenericPackagesService
+	GenericPackagesServiceInterface interface {
+		FormatPackageURL(pid interface{}, packageName, packageVersion, fileName string) (string, error)
+		PublishPackageFile(pid interface{}, packageName, packageVersion, fileName string, content io.Reader, opt *PublishPackageFileOptions, options ...RequestOptionFunc) (*GenericPackagesFile, *Response, error)
+		DownloadPackageFile(pid interface{}, packageName, packageVersion, fileName string, options ...RequestOptionFunc) ([]byte, *Response, error)
+	}
+
+	// GenericPackagesService handles communication with the packages related
+	// methods of the GitLab API.
+	//
+	// GitLab docs:
+	// https://docs.gitlab.com/ee/user/packages/generic_packages/index.html
+	GenericPackagesService struct {
+		client *Client
+	}
+)
+
+var _ GenericPackagesServiceInterface = (*GenericPackagesService)(nil)
 
 // GenericPackagesFile represents a GitLab generic package file.
 //

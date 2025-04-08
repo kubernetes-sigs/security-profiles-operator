@@ -21,13 +21,25 @@ import (
 	"net/http"
 )
 
-// ReleaseLinksService handles communication with the release link methods
-// of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/releases/links.html
-type ReleaseLinksService struct {
-	client *Client
-}
+type (
+	ReleaseLinksServiceInterface interface {
+		ListReleaseLinks(pid interface{}, tagName string, opt *ListReleaseLinksOptions, options ...RequestOptionFunc) ([]*ReleaseLink, *Response, error)
+		GetReleaseLink(pid interface{}, tagName string, link int, options ...RequestOptionFunc) (*ReleaseLink, *Response, error)
+		CreateReleaseLink(pid interface{}, tagName string, opt *CreateReleaseLinkOptions, options ...RequestOptionFunc) (*ReleaseLink, *Response, error)
+		UpdateReleaseLink(pid interface{}, tagName string, link int, opt *UpdateReleaseLinkOptions, options ...RequestOptionFunc) (*ReleaseLink, *Response, error)
+		DeleteReleaseLink(pid interface{}, tagName string, link int, options ...RequestOptionFunc) (*ReleaseLink, *Response, error)
+	}
+
+	// ReleaseLinksService handles communication with the release link methods
+	// of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/releases/links.html
+	ReleaseLinksService struct {
+		client *Client
+	}
+)
+
+var _ ReleaseLinksServiceInterface = (*ReleaseLinksService)(nil)
 
 // ReleaseLink represents a release link.
 //

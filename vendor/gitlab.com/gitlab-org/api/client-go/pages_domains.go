@@ -22,13 +22,26 @@ import (
 	"time"
 )
 
-// PagesDomainsService handles communication with the pages domains
-// related methods of the GitLab API.
-//
-// GitLab API docs: https://docs.gitlab.com/ee/api/pages_domains.html
-type PagesDomainsService struct {
-	client *Client
-}
+type (
+	PagesDomainsServiceInterface interface {
+		ListPagesDomains(pid interface{}, opt *ListPagesDomainsOptions, options ...RequestOptionFunc) ([]*PagesDomain, *Response, error)
+		ListAllPagesDomains(options ...RequestOptionFunc) ([]*PagesDomain, *Response, error)
+		GetPagesDomain(pid interface{}, domain string, options ...RequestOptionFunc) (*PagesDomain, *Response, error)
+		CreatePagesDomain(pid interface{}, opt *CreatePagesDomainOptions, options ...RequestOptionFunc) (*PagesDomain, *Response, error)
+		UpdatePagesDomain(pid interface{}, domain string, opt *UpdatePagesDomainOptions, options ...RequestOptionFunc) (*PagesDomain, *Response, error)
+		DeletePagesDomain(pid interface{}, domain string, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// PagesDomainsService handles communication with the pages domains
+	// related methods of the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/pages_domains.html
+	PagesDomainsService struct {
+		client *Client
+	}
+)
+
+var _ PagesDomainsServiceInterface = (*PagesDomainsService)(nil)
 
 // PagesDomain represents a pages domain.
 //

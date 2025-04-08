@@ -2,13 +2,21 @@ package gitlab
 
 import "net/http"
 
-// MarkdownService handles communication with the markdown related methods of
-// the GitLab API.
-//
-// Gitlab API docs: https://docs.gitlab.com/ee/api/markdown.html
-type MarkdownService struct {
-	client *Client
-}
+type (
+	MarkdownServiceInterface interface {
+		Render(opt *RenderOptions, options ...RequestOptionFunc) (*Markdown, *Response, error)
+	}
+
+	// MarkdownService handles communication with the markdown related methods of
+	// the GitLab API.
+	//
+	// GitLab API docs: https://docs.gitlab.com/ee/api/markdown.html
+	MarkdownService struct {
+		client *Client
+	}
+)
+
+var _ MarkdownServiceInterface = (*MarkdownService)(nil)
 
 // Markdown represents a markdown document.
 //

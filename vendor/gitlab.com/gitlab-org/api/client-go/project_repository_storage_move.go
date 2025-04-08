@@ -22,14 +22,27 @@ import (
 	"time"
 )
 
-// ProjectRepositoryStorageMoveService handles communication with the
-// repositories related methods of the GitLab API.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/ee/api/project_repository_storage_moves.html
-type ProjectRepositoryStorageMoveService struct {
-	client *Client
-}
+type (
+	ProjectRepositoryStorageMoveServiceInterface interface {
+		RetrieveAllStorageMoves(opts RetrieveAllProjectStorageMovesOptions, options ...RequestOptionFunc) ([]*ProjectRepositoryStorageMove, *Response, error)
+		RetrieveAllStorageMovesForProject(project int, opts RetrieveAllProjectStorageMovesOptions, options ...RequestOptionFunc) ([]*ProjectRepositoryStorageMove, *Response, error)
+		GetStorageMove(repositoryStorage int, options ...RequestOptionFunc) (*ProjectRepositoryStorageMove, *Response, error)
+		GetStorageMoveForProject(project int, repositoryStorage int, options ...RequestOptionFunc) (*ProjectRepositoryStorageMove, *Response, error)
+		ScheduleStorageMoveForProject(project int, opts ScheduleStorageMoveForProjectOptions, options ...RequestOptionFunc) (*ProjectRepositoryStorageMove, *Response, error)
+		ScheduleAllStorageMoves(opts ScheduleAllProjectStorageMovesOptions, options ...RequestOptionFunc) (*Response, error)
+	}
+
+	// ProjectRepositoryStorageMoveService handles communication with the
+	// repositories related methods of the GitLab API.
+	//
+	// GitLab API docs:
+	// https://docs.gitlab.com/ee/api/project_repository_storage_moves.html
+	ProjectRepositoryStorageMoveService struct {
+		client *Client
+	}
+)
+
+var _ ProjectRepositoryStorageMoveServiceInterface = (*ProjectRepositoryStorageMoveService)(nil)
 
 // ProjectRepositoryStorageMove represents the status of a repository move.
 //
