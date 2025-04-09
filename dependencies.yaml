@@ -150,7 +150,7 @@ dependencies:
       match: BOM_VERSION
 
   - name: spo-current
-    version: 0.9.1-dev
+    version: 0.9.1
     refPaths:
     - path: VERSION
       match: ^.*
