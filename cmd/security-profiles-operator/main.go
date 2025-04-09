@@ -26,6 +26,7 @@ import (
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -295,9 +296,10 @@ func initLogging(ctx *cli.Context) error {
 	}
 
 	ctrl.SetLogger(ctrl.Log.V(int(level)))
-	if err := logConfig.Verbosity().Set(fmt.Sprintf("%d", level)); err != nil {
+	if err := logConfig.Verbosity().Set(strconv.FormatUint(uint64(level), 10)); err != nil {
 		return fmt.Errorf("setting the verbosity flag to level %d : %w", level, err)
 	}
+
 	ctrl.Log.Info(fmt.Sprintf("Set logging verbosity to %d", level))
 
 	return nil
