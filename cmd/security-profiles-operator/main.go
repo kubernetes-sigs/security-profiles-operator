@@ -283,7 +283,8 @@ func initialize(ctx *cli.Context) error {
 }
 
 func initLogging(ctx *cli.Context) error {
-	ctrl.SetLogger(textlogger.NewLogger(textlogger.NewConfig()))
+	logConfig := textlogger.NewConfig()
+	ctrl.SetLogger(textlogger.NewLogger(logConfig))
 
 	set := flag.NewFlagSet("logging", flag.ContinueOnError)
 	klog.InitFlags(set)
@@ -294,6 +295,9 @@ func initLogging(ctx *cli.Context) error {
 	}
 
 	ctrl.SetLogger(ctrl.Log.V(int(level)))
+	if err := logConfig.Verbosity().Set(fmt.Sprintf("%d", level)); err != nil {
+		return fmt.Errorf("setting the verbosity flag to level %d : %w", level, err)
+	}
 	ctrl.Log.Info(fmt.Sprintf("Set logging verbosity to %d", level))
 
 	return nil
