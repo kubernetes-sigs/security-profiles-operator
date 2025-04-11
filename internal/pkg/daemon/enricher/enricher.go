@@ -243,6 +243,9 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
+		// check if there's anything in the cache for this processID
+		e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
+
 		err = e.dispatchAuditLine(metricsClient, nodeName, auditLine, info)
 		if err != nil {
 			e.logger.Error(
@@ -250,9 +253,6 @@ func (e *Enricher) Run() error {
 
 			continue
 		}
-
-		// check if there's anything in the cache for this processID
-		e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
 	}
 
 	return fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
@@ -353,13 +353,7 @@ func (e *Enricher) dispatchBacklog(
 	strPid := strconv.Itoa(processID)
 
 	auditBacklog := e.GetFromBacklog(e.auditLineCache, strPid)
-	if auditBacklog == nil {
-		// nothing in the cache
-		return
-	}
-
-	for i := range auditBacklog {
-		auditLine := auditBacklog[i]
+	for _, auditLine := range auditBacklog {
 		if err := e.dispatchAuditLine(metricsClient, nodeName, auditLine, info); err != nil {
 			e.logger.Error(
 				err, "dispatch audit line")
