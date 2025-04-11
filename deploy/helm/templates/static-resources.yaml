@@ -1033,6 +1033,7 @@ data:
           allowedExecutables:
           - /security-profiles-operator
           - /usr/sbin/apparmor_parser
+          - /sbin/apparmor_parser
         filesystem:
           readOnlyPaths:
           - /  # workaround for apparmor bug
