@@ -16,6 +16,8 @@ There are currently two optional features at build time
 - eBPF based recording
   - This feature requires a rather new `libbpf` which requires a new `libelf`
     version which in turn requires a new `libz` version.
+    - Install the necessary libraries based on your build OS.
+      For example, on Fedora, you'll need to install the RPMs `elfutils-libelf-devel` and `libbpf-devel`
   - disable with `BPF_ENABLED=0`
 - AppArmor
   - This feature requires apparmor headers and development libraries as well as the `go-apparmor` bindings
@@ -35,6 +37,8 @@ for actually deploying the operator, `libseccomp` is not optional and whether
 to build against seccomp is determined automatically based on the build
 platform.
 
+Also make sure you have `clang-tools-extra` installed
+
 To build SPO with all the features simply run:
 ```shell
 make
@@ -43,6 +47,31 @@ To disable features, prefix `make` with environment variables that deselect them
 ```shell
 BPF_ENABLED=0 APPARMOR_ENABLED=0 make
 ```
+
+In most cases you will need a container image. You can build by running:
+```shell
+make image
+```
+
+## Submitting a Pull Request (PR)
+
+Here's the process for contributing your changes:
+
+1.  **Fork and Branch:**
+    * First, create your own copy (a "fork") of the [main repository](https://github.com/kubernetes-sigs/security-profiles-operator) on GitHub.
+    * Then, create a new branch within your forked repository to work on your changes.
+
+2.  **Build and Test:**
+    * Build a container image of your changes. This ensures your code runs in a kubernetes environment (Ex: OpenShift).
+
+3.  **Verify:**
+    * Run the command `make verify`. This command executes automated checks (like code style) to ensure your changes meet the project's standards. Make sure this command passes without any errors.
+
+4.  **PR Description:**
+    * When you create your Pull Request to merge your changes back into the main repository, please provide a clear description.
+    * Specifically, make sure to clearly indicate:
+        * **Type of PR:** What kind of change is this?
+        * **User-facing change:** If your changes will be noticeable to users of the project, briefly explain what those changes are. If not, you can state "NONE"
 
 ## Running unit tests and viewing coverage
 SPO uses the Go's `testing` library augmented with [testify](https://github.com/stretchr/testify)
