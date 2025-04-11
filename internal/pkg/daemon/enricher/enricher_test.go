@@ -281,13 +281,9 @@ func TestRun(t *testing.T) {
 				require.Equal(t, 0, mock.GetFromBacklogCallCount())
 
 				lineChan <- &tail.Line{
-					Text: avcLine,
+					Text: seccompLine,
 					Time: time.Now(),
 				}
-
-				// the other line shouldn't hit the backlog, so there
-				// should be still only one write to backlog
-				require.Equal(t, 1, mock.AddToBacklogCallCount())
 
 				// add something to the mock backlog
 				mock.GetFromBacklogReturns(
@@ -306,6 +302,10 @@ func TestRun(t *testing.T) {
 					},
 				)
 
+				// the other line shouldn't hit the backlog, so there
+				// should be still only one write to backlog
+				require.Equal(t, 1, mock.AddToBacklogCallCount())
+
 				for mock.GetFromBacklogCallCount() != 1 {
 					// Make sure the backlog was read from when the avcs
 					// were dispatched
@@ -316,6 +316,14 @@ func TestRun(t *testing.T) {
 					// that it was not empty and the mock entry was
 					// actually processed
 				}
+
+				for mock.SendMetricCallCount() != 2 {
+				}
+				_, firstSysCall := mock.SendMetricArgsForCall(0)
+				require.NotNil(t, firstSysCall.GetSelinuxReq())
+				_, secondSysCall := mock.SendMetricArgsForCall(1)
+				require.NotNil(t, secondSysCall.GetSeccompReq())
+
 				require.NoError(t, err)
 			},
 		},
