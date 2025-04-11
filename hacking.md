@@ -71,7 +71,7 @@ Here's the process for contributing your changes:
     * When you create your Pull Request to merge your changes back into the main repository, please provide a clear description.
     * Specifically, make sure to clearly indicate:
         * **Type of PR:** What kind of change is this?
-        * **User-facing change:** If your changes will be noticeable to users of the project, briefly explain what those changes are. If not, you can state "NONE"
+        * **User-facing change:** If your changes will be noticeable to users of the project, briefly explain what those changes are. If not, you must state "NONE"
 
 ## Running unit tests and viewing coverage
 SPO uses the Go's `testing` library augmented with [testify](https://github.com/stretchr/testify)
