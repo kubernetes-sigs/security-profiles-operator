@@ -84,6 +84,7 @@ const (
 	workloadAnnotatorFlag    string = "with-workload-annotator"
 	recordingMergerFlag      string = "with-recording-merger"
 	recordingFlag            string = "with-recording"
+	seccompFlag              string = "with-seccomp"
 	selinuxFlag              string = "with-selinux"
 	apparmorFlag             string = "with-apparmor"
 	webhookFlag              string = "webhook"
@@ -150,6 +151,11 @@ func main() {
 				return runDaemon(ctx, info)
 			},
 			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:  seccompFlag,
+					Usage: "Listen for seccomp API resources",
+					Value: true,
+				},
 				&cli.BoolFlag{
 					Name:  selinuxFlag,
 					Usage: "Listen for SELinux API resources",
@@ -466,8 +472,10 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 }
 
 func getEnabledControllers(ctx *cli.Context) []controller.Controller {
-	controllers := []controller.Controller{
-		seccompprofile.NewController(),
+	controllers := []controller.Controller{}
+
+	if ctx.Bool(seccompFlag) {
+		controllers = append(controllers, seccompprofile.NewController())
 	}
 
 	if ctx.Bool(recordingFlag) {
