@@ -86,7 +86,7 @@ spec:
   maintainers:
   - email: dev@kubernetes.io
     name: Kubernetes upstream
-  maturity: alpha
+  maturity: beta
   provider:
     name: Kubernetes SIGs
     url: https://github.com/kubernetes-sigs
