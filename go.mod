@@ -22,7 +22,7 @@ require (
 	github.com/opencontainers/runtime-spec v1.2.1
 	github.com/openshift/api v0.0.0-20241204141306-c1fdeb0788c1
 	github.com/pjbgf/go-apparmor v0.1.3-0.20241107184909-1375e5e7aa89
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.81.0
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.82.0
 	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/client_model v0.6.2
 	github.com/seccomp/libseccomp-golang v0.10.0
@@ -132,7 +132,7 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
 	github.com/go-chi/chi v4.1.2+incompatible // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
@@ -279,13 +279,13 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.32.2 // indirect
-	k8s.io/apiserver v0.32.2 // indirect
-	k8s.io/component-base v0.32.2 // indirect
+	k8s.io/apiextensions-apiserver v0.32.3 // indirect
+	k8s.io/apiserver v0.32.3 // indirect
+	k8s.io/component-base v0.32.3 // indirect
 	k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7 // indirect
-	k8s.io/utils v0.0.0-20241210054802-24370beab758 // indirect
+	k8s.io/utils v0.0.0-20250321185631-1f6e0b77f77e // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.1 // indirect
 	sigs.k8s.io/gateway-api v1.1.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
-	sigs.k8s.io/structured-merge-diff/v4 v4.5.0 // indirect
+	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
 )
