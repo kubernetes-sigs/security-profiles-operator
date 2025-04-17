@@ -52,6 +52,12 @@ func Test_isAuditLine(t *testing.T) {
 			true,
 		},
 		{
+			"Should identify type=SECCOMP log lines from user activity inside the container",
+			//nolint:lll // no need to wrap
+			`type=SECCOMP msg=audit(1744780616.598:836036): auid=4294967295 uid=0 gid=0 ses=4294967295 subj=system_u:system_r:container_t:s0:c83,c152 pid=72503 comm="sh" exe="/bin/dash" sig=0 arch=c000003e syscall=56 compat=0 ip=0x7fe2ff5017be code=0x7ffc0000AUID="unset" UID="root" GID="root" ARCH=x86_64 SYSCALL=clone`,
+			true,
+		},
+		{
 			"Should ignore unsupported log types",
 			//nolint:lll // no need to wrap
 			`audit: type=1016 audit(1611996299.149:466250): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=615549 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=1 compat=0 ip=0x7f61a81c5923 code=0x7ffc0000`,
