@@ -85,25 +85,25 @@ func extractSeccompLine(logLine string) *types.AuditLine {
 		return nil
 	}
 
-	line := types.AuditLine{}
-	line.AuditType = types.AuditTypeSeccomp
-	line.TimestampID = captures[2]
-	line.Executable = captures[4]
-
-	if v, err := strconv.Atoi(captures[3]); err == nil {
-		line.ProcessID = v
+	line := types.AuditLine{
+		AuditType:   types.AuditTypeSeccomp,
+		TimestampID: captures[2],
+		Executable:  captures[4],
 	}
 
-	const (
-		base    = 10
-		bitSize = 32
-	)
+	extractProcessId(&line, captures[3])
 
-	if v, err := strconv.ParseInt(captures[5], base, bitSize); err == nil {
-		line.SystemCallID = int32(v)
+	if syscallID, err := strconv.ParseInt(captures[5], 10, 32); err == nil {
+		line.SystemCallID = int32(syscallID)
 	}
 
 	return &line
+}
+
+func extractProcessId(line *types.AuditLine, capturedProcessID string) {
+	if pid, err := strconv.Atoi(capturedProcessID); err == nil {
+		line.ProcessID = pid
+	}
 }
 
 func extractSelinuxLine(logLine string) *types.AuditLine {
@@ -112,14 +112,13 @@ func extractSelinuxLine(logLine string) *types.AuditLine {
 		return nil
 	}
 
-	line := types.AuditLine{}
-	line.AuditType = types.AuditTypeSelinux
-	line.TimestampID = captures[1]
-	line.Perm = captures[2]
-
-	if v, err := strconv.Atoi(captures[3]); err == nil {
-		line.ProcessID = v
+	line := types.AuditLine{
+		AuditType:   types.AuditTypeSelinux,
+		TimestampID: captures[1],
+		Perm:        captures[2],
 	}
+
+	extractProcessId(&line, captures[3])
 
 	line.Scontext = captures[4]
 	line.Tcontext = captures[5]
@@ -134,18 +133,17 @@ func extractApparmorLine(logLine string) *types.AuditLine {
 		return nil
 	}
 
-	line := types.AuditLine{}
-	line.AuditType = types.AuditTypeApparmor
-	line.TimestampID = captures[2]
-	line.Apparmor = captures[3]
-	line.Operation = captures[4]
-	line.Profile = captures[5]
-	line.Name = captures[6]
-	line.Executable = captures[8]
-
-	if v, err := strconv.Atoi(captures[7]); err == nil {
-		line.ProcessID = v
+	line := types.AuditLine{
+		AuditType:   types.AuditTypeApparmor,
+		TimestampID: captures[2],
+		Apparmor:    captures[3],
+		Operation:   captures[4],
+		Profile:     captures[5],
+		Name:        captures[6],
+		Executable:  captures[8],
 	}
+
+	extractProcessId(&line, captures[7])
 
 	if len(captures) > minAppArmorCapturesExpected {
 		line.ExtraInfo = strings.ReplaceAll(captures[9], "\"", "'")

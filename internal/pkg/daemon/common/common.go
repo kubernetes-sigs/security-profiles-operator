@@ -30,13 +30,11 @@ import (
 // GetSPODName returns the name of the SPOD instance we're currently running
 // on.
 func GetSPODName() string {
-	name := os.Getenv(config.SPOdNameEnvKey)
-	if name == "" {
-		// Return the default spod name
-		return config.SPOdName
+	if name := os.Getenv(config.SPOdNameEnvKey); name != "" {
+		return name
 	}
 
-	return name
+	return config.SPOdName
 }
 
 // GetSPOD returns the SPOD instance we're currently running on.
