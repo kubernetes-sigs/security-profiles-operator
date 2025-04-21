@@ -32,7 +32,7 @@ require (
 	golang.org/x/mod v0.24.0
 	golang.org/x/net v0.39.0
 	golang.org/x/sync v0.13.0
-	google.golang.org/grpc v1.71.1
+	google.golang.org/grpc v1.72.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1
 	google.golang.org/protobuf v1.36.6
 	k8s.io/api v0.32.3
@@ -48,7 +48,7 @@ require (
 )
 
 require (
-	cel.dev/expr v0.19.1 // indirect
+	cel.dev/expr v0.20.0 // indirect
 	cloud.google.com/go/auth v0.15.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
