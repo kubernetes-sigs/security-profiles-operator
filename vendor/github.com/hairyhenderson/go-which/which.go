@@ -6,12 +6,11 @@
 package which
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"github.com/spf13/afero"
 )
 
 // Which locates executable program(s) in the user's path. If more than one
@@ -20,14 +19,10 @@ import (
 // will be returned. If none of the programs are found, the empty string is
 // returned.
 func Which(program ...string) string {
-	return which(afero.NewOsFs(), program...)
-}
-
-func which(fs afero.Fs, program ...string) string {
 	for _, prog := range program {
 		for _, p := range getPath() {
 			candidate := filepath.Join(p, prog)
-			if isExec(fs, candidate) {
+			if isExec(candidate) {
 				return candidate
 			}
 		}
@@ -39,16 +34,12 @@ func which(fs afero.Fs, program ...string) string {
 // All returns all instances of the executable program(s), instead of just the
 // first one.
 func All(program ...string) []string {
-	return all(afero.NewOsFs(), program...)
-}
-
-func all(fs afero.Fs, program ...string) []string {
 	out := []string{}
 
 	for _, prog := range program {
 		for _, p := range getPath() {
 			candidate := filepath.Join(p, prog)
-			if isExec(fs, candidate) {
+			if isExec(candidate) {
 				out = append(out, candidate)
 			}
 		}
@@ -60,17 +51,13 @@ func all(fs afero.Fs, program ...string) []string {
 // Found returns true if all of the given executable program(s) are found, false
 // if one or more are not found.
 func Found(program ...string) bool {
-	return found(afero.NewOsFs(), program...)
-}
-
-func found(fs afero.Fs, program ...string) bool {
 	count := 0
 	for _, prog := range program {
 		count = 0
 
 		for _, p := range getPath() {
 			candidate := filepath.Join(p, prog)
-			if isExec(fs, candidate) {
+			if isExec(candidate) {
 				count++
 			}
 		}
@@ -84,34 +71,44 @@ func found(fs afero.Fs, program ...string) bool {
 }
 
 func getPath() []string {
-	pathVar := os.Getenv("PATH")
-	if pathVar == "" && runtime.GOOS == "windows" {
-		for i, k := range keys(os.Environ()) {
-			if strings.ToLower(k) == "path" {
-				pathVar = os.Environ()[i]
-				break
-			}
-		}
-	}
-
-	return strings.Split(pathVar, string(os.PathListSeparator))
+	return strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))
 }
 
-func keys(env []string) []string {
-	out := make([]string, len(env))
+//nolint:gochecknoglobals
+var testFS fs.FS
 
-	for i, v := range env {
-		parts := strings.SplitN(v, "=", 2)
-		out[i] = parts[0]
+// fsysFor returns the filesystem and the relative path for an absolute path.
+// Handles Windows by not assuming all paths are rooted at /
+func fsysFor(path string) (fs.FS, string) {
+	//nolint:mnd
+	parts := strings.SplitAfterN(path, "/", 2)
+
+	root := parts[0]
+	if root == "" {
+		root = "/"
 	}
 
-	return out
+	if len(parts) > 1 {
+		path = parts[1]
+	}
+
+	if path == "" {
+		path = "."
+	}
+
+	if testFS != nil {
+		return testFS, path
+	}
+
+	return os.DirFS(root), path
 }
 
-// isExec returns true when the file at the given path is a regular file with
+// isExec returns true when the file at an absolute path is a regular file with
 // the execute bit set (if on UNIX)
-func isExec(fs afero.Fs, path string) bool {
-	fi, err := fs.Stat(path)
+func isExec(p string) bool {
+	fsys, path := fsysFor(filepath.ToSlash(p))
+
+	fi, err := fs.Stat(fsys, path)
 
 	switch {
 	case err != nil:
@@ -121,6 +118,7 @@ func isExec(fs afero.Fs, path string) bool {
 	case fi.Mode()&0o111 != 0:
 		return true
 	}
+
 	// Windows filesystems have no execute bit...
 	return runtime.GOOS == "windows"
 }

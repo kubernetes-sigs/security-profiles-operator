@@ -12,7 +12,7 @@ require (
 	github.com/go-logr/logr v1.4.2
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-containerregistry v0.20.3
-	github.com/hairyhenderson/go-which v0.2.0
+	github.com/hairyhenderson/go-which v0.2.2
 	github.com/jellydator/ttlcache/v3 v3.3.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.11.2
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
