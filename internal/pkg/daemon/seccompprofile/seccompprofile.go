@@ -184,6 +184,7 @@ func (r *Reconciler) Setup(
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("profile").
 		For(&seccompprofileapi.SeccompProfile{}).
+		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})).
 		Watches(
 			&spodapi.SecurityProfilesOperatorDaemon{},
 			handler.EnqueueRequestsFromMapFunc(r.handleAllowedSyscallsChanged),
