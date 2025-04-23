@@ -17,9 +17,14 @@ limitations under the License.
 package enricher
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/nxadm/tail"
@@ -60,6 +65,8 @@ type impl interface {
 	Chown(string, int, int) error
 	Stat(string) (os.FileInfo, error)
 	RemoveAll(string) error
+	CmdlineForPID(pid int) (string, error)
+	PrintJsonOutput(w io.Writer, output string)
 }
 
 func (d *defaultImpl) Getenv(key string) string {
@@ -164,4 +171,42 @@ func (d *defaultImpl) Stat(name string) (os.FileInfo, error) {
 
 func (d *defaultImpl) RemoveAll(path string) error {
 	return os.RemoveAll(path)
+}
+
+func (d *defaultImpl) CmdlineForPID(
+	pid int,
+) (string, error) {
+	cmdline := fmt.Sprintf("/proc/%d/cmdline", pid)
+
+	file, err := os.Open(filepath.Clean(cmdline))
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrProcessNotFound, err)
+	}
+
+	defer func() {
+		cerr := file.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+
+	var sb strings.Builder
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		sb.WriteString(strings.ReplaceAll(scanner.Text(), "\u0000", " "))
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrCmdlineNotFound, err)
+	}
+
+	return sb.String(), nil
+}
+
+func (d *defaultImpl) PrintJsonOutput(w io.Writer, output string) {
+	_, err := fmt.Fprintln(w, output)
+	if err != nil {
+		fmt.Printf("error printing json output: %v", err)
+	}
 }

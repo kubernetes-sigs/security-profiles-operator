@@ -34,6 +34,33 @@ const (
 	selinuxRecordingName                             = "test-selinux-recording"
 )
 
+func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
+	for range 10 {
+		e.logf("Waiting for JSON enricher to record syscalls")
+		logs := e.kubectlOperatorNS(
+			"logs",
+			"--since-time="+since.Format(time.RFC3339),
+			"ds/spod",
+			"json-enricher",
+		)
+
+		matchAll := true
+
+		for _, condition := range conditions {
+			if !condition.MatchString(logs) {
+				matchAll = false
+			}
+		}
+
+		if matchAll {
+			break
+		}
+
+		e.logf("Waiting for 3 seconds to get lines")
+		time.Sleep(3 * time.Second)
+	}
+}
+
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
 	for range 10 {
 		e.logf("Waiting for enricher to record syscalls")
