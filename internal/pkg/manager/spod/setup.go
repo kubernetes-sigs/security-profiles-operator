@@ -53,6 +53,7 @@ const (
 type daemonTunables struct {
 	selinuxdImage             string
 	logEnricherImage          string
+	jsonEnricherImage         string
 	watchNamespace            string
 	seccompLocalhostProfile   string
 	containerRuntime          string
@@ -215,6 +216,9 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 	if dt.bpfRecorderSeccompProfile != "" {
 		bpfRecorder.SecurityContext.SeccompProfile.LocalhostProfile = &dt.bpfRecorderSeccompProfile
 	}
+
+	jsonEnricher := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher]
+	jsonEnricher.Image = dt.jsonEnricherImage
 
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDSelinuxSharedPoliciesCopier]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well

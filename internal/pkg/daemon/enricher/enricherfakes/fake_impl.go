@@ -19,6 +19,7 @@ package enricherfakes
 
 import (
 	"context"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -77,6 +78,19 @@ type FakeImpl struct {
 	}
 	closeReturnsOnCall map[int]struct {
 		result1 error
+	}
+	CmdlineForPIDStub        func(int) (string, error)
+	cmdlineForPIDMutex       sync.RWMutex
+	cmdlineForPIDArgsForCall []struct {
+		arg1 int
+	}
+	cmdlineForPIDReturns struct {
+		result1 string
+		result2 error
+	}
+	cmdlineForPIDReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
 	}
 	ContainerIDForPIDStub        func(*ttlcache.Cache[string, string], int) (string, error)
 	containerIDForPIDMutex       sync.RWMutex
@@ -199,6 +213,12 @@ type FakeImpl struct {
 	newForConfigReturnsOnCall map[int]struct {
 		result1 *kubernetes.Clientset
 		result2 error
+	}
+	PrintJsonOutputStub        func(io.Writer, string)
+	printJsonOutputMutex       sync.RWMutex
+	printJsonOutputArgsForCall []struct {
+		arg1 io.Writer
+		arg2 string
 	}
 	ReasonStub        func(*tail.Tail) error
 	reasonMutex       sync.RWMutex
@@ -502,6 +522,70 @@ func (fake *FakeImpl) CloseReturnsOnCall(i int, result1 error) {
 	fake.closeReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) CmdlineForPID(arg1 int) (string, error) {
+	fake.cmdlineForPIDMutex.Lock()
+	ret, specificReturn := fake.cmdlineForPIDReturnsOnCall[len(fake.cmdlineForPIDArgsForCall)]
+	fake.cmdlineForPIDArgsForCall = append(fake.cmdlineForPIDArgsForCall, struct {
+		arg1 int
+	}{arg1})
+	stub := fake.CmdlineForPIDStub
+	fakeReturns := fake.cmdlineForPIDReturns
+	fake.recordInvocation("CmdlineForPID", []interface{}{arg1})
+	fake.cmdlineForPIDMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) CmdlineForPIDCallCount() int {
+	fake.cmdlineForPIDMutex.RLock()
+	defer fake.cmdlineForPIDMutex.RUnlock()
+	return len(fake.cmdlineForPIDArgsForCall)
+}
+
+func (fake *FakeImpl) CmdlineForPIDCalls(stub func(int) (string, error)) {
+	fake.cmdlineForPIDMutex.Lock()
+	defer fake.cmdlineForPIDMutex.Unlock()
+	fake.CmdlineForPIDStub = stub
+}
+
+func (fake *FakeImpl) CmdlineForPIDArgsForCall(i int) int {
+	fake.cmdlineForPIDMutex.RLock()
+	defer fake.cmdlineForPIDMutex.RUnlock()
+	argsForCall := fake.cmdlineForPIDArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) CmdlineForPIDReturns(result1 string, result2 error) {
+	fake.cmdlineForPIDMutex.Lock()
+	defer fake.cmdlineForPIDMutex.Unlock()
+	fake.CmdlineForPIDStub = nil
+	fake.cmdlineForPIDReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) CmdlineForPIDReturnsOnCall(i int, result1 string, result2 error) {
+	fake.cmdlineForPIDMutex.Lock()
+	defer fake.cmdlineForPIDMutex.Unlock()
+	fake.CmdlineForPIDStub = nil
+	if fake.cmdlineForPIDReturnsOnCall == nil {
+		fake.cmdlineForPIDReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.cmdlineForPIDReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) ContainerIDForPID(arg1 *ttlcache.Cache[string, string], arg2 int) (string, error) {
@@ -1096,6 +1180,39 @@ func (fake *FakeImpl) NewForConfigReturnsOnCall(i int, result1 *kubernetes.Clien
 	}{result1, result2}
 }
 
+func (fake *FakeImpl) PrintJsonOutput(arg1 io.Writer, arg2 string) {
+	fake.printJsonOutputMutex.Lock()
+	fake.printJsonOutputArgsForCall = append(fake.printJsonOutputArgsForCall, struct {
+		arg1 io.Writer
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.PrintJsonOutputStub
+	fake.recordInvocation("PrintJsonOutput", []interface{}{arg1, arg2})
+	fake.printJsonOutputMutex.Unlock()
+	if stub != nil {
+		fake.PrintJsonOutputStub(arg1, arg2)
+	}
+}
+
+func (fake *FakeImpl) PrintJsonOutputCallCount() int {
+	fake.printJsonOutputMutex.RLock()
+	defer fake.printJsonOutputMutex.RUnlock()
+	return len(fake.printJsonOutputArgsForCall)
+}
+
+func (fake *FakeImpl) PrintJsonOutputCalls(stub func(io.Writer, string)) {
+	fake.printJsonOutputMutex.Lock()
+	defer fake.printJsonOutputMutex.Unlock()
+	fake.PrintJsonOutputStub = stub
+}
+
+func (fake *FakeImpl) PrintJsonOutputArgsForCall(i int) (io.Writer, string) {
+	fake.printJsonOutputMutex.RLock()
+	defer fake.printJsonOutputMutex.RUnlock()
+	argsForCall := fake.printJsonOutputArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
 func (fake *FakeImpl) Reason(arg1 *tail.Tail) error {
 	fake.reasonMutex.Lock()
 	ret, specificReturn := fake.reasonReturnsOnCall[len(fake.reasonArgsForCall)]
@@ -1482,6 +1599,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.chownMutex.RUnlock()
 	fake.closeMutex.RLock()
 	defer fake.closeMutex.RUnlock()
+	fake.cmdlineForPIDMutex.RLock()
+	defer fake.cmdlineForPIDMutex.RUnlock()
 	fake.containerIDForPIDMutex.RLock()
 	defer fake.containerIDForPIDMutex.RUnlock()
 	fake.dialMutex.RLock()
@@ -1502,6 +1621,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.listenMutex.RUnlock()
 	fake.newForConfigMutex.RLock()
 	defer fake.newForConfigMutex.RUnlock()
+	fake.printJsonOutputMutex.RLock()
+	defer fake.printJsonOutputMutex.RUnlock()
 	fake.reasonMutex.RLock()
 	defer fake.reasonMutex.RUnlock()
 	fake.removeAllMutex.RLock()

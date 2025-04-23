@@ -276,6 +276,9 @@ type SPODSpec struct {
 	// tells the operator whether or not to enable log enrichment support for this
 	// SPOD instance.
 	EnableLogEnricher bool `json:"enableLogEnricher,omitempty"`
+	// tells the operator whether or not to enable audit JSON enrichment support for this
+	// SPOD instance.
+	EnableJsonEnricher bool `json:"enableJsonEnricher,omitempty"`
 	// tells the operator whether or not to enable bpf recorder support for this
 	// SPOD instance.
 	EnableBpfRecorder bool `json:"enableBpfRecorder,omitempty"`

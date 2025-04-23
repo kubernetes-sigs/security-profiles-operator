@@ -17,6 +17,7 @@ limitations under the License.
 package enricher
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -37,6 +38,8 @@ var (
 		//nolint:lll // no need to wrap regex
 		`(type=APPARMOR|audit:.+type=1400).+audit\((.+)\).+apparmor="(.+)".+operation="([a-zA-Z0-9\/\-\_]+)"\s(?:info.+)?profile="(.+)".+name="(.+)".+pid=(\b\d+\b).+comm="([a-zA-Z0-9\/\-\_]+)"\s?(.*)?`,
 	)
+
+	uidGidRegex = regexp.MustCompile(`.*\suid=([\d+]).*\sgid=([\d+]).*`)
 )
 
 var (
@@ -150,4 +153,23 @@ func extractApparmorLine(logLine string) *types.AuditLine {
 	}
 
 	return &line
+}
+
+func GetUidGid(auditLine string) (uid, gid uint32, err error) {
+	captures := uidGidRegex.FindStringSubmatch(auditLine)
+	if len(captures) < 2 {
+		return 0, 0, errors.New("uid and gid are missing")
+	}
+
+	uid64, errUid := strconv.ParseUint(captures[1], 10, 32)
+	if errUid != nil {
+		return 0, 0, errUid
+	}
+
+	gid64, errGid := strconv.ParseUint(captures[2], 10, 32)
+	if errGid != nil {
+		return 0, 0, errGid
+	}
+
+	return uint32(uid64), uint32(gid64), nil
 }

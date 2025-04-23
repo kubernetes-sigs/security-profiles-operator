@@ -1618,6 +1618,11 @@ spec:
                   tells the operator whether or not to enable bpf recorder support for this
                   SPOD instance.
                 type: boolean
+              enableJsonEnricher:
+                description: |-
+                  tells the operator whether or not to enable audit JSON enrichment support for this
+                  SPOD instance.
+                type: boolean
               enableLogEnricher:
                 description: |-
                   tells the operator whether or not to enable log enrichment support for this

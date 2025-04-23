@@ -85,6 +85,9 @@ const (
 	// EnableLogEnricherEnvKey is the environment variable key for enabling the log enricher.
 	EnableLogEnricherEnvKey = "ENABLE_LOG_ENRICHER"
 
+	// EnableJsonEnricherEnvKey is the environment variable key for enabling the log enricher.
+	EnableJsonEnricherEnvKey = "ENABLE_JSON_ENRICHER"
+
 	// EnableBpfRecorderEnvKey is the environment variable key for enabling the BPF recorder.
 	EnableBpfRecorderEnvKey = "ENABLE_BPF_RECORDER"
 
