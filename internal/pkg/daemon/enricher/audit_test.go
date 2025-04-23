@@ -223,3 +223,51 @@ func Test_extractAuditLine(t *testing.T) {
 		})
 	}
 }
+
+func TestGetUidGid(t *testing.T) {
+	t.Parallel()
+
+	uid, gid, err := GetUidGid(
+		"auid=4294967295 uid=0 gid=0 ses=4294967295 " +
+			"subj=system_u:system_r:container_t:s0:c692,c728")
+	require.NoError(t, err)
+	require.Equal(t, uint32(0), uid)
+	require.Equal(t, uint32(0), gid)
+}
+
+func TestExtractAuditLineUidGid(t *testing.T) {
+	t.Parallel()
+
+	//nolint:lll // no need to wrap
+	auditLineTest := `audit: type=1326 audit(1612299677.115:549067): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`
+	_, err := ExtractAuditLine(auditLineTest)
+	require.NoError(t, err)
+
+	uid, gid, errUidGid := GetUidGid(auditLineTest)
+	require.NoError(t, errUidGid)
+	require.Equal(t, uint32(0), uid)
+	require.Equal(t, uint32(0), gid)
+}
+
+func TestExtractAuditLineUidGidInvalidAuditLine(t *testing.T) {
+	t.Parallel()
+
+	//nolint:lll // no need to wrap
+	auditLineTest := `audit: type=1326 audit(1612299677.115:549067): auid=4294967295 ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`
+	_, _, err := GetUidGid(auditLineTest)
+	require.Error(t, err)
+}
+
+func TestExtractAuditLineUidGidInvalid(t *testing.T) {
+	t.Parallel()
+
+	//nolint:lll // no need to wrap
+	auditLineTest := `audit: type=1326 audit(1612299677.115:549067): auid=4294967295 uid=invalid gid=0 ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`
+	_, _, errUid := GetUidGid(auditLineTest)
+	require.Error(t, errUid)
+
+	//nolint:lll // no need to wrap
+	auditLineTest = `audit: type=1326 audit(1612299677.115:549067): auid=4294967295 uid=0 gid=invalid ses=4294967295 pid=3109464 comm="sh" exe="/bin/busybox" sig=0 arch=c000003e syscall=0 compat=0 ip=0x7fce771ae923 code=0x7ffc0000`
+	_, _, errGid := GetUidGid(auditLineTest)
+	require.Error(t, errGid)
+}

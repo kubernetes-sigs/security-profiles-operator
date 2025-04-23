@@ -19,15 +19,16 @@ it easier to create and use SELinux, seccomp and AppArmor security profiles in K
 
 This is the parity of features across various security profiles supported by the SPO:
 
-|                                  | Seccomp | SELinux | AppArmor |
-|----------------------------------|---------|---------|----------|
-|                      Profile CRD |   Yes   |   Yes   |    Yes   |
-| Install profiles in cluster      |   Yes   |   Yes   |    Yes    |
-| Remove unused profiles from cluster |   Yes   |   Yes   |    Yes   |
-|   Profile Recording (audit logs)       |   Yes   |   Yes   |    No     |
-|   Profile Recording (eBPF)            |   Yes   |   No    |    Yes    |
-| Profile Binding to container images     |   Yes   |   No    |    No     |
-|             Audit log enrichment |   Yes   |   Yes   |    Yes   |
+|                                           | Seccomp | SELinux | AppArmor |
+|-------------------------------------------|---------|---------|----------|
+| Profile CRD                               |   Yes   | Yes     | Yes      |
+| Install profiles in cluster               |   Yes   | Yes     | Yes      |
+| Remove unused profiles from cluster       |   Yes   | Yes     | Yes      |
+| Profile Recording (audit logs)            |   Yes   | Yes     | No       |
+| Profile Recording (eBPF)                  |   Yes   | No      | Yes      |
+| Profile Binding to container images       |   Yes   | No      | No       |
+| Audit log enrichment                      |   Yes   | Yes     | Yes      |
+| Audit In-Pod Activity JSON log enrichment |   Yes   | No      | No       |
 
 For information about the security model and what permissions each feature requires,
 refer to SPO's [security model](security-model.md).
