@@ -159,92 +159,130 @@ func addRequiredLabels(m map[string]interface{}) error {
 	return nil
 }
 
-// replaceImages updates the operator/SELinuxD images.
-func replaceImages(m map[string]interface{}) error {
-	const (
-		SPO_OPERATOR_IMAGE_PULLSPEC       = "quay.io/redhat-user-workloads/ocp-isc-tenant/security-profiles-operator"
-		SPO_SELINUXD_IMAGE_PULLSPEC       = "quay.io/redhat-user-workloads/ocp-isc-tenant/containers-selinux"
-		SPO_SELINUXD_EL9_IMAGE_PULLSPEC   = "quay.io/redhat-user-workloads/ocp-isc-tenant/openshift-selinuxd-rhel9-container"
-		SPO_RBAC_PROXY_IMAGE_PULLSPEC     = "registry.redhat.io/openshift4/ose-kube-rbac-proxy:latest"
-	)
+// recoverFromReplaceImages recovers from any panic in replaceImages.
+func recoverFromReplaceImages() {
+	if r := recover(); r != nil {
+		fmt.Printf("Recovered from panic: %v\n", r)
+	}
+}
 
+// splitPullSpec extracts the SHA from a Konflux pull spec (e.g.
+// "quay.io/...@sha256:...") and returns only the "@sha256:..." suffix.
+func splitPullSpec(konfluxPullSpec string) (string, error) {
+	const delimiter = "@"
+	parts := strings.Split(konfluxPullSpec, delimiter)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("cannot extract SHA from %s", konfluxPullSpec)
+	}
+	return delimiter + parts[1], nil
+}
+
+// replaceImages updates the main container image and all RELATED_IMAGE_*
+// env-vars by peeling off the SHA from each Konflux pull spec and
+// re-anchoring it to the Red Hat registry.
+//
+// RBAC proxy is a special case: it uses a static "latest" tag.
+func replaceImages(m map[string]interface{}) error {
+	defer recoverFromReplaceImages()
+
+	// 1) Define your raw Konflux pull specs (with sha) and the
+	//    corresponding Red Hat registry base names.
+	type imgDef struct {
+		EnvName    string
+		KonfluxPS  string // quay.io/...@sha256:...
+		RedHatBase string // registry.redhat.io/...
+		FinalPS    string // will be set after extracting sha
+	}
+	defs := []imgDef{
+		{
+			EnvName:    "RELATED_IMAGE_OPERATOR",
+			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/security-profiles-operator@sha256:15f7abcf8859b679535d11a0720cd4c3923e9194c12f600d05e1a7e81803e113",
+			RedHatBase: "registry.redhat.io/compliance/openshift-security-profiles-rhel8-operator",
+		},
+		{
+			EnvName:    "RELATED_IMAGE_SELINUXD",
+			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/containers-selinux@sha256:af0275b5b979c0e63c201eed25de1a487601a115e16dc0309355946f751cf39b",
+			RedHatBase: "registry.redhat.io/compliance/openshift-selinuxd-rhel8",
+		},
+		{
+			EnvName:    "RELATED_IMAGE_SELINUXD_EL9",
+			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/openshift-selinuxd-rhel9-container@sha256:256be04e4d97f3d09ec8b9516c23eda4e80e77fc5c8aec27ed4ab3ace69d608b",
+			RedHatBase: "registry.redhat.io/compliance/openshift-selinuxd-rhel9",
+		},
+		{
+			EnvName: "RELATED_IMAGE_RBAC_PROXY",
+			FinalPS: "registry.redhat.io/openshift4/ose-kube-rbac-proxy:latest",
+		},
+	}
+
+	// 2) Peel the SHA from each KonfluxPS and build FinalPS
+	for i := range defs {
+		if defs[i].KonfluxPS != "" {
+			sha, err := splitPullSpec(defs[i].KonfluxPS)
+			if err != nil {
+				return err
+			}
+			defs[i].FinalPS = defs[i].RedHatBase + sha
+		}
+	}
+
+	// 3) Drill into m to grab the first container’s env slice and its map
 	spec, ok := m["spec"].(map[string]interface{})
 	if !ok {
-		return errors.New("manifest has no 'spec' field")
+		return errors.New("manifest missing 'spec'")
 	}
-
 	install, ok := spec["install"].(map[string]interface{})
 	if !ok {
-		return errors.New("'spec.install' is not found or not a map")
+		return errors.New("'spec.install' missing or not a map")
 	}
-
 	installSpec, ok := install["spec"].(map[string]interface{})
 	if !ok {
-		return errors.New("'spec.install.spec' not found")
+		return errors.New("'spec.install.spec' missing")
 	}
-
-	deployments, ok := installSpec["deployments"].([]interface{})
-	if !ok || len(deployments) == 0 {
-		return errors.New("no deployments found in 'spec.install.spec.deployments'")
+	deps, ok := installSpec["deployments"].([]interface{})
+	if !ok || len(deps) == 0 {
+		return errors.New("no deployments at 'spec.install.spec.deployments'")
 	}
-
-	deployment0, ok := deployments[0].(map[string]interface{})
+	dep0, ok := deps[0].(map[string]interface{})
 	if !ok {
-		return errors.New("could not parse the first deployment as a map")
+		return errors.New("first deployment is not a map")
 	}
-
-	deploymentSpec, ok := deployment0["spec"].(map[string]interface{})
+	tpl, ok := dep0["spec"].(map[string]interface{})["template"].(map[string]interface{})["spec"].(map[string]interface{})
 	if !ok {
-		return errors.New("deployment.spec not found in the first deployment")
+		return errors.New("cannot find template.spec")
 	}
-
-	template, ok := deploymentSpec["template"].(map[string]interface{})
-	if !ok {
-		return errors.New("deployment.spec.template not found")
-	}
-
-	podSpec, ok := template["spec"].(map[string]interface{})
-	if !ok {
-		return errors.New("deployment.spec.template.spec not found")
-	}
-
-	containers, ok := podSpec["containers"].([]interface{})
+	containers, ok := tpl["containers"].([]interface{})
 	if !ok || len(containers) == 0 {
-		return errors.New("no containers found in deployment.spec.template.spec.containers")
+		return errors.New("no containers in template.spec.containers")
 	}
-
-	operatorContainer, ok := containers[0].(map[string]interface{})
+	ctr, ok := containers[0].(map[string]interface{})
 	if !ok {
-		return errors.New("could not parse first container as map")
+		return errors.New("container[0] not a map")
 	}
 
-	operatorContainer["image"] = SPO_OPERATOR_IMAGE_PULLSPEC
+	// 4) Update the container's image to the operator's FinalPS
+	ctr["image"] = defs[0].FinalPS
 
-	envs, ok := operatorContainer["env"].([]interface{})
+	// 5) Update each RELATED_IMAGE_* env var
+	envSlice, ok := ctr["env"].([]interface{})
 	if !ok {
-		return errors.New("operator container has no 'env' or it's not a list")
+		return errors.New("container env missing or not a list")
 	}
-
-	for _, e := range envs {
-		envMap, ok := e.(map[string]interface{})
+	for _, raw := range envSlice {
+		envVar, ok := raw.(map[string]interface{})
 		if !ok {
 			continue
 		}
-		if name, _ := envMap["name"].(string); name == "RELATED_IMAGE_OPERATOR" {
-			envMap["value"] = SPO_OPERATOR_IMAGE_PULLSPEC
-		}
-		if name, _ := envMap["name"].(string); name == "RELATED_IMAGE_SELINUXD" {
-			envMap["value"] = SPO_SELINUXD_IMAGE_PULLSPEC
-		}
-		if name, _ := envMap["name"].(string); name == "RELATED_IMAGE_SELINUXD_EL9" {
-			envMap["value"] = SPO_SELINUXD_EL9_IMAGE_PULLSPEC
-		}
-		if name, _ := envMap["name"].(string); name == "RELATED_IMAGE_RBAC_PROXY" {
-			envMap["value"] = SPO_RBAC_PROXY_IMAGE_PULLSPEC
+		name, _ := envVar["name"].(string)
+		for _, def := range defs {
+			if name == def.EnvName {
+				envVar["value"] = def.FinalPS
+				break
+			}
 		}
 	}
 
-	fmt.Println("Successfully updated the operator image to use the new image.")
+	fmt.Println("Successfully replaced all images and env vars.")
 	return nil
 }
 
