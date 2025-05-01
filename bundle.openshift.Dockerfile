@@ -1,22 +1,18 @@
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest as builder-runner
-RUN microdnf install -y python3 python3-pip
-RUN pip3 install --upgrade pip && pip3 install ruamel.yaml==0.17.9
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.23 as builder-runner
 # Use a new stage to enable caching of the package installations for local development
 FROM builder-runner as builder
 ARG SPO_VERSION="0.8.5"
-COPY ./bundle-hack .
-COPY ./bundle-hack/icons ./icons
-COPY ./bundle/manifests ./manifests
-COPY ./bundle/metadata ./metadata
-RUN ./update_csv.py ./manifests ${SPO_VERSION}
+COPY . .
+WORKDIR bundle-hack
+RUN go run ./update_csv.go ../bundle/manifests ${SPO_VERSION}
 RUN ./update_bundle_annotations.sh
 RUN ./update_bundle_namespace.sh
 RUN ./update_bundle_rbac.sh
 
 FROM scratch
 LABEL name=openshift-compliance-operator-bundle
-LABEL version=${CO_VERSION}
+LABEL version=${SPO_VERSION}
 LABEL summary='OpenShift Security Profiles Operator'
 LABEL maintainer='Infrastructure Security and Compliance Team <isc-team@redhat.com>'
 LABEL io.k8s.display-name='Security Profiles Operator'
@@ -35,6 +31,6 @@ LABEL operators.operatorframework.io.bundle.metadata.v1=metadata/
 LABEL operators.operatorframework.io.bundle.package.v1=security-profiles-operator
 LABEL License=Apache
 # Copy files to locations specified by labels.
-COPY --from=builder /manifests /manifests/
-COPY --from=builder /metadata /metadata/
+COPY --from=builder bundle/manifests /manifests/
+COPY --from=builder bundle/metadata /metadata/
 COPY bundle/tests/scorecard /tests/scorecard

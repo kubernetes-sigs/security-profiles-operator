@@ -1,14 +1,7 @@
-FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.22 as builder
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_golang_1.23 as builder
 
-RUN export SMDEV_CONTAINER_OFF=1 && \
-    subscription-manager register --org $(cat "/activation-key/org") --activationkey $(cat "/activation-key/activationkey") && \
-    # use --allowerasing to avoid conflicts with the base image for mingw packages
-    # Problem 1: cannot install both mingw-binutils-generic-2.41-3.el9.x86_64 and mingw-binutils-generic-2.39-2.el9.x86_64
-    # Problem 2: package mingw64-filesystem-139-1.el9.noarch requires mingw-filesystem-base = 139-1.el9, but none of the providers can be installed
-    yum -y update --allowerasing && \
-    yum -y install git libseccomp-devel && yum clean all && \
-    yum -y clean all && rm -rf /var/cache/yum  && \
-    subscription-manager unregister
+RUN yum -y install git libseccomp-devel && yum clean all && \
+    yum -y clean all && rm -rf /var/cache/yum
 
 WORKDIR /go/src/github.com/openshift/security-profiles-operator
 

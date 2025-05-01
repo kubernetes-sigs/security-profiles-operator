@@ -18,4 +18,4 @@ annotations:
   operators.operatorframework.io.bundle.package.v1: compliance-operator
 EOM
 )
-echo "$ANNOTATIONS_CONTENT" > ./metadata/annotations.yaml
+echo "$ANNOTATIONS_CONTENT" > ../bundle/metadata/annotations.yaml
