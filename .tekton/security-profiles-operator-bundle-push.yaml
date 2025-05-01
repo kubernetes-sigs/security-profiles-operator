@@ -8,7 +8,7 @@ metadata:
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression:
       event == "push" && target_branch
-      == "konflux"
+      == "konflux" && ( "bundle-hack/update_csv.go".pathChanged() || ".tekton/security-profiles-operator-bundle-push.yaml".pathChanged() || "bundle.openshift.Dockerfile".pathChanged())
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: security-profiles-operator
