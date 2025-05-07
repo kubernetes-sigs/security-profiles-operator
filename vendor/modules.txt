@@ -134,7 +134,7 @@ cuelang.org/go/pkg/tool/file
 cuelang.org/go/pkg/tool/http
 cuelang.org/go/pkg/tool/os
 cuelang.org/go/pkg/uuid
-# dario.cat/mergo v1.0.1
+# dario.cat/mergo v1.0.2
 ## explicit; go 1.13
 dario.cat/mergo
 # github.com/AliyunContainerService/ack-ram-tool/pkg/credentials/provider v0.14.0

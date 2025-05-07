@@ -3,7 +3,7 @@ module sigs.k8s.io/security-profiles-operator
 go 1.24.1
 
 require (
-	dario.cat/mergo v1.0.1
+	dario.cat/mergo v1.0.2
 	github.com/acobaugh/osrelease v0.1.0
 	github.com/aquasecurity/libbpfgo v0.8.0-libbpf-1.5
 	github.com/blang/semver/v4 v4.0.0
