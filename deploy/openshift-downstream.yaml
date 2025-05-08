@@ -3205,7 +3205,7 @@ data:
             "imageFromVar":"RELATED_IMAGE_SELINUXD_EL8"
         },
         {
-            "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
+            "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)|(.*)(CoreOS)([\\s+])9\\.(.*)",
             "imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"
         },
         {

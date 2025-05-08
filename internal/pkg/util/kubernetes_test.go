@@ -178,7 +178,7 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 			"imageFromVar":"RELATED_IMAGE_RHEL8_SELINUXD"
 		},
 		{
-			"regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
+			"regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)|(.*)(CoreOS)([\\s+])9\\.(.*)",
 			"imageFromVar":"RELATED_IMAGE_RHEL9_SELINUXD"
 		}
 	]`
