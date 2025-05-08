@@ -180,6 +180,10 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 		{
 			"regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
 			"imageFromVar":"RELATED_IMAGE_RHEL9_SELINUXD"
+		},
+		{
+			"regex":"(.*)(CoreOS)([\\s+])9\\.(.*)",
+			"imageFromVar":"RELATED_IMAGE_RHEL9_SELINUXD"
 		}
 	]`
 
@@ -205,6 +209,17 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 				Status: corev1.NodeStatus{
 					NodeInfo: corev1.NodeSystemInfo{
 						OSImage: "CentOS Stream CoreOS 413.92.202303061740-0 (Plow)",
+					},
+				},
+			},
+			want: "RELATED_IMAGE_RHEL9_SELINUXD",
+		},
+		{
+			name: "Should return el9 for RHEL 9",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Red Hat Enterprise Linux CoreOS 9.6.20250425-0 (Plow)",
 					},
 				},
 			},
