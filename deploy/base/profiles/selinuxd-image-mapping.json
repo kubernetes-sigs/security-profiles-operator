@@ -4,11 +4,7 @@
         "imageFromVar":"RELATED_IMAGE_SELINUXD_EL8"
     },
     {
-        "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
-        "imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"
-    },
-    {
-        "regex":"(.*)(CoreOS)([\\s+])9\\.(.*)",
+        "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)|(.*)(CoreOS)([\\s+])9\\.(.*)",
         "imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"
     },
     {
