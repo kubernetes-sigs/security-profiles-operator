@@ -665,6 +665,17 @@ push-openshift-dev: set-openshift-image-params openshift-user image
 	@echo "Exposing the default route to the image registry"
 	@oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"defaultRoute":true}}' --type=merge
 	@echo "Pushing image $(IMAGE) to the image registry"
+ifeq ($(CONTAINER_RUNTIME),docker)
+	@IMAGE_REGISTRY_HOST=$$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}'); \
+		$(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) -p $(shell oc whoami -t) $${IMAGE_REGISTRY_HOST}; \
+		$(CONTAINER_RUNTIME) tag $(LOGIN_PUSH_OPTS) $(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE) \
+		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
+else
+	@IMAGE_REGISTRY_HOST=$$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}'); \
+		$(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) -p $(shell oc whoami -t) $${IMAGE_REGISTRY_HOST}; \
+		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) localhost/$(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
+
+endif
 	@IMAGE_REGISTRY_HOST=$$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}'); \
 		$(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) -p $(shell oc whoami -t) $${IMAGE_REGISTRY_HOST}; \
 		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) localhost/$(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
