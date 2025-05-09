@@ -103,6 +103,9 @@ var FieldOnlyMarkers = []*definitionWithHelp{
 
 	must(markers.MakeDefinition(SchemalessName, markers.DescribesField, Schemaless{})).
 		WithHelp(Schemaless{}.Help()),
+
+	must(markers.MakeAnyTypeDefinition("kubebuilder:title", markers.DescribesField, Title{})).
+		WithHelp(Title{}.Help()),
 }
 
 // ValidationIshMarkers are field-and-type markers that don't fall under the
@@ -239,6 +242,17 @@ type Nullable struct{}
 // validation will be performed. Full validation of a default requires
 // submission of the containing CRD to an apiserver.
 type Default struct {
+	Value interface{}
+}
+
+// +controllertools:marker:generateHelp:category="CRD validation"
+// Title sets the title for this field.
+//
+// The title is metadata that makes the OpenAPI documentation more user-friendly,
+// making the schema more understandable when viewed in documentation tools.
+// It's a metadata field that doesn't affect validation but provides
+// important context about what the schema represents.
+type Title struct {
 	Value interface{}
 }
 
@@ -525,6 +539,19 @@ func (m Default) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
 func (m Default) ApplyPriority() ApplyPriority {
 	// explicitly go after +default markers, so kubebuilder-specific defaults get applied last and stomp
 	return 10
+}
+
+func (m Title) ApplyToSchema(schema *apiext.JSONSchemaProps) error {
+	if m.Value == nil {
+		// only apply to the schema if we have a non-nil title
+		return nil
+	}
+	title, isStr := m.Value.(string)
+	if !isStr {
+		return fmt.Errorf("expected string, got %T", m.Value)
+	}
+	schema.Title = title
+	return nil
 }
 
 func (m *KubernetesDefault) ParseMarker(_ string, _ string, restFields string) error {

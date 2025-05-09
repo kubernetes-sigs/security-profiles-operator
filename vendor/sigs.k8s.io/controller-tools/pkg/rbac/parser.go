@@ -161,6 +161,9 @@ type Generator struct {
 	// RoleName sets the name of the generated ClusterRole.
 	RoleName string
 
+	// FileName sets the file name for the generated manifest(s). If not set, defaults to "role.yaml".
+	FileName string `marker:",optional"`
+
 	// HeaderFile specifies the header text (e.g. license) to prepend to generated files.
 	HeaderFile string `marker:",optional"`
 
@@ -383,5 +386,10 @@ func (g Generator) Generate(ctx *genall.GenerationContext) error {
 	}
 	headerText = strings.ReplaceAll(headerText, " YEAR", " "+g.Year)
 
-	return ctx.WriteYAML("role.yaml", headerText, objs, genall.WithTransform(genall.TransformRemoveCreationTimestamp))
+	fileName := "role.yaml"
+	if g.FileName != "" {
+		fileName = g.FileName
+	}
+
+	return ctx.WriteYAML(fileName, headerText, objs, genall.WithTransform(genall.TransformRemoveCreationTimestamp))
 }
