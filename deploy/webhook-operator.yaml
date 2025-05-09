@@ -2569,15 +2569,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - profilerecordings
-  - profilerecordings/finalizers
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
+  - apparmorprofiles
   - rawselinuxprofiles
   verbs:
   - create
@@ -2589,6 +2581,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - apparmorprofiles/finalizers
   - rawselinuxprofiles/finalizers
   - seccompprofiles/finalizers
   - securityprofilesoperatordaemons/finalizers
@@ -2601,6 +2594,7 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - apparmorprofiles/status
   - rawselinuxprofiles/status
   - seccompprofiles/status
   - securityprofilesoperatordaemons/status
@@ -2609,6 +2603,15 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
+  - profilerecordings
+  - profilerecordings/finalizers
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
