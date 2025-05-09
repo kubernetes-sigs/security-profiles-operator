@@ -578,7 +578,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	// Disable profile recording controller by default
 	enableRecording := false
 
-	if isLogEnricherEnabled(cfg) || isBpfRecorderEnabled(cfg) {
+	if isLogEnricherEnabled(cfg) || isBpfRecorderEnabled(cfg) || isJsonEnricherEnabled(cfg) {
 		if useCustomHostProc {
 			templateSpec.Volumes = append(templateSpec.Volumes, volume)
 		}
@@ -629,6 +629,19 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 				LocalhostProfile: &localApparmorProfile,
 			}
 		}
+	}
+
+	if isJsonEnricherEnabled(cfg) {
+		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher]
+		ctr.Image = image
+
+		if useCustomHostProc {
+			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
+		}
+
+		templateSpec.Containers = append(templateSpec.Containers, ctr)
+		// pass the json enricher env var to the daemon as the profile recorder is otherwise disabled
+		addEnvVar(templateSpec, config.EnableJsonEnricherEnvKey)
 	}
 
 	// AppArmor parameters
@@ -739,6 +752,15 @@ func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool
 	}
 
 	return cfg.Spec.EnableLogEnricher || enableLogEnricherEnv
+}
+
+func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
+	enableJsonEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableJsonEnricherEnvKey))
+	if err != nil {
+		enableJsonEnricherEnv = false
+	}
+
+	return cfg.Spec.EnableJsonEnricher || enableJsonEnricherEnv
 }
 
 func isBpfRecorderEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {

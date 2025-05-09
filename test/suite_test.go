@@ -56,6 +56,7 @@ var (
 	envSkipNamespacedTests       = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
 	envSelinuxTestsEnabled       = os.Getenv("E2E_TEST_SELINUX")
 	envLogEnricherTestsEnabled   = os.Getenv("E2E_TEST_LOG_ENRICHER")
+	envJsonEnricherTestsEnabled  = os.Getenv("E2E_TEST_JSON_ENRICHER")
 	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
 	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
 	envWebhookConfigTestsEnabled = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
@@ -99,6 +100,7 @@ type e2e struct {
 	operatorManifest      string
 	selinuxEnabled        bool
 	logEnricherEnabled    bool
+	jsonEnricherEnabled   bool
 	testSeccomp           bool
 	bpfRecorderEnabled    bool
 	skipNamespacedTests   bool
@@ -153,6 +155,11 @@ func TestSuite(t *testing.T) {
 	logEnricherEnabled, err := strconv.ParseBool(envLogEnricherTestsEnabled)
 	if err != nil {
 		logEnricherEnabled = false
+	}
+
+	jsonEnricherEnabled, err := strconv.ParseBool(envJsonEnricherTestsEnabled)
+	if err != nil {
+		jsonEnricherEnabled = false
 	}
 
 	testSeccomp, err := strconv.ParseBool(envSeccompTestsEnabled)
@@ -215,6 +222,7 @@ func TestSuite(t *testing.T) {
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
+				jsonEnricherEnabled: jsonEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
 				bpfRecorderEnabled:  bpfRecorderEnabled,
@@ -248,6 +256,7 @@ func TestSuite(t *testing.T) {
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
+				jsonEnricherEnabled: jsonEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
 				bpfRecorderEnabled:  bpfRecorderEnabled,
@@ -276,6 +285,7 @@ func TestSuite(t *testing.T) {
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
+				jsonEnricherEnabled: jsonEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
 				bpfRecorderEnabled:  bpfRecorderEnabled,
@@ -749,9 +759,27 @@ func (e *e2e) logEnricherOnlyTestCase() {
 	e.enableLogEnricherInSpod()
 }
 
+func (e *e2e) jsonEnricherOnlyTestCase() {
+	if !e.jsonEnricherEnabled {
+		e.T().Skip("Skipping json-enricher related test")
+	}
+
+	e.enableJsonEnricherInSpod()
+}
+
 func (e *e2e) enableLogEnricherInSpod() {
 	e.logf("Enable log-enricher in SPOD")
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableLogEnricher": true}}`, "--type=merge")
+
+	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+}
+
+func (e *e2e) enableJsonEnricherInSpod() {
+	e.logf("Enable json-enricher in SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableJsonEnricher": true}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")

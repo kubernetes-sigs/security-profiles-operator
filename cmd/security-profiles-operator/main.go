@@ -235,6 +235,15 @@ func main() {
 		},
 		&cli.Command{
 			Before:  initialize,
+			Name:    "json-enricher",
+			Aliases: []string{"j"},
+			Usage:   "run the audit's json enricher",
+			Action: func(ctx *cli.Context) error {
+				return runJsonEnricher(ctx, info)
+			},
+		},
+		&cli.Command{
+			Before:  initialize,
 			Name:    "bpf-recorder",
 			Aliases: []string{"b"},
 			Usage:   "run the bpf recorder",
@@ -603,6 +612,14 @@ func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	printInfo(component, info)
 
 	return enricher.New(ctrl.Log.WithName(component)).Run()
+}
+
+func runJsonEnricher(_ *cli.Context, info *version.Info) error {
+	const component = "json-enricher"
+
+	printInfo(component, info)
+
+	return enricher.NewJsonEnricher(ctrl.Log.WithName(component)).Run()
 }
 
 func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
