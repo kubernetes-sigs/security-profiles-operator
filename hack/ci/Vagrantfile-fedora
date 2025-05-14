@@ -37,7 +37,7 @@ Vagrant.configure("2") do |config|
       echo 'export GOPATH="$HOME/go"' >> /etc/profile
       echo 'export GOBIN="$GOPATH/bin"' >> /etc/profile
 
-      KUBERNETES_VERSION=v1.32
+      KUBERNETES_VERSION=v1.33
       cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
