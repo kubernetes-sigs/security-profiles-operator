@@ -42,13 +42,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.26.0
+    version: 0.27.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.32.0
+    version: 1.32.2
     refPaths:
     - path: test/suite_test.go
       match: kindImage
