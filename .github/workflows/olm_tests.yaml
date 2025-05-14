@@ -5,7 +5,7 @@ on:
       - main
   pull_request:
 env:
-  KIND_IMG_TAG: v1.32.0
+  KIND_IMG_TAG: v1.32.2
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
