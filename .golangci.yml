@@ -96,6 +96,7 @@ linters:
     # - err113
     # - exhaustruct
     # - forbidigo
+    # - funcorder
     # - funlen
     # - gochecknoglobals
     # - gomoddirectives
