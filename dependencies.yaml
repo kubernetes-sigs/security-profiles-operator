@@ -56,7 +56,7 @@ dependencies:
       match: KIND_IMG_TAG
 
   - name: e2e-kubernetes
-    version: 1.32
+    version: 1.33
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: KUBERNETES_VERSION
