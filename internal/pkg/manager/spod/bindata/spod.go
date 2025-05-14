@@ -635,7 +635,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 						SecurityContext: &corev1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
-							Privileged:             &truly,
+							Privileged:             &falsely,
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
 							SELinuxOptions: &corev1.SELinuxOptions{

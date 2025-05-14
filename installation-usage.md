@@ -869,7 +869,7 @@ to the standard output stream.
 To start using this feature, you need to have the Security Profiles Operator installed in your Kubernetes cluster. 
 Once it's installed, you can enable the JSON log enricher with this command:
 ```sh
-oc -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0}}'
 ```
 To debug issues with json-enricher change the verbosity to "1" in the above command.
 
@@ -935,7 +935,7 @@ To enable a single pod log the activity following these steps:
    
    To monitor the audit log tail:
    ```shell
-   oc -n security-profiles-operator logs --since=1m --selector name=spod -c json-enricher --max-log-requests 6 -f
+   kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c json-enricher --max-log-requests 6 -f
    ```
 By following above steps, you can enable and monitor audit logs in JSON lines format for your Kubernetes pods, 
 giving you better visibility into their activities.
