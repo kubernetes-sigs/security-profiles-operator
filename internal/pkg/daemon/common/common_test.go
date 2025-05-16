@@ -35,3 +35,17 @@ func Test_GetSPODNameDefault(t *testing.T) {
 
 	require.Equal(t, config.SPOdName, GetSPODName())
 }
+
+func Test_AuditTimeToIso(t *testing.T) {
+	t.Parallel()
+
+	isoTimestamp, err := AuditTimeToIso("1746611740.574:325")
+	require.NoError(t, err)
+	require.Equal(t, "2025-05-07T09:55:40.000Z", isoTimestamp)
+
+	_, errInvalid1 := AuditTimeToIso("invalid")
+	require.Error(t, errInvalid1)
+
+	_, errInvalid2 := AuditTimeToIso("invalid.invalid")
+	require.Error(t, errInvalid2)
+}

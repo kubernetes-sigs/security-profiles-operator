@@ -35,11 +35,11 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
-	rutil "sigs.k8s.io/release-utils/util"
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -158,7 +158,7 @@ func (e *Enricher) Run() error {
 	}
 
 	// Use auditd logs as main source or syslog as fallback.
-	filePath := LogFilePath()
+	filePath := common.LogFilePath()
 
 	// If the file does not exist, then tail will wait for it to appear
 	tailFile, err := e.TailFile(
@@ -228,7 +228,7 @@ func (e *Enricher) Run() error {
 
 		e.logger.V(config.VerboseLevel).Info("Get container info for: " + cID)
 
-		info, err := e.getContainerInfo(nodeName, cID)
+		info, err := getContainerInfo(nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
 		if err != nil {
 			e.logger.Error(
 				err, "container ID not found in cluster",
@@ -547,15 +547,4 @@ func (e *Enricher) dispatchApparmorLine(
 	); err != nil {
 		e.logger.Error(err, "unable to update the metrics")
 	}
-}
-
-// LogFilePath returns either the path to the audit logs or falls back to
-// syslog if the audit log path does not exist.
-func LogFilePath() string {
-	filePath := config.SyslogLogPath
-	if rutil.Exists(config.AuditLogPath) {
-		filePath = config.AuditLogPath
-	}
-
-	return filePath
 }

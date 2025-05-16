@@ -60,9 +60,11 @@ const (
 	ContainerIDSelinuxd                              = 1
 	ContainerIDLogEnricher                           = 2
 	ContainerIDBpfRecorder                           = 3
+	ContainerIDJsonEnricher                          = 4
 	DefaultHostProcPath                              = "/proc"
 	SelinuxContainerName                             = "selinuxd"
 	LogEnricherContainerName                         = "log-enricher"
+	JsonEnricherContainerName                        = "json-enricher"
 	BpfRecorderContainerName                         = "bpf-recorder"
 	NonRootEnablerContainerName                      = "non-root-enabler"
 	SelinuxPoliciesCopierContainerName               = "selinux-shared-policies-copier"
@@ -598,6 +600,58 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							Limits: corev1.ResourceList{
 								corev1.ResourceMemory:           resource.MustParse("128Mi"),
 								corev1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
+							},
+						},
+						Env: []corev1.EnvVar{
+							{
+								Name: config.NodeNameEnvKey,
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
+										FieldPath: "spec.nodeName",
+									},
+								},
+							},
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
+							},
+						},
+					},
+					{
+						Name:            JsonEnricherContainerName,
+						Args:            []string{"json-enricher"},
+						ImagePullPolicy: corev1.PullAlways,
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      "host-auditlog-volume",
+								MountPath: filepath.Dir(config.AuditLogPath),
+								ReadOnly:  true,
+							},
+							{
+								Name:      "host-syslog-volume",
+								MountPath: filepath.Dir(config.SyslogLogPath),
+								ReadOnly:  true,
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							ReadOnlyRootFilesystem: &truly,
+							Privileged:             &falsely,
+							RunAsUser:              &userRoot,
+							RunAsGroup:             &userRoot,
+							SELinuxOptions: &corev1.SELinuxOptions{
+								// TODO(pjbgf): Use a more restricted selinux type
+								Type: "spc_t",
+							},
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("64Mi"),
+								corev1.ResourceCPU:              resource.MustParse("50m"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("256Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("128Mi"),
 							},
 						},
 						Env: []corev1.EnvVar{

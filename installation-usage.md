@@ -1,7 +1,6 @@
 # Installation and Usage
 
 <!-- toc -->
-
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tutorials and Demos](#tutorials-and-demos)
@@ -33,6 +32,8 @@
       - [Recording based on audit log](#recording-based-on-audit-log)
       - [Recording based on eBPF instrumentation](#recording-based-on-ebpf-instrumentation)
     - [Use Seccomp profile](#use-seccomp-profile)
+  - [Audit JSON log enricher](#audit-json-log-enricher)
+    - [How to Monitor Audit Logs for a Specific Pod](#how-to-monitor-audit-logs-for-a-specific-pod)
   - [AppArmor Profile](#apparmor-profile)
     - [Record AppArmor profile](#record-apparmor-profile)
     - [Use AppArmor profile](#use-apparmor-profile)
@@ -846,6 +847,98 @@ $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spe
 Note that a security profile that is in use by existing pods cannot be
 deleted unless the pods exit or are removed - the profile deletion is
 protected by finalizers.
+
+### Audit JSON log enricher
+Similar to the log enricher feature above, audit JSON log enricher watches auditd (`/var/log/audit/audit.log`) 
+or the syslog (`/var/log/syslog`) and generates a audit log in JSON lines format. Each JSON line will include the 
+following:
+- **Timestamp**: When the activity happened, shown in a standard ISO format
+- **Executable Name**: The name of the program that was run (e.g., bash, ls).
+- **Command Line Arguments (cmdline)**: The extra instructions given when the program was started (e.g., ls -l /home).
+- **User and Group IDs (uid/gid)**: The identification numbers of the system user who ran the program.
+- **System Calls (syscalls)**: A list of system calls (syscalls) that the process made
+
+This log format is very similar to how Kubernetes itself records audit logs. This is useful for:
+- Seeing what users and automated processes are doing inside a pod.
+- Tracking when someone uses commands like kubectl exec to get into a running container and run commands or scripts.
+- Monitoring activities in debug containers where users might run various tools.
+
+Currently, this feature is hardcoded to generate log for a process at 60 second interval. Also the JSON lines are output 
+to the standard output stream.
+
+To start using this feature, you need to have the Security Profiles Operator installed in your Kubernetes cluster. 
+Once it's installed, you can enable the JSON log enricher with this command:
+```sh
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0}}'
+```
+To debug issues with json-enricher change the verbosity to "1" in the above command.
+
+#### How to Monitor Audit Logs for a Specific Pod
+To enable a single pod log the activity following these steps:
+1. **Create a Seccomp profile:**
+
+   Create a file (e.g., profile1.yaml) with the following content:
+    ```shell
+    apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+    kind: SeccompProfile
+    metadata:
+      name: profile1
+    spec:
+      defaultAction: SCMP_ACT_ALLOW
+      syscalls:
+      - action: SCMP_ACT_LOG
+        names:
+          - execve
+          - clone
+          - getpid
+    ```
+   - This profile allows all normal actions (defaultAction: SCMP_ACT_ALLOW).
+   - It specifically tells the system to log when a process tries to run a new program 
+     (execve), create a new process (clone), or get its own process ID (getpid). 
+     These actions often indicate user interaction within a pod.
+
+2. **Apply the Seccomp Profile:**
+   
+   Use the kubectl apply command to create this profile in your cluster:
+    ```shell
+    kubectl apply -f profile1.yaml
+    ```
+
+3. **Create a Pod Using the Profile:**
+   ```shell
+   apiVersion: v1
+   kind: Pod
+   metadata:
+     name: my-pod
+     labels:
+       app: my-app
+   spec:
+     securityContext:
+       seccompProfile:
+         type: Localhost
+         localhostProfile: operator/profile1.json
+     containers:
+       - name: nginx
+         image: quay.io/security-profiles-operator/test-nginx:1.19.1
+   ```
+   - type: `Localhost` means you're using a profile you've defined in the cluster.
+   - localhostProfile: `operator/profile1.json` tells the pod to use the `profile1` you created. The operator/ part 
+     indicates where the Security Profiles Operator stores these profiles.
+
+4. **Apply the Pod Definition:**
+   
+   Create the pod using kubectl apply:
+   ```shell
+   kubectl apply -f my-pod.yaml
+   ```
+5. **Monitor the Audit Logs:**
+   
+   To monitor the audit log tail:
+   ```shell
+   kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c json-enricher --max-log-requests 6 -f
+   ```
+By following above steps, you can enable and monitor audit logs in JSON lines format for your Kubernetes pods, 
+giving you better visibility into their activities.
 
 ### AppArmor Profile
 

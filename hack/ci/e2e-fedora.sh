@@ -20,6 +20,7 @@ export E2E_CLUSTER_TYPE=vanilla
 #
 export E2E_TEST_SELINUX=false
 export E2E_TEST_LOG_ENRICHER=true
+export E2E_TEST_JSON_ENRICHER=true
 # Disable the eBPF recorder since seccomp is disabled, and apparmor
 # is not supported.
 export E2E_TEST_BPF_RECORDER=false
