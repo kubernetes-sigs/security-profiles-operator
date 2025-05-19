@@ -863,8 +863,8 @@ This log format is very similar to how Kubernetes itself records audit logs. Thi
 - Tracking when someone uses commands like kubectl exec to get into a running container and run commands or scripts.
 - Monitoring activities in debug containers where users might run various tools.
 
-Currently, this feature is hardcoded to generate log for a process at 60 second interval. Also the JSON lines are output 
-to the standard output stream.
+Currently, this feature is hardcoded to generate logs for a process at an interval of 60 seconds. Also the JSON lines 
+are output to the standard output stream.
 
 To start using this feature, you need to have the Security Profiles Operator installed in your Kubernetes cluster. 
 Once it's installed, you can enable the JSON log enricher with this command:

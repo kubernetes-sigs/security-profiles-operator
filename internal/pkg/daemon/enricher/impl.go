@@ -176,17 +176,21 @@ func (d *defaultImpl) RemoveAll(path string) error {
 func (d *defaultImpl) CmdlineForPID(
 	pid int,
 ) (string, error) {
+	var retErr error
+
 	cmdline := fmt.Sprintf("/proc/%d/cmdline", pid)
 
 	file, err := os.Open(filepath.Clean(cmdline))
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrProcessNotFound, err)
+		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
+
+		return "", retErr
 	}
 
 	defer func() {
 		cerr := file.Close()
-		if err == nil {
-			err = cerr
+		if retErr == nil {
+			retErr = cerr
 		}
 	}()
 
@@ -198,10 +202,12 @@ func (d *defaultImpl) CmdlineForPID(
 	}
 
 	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrCmdlineNotFound, err)
+		retErr = fmt.Errorf("%w: %w", ErrCmdlineNotFound, err)
+
+		return "", retErr
 	}
 
-	return sb.String(), nil
+	return sb.String(), retErr
 }
 
 func (d *defaultImpl) PrintJsonOutput(w io.Writer, output string) {

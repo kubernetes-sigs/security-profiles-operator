@@ -75,6 +75,7 @@ const (
 	ContainerPort                              int32 = 9443
 	metricsServerCert                                = "metrics-server-cert"
 	MetricsCertPath                                  = "/var/run/secrets/metrics"
+	DefaultJsonEnricherAuditLogInterval              = 60
 )
 
 var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{

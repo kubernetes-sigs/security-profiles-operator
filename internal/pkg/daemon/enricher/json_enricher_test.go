@@ -49,6 +49,7 @@ const (
 		`ip=0x7f4ce626349b code=0x7ffc0000 AUID="user" UID="root" ` +
 		`GID="root" ARCH=x86_64 SYSCALL=` + executableNginx
 	containerIDJsonTest = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
+	cmdLineJsonTest     = "/bin/sh "
 	invalidLineJsonTest = "this line is not a valid line for the parser"
 )
 
@@ -107,6 +108,7 @@ func TestJsonRun(t *testing.T) {
 				mock.GetenvReturns(nodeJsonTest)
 				mock.LinesReturns(lineChan)
 				mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
+				mock.CmdlineForPIDReturns(cmdLineJsonTest, nil)
 				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      podJsonTest,
@@ -155,6 +157,8 @@ func TestJsonRun(t *testing.T) {
 				require.NoError(t, errUnmarshal)
 				executable = auditMap["executable"]
 				require.Equal(t, executableNginx, executable)
+				//nolint:all
+				require.Equal(t, cmdLineJsonTest, auditMap["cmdLine"])
 			},
 		},
 		{ // test invalid
