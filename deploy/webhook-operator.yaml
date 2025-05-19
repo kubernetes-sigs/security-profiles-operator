@@ -1982,6 +1982,21 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
+              jsonEnricherOptions:
+                description: |-
+                  Defines options specific to the JsonEnricher
+                  functionality of the SecurityProfilesOperator
+                  Its optional to provide this configuration
+                properties:
+                  auditLogIntervalSeconds:
+                    description: |-
+                      Specifies the interval, in seconds, at which the accumulated audit log
+                      data is output in JSON format. For each process, syscalls occurring
+                      within this interval are grouped together. The default is 60 seconds.
+                      Increasing this interval will reduce the rate at which logs are written.
+                    format: int32
+                    type: integer
+                type: object
               priorityClassName:
                 default: system-node-critical
                 description: PriorityClassName if defined, indicates the spod pod

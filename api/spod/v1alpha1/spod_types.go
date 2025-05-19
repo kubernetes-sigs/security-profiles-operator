@@ -240,6 +240,14 @@ type SelinuxOptions struct {
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
 }
 
+type JsonEnricherOptions struct {
+	// Specifies the interval, in seconds, at which the accumulated audit log
+	// data is output in JSON format. For each process, syscalls occurring
+	// within this interval are grouped together. The default is 60 seconds.
+	// Increasing this interval will reduce the rate at which logs are written.
+	AuditLogIntervalSeconds int32 `json:"auditLogIntervalSeconds,omitempty"`
+}
+
 type WebhookOptions struct {
 	// Name specifies which webhook do we configure
 	Name string `json:"name,omitempty"`
@@ -279,6 +287,11 @@ type SPODSpec struct {
 	// tells the operator whether or not to enable audit JSON enrichment support for this
 	// SPOD instance.
 	EnableJsonEnricher bool `json:"enableJsonEnricher,omitempty"`
+	// Defines options specific to the JsonEnricher
+	// functionality of the SecurityProfilesOperator
+	// Its optional to provide this configuration
+	// +optional
+	JsonEnricherOpt *JsonEnricherOptions `json:"jsonEnricherOptions,omitempty"`
 	// tells the operator whether or not to enable bpf recorder support for this
 	// SPOD instance.
 	EnableBpfRecorder bool `json:"enableBpfRecorder,omitempty"`
