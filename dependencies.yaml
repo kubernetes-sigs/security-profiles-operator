@@ -109,8 +109,8 @@ dependencies:
     - path: hack/install-libbpf.sh
       match: VERSION
 
-  - name: fedora-vmlinux
-    version: 37
+  - name: debian-vmlinux
+    version: trixie
     refPaths:
     - path: hack/update-vmlinux
       match: VERSION

@@ -2,8 +2,9 @@
 set -euo pipefail
 
 CONTAINER_CMD=$(command -v podman || command -v docker)
+VERSION=trixie
 
-"$CONTAINER_CMD" run --rm -i -v "$(dirname "$(dirname "$0")"):/spo" debian:trixie bash << 'EOM'
+"$CONTAINER_CMD" run --rm -i -v "$(dirname "$(dirname "$0")"):/spo" debian:$VERSION bash << 'EOM'
 
 set -euox pipefail
 
