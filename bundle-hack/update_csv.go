@@ -201,7 +201,7 @@ func replaceImages(m map[string]interface{}) error {
 		},
 		{
 			EnvName:    "RELATED_IMAGE_SELINUXD",
-			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/containers-selinux@sha256:af0275b5b979c0e63c201eed25de1a487601a115e16dc0309355946f751cf39b",
+			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/containers-selinuxd@sha256:af0275b5b979c0e63c201eed25de1a487601a115e16dc0309355946f751cf39b",
 			RedHatBase: "registry.redhat.io/compliance/openshift-selinuxd-rhel8",
 		},
 		{

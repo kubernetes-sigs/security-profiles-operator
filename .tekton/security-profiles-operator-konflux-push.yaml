@@ -11,10 +11,10 @@ metadata:
       == "konflux"
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: security-profiles-operator-konflux
-    appstudio.openshift.io/component: security-profiles-operator-konflux
+    appstudio.openshift.io/application: security-profiles-operator-dev
+    appstudio.openshift.io/component: security-profiles-operator
     pipelines.appstudio.openshift.io/type: build
-  name: security-profiles-operator-konflux-on-push
+  name: security-profiles-operator-on-push
   namespace: ocp-isc-tenant
 spec:
   params:

@@ -4,17 +4,17 @@ metadata:
   annotations:
     build.appstudio.openshift.io/repo: https://github.com/openshift/security-profiles-operator?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
-    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
-      == "konflux"
+    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
+      == "konflux" && ( "bundle-hack/update_csv.go".pathChanged() || ".tekton/security-profiles-operator-bundle-push.yaml".pathChanged()
+      || "bundle.openshift.Dockerfile".pathChanged())
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: security-profiles-operator-konflux
-    appstudio.openshift.io/component: security-profiles-operator-bundle-konflux
+    appstudio.openshift.io/application: security-profiles-operator-dev
+    appstudio.openshift.io/component: security-profiles-operator-bundle
     pipelines.appstudio.openshift.io/type: build
-  name: security-profiles-operator-bundle-konflux-on-pull-request
+  name: security-profiles-operator-bundle-on-push
   namespace: ocp-isc-tenant
 spec:
   params:
@@ -23,9 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/ocp-isc-tenant/security-profiles-operator-bundle:on-pr-{{revision}}
-  - name: image-expires-after
-    value: 5d
+    value: quay.io/redhat-user-workloads/ocp-isc-tenant/security-profiles-operator-bundle:{{revision}}
   - name: dockerfile
     value: bundle.openshift.Dockerfile
   - name: hermetic
