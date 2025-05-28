@@ -2,7 +2,7 @@
 FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:v1.23 as builder-runner
 # Use a new stage to enable caching of the package installations for local development
 FROM builder-runner as builder
-ARG SPO_VERSION="0.8.5"
+ARG SPO_VERSION="0.9.0"
 COPY . .
 WORKDIR bundle-hack
 RUN go run ./update_csv.go ../bundle/manifests ${SPO_VERSION}
