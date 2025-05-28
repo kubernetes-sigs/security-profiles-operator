@@ -18,7 +18,7 @@ ARG STATIC_LINK=no
 
 RUN make
 
-FROM registry.redhat.io/ubi9/ubi-minimal:latest
+FROM registry.redhat.io/rhel9-4-els/rhel-minimal:latest
 
 RUN INSTALL_PKGS="tar libseccomp" && \
     if [ ! -e /usr/bin/dnf ]; then ln -s /usr/bin/microdnf /usr/bin/dnf; fi && \
