@@ -265,7 +265,9 @@ type CommonPrometheusFields struct {
 	// `__tmp_hash` label during the target discovery with relabeling
 	// configuration (either in the monitoring resources or via scrape class).
 	//
-	// +optional
+	// You can also disable sharding on a specific target by setting the
+	// `__tmp_disable_sharding` label with relabeling configuration. When
+	// the label value isn't empty, all Prometheus shards will scrape the target.
 	Shards *int32 `json:"shards,omitempty"`
 
 	// Name of Prometheus external label used to denote the replica name.
@@ -691,8 +693,28 @@ type CommonPrometheusFields struct {
 	EnforcedBodySizeLimit ByteSize `json:"enforcedBodySizeLimit,omitempty"`
 
 	// Specifies the validation scheme for metric and label names.
+	//
+	// It requires Prometheus >= v2.55.0.
+	//
 	// +optional
 	NameValidationScheme *NameValidationSchemeOptions `json:"nameValidationScheme,omitempty"`
+
+	// Specifies the character escaping scheme that will be requested when scraping
+	// for metric and label names that do not conform to the legacy Prometheus
+	// character set.
+	//
+	// It requires Prometheus >= v3.4.0.
+	//
+	// +optional
+	NameEscapingScheme *NameEscapingSchemeOptions `json:"nameEscapingScheme,omitempty"`
+
+	// Whether to convert all scraped classic histograms into a native
+	// histogram with custom buckets.
+	//
+	// It requires Prometheus >= v3.4.0.
+	//
+	// +optional
+	ConvertClassicHistogramsToNHCB *bool `json:"convertClassicHistogramsToNHCB,omitempty"`
 
 	// Minimum number of seconds for which a newly created Pod should be ready
 	// without any of its container crashing for it to be considered available.
@@ -900,17 +922,44 @@ type CommonPrometheusFields struct {
 }
 
 // Specifies the validation scheme for metric and label names.
-// Supported values are:
-// * `UTF8NameValidationScheme` for UTF-8 support.
-// * `LegacyNameValidationScheme` for letters, numbers, colons, and underscores.
 //
-// Note that `LegacyNameValidationScheme` cannot be used along with the OpenTelemetry `NoUTF8EscapingWithSuffixes` translation strategy (if enabled).
+// Supported values are:
+//   - `UTF8NameValidationScheme` for UTF-8 support.
+//   - `LegacyNameValidationScheme` for letters, numbers, colons, and underscores.
+//
+// Note that `LegacyNameValidationScheme` cannot be used along with the
+// OpenTelemetry `NoUTF8EscapingWithSuffixes` translation strategy (if
+// enabled).
+//
 // +kubebuilder:validation:Enum=UTF8;Legacy
 type NameValidationSchemeOptions string
 
 const (
 	UTF8NameValidationScheme   NameValidationSchemeOptions = "UTF8"
 	LegacyNameValidationScheme NameValidationSchemeOptions = "Legacy"
+)
+
+// Specifies the character escaping scheme that will be applied when scraping
+// for metric and label names that do not conform to the legacy Prometheus
+// character set.
+//
+// Supported values are:
+//
+//   - `AllowUTF8`, full UTF-8 support, no escaping needed.
+//   - `Underscores`, legacy-invalid characters are escaped to underscores.
+//   - `Dots`, dot characters are escaped to `_dot_`, underscores to `__`, and
+//     all other legacy-invalid characters to underscores.
+//   - `Values`, the string is prefixed by `U__` and all invalid characters are
+//     escaped to their unicode value, surrounded by underscores.
+//
+// +kubebuilder:validation:Enum=AllowUTF8;Underscores;Dots;Values
+type NameEscapingSchemeOptions string
+
+const (
+	AllowUTF8NameEscapingScheme   NameEscapingSchemeOptions = "AllowUTF8"
+	UnderscoresNameEscapingScheme NameEscapingSchemeOptions = "Underscores"
+	DotsNameEscapingScheme        NameEscapingSchemeOptions = "Dots"
+	ValuesNameEscapingScheme      NameEscapingSchemeOptions = "Values"
 )
 
 // +kubebuilder:validation:Enum=HTTP;ProcessSignal
@@ -2276,12 +2325,15 @@ type ScrapeClass struct {
 // Supported values are:
 // * `NoUTF8EscapingWithSuffixes`
 // * `UnderscoreEscapingWithSuffixes`
-// +kubebuilder:validation:Enum=NoUTF8EscapingWithSuffixes;UnderscoreEscapingWithSuffixes
+// * `NoTranslation`
+// +kubebuilder:validation:Enum=NoUTF8EscapingWithSuffixes;UnderscoreEscapingWithSuffixes;NoTranslation
 type TranslationStrategyOption string
 
 const (
 	NoUTF8EscapingWithSuffixes     TranslationStrategyOption = "NoUTF8EscapingWithSuffixes"
 	UnderscoreEscapingWithSuffixes TranslationStrategyOption = "UnderscoreEscapingWithSuffixes"
+	// It requires Prometheus >= v3.4.0.
+	NoTranslation TranslationStrategyOption = "NoTranslation"
 )
 
 // OTLPConfig is the configuration for writing to the OTLP endpoint.
@@ -2308,4 +2360,9 @@ type OTLPConfig struct {
 	// It requires Prometheus >= v3.1.0.
 	// +optional
 	KeepIdentifyingResourceAttributes *bool `json:"keepIdentifyingResourceAttributes,omitempty"`
+
+	// Configures optional translation of OTLP explicit bucket histograms into native histograms with custom buckets.
+	// It requires Prometheus >= v3.4.0.
+	// +optional
+	ConvertHistogramsToNHCB *bool `json:"convertHistogramsToNHCB,omitempty"`
 }
