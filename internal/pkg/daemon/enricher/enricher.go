@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -29,7 +28,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -39,7 +37,7 @@ import (
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/source"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -59,6 +57,7 @@ const (
 type Enricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl
+	source.AuditLineSource
 	logger           logr.Logger
 	containerIDCache *ttlcache.Cache[string, string]
 	infoCache        *ttlcache.Cache[string, *types.ContainerInfo]
@@ -71,8 +70,9 @@ type Enricher struct {
 // New returns a new Enricher instance.
 func New(logger logr.Logger) *Enricher {
 	return &Enricher{
-		impl:   &defaultImpl{},
-		logger: logger,
+		impl:            &defaultImpl{},
+		AuditLineSource: source.NewAuditdSource(logger),
+		logger:          logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, string](maxCacheItems),
@@ -157,50 +157,12 @@ func (e *Enricher) Run() error {
 		return fmt.Errorf("start GRPC server: %w", err)
 	}
 
-	// Use auditd logs as main source or syslog as fallback.
-	filePath := common.LogFilePath()
-
-	// If the file does not exist, then tail will wait for it to appear
-	tailFile, err := e.TailFile(
-		filePath,
-		tail.Config{
-			ReOpen: true,
-			Follow: true,
-			Location: &tail.SeekInfo{
-				Offset: 0,
-				Whence: io.SeekEnd,
-			},
-		},
-	)
+	log, err := e.StartTail()
 	if err != nil {
-		return fmt.Errorf("tailing file: %w", err)
+		return fmt.Errorf("tail audit log: %w", err)
 	}
 
-	e.logger.Info("Reading from file " + filePath)
-
-	for l := range e.Lines(tailFile) {
-		if l.Err != nil {
-			e.logger.Error(l.Err, "failed to tail")
-
-			continue
-		}
-
-		line := l.Text
-		e.logger.V(config.VerboseLevel).Info("Got line: " + line)
-
-		if !IsAuditLine(line) {
-			e.logger.V(config.VerboseLevel).Info("Not an audit line")
-
-			continue
-		}
-
-		auditLine, err := ExtractAuditLine(line)
-		if err != nil {
-			e.logger.Error(err, "extract audit line")
-
-			continue
-		}
-
+	for auditLine := range log {
 		e.logger.V(config.VerboseLevel).Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.ProcessID))
 
 		cID, err := e.ContainerIDForPID(e.containerIDCache, auditLine.ProcessID)
@@ -255,7 +217,7 @@ func (e *Enricher) Run() error {
 		}
 	}
 
-	return fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
+	return fmt.Errorf("enricher failed: %w", e.TailErr())
 }
 
 func (e *Enricher) startGrpcServer() error {
