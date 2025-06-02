@@ -77,19 +77,21 @@ import (
 )
 
 const (
-	spocCmd                  string = "spoc"
-	jsonFlag                 string = "json"
-	nodeStatusControllerFlag string = "with-nodestatus-controller"
-	spodControllerFlag       string = "with-spod-controller"
-	workloadAnnotatorFlag    string = "with-workload-annotator"
-	recordingMergerFlag      string = "with-recording-merger"
-	recordingFlag            string = "with-recording"
-	seccompFlag              string = "with-seccomp"
-	selinuxFlag              string = "with-selinux"
-	apparmorFlag             string = "with-apparmor"
-	webhookFlag              string = "webhook"
-	memOptimFlag             string = "with-mem-optim"
-	defaultWebhookPort       int    = 9443
+	spocCmd                             string = "spoc"
+	jsonFlag                            string = "json"
+	nodeStatusControllerFlag            string = "with-nodestatus-controller"
+	spodControllerFlag                  string = "with-spod-controller"
+	workloadAnnotatorFlag               string = "with-workload-annotator"
+	recordingMergerFlag                 string = "with-recording-merger"
+	recordingFlag                       string = "with-recording"
+	seccompFlag                         string = "with-seccomp"
+	selinuxFlag                         string = "with-selinux"
+	apparmorFlag                        string = "with-apparmor"
+	webhookFlag                         string = "webhook"
+	memOptimFlag                        string = "with-mem-optim"
+	defaultWebhookPort                  int    = 9443
+	auditLogIntervalSecondsParam        string = "audit-log-interval-seconds"
+	defaultAuditLogFlushIntervalSeconds int    = 60
 )
 
 var (
@@ -240,6 +242,13 @@ func main() {
 			Usage:   "run the audit's json enricher",
 			Action: func(ctx *cli.Context) error {
 				return runJsonEnricher(ctx, info)
+			},
+			Flags: []cli.Flag{
+				&cli.IntFlag{
+					Name:    auditLogIntervalSecondsParam,
+					Aliases: []string{"a"},
+					Usage:   "Audit log interval in seconds for the JSON Log Enricher",
+				},
 			},
 		},
 		&cli.Command{
@@ -614,12 +623,23 @@ func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	return enricher.New(ctrl.Log.WithName(component)).Run()
 }
 
-func runJsonEnricher(_ *cli.Context, info *version.Info) error {
+func runJsonEnricher(ctx *cli.Context, info *version.Info) error {
 	const component = "json-enricher"
 
 	printInfo(component, info)
 
-	return enricher.NewJsonEnricher(ctrl.Log.WithName(component)).Run()
+	auditLogIntervalSeconds := ctx.Int(auditLogIntervalSecondsParam)
+	if auditLogIntervalSeconds == 0 {
+		auditLogIntervalSeconds = defaultAuditLogFlushIntervalSeconds
+	}
+
+	setupLog.Info(
+		"JSON Enricher Configuration",
+		"auditLogFlushIntervalSeconds", auditLogIntervalSeconds,
+	)
+
+	return enricher.NewJsonEnricherArgs(ctrl.Log.WithName(component),
+		time.Duration(auditLogIntervalSeconds)*time.Second).Run()
 }
 
 func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
