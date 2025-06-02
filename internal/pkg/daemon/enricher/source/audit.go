@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,17 +14,83 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package enricher
+package source
 
 import (
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/go-logr/logr"
+	"github.com/nxadm/tail"
+
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
+
+type AuditdSource struct {
+	logger logr.Logger
+	file   *tail.Tail
+}
+
+func NewAuditdSource(logger logr.Logger) *AuditdSource {
+	return &AuditdSource{
+		logger: logger,
+	}
+}
+
+func (a *AuditdSource) StartTail() (log chan *types.AuditLine, err error) {
+	// Use auditd logs as main source or syslog as fallback.
+	filePath := common.LogFilePath()
+
+	// If the file does not exist, then tail will wait for it to appear
+	a.file, err = tail.TailFile(filePath, tail.Config{
+		ReOpen: true,
+		Follow: true,
+		Location: &tail.SeekInfo{
+			Offset: 0,
+			Whence: io.SeekEnd,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	log = make(chan *types.AuditLine, 32)
+	go func() {
+		for l := range a.file.Lines {
+			line := l.Text
+			a.logger.V(config.VerboseLevel).Info("Got line: " + line)
+
+			if !IsAuditLine(line) {
+				a.logger.V(config.VerboseLevel).Info("Not an audit line")
+
+				continue
+			}
+
+			auditLine, err := ExtractAuditLine(line)
+			if err != nil {
+				a.logger.Error(err, "extract audit line")
+
+				continue
+			}
+
+			log <- auditLine
+		}
+
+		close(log)
+	}()
+
+	return log, nil
+}
+
+func (a *AuditdSource) TailErr() error {
+	return a.file.Err()
+}
 
 // type IDs are defined at https://elixir.bootlin.com/linux/latest/source/include/uapi/linux/audit.h
 var (
