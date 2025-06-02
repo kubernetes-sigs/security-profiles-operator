@@ -872,7 +872,7 @@ kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{
 ```
 To modify the audit log interval use the option `audit-log-interval-seconds` for the JSON log enricher. For example:
 ```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0,"jsonEnricherOptions":{"auditLogIntervalSeconds":11}}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0,"jsonEnricherOptions":{"auditLogIntervalSeconds":30}}}'
 ```
 
 To debug issues with json-enricher change the verbosity to "1" in the above command.
