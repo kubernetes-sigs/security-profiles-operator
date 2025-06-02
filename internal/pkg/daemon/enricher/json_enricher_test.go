@@ -48,9 +48,10 @@ const (
 		`exe="` + executableNginx + `" sig=0 arch=c000003e syscall=10 compat=0 ` +
 		`ip=0x7f4ce626349b code=0x7ffc0000 AUID="user" UID="root" ` +
 		`GID="root" ARCH=x86_64 SYSCALL=` + executableNginx
-	containerIDJsonTest = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
-	cmdLineJsonTest     = "/bin/sh "
-	invalidLineJsonTest = "this line is not a valid line for the parser"
+	containerIDJsonTest      = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
+	cmdLineJsonTest          = "/bin/sh "
+	invalidLineJsonTest      = "this line is not a valid line for the parser"
+	auditLogFlushTimeSeconds = 5
 )
 
 func TestJsonRun(t *testing.T) {
@@ -85,6 +86,9 @@ func TestJsonRun(t *testing.T) {
 					// Wait for Lines() to be called
 				}
 
+				// Ensure that time to get the log is around the time the
+				startTime := time.Now()
+
 				lineChan <- &tail.Line{
 					Text: seccompLineJsonTest1,
 					Time: time.Now(),
@@ -93,6 +97,15 @@ func TestJsonRun(t *testing.T) {
 				for mock.PrintJsonOutputCallCount() != 1 {
 					// Wait for PrintJsonOutputCallCount() to be called
 				}
+
+				endTime := time.Now()
+				executionTime := endTime.Sub(startTime)
+
+				// Ensure that its not less than flush time
+				require.Less(t, float64(auditLogFlushTimeSeconds), executionTime.Seconds())
+
+				// Ensure that its not very long after the flush time
+				require.Less(t, executionTime.Seconds(), float64(auditLogFlushTimeSeconds*2))
 
 				auditMap := make(map[string]interface{})
 				_, output := mock.PrintJsonOutputArgsForCall(0)
@@ -197,7 +210,7 @@ func TestJsonRun(t *testing.T) {
 		mock := &enricherfakes.FakeImpl{}
 		tc.prepare(mock, lineChan)
 
-		sut := NewJsonEnricherArgs(logr.Discard(), 2*time.Second)
+		sut := NewJsonEnricherArgs(logr.Discard(), time.Duration(auditLogFlushTimeSeconds)*time.Second)
 		sut.impl = mock
 
 		var err error

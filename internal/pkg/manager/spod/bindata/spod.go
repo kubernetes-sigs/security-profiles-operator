@@ -619,8 +619,10 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 					{
-						Name:            JsonEnricherContainerName,
-						Args:            []string{"json-enricher"},
+						Name: JsonEnricherContainerName,
+						Args: []string{
+							"json-enricher",
+						},
 						ImagePullPolicy: corev1.PullAlways,
 						VolumeMounts: []corev1.VolumeMount{
 							{

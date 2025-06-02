@@ -778,8 +778,9 @@ func (e *e2e) enableLogEnricherInSpod() {
 }
 
 func (e *e2e) enableJsonEnricherInSpod() {
-	e.logf("Enable json-enricher in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableJsonEnricher": true}}`, "--type=merge")
+	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableJsonEnricher": true,
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")

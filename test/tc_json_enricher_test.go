@@ -102,8 +102,8 @@ spec:
 	// wait for at least one component of the expected logs to appear
 	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen|execve|clone|getpid"`))
 
-	e.logf("Wait for the audit lines to come after a minute")
-	time.Sleep(120 * time.Second)
+	e.logf("Wait for the audit lines to come within 60 seconds")
+	time.Sleep(60 * time.Second)
 	e.logf("Checking JSON enricher output")
 	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 

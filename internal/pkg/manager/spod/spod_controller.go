@@ -642,6 +642,17 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
 		// pass the json enricher env var to the daemon as the profile recorder is otherwise disabled
 		addEnvVar(templateSpec, config.EnableJsonEnricherEnvKey)
+
+		if cfg.Spec.JsonEnricherOpt != nil {
+			r.log.Info("Setting JsonEnricherOpt", "AuditLogIntervalSeconds",
+				cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds)
+
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				fmt.Sprintf("--audit-log-interval-seconds=%d",
+					cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds),
+			)
+		}
 	}
 
 	// AppArmor parameters
@@ -761,6 +772,24 @@ func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) boo
 	}
 
 	return cfg.Spec.EnableJsonEnricher || enableJsonEnricherEnv
+}
+
+func addAuditLogConfig(args []string, auditLogConfig string) []string {
+	if !sliceContainsString(args, auditLogConfig) {
+		return append(args, auditLogConfig)
+	}
+
+	return args // Return the original slice if no change needed
+}
+
+func sliceContainsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isBpfRecorderEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {

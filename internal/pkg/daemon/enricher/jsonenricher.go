@@ -88,7 +88,7 @@ func (e *JsonEnricher) Run() error {
 		return err
 	}
 
-	e.logger.Info("Starting audit JSON logging on node: " + nodeName)
+	e.logger.Info("Starting audit JSON logging on node " + nodeName)
 
 	e.logLinesCache.OnEviction(
 		func(ctx context.Context, reason ttlcache.EvictionReason, logItem *ttlcache.Item[int, *types.LogBucket]) {
