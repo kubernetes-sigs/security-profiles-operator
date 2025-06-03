@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -48,6 +49,8 @@ type impl interface {
 	Getenv(key string) string
 	Dial() (*grpc.ClientConn, context.CancelFunc, error)
 	Close(*grpc.ClientConn) error
+	StartTail(src auditsource.AuditLineSource) (chan *types.AuditLine, error)
+	TailErr(src auditsource.AuditLineSource) error
 	TailFile(filename string, config tail.Config) (*tail.Tail, error)
 	Lines(tailFile *tail.Tail) chan *tail.Line
 	Reason(tailFile *tail.Tail) error
@@ -79,6 +82,14 @@ func (d *defaultImpl) Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 
 func (d *defaultImpl) Close(conn *grpc.ClientConn) error {
 	return conn.Close()
+}
+
+func (d *defaultImpl) StartTail(src auditsource.AuditLineSource) (chan *types.AuditLine, error) {
+	return src.StartTail()
+}
+
+func (d *defaultImpl) TailErr(src auditsource.AuditLineSource) error {
+	return src.TailErr()
 }
 
 func (d *defaultImpl) TailFile(
