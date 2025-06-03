@@ -57,7 +57,7 @@ const (
 type Enricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl
-	auditsource.AuditLineSource
+	source           auditsource.AuditLineSource
 	logger           logr.Logger
 	containerIDCache *ttlcache.Cache[string, string]
 	infoCache        *ttlcache.Cache[string, *types.ContainerInfo]
@@ -70,9 +70,9 @@ type Enricher struct {
 // New returns a new Enricher instance.
 func New(logger logr.Logger) *Enricher {
 	return &Enricher{
-		impl:            &defaultImpl{},
-		AuditLineSource: auditsource.NewAuditdSource(logger),
-		logger:          logger,
+		impl:   &defaultImpl{},
+		source: auditsource.NewAuditdSource(logger),
+		logger: logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
 			ttlcache.WithCapacity[string, string](maxCacheItems),
@@ -157,7 +157,7 @@ func (e *Enricher) Run() error {
 		return fmt.Errorf("start GRPC server: %w", err)
 	}
 
-	log, err := e.StartTail()
+	log, err := e.StartTail(e.source)
 	if err != nil {
 		return fmt.Errorf("tail audit log: %w", err)
 	}
@@ -217,7 +217,7 @@ func (e *Enricher) Run() error {
 		}
 	}
 
-	return fmt.Errorf("enricher failed: %w", e.TailErr())
+	return fmt.Errorf("enricher failed: %w", e.source.TailErr())
 }
 
 func (e *Enricher) startGrpcServer() error {

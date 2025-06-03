@@ -30,7 +30,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
 	api_metrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
@@ -266,6 +268,19 @@ type FakeImpl struct {
 	serveReturnsOnCall map[int]struct {
 		result1 error
 	}
+	StartTailStub        func(auditsource.AuditLineSource) (chan *types.AuditLine, error)
+	startTailMutex       sync.RWMutex
+	startTailArgsForCall []struct {
+		arg1 auditsource.AuditLineSource
+	}
+	startTailReturns struct {
+		result1 chan *types.AuditLine
+		result2 error
+	}
+	startTailReturnsOnCall map[int]struct {
+		result1 chan *types.AuditLine
+		result2 error
+	}
 	StatStub        func(string) (os.FileInfo, error)
 	statMutex       sync.RWMutex
 	statArgsForCall []struct {
@@ -278,6 +293,17 @@ type FakeImpl struct {
 	statReturnsOnCall map[int]struct {
 		result1 os.FileInfo
 		result2 error
+	}
+	TailErrStub        func(auditsource.AuditLineSource) error
+	tailErrMutex       sync.RWMutex
+	tailErrArgsForCall []struct {
+		arg1 auditsource.AuditLineSource
+	}
+	tailErrReturns struct {
+		result1 error
+	}
+	tailErrReturnsOnCall map[int]struct {
+		result1 error
 	}
 	TailFileStub        func(string, tail.Config) (*tail.Tail, error)
 	tailFileMutex       sync.RWMutex
@@ -1459,6 +1485,70 @@ func (fake *FakeImpl) ServeReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *FakeImpl) StartTail(arg1 auditsource.AuditLineSource) (chan *types.AuditLine, error) {
+	fake.startTailMutex.Lock()
+	ret, specificReturn := fake.startTailReturnsOnCall[len(fake.startTailArgsForCall)]
+	fake.startTailArgsForCall = append(fake.startTailArgsForCall, struct {
+		arg1 auditsource.AuditLineSource
+	}{arg1})
+	stub := fake.StartTailStub
+	fakeReturns := fake.startTailReturns
+	fake.recordInvocation("StartTail", []interface{}{arg1})
+	fake.startTailMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) StartTailCallCount() int {
+	fake.startTailMutex.RLock()
+	defer fake.startTailMutex.RUnlock()
+	return len(fake.startTailArgsForCall)
+}
+
+func (fake *FakeImpl) StartTailCalls(stub func(auditsource.AuditLineSource) (chan *types.AuditLine, error)) {
+	fake.startTailMutex.Lock()
+	defer fake.startTailMutex.Unlock()
+	fake.StartTailStub = stub
+}
+
+func (fake *FakeImpl) StartTailArgsForCall(i int) auditsource.AuditLineSource {
+	fake.startTailMutex.RLock()
+	defer fake.startTailMutex.RUnlock()
+	argsForCall := fake.startTailArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) StartTailReturns(result1 chan *types.AuditLine, result2 error) {
+	fake.startTailMutex.Lock()
+	defer fake.startTailMutex.Unlock()
+	fake.StartTailStub = nil
+	fake.startTailReturns = struct {
+		result1 chan *types.AuditLine
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) StartTailReturnsOnCall(i int, result1 chan *types.AuditLine, result2 error) {
+	fake.startTailMutex.Lock()
+	defer fake.startTailMutex.Unlock()
+	fake.StartTailStub = nil
+	if fake.startTailReturnsOnCall == nil {
+		fake.startTailReturnsOnCall = make(map[int]struct {
+			result1 chan *types.AuditLine
+			result2 error
+		})
+	}
+	fake.startTailReturnsOnCall[i] = struct {
+		result1 chan *types.AuditLine
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeImpl) Stat(arg1 string) (os.FileInfo, error) {
 	fake.statMutex.Lock()
 	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
@@ -1521,6 +1611,67 @@ func (fake *FakeImpl) StatReturnsOnCall(i int, result1 os.FileInfo, result2 erro
 		result1 os.FileInfo
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeImpl) TailErr(arg1 auditsource.AuditLineSource) error {
+	fake.tailErrMutex.Lock()
+	ret, specificReturn := fake.tailErrReturnsOnCall[len(fake.tailErrArgsForCall)]
+	fake.tailErrArgsForCall = append(fake.tailErrArgsForCall, struct {
+		arg1 auditsource.AuditLineSource
+	}{arg1})
+	stub := fake.TailErrStub
+	fakeReturns := fake.tailErrReturns
+	fake.recordInvocation("TailErr", []interface{}{arg1})
+	fake.tailErrMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) TailErrCallCount() int {
+	fake.tailErrMutex.RLock()
+	defer fake.tailErrMutex.RUnlock()
+	return len(fake.tailErrArgsForCall)
+}
+
+func (fake *FakeImpl) TailErrCalls(stub func(auditsource.AuditLineSource) error) {
+	fake.tailErrMutex.Lock()
+	defer fake.tailErrMutex.Unlock()
+	fake.TailErrStub = stub
+}
+
+func (fake *FakeImpl) TailErrArgsForCall(i int) auditsource.AuditLineSource {
+	fake.tailErrMutex.RLock()
+	defer fake.tailErrMutex.RUnlock()
+	argsForCall := fake.tailErrArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) TailErrReturns(result1 error) {
+	fake.tailErrMutex.Lock()
+	defer fake.tailErrMutex.Unlock()
+	fake.TailErrStub = nil
+	fake.tailErrReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) TailErrReturnsOnCall(i int, result1 error) {
+	fake.tailErrMutex.Lock()
+	defer fake.tailErrMutex.Unlock()
+	fake.TailErrStub = nil
+	if fake.tailErrReturnsOnCall == nil {
+		fake.tailErrReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.tailErrReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeImpl) TailFile(arg1 string, arg2 tail.Config) (*tail.Tail, error) {
@@ -1631,8 +1782,12 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.sendMetricMutex.RUnlock()
 	fake.serveMutex.RLock()
 	defer fake.serveMutex.RUnlock()
+	fake.startTailMutex.RLock()
+	defer fake.startTailMutex.RUnlock()
 	fake.statMutex.RLock()
 	defer fake.statMutex.RUnlock()
+	fake.tailErrMutex.RLock()
+	defer fake.tailErrMutex.RUnlock()
 	fake.tailFileMutex.RLock()
 	defer fake.tailFileMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
