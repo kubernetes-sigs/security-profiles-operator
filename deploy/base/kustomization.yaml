@@ -14,6 +14,7 @@ resources:
 
 configMapGenerator:
 - files:
+  - profiles/json-enricher-log-volume-source.json
   - profiles/bpf-recorder.json
   - profiles/security-profiles-operator.json
   - profiles/selinuxd.cil
@@ -21,6 +22,8 @@ configMapGenerator:
   - profiles/selinuxd-image-mapping.json
   - profiles/spo-apparmor.yaml
   - profiles/bpfrecorder-apparmor.yaml
+  literals:
+    - json-enricher-log-volume-mount-path="/data/logs/jsonenricher"
   name: security-profiles-operator-profile
 
 generatorOptions:

@@ -1687,6 +1687,35 @@ spec:
                       Increasing this interval will reduce the rate at which logs are written.
                     format: int32
                     type: integer
+                  auditLogMaxAge:
+                    description: |-
+                      This field specifies the maximum number of days to retain old audit log files
+                      The default is not to remove old log files based on age
+                      The internal implementation uses natefinch/lumberjack v2
+                    format: int32
+                    type: integer
+                  auditLogMaxBackups:
+                    description: |-
+                      This field specifies the maximum size in megabytes of the audit log file before it gets rotated.
+                      The default is to retain all old log files (though MaxAge may still cause them to get deleted.)
+                      The internal implementation uses natefinch/lumberjack v2
+                    format: int32
+                    type: integer
+                  auditLogMaxSize:
+                    description: |-
+                      This field specifies the maximum number of audit log files to retain.
+                      If left unspecified it defaults to 100 MB.
+                      The internal implementation uses natefinch/lumberjack v2
+                    format: int32
+                    type: integer
+                  auditLogPath:
+                    description: |-
+                      This field specifies the path for the accumulated audit log data.
+                      The audit log will be written to this file in JSON format if a file path
+                      is provided. If left unspecified, the output will be directed to
+                      standard output (stdout).
+                      The internal implementation uses natefinch/lumberjack v2
+                    type: string
                 type: object
               priorityClassName:
                 default: system-node-critical

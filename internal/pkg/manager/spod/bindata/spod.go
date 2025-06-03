@@ -75,7 +75,6 @@ const (
 	ContainerPort                              int32 = 9443
 	metricsServerCert                                = "metrics-server-cert"
 	MetricsCertPath                                  = "/var/run/secrets/metrics"
-	DefaultJsonEnricherAuditLogInterval              = 60
 )
 
 var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
@@ -905,6 +904,19 @@ var metricsService = &corev1.Service{
 			"name": config.SPOdName,
 		},
 	},
+}
+
+func CustomLogVolume(mountPath string, logVolumeSource *corev1.VolumeSource) (corev1.Volume, corev1.VolumeMount) {
+	const volumeName = "json-enricher-log-output-volume"
+
+	return corev1.Volume{
+			Name:         volumeName,
+			VolumeSource: *logVolumeSource,
+		}, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: mountPath,
+			ReadOnly:  false,
+		}
 }
 
 // CustomHostProcVolume returns a new host /proc path volume as well as

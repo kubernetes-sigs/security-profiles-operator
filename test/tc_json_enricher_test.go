@@ -23,6 +23,88 @@ import (
 	"time"
 )
 
+func (e *e2e) testCaseJsonEnricherFileOptions([]string) {
+	jsonLogFileName := "/tmp/json-logs/jsonEnricher.out"
+	e.jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName)
+
+	const (
+		profileName   = "jsonenricherprofile"
+		podName       = "jsonenricherpod"
+		containerName = "jsonenrichercontainer"
+	)
+
+	e.logf("Creating test profile for JSON Enricher")
+
+	profile := fmt.Sprintf(`
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: %s
+spec:
+  defaultAction: SCMP_ACT_ALLOW
+  syscalls:
+  - action: SCMP_ACT_LOG
+    names:
+    - listen
+    - execve
+    - clone
+    - getpid
+`, profileName)
+
+	profileCleanup := e.writeAndCreate(profile, "test-profile-*.yaml")
+	defer profileCleanup()
+	defer e.kubectl("delete", "sp", profileName)
+
+	e.logf("Waiting for profile to be reconciled")
+	e.waitForProfile(profileName)
+
+	e.logf("Creating test pod")
+	e.getCurrentContextNamespace(defaultNamespace)
+
+	pod := fmt.Sprintf(`
+apiVersion: v1
+kind: Pod
+metadata:
+  name: %s
+spec:
+  containers:
+  - image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+    name: %s
+  securityContext:
+    seccompProfile:
+      type: Localhost
+      localhostProfile: operator/%s.json
+  restartPolicy: Never
+`, podName, containerName, profileName)
+
+	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
+	defer podCleanup()
+	defer e.kubectl("delete", "pod", podName)
+	e.waitForProfile(profileName)
+
+	e.waitFor("condition=initialized", "pod", podName)
+
+	const maximum = 20
+	for i := 0; i <= maximum; i++ {
+		output := e.kubectl("get", "pod", podName)
+		if strings.Contains(output, "Running") {
+			break
+		}
+
+		if i == maximum {
+			e.Fail("Unable to get pod in running state")
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+	// wait for at least one component of the expected logs to appear
+	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
+		regexp.MustCompile(`(?m)"syscallName"="listen|execve|clone|getpid"`))
+
+	e.Contains(output, "auditID")
+}
+
 func (e *e2e) testCaseJsonEnricher([]string) {
 	e.jsonEnricherOnlyTestCase()
 
@@ -98,6 +180,8 @@ spec:
 
 		time.Sleep(5 * time.Second)
 	}
+
+	e.kubectl("exec", podName, "--", "ls", "/")
 
 	// wait for at least one component of the expected logs to appear
 	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen|execve|clone|getpid"`))

@@ -767,6 +767,14 @@ func (e *e2e) jsonEnricherOnlyTestCase() {
 	e.enableJsonEnricherInSpod()
 }
 
+func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string) {
+	if !e.jsonEnricherEnabled {
+		e.T().Skip("Skipping json-enricher FileOptions related test")
+	}
+
+	e.enableJsonEnricherInSpodFileOptions(jsonLogFileName)
+}
+
 func (e *e2e) enableLogEnricherInSpod() {
 	e.logf("Enable log-enricher in SPOD")
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableLogEnricher": true}}`, "--type=merge")
@@ -783,6 +791,65 @@ func (e *e2e) enableJsonEnricherInSpod() {
 		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+}
+
+func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath string) {
+	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
+
+	jsonVolumeSource := fmt.Sprintf(`{\"hostPath\": {\"path\": \"%s\",\"type\": \"DirectoryOrCreate\"}}`,
+		filepath.Dir(logPath))
+
+	patchOperatorJson := "patch_operator.json"
+	_ = os.Remove(patchOperatorJson)
+
+	patchFile, fileErr := os.OpenFile(patchOperatorJson, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if fileErr != nil {
+		e.Fail(fmt.Sprintf("Failed to open file '%s': %v", patchOperatorJson, fileErr))
+
+		return
+	}
+
+	_, writeErr := fmt.Fprintf(patchFile,
+		`{"data": {"json-enricher-log-volume-mount-path": "%s","json-enricher-log-volume-source.json":"%s"}}`,
+		filepath.Dir(logPath), jsonVolumeSource)
+	if writeErr != nil {
+		e.Fail(fmt.Sprintf("Failed to write file '%s': %v", patchOperatorJson, writeErr))
+
+		return
+	}
+
+	fileCloseErr := patchFile.Close()
+	if fileCloseErr != nil {
+		// Igrore with log
+		e.logf("Failed to close file '%s': %v", patchOperatorJson, fileCloseErr)
+	}
+
+	e.logf("Printing the patch file '%s'", patchOperatorJson)
+	e.run("cat", patchOperatorJson)
+
+	e.kubectlOperatorNS("patch", "configmap", "security-profiles-operator-profile", "--patch-file", patchOperatorJson)
+
+	e.logf("Rollout restart deployment security-profiles-operator")
+
+	e.kubectlOperatorNS("rollout", "restart", "deployment", "security-profiles-operator")
+
+	time.Sleep(defaultWaitTime * 5) // This is required for all the restarts to complete
+
+	e.kubectlOperatorNS("get", "pods")
+
+	e.logf("Done waiting for the rollout restart")
+
+	_ = os.Remove(patchOperatorJson)
+
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", fmt.Sprintf(`{"spec":{"enableJsonEnricher": true,
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath": "%s"}}}`, logPath), "--type=merge")
+
+	e.logf("Patched the SPOD")
+
+	time.Sleep(defaultWaitTime * 2)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)

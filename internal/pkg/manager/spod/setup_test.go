@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
@@ -29,10 +30,11 @@ func Test_getEffectiveSPOd(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		dt      daemonTunables
-		nsIsSet bool
-		wantErr bool
+		name                string
+		dt                  daemonTunables
+		nsIsSet             bool
+		jsonEnricherOptsSet bool
+		wantErr             bool
 	}{
 		{
 			name: "Should correctly set the image",
@@ -40,8 +42,9 @@ func Test_getEffectiveSPOd(t *testing.T) {
 				selinuxdImage:    "foo:bar",
 				logEnricherImage: "bar:baz",
 			},
-			nsIsSet: false,
-			wantErr: false,
+			nsIsSet:             false,
+			jsonEnricherOptsSet: false,
+			wantErr:             false,
 		},
 		{
 			name: "Should correctly set the namespace",
@@ -50,8 +53,26 @@ func Test_getEffectiveSPOd(t *testing.T) {
 				logEnricherImage: "bar:baz",
 				watchNamespace:   "watch-ns",
 			},
-			nsIsSet: true,
-			wantErr: false,
+			nsIsSet:             true,
+			jsonEnricherOptsSet: false,
+			wantErr:             false,
+		},
+		{
+			name: "Should correctly set the json Enricher volume correctly",
+			dt: daemonTunables{
+				selinuxdImage:                  "foo:bar",
+				logEnricherImage:               "bar:baz",
+				jsonEnricherImage:              "foo:bar",
+				jsonEnricherLogVolumeMountPath: "/var/log",
+				jsonEnricherLogVolumeSource: &corev1.VolumeSource{
+					HostPath: &corev1.HostPathVolumeSource{
+						Path: "/tmp/audit.log",
+					},
+				},
+			},
+			nsIsSet:             false,
+			jsonEnricherOptsSet: true,
+			wantErr:             false,
 		},
 	}
 	for _, tt := range tests {
@@ -78,6 +99,12 @@ func Test_getEffectiveSPOd(t *testing.T) {
 
 			if tt.nsIsSet && !found {
 				t.Errorf("%s env variable wasn't set", config.RestrictNamespaceEnvKey)
+			}
+
+			if tt.jsonEnricherOptsSet {
+				require.Equal(t, tt.dt.jsonEnricherImage, got.Spec.Template.Spec.Containers[4].Image)
+				require.Equal(t, tt.dt.jsonEnricherLogVolumeMountPath,
+					got.Spec.Template.Spec.Containers[4].VolumeMounts[2].MountPath)
 			}
 		})
 	}

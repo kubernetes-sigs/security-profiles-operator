@@ -1,5 +1,11 @@
 apiVersion: v1
 data:
+  json-enricher-log-volume-source.json: |
+    {
+      "emptyDir": {
+        "sizeLimit": "500Mi"
+      }
+    }
   bpf-recorder.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
