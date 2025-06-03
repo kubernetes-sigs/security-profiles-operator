@@ -34,7 +34,7 @@ import (
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/source"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
@@ -158,7 +158,7 @@ func (e *JsonEnricher) Run() error {
 		line := l.Text
 		e.logger.V(config.VerboseLevel).Info("Got line: " + line)
 
-		if !source.IsAuditLine(line) {
+		if !auditsource.IsAuditLine(line) {
 			e.logger.V(config.VerboseLevel).Info("Not an audit line")
 
 			continue
@@ -166,7 +166,7 @@ func (e *JsonEnricher) Run() error {
 
 		e.logger.V(config.VerboseLevel).Info("AuditLine Parsed: " + line)
 
-		auditLine, err := source.ExtractAuditLine(line)
+		auditLine, err := auditsource.ExtractAuditLine(line)
 		if err != nil {
 			e.logger.Error(err, "extract audit line")
 
@@ -196,7 +196,7 @@ func (e *JsonEnricher) Run() error {
 		}
 
 		if logBucket.ProcessInfo == nil {
-			uid, gid, err := source.GetUidGid(line)
+			uid, gid, err := auditsource.GetUidGid(line)
 			if err != nil {
 				e.logger.V(config.VerboseLevel).Info(
 					"unable to get uid and gid", "line", line)

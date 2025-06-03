@@ -37,7 +37,7 @@ import (
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/source"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -57,7 +57,7 @@ const (
 type Enricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl
-	source.AuditLineSource
+	auditsource.AuditLineSource
 	logger           logr.Logger
 	containerIDCache *ttlcache.Cache[string, string]
 	infoCache        *ttlcache.Cache[string, *types.ContainerInfo]
@@ -71,7 +71,7 @@ type Enricher struct {
 func New(logger logr.Logger) *Enricher {
 	return &Enricher{
 		impl:            &defaultImpl{},
-		AuditLineSource: source.NewAuditdSource(logger),
+		AuditLineSource: auditsource.NewAuditdSource(logger),
 		logger:          logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
