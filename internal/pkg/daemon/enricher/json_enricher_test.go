@@ -210,6 +210,7 @@ func TestJsonRun(t *testing.T) {
 		jsonEnricherOpts.AuditFreq = time.Duration(auditLogFlushTimeSeconds) * time.Second
 		sut, jsonEnricherErr := NewJsonEnricherArgs(logr.Discard(), jsonEnricherOpts)
 		require.NoError(t, jsonEnricherErr)
+
 		sut.impl = mock
 
 		var err chan error

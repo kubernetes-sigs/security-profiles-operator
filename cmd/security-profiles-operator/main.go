@@ -102,7 +102,6 @@ var (
 )
 
 func main() {
-
 	mainctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

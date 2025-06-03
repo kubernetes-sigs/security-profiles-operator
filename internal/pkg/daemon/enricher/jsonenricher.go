@@ -20,11 +20,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/urfave/cli/v2"
 	"io"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/urfave/cli/v2"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
@@ -36,10 +37,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
-)
-
-const (
-	defaultAuditLogFlushTimeout = 1 * time.Minute
 )
 
 type JsonEnricher struct {
@@ -77,6 +74,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 		if opts.AuditFreq != 0 {
 			actualOpts.AuditFreq = opts.AuditFreq
 		}
+
 		if opts.OutputFileName != "" { // Check if caller provided a non-zero value
 			actualOpts.OutputFileName = ""
 		}
@@ -102,8 +100,9 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 			ttlcache.WithCapacity[int, *types.ProcessInfo](maxCacheItems),
 		),
 	}
+
 	if actualOpts.OutputFileName != "" {
-		outputFile, err := os.OpenFile(actualOpts.OutputFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		outputFile, err := os.OpenFile(actualOpts.OutputFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return nil, err
 		}
@@ -384,6 +383,7 @@ func (e *JsonEnricher) ExitJsonEnricher(_ *cli.Context) {
 
 		return
 	}
+
 	if err := e.outputFile.Close(); err != nil {
 		e.logger.Error(err, "error closing output log file")
 	}
