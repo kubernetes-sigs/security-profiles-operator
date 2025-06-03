@@ -264,11 +264,12 @@ func main() {
 
 				select {
 				case <-runErr:
-					return fmt.Errorf("error while executing JSON Enricher: %w", runErr)
+					return fmt.Errorf("error while executing JSON Enricher: %w", <-runErr)
 				case <-mainctx.Done():
 					// Cannot use CLI "After" as exit signal won't invoke it
 					fmt.Printf("Exit JSON Enricher")
 					jsonEnricher.ExitJsonEnricher(ctx)
+
 					return nil
 				}
 			},
@@ -324,8 +325,10 @@ func main() {
 			EnvVars: []string{config.ProfilingPortEnvKey},
 		},
 	}
+
 	if err := app.Run(os.Args); err != nil {
 		setupLog.Error(err, "running security-profiles-operator")
+		//nolint:gocritic // this is intentional as there was an issue running SPO
 		os.Exit(1)
 	}
 

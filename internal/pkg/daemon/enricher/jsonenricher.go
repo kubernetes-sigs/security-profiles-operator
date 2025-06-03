@@ -25,12 +25,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/urfave/cli/v2"
-
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/nxadm/tail"
+	"github.com/urfave/cli/v2"
 	"k8s.io/client-go/kubernetes"
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
