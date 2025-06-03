@@ -257,8 +257,6 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	}
 
 	runErr <- fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
-
-	return
 }
 
 // Returns nil if the containerInfo couldn't be loaded.
