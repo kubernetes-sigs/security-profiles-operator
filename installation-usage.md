@@ -33,6 +33,11 @@
       - [Recording based on eBPF instrumentation](#recording-based-on-ebpf-instrumentation)
     - [Use Seccomp profile](#use-seccomp-profile)
   - [Audit JSON log enricher](#audit-json-log-enricher)
+    - [Audit JSON Log Enricher Configuration](#audit-json-log-enricher-configuration)
+      - [Audit Log Interval](#audit-log-interval)
+      - [Audit Log File Destination](#audit-log-file-destination)
+        - [Audit Log File Fine-Tuning (Rotation)](#audit-log-file-fine-tuning-rotation)
+        - [Verbosity (Debugging Logs)](#verbosity-debugging-logs)
     - [How to Monitor Audit Logs for a Specific Pod](#how-to-monitor-audit-logs-for-a-specific-pod)
   - [AppArmor Profile](#apparmor-profile)
     - [Record AppArmor profile](#record-apparmor-profile)
@@ -858,24 +863,79 @@ following:
 - **User and Group IDs (uid/gid)**: The identification numbers of the system user who ran the program.
 - **System Calls (syscalls)**: A list of system calls (syscalls) that the process made
 
-This log format is very similar to how Kubernetes itself records audit logs. This is useful for:
+This log format and the configuration is similar to how Kubernetes itself records audit logs. This is useful for:
 - Seeing what users and automated processes are doing inside a pod.
 - Tracking when someone uses commands like kubectl exec to get into a running container and run commands or scripts.
 - Monitoring activities in debug containers where users might run various tools.
 
-Currently, the JSON lines are output to the standard output stream.
-
 To start using this feature, you need to have the Security Profiles Operator installed in your Kubernetes cluster. 
 Once it's installed, you can enable the JSON log enricher with this command:
 ```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true}}'
 ```
-To modify the audit log interval use the option `audit-log-interval-seconds` for the JSON log enricher. For example:
+
+#### Audit JSON Log Enricher Configuration
+Here's how to set up and fine-tune your audit logs.
+
+##### Audit Log Interval
+Set how often audit logs are created using the auditLogIntervalSeconds option. For example to configure audit log interval to 30 seconds use the command:
 ```sh
 kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0,"jsonEnricherOptions":{"auditLogIntervalSeconds":30}}}'
 ```
+##### Audit Log File Destination
+By default, audit logs go to your standard output in JSON lines format. You can send them to a file instead.
 
-To debug issues with json-enricher change the verbosity to "1" in the above command.
+1. Configure the Volume Mount
+   First, tell the security profiles operator where to store the log file on the node. You'll update the `security-profiles-operator-profile` ConfigMap with two keys:
+    - `json-enricher-log-volume-source.json`: Defines the type of volume (e.g., host path, empty directory) where logs will be stored. This must be a JSON string representing a `corev1.VolumeSource` object. Refer to this [link](https://github.com/kubernetes/kubernetes/blob/master/pkg/apis/core/types.go#L58) for more details.
+    - `json-enricher-log-volume-mount-path`: Specifies the directory path where the log file will be generated. 
+
+   Here's an example to set up a host path volume at `/tmp/logs`:
+   ```json
+   {
+    "data": {
+      "json-enricher-log-volume-mount-path": "/tmp/logs",
+      "json-enricher-log-volume-source.json": "{\"hostPath\": {\"path\": \"/tmp/logs\",\"type\": \"DirectoryOrCreate\"}}"
+    }
+   }
+   ```
+   One of the ways to update the config map is to save this JSON in a file(`patch-volume-source.json`) and update the config map:
+   ```sh
+   kubectl patch configmap security-profiles-operator-profile -n security-profiles-operator --patch-file patch-volume-source.json
+   ```
+
+2. Restart the Operator
+
+   The security profiles operator won't automatically pick up ConfigMap changes. You need to restart its pods for the new volume mount to take effect.
+   ```sh
+   kubectl rollout restart deployment security-profiles-operator -n security-profiles-operator
+   ```
+
+3. Set the Audit Log File Path
+
+   Tell the JSON log enricher the full path to your audit log file (including the filename).
+   ```sh
+   kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0,"jsonEnricherOptions":{"auditLogPath":"/tmp/logs/audit1.log"}}}'
+   ```
+###### Audit Log File Fine-Tuning (Rotation)
+For audit logging to a file, you can manage their size and how long they're kept. These options are similar to [Kubernetes API server log settings](https://kubernetes.io/docs/tasks/debug/debug-cluster/audit/).
+
+- `auditLogMaxSize`: The maximum size (in megabytes) a log file can reach before it's rotated (a new file is started).
+- `auditLogMaxBackups`: The maximum number of older, rotated log files to keep. Set to 0 for no limit.
+- `auditLogMaxAge`: The maximum number of days to keep old log files.
+You configure these by patching the JSON log enricher options:
+```sh
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0,"jsonEnricherOptions":{"auditLogPath":"/tmp/logs/audit1.log","auditLogMaxSize":500,"auditLogMaxBackups":2,"auditLogMaxAge":10}}}'
+```
+
+###### Verbosity (Debugging Logs)
+Increase the logging level for the JSON log enricher container to help with debugging.
+- 0: Minimal logs.
+- 1: More detailed logs.
+
+```sh
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true, "verbosity": 1}}'
+```
 
 #### How to Monitor Audit Logs for a Specific Pod
 To enable a single pod log the activity following these steps:

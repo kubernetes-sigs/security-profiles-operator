@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -29,6 +30,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jellydator/ttlcache/v3"
 	"github.com/nxadm/tail"
+	"github.com/urfave/cli/v2"
+	"gopkg.in/natefinch/lumberjack.v2"
 	"k8s.io/client-go/kubernetes"
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
@@ -36,10 +39,6 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
-)
-
-const (
-	defaultAuditLogFlushTimeout = 1 * time.Minute
 )
 
 type JsonEnricher struct {
@@ -51,14 +50,74 @@ type JsonEnricher struct {
 	logLinesCache    *ttlcache.Cache[int, *types.LogBucket]
 	clientset        kubernetes.Interface
 	processCache     *ttlcache.Cache[int, *types.ProcessInfo]
+	logWriter        io.Writer
 }
 
-func NewJsonEnricher(logger logr.Logger) *JsonEnricher {
-	return NewJsonEnricherArgs(logger, defaultAuditLogFlushTimeout)
+type JsonEnricherOptions struct {
+	AuditFreq          time.Duration
+	AuditLogPath       string
+	AuditLogMaxSize    int
+	AuditLogMaxAge     int
+	AuditLogMaxBackups int
 }
 
-func NewJsonEnricherArgs(logger logr.Logger, auditFreq time.Duration) *JsonEnricher {
-	return &JsonEnricher{
+var JsonEnricherDefaultOptions = JsonEnricherOptions{
+	AuditFreq:          time.Duration(60) * time.Second,
+	AuditLogPath:       "",
+	AuditLogMaxSize:    0,
+	AuditLogMaxAge:     0,
+	AuditLogMaxBackups: 0,
+}
+
+func NewJsonEnricher(logger logr.Logger) (*JsonEnricher, error) {
+	return NewJsonEnricherArgs(logger, &JsonEnricherOptions{})
+}
+
+var auditLogOutputMutex sync.Mutex
+
+func validate(opts JsonEnricherOptions) error {
+	if opts.AuditFreq < 0 {
+		return fmt.Errorf("invalid value for AuditFreq: %v", opts.AuditFreq)
+	}
+
+	if opts.AuditLogMaxBackups < 0 {
+		return fmt.Errorf("invalid value for AuditLogMaxBackups: %v", opts.AuditLogMaxBackups)
+	}
+
+	if opts.AuditLogMaxSize < 0 {
+		return fmt.Errorf("invalid value for AuditLogMaxSize: %v", opts.AuditLogMaxSize)
+	}
+
+	if opts.AuditLogMaxAge < 0 {
+		return fmt.Errorf("invalid value for AuditLogMaxAge: %v", opts.AuditLogMaxAge)
+	}
+
+	return nil
+}
+
+func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEnricher, error) {
+	actualOpts := JsonEnricherDefaultOptions
+
+	if opts != nil {
+		if err := validate(*opts); err != nil {
+			return nil, err
+		}
+
+		if opts.AuditFreq != 0 {
+			// If AuditFreq is set to zero default to 60 seconds
+			actualOpts.AuditFreq = opts.AuditFreq
+		}
+
+		if opts.AuditLogPath != "" {
+			actualOpts.AuditLogPath = opts.AuditLogPath
+		}
+
+		actualOpts.AuditLogMaxSize = opts.AuditLogMaxSize
+		actualOpts.AuditLogMaxBackups = opts.AuditLogMaxBackups
+		actualOpts.AuditLogMaxAge = opts.AuditLogMaxAge
+	}
+
+	jsonEnricher := &JsonEnricher{
 		impl:   &defaultImpl{},
 		logger: logger,
 		containerIDCache: ttlcache.New(
@@ -70,7 +129,7 @@ func NewJsonEnricherArgs(logger logr.Logger, auditFreq time.Duration) *JsonEnric
 			ttlcache.WithCapacity[string, *types.ContainerInfo](maxCacheItems),
 		),
 		logLinesCache: ttlcache.New(
-			ttlcache.WithTTL[int, *types.LogBucket](auditFreq),
+			ttlcache.WithTTL[int, *types.LogBucket](actualOpts.AuditFreq),
 			ttlcache.WithCapacity[int, *types.LogBucket](maxCacheItems),
 		),
 		processCache: ttlcache.New(
@@ -78,15 +137,44 @@ func NewJsonEnricherArgs(logger logr.Logger, auditFreq time.Duration) *JsonEnric
 			ttlcache.WithCapacity[int, *types.ProcessInfo](maxCacheItems),
 		),
 	}
+
+	w, err := getWriter(actualOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	jsonEnricher.logWriter = w
+
+	return jsonEnricher, nil
 }
 
-func (e *JsonEnricher) Run() error {
+func getWriter(opts JsonEnricherOptions) (io.Writer, error) {
+	if opts.AuditLogPath == "" {
+		return os.Stdout, nil // Ignore all other audit log file options
+	}
+
+	if err := ensureLogFile(opts); err != nil {
+		return nil, fmt.Errorf("ensureLogFile: %w", err)
+	}
+
+	// lumberjack handles 0 size with default of 100 MB
+	return &lumberjack.Logger{
+		Filename:   opts.AuditLogPath,
+		MaxSize:    opts.AuditLogMaxSize,
+		MaxAge:     opts.AuditLogMaxAge,
+		MaxBackups: opts.AuditLogMaxBackups,
+		Compress:   false, // Future enhancement if required
+	}, nil
+}
+
+func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	nodeName := e.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		e.logger.Error(err, "unable to run enricher")
+		runErr <- err
 
-		return err
+		return
 	}
 
 	e.logger.Info("Starting audit JSON logging on node " + nodeName)
@@ -104,12 +192,16 @@ func (e *JsonEnricher) Run() error {
 
 	clusterConfig, err := e.InClusterConfig()
 	if err != nil {
-		return fmt.Errorf("get in-cluster config: %w", err)
+		runErr <- fmt.Errorf("get in-cluster config: %w", err)
+
+		return
 	}
 
 	e.clientset, err = e.NewForConfig(clusterConfig)
 	if err != nil {
-		return fmt.Errorf("load in-cluster config: %w", err)
+		runErr <- fmt.Errorf("load in-cluster config: %w", err)
+
+		return
 	}
 
 	go e.containerIDCache.Start()
@@ -133,7 +225,9 @@ func (e *JsonEnricher) Run() error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("tailing file: %w", err)
+		runErr <- fmt.Errorf("tailing file: %w", err)
+
+		return
 	}
 
 	e.logger.Info("Reading from file " + filePath)
@@ -192,7 +286,7 @@ func (e *JsonEnricher) Run() error {
 		}
 
 		if logBucket.ContainerInfo == nil {
-			logBucket.ContainerInfo = e.fetchContainerInfo(auditLine.ProcessID, nodeName)
+			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID, nodeName)
 		}
 
 		if logBucket.ProcessInfo == nil {
@@ -213,11 +307,11 @@ func (e *JsonEnricher) Run() error {
 		}
 	}
 
-	return fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
+	runErr <- fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
 }
 
 // Returns nil if the containerInfo couldn't be loaded.
-func (e *JsonEnricher) fetchContainerInfo(processId int, nodeName string) *types.ContainerInfo {
+func (e *JsonEnricher) fetchContainerInfo(ctx context.Context, processId int, nodeName string) *types.ContainerInfo {
 	cID, errContainer := e.ContainerIDForPID(e.containerIDCache, processId)
 	e.logger.V(config.VerboseLevel).Info(
 		fmt.Sprintf("Container ID for Pid: %v with len %d", cID, len(cID)))
@@ -225,7 +319,8 @@ func (e *JsonEnricher) fetchContainerInfo(processId int, nodeName string) *types
 	var containerInfo *types.ContainerInfo
 
 	if errContainer == nil && cID != "" {
-		info, errGetContainerInfo := getContainerInfo(nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
+		info, errGetContainerInfo := getContainerInfo(ctx,
+			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
 		if errGetContainerInfo == nil {
 			containerInfo = info
 		}
@@ -328,5 +423,23 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		return
 	}
 
-	e.PrintJsonOutput(os.Stdout, string(auditJson))
+	auditLogOutputMutex.Lock()
+	defer auditLogOutputMutex.Unlock()
+	e.PrintJsonOutput(e.logWriter, string(auditJson))
+}
+
+func (e *JsonEnricher) ExitJsonEnricher(_ *cli.Context) {
+	if closer, ok := e.logWriter.(io.Closer); ok {
+		if err := closer.Close(); err != nil {
+			e.logger.Error(err, "unable to close log writer")
+		}
+	}
+}
+
+func ensureLogFile(opts JsonEnricherOptions) error {
+	if err := os.MkdirAll(filepath.Dir(opts.AuditLogPath), 0o700); err != nil {
+		return err
+	}
+
+	return nil
 }

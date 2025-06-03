@@ -26,8 +26,10 @@ import (
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -77,21 +79,25 @@ import (
 )
 
 const (
-	spocCmd                             string = "spoc"
-	jsonFlag                            string = "json"
-	nodeStatusControllerFlag            string = "with-nodestatus-controller"
-	spodControllerFlag                  string = "with-spod-controller"
-	workloadAnnotatorFlag               string = "with-workload-annotator"
-	recordingMergerFlag                 string = "with-recording-merger"
-	recordingFlag                       string = "with-recording"
-	seccompFlag                         string = "with-seccomp"
-	selinuxFlag                         string = "with-selinux"
-	apparmorFlag                        string = "with-apparmor"
-	webhookFlag                         string = "webhook"
-	memOptimFlag                        string = "with-mem-optim"
-	defaultWebhookPort                  int    = 9443
-	auditLogIntervalSecondsParam        string = "audit-log-interval-seconds"
-	defaultAuditLogFlushIntervalSeconds int    = 60
+	spocCmd                      string = "spoc"
+	jsonFlag                     string = "json"
+	nodeStatusControllerFlag     string = "with-nodestatus-controller"
+	spodControllerFlag           string = "with-spod-controller"
+	workloadAnnotatorFlag        string = "with-workload-annotator"
+	recordingMergerFlag          string = "with-recording-merger"
+	recordingFlag                string = "with-recording"
+	seccompFlag                  string = "with-seccomp"
+	selinuxFlag                  string = "with-selinux"
+	apparmorFlag                 string = "with-apparmor"
+	webhookFlag                  string = "webhook"
+	memOptimFlag                 string = "with-mem-optim"
+	defaultWebhookPort           int    = 9443
+	auditLogIntervalSecondsParam string = "audit-log-interval-seconds"
+	auditLogPathParam            string = "audit-log-path"
+	auditLogMaxSizeParam         string = "audit-log-maxsize"
+	// The plural form is not used for audit-log-file-maxbackup to match the k8s api server audit log options.
+	auditLogMaxBackupParam string = "audit-log-maxbackup"
+	auditLogMaxAgeParam    string = "audit-log-maxage"
 )
 
 var (
@@ -100,6 +106,21 @@ var (
 )
 
 func main() {
+	// This is required to close any open resource like a file
+	mainctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		// No logger may be available hence using fmt
+		fmt.Printf("\nReceived OS signal: %s. Initiating graceful shutdown...\n", sig)
+		cancel()
+	}()
+
 	app, info := cmd.DefaultApp()
 	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Security Profiles Operator"
@@ -241,13 +262,56 @@ func main() {
 			Aliases: []string{"j"},
 			Usage:   "run the audit's json enricher",
 			Action: func(ctx *cli.Context) error {
-				return runJsonEnricher(ctx, info)
+				jsonEnricher, err := getJsonEnricher(ctx, info)
+				if err != nil {
+					return fmt.Errorf("could not create json enricher: %w", err)
+				}
+
+				runErr := make(chan error)
+				go jsonEnricher.Run(mainctx, runErr)
+
+				select {
+				case <-runErr:
+					return fmt.Errorf("error while executing JSON Enricher: %w", <-runErr)
+				case <-mainctx.Done():
+					// Cannot use CLI "After" as exit signal won't invoke it
+					fmt.Printf("Exit JSON Enricher")
+					jsonEnricher.ExitJsonEnricher(ctx)
+
+					return nil
+				}
 			},
 			Flags: []cli.Flag{
 				&cli.IntFlag{
 					Name:    auditLogIntervalSecondsParam,
 					Aliases: []string{"a"},
-					Usage:   "Audit log interval in seconds for the JSON Log Enricher",
+					Value:   60,
+					Usage:   "Audit log interval in seconds for the JSON Log Enricher.",
+				},
+				&cli.StringFlag{
+					Name:  auditLogPathParam,
+					Value: "",
+					Usage: "Audit log file path for the JSON Log Enricher. Default is stdout.",
+				},
+				&cli.IntFlag{
+					Name:  auditLogMaxBackupParam,
+					Value: 0,
+					Usage: "Audit log max file backup for the JSON Log Enricher. " +
+						"The maximum number of old audit log files to retain. " +
+						"Setting a value of 0 will mean there's no restriction on the number of files.",
+				},
+				&cli.IntFlag{
+					Name:  auditLogMaxSizeParam,
+					Value: 100,
+					Usage: "Audit log max file size for the JSON Log Enricher. " +
+						"The maximum size in megabytes of the audit log file before it gets rotated.",
+				},
+				&cli.IntFlag{
+					Name:  auditLogMaxAgeParam,
+					Value: 0,
+					Usage: "Audit log max age for the JSON Log Enricher. " +
+						"The maximum number of days to retain old audit log files based " +
+						"on the timestamp encoded in their filename.",
 				},
 			},
 		},
@@ -293,7 +357,12 @@ func main() {
 
 	if err := app.Run(os.Args); err != nil {
 		setupLog.Error(err, "running security-profiles-operator")
+		//nolint:gocritic // this is intentional to return to correct exit code
 		os.Exit(1)
+	}
+
+	if err := app.RunContext(mainctx, os.Args); err != nil {
+		fmt.Printf("application error: %v", err)
 	}
 }
 
@@ -623,23 +692,41 @@ func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	return enricher.New(ctrl.Log.WithName(component)).Run()
 }
 
-func runJsonEnricher(ctx *cli.Context, info *version.Info) error {
+func getJsonEnricher(ctx *cli.Context, info *version.Info) (*enricher.JsonEnricher, error) {
 	const component = "json-enricher"
 
 	printInfo(component, info)
 
-	auditLogIntervalSeconds := ctx.Int(auditLogIntervalSecondsParam)
-	if auditLogIntervalSeconds == 0 {
-		auditLogIntervalSeconds = defaultAuditLogFlushIntervalSeconds
+	opts := &enricher.JsonEnricherOptions{}
+
+	if auditLogIntervalSeconds := ctx.Int(auditLogIntervalSecondsParam); auditLogIntervalSeconds > 0 {
+		opts.AuditFreq = time.Duration(auditLogIntervalSeconds) * time.Second
 	}
+
+	if auditLogPath := ctx.String(auditLogPathParam); auditLogPath != "" {
+		opts.AuditLogPath = auditLogPath
+	}
+
+	opts.AuditLogMaxSize = ctx.Int(auditLogMaxSizeParam)
+	opts.AuditLogMaxBackups = ctx.Int(auditLogMaxBackupParam)
+	opts.AuditLogMaxAge = ctx.Int(auditLogMaxAgeParam)
 
 	setupLog.Info(
 		"JSON Enricher Configuration",
-		"auditLogFlushIntervalSeconds", auditLogIntervalSeconds,
+		"AuditFreq", opts.AuditFreq,
+		"AuditLogPath", opts.AuditLogPath,
+		"AuditLogMaxSize", opts.AuditLogMaxSize,
+		"AuditLogMaxBackup", opts.AuditLogMaxBackups,
+		"AuditLogMaxAge", opts.AuditLogMaxAge,
 	)
 
-	return enricher.NewJsonEnricherArgs(ctrl.Log.WithName(component),
-		time.Duration(auditLogIntervalSeconds)*time.Second).Run()
+	jsonEnricher, err := enricher.NewJsonEnricherArgs(ctrl.Log.WithName(component),
+		opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonEnricher, nil
 }
 
 func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
