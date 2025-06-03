@@ -26,8 +26,10 @@ import (
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -77,21 +79,21 @@ import (
 )
 
 const (
-	spocCmd                             string = "spoc"
-	jsonFlag                            string = "json"
-	nodeStatusControllerFlag            string = "with-nodestatus-controller"
-	spodControllerFlag                  string = "with-spod-controller"
-	workloadAnnotatorFlag               string = "with-workload-annotator"
-	recordingMergerFlag                 string = "with-recording-merger"
-	recordingFlag                       string = "with-recording"
-	seccompFlag                         string = "with-seccomp"
-	selinuxFlag                         string = "with-selinux"
-	apparmorFlag                        string = "with-apparmor"
-	webhookFlag                         string = "webhook"
-	memOptimFlag                        string = "with-mem-optim"
-	defaultWebhookPort                  int    = 9443
-	auditLogIntervalSecondsParam        string = "audit-log-interval-seconds"
-	defaultAuditLogFlushIntervalSeconds int    = 60
+	spocCmd                      string = "spoc"
+	jsonFlag                     string = "json"
+	nodeStatusControllerFlag     string = "with-nodestatus-controller"
+	spodControllerFlag           string = "with-spod-controller"
+	workloadAnnotatorFlag        string = "with-workload-annotator"
+	recordingMergerFlag          string = "with-recording-merger"
+	recordingFlag                string = "with-recording"
+	seccompFlag                  string = "with-seccomp"
+	selinuxFlag                  string = "with-selinux"
+	apparmorFlag                 string = "with-apparmor"
+	webhookFlag                  string = "webhook"
+	memOptimFlag                 string = "with-mem-optim"
+	defaultWebhookPort           int    = 9443
+	auditLogIntervalSecondsParam string = "audit-log-interval-seconds"
+	auditLogOutputFileNameParam  string = "audit-log-output-file-name"
 )
 
 var (
@@ -100,6 +102,21 @@ var (
 )
 
 func main() {
+
+	mainctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	// This is required to close any open resource like a file
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		// No logger may be available hence using fmt
+		fmt.Printf("\nReceived OS signal: %s. Initiating graceful shutdown...\n", sig)
+		cancel()
+	}()
+
 	app, info := cmd.DefaultApp()
 	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Security Profiles Operator"
@@ -241,12 +258,30 @@ func main() {
 			Aliases: []string{"j"},
 			Usage:   "run the audit's json enricher",
 			Action: func(ctx *cli.Context) error {
-				return runJsonEnricher(ctx, info)
+				jsonEnricher := getJsonEnricher(ctx, info)
+
+				runErr := make(chan error)
+				go jsonEnricher.Run(runErr)
+
+				select {
+				case <-runErr:
+					return fmt.Errorf("error while executing JSON Enricher: %w", runErr)
+				case <-mainctx.Done():
+					// Cannot use CLI "After" as exit signal won't invoke it
+					fmt.Printf("Exit JSON Enricher")
+					jsonEnricher.ExitJsonEnricher(ctx)
+					return nil
+				}
 			},
 			Flags: []cli.Flag{
 				&cli.IntFlag{
 					Name:    auditLogIntervalSecondsParam,
 					Aliases: []string{"a"},
+					Usage:   "Audit log interval in seconds for the JSON Log Enricher",
+				},
+				&cli.IntFlag{
+					Name:    auditLogOutputFileNameParam,
+					Aliases: []string{"f"},
 					Usage:   "Audit log interval in seconds for the JSON Log Enricher",
 				},
 			},
@@ -290,10 +325,13 @@ func main() {
 			EnvVars: []string{config.ProfilingPortEnvKey},
 		},
 	}
-
 	if err := app.Run(os.Args); err != nil {
 		setupLog.Error(err, "running security-profiles-operator")
 		os.Exit(1)
+	}
+
+	if err := app.RunContext(mainctx, os.Args); err != nil {
+		fmt.Printf("application error: %v", err)
 	}
 }
 
@@ -623,23 +661,34 @@ func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	return enricher.New(ctrl.Log.WithName(component)).Run()
 }
 
-func runJsonEnricher(ctx *cli.Context, info *version.Info) error {
+func getJsonEnricher(ctx *cli.Context, info *version.Info) *enricher.JsonEnricher {
 	const component = "json-enricher"
 
 	printInfo(component, info)
 
-	auditLogIntervalSeconds := ctx.Int(auditLogIntervalSecondsParam)
-	if auditLogIntervalSeconds == 0 {
-		auditLogIntervalSeconds = defaultAuditLogFlushIntervalSeconds
+	jsonEnricherOpts := &enricher.JsonEnricherOptions{}
+
+	if auditLogIntervalSeconds := ctx.Int(auditLogIntervalSecondsParam); auditLogIntervalSeconds > 0 {
+		jsonEnricherOpts.AuditFreq = time.Duration(auditLogIntervalSeconds) * time.Second
+	}
+
+	if outputFileName := ctx.String(auditLogOutputFileNameParam); outputFileName != "" {
+		jsonEnricherOpts.OutputFileName = outputFileName
 	}
 
 	setupLog.Info(
 		"JSON Enricher Configuration",
-		"auditLogFlushIntervalSeconds", auditLogIntervalSeconds,
+		"AuditFreq", jsonEnricherOpts.AuditFreq,
+		"OutputFileName", jsonEnricherOpts.OutputFileName,
 	)
 
-	return enricher.NewJsonEnricherArgs(ctrl.Log.WithName(component),
-		time.Duration(auditLogIntervalSeconds)*time.Second).Run()
+	jsonEnricher, err := enricher.NewJsonEnricherArgs(ctrl.Log.WithName(component),
+		jsonEnricherOpts)
+	if err != nil {
+		return nil
+	}
+
+	return jsonEnricher
 }
 
 func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {

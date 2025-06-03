@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/urfave/cli/v2"
 	"io"
 	"os"
 	"sync"
@@ -50,14 +51,38 @@ type JsonEnricher struct {
 	logLinesCache    *ttlcache.Cache[int, *types.LogBucket]
 	clientset        kubernetes.Interface
 	processCache     *ttlcache.Cache[int, *types.ProcessInfo]
+	outputFile       *os.File
 }
 
-func NewJsonEnricher(logger logr.Logger) *JsonEnricher {
-	return NewJsonEnricherArgs(logger, defaultAuditLogFlushTimeout)
+type JsonEnricherOptions struct {
+	AuditFreq      time.Duration
+	OutputFileName string
 }
 
-func NewJsonEnricherArgs(logger logr.Logger, auditFreq time.Duration) *JsonEnricher {
-	return &JsonEnricher{
+var JsonEnricherDefaultOptions = JsonEnricherOptions{
+	AuditFreq:      time.Duration(60) * time.Second,
+	OutputFileName: "",
+}
+
+func NewJsonEnricher(logger logr.Logger) (*JsonEnricher, error) {
+	return NewJsonEnricherArgs(logger, &JsonEnricherOptions{})
+}
+
+var auditLogOutputMutex sync.Mutex
+
+func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEnricher, error) {
+	actualOpts := JsonEnricherDefaultOptions
+
+	if opts != nil {
+		if opts.AuditFreq != 0 {
+			actualOpts.AuditFreq = opts.AuditFreq
+		}
+		if opts.OutputFileName != "" { // Check if caller provided a non-zero value
+			actualOpts.OutputFileName = ""
+		}
+	}
+
+	jsonEnricher := &JsonEnricher{
 		impl:   &defaultImpl{},
 		logger: logger,
 		containerIDCache: ttlcache.New(
@@ -69,7 +94,7 @@ func NewJsonEnricherArgs(logger logr.Logger, auditFreq time.Duration) *JsonEnric
 			ttlcache.WithCapacity[string, *types.ContainerInfo](maxCacheItems),
 		),
 		logLinesCache: ttlcache.New(
-			ttlcache.WithTTL[int, *types.LogBucket](auditFreq),
+			ttlcache.WithTTL[int, *types.LogBucket](actualOpts.AuditFreq),
 			ttlcache.WithCapacity[int, *types.LogBucket](maxCacheItems),
 		),
 		processCache: ttlcache.New(
@@ -77,15 +102,30 @@ func NewJsonEnricherArgs(logger logr.Logger, auditFreq time.Duration) *JsonEnric
 			ttlcache.WithCapacity[int, *types.ProcessInfo](maxCacheItems),
 		),
 	}
+	if actualOpts.OutputFileName != "" {
+		outputFile, err := os.OpenFile(actualOpts.OutputFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return nil, err
+		}
+
+		jsonEnricher.outputFile = outputFile
+	}
+
+	return jsonEnricher, nil
 }
 
-func (e *JsonEnricher) Run() error {
+func (e *JsonEnricher) Close() error {
+	return e.outputFile.Close()
+}
+
+func (e *JsonEnricher) Run(runErr chan<- error) {
 	nodeName := e.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		e.logger.Error(err, "unable to run enricher")
+		runErr <- err
 
-		return err
+		return
 	}
 
 	e.logger.Info("Starting audit JSON logging on node " + nodeName)
@@ -103,12 +143,14 @@ func (e *JsonEnricher) Run() error {
 
 	clusterConfig, err := e.InClusterConfig()
 	if err != nil {
-		return fmt.Errorf("get in-cluster config: %w", err)
+		runErr <- fmt.Errorf("get in-cluster config: %w", err)
+		return
 	}
 
 	e.clientset, err = e.NewForConfig(clusterConfig)
 	if err != nil {
-		return fmt.Errorf("load in-cluster config: %w", err)
+		runErr <- fmt.Errorf("load in-cluster config: %w", err)
+		return
 	}
 
 	go e.containerIDCache.Start()
@@ -132,7 +174,8 @@ func (e *JsonEnricher) Run() error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("tailing file: %w", err)
+		runErr <- fmt.Errorf("tailing file: %w", err)
+		return
 	}
 
 	e.logger.Info("Reading from file " + filePath)
@@ -212,7 +255,8 @@ func (e *JsonEnricher) Run() error {
 		}
 	}
 
-	return fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
+	runErr <- fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
+	return
 }
 
 // Returns nil if the containerInfo couldn't be loaded.
@@ -327,5 +371,20 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		return
 	}
 
-	e.PrintJsonOutput(os.Stdout, string(auditJson))
+	auditLogOutputMutex.Lock()
+	defer auditLogOutputMutex.Unlock()
+	e.PrintJsonOutput(e.outputFile, string(auditJson))
+}
+
+func (e *JsonEnricher) ExitJsonEnricher(_ *cli.Context) {
+	if e.outputFile == os.Stdout {
+		if err := os.Stdout.Sync(); err != nil {
+			e.logger.Error(err, "unable to sync stdout")
+		}
+
+		return
+	}
+	if err := e.outputFile.Close(); err != nil {
+		e.logger.Error(err, "error closing output log file")
+	}
 }

@@ -60,7 +60,7 @@ func TestJsonRun(t *testing.T) {
 	for _, tc := range []struct {
 		runAsync bool
 		prepare  func(*enricherfakes.FakeImpl, chan *tail.Line)
-		assert   func(*enricherfakes.FakeImpl, chan *tail.Line, error)
+		assert   func(*enricherfakes.FakeImpl, chan *tail.Line, chan error)
 	}{
 		{ // test a basic case of sending the log
 			runAsync: true,
@@ -80,8 +80,7 @@ func TestJsonRun(t *testing.T) {
 					},
 				}}}, nil)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NoError(t, err)
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err chan error) {
 				for mock.LinesCallCount() != 1 {
 					// Wait for Lines() to be called
 				}
@@ -134,8 +133,7 @@ func TestJsonRun(t *testing.T) {
 					},
 				}}}, nil)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NoError(t, err)
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err chan error) {
 				for mock.LinesCallCount() != 1 {
 					// Wait for Lines() to be called
 				}
@@ -192,7 +190,7 @@ func TestJsonRun(t *testing.T) {
 					},
 				}}}, nil)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err chan error) {
 				for mock.LinesCallCount() != 1 {
 					// Wait for Lines() to be called
 				}
@@ -201,8 +199,6 @@ func TestJsonRun(t *testing.T) {
 					Text: invalidLineJsonTest,
 					Time: time.Now(),
 				}
-
-				require.NoError(t, err)
 			},
 		},
 	} {
@@ -210,15 +206,18 @@ func TestJsonRun(t *testing.T) {
 		mock := &enricherfakes.FakeImpl{}
 		tc.prepare(mock, lineChan)
 
-		sut := NewJsonEnricherArgs(logr.Discard(), time.Duration(auditLogFlushTimeSeconds)*time.Second)
+		jsonEnricherOpts := &JsonEnricherOptions{}
+		jsonEnricherOpts.AuditFreq = time.Duration(auditLogFlushTimeSeconds) * time.Second
+		sut, jsonEnricherErr := NewJsonEnricherArgs(logr.Discard(), jsonEnricherOpts)
+		require.NoError(t, jsonEnricherErr)
 		sut.impl = mock
 
-		var err error
+		var err chan error
 
 		if tc.runAsync {
-			go func() { err = sut.Run() }()
+			go func() { sut.Run(err) }()
 		} else {
-			err = sut.Run()
+			sut.Run(err)
 		}
 
 		tc.assert(mock, lineChan, err)
