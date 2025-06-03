@@ -17,6 +17,7 @@ limitations under the License.
 package enricher
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -216,9 +217,9 @@ func TestJsonRun(t *testing.T) {
 		var err chan error
 
 		if tc.runAsync {
-			go func() { sut.Run(err) }()
+			go func() { sut.Run(context.Background(), err) }()
 		} else {
-			sut.Run(err)
+			sut.Run(context.Background(), err)
 		}
 
 		tc.assert(mock, lineChan, err)

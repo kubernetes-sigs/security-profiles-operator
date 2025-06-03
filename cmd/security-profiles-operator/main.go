@@ -260,7 +260,7 @@ func main() {
 				jsonEnricher := getJsonEnricher(ctx, info)
 
 				runErr := make(chan error)
-				go jsonEnricher.Run(runErr)
+				go jsonEnricher.Run(mainctx, runErr)
 
 				select {
 				case <-runErr:

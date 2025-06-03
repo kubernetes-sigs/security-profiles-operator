@@ -116,7 +116,7 @@ func (e *JsonEnricher) Close() error {
 	return e.outputFile.Close()
 }
 
-func (e *JsonEnricher) Run(runErr chan<- error) {
+func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	nodeName := e.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
@@ -142,12 +142,14 @@ func (e *JsonEnricher) Run(runErr chan<- error) {
 	clusterConfig, err := e.InClusterConfig()
 	if err != nil {
 		runErr <- fmt.Errorf("get in-cluster config: %w", err)
+
 		return
 	}
 
 	e.clientset, err = e.NewForConfig(clusterConfig)
 	if err != nil {
 		runErr <- fmt.Errorf("load in-cluster config: %w", err)
+
 		return
 	}
 
@@ -232,7 +234,7 @@ func (e *JsonEnricher) Run(runErr chan<- error) {
 		}
 
 		if logBucket.ContainerInfo == nil {
-			logBucket.ContainerInfo = e.fetchContainerInfo(auditLine.ProcessID, nodeName)
+			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID, nodeName)
 		}
 
 		if logBucket.ProcessInfo == nil {
@@ -258,7 +260,7 @@ func (e *JsonEnricher) Run(runErr chan<- error) {
 }
 
 // Returns nil if the containerInfo couldn't be loaded.
-func (e *JsonEnricher) fetchContainerInfo(processId int, nodeName string) *types.ContainerInfo {
+func (e *JsonEnricher) fetchContainerInfo(ctx context.Context, processId int, nodeName string) *types.ContainerInfo {
 	cID, errContainer := e.ContainerIDForPID(e.containerIDCache, processId)
 	e.logger.V(config.VerboseLevel).Info(
 		fmt.Sprintf("Container ID for Pid: %v with len %d", cID, len(cID)))
@@ -266,7 +268,8 @@ func (e *JsonEnricher) fetchContainerInfo(processId int, nodeName string) *types
 	var containerInfo *types.ContainerInfo
 
 	if errContainer == nil && cID != "" {
-		info, errGetContainerInfo := getContainerInfo(nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
+		info, errGetContainerInfo := getContainerInfo(ctx,
+			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
 		if errGetContainerInfo == nil {
 			containerInfo = info
 		}
