@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/source"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
@@ -101,11 +101,11 @@ func (*defaultImpl) Lines(tailFile *tail.Tail) chan *tail.Line {
 }
 
 func (*defaultImpl) IsAuditLine(line string) bool {
-	return source.IsAuditLine(line)
+	return auditsource.IsAuditLine(line)
 }
 
 func (*defaultImpl) ExtractAuditLine(line string) (*types.AuditLine, error) {
-	return source.ExtractAuditLine(line)
+	return auditsource.ExtractAuditLine(line)
 }
 
 func (*defaultImpl) GetName(s libseccomp.ScmpSyscall) (string, error) {

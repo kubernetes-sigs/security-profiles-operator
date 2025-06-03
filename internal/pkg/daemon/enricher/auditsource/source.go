@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package source
+package auditsource
 
 import "sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 
