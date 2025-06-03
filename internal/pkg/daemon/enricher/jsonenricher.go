@@ -175,6 +175,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	)
 	if err != nil {
 		runErr <- fmt.Errorf("tailing file: %w", err)
+
 		return
 	}
 
@@ -256,6 +257,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	}
 
 	runErr <- fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
+
 	return
 }
 
