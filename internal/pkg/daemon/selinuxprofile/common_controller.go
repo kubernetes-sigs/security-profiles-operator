@@ -220,7 +220,7 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 		r.record.Event(instance, util.EventTypeWarning, reasonCannotRemovePolicy, err.Error())
 
 		return res, err
-	} else if res.Requeue {
+	} else if res.RequeueAfter > 0 {
 		reqLogger.Info("Re-queueing delete request to make sure the policy is gone")
 
 		return res, err
@@ -378,7 +378,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	}
 
 	res, err := r.reconcileDeletePolicyFile(sp, l)
-	if res.Requeue || err != nil {
+	if res.RequeueAfter > 0 || err != nil {
 		return res, err
 	}
 
