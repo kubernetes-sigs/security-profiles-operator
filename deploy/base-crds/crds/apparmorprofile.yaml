@@ -72,6 +72,9 @@ spec:
                           type: string
                         type: array
                     type: object
+                  extra:
+                    description: Extra rules for other config.
+                    type: string
                   filesystem:
                     description: Filesystem rules for filesystem access.
                     properties:
