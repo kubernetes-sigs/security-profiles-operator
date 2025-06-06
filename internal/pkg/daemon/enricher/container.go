@@ -50,6 +50,7 @@ var errContainerIDEmpty = errors.New("container ID is empty")
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 func getContainerInfo(
+	ctx context.Context,
 	nodeName, targetContainerID string,
 	clientSet kubernetes.Interface,
 	impl impl,
@@ -62,7 +63,7 @@ func getContainerInfo(
 		return item.Value(), nil
 	}
 
-	if err := populateContainerPodCache(nodeName, clientSet, impl, infoCache, logger); err != nil {
+	if err := populateContainerPodCache(ctx, nodeName, clientSet, impl, infoCache, logger); err != nil {
 		return nil, fmt.Errorf("get container info for pods: %w", err)
 	}
 
@@ -75,6 +76,7 @@ func getContainerInfo(
 }
 
 func populateContainerPodCache(
+	ctx context.Context,
 	nodeName string, clientset kubernetes.Interface, impl impl,
 	infoCache *ttlcache.Cache[string, *types.ContainerInfo],
 	logger logr.Logger,
@@ -85,7 +87,7 @@ func populateContainerPodCache(
 		Steps:    backoffSteps,
 	}
 
-	ctxwithTimeout, cancel := context.WithTimeout(context.Background(), operationTimeout)
+	ctxwithTimeout, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
 	return util.RetryEx(

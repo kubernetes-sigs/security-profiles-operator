@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -643,16 +644,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// pass the json enricher env var to the daemon as the profile recorder is otherwise disabled
 		addEnvVar(templateSpec, config.EnableJsonEnricherEnvKey)
 
-		if cfg.Spec.JsonEnricherOpt != nil {
-			r.log.Info("Setting JsonEnricherOpt", "AuditLogIntervalSeconds",
-				cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds)
-
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
-				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
-				fmt.Sprintf("--audit-log-interval-seconds=%d",
-					cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds),
-			)
-		}
+		r.getConfiguredJsonEnricher(cfg)
 	}
 
 	// AppArmor parameters
@@ -756,6 +748,55 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	return newSPOd
 }
 
+func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {
+	if cfg.Spec.JsonEnricherOpt != nil {
+		r.log.Info("Setting JsonEnricherOpt",
+			"AuditLogIntervalSeconds", cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds,
+			"AuditLogPath", cfg.Spec.JsonEnricherOpt.AuditLogPath,
+			"AuditLogMaxAge", cfg.Spec.JsonEnricherOpt.AuditLogMaxAge,
+			"AuditLogMaxSize", cfg.Spec.JsonEnricherOpt.AuditLogMaxSize,
+			"AuditLogMaxBackups", cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups,
+		)
+
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+			fmt.Sprintf("--audit-log-interval-seconds=%d",
+				cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds),
+		)
+
+		if cfg.Spec.JsonEnricherOpt.AuditLogMaxAge != nil {
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				fmt.Sprintf("--audit-log-maxage=%d",
+					*cfg.Spec.JsonEnricherOpt.AuditLogMaxAge),
+			)
+		}
+
+		if cfg.Spec.JsonEnricherOpt.AuditLogMaxSize != nil {
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				fmt.Sprintf("--audit-log-maxsize=%d",
+					*cfg.Spec.JsonEnricherOpt.AuditLogMaxSize),
+			)
+		}
+
+		if cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups != nil {
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				fmt.Sprintf("--audit-log-maxbackup=%d",
+					*cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups),
+			)
+		}
+
+		if cfg.Spec.JsonEnricherOpt.AuditLogPath != nil {
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				"--audit-log-path="+(*cfg.Spec.JsonEnricherOpt.AuditLogPath),
+			)
+		}
+	}
+}
+
 func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
 	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
 	if err != nil {
@@ -775,11 +816,39 @@ func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) boo
 }
 
 func addAuditLogConfig(args []string, auditLogConfig string) []string {
+	if replaced := sliceReplaceArg(args, auditLogConfig); replaced {
+		return args
+	}
+
 	if !sliceContainsString(args, auditLogConfig) {
 		return append(args, auditLogConfig)
 	}
 
-	return args // Return the original slice if no change needed
+	return args
+}
+
+func sliceReplaceArg(slice []string, s string) bool {
+	const argSeparator = "="
+
+	newParts := strings.SplitN(s, argSeparator, 2)
+	if len(newParts) != 2 {
+		return false
+	}
+
+	newKey := newParts[0]
+
+	for i := range slice {
+		existingItem := slice[i]
+		existingParts := strings.SplitN(existingItem, argSeparator, 2) // Split existing item to get its key
+
+		if len(existingParts) >= 1 && existingParts[0] == newKey {
+			slice[i] = s
+
+			return true
+		}
+	}
+
+	return false
 }
 
 func sliceContainsString(slice []string, s string) bool {

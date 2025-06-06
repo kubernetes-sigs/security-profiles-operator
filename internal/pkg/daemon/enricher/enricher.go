@@ -190,7 +190,8 @@ func (e *Enricher) Run() error {
 
 		e.logger.V(config.VerboseLevel).Info("Get container info for: " + cID)
 
-		info, err := getContainerInfo(nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
+		info, err := getContainerInfo(context.Background(),
+			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
 		if err != nil {
 			e.logger.Error(
 				err, "container ID not found in cluster",

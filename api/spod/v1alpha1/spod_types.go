@@ -246,6 +246,28 @@ type JsonEnricherOptions struct {
 	// within this interval are grouped together. The default is 60 seconds.
 	// Increasing this interval will reduce the rate at which logs are written.
 	AuditLogIntervalSeconds int32 `json:"auditLogIntervalSeconds,omitempty"`
+
+	// This field specifies the path for the accumulated audit log data.
+	// The audit log will be written to this file in JSON format if a file path
+	// is provided. If left unspecified, the output will be directed to
+	// standard output (stdout).
+	// The internal implementation uses natefinch/lumberjack v2
+	AuditLogPath *string `json:"auditLogPath,omitempty"`
+
+	// This field specifies the maximum number of audit log files to retain.
+	// If left unspecified it defaults to 100 MB.
+	// The internal implementation uses natefinch/lumberjack v2
+	AuditLogMaxSize *int32 `json:"auditLogMaxSize,omitempty"`
+
+	// This field specifies the maximum size in megabytes of the audit log file before it gets rotated.
+	// The default is to retain all old log files (though MaxAge may still cause them to get deleted.)
+	// The internal implementation uses natefinch/lumberjack v2
+	AuditLogMaxBackups *int32 `json:"auditLogMaxBackups,omitempty"`
+
+	// This field specifies the maximum number of days to retain old audit log files
+	// The default is not to remove old log files based on age
+	// The internal implementation uses natefinch/lumberjack v2
+	AuditLogMaxAge *int32 `json:"auditLogMaxAge,omitempty"`
 }
 
 type WebhookOptions struct {

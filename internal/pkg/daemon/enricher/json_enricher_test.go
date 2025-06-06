@@ -54,173 +54,251 @@ const (
 	auditLogFlushTimeSeconds = 5
 )
 
+func TestJsonEnricherNoOptions(t *testing.T) {
+	t.Parallel()
+
+	_, jErr := NewJsonEnricherArgs(logr.Discard(), nil)
+
+	require.NoError(t, jErr)
+}
+
+func TestJsonEnricherFreqOptions(t *testing.T) {
+	t.Parallel()
+
+	opts := &JsonEnricherOptions{}
+	opts.AuditFreq = time.Duration(auditLogFlushTimeSeconds) * time.Second
+
+	_, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
+
+	require.NoError(t, jErr)
+}
+
+func TestJsonEnricherLogPathOptionsInvalid(t *testing.T) {
+	t.Parallel()
+
+	opts := &JsonEnricherOptions{}
+	opts.AuditLogMaxBackups = -1
+
+	_, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
+
+	require.Error(t, jErr)
+
+	opts.AuditLogMaxBackups = 0
+	opts.AuditLogMaxAge = -1
+
+	_, jErr = NewJsonEnricherArgs(logr.Discard(), opts)
+	require.Error(t, jErr)
+
+	opts.AuditLogMaxAge = 0
+	opts.AuditLogMaxSize = -1
+
+	_, jErr = NewJsonEnricherArgs(logr.Discard(), opts)
+	require.Error(t, jErr)
+}
+
+func TestJsonEnricherLogPathOptionsValid(t *testing.T) {
+	t.Parallel()
+
+	opts := &JsonEnricherOptions{}
+	opts.AuditLogMaxBackups = 10
+	opts.AuditLogMaxAge = 10
+	opts.AuditLogMaxSize = 100
+	opts.AuditLogPath = "/dev/null"
+
+	_, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
+
+	require.NoError(t, jErr)
+}
+
 func TestJsonRun(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		runAsync bool
-		prepare  func(*enricherfakes.FakeImpl, chan *tail.Line)
-		assert   func(*enricherfakes.FakeImpl, chan *tail.Line, error)
-	}{
-		{ // test a basic case of sending the log
-			runAsync: true,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
-				mock.GetenvReturns(nodeJsonTest)
-				mock.LinesReturns(lineChan)
-				mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
-				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      podJsonTest,
-						Namespace: namespaceJsonTest,
-					},
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{{
-							ContainerID: crioPrefixJsonTest + containerIDJsonTest,
-						}},
-					},
-				}}}, nil)
+	type TestType int
+
+	const (
+		TestStdout TestType = iota
+		TestFileOptions
+	)
+
+	testTypes := []TestType{
+		TestStdout,
+		TestFileOptions,
+	}
+
+	for _, testType := range testTypes {
+		for _, tc := range []struct {
+			runAsync bool
+			prepare  func(*enricherfakes.FakeImpl, chan *tail.Line)
+			assert   func(*enricherfakes.FakeImpl, chan *tail.Line, chan error)
+		}{
+			{ // test a basic case of sending the log
+				runAsync: true,
+				prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+					mock.GetenvReturns(nodeJsonTest)
+					mock.LinesReturns(lineChan)
+					mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
+					mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      podJsonTest,
+							Namespace: namespaceJsonTest,
+						},
+						Status: v1.PodStatus{
+							ContainerStatuses: []v1.ContainerStatus{{
+								ContainerID: crioPrefixJsonTest + containerIDJsonTest,
+							}},
+						},
+					}}}, nil)
+				},
+				assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err chan error) {
+					for mock.LinesCallCount() != 1 {
+						// Wait for Lines() to be called
+					}
+
+					// Ensure that time to get the log is around the time the
+					startTime := time.Now()
+
+					lineChan <- &tail.Line{
+						Text: seccompLineJsonTest1,
+						Time: time.Now(),
+					}
+
+					for mock.PrintJsonOutputCallCount() != 1 {
+						// Wait for PrintJsonOutputCallCount() to be called
+					}
+
+					endTime := time.Now()
+					executionTime := endTime.Sub(startTime)
+
+					// Ensure that it's not less than flush time
+					require.Less(t, float64(auditLogFlushTimeSeconds), executionTime.Seconds())
+
+					// Ensure that it's not very long after the flush time
+					require.Less(t, executionTime.Seconds(), float64(auditLogFlushTimeSeconds*2))
+
+					auditMap := make(map[string]interface{})
+					_, output := mock.PrintJsonOutputArgsForCall(0)
+					errUnmarshal := json.Unmarshal([]byte(output), &auditMap)
+					require.NoError(t, errUnmarshal)
+					executable := auditMap["executable"]
+					require.Equal(t, executableBusybox, executable)
+				},
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NoError(t, err)
-				for mock.LinesCallCount() != 1 {
-					// Wait for Lines() to be called
-				}
+			{ // test multiple lines
+				runAsync: true,
+				prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+					mock.GetenvReturns(nodeJsonTest)
+					mock.LinesReturns(lineChan)
+					mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
+					mock.CmdlineForPIDReturns(cmdLineJsonTest, nil)
+					mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      podJsonTest,
+							Namespace: namespaceJsonTest,
+						},
+						Status: v1.PodStatus{
+							ContainerStatuses: []v1.ContainerStatus{{
+								ContainerID: crioPrefixJsonTest + containerIDJsonTest,
+							}},
+						},
+					}}}, nil)
+				},
+				assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err chan error) {
+					for mock.LinesCallCount() != 1 {
+						// Wait for Lines() to be called
+					}
 
-				// Ensure that time to get the log is around the time the
-				startTime := time.Now()
+					lineChan <- &tail.Line{
+						Text: seccompLineJsonTest1,
+						Time: time.Now(),
+					}
 
-				lineChan <- &tail.Line{
-					Text: seccompLineJsonTest1,
-					Time: time.Now(),
-				}
+					for mock.PrintJsonOutputCallCount() != 1 {
+						// Wait for PrintJsonOutputCallCount() to be called
+					}
 
-				for mock.PrintJsonOutputCallCount() != 1 {
-					// Wait for PrintJsonOutputCallCount() to be called
-				}
+					lineChan <- &tail.Line{
+						Text: seccompLineJsonTest2,
+						Time: time.Now(),
+					}
 
-				endTime := time.Now()
-				executionTime := endTime.Sub(startTime)
+					for mock.PrintJsonOutputCallCount() != 2 {
+						// Wait for PrintJsonOutputCallCount() to be called
+					}
 
-				// Ensure that its not less than flush time
-				require.Less(t, float64(auditLogFlushTimeSeconds), executionTime.Seconds())
+					auditMap := make(map[string]interface{})
+					_, output := mock.PrintJsonOutputArgsForCall(0)
+					errUnmarshal := json.Unmarshal([]byte(output), &auditMap)
+					require.NoError(t, errUnmarshal)
+					executable := auditMap["executable"]
+					require.Equal(t, executableBusybox, executable)
 
-				// Ensure that its not very long after the flush time
-				require.Less(t, executionTime.Seconds(), float64(auditLogFlushTimeSeconds*2))
-
-				auditMap := make(map[string]interface{})
-				_, output := mock.PrintJsonOutputArgsForCall(0)
-				errUnmarshal := json.Unmarshal([]byte(output), &auditMap)
-				require.NoError(t, errUnmarshal)
-				executable := auditMap["executable"]
-				require.Equal(t, executableBusybox, executable)
+					_, output = mock.PrintJsonOutputArgsForCall(1)
+					errUnmarshal = json.Unmarshal([]byte(output), &auditMap)
+					require.NoError(t, errUnmarshal)
+					executable = auditMap["executable"]
+					require.Equal(t, executableNginx, executable)
+					//nolint:all
+					require.Equal(t, cmdLineJsonTest, auditMap["cmdLine"])
+				},
 			},
-		},
-		{ // test multiple lines
-			runAsync: true,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
-				mock.GetenvReturns(nodeJsonTest)
-				mock.LinesReturns(lineChan)
-				mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
-				mock.CmdlineForPIDReturns(cmdLineJsonTest, nil)
-				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      podJsonTest,
-						Namespace: namespaceJsonTest,
-					},
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{{
-							ContainerID: crioPrefixJsonTest + containerIDJsonTest,
-						}},
-					},
-				}}}, nil)
+			{ // test invalid
+				runAsync: true,
+				prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+					mock.GetenvReturns(nodeJsonTest)
+					mock.LinesReturns(lineChan)
+					mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
+					mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      podJsonTest,
+							Namespace: namespaceJsonTest,
+						},
+						Status: v1.PodStatus{
+							ContainerStatuses: []v1.ContainerStatus{{
+								ContainerID: crioPrefixJsonTest + containerIDJsonTest,
+							}},
+						},
+					}}}, nil)
+				},
+				assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err chan error) {
+					for mock.LinesCallCount() != 1 {
+						// Wait for Lines() to be called
+					}
+
+					lineChan <- &tail.Line{
+						Text: invalidLineJsonTest,
+						Time: time.Now(),
+					}
+				},
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				require.NoError(t, err)
-				for mock.LinesCallCount() != 1 {
-					// Wait for Lines() to be called
-				}
+		} {
+			lineChan := make(chan *tail.Line)
+			mock := &enricherfakes.FakeImpl{}
+			tc.prepare(mock, lineChan)
 
-				lineChan <- &tail.Line{
-					Text: seccompLineJsonTest1,
-					Time: time.Now(),
-				}
+			opts := &JsonEnricherOptions{}
+			opts.AuditFreq = time.Duration(auditLogFlushTimeSeconds) * time.Second
 
-				for mock.PrintJsonOutputCallCount() != 1 {
-					// Wait for PrintJsonOutputCallCount() to be called
-				}
+			if testType == TestFileOptions {
+				opts.AuditLogMaxBackups = 10
+				opts.AuditLogPath = "/tmp/logs/audit.log"
+				opts.AuditLogMaxAge = 1
+				opts.AuditLogMaxSize = 10
+			}
 
-				lineChan <- &tail.Line{
-					Text: seccompLineJsonTest2,
-					Time: time.Now(),
-				}
+			sut, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
+			require.NoError(t, jErr)
 
-				for mock.PrintJsonOutputCallCount() != 2 {
-					// Wait for PrintJsonOutputCallCount() to be called
-				}
+			sut.impl = mock
 
-				auditMap := make(map[string]interface{})
-				_, output := mock.PrintJsonOutputArgsForCall(0)
-				errUnmarshal := json.Unmarshal([]byte(output), &auditMap)
-				require.NoError(t, errUnmarshal)
-				executable := auditMap["executable"]
-				require.Equal(t, executableBusybox, executable)
+			var err chan error
 
-				_, output = mock.PrintJsonOutputArgsForCall(1)
-				errUnmarshal = json.Unmarshal([]byte(output), &auditMap)
-				require.NoError(t, errUnmarshal)
-				executable = auditMap["executable"]
-				require.Equal(t, executableNginx, executable)
-				//nolint:all
-				require.Equal(t, cmdLineJsonTest, auditMap["cmdLine"])
-			},
-		},
-		{ // test invalid
-			runAsync: true,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
-				mock.GetenvReturns(nodeJsonTest)
-				mock.LinesReturns(lineChan)
-				mock.ContainerIDForPIDReturns(containerIDJsonTest, nil)
-				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      podJsonTest,
-						Namespace: namespaceJsonTest,
-					},
-					Status: v1.PodStatus{
-						ContainerStatuses: []v1.ContainerStatus{{
-							ContainerID: crioPrefixJsonTest + containerIDJsonTest,
-						}},
-					},
-				}}}, nil)
-			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				for mock.LinesCallCount() != 1 {
-					// Wait for Lines() to be called
-				}
+			if tc.runAsync {
+				go func() { sut.Run(t.Context(), err) }()
+			} else {
+				sut.Run(t.Context(), err)
+			}
 
-				lineChan <- &tail.Line{
-					Text: invalidLineJsonTest,
-					Time: time.Now(),
-				}
-
-				require.NoError(t, err)
-			},
-		},
-	} {
-		lineChan := make(chan *tail.Line)
-		mock := &enricherfakes.FakeImpl{}
-		tc.prepare(mock, lineChan)
-
-		sut := NewJsonEnricherArgs(logr.Discard(), time.Duration(auditLogFlushTimeSeconds)*time.Second)
-		sut.impl = mock
-
-		var err error
-
-		if tc.runAsync {
-			go func() { err = sut.Run() }()
-		} else {
-			err = sut.Run()
+			tc.assert(mock, lineChan, err)
 		}
-
-		tc.assert(mock, lineChan, err)
 	}
 }

@@ -105,6 +105,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseJsonEnricher,
 		},
 		{
+			"JSON Enricher File Options",
+			e.testCaseJsonEnricherFileOptions,
+		},
+		{
 			"SELinux: base case (install policy, run pod and delete)",
 			e.testCaseSelinuxBaseUsage,
 		},

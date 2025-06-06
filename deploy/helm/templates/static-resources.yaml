@@ -840,6 +840,13 @@ data:
             allowTcp: true
             allowUdp: true
       disabled: false
+  json-enricher-log-volume-mount-path: /data/logs/jsonenricher
+  json-enricher-log-volume-source.json: |-
+    {
+      "emptyDir": {
+        "sizeLimit": "500Mi"
+      }
+    }
   security-profiles-operator.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
