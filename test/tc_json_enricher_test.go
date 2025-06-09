@@ -126,10 +126,10 @@ spec:
   syscalls:
   - action: SCMP_ACT_LOG
     names:
-    - listen
     - execve
     - clone
-    - getpid
+    - fork
+    - execveat
 `, profileName)
 
 	profileCleanup := e.writeAndCreate(profile, "test-profile-*.yaml")
@@ -181,13 +181,19 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
-	e.kubectl("exec", podName, "--", "ls", "/")
+	e.kubectl("exec", "-it", podName, "--", "ls")
+	e.kubectl("exec", "-it", podName, "--", "date")
+	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
+	e.Contains(envOutput, "SPO_EXEC_REQUEST_UID")
 
 	// wait for at least one component of the expected logs to appear
-	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen|execve|clone|getpid"`))
+	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"syscalls":"execve|clone"`))
 
-	e.logf("Wait for the audit lines to come within 60 seconds")
-	time.Sleep(60 * time.Second)
+	e.logf("Wait for the audit lines to come within 30 seconds")
+	time.Sleep(30 * time.Second)
+	e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
+	e.logf("Another wait for the audit lines to come within 30 seconds")
+	time.Sleep(30 * time.Second)
 	e.logf("Checking JSON enricher output")
 	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 
