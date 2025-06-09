@@ -181,9 +181,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	}
 
 	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy, caInjectType)
-
-	webhook := bindata.GetWebhook(r.log, r.namespace, spod.Spec.WebhookOpts, image,
-		pullPolicy, caInjectType, spod.Spec.Tolerations, spod.Spec.ImagePullSecrets)
+	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
 	serviceMonitor := bindata.ServiceMonitor(caInjectType)
 
@@ -795,6 +793,17 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProf
 			)
 		}
 	}
+}
+
+// getConfiguredWebook gets a fully configured webhook instance from a desired
+// configuration and the reference base SPOd.
+func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	image string, pullPolicy corev1.PullPolicy, caInjectType bindata.CAInjectType,
+) *bindata.Webhook {
+	webhook := bindata.GetWebhook(r.log, r.namespace, cfg.Spec.WebhookOpts, image,
+		pullPolicy, caInjectType, cfg.Spec.Tolerations, cfg.Spec.ImagePullSecrets, isJsonEnricherEnabled(cfg))
+
+	return webhook
 }
 
 func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {

@@ -36,6 +36,10 @@ var (
 	ErrCmdlineNotFound = errors.New("cmdline empty or not found for the process")
 )
 
+const (
+	RequestIdEnv = "EXEC_REQUEST_ID"
+)
+
 func GetProcessInfo(
 	pid int, executable string, uid, gid uint32,
 	processCache *ttlcache.Cache[int, *types.ProcessInfo],
@@ -74,9 +78,19 @@ func populateProcessCache(
 	}
 	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
 
-	cmdLine, err := impl.CmdlineForPID(pid)
-	if err != nil {
-		return err
+	cmdLine, cerr := impl.CmdlineForPID(pid)
+	if cerr != nil {
+		return cerr
+	}
+
+	env, envErr := impl.EnvForPid(pid)
+	if envErr != nil {
+		return envErr
+	}
+
+	reqId, ok := env[RequestIdEnv]
+	if ok {
+		procInfo.ExecRequestId = &reqId
 	}
 
 	procInfo.CmdLine = cmdLine
