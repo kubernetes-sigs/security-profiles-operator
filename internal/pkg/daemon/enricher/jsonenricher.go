@@ -402,6 +402,8 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		return
 	}
 
+	// As close as possible to k8s server side audit json
+	// In future map this to a object and produce JSON using marshal/unmarshal functions
 	auditMap := map[string]interface{}{
 		"version":    "spo/v1_alpha",
 		"auditID":    uuid.New().String(),
@@ -414,6 +416,14 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		"node":       node,
 		"syscalls":   syscallNames,
 		"timestamp":  isoTimestamp,
+	}
+
+	if logBucket.ProcessInfo.RequestUserName != nil || logBucket.ProcessInfo.RequestUserId != nil {
+		user := map[string]string{
+			"username": *logBucket.ProcessInfo.RequestUserName,
+			"UID":      *logBucket.ProcessInfo.RequestUserId,
+		}
+		auditMap["user"] = user
 	}
 
 	auditJson, err := json.Marshal(auditMap)

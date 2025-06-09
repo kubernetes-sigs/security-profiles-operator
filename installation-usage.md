@@ -39,6 +39,7 @@
         - [Audit Log File Fine-Tuning (Rotation)](#audit-log-file-fine-tuning-rotation)
         - [Verbosity (Debugging Logs)](#verbosity-debugging-logs)
     - [How to Monitor Audit Logs for a Specific Pod](#how-to-monitor-audit-logs-for-a-specific-pod)
+    - [End-user information](#end-user-information)
   - [AppArmor Profile](#apparmor-profile)
     - [Record AppArmor profile](#record-apparmor-profile)
     - [Use AppArmor profile](#use-apparmor-profile)
@@ -491,7 +492,7 @@ spec:
 And patch the `spod/spod` instance:
 
 ```shell
-$ kubectl -nsecurity-profiles-operator patch spod spod -p $(cat /tmp/spod-wh.patch) --type=merge
+$ kubectl -n security-profiles-operator patch spod spod -p $(cat /tmp/spod-wh.patch) --type=merge
 ```
 
 To view the resulting `MutatingWebhookConfiguration`, call:
@@ -499,6 +500,10 @@ To view the resulting `MutatingWebhookConfiguration`, call:
 ```shell
 $ kubectl get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
 ```
+
+The Pod Exec Webhook works in conjunction with the JSON Log Enricher. As a safety precaution, 
+it's enabled by default only for exec requests into the operator's namespace. For details on its configuration 
+and how to enable it across all namespaces, please refer to the [JSON Log Enricher](#audit-json-log-enricher) section
 
 ## Create and Install Security Profiles
 
@@ -1003,6 +1008,42 @@ To enable a single pod log the activity following these steps:
    ```
 By following above steps, you can enable and monitor audit logs in JSON lines format for your Kubernetes pods, 
 giving you better visibility into their activities.
+
+#### End-user information
+By default, when you use `kubectl exec` to access a pod or container, Kubernetes doesn't pass the user's authentication
+details into that session's environment. This means our JSON Log Enricher can't include "who did what" information 
+for exec commands.
+
+To address this, the JSON Log Enricher relies on a mutating webhook to inject this user authentication data as 
+environment variables into the exec session.
+
+To ensure user information is captured for `kubectl exec` sessions across all namespaces,
+you need to enable this webhook in your spod configuration.
+
+Edit the spod configuration:
+
+```shell
+kubectl edit spod spod -n security-profiles-operator
+```
+
+Add `webhookOptions` to the spec:
+
+Locate the `spec:` section and add the following webhookOptions block. This will tell the webhook to apply to all 
+namespaces and objects (by setting `namespaceSelector` and `objectSelector` to empty curly braces, 
+which means "match everything").
+
+```yaml
+# ... (rest of your spod configuration)
+spec:
+webhookOptions:
+- name: podexec.spo.io
+  namespaceSelector: {}
+  objectSelector: {}
+# ...
+```
+
+After saving your changes, the operator will reconfigure the mutating webhook, allowing user 
+authentication details to be passed into `kubectl exec` sessions cluster-wide.
 
 ### AppArmor Profile
 

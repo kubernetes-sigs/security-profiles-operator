@@ -3661,3 +3661,29 @@ webhooks:
     - pods
   sideEffects: None
   timeoutSeconds: 5
+- admissionReviewVersions:
+  - v1beta1
+  - v1
+  clientConfig:
+    caBundle: Cg==
+    service:
+      name: webhook-service
+      namespace: security-profiles-operator
+      path: /mutate-v1-pod-exec
+  failurePolicy: Ignore
+  name: podexec.spo.io
+  namespaceSelector:
+    matchExpressions:
+    - key: spo.x-k8s.io/enable-podexec
+      operator: Exists
+  rules:
+  - apiGroups:
+    - '*'
+    apiVersions:
+    - v1
+    operations:
+    - '*'
+    resources:
+    - pods/exec
+  sideEffects: None
+  timeoutSeconds: 5

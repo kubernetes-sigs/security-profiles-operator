@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -109,6 +110,77 @@ func TestNamespaceSelectorUnequalForLabel(t *testing.T) {
 
 			res := namespaceSelectorUnequalForLabel(testLabel, existing, configured)
 			assert.Equal(t, expected, res)
+		})
+	}
+}
+
+func TestWebhook_NeedsUpdate(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name                 string
+		existing, configured *admissionregv1.MutatingWebhook
+		expected             bool
+	}{
+		{
+			name:       "label not available in both selectors",
+			existing:   &admissionregv1.MutatingWebhook{},
+			configured: &admissionregv1.MutatingWebhook{},
+			expected:   false,
+		},
+		{
+			name: "Some content in object select and empty",
+			existing: &admissionregv1.MutatingWebhook{
+				Name: "foo",
+				ObjectSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      testLabel,
+							Operator: metav1.LabelSelectorOpExists,
+							Values:   []string{"val"},
+						},
+					},
+				},
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: &metav1.LabelSelector{},
+			},
+			expected: true,
+		},
+		{
+			name: "Empty existing and nil. Required to handle defaults",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: &metav1.LabelSelector{},
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: nil,
+			},
+			expected: false,
+		},
+		{
+			name: "Nil existing and empty",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: nil,
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: &metav1.LabelSelector{},
+			},
+			expected: true,
+		},
+	} {
+		existing := tc.existing
+		configured := tc.configured
+		expected := tc.expected
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireUpdate := webhookNeedsUpdate(existing, configured)
+			assert.Equal(t, expected, requireUpdate)
 		})
 	}
 }

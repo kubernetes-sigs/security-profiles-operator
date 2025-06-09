@@ -105,6 +105,10 @@ spec:
 	e.Contains(output, "auditID")
 }
 
+const (
+	whAllNamespaceSelector = `{}`
+)
+
 func (e *e2e) testCaseJsonEnricher([]string) {
 	e.jsonEnricherOnlyTestCase()
 
@@ -126,10 +130,10 @@ spec:
   syscalls:
   - action: SCMP_ACT_LOG
     names:
-    - listen
     - execve
     - clone
-    - getpid
+    - fork
+    - execveat
 `, profileName)
 
 	profileCleanup := e.writeAndCreate(profile, "test-profile-*.yaml")
@@ -138,6 +142,19 @@ spec:
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
+
+	e.kubectl("config", "get-users")
+
+	whPatch := fmt.Sprintf(`{"spec":{"webhookOptions":[{"name":"podexec.spo.io","namespaceSelector":%s}]}}`, whAllNamespaceSelector) //nolint:lll // very long patch line
+
+	e.logf("Using patch: %s", whPatch)
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", whPatch, "--type=merge")
+	e.kubectlOperatorNS("get", "spod", "spod", "-o", "yaml")
+
+	configOutput := e.kubectlOperatorNS("get", "mutatingwebhookconfiguration",
+		"spo-mutating-webhook-configuration", "-o", "yaml")
+
+	e.NotContains(configOutput, "enable-podexec")
 
 	e.logf("Creating test pod")
 	e.getCurrentContextNamespace(defaultNamespace)
@@ -181,13 +198,19 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
-	e.kubectl("exec", podName, "--", "ls", "/")
+	e.kubectl("exec", "-it", podName, "--", "ls")
+	e.kubectl("exec", "-it", podName, "--", "date")
+	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
+	e.Contains(envOutput, "kubernetes-admin")
 
 	// wait for at least one component of the expected logs to appear
-	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen|execve|clone|getpid"`))
+	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"syscalls":"execve|clone"`))
 
-	e.logf("Wait for the audit lines to come within 60 seconds")
-	time.Sleep(60 * time.Second)
+	e.logf("Wait for the audit lines to come within 30 seconds")
+	time.Sleep(30 * time.Second)
+	e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
+	e.logf("Another wait for the audit lines to come within 30 seconds")
+	time.Sleep(30 * time.Second)
 	e.logf("Checking JSON enricher output")
 	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 

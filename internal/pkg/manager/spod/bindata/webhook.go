@@ -39,10 +39,12 @@ import (
 var (
 	replicas                int32 = 3
 	defaultMode             int32 = 420
-	failurePolicy                 = admissionregv1.Fail
+	failurePolicyFail             = admissionregv1.Fail
+	failurePolicyIgnore           = admissionregv1.Ignore
 	caBundle                      = []byte("Cg==")
 	bindingPath                   = "/mutate-v1-pod-binding"
 	recordingPath                 = "/mutate-v1-pod-recording"
+	execWebhookPath               = "/mutate-v1-pod-exec"
 	sideEffects                   = admissionregv1.SideEffectClassNone
 	admissionReviewVersions       = []string{"v1beta1"}
 	rules                         = []admissionregv1.RuleWithOperations{
@@ -54,6 +56,18 @@ var (
 				APIGroups:   []string{""},
 				APIVersions: []string{"v1"},
 				Resources:   []string{"pods"},
+			},
+		},
+	}
+	rulesExec = []admissionregv1.RuleWithOperations{
+		{
+			Operations: []admissionregv1.OperationType{
+				"*",
+			},
+			Rule: admissionregv1.Rule{
+				APIGroups:   []string{""},
+				APIVersions: []string{"v1"},
+				Resources:   []string{"pods/exec"},
 			},
 		},
 	}
@@ -75,6 +89,9 @@ const (
 	// EnableBindingLabel this label can be applied to a namespace in order to
 	// enable profile binding.
 	EnableBindingLabel = "spo.x-k8s.io/enable-binding"
+	// EnablePodExecLabel this label can be applied to a namespace in order to
+	// enable pod exec webhook to insert user info as environment variable.
+	EnablePodExecLabel = "spo.x-k8s.io/enable-podexec"
 )
 
 const (
@@ -122,6 +139,7 @@ func GetWebhook(
 	cfg.Namespace = namespace
 	cfg.Webhooks[0].ClientConfig.Service.Namespace = namespace
 	cfg.Webhooks[1].ClientConfig.Service.Namespace = namespace
+	cfg.Webhooks[2].ClientConfig.Service.Namespace = namespace
 
 	service := webhookService.DeepCopy()
 	service.Namespace = namespace
@@ -256,15 +274,21 @@ func webhookNeedsUpdate(existing, configured *admissionregv1.MutatingWebhook) bo
 
 	if existing.NamespaceSelector != nil && configured.NamespaceSelector != nil {
 		// Only compare managed labels, all others are out of scope
-		for _, label := range []string{EnableBindingLabel, EnableRecordingLabel} {
+		for _, label := range []string{EnableBindingLabel, EnableRecordingLabel, EnablePodExecLabel} {
 			if namespaceSelectorUnequalForLabel(label, existing.NamespaceSelector, configured.NamespaceSelector) {
 				return true
 			}
 		}
 	}
 
-	if existing.ObjectSelector == nil && configured.ObjectSelector != nil ||
-		existing.ObjectSelector != nil && configured.ObjectSelector == nil {
+	// Both nil and empty object selector are equal
+	if existing.ObjectSelector != nil && configured.ObjectSelector == nil {
+		if existing.ObjectSelector.Size() > 0 {
+			return true
+		}
+	}
+
+	if existing.ObjectSelector == nil && configured.ObjectSelector != nil {
 		// comparing pointers, not values
 		return true
 	}
@@ -440,7 +464,7 @@ var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 	Webhooks: []admissionregv1.MutatingWebhook{
 		{
 			Name:           "binding.spo.io",
-			FailurePolicy:  &failurePolicy,
+			FailurePolicy:  &failurePolicyFail,
 			SideEffects:    &sideEffects,
 			Rules:          rules,
 			ObjectSelector: &objectSelector,
@@ -463,7 +487,7 @@ var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 		},
 		{
 			Name:           "recording.spo.io",
-			FailurePolicy:  &failurePolicy,
+			FailurePolicy:  &failurePolicyFail,
 			SideEffects:    &sideEffects,
 			Rules:          rules,
 			ObjectSelector: &objectSelector,
@@ -480,6 +504,28 @@ var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
 				Service: &admissionregv1.ServiceReference{
 					Name: serviceName,
 					Path: &recordingPath,
+				},
+			},
+			AdmissionReviewVersions: admissionReviewVersions,
+		},
+		{
+			Name:          "podexec.spo.io",
+			FailurePolicy: &failurePolicyIgnore,
+			SideEffects:   &sideEffects,
+			Rules:         rulesExec,
+			ClientConfig: admissionregv1.WebhookClientConfig{
+				CABundle: caBundle,
+				Service: &admissionregv1.ServiceReference{
+					Name: serviceName,
+					Path: &execWebhookPath,
+				},
+			},
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      EnablePodExecLabel,
+						Operator: metav1.LabelSelectorOpExists,
+					},
 				},
 			},
 			AdmissionReviewVersions: admissionReviewVersions,
