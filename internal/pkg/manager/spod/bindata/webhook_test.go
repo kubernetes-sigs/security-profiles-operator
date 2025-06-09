@@ -19,7 +19,10 @@ package bindata
 import (
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -111,4 +114,117 @@ func TestNamespaceSelectorUnequalForLabel(t *testing.T) {
 			assert.Equal(t, expected, res)
 		})
 	}
+}
+
+func TestWebhook_NeedsUpdate(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name                 string
+		existing, configured *admissionregv1.MutatingWebhook
+		expected             bool
+	}{
+		{
+			name:       "label not available in both selectors",
+			existing:   &admissionregv1.MutatingWebhook{},
+			configured: &admissionregv1.MutatingWebhook{},
+			expected:   false,
+		},
+		{
+			name: "Some content in object select and empty",
+			existing: &admissionregv1.MutatingWebhook{
+				Name: "foo",
+				ObjectSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      testLabel,
+							Operator: metav1.LabelSelectorOpExists,
+							Values:   []string{"val"},
+						},
+					},
+				},
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: &metav1.LabelSelector{},
+			},
+			expected: true,
+		},
+		{
+			name: "Empty existing and nil. Required to handle defaults",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: &metav1.LabelSelector{},
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: nil,
+			},
+			expected: false,
+		},
+		{
+			name: "Nil existing and empty",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: nil,
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:           "foo",
+				ObjectSelector: &metav1.LabelSelector{},
+			},
+			expected: true,
+		},
+		{
+			name: "Nil existing and empty",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: nil,
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: &metav1.LabelSelector{},
+			},
+			expected: true,
+		},
+		{
+			name: "existing empty and nil",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: &metav1.LabelSelector{},
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: nil,
+			},
+			expected: false,
+		},
+	} {
+		existing := tc.existing
+		configured := tc.configured
+		expected := tc.expected
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := Webhook{
+				log: logr.Discard(),
+				config: &admissionregv1.MutatingWebhookConfiguration{
+					Webhooks: []admissionregv1.MutatingWebhook{
+						*configured,
+					},
+				},
+			}
+			requireUpdate := w.webhookNeedsUpdate(existing, 0)
+			assert.Equal(t, expected, requireUpdate)
+		})
+	}
+}
+
+func TestWebhook_getWebhookConfig(t *testing.T) {
+	t.Parallel()
+
+	webhookConfig := getWebhookConfig(false)
+	require.Len(t, webhookConfig.Webhooks, 2)
+
+	webhookConfig = getWebhookConfig(true)
+	require.Len(t, webhookConfig.Webhooks, 3)
 }
