@@ -118,7 +118,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 	}
 
 	jsonEnricher := &JsonEnricher{
-		impl:   &defaultImpl{},
+		impl:   newDefaultImpl(),
 		logger: logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
@@ -402,6 +402,8 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		return
 	}
 
+	// As close as possible to k8s server side audit json
+	// In future map this to a object and produce JSON using marshal/unmarshal functions
 	auditMap := map[string]interface{}{
 		"version":    "spo/v1_alpha",
 		"auditID":    uuid.New().String(),
@@ -414,6 +416,10 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		"node":       node,
 		"syscalls":   syscallNames,
 		"timestamp":  isoTimestamp,
+	}
+
+	if logBucket.ProcessInfo.ExecRequestId != nil {
+		auditMap["requestUID"] = *logBucket.ProcessInfo.ExecRequestId
 	}
 
 	auditJson, err := json.Marshal(auditMap)
