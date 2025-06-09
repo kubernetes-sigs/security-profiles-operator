@@ -121,6 +121,19 @@ type FakeImpl struct {
 		result2 context.CancelFunc
 		result3 error
 	}
+	EnvForPidStub        func(int) (map[string]string, error)
+	envForPidMutex       sync.RWMutex
+	envForPidArgsForCall []struct {
+		arg1 int
+	}
+	envForPidReturns struct {
+		result1 map[string]string
+		result2 error
+	}
+	envForPidReturnsOnCall map[int]struct {
+		result1 map[string]string
+		result2 error
+	}
 	FlushBacklogStub        func(*ttlcache.Cache[string, []*types.AuditLine], string)
 	flushBacklogMutex       sync.RWMutex
 	flushBacklogArgsForCall []struct {
@@ -735,6 +748,70 @@ func (fake *FakeImpl) DialReturnsOnCall(i int, result1 *grpc.ClientConn, result2
 		result2 context.CancelFunc
 		result3 error
 	}{result1, result2, result3}
+}
+
+func (fake *FakeImpl) EnvForPid(arg1 int) (map[string]string, error) {
+	fake.envForPidMutex.Lock()
+	ret, specificReturn := fake.envForPidReturnsOnCall[len(fake.envForPidArgsForCall)]
+	fake.envForPidArgsForCall = append(fake.envForPidArgsForCall, struct {
+		arg1 int
+	}{arg1})
+	stub := fake.EnvForPidStub
+	fakeReturns := fake.envForPidReturns
+	fake.recordInvocation("EnvForPid", []interface{}{arg1})
+	fake.envForPidMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) EnvForPidCallCount() int {
+	fake.envForPidMutex.RLock()
+	defer fake.envForPidMutex.RUnlock()
+	return len(fake.envForPidArgsForCall)
+}
+
+func (fake *FakeImpl) EnvForPidCalls(stub func(int) (map[string]string, error)) {
+	fake.envForPidMutex.Lock()
+	defer fake.envForPidMutex.Unlock()
+	fake.EnvForPidStub = stub
+}
+
+func (fake *FakeImpl) EnvForPidArgsForCall(i int) int {
+	fake.envForPidMutex.RLock()
+	defer fake.envForPidMutex.RUnlock()
+	argsForCall := fake.envForPidArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) EnvForPidReturns(result1 map[string]string, result2 error) {
+	fake.envForPidMutex.Lock()
+	defer fake.envForPidMutex.Unlock()
+	fake.EnvForPidStub = nil
+	fake.envForPidReturns = struct {
+		result1 map[string]string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) EnvForPidReturnsOnCall(i int, result1 map[string]string, result2 error) {
+	fake.envForPidMutex.Lock()
+	defer fake.envForPidMutex.Unlock()
+	fake.EnvForPidStub = nil
+	if fake.envForPidReturnsOnCall == nil {
+		fake.envForPidReturnsOnCall = make(map[int]struct {
+			result1 map[string]string
+			result2 error
+		})
+	}
+	fake.envForPidReturnsOnCall[i] = struct {
+		result1 map[string]string
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) FlushBacklog(arg1 *ttlcache.Cache[string, []*types.AuditLine], arg2 string) {
@@ -1755,6 +1832,8 @@ func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	defer fake.containerIDForPIDMutex.RUnlock()
 	fake.dialMutex.RLock()
 	defer fake.dialMutex.RUnlock()
+	fake.envForPidMutex.RLock()
+	defer fake.envForPidMutex.RUnlock()
 	fake.flushBacklogMutex.RLock()
 	defer fake.flushBacklogMutex.RUnlock()
 	fake.getFromBacklogMutex.RLock()

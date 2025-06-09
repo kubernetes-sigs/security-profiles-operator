@@ -16,7 +16,9 @@ limitations under the License.
 
 package types
 
-import "sync"
+import (
+	"sync"
+)
 
 const (
 	AuditTypeSeccomp  = "seccomp"
@@ -62,13 +64,13 @@ type ContainerInfo struct {
 }
 
 type ProcessInfo struct {
-	Pid        int
-	CmdLine    string
-	Uid        uint32
-	Gid        uint32
-	Executable string
+	Pid           int
+	CmdLine       string
+	Uid           uint32
+	Gid           uint32
+	Executable    string
+	ExecRequestId *string
 }
-
 type LogBucket struct {
 	SyscallIds    sync.Map
 	ContainerInfo *ContainerInfo

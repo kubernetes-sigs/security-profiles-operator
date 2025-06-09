@@ -18,6 +18,7 @@ package enricher
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -70,6 +71,7 @@ type impl interface {
 	RemoveAll(string) error
 	CmdlineForPID(pid int) (string, error)
 	PrintJsonOutput(w io.Writer, output string)
+	EnvForPid(pid int) (map[string]string, error)
 }
 
 func (d *defaultImpl) Getenv(key string) string {
@@ -219,6 +221,39 @@ func (d *defaultImpl) CmdlineForPID(
 	}
 
 	return sb.String(), retErr
+}
+
+func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
+	var retErr error
+
+	envFile := fmt.Sprintf("/proc/%d/environ", pid)
+	envMap := make(map[string]string)
+
+	content, err := os.ReadFile(filepath.Clean(envFile))
+	if err != nil {
+		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
+
+		return envMap, retErr
+	}
+
+	envVars := bytes.Split(content, []byte{0})
+
+	for _, envVarBytes := range envVars {
+		envVar := string(envVarBytes)
+		if envVar == "" {
+			continue
+		}
+
+		// Ignore keys with no values
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) == 2 {
+			key := parts[0]
+			value := parts[1]
+			envMap[key] = value
+		}
+	}
+
+	return envMap, nil
 }
 
 func (d *defaultImpl) PrintJsonOutput(w io.Writer, output string) {
