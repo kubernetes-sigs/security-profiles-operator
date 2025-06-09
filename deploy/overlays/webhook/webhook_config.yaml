@@ -61,25 +61,4 @@ webhooks:
     admissionReviewVersions:
     - v1beta1
     - v1
-  - name: podexec.spo.io
-    failurePolicy: Ignore
-    timeoutSeconds: 5
-    sideEffects: None
-    rules:
-      - operations: ["*"]
-        apiGroups: ["*"]
-        apiVersions: ["v1"]
-        resources: ["pods/exec"]
-    namespaceSelector:
-      matchExpressions:
-        - key: spo.x-k8s.io/enable-podexec
-          operator: Exists
-    clientConfig:
-      service:
-        namespace: "security-profiles-operator"
-        name: "webhook-service"
-        path: "/mutate-v1-pod-exec"
-      caBundle: "Cg=="
-    admissionReviewVersions:
-      - v1beta1
-      - v1
+  

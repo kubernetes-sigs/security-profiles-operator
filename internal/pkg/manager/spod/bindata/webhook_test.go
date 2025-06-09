@@ -19,7 +19,9 @@ package bindata
 import (
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -172,6 +174,30 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name: "Nil existing and empty",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: nil,
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: &metav1.LabelSelector{},
+			},
+			expected: true,
+		},
+		{
+			name: "existing empty and nil",
+			existing: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: &metav1.LabelSelector{},
+			},
+			configured: &admissionregv1.MutatingWebhook{
+				Name:              "foo",
+				NamespaceSelector: nil,
+			},
+			expected: false,
+		},
 	} {
 		existing := tc.existing
 		configured := tc.configured
@@ -179,8 +205,26 @@ func TestWebhook_NeedsUpdate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			requireUpdate := webhookNeedsUpdate(existing, configured)
+			w := Webhook{
+				log: logr.Discard(),
+				config: &admissionregv1.MutatingWebhookConfiguration{
+					Webhooks: []admissionregv1.MutatingWebhook{
+						*configured,
+					},
+				},
+			}
+			requireUpdate := w.webhookNeedsUpdate(existing, 0)
 			assert.Equal(t, expected, requireUpdate)
 		})
 	}
+}
+
+func TestWebhook_getWebhookConfig(t *testing.T) {
+	t.Parallel()
+
+	webhookConfig := getWebhookConfig(false)
+	require.Len(t, webhookConfig.Webhooks, 2)
+
+	webhookConfig = getWebhookConfig(true)
+	require.Len(t, webhookConfig.Webhooks, 3)
 }

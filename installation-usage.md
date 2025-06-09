@@ -39,7 +39,7 @@
         - [Audit Log File Fine-Tuning (Rotation)](#audit-log-file-fine-tuning-rotation)
         - [Verbosity (Debugging Logs)](#verbosity-debugging-logs)
     - [How to Monitor Audit Logs for a Specific Pod](#how-to-monitor-audit-logs-for-a-specific-pod)
-    - [End-user information](#end-user-information)
+    - [Correlating with API Server Audit Log](#correlating-with-api-server-audit-log)
   - [AppArmor Profile](#apparmor-profile)
     - [Record AppArmor profile](#record-apparmor-profile)
     - [Use AppArmor profile](#use-apparmor-profile)
@@ -501,9 +501,8 @@ To view the resulting `MutatingWebhookConfiguration`, call:
 $ kubectl get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
 ```
 
-The Pod Exec Webhook works in conjunction with the JSON Log Enricher. As a safety precaution, 
-it's enabled by default only for exec requests into the operator's namespace. For details on its configuration 
-and how to enable it across all namespaces, please refer to the [JSON Log Enricher](#audit-json-log-enricher) section
+The Exec Metadata Webhook works in conjunction with the JSON Log Enricher. It's enabled only for when JSON Log Enricher is 
+enabled. For details on its configuration, please refer to the [JSON Log Enricher](#audit-json-log-enricher) section
 
 ## Create and Install Security Profiles
 
@@ -1009,16 +1008,19 @@ To enable a single pod log the activity following these steps:
 By following above steps, you can enable and monitor audit logs in JSON lines format for your Kubernetes pods, 
 giving you better visibility into their activities.
 
-#### End-user information
+#### Correlating with API Server Audit Log
 By default, when you use `kubectl exec` to access a pod or container, Kubernetes doesn't pass the user's authentication
 details into that session's environment. This means our JSON Log Enricher can't include "who did what" information 
-for exec commands.
+for exec commands. The `uid`, `gid` recorded will map to the system user which is most cases would be the root user.
 
-To address this, the JSON Log Enricher relies on a mutating webhook to inject this user authentication data as 
-environment variables into the exec session.
+To address this, the JSON Log Enricher relies on a mutating webhook (`execmetadata.spo.io`). This webhook injects 
+the exec request UID as an environment variable into the exec session. Now, when the administrator enables audit 
+logging on the API server, the webhook will add an audit annotation, `EXEC_REQUEST_UID`. The API server audit log 
+will contain this information. This request ID will also be available in the JSON lines produced by the 
+JSON Log Enricher, specifically within the `requestUID` field.
 
-To ensure user information is captured for `kubectl exec` sessions across all namespaces,
-you need to enable this webhook in your spod configuration.
+By default, this webhook is enabled for all the namespaces with JSON Log Enricher is enabled. 
+To reduce the scope of this webhook you can disable it for certain namespaces.
 
 Edit the spod configuration:
 
@@ -1028,17 +1030,16 @@ kubectl edit spod spod -n security-profiles-operator
 
 Add `webhookOptions` to the spec:
 
-Locate the `spec:` section and add the following webhookOptions block. This will tell the webhook to apply to all 
-namespaces and objects (by setting `namespaceSelector` and `objectSelector` to empty curly braces, 
-which means "match everything").
+Locate the `spec:` section and add the following webhookOptions block. This will tell the webhook to apply to a 
+specific namespaces
 
 ```yaml
 # ... (rest of your spod configuration)
 spec:
 webhookOptions:
-- name: podexec.spo.io
-  namespaceSelector: {}
-  objectSelector: {}
+- name: execmetadata.spo.io
+  namespaceSelector:
+  #...add rules 
 # ...
 ```
 

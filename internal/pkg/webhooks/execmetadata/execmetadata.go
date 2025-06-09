@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package podexec
+package execmetadata
 
 import (
 	"context"
@@ -32,34 +32,19 @@ import (
 )
 
 const (
-	RequestUserIdEnv   = "REQUEST_USER_ID"
-	RequestUserNameEnv = "REQUEST_USER_NAME"
+	ExecRequestUid = "EXEC_REQUEST_UID"
 )
 
-type podExecHandler struct {
+type Handler struct {
 	log logr.Logger
 }
 
-func removeRegexMatches(slice []string, pattern string) ([]string, error) {
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("invalid regex pattern: %w", err)
-	}
-
-	var result []string
-
-	for _, s := range slice {
-		if !re.MatchString(s) {
-			result = append(result, s)
-		}
-	}
-
-	return result, nil
-}
+// Ensure ExecMetadataHandler implements admission.Handler at compile time.
+var _ admission.Handler = (*Handler)(nil)
 
 //nolint:gocritic
-func (p podExecHandler) Handle(_ context.Context, req admission.Request) admission.Response {
-	p.log.V(1).Info("Executing podexec webhook")
+func (p Handler) Handle(_ context.Context, req admission.Request) admission.Response {
+	p.log.V(1).Info("Executing execmetadata webhook")
 
 	execObject := corev1.PodExecOptions{}
 
@@ -71,27 +56,11 @@ func (p podExecHandler) Handle(_ context.Context, req admission.Request) admissi
 
 	p.log.V(1).Info("execObject before mutate", "execObject", execObject)
 
-	var rErr error
-
-	execObject.Command, rErr = removeRegexMatches(execObject.Command,
-		RequestUserIdEnv+"=.*")
-	if rErr != nil {
-		p.log.Error(rErr, "request modification failed for pod exec request")
-
-		return admission.Allowed("pod exec request unmodified")
-	}
-
-	execObject.Command, rErr = removeRegexMatches(execObject.Command,
-		RequestUserNameEnv+".*")
-	if rErr != nil {
-		p.log.Error(rErr, "request modification failed for pod exec request")
-
-		return admission.Allowed("pod exec request unmodified")
-	}
+	execObject.Command = removeRegexMatches(execObject.Command,
+		ExecRequestUid+"=.*")
 
 	execObject.Command = slices.Insert(execObject.Command, 0, "env",
-		fmt.Sprintf("%s=%s", RequestUserIdEnv, req.UserInfo.UID),
-		fmt.Sprintf("%s=%s", RequestUserNameEnv, req.UserInfo.Username))
+		fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
 
 	p.log.V(1).Info("execObject after mutate", "execObject", execObject)
 
@@ -103,10 +72,11 @@ func (p podExecHandler) Handle(_ context.Context, req admission.Request) admissi
 		},
 	}
 
-	resp := admission.Patched("User Id and username have been set", jsonPathOps...)
+	resp := admission.Patched("UID added to execmetadata", jsonPathOps...)
 
+	// The RequestUid will be used to correlate the log from container and API server
 	resp.AuditAnnotations = map[string]string{
-		"podexec.spo.io": "User Id and username have been set",
+		ExecRequestUid: string(req.UID),
 	}
 
 	p.log.V(1).Info("response sent", "resp", resp)
@@ -114,15 +84,26 @@ func (p podExecHandler) Handle(_ context.Context, req admission.Request) admissi
 	return resp
 }
 
-// Ensure podExecHandler implements admission.Handler at compile time.
-var _ admission.Handler = (*podExecHandler)(nil)
+func removeRegexMatches(slice []string, pattern string) []string {
+	re := regexp.MustCompile(pattern)
+
+	var result []string
+
+	for _, s := range slice {
+		if !re.MatchString(s) {
+			result = append(result, s)
+		}
+	}
+
+	return result
+}
 
 func RegisterWebhook(server webhook.Server) {
 	server.Register(
-		"/mutate-v1-pod-exec",
+		"/mutate-v1-exec-metadata",
 		&webhook.Admission{
-			Handler: &podExecHandler{
-				log: logf.Log.WithName("podexec"),
+			Handler: &Handler{
+				log: logf.Log.WithName("execmetadata"),
 			},
 		},
 	)

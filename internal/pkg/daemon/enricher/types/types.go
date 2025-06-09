@@ -64,13 +64,12 @@ type ContainerInfo struct {
 }
 
 type ProcessInfo struct {
-	Pid             int
-	CmdLine         string
-	Uid             uint32
-	Gid             uint32
-	Executable      string
-	RequestUserId   *string
-	RequestUserName *string
+	Pid           int
+	CmdLine       string
+	Uid           uint32
+	Gid           uint32
+	Executable    string
+	ExecRequestId *string
 }
 type LogBucket struct {
 	SyscallIds    sync.Map

@@ -37,8 +37,7 @@ var (
 )
 
 const (
-	RequestUserIdEnv   = "REQUEST_USER_ID"
-	RequestUserNameEnv = "REQUEST_USER_NAME"
+	RequestIdEnv = "EXEC_REQUEST_ID"
 )
 
 func GetProcessInfo(
@@ -89,14 +88,9 @@ func populateProcessCache(
 		return envErr
 	}
 
-	reqUserId, ok := env[RequestUserIdEnv]
+	reqId, ok := env[RequestIdEnv]
 	if ok {
-		procInfo.RequestUserId = &reqUserId
-	}
-
-	reqUserName, ok := env[RequestUserNameEnv]
-	if ok {
-		procInfo.RequestUserName = &reqUserName
+		procInfo.ExecRequestId = &reqId
 	}
 
 	procInfo.CmdLine = cmdLine

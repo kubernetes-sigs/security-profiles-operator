@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package podexec
+package execmetadata
 
 import (
 	"encoding/json"
@@ -56,13 +56,13 @@ func TestHandlePodExecWithContainer(t *testing.T) {
 		TTY:       true,
 	}
 
-	handler := podExecHandler{logr.Discard()}
+	handler := Handler{logr.Discard()}
 	resp := handler.Handle(t.Context(), admission.Request{
 		AdmissionRequest: getAdmRequest(t, testExecCall),
 	})
 
-	if !strings.Contains(resp.Patches[0].Json(), RequestUserIdEnv) {
-		t.Errorf("Expected the response to contain " + RequestUserIdEnv)
+	if !strings.Contains(resp.Patches[0].Json(), ExecRequestUid) {
+		t.Errorf("Expected the response to contain " + ExecRequestUid)
 	}
 }
 
@@ -77,13 +77,13 @@ func TestHandlePodExecWithoutContainer(t *testing.T) {
 		TTY:     true,
 	}
 
-	handler := podExecHandler{logr.Discard()}
+	handler := Handler{logr.Discard()}
 	resp := handler.Handle(t.Context(), admission.Request{
 		AdmissionRequest: getAdmRequest(t, testExecCall),
 	})
 
-	if !strings.Contains(resp.Patches[0].Json(), RequestUserIdEnv) {
-		t.Errorf("Expected the response to contain " + RequestUserIdEnv)
+	if !strings.Contains(resp.Patches[0].Json(), ExecRequestUid) {
+		t.Errorf("Expected the response to contain " + ExecRequestUid)
 	}
 }
 
@@ -92,8 +92,7 @@ func TestHandlePodExecMulUid(t *testing.T) {
 
 	testExecCall := &corev1.PodExecOptions{
 		Command: []string{
-			RequestUserIdEnv + "=overwriteuserid",
-			RequestUserNameEnv + "=overwriteusername", "echo", "hello",
+			ExecRequestUid + "=overwriteid",
 		},
 		Stdin:  true,
 		Stdout: true,
@@ -101,30 +100,22 @@ func TestHandlePodExecMulUid(t *testing.T) {
 		TTY:    true,
 	}
 
-	handler := podExecHandler{logr.Discard()}
+	handler := Handler{logr.Discard()}
 	resp := handler.Handle(t.Context(), admission.Request{
 		AdmissionRequest: getAdmRequest(t, testExecCall),
 	})
 
-	if !strings.Contains(resp.Patches[0].Json(), RequestUserIdEnv) {
-		t.Errorf("Expected the response to contain REQUEST_USER_UID")
+	if !strings.Contains(resp.Patches[0].Json(), ExecRequestUid) {
+		t.Errorf("Expected the response to contain " + ExecRequestUid)
 	}
 
-	if strings.Count(resp.Patches[0].Json(), RequestUserIdEnv) > 1 {
-		t.Errorf("Expected only one environment variable REQUEST_USER_UID")
+	if strings.Count(resp.Patches[0].Json(), ExecRequestUid) > 1 {
+		t.Errorf("Expected only one environment variable" + ExecRequestUid)
 	}
 
-	if strings.Count(resp.Patches[0].Json(), RequestUserNameEnv) > 1 {
-		t.Errorf("Expected only one environment variable REQUEST_USER_NAME")
+	if strings.Count(resp.Patches[0].Json(), "overwriteid") > 1 {
+		t.Errorf("Expected overwriteid to be revomed")
 	}
 
-	if strings.Count(resp.Patches[0].Json(), "overwriteuserid") > 1 {
-		t.Errorf("Expected overwriteuserid to be revomed")
-	}
-
-	if strings.Count(resp.Patches[0].Json(), "overwriteusername") > 1 {
-		t.Errorf("Expected overwriteusername to be revomed")
-	}
-
-	require.Contains(t, resp.AuditAnnotations, "podexec.spo.io")
+	require.Contains(t, resp.AuditAnnotations, ExecRequestUid)
 }

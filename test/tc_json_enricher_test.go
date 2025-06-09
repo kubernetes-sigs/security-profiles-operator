@@ -105,10 +105,6 @@ spec:
 	e.Contains(output, "auditID")
 }
 
-const (
-	whAllNamespaceSelector = `{}`
-)
-
 func (e *e2e) testCaseJsonEnricher([]string) {
 	e.jsonEnricherOnlyTestCase()
 
@@ -142,19 +138,6 @@ spec:
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
-
-	e.kubectl("config", "get-users")
-
-	whPatch := fmt.Sprintf(`{"spec":{"webhookOptions":[{"name":"podexec.spo.io","namespaceSelector":%s}]}}`, whAllNamespaceSelector) //nolint:lll // very long patch line
-
-	e.logf("Using patch: %s", whPatch)
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", whPatch, "--type=merge")
-	e.kubectlOperatorNS("get", "spod", "spod", "-o", "yaml")
-
-	configOutput := e.kubectlOperatorNS("get", "mutatingwebhookconfiguration",
-		"spo-mutating-webhook-configuration", "-o", "yaml")
-
-	e.NotContains(configOutput, "enable-podexec")
 
 	e.logf("Creating test pod")
 	e.getCurrentContextNamespace(defaultNamespace)
@@ -201,7 +184,7 @@ spec:
 	e.kubectl("exec", "-it", podName, "--", "ls")
 	e.kubectl("exec", "-it", podName, "--", "date")
 	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
-	e.Contains(envOutput, "kubernetes-admin")
+	e.Contains(envOutput, "EXEC_REQUEST_UID")
 
 	// wait for at least one component of the expected logs to appear
 	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"syscalls":"execve|clone"`))

@@ -75,7 +75,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/podexec"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/execmetadata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording"
 )
 
@@ -812,7 +812,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	hookserver := mgr.GetWebhookServer()
 	binding.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetClient())
 	recording.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
-	podexec.RegisterWebhook(hookserver)
+	execmetadata.RegisterWebhook(hookserver)
 
 	sigHandler := ctrl.SetupSignalHandler()
 
