@@ -96,6 +96,10 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
+	// Make sure that Exec webhook is not enabled unless JSON Log Enricher is used
+	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
+	e.NotContains(envOutput, "EXEC_REQUEST_UID")
+
 	// wait for at least one component of the expected logs to appear
 	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen"`))
 

@@ -793,6 +793,10 @@ func (e *e2e) enableJsonEnricherInSpod() {
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
+	e.kubectlOperatorNS("get", "pods")
+
+	e.logf("Done waiting for the rollout restart")
+
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
 }
 
