@@ -118,7 +118,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 	}
 
 	jsonEnricher := &JsonEnricher{
-		impl:   &defaultImpl{},
+		impl:   newDefaultImpl(),
 		logger: logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),

@@ -1010,8 +1010,8 @@ giving you better visibility into their activities.
 
 #### Correlating with API Server Audit Log
 By default, when you use `kubectl exec` to access a pod or container, Kubernetes doesn't pass the user's authentication
-details into that session's environment. This means our JSON Log Enricher can't include "who did what" information 
-for exec commands. The `uid`, `gid` recorded will map to the system user which is most cases would be the root user.
+details into that session's environment. This means JSON Log Enricher can't include "who did what" information 
+for exec commands. The `uid`, `gid` recorded will map to the system user which in most cases would be the root user.
 
 To address this, the JSON Log Enricher relies on a mutating webhook (`execmetadata.spo.io`). This webhook injects 
 the exec request UID as an environment variable into the exec session. Now, when the administrator enables audit 
@@ -1043,8 +1043,12 @@ webhookOptions:
 # ...
 ```
 
-After saving your changes, the operator will reconfigure the mutating webhook, allowing user 
-authentication details to be passed into `kubectl exec` sessions cluster-wide.
+After saving your changes, the operator will reconfigure the mutating webhook, allowing request 
+details to be passed into `kubectl exec` sessions cluster-wide.
+
+NOTE: This webhook injects the environment variable `EXEC_REQUEST_UID` into your exec request. If a container in your Pod 
+already defines an environment variable with this exact name, the webhook's injected value will override it for this
+exec session.
 
 ### AppArmor Profile
 

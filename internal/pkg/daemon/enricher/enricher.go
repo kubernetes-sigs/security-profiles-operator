@@ -70,7 +70,7 @@ type Enricher struct {
 // New returns a new Enricher instance.
 func New(logger logr.Logger) *Enricher {
 	return &Enricher{
-		impl:   &defaultImpl{},
+		impl:   newDefaultImpl(),
 		source: auditsource.NewAuditdSource(logger),
 		logger: logger,
 		containerIDCache: ttlcache.New(

@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -42,7 +43,15 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-type defaultImpl struct{}
+type defaultImpl struct {
+	fsys fs.FS // Must be initialized by newDefaultImpl
+}
+
+func newDefaultImpl() *defaultImpl {
+	return &defaultImpl{
+		fsys: os.DirFS("/"),
+	}
+}
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
@@ -191,9 +200,9 @@ func (d *defaultImpl) CmdlineForPID(
 ) (string, error) {
 	var retErr error
 
-	cmdline := fmt.Sprintf("/proc/%d/cmdline", pid)
+	cmdline := fmt.Sprintf("proc/%d/cmdline", pid)
 
-	file, err := os.Open(filepath.Clean(cmdline))
+	file, err := d.fsys.Open(filepath.Clean(cmdline))
 	if err != nil {
 		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 
@@ -226,10 +235,10 @@ func (d *defaultImpl) CmdlineForPID(
 func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 	var retErr error
 
-	envFile := fmt.Sprintf("/proc/%d/environ", pid)
+	envFile := fmt.Sprintf("proc/%d/environ", pid)
 	envMap := make(map[string]string)
 
-	content, err := os.ReadFile(filepath.Clean(envFile))
+	content, err := fs.ReadFile(d.fsys, filepath.Clean(envFile))
 	if err != nil {
 		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 

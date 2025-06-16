@@ -37,7 +37,7 @@ var (
 )
 
 const (
-	RequestIdEnv = "EXEC_REQUEST_ID"
+	requestIdEnv = "EXEC_REQUEST_ID"
 )
 
 func GetProcessInfo(
@@ -78,17 +78,17 @@ func populateProcessCache(
 	}
 	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
 
-	cmdLine, cerr := impl.CmdlineForPID(pid)
-	if cerr != nil {
-		return cerr
+	cmdLine, err := impl.CmdlineForPID(pid)
+	if err != nil {
+		return fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err)
 	}
 
-	env, envErr := impl.EnvForPid(pid)
-	if envErr != nil {
-		return envErr
+	env, err := impl.EnvForPid(pid)
+	if err != nil {
+		return fmt.Errorf("failed to get env for pid %d: %w", pid, err)
 	}
 
-	reqId, ok := env[RequestIdEnv]
+	reqId, ok := env[requestIdEnv]
 	if ok {
 		procInfo.ExecRequestId = &reqId
 	}
