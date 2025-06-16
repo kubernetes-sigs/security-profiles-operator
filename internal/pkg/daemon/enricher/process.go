@@ -37,7 +37,7 @@ var (
 )
 
 const (
-	requestIdEnv = "EXEC_REQUEST_ID"
+	requestIdEnv = "EXEC_REQUEST_UID"
 )
 
 func GetProcessInfo(
