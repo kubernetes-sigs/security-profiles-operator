@@ -367,6 +367,7 @@ func NewTrustedRootProtobuf(rootJSON []byte) (*prototrustroot.TrustedRoot, error
 // NewTrustedRoot initializes a TrustedRoot object from a mediaType string, list of Fulcio
 // certificate authorities, list of timestamp authorities and maps of ctlogs and rekor
 // transparency log instances.
+// mediaType must be TrustedRootMediaType01 ("application/vnd.dev.sigstore.trustedroot+json;version=0.1").
 func NewTrustedRoot(mediaType string,
 	certificateAuthorities []CertificateAuthority,
 	certificateTransparencyLogs map[string]*TransparencyLog,
@@ -374,7 +375,7 @@ func NewTrustedRoot(mediaType string,
 	transparencyLogs map[string]*TransparencyLog) (*TrustedRoot, error) {
 	// document that we assume 1 cert chain per target and with certs already ordered from leaf to root
 	if mediaType != TrustedRootMediaType01 {
-		return nil, fmt.Errorf("unsupported TrustedRoot media type: %s", TrustedRootMediaType01)
+		return nil, fmt.Errorf("unsupported TrustedRoot media type: %s, must be %s", mediaType, TrustedRootMediaType01)
 	}
 	tr := &TrustedRoot{
 		certificateAuthorities:  certificateAuthorities,

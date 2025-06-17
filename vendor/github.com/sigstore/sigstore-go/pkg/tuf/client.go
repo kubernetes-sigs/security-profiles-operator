@@ -60,9 +60,9 @@ func New(opts *Options) (*Client, error) {
 	if opts.Fetcher != nil {
 		c.cfg.Fetcher = opts.Fetcher
 	} else {
-		fetcher := fetcher.DefaultFetcher{}
+		fetcher := fetcher.NewDefaultFetcher()
 		fetcher.SetHTTPUserAgent(util.ConstructUserAgent())
-		c.cfg.Fetcher = &fetcher
+		c.cfg.Fetcher = fetcher
 	}
 
 	// Upon client creation, we may not perform a full TUF update,
@@ -150,7 +150,10 @@ func (c *Client) Refresh() error {
 	if err != nil {
 		return fmt.Errorf("tuf refresh failed: %w", err)
 	}
-
+	// If cache is disabled, we don't need to persist the last timestamp
+	if c.cfg.DisableLocalCache {
+		return nil
+	}
 	// Update config with last update
 	cfg, err := LoadConfig(c.configPath())
 	if err != nil {
