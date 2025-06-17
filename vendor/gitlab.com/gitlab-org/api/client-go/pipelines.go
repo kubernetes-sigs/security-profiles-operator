@@ -218,6 +218,8 @@ type ListProjectPipelinesOptions struct {
 	UpdatedBefore *time.Time       `url:"updated_before,omitempty" json:"updated_before,omitempty"`
 	OrderBy       *string          `url:"order_by,omitempty" json:"order_by,omitempty"`
 	Sort          *string          `url:"sort,omitempty" json:"sort,omitempty"`
+	CreatedAfter  *time.Time       `url:"created_after,omitempty" json:"created_after,omitempty"`
+	CreatedBefore *time.Time       `url:"created_before,omitempty" json:"created_before,omitempty"`
 }
 
 // ListProjectPipelines gets a list of project piplines.

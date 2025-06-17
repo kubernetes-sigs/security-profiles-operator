@@ -58,6 +58,7 @@ type GroupMember struct {
 	ExpiresAt         *ISOTime                 `json:"expires_at"`
 	AccessLevel       AccessLevelValue         `json:"access_level"`
 	Email             string                   `json:"email,omitempty"`
+	PublicEmail       string                   `json:"public_email,omitempty"`
 	GroupSAMLIdentity *GroupMemberSAMLIdentity `json:"group_saml_identity"`
 	MemberRole        *MemberRole              `json:"member_role"`
 }

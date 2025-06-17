@@ -209,14 +209,15 @@ func (m *MergeRequest) UnmarshalJSON(data []byte) error {
 // Gitlab API docs:
 // https://docs.gitlab.com/api/merge_requests/#list-merge-request-diffs
 type MergeRequestDiff struct {
-	OldPath     string `json:"old_path"`
-	NewPath     string `json:"new_path"`
-	AMode       string `json:"a_mode"`
-	BMode       string `json:"b_mode"`
-	Diff        string `json:"diff"`
-	NewFile     bool   `json:"new_file"`
-	RenamedFile bool   `json:"renamed_file"`
-	DeletedFile bool   `json:"deleted_file"`
+	OldPath       string `json:"old_path"`
+	NewPath       string `json:"new_path"`
+	AMode         string `json:"a_mode"`
+	BMode         string `json:"b_mode"`
+	Diff          string `json:"diff"`
+	NewFile       bool   `json:"new_file"`
+	RenamedFile   bool   `json:"renamed_file"`
+	DeletedFile   bool   `json:"deleted_file"`
+	GeneratedFile bool   `json:"generated_file"`
 }
 
 // MergeRequestDiffVersion represents Gitlab merge request version.

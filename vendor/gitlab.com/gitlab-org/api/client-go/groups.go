@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	retryablehttp "github.com/hashicorp/go-retryablehttp"
@@ -484,8 +486,45 @@ type DefaultBranchProtectionDefaultsOptions struct {
 	DeveloperCanInitialPush *bool                `url:"developer_can_initial_push,omitempty" json:"developer_can_initial_push,omitempty"`
 }
 
+// EncodeValues implements the query.Encoder interface
+func (d *DefaultBranchProtectionDefaultsOptions) EncodeValues(key string, v *url.Values) error {
+	if d.AllowForcePush != nil {
+		v.Add(key+"[allow_force_push]", strconv.FormatBool(*d.AllowForcePush))
+	}
+	if d.DeveloperCanInitialPush != nil {
+		v.Add(key+"[developer_can_initial_push]", strconv.FormatBool(*d.DeveloperCanInitialPush))
+	}
+	// The GitLab API only accepts one value for `allowed_to_merge` even when multiples are
+	// provided on the request.  The API will take the highest permission level.  For instance,
+	// if 'developer' and 'maintainer' are provided, the API will take 'maintainer'.
+	if d.AllowedToMerge != nil {
+		for _, atm := range *d.AllowedToMerge {
+			if atm != nil {
+				v.Add(key+"[allowed_to_merge][][access_level]", strconv.Itoa((int)(*atm.AccessLevel)))
+			}
+		}
+	}
+	// The GitLab API only accepts one value for `allowed_to_push` even when multiples are
+	// provided on the request.  The API will take the highest permission level.  For instance,
+	// if 'developer' and 'maintainer' are provided, the API will take 'maintainer'.
+	if d.AllowedToPush != nil {
+		for _, atp := range *d.AllowedToPush {
+			if atp != nil {
+				v.Add(key+"[allowed_to_push][][access_level]", strconv.Itoa((int)(*atp.AccessLevel)))
+			}
+		}
+	}
+	return nil
+}
+
 // CreateGroup creates a new project group. Available only for users who can
 // create groups.
+//
+// When `default_branch_protection_defaults` are defined with an `avatar` value,
+// only one value for `allowed_to_push` and `allowed_to_merge` will be used as
+// the GitLab API only accepts one value for those attributes even when multiples
+// are provided on the request. The API will take the highest permission level.
+// For instance, if 'developer' and 'maintainer' are provided, the API will take 'maintainer'.
 //
 // GitLab API docs: https://docs.gitlab.com/api/groups/#create-a-group
 func (s *GroupsService) CreateGroup(opt *CreateGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error) {
@@ -495,6 +534,11 @@ func (s *GroupsService) CreateGroup(opt *CreateGroupOptions, options ...RequestO
 	if opt.Avatar == nil {
 		req, err = s.client.NewRequest(http.MethodPost, "groups", opt, options)
 	} else {
+		// since the Avatar is provided, check allowed_to_push and
+		// allowed_to_merge access levels and error if multiples are provided
+		if opt.DefaultBranchProtectionDefaults != nil && (len(*opt.DefaultBranchProtectionDefaults.AllowedToMerge) > 1 || len(*opt.DefaultBranchProtectionDefaults.AllowedToPush) > 1) {
+			return nil, nil, fmt.Errorf("multiple access levels for allowed_to_merge or allowed_to_push are not permitted when an Avatar is also specified as it will result in unexpected behavior")
+		}
 		req, err = s.client.UploadRequest(
 			http.MethodPost,
 			"groups",
@@ -624,6 +668,12 @@ type UpdateGroupOptions struct {
 // UpdateGroup updates an existing group; only available to group owners and
 // administrators.
 //
+// When `default_branch_protection_defaults` are defined with an `avatar` value,
+// only one value for `allowed_to_push` and `allowed_to_merge` will be used as
+// the GitLab API only accepts one value for those attributes even when multiples
+// are provided on the request. The API will take the highest permission level.
+// For instance, if 'developer' and 'maintainer' are provided, the API will take 'maintainer'.
+//
 // GitLab API docs: https://docs.gitlab.com/api/groups/#update-group-attributes
 func (s *GroupsService) UpdateGroup(gid any, opt *UpdateGroupOptions, options ...RequestOptionFunc) (*Group, *Response, error) {
 	group, err := parseID(gid)
@@ -637,6 +687,11 @@ func (s *GroupsService) UpdateGroup(gid any, opt *UpdateGroupOptions, options ..
 	if opt.Avatar == nil || (opt.Avatar.Filename == "" && opt.Avatar.Image == nil) {
 		req, err = s.client.NewRequest(http.MethodPut, u, opt, options)
 	} else {
+		// since the Avatar is provided, check allowed_to_push and
+		// allowed_to_merge access levels and error if multiples are provided
+		if opt.DefaultBranchProtectionDefaults != nil && (len(*opt.DefaultBranchProtectionDefaults.AllowedToMerge) > 1 || len(*opt.DefaultBranchProtectionDefaults.AllowedToPush) > 1) {
+			return nil, nil, fmt.Errorf("multiple access levels for allowed_to_merge or allowed_to_push are not permitted when an Avatar is also specified as it will result in unexpected behavior")
+		}
 		req, err = s.client.UploadRequest(
 			http.MethodPut,
 			u,

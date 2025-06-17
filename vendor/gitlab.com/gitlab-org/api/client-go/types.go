@@ -676,10 +676,11 @@ type ProjectCreationLevelValue string
 //
 // GitLab API docs: https://docs.gitlab.com/api/groups/
 const (
-	NoOneProjectCreation      ProjectCreationLevelValue = "noone"
-	MaintainerProjectCreation ProjectCreationLevelValue = "maintainer"
-	DeveloperProjectCreation  ProjectCreationLevelValue = "developer"
-	OwnerProjectCreation      ProjectCreationLevelValue = "owner"
+	NoOneProjectCreation         ProjectCreationLevelValue = "noone"
+	MaintainerProjectCreation    ProjectCreationLevelValue = "maintainer"
+	DeveloperProjectCreation     ProjectCreationLevelValue = "developer"
+	OwnerProjectCreation         ProjectCreationLevelValue = "owner"
+	AdministratorProjectCreation ProjectCreationLevelValue = "administrator"
 )
 
 // ProjectHookEvent represents a project hook event.

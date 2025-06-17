@@ -320,6 +320,9 @@ func (s *SearchService) Users(query string, opt *SearchOptions, options ...Reque
 //
 // GitLab API docs: https://docs.gitlab.com/api/search/#scope-users-1
 func (s *SearchService) UsersByGroup(gid any, query string, opt *SearchOptions, options ...RequestOptionFunc) ([]*User, *Response, error) {
+	if opt == nil {
+		opt = &SearchOptions{}
+	}
 	var ret []*User
 	resp, err := s.searchByGroup(gid, "users", query, &ret, opt, options...)
 	return ret, resp, err
