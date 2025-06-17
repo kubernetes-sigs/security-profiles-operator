@@ -196,17 +196,17 @@ func replaceImages(m map[string]interface{}) error {
 	defs := []imgDef{
 		{
 			EnvName:    "RELATED_IMAGE_OPERATOR",
-			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/security-profiles-operator@sha256:15f7abcf8859b679535d11a0720cd4c3923e9194c12f600d05e1a7e81803e113",
+			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/security-profiles-operator-dev@sha256:15f7abcf8859b679535d11a0720cd4c3923e9194c12f600d05e1a7e81803e113",
 			RedHatBase: "registry.redhat.io/compliance/openshift-security-profiles-rhel8-operator",
 		},
 		{
 			EnvName:    "RELATED_IMAGE_SELINUXD",
-			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/containers-selinuxd@sha256:af0275b5b979c0e63c201eed25de1a487601a115e16dc0309355946f751cf39b",
+			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/openshift-selinuxd-rhel8-container-dev@sha256:af0275b5b979c0e63c201eed25de1a487601a115e16dc0309355946f751cf39b",
 			RedHatBase: "registry.redhat.io/compliance/openshift-selinuxd-rhel8",
 		},
 		{
 			EnvName:    "RELATED_IMAGE_SELINUXD_EL9",
-			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/openshift-selinuxd-rhel9-container@sha256:256be04e4d97f3d09ec8b9516c23eda4e80e77fc5c8aec27ed4ab3ace69d608b",
+			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/openshift-selinuxd-rhel9-container-dev@sha256:256be04e4d97f3d09ec8b9516c23eda4e80e77fc5c8aec27ed4ab3ace69d608b",
 			RedHatBase: "registry.redhat.io/compliance/openshift-selinuxd-rhel9",
 		},
 		{
