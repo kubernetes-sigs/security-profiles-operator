@@ -1,7 +1,6 @@
 package gitlab
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,7 +14,7 @@ const (
 
 type (
 	GraphQLInterface interface {
-		Do(ctx context.Context, query GraphQLQuery, response any) (*Response, error)
+		Do(query GraphQLQuery, response any, options ...RequestOptionFunc) (*Response, error)
 	}
 
 	GraphQL struct {
@@ -74,11 +73,11 @@ func (e *GraphQLResponseError) Error() string {
 //			} `json:"project"`
 //		} `json:"data"`
 //	}
-//	_, err := client.GraphQL.Do(context.Background(), GraphQLQuery{Query: `query { project(fullPath: "gitlab-org/gitlab") { id } }`}, &response)
+//	_, err := client.GraphQL.Do(GraphQLQuery{Query: `query { project(fullPath: "gitlab-org/gitlab") { id } }`}, &response, gitlab.WithContext(ctx))
 //
 // Attention: This API is experimental and may be subject to breaking changes to improve the API in the future.
-func (g *GraphQL) Do(ctx context.Context, query GraphQLQuery, response any) (*Response, error) {
-	request, err := g.client.NewRequest(http.MethodPost, "", query, nil)
+func (g *GraphQL) Do(query GraphQLQuery, response any, options ...RequestOptionFunc) (*Response, error) {
+	request, err := g.client.NewRequest(http.MethodPost, "", query, options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GraphQL request: %w", err)
 	}

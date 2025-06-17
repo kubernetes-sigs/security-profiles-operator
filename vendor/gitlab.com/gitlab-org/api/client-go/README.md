@@ -110,19 +110,22 @@ which contains a `TestClient` with [gomock](https://github.com/uber-go/mock) moc
 You can use them like this:
 
 ```go
-func Test_MyApp(t *testing.T) {
-    client := testing.NewTestClient(t)
-
+func TestMockExample(t *testing.T) {
+    client := gitlabtesting.NewTestClient(t)
+    opts := &gitlab.ListAgentsOptions{}
+    expectedResp := &gitlab.Response{}
+    pid := 1
     // Setup expectations
     client.MockClusterAgents.EXPECT().
-        List(gomock.Any(), 123, nil).
-        Return([]*gitlab.ClusterAgent{{ID: 1}}, nil)
+        ListAgents(pid, opts).
+        Return([]*gitlab.Agent{{ID: 1}}, expectedResp, nil)
 
     // Use the client in your test
     // You'd probably call your own code here that gets the client injected.
     // You can also retrieve a `gitlab.Client` object from `client.Client`.
-    agents, err := client.ClusterAgents.List(ctx, 123, nil)
+    agents, resp, err := client.ClusterAgents.ListAgents(pid, opts)
     assert.NoError(t, err)
+    assert.Equal(t, expectedResp, resp)
     assert.Len(t, agents, 1)
 }
 ```

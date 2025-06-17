@@ -25,7 +25,9 @@ import (
 type (
 	DeployKeysServiceInterface interface {
 		ListAllDeployKeys(opt *ListInstanceDeployKeysOptions, options ...RequestOptionFunc) ([]*InstanceDeployKey, *Response, error)
+		AddInstanceDeployKey(opt *AddInstanceDeployKeyOptions, options ...RequestOptionFunc) (*InstanceDeployKey, *Response, error)
 		ListProjectDeployKeys(pid any, opt *ListProjectDeployKeysOptions, options ...RequestOptionFunc) ([]*ProjectDeployKey, *Response, error)
+		ListUserProjectDeployKeys(uid any, opt *ListUserProjectDeployKeysOptions, options ...RequestOptionFunc) ([]*ProjectDeployKey, *Response, error)
 		GetDeployKey(pid any, deployKey int, options ...RequestOptionFunc) (*ProjectDeployKey, *Response, error)
 		AddDeployKey(pid any, opt *AddDeployKeyOptions, options ...RequestOptionFunc) (*ProjectDeployKey, *Response, error)
 		DeleteDeployKey(pid any, deployKey int, options ...RequestOptionFunc) (*Response, error)
@@ -47,12 +49,15 @@ var _ DeployKeysServiceInterface = (*DeployKeysService)(nil)
 // InstanceDeployKey represents a GitLab deploy key with the associated
 // projects it has write access to.
 type InstanceDeployKey struct {
-	ID                      int                 `json:"id"`
-	Title                   string              `json:"title"`
-	CreatedAt               *time.Time          `json:"created_at"`
-	Key                     string              `json:"key"`
-	Fingerprint             string              `json:"fingerprint"`
-	ProjectsWithWriteAccess []*DeployKeyProject `json:"projects_with_write_access"`
+	ID                         int                 `json:"id"`
+	Title                      string              `json:"title"`
+	CreatedAt                  *time.Time          `json:"created_at"`
+	ExpiresAt                  *time.Time          `json:"expires_at"`
+	Key                        string              `json:"key"`
+	Fingerprint                string              `json:"fingerprint"`
+	FingerprintSHA256          string              `json:"fingerprint_sha256"`
+	ProjectsWithWriteAccess    []*DeployKeyProject `json:"projects_with_write_access"`
+	ProjectsWithReadonlyAccess []*DeployKeyProject `json:"projects_with_readonly_access"`
 }
 
 func (k InstanceDeployKey) String() string {
@@ -119,6 +124,37 @@ func (s *DeployKeysService) ListAllDeployKeys(opt *ListInstanceDeployKeysOptions
 	return ks, resp, nil
 }
 
+// AddInstanceDeployKeyOptions represents the available AddInstanceDeployKey()
+// options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/deploy_keys/#add-deploy-key
+type AddInstanceDeployKeyOptions struct {
+	Key       *string    `url:"key,omitempty" json:"key,omitempty"`
+	Title     *string    `url:"title,omitempty" json:"title,omitempty"`
+	ExpiresAt *time.Time `url:"expires_at,omitempty" json:"expires_at,omitempty"`
+}
+
+// AddInstanceDeployKey creates a deploy key for the GitLab instance.
+// Requires administrator access.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/deploy_keys/#add-deploy-key
+func (s *DeployKeysService) AddInstanceDeployKey(opt *AddInstanceDeployKeyOptions, options ...RequestOptionFunc) (*InstanceDeployKey, *Response, error) {
+	req, err := s.client.NewRequest(http.MethodPost, "deploy_keys", opt, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	key := new(InstanceDeployKey)
+	resp, err := s.client.Do(req, &key)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return key, resp, nil
+}
+
 // ListProjectDeployKeysOptions represents the available ListProjectDeployKeys()
 // options.
 //
@@ -136,6 +172,38 @@ func (s *DeployKeysService) ListProjectDeployKeys(pid any, opt *ListProjectDeplo
 		return nil, nil, err
 	}
 	u := fmt.Sprintf("projects/%s/deploy_keys", PathEscape(project))
+
+	req, err := s.client.NewRequest(http.MethodGet, u, opt, options)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var ks []*ProjectDeployKey
+	resp, err := s.client.Do(req, &ks)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return ks, resp, nil
+}
+
+// ListUserProjectDeployKeysOptions represents the available ListUserProjectDeployKeys()
+// options.
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/deploy_keys/#list-project-deploy-keys-for-user
+type ListUserProjectDeployKeysOptions ListOptions
+
+// ListUserProjectDeployKeys gets a list of a user's deploy keys
+//
+// GitLab API docs:
+// https://docs.gitlab.com/api/deploy_keys/#list-project-deploy-keys-for-user
+func (s *DeployKeysService) ListUserProjectDeployKeys(uid any, opt *ListUserProjectDeployKeysOptions, options ...RequestOptionFunc) ([]*ProjectDeployKey, *Response, error) {
+	user, err := parseID(uid)
+	if err != nil {
+		return nil, nil, err
+	}
+	u := fmt.Sprintf("users/%s/project_deploy_keys", PathEscape(user))
 
 	req, err := s.client.NewRequest(http.MethodGet, u, opt, options)
 	if err != nil {

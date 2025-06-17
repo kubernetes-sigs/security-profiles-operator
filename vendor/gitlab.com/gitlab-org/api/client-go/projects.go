@@ -193,6 +193,7 @@ type Project struct {
 	CIDeletePipelinesInSeconds               int                                         `json:"ci_delete_pipelines_in_seconds,omitempty"`
 	CIForwardDeploymentEnabled               bool                                        `json:"ci_forward_deployment_enabled"`
 	CIForwardDeploymentRollbackAllowed       bool                                        `json:"ci_forward_deployment_rollback_allowed"`
+	CIPushRepositoryForJobTokenAllowed       bool                                        `json:"ci_push_repository_for_job_token_allowed"`
 	CIIdTokenSubClaimComponents              []string                                    `json:"ci_id_token_sub_claim_components"`
 	CISeperateCache                          bool                                        `json:"ci_separated_caches"`
 	CIJobTokenScopeEnabled                   bool                                        `json:"ci_job_token_scope_enabled"`
@@ -212,6 +213,7 @@ type Project struct {
 	KeepLatestArtifact                       bool                                        `json:"keep_latest_artifact"`
 	MergePipelinesEnabled                    bool                                        `json:"merge_pipelines_enabled"`
 	MergeTrainsEnabled                       bool                                        `json:"merge_trains_enabled"`
+	MergeTrainsSkipTrainAllowed              bool                                        `json:"merge_trains_skip_train_allowed"`
 	CIPipelineVariablesMinimumOverrideRole   CIPipelineVariablesMinimumOverrideRoleValue `json:"ci_pipeline_variables_minimum_override_role"`
 	MergeCommitTemplate                      string                                      `json:"merge_commit_template"`
 	SquashCommitTemplate                     string                                      `json:"squash_commit_template"`
@@ -228,6 +230,7 @@ type Project struct {
 	ModelExperimentsAccessLevel              AccessControlValue                          `json:"model_experiments_access_level"`
 	ModelRegistryAccessLevel                 AccessControlValue                          `json:"model_registry_access_level"`
 	PreReceiveSecretDetectionEnabled         bool                                        `json:"pre_receive_secret_detection_enabled"`
+	AutoDuoCodeReviewEnabled                 bool                                        `json:"auto_duo_code_review_enabled"`
 
 	// Deprecated: use Topics instead
 	TagList []string `json:"tag_list"`
@@ -408,6 +411,7 @@ func (s ProjectApprovalRule) String() string {
 // GitLab API docs: https://docs.gitlab.com/api/projects/#list-all-projects
 type ListProjectsOptions struct {
 	ListOptions
+	Active                   *bool             `url:"active,omitempty" json:"active,omitempty"`
 	Archived                 *bool             `url:"archived,omitempty" json:"archived,omitempty"`
 	IDAfter                  *int              `url:"id_after,omitempty" json:"id_after,omitempty"`
 	IDBefore                 *int              `url:"id_before,omitempty" json:"id_before,omitempty"`
@@ -723,6 +727,7 @@ type CreateProjectOptions struct {
 	MergePipelinesEnabled                     *bool                                `url:"merge_pipelines_enabled,omitempty" json:"merge_pipelines_enabled,omitempty"`
 	MergeRequestsAccessLevel                  *AccessControlValue                  `url:"merge_requests_access_level,omitempty" json:"merge_requests_access_level,omitempty"`
 	MergeTrainsEnabled                        *bool                                `url:"merge_trains_enabled,omitempty" json:"merge_trains_enabled,omitempty"`
+	MergeTrainsSkipTrainAllowed               *bool                                `url:"merge_trains_skip_train_allowed,omitempty" json:"merge_trains_skip_train_allowed,omitempty"`
 	Mirror                                    *bool                                `url:"mirror,omitempty" json:"mirror,omitempty"`
 	MirrorTriggerBuilds                       *bool                                `url:"mirror_trigger_builds,omitempty" json:"mirror_trigger_builds,omitempty"`
 	ModelExperimentsAccessLevel               *AccessControlValue                  `url:"model_experiments_access_level,omitempty" json:"model_experiments_access_level,omitempty"`
@@ -924,6 +929,7 @@ type EditProjectOptions struct {
 	AutoCancelPendingPipelines                *string                                      `url:"auto_cancel_pending_pipelines,omitempty" json:"auto_cancel_pending_pipelines,omitempty"`
 	AutoDevopsDeployStrategy                  *string                                      `url:"auto_devops_deploy_strategy,omitempty" json:"auto_devops_deploy_strategy,omitempty"`
 	AutoDevopsEnabled                         *bool                                        `url:"auto_devops_enabled,omitempty" json:"auto_devops_enabled,omitempty"`
+	AutoDuoCodeReviewEnabled                  *bool                                        `url:"auto_duo_code_review_enabled,omitempty" json:"auto_duo_code_review_enabled,omitempty"`
 	AutocloseReferencedIssues                 *bool                                        `url:"autoclose_referenced_issues,omitempty" json:"autoclose_referenced_issues,omitempty"`
 	Avatar                                    *ProjectAvatar                               `url:"-" json:"avatar,omitempty"`
 	BuildCoverageRegex                        *string                                      `url:"build_coverage_regex,omitempty" json:"build_coverage_regex,omitempty"`
@@ -935,6 +941,7 @@ type EditProjectOptions struct {
 	CIDeletePipelinesInSeconds                *int                                         `url:"ci_delete_pipelines_in_seconds,omitempty" json:"ci_delete_pipelines_in_seconds,omitempty"`
 	CIForwardDeploymentEnabled                *bool                                        `url:"ci_forward_deployment_enabled,omitempty" json:"ci_forward_deployment_enabled,omitempty"`
 	CIForwardDeploymentRollbackAllowed        *bool                                        `url:"ci_forward_deployment_rollback_allowed,omitempty" json:"ci_forward_deployment_rollback_allowed,omitempty"`
+	CIPushRepositoryForJobTokenAllowed        *bool                                        `url:"ci_push_repository_for_job_token_allowed,omitempty" json:"ci_push_repository_for_job_token_allowed,omitempty"`
 	CIIdTokenSubClaimComponents               *[]string                                    `url:"ci_id_token_sub_claim_components,omitempty" json:"ci_id_token_sub_claim_components,omitempty"`
 	CISeperateCache                           *bool                                        `url:"ci_separated_caches,omitempty" json:"ci_separated_caches,omitempty"`
 	CIRestrictPipelineCancellationRole        *AccessControlValue                          `url:"ci_restrict_pipeline_cancellation_role,omitempty" json:"ci_restrict_pipeline_cancellation_role,omitempty"`
@@ -960,6 +967,7 @@ type EditProjectOptions struct {
 	MergeRequestsAccessLevel                  *AccessControlValue                          `url:"merge_requests_access_level,omitempty" json:"merge_requests_access_level,omitempty"`
 	MergeRequestsTemplate                     *string                                      `url:"merge_requests_template,omitempty" json:"merge_requests_template,omitempty"`
 	MergeTrainsEnabled                        *bool                                        `url:"merge_trains_enabled,omitempty" json:"merge_trains_enabled,omitempty"`
+	MergeTrainsSkipTrainAllowed               *bool                                        `url:"merge_trains_skip_train_allowed,omitempty" json:"merge_trains_skip_train_allowed,omitempty"`
 	Mirror                                    *bool                                        `url:"mirror,omitempty" json:"mirror,omitempty"`
 	MirrorBranchRegex                         *string                                      `url:"mirror_branch_regex,omitempty" json:"mirror_branch_regex,omitempty"`
 	MirrorOverwritesDivergedBranches          *bool                                        `url:"mirror_overwrites_diverged_branches,omitempty" json:"mirror_overwrites_diverged_branches,omitempty"`

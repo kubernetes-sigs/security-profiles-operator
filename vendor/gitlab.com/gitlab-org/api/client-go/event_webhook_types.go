@@ -605,6 +605,7 @@ type MergeCommentEvent struct {
 		HeadPipelineID      int        `json:"head_pipeline_id"`
 		Assignee            *EventUser `json:"assignee"`
 		DetailedMergeStatus string     `json:"detailed_merge_status"`
+		URL                 string     `json:"url"`
 	} `json:"merge_request"`
 }
 

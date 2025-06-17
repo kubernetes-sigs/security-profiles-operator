@@ -157,6 +157,7 @@ type AddGroupHookOptions struct {
 	FeatureFlagEvents         *bool                `url:"feature_flag_events,omitempty" json:"feature_flag_events,omitempty"`
 	ReleasesEvents            *bool                `url:"releases_events,omitempty" json:"releases_events,omitempty"`
 	SubGroupEvents            *bool                `url:"subgroup_events,omitempty" json:"subgroup_events,omitempty"`
+	EmojiEvents               *bool                `url:"emoji_events,omitempty" json:"emoji_events,omitempty"`
 	MemberEvents              *bool                `url:"member_events,omitempty" json:"member_events,omitempty"`
 	EnableSSLVerification     *bool                `url:"enable_ssl_verification,omitempty"  json:"enable_ssl_verification,omitempty"`
 	Token                     *string              `url:"token,omitempty" json:"token,omitempty"`
@@ -214,6 +215,7 @@ type EditGroupHookOptions struct {
 	FeatureFlagEvents                     *bool                `url:"feature_flag_events,omitempty" json:"feature_flag_events,omitempty"`
 	ReleasesEvents                        *bool                `url:"releases_events,omitempty" json:"releases_events,omitempty"`
 	SubGroupEvents                        *bool                `url:"subgroup_events,omitempty" json:"subgroup_events,omitempty"`
+	EmojiEvents                           *bool                `url:"emoji_events,omitempty" json:"emoji_events,omitempty"`
 	MemberEvents                          *bool                `url:"member_events,omitempty" json:"member_events,omitempty"`
 	EnableSSLVerification                 *bool                `url:"enable_ssl_verification,omitempty" json:"enable_ssl_verification,omitempty"`
 	ServiceAccessTokensExpirationEnforced *bool                `url:"service_access_tokens_expiration_enforced,omitempty" json:"service_access_tokens_expiration_enforced,omitempty"`
