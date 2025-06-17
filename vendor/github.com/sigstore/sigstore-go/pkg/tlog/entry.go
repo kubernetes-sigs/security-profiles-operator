@@ -101,7 +101,7 @@ func ParseEntry(protoEntry *v1.TransparencyLogEntry) (entry *Entry, err error) {
 	if protoEntry == nil ||
 		protoEntry.CanonicalizedBody == nil ||
 		protoEntry.IntegratedTime == 0 ||
-		protoEntry.LogIndex == 0 ||
+		protoEntry.LogIndex < 0 ||
 		protoEntry.LogId == nil ||
 		protoEntry.LogId.KeyId == nil ||
 		protoEntry.KindVersion == nil {
@@ -250,7 +250,7 @@ func (entry *Entry) HasInclusionProof() bool {
 }
 
 func VerifyInclusion(entry *Entry, verifier signature.Verifier) error {
-	err := rekorVerify.VerifyInclusion(context.TODO(), &entry.logEntryAnon)
+	err := rekorVerify.VerifyInclusion(context.Background(), &entry.logEntryAnon)
 	if err != nil {
 		return err
 	}

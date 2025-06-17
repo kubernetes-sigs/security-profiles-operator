@@ -2,6 +2,11 @@
 
 A GitLab API client enabling Go programs to interact with GitLab in a simple and uniform way.
 
+
+## Table of Contents
+
+[[_TOC_]]
+
 ## Usage
 
 ```go
@@ -89,6 +94,14 @@ func main() {
 
 For complete usage of go-gitlab, see the full [package docs](https://godoc.org/gitlab.com/gitlab-org/api/client-go).
 
+## Installation
+
+To install the library, use the following command:
+
+```go
+go get gitlab.com/gitlab-org/api/client-go
+```
+
 ## Testing
 
 The `client-go` project comes with a `testing` package at `gitlab.com/gitlab-org/api/client-go/testing`
@@ -133,6 +146,16 @@ func NewTestClient(t *testing.T) {
 The `newMockClusterAgentsService` must return a type that implements `gitlab.ClusterAgentsInterface`.
 
 You can have a look at [`testing/client.go`](/testing.client.go) how it's implemented for `gomock`.
+
+## Compatibility
+
+The `client-go` package will maintain compatibility with the officially supported Go releases
+at the time the package is released. According to the [Go Release Policy](https://go.dev/doc/devel/release#policy),
+that's currently the two last major Go releases.
+This compatibility is reflected in the `go` directive of the [`go.mod`](/go.mod) file
+and the unit test matrix in [`.gitlab-ci.yml`](/.gitlab-ci.yml).
+
+You may also use https://endoflife.date/go to quickly discover the supported Go versions.
 
 ## Contributing
 

@@ -34,14 +34,13 @@ stages:
   parallel:
     matrix:
       - GOLANG_IMAGE_VERSION:
-        - '1.22'
         - '1.23'
         - '1.24'
 
 .go:base:
   extends:
     - .go:runner-tags
-  # From: https://docs.gitlab.com/ee/ci/caching/#cache-go-dependencies
+  # From: https://docs.gitlab.com/ci/caching/#cache-go-dependencies
   variables:
     GOPATH: $CI_PROJECT_DIR/.go
     GOLANGCI_LINT_CACHE: $CI_PROJECT_DIR/.golangci-lint
@@ -75,9 +74,9 @@ golangci-lint:
   needs: []
   variables:
     REPORT_FILENAME: 'gl-code-quality-report.json'
-  image: golangci/golangci-lint:v1.64.8
+  image: golangci/golangci-lint:v2.1.6
   script:
-    - golangci-lint run --print-issued-lines=false --out-format code-climate:$REPORT_FILENAME,line-number
+    - golangci-lint run
   artifacts:
     reports:
       codequality: $REPORT_FILENAME
@@ -142,17 +141,38 @@ generate-release-notes:
   image: alpine:3.21.3
   before_script:
     - apk add --update jq curl git
+  variables:
+    GIT_DEPTH: 400
+    GIT_FETCH_EXTRA_FLAGS: '--tags'
   script:
     - |
+      # Download upstream tags if running from a fork
+      if [ "${CI_MERGE_REQUEST_SOURCE_PROJECT_ID}" != "${CI_MERGE_REQUEST_PROJECT_ID}" ]; then
+        echo "This merge request has been created from a fork."
+        if [ "${CI_MERGE_REQUEST_SOURCE_PROJECT_ID}" = "${CI_PROJECT_ID}" ]; then
+          echo "The merge request pipeline runs in the source project. Downloading tags."
+          git fetch --depth="${GIT_DEPTH}" --tags "${CI_MERGE_REQUEST_PROJECT_URL}"
+        else
+          echo "The merge request pipeline runs in the target project. Not downloading tags."
+        fi
+      fi
+    - |
+      # Determine version.
       if [ -z "$CI_COMMIT_TAG" ]; then
-        last_stable_version_sha="$(git tag | grep -E '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$' | sort -Vr | head -n1)"
-        version="${last_stable_version_sha}+${CI_COMMIT_SHA}"
+        version="$(git describe --tags --match 'v*')"
       else
         version="$CI_COMMIT_TAG"
       fi
       urlencoded_version="$(jq -rn --arg x "${version}" '$x|@uri')"
-    - echo "Generating release notes for ${version} (urlencoded=${urlencoded_version}) ..."
-    - 'curl --fail-with-body --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/repository/changelog?version=${urlencoded_version}" | jq -r .notes > release-notes.md'
+      echo "Generating release notes for ${version} (urlencoded=${urlencoded_version}) ..."
+    - |
+      # If running in a merge request pipeline, generate the release notes using the target project.
+      PROJECT_ID="${CI_PROJECT_ID}"
+      if [ -n "${CI_MERGE_REQUEST_PROJECT_ID}" ]; then
+        PROJECT_ID="${CI_MERGE_REQUEST_PROJECT_ID}"
+      fi
+    - url="https://gitlab.com/api/v4/projects/${PROJECT_ID}/repository/changelog?version=${urlencoded_version}"; echo "url=\"${url}\""
+    - curl --fail-with-body "${url}" | jq -r .notes >release-notes.md
     - cat release-notes.md
   artifacts:
     paths:
