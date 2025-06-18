@@ -379,7 +379,7 @@ github.com/buildkite/roko
 # github.com/cenkalti/backoff/v5 v5.0.2
 ## explicit; go 1.23
 github.com/cenkalti/backoff/v5
-# github.com/cert-manager/cert-manager v1.18.0
+# github.com/cert-manager/cert-manager v1.18.1
 ## explicit; go 1.23.0
 github.com/cert-manager/cert-manager/pkg/apis/acme
 github.com/cert-manager/cert-manager/pkg/apis/acme/v1
