@@ -106,7 +106,7 @@ spec:
 		regexp.MustCompile(`(?m)"syscallName"="listen|execve|clone|getpid"`))
 
 	e.Contains(output, "auditID")
-	e.Contains(output, "SPO_EXEC_REQUEST_UID")
+	e.Contains(output, "requestUID")
 	e.Contains(output, "cmdLine")
 	e.Contains(output, "rm -rf")
 	e.Contains(output, "ps -aef")
@@ -206,7 +206,7 @@ spec:
 
 	// then match the rest
 	e.Contains(output, "auditID")
-	e.Contains(output, "SPO_EXEC_REQUEST_UID")
+	e.Contains(output, "requestUID")
 	e.Contains(output, "cmdLine")
 	e.Contains(output, "ls")
 	e.Contains(output, "date")
