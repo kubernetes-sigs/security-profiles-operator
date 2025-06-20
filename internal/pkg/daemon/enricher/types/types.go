@@ -69,7 +69,7 @@ type ProcessInfo struct {
 	Uid           uint32
 	Gid           uint32
 	Executable    string
-	ExecRequestId *string
+	ExecRequestId string
 }
 type LogBucket struct {
 	SyscallIds    sync.Map
