@@ -242,6 +242,8 @@ func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 
 	content, err := fs.ReadFile(d.fsys, filepath.Clean(envFile))
 	if err != nil {
+		fmt.Println("Error reading environ file" + err.Error())
+
 		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 
 		return envMap, retErr
