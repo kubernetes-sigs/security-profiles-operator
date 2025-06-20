@@ -79,15 +79,20 @@ func populateProcessCache(
 		Uid:        uid,
 		Gid:        gid,
 	}
-	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
 
 	cmdLine, err := impl.CmdlineForPID(pid)
 	if err != nil {
+		processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
+
 		return fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err)
 	}
 
+	procInfo.CmdLine = cmdLine
+
 	env, err := impl.EnvForPid(pid)
 	if err != nil {
+		processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
+
 		return fmt.Errorf("failed to get env for pid %d: %w", pid, err)
 	}
 
@@ -96,7 +101,7 @@ func populateProcessCache(
 		procInfo.ExecRequestId = &reqId
 	}
 
-	procInfo.CmdLine = cmdLine
+	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
 
 	return nil
 }
