@@ -226,12 +226,8 @@ func (d *defaultImpl) CmdlineForPID(
 	if err := scanner.Err(); err != nil {
 		retErr = fmt.Errorf("%w: %w", ErrCmdlineNotFound, err)
 
-		fmt.Println("cmdline:" + cmdline + " err:" + retErr.Error())
-
 		return "", retErr
 	}
-
-	fmt.Println("cmdline:" + cmdline + " content:" + sb.String())
 
 	return sb.String(), retErr
 }
