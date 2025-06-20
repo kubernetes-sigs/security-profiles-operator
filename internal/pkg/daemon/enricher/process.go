@@ -19,6 +19,7 @@ package enricher
 import (
 	"errors"
 	"fmt"
+
 	"github.com/jellydator/ttlcache/v3"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
