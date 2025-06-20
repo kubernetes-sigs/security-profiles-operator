@@ -19,8 +19,6 @@ package enricher
 import (
 	"errors"
 	"fmt"
-	"strconv"
-
 	"github.com/jellydator/ttlcache/v3"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
@@ -84,23 +82,16 @@ func populateProcessCache(
 	if err == nil {
 		procInfo.CmdLine = cmdLine
 	} else {
-		fmt.Println("Error getting cmdlineForPID:", err)
 		errs = append(errs, fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err))
 	}
-
-	fmt.Println("call EnvForPid for Pid:" + strconv.Itoa(pid))
 
 	env, err := impl.EnvForPid(pid)
 	if err == nil {
 		reqId, ok := env[requestIdEnv]
 		if ok {
-			fmt.Println("Setting request id", reqId)
-
 			procInfo.ExecRequestId = reqId
 		}
 	} else {
-		fmt.Println("Error getting EnvForPid:", err)
-
 		errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
 	}
 

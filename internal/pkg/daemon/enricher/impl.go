@@ -235,22 +235,15 @@ func (d *defaultImpl) CmdlineForPID(
 func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 	var retErr error
 
-	fmt.Println("EnvForPid")
-
 	envFile := fmt.Sprintf("proc/%d/environ", pid)
 	envMap := make(map[string]string)
 
 	content, err := fs.ReadFile(d.fsys, filepath.Clean(envFile))
 	if err != nil {
-		fmt.Println("Error reading environ file" + err.Error())
-
 		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 
 		return envMap, retErr
 	}
-
-	fmt.Println("envFile: " + envFile)
-	fmt.Printf("As String 1: %s\n", string(content))
 
 	envVars := bytes.Split(content, []byte{0})
 
