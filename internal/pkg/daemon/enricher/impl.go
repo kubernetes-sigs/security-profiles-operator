@@ -18,9 +18,11 @@ package enricher
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -41,7 +43,15 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-type defaultImpl struct{}
+type defaultImpl struct {
+	fsys fs.FS // Must be initialized by newDefaultImpl
+}
+
+func newDefaultImpl() *defaultImpl {
+	return &defaultImpl{
+		fsys: os.DirFS("/"),
+	}
+}
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate -header ../../../../hack/boilerplate/boilerplate.generatego.txt
 //counterfeiter:generate . impl
@@ -70,6 +80,7 @@ type impl interface {
 	RemoveAll(string) error
 	CmdlineForPID(pid int) (string, error)
 	PrintJsonOutput(w io.Writer, output string)
+	EnvForPid(pid int) (map[string]string, error)
 }
 
 func (d *defaultImpl) Getenv(key string) string {
@@ -189,9 +200,9 @@ func (d *defaultImpl) CmdlineForPID(
 ) (string, error) {
 	var retErr error
 
-	cmdline := fmt.Sprintf("/proc/%d/cmdline", pid)
+	cmdline := fmt.Sprintf("proc/%d/cmdline", pid)
 
-	file, err := os.Open(filepath.Clean(cmdline))
+	file, err := d.fsys.Open(filepath.Clean(cmdline))
 	if err != nil {
 		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 
@@ -219,6 +230,39 @@ func (d *defaultImpl) CmdlineForPID(
 	}
 
 	return sb.String(), retErr
+}
+
+func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
+	var retErr error
+
+	envFile := fmt.Sprintf("proc/%d/environ", pid)
+	envMap := make(map[string]string)
+
+	content, err := fs.ReadFile(d.fsys, filepath.Clean(envFile))
+	if err != nil {
+		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
+
+		return envMap, retErr
+	}
+
+	envVars := bytes.Split(content, []byte{0})
+
+	for _, envVarBytes := range envVars {
+		envVar := string(envVarBytes)
+		if envVar == "" {
+			continue
+		}
+
+		// Ignore keys with no values
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) == 2 {
+			key := parts[0]
+			value := parts[1]
+			envMap[key] = value
+		}
+	}
+
+	return envMap, nil
 }
 
 func (d *defaultImpl) PrintJsonOutput(w io.Writer, output string) {

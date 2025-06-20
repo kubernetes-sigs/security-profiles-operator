@@ -36,6 +36,10 @@ var (
 	ErrCmdlineNotFound = errors.New("cmdline empty or not found for the process")
 )
 
+const (
+	requestIdEnv = "SPO_EXEC_REQUEST_UID"
+)
+
 func GetProcessInfo(
 	pid int, executable string, uid, gid uint32,
 	processCache *ttlcache.Cache[int, *types.ProcessInfo],
@@ -49,8 +53,8 @@ func GetProcessInfo(
 
 	var errDetailsFetch error
 
-	if err := populateProcessCache(pid, executable, uid, gid, processCache, impl); err != nil {
-		errDetailsFetch = fmt.Errorf("get process info for pid: %w", err)
+	if errs := populateProcessCache(pid, executable, uid, gid, processCache, impl); len(errs) > 0 {
+		errDetailsFetch = fmt.Errorf("get process info for pid: %w", errs[0])
 	}
 
 	item = processCache.Get(pid)
@@ -65,21 +69,34 @@ func populateProcessCache(
 	pid int, executable string, uid, gid uint32,
 	processCache *ttlcache.Cache[int, *types.ProcessInfo],
 	impl impl,
-) error {
+) []error {
+	var errs []error
+
 	procInfo := types.ProcessInfo{
 		Pid:        pid,
 		Executable: executable,
 		Uid:        uid,
 		Gid:        gid,
 	}
-	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
 
 	cmdLine, err := impl.CmdlineForPID(pid)
-	if err != nil {
-		return err
+	if err == nil {
+		procInfo.CmdLine = cmdLine
+	} else {
+		errs = append(errs, fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err))
 	}
 
-	procInfo.CmdLine = cmdLine
+	env, err := impl.EnvForPid(pid)
+	if err == nil {
+		reqId, ok := env[requestIdEnv]
+		if ok {
+			procInfo.ExecRequestId = reqId
+		}
+	} else {
+		errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
+	}
 
-	return nil
+	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
+
+	return errs
 }
