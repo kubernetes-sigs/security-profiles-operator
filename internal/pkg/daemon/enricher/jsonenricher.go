@@ -418,8 +418,8 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		"timestamp":  isoTimestamp,
 	}
 
-	if logBucket.ProcessInfo.ExecRequestId != nil {
-		auditMap["requestUID"] = *logBucket.ProcessInfo.ExecRequestId
+	if logBucket.ProcessInfo.ExecRequestId != "" {
+		auditMap["requestUID"] = logBucket.ProcessInfo.ExecRequestId
 	}
 
 	auditJson, err := json.Marshal(auditMap)

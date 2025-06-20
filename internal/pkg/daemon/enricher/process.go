@@ -95,7 +95,9 @@ func populateProcessCache(
 
 	reqId, ok := env[requestIdEnv]
 	if ok {
-		procInfo.ExecRequestId = &reqId
+		fmt.Println("Setting request id", reqId)
+
+		procInfo.ExecRequestId = reqId
 	}
 
 	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
