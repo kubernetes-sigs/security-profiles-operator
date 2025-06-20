@@ -98,11 +98,18 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
+	e.kubectl("exec", "-it", podName, "--", "rm -rf /") // Do something bad in the pod
+	e.kubectl("exec", "-it", podName, "--", "ps -aef")
+
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
 		regexp.MustCompile(`(?m)"syscallName"="listen|execve|clone|getpid"`))
 
 	e.Contains(output, "auditID")
+	e.Contains(output, "SPO_EXEC_REQUEST_UID")
+	e.Contains(output, "cmdLine")
+	e.Contains(output, "rm -rf")
+	e.Contains(output, "ps -aef")
 }
 
 func (e *e2e) testCaseJsonEnricher([]string) {
@@ -199,4 +206,8 @@ spec:
 
 	// then match the rest
 	e.Contains(output, "auditID")
+	e.Contains(output, "SPO_EXEC_REQUEST_UID")
+	e.Contains(output, "cmdLine")
+	e.Contains(output, "ls")
+	e.Contains(output, "date")
 }
