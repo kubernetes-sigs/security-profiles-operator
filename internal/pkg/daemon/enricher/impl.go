@@ -235,6 +235,8 @@ func (d *defaultImpl) CmdlineForPID(
 func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 	var retErr error
 
+	fmt.Println("EnvForPid")
+
 	envFile := fmt.Sprintf("proc/%d/environ", pid)
 	envMap := make(map[string]string)
 
