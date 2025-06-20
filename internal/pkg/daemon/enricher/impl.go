@@ -245,6 +245,9 @@ func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 		return envMap, retErr
 	}
 
+	fmt.Println("envFile: " + envFile)
+	fmt.Printf("As String 1: %s\n", string(content))
+
 	envVars := bytes.Split(content, []byte{0})
 
 	for _, envVarBytes := range envVars {
