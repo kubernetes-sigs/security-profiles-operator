@@ -54,8 +54,8 @@ func GetProcessInfo(
 
 	var errDetailsFetch error
 
-	if err := populateProcessCache(pid, executable, uid, gid, processCache, impl); err != nil {
-		errDetailsFetch = fmt.Errorf("get process info for pid: %w", err)
+	if errs := populateProcessCache(pid, executable, uid, gid, processCache, impl); len(errs) > 0 {
+		errDetailsFetch = fmt.Errorf("get process info for pid: %w", errs[0])
 	}
 
 	item = processCache.Get(pid)
@@ -70,7 +70,7 @@ func populateProcessCache(
 	pid int, executable string, uid, gid uint32,
 	processCache *ttlcache.Cache[int, *types.ProcessInfo],
 	impl impl,
-) error {
+) []error {
 	var errs []error
 
 	procInfo := types.ProcessInfo{
@@ -100,10 +100,11 @@ func populateProcessCache(
 		}
 	} else {
 		fmt.Println("Error getting EnvForPid:", err)
+
 		errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
 	}
 
 	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
 
-	return nil
+	return errs
 }
