@@ -19,6 +19,7 @@ package enricher
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/jellydator/ttlcache/v3"
 
@@ -70,6 +71,8 @@ func populateProcessCache(
 	processCache *ttlcache.Cache[int, *types.ProcessInfo],
 	impl impl,
 ) error {
+	var errs []error
+
 	procInfo := types.ProcessInfo{
 		Pid:        pid,
 		Executable: executable,
@@ -78,32 +81,27 @@ func populateProcessCache(
 	}
 
 	cmdLine, err := impl.CmdlineForPID(pid)
-	if err != nil {
+	if err == nil {
+		procInfo.CmdLine = cmdLine
+	} else {
 		fmt.Println("Error getting cmdlineForPID:", err)
-		processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
-
-		return fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err)
+		errs = append(errs, fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err))
 	}
 
-	procInfo.CmdLine = cmdLine
-
-	fmt.Println("call EnvForPid")
+	fmt.Println("call EnvForPid for Pid:" + strconv.Itoa(pid))
 
 	env, err := impl.EnvForPid(pid)
-	if err != nil {
-		processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
+	if err == nil {
+		reqId, ok := env[requestIdEnv]
+		if ok {
+			fmt.Println("Setting request id", reqId)
 
-		return fmt.Errorf("failed to get env for pid %d: %w", pid, err)
+			procInfo.ExecRequestId = reqId
+		}
+	} else {
+		fmt.Println("Error getting EnvForPid:", err)
+		errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
 	}
-
-	reqId, ok := env[requestIdEnv]
-	if ok {
-		fmt.Println("Setting request id", reqId)
-
-		procInfo.ExecRequestId = reqId
-	}
-
-	fmt.Println("Setting request uid", reqId)
 
 	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
 
