@@ -19,6 +19,7 @@ package enricher
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/jellydator/ttlcache/v3"
 
@@ -48,6 +49,8 @@ func GetProcessInfo(
 	// Check the cache first
 	item := processCache.Get(pid)
 	if item != nil {
+		fmt.Println("Returning from cache for pid" + strconv.Itoa(pid))
+
 		return item.Value(), nil
 	}
 
