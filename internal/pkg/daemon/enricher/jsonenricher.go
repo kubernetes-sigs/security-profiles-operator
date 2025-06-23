@@ -81,7 +81,7 @@ type Node struct {
 
 type AuditEvent struct {
 	Version string `json:"version"`
-	//nolint:tagliatelle
+	//nolint:tagliatelle // Maintain compatibility with k8s server side auditID
 	AuditID           string `json:"auditID"`
 	types.ProcessInfo `json:",inline"`
 	Resource          *Resource `json:"resource,omitempty"`
