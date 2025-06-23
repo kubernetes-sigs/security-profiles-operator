@@ -285,10 +285,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 			}
 		}
 
-		if logBucket.ContainerInfo == nil {
-			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID, nodeName)
-		}
-
+		// Capture proc/pid/(cmdLine/environ) early; these files are ephemeral on some OS (e.g., Ubuntu).
 		if logBucket.ProcessInfo == nil {
 			uid, gid, err := auditsource.GetUidGid(line)
 			if err != nil {
@@ -298,6 +295,10 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 			logBucket.ProcessInfo = e.fetchProcessInfo(auditLine.ProcessID,
 				auditLine.Executable, uid, gid)
+		}
+
+		if logBucket.ContainerInfo == nil {
+			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID, nodeName)
 		}
 
 		logBucket.SyscallIds.LoadOrStore(auditLine.SystemCallID, struct{}{})

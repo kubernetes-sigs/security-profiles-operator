@@ -19,6 +19,7 @@ package enricher
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jellydator/ttlcache/v3"
 
@@ -53,8 +54,8 @@ func GetProcessInfo(
 
 	var errDetailsFetch error
 
-	if err := populateProcessCache(pid, executable, uid, gid, processCache, impl); err != nil {
-		errDetailsFetch = fmt.Errorf("get process info for pid: %w", err)
+	if procErrors := populateProcessCache(pid, executable, uid, gid, processCache, impl); len(procErrors) > 0 {
+		errDetailsFetch = fmt.Errorf("get process info for pid: %w", errors.Join(procErrors...))
 	}
 
 	item = processCache.Get(pid)
@@ -69,31 +70,82 @@ func populateProcessCache(
 	pid int, executable string, uid, gid uint32,
 	processCache *ttlcache.Cache[int, *types.ProcessInfo],
 	impl impl,
-) error {
+) []error {
+	var errs []error
+
 	procInfo := types.ProcessInfo{
 		Pid:        pid,
 		Executable: executable,
 		Uid:        uid,
 		Gid:        gid,
 	}
-	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
+
+	cmdLineFound := false
 
 	cmdLine, err := impl.CmdlineForPID(pid)
-	if err != nil {
-		return fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err)
+	if err == nil {
+		procInfo.CmdLine = cmdLine
+		cmdLineFound = true
+	} else {
+		errs = append(errs, fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err))
 	}
+
+	reqIdEnvFound := false
 
 	env, err := impl.EnvForPid(pid)
-	if err != nil {
-		return fmt.Errorf("failed to get env for pid %d: %w", pid, err)
+	if err == nil {
+		reqId, ok := env[requestIdEnv]
+		if ok {
+			procInfo.ExecRequestId = &reqId
+			reqIdEnvFound = true
+		} else {
+			errs = append(errs, fmt.Errorf("failed to get requestId for pid from env %d: %w", pid, err))
+		}
+	} else {
+		errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
 	}
 
-	reqId, ok := env[requestIdEnv]
-	if ok {
-		procInfo.ExecRequestId = &reqId
+	// Special case: Extract UID directly from cmdLine if 'env' variable is missing it.
+	// e.g., "env SPO_EXEC_REQUEST_UID=dbbf5fca-c955-4922-99d2-27a50212071c ls"
+	if !reqIdEnvFound && cmdLineFound {
+		reqId, ok := extractSPORequestUID(cmdLine)
+		if ok {
+			procInfo.ExecRequestId = &reqId
+		} else {
+			errs = append(errs, fmt.Errorf("failed to get UID from cmdLine %d: %w", pid, err))
+		}
 	}
 
-	procInfo.CmdLine = cmdLine
+	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
 
-	return nil
+	return errs
+}
+
+func extractSPORequestUID(input string) (string, bool) {
+	prefix := requestIdEnv + "="
+
+	start := strings.Index(input, prefix)
+	if start == -1 {
+		return "", false
+	}
+
+	dataStart := start + len(prefix)
+
+	if dataStart >= len(input) {
+		return "", false
+	}
+
+	end := strings.IndexAny(input[dataStart:], " \t\n\r")
+
+	if end == -1 {
+		return input[dataStart:], true
+	}
+
+	absEnd := dataStart + end
+
+	if absEnd == dataStart {
+		return "", false
+	}
+
+	return input[dataStart:absEnd], true
 }
