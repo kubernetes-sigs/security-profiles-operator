@@ -69,26 +69,26 @@ func GetProcessInfo(
 func extractSPORequestUID(input string) (string, bool) {
 	prefix := "SPO_EXEC_REQUEST_UID="
 
-	startIndex := strings.Index(input, prefix)
-	if startIndex == -1 {
+	start := strings.Index(input, prefix)
+	if start == -1 {
 		return "", false
 	}
 
-	dataStartIndex := startIndex + len(prefix)
+	dataStart := start + len(prefix)
 
-	if dataStartIndex >= len(input) {
+	if dataStart >= len(input) {
 		return "", false
 	}
 
-	endIndex := strings.IndexAny(input[dataStartIndex:], " \t\n\r")
+	end := strings.IndexAny(input[dataStart:], " \t\n\r")
 
-	if endIndex == -1 {
-		return input[dataStartIndex:], true
+	if end == -1 {
+		return input[dataStart:], true
 	}
 
-	absoluteEndIndex := dataStartIndex + endIndex
+	absEnd := dataStart + end
 
-	return input[dataStartIndex:absoluteEndIndex], true
+	return input[dataStart:absEnd], true
 }
 
 func populateProcessCache(
