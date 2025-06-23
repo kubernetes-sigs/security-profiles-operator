@@ -64,12 +64,13 @@ type ContainerInfo struct {
 }
 
 type ProcessInfo struct {
-	Pid           int     `json:"pid"`
-	CmdLine       string  `json:"cmdline"`
-	Uid           uint32  `json:"uid"`
-	Gid           uint32  `json:"gid"`
-	Executable    string  `json:"executable"`
-	ExecRequestId *string `json:"execRequestId,omitempty"`
+	Pid        int    `json:"pid"`
+	CmdLine    string `json:"cmdline"`
+	Uid        uint32 `json:"uid"`
+	Gid        uint32 `json:"gid"`
+	Executable string `json:"executable"`
+	//nolint:tagliatelle // Ensure UID is in caps
+	ExecRequestId *string `json:"requestUID,omitempty"`
 }
 type LogBucket struct {
 	SyscallIds    sync.Map
