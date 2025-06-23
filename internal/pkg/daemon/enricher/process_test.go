@@ -49,6 +49,12 @@ func Test_extractSPORequestUID(t *testing.T) {
 			want:      "",
 			foundWant: false,
 		},
+		{
+			name:      "Test with process values",
+			args:      args{input: "nginx: master process nginx -g daemon off;"},
+			want:      "",
+			foundWant: false,
+		},
 	}
 
 	for _, tt := range tests {
