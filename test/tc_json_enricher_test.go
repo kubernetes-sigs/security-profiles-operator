@@ -98,9 +98,9 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
-	time.Sleep(15 * time.Second)
+	time.Sleep(10 * time.Second)
 
-	e.kubectl("exec", "-it", podName, "--", "ls")
+	e.kubectl("exec", "-it", podName, "--", "sleep", "5")
 	e.kubectl("exec", "-it", podName, "--", "env")
 
 	// wait for at least one component of the expected logs to appear
@@ -110,7 +110,7 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
-	e.Contains(output, "ls")
+	e.Contains(output, "sleep")
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
 }
@@ -191,9 +191,9 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
-	time.Sleep(15 * time.Second)
+	time.Sleep(10 * time.Second)
 
-	e.kubectl("exec", "-it", podName, "--", "ls")
+	e.kubectl("exec", "-it", podName, "--", "sleep", "5")
 	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
 	e.Contains(envOutput, "SPO_EXEC_REQUEST_UID")
 
@@ -214,7 +214,7 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
-	e.Contains(output, "ls")
+	e.Contains(output, "sleep")
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
 }

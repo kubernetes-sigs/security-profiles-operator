@@ -201,7 +201,6 @@ func (d *defaultImpl) CmdlineForPID(
 ) (string, error) {
 	var retErr error
 
-	fmt.Println("Fetching cmdline for pid " + strconv.Itoa(pid))
 	cmdline := fmt.Sprintf("proc/%d/cmdline", pid)
 
 	file, err := d.fsys.Open(filepath.Clean(cmdline))
@@ -230,12 +229,8 @@ func (d *defaultImpl) CmdlineForPID(
 	if err := scanner.Err(); err != nil {
 		retErr = fmt.Errorf("%w: %w", ErrCmdlineNotFound, err)
 
-		fmt.Println("Failed to open cmdline for pid 2 " + strconv.Itoa(pid) + ": " + retErr.Error())
-
 		return "", retErr
 	}
-
-	fmt.Println("cmdline content " + sb.String() + " pid: " + strconv.Itoa(pid))
 
 	return sb.String(), retErr
 }
@@ -243,7 +238,6 @@ func (d *defaultImpl) CmdlineForPID(
 func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 	var retErr error
 
-	fmt.Println("Fetching env for pid " + strconv.Itoa(pid))
 	envFile := fmt.Sprintf("proc/%d/environ", pid)
 	envMap := make(map[string]string)
 
@@ -251,12 +245,8 @@ func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 	if err != nil {
 		retErr = fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 
-		fmt.Println("Failed to open env for pid 1 " + strconv.Itoa(pid) + ": " + retErr.Error())
-
 		return envMap, retErr
 	}
-
-	fmt.Println("envFile content " + string(content) + " pid: " + strconv.Itoa(pid))
 
 	envVars := bytes.Split(content, []byte{0})
 
