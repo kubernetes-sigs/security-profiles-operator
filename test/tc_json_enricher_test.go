@@ -214,5 +214,4 @@ spec:
 	e.Contains(output, "ls")
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
-
 }
