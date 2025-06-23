@@ -98,11 +98,21 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
+	time.Sleep(5 * time.Second)
+
+	e.kubectl("exec", "-it", podName, "--", "sleep", "5") // In 5 seconds the process info will be captured
+	e.kubectl("exec", "-it", podName, "--", "env")
+
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
-		regexp.MustCompile(`(?m)"syscallName"="listen|execve|clone|getpid"`))
+		regexp.MustCompile(`(?m)"requestUID"`))
 
-	e.Contains(output, "auditID")
+	e.Contains(output, "\"auditID\"")
+	e.Contains(output, "\"requestUID\"")
+	e.Contains(output, "\"cmdLine\"")
+	e.Contains(output, "sleep")
+	e.Contains(output, "\"container\"")
+	e.Contains(output, "\"namespace\"")
 }
 
 func (e *e2e) testCaseJsonEnricher([]string) {
@@ -181,22 +191,25 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
-	e.kubectl("exec", "-it", podName, "--", "ls")
-	e.kubectl("exec", "-it", podName, "--", "date")
+	time.Sleep(10 * time.Second)
+
+	e.kubectl("exec", "-it", podName, "--", "sleep", "5")
 	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
 	e.Contains(envOutput, "SPO_EXEC_REQUEST_UID")
 
 	// wait for at least one component of the expected logs to appear
-	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"syscalls":"execve|clone"`))
+	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"requestUID"`))
 
 	e.logf("Wait for the audit lines to come within 30 seconds")
-	time.Sleep(30 * time.Second)
-	e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
-	e.logf("Another wait for the audit lines to come within 30 seconds")
 	time.Sleep(30 * time.Second)
 	e.logf("Checking JSON enricher output")
 	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 
 	// then match the rest
-	e.Contains(output, "auditID")
+	e.Contains(output, "\"auditID\"")
+	e.Contains(output, "\"requestUID\"")
+	e.Contains(output, "\"cmdLine\"")
+	e.Contains(output, "sleep")
+	e.Contains(output, "\"container\"")
+	e.Contains(output, "\"namespace\"")
 }
