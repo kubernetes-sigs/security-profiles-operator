@@ -69,6 +69,26 @@ var JsonEnricherDefaultOptions = JsonEnricherOptions{
 	AuditLogMaxBackups: 0,
 }
 
+type Resource struct {
+	Pod       string `json:"pod"`
+	Namespace string `json:"namespace"`
+	Container string `json:"container"`
+}
+
+type Node struct {
+	Name string `json:"name"`
+}
+
+type AuditEvent struct {
+	Version           string `json:"version"`
+	AuditID           string `json:"auditID"`
+	types.ProcessInfo `json:",inline"`
+	Resource          *Resource `json:"resource,omitempty"`
+	Node              Node      `json:"node"`
+	Syscalls          []string  `json:"syscalls"`
+	Timestamp         string    `json:"timestamp"`
+}
+
 func NewJsonEnricher(logger logr.Logger) (*JsonEnricher, error) {
 	return NewJsonEnricherArgs(logger, &JsonEnricherOptions{})
 }
@@ -371,7 +391,7 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		return true
 	})
 
-	var resource map[string]string
+	var resource *Resource
 
 	if logBucket.ProcessInfo == nil {
 		e.logger.V(config.VerboseLevel).Info("process info not found")
@@ -384,15 +404,11 @@ func (e *JsonEnricher) dispatchSeccompLine(
 	}
 
 	if logBucket.ContainerInfo != nil {
-		resource = map[string]string{
-			"pod":       logBucket.ContainerInfo.PodName,
-			"namespace": logBucket.ContainerInfo.Namespace,
-			"container": logBucket.ContainerInfo.ContainerName,
+		resource = &Resource{
+			Pod:       logBucket.ContainerInfo.PodName,
+			Namespace: logBucket.ContainerInfo.Namespace,
+			Container: logBucket.ContainerInfo.ContainerName,
 		}
-	}
-
-	node := map[string]string{
-		"name": nodeName,
 	}
 
 	isoTimestamp, err := common.AuditTimeToIso(logBucket.TimestampID)
@@ -402,27 +418,25 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		return
 	}
 
+	node := Node{
+		Name: nodeName,
+	}
+
 	// As close as possible to k8s server side audit json
-	// In future map this to a object and produce JSON using marshal/unmarshal functions
-	auditMap := map[string]interface{}{
-		"version":    "spo/v1_alpha",
-		"auditID":    uuid.New().String(),
-		"executable": logBucket.ProcessInfo.Executable,
-		"cmdLine":    logBucket.ProcessInfo.CmdLine,
-		"uid":        logBucket.ProcessInfo.Uid,
-		"gid":        logBucket.ProcessInfo.Gid,
-		"resource":   resource,
-		"pid":        logBucket.ProcessInfo.Pid,
-		"node":       node,
-		"syscalls":   syscallNames,
-		"timestamp":  isoTimestamp,
+	auditEvent := AuditEvent{
+		Version:     "spo/v1_alpha",
+		AuditID:     uuid.New().String(),
+		ProcessInfo: *logBucket.ProcessInfo,
+		Node:        node,
+		Timestamp:   isoTimestamp,
+		Syscalls:    syscallNames,
 	}
 
-	if logBucket.ProcessInfo.ExecRequestId != "" {
-		auditMap["requestUID"] = logBucket.ProcessInfo.ExecRequestId
+	if resource != nil {
+		auditEvent.Resource = resource
 	}
 
-	auditJson, err := json.Marshal(auditMap)
+	auditJson, err := json.Marshal(auditEvent)
 	if err != nil {
 		e.logger.Error(err, "unable to output audit line")
 

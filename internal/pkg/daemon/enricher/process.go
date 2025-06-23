@@ -19,8 +19,8 @@ package enricher
 import (
 	"errors"
 	"fmt"
-
 	"github.com/jellydator/ttlcache/v3"
+	"strings"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
@@ -53,8 +53,8 @@ func GetProcessInfo(
 
 	var errDetailsFetch error
 
-	if errs := populateProcessCache(pid, executable, uid, gid, processCache, impl); len(errs) > 0 {
-		errDetailsFetch = fmt.Errorf("get process info for pid: %w", errs[0])
+	if procErrors := populateProcessCache(pid, executable, uid, gid, processCache, impl); len(procErrors) > 0 {
+		errDetailsFetch = fmt.Errorf("get process info for pid: %w", errors.Join(procErrors...))
 	}
 
 	item = processCache.Get(pid)
@@ -63,6 +63,31 @@ func GetProcessInfo(
 	}
 
 	return nil, errors.New("no process info for Pid")
+}
+
+func extractSPORequestUID(input string) (string, bool) {
+	prefix := "SPO_EXEC_REQUEST_UID="
+
+	startIndex := strings.Index(input, prefix)
+	if startIndex == -1 {
+		return "", false
+	}
+
+	dataStartIndex := startIndex + len(prefix)
+
+	if dataStartIndex >= len(input) {
+		return "", false
+	}
+
+	endIndex := strings.IndexAny(input[dataStartIndex:], " \t\n\r")
+
+	if endIndex == -1 {
+		return input[dataStartIndex:], true
+	}
+
+	absoluteEndIndex := dataStartIndex + endIndex
+
+	return input[dataStartIndex:absoluteEndIndex], true
 }
 
 func populateProcessCache(
@@ -79,23 +104,37 @@ func populateProcessCache(
 		Gid:        gid,
 	}
 
+	cmdLineFound := false
 	cmdLine, err := impl.CmdlineForPID(pid)
 	if err == nil {
 		procInfo.CmdLine = cmdLine
+		cmdLineFound = true
 	} else {
 		errs = append(errs, fmt.Errorf("failed to get cmdline for pid %d: %w", pid, err))
 	}
 
+	reqIdEnvFound := false
 	env, err := impl.EnvForPid(pid)
 	if err == nil {
 		reqId, ok := env[requestIdEnv]
 		if ok {
-			procInfo.ExecRequestId = reqId
+			procInfo.ExecRequestId = &reqId
+			reqIdEnvFound = true
 		}
 	} else {
 		errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
 	}
 
+	if !reqIdEnvFound && cmdLineFound {
+		// If the env does not contain and cmdLine is valid,
+		// search for it, Example cmdLine: env SPO_EXEC_REQUEST_UID=dbbf5fca-c955-4922-99d2-27a50212071c ls
+		reqId, ok := extractSPORequestUID(cmdLine)
+		if ok {
+			procInfo.ExecRequestId = &reqId
+		}
+	}
+
+	// After calling set don't alter any field in procInfo
 	processCache.Set(pid, &procInfo, ttlcache.DefaultTTL)
 
 	return errs

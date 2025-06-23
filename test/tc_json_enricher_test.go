@@ -195,11 +195,11 @@ spec:
 
 	e.logf("Wait for the audit lines to come within 30 seconds")
 	time.Sleep(30 * time.Second)
-	e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
+	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 	e.logf("Another wait for the audit lines to come within 30 seconds")
 	time.Sleep(30 * time.Second)
 	e.logf("Checking JSON enricher output")
-	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
+	output = output + e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 
 	// then match the rest
 	e.Contains(output, "auditID")

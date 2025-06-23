@@ -637,14 +637,14 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 						SecurityContext: &corev1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
+							Privileged:             &falsely,
+							RunAsUser:              &userRoot,
+							RunAsGroup:             &userRoot,
 							Capabilities: &corev1.Capabilities{
 								Add: []corev1.Capability{
-									"SYS_PTRACE",
+									"SYS_PTRACE", // Required for accessing in /proc/PID/environ in some envs
 								},
 							},
-							Privileged: &falsely,
-							RunAsUser:  &userRoot,
-							RunAsGroup: &userRoot,
 							SELinuxOptions: &corev1.SELinuxOptions{
 								// TODO(pjbgf): Use a more restricted selinux type
 								Type: "spc_t",
