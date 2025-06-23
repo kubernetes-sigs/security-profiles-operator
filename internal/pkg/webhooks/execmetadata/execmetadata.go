@@ -44,7 +44,7 @@ var _ admission.Handler = (*Handler)(nil)
 
 //nolint:gocritic
 func (p Handler) Handle(_ context.Context, req admission.Request) admission.Response {
-	p.log.V(1).Info("Executing execmetadata webhook")
+	p.log.Info("Executing execmetadata webhook")
 
 	execObject := corev1.PodExecOptions{}
 
@@ -54,7 +54,7 @@ func (p Handler) Handle(_ context.Context, req admission.Request) admission.Resp
 		return admission.Allowed("pod exec request unmodified")
 	}
 
-	p.log.V(1).Info("execObject before mutate", "execObject", execObject)
+	p.log.Info("execObject before mutate", "execObject", execObject)
 
 	execObject.Command = removeRegexMatches(execObject.Command,
 		ExecRequestUid+"=.*")
@@ -62,7 +62,7 @@ func (p Handler) Handle(_ context.Context, req admission.Request) admission.Resp
 	execObject.Command = slices.Insert(execObject.Command, 0, "env",
 		fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
 
-	p.log.V(1).Info("execObject after mutate", "execObject", execObject)
+	p.log.Info("execObject after mutate", "execObject", execObject)
 
 	jsonPathOps := []jsonpatch.JsonPatchOperation{
 		{
@@ -79,7 +79,7 @@ func (p Handler) Handle(_ context.Context, req admission.Request) admission.Resp
 		ExecRequestUid: string(req.UID),
 	}
 
-	p.log.V(1).Info("response sent", "resp", resp)
+	p.log.Info("response sent", "resp", resp)
 
 	return resp
 }
