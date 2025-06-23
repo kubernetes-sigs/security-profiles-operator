@@ -19,8 +19,9 @@ package enricher
 import (
 	"errors"
 	"fmt"
-	"github.com/jellydator/ttlcache/v3"
 	"strings"
+
+	"github.com/jellydator/ttlcache/v3"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
@@ -105,6 +106,7 @@ func populateProcessCache(
 	}
 
 	cmdLineFound := false
+
 	cmdLine, err := impl.CmdlineForPID(pid)
 	if err == nil {
 		procInfo.CmdLine = cmdLine
@@ -114,6 +116,7 @@ func populateProcessCache(
 	}
 
 	reqIdEnvFound := false
+
 	env, err := impl.EnvForPid(pid)
 	if err == nil {
 		reqId, ok := env[requestIdEnv]
