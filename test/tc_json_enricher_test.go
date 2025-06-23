@@ -104,12 +104,14 @@ spec:
 
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
-		regexp.MustCompile(`(?m)"syscallName"="listen|execve|clone|getpid"`))
+		regexp.MustCompile(`(?m)"requestUID"`))
 
-	e.Contains(output, "auditID")
-	e.Contains(output, "requestUID")
-	e.Contains(output, "cmdLine")
+	e.Contains(output, "\"auditID\"")
+	e.Contains(output, "\"requestUID\"")
+	e.Contains(output, "\"cmdLine\"")
 	e.Contains(output, "ls")
+	e.Contains(output, "\"container\"")
+	e.Contains(output, "\"namespace\"")
 }
 
 func (e *e2e) testCaseJsonEnricher([]string) {
@@ -193,7 +195,7 @@ spec:
 	e.Contains(envOutput, "SPO_EXEC_REQUEST_UID")
 
 	// wait for at least one component of the expected logs to appear
-	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"syscalls":"execve|clone"`))
+	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"requestUID"`))
 
 	e.logf("Wait for the audit lines to come within 30 seconds")
 	time.Sleep(30 * time.Second)
@@ -206,8 +208,11 @@ spec:
 	output += e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 
 	// then match the rest
-	e.Contains(output, "auditID")
-	e.Contains(output, "requestUID")
-	e.Contains(output, "cmdLine")
+	e.Contains(output, "\"auditID\"")
+	e.Contains(output, "\"requestUID\"")
+	e.Contains(output, "\"cmdLine\"")
 	e.Contains(output, "ls")
+	e.Contains(output, "\"container\"")
+	e.Contains(output, "\"namespace\"")
+
 }
