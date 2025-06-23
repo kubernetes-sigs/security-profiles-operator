@@ -98,6 +98,8 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
+	time.Sleep(15 * time.Second)
+
 	e.kubectl("exec", "-it", podName, "--", "ls")
 
 	// wait for at least one component of the expected logs to appear
