@@ -101,6 +101,7 @@ spec:
 	time.Sleep(15 * time.Second)
 
 	e.kubectl("exec", "-it", podName, "--", "ls")
+	e.kubectl("exec", "-it", podName, "--", "env")
 
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
@@ -189,6 +190,8 @@ spec:
 
 		time.Sleep(5 * time.Second)
 	}
+
+	time.Sleep(15 * time.Second)
 
 	e.kubectl("exec", "-it", podName, "--", "ls")
 	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
