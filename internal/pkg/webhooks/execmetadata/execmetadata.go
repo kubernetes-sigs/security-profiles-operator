@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	"gomodules.xyz/jsonpatch/v2"
@@ -42,34 +43,137 @@ type Handler struct {
 // Ensure ExecMetadataHandler implements admission.Handler at compile time.
 var _ admission.Handler = (*Handler)(nil)
 
-//nolint:gocritic
-func (p Handler) Handle(_ context.Context, req admission.Request) admission.Response {
-	p.log.V(1).Info("Executing execmetadata webhook")
+func (p Handler) getEphemeralContainerPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
+	patches := make([]jsonpatch.JsonPatchOperation, 0)
+
+	execPodObject := corev1.Pod{}
+
+	if err := json.Unmarshal(req.Object.Raw, &execPodObject); err != nil {
+		return patches, fmt.Errorf("failed to unmarshal pod exec object: %w", err)
+	}
+
+	p.log.Info("execPodObject before mutate", "execPodObject", execPodObject)
+
+	type void struct{}
+
+	ephemeralContainersWithStatus := make(map[string]void)
+
+	// Name of Ephemeral Containers should be unique.
+	// Ref: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#ephemeralcontainer-v1-core .
+	//nolint:intrange // This conflicts with (consider pointers or indexing) (gocritic)
+	for i := 0; i < len(execPodObject.Status.EphemeralContainerStatuses); i++ {
+		ephemeralContainersWithStatus[execPodObject.Status.EphemeralContainerStatuses[i].Name] = void{}
+	}
+
+	//nolint:intrange // This conflicts with (consider pointers or indexing) (gocritic)
+	for i := 0; i < len(execPodObject.Spec.EphemeralContainers); i++ {
+		container := execPodObject.Spec.EphemeralContainers[i]
+
+		_, exists := ephemeralContainersWithStatus[container.Name]
+		// You can't change env of a already created ephemeral container.
+		if !exists {
+			container.Env = removeExistingEnv(container.Env, ExecRequestUid)
+			container.Env = append(container.Env, corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)})
+
+			patches = append(patches, jsonpatch.JsonPatchOperation{
+				Operation: "replace",
+				Path:      "/spec/ephemeralContainers/" + strconv.Itoa(i) + "/env",
+				Value:     container.Env,
+			})
+		}
+	}
+
+	p.log.Info("execPodObject after mutate", "execPodObject", execPodObject)
+
+	return patches, nil
+}
+
+func removeExistingEnv(env []corev1.EnvVar, key string) []corev1.EnvVar {
+	indexOfKey := -1
+
+	for i, envVar := range env {
+		if envVar.Name == key {
+			indexOfKey = i
+
+			break
+		}
+	}
+
+	// Order of elements in env does not matter
+	if indexOfKey != -1 {
+		env[indexOfKey] = env[len(env)-1]
+		env = env[:len(env)-1]
+	}
+
+	return env
+}
+
+func (p Handler) getPodExecPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
+	patches := make([]jsonpatch.JsonPatchOperation, 0)
 
 	execObject := corev1.PodExecOptions{}
 
 	if err := json.Unmarshal(req.Object.Raw, &execObject); err != nil {
-		p.log.Error(err, "unmarshal pod exec request")
-
-		return admission.Allowed("pod exec request unmodified")
+		return patches, fmt.Errorf("failed to unmarshal pod exec object: %w", err)
 	}
 
 	p.log.V(1).Info("execObject before mutate", "execObject", execObject)
 
-	execObject.Command = removeRegexMatches(execObject.Command,
-		ExecRequestUid+"=.*")
+	execCommand, replaced := replaceRegexMatches(execObject.Command,
+		ExecRequestUid+"=.*", fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
 
-	execObject.Command = slices.Insert(execObject.Command, 0, "env",
-		fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
+	if !replaced {
+		execObject.Command = slices.Insert(execObject.Command, 0, "env",
+			fmt.Sprintf("%s=%s", ExecRequestUid, req.UID))
+	} else {
+		execObject.Command = execCommand
+	}
 
 	p.log.V(1).Info("execObject after mutate", "execObject", execObject)
 
-	jsonPathOps := []jsonpatch.JsonPatchOperation{
-		{
-			Operation: "add",
-			Path:      "/command",
-			Value:     execObject.Command,
-		},
+	return append(patches, jsonpatch.JsonPatchOperation{
+		Operation: "add",
+		Path:      "/command",
+		Value:     execObject.Command,
+	}), nil
+}
+
+func replaceRegexMatches(slice []string, pattern, repl string) ([]string, bool) {
+	re := regexp.MustCompile(pattern)
+
+	replaced := false
+
+	for i, s := range slice {
+		if re.MatchString(s) {
+			slice[i] = re.ReplaceAllString(s, repl)
+			replaced = true
+		}
+	}
+
+	return slice, replaced
+}
+
+//nolint:gocritic
+func (p Handler) Handle(_ context.Context, req admission.Request) admission.Response {
+	p.log.V(1).Info("Executing execmetadata webhook")
+
+	patchGenerators := map[string]func(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error){
+		"PodExecOptions": p.getPodExecPatch,
+		"Pod":            p.getEphemeralContainerPatch,
+	}
+
+	patchFunc, ok := patchGenerators[req.Kind.Kind]
+	if !ok {
+		p.log.V(1).Error(nil, "Unrecognized kind", "kind", req.Kind.Kind)
+
+		return admission.Allowed("pod exec request unmodified")
+	}
+
+	jsonPathOps, err := patchFunc(&req)
+	if err != nil {
+		p.log.Error(err, "Failed to generate json patch", "kind", req.Kind.Kind)
+
+		return admission.Allowed("pod exec request unmodified")
 	}
 
 	resp := admission.Patched("UID added to execmetadata", jsonPathOps...)
@@ -82,20 +186,6 @@ func (p Handler) Handle(_ context.Context, req admission.Request) admission.Resp
 	p.log.V(1).Info("response sent", "resp", resp)
 
 	return resp
-}
-
-func removeRegexMatches(slice []string, pattern string) []string {
-	re := regexp.MustCompile(pattern)
-
-	var result []string
-
-	for _, s := range slice {
-		if !re.MatchString(s) {
-			result = append(result, s)
-		}
-	}
-
-	return result
 }
 
 func RegisterWebhook(server webhook.Server) {
