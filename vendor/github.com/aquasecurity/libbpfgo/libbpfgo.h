@@ -22,6 +22,7 @@
 void cgo_libbpf_set_print_fn();
 
 struct ring_buffer *cgo_init_ring_buf(int map_fd, uintptr_t ctx);
+struct user_ring_buffer *cgo_init_user_ring_buf(int map_fd);
 int cgo_add_ring_buf(struct ring_buffer *rb, int map_fd, uintptr_t ctx);
 struct perf_buffer *cgo_init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx);
 
@@ -29,6 +30,15 @@ void cgo_bpf_map__initial_value(struct bpf_map *map, void *value);
 
 int cgo_bpf_prog_attach_cgroup_legacy(int prog_fd, int target_fd, int type);
 int cgo_bpf_prog_detach_cgroup_legacy(int prog_fd, int target_fd, int type);
+
+struct bpf_link *cgo_bpf_program__attach_uprobe_multi(struct bpf_program *prog,
+                                                      pid_t pid,
+                                                      const char *binary_path,
+                                                      const char *func_pattern,
+                                                      const unsigned long *offsets,
+                                                      const __u64 *cookies,
+                                                      size_t count,
+                                                      bool retprobe);
 
 //
 // struct handlers

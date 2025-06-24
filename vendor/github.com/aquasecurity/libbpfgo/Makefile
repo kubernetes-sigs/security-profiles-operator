@@ -171,13 +171,15 @@ selftest-clean:
 helpers-test-run: helpers-test-static-run
 
 helpers-test-static-run: libbpfgo-static
-	CC=$(CLANG) \
+	cd $(HELPERS) && \
+		CC=$(CLANG) \
 		CGO_CFLAGS=$(CGO_CFLAGS_STATIC) \
 		CGO_LDFLAGS=$(CGO_LDFLAGS_STATIC) \
-		sudo -E env PATH=$(PATH) $(GO) test -v $(HELPERS)/...
+		sudo -E env PATH=$(PATH) $(GO) test -v ./...
 
 helpers-test-dynamic-run: libbpfgo-dynamic
-	sudo $(GO) test -v $(HELPERS)/...
+	cd $(HELPERS) && \
+		sudo $(GO) test -v ./...
 
 # vagrant
 

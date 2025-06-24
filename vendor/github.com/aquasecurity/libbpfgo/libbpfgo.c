@@ -43,9 +43,25 @@ void cgo_libbpf_set_print_fn()
     libbpf_set_print(libbpf_print_fn);
 }
 
+struct user_ring_buffer *cgo_init_user_ring_buf(int map_fd)
+{
+    struct user_ring_buffer *rb;
+
+    rb = user_ring_buffer__new(map_fd, NULL);
+    if (!rb) {
+        int saved_errno = errno;
+        fprintf(stderr, "Failed to initialize user ring buffer: %s\n", strerror(errno));
+        errno = saved_errno;
+
+        return NULL;
+    }
+
+    return rb;
+}
+
 struct ring_buffer *cgo_init_ring_buf(int map_fd, uintptr_t ctx)
 {
-    struct ring_buffer *rb = NULL;
+    struct ring_buffer *rb;
 
     rb = ring_buffer__new(map_fd, ringbufferCallback, (void *) ctx, NULL);
     if (!rb) {
@@ -129,6 +145,27 @@ int cgo_bpf_prog_detach_cgroup_legacy(int prog_fd,   // eBPF program file descri
     attr.attach_type = type;
 
     return syscall(__NR_bpf, BPF_PROG_DETACH, &attr, sizeof(attr));
+}
+
+struct bpf_link *cgo_bpf_program__attach_uprobe_multi(
+    struct bpf_program *prog,
+    pid_t pid,
+    const char *binary_path,
+    const char *func_pattern,
+    const unsigned long *offsets, // bpf_uprobe_multi_opts.offsets
+    const __u64 *cookies,         // bpf_uprobe_multi_opts.cookies
+    size_t cnt,                   // bpf_uprobe_multi_opts.cnt
+    bool retprobe                 // bpf_uprobe_multi_opts.retprobe
+)
+{
+    struct bpf_uprobe_multi_opts opts = {};
+    opts.sz = sizeof(opts);
+    opts.offsets = offsets;
+    opts.cookies = cookies;
+    opts.cnt = cnt;
+    opts.retprobe = retprobe;
+
+    return bpf_program__attach_uprobe_multi(prog, pid, binary_path, func_pattern, &opts);
 }
 
 //
