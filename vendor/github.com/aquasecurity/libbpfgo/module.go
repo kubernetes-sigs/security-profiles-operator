@@ -21,12 +21,13 @@ import (
 //
 
 type Module struct {
-	obj      *C.struct_bpf_object
-	links    []*BPFLink
-	perfBufs []*PerfBuffer
-	ringBufs []*RingBuffer
-	elf      *elf.File
-	loaded   bool
+	obj          *C.struct_bpf_object
+	links        []*BPFLink
+	perfBufs     []*PerfBuffer
+	ringBufs     []*RingBuffer
+	userRingBufs []*UserRingBuffer
+	elf          *elf.File
+	loaded       bool
 }
 
 //
@@ -187,6 +188,9 @@ func (m *Module) Close() {
 	for _, rb := range m.ringBufs {
 		rb.Close()
 	}
+	for _, rb := range m.userRingBufs {
+		rb.Close()
+	}
 	for _, link := range m.links {
 		if link.link != nil {
 			link.Destroy()
@@ -325,6 +329,30 @@ func (m *Module) GetProgram(progName string) (*BPFProg, error) {
 		prog:   progC,
 		module: m,
 	}, nil
+}
+
+func (m *Module) InitUserRingBuf(mapName string, eventsChan chan []byte) (*UserRingBuffer, error) {
+	bpfMap, err := m.GetMap(mapName)
+	if err != nil {
+		return nil, err
+	}
+
+	if eventsChan == nil {
+		return nil, fmt.Errorf("events channel can not be nil")
+	}
+
+	rbC, errno := C.cgo_init_user_ring_buf(C.int(bpfMap.FileDescriptor()))
+	if rbC == nil {
+		return nil, fmt.Errorf("failed to initialize user ring buffer: %w", errno)
+	}
+
+	ringBuf := &UserRingBuffer{
+		rb:     rbC,
+		bpfMap: bpfMap,
+		w:      eventsChan,
+	}
+	m.userRingBufs = append(m.userRingBufs, ringBuf)
+	return ringBuf, nil
 }
 
 func (m *Module) InitRingBuf(mapName string, eventsChan chan []byte) (*RingBuffer, error) {

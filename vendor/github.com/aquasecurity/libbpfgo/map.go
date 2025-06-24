@@ -73,6 +73,19 @@ func (m *BPFMap) ReuseFD(fd int) error {
 	return nil
 }
 
+func (m *BPFMap) AttachStructOps() (*BPFLink, error) {
+	linkC, errno := C.bpf_map__attach_struct_ops(m.bpfMap)
+	if linkC == nil {
+		return nil, fmt.Errorf("failed to attach struct_ops: %w", errno)
+	}
+	return &BPFLink{
+		link:      linkC,
+		m:         m,
+		linkType:  StructOps,
+		eventName: fmt.Sprintf("structOps-%s", m.Name()),
+	}, nil
+}
+
 func (m *BPFMap) Name() string {
 	return C.GoString(C.bpf_map__name(m.bpfMap))
 }
