@@ -19,6 +19,7 @@ package enricher
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -118,8 +119,8 @@ func populateCacheEntryForContainer(
 	infoCache *ttlcache.Cache[string, *types.ContainerInfo], logger logr.Logger,
 ) {
 	eg.Go(func() (errorToRetry error) {
-		//nolint:gocritic // This is what we expect and want
-		statuses := append(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses...)
+		statuses := slices.Concat(pod.Status.InitContainerStatuses,
+			pod.Status.ContainerStatuses, pod.Status.EphemeralContainerStatuses)
 
 		for c := range statuses {
 			containerStatus := statuses[c]
