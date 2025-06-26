@@ -5,7 +5,7 @@ metadata:
   name: webhook-service
   namespace: security-profiles-operator
   labels:
-    name: security-profiles-operator
+    name: webhook-service
 spec:
   selector:
     app: security-profiles-operator
@@ -13,6 +13,6 @@ spec:
   ports:
   - name: webhook
     protocol: TCP
-    port: 443 
+    port: 443
     targetPort: 9443
 
