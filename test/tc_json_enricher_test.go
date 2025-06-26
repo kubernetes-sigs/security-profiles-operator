@@ -193,15 +193,17 @@ spec:
 
 	time.Sleep(10 * time.Second)
 
-	e.kubectl("exec", "-it", podName, "--", "sleep", "5")
+	e.logf("kubectl debug and sleep for 6 seconds")
+	e.kubectl("debug", "-i", podName, "--image", "busybox:latest", "--", "sleep", "6")
+	e.logf("kubectl exec and sleep for 5 seconds")
+	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
+	e.logf("kubectl exec and print env")
 	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
 	e.Contains(envOutput, "SPO_EXEC_REQUEST_UID")
+	e.logf("The env output has SPO_EXEC_REQUEST_UID")
 
 	// wait for at least one component of the expected logs to appear
 	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"requestUID"`))
-
-	e.logf("Wait for the audit lines to come within 30 seconds")
-	time.Sleep(30 * time.Second)
 	e.logf("Checking JSON enricher output")
 	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "json-enricher")
 
@@ -209,7 +211,8 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
-	e.Contains(output, "sleep")
+	e.Contains(output, "sleep 6")
+	e.Contains(output, "sleep 5")
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
 }
