@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-func getPodEphAdmRequest(t *testing.T, execOpts *corev1.Pod) admissionv1.AdmissionRequest {
+func getPodAdmRequest(t *testing.T, pod *corev1.Pod, resource string) admissionv1.AdmissionRequest {
 	t.Helper()
 
 	return admissionv1.AdmissionRequest{
@@ -41,9 +41,13 @@ func getPodEphAdmRequest(t *testing.T, execOpts *corev1.Pod) admissionv1.Admissi
 		Kind: metav1.GroupVersionKind{
 			Kind: "Pod",
 		},
+		Resource: metav1.GroupVersionResource{
+			Group:    "",
+			Resource: resource,
+		},
 		Object: runtime.RawExtension{
 			Raw: func() []byte {
-				b, err := json.Marshal(execOpts.DeepCopy())
+				b, err := json.Marshal(pod.DeepCopy())
 				require.NoError(t, err)
 
 				return b
@@ -91,10 +95,44 @@ func TestHandler_Handle(t *testing.T) {
 		want   admission.Response
 	}{
 		{
+			name:   "Basic Test for Node Debugging Pod",
+			fields: fields{log: logr.Discard()},
+			args: args{t.Context(), admission.Request{
+				AdmissionRequest: getPodAdmRequest(t, &corev1.Pod{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "debugger",
+							},
+						},
+					},
+				}, "pods"),
+			}},
+			want: admission.Response{
+				Patches: []jsonpatch.JsonPatchOperation{
+					{
+						Operation: "replace",
+						Path:      "/spec/containers/0/env",
+						Value:     []corev1.EnvVar{{Name: "SPO_EXEC_REQUEST_UID", Value: "test-uid"}},
+					},
+				},
+				AdmissionResponse: admissionv1.AdmissionResponse{
+					Allowed: true,
+					Result: &metav1.Status{
+						Code:    200,
+						Message: "UID added to execmetadata",
+					},
+					AuditAnnotations: map[string]string{
+						ExecRequestUid: "test-uid",
+					},
+				},
+			},
+		},
+		{
 			name:   "Basic Test for Pod Debug",
 			fields: fields{log: logr.Discard()},
 			args: args{t.Context(), admission.Request{
-				AdmissionRequest: getPodEphAdmRequest(t, &corev1.Pod{
+				AdmissionRequest: getPodAdmRequest(t, &corev1.Pod{
 					Spec: corev1.PodSpec{
 						EphemeralContainers: []corev1.EphemeralContainer{
 							{
@@ -105,7 +143,7 @@ func TestHandler_Handle(t *testing.T) {
 							},
 						},
 					},
-				}),
+				}, "pods/ephemeralcontainers"),
 			}},
 			want: admission.Response{
 				Patches: []jsonpatch.JsonPatchOperation{
@@ -131,7 +169,7 @@ func TestHandler_Handle(t *testing.T) {
 			name:   "Duplicate Test for Pod Debug",
 			fields: fields{log: logr.Discard()},
 			args: args{t.Context(), admission.Request{
-				AdmissionRequest: getPodEphAdmRequest(t, &corev1.Pod{
+				AdmissionRequest: getPodAdmRequest(t, &corev1.Pod{
 					Spec: corev1.PodSpec{
 						EphemeralContainers: []corev1.EphemeralContainer{
 							{
@@ -148,7 +186,7 @@ func TestHandler_Handle(t *testing.T) {
 							},
 						},
 					},
-				}),
+				}, "pods/ephemeralcontainers"),
 			}},
 			want: admission.Response{
 				Patches: []jsonpatch.JsonPatchOperation{
