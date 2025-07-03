@@ -226,5 +226,5 @@ func TestWebhook_getWebhookConfig(t *testing.T) {
 	require.Len(t, webhookConfig.Webhooks, 2)
 
 	webhookConfig = getWebhookConfig(true)
-	require.Len(t, webhookConfig.Webhooks, 3)
+	require.Len(t, webhookConfig.Webhooks, 4)
 }

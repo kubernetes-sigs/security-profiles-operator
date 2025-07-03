@@ -68,6 +68,23 @@ var (
 			},
 		},
 	}
+	rulesNodeDebuggingPod = []admissionregv1.RuleWithOperations{
+		{
+			Operations: []admissionregv1.OperationType{
+				"CREATE",
+			},
+			Rule: admissionregv1.Rule{
+				APIGroups:   []string{""},
+				APIVersions: []string{"v1"},
+				Resources:   []string{"pods"},
+			},
+		},
+	}
+	objectSelectorNodeDebuggingPod = metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"app.kubernetes.io/managed-by": "kubectl-debug",
+		},
+	}
 	objectSelector = metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -104,9 +121,10 @@ type webhook struct {
 }
 
 var (
-	binding      = webhook{0, "binding.spo.io", "/mutate-v1-pod-binding"}
-	recording    = webhook{1, "recording.spo.io", "/mutate-v1-pod-recording"}
-	execMetadata = webhook{2, "execmetadata.spo.io", "/mutate-v1-exec-metadata"}
+	binding                  = webhook{0, "binding.spo.io", "/mutate-v1-pod-binding"}
+	recording                = webhook{1, "recording.spo.io", "/mutate-v1-pod-recording"}
+	execMetadata             = webhook{2, "execmetadata.spo.io", "/mutate-v1-exec-metadata"}
+	nodeDebuggingPodMetadata = webhook{3, "nodedebuggingpod.spo.io", "/mutate-v1-exec-metadata"}
 )
 
 type Webhook struct {
@@ -149,6 +167,7 @@ func GetWebhook(
 
 	if execMetadataWebhookEnabled {
 		cfg.Webhooks[execMetadata.index].ClientConfig.Service.Namespace = namespace
+		cfg.Webhooks[nodeDebuggingPodMetadata.index].ClientConfig.Service.Namespace = namespace
 	}
 
 	service := webhookService.DeepCopy()
@@ -299,8 +318,8 @@ func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, i
 	if existing.NamespaceSelector != nil && configured.NamespaceSelector == nil {
 		if existing.NamespaceSelector.Size() > 0 {
 			w.log.V(1).Info("updating webhook configuration",
-				"existing ObjectSelector", existing.ObjectSelector,
-				"configured ObjectSelector", configured.ObjectSelector)
+				"existing NamespaceSelector", existing.NamespaceSelector,
+				"configured NamespaceSelector", configured.NamespaceSelector)
 
 			return true
 		}
@@ -418,7 +437,7 @@ func (w *Webhook) objectMap() map[string]client.Object {
 	}
 }
 
-// getWebhookConfig returns the webhooks in the order binding, recording and execMetadata.
+// getWebhookConfig returns the webhooks in the order binding, recording, execMetadata and nodeDebuggingPodMetadata.
 func getWebhookConfig(execMetadataWebhookEnabled bool) *admissionregv1.MutatingWebhookConfiguration {
 	webhooks := []admissionregv1.MutatingWebhook{
 		{
@@ -482,6 +501,20 @@ func getWebhookConfig(execMetadataWebhookEnabled bool) *admissionregv1.MutatingW
 					Path: &execMetadata.path,
 				},
 			},
+			AdmissionReviewVersions: admissionReviewVersions,
+		}, admissionregv1.MutatingWebhook{
+			Name:          nodeDebuggingPodMetadata.name,
+			FailurePolicy: &failurePolicyIgnore,
+			SideEffects:   &sideEffects,
+			Rules:         rulesNodeDebuggingPod,
+			ClientConfig: admissionregv1.WebhookClientConfig{
+				CABundle: caBundle,
+				Service: &admissionregv1.ServiceReference{
+					Name: serviceName,
+					Path: &execMetadata.path,
+				},
+			},
+			ObjectSelector:          &objectSelectorNodeDebuggingPod,
 			AdmissionReviewVersions: admissionReviewVersions,
 		})
 	}
