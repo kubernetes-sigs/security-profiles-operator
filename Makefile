@@ -33,7 +33,6 @@ BPF_ENABLED ?= 1
 
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
-BPF_PATH := internal/pkg/daemon/bpfrecorder/bpf
 ARCH ?= $(shell uname -m | \
 	sed 's/x86_64/amd64/' | \
 	sed 's/aarch64/arm64/' | \
@@ -89,8 +88,13 @@ export CGO_LDFLAGS
 export CGO_ENABLED=1
 
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' -not -name '*_test.go')
-BPF_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name '*.c' -or -name '*.h')
-BPF_OUTPUT_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name 'recorder.bpf.o.*')
+BPF_RECORDER_PATH := internal/pkg/daemon/bpfrecorder/bpf
+BPF_RECORDER_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name '*.c' -or -name '*.h')
+BPF_RECORDER_OUTPUT_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name 'recorder.bpf.o.*')
+BPF_ENRICHER_PATH := internal/pkg/daemon/enricher/auditsource/bpf
+BPF_ENRICHER_FILES := $(shell find internal/pkg/daemon/enricher/auditsource/bpf -type f -name '*.c' -or -name '*.h')
+BPF_ENRICHER_OUTPUT_FILES := $(shell find internal/pkg/daemon/enricher/auditsource/bpf -type f -name 'enricher.bpf.o.*')
+BPF_OUTPUT_FILES := $(BPF_RECORDER_OUTPUT_FILES) $(BPF_ENRICHER_OUTPUT_FILES)
 export GOFLAGS?=-mod=vendor
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
@@ -351,7 +355,17 @@ $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
 		-D__TARGET_ARCH_$(ARCH) \
 		$(CFLAGS) \
 		-I ./internal/pkg/daemon/bpfrecorder/vmlinux/$(ARCH) \
-		-c $(BPF_PATH)/recorder.bpf.c \
+		-c $(BPF_RECORDER_PATH)/recorder.bpf.c \
+		-o $@
+	$(LLVM_STRIP) -g $@
+
+$(BUILD_DIR)/enricher.bpf.o: $(BUILD_DIR) ## Build the BPF module
+	$(CLANG) -g -O2 \
+		-target bpf \
+		-D__TARGET_ARCH_$(ARCH) \
+		$(CFLAGS) \
+		-I ./internal/pkg/daemon/bpfrecorder/vmlinux/$(ARCH) \
+		-c $(BPF_ENRICHER_PATH)/enricher.bpf.c \
 		-o $@
 	$(LLVM_STRIP) -g $@
 
@@ -366,12 +380,19 @@ update-btf: $(BUILD_DIR) ## Build and update all generated BTF code for supporte
 .PHONY: update-bpf
 update-bpf: clean \
     internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.amd64 \
-    internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.arm64
+    internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.arm64 \
+    internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.amd64 \
+    internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.arm64
 
-internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_FILES) ## Build and update all generated BPF code with nix
+internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_RECORDER_FILES) ## Build and update all generated BPF code with nix
 	nix-build nix/default-bpf-$*.nix
 	cp -f result/recorder.bpf.o ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 	chmod 0644 ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
+
+internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FILES) ## Build and update all generated BPF code with nix
+	nix-build nix/default-bpf-$*.nix
+	cp -f result/enricher.bpf.o ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
+	chmod 0644 ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
 
 # Verification targets
 

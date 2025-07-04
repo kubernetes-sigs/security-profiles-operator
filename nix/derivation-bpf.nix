@@ -24,8 +24,10 @@ with pkgs; buildGoModule rec {
     export CFLAGS=$NIX_CFLAGS_COMPILE
     export ARCH=${arch}
     make build/recorder.bpf.o
+    make build/enricher.bpf.o
   '';
   installPhase = ''
     install -Dm644 -t $out build/recorder.bpf.o
+    install -Dm644 -t $out build/enricher.bpf.o
   '';
 }
