@@ -19,6 +19,7 @@ package execmetadata
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -43,16 +44,54 @@ type Handler struct {
 // Ensure ExecMetadataHandler implements admission.Handler at compile time.
 var _ admission.Handler = (*Handler)(nil)
 
-func (p Handler) getEphemeralContainerPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
+func (p Handler) getPodPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
+	if req.Resource.Resource == "pods" {
+		return p.getNodeDebuggingPodPatch(req)
+	} else {
+		return p.getEphemeralContainerPatch(req)
+	}
+}
+
+func (p Handler) getNodeDebuggingPodPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
 	patches := make([]jsonpatch.JsonPatchOperation, 0)
 
-	execPodObject := corev1.Pod{}
+	podObject := corev1.Pod{}
 
-	if err := json.Unmarshal(req.Object.Raw, &execPodObject); err != nil {
+	if err := json.Unmarshal(req.Object.Raw, &podObject); err != nil {
 		return patches, fmt.Errorf("failed to unmarshal pod exec object: %w", err)
 	}
 
-	p.log.Info("execPodObject before mutate", "execPodObject", execPodObject)
+	p.log.V(1).Info("podObject before mutate", "podObject", podObject)
+
+	if len(podObject.Spec.Containers) == 0 {
+		return patches, errors.New("failed to find a container")
+	}
+
+	container := podObject.Spec.Containers[0]
+	container.Env = removeExistingEnv(container.Env, ExecRequestUid)
+	container.Env = append(container.Env, corev1.EnvVar{Name: ExecRequestUid, Value: string(req.UID)})
+
+	patches = append(patches, jsonpatch.JsonPatchOperation{
+		Operation: "replace",
+		Path:      "/spec/containers/0/env",
+		Value:     container.Env,
+	})
+
+	p.log.V(1).Info("podObject after mutate", "podObject", podObject)
+
+	return patches, nil
+}
+
+func (p Handler) getEphemeralContainerPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
+	patches := make([]jsonpatch.JsonPatchOperation, 0)
+
+	podObject := corev1.Pod{}
+
+	if err := json.Unmarshal(req.Object.Raw, &podObject); err != nil {
+		return patches, fmt.Errorf("failed to unmarshal pod exec object: %w", err)
+	}
+
+	p.log.V(1).Info("podObject before mutate", "execPodObject", podObject)
 
 	type void struct{}
 
@@ -61,13 +100,13 @@ func (p Handler) getEphemeralContainerPatch(req *admission.Request) ([]jsonpatch
 	// Name of Ephemeral Containers should be unique.
 	// Ref: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#ephemeralcontainer-v1-core .
 	//nolint:intrange // This conflicts with (consider pointers or indexing) (gocritic)
-	for i := 0; i < len(execPodObject.Status.EphemeralContainerStatuses); i++ {
-		ephemeralContainersWithStatus[execPodObject.Status.EphemeralContainerStatuses[i].Name] = void{}
+	for i := 0; i < len(podObject.Status.EphemeralContainerStatuses); i++ {
+		ephemeralContainersWithStatus[podObject.Status.EphemeralContainerStatuses[i].Name] = void{}
 	}
 
 	//nolint:intrange // This conflicts with (consider pointers or indexing) (gocritic)
-	for i := 0; i < len(execPodObject.Spec.EphemeralContainers); i++ {
-		container := execPodObject.Spec.EphemeralContainers[i]
+	for i := 0; i < len(podObject.Spec.EphemeralContainers); i++ {
+		container := podObject.Spec.EphemeralContainers[i]
 
 		_, exists := ephemeralContainersWithStatus[container.Name]
 		// You can't change env of a already created ephemeral container.
@@ -83,7 +122,7 @@ func (p Handler) getEphemeralContainerPatch(req *admission.Request) ([]jsonpatch
 		}
 	}
 
-	p.log.Info("execPodObject after mutate", "execPodObject", execPodObject)
+	p.log.V(1).Info("podObject after mutate", "podObject", podObject)
 
 	return patches, nil
 }
@@ -159,7 +198,7 @@ func (p Handler) Handle(_ context.Context, req admission.Request) admission.Resp
 
 	patchGenerators := map[string]func(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error){
 		"PodExecOptions": p.getPodExecPatch,
-		"Pod":            p.getEphemeralContainerPatch,
+		"Pod":            p.getPodPatch,
 	}
 
 	patchFunc, ok := patchGenerators[req.Kind.Kind]

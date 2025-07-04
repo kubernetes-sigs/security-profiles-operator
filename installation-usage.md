@@ -501,7 +501,7 @@ To view the resulting `MutatingWebhookConfiguration`, call:
 $ kubectl get MutatingWebhookConfiguration spo-mutating-webhook-configuration -oyaml
 ```
 
-The Exec Metadata Webhook works in conjunction with the JSON Log Enricher. It's enabled only when JSON Log Enricher is 
+The Exec Metadata and Node Debugging Pod Metadata Webhook works in conjunction with the JSON Log Enricher. It's enabled only when JSON Log Enricher is 
 enabled. For details on its configuration, please refer to the [JSON Log Enricher](#audit-json-log-enricher) section
 
 ## Create and Install Security Profiles
@@ -1013,13 +1013,13 @@ By default, when you use `kubectl exec` to access a pod or container, Kubernetes
 details into that session's environment. This means JSON Log Enricher can't include "who did what" information 
 for exec commands. The `uid`, `gid` recorded will map to the system user which in most cases would be the root user.
 
-To address this, the JSON Log Enricher relies on a mutating webhook (`execmetadata.spo.io`). This webhook injects 
-the exec request UID as an environment variable into the exec session. Now, when the administrator enables audit 
-logging on the API server, the webhook will add an audit annotation, `SPO_EXEC_REQUEST_UID`. The API server audit log 
-will contain this information. This request ID will also be available in the JSON lines produced by the 
-JSON Log Enricher, specifically within the `requestUID` field.
+To address this, the JSON Log Enricher relies on a mutating webhooks (`execmetadata.spo.io` and
+`nodedebuggingpod.spo.io`). These webhook injects the exec request UID as an environment variable into the exec session.
+Now, when the administrator enables audit logging on the API server, the webhooks will add an audit annotation,
+`SPO_EXEC_REQUEST_UID`. The API server audit log will contain this information. This request ID will also be available
+in the JSON lines produced by the JSON Log Enricher, specifically within the `requestUID` field.
 
-By default, this webhook is enabled for all the namespaces with JSON Log Enricher is enabled. 
+By default, these webhooks are enabled for all the namespaces with JSON Log Enricher is enabled. 
 To reduce the scope of this webhook you can disable it for certain namespaces.
 
 Edit the spod configuration:
@@ -1036,10 +1036,10 @@ specific namespaces
 ```yaml
 # ... (rest of your spod configuration)
 spec:
-webhookOptions:
-- name: execmetadata.spo.io
-  namespaceSelector:
-  #...add rules 
+  webhookOptions:
+  - name: execmetadata.spo.io # or nodedebuggingpod.spo.io
+    namespaceSelector:
+    #...add rules 
 # ...
 ```
 
@@ -1049,6 +1049,31 @@ details to be passed into `kubectl exec` sessions cluster-wide.
 NOTE: This webhook injects the environment variable `SPO_EXEC_REQUEST_UID` into your exec request. If a container in your Pod 
 already defines an environment variable with this exact name, the webhook's injected value will override it for this
 exec session.
+
+When you use `kubectl debug node/<node-name>`, the `nodedebuggingpod.spo.io` webhook automatically injects the 
+`SPO_EXEC_REQUEST_UID` environment variable into the debug pod.
+
+This webhook primarily identifies kubectl debug pods by the label `app.kubernetes.io/managed-by: "kubectl-debug"`, 
+which is added by the kubectl client.
+
+Because this label might vary across different Kubernetes client implementations 
+(e.g., oc debug in OpenShift uses `debug.openshift.io/managed-by: "oc-debug"`), 
+you may need to configure additional `webhookOptions` to ensure the webhook catches all relevant debug pods.
+
+For example, to include `oc debug pods`:
+
+```yaml
+# ... (rest of your spod configuration)
+spec:
+  webhookOptions:
+  - name: nodedebuggingpodmetada.spo.io
+    objectSelector:
+      matchLabels: # Use matchLabels for exact matching
+        debug.openshift.io/managed-by: "oc-debug"
+# ... other webhook rule details like rules, clientConfig, etc.
+```
+
+Reference: For more details on the label, see: https://github.com/kubernetes/kubernetes/pull/131791
 
 ### AppArmor Profile
 

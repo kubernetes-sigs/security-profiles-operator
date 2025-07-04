@@ -198,9 +198,18 @@ spec:
 	e.logf("kubectl exec and sleep for 5 seconds")
 	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
 	e.logf("kubectl exec and print env")
-	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
-	e.Contains(envOutput, "SPO_EXEC_REQUEST_UID")
+	podEnvOutput := e.kubectl("exec", "-it", podName, "--", "env")
+	e.Contains(podEnvOutput, "SPO_EXEC_REQUEST_UID")
 	e.logf("The env output has SPO_EXEC_REQUEST_UID")
+
+	nodeName := e.kubectl("get", "nodes",
+		"-o", "jsonpath='{.items[0].metadata.name}'")
+	e.kubectl("debug", "node/"+trimSingleQuotes(nodeName), "--image", "busybox",
+		"-it", "--", "env")
+	// Uncomment after kubectl debug node label.
+	// PR https://github.com/kubernetes/kubernetes/pull/131791.
+	// e.Contains(nodeDebuggingPodEnvOutput, "SPO_EXEC_REQUEST_UID")
+	// e.logf("The env output has SPO_EXEC_REQUEST_UID")
 
 	// wait for at least one component of the expected logs to appear
 	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"requestUID"`))
@@ -215,4 +224,11 @@ spec:
 	e.Contains(output, "sleep 5")
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
+}
+
+func trimSingleQuotes(s string) string {
+	s = strings.TrimPrefix(s, "'")
+	s = strings.TrimSuffix(s, "'")
+
+	return s
 }
