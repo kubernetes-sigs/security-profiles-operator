@@ -30,17 +30,17 @@ func Test_addAuditLogConfig(t *testing.T) {
 	t.Parallel()
 
 	args := []string{"mercury"}
-	args = addAuditLogConfig(args, "venus")
+	args = addArgsConfig(args, "venus")
 
 	require.Contains(t, args, "venus")
 
 	args = []string{"planet=earth"}
-	args = addAuditLogConfig(args, "planet=mars")
+	args = addArgsConfig(args, "planet=mars")
 	require.Contains(t, args, "planet=mars")
 	require.NotContains(t, args, "planet=earth")
 
 	// Add Once again to ensure its not duplicated
-	args = addAuditLogConfig(args, "planet=mars")
+	args = addArgsConfig(args, "planet=mars")
 	require.Contains(t, args, "planet=mars")
 	require.NotContains(t, args, "planet=earth")
 }

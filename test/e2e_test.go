@@ -105,6 +105,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseJsonEnricher,
 		},
 		{
+			"Log Enricher with filters",
+			e.testCaseLogEnricherWithFilters,
+		},
+		{
 			"JSON Enricher File Options",
 			e.testCaseJsonEnricherFileOptions,
 		},

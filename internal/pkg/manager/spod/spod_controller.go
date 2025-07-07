@@ -605,6 +605,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
 		// pass the log enricher env var to the daemon as the profile recorder is otherwise disabled
 		addEnvVar(templateSpec, config.EnableLogEnricherEnvKey)
+
+		r.getConfiguredLogEnricher(cfg)
 	}
 
 	// Bpf recorder parameters
@@ -746,7 +748,29 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	return newSPOd
 }
 
+func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {
+	if cfg.Spec.LogEnricherFilters != "" {
+		r.log.Info("Setting LogEnricherFilters",
+			"LogEnricherFilters", cfg.Spec.LogEnricherFilters)
+
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
+			"--enricher-filters-json="+cfg.Spec.LogEnricherFilters,
+		)
+	}
+}
+
 func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {
+	if cfg.Spec.JsonEnricherFilters != "" {
+		r.log.Info("Setting LogEnricherFilters",
+			"JsonEnricherFilters", cfg.Spec.JsonEnricherFilters)
+
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+			"--enricher-filters-json="+cfg.Spec.JsonEnricherFilters,
+		)
+	}
+
 	if cfg.Spec.JsonEnricherOpt != nil {
 		r.log.Info("Setting JsonEnricherOpt",
 			"AuditLogIntervalSeconds", cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds,
@@ -756,14 +780,14 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProf
 			"AuditLogMaxBackups", cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups,
 		)
 
-		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
 			fmt.Sprintf("--audit-log-interval-seconds=%d",
 				cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds),
 		)
 
 		if cfg.Spec.JsonEnricherOpt.AuditLogMaxAge != nil {
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
 				fmt.Sprintf("--audit-log-maxage=%d",
 					*cfg.Spec.JsonEnricherOpt.AuditLogMaxAge),
@@ -771,7 +795,7 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProf
 		}
 
 		if cfg.Spec.JsonEnricherOpt.AuditLogMaxSize != nil {
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
 				fmt.Sprintf("--audit-log-maxsize=%d",
 					*cfg.Spec.JsonEnricherOpt.AuditLogMaxSize),
@@ -779,7 +803,7 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProf
 		}
 
 		if cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups != nil {
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
 				fmt.Sprintf("--audit-log-maxbackup=%d",
 					*cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups),
@@ -787,7 +811,7 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProf
 		}
 
 		if cfg.Spec.JsonEnricherOpt.AuditLogPath != nil {
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addAuditLogConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
 				"--audit-log-path="+(*cfg.Spec.JsonEnricherOpt.AuditLogPath),
 			)
@@ -824,13 +848,13 @@ func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) boo
 	return cfg.Spec.EnableJsonEnricher || enableJsonEnricherEnv
 }
 
-func addAuditLogConfig(args []string, auditLogConfig string) []string {
-	if replaced := sliceReplaceArg(args, auditLogConfig); replaced {
+func addArgsConfig(args []string, argonfig string) []string {
+	if replaced := sliceReplaceArg(args, argonfig); replaced {
 		return args
 	}
 
-	if !sliceContainsString(args, auditLogConfig) {
-		return append(args, auditLogConfig)
+	if !sliceContainsString(args, argonfig) {
+		return append(args, argonfig)
 	}
 
 	return args
