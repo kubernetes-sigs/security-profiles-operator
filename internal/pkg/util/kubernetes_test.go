@@ -17,13 +17,21 @@ limitations under the License.
 package util
 
 import (
+	"errors"
 	"path"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/mod/semver"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
@@ -241,6 +249,85 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 			got, err := MatchSelinuxdImageJSONMapping(tt.node, []byte(mappingJSON))
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetOperatorConfigMap(t *testing.T) {
+	type args struct {
+		c client.Reader
+	}
+
+	tests := []struct {
+		name    string
+		args    args
+		want    *corev1.ConfigMap
+		wantErr bool
+	}{
+		{
+			name: "Should return not found when getting configmap fails",
+			args: args{
+				c: &MockClient{
+					MockGet: NewMockGetFn(kerrors.NewNotFound(schema.GroupResource{}, "test")),
+				},
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "Should return error when getting configmap fails",
+			args: args{
+				c: &MockClient{
+					MockGet: NewMockGetFn(kerrors.NewForbidden(
+						schema.GroupResource{}, "test", errors.New("test"))),
+				},
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "Should return a configmap",
+			args: args{
+				c: fake.NewClientBuilder().WithObjects(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "security-profiles-operator-profile",
+						Namespace: "test",
+					},
+					Data: map[string]string{
+						"test": "test",
+					},
+				}).Build(),
+			},
+			want: &corev1.ConfigMap{
+				Data: map[string]string{
+					"test": "test",
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(config.OperatorNamespaceEnvKey, "test")
+
+			got, err := GetOperatorConfigMap(t.Context(), tt.args.c)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetOperatorConfigMap() error = %v, wantErr %v", err, tt.wantErr)
+
+				return
+			}
+
+			if got == nil && tt.want == nil {
+				return
+			}
+
+			if got.Data == nil && tt.want.Data == nil {
+				return
+			}
+
+			if !reflect.DeepEqual(got.Data, tt.want.Data) {
+				t.Errorf("GetOperatorConfigMap() got = %v, want %v", got.Data, tt.want.Data)
+			}
 		})
 	}
 }

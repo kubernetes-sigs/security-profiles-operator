@@ -115,6 +115,8 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 			},
 		},
 		DisableOCIArtifactSignatureVerification: false,
+		JsonEnricherFilters:                     "",
+		LogEnricherFilters:                      "",
 	},
 }
 
@@ -960,6 +962,19 @@ func CustomHostKubeletVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 		}, corev1.VolumeMount{
 			Name:      volumeName,
 			MountPath: path,
+			ReadOnly:  false,
+		}
+}
+
+func CustomConfigMap(mountPath string, configVolSource *corev1.VolumeSource) (corev1.Volume, corev1.VolumeMount) {
+	const volumeName = "json-enricher-filters-volume"
+
+	return corev1.Volume{
+			Name:         volumeName,
+			VolumeSource: *configVolSource,
+		}, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: mountPath,
 			ReadOnly:  false,
 		}
 }

@@ -319,7 +319,8 @@ func TestRun(t *testing.T) {
 		mock := &enricherfakes.FakeImpl{}
 		tc.prepare(mock, lineChan)
 
-		sut := New(logr.Discard())
+		sut, errCreate := New(logr.Discard(), nil)
+		require.NoError(t, errCreate)
 		sut.impl = mock
 
 		var err error

@@ -27,7 +27,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -165,14 +164,8 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 }
 
 func (r *ReconcileSPOd) getJsonEnricherVolume(ctx context.Context) (*corev1.VolumeSource, string, error) {
-	var operatorCm corev1.ConfigMap
-
-	operatorCmName := types.NamespacedName{
-		Namespace: config.GetOperatorNamespace(),
-		Name:      util.OperatorConfigMap,
-	}
-
-	if err := r.clientReader.Get(ctx, operatorCmName, &operatorCm); err != nil {
+	operatorCm, err := util.GetOperatorConfigMap(ctx, r.clientReader)
+	if err != nil {
 		return nil, "", err
 	}
 
@@ -183,7 +176,7 @@ func (r *ReconcileSPOd) getJsonEnricherVolume(ctx context.Context) (*corev1.Volu
 		return nil, "", ErrJsonEnricherVolSourceNotFound
 	}
 
-	err := json.Unmarshal([]byte(logVolumeJson), &volumeSource)
+	err = json.Unmarshal([]byte(logVolumeJson), &volumeSource)
 	if err != nil {
 		return nil, "", err
 	}
@@ -201,14 +194,8 @@ func (r *ReconcileSPOd) getJsonEnricherVolume(ctx context.Context) (*corev1.Volu
 }
 
 func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node) (string, error) {
-	var operatorCm corev1.ConfigMap
-
-	operatorCmName := types.NamespacedName{
-		Namespace: config.GetOperatorNamespace(),
-		Name:      util.OperatorConfigMap,
-	}
-
-	if err := r.clientReader.Get(ctx, operatorCmName, &operatorCm); err != nil {
+	operatorCm, err := util.GetOperatorConfigMap(ctx, r.clientReader)
+	if err != nil {
 		return "", err
 	}
 
