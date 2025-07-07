@@ -97,8 +97,9 @@ const (
 	auditLogPathParam            string = "audit-log-path"
 	auditLogMaxSizeParam         string = "audit-log-maxsize"
 	// The plural form is not used for audit-log-file-maxbackup to match the k8s api server audit log options.
-	auditLogMaxBackupParam string = "audit-log-maxbackup"
-	auditLogMaxAgeParam    string = "audit-log-maxage"
+	auditLogMaxBackupParam   string = "audit-log-maxbackup"
+	auditLogMaxAgeParam      string = "audit-log-maxage"
+	enricherFiltersJsonParam string = "enricher-filters-json"
 )
 
 var (
@@ -253,6 +254,13 @@ func main() {
 			Name:    "log-enricher",
 			Aliases: []string{"l"},
 			Usage:   "run the audit's log enricher",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  enricherFiltersJsonParam,
+					Value: "",
+					Usage: "Log Enricher filters json.",
+				},
+			},
 			Action: func(ctx *cli.Context) error {
 				return runLogEnricher(ctx, info)
 			},
@@ -313,6 +321,11 @@ func main() {
 					Usage: "Audit log max age for the JSON Log Enricher. " +
 						"The maximum number of days to retain old audit log files based " +
 						"on the timestamp encoded in their filename.",
+				},
+				&cli.StringFlag{
+					Name:  enricherFiltersJsonParam,
+					Value: "",
+					Usage: "JSON Enricher filters json file path.",
 				},
 			},
 		},
@@ -685,12 +698,21 @@ func runBPFRecorder(_ *cli.Context, info *version.Info) error {
 	return bpfrecorder.New("", ctrl.Log.WithName(component), true, true).Run()
 }
 
-func runLogEnricher(_ *cli.Context, info *version.Info) error {
+func runLogEnricher(ctx *cli.Context, info *version.Info) error {
 	const component = "log-enricher"
 
 	printInfo(component, info)
 
-	return enricher.New(ctrl.Log.WithName(component)).Run()
+	opts := &enricher.LogEnricherOptions{
+		EnricherFiltersJson: ctx.String(enricherFiltersJsonParam),
+	}
+
+	logEnricher, err := enricher.New(ctrl.Log.WithName(component), opts)
+	if err != nil {
+		return fmt.Errorf("create log enricher: %w", err)
+	}
+
+	return logEnricher.Run()
 }
 
 func getJsonEnricher(ctx *cli.Context, info *version.Info) (*enricher.JsonEnricher, error) {
@@ -711,6 +733,7 @@ func getJsonEnricher(ctx *cli.Context, info *version.Info) (*enricher.JsonEnrich
 	opts.AuditLogMaxSize = ctx.Int(auditLogMaxSizeParam)
 	opts.AuditLogMaxBackups = ctx.Int(auditLogMaxBackupParam)
 	opts.AuditLogMaxAge = ctx.Int(auditLogMaxAgeParam)
+	opts.EnricherFiltersJson = ctx.String(enricherFiltersJsonParam)
 
 	setupLog.Info(
 		"JSON Enricher Configuration",
@@ -719,6 +742,7 @@ func getJsonEnricher(ctx *cli.Context, info *version.Info) (*enricher.JsonEnrich
 		"AuditLogMaxSize", opts.AuditLogMaxSize,
 		"AuditLogMaxBackup", opts.AuditLogMaxBackups,
 		"AuditLogMaxAge", opts.AuditLogMaxAge,
+		"EnricherFiltersJson", opts.EnricherFiltersJson,
 	)
 
 	jsonEnricher, err := enricher.NewJsonEnricherArgs(ctrl.Log.WithName(component),

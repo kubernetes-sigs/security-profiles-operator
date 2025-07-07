@@ -1102,6 +1102,10 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
+              jsonEnricherFilters:
+                default: ""
+                description: Defines the filters for json-enricher.
+                type: string
               jsonEnricherOptions:
                 description: |-
                   Defines options specific to the JsonEnricher
@@ -1142,6 +1146,10 @@ spec:
                       standard output (stdout).
                     type: string
                 type: object
+              logEnricherFilters:
+                default: ""
+                description: Defines the filters for log-enricher.
+                type: string
               priorityClassName:
                 default: system-node-critical
                 description: PriorityClassName if defined, indicates the spod pod
