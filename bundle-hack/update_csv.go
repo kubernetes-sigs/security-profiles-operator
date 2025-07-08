@@ -106,14 +106,14 @@ func getManifestFilePathFromDirectory(dir string) (string, error) {
 // addRequiredAnnotations adds required annotations to the CSV file content represented as a map.
 func addRequiredAnnotations(m map[string]interface{}) error {
 	requiredAnnotations := map[string]string{
-		"features.operators.openshift.io/disconnected":      "true",
-		"features.operators.openshift.io/fips-compliant":    "true",
-		"features.operators.openshift.io/proxy-aware":       "false",
-		"features.operators.openshift.io/tls-profiles":      "false",
-		"features.operators.openshift.io/token-auth-aws":    "false",
-		"features.operators.openshift.io/token-auth-azure":  "false",
-		"features.operators.openshift.io/token-auth-gcp":    "false",
-		"operatorframework.io/suggested-namespace":          "openshift-security-profiles",
+		"features.operators.openshift.io/disconnected":     "true",
+		"features.operators.openshift.io/fips-compliant":   "true",
+		"features.operators.openshift.io/proxy-aware":      "false",
+		"features.operators.openshift.io/tls-profiles":     "false",
+		"features.operators.openshift.io/token-auth-aws":   "false",
+		"features.operators.openshift.io/token-auth-azure": "false",
+		"features.operators.openshift.io/token-auth-gcp":   "false",
+		"operatorframework.io/suggested-namespace":         "openshift-security-profiles",
 	}
 
 	metadata, ok := m["metadata"].(map[string]interface{})
@@ -208,6 +208,16 @@ func replaceImages(m map[string]interface{}) error {
 			EnvName:    "RELATED_IMAGE_SELINUXD_EL9",
 			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/openshift-selinuxd-rhel9-container-dev@sha256:256be04e4d97f3d09ec8b9516c23eda4e80e77fc5c8aec27ed4ab3ace69d608b",
 			RedHatBase: "registry.redhat.io/compliance/openshift-selinuxd-rhel9",
+		},
+		{
+			EnvName:    "RELATED_IMAGE_SELINUXD_FEDORA",
+			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/openshift-selinuxd-rhel9-container-dev@sha256:256be04e4d97f3d09ec8b9516c23eda4e80e77fc5c8aec27ed4ab3ace69d608b",
+			RedHatBase: "registry.redhat.io/compliance/openshift-selinuxd-rhel9",
+		},
+		{
+			EnvName:    "RELATED_IMAGE_SELINUXD_EL8",
+			KonfluxPS:  "quay.io/redhat-user-workloads/ocp-isc-tenant/openshift-selinuxd-rhel8-container-dev@sha256:af0275b5b979c0e63c201eed25de1a487601a115e16dc0309355946f751cf39b",
+			RedHatBase: "registry.redhat.io/compliance/openshift-selinuxd-rhel8",
 		},
 		{
 			EnvName: "RELATED_IMAGE_RBAC_PROXY",
@@ -396,12 +406,11 @@ func replaceIcon(m map[string]interface{}) error {
 func removeRelatedImages(m map[string]interface{}) error {
 	spec, ok := m["spec"].(map[string]interface{})
 	if !ok {
-		return errors.New("manifest has no 'spec' field")
+		return fmt.Errorf("manifest has no 'spec' field")
 	}
-	if _, found := spec["relatedImages"]; found {
-		delete(spec, "relatedImages")
-		fmt.Println("Removed relatedImages from operator manifest.")
-	}
+
+	delete(spec, "relatedImages")
+	fmt.Println("Removed the operator from operator manifest")
 	return nil
 }
 
