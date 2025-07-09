@@ -41,6 +41,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 	e.logf("List node statuses for a policy with a very long name")
 
 	e.logf("Creating policy")
+
 	deleteFn := e.writeAndCreate(longNamePolicy, "longname-policy.yml")
 	defer deleteFn()
 
@@ -49,7 +50,6 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 
 	e.logf("List all node statuses for policy by ID")
 	id := e.getSeccompPolicyID(policyName)
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
 	selector := fmt.Sprintf(
 		"spo.x-k8s.io/profile-id in (%s),spo.x-k8s.io/node-name in (%s)",
 		id, strings.Join(nodes, ","))
@@ -59,7 +59,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 		e.logf("Comparing node status items with node length (try %d)", i+1)
 
 		seccompProfileNodeStatusJSON := e.kubectl(
-			"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+			"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 		)
 
 		secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
@@ -67,6 +67,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 
 		if len(nodes) == len(secpolNodeStatusList.Items) {
 			e.logf("Node status successfully reconciled")
+
 			return
 		}
 

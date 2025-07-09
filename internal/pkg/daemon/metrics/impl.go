@@ -43,5 +43,6 @@ func (d *defaultImpl) ListenAndServe(addr string, handler http.Handler) error {
 		Handler:           handler,
 		ReadHeaderTimeout: util.DefaultReadHeaderTimeout,
 	}
+
 	return server.ListenAndServe()
 }

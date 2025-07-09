@@ -328,11 +328,13 @@ func TestRun(t *testing.T) {
 		sut.impl = mock
 
 		var err error
+
 		if tc.runAsync {
 			go func() { err = sut.Run() }()
 		} else {
 			err = sut.Run()
 		}
+
 		tc.assert(mock, lineChan, err)
 	}
 }

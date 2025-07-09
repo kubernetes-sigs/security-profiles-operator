@@ -143,6 +143,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 		if errors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
+
 		return reconcile.Result{}, fmt.Errorf("getting spod configuration: %w", err)
 	}
 
@@ -155,10 +156,12 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 		Namespace: r.namespace,
 	}
 	foundDeployment := &appsv1.Deployment{}
+
 	if err := r.client.Get(ctx, deploymentKey, foundDeployment); err != nil {
 		if errors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
+
 		return reconcile.Result{}, fmt.Errorf("get operator deployment: %w", err)
 	}
 	// We use the same target image for the deamonset as which we have right
@@ -175,6 +178,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("get ca inject type: %w", err)
 	}
+
 	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy, caInjectType)
 
 	webhook := bindata.GetWebhook(r.log, r.namespace, spod.Spec.WebhookOpts, image,
@@ -195,10 +199,13 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 			)
 			if createErr != nil {
 				r.record.Event(spod, util.EventTypeWarning, reasonCannotCreateSPOD, createErr.Error())
+
 				return reconcile.Result{}, createErr
 			}
+
 			return reconcile.Result{}, r.handleCreatingStatus(ctx, spod, logger)
 		}
+
 		return reconcile.Result{}, fmt.Errorf("getting spod DaemonSet: %w", err)
 	}
 
@@ -214,15 +221,19 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 	if spodUpdate || hookUpdate {
 		r.log.Info("Updating spod", "spodUpdate", spodUpdate, "hookUpdate", hookUpdate)
+
 		updatedSPod := foundSPOd.DeepCopy()
 		updatedSPod.Spec.Template = configuredSPOd.Spec.Template
+
 		updateErr := r.handleUpdate(
 			ctx, spod, updatedSPod, webhook, metricsService, certManagerResources, serviceMonitor,
 		)
 		if updateErr != nil {
 			r.record.Event(spod, util.EventTypeWarning, reasonCannotUpdateSPOD, updateErr.Error())
+
 			return reconcile.Result{}, updateErr
 		}
+
 		return reconcile.Result{}, r.handleUpdatingStatus(ctx, spod, logger)
 	}
 
@@ -233,6 +244,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 			return reconcile.Result{}, r.handleRunningStatus(ctx, spod, logger)
 		}
 	}
+
 	return reconcile.Result{}, nil
 }
 
@@ -242,12 +254,15 @@ func (r *ReconcileSPOd) handleInitialStatus(
 	l logr.Logger,
 ) (err error) {
 	l.Info("Adding an initial status to the SPOD instance")
+
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StatePending()
+
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
 		return fmt.Errorf("updating spod initial status: %w", updateErr)
 	}
+
 	return nil
 }
 
@@ -257,12 +272,15 @@ func (r *ReconcileSPOd) handleCreatingStatus(
 	l logr.Logger,
 ) (err error) {
 	l.Info("Adding 'Creating' status to the SPOD instance")
+
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateCreating()
+
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
 		return fmt.Errorf("updating spod status to creating: %w", updateErr)
 	}
+
 	return nil
 }
 
@@ -272,12 +290,15 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 	l logr.Logger,
 ) (err error) {
 	l.Info("Adding 'Updating' status to the SPOD instance")
+
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateUpdating()
+
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
 		return fmt.Errorf("updating spod status to 'updating': %w", updateErr)
 	}
+
 	return nil
 }
 
@@ -287,6 +308,7 @@ func (r *ReconcileSPOd) defaultProfiles(
 	if cfg.Spec.EnableLogEnricher {
 		defaultProfiles = append(defaultProfiles, bindata.DefaultLogEnricherProfile())
 	}
+
 	return defaultProfiles
 }
 
@@ -296,12 +318,15 @@ func (r *ReconcileSPOd) handleRunningStatus(
 	l logr.Logger,
 ) (err error) {
 	l.Info("Adding 'Running' status to the SPOD instance")
+
 	sCopy := spod.DeepCopy()
 	sCopy.Status.StateRunning()
+
 	updateErr := r.client.Status().Update(ctx, sCopy)
 	if updateErr != nil {
 		return fmt.Errorf("updating spod status to running: %w", updateErr)
 	}
+
 	return nil
 }
 
@@ -316,6 +341,7 @@ func (r *ReconcileSPOd) handleCreate(
 ) error {
 	if certManagerResources != nil {
 		r.log.Info("Deploying cert manager resources")
+
 		if err := certManagerResources.Create(ctx, r.client); err != nil {
 			return fmt.Errorf("creating cert manager resources: %w", err)
 		}
@@ -323,25 +349,30 @@ func (r *ReconcileSPOd) handleCreate(
 
 	if !cfg.Spec.StaticWebhookConfig {
 		r.log.Info("Deploying operator webhook")
+
 		if err := webhook.Create(ctx, r.client); err != nil {
 			return fmt.Errorf("creating webhook: %w", err)
 		}
 	}
 
 	r.log.Info("Creating operator resources")
+
 	if err := controllerutil.SetControllerReference(cfg, newSPOd, r.scheme); err != nil {
 		return fmt.Errorf("setting spod controller reference: %w", err)
 	}
 
 	r.log.Info("Deploying operator daemonset")
+
 	if err := r.client.Create(ctx, newSPOd); err != nil {
 		if errors.IsAlreadyExists(err) {
 			return nil
 		}
+
 		return fmt.Errorf("creating operator DaemonSet: %w", err)
 	}
 
 	r.log.Info("Deploying operator default profiles")
+
 	for _, profile := range r.defaultProfiles(cfg) {
 		// Adapt the namespace if we watch only a single one
 		if r.watchNamespace != "" {
@@ -352,19 +383,23 @@ func (r *ReconcileSPOd) handleCreate(
 			if errors.IsAlreadyExists(err) {
 				continue
 			}
+
 			return fmt.Errorf("creating operator default profile %s: %w", profile.Name, err)
 		}
 	}
 
 	r.log.Info("Deploying metrics service")
+
 	if err := r.client.Create(ctx, metricsService); err != nil {
 		if errors.IsAlreadyExists(err) {
 			return nil
 		}
+
 		return fmt.Errorf("creating metrics service: %w", err)
 	}
 
 	r.log.Info("Deploying operator service monitor")
+
 	if err := r.client.Create(
 		ctx, serviceMonitor,
 	); err != nil {
@@ -392,6 +427,7 @@ func (r *ReconcileSPOd) handleUpdate(
 ) error {
 	if certManagerResources != nil {
 		r.log.Info("Updating cert manager resources")
+
 		if err := certManagerResources.Update(ctx, r.client); err != nil {
 			return fmt.Errorf("updating cert manager resources: %w", err)
 		}
@@ -399,17 +435,20 @@ func (r *ReconcileSPOd) handleUpdate(
 
 	if !cfg.Spec.StaticWebhookConfig {
 		r.log.Info("Updating operator webhook")
+
 		if err := webhook.Update(ctx, r.client); err != nil {
 			return fmt.Errorf("updating webhook: %w", err)
 		}
 	}
 
 	r.log.Info("Updating operator daemonset")
+
 	if err := r.client.Patch(ctx, spodInstance, client.Merge); err != nil {
 		return fmt.Errorf("updating operator DaemonSet: %w", err)
 	}
 
 	r.log.Info("Updating operator default profiles")
+
 	for _, profile := range r.defaultProfiles(cfg) {
 		// Adapt the namespace if we watch only a single one
 		if r.watchNamespace != "" {
@@ -421,13 +460,17 @@ func (r *ReconcileSPOd) handleUpdate(
 			Namespace: profile.GetNamespace(),
 		}
 		foundProfile := &seccompprofileapi.SeccompProfile{}
+
 		var err error
+
 		if err = r.client.Get(ctx, pKey, foundProfile); err == nil {
 			updatedProfile := foundProfile.DeepCopy()
 			updatedProfile.Spec = *profile.Spec.DeepCopy()
+
 			if updateErr := r.client.Update(ctx, updatedProfile); updateErr != nil {
 				return fmt.Errorf("updating operator default profile %s: %w", profile.Name, updateErr)
 			}
+
 			continue
 		}
 
@@ -437,8 +480,10 @@ func (r *ReconcileSPOd) handleUpdate(
 				if errors.IsAlreadyExists(createErr) {
 					return nil
 				}
+
 				return fmt.Errorf("creating operator default profile %s: %w", profile.Name, createErr)
 			}
+
 			continue
 		}
 
@@ -446,11 +491,13 @@ func (r *ReconcileSPOd) handleUpdate(
 	}
 
 	r.log.Info("Updating metrics service")
+
 	if err := r.client.Patch(ctx, metricsService, client.Merge); err != nil {
 		return fmt.Errorf("updating metrics service: %w", err)
 	}
 
 	r.log.Info("Updating operator service monitor")
+
 	if err := r.client.Patch(
 		ctx, serviceMonitor, client.Merge,
 	); err != nil {
@@ -496,6 +543,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		env := &templateSpec.Containers[bindata.ContainerIDDaemon].Env[envid]
 		if env.Name == config.SPOdNameEnvKey {
 			env.Value = cfg.GetName()
+
 			break
 		}
 	}
@@ -529,6 +577,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 	// Disable profile recording controller by default
 	enableRecording := false
+
 	if isLogEnricherEnabled(cfg) || isBpfRecorderEnabled(cfg) {
 		if useCustomHostProc {
 			templateSpec.Volumes = append(templateSpec.Volumes, volume)
@@ -541,6 +590,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// Enable profile recording controller which is disabled by default
 		enableRecording = true
 	}
+
 	templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 		fmt.Sprintf("--with-recording=%t", enableRecording))
@@ -570,11 +620,21 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
 		// pass the bpf recorder env var to the daemon as the profile recorder is otherwise disabled
 		addEnvVar(templateSpec, config.EnableBpfRecorderEnvKey)
+
+		// Configure the apparmor profile for bpf-recorder when apparmor is enabled.
+		if cfg.Spec.EnableAppArmor {
+			localApparmorProfile := config.BpfRecorderApparmorProfileName
+			ctr.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
+				Type:             corev1.AppArmorProfileTypeLocalhost,
+				LocalhostProfile: &localApparmorProfile,
+			}
+		}
 	}
 
 	// AppArmor parameters
 	if cfg.Spec.EnableAppArmor {
 		falsely, truly := false, true
+
 		var userRoot int64
 		// A more privileged mode is required when apparmor is enabled.
 		// TODO: review security model and provide a dynamic approach that can be case specific
@@ -585,6 +645,12 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		sc.RunAsUser = &userRoot
 		sc.RunAsGroup = &userRoot
 
+		localSpoApparmorProfile := config.SpoApparmorProfileName
+		sc.AppArmorProfile = &corev1.AppArmorProfile{
+			Type:             corev1.AppArmorProfileTypeLocalhost,
+			LocalhostProfile: &localSpoApparmorProfile,
+		}
+
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			"--with-apparmor=true")
@@ -593,9 +659,23 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		if newSPOd.ObjectMeta.Annotations == nil {
 			newSPOd.ObjectMeta.Annotations = make(map[string]string)
 		}
+
 		newSPOd.ObjectMeta.Annotations[appArmorAnnotation] = "unconfined"
 
-		// HostPID is required for AppArmor when trying to get access to the host ns
+		// A more privileged init container is required when apparmor is enabled, in order
+		// to install the apparmor profile for spo itself.
+		templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Args = append(
+			templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].Args,
+			"--apparmor=true")
+		isc := templateSpec.InitContainers[bindata.InitContainerIDNonRootenabler].SecurityContext
+		isc.AllowPrivilegeEscalation = &truly
+		isc.Privileged = &truly
+		isc.ReadOnlyRootFilesystem = &falsely
+		isc.RunAsUser = &userRoot
+		isc.RunAsGroup = &userRoot
+
+		// HostPID is required for AppArmor in order to get access to the host ns
+		// when installing the Apparmor profiles.
 		templateSpec.HostPID = true
 	}
 
@@ -690,6 +770,7 @@ func configureSeLinuxTag(secContext *corev1.SecurityContext, seLinuxTag string) 
 	if secContext == nil {
 		return
 	}
+
 	if secContext.SELinuxOptions == nil {
 		secContext.SELinuxOptions = &corev1.SELinuxOptions{}
 	}

@@ -58,6 +58,7 @@ func (m *Metrics) ServeGRPC() error {
 
 	go func() {
 		m.log.Info("Starting GRPC server API")
+
 		if err := grpcServer.Serve(listener); err != nil {
 			m.log.Error(err, "unable to run GRPC server")
 		}
@@ -78,8 +79,10 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	)
 	if err != nil {
 		cancel()
+
 		return nil, nil, fmt.Errorf("GRPC dial: %w", err)
 	}
+
 	return conn, cancel, nil
 }
 
@@ -92,11 +95,12 @@ func (m *Metrics) AuditInc(
 		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(&api.EmptyResponse{})
 		}
+
 		if err != nil {
 			return fmt.Errorf("record syscalls: %w", err)
 		}
 
-		if r.GetSeccompReq() != nil {
+		if r.GetSeccompReq() != nil { //nolint:gocritic
 			m.IncSeccompProfileAudit(
 				r.GetNode(),
 				r.GetNamespace(),
@@ -115,6 +119,18 @@ func (m *Metrics) AuditInc(
 				r.GetSelinuxReq().GetScontext(),
 				r.GetSelinuxReq().GetTcontext(),
 			)
+		} else if r.GetApparmorReq() != nil {
+			m.IncAppArmorProfileAudit(
+				r.GetNode(),
+				r.GetNamespace(),
+				r.GetPod(),
+				r.GetContainer(),
+				r.GetExecutable(),
+				r.GetApparmorReq().GetProfile(),
+				r.GetApparmorReq().GetOperation(),
+				r.GetApparmorReq().GetApparmor(),
+				r.GetApparmorReq().GetName(),
+			)
 		}
 	}
 }
@@ -126,6 +142,7 @@ func (m *Metrics) BpfInc(stream api.Metrics_BpfIncServer) error {
 		if errors.Is(err, io.EOF) {
 			return stream.SendAndClose(&api.EmptyResponse{})
 		}
+
 		if err != nil {
 			return fmt.Errorf("record bpf metrics: %w", err)
 		}

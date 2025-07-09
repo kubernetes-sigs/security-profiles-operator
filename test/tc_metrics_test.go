@@ -49,6 +49,7 @@ spec:
 `, profileName)
 
 	e.logf("Creating test profile")
+
 	cleanup := e.writeAndCreate(profile, "metrics-profile*.yaml")
 	defer cleanup()
 	e.logf("Waiting for profile to be reconciled")
@@ -86,6 +87,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 	metricUpdates := e.parseMetric(output, operationUpdate)
 
 	e.logf("Creating test errorlogger policy")
+
 	cleanup := e.writeAndCreate(errorloggerPolicy, "errorlogger-policy.yml")
 	defer cleanup()
 	e.logf("Waiting for profile to be reconciled")
@@ -121,9 +123,11 @@ func (e *e2e) parseMetric(content, metric string) int {
 			e.Len(fields, 2)
 			i, err := strconv.Atoi(fields[1])
 			e.Nil(err)
+
 			return i
 		}
 	}
+
 	return 0
 }
 
@@ -131,6 +135,7 @@ func (e *e2e) testCaseMetricsHTTP([]string) {
 	if !e.testMetricsHTTP {
 		e.T().Skip("Skipping metrics HTTP version related tests")
 	}
+
 	e.logf("Test metrics HTTP version")
 
 	endpoints := []string{

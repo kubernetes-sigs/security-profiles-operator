@@ -129,7 +129,7 @@ type SeccompProfileStatus struct {
 
 // SeccompProfile is a cluster level specification for a seccomp profile.
 // See https://github.com/opencontainers/runtime-spec/blob/master/config-linux.md#seccomp
-// +kubebuilder:resource:shortName=sp
+// +kubebuilder:resource:shortName=sp,scope=Cluster
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -160,11 +160,13 @@ func (sp *SeccompProfile) GetProfileFile() string {
 	if !strings.HasSuffix(pfile, ExtJSON) {
 		pfile = sp.GetName() + ExtJSON
 	}
+
 	return pfile
 }
 
 func (sp *SeccompProfile) GetProfilePath() string {
 	pfile := sp.GetProfileFile()
+
 	return path.Join(
 		config.ProfilesRootPath(),
 		filepath.Base(sp.GetNamespace()),
@@ -174,6 +176,7 @@ func (sp *SeccompProfile) GetProfilePath() string {
 
 func (sp *SeccompProfile) GetProfileOperatorPath() string {
 	pfile := sp.GetProfileFile()
+
 	return path.Join(
 		config.OperatorRoot,
 		filepath.Base(sp.GetNamespace()),

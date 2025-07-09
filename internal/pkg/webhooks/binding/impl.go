@@ -55,6 +55,7 @@ func (d *defaultImpl) ListProfileBindings(
 	if err := d.client.List(ctx, profileBindings, opts...); err != nil {
 		return nil, fmt.Errorf("list profile bindings: %w", err)
 	}
+
 	return profileBindings, nil
 }
 
@@ -82,6 +83,7 @@ func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
 	if err := d.decoder.Decode(req, pod); err != nil {
 		return nil, fmt.Errorf("decode pod: %w", err)
 	}
+
 	return pod, nil
 }
 
@@ -92,6 +94,7 @@ func (d *defaultImpl) GetSeccompProfile(
 	if err := d.client.Get(ctx, key, seccompProfile); err != nil {
 		return nil, fmt.Errorf("get seccomp profile: %w", err)
 	}
+
 	return seccompProfile, nil
 }
 
@@ -99,9 +102,11 @@ func (d *defaultImpl) GetSelinuxProfile(
 	ctx context.Context, key types.NamespacedName,
 ) (*selinuxprofileapi.SelinuxProfile, error) {
 	selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
+
 	err := d.client.Get(ctx, key, selinuxProfile)
 	if err != nil {
 		return nil, fmt.Errorf("get selinux profile: %w", err)
 	}
+
 	return selinuxProfile, nil
 }

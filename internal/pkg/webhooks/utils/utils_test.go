@@ -30,6 +30,7 @@ import (
 
 func TestAppendIfNotExists(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		provided, expected []string
 		item               string
@@ -57,6 +58,7 @@ func TestAppendIfNotExists(t *testing.T) {
 
 func TestRemoveIfExists(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		provided, expected []string
 		item               string
@@ -99,6 +101,7 @@ func (f *fakeClient) Create(
 	if f.updateFails {
 		return errors.New("test")
 	}
+
 	return nil
 }
 
@@ -110,6 +113,7 @@ func (f *fakeClient) Delete(
 	if f.updateFails {
 		return errors.New("test")
 	}
+
 	return nil
 }
 
@@ -121,6 +125,7 @@ func (f *fakeClient) DeleteAllOf(
 	if f.updateFails {
 		return errors.New("test")
 	}
+
 	return nil
 }
 
@@ -132,6 +137,7 @@ func (f *fakeClient) Update(
 	if f.updateFails {
 		return errors.New("test")
 	}
+
 	return nil
 }
 
@@ -146,6 +152,7 @@ func (*fakeClient) Patch(
 
 func TestUpdateResource(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		client    *fakeClient
 		shouldErr bool

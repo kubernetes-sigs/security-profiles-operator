@@ -18,20 +18,22 @@
 # for more details
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi8/go-toolset@sha256:9b7b1a47d31de7c15966a1c63141f985d8c0b100a768ece74c5a7262dc0e6e27 AS build
+FROM registry.access.redhat.com/ubi8/go-toolset@sha256:8a9106cba56ffee4f0de6ecb1953aaac50460a0406d06db3db99e7d182cc1908 AS build
 USER root
 WORKDIR /work
 
 RUN dnf install -y \
-  libseccomp-devel
+  libseccomp-devel \
+  libbpf
 
 ADD . /work
 RUN mkdir -p build
 
 # Use latest golang
-RUN GO_VERSION=$(curl -sSfL "https://go.dev/VERSION?m=text" | head -n1) && \
-    curl -sSfL -o- https://go.dev/dl/$GO_VERSION.linux-amd64.tar.gz | \
-        tar xfz - -C /usr/local
+RUN ARCH=$(arch | sed 's|x86_64|amd64|g' | sed 's|aarch64|arm64|g') && \
+    GO_VERSION=$(curl -sSfL https://go.dev/VERSION?m=text | head -n1) && \
+    curl -sSfL https://go.dev/dl/${GO_VERSION}.linux-${ARCH}.tar.gz | \
+    tar -xzf - -C /usr/local
 ENV PATH="/usr/local/go/bin:$PATH"
 
 ARG APPARMOR_ENABLED=0
@@ -43,12 +45,13 @@ ARG STATIC_LINK=no
 RUN make
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:b87097994ed62fbf1de70bc75debe8dacf3ea6e00dd577d74503ef66452c59d6
+FROM registry.access.redhat.com/ubi9/ubi-minimal@sha256:14f14e03d68f7fd5f2b18a13478b6b127c341b346c86b6e0b886ed2b7573b8e0
 ARG version
 USER root
 
 RUN microdnf install -y \
-  libseccomp
+  libseccomp \
+  libbpf
 
 LABEL name="Security Profiles Operator" \
   version=$version \

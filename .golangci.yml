@@ -29,6 +29,7 @@ linters:
     - errname
     - errorlint
     - exhaustive
+    - exptostd
     - fatcontext
     - forcetypeassert
     - gci
@@ -66,7 +67,9 @@ linters:
     - nakedret
     - nestif
     - nilerr
+    - nilnesserr
     - nilnil
+    - nlreturn
     - noctx
     - nolintlint
     - nosprintfhostport
@@ -87,7 +90,6 @@ linters:
     - stylecheck
     - tagalign
     - tagliatelle
-    - tenv
     - testableexamples
     - testifylint
     - thelper
@@ -97,8 +99,10 @@ linters:
     - unparam
     - unused
     - usestdlibvars
+    - usetesting
     - wastedassign
     - whitespace
+    - wsl
     - zerologlint
     # - cyclop
     # - depguard
@@ -113,12 +117,10 @@ linters:
     # - ireturn
     # - maintidx
     # - mnd
-    # - nlreturn
     # - nonamedreturns
     # - testpackage
     # - varnamelen
     # - wrapcheck
-    # - wsl
 linters-settings:
   revive:
     rules:

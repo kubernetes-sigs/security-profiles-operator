@@ -33,6 +33,7 @@ var errTest = errors.New("error")
 
 func TestRun(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		prepare     func(*nonrootenablerfakes.FakeImpl)
 		shouldError bool
@@ -102,7 +103,7 @@ func TestRun(t *testing.T) {
 		tc.prepare(mock)
 		sut.SetImpl(mock)
 
-		err := sut.Run(logr.Discard(), "", config.KubeletDir())
+		err := sut.Run(logr.Discard(), "", config.KubeletDir(), false)
 		if tc.shouldError {
 			require.Error(t, err)
 		} else {

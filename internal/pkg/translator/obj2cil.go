@@ -48,16 +48,20 @@ func Object2CIL(
 	if len(objInherits) == 0 {
 		cilbuilder.WriteString(getCILInheritline(systemContainerInherit))
 	}
+
 	for _, inherit := range systemInherits {
 		if inherit == systemContainerInherit {
 			// already appended above
 			continue
 		}
+
 		cilbuilder.WriteString(getCILInheritline(inherit))
 	}
+
 	for _, inherit := range objInherits {
 		cilbuilder.WriteString(getCILInheritline(inherit.GetPolicyName()))
 	}
+
 	if sp.Spec.Permissive {
 		cilbuilder.WriteString(typePermissive)
 		cilbuilder.WriteString("\n")
@@ -70,6 +74,7 @@ func Object2CIL(
 	}
 
 	cilbuilder.WriteString(getCILEnd())
+
 	return cilbuilder.String()
 }
 
@@ -91,8 +96,10 @@ func getCILAllowLine(
 	if ttype == selxv1alpha2.AllowSelf {
 		ttypeFinal = sp.GetPolicyUsage()
 	}
+
 	uniquePerms := sets.New(perms...).UnsortedList()
 	sort.Strings(uniquePerms)
+
 	return fmt.Sprintf("(allow process %s ( %s ( %s )))\n", ttypeFinal, tclass, strings.Join(uniquePerms, " "))
 }
 

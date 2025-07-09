@@ -34,6 +34,7 @@ func DefaultApp() (*cli.App, *version.Info) {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	app.Version = info.Version
 
 	app.Commands = cli.Commands{
@@ -58,6 +59,7 @@ func DefaultApp() (*cli.App, *version.Info) {
 					res = j
 				}
 				print(res)
+
 				return nil
 			},
 		},

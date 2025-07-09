@@ -1,6 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+sortOptions:
+  order: legacy
 
 resources:
 - ns.yaml
@@ -17,6 +19,8 @@ configMapGenerator:
   - profiles/selinuxd.cil
   - profiles/selinuxrecording.cil
   - profiles/selinuxd-image-mapping.json
+  - profiles/spo-apparmor.yaml
+  - profiles/bpfrecorder-apparmor.yaml
   name: security-profiles-operator-profile
 
 generatorOptions:

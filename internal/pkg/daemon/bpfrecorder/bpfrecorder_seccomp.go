@@ -45,11 +45,14 @@ func newSeccompRecorder(logger logr.Logger) *SeccompRecorder {
 
 func (s *SeccompRecorder) Load(b *BpfRecorder) error {
 	s.logger.Info("Getting syscalls map")
+
 	syscalls, err := b.GetMap(b.module, "mntns_syscalls")
 	if err != nil {
 		return fmt.Errorf("get syscalls map: %w", err)
 	}
+
 	s.syscalls = syscalls
+
 	return nil
 }
 
@@ -66,6 +69,7 @@ func (s *SeccompRecorder) StopRecording(b *BpfRecorder) error {
 			return fmt.Errorf("failed to clean up syscalls map: %w", err)
 		}
 	}
+
 	return nil
 }
 
@@ -73,8 +77,10 @@ func (s *SeccompRecorder) PopSyscalls(b *BpfRecorder, mntns uint32) ([]string, e
 	syscalls, err := b.GetValue(s.syscalls, mntns)
 	if err != nil {
 		s.logger.Error(err, "No syscalls found for mntns", "mntns", mntns)
+
 		return nil, fmt.Errorf("no syscalls found for mntns: %d", mntns)
 	}
+
 	syscallNames := s.convertSyscallIDsToNames(b, syscalls)
 
 	if err := b.DeleteKey(s.syscalls, mntns); err != nil {
@@ -89,30 +95,38 @@ func sortUnique(input []string) (result []string) {
 	for _, val := range input {
 		tmp[val] = true
 	}
+
 	for k := range tmp {
 		result = append(result, k)
 	}
+
 	sort.Strings(result)
+
 	return result
 }
 
 func (s *SeccompRecorder) convertSyscallIDsToNames(b *BpfRecorder, syscalls []byte) []string {
 	result := []string{}
+
 	for id, set := range syscalls {
 		if set == 1 {
 			name, err := s.syscallNameForID(b, id)
 			if err != nil {
 				s.logger.Error(err, "unable to convert syscall ID", "id", id)
+
 				continue
 			}
+
 			result = append(result, name)
 		}
 	}
+
 	return result
 }
 
 func (s *SeccompRecorder) syscallNameForID(b *BpfRecorder, id int) (string, error) {
 	key := strconv.Itoa(id)
+
 	item, ok := s.syscallIDtoNameCache[key]
 	if ok {
 		return item, nil
@@ -124,5 +138,6 @@ func (s *SeccompRecorder) syscallNameForID(b *BpfRecorder, id int) (string, erro
 	}
 
 	s.syscallIDtoNameCache[key] = name
+
 	return name, nil
 }

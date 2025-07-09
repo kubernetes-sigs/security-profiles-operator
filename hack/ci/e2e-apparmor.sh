@@ -71,11 +71,12 @@ wait_for_pod_status() {
   for ((i = 0; i < 10; i++)); do
     if k get pods $pod_name | grep -q $status; then
       echo "Pod reached status: $status "
-      break
+      return 0
     fi
     echo "Still waiting ($i)"
     sleep 5
   done
+  return 1
 }
 
 check_profile_mode() {
@@ -148,7 +149,7 @@ check_apparmor_profile_recording() {
     echo "Creating pod $PODNAME with recorded profile in security context"
     sec_pod_file="${TMP_DIR}/${PODNAME}-apparmor.yml"
     create_pod $PODNAME $sec_pod_file $SLEEP_INTERVAL_VERIFICATION $runtime $APPARMOR_PROFILE_NAME
-    wait_for_pod_status "$PODNAME" "Running"
+    wait_for_pod_status "$PODNAME" "Running" || k describe pod test-pod
 
     echo "Checking apparmor profile enforcement on container"
     check_profile_mode "sleep" $APPARMOR_PROFILE_NAME "enforce"

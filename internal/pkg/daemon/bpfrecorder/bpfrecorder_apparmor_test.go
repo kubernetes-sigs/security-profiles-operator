@@ -53,12 +53,33 @@ func TestReplaceVarianceInFilePath(t *testing.T) {
 			path: "/var/lib/containers/storage/overlay/8a0a50ee00/merged/dev",
 			want: "/var/lib/containers/storage/overlay/*/merged/dev",
 		},
+		{
+			name: "generalize os.MkdirTemp() directories",
+			path: "/tmp/kubelet-detect-safe-umount1404256428",
+			want: "/tmp/kubelet-detect-safe-umount*",
+		},
+		{
+			name: "generalize uuids",
+			path: "/var/lib/kubelet/pods/00112233-4455-6677-8899-aabbccddeeff/",
+			want: "/var/lib/kubelet/pods/*/",
+		},
+		{
+			name: "generalize hashes",
+			path: "/tmp/3c5928afbbefea1b0acf34b9acd866d2bcb3d6b6955d4e1fe095a97d487bcb45/foo",
+			want: "/tmp/*/foo",
+		},
+		{
+			name: "sys devices",
+			path: "/sys/devices/pci0000:00/0000:00:03.0/virtio0/host0/target0:0:7/0:0:7:0/block/sdb/",
+			want: "/sys/devices/**",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := replaceVarianceInFilePath(tc.path)
+
+			got := ReplaceVarianceInFilePath(tc.path)
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -100,6 +121,7 @@ func TestAllowAnyFiles(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := allowAnyFiles(test.paths)
 			require.Equal(t, test.want, got)
 		})
@@ -125,11 +147,6 @@ func TestShouldExcludeFile(t *testing.T) {
 			want:     true,
 		},
 		{
-			name:     "Should exclude apparmor/exec",
-			filePath: "/proc/@{pid}/attr/apparmor/exec",
-			want:     true,
-		},
-		{
 			name:     "Should not exclude normal files",
 			filePath: "/etc/group",
 			want:     false,
@@ -139,6 +156,7 @@ func TestShouldExcludeFile(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := shouldExcludeFile(test.filePath)
 			require.Equal(t, test.want, got)
 		})

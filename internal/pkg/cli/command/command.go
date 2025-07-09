@@ -54,6 +54,7 @@ func (c *Command) Run() (pid uint32, err error) {
 			log.Printf("Failed to drop sudo privileges: %v", err)
 		}
 	}
+
 	if err := c.CmdStart(c.cmd); err != nil {
 		return pid, fmt.Errorf("start command: %w", err)
 	}
@@ -61,6 +62,7 @@ func (c *Command) Run() (pid uint32, err error) {
 	// Allow to interrupt
 	ch := make(chan os.Signal, 1)
 	c.Notify(ch, os.Interrupt)
+
 	go func() {
 		<-ch
 		log.Printf("Got interrupted, terminating process")
@@ -90,13 +92,16 @@ func getHomeDirectory(uid uint32) (string, error) {
 		"-c",
 		"echo -n ~",
 	)
+
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("home dir lookup failed: %w", err)
 	}
+
 	if len(out) == 0 {
 		return "", errors.New("home dir lookup failed: no output")
 	}
+
 	return string(out), nil
 }
 
@@ -105,14 +110,17 @@ func (c *Command) DropSudoPrivileges() error {
 	if err != nil {
 		return errNoSudoEnvironment
 	}
+
 	gid, err := strconv.ParseUint(os.Getenv("SUDO_GID"), 10, 32)
 	if err != nil {
 		return errNoSudoEnvironment
 	}
+
 	userName := os.Getenv("SUDO_USER")
 	if userName == "" {
 		return errNoSudoEnvironment
 	}
+
 	home, err := c.GetHomeDirectory(uint32(uid))
 	if err != nil {
 		return fmt.Errorf("failed to drop privileges: %w", err)
@@ -132,6 +140,7 @@ func (c *Command) DropSudoPrivileges() error {
 		"HOME="+home,
 		"USER="+userName,
 	)
+
 	return nil
 }
 

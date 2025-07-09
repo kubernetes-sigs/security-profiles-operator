@@ -29,6 +29,7 @@ var errTest = errors.New("test")
 
 func TestRun(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		name    string
 		prepare func(mock *pusherfakes.FakeImpl)

@@ -49,6 +49,7 @@ func mergedProfileName(recordingName string, prf metav1.Object) string {
 	if suffix == "" {
 		suffix = prf.GetName()
 	}
+
 	return fmt.Sprintf("%s-%s", recordingName, suffix)
 }
 
@@ -93,6 +94,7 @@ func listPartialProfiles(
 	}
 
 	partialProfiles := make(perContainerMergeableProfiles)
+
 	if err := meta.EachListItem(list, func(obj runtime.Object) error {
 		clientObj, ok := obj.(client.Object)
 		if !ok {
@@ -110,6 +112,7 @@ func listPartialProfiles(
 			return nil
 		}
 		partialProfiles[containerID] = append(partialProfiles[containerID], partialPrf)
+
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("iterating over partial profiles: %w", err)
@@ -122,17 +125,21 @@ func MergeProfiles(
 	profiles []client.Object,
 ) (client.Object, error) {
 	mergeables := make([]mergeableProfile, len(profiles))
+
 	for i, profile := range profiles {
 		mergeable, err := newMergeableProfile(profile)
 		if err != nil {
 			return nil, err
 		}
+
 		mergeables[i] = mergeable
 	}
+
 	merged, err := mergeMergeableProfiles(mergeables)
 	if err != nil {
 		return nil, err
 	}
+
 	return merged.getProfile(), nil
 }
 
@@ -141,6 +148,7 @@ func getContainerID(prf client.Object) string {
 	if labels == nil {
 		return ""
 	}
+
 	return labels[profilerecording1alpha1.ProfileToContainerLabel]
 }
 
@@ -189,10 +197,12 @@ func (sp *mergeableSeccompProfile) merge(other mergeableProfile) error {
 	if !ok {
 		return fmt.Errorf("cannot merge SeccompProfile with %T", other)
 	}
+
 	syscalls, err := util.UnionSyscalls(sp.Spec.Syscalls, otherSP.Spec.Syscalls)
 	if err != nil {
 		return fmt.Errorf("union syscalls: %w", err)
 	}
+
 	sp.Spec.Syscalls = syscalls
 
 	return nil
@@ -216,6 +226,7 @@ func (sp *MergeableSelinuxProfile) merge(other mergeableProfile) error {
 	if !ok {
 		return fmt.Errorf("cannot merge selinuxProfile with %T", other)
 	}
+
 	sp.Spec.Allow = addAllow(sp.Spec.Allow, otherSP.Spec.Allow)
 
 	return nil

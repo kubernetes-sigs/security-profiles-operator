@@ -58,6 +58,7 @@ func IsAuditLine(logLine string) bool {
 	}
 
 	captures = apparmorLineRegex.FindStringSubmatch(logLine)
+
 	return len(captures) >= minAppArmorCapturesExpected
 }
 
@@ -88,6 +89,7 @@ func extractSeccompLine(logLine string) *types.AuditLine {
 	line.AuditType = types.AuditTypeSeccomp
 	line.TimestampID = captures[2]
 	line.Executable = captures[4]
+
 	if v, err := strconv.Atoi(captures[3]); err == nil {
 		line.ProcessID = v
 	}
@@ -96,6 +98,7 @@ func extractSeccompLine(logLine string) *types.AuditLine {
 		base    = 10
 		bitSize = 32
 	)
+
 	if v, err := strconv.ParseInt(captures[5], base, bitSize); err == nil {
 		line.SystemCallID = int32(v)
 	}
@@ -113,9 +116,11 @@ func extractSelinuxLine(logLine string) *types.AuditLine {
 	line.AuditType = types.AuditTypeSelinux
 	line.TimestampID = captures[1]
 	line.Perm = captures[2]
+
 	if v, err := strconv.Atoi(captures[3]); err == nil {
 		line.ProcessID = v
 	}
+
 	line.Scontext = captures[4]
 	line.Tcontext = captures[5]
 	line.Tclass = captures[6]
@@ -137,6 +142,7 @@ func extractApparmorLine(logLine string) *types.AuditLine {
 	line.Profile = captures[5]
 	line.Name = captures[6]
 	line.Executable = captures[8]
+
 	if v, err := strconv.Atoi(captures[7]); err == nil {
 		line.ProcessID = v
 	}
@@ -144,5 +150,6 @@ func extractApparmorLine(logLine string) *types.AuditLine {
 	if len(captures) > minAppArmorCapturesExpected {
 		line.ExtraInfo = strings.ReplaceAll(captures[9], "\"", "'")
 	}
+
 	return &line
 }

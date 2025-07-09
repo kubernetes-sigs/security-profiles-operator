@@ -85,6 +85,7 @@ func (p *podSeccompRecorder) Handle(
 	)
 	if err != nil {
 		p.log.Error(err, "Could not list profile recordings")
+
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
@@ -93,6 +94,7 @@ func (p *podSeccompRecorder) Handle(
 		pod, err = p.impl.DecodePod(req)
 		if err != nil {
 			p.log.Error(err, "Failed to decode pod")
+
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 	}
@@ -112,6 +114,7 @@ func (p *podSeccompRecorder) Handle(
 			p.log.Info(fmt.Sprintf(
 				"recording kind %s not supported", item.Spec.Kind,
 			))
+
 			continue
 		}
 
@@ -122,6 +125,7 @@ func (p *podSeccompRecorder) Handle(
 			p.log.Error(
 				err, "Could not get label selector from profile recording",
 			)
+
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
 
@@ -155,6 +159,7 @@ func (p *podSeccompRecorder) Handle(
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {
 		p.log.Error(err, "Failed to encode pod")
+
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
@@ -168,6 +173,7 @@ func (p *podSeccompRecorder) shouldRecordContainer(containerName string,
 	if profileRecording.Spec.Containers == nil {
 		return true
 	}
+
 	return util.Contains(profileRecording.Spec.Containers, containerName)
 }
 
@@ -178,11 +184,13 @@ func (p *podSeccompRecorder) updatePod(
 ) (podChanged bool, err error) {
 	// Collect containers as references to not copy them during modification
 	ctrs := []*corev1.Container{}
+
 	for i := range pod.Spec.InitContainers {
 		if p.shouldRecordContainer(pod.Spec.InitContainers[i].Name, profileRecording) {
 			ctrs = append(ctrs, &pod.Spec.InitContainers[i])
 		}
 	}
+
 	for i := range pod.Spec.Containers {
 		if p.shouldRecordContainer(pod.Spec.Containers[i].Name, profileRecording) {
 			ctrs = append(ctrs, &pod.Spec.Containers[i])
@@ -200,17 +208,21 @@ func (p *podSeccompRecorder) updatePod(
 		p.warnEventIfContainerPrivileged(profileRecording, ctr, pod)
 
 		p.updateSecurityContext(ctr, profileRecording)
+
 		existingValue, ok := pod.GetAnnotations()[key]
 		if !ok {
 			if pod.Annotations == nil {
 				pod.Annotations = make(map[string]string)
 			}
+
 			pod.Annotations[key] = value
 			p.log.Info(fmt.Sprintf(
 				"adding recording annotation %s=%s to pod %s",
 				key, value, pod.Name,
 			))
+
 			podChanged = true
+
 			continue
 		}
 

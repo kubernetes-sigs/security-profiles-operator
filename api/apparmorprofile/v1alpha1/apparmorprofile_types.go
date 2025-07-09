@@ -106,7 +106,7 @@ type AppArmorProfileStatus struct {
 // +kubebuilder:object:root=true
 
 // AppArmorProfile is a cluster level specification for an AppArmor profile.
-// +kubebuilder:resource:shortName=aa
+// +kubebuilder:resource:shortName=aa,scope=Cluster
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=`.status.status`
 type AppArmorProfile struct {

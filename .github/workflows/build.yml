@@ -7,7 +7,7 @@ on:
     types: [published]
   pull_request:
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.24'
   NIX_VERSION: '2.25.0'
   BOM_VERSION: v0.6.0
 concurrency:

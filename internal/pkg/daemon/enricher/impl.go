@@ -129,6 +129,7 @@ func (d *defaultImpl) GetFromBacklog(
 	if item == nil {
 		return nil
 	}
+
 	return item.Value()
 }
 

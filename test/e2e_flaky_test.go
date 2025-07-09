@@ -21,6 +21,7 @@ import "sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 	if e.skipFlakyTests {
 		e.T().Skip("Skipping flaky tests")
+
 		return
 	}
 
@@ -42,6 +43,7 @@ func (e *e2e) TestSecurityProfilesOperator_Flaky() {
 	// Execute the test cases. Each test case should cleanup on its own and
 	// leave a working operator behind.
 	e.logf("testing cluster-wide operator")
+
 	testCases := []testCase{
 		{
 			"Seccomp: Metrics",

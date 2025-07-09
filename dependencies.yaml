@@ -1,6 +1,6 @@
 dependencies:
   - name: go
-    version: 1.23
+    version: 1.24
     refPaths:
     - path: .github/workflows/build.yml
       match: GO_VERSION
@@ -12,7 +12,7 @@ dependencies:
       match: CI_IMAGE
 
   - name: golangci-lint
-    version: 1.62.0
+    version: 1.64.5
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -128,7 +128,7 @@ dependencies:
       match: VERSION
 
   - name: crun
-    version: 1.19.1
+    version: 1.20
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
@@ -162,7 +162,7 @@ dependencies:
       match: BOM_VERSION
 
   - name: spo-current
-    version: 0.8.5-dev
+    version: 0.9.0
     refPaths:
     - path: VERSION
       match: ^.*

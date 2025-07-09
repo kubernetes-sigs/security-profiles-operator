@@ -24,5 +24,6 @@ func IgnoreNotFound(err error) error {
 	if kerrors.IsNotFound(err) {
 		return nil
 	}
+
 	return err
 }

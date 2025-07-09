@@ -185,6 +185,12 @@ func main() {
 					Value:   "",
 					Usage:   "the container runtime in the cluster (values: cri-o, containerd, docker)",
 				},
+				&cli.BoolFlag{
+					Name:    "apparmor",
+					Aliases: []string{"a"},
+					Usage:   "enable installation of apparmor profiles for spo",
+					EnvVars: []string{config.AppArmorEnvKey},
+				},
 			},
 		},
 		&cli.Command{
@@ -248,6 +254,7 @@ func initialize(ctx *cli.Context) error {
 	}
 
 	initProfiling(ctx)
+
 	return nil
 }
 
@@ -262,7 +269,9 @@ func initLogging(ctx *cli.Context) error {
 		return fmt.Errorf("parse verbosity flag: %w", err)
 	}
 
+	ctrl.SetLogger(ctrl.Log.V(int(level)))
 	ctrl.Log.Info(fmt.Sprintf("Set logging verbosity to %d", level))
+
 	return nil
 }
 
@@ -276,6 +285,7 @@ func initProfiling(ctx *cli.Context) {
 			endpoint := fmt.Sprintf(":%d", port)
 
 			ctrl.Log.Info("Starting profiling server", "endpoint", endpoint)
+
 			server := &http.Server{
 				Addr:              endpoint,
 				ReadHeaderTimeout: util.DefaultReadHeaderTimeout,
@@ -300,6 +310,7 @@ func manageWebhook(ctx *cli.Context) bool {
 
 func runManager(ctx *cli.Context, info *version.Info) error {
 	printInfo("security-profiles-operator", info)
+
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return fmt.Errorf("get config: %w", err)
@@ -323,21 +334,27 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	if err := configv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add OpenShift config API to scheme: %w", err)
 	}
+
 	if err := certmanagerv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add certmanager API to scheme: %w", err)
 	}
+
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add profilebinding API to scheme: %w", err)
 	}
+
 	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add seccompprofile API to scheme: %w", err)
 	}
+
 	if err := apparmorprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add apparmorprofile API to scheme: %w", err)
 	}
+
 	if err := selxv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add selinuxprofile API to scheme: %w", err)
 	}
+
 	if err := monitoringv1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add ServiceMonitor API to scheme: %w", err)
 	}
@@ -354,11 +371,13 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 	}
 
 	setupLog.Info("starting manager")
+
 	if err := mgr.Start(sigHandler); err != nil {
 		return fmt.Errorf("controller manager error: %w", err)
 	}
 
 	setupLog.Info("ending manager")
+
 	return nil
 }
 
@@ -371,6 +390,7 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 	// listen globally
 	if namespace == "" {
 		setupLog.Info("watching all namespaces")
+
 		return
 	}
 
@@ -390,6 +410,7 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 		for _, ns := range namespaceList {
 			opts.Cache.DefaultNamespaces[ns] = cache.Config{}
 		}
+
 		setupLog.Info("watching multiple namespaces", "namespaces", namespaceList)
 	} else {
 		// listen to a specific namespace only
@@ -434,9 +455,11 @@ func newMemoryOptimizedCache(ctx *cli.Context) cache.NewCacheFunc {
 				},
 			}
 			opts.DefaultLabelSelector = labels.Everything()
+
 			return cache.New(config, opts)
 		}
 	}
+
 	return nil
 }
 
@@ -461,6 +484,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	if err := met.Register(); err != nil {
 		return fmt.Errorf("register metrics: %w", err)
 	}
+
 	if err := met.ServeGRPC(); err != nil {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
@@ -491,6 +515,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	if err := secprofnodestatusv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add per-node Status API to scheme: %w", err)
 	}
+
 	if err := spodv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add SPOD config API to scheme: %w", err)
 	}
@@ -500,22 +525,27 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 	}
 
 	setupLog.Info("starting daemon")
+
 	if err := mgr.Start(sigHandler); err != nil {
 		return fmt.Errorf("SPOd error: %w", err)
 	}
 
 	setupLog.Info("ending daemon")
+
 	return nil
 }
 
 func runBPFRecorder(_ *cli.Context, info *version.Info) error {
 	const component = "bpf-recorder"
+
 	printInfo(component, info)
+
 	return bpfrecorder.New("", ctrl.Log.WithName(component), true, true).Run()
 }
 
 func runLogEnricher(_ *cli.Context, info *version.Info) error {
 	const component = "log-enricher"
+
 	printInfo(component, info)
 
 	return enricher.New(ctrl.Log.WithName(component)).Run()
@@ -523,26 +553,33 @@ func runLogEnricher(_ *cli.Context, info *version.Info) error {
 
 func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
 	const component = "non-root-enabler"
+
 	printInfo(component, info)
+
 	runtime := ctx.String("runtime")
+	apparmor := ctx.Bool("apparmor")
 
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return fmt.Errorf("getting config: %w", err)
 	}
+
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{})
 	if err != nil {
 		return fmt.Errorf("creating manager: %w", err)
 	}
+
 	kubeletDir, err := util.GetKubeletDirFromNodeLabel(ctx.Context, mgr.GetAPIReader())
 	if err != nil {
 		kubeletDir = config.KubeletDir()
 	}
-	return nonrootenabler.New().Run(ctrl.Log.WithName(component), runtime, kubeletDir)
+
+	return nonrootenabler.New().Run(ctrl.Log.WithName(component), runtime, kubeletDir, apparmor)
 }
 
 func runWebhook(ctx *cli.Context, info *version.Info) error {
 	printInfo("security-profiles-operator-webhook", info)
+
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
 		return fmt.Errorf("get config: %w", err)
@@ -574,29 +611,37 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	if err := profilebindingv1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add profilebinding API to scheme: %w", err)
 	}
+
 	if err := seccompprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add seccompprofile API to scheme: %w", err)
 	}
+
 	if err := apparmorprofileapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add apparmorprofile API to scheme: %w", err)
 	}
+
 	if err := selxv1alpha2.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add selinuxprofile API to scheme: %w", err)
 	}
+
 	if err := profilerecording1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("add profilerecording API to scheme: %w", err)
 	}
 
 	setupLog.Info("registering webhooks")
+
 	hookserver := mgr.GetWebhookServer()
 	binding.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetClient())
 	recording.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
 
 	sigHandler := ctrl.SetupSignalHandler()
+
 	setupLog.Info("starting webhook")
+
 	if err := mgr.Start(sigHandler); err != nil {
 		return fmt.Errorf("controller manager error: %w", err)
 	}
+
 	return nil
 }
 

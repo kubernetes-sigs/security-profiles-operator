@@ -1,6 +1,6 @@
 apiVersion: v1
 data:
-  security-profiles-operator.json: |
+  bpf-recorder.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
       "architectures": [
@@ -13,38 +13,33 @@ data:
         {
           "names": [
             "accept4",
-            "access",
             "arch_prctl",
             "bind",
+            "bpf",
             "brk",
             "capget",
             "capset",
             "chdir",
-            "clock_gettime",
-            "clone",
             "clone3",
             "close",
             "connect",
+            "dup3",
             "epoll_create1",
             "epoll_ctl",
             "epoll_pwait",
             "epoll_wait",
             "eventfd2",
             "execve",
-            "exit",
-            "exit_group",
-            "fchown",
+            "faccessat2",
+            "fchownat",
             "fcntl",
-            "flock",
             "fstat",
             "fstatfs",
-            "fsync",
             "futex",
             "getcwd",
             "getdents64",
             "getgid",
             "getpeername",
-            "getpgrp",
             "getpid",
             "getppid",
             "getrandom",
@@ -52,36 +47,31 @@ data:
             "getsockname",
             "getsockopt",
             "gettid",
-            "getuid",
-            "inotify_add_watch",
-            "inotify_init1",
+            "ioctl",
             "listen",
             "lseek",
             "madvise",
-            "membarrier",
-            "mkdirat",
-            "mlock",
+            "memfd_create",
             "mmap",
             "mprotect",
+            "mremap",
             "munmap",
             "nanosleep",
             "newfstatat",
-            "open",
             "openat",
-            "pipe2",
+            "perf_event_open",
             "prctl",
             "pread64",
             "prlimit64",
             "read",
-            "readlink",
             "readlinkat",
-            "renameat",
             "rseq",
             "rt_sigaction",
             "rt_sigprocmask",
             "rt_sigreturn",
             "sched_getaffinity",
             "sched_yield",
+            "seccomp",
             "set_robust_list",
             "set_tid_address",
             "setgid",
@@ -93,8 +83,176 @@ data:
             "socket",
             "statfs",
             "tgkill",
-            "time",
             "uname",
+            "write"
+          ],
+          "action": "SCMP_ACT_ALLOW"
+        }
+      ]
+    }
+  bpfrecorder-apparmor.yaml: |
+    apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+    kind: AppArmorProfile
+    metadata:
+      labels:
+        spo.x-k8s.io/container-id: bpf-recorder
+      name: bpfrecorder-apparmor
+      namespace: security-profiles-operator
+    spec:
+      abstract:
+        capability:
+          allowedCapabilities:
+          - bpf
+          - chown
+          - perfmon
+          - sys_resource
+        executable:
+          allowedExecutables:
+          - /security-profiles-operator
+        filesystem:
+          readOnlyPaths:
+          - /proc/@{pid}/cgroup
+          - /proc/@{pid}/maps
+          - /proc/sys/net/core/somaxconn
+          - /sys/devices/kprobe/type
+          - /sys/devices/system/cpu/online
+          - /sys/fs/bpf/
+          - /sys/kernel/btf/vmlinux
+          - /sys/kernel/debug/tracing/events/**/id
+          - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+          - /sys/kernel/security/lsm
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
+          readWritePaths:
+          - "ptrace (read),\n# ugly template injection hack"
+          - /var/run/grpc/bpf-recorder.sock
+        network:
+          allowedProtocols:
+            allowTcp: true
+            allowUdp: true
+      disabled: false
+  security-profiles-operator.json: |
+    {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "archMap": [
+        {
+          "architecture": "SCMP_ARCH_X86_64",
+          "subArchitectures": [
+            "SCMP_ARCH_X86",
+            "SCMP_ARCH_X32"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_AARCH64",
+          "subArchitectures": [
+            "SCMP_ARCH_ARM"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_MIPS64",
+          "subArchitectures": [
+            "SCMP_ARCH_MIPS",
+            "SCMP_ARCH_MIPS64N32"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_MIPS64N32",
+          "subArchitectures": [
+            "SCMP_ARCH_MIPS",
+            "SCMP_ARCH_MIPS64"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_MIPSEL64",
+          "subArchitectures": [
+            "SCMP_ARCH_MIPSEL",
+            "SCMP_ARCH_MIPSEL64N32"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_MIPSEL64N32",
+          "subArchitectures": [
+            "SCMP_ARCH_MIPSEL",
+            "SCMP_ARCH_MIPSEL64"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_S390X",
+          "subArchitectures": [
+            "SCMP_ARCH_S390"
+          ]
+        }
+      ],
+      "syscalls": [
+        {
+          "names": [
+            "accept4",
+            "arch_prctl",
+            "bind",
+            "brk",
+            "capget",
+            "capset",
+            "chdir",
+            "clone3",
+            "close",
+            "connect",
+            "epoll_create1",
+            "epoll_ctl",
+            "epoll_pwait",
+            "eventfd2",
+            "execve",
+            "exit_group",
+            "faccessat2",
+            "fcntl",
+            "fstat",
+            "fstatfs",
+            "futex",
+            "getcwd",
+            "getdents64",
+            "getpeername",
+            "getpid",
+            "getppid",
+            "getrandom",
+            "getrlimit",
+            "getsockname",
+            "getsockopt",
+            "gettid",
+            "inotify_add_watch",
+            "inotify_init1",
+            "listen",
+            "madvise",
+            "mkdirat",
+            "mmap",
+            "mprotect",
+            "munmap",
+            "nanosleep",
+            "newfstatat",
+            "openat",
+            "prctl",
+            "pread64",
+            "prlimit64",
+            "read",
+            "readlinkat",
+            "rseq",
+            "rt_sigaction",
+            "rt_sigprocmask",
+            "rt_sigreturn",
+            "sched_getaffinity",
+            "sched_yield",
+            "seccomp",
+            "set_robust_list",
+            "set_tid_address",
+            "setgid",
+            "setgroups",
+            "setsockopt",
+            "setuid",
+            "sigaltstack",
+            "socket",
+            "stat",
+            "statfs",
+            "tgkill",
+            "uname",
+            "unshare",
             "unlinkat",
             "write"
           ],
@@ -166,6 +324,53 @@ data:
       (blockinherit container)
       (typepermissive process)
     )
+  spo-apparmor.yaml: |
+    apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+    kind: AppArmorProfile
+    metadata:
+      labels:
+        spo.x-k8s.io/container-id: security-profiles-operator
+      name: spo-apparmor
+      namespace: security-profiles-operator
+    spec:
+      abstract:
+        capability:
+          allowedCapabilities:
+          - dac_override
+          - dac_read_search
+          - mac_admin
+          - sys_admin
+          - sys_chroot
+        executable:
+          allowedExecutables:
+          - /security-profiles-operator
+          - /sbin/apparmor_parser
+        filesystem:
+          readOnlyPaths:
+          - /  # workaround for apparmor bug
+          - /etc/apparmor/parser.conf
+          - /proc/@{pid}/maps
+          - /proc/@{pid}/mounts
+          - /proc/sys/kernel/osrelease
+          - /proc/sys/net/core/somaxconn
+          - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
+          - /var/run/secrets/metrics/**
+          - /sys/module/apparmor/parameters/enabled
+          - /sys/devices/system/cpu/possible
+          readWritePaths:
+          - "ptrace (read),  # ugly template injection hack"
+          - /var/run/grpc/metrics.sock
+          - /tmp/aa_profile_bin_*
+          - /etc/apparmor.d/**
+          - /sys/kernel/security/apparmor/
+          - /sys/kernel/security/apparmor/**
+          - /var/lib/kubelet/seccomp/operator/**
+        network:
+          allowedProtocols:
+            allowTcp: true
+            allowUdp: true
+      disabled: false
 kind: ConfigMap
 metadata:
   labels:

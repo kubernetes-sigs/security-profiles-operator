@@ -65,6 +65,7 @@ type mntnsID uint32
 type AppArmorRecorder struct {
 	logger      logr.Logger
 	programName string
+	loaded      bool
 
 	recordedSocketsUse     map[mntnsID]*BpfAppArmorSocketTypes
 	lockRecordedSocketsUse sync.Mutex
@@ -74,7 +75,6 @@ type AppArmorRecorder struct {
 
 	recordedFiles     map[mntnsID]map[string]*fileAccess
 	lockRecordedFiles sync.Mutex
-	bpfPrograms       *bpfProgramCollection
 }
 
 type fileAccess struct {
@@ -121,27 +121,25 @@ func (b *AppArmorRecorder) Load(r *BpfRecorder) error {
 	if !BPFLSMEnabled() {
 		return errors.New("BPF LSM is not enabled for this kernel")
 	}
-	programs, err := newProgramCollection(r, b.logger, r.module, appArmorHooks)
-	if err != nil {
+
+	if err := r.loadPrograms(appArmorHooks); err != nil {
 		return fmt.Errorf("load apparmor hooks: %w", err)
 	}
-	b.bpfPrograms = programs
+
+	b.loaded = true
+
 	return nil
 }
 
 func (b *AppArmorRecorder) StartRecording(r *BpfRecorder) error {
-	if b.bpfPrograms == nil {
+	if !b.loaded {
 		return ErrStartBeforeLoad
 	}
-	return b.bpfPrograms.attachAll(r)
+
+	return nil
 }
 
-func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) (err error) {
-	if b.bpfPrograms == nil {
-		return nil
-	}
-	err = b.bpfPrograms.detachAll(r)
-
+func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
 	b.lockRecordedCapabilities.Lock()
@@ -152,7 +150,8 @@ func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) (err error) {
 	clear(b.recordedSocketsUse)
 	clear(b.recordedCapabilities)
 	clear(b.recordedFiles)
-	return err
+
+	return nil
 }
 
 func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
@@ -160,12 +159,13 @@ func (b *AppArmorRecorder) handleFileEvent(fileEvent *bpfEvent) {
 	defer b.lockRecordedFiles.Unlock()
 
 	fileName := fileDataToString(&fileEvent.Data)
-	fileName = replaceVarianceInFilePath(fileName)
+	fileName = ReplaceVarianceInFilePath(fileName)
 
 	log.Printf("File access: %s, flags=%d pid=%d mntns=%d\n", fileName, fileEvent.Flags, fileEvent.Pid, fileEvent.Mntns)
 
 	if shouldExcludeFile(fileName) {
 		log.Printf("Excluded File: %s", fileName)
+
 		return
 	}
 
@@ -194,6 +194,7 @@ func (b *AppArmorRecorder) handleSocketEvent(socketEvent *bpfEvent) {
 	if _, ok := b.recordedSocketsUse[mid]; !ok {
 		b.recordedSocketsUse[mid] = &BpfAppArmorSocketTypes{}
 	}
+
 	socketType := socketEvent.Flags & sockTypeMask
 	switch socketType {
 	case sockRaw:
@@ -227,6 +228,7 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 		capEvent.Pid,
 		capEvent.Mntns,
 	)
+
 	b.recordedCapabilities[mid] = append(b.recordedCapabilities[mid], requestedCap)
 }
 
@@ -261,9 +263,11 @@ func (b *AppArmorRecorder) GetKnownMntns() []mntnsID {
 	for mntns := range b.recordedFiles {
 		known[mntns] = true
 	}
+
 	for mntns := range b.recordedCapabilities {
 		known[mntns] = true
 	}
+
 	for mntns := range b.recordedSocketsUse {
 		known[mntns] = true
 	}
@@ -271,10 +275,12 @@ func (b *AppArmorRecorder) GetKnownMntns() []mntnsID {
 	// Go 1.23: slices.Collect(maps.Keys(known))
 	lst := make([]mntnsID, len(known))
 	i := 0
+
 	for k := range known {
 		lst[i] = k
 		i++
 	}
+
 	return lst
 }
 
@@ -283,9 +289,11 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 
 	mid := mntnsID(mntns)
 	processed.FileProcessed = b.processExecFsEvents(mid)
+
 	if sockets, ok := b.recordedSocketsUse[mid]; ok && sockets != nil {
 		processed.Socket = *b.recordedSocketsUse[mid]
 	}
+
 	processed.Capabilities = b.processCapabilities(mid)
 
 	// Clean up the recorded data after processing to avoid keeping global state.
@@ -296,7 +304,7 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 	return processed
 }
 
-func replaceVarianceInFilePath(filePath string) string {
+func ReplaceVarianceInFilePath(filePath string) string {
 	// Replace PID value with a apparmor variable.
 	pathWithPid := regexp.MustCompile(`^/proc/\d+/`)
 	filePath = pathWithPid.ReplaceAllString(filePath, "/proc/@{pid}/")
@@ -307,7 +315,24 @@ func replaceVarianceInFilePath(filePath string) string {
 
 	// Replace container ID with any container ID
 	pathWithCid := regexp.MustCompile(`/var/lib/containers/storage/overlay/\w+/`)
-	return pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
+	filePath = pathWithCid.ReplaceAllString(filePath, "/var/lib/containers/storage/overlay/*/")
+
+	uuid := regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	filePath = uuid.ReplaceAllString(filePath, "*")
+
+	hash := regexp.MustCompile(`[0-9a-fA-F]{32,}`)
+	filePath = hash.ReplaceAllString(filePath, "*")
+
+	// Assume that long digit sequences are random, replace them with a placeholder
+	digitSequence := regexp.MustCompile(`\d{6,}`)
+	filePath = digitSequence.ReplaceAllString(filePath, "*")
+
+	// Replace the sys devices with a generic path
+	if strings.HasPrefix(filePath, "/sys/devices/") {
+		filePath = "/sys/devices/**"
+	}
+
+	return filePath
 }
 
 func shouldExcludeFile(filePath string) bool {
@@ -316,6 +341,7 @@ func shouldExcludeFile(filePath string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -330,7 +356,7 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 	}
 
 	for fileName, access := range b.recordedFiles[mid] {
-		if ok := processDeletedFiles(fileName, &processedEvents); ok {
+		if ok := processDeletedFiles(fileName, &processedEvents, b.logger); ok {
 			continue
 		}
 
@@ -378,7 +404,7 @@ func (b *AppArmorRecorder) processExecFsEvents(mid mntnsID) BpfAppArmorFileProce
 }
 
 // processDeletedFiles process file paths which are marked as deleted by the Linux kernel.
-func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProcessed) bool {
+func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProcessed, logger logr.Logger) bool {
 	// Workaround for HUGETLB support with apparmor:
 	// AppArmor treats mmap(..., MAP_ANONYMOUS | MAP_HUGETLB) calls as
 	// file access to "", which is then attached to "/" (attach_disconnected).
@@ -390,7 +416,10 @@ func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProces
 	// access to a path named "/anon_hugepage (deleted)" on mmap. Instead of building complex
 	// workarounds and hooking mmap, we just treat that as a canary for HUGETLB usage.
 	if fileName == "/anon_hugepage (deleted)" {
+		logger.Info("Adding `/` to ReadWritePath as a workaround to enable anonymous huge pages")
+
 		processedEvents.ReadWritePaths = append(processedEvents.ReadWritePaths, "/")
+
 		return true
 	}
 
@@ -398,7 +427,9 @@ func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProces
 	// https://github.com/torvalds/linux/blob/2e1b3cc9d7f790145a80cb705b168f05dab65df2/fs/d_path.c#L255-L288
 	//
 	// It should be ignored since is an invalid path in the apparmor profile.
-	if fileName == "/ (deleted)" {
+	if strings.HasSuffix(fileName, " (deleted)") {
+		logger.Info("Skipping deleted file", "fileName", fileName)
+
 		return true
 	}
 
@@ -408,11 +439,14 @@ func processDeletedFiles(fileName string, processedEvents *BpfAppArmorFileProces
 // allowAnyFiles allows any file in a directory if more than two files are allowed.
 func allowAnyFiles(filePaths []string) []string {
 	dupDirs := map[string]int{}
+
 	for _, fp := range filePaths {
 		dir := filepath.Dir(fp)
 		dupDirs[dir] += 1
 	}
+
 	result := []string{}
+
 	for _, fp := range filePaths {
 		dir := filepath.Dir(fp)
 		if dupDirs[dir] > 1 {
@@ -422,6 +456,7 @@ func allowAnyFiles(filePaths []string) []string {
 			result = append(result, fp)
 		}
 	}
+
 	return result
 }
 
@@ -429,22 +464,28 @@ func (b *AppArmorRecorder) processCapabilities(mid mntnsID) []string {
 	if _, ok := b.recordedCapabilities[mid]; !ok {
 		return []string{}
 	}
+
 	ret := make([]string, 0, len(b.recordedCapabilities[mid]))
 	for _, capID := range b.recordedCapabilities[mid] {
 		ret = append(ret, capabilityToString(capID))
 	}
+
 	slices.Sort(ret)
+
 	return ret
 }
 
 func fileDataToString(data *[pathMax]uint8) string {
 	var eos int
+
 	for i, c := range data {
 		if c == 0 {
 			eos = i
+
 			break
 		}
 	}
+
 	return string(data[:eos])
 }
 
@@ -454,6 +495,7 @@ func isKnownFile(path string, knownPrefixes []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -506,5 +548,6 @@ func capabilityToString(capID int) string {
 	if !ok {
 		return fmt.Sprintf("CAPABILITY_%d", capID)
 	}
+
 	return val
 }

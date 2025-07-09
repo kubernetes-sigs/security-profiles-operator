@@ -29,6 +29,7 @@ import (
 
 func TestGetSeccompLocalhostProfilePath(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name string
 		node *corev1.Node
@@ -84,6 +85,7 @@ func TestGetSeccompLocalhostProfilePath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := GetSeccompLocalhostProfilePath(tt.node, bindata.LocalSeccompProfilePath)
 			require.Equal(t, tt.want, got)
 		})
@@ -92,6 +94,7 @@ func TestGetSeccompLocalhostProfilePath(t *testing.T) {
 
 func TestGetContainerRuntime(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name string
 		node *corev1.Node
@@ -128,6 +131,7 @@ func TestGetContainerRuntime(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := GetContainerRuntime(tt.node)
 			require.Equal(t, tt.want, got)
 		})
@@ -136,6 +140,7 @@ func TestGetContainerRuntime(t *testing.T) {
 
 func TestGetVersion(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name string
 		node *corev1.Node
@@ -156,6 +161,7 @@ func TestGetVersion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := GetVersion(tt.node)
 			require.True(t, semver.IsValid(got), "should return a valid version")
 			require.Equal(t, tt.want, got)
@@ -172,7 +178,7 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 			"imageFromVar":"RELATED_IMAGE_RHEL8_SELINUXD"
 		},
 		{
-			"regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
+			"regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)|(.*)(CoreOS)([\\s+])9\\.(.*)",
 			"imageFromVar":"RELATED_IMAGE_RHEL9_SELINUXD"
 		}
 	]`
@@ -220,6 +226,7 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			got, err := MatchSelinuxdImageJSONMapping(tt.node, []byte(mappingJSON))
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)

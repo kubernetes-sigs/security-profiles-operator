@@ -57,6 +57,7 @@ var pid uint32
 // Run the Runner.
 func (r *Runner) Run() error {
 	log.Printf("Reading file %s", r.options.profile)
+
 	content, err := r.ReadFile(r.options.profile)
 	if err != nil {
 		return fmt.Errorf("open profile: %w", err)
@@ -64,6 +65,7 @@ func (r *Runner) Run() error {
 
 	if filepath.Ext(r.options.profile) != seccompprofileapi.ExtJSON {
 		log.Print("Assuming YAML profile")
+
 		seccompProfile := &seccompprofileapi.SeccompProfile{}
 		if err := r.YamlUnmarshal(content, seccompProfile); err != nil {
 			return fmt.Errorf("unmarshal YAML profile: %w", err)
@@ -83,21 +85,25 @@ func (r *Runner) Run() error {
 	go r.startEnricher()
 
 	log.Print("Setting up seccomp")
+
 	libConfig, err := r.SetupSeccomp(runtimeSpecConfig)
 	if err != nil {
 		return fmt.Errorf("convert profile: %w", err)
 	}
 
 	log.Print("Load seccomp profile")
+
 	if _, err := r.InitSeccomp(libConfig); err != nil {
 		return fmt.Errorf("init profile: %w", err)
 	}
 
 	cmd := command.New(r.options.commandOptions)
+
 	newPid, err := r.CommandRun(cmd)
 	if err != nil {
 		return fmt.Errorf("run command: %w", err)
 	}
+
 	atomic.StoreUint32(&pid, newPid)
 
 	if err := r.CommandWait(cmd); err != nil {
@@ -112,6 +118,7 @@ func (r *Runner) Run() error {
 
 func (r *Runner) startEnricher() {
 	log.Print("Starting audit log enricher")
+
 	filePath := enricher.LogFilePath()
 
 	tailFile, err := r.TailFile(
@@ -127,13 +134,16 @@ func (r *Runner) startEnricher() {
 	)
 	if err != nil {
 		log.Printf("Unable to tail file: %v", err)
+
 		return
 	}
 
 	log.Printf("Enricher reading from file %s", filePath)
+
 	for l := range r.Lines(tailFile) {
 		if l.Err != nil {
 			log.Printf("Enricher failed to tail: %v", l.Err)
+
 			break
 		}
 
@@ -145,6 +155,7 @@ func (r *Runner) startEnricher() {
 		auditLine, err := r.ExtractAuditLine(line)
 		if err != nil {
 			log.Printf("Unable to extract audit line: %v", err)
+
 			continue
 		}
 
@@ -177,6 +188,7 @@ func (r *Runner) printSeccompLine(line *types.AuditLine) {
 	syscallName, err := r.GetName(libseccomp.ScmpSyscall(line.SystemCallID))
 	if err != nil {
 		log.Printf("Unable to get syscall name for id %d: %v", line.SystemCallID, err)
+
 		return
 	}
 

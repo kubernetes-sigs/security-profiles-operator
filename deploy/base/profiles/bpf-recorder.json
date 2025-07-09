@@ -1,10 +1,32 @@
 {
   "defaultAction": "SCMP_ACT_ERRNO",
-  "architectures": [
-    "SCMP_ARCH_X86_64",
-    "SCMP_ARCH_X86",
-    "SCMP_ARCH_X32",
-    "SCMP_ARCH_AARCH64"
+  "archMap": [
+    {
+      "architecture": "SCMP_ARCH_X86_64",
+      "subArchitectures": [
+        "SCMP_ARCH_X86",
+        "SCMP_ARCH_X32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_AARCH64",
+      "subArchitectures": [
+        "SCMP_ARCH_ARM"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_PPC64LE",
+      "subArchitectures": [
+        "SCMP_ARCH_PPC64",
+        "SCMP_ARCH_PPC"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_S390X",
+      "subArchitectures": [
+        "SCMP_ARCH_S390"
+      ]
+    }
   ],
   "syscalls": [
     {
@@ -17,7 +39,6 @@
         "capget",
         "capset",
         "chdir",
-        "clone",
         "clone3",
         "close",
         "connect",
@@ -28,9 +49,7 @@
         "epoll_wait",
         "eventfd2",
         "execve",
-        "exit_group",
         "faccessat2",
-        "fchdir",
         "fchownat",
         "fcntl",
         "fstat",
@@ -38,6 +57,7 @@
         "futex",
         "getcwd",
         "getdents64",
+        "getgid",
         "getpeername",
         "getpid",
         "getppid",
@@ -47,15 +67,11 @@
         "getsockopt",
         "gettid",
         "ioctl",
-        "keyctl",
         "listen",
         "lseek",
         "madvise",
         "memfd_create",
-        "mkdirat",
-        "mknodat",
         "mmap",
-        "mount",
         "mprotect",
         "mremap",
         "munmap",
@@ -63,8 +79,6 @@
         "newfstatat",
         "openat",
         "perf_event_open",
-        "pipe2",
-        "pivot_root",
         "prctl",
         "pread64",
         "prlimit64",
@@ -82,18 +96,14 @@
         "setgid",
         "setgroups",
         "setrlimit",
-        "setsid",
         "setsockopt",
         "setuid",
         "sigaltstack",
         "socket",
+        "stat",
         "statfs",
-        "symlinkat",
         "tgkill",
-        "umask",
-        "umount2",
         "uname",
-        "unlinkat",
         "write"
       ],
       "action": "SCMP_ACT_ALLOW"

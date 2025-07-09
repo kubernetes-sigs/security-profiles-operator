@@ -51,6 +51,7 @@ func NewForProfile(pol profilebase.SecurityProfileBase, c client.Client) (*Statu
 	if !ok {
 		return nil, errors.New("cannot determine node name")
 	}
+
 	return &StatusClient{
 		pol:             pol,
 		nodeName:        nodeName,
@@ -80,6 +81,7 @@ func (nsf *StatusClient) Create(ctx context.Context) error {
 	if err := nsf.createNodeStatus(ctx); err != nil {
 		return fmt.Errorf("cannot create node status for %s: %w", nsf.pol.GetName(), err)
 	}
+
 	return nil
 }
 
@@ -133,6 +135,7 @@ func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
 	if setCtrlErr := controllerutil.SetControllerReference(nsf.pol, s, nsf.client.Scheme()); setCtrlErr != nil {
 		return fmt.Errorf("cannot set node status owner reference: %s: %w", nsf.pol.GetName(), setCtrlErr)
 	}
+
 	err := nsf.client.Create(ctx, s)
 	if err != nil && !kerrors.IsAlreadyExists(err) {
 		return fmt.Errorf("creating node status: %w", err)
@@ -147,6 +150,7 @@ func (nsf *StatusClient) initialStatus() secprofnodestatusv1alpha1.ProfileState 
 	} else if nsf.pol.IsPartial() {
 		return secprofnodestatusv1alpha1.ProfileStatePartial
 	}
+
 	return secprofnodestatusv1alpha1.ProfileStatePending
 }
 
@@ -201,6 +205,7 @@ func (nsf *StatusClient) finalizerExists() bool {
 
 func (nsf *StatusClient) nodeStatusExists(ctx context.Context) (bool, error) {
 	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+
 	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
 	if kerrors.IsNotFound(err) {
 		return false, nil
@@ -216,6 +221,7 @@ func (nsf *StatusClient) SetNodeStatus(
 	polState secprofnodestatusv1alpha1.ProfileState,
 ) error {
 	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+
 	err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status)
 	if kerrors.IsNotFound(err) && polState == secprofnodestatusv1alpha1.ProfileStateTerminating {
 		// it's OK if we're about to terminate a profile but it was already gone
@@ -226,6 +232,7 @@ func (nsf *StatusClient) SetNodeStatus(
 
 	status.Status = polState
 	status.Labels[secprofnodestatusv1alpha1.StatusStateLabel] = string(polState)
+
 	if err := nsf.client.Update(ctx, &status); err != nil {
 		return fmt.Errorf("updating node status: %w", err)
 	}
@@ -242,8 +249,10 @@ func (nsf *StatusClient) Matches(
 			// it's OK if we're about to terminate a profile but it was already gone
 			return true, nil
 		}
+
 		return false, fmt.Errorf("getting node status for matching: %w", err)
 	}
+
 	return status.Status == polState, nil
 }
 
@@ -251,7 +260,9 @@ func getFinalizerString(pol profilebase.SecurityProfileBase, nodeName string) st
 	if pol.IsPartial() {
 		return partialProfileFinalizer
 	}
+
 	finalizerString := util.GetFinalizerNodeString(nodeName)
+
 	return finalizerString
 }
 
@@ -270,8 +281,10 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 	}
 
 	hasOthers := false
+
 	for i := range otherPolicies {
 		otherPol := otherPolicies[i]
+
 		labels := otherPol.GetLabels()
 		if labels == nil {
 			continue
@@ -289,6 +302,7 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 			// we have a partial profile that is not being deleted and is not the current one
 			if n != pol.GetName() {
 				hasOthers = true
+
 				break
 			}
 		}
@@ -301,6 +315,7 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 
 	profilerecording := &v1alpha1.ProfileRecording{}
 	recordingName := util.NamespacedName(polLabels[v1alpha1.ProfileToRecordingLabel], pol.GetNamespace())
+
 	err = c.Get(ctx, recordingName, profilerecording)
 	if kerrors.IsNotFound(err) {
 		return nil // should not happen, but if it does, we don't need to do anything
@@ -312,6 +327,8 @@ func handleRecordingFinalizer(ctx context.Context, c client.Client, pol profileb
 	if !controllerutil.ContainsFinalizer(profilerecording, v1alpha1.RecordingHasUnmergedProfiles) {
 		return nil
 	}
+
 	controllerutil.RemoveFinalizer(profilerecording, v1alpha1.RecordingHasUnmergedProfiles)
+
 	return c.Update(ctx, profilerecording)
 }

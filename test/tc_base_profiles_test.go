@@ -25,7 +25,7 @@ import (
 
 const (
 	baseProfileNameRunc = "runc-v1.2.3"
-	baseProfileNameCrun = "crun-v1.19.1"
+	baseProfileNameCrun = "crun-v1.20"
 )
 
 func (e *e2e) testCaseBaseProfile([]string) {
@@ -67,48 +67,57 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/%s/hello.json
+      localhostProfile: operator/hello.json
   restartPolicy: OnFailure
 `
+
 	e.kubectl("create", "-f", baseProfilePath)
+
 	defer e.kubectl("delete", "-f", baseProfilePath)
 
 	e.logf("Creating hello profile")
+
 	helloProfileFile, err := os.CreateTemp("", "hello-profile*.yaml")
 	e.Nil(err)
+
 	defer os.Remove(helloProfileFile.Name())
 	_, err = helloProfileFile.WriteString(helloProfile)
 	e.Nil(err)
 	err = helloProfileFile.Close()
 	e.Nil(err)
 	e.kubectl("create", "-f", helloProfileFile.Name())
+
 	defer e.kubectl("delete", "-f", helloProfileFile.Name())
 
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile("hello")
 
 	e.logf("Creating hello-world pod")
+
 	helloPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
 	e.Nil(err)
+
 	defer os.Remove(helloPodFile.Name())
 
-	namespace := e.getCurrentContextNamespace(defaultNamespace)
-	_, err = fmt.Fprintf(helloPodFile, helloPod, namespace)
+	_, err = helloPodFile.WriteString(helloPod)
 	e.Nil(err)
 	err = helloPodFile.Close()
 	e.Nil(err)
 	e.kubectl("create", "-f", helloPodFile.Name())
+
 	defer e.kubectl("delete", "pod", "hello")
 
 	e.logf("Waiting for test pod to be initialized")
 	e.waitFor("condition=initialized", "pod", "hello")
 
 	e.logf("Waiting for pod to be completed")
+
 	for range 20 {
 		output := e.kubectl("get", "pod", "hello")
 		if strings.Contains(output, "Completed") {
 			break
 		}
+
 		time.Sleep(time.Second)
 	}
 

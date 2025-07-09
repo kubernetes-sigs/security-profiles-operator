@@ -29,9 +29,13 @@ import (
 
 func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 	e.seccompOnlyTestCase()
+
 	const exampleProfilePath = "examples/seccompprofile.yaml"
+
 	exampleProfileNames := [3]string{"profile-allow-unsafe", "profile-complain-unsafe", "profile-block-all"}
+
 	e.kubectl("create", "-f", exampleProfilePath)
+
 	defer e.kubectl("delete", "-f", exampleProfilePath)
 
 	// Content verification
@@ -55,17 +59,16 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 		}
 
 		// Example profile verification
-		namespace := e.getCurrentContextNamespace(defaultNamespace)
 		for _, name := range exampleProfileNames {
 			e.waitFor(
 				"condition=ready",
-				"--namespace", namespace,
 				"seccompprofile", name,
 			)
-			sp := e.getSeccompProfile(name, namespace)
+
+			sp := e.getSeccompProfile(name)
 			e.verifyCRDProfileContent(node, sp)
 
-			spns := e.getSeccompProfileNodeStatus(name, namespace, node)
+			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
 				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
 			}
@@ -79,11 +82,13 @@ func (e *e2e) getConfigMap(name, namespace string) *v1.ConfigMap {
 	)
 	configMap := &v1.ConfigMap{}
 	e.Nil(json.Unmarshal([]byte(configMapJSON), configMap))
+
 	return configMap
 }
 
 func (e *e2e) verifyBaseProfileContent(node string, cm *v1.ConfigMap) {
 	e.logf("Verifying %s profile on node %s", cm.Name, node)
+
 	name := "security-profiles-operator.json"
 	content := cm.Data[name]
 	profilePath := path.Join("/var/lib/kubelet/seccomp", name)
@@ -98,6 +103,7 @@ func (e *e2e) verifyCRDProfileContent(node string, sp *seccompprofileapi.Seccomp
 	output := seccompprofileapi.SeccompProfileSpec{}
 	err := json.Unmarshal([]byte(catOutput), &output)
 	e.Nil(err)
+
 	expected := seccompprofileapi.SeccompProfileSpec{}
 	spec, err := json.Marshal(sp.Spec)
 	e.Nil(err)

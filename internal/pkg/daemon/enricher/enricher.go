@@ -116,12 +116,14 @@ func (e *Enricher) Run() error {
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		e.logger.Error(err, "unable to run enricher")
+
 		return err
 	}
 
 	e.logger.Info("Starting log-enricher on node: " + nodeName)
 
 	e.logger.Info("Connecting to local GRPC server")
+
 	var (
 		conn          *grpc.ClientConn
 		cancel        context.CancelFunc
@@ -139,6 +141,7 @@ func (e *Enricher) Run() error {
 		if err != nil {
 			cancel()
 			e.Close(conn)
+
 			return fmt.Errorf("create metrics audit client: %w", err)
 		}
 
@@ -146,6 +149,7 @@ func (e *Enricher) Run() error {
 	}, func(err error) bool { return true }); err != nil {
 		return fmt.Errorf("connect to local GRPC server: %w", err)
 	}
+
 	defer cancel()
 	defer e.Close(conn)
 
@@ -173,46 +177,57 @@ func (e *Enricher) Run() error {
 	}
 
 	e.logger.Info("Reading from file " + filePath)
+
 	for l := range e.Lines(tailFile) {
 		if l.Err != nil {
 			e.logger.Error(l.Err, "failed to tail")
+
 			continue
 		}
 
 		line := l.Text
 		e.logger.V(config.VerboseLevel).Info("Got line: " + line)
+
 		if !IsAuditLine(line) {
 			e.logger.V(config.VerboseLevel).Info("Not an audit line")
+
 			continue
 		}
 
 		auditLine, err := ExtractAuditLine(line)
 		if err != nil {
 			e.logger.Error(err, "extract audit line")
+
 			continue
 		}
 
 		e.logger.V(config.VerboseLevel).Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.ProcessID))
+
 		cID, err := e.ContainerIDForPID(e.containerIDCache, auditLine.ProcessID)
 		if errors.Is(err, os.ErrNotExist) {
 			// We're probably in container creation or removal
 			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
 				e.logger.Error(backlogErr, "adding line to backlog")
 			}
+
 			continue
 		}
+
 		if err != nil {
 			e.logger.Error(
 				err, "unable to get container ID",
 				"processID", auditLine.ProcessID,
 			)
+
 			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
 				e.logger.Error(backlogErr, "adding line to backlog")
 			}
+
 			continue
 		}
 
 		e.logger.V(config.VerboseLevel).Info("Get container info for: " + cID)
+
 		info, err := e.getContainerInfo(nodeName, cID)
 		if err != nil {
 			e.logger.Error(
@@ -220,9 +235,11 @@ func (e *Enricher) Run() error {
 				"processID", auditLine.ProcessID,
 				"containerID", cID,
 			)
+
 			if backlogErr := e.addToBacklog(auditLine); backlogErr != nil {
 				e.logger.Error(backlogErr, "adding line to backlog")
 			}
+
 			continue
 		}
 
@@ -230,6 +247,7 @@ func (e *Enricher) Run() error {
 		if err != nil {
 			e.logger.Error(
 				err, "dispatch audit line")
+
 			continue
 		}
 
@@ -289,8 +307,10 @@ func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	)
 	if err != nil {
 		cancel()
+
 		return nil, nil, fmt.Errorf("GRPC dial: %w", err)
 	}
+
 	return conn, cancel, nil
 }
 
@@ -300,6 +320,7 @@ func (e *Enricher) addToBacklog(line *types.AuditLine) error {
 	item := e.auditLineCache.Get(strPid)
 	if item == nil {
 		e.AddToBacklog(e.auditLineCache, strPid, []*types.AuditLine{line})
+
 		return nil
 	}
 
@@ -319,6 +340,7 @@ func (e *Enricher) addToBacklog(line *types.AuditLine) error {
 	}
 
 	e.AddToBacklog(e.auditLineCache, strPid, append(auditBacklog, line))
+
 	return nil
 }
 
@@ -341,6 +363,7 @@ func (e *Enricher) dispatchBacklog(
 		if err := e.dispatchAuditLine(metricsClient, nodeName, auditLine, info); err != nil {
 			e.logger.Error(
 				err, "dispatch audit line")
+
 			continue
 		}
 	}
@@ -360,7 +383,7 @@ func (e *Enricher) dispatchAuditLine(
 	case types.AuditTypeSeccomp:
 		e.dispatchSeccompLine(metricsClient, nodeName, auditLine, info)
 	case types.AuditTypeApparmor:
-		e.dispatchApparmorLine(nodeName, auditLine, info)
+		e.dispatchApparmorLine(metricsClient, nodeName, auditLine, info)
 	default:
 		return fmt.Errorf("unknown audit line type %s", auditLine.AuditType)
 	}
@@ -413,12 +436,14 @@ func (e *Enricher) dispatchSelinuxLine(
 				Tcontext: auditLine.Tcontext,
 				Tclass:   auditLine.Tclass,
 			}
+
 			jsonBytes, err := protojson.Marshal(avc)
 			if err != nil {
 				e.logger.Error(err, "marshall protobuf")
 			}
 
 			a, _ := e.avcs.LoadOrStore(info.RecordProfile, sets.New[string]())
+
 			stringSet, ok := a.(sets.Set[string])
 			if ok {
 				stringSet.Insert(string(jsonBytes))
@@ -440,6 +465,7 @@ func (e *Enricher) dispatchSeccompLine(
 			"syscallID", auditLine.SystemCallID,
 			"err", err.Error(),
 		)
+
 		return
 	}
 
@@ -474,6 +500,7 @@ func (e *Enricher) dispatchSeccompLine(
 
 	if info.RecordProfile != "" {
 		s, _ := e.syscalls.LoadOrStore(info.RecordProfile, sets.New[string]())
+
 		stringSet, ok := s.(sets.Set[string])
 		if ok {
 			stringSet.Insert(syscallName)
@@ -482,6 +509,7 @@ func (e *Enricher) dispatchSeccompLine(
 }
 
 func (e *Enricher) dispatchApparmorLine(
+	metricsClient apimetrics.Metrics_AuditIncClient,
 	nodeName string,
 	auditLine *types.AuditLine,
 	info *types.ContainerInfo,
@@ -506,6 +534,25 @@ func (e *Enricher) dispatchApparmorLine(
 	}
 
 	e.logger.Info("audit", values...)
+
+	if err := e.SendMetric(
+		metricsClient,
+		&apimetrics.AuditRequest{
+			Node:       nodeName,
+			Namespace:  info.Namespace,
+			Pod:        info.PodName,
+			Container:  info.ContainerName,
+			Executable: auditLine.Executable,
+			ApparmorReq: &apimetrics.AuditRequest_ApparmorAuditReq{
+				Profile:   auditLine.Profile,
+				Operation: auditLine.Operation,
+				Apparmor:  auditLine.Apparmor,
+				Name:      auditLine.Name,
+			},
+		},
+	); err != nil {
+		e.logger.Error(err, "unable to update the metrics")
+	}
 }
 
 // LogFilePath returns either the path to the audit logs or falls back to
@@ -515,5 +562,6 @@ func LogFilePath() string {
 	if rutil.Exists(config.AuditLogPath) {
 		filePath = config.AuditLogPath
 	}
+
 	return filePath
 }

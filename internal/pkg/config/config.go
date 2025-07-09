@@ -105,6 +105,10 @@ const (
 	// KubeletDirEnvKey is the environment variable key for custom kubelet directory.
 	KubeletDirEnvKey = "KUBELET_DIR"
 
+	// AppArmorEnvKey is the environment variable key for enabling apaprmor profiles for
+	// security-profiles-operator itself.
+	AppArmorEnvKey = "SPO_APPARMOR"
+
 	// DefaultProfilingPort is the start port where the profiling endpoint runs.
 	DefaultProfilingPort = 6060
 
@@ -167,6 +171,22 @@ const (
 	// OCIProfilePrefix is the prefix used for specifying security profiles
 	// from OCI artifacts.
 	OCIProfilePrefix = "oci://"
+
+	// SpoApparmorProfile is the default file name for apparmor profile used by
+	// the security-profiles-operator container part of spod daemonset.
+	SpoApparmorProfile = "spo-apparmor.yaml"
+
+	// SpoApparmorProfileName is the name of the apparmor profile used by the
+	// security-profiles-operator container part of spod daemonset.
+	SpoApparmorProfileName = "spo-apparmor"
+
+	// BpfRecorderApparmorProfile is the default file name for apparmor profile used
+	// by the bpf-recorder container part of spod daemonset.
+	BpfRecorderApparmorProfile = "bpfrecorder-apparmor.yaml"
+
+	// BpfRecorderApparmorProfileName is the name of the apparmor profile used by
+	// the bpf-recorder container part of spod dameonset.
+	BpfRecorderApparmorProfileName = "bpfrecorder-apparmor"
 )
 
 // ProfileRecordingOutputPath is the path where the recorded profiles will be
@@ -189,6 +209,7 @@ func GetOperatorNamespace() string {
 	if err != nil {
 		panic(err)
 	}
+
 	return ns
 }
 
@@ -199,6 +220,7 @@ func TryToGetOperatorNamespace() (string, error) {
 	if operatorNS == "" {
 		return "", ErrPodNamespaceEnvNotFound
 	}
+
 	return operatorNS, nil
 }
 
@@ -209,10 +231,12 @@ func KubeletDir() string {
 	if err == nil {
 		return cfg.KubeletDir
 	}
+
 	kubeletDir := env.Default(KubeletDirEnvKey, "")
 	if kubeletDir == "" {
 		return DefaultKubeletPath
 	}
+
 	return kubeletDir
 }
 
@@ -239,9 +263,11 @@ func GetKubeletConfigFromFile() (*KubeletConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading kubelet config: %w", err)
 	}
+
 	kubeletCfg := &KubeletConfig{}
 	if err := json.Unmarshal(cfg, kubeletCfg); err != nil {
 		return nil, fmt.Errorf("parsing kubelet config: %w", err)
 	}
+
 	return kubeletCfg, nil
 }

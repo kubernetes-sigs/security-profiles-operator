@@ -67,6 +67,7 @@ func (e *e2e) TestSecurityProfilesOperator() {
 	// Execute the test cases. Each test case should cleanup on its own and
 	// leave a working operator behind.
 	e.logf("testing cluster-wide operator")
+
 	testCases := []testCase{
 		{
 			"Seccomp: Verify default and example profiles",
@@ -178,10 +179,6 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		e.testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled()
 	})
 
-	e.Run("cluster-wide: Same profile in multiple namespaces", func() {
-		e.testCaseSameProfileMultipleNs()
-	})
-
 	e.Run("cluster-wide: profile merging", func() {
 		e.testSeccompBpfProfileMerging()
 		e.testSeccompLogsProfileMerging()
@@ -202,6 +199,7 @@ func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []tes
 	}
 
 	e.logf("testing namespace operator")
+
 	for _, tc := range testCases {
 		// Replace re-deploy the operator with a namespaced alternative.
 		if tc.description == "Seccomp: Re-deploy the operator" {
@@ -217,6 +215,7 @@ func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []tes
 	// at the same time, let's re-set the context to allow subsequent test runs
 	curNs := e.getCurrentContextNamespace(config.OperatorName)
 	e.kubectl("config", "set-context", "--current", "--namespace", namespace)
+
 	defer func() {
 		e.kubectl("config", "set-context", "--current", "--namespace", curNs)
 	}()
@@ -229,6 +228,7 @@ func (e *e2e) testNamespacedOperator(manifest, namespace string, testCases []tes
 			tc.fn(nodes)
 		})
 	}
+
 	e.cleanupOperator(e.operatorManifest)
 	e.run("git", "checkout", manifest)
 	e.kubectl("delete", "namespace", namespace)
@@ -277,15 +277,20 @@ spec:
 	e.Nil(err)
 	_, err = file.WriteString(certManifest)
 	e.Nil(err)
+
 	defer os.Remove(file.Name())
+
 	for range tries {
 		output, err := command.New(e.kubectlPath, "apply", "-f", file.Name()).Run()
 		e.Nil(err)
+
 		if output.Success() {
 			break
 		}
+
 		time.Sleep(defaultWaitTime)
 	}
+
 	e.waitFor(
 		"condition=Ready",
 		"certificate", "selfsigned-cert",
@@ -296,6 +301,7 @@ spec:
 func (e *e2e) updateManifest(path, src, repl string) {
 	content, err := os.ReadFile(path)
 	e.Nil(err)
+
 	re := regexp.MustCompile(src)
 	result := re.ReplaceAllString(string(content), repl)
 	err = os.WriteFile(path, []byte(result), 0o600)
@@ -307,8 +313,9 @@ func (e *e2e) deployOperator(manifest string) {
 	// ones from the nodes
 	e.logf("Setting imagePullPolicy to '%s' in manifest: %s", e.pullPolicy, manifest)
 	e.updateManifest(manifest, "imagePullPolicy: Always", "imagePullPolicy: "+e.pullPolicy)
-	e.updateManifest(manifest, "image: .*gcr.io/k8s-staging-sp-operator/.*", "image: "+e.testImage)
-	e.updateManifest(manifest, "value: .*gcr.io/k8s-staging-sp-operator/.*", "value: "+e.testImage)
+	e.updateManifest(manifest, "image: .*registry.k8s.io/.*", "image: "+e.testImage)
+	e.updateManifest(manifest, "value: .*registry.k8s.io/.*", "value: "+e.testImage)
+
 	if e.selinuxEnabled {
 		e.updateManifest(manifest, "enableSelinux: false", "enableSelinux: true")
 	}
@@ -334,6 +341,8 @@ func (e *e2e) deployOperator(manifest string) {
 	e.waitForSpod()
 	e.waitInOperatorNSFor("condition=initialized", "pod", "-l", "name=spod")
 	e.waitInOperatorNSFor("condition=ready", "pod", "-l", "name=spod")
+	// Execute the kubectl command to fetch logs from SPOD pods
+	e.kubectl("logs", "-l", "spod-labels")
 	// Wait for spod to be available
 	for {
 		if res, err := command.New(
@@ -341,6 +350,7 @@ func (e *e2e) deployOperator(manifest string) {
 		).Run(); err == nil && res.Success() {
 			break
 		}
+
 		time.Sleep(time.Second)
 	}
 }
@@ -366,39 +376,43 @@ func (e *e2e) getWorkerNodes() []string {
 	return nodes
 }
 
-func (e *e2e) getSeccompProfile(name, namespace string) *seccompprofileapi.SeccompProfile {
+func (e *e2e) getSeccompProfile(name string) *seccompprofileapi.SeccompProfile {
 	seccompProfileJSON := e.kubectl(
-		"-n", namespace, "get", "seccompprofile", name, "-o", "json",
+		"get", "seccompprofile", name, "-o", "json",
 	)
 	seccompProfile := &seccompprofileapi.SeccompProfile{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileJSON), seccompProfile))
+
 	return seccompProfile
 }
 
 func (e *e2e) getSeccompProfileNodeStatus(
-	id, namespace, node string,
+	id, node string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatus {
 	selector := fmt.Sprintf("spo.x-k8s.io/node-name=%s,spo.x-k8s.io/profile-id=SeccompProfile-%s", node, id)
 	seccompProfileNodeStatusJSON := e.kubectl(
-		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
 	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
+
 	if e.Equal(len(secpolNodeStatusList.Items), 1) {
 		return &secpolNodeStatusList.Items[0]
 	}
+
 	return nil
 }
 
 func (e *e2e) getAllSeccompProfileNodeStatuses(
-	id, namespace string,
+	id string,
 ) *secprofnodestatusv1alpha1.SecurityProfileNodeStatusList {
 	selector := "spo.x-k8s.io/profile-id=SeccompProfile-" + id
 	seccompProfileNodeStatusJSON := e.kubectl(
-		"-n", namespace, "get", "securityprofilenodestatus", "-l", selector, "-o", "json",
+		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
 	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
 	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
+
 	return secpolNodeStatusList
 }
 
@@ -407,6 +421,7 @@ func (e *e2e) getCurrentContextNamespace(alt string) string {
 	if ctxns == "" {
 		ctxns = alt
 	}
+
 	return ctxns
 }
 
@@ -421,12 +436,14 @@ func (e *e2e) writeAndApply(manifest, filePattern string) func() {
 func (e *e2e) writeAndDo(verb, manifest, filePattern string) func() {
 	file, err := os.CreateTemp("", filePattern)
 	fileName := file.Name()
+
 	e.Nil(err)
 	_, err = file.WriteString(manifest)
 	e.Nil(err)
 	err = file.Close()
 	e.Nil(err)
 	e.kubectl(verb, "-f", fileName)
+
 	return func() { os.Remove(fileName) }
 }
 
@@ -451,6 +468,7 @@ func (e *e2e) sliceContainsString(slice []string, s string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -461,9 +479,11 @@ func (e *e2e) waitForSpod() {
 			"get", "pod", "-l", "name=spod",
 		).RunSilent()
 		e.Nil(err)
+
 		if !strings.Contains(output.Error(), "No resources found") {
 			return
 		}
+
 		e.logf("Waiting for resource to be available (%d)", i)
 		time.Sleep(3 * time.Second)
 	}
@@ -477,14 +497,17 @@ func (e *e2e) retryGet(args ...string) string {
 			e.kubectlPath, append([]string{"get"}, args...)...,
 		).RunSilent()
 		e.Nil(err)
+
 		if !strings.Contains(output.Error(), "not found") {
 			return output.OutputTrimNL()
 		}
+
 		e.logf("Waiting for resource to be available (%d)", i)
 		time.Sleep(3 * time.Second)
 	}
 
 	e.Fail("Timed out to wait for resource")
+
 	return ""
 }
 
@@ -493,10 +516,12 @@ func (e *e2e) exists(args ...string) bool {
 		e.kubectlPath, append([]string{"get"}, args...)...,
 	).RunSilent()
 	e.Nil(err)
+
 	return !strings.Contains(output.Error(), "not found")
 }
 
 func (e *e2e) getSeccompPolicyID(profile string) string {
 	ns := e.getCurrentContextNamespace(defaultNamespace)
+
 	return e.kubectl("get", "sp", "-n", ns, profile, "-o", "jsonpath={.metadata.labels.spo\\.x-k8s\\.io/profile-id}")
 }

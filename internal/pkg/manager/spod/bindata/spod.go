@@ -53,6 +53,7 @@ const (
 	SelinuxdDBPath                                   = SelinuxdPrivateDir + "/selinuxd.db"
 	sysKernelDebugPath                               = "/sys/kernel/debug"
 	sysKernelSecurityPath                            = "/sys/kernel/security"
+	sysKernelTracingPath                             = "/sys/kernel/tracing"
 	InitContainerIDNonRootenabler                    = 0
 	InitContainerIDSelinuxSharedPoliciesCopier       = 1
 	ContainerIDDaemon                                = 0
@@ -557,6 +558,11 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								ReadOnly:  true,
 							},
 							{
+								Name:      "sys-kernel-tracing-volume",
+								MountPath: sysKernelTracingPath,
+								ReadOnly:  true,
+							},
+							{
 								Name:      "host-etc-osrelease-volume",
 								MountPath: etcOSReleasePath,
 							},
@@ -737,6 +743,15 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 						},
 					},
 					{
+						Name: "sys-kernel-tracing-volume",
+						VolumeSource: corev1.VolumeSource{
+							HostPath: &corev1.HostPathVolumeSource{
+								Path: sysKernelTracingPath,
+								Type: &hostPathDirectory,
+							},
+						},
+					},
+					{
 						Name: "host-etc-osrelease-volume",
 						VolumeSource: corev1.VolumeSource{
 							HostPath: &corev1.HostPathVolumeSource{
@@ -839,6 +854,7 @@ var metricsService = &corev1.Service{
 // corresponding mount used for the log-enricher or bpf-recorder.
 func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "host-proc-volume"
+
 	return corev1.Volume{
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
@@ -858,6 +874,7 @@ func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 // as well as corresponding mount used for non-root-enabler.
 func CustomHostKubeletVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 	const volumeName = "host-kubelet-volume"
+
 	return corev1.Volume{
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{

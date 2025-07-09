@@ -32,6 +32,7 @@ var errTest = errors.New("")
 
 func TestRegister(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		prepare   func(*metricsfakes.FakeImpl)
 		shouldErr bool
@@ -68,9 +69,11 @@ func TestSeccompProfile(t *testing.T) {
 	getMetricValue := func(col prometheus.Collector) int {
 		c := make(chan prometheus.Metric, 1)
 		col.Collect(c)
+
 		m := dto.Metric{}
 		err := (<-c).Write(&m)
 		require.NoError(t, err)
+
 		return int(m.GetCounter().GetValue())
 	}
 
@@ -176,9 +179,11 @@ func TestSeccompProfileBpf(t *testing.T) {
 	getMetricValue := func(col prometheus.Collector) int {
 		c := make(chan prometheus.Metric, 1)
 		col.Collect(c)
+
 		m := dto.Metric{}
 		err := (<-c).Write(&m)
 		require.NoError(t, err)
+
 		return int(m.GetCounter().GetValue())
 	}
 

@@ -13,7 +13,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   labels:
     app: security-profiles-operator
   name: apparmorprofiles.security-profiles-operator.x-k8s.io
@@ -26,7 +26,7 @@ spec:
     shortNames:
     - aa
     singular: apparmorprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.status
@@ -193,7 +193,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   labels:
     app: security-profiles-operator
   name: profilebindings.security-profiles-operator.x-k8s.io
@@ -276,7 +276,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   labels:
     app: security-profiles-operator
   name: profilerecordings.security-profiles-operator.x-k8s.io
@@ -429,7 +429,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   labels:
     app: security-profiles-operator
   name: rawselinuxprofiles.security-profiles-operator.x-k8s.io
@@ -440,7 +440,7 @@ spec:
     listKind: RawSelinuxProfileList
     plural: rawselinuxprofiles
     singular: rawselinuxprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.usage
@@ -547,7 +547,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   labels:
     app: security-profiles-operator
   name: seccompprofiles.security-profiles-operator.x-k8s.io
@@ -560,7 +560,7 @@ spec:
     shortNames:
     - sp
     singular: seccompprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.status
@@ -810,7 +810,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   labels:
     app: security-profiles-operator
   name: securityprofilenodestatuses.security-profiles-operator.x-k8s.io
@@ -823,7 +823,7 @@ spec:
     shortNames:
     - spns
     singular: securityprofilenodestatus
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status
@@ -880,7 +880,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   labels:
     app: security-profiles-operator
   name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
@@ -2222,7 +2222,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.1
+    controller-gen.kubebuilder.io/version: v0.17.2
   labels:
     app: security-profiles-operator
   name: selinuxprofiles.security-profiles-operator.x-k8s.io
@@ -2233,7 +2233,7 @@ spec:
     listKind: SelinuxProfileList
     plural: selinuxprofiles
     singular: selinuxprofile
-  scope: Namespaced
+  scope: Cluster
   versions:
   - additionalPrinterColumns:
     - jsonPath: .status.usage
@@ -2954,11 +2954,33 @@ data:
   bpf-recorder.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
-      "architectures": [
-        "SCMP_ARCH_X86_64",
-        "SCMP_ARCH_X86",
-        "SCMP_ARCH_X32",
-        "SCMP_ARCH_AARCH64"
+      "archMap": [
+        {
+          "architecture": "SCMP_ARCH_X86_64",
+          "subArchitectures": [
+            "SCMP_ARCH_X86",
+            "SCMP_ARCH_X32"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_AARCH64",
+          "subArchitectures": [
+            "SCMP_ARCH_ARM"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_PPC64LE",
+          "subArchitectures": [
+            "SCMP_ARCH_PPC64",
+            "SCMP_ARCH_PPC"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_S390X",
+          "subArchitectures": [
+            "SCMP_ARCH_S390"
+          ]
+        }
       ],
       "syscalls": [
         {
@@ -2971,7 +2993,6 @@ data:
             "capget",
             "capset",
             "chdir",
-            "clone",
             "clone3",
             "close",
             "connect",
@@ -2982,9 +3003,7 @@ data:
             "epoll_wait",
             "eventfd2",
             "execve",
-            "exit_group",
             "faccessat2",
-            "fchdir",
             "fchownat",
             "fcntl",
             "fstat",
@@ -2992,6 +3011,7 @@ data:
             "futex",
             "getcwd",
             "getdents64",
+            "getgid",
             "getpeername",
             "getpid",
             "getppid",
@@ -3001,15 +3021,11 @@ data:
             "getsockopt",
             "gettid",
             "ioctl",
-            "keyctl",
             "listen",
             "lseek",
             "madvise",
             "memfd_create",
-            "mkdirat",
-            "mknodat",
             "mmap",
-            "mount",
             "mprotect",
             "mremap",
             "munmap",
@@ -3017,8 +3033,6 @@ data:
             "newfstatat",
             "openat",
             "perf_event_open",
-            "pipe2",
-            "pivot_root",
             "prctl",
             "pread64",
             "prlimit64",
@@ -3036,69 +3050,119 @@ data:
             "setgid",
             "setgroups",
             "setrlimit",
-            "setsid",
             "setsockopt",
             "setuid",
             "sigaltstack",
             "socket",
+            "stat",
             "statfs",
-            "symlinkat",
             "tgkill",
-            "umask",
-            "umount2",
             "uname",
-            "unlinkat",
             "write"
           ],
           "action": "SCMP_ACT_ALLOW"
         }
       ]
     }
+  bpfrecorder-apparmor.yaml: |
+    apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+    kind: AppArmorProfile
+    metadata:
+      labels:
+        spo.x-k8s.io/container-id: bpf-recorder
+      name: bpfrecorder-apparmor
+      namespace: security-profiles-operator
+    spec:
+      abstract:
+        capability:
+          allowedCapabilities:
+          - bpf
+          - chown
+          - perfmon
+          - sys_resource
+        executable:
+          allowedExecutables:
+          - /security-profiles-operator
+        filesystem:
+          readOnlyPaths:
+          - /proc/@{pid}/cgroup
+          - /proc/@{pid}/maps
+          - /proc/sys/net/core/somaxconn
+          - /sys/devices/kprobe/type
+          - /sys/devices/system/cpu/online
+          - /sys/fs/bpf/
+          - /sys/kernel/btf/vmlinux
+          - /sys/kernel/debug/tracing/events/**/id
+          - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+          - /sys/kernel/security/lsm
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
+          readWritePaths:
+          - "ptrace (read),\n# ugly template injection hack"
+          - /var/run/grpc/bpf-recorder.sock
+        network:
+          allowedProtocols:
+            allowTcp: true
+            allowUdp: true
+      disabled: false
   security-profiles-operator.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
-      "architectures": [
-        "SCMP_ARCH_X86_64",
-        "SCMP_ARCH_X86",
-        "SCMP_ARCH_X32",
-        "SCMP_ARCH_AARCH64"
-      ],
+        "archMap": [
+            {
+                "architecture": "SCMP_ARCH_X86_64",
+                "subArchitectures": [
+                    "SCMP_ARCH_X86",
+                    "SCMP_ARCH_X32"
+                ]
+            },
+            {
+                "architecture": "SCMP_ARCH_AARCH64",
+                "subArchitectures": [
+                    "SCMP_ARCH_ARM"
+                ]
+            },
+            {
+            "architecture": "SCMP_ARCH_PPC64LE",
+                "subArchitectures": [
+                    "SCMP_ARCH_PPC64",
+                    "SCMP_ARCH_PPC"
+                ]
+            },
+            {
+                "architecture": "SCMP_ARCH_S390X",
+                "subArchitectures": [
+                    "SCMP_ARCH_S390"
+                ]
+            }
+        ],
       "syscalls": [
         {
           "names": [
             "accept4",
-            "access",
             "arch_prctl",
             "bind",
             "brk",
             "capget",
             "capset",
             "chdir",
-            "clock_gettime",
-            "clone",
             "clone3",
             "close",
             "connect",
             "epoll_create1",
             "epoll_ctl",
             "epoll_pwait",
-            "epoll_wait",
             "eventfd2",
             "execve",
-            "exit",
             "exit_group",
-            "fchown",
+            "faccessat2",
             "fcntl",
-            "flock",
             "fstat",
             "fstatfs",
-            "fsync",
             "futex",
             "getcwd",
             "getdents64",
-            "getgid",
             "getpeername",
-            "getpgrp",
             "getpid",
             "getppid",
             "getrandom",
@@ -3106,49 +3170,42 @@ data:
             "getsockname",
             "getsockopt",
             "gettid",
-            "getuid",
             "inotify_add_watch",
             "inotify_init1",
             "listen",
-            "lseek",
             "madvise",
-            "membarrier",
             "mkdirat",
-            "mlock",
             "mmap",
             "mprotect",
             "munmap",
             "nanosleep",
             "newfstatat",
-            "open",
             "openat",
-            "pipe2",
             "prctl",
             "pread64",
             "prlimit64",
             "read",
-            "readlink",
             "readlinkat",
-            "renameat",
             "rseq",
             "rt_sigaction",
             "rt_sigprocmask",
             "rt_sigreturn",
             "sched_getaffinity",
             "sched_yield",
+            "seccomp",
             "set_robust_list",
             "set_tid_address",
             "setgid",
             "setgroups",
-            "setrlimit",
             "setsockopt",
             "setuid",
             "sigaltstack",
             "socket",
+            "stat",
             "statfs",
             "tgkill",
-            "time",
             "uname",
+            "unshare",
             "unlinkat",
             "write"
           ],
@@ -3163,7 +3220,7 @@ data:
             "imageFromVar":"RELATED_IMAGE_SELINUXD_EL8"
         },
         {
-            "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
+            "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)|(.*)(CoreOS)([\\s+])9\\.(.*)",
             "imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"
         },
         {
@@ -3220,6 +3277,53 @@ data:
       (blockinherit container)
       (typepermissive process)
     )
+  spo-apparmor.yaml: |
+    apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+    kind: AppArmorProfile
+    metadata:
+      labels:
+        spo.x-k8s.io/container-id: security-profiles-operator
+      name: spo-apparmor
+      namespace: security-profiles-operator
+    spec:
+      abstract:
+        capability:
+          allowedCapabilities:
+          - dac_override
+          - dac_read_search
+          - mac_admin
+          - sys_admin
+          - sys_chroot
+        executable:
+          allowedExecutables:
+          - /security-profiles-operator
+          - /sbin/apparmor_parser
+        filesystem:
+          readOnlyPaths:
+          - /  # workaround for apparmor bug
+          - /etc/apparmor/parser.conf
+          - /proc/@{pid}/maps
+          - /proc/@{pid}/mounts
+          - /proc/sys/kernel/osrelease
+          - /proc/sys/net/core/somaxconn
+          - /sys/kernel/mm/transparent_hugepage/hpage_pmd_size
+          - /var/run/secrets/kubernetes.io/serviceaccount/**
+          - /var/run/secrets/metrics/**
+          - /sys/module/apparmor/parameters/enabled
+          - /sys/devices/system/cpu/possible
+          readWritePaths:
+          - "ptrace (read),  # ugly template injection hack"
+          - /var/run/grpc/metrics.sock
+          - /tmp/aa_profile_bin_*
+          - /etc/apparmor.d/**
+          - /sys/kernel/security/apparmor/
+          - /sys/kernel/security/apparmor/**
+          - /var/lib/kubelet/seccomp/operator/**
+        network:
+          allowedProtocols:
+            allowTcp: true
+            allowUdp: true
+      disabled: false
 kind: ConfigMap
 metadata:
   labels:
@@ -3284,7 +3388,7 @@ spec:
               fieldPath: spec.nodeName
         - name: KUBELET_DIR
           value: /var/lib/kubelet
-        image: image-registry.openshift-image-registry.svc:5000/openshift/security-profiles-operator:latest
+        image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.9.0
         imagePullPolicy: Always
         name: security-profiles-operator
         resources:

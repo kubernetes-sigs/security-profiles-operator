@@ -37,16 +37,17 @@ const (
 	metricNamespace = "security_profiles_operator"
 
 	// Metrics names.
-	metricNameSeccompProfile       = "seccomp_profile_total"
-	metricNameSelinuxProfile       = "selinux_profile_total"
-	metricNameAppArmorProfile      = "apparmor_profile_total"
-	metricNameSeccompProfileAudit  = "seccomp_profile_audit_total"
-	metricNameSelinuxProfileAudit  = "selinux_profile_audit_total"
-	metricNameAppArmorProfileAudit = "apparmor_profile_audit_total"
-	metricNameSeccompProfileBpf    = "seccomp_profile_bpf_total"
-	metricNameSeccompProfileError  = "seccomp_profile_error_total"
-	metricNameSelinuxProfileError  = "selinux_profile_error_total"
-	metricNameAppArmorProfileError = "apparmor_profile_error_total"
+	metricNameSeccompProfile        = "seccomp_profile_total"
+	metricNameSelinuxProfile        = "selinux_profile_total"
+	metricNameAppArmorProfile       = "apparmor_profile_total"
+	metricNameSeccompProfileAudit   = "seccomp_profile_audit_total"
+	metricNameSelinuxProfileAudit   = "selinux_profile_audit_total"
+	metricNameAppArmorProfileAudit  = "apparmor_profile_audit_total"
+	metricNameSeccompProfileBpf     = "seccomp_profile_bpf_total"
+	metricNameSeccompProfileError   = "seccomp_profile_error_total"
+	metricNameSelinuxProfileError   = "selinux_profile_error_total"
+	metricNameAppArmorProfileError  = "apparmor_profile_error_total"
+	metricNameAppArmorProfileDenial = "apparmor_profile_denial_total"
 
 	// Metrics label values.
 	metricLabelValueProfileUpdate = "update"
@@ -65,26 +66,32 @@ const (
 	metricsLabelScontext       = "scontext"
 	metricsLabelTcontext       = "tcontext"
 	metricsLabelMountNamespace = "mount_namespace"
+	metricsLabelApparmor       = "apparmor"
+	metricsLabelName           = "name"
 
 	// HandlerPath is the default path for serving metrics.
 	HandlerPath = "/metrics-spod"
+
+	// Apparmor actions.
+	apparmorDeniedAction = "DENIED"
 )
 
 // Metrics is the main structure of this package.
 type Metrics struct {
 	api.UnimplementedMetricsServer
-	impl                       impl
-	log                        logr.Logger
-	metricSeccompProfile       *prometheus.CounterVec
-	metricSeccompProfileAudit  *prometheus.CounterVec
-	metricSeccompProfileBpf    *prometheus.CounterVec
-	metricSeccompProfileError  *prometheus.CounterVec
-	metricSelinuxProfile       *prometheus.CounterVec
-	metricSelinuxProfileAudit  *prometheus.CounterVec
-	metricSelinuxProfileError  *prometheus.CounterVec
-	metricAppArmorProfile      *prometheus.CounterVec
-	metricAppArmorProfileAudit *prometheus.CounterVec
-	metricAppArmorProfileError *prometheus.CounterVec
+	impl                        impl
+	log                         logr.Logger
+	metricSeccompProfile        *prometheus.CounterVec
+	metricSeccompProfileAudit   *prometheus.CounterVec
+	metricSeccompProfileBpf     *prometheus.CounterVec
+	metricSeccompProfileError   *prometheus.CounterVec
+	metricSelinuxProfile        *prometheus.CounterVec
+	metricSelinuxProfileAudit   *prometheus.CounterVec
+	metricSelinuxProfileError   *prometheus.CounterVec
+	metricAppArmorProfile       *prometheus.CounterVec
+	metricAppArmorProfileAudit  *prometheus.CounterVec
+	metricAppArmorProfileError  *prometheus.CounterVec
+	metricAppArmorProfileDenial *prometheus.CounterVec
 }
 
 // New returns a new Metrics instance.
@@ -187,7 +194,10 @@ func New() *Metrics {
 				metricsLabelPod,
 				metricsLabelContainer,
 				metricsLabelExecutable,
-				metricsLabelSyscall,
+				metricsLabelProfile,
+				metricLabelOperation,
+				metricsLabelApparmor,
+				metricsLabelName,
 			},
 		),
 		metricAppArmorProfileError: prometheus.NewCounterVec(
@@ -196,7 +206,21 @@ func New() *Metrics {
 				Namespace: metricNamespace,
 				Help:      "Counter about apparmor profile errors.",
 			},
-			[]string{metricsLabelReason},
+			[]string{
+				metricsLabelProfile,
+				metricsLabelReason,
+			},
+		),
+		metricAppArmorProfileDenial: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name:      metricNameAppArmorProfileDenial,
+				Namespace: metricNamespace,
+				Help:      "Counter about apparmor profile denial.",
+			},
+			[]string{
+				metricsLabelProfile,
+				metricLabelOperation,
+			},
 		),
 	}
 }
@@ -204,22 +228,25 @@ func New() *Metrics {
 // Register iterates over all available metrics and registers them.
 func (m *Metrics) Register() error {
 	for name, collector := range map[string]prometheus.Collector{
-		metricNameSeccompProfile:       m.metricSeccompProfile,
-		metricNameSeccompProfileAudit:  m.metricSeccompProfileAudit,
-		metricNameSeccompProfileBpf:    m.metricSeccompProfileBpf,
-		metricNameSeccompProfileError:  m.metricSeccompProfileError,
-		metricNameSelinuxProfile:       m.metricSelinuxProfile,
-		metricNameSelinuxProfileAudit:  m.metricSelinuxProfileAudit,
-		metricNameSelinuxProfileError:  m.metricSelinuxProfileError,
-		metricNameAppArmorProfile:      m.metricAppArmorProfile,
-		metricNameAppArmorProfileAudit: m.metricAppArmorProfileAudit,
-		metricNameAppArmorProfileError: m.metricAppArmorProfileError,
+		metricNameSeccompProfile:        m.metricSeccompProfile,
+		metricNameSeccompProfileAudit:   m.metricSeccompProfileAudit,
+		metricNameSeccompProfileBpf:     m.metricSeccompProfileBpf,
+		metricNameSeccompProfileError:   m.metricSeccompProfileError,
+		metricNameSelinuxProfile:        m.metricSelinuxProfile,
+		metricNameSelinuxProfileAudit:   m.metricSelinuxProfileAudit,
+		metricNameSelinuxProfileError:   m.metricSelinuxProfileError,
+		metricNameAppArmorProfile:       m.metricAppArmorProfile,
+		metricNameAppArmorProfileAudit:  m.metricAppArmorProfileAudit,
+		metricNameAppArmorProfileError:  m.metricAppArmorProfileError,
+		metricNameAppArmorProfileDenial: m.metricAppArmorProfileDenial,
 	} {
 		m.log.Info("Registering metric: " + name)
+
 		if err := m.impl.Register(collector); err != nil {
 			return fmt.Errorf("register collector for %s metric: %w", name, err)
 		}
 	}
+
 	return nil
 }
 
@@ -227,6 +254,7 @@ func (m *Metrics) Register() error {
 func (m *Metrics) Handler() http.Handler {
 	handler := &http.ServeMux{}
 	handler.Handle(HandlerPath, promhttp.Handler())
+
 	return handler
 }
 
@@ -311,15 +339,25 @@ func (m *Metrics) IncAppArmorProfileDelete() {
 // IncAppArmorProfileAudit increments the apparmor profile audit counter for the
 // provided labels.
 func (m *Metrics) IncAppArmorProfileAudit(
-	node, namespace, pod, container, executable, syscall string,
+	node, namespace, pod, container, executable, profile, operation, apparmor, name string,
 ) {
 	m.metricAppArmorProfileAudit.WithLabelValues(
-		node, namespace, pod, container, executable, syscall,
+		node, namespace, pod, container, executable, profile, operation, apparmor, name,
 	).Inc()
+
+	if apparmor == apparmorDeniedAction {
+		m.IncAppArmorProfileDenial(profile, operation)
+	}
 }
 
 // IncAppArmorProfileError increments the apparmor profile error counter for the
 // provided reason.
-func (m *Metrics) IncAppArmorProfileError(reason string) {
-	m.metricAppArmorProfileError.WithLabelValues(reason).Inc()
+func (m *Metrics) IncAppArmorProfileError(profile, reason string) {
+	m.metricAppArmorProfileError.WithLabelValues(profile, reason).Inc()
+}
+
+// IncAppArmorProfileDenial increments the apparmor denial counter for the
+// operation being denied in a profile.
+func (m *Metrics) IncAppArmorProfileDenial(profile, operation string) {
+	m.metricAppArmorProfileDenial.WithLabelValues(profile, operation).Inc()
 }

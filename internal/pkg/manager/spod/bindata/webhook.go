@@ -105,6 +105,7 @@ func GetWebhook(
 ) *Webhook {
 	deployment := webhookDeployment.DeepCopy()
 	deployment.Namespace = namespace
+
 	if len(tolerations) > 0 {
 		deployment.Spec.Template.Spec.Tolerations = tolerations
 	}
@@ -131,14 +132,13 @@ func GetWebhook(
 			"cert-manager.io/inject-ca-from": config.OperatorName + "/webhook-cert",
 		}
 	case CAInjectTypeOpenShift:
+		// if there's any OCP specific webhook opts, apply them here
 		cfg.Annotations = map[string]string{
 			"service.beta.openshift.io/inject-cabundle": "true",
 		}
 		service.Annotations = map[string]string{
 			openshiftCertAnnotation: webhookServerCert,
 		}
-
-		// if there's any OCP specific webhook opts, apply them here
 	}
 
 	// then apply the user-specified opts
@@ -162,8 +162,10 @@ func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 						return fmt.Errorf("updating %s: %w", k, err)
 					}
 				}
+
 				continue
 			}
+
 			return fmt.Errorf("creating %s: %w", k, err)
 		}
 	}
@@ -176,6 +178,7 @@ func applyWebhookOptions(cfg *admissionregv1.MutatingWebhookConfiguration, opts 
 		var userOpt *spodv1alpha1.WebhookOptions
 
 		hook := &cfg.Webhooks[i]
+
 		for j := range opts {
 			userOpt = &opts[j]
 
@@ -213,6 +216,7 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 
 	for i := range existingWebHook.Webhooks {
 		ew := existingWebHook.Webhooks[i]
+
 		for j := range w.config.Webhooks {
 			cw := w.config.Webhooks[j]
 
@@ -285,6 +289,7 @@ func namespaceSelectorUnequalForLabel(label string, existing, configured *metav1
 	for i = range existing.MatchExpressions {
 		if existing.MatchExpressions[i].Key == label {
 			existingHasLabel = true
+
 			break
 		}
 	}
@@ -292,6 +297,7 @@ func namespaceSelectorUnequalForLabel(label string, existing, configured *metav1
 	for j = range configured.MatchExpressions {
 		if configured.MatchExpressions[j].Key == label {
 			configuredHasLabel = true
+
 			break
 		}
 	}
@@ -315,6 +321,7 @@ func (w *Webhook) Update(ctx context.Context, c client.Client) error {
 			return fmt.Errorf("updating %s: %w", k, err)
 		}
 	}
+
 	return nil
 }
 

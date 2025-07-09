@@ -26,6 +26,7 @@ import (
 
 func TestFromContext(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		prepare func(*flag.FlagSet)
 		assert  func(error)

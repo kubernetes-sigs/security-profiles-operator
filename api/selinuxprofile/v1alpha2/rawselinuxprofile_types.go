@@ -43,7 +43,7 @@ type RawSelinuxProfileSpec struct {
 
 // RawSelinuxProfile is the Schema for the rawselinuxprofiles API.
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=rawselinuxprofiles,scope=Namespaced
+// +kubebuilder:resource:path=rawselinuxprofiles,scope=Cluster
 // +kubebuilder:printcolumn:name="Usage",type="string",JSONPath=`.status.usage`
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=`.status.status`
 type RawSelinuxProfile struct {

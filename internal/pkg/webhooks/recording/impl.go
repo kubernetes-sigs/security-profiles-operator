@@ -56,9 +56,11 @@ func (d *defaultImpl) GetProfileRecording(
 ) (*v1alpha1.ProfileRecording, error) {
 	profileRecording := &v1alpha1.ProfileRecording{}
 	prName := types.NamespacedName{Name: name, Namespace: namespace}
+
 	if err := d.client.Get(ctx, prName, profileRecording); err != nil {
 		return nil, fmt.Errorf("get profile recording: %w", err)
 	}
+
 	return profileRecording, nil
 }
 
@@ -69,6 +71,7 @@ func (d *defaultImpl) ListProfileRecordings(
 	if err := d.client.List(ctx, profileRecordings, opts...); err != nil {
 		return nil, fmt.Errorf("list profile recordings: %w", err)
 	}
+
 	return profileRecordings, nil
 }
 
@@ -124,6 +127,7 @@ func (d *defaultImpl) DecodePod(req admission.Request) (*corev1.Pod, error) {
 	if err := d.decoder.Decode(req, pod); err != nil {
 		return nil, fmt.Errorf("decode pod: %w", err)
 	}
+
 	return pod, nil
 }
 

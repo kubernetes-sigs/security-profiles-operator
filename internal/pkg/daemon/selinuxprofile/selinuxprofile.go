@@ -93,6 +93,7 @@ func (sph *selinuxProfileHandler) Init(
 	// Must be at least one character.
 	// The characters must match from beginning to end of the string
 	sph.objClassPermRegex = regexp.MustCompile(`^[a-zA-Z0-9.\-_]+$`)
+
 	return nil
 }
 
@@ -112,10 +113,12 @@ func (sph *selinuxProfileHandler) Validate() error {
 		if err := sph.validateLabelKey(key); err != nil {
 			return err
 		}
+
 		for objclass, perms := range classperms {
 			if err := sph.validateObjClass(objclass); err != nil {
 				return err
 			}
+
 			for _, perm := range perms {
 				if err := sph.validatePermission(perm); err != nil {
 					return err
@@ -123,6 +126,7 @@ func (sph *selinuxProfileHandler) Validate() error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -137,6 +141,7 @@ func (sph *selinuxProfileHandler) validateAndTrackInherit(
 	case "SelinuxProfile":
 		return sph.handleInheritSPOPolicy(ancestorRef, namespace)
 	}
+
 	return fmt.Errorf("%s/%s: %w", ancestorRef.Kind, ancestorRef.Name, ErrUnknownKindForEntry)
 }
 
@@ -146,6 +151,7 @@ func (sph *selinuxProfileHandler) validateLabelKey(
 	if !sph.labelRegex.MatchString(string(key)) {
 		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidLabelKey)
 	}
+
 	return nil
 }
 
@@ -155,6 +161,7 @@ func (sph *selinuxProfileHandler) validateObjClass(
 	if !sph.objClassPermRegex.MatchString(string(key)) {
 		return fmt.Errorf("'%s' didn't match expected characters: %w", key, ErrInvalidObjClass)
 	}
+
 	return nil
 }
 
@@ -164,6 +171,7 @@ func (sph *selinuxProfileHandler) validatePermission(
 	if !sph.objClassPermRegex.MatchString(perm) {
 		return fmt.Errorf("'%s' didn't match expected characters: %w", perm, ErrInvalidPermission)
 	}
+
 	return nil
 }
 
@@ -173,6 +181,7 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 ) error {
 	ancestor := &selxv1alpha2.SelinuxProfile{}
 	key := types.NamespacedName{Name: ancestorRef.Name, Namespace: namespace}
+
 	err := sph.cli.Get(context.Background(), key, ancestor)
 	if err != nil && kerrors.IsNotFound(err) {
 		return fmt.Errorf("couldn't find inherit reference %s/%s: %w",
@@ -182,6 +191,7 @@ func (sph *selinuxProfileHandler) handleInheritSPOPolicy(
 	// TODO(jaosorior): Handle dependencies... we could force a waiting period
 	// until the ancestor policy would be installed
 	sph.objInherits = append(sph.objInherits, ancestor)
+
 	return nil
 }
 
@@ -197,9 +207,11 @@ func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
 		prof := spod.Spec.SelinuxOpts.AllowedSystemProfiles[idx]
 		if prof == ancestorRef.Name {
 			sph.systemInherits = append(sph.systemInherits, ancestorRef.Name)
+
 			return nil
 		}
 	}
+
 	return fmt.Errorf(
 		"system profile %s not in SecurityProfilesOperatorDaemon's allow list: %w",
 		ancestorRef.Name, ErrSystemInheritNotAllowed,
@@ -226,5 +238,6 @@ func newSelinuxProfileHandler(
 	}
 
 	err := oh.Init(ctx, cli, key)
+
 	return oh, err
 }

@@ -1,47 +1,60 @@
 {
   "defaultAction": "SCMP_ACT_ERRNO",
-  "architectures": [
-    "SCMP_ARCH_X86_64",
-    "SCMP_ARCH_X86",
-    "SCMP_ARCH_X32",
-    "SCMP_ARCH_AARCH64"
-  ],
+    "archMap": [
+        {
+            "architecture": "SCMP_ARCH_X86_64",
+            "subArchitectures": [
+                "SCMP_ARCH_X86",
+                "SCMP_ARCH_X32"
+            ]
+        },
+        {
+            "architecture": "SCMP_ARCH_AARCH64",
+            "subArchitectures": [
+                "SCMP_ARCH_ARM"
+            ]
+        },
+        {
+        "architecture": "SCMP_ARCH_PPC64LE",
+            "subArchitectures": [
+                "SCMP_ARCH_PPC64",
+                "SCMP_ARCH_PPC"
+            ]
+        },
+        {
+            "architecture": "SCMP_ARCH_S390X",
+            "subArchitectures": [
+                "SCMP_ARCH_S390"
+            ]
+        }
+    ],
   "syscalls": [
     {
       "names": [
         "accept4",
-        "access",
         "arch_prctl",
         "bind",
         "brk",
         "capget",
         "capset",
         "chdir",
-        "clock_gettime",
-        "clone",
         "clone3",
         "close",
         "connect",
         "epoll_create1",
         "epoll_ctl",
         "epoll_pwait",
-        "epoll_wait",
         "eventfd2",
         "execve",
-        "exit",
         "exit_group",
-        "fchown",
+        "faccessat2",
         "fcntl",
-        "flock",
         "fstat",
         "fstatfs",
-        "fsync",
         "futex",
         "getcwd",
         "getdents64",
-        "getgid",
         "getpeername",
-        "getpgrp",
         "getpid",
         "getppid",
         "getrandom",
@@ -49,49 +62,42 @@
         "getsockname",
         "getsockopt",
         "gettid",
-        "getuid",
         "inotify_add_watch",
         "inotify_init1",
         "listen",
-        "lseek",
         "madvise",
-        "membarrier",
         "mkdirat",
-        "mlock",
         "mmap",
         "mprotect",
         "munmap",
         "nanosleep",
         "newfstatat",
-        "open",
         "openat",
-        "pipe2",
         "prctl",
         "pread64",
         "prlimit64",
         "read",
-        "readlink",
         "readlinkat",
-        "renameat",
         "rseq",
         "rt_sigaction",
         "rt_sigprocmask",
         "rt_sigreturn",
         "sched_getaffinity",
         "sched_yield",
+        "seccomp",
         "set_robust_list",
         "set_tid_address",
         "setgid",
         "setgroups",
-        "setrlimit",
         "setsockopt",
         "setuid",
         "sigaltstack",
         "socket",
+        "stat",
         "statfs",
         "tgkill",
-        "time",
         "uname",
+        "unshare",
         "unlinkat",
         "write"
       ],

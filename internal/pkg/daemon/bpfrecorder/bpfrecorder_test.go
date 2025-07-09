@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -67,6 +68,7 @@ var (
 
 func TestRun(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct {
 		prepare func(*bpfrecorderfakes.FakeImpl)
 		assert  func(error)
@@ -75,6 +77,7 @@ func TestRun(t *testing.T) {
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				mock.DialMetricsReturns(&grpc.ClientConn{}, func() {}, nil)
 			},
 			assert: func(err error) {
@@ -292,6 +295,7 @@ func TestRun(t *testing.T) {
 				mock.UnameCalls(func(res *syscall.Utsname) error {
 					copy(res.Machine[:], machine)
 					copy(res.Release[:], release)
+
 					return nil
 				})
 				mock.TempFileCalls(os.CreateTemp)
@@ -311,6 +315,7 @@ func TestRun(t *testing.T) {
 				mock.UnameCalls(func(res *syscall.Utsname) error {
 					copy(res.Machine[:], machine)
 					copy(res.Release[:], release)
+
 					return nil
 				})
 				mock.WriteReturns(0, errTest)
@@ -330,6 +335,7 @@ func TestRun(t *testing.T) {
 				mock.UnameCalls(func(res *syscall.Utsname) error {
 					copy(res.Machine[:], machine)
 					copy(res.Release[:], release)
+
 					return nil
 				})
 				mock.TempFileReturns(nil, errTest)
@@ -348,6 +354,7 @@ func TestRun(t *testing.T) {
 				}, nil)
 				mock.UnameCalls(func(res *syscall.Utsname) error {
 					copy(res.Machine[:], machine)
+
 					return nil
 				})
 			},
@@ -407,6 +414,7 @@ func TestRun(t *testing.T) {
 	} {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		tc.prepare(mock)
+
 		sut := New("test", logr.Discard(), true, false)
 		sut.impl = mock
 
@@ -433,6 +441,14 @@ func TestLoad(t *testing.T) {
 		{ // load failed wrong GOARCH
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns("invalid")
+			},
+			assert: func(sut *BpfRecorder, err error) {
+				require.Error(t, err)
+			},
+		},
+		{ // Error attaching
+			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
+				mock.AttachGenericReturns(nil, errTest)
 			},
 			assert: func(sut *BpfRecorder, err error) {
 				require.Error(t, err)
@@ -478,7 +494,7 @@ func TestStart(t *testing.T) {
 		},
 		{ // Error attaching
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.AttachGenericReturns(nil, errTest)
+				mock.UpdateValueReturns(errTest)
 			},
 			assert: func(sut *BpfRecorder, err error) {
 				require.Error(t, err)
@@ -492,6 +508,8 @@ func TestStart(t *testing.T) {
 		sut.impl = mock
 
 		mock.GoArchReturns(validGoArch)
+		mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 		err := sut.Load()
 		require.NoError(t, err)
 
@@ -502,6 +520,7 @@ func TestStart(t *testing.T) {
 
 func TestStartNotLoaded(t *testing.T) {
 	t.Parallel()
+
 	mock := &bpfrecorderfakes.FakeImpl{}
 	sut := New("", logr.Discard(), true, true)
 	sut.impl = mock
@@ -526,6 +545,7 @@ func TestStop(t *testing.T) {
 		{ // Success with start
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -539,6 +559,7 @@ func TestStop(t *testing.T) {
 		{ // Success with double start
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -574,6 +595,7 @@ func TestSyscallsForProfile(t *testing.T) {
 		{ // Success
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -600,6 +622,7 @@ func TestSyscallsForProfile(t *testing.T) {
 		{ // Success with unable to resolve syscall name
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -636,6 +659,7 @@ func TestSyscallsForProfile(t *testing.T) {
 		{ // no PID for container
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -648,6 +672,7 @@ func TestSyscallsForProfile(t *testing.T) {
 		{ // no syscall found for profile
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -663,6 +688,7 @@ func TestSyscallsForProfile(t *testing.T) {
 		{ // Failed to clean syscalls map
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -712,6 +738,7 @@ func TestApparmorForProfile(t *testing.T) {
 			name: "success",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -747,6 +774,7 @@ func TestApparmorForProfile(t *testing.T) {
 			name: "success only for right mntns",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -801,6 +829,7 @@ func TestApparmorForProfile(t *testing.T) {
 			name: "no pid for container available",
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
+				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
@@ -874,6 +903,7 @@ func TestProcessEvents(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
 	err = sut.WaitForPidExit(ctx, 42)
 	require.NoError(t, err)
 }
@@ -920,6 +950,7 @@ func TestNewPidEvent(t *testing.T) {
 						}},
 					},
 				}}}, nil)
+
 				return bpfEvent{
 					Pid:   42,
 					Mntns: 0x1010,
@@ -932,6 +963,7 @@ func TestNewPidEvent(t *testing.T) {
 					if containerID, ok := sut.containerIDToProfileMap.GetBackwards("profile.json"); ok {
 						if actualMntns, ok := sut.mntnsToContainerIDMap.GetBackwards(containerID); ok {
 							foundMntns = actualMntns
+
 							break
 						}
 					}
@@ -943,6 +975,7 @@ func TestNewPidEvent(t *testing.T) {
 		{ // unable to find container ID for PID
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
 				mock.ContainerIDForPIDReturns(containerID, errTest)
+
 				return bpfEvent{
 					Pid:   42,
 					Mntns: 0x1010,
@@ -967,6 +1000,7 @@ func TestNewPidEvent(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) bpfEvent {
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				mock.ListPodsReturns(nil, errTest)
+
 				return bpfEvent{
 					Pid:   42,
 					Mntns: 0x1010,

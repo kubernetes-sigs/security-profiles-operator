@@ -167,6 +167,7 @@ func (pr *ProfileRecording) ctrAnnotationSeccomp(ctrName string) (key, value str
 
 	key = annotationPrefix + ctrName
 	value = pr.ctrAnnotationValue(ctrName)
+
 	return key, value, err
 }
 
@@ -185,6 +186,7 @@ func (pr *ProfileRecording) ctrAnnotationSelinux(ctrName string) (key, value str
 
 	value = pr.ctrAnnotationValue(ctrName)
 	key = annotationPrefix + ctrName
+
 	return
 }
 
@@ -200,8 +202,10 @@ func (pr *ProfileRecording) ctrAnnotationApparmor(ctrName string) (key, value st
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderBpf,
 		)
 	}
+
 	key = annotationPrefix + ctrName
 	value = pr.ctrAnnotationValue(ctrName)
+
 	return key, value, err
 }
 

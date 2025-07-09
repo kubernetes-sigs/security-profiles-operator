@@ -44,11 +44,13 @@ func FromContext(ctx *ucli.Context) (*Options, error) {
 	if len(args) == 0 {
 		return nil, errors.New("no profile provided")
 	}
+
 	options.inputFile = args[0]
 
 	if ctx.IsSet(FlagOutputFile) {
 		options.outputFile = ctx.String(FlagOutputFile)
 	}
+
 	if options.outputFile == "" {
 		return nil, errors.New("no filename provided")
 	}

@@ -62,6 +62,7 @@ func TestAppArmorGlobToRegex(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			result, err := appArmorGlobToRegex(tc.globPattern)
 			require.NoError(t, err)
 			require.Equal(t, tc.wantRegex, result.String())
@@ -169,6 +170,7 @@ func TestMergeFilesystem(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			b := base.DeepCopy()
 			mergeFilesystem(b, &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &tc.additions,

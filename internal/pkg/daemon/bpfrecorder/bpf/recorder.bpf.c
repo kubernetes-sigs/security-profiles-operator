@@ -2,7 +2,7 @@
 
 #include <linux/limits.h>
 
-#include "bpf_d_path_cursed.h"
+#include "bpf_d_path_tetragon.h"
 #include <asm-generic/errno.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
@@ -37,6 +37,7 @@
 #define PROT_EXEC 0x4  /* Page can be executed.  */
 #define PROT_NONE 0x0
 
+#define S_IFMT 0170000
 #define S_IFIFO 0010000
 #define S_IFCHR 0020000
 #define S_IFDIR 0040000
@@ -60,7 +61,18 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 // toggle this for additional debug output
 #define trace_hook(...)
-// #define trace_hook(...) bpf_printk(__VA_ARGS__)
+// #define trace_hook(...) if(get_mntns()) { bpf_printk(__VA_ARGS__) }
+
+// are we currently recording?
+// If yes, the only map element is set to true.
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, bool);
+} is_recording SEC(".maps");
+
+static volatile bool _is_recording_cached = false;
 
 // Keep track of all mount namespaces that should be (temporarily) excluded from
 // recording. When running in Kubernetes, we generally ignore the host mntns.
@@ -113,7 +125,7 @@ typedef struct __attribute__((__packed__)) event_data {
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
 
-static const char WILDCARD[] = "/**";
+static const char FORWARD_SLASH[] = "/";
 static const char RUNC_INIT[] = "runc:[2:INIT]";
 static const bool TRUE = true;
 static inline bool has_filter();
@@ -157,12 +169,16 @@ static __always_inline u32 get_mntns()
     return mntns;
 }
 
-static __always_inline u32 clear_mntns(u32 mntns)
+static __always_inline u32 clear_mntns_seccomp(u32 mntns)
 {
-    trace_hook("clear_mntns mntns=%u", mntns);
-    // Seccomp
+    trace_hook("clear_mntns_seccomp mntns=%u", mntns);
     bpf_map_delete_elem(&mntns_syscalls, &mntns);
-    // AppArmor
+    return 0;
+}
+
+static __always_inline u32 clear_mntns_apparmor(u32 mntns)
+{
+    trace_hook("clear_mntns_apparmor mntns=%u", mntns);
     event_data_t * event =
         bpf_ringbuf_reserve(&events, sizeof(event_data_t), 0);
     if (event) {
@@ -206,6 +222,36 @@ static __always_inline void debug_add_canary_file(char * filename)
     bpf_ringbuf_submit(event, 0);
 }
 
+// Create a struct path for a given dentry by combining it with the mount point
+// of its parent path. Note that the returned path does not work with the
+// kernel's bpf_d_path, as it does not like stack pointers.
+static __always_inline struct path make_path(struct dentry * dentry,
+                                             struct path * path)
+{
+    struct path ret = {
+        .mnt = BPF_CORE_READ(path, mnt),
+        .dentry = dentry,
+    };
+    return ret;
+}
+
+static __always_inline int bpf_d_path_tetragon(struct path * path, char * buf,
+                                               size_t sz)
+{
+    int size = 0, error = 0;
+    char * fullpath = d_path_local(path, &size, &error);
+    if (!fullpath) {
+        return -1;
+    }
+    // make the ebpf verifier happy
+    asm volatile("%[size] &= 0xfff;\n" : [size] "+r"(size));
+    probe_read(buf, size, fullpath);
+    // d_path_local does not null-terminate.
+    buf[size] = '\0';
+    size++;
+    return size;
+}
+
 static __always_inline void debug_path_d(struct path * filename,
                                          bool use_bpf_d_path)
 {
@@ -229,9 +275,9 @@ static __always_inline void debug_path_d(struct path * filename,
         bpf_ringbuf_discard(event, 0);
         return;
     }
-    bpf_d_path_cursed(filename, event2->data, sizeof(event2->data));
+    bpf_d_path_tetragon(filename, event2->data, sizeof(event2->data));
 
-    bpf_printk("debug_path_d mntns=%u comm=%s\n bpf_d_path=%s\n cursd_path=%s",
+    bpf_printk("debug_path_d mntns=%u comm=%s\n bpf_d_path=%s\n tetra_path=%s",
                mntns, comm, event->data, event2->data);
     bpf_ringbuf_discard(event, 0);
     bpf_ringbuf_discard(event2, 0);
@@ -246,7 +292,7 @@ static __always_inline int register_fs_event(struct path * filename,
                                              bool custom_bpf_d_path)
 {
     // ignore unix pipes
-    if ((i_mode & S_IFIFO) == S_IFIFO) {
+    if ((i_mode & S_IFMT) == S_IFIFO) {
         return 0;
     }
 
@@ -262,7 +308,8 @@ static __always_inline int register_fs_event(struct path * filename,
                      pid == _file_event_pid;
     bool flags_are_subset = (flags | _file_event_flags) == _file_event_flags;
     if (same_file && flags_are_subset) {
-        trace_hook("register_file_event skipped");
+        // very noisy
+        // trace_hook("register_file_event skipped");
         return 0;
     }
 
@@ -276,7 +323,8 @@ static __always_inline int register_fs_event(struct path * filename,
     // Some BPF hooks cannot use bpf_d_path, for these cases we swap in our own
     // implementation.
     if (custom_bpf_d_path) {
-        pathlen = bpf_d_path_cursed(filename, event->data, sizeof(event->data));
+        pathlen =
+            bpf_d_path_tetragon(filename, event->data, sizeof(event->data));
     } else {
         pathlen = bpf_d_path(filename, event->data, sizeof(event->data));
     }
@@ -286,15 +334,14 @@ static __always_inline int register_fs_event(struct path * filename,
         return 0;
     }
 
-    if ((i_mode & S_IFDIR) == S_IFDIR) {
+    if ((i_mode & S_IFMT) == S_IFDIR) {
         // Somehow this makes the verifier happy.
         u16 idx = pathlen - 1;
-        if (idx < sizeof(event->data) - 4) {
-            bpf_core_read(event->data + idx, 4, &WILDCARD);
+        if (idx < sizeof(event->data) - sizeof(FORWARD_SLASH)) {
+            bpf_core_read(event->data + idx, sizeof(FORWARD_SLASH),
+                          &FORWARD_SLASH);
         } else {
             // pathlen is close to PATH_MAX.
-            // We could overwrite the last last directory in the path with ** in
-            // that case, but for now we keep things simple.
             bpf_printk(
                 "failed to fixup directory entry, pathlen is too close to "
                 "PATH_MAX: %s",
@@ -334,6 +381,8 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
 SEC("lsm/file_open")
 int BPF_PROG(file_open, struct file * file)
 {
+    if (!_is_recording_cached)
+        return 0;
     trace_hook("file_open");
     u64 flags = 0;
     if (file->f_mode & FMODE_READ) {
@@ -351,7 +400,10 @@ int BPF_PROG(file_open, struct file * file)
 SEC("lsm/file_lock")
 int BPF_PROG(file_lock, struct file * file)
 {
-    trace_hook("file_lock");
+    if (!_is_recording_cached)
+        return 0;
+    // very noisy
+    // trace_hook("file_lock");
     return register_file_event(file, FLAG_WRITE);
 }
 
@@ -359,6 +411,8 @@ SEC("lsm/mmap_file")
 int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
              unsigned long flags)
 {
+    if (!_is_recording_cached)
+        return 0;
     trace_hook("mmap_file");
     u64 file_flags = 0;
     if (prot & PROT_READ) {
@@ -376,6 +430,8 @@ int BPF_PROG(mmap_file, struct file * file, unsigned long prot,
 SEC("lsm/bprm_check_security")
 int BPF_PROG(bprm_check_security, struct linux_binprm * bprm)
 {
+    if (!_is_recording_cached)
+        return 0;
     trace_hook("bprm_check_security");
     return register_file_event(bprm->file, FLAG_SPAWN);
 }
@@ -384,6 +440,8 @@ SEC("lsm/path_mkdir")
 int BPF_PROG(path_mkdir, struct path * dir, struct dentry * dentry,
              umode_t mode)
 {
+    if (!_is_recording_cached)
+        return 0;
     trace_hook("path_mkdir");
     struct path filename = make_path(dentry, dir);
     return register_fs_event(&filename, mode | S_IFDIR, FLAG_READ | FLAG_WRITE,
@@ -394,11 +452,13 @@ SEC("lsm/path_mknod")
 int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
              umode_t mode, unsigned int dev)
 {
+    if (!_is_recording_cached)
+        return 0;
     trace_hook("path_mknod %d", mode);
-    bool not_a_regular_file =
-        ((mode & S_IFCHR) == S_IFCHR || (mode & S_IFBLK) == S_IFBLK ||
-         (mode & S_IFIFO) == S_IFIFO || (mode & S_IFSOCK) == S_IFSOCK);
-    u64 file_flags = FLAG_WRITE;
+    umode_t filetype = mode & S_IFMT;
+    bool not_a_regular_file = (filetype == S_IFCHR || filetype == S_IFBLK ||
+                               filetype == S_IFIFO || filetype == S_IFSOCK);
+    umode_t file_flags = FLAG_WRITE;
     if (not_a_regular_file) {
         file_flags |= FLAG_READ;
     }
@@ -409,6 +469,8 @@ int BPF_PROG(path_mknod, struct path * dir, struct dentry * dentry,
 SEC("lsm/path_unlink")
 int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
 {
+    if (!_is_recording_cached)
+        return 0;
     trace_hook("path_unlink");
     struct path path = make_path(dentry, dir);
     return register_fs_event(&path, 0, FLAG_READ | FLAG_WRITE, true);
@@ -417,6 +479,8 @@ int BPF_PROG(path_unlink, struct path * dir, struct dentry * dentry)
 SEC("tracepoint/syscalls/sys_enter_socket")
 int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 {
+    if (!_is_recording_cached)
+        return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -452,6 +516,8 @@ int sys_enter_socket(struct trace_event_raw_sys_enter * ctx)
 SEC("kprobe/cap_capable")
 int BPF_KPROBE(cap_capable)
 {
+    if (!_is_recording_cached)
+        return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -461,6 +527,9 @@ int BPF_KPROBE(cap_capable)
     trace_hook("requesting capability: cap=%i cap_opt=%i", cap, cap_opt);
 
     if (cap_opt & CAP_OPT_NOAUDIT)
+        return 0;
+    if (is_runc_init())  // there are some SYS_ADMIN privileges exercised after
+                         // sys_enter_execve
         return 0;
 
     // TODO: This should be implemented like the seccomp syscalls map.
@@ -482,6 +551,8 @@ int BPF_KPROBE(cap_capable)
 SEC("tracepoint/syscalls/sys_enter_prctl")
 int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
 {
+    if (!_is_recording_cached)
+        return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -491,16 +562,29 @@ int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
     //
     // Hooking here:
     // https://github.com/opencontainers/runc/blob/81b13172bea2e6e4cf50f6bdd29a5fdeb5a6acf5/libcontainer/standard_init_linux.go#L148
-    //
-    // We could further minimize profiles by waiting until execve instead of
-    // prctl. This would immediately work for AppArmor (which becomes active
-    // from the next execve), but would miss the syscalls for seccomp (which
-    // becomes active immediately, so we need to include permissions for the
-    // time between enforcement and the execve call). Not doing that yet because
-    // splitting AppArmor and seccomp logic adds a lot of complexity; hardcoding
-    // a list of syscalls required by runc creates maintenance burden.
     if (ctx->args[0] == PR_GET_PDEATHSIG && is_runc_init()) {
-        clear_mntns(mntns);
+        clear_mntns_seccomp(mntns);
+    }
+
+    return 0;
+}
+
+SEC("tracepoint/syscalls/sys_enter_execve")
+int sys_enter_execve(struct trace_event_raw_sys_enter * ctx)
+{
+    if (!_is_recording_cached)
+        return 0;
+    u32 mntns = get_mntns();
+    if (!mntns)
+        return 0;
+    trace_hook("sys_enter_execve");
+
+    // Handle runc init.
+    //
+    // Hooking here:
+    // https://github.com/opencontainers/runc/blob/81b13172bea2e6e4cf50f6bdd29a5fdeb5a6acf5/libcontainer/standard_init_linux.go#L288
+    if (is_runc_init()) {
+        clear_mntns_apparmor(mntns);
     }
 
     return 0;
@@ -509,6 +593,8 @@ int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
 SEC("tracepoint/sched/sched_process_exec")
 int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 {
+    if (!_is_recording_cached)
+        return 0;
     if (!has_filter()) {
         return 0;
     }
@@ -531,6 +617,8 @@ int sched_process_exec(struct trace_event_raw_sched_process_exec * ctx)
 SEC("tracepoint/sched/sched_process_exit")
 int sched_process_exit(void * ctx)
 {
+    if (!_is_recording_cached)
+        return 0;
     u32 mntns = get_mntns();
     if (!mntns)
         return 0;
@@ -558,6 +646,8 @@ int sched_process_exit(void * ctx)
 SEC("tracepoint/syscalls/sys_exit_clone")
 int sys_exit_clone(struct trace_event_raw_sys_exit * ctx)
 {
+    if (!_is_recording_cached)
+        return 0;
     u32 ret = ctx->ret;
     // We only need the fork, the existing process is already traced.
     if (ret == 0)
@@ -575,6 +665,8 @@ int sys_exit_clone(struct trace_event_raw_sys_exit * ctx)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int sys_enter(struct trace_event_raw_sys_enter * args)
 {
+    if (!_is_recording_cached)
+        return 0;
     // Sanity check for syscall ID range
     u32 syscall_id = args->id;
     if (syscall_id < 0 || syscall_id >= MAX_SYSCALLS) {
@@ -628,6 +720,18 @@ int sys_enter(struct trace_event_raw_sys_enter * args)
         value[syscall_id] = 1;
     }
 
+    return 0;
+}
+
+// Hooking a rarely used syscall to refresh `_is_recording_cached`.
+// This is (hopefully) more efficient than calling `bpf_map_lookup_elem` on
+// every hook.
+SEC("tracepoint/syscalls/sys_enter_getgid")
+int sys_enter_getgid(struct trace_event_raw_sys_enter * ctx)
+{
+    const int key = 0;
+    bool * value = bpf_map_lookup_elem(&is_recording, &key);
+    _is_recording_cached = value && *value;
     return 0;
 }
 

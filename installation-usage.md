@@ -765,7 +765,6 @@ Use the `SeccompProfile` kind to create profiles. Example:
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  namespace: my-namespace
   name: profile1
 spec:
   defaultAction: SCMP_ACT_LOG
@@ -818,7 +817,7 @@ You can find the profile path of the seccomp profile by checking the
 output mode):
 
 ```sh
-$ kubectl --namespace my-namespace get seccompprofile profile1 --output wide
+$ kubectl get seccompprofile profile1 --output wide
 NAME       STATUS   AGE   SECCOMPPROFILE.LOCALHOSTPROFILE
 profile1   Active   14s   operator/my-namespace/profile1.json
 ```
@@ -945,7 +944,7 @@ kubectl delete pod -n security-profiles-operator nginx-pod
 We can check now that the profile was properly installed:
 
 ```
-kubectl get apparmorprofile -n security-profiles-operator
+kubectl get apparmorprofile
 
 # Output should show the apparmor profile.
 
@@ -954,7 +953,7 @@ nginx-recording-nginx-container   42h
 
 # The content of the profile can be inspected.
 
-kubectl get apparmorprofile -n security-profiles-operator -o yaml
+kubectl get apparmorprofile -o yaml
 ```
 
 _Known limitations:_
@@ -1040,7 +1039,6 @@ apiVersion: security-profiles-operator.x-k8s.io/v1alpha2
 kind: SelinuxProfile
 metadata:
   name: nginx-secure
-  namespace: nginx-deploy
 spec:
   allow:
     "@self":
@@ -1174,7 +1172,7 @@ kubectl delete pod -n security-profiles-operator nginx-pod
 We can check now that the profile was properly installed:
 
 ```
-kubectl get selinuxprofile -n security-profiles-operator
+kubectl get selinuxprofile
 
 # Output should show the selinux profile.
 
@@ -1183,7 +1181,7 @@ nginx-recording-nginx-container   nginx-recording-nginx-container_security-profi
 
 # The content of the profile can be inspected.
 
-kubectl get selinuxprofile -n security-profiles-operator -o yaml
+kubectl get selinuxprofile -o yaml
 ```
 
 #### Use SELinux profile
@@ -1227,7 +1225,6 @@ top of the base calls needed for the container runtime. For example:
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  namespace: my-namespace
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
@@ -1294,7 +1291,6 @@ To use that feature, just prefix the `baseProfileName` with `oci://`, like:
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  namespace: my-namespace
   name: profile1
 spec:
   defaultAction: SCMP_ACT_ERRNO
@@ -1322,7 +1318,6 @@ the seccomp profile with the final results:
 ```console
 > kubectl describe seccompprofile profile1
 Name:         profile1
-Namespace:    security-profiles-operator
 Labels:       spo.x-k8s.io/profile-id=SeccompProfile-profile1
 Annotations:  syscalls:
                 [{"names":["arch_prctl","brk","capget","capset","chdir","clone","close","dup3","epoll_create1","epoll_ctl","epoll_pwait","execve","exit_gr...
@@ -2224,6 +2219,6 @@ running with the appropriate profile.
 To uninstall, remove the profiles before removing the rest of the operator:
 
 ```sh
-$ kubectl delete seccompprofiles --all --all-namespaces
+$ kubectl delete seccompprofiles --all
 $ kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/security-profiles-operator/main/deploy/operator.yaml
 ```
