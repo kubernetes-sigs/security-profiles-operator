@@ -104,7 +104,7 @@ func (r *StatusReconciler) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
 // Security Profiles Operator RBAC permissions to manage AppArmorProfile
-// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles,verbs=get;list;watch;
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=apparmorprofiles/status,verbs=get;update;patch
 
 // Reconcile reconciles a NodeStatus.

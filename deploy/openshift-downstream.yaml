@@ -2557,13 +2557,11 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
-  - rawselinuxprofiles
+  - profilerecordings
+  - profilerecordings/finalizers
   verbs:
-  - create
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
@@ -2580,11 +2578,13 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
-  - profilerecordings
-  - profilerecordings/finalizers
+  - rawselinuxprofiles
   verbs:
+  - create
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - security-profiles-operator.x-k8s.io
