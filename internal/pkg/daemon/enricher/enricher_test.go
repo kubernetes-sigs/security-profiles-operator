@@ -321,6 +321,7 @@ func TestRun(t *testing.T) {
 
 		sut, errCreate := New(logr.Discard(), nil)
 		require.NoError(t, errCreate)
+
 		sut.impl = mock
 
 		var err error
