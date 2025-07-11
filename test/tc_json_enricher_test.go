@@ -86,21 +86,7 @@ spec:
 
 	e.waitFor("condition=initialized", "pod", podName)
 
-	const maximum = 20
-	for i := 0; i <= maximum; i++ {
-		output := e.kubectl("get", "pod", podName)
-		if strings.Contains(output, "Running") {
-			break
-		}
-
-		if i == maximum {
-			e.Fail("Unable to get pod in running state")
-		}
-
-		time.Sleep(5 * time.Second)
-	}
-
-	time.Sleep(10 * time.Second)
+	e.checkExecEnvironment(podName, "default", 5*time.Second, 20)
 
 	e.kubectl("exec", "-it", podName, "--", "sleep", "5") // In 5 seconds the process info will be captured
 	e.kubectl("exec", "-it", podName, "--", "env")
@@ -179,31 +165,13 @@ spec:
 
 	e.waitFor("condition=initialized", "pod", podName)
 
-	const maximum = 20
-	for i := 0; i <= maximum; i++ {
-		output := e.kubectl("get", "pod", podName)
-		if strings.Contains(output, "Running") {
-			break
-		}
-
-		if i == maximum {
-			e.Fail("Unable to get pod in running state")
-		}
-
-		time.Sleep(5 * time.Second)
-	}
-
-	time.Sleep(10 * time.Second)
+	e.checkExecEnvironment(podName, "default", 5*time.Second, 20)
 
 	e.logf("kubectl debug and sleep for 6 seconds")
 	// Command failed once in the Fedora platform.
 	e.kubectl("debug", "-i", podName, "--image", "busybox:latest", "--", "sleep", "6")
 	e.logf("kubectl exec and sleep for 5 seconds")
 	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
-	e.logf("kubectl exec and print env")
-	podEnvOutput := e.kubectl("exec", "-it", podName, "--", "env")
-	e.Contains(podEnvOutput, "SPO_EXEC_REQUEST_UID")
-	e.logf("The env output has SPO_EXEC_REQUEST_UID")
 
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
@@ -224,10 +192,39 @@ spec:
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
 	// Failed once in the Fedora platform.
-	// e.Contains(output, "sleep 6")
+	e.Contains(output, "sleep 6")
 	e.Contains(output, "sleep 5")
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
+}
+
+// Checks exec environment for the pod.
+func (e *e2e) checkExecEnvironment(podName string, namespace string, interval time.Duration, maxTimes int) {
+	if !e.podRunning(podName, namespace, interval, maxTimes) {
+		e.logf("Pod %s is not running", podName)
+		e.Fail("Pod is not running")
+	}
+
+	if e.canExec(podName, 5, 5) {
+		e.logf("Pod %s cannot be exec", podName)
+		e.Fail("Pod cannot be exec")
+	}
+}
+
+// Attempt exec into the pod and make sure its up.
+func (e *e2e) canExec(podName string, interval time.Duration, maxTimes int) bool {
+	for range maxTimes {
+		output := e.kubectl("exec", "-i", podName, "--", "env")
+		if !strings.Contains(output, "SPO_EXEC_REQUEST_UID") {
+			time.Sleep(interval)
+		} else {
+			return true
+		}
+	}
+
+	e.logf("Cannot exec pod %s in %d times", podName, maxTimes)
+
+	return false
 }
 
 func trimSingleQuotes(s string) string {

@@ -817,11 +817,68 @@ func (e *e2e) enableJsonEnricherInSpod() {
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
-	e.kubectlOperatorNS("get", "pods")
+	e.checkWebhooks(5*time.Second, 5)
+
+	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
+		if !e.podRunning(podName, config.OperatorName, 5*time.Second, 5) {
+			e.logf("Pod %s not running", podName)
+			e.Fail("Failed to enable json-enricher in SPOD")
+		}
+	}
 
 	e.logf("Done waiting for the rollout restart")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+}
+
+func (e *e2e) checkWebhooks(interval time.Duration, maxTimes int) bool {
+	for range maxTimes {
+		output := e.kubectlOperatorNS("get", "mutatingwebhookconfigurations", "spo-mutating-webhook-configuration",
+			`-o=jsonpath='{.webhooks[*].name}'`)
+		if !strings.Contains(output, "execmetadata.spo.io") {
+			time.Sleep(interval)
+		} else {
+			return true
+		}
+	}
+
+	e.logf("Unable to find execmetadata.spo.io in SPOD webhooks")
+	return false
+}
+
+func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
+	output := e.kubectlOperatorNS("get", "pods", "-l", labelMatcher,
+		`-o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'`)
+	return strings.Split(output, "\\n")
+}
+
+func (e *e2e) getOperatorPodNames() []string {
+	return e.getPodNamesByLabel("name=security-profiles-operator")
+}
+
+func (e *e2e) getSpodPodNames() []string {
+	return e.getPodNamesByLabel("name=spod")
+}
+
+func (e *e2e) getSpodWebhookPodNames() []string {
+	return e.getPodNamesByLabel("name=security-profiles-operator-webhook")
+}
+
+// Check if pod is running.
+func (e *e2e) podRunning(name string, namespace string, interval time.Duration, maxTimes int) bool {
+	for range maxTimes {
+		output := e.kubectl("get", "pod", name, "-n", namespace, `-o=jsonpath='{.status.phase}'`)
+		if output != "Running" {
+			time.Sleep(interval)
+		} else {
+			return true
+		}
+	}
+
+	e.logf("Pod %s is not running after checking %d times", name, maxTimes)
+	e.kubectl("describe", "pod", name)
+
+	return false
 }
 
 func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr string) {
@@ -864,9 +921,13 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 
 	e.kubectlOperatorNS("rollout", "restart", "deployment", "security-profiles-operator")
 
-	time.Sleep(defaultWaitTime * 5) // This is required for all the restarts to complete
-
-	e.kubectlOperatorNS("get", "pods")
+	// This is required for all the restarts to complete
+	for _, podName := range e.getOperatorPodNames() {
+		if !e.podRunning(podName, config.OperatorName, 5*time.Second, 5) {
+			e.logf("Pod %s not running", podName)
+			e.Fail("Failed to restart SPO")
+		}
+	}
 
 	e.logf("Done waiting for the rollout restart")
 
@@ -883,6 +944,18 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+
+	if !e.checkWebhooks(5*time.Second, 5) {
+		e.Fail("Webhooks are not ready")
+	}
+
+	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
+		if !e.podRunning(podName, config.OperatorName, 5*time.Second, 5) {
+			e.logf("Pod %s not running", podName)
+			e.Fail("Failed to enable json-enricher in SPOD")
+		}
+	}
+
 }
 
 func (e *e2e) seccompOnlyTestCase() {
