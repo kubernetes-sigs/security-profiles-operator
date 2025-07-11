@@ -114,6 +114,7 @@ func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*reg
 
 			e.run("cat", customProfileYaml)
 			podLogs := e.kubectlOperatorNS("debug", "-it", podName,
+				"--profile=general",
 				"--image=quay.io/security-profiles-operator/test-nginx:1.19.1",
 				"--target=json-enricher", "--custom="+customProfileYaml, "--", "cat", logFilePath)
 			e.logf("audit logs output: %s is %s", podName, podLogs)
@@ -131,7 +132,7 @@ func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*reg
 			break
 		}
 
-		e.logf("Waiting for 3 seconds to get lines")
+		e.logf("Waiting for 10 seconds to get lines")
 		time.Sleep(10 * time.Second)
 	}
 

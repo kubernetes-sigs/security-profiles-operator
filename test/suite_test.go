@@ -918,6 +918,8 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 		e.Fail("Webhooks are not ready")
 	}
 
+	e.waitForTerminatingPods(5*time.Second, 5)
+
 	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
 		if !e.podRunning(podName, config.OperatorName, 5*time.Second, 5) {
 			e.logf("Pod %s not running", podName)
@@ -1144,6 +1146,7 @@ func (e *e2e) podRunning(name, namespace string, interval time.Duration, maxTime
 	return false
 }
 
+// Wait for terminating pods to be deleted.
 func (e *e2e) waitForTerminatingPods(interval time.Duration, maxTimes int) {
 	for range maxTimes {
 		output := e.kubectlOperatorNS("get", "pods",
@@ -1152,11 +1155,11 @@ func (e *e2e) waitForTerminatingPods(interval time.Duration, maxTimes int) {
 			e.logf("Terminating pods found: %s", output)
 			time.Sleep(interval)
 		} else {
-			e.logf("All teminating pods deleted")
+			e.logf("All terminating pods deleted")
 
 			return
 		}
 	}
 
-	e.logf("All Terminating Pods are not deleted")
+	e.logf("All terminating Pods are not deleted")
 }
