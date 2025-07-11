@@ -88,7 +88,8 @@ spec:
 
 	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
-	e.kubectl("exec", "-i", podName, "--", "/bin/sleep", "5") // In 5 seconds the process info will be captured
+	// In 5 seconds the process info will be captured.
+	e.kubectl("exec", "-i", podName, "--", "/bin/dash", "-c", `"sleep 5"`)
 
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
@@ -171,9 +172,9 @@ spec:
 	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "whereis", "sleep")
 
 	e.kubectl("debug", "--profile", "general", "-i", podName, "--image",
-		"busybox:latest", "--", "/bin/sleep", "6")
+		"busybox:latest", "--", "/bin/dash", "-c", `"sleep 6"`)
 	e.logf("kubectl exec and sleep for 5 seconds")
-	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "/bin/sleep", "5")
+	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "/bin/dash", "-c", `"sleep 5"`)
 
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
