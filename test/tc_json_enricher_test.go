@@ -172,7 +172,7 @@ spec:
 		"busybox:latest", "--", "sleep", "6")
 	e.logf("kubectl exec and sleep for 5 seconds")
 	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "sleep", "5")
-	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "whereis sleep")
+	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "whereis", "sleep")
 
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
