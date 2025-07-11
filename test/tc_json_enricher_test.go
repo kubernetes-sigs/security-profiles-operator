@@ -89,7 +89,11 @@ spec:
 	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
 	// In 5 seconds the process info will be captured.
+	timeStart := time.Now()
 	_, err := e.kubectlOsExec("exec", "-i", podName, "--", "sleep", "5")
+	timeEnd := time.Now()
+
+	e.logf("Time take to run: \n%s", timeEnd.Sub(timeStart))
 	e.NoError(err)
 
 	// wait for at least one component of the expected logs to appear
@@ -168,8 +172,12 @@ spec:
 
 	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
+	timeStart := time.Now()
 	_, err := e.kubectlOsExec("debug", "--profile", "general", "-i", podName, "--image",
 		"busybox:latest", "--", "sleep", "6")
+	timeEnd := time.Now()
+
+	e.logf("Time take to run: \n%s", timeEnd.Sub(timeStart))
 	e.NoError(err)
 
 	// In 5 seconds the process info will be captured.
@@ -219,7 +227,10 @@ func (e *e2e) canExec(podName string, interval time.Duration, maxTimes int) bool
 	const expectedEnvVar = "SPO_EXEC_REQUEST_UID"
 
 	for range maxTimes {
-		output, _ := e.kubectlOsExec("exec", "-i", podName, "--", "env")
+		output, err := e.kubectlOsExec("exec", "-i", podName, "--", "env")
+
+		e.NoError(err)
+
 		if !strings.Contains(output, expectedEnvVar) {
 			time.Sleep(interval)
 		} else {
