@@ -1122,12 +1122,12 @@ func (e *e2e) getSpodWebhookPodNames() []string {
 func (e *e2e) podRunning(name, namespace string, interval time.Duration, maxTimes int) bool {
 	for range maxTimes {
 		output, err := e.kubectlCommand("get", "pod", name, "-n", namespace, `-o=jsonpath='{.status.phase}'`)
-		//gocritic:ignore ifElseChain // If else is better
+		//nolint:gocritic // If else is better.
 		if err != nil {
 			e.logf("Unable to get pod status for pod %s: %v", name, err)
 			time.Sleep(interval)
 		} else if strings.Trim(output, "'") != "Running" {
-			e.logf("Pod is still not running %s: %v", name, err)
+			e.logf("Pod is still not running %s: %s", name, output)
 			time.Sleep(interval)
 		} else {
 			return true
