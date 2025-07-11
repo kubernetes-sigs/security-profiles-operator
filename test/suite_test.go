@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	gocmd "github.com/go-cmd/cmd"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/suite"
 	"k8s.io/klog/v2/textlogger"
@@ -621,19 +622,25 @@ func (e *e2e) runCommand(cmd string, args ...string) (string, error) {
 }
 
 func (e *e2e) osExecCommand(cmd string, args ...string) (string, error) {
-	execCmd := exec.Command(cmd, args...)
+	execCmd := gocmd.NewCmd(cmd, args...)
+	statusChan := execCmd.Start()
 
-	output, err := execCmd.Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return "", fmt.Errorf("%s", exitErr.Stderr)
+	finalStatus := <-statusChan
+
+	if finalStatus.Error != nil {
+		errOut := ""
+		for _, line := range finalStatus.Stderr {
+			errOut += line + "\n"
 		}
-
-		return "", err
+		return "", fmt.Errorf("%s", errOut)
 	}
 
-	return string(output), nil
+	stdoutStr := ""
+	for _, line := range finalStatus.Stdout {
+		stdoutStr += line + "\n"
+	}
+
+	return stdoutStr, nil
 }
 
 func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
