@@ -71,7 +71,7 @@ type Enricher struct {
 func New(logger logr.Logger) *Enricher {
 	return &Enricher{
 		impl:   newDefaultImpl(),
-		source: auditsource.NewAuditdSource(logger),
+		source: auditsource.NewBpfSource(logger), // FIXME
 		logger: logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
