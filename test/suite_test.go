@@ -835,7 +835,8 @@ func (e *e2e) enableJsonEnricherInSpod() {
 	}
 
 	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
-		if !e.podRunning(podName, config.OperatorName, 5*time.Second, 5) {
+		operatorName := config.OperatorName
+		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
 			e.logf("Pod %s not running", podName)
 			e.Fail("Failed to enable json-enricher in SPOD")
 		}
@@ -892,7 +893,8 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 
 	// This is required for all the restarts to complete
 	for _, podName := range e.getOperatorPodNames() {
-		if !e.podRunning(podName, config.OperatorName, 5*time.Second, 5) {
+		operatorName := config.OperatorName
+		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
 			e.logf("Pod %s not running", podName)
 			e.Fail("Failed to restart SPO")
 		}
@@ -921,7 +923,8 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 	e.waitForTerminatingPods(5*time.Second, 5)
 
 	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
-		if !e.podRunning(podName, config.OperatorName, 5*time.Second, 5) {
+		operatorName := config.OperatorName
+		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
 			e.logf("Pod %s not running", podName)
 			e.Fail("Failed to enable json-enricher in SPOD")
 		}
@@ -1125,9 +1128,17 @@ func (e *e2e) getSpodWebhookPodNames() []string {
 }
 
 // Check if pod is running.
-func (e *e2e) podRunning(name, namespace string, interval time.Duration, maxTimes int) bool {
+func (e *e2e) podRunning(name string, namespace *string, interval time.Duration, maxTimes int) bool {
 	for range maxTimes {
-		output, err := e.kubectlCommand("get", "pod", name, "-n", namespace, `-o=jsonpath='{.status.phase}'`)
+		var output string
+		var err error
+
+		if namespace != nil {
+			output, err = e.kubectlCommand("get", "pod", name, "-n", *namespace, `-o=jsonpath='{.status.phase}'`)
+		} else {
+			output, err = e.kubectlCommand("get", "pod", name, `-o=jsonpath='{.status.phase}'`)
+		}
+
 		//nolint:gocritic // If else is better.
 		if err != nil {
 			e.logf("Unable to get pod status for pod %s: %v", name, err)
