@@ -632,6 +632,7 @@ func (e *e2e) osExecCommand(cmd string, args ...string) (string, error) {
 		for _, line := range finalStatus.Stderr {
 			errOut += line + "\n"
 		}
+
 		return "", fmt.Errorf("%s", errOut)
 	}
 
