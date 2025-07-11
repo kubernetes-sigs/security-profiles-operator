@@ -199,7 +199,7 @@ spec:
 }
 
 // Checks exec environment for the pod.
-func (e *e2e) checkExecEnvironment(podName string, namespace string, interval time.Duration, maxTimes int) {
+func (e *e2e) checkExecEnvironment(podName, namespace string, interval time.Duration, maxTimes int) {
 	if !e.podRunning(podName, namespace, interval, maxTimes) {
 		e.logf("Pod %s is not running", podName)
 		e.Fail("Pod is not running")
