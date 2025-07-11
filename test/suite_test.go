@@ -601,14 +601,23 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 }
 
 func (e *e2e) run(cmd string, args ...string) string {
-	output, err := command.New(cmd, args...).RunSuccessOutput()
+	output, err := e.runCommand(cmd, args...)
 	e.NoError(err)
 
-	if output != nil {
-		return output.OutputTrimNL()
+	return output
+}
+
+func (e *e2e) runCommand(cmd string, args ...string) (string, error) {
+	output, err := command.New(cmd, args...).RunSuccessOutput()
+	if err != nil {
+		return "", err
 	}
 
-	return ""
+	if output != nil {
+		return output.OutputTrimNL(), nil
+	}
+
+	return "", nil
 }
 
 func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
@@ -629,6 +638,10 @@ func (e *e2e) verifySHA512(binaryPath, sha512 string) {
 
 func (e *e2e) kubectl(args ...string) string {
 	return e.run(e.kubectlPath, args...)
+}
+
+func (e *e2e) kubectlCommand(args ...string) (string, error) {
+	return e.runCommand(e.kubectlPath, args...)
 }
 
 func (e *e2e) kubectlOperatorNS(args ...string) string {
@@ -1077,6 +1090,7 @@ func (e *e2e) checkExecWebhook(interval time.Duration, maxTimes int) bool {
 
 func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
 	output := e.kubectlOperatorNS("get", "pods", "-l", labelMatcher,
+		"--field-selector", "status.phase=Running,status.phase=Pending",
 		`-o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'`)
 
 	var filteredPodNames []string
@@ -1107,8 +1121,12 @@ func (e *e2e) getSpodWebhookPodNames() []string {
 // Check if pod is running.
 func (e *e2e) podRunning(name, namespace string, interval time.Duration, maxTimes int) bool {
 	for range maxTimes {
-		output := e.kubectl("get", "pod", name, "-n", namespace, `-o=jsonpath='{.status.phase}'`)
-		if output != "Running" {
+		output, err := e.kubectlCommand("get", "pod", name, "-n", namespace, `-o=jsonpath='{.status.phase}'`)
+		if err != nil {
+			e.logf("Unable to get pod status for pod %s: %v", name, err)
+			time.Sleep(interval)
+		} else if strings.Trim(output, "'") != "Running" {
+			e.logf("Pod is still not running %s: %v", name, err)
 			time.Sleep(interval)
 		} else {
 			return true

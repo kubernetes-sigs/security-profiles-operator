@@ -89,7 +89,6 @@ spec:
 	e.checkExecEnvironment(podName, "default", 5*time.Second, 20)
 
 	e.kubectl("exec", "-it", podName, "--", "sleep", "5") // In 5 seconds the process info will be captured
-	e.kubectl("exec", "-it", podName, "--", "env")
 
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
@@ -169,13 +168,14 @@ spec:
 
 	e.logf("kubectl debug and sleep for 6 seconds")
 	// Command failed once in the Fedora platform.
-	e.kubectl("debug", "-i", podName, "--image", "busybox:latest", "--", "sleep", "6")
+	e.kubectl("debug", "--profile", "general", "-i", podName, "--image",
+		"busybox:latest", "--", "/usr/bin/sleep", "6")
 	e.logf("kubectl exec and sleep for 5 seconds")
-	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
+	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "/usr/bin/sleep", "5")
 
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
-	e.kubectl("debug", "node/"+strings.Trim(nodeName, "'"), "--image", "busybox",
+	e.kubectl("debug", "--profile", "general", "node/"+strings.Trim(nodeName, "'"), "--image", "busybox",
 		"-it", "--", "env")
 	// Uncomment after kubectl debug node label.
 	// PR https://github.com/kubernetes/kubernetes/pull/131791.
@@ -205,7 +205,7 @@ func (e *e2e) checkExecEnvironment(podName, namespace string, interval time.Dura
 		e.Fail("Pod is not running")
 	}
 
-	if !e.canExec(podName, 5, 5) {
+	if !e.canExec(podName, interval, maxTimes) {
 		e.logf("Pod %s cannot be exec", podName)
 		e.Fail("Pod cannot be exec")
 	}
