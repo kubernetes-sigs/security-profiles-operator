@@ -1675,7 +1675,9 @@ spec:
                 type: array
               jsonEnricherFilters:
                 default: ""
-                description: Defines the filters for json-enricher.
+                description: |-
+                  JsonEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
+                  for the json-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
                 type: string
               jsonEnricherOptions:
                 description: |-
@@ -1719,7 +1721,9 @@ spec:
                 type: object
               logEnricherFilters:
                 default: ""
-                description: Defines the filters for log-enricher.
+                description: |-
+                  LogEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
+                  for the log-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
                 type: string
               priorityClassName:
                 default: system-node-critical
