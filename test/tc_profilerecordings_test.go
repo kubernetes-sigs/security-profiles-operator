@@ -131,7 +131,7 @@ func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*reg
 			break
 		}
 
-		e.logf("Waiting for 3 seconds to get lines")
+		e.logf("Waiting for 10 seconds to get lines")
 		time.Sleep(10 * time.Second)
 	}
 
