@@ -1069,12 +1069,14 @@ func (e *e2e) checkExecWebhook(interval time.Duration, maxTimes int) bool {
 	}
 
 	e.logf("Unable to find execmetadata.spo.io in SPOD webhooks")
+
 	return false
 }
 
 func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
 	output := e.kubectlOperatorNS("get", "pods", "-l", labelMatcher,
 		`-o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'`)
+
 	return strings.Split(output, "\\n")
 }
 
