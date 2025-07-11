@@ -89,7 +89,8 @@ spec:
 	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
 	// In 5 seconds the process info will be captured.
-	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
+	_, err := e.kubectlOsExec("exec", "-i", podName, "--", "sleep", "5")
+	e.NoError(err)
 
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
@@ -167,11 +168,13 @@ spec:
 
 	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
-	e.kubectl("debug", "--profile", "general", "-i", podName, "--image",
+	_, err := e.kubectlOsExec("debug", "--profile", "general", "-i", podName, "--image",
 		"busybox:latest", "--", "sleep", "6")
+	e.NoError(err)
 
 	// In 5 seconds the process info will be captured.
-	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "sleep", "5")
+	_, err = e.kubectlOsExec("exec", "-i", podName, "-c", containerName, "--", "sleep", "5")
+	e.NoError(err)
 
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
@@ -216,7 +219,7 @@ func (e *e2e) canExec(podName string, interval time.Duration, maxTimes int) bool
 	const expectedEnvVar = "SPO_EXEC_REQUEST_UID"
 
 	for range maxTimes {
-		output := e.kubectl("exec", "-i", podName, "--", "env")
+		output, _ := e.kubectlOsExec("exec", "-i", podName, "--", "env")
 		if !strings.Contains(output, expectedEnvVar) {
 			time.Sleep(interval)
 		} else {

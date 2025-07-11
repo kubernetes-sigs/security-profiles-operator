@@ -620,6 +620,22 @@ func (e *e2e) runCommand(cmd string, args ...string) (string, error) {
 	return "", nil
 }
 
+func (e *e2e) osExecCommand(cmd string, args ...string) (string, error) {
+	execCmd := exec.Command(cmd, args...)
+
+	output, err := execCmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", fmt.Errorf("%s", exitErr.Stderr)
+		}
+
+		return "", err
+	}
+
+	return string(output), nil
+}
+
 func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
 	if !util.Exists(binaryPath) {
 		e.logf("Downloading %s", binaryPath)
@@ -642,6 +658,10 @@ func (e *e2e) kubectl(args ...string) string {
 
 func (e *e2e) kubectlCommand(args ...string) (string, error) {
 	return e.runCommand(e.kubectlPath, args...)
+}
+
+func (e *e2e) kubectlOsExec(args ...string) (string, error) {
+	return e.osExecCommand(e.kubectlPath, args...)
 }
 
 func (e *e2e) kubectlOperatorNS(args ...string) string {
