@@ -844,6 +844,8 @@ func (e *e2e) enableJsonEnricherInSpod() {
 	e.logf("Done waiting for the rollout restart")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+
+	e.waitForTerminatingPods(5*time.Second, 5)
 }
 
 func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr string) {
@@ -885,6 +887,8 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 	e.logf("Rollout restart deployment security-profiles-operator")
 
 	e.kubectlOperatorNS("rollout", "restart", "deployment", "security-profiles-operator")
+
+	e.waitForTerminatingPods(5*time.Second, 5)
 
 	// This is required for all the restarts to complete
 	for _, podName := range e.getOperatorPodNames() {
@@ -1138,4 +1142,21 @@ func (e *e2e) podRunning(name, namespace string, interval time.Duration, maxTime
 	e.kubectl("describe", "pod", name)
 
 	return false
+}
+
+func (e *e2e) waitForTerminatingPods(interval time.Duration, maxTimes int) {
+	for range maxTimes {
+		output := e.kubectlOperatorNS("get", "pods",
+			`-o=jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}'`)
+		if len(strings.Trim(output, "'")) > 0 {
+			e.logf("Terminating pods found: %s", output)
+			time.Sleep(interval)
+		} else {
+			e.logf("All teminating pods deleted")
+
+			return
+		}
+	}
+
+	e.logf("All Terminating Pods are not deleted")
 }
