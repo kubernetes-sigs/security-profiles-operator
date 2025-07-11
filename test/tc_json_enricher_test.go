@@ -205,7 +205,7 @@ func (e *e2e) checkExecEnvironment(podName, namespace string, interval time.Dura
 		e.Fail("Pod is not running")
 	}
 
-	if e.canExec(podName, 5, 5) {
+	if !e.canExec(podName, 5, 5) {
 		e.logf("Pod %s cannot be exec", podName)
 		e.Fail("Pod cannot be exec")
 	}

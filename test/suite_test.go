@@ -1083,8 +1083,9 @@ func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
 
 	podNames := strings.Split(output, "\n")
 	for _, name := range podNames {
-		if name != "" {
-			filteredPodNames = append(filteredPodNames, name)
+		trimmedName := strings.Trim(name, "'")
+		if trimmedName != "" {
+			filteredPodNames = append(filteredPodNames, trimmedName)
 		}
 	}
 
