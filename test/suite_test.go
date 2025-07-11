@@ -1079,9 +1079,9 @@ func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
 	output := e.kubectlOperatorNS("get", "pods", "-l", labelMatcher,
 		`-o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'`)
 
-	podNames := strings.Split(output, "\n")
-
 	var filteredPodNames []string
+
+	podNames := strings.Split(output, "\n")
 	for _, name := range podNames {
 		if name != "" {
 			filteredPodNames = append(filteredPodNames, name)

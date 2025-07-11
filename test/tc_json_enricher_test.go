@@ -214,6 +214,7 @@ func (e *e2e) checkExecEnvironment(podName, namespace string, interval time.Dura
 // Attempt exec into the pod and make sure its up.
 func (e *e2e) canExec(podName string, interval time.Duration, maxTimes int) bool {
 	const expectedEnvVar = "SPO_EXEC_REQUEST_UID"
+
 	for range maxTimes {
 		output := e.kubectl("exec", "-i", podName, "--", "env")
 		if !strings.Contains(output, expectedEnvVar) {
