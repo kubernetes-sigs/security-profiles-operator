@@ -1148,7 +1148,7 @@ func (e *e2e) waitForTerminatingPods(interval time.Duration, maxTimes int) {
 	for range maxTimes {
 		output := e.kubectlOperatorNS("get", "pods",
 			`-o=jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}'`)
-		if len(strings.Trim(output, "'")) > 0 {
+		if strings.Trim(output, "'") != "" {
 			e.logf("Terminating pods found: %s", output)
 			time.Sleep(interval)
 		} else {
