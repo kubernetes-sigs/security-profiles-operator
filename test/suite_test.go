@@ -817,7 +817,9 @@ func (e *e2e) enableJsonEnricherInSpod() {
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
-	e.checkExecWebhook(5*time.Second, 5)
+	if !e.checkExecWebhook(5*time.Second, 5) {
+		e.Fail("Webhooks are not ready")
+	}
 
 	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
 		if !e.podRunning(podName, config.OperatorName, 5*time.Second, 5) {
@@ -1077,7 +1079,16 @@ func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
 	output := e.kubectlOperatorNS("get", "pods", "-l", labelMatcher,
 		`-o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'`)
 
-	return strings.Split(output, "\\n")
+	podNames := strings.Split(output, "\n")
+
+	var filteredPodNames []string
+	for _, name := range podNames {
+		if name != "" {
+			filteredPodNames = append(filteredPodNames, name)
+		}
+	}
+
+	return filteredPodNames
 }
 
 func (e *e2e) getOperatorPodNames() []string {

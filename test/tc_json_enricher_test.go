@@ -175,7 +175,7 @@ spec:
 
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
-	e.kubectl("debug", "node/"+trimSingleQuotes(nodeName), "--image", "busybox",
+	e.kubectl("debug", "node/"+strings.Trim(nodeName, "'"), "--image", "busybox",
 		"-it", "--", "env")
 	// Uncomment after kubectl debug node label.
 	// PR https://github.com/kubernetes/kubernetes/pull/131791.
@@ -213,9 +213,10 @@ func (e *e2e) checkExecEnvironment(podName, namespace string, interval time.Dura
 
 // Attempt exec into the pod and make sure its up.
 func (e *e2e) canExec(podName string, interval time.Duration, maxTimes int) bool {
+	const expectedEnvVar = "SPO_EXEC_REQUEST_UID"
 	for range maxTimes {
 		output := e.kubectl("exec", "-i", podName, "--", "env")
-		if !strings.Contains(output, "SPO_EXEC_REQUEST_UID") {
+		if !strings.Contains(output, expectedEnvVar) {
 			time.Sleep(interval)
 		} else {
 			return true
@@ -225,11 +226,4 @@ func (e *e2e) canExec(podName string, interval time.Duration, maxTimes int) bool
 	e.logf("Cannot exec pod %s in %d times", podName, maxTimes)
 
 	return false
-}
-
-func trimSingleQuotes(s string) string {
-	s = strings.TrimPrefix(s, "'")
-	s = strings.TrimSuffix(s, "'")
-
-	return s
 }
