@@ -172,7 +172,7 @@ spec:
 	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "whereis", "sleep")
 
 	e.kubectl("debug", "--profile", "general", "-i", podName, "--image",
-		"busybox:latest", "--", "/bin/dash", "-c", `"sleep 6"`)
+		"busybox:latest", "--", "sleep", "6")
 	e.logf("kubectl exec and sleep for 5 seconds")
 	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "/bin/dash", "-c", `"sleep 5"`)
 
