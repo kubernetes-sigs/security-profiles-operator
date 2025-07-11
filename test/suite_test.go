@@ -601,14 +601,23 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 }
 
 func (e *e2e) run(cmd string, args ...string) string {
-	output, err := command.New(cmd, args...).RunSuccessOutput()
+	output, err := e.runCommand(cmd, args...)
 	e.NoError(err)
 
-	if output != nil {
-		return output.OutputTrimNL()
+	return output
+}
+
+func (e *e2e) runCommand(cmd string, args ...string) (string, error) {
+	output, err := command.New(cmd, args...).RunSuccessOutput()
+	if err != nil {
+		return "", err
 	}
 
-	return ""
+	if output != nil {
+		return output.OutputTrimNL(), nil
+	}
+
+	return "", nil
 }
 
 func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
@@ -629,6 +638,10 @@ func (e *e2e) verifySHA512(binaryPath, sha512 string) {
 
 func (e *e2e) kubectl(args ...string) string {
 	return e.run(e.kubectlPath, args...)
+}
+
+func (e *e2e) kubectlCommand(args ...string) (string, error) {
+	return e.runCommand(e.kubectlPath, args...)
 }
 
 func (e *e2e) kubectlOperatorNS(args ...string) string {
@@ -794,6 +807,16 @@ func (e *e2e) enableLogEnricherInSpod() {
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+
+	e.waitForTerminatingPods(5*time.Second, 5)
+
+	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
+		operatorName := config.OperatorName
+		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
+			e.logf("Pod %s not running", podName)
+			e.Fail("Failed to enable json-enricher in SPOD")
+		}
+	}
 }
 
 func (e *e2e) enableLogEnricherInSpodWithFilters(enricherFilterJsonStr string) {
@@ -817,11 +840,23 @@ func (e *e2e) enableJsonEnricherInSpod() {
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
-	e.kubectlOperatorNS("get", "pods")
+	if !e.checkExecWebhook(5*time.Second, 5) {
+		e.Fail("Webhooks are not ready")
+	}
+
+	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
+		operatorName := config.OperatorName
+		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
+			e.logf("Pod %s not running", podName)
+			e.Fail("Failed to enable json-enricher in SPOD")
+		}
+	}
 
 	e.logf("Done waiting for the rollout restart")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+
+	e.waitForTerminatingPods(5*time.Second, 5)
 }
 
 func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr string) {
@@ -864,9 +899,16 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 
 	e.kubectlOperatorNS("rollout", "restart", "deployment", "security-profiles-operator")
 
-	time.Sleep(defaultWaitTime * 5) // This is required for all the restarts to complete
+	e.waitForTerminatingPods(5*time.Second, 5)
 
-	e.kubectlOperatorNS("get", "pods")
+	// This is required for all the restarts to complete
+	for _, podName := range e.getOperatorPodNames() {
+		operatorName := config.OperatorName
+		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
+			e.logf("Pod %s not running", podName)
+			e.Fail("Failed to restart SPO")
+		}
+	}
 
 	e.logf("Done waiting for the rollout restart")
 
@@ -1033,4 +1075,99 @@ func (e *e2e) switchToRecordingNs(ns string) func() {
 	e.enableRecordingHookInNs(ns)
 
 	return retFunc
+}
+
+func (e *e2e) checkExecWebhook(interval time.Duration, maxTimes int) bool {
+	for range maxTimes {
+		output := e.kubectlOperatorNS("get", "mutatingwebhookconfigurations", "spo-mutating-webhook-configuration",
+			`-o=jsonpath='{.webhooks[*].name}'`)
+		if !strings.Contains(output, "execmetadata.spo.io") {
+			time.Sleep(interval)
+		} else {
+			return true
+		}
+	}
+
+	e.logf("Unable to find execmetadata.spo.io in SPOD webhooks")
+
+	return false
+}
+
+func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
+	output := e.kubectlOperatorNS("get", "pods", "-l", labelMatcher,
+		"--field-selector", "status.phase=Running,status.phase=Pending",
+		`-o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'`)
+
+	var filteredPodNames []string
+
+	podNames := strings.Split(output, "\n")
+	for _, name := range podNames {
+		trimmedName := strings.Trim(name, "'")
+		if trimmedName != "" {
+			filteredPodNames = append(filteredPodNames, trimmedName)
+		}
+	}
+
+	return filteredPodNames
+}
+
+func (e *e2e) getOperatorPodNames() []string {
+	return e.getPodNamesByLabel("name=security-profiles-operator")
+}
+
+func (e *e2e) getSpodPodNames() []string {
+	return e.getPodNamesByLabel("name=spod")
+}
+
+func (e *e2e) getSpodWebhookPodNames() []string {
+	return e.getPodNamesByLabel("name=security-profiles-operator-webhook")
+}
+
+// Check if pod is running.
+func (e *e2e) podRunning(name string, namespace *string, interval time.Duration, maxTimes int) bool {
+	for range maxTimes {
+		var output string
+
+		var err error
+
+		if namespace != nil {
+			output, err = e.kubectlCommand("get", "pod", name, "-n", *namespace, `-o=jsonpath='{.status.phase}'`)
+		} else {
+			output, err = e.kubectlCommand("get", "pod", name, `-o=jsonpath='{.status.phase}'`)
+		}
+
+		//nolint:gocritic // If else is better.
+		if err != nil {
+			e.logf("Unable to get pod status for pod %s: %v", name, err)
+			time.Sleep(interval)
+		} else if strings.Trim(output, "'") != "Running" {
+			e.logf("Pod is still not running %s: %s", name, output)
+			time.Sleep(interval)
+		} else {
+			return true
+		}
+	}
+
+	e.logf("Pod %s is not running after checking %d times", name, maxTimes)
+	e.kubectl("describe", "pod", name)
+
+	return false
+}
+
+// Wait for terminating pods to be deleted.
+func (e *e2e) waitForTerminatingPods(interval time.Duration, maxTimes int) {
+	for range maxTimes {
+		output := e.kubectlOperatorNS("get", "pods",
+			`-o=jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}'`)
+		if strings.Trim(output, "'") != "" {
+			e.logf("Terminating pods found: %s", output)
+			time.Sleep(interval)
+		} else {
+			e.logf("All terminating pods deleted")
+
+			return
+		}
+	}
+
+	e.logf("All terminating Pods are not deleted")
 }

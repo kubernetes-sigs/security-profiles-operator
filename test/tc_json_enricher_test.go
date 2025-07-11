@@ -86,24 +86,10 @@ spec:
 
 	e.waitFor("condition=initialized", "pod", podName)
 
-	const maximum = 20
-	for i := 0; i <= maximum; i++ {
-		output := e.kubectl("get", "pod", podName)
-		if strings.Contains(output, "Running") {
-			break
-		}
+	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
-		if i == maximum {
-			e.Fail("Unable to get pod in running state")
-		}
-
-		time.Sleep(5 * time.Second)
-	}
-
-	time.Sleep(10 * time.Second)
-
-	e.kubectl("exec", "-it", podName, "--", "sleep", "5") // In 5 seconds the process info will be captured
-	e.kubectl("exec", "-it", podName, "--", "env")
+	// In 5 seconds the process info will be captured.
+	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
 
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
@@ -179,35 +165,17 @@ spec:
 
 	e.waitFor("condition=initialized", "pod", podName)
 
-	const maximum = 20
-	for i := 0; i <= maximum; i++ {
-		output := e.kubectl("get", "pod", podName)
-		if strings.Contains(output, "Running") {
-			break
-		}
+	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
-		if i == maximum {
-			e.Fail("Unable to get pod in running state")
-		}
+	e.kubectl("debug", "--profile", "general", "-i", podName, "--image",
+		"busybox:latest", "--", "sleep", "6")
 
-		time.Sleep(5 * time.Second)
-	}
-
-	time.Sleep(10 * time.Second)
-
-	e.logf("kubectl debug and sleep for 6 seconds")
-	// Command failed once in the Fedora platform.
-	e.kubectl("debug", "-i", podName, "--image", "busybox:latest", "--", "sleep", "6")
-	e.logf("kubectl exec and sleep for 5 seconds")
-	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
-	e.logf("kubectl exec and print env")
-	podEnvOutput := e.kubectl("exec", "-it", podName, "--", "env")
-	e.Contains(podEnvOutput, "SPO_EXEC_REQUEST_UID")
-	e.logf("The env output has SPO_EXEC_REQUEST_UID")
+	// In 5 seconds the process info will be captured.
+	e.kubectl("exec", "-i", podName, "-c", containerName, "--", "sleep", "5")
 
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
-	e.kubectl("debug", "node/"+trimSingleQuotes(nodeName), "--image", "busybox",
+	e.kubectl("debug", "--profile", "general", "node/"+strings.Trim(nodeName, "'"), "--image", "busybox",
 		"-it", "--", "env")
 	// Uncomment after kubectl debug node label.
 	// PR https://github.com/kubernetes/kubernetes/pull/131791.
@@ -230,9 +198,33 @@ spec:
 	e.Contains(output, "\"namespace\"")
 }
 
-func trimSingleQuotes(s string) string {
-	s = strings.TrimPrefix(s, "'")
-	s = strings.TrimSuffix(s, "'")
+// Checks exec environment for the pod.
+func (e *e2e) checkExecEnvironment(podName string, namespace *string, interval time.Duration, maxTimes int) {
+	if !e.podRunning(podName, namespace, interval, maxTimes) {
+		e.logf("Pod %s is not running", podName)
+		e.Fail("Pod is not running")
+	}
 
-	return s
+	if !e.canExec(podName, interval, maxTimes) {
+		e.logf("Pod %s cannot be exec", podName)
+		e.Fail("Pod cannot be exec")
+	}
+}
+
+// Attempt exec into the pod and make sure its up.
+func (e *e2e) canExec(podName string, interval time.Duration, maxTimes int) bool {
+	const expectedEnvVar = "SPO_EXEC_REQUEST_UID"
+
+	for range maxTimes {
+		output := e.kubectl("exec", "-i", podName, "--", "env")
+		if !strings.Contains(output, expectedEnvVar) {
+			time.Sleep(interval)
+		} else {
+			return true
+		}
+	}
+
+	e.logf("Cannot exec pod %s in %d times", podName, maxTimes)
+
+	return false
 }
