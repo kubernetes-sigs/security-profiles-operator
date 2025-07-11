@@ -1131,6 +1131,7 @@ func (e *e2e) getSpodWebhookPodNames() []string {
 func (e *e2e) podRunning(name string, namespace *string, interval time.Duration, maxTimes int) bool {
 	for range maxTimes {
 		var output string
+
 		var err error
 
 		if namespace != nil {
