@@ -103,9 +103,11 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
+
 	if execTimeEnd.Sub(execTimeStart).Seconds() > 5 {
 		e.Contains(output, "sleep 5")
 	}
+
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
 }
@@ -207,12 +209,15 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
+
 	if debugTimeEnd.Sub(debugTimeStart).Seconds() >= 6 {
 		e.Contains(output, "sleep 6")
 	}
+
 	if execTimeEnd.Sub(execTimeStart).Seconds() >= 5 {
 		e.Contains(output, "sleep 5")
 	}
+
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
 }
