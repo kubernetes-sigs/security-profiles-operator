@@ -26,6 +26,7 @@ import (
 func (e *e2e) testCaseJsonEnricherFileOptions([]string) {
 	const jsonLogFileName = "/tmp/json-logs/jsonEnricher.out"
 	const flushIntervalSeconds = 20
+
 	//nolint:lll  // long filter.
 	e.jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName, flushIntervalSeconds,
 		`[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]`)
@@ -116,6 +117,7 @@ spec:
 
 func (e *e2e) testCaseJsonEnricher([]string) {
 	const flushIntervalSeconds = 20
+
 	e.jsonEnricherOnlyTestCase(flushIntervalSeconds)
 
 	const (

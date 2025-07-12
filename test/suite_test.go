@@ -889,7 +889,8 @@ func (e *e2e) enableJsonEnricherInSpod(flushIntervalSeconds int) {
 
 func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath string,
 	flushIntervalSeconds int,
-	enricherFilterJsonStr string) {
+	enricherFilterJsonStr string,
+) {
 	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
 
 	jsonVolumeSource := fmt.Sprintf(`{\"hostPath\": {\"path\": \"%s\",\"type\": \"DirectoryOrCreate\"}}`,
