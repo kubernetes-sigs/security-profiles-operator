@@ -91,6 +91,9 @@ spec:
 	// In 5 seconds the process info will be captured.
 	e.kubectl("exec", "-i", podName, "--", "sleep", "5")
 
+	// Wait for the flush interval.
+	time.Sleep(20 * time.Second)
+
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
 		regexp.MustCompile(`(?m)"requestUID"`))
@@ -181,6 +184,9 @@ spec:
 	// PR https://github.com/kubernetes/kubernetes/pull/131791.
 	// e.Contains(nodeDebuggingPodEnvOutput, "SPO_EXEC_REQUEST_UID")
 	// e.logf("The env output has SPO_EXEC_REQUEST_UID")
+
+	// Wait for the flush interval.
+	time.Sleep(20 * time.Second)
 
 	// wait for at least one component of the expected logs to appear
 	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"requestUID"`))
