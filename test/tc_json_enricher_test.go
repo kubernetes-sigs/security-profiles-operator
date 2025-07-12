@@ -25,6 +25,7 @@ import (
 
 func (e *e2e) testCaseJsonEnricherFileOptions([]string) {
 	const jsonLogFileName = "/tmp/json-logs/jsonEnricher.out"
+
 	const flushIntervalSeconds = 20
 
 	//nolint:lll  // long filter.
