@@ -51,22 +51,25 @@ type JsonEnricher struct {
 	clientset        kubernetes.Interface
 	processCache     *ttlcache.Cache[int, *types.ProcessInfo]
 	logWriter        io.Writer
+	enricherFilters  []types.EnricherFilterOptions
 }
 
 type JsonEnricherOptions struct {
-	AuditFreq          time.Duration
-	AuditLogPath       string
-	AuditLogMaxSize    int
-	AuditLogMaxAge     int
-	AuditLogMaxBackups int
+	AuditFreq           time.Duration
+	AuditLogPath        string
+	AuditLogMaxSize     int
+	AuditLogMaxAge      int
+	AuditLogMaxBackups  int
+	EnricherFiltersJson string
 }
 
 var JsonEnricherDefaultOptions = JsonEnricherOptions{
-	AuditFreq:          time.Duration(60) * time.Second,
-	AuditLogPath:       "",
-	AuditLogMaxSize:    0,
-	AuditLogMaxAge:     0,
-	AuditLogMaxBackups: 0,
+	AuditFreq:           time.Duration(60) * time.Second,
+	AuditLogPath:        "",
+	AuditLogMaxSize:     0,
+	AuditLogMaxAge:      0,
+	AuditLogMaxBackups:  0,
+	EnricherFiltersJson: "[]",
 }
 
 func NewJsonEnricher(logger logr.Logger) (*JsonEnricher, error) {
@@ -115,7 +118,18 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 		actualOpts.AuditLogMaxSize = opts.AuditLogMaxSize
 		actualOpts.AuditLogMaxBackups = opts.AuditLogMaxBackups
 		actualOpts.AuditLogMaxAge = opts.AuditLogMaxAge
+
+		if opts.EnricherFiltersJson != "" {
+			actualOpts.EnricherFiltersJson = opts.EnricherFiltersJson
+		}
 	}
+
+	enricherFilters, err := GetEnricherFilters(actualOpts.EnricherFiltersJson)
+	if err != nil {
+		return nil, fmt.Errorf("get enricher filters: %w", err)
+	}
+
+	logger.Info("Enricher Filters", "filters", enricherFilters)
 
 	jsonEnricher := &JsonEnricher{
 		impl:   newDefaultImpl(),
@@ -136,6 +150,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 			ttlcache.WithTTL[int, *types.ProcessInfo](defaultCacheTimeout),
 			ttlcache.WithCapacity[int, *types.ProcessInfo](maxCacheItems),
 		),
+		enricherFilters: enricherFilters,
 	}
 
 	w, err := getWriter(actualOpts)
@@ -405,7 +420,7 @@ func (e *JsonEnricher) dispatchSeccompLine(
 
 	// As close as possible to k8s server side audit json
 	// In future map this to a object and produce JSON using marshal/unmarshal functions
-	auditMap := map[string]interface{}{
+	auditMap := map[string]any{
 		"version":    "spo/v1_alpha",
 		"auditID":    uuid.New().String(),
 		"executable": logBucket.ProcessInfo.Executable,
@@ -421,6 +436,13 @@ func (e *JsonEnricher) dispatchSeccompLine(
 
 	if logBucket.ProcessInfo.ExecRequestId != nil {
 		auditMap["requestUID"] = *logBucket.ProcessInfo.ExecRequestId
+	}
+
+	logLevel := ApplyEnricherFilters(auditMap, e.enricherFilters)
+	if logLevel == types.EnricherLogLevelNone {
+		e.logger.V(config.VerboseLevel).Info("Skip logging", "auditMap", auditMap)
+
+		return
 	}
 
 	auditJson, err := json.Marshal(auditMap)

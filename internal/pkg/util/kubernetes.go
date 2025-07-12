@@ -27,6 +27,8 @@ import (
 
 	"golang.org/x/mod/semver"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -131,4 +133,25 @@ func matchSelinuxdImage(node *corev1.Node, mapping []selinuxdImageMap) string {
 	}
 
 	return ""
+}
+
+func GetOperatorConfigMap(ctx context.Context, c client.Reader) (*corev1.ConfigMap, error) {
+	var operatorCm corev1.ConfigMap
+
+	operatorCmName := types.NamespacedName{
+		Namespace: config.GetOperatorNamespace(),
+		Name:      OperatorConfigMap,
+	}
+
+	if err := c.Get(ctx, operatorCmName, &operatorCm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("ConfigMap %s/%s not found: %w",
+				operatorCmName.Namespace, operatorCmName.Name, err)
+		}
+
+		return nil, fmt.Errorf("failed to get ConfigMap %s/%s: %w",
+			operatorCmName.Namespace, operatorCmName.Name, err)
+	}
+
+	return &operatorCm, nil
 }
