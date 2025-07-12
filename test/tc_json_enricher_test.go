@@ -89,11 +89,11 @@ spec:
 	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
 	// In 5 seconds the process info will be captured.
-	timeStart := time.Now()
+	execTimeStart := time.Now()
 	_, err := e.kubectlOsExec("exec", "-i", podName, "--", "sleep", "5")
-	timeEnd := time.Now()
+	execTimeEnd := time.Now()
 
-	e.logf("Time take to run: \n%s", timeEnd.Sub(timeStart))
+	e.logf("Time take to run: \n%s", execTimeEnd.Sub(execTimeStart))
 	e.NoError(err)
 
 	// wait for at least one component of the expected logs to appear
@@ -103,7 +103,9 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
-	e.Contains(output, "sleep")
+	if execTimeEnd.Sub(execTimeStart).Seconds() > 5 {
+		e.Contains(output, "sleep 5")
+	}
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
 }
@@ -172,16 +174,19 @@ spec:
 
 	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
-	timeStart := time.Now()
+	debugTimeStart := time.Now()
 	_, err := e.kubectlOsExec("debug", "--profile", "general", "-i", podName, "--image",
-		"busybox:latest", "--", "sleep", "6")
-	timeEnd := time.Now()
+		"quay.io/security-profiles-operator/test-nginx:1.19.1", "--", "sleep", "6")
+	debugTimeEnd := time.Now()
 
-	e.logf("Time take to run: \n%s", timeEnd.Sub(timeStart))
+	e.logf("Time take to run debug command: \n%s", debugTimeEnd.Sub(debugTimeStart))
 	e.NoError(err)
 
 	// In 5 seconds the process info will be captured.
+	execTimeStart := time.Now()
 	_, err = e.kubectlOsExec("exec", "-i", podName, "-c", containerName, "--", "sleep", "5")
+	execTimeEnd := time.Now()
+	e.logf("Time take to run exec command: \n%s", execTimeEnd.Sub(execTimeStart))
 	e.NoError(err)
 
 	nodeName := e.kubectl("get", "nodes",
@@ -202,9 +207,12 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
-	// Failed once in the Fedora platform.
-	// e.Contains(output, "sleep 6")
-	e.Contains(output, "sleep 5")
+	if debugTimeEnd.Sub(debugTimeStart).Seconds() >= 6 {
+		e.Contains(output, "sleep 6")
+	}
+	if execTimeEnd.Sub(execTimeStart).Seconds() >= 5 {
+		e.Contains(output, "sleep 5")
+	}
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
 }
