@@ -184,7 +184,8 @@ spec:
 
 	_, err := e.kubectlOsExec("debug", "--profile", "general", "-i", podName, "--image",
 		"quay.io/security-profiles-operator/test-nginx:1.19.1", "--",
-		"find", "/", "-type", "f", "-print", ">", "/dev/null", "2>", "/dev/null")
+		"/bin/sh", "-c",
+		`"ls /tmp && touch /tmp/test1.txt && cat /tmp/test1.txt && sleep 6"`)
 
 	e.NoError(err)
 
@@ -214,7 +215,7 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
-	e.Contains(output, "find")
+	e.Contains(output, "sleep 6")
 
 	if execTimeEnd.Sub(execTimeStart).Seconds() >= 5 {
 		e.Contains(output, "sleep 5")
