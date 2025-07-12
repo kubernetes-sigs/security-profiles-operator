@@ -808,22 +808,22 @@ func (e *e2e) logEnricherOnlyTestCaseWithFilters(enricherFilterJsonStr string) {
 	e.enableLogEnricherInSpodWithFilters(enricherFilterJsonStr)
 }
 
-func (e *e2e) jsonEnricherOnlyTestCase() {
+func (e *e2e) jsonEnricherOnlyTestCase(flushIntervalSeconds int) {
 	if !e.jsonEnricherEnabled {
 		e.T().Skip("Skipping json-enricher related test")
 	}
 
-	e.enableJsonEnricherInSpod()
+	e.enableJsonEnricherInSpod(flushIntervalSeconds)
 }
 
-func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string,
+func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string, flushIntervalSeconds int,
 	enricherFilterJsonStr string,
 ) {
 	if !e.jsonEnricherEnabled {
 		e.T().Skip("Skipping json-enricher FileOptions related test")
 	}
 
-	e.enableJsonEnricherInSpodFileOptions(jsonLogFileName, enricherFilterJsonStr)
+	e.enableJsonEnricherInSpodFileOptions(jsonLogFileName, flushIntervalSeconds, enricherFilterJsonStr)
 }
 
 func (e *e2e) enableLogEnricherInSpod() {
@@ -859,11 +859,11 @@ func (e *e2e) enableLogEnricherInSpodWithFilters(enricherFilterJsonStr string) {
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
 }
 
-func (e *e2e) enableJsonEnricherInSpod() {
+func (e *e2e) enableJsonEnricherInSpod(flushIntervalSeconds int) {
 	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"enableLogEnricher": false, "enableJsonEnricher": true,
-		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}`, "--type=merge")
+		fmt.Sprintf(`{"spec":{"enableLogEnricher": false, "enableJsonEnricher": true,
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":%d}}}`, flushIntervalSeconds), "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -887,7 +887,9 @@ func (e *e2e) enableJsonEnricherInSpod() {
 	e.waitForTerminatingPods(5*time.Second, 5)
 }
 
-func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr string) {
+func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath string,
+	flushIntervalSeconds int,
+	enricherFilterJsonStr string) {
 	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
 
 	jsonVolumeSource := fmt.Sprintf(`{\"hostPath\": {\"path\": \"%s\",\"type\": \"DirectoryOrCreate\"}}`,
@@ -944,8 +946,8 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
 		fmt.Sprintf(`{"spec":{"enableLogEnricher": false,"enableJsonEnricher": true,
-		"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath": "%s"},"jsonEnricherFilters": "%s"}}`,
-			logPath, enricherFilterJsonStr), "--type=merge")
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":%d,"auditLogPath": "%s"},"jsonEnricherFilters": "%s"}}`,
+			flushIntervalSeconds, logPath, enricherFilterJsonStr), "--type=merge")
 
 	e.logf("Patched the SPOD")
 

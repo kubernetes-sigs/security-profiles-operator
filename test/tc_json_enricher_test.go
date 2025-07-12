@@ -24,9 +24,10 @@ import (
 )
 
 func (e *e2e) testCaseJsonEnricherFileOptions([]string) {
-	jsonLogFileName := "/tmp/json-logs/jsonEnricher.out"
+	const jsonLogFileName = "/tmp/json-logs/jsonEnricher.out"
+	const flushIntervalSeconds = 20
 	//nolint:lll  // long filter.
-	e.jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName,
+	e.jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName, flushIntervalSeconds,
 		`[{\"priority\":100,\"level\":\"Metadata\",\"matchKeys\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchKeys\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]`)
 
 	const (
@@ -96,6 +97,7 @@ spec:
 	e.logf("Time take to run: \n%s", execTimeEnd.Sub(execTimeStart))
 	e.NoError(err)
 
+	time.Sleep(time.Duration(flushIntervalSeconds) * time.Second)
 	// wait for at least one component of the expected logs to appear
 	output := e.waitForJsonEnricherFileLogs(jsonLogFileName,
 		regexp.MustCompile(`(?m)"requestUID"`))
@@ -104,7 +106,7 @@ spec:
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
 
-	if execTimeEnd.Sub(execTimeStart).Seconds() > 5 {
+	if execTimeEnd.Sub(execTimeStart).Seconds() >= 5 {
 		e.Contains(output, "sleep 5")
 	}
 
@@ -113,7 +115,8 @@ spec:
 }
 
 func (e *e2e) testCaseJsonEnricher([]string) {
-	e.jsonEnricherOnlyTestCase()
+	const flushIntervalSeconds = 20
+	e.jsonEnricherOnlyTestCase(flushIntervalSeconds)
 
 	const (
 		profileName   = "jsonenricherprofile"
@@ -200,6 +203,7 @@ spec:
 	// e.Contains(nodeDebuggingPodEnvOutput, "SPO_EXEC_REQUEST_UID")
 	// e.logf("The env output has SPO_EXEC_REQUEST_UID")
 
+	time.Sleep(time.Duration(flushIntervalSeconds) * time.Second)
 	// wait for at least one component of the expected logs to appear
 	e.waitForJsonEnricherLogs(since, regexp.MustCompile(`(?m)"requestUID"`))
 	e.logf("Checking JSON enricher output")
