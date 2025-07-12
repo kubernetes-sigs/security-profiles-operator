@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
-func Test_getEffectiveSPOd(t *testing.T) {
+func Test_getEffectiveSPOdJsonEnricher(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

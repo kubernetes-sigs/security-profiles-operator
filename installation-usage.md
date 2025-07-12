@@ -46,6 +46,9 @@
   - [SELinux profile](#selinux-profile)
     - [Record SELinux profile](#record-selinux-profile)
     - [Use SELinux profile](#use-selinux-profile)
+  - [Filtering Logs](#filtering-logs)
+    - [Rule Evaluation Logic](#rule-evaluation-logic)
+    - [Examples](#examples)
   - [General Considerations](#general-considerations)
     - [Base syscalls for a container runtime](#base-syscalls-for-a-container-runtime)
     - [Recording profiles without applying them](#recording-profiles-without-applying-them)
@@ -1435,6 +1438,83 @@ spec:
 ```
 
 The pod should properly start and run.
+
+### Filtering Logs
+The Security Profiles Operator Daemon (SPOD) supports advanced filtering of emitted logs through its enrichers, 
+allowing users to focus on relevant events.
+Log filtering is managed by an array of filter rules configured directly on the SPOD resource. Two distinct fields are
+available, each controlling a different enricher:
+- `jsonEnricherFilters`: Applies filtering to the Audit JSON Log Enricher.
+- `logEnricherFilters`: Applies filtering to the Log Enricher.
+
+Example: Enabling Log Enricher and providing an empty filter array (no custom filtering)
+```shell
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableLogEnricher":true,"logEnricherFilters":[]}}'
+```
+
+Each object within the `jsonEnricherFilters` or `logEnricherFilters` array conforms to the following structure:
+
+| Field    | Type |  Description | Example Value                 
+|----------|-----|---------|-------------------------------|
+| priority | integer | Required. Defines the order of rule application. Rules with lower priority numbers are evaluated first (higher priority).| 10, 100                       |
+| level    | string | Required. Determines the action to take if this rule matches a log line: <br/>- "Metadata": The log line is emitted (logged). <br/>- "None": The log line is dropped (not logged).| "Metadata", "None"            |
+| matchKeys    | array<string>    | Required. An array of log statement keys (field names) that must all be present in the incoming log line for this rule to potentially match.| ["namespace"], ["requestUID"] | 
+| matchValues | array<string> | Optional. An array of values. If provided, the values associated with any of the matchKeys (that were found in the log line) must match at least one of these matchValues. <br/>If matchValues is an empty array ([]) or omitted, the mere presence of all matchKeys is sufficient for a match, regardless of their values. | ["default"], ["test"]         | 
+
+#### Rule Evaluation Logic
+When the enrichers start, all configured filter rules are parsed and loaded. For each incoming log statement:
+- Rules are evaluated strictly in ascending order of their priority (lower numbers are evaluated first).
+- The first rule that a log statement matches determines its fate. No subsequent rules will be evaluated for that particular log line.
+- A log statement is considered a match for a rule if:
+  - Any keys specified in matchKeys are present in the log statement.
+  - AND (if matchValues is provided and not empty): At least one of the values associated with the matched matchKeys in the log statement matches at least one string in the rule's matchValues.
+  - Also note that int values although provided as string will be converted to int
+- Action Based on level:
+  - If the matching rule's level is "Metadata", the log line is emitted.
+  - If the matching rule's level is "None", the log line is dropped.
+- Default Behavior: If no rule in the filter array matches the log statement, a default behavior of "Metadata" (log the line) will be applied.
+
+#### Examples
+1. Filtering JSON Audit Logs for Specific User Activity:
+
+This example demonstrates logging only audit events associated with a requestUID, while filtering everything else. This is helpful for a JSON Audit log enricher to investigate the user activity like exec into a pod or end-user running some script inside a container.
+
+This json
+```json
+[
+    {
+        "priority": 100,
+        "Level": "Metadata",
+        "MatchLabels": [
+            "requestUID"
+        ]
+    },
+    {
+        "priority": 999,
+        "Level": "None",
+        "MatchLabels": [
+            "version"
+        ],
+        "MatchValues": [
+            "spo/v1_alpha"
+        ]
+    }
+]
+```
+
+can be using with the command
+
+```
+kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"enableJsonEnricher": true, "jsonEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchLabels\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchLabels\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]}}"
+```
+
+2. Filtering Logs for a Specific Kubernetes Namespace:
+
+This example logs log-enricher entries only from the default namespace and drops any other log lines for seccomp profile.
+
+```
+kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"enableLogEnricher": true, "logEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchLabels\":[\"namespace\"],\"matchValues\":[\"default\"},{\"priority\":999, \"level\":\"None\",\"matchLabels\":[\"type\"],\"matchValues\":[\"seccomp\"]}]}}"
+```
 
 ### General Considerations
 

@@ -365,6 +365,18 @@ type SPODSpec struct {
 	// artifact signature verification.
 	// +optional
 	DisableOCIArtifactSignatureVerification bool `json:"disableOciArtifactSignatureVerification"`
+
+	// LogEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
+	// for the log-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
+	// +optional
+	// +kubebuilder:default=""
+	LogEnricherFilters string `json:"logEnricherFilters,omitempty"`
+
+	// JsonEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
+	// for the json-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
+	// +optional
+	// +kubebuilder:default=""
+	JsonEnricherFilters string `json:"jsonEnricherFilters,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.

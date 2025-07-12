@@ -144,6 +144,36 @@ func TestJsonEnricherLogPathOptionsValid(t *testing.T) {
 	require.NoError(t, jErr)
 }
 
+func TestJsonEnricherWithFilter(t *testing.T) {
+	t.Parallel()
+
+	opts := &JsonEnricherOptions{}
+	opts.AuditLogMaxBackups = 10
+	opts.AuditLogMaxAge = 10
+	opts.AuditLogMaxSize = 100
+	opts.AuditLogPath = "/dev/null"
+	opts.EnricherFiltersJson = "[]"
+
+	_, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
+
+	require.NoError(t, jErr)
+}
+
+func TestJsonEnricherWithInvalidFilter(t *testing.T) {
+	t.Parallel()
+
+	opts := &JsonEnricherOptions{}
+	opts.AuditLogMaxBackups = 10
+	opts.AuditLogMaxAge = 10
+	opts.AuditLogMaxSize = 100
+	opts.AuditLogPath = "/dev/null"
+	opts.EnricherFiltersJson = "[" // invalid json.
+
+	_, jErr := NewJsonEnricherArgs(logr.Discard(), opts)
+
+	require.Error(t, jErr)
+}
+
 func TestJsonRun(t *testing.T) {
 	t.Parallel()
 
