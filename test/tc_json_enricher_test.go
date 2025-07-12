@@ -182,12 +182,10 @@ spec:
 
 	e.checkExecEnvironment(podName, nil, 5*time.Second, 20)
 
-	debugTimeStart := time.Now()
 	_, err := e.kubectlOsExec("debug", "--profile", "general", "-i", podName, "--image",
-		"quay.io/security-profiles-operator/test-nginx:1.19.1", "--", "sleep", "6")
-	debugTimeEnd := time.Now()
+		"quay.io/security-profiles-operator/test-nginx:1.19.1", "--",
+		"find", "/", "-type", "f", "-print", ">", "/dev/null", "2>", "/dev/null")
 
-	e.logf("Time take to run debug command: \n%s", debugTimeEnd.Sub(debugTimeStart))
 	e.NoError(err)
 
 	// In 5 seconds the process info will be captured.
@@ -216,10 +214,7 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
-
-	if debugTimeEnd.Sub(debugTimeStart).Seconds() >= 6 {
-		e.Contains(output, "sleep 6")
-	}
+	e.Contains(output, "find")
 
 	if execTimeEnd.Sub(execTimeStart).Seconds() >= 5 {
 		e.Contains(output, "sleep 5")
