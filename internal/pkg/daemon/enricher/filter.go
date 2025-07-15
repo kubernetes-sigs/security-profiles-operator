@@ -32,8 +32,7 @@ func GetEnricherFilters(enricherFiltersJsonStr string, logger logr.Logger) ([]ty
 	var enricherFilters []types.EnricherFilterOptions
 	if err := json.Unmarshal([]byte(enricherFiltersJsonStr), &enricherFilters); err != nil {
 		logger.Error(err, "failed to unmarshal enricher filters",
-			"enricherFiltersJsonStr", enricherFiltersJsonStr,
-			"err", err)
+			"enricherFiltersJsonStr", enricherFiltersJsonStr)
 
 		return nil, err
 	}
