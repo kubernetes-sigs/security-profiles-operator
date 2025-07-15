@@ -85,7 +85,7 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 		actualOpts.EnricherFiltersJson = opts.EnricherFiltersJson
 	}
 
-	enricherFilters, err := GetEnricherFilters(actualOpts.EnricherFiltersJson)
+	enricherFilters, err := GetEnricherFilters(actualOpts.EnricherFiltersJson, logger)
 	if err != nil {
 		return nil, fmt.Errorf("get enricher filters: %w", err)
 	}

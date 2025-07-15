@@ -20,6 +20,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
@@ -122,7 +123,7 @@ func TestGetEnricherFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := GetEnricherFilters(tt.args.enricherFiltersJsonStr)
+			got, err := GetEnricherFilters(tt.args.enricherFiltersJsonStr, logr.Discard())
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetEnricherFilters() error = %v, wantErr %v", err, tt.wantErr)
 
