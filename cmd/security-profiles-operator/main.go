@@ -258,7 +258,7 @@ func main() {
 				&cli.StringFlag{
 					Name:  enricherFiltersJsonParam,
 					Value: "",
-					Usage: "Log Enricher filters json.",
+					Usage: "Log Enricher filters JSON.",
 				},
 			},
 			Action: func(ctx *cli.Context) error {
@@ -325,7 +325,7 @@ func main() {
 				&cli.StringFlag{
 					Name:  enricherFiltersJsonParam,
 					Value: "",
-					Usage: "JSON Enricher filters json file path.",
+					Usage: "JSON Enricher filters JSON file path.",
 				},
 			},
 		},

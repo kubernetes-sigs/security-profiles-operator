@@ -18,19 +18,22 @@ package enricher
 
 import (
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/go-logr/logr"
+
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
-func GetEnricherFilters(enricherFiltersJsonStr string) ([]types.EnricherFilterOptions, error) {
+func GetEnricherFilters(enricherFiltersJsonStr string, logger logr.Logger) ([]types.EnricherFilterOptions, error) {
 	var enricherFilters []types.EnricherFilterOptions
 	if err := json.Unmarshal([]byte(enricherFiltersJsonStr), &enricherFilters); err != nil {
-		fmt.Printf("failed to unmarshal enricher filters %s: %v\n", enricherFiltersJsonStr, err)
+		logger.Error(err, "failed to unmarshal enricher filters",
+			"enricherFiltersJsonStr", enricherFiltersJsonStr,
+			"err", err)
 
 		return nil, err
 	}
