@@ -511,20 +511,6 @@ func (fake *FakeImpl) SignalReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.cmdPidMutex.RLock()
-	defer fake.cmdPidMutex.RUnlock()
-	fake.cmdStartMutex.RLock()
-	defer fake.cmdStartMutex.RUnlock()
-	fake.cmdWaitMutex.RLock()
-	defer fake.cmdWaitMutex.RUnlock()
-	fake.commandMutex.RLock()
-	defer fake.commandMutex.RUnlock()
-	fake.getHomeDirectoryMutex.RLock()
-	defer fake.getHomeDirectoryMutex.RUnlock()
-	fake.notifyMutex.RLock()
-	defer fake.notifyMutex.RUnlock()
-	fake.signalMutex.RLock()
-	defer fake.signalMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

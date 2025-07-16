@@ -509,18 +509,6 @@ func (fake *FakeImpl) UpdateResourceStatusReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.decodePodMutex.RLock()
-	defer fake.decodePodMutex.RUnlock()
-	fake.getSeccompProfileMutex.RLock()
-	defer fake.getSeccompProfileMutex.RUnlock()
-	fake.getSelinuxProfileMutex.RLock()
-	defer fake.getSelinuxProfileMutex.RUnlock()
-	fake.listProfileBindingsMutex.RLock()
-	defer fake.listProfileBindingsMutex.RUnlock()
-	fake.updateResourceMutex.RLock()
-	defer fake.updateResourceMutex.RUnlock()
-	fake.updateResourceStatusMutex.RLock()
-	defer fake.updateResourceStatusMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

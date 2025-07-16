@@ -255,12 +255,6 @@ func (fake *FakeImpl) ReadFileReturnsOnCall(i int, result1 []byte, result2 error
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.appArmorEnabledMutex.RLock()
-	defer fake.appArmorEnabledMutex.RUnlock()
-	fake.appArmorRemoveProfileMutex.RLock()
-	defer fake.appArmorRemoveProfileMutex.RUnlock()
-	fake.readFileMutex.RLock()
-	defer fake.readFileMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

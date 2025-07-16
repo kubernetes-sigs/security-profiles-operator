@@ -519,20 +519,6 @@ func (fake *FakeImpl) RecordEventArgsForCall(i int) (record.EventRecorder, runti
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.clientGetProfileMutex.RLock()
-	defer fake.clientGetProfileMutex.RUnlock()
-	fake.getSPODMutex.RLock()
-	defer fake.getSPODMutex.RUnlock()
-	fake.incSeccompProfileErrorMutex.RLock()
-	defer fake.incSeccompProfileErrorMutex.RUnlock()
-	fake.pullMutex.RLock()
-	defer fake.pullMutex.RUnlock()
-	fake.pullResultSeccompProfileMutex.RLock()
-	defer fake.pullResultSeccompProfileMutex.RUnlock()
-	fake.pullResultTypeMutex.RLock()
-	defer fake.pullResultTypeMutex.RUnlock()
-	fake.recordEventMutex.RLock()
-	defer fake.recordEventMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value
