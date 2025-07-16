@@ -94,7 +94,7 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 
 	return &Enricher{
 		impl:   newDefaultImpl(),
-		source: auditsource.NewAuditdSource(logger),
+		source: auditsource.NewBpfSource(logger), // FIXME
 		logger: logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
