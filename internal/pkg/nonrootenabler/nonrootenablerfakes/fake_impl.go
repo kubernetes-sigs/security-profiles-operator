@@ -636,22 +636,6 @@ func (fake *FakeImpl) SymlinkReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.chmodMutex.RLock()
-	defer fake.chmodMutex.RUnlock()
-	fake.chownMutex.RLock()
-	defer fake.chownMutex.RUnlock()
-	fake.copyDirContentsLocalMutex.RLock()
-	defer fake.copyDirContentsLocalMutex.RUnlock()
-	fake.installApparmorMutex.RLock()
-	defer fake.installApparmorMutex.RUnlock()
-	fake.mkdirAllMutex.RLock()
-	defer fake.mkdirAllMutex.RUnlock()
-	fake.saveKubeletConfigMutex.RLock()
-	defer fake.saveKubeletConfigMutex.RUnlock()
-	fake.statMutex.RLock()
-	defer fake.statMutex.RUnlock()
-	fake.symlinkMutex.RLock()
-	defer fake.symlinkMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value
