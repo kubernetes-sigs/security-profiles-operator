@@ -222,7 +222,7 @@ type ListProjectPipelinesOptions struct {
 	CreatedBefore *time.Time       `url:"created_before,omitempty" json:"created_before,omitempty"`
 }
 
-// ListProjectPipelines gets a list of project piplines.
+// ListProjectPipelines gets a list of project pipelines.
 //
 // GitLab API docs:
 // https://docs.gitlab.com/api/pipelines/#list-project-pipelines

@@ -2331,12 +2331,17 @@ func (s *ProjectsService) StartHousekeepingProject(pid any, options ...RequestOp
 //
 // GitLab API docs:
 // https://docs.gitlab.com/api/projects/#get-the-path-to-repository-storage
-type ProjectReposityStorage struct {
+type ProjectRepositoryStorage struct {
 	ProjectID         int        `json:"project_id"`
 	DiskPath          string     `json:"disk_path"`
 	CreatedAt         *time.Time `json:"created_at"`
 	RepositoryStorage string     `json:"repository_storage"`
 }
+
+// ProjectReposityStorage is kept for backwards compatibility.
+//
+// Deprecated: use ProjectRepositoryStorage instead. The ProjectReposityStorage type will be removed in the next release.
+type ProjectReposityStorage = ProjectRepositoryStorage
 
 // GetRepositoryStorage Get the path to repository storage.
 //

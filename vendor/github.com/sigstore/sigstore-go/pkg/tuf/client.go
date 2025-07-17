@@ -79,10 +79,10 @@ func New(opts *Options) (*Client, error) {
 	tmpCfg.UnsafeLocalMode = true
 	c.up, err = updater.New(&tmpCfg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create initial TUF updater: %w", err)
 	}
 	if err = c.loadMetadata(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load metadata: %w", err)
 	}
 
 	return &c, nil
