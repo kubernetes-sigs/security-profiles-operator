@@ -1,4 +1,4 @@
-# cel.dev/expr v0.23.0
+# cel.dev/expr v0.24.0
 ## explicit; go 1.22.0
 cel.dev/expr
 # cloud.google.com/go/auth v0.16.2
@@ -1555,7 +1555,7 @@ google.golang.org/api/internal/impersonate
 google.golang.org/api/option
 google.golang.org/api/option/internaloption
 google.golang.org/api/transport/http
-# google.golang.org/genproto/googleapis/api v0.0.0-20250519155744-55703ea1f237
+# google.golang.org/genproto/googleapis/api v0.0.0-20250528174236-200df99c418a
 ## explicit; go 1.23.0
 google.golang.org/genproto/googleapis/api
 google.golang.org/genproto/googleapis/api/annotations
@@ -1565,7 +1565,7 @@ google.golang.org/genproto/googleapis/api/httpbody
 ## explicit; go 1.23.0
 google.golang.org/genproto/googleapis/rpc/errdetails
 google.golang.org/genproto/googleapis/rpc/status
-# google.golang.org/grpc v1.73.0
+# google.golang.org/grpc v1.74.0
 ## explicit; go 1.23.0
 google.golang.org/grpc
 google.golang.org/grpc/attributes
