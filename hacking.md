@@ -180,14 +180,23 @@ On a high level, the process is as follows:
     to change the image references to point to your images
 
 ### Distribution specific instructions: OpenShift
+Before you start, you must have the `KUBECONFIG` environment variable set correctly to point to your 
+OpenShift cluster's configuration file, and you need to be successfully logged in using the `oc login` command.
+
 For convenience, the `Makefile` contains a target called `deploy-openshift-dev` which
 deploys SPO in an OpenShift cluster with the appropriate defaults (SELinux is on by default)
-and the appropriate settings (no cert-manager needed).
+and the appropriate settings (no cert-manager needed). It should be noted that `deploy-openshit-dev`
+will not enable eBPF and app-armor capabilities (APPARMOR_ENABLED=0, BPF_ENABLED=0).
 
 If you modify the code and need to push the images to the cluster again, use the
 `push-openshift-dev` Makefile target. Because the targets use the `ImageStream` feature
 of OpenShift, simply pushing the new images will trigger a new rollout of the deployments
 and DaemonSets.
+
+To build the SPO image with eBPF enabled, simply use `BPF_ENABLED=1 make image`, which will compile the image and 
+make it available locally at `localhost/security-profiles-operator:latest`. Once built, you can deploy this pre-built 
+image to OpenShift by running `make deploy-prebuilt-openshift-dev`. Subsequently, if you need to push this locally 
+built image to image registry used by OpenShift, execute `make push-prebuilt-image-openshift-dev`.
 
 ### Tearing down your test environment
 At the moment, there's no teardown target provided. At the same time, some

@@ -681,8 +681,8 @@ endif
 set-openshift-image-params:
 	$(eval DOCKERFILE = Dockerfile.ubi)
 
-.PHONY: push-openshift-dev
-push-openshift-dev: set-openshift-image-params openshift-user image
+.PHONY: _push-image-openshift-dev
+_push-image-openshift-dev:
 	@echo "Exposing the default route to the image registry"
 	@oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"defaultRoute":true}}' --type=merge
 	@echo "Pushing image $(IMAGE) to the image registry"
@@ -698,6 +698,13 @@ else
 
 endif
 
+.PHONY: push-prebuilt-image-openshift-dev
+push-prebuilt-image-openshift-dev: set-openshift-image-params openshift-user _push-image-openshift-dev
+	@echo "Pushed a pre-built image to image registry"
+
+.PHONY: push-openshift-dev
+push-openshift-dev: set-openshift-image-params openshift-user image _push-image-openshift-dev
+	@echo "Built image and pushed to image registry"
 .PHONY: do-deploy-openshift-dev
 do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 	@echo "Deploying"
@@ -709,6 +716,9 @@ do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 .PHONY: deploy-openshift-dev
 deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev
 
+# Deploy pre-built image for development into OpenShift
+.PHONY: deploy-prebuilt-openshift-dev
+deploy-prebuilt-openshift-dev: push-prebuilt-image-openshift-dev do-deploy-openshift-dev
 
 # Deploy the operator into the current kubectl context.
 .PHONY: deploy
