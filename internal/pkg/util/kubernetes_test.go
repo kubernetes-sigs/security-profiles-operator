@@ -182,11 +182,11 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 
 	mappingJSON := `[
 		{
-			"regex": "(.*)(CoreOS).*(41[0-2]\\.[0-9]+)\\..*",
+			"regex": "(.*)(CoreOS).*(41[0-2]\\.[0-9]+)\\..*|(.*)(Red Hat Enterprise Linux release)\\s+8\\.[0-9]+",
 			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL8"
 		},
 		{
-			"regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*",
+			"regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux release)\\s+9\\.[0-9]+",
 			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL9"
 		},
 		{
@@ -300,6 +300,28 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 				},
 			},
 			want: "RELATED_IMAGE_SELINUXD_EL9",
+		},
+		{
+			name: "Direct RHEL 9.6 without CoreOS",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Red Hat Enterprise Linux release 9.6 (Plow)",
+					},
+				},
+			},
+			want: "RELATED_IMAGE_SELINUXD_EL9",
+		},
+		{
+			name: "Direct RHEL 8.6 without CoreOS",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Red Hat Enterprise Linux release 8.6 (Plow)",
+					},
+				},
+			},
+			want: "RELATED_IMAGE_SELINUXD_EL8",
 		},
 	}
 
