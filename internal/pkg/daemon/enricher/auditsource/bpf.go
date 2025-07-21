@@ -17,10 +17,10 @@ type BpfSource struct {
 	logger logr.Logger
 }
 
-func NewBpfSource(logger logr.Logger) *BpfSource {
+func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
 	return &BpfSource{
 		logger: logger,
-	}
+	}, nil
 }
 
 func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
