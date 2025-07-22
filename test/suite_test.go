@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/release-utils/util"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -774,11 +773,11 @@ func (e *e2e) logEnricherOnlyTestCase() {
 }
 
 func (e *e2e) logEnricherBpfOnlyTestCase() {
-	if auditsource.BpfSupported() != nil {
+	if !e.bpfRecorderEnabled {
 		e.T().Skip("Skipping log-enricher related test (BPF source unsupported)")
 	}
 
-	e.enableBpfLogEnricherInSpod()
+	e.enableLogEnricherBpfInSpod()
 }
 
 func (e *e2e) logEnricherOnlyTestCaseWithFilters(enricherFilterJsonStr string) {
@@ -807,7 +806,7 @@ func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string,
 	e.enableJsonEnricherInSpodFileOptions(jsonLogFileName, enricherFilterJsonStr)
 }
 
-func (e *e2e) enableBpfLogEnricherInSpod() {
+func (e *e2e) enableLogEnricherBpfInSpod() {
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
 		`{"spec":{"logEnricherSource": "bpf"}}`, "--type=merge")
 }
