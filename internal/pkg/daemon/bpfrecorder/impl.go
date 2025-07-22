@@ -27,11 +27,11 @@ import (
 	"os"
 	"runtime"
 	"strconv"
-	"syscall"
 	"unsafe"
 
 	"github.com/acobaugh/osrelease"
 	bpf "github.com/aquasecurity/libbpfgo"
+	"github.com/blang/semver/v4"
 	"github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
@@ -39,6 +39,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
@@ -67,7 +68,7 @@ type impl interface {
 	Stat(string) (os.FileInfo, error)
 	Unmarshal([]byte, interface{}) error
 	ReadOSRelease() (map[string]string, error)
-	Uname(*syscall.Utsname) error
+	Uname() (types.Arch, *semver.Version, error)
 	TempFile(string, string) (*os.File, error)
 	Write(*os.File, []byte) (int, error)
 	ContainerIDForPID(*ttlcache.Cache[string, string], int) (string, error)
@@ -163,8 +164,8 @@ func (d *defaultImpl) ReadOSRelease() (map[string]string, error) {
 	return osrelease.Read()
 }
 
-func (d *defaultImpl) Uname(buf *syscall.Utsname) error {
-	return syscall.Uname(buf)
+func (d *defaultImpl) Uname() (types.Arch, *semver.Version, error) {
+	return util.Uname()
 }
 
 func (d *defaultImpl) TempFile(dir, pattern string) (*os.File, error) {

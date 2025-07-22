@@ -718,14 +718,12 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 
 	b.logger.Info(fmt.Sprintf("OS version found in btf map: %s", osVersion))
 
-	uname := syscall.Utsname{}
-	if err := b.Uname(&uname); err != nil {
+	arch, version, err := b.Uname()
+	if err != nil {
 		return "", fmt.Errorf("uname syscall failed: %w", err)
 	}
 
-	arch := types.Arch(UnameMachineToString(&uname))
 	btfArch, ok := btfOsVersion[arch]
-
 	if !ok {
 		b.logger.Info(fmt.Sprintf("Architecture not found in btf map: %s", arch))
 
@@ -734,25 +732,16 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 
 	b.logger.Info(fmt.Sprintf("Architecture found in btf map: %s", arch))
 
-	release := UnameReleaseToString(&uname)
-
-	version, err := semver.Parse(release)
-	if err != nil {
-		return "", fmt.Errorf("unable to parse semver for release %s: %w", release, err)
-	}
-
-	version.Pre = nil
-
 	const (
 		lowestMajor = 5
 		lowestMinor = 8
 	)
 
 	if version.LT(semver.Version{Major: lowestMajor, Minor: lowestMinor}) {
-		return "", fmt.Errorf("unsupported kernel version %s: at least Linux 5.8 is required", release)
+		return "", fmt.Errorf("unsupported kernel version %s: at least Linux 5.8 is required", version)
 	}
 
-	kernel := types.Kernel(release)
+	kernel := types.Kernel(version.String())
 	btfBytes, ok := btfArch[kernel]
 
 	if !ok {
