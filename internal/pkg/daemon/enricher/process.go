@@ -99,7 +99,7 @@ func populateProcessCache(
 			procInfo.ExecRequestId = &reqId
 			reqIdEnvFound = true
 		} else {
-			errs = append(errs, fmt.Errorf("failed to get requestId for pid from env %d: %w", pid, err))
+			errs = append(errs, fmt.Errorf("failed to get requestId for pid from env %d", pid))
 		}
 	} else {
 		errs = append(errs, fmt.Errorf("failed to get env for pid %d: %w", pid, err))
@@ -112,7 +112,7 @@ func populateProcessCache(
 		if ok {
 			procInfo.ExecRequestId = &reqId
 		} else {
-			errs = append(errs, fmt.Errorf("failed to get UID from cmdLine %d: %w", pid, err))
+			errs = append(errs, fmt.Errorf("failed to get requestId for pid from env %d", pid))
 		}
 	}
 

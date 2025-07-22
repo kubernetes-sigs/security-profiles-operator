@@ -881,6 +881,11 @@ Once it's installed, you can enable the JSON log enricher with this command:
 kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true}}'
 ```
 
+The audit JSON log enricher uses eBPF as a supplemental data source. While processing auditd logs from
+`/var/log/audit/audit.log`, the enricher attempts to fetch ephemeral data from `/proc/<pid>` directories. Due to a 
+race condition, these files might be deleted before they can be read. To ensure data completeness, the enricher falls 
+back to fetching the necessary information from eBPF whenever it's not found in `/proc/<pid>`.   
+
 #### Audit JSON Log Enricher Configuration
 Here's how to set up and fine-tune your audit logs.
 
