@@ -101,6 +101,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseLogEnricher,
 		},
 		{
+			"Log Enricher (BPF Source)",
+			e.testCaseLogEnricherBpf,
+		},
+		{
 			"JSON Enricher",
 			e.testCaseJsonEnricher,
 		},
