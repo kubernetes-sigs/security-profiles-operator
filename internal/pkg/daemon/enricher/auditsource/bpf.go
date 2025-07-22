@@ -25,15 +25,37 @@ import (
 	"time"
 
 	"github.com/aquasecurity/libbpfgo"
+	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
+
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
+
+func BpfSupported() error {
+	_, version, err := util.Uname()
+	if err != nil {
+		return fmt.Errorf("uname failed: %w", err)
+	}
+
+	minVersion := semver.Version{Major: 5, Minor: 19}
+
+	if version.LT(minVersion) {
+		return fmt.Errorf("unsupported kernel version: need %s but got %s", minVersion, version)
+	}
+
+	return nil
+}
 
 type BpfSource struct {
 	logger logr.Logger
 }
 
 func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
+	if err := BpfSupported(); err != nil {
+		return nil, err
+	}
+
 	return &BpfSource{
 		logger: logger,
 	}, nil

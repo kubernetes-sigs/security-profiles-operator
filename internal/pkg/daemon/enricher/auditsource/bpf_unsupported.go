@@ -25,5 +25,9 @@ import (
 )
 
 func NewBpfSource(logger logr.Logger) (AuditLineSource, error) {
-	return nil, errors.New("BPF-based log enricher is unavailable on this platform")
+	return nil, BpfSupported()
+}
+
+func BpfSupported() error {
+	return errors.New("BPF-based log enricher is unavailable on this platform")
 }
