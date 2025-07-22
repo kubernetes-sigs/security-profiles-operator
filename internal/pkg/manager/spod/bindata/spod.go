@@ -64,6 +64,7 @@ const (
 	DefaultHostProcPath                              = "/proc"
 	SelinuxContainerName                             = "selinuxd"
 	LogEnricherContainerName                         = "log-enricher"
+	DefaultLogEnricherSource                         = "auditd"
 	JsonEnricherContainerName                        = "json-enricher"
 	BpfRecorderContainerName                         = "bpf-recorder"
 	NonRootEnablerContainerName                      = "non-root-enabler"
@@ -117,6 +118,7 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		DisableOCIArtifactSignatureVerification: false,
 		JsonEnricherFilters:                     "",
 		LogEnricherFilters:                      "",
+		LogEnricherSource:                       DefaultLogEnricherSource,
 	},
 }
 
