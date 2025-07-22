@@ -38,6 +38,7 @@ func Uname() (types.Arch, *semver.Version, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("unable to parse semver for release %s: %w", release, err)
 	}
+
 	version.Pre = nil
 
 	return arch, &version, nil

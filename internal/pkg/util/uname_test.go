@@ -29,5 +29,5 @@ func TestUname(t *testing.T) {
 	arch, version, err := Uname()
 	require.NoError(t, err)
 	require.True(t, version.GT(semver.Version{Major: 0, Minor: 0, Patch: 0}))
-	require.NotEqual(t, "", arch)
+	require.NotEmpty(t, arch)
 }
