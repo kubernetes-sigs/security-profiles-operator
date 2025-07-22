@@ -1,5 +1,5 @@
-//go:build linux && !no_bpf && !ppc64le && !s390x
-// +build linux,!no_bpf,!ppc64le,!s390x
+//go:build linux && !ppc64le && !s390x
+// +build linux,!ppc64le,!s390x
 
 /*
 Copyright 2025 The Kubernetes Authors.
