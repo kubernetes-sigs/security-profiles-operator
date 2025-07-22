@@ -2,7 +2,7 @@
 // +build linux,!no_bpf,!ppc64le,!s390x
 
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright 2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,20 +17,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package bpfrecorder
+package util
 
 import (
 	"strings"
 	"syscall"
 )
 
-// UnameMachineToString converts uname.Machine to a string for amd64.
-func UnameMachineToString(uname *syscall.Utsname) string {
+// unameMachineToString converts uname.Machine to a string for amd64.
+func unameMachineToString(uname *syscall.Utsname) string {
 	return toStringInt8(uname.Machine)
 }
 
-// UnameReleaseToString converts uname.Release to a string for amd64.
-func UnameReleaseToString(uname *syscall.Utsname) string {
+// unameReleaseToString converts uname.Release to a string for amd64.
+func unameReleaseToString(uname *syscall.Utsname) string {
 	return toStringInt8(uname.Release)
 }
 

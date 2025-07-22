@@ -27,18 +27,17 @@ import (
 	"errors"
 	"os"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/aquasecurity/libbpfgo"
+	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-
 	api "sigs.k8s.io/security-profiles-operator/api/grpc/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
@@ -57,11 +56,6 @@ const (
 
 var (
 	errTest = errors.New("test")
-	machine = []int8{'x', '8', '6', '_', '6', '4'}
-	release = []int8{
-		'3', '.', '1', '0', '.', '0', '-', '1', '0', '6', '2', '.', '1',
-		'.', '1', '.', 'e', 'l', '7', '.', 'x', '8', '6', '_', '6', '4',
-	}
 
 	mntns uint32 = 1337
 )
@@ -292,12 +286,9 @@ func TestRun(t *testing.T) {
 				mock.ReadOSReleaseReturns(map[string]string{
 					"ID": "centos", "VERSION_ID": "7",
 				}, nil)
-				mock.UnameCalls(func(res *syscall.Utsname) error {
-					copy(res.Machine[:], machine)
-					copy(res.Release[:], release)
-
-					return nil
-				})
+				mock.UnameReturns("x86_64", &semver.Version{
+					Major: 3, Minor: 10, Patch: 0,
+				}, nil)
 				mock.TempFileCalls(os.CreateTemp)
 			},
 			assert: func(err error) {
@@ -312,12 +303,9 @@ func TestRun(t *testing.T) {
 				mock.ReadOSReleaseReturns(map[string]string{
 					"ID": "centos", "VERSION_ID": "7",
 				}, nil)
-				mock.UnameCalls(func(res *syscall.Utsname) error {
-					copy(res.Machine[:], machine)
-					copy(res.Release[:], release)
-
-					return nil
-				})
+				mock.UnameReturns("x86_64", &semver.Version{
+					Major: 3, Minor: 10, Patch: 0,
+				}, nil)
 				mock.WriteReturns(0, errTest)
 			},
 			assert: func(err error) {
@@ -332,12 +320,9 @@ func TestRun(t *testing.T) {
 				mock.ReadOSReleaseReturns(map[string]string{
 					"ID": "centos", "VERSION_ID": "7",
 				}, nil)
-				mock.UnameCalls(func(res *syscall.Utsname) error {
-					copy(res.Machine[:], machine)
-					copy(res.Release[:], release)
-
-					return nil
-				})
+				mock.UnameReturns("x86_64", &semver.Version{
+					Major: 3, Minor: 10, Patch: 0,
+				}, nil)
 				mock.TempFileReturns(nil, errTest)
 			},
 			assert: func(err error) {
@@ -352,11 +337,9 @@ func TestRun(t *testing.T) {
 				mock.ReadOSReleaseReturns(map[string]string{
 					"ID": "centos", "VERSION_ID": "7",
 				}, nil)
-				mock.UnameCalls(func(res *syscall.Utsname) error {
-					copy(res.Machine[:], machine)
-
-					return nil
-				})
+				mock.UnameReturns("x86_64", &semver.Version{
+					Major: 1, Minor: 2, Patch: 3,
+				}, nil)
 			},
 			assert: func(err error) {
 				require.Error(t, err)
@@ -383,7 +366,7 @@ func TestRun(t *testing.T) {
 				mock.ReadOSReleaseReturns(map[string]string{
 					"ID": "centos", "VERSION_ID": "7",
 				}, nil)
-				mock.UnameReturns(errTest)
+				mock.UnameReturns("", nil, errTest)
 			},
 			assert: func(err error) {
 				require.Error(t, err)

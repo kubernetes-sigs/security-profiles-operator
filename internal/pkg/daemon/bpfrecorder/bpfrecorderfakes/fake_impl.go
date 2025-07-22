@@ -25,9 +25,9 @@ import (
 	"net"
 	"os"
 	"sync"
-	"syscall"
 
 	"github.com/aquasecurity/libbpfgo"
+	semver "github.com/blang/semver/v4"
 	ttlcache "github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	api_metrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 )
 
 type FakeImpl struct {
@@ -480,16 +481,19 @@ type FakeImpl struct {
 		result1 *os.File
 		result2 error
 	}
-	UnameStub        func(*syscall.Utsname) error
+	UnameStub        func() (types.Arch, *semver.Version, error)
 	unameMutex       sync.RWMutex
 	unameArgsForCall []struct {
-		arg1 *syscall.Utsname
 	}
 	unameReturns struct {
-		result1 error
+		result1 types.Arch
+		result2 *semver.Version
+		result3 error
 	}
 	unameReturnsOnCall map[int]struct {
-		result1 error
+		result1 types.Arch
+		result2 *semver.Version
+		result3 error
 	}
 	UnmarshalStub        func([]byte, interface{}) error
 	unmarshalMutex       sync.RWMutex
@@ -2736,23 +2740,22 @@ func (fake *FakeImpl) TempFileReturnsOnCall(i int, result1 *os.File, result2 err
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) Uname(arg1 *syscall.Utsname) error {
+func (fake *FakeImpl) Uname() (types.Arch, *semver.Version, error) {
 	fake.unameMutex.Lock()
 	ret, specificReturn := fake.unameReturnsOnCall[len(fake.unameArgsForCall)]
 	fake.unameArgsForCall = append(fake.unameArgsForCall, struct {
-		arg1 *syscall.Utsname
-	}{arg1})
+	}{})
 	stub := fake.UnameStub
 	fakeReturns := fake.unameReturns
-	fake.recordInvocation("Uname", []interface{}{arg1})
+	fake.recordInvocation("Uname", []interface{}{})
 	fake.unameMutex.Unlock()
 	if stub != nil {
-		return stub(arg1)
+		return stub()
 	}
 	if specificReturn {
-		return ret.result1
+		return ret.result1, ret.result2, ret.result3
 	}
-	return fakeReturns.result1
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
 func (fake *FakeImpl) UnameCallCount() int {
@@ -2761,40 +2764,39 @@ func (fake *FakeImpl) UnameCallCount() int {
 	return len(fake.unameArgsForCall)
 }
 
-func (fake *FakeImpl) UnameCalls(stub func(*syscall.Utsname) error) {
+func (fake *FakeImpl) UnameCalls(stub func() (types.Arch, *semver.Version, error)) {
 	fake.unameMutex.Lock()
 	defer fake.unameMutex.Unlock()
 	fake.UnameStub = stub
 }
 
-func (fake *FakeImpl) UnameArgsForCall(i int) *syscall.Utsname {
-	fake.unameMutex.RLock()
-	defer fake.unameMutex.RUnlock()
-	argsForCall := fake.unameArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) UnameReturns(result1 error) {
+func (fake *FakeImpl) UnameReturns(result1 types.Arch, result2 *semver.Version, result3 error) {
 	fake.unameMutex.Lock()
 	defer fake.unameMutex.Unlock()
 	fake.UnameStub = nil
 	fake.unameReturns = struct {
-		result1 error
-	}{result1}
+		result1 types.Arch
+		result2 *semver.Version
+		result3 error
+	}{result1, result2, result3}
 }
 
-func (fake *FakeImpl) UnameReturnsOnCall(i int, result1 error) {
+func (fake *FakeImpl) UnameReturnsOnCall(i int, result1 types.Arch, result2 *semver.Version, result3 error) {
 	fake.unameMutex.Lock()
 	defer fake.unameMutex.Unlock()
 	fake.UnameStub = nil
 	if fake.unameReturnsOnCall == nil {
 		fake.unameReturnsOnCall = make(map[int]struct {
-			result1 error
+			result1 types.Arch
+			result2 *semver.Version
+			result3 error
 		})
 	}
 	fake.unameReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
+		result1 types.Arch
+		result2 *semver.Version
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *FakeImpl) Unmarshal(arg1 []byte, arg2 interface{}) error {
