@@ -1108,6 +1108,11 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
+              logEnricherSource:
+                description: |-
+                  logEnricherSource determines which source should be used for audit logs.
+                  This defaults to `auditd`, but can be switched to `bpf` on systems where auditd is unavailable.
+                type: string
               priorityClassName:
                 default: system-node-critical
                 description: PriorityClassName if defined, indicates the spod pod

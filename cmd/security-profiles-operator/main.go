@@ -100,6 +100,7 @@ const (
 	auditLogMaxBackupParam   string = "audit-log-maxbackup"
 	auditLogMaxAgeParam      string = "audit-log-maxage"
 	enricherFiltersJsonParam string = "enricher-filters-json"
+	enricherLogSourceParam   string = "enricher-log-source"
 )
 
 var (
@@ -259,6 +260,11 @@ func main() {
 					Name:  enricherFiltersJsonParam,
 					Value: "",
 					Usage: "Log Enricher filters JSON.",
+				},
+				&cli.StringFlag{
+					Name:  enricherLogSourceParam,
+					Value: "",
+					Usage: "Log source to ingest (`bpf` or `auditd`)",
 				},
 			},
 			Action: func(ctx *cli.Context) error {
@@ -705,6 +711,7 @@ func runLogEnricher(ctx *cli.Context, info *version.Info) error {
 
 	opts := &enricher.LogEnricherOptions{
 		EnricherFiltersJson: ctx.String(enricherFiltersJsonParam),
+		AuditSource:         ctx.String(enricherLogSourceParam),
 	}
 
 	logEnricher, err := enricher.New(ctrl.Log.WithName(component), opts)
