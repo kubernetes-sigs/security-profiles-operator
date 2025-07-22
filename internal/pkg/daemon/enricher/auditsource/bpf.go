@@ -1,5 +1,21 @@
 //go:build linux && !no_bpf && (amd64 || arm64)
 
+/*
+Copyright 2025 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package auditsource
 
 import (
@@ -25,6 +41,7 @@ func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
 
 func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 	b.logger.Info("Loading bpf module...")
+
 	module, err := libbpfgo.NewModuleFromBufferArgs(libbpfgo.NewModuleArgs{
 		BPFObjBuff: AuditProgram,
 		BPFObjName: "enricher.bpf.o",
@@ -32,18 +49,22 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load bpf module: %w", err)
 	}
+
 	if err := module.BPFLoadObject(); err != nil {
 		return nil, fmt.Errorf("load bpf object: %w", err)
 	}
+
 	if err := module.AttachPrograms(); err != nil {
 		return nil, fmt.Errorf("load bpf object: %w", err)
 	}
 
 	events := make(chan []byte)
+
 	buf, err := module.InitRingBuf("audit_log", events)
 	if err != nil {
 		return nil, fmt.Errorf("init ringbuf: %w", err)
 	}
+
 	buf.Poll(300)
 
 	log := make(chan *types.AuditLine)
@@ -82,10 +103,12 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 
 			log <- &line
 		}
+
 		close(log)
 	}()
 
 	b.logger.Info("BPF module successfully loaded.")
+
 	return log, nil
 }
 
