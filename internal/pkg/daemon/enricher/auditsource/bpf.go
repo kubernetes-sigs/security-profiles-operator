@@ -21,6 +21,7 @@ package auditsource
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 
@@ -92,11 +93,19 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 	log := make(chan *types.AuditLine)
 	go func() {
 		for val := range events {
+			if len(val) < 14 {
+				b.logger.Error(errors.New("received invalid audit log message"), "val", val)
+				break
+			}
 			mntns := binary.LittleEndian.Uint32(val[0:4])
 			pid := int(binary.LittleEndian.Uint32(val[4:8]))
 			request := binary.LittleEndian.Uint32(val[8:12])
 			complain := val[12]
 			strs := bytes.Split(val[13:], []byte("\x00"))
+			if len(strs) < 3 {
+				b.logger.Error(errors.New("received invalid audit log message"), "val", val)
+				break
+			}
 			op := string(strs[0])
 			comm := string(strs[1])
 			name := string(strs[2])
