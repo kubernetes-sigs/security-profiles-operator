@@ -130,12 +130,12 @@ func TestGetCertManagerResources_PreservesOtherProperties(t *testing.T) {
 	require.Equal(t, metricsCert.Spec.IssuerRef, resources.metricsCert.Spec.IssuerRef)
 	require.Equal(t, metricsCert.Spec.SecretName, resources.metricsCert.Spec.SecretName)
 	require.Equal(t, metricsCert.Spec.Subject, resources.metricsCert.Spec.Subject)
-	require.Equal(t, metricsCert.ObjectMeta.Labels, resources.metricsCert.ObjectMeta.Labels)
+	require.Equal(t, metricsCert.Labels, resources.metricsCert.Labels)
 
 	require.Equal(t, webhookCert.Spec.IssuerRef, resources.webhookCert.Spec.IssuerRef)
 	require.Equal(t, webhookCert.Spec.SecretName, resources.webhookCert.Spec.SecretName)
-	require.Equal(t, webhookCert.ObjectMeta.Labels, resources.webhookCert.ObjectMeta.Labels)
+	require.Equal(t, webhookCert.Labels, resources.webhookCert.Labels)
 
 	require.Equal(t, issuer.Spec, resources.issuer.Spec)
-	require.Equal(t, issuer.ObjectMeta.Labels, resources.issuer.ObjectMeta.Labels)
+	require.Equal(t, issuer.Labels, resources.issuer.Labels)
 }
