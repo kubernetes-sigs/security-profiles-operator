@@ -71,6 +71,12 @@ dependencies:
     - path: hack/ci/Vagrantfile-fedora
       match: fedora
 
+  - name: e2e-fedora-image-url
+    version: 39-1.5
+    refPaths:
+      - path: hack/ci/Vagrantfile-fedora
+        match: vm.box_url
+
   - name: e2e-ubuntu
     version: ubuntu2204
     refPaths:
