@@ -117,9 +117,20 @@ func GetCertManagerResources(namespace string) *CertManagerResources {
 
 	mc := metricsCert.DeepCopy()
 	mc.Namespace = namespace
+	// Update DNS names to use the correct namespace
+	mc.Spec.DNSNames = []string{
+		"metrics." + namespace,
+		"metrics." + namespace + ".svc",
+		"metrics." + namespace + ".svc.cluster.local",
+	}
 
 	wc := webhookCert.DeepCopy()
 	wc.Namespace = namespace
+	// Update DNS names to use the correct namespace
+	wc.Spec.DNSNames = []string{
+		"webhook-service." + namespace + ".svc",
+		"webhook-service." + namespace + ".svc.cluster.local",
+	}
 
 	return &CertManagerResources{
 		issuer:      i,
