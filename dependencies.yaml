@@ -90,7 +90,7 @@ dependencies:
       match: tag
 
   - name: nix
-    version: 2.25.0
+    version: 2.30.1
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION

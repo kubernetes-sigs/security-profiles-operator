@@ -7,7 +7,7 @@ on:
     types: [published]
   pull_request:
 env:
-  NIX_VERSION: '2.25.0'
+  NIX_VERSION: '2.30.1'
   BOM_VERSION: v0.6.0
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
