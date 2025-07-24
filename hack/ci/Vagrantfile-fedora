@@ -4,17 +4,18 @@
 # Vagrant box for testing
 Vagrant.configure("2") do |config|
   config.vm.box = "fedora/41-cloud-base"
+  config.vm.box_url = "override-by-provider"
   memory = 8192
   cpus = 4
 
-  config.vm.provider :virtualbox do |v|
-    v.customize ["modifyvm", :id, "--cpus", "4"]
-    v.customize ["modifyvm", :id, "--memory", "8192"]
-    v.memory = 8192
-    v.cpus = 4
+  config.vm.provider :virtualbox do |v, override|
+    override.vm.box_url = "https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Vagrant-VirtualBox-41-1.4.x86_64.vagrant.virtualbox.box"
+    v.memory = memory
+    v.cpus = cpus
   end
 
-  config.vm.provider :libvirt do |v|
+  config.vm.provider :libvirt do |v, override|
+    override.vm.box_url = "https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Vagrant-libvirt-41-1.4.x86_64.vagrant.libvirt.box"
     v.memory = memory
     v.cpus = cpus
   end
