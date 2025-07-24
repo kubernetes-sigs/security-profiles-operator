@@ -317,7 +317,7 @@ define vagrant-up
 	ln -sf hack/ci/Vagrantfile-$(1) Vagrantfile
 	# Retry in case provisioning failed because of some temporarily unavailable
 	# remote resource (like the VM image)
-	vagrant up
+	VAGRANT_LOG=debug vagrant up
 endef
 
 .PHONY: vagrant-up-fedora
