@@ -8,6 +8,8 @@ Vagrant.configure("2") do |config|
   cpus = 4
 
   config.vm.provider :virtualbox do |v|
+    v.customize ["modifyvm", :id, "--cpus", "4"]
+    v.customize ["modifyvm", :id, "--memory", "8192"]
     v.memory = 8192
     v.cpus = 4
   end
