@@ -173,6 +173,7 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewBpfProcessCache() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
 
