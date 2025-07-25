@@ -607,7 +607,7 @@ func (p *BPFProg) AttachIter(opts IterOpts) (*BPFLink, error) {
 // AttachUprobe attaches the BPFProgram to entry of the symbol in the library or binary at 'path'
 // which can be relative or absolute. A pid can be provided to attach to, or -1 can be specified
 // to attach to all processes
-func (p *BPFProg) AttachUprobe(pid int, path string, offset uint32) (*BPFLink, error) {
+func (p *BPFProg) AttachUprobe(pid int, path string, offset uint64) (*BPFLink, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -619,7 +619,7 @@ func (p *BPFProg) AttachUprobe(pid int, path string, offset uint32) (*BPFLink, e
 // AttachURetprobe attaches the BPFProgram to exit of the symbol in the library or binary at 'path'
 // which can be relative or absolute. A pid can be provided to attach to, or -1 can be specified
 // to attach to all processes
-func (p *BPFProg) AttachURetprobe(pid int, path string, offset uint32) (*BPFLink, error) {
+func (p *BPFProg) AttachURetprobe(pid int, path string, offset uint64) (*BPFLink, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -656,7 +656,7 @@ func (p *BPFProg) AttachURetprobeMulti(pid int, path string, offsets, cookies []
 	return doAttachUprobeMulti(p, true, pid, absPath, offsets, cookies)
 }
 
-func doAttachUprobe(prog *BPFProg, isUretprobe bool, pid int, path string, offset uint32) (*BPFLink, error) {
+func doAttachUprobe(prog *BPFProg, isUretprobe bool, pid int, path string, offset uint64) (*BPFLink, error) {
 	pathC := C.CString(path)
 	defer C.free(unsafe.Pointer(pathC))
 
