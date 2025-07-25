@@ -35,7 +35,7 @@ import (
 
 const (
 	processCacheTimeout = time.Minute
-	// These have to match the C data structure in recorder.bpf.c
+	// These have to match the C data structure in recorder.bpf.c.
 	maxArgs        int = 20
 	maxEnv         int = 50
 	maxFileNameLen int = 128

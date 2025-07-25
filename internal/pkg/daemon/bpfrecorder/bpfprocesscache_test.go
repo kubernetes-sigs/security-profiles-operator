@@ -28,6 +28,7 @@ import (
 	"github.com/aquasecurity/libbpfgo"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/bpfrecorderfakes"
 )
 
@@ -51,7 +52,7 @@ func getEventDataFileName() []byte {
 	return eventBytes
 }
 
-// Test Constants must match C definitions so that it can test the real code changes
+// Test Constants must match C definitions so that it can test the real code changes.
 const (
 	MAX_ARGS         = 20
 	MAX_ENV          = 50
@@ -125,6 +126,7 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 		pid        int
 		eventBytes []byte
 	}
+
 	tests := []struct {
 		name        string
 		args        args
@@ -155,6 +157,7 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 			wantErr: false,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -182,6 +185,7 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 			gotCmdLine, err := b.GetCmdLine(tt.args.pid)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetCmdLine() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
 
@@ -192,6 +196,7 @@ func TestBpfProcessCache_GetCmdLineEnv(t *testing.T) {
 			gotEnv, err := b.GetEnv(tt.args.pid)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetEnv() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
 
