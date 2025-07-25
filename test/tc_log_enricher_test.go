@@ -23,6 +23,11 @@ import (
 	"time"
 )
 
+func (e *e2e) testCaseLogEnricherBpf(args []string) {
+	e.logEnricherBpfOnlyTestCase()
+	e.testCaseLogEnricher(args)
+}
+
 func (e *e2e) testCaseLogEnricher([]string) {
 	e.logEnricherOnlyTestCase()
 

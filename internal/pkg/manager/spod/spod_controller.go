@@ -758,6 +758,15 @@ func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodv1alpha1.SecurityProfi
 			"--enricher-filters-json="+cfg.Spec.LogEnricherFilters,
 		)
 	}
+
+	if cfg.Spec.LogEnricherSource != "" {
+		r.log.Info("Setting LogEnricherSource", "LogEnricherSource", cfg.Spec.LogEnricherSource)
+
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
+			"--enricher-log-source="+cfg.Spec.LogEnricherSource,
+		)
+	}
 }
 
 func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {

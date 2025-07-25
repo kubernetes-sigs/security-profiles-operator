@@ -772,6 +772,14 @@ func (e *e2e) logEnricherOnlyTestCase() {
 	e.enableLogEnricherInSpod()
 }
 
+func (e *e2e) logEnricherBpfOnlyTestCase() {
+	if !e.bpfRecorderEnabled {
+		e.T().Skip("Skipping log-enricher related test (BPF source unsupported)")
+	}
+
+	e.enableLogEnricherBpfInSpod()
+}
+
 func (e *e2e) logEnricherOnlyTestCaseWithFilters(enricherFilterJsonStr string) {
 	if !e.logEnricherEnabled {
 		e.T().Skip("Skipping log-enricher related test")
@@ -796,6 +804,11 @@ func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string,
 	}
 
 	e.enableJsonEnricherInSpodFileOptions(jsonLogFileName, enricherFilterJsonStr)
+}
+
+func (e *e2e) enableLogEnricherBpfInSpod() {
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+		`{"spec":{"logEnricherSource": "bpf"}}`, "--type=merge")
 }
 
 func (e *e2e) enableLogEnricherInSpod() {

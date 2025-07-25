@@ -372,6 +372,10 @@ type SPODSpec struct {
 	// +kubebuilder:default=""
 	LogEnricherFilters string `json:"logEnricherFilters,omitempty"`
 
+	// logEnricherSource determines which source should be used for audit logs.
+	// This defaults to `auditd`, but can be switched to `bpf` on systems where auditd is unavailable.
+	LogEnricherSource string `json:"logEnricherSource,omitempty"`
+
 	// JsonEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
 	// for the json-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
 	// +optional
