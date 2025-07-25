@@ -9,7 +9,9 @@ import "C"
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"syscall"
+	"unsafe"
 )
 
 //
@@ -17,18 +19,17 @@ import (
 //
 
 type RingBuffer struct {
-	rb     *C.struct_ring_buffer
-	bpfMap *BPFMap
-	slots  []uint
-	stop   chan struct{}
-	closed bool
-	wg     sync.WaitGroup
+	rb       *C.struct_ring_buffer
+	bpfMap   *BPFMap
+	slots    []uint
+	closed   bool
+	wg       sync.WaitGroup
+	stopFlag uint32 // use with atomic operations
 }
 
 // Poll will wait until timeout in milliseconds to gather
 // data from the ring buffer.
 func (rb *RingBuffer) Poll(timeout int) {
-	rb.stop = make(chan struct{})
 	rb.wg.Add(1)
 	go rb.poll(timeout)
 }
@@ -39,12 +40,12 @@ func (rb *RingBuffer) Start() {
 }
 
 func (rb *RingBuffer) Stop() {
-	if rb.stop == nil {
+	if atomic.LoadUint32(&rb.stopFlag) == 1 {
 		return
 	}
 
 	// Signal the poll goroutine to exit
-	close(rb.stop)
+	atomic.StoreUint32(&rb.stopFlag, 1)
 
 	// The event channel should be drained here since the consumer
 	// may have stopped at this point. Failure to drain it will
@@ -69,9 +70,6 @@ func (rb *RingBuffer) Stop() {
 		eventChan := eventChannels.get(slot).(chan []byte)
 		close(eventChan)
 	}
-
-	// Reset pb.stop to allow multiple safe calls to Stop()
-	rb.stop = nil
 }
 
 func (rb *RingBuffer) Close() {
@@ -87,32 +85,13 @@ func (rb *RingBuffer) Close() {
 	rb.closed = true
 }
 
-func (rb *RingBuffer) isStopped() bool {
-	select {
-	case <-rb.stop:
-		return true
-	default:
-		return false
-	}
-}
-
 func (rb *RingBuffer) poll(timeout int) error {
 	defer rb.wg.Done()
 
-	for {
-		retC := C.ring_buffer__poll(rb.rb, C.int(timeout))
-		if rb.isStopped() {
-			break
-		}
-
-		if retC < 0 {
-			errno := syscall.Errno(-retC)
-			if errno == syscall.EINTR {
-				continue
-			}
-
-			return fmt.Errorf("error polling ring buffer: %w", errno)
-		}
+	stopFlag := (*C.uint32_t)(unsafe.Pointer(&rb.stopFlag))
+	ret := C.cgo_ring_buffer__poll(rb.rb, C.int(timeout), stopFlag)
+	if ret < 0 {
+		return fmt.Errorf("error polling perf buffer: %w", syscall.Errno(-ret))
 	}
 
 	return nil

@@ -5,7 +5,7 @@ go 1.24.1
 require (
 	dario.cat/mergo v1.0.2
 	github.com/acobaugh/osrelease v0.1.0
-	github.com/aquasecurity/libbpfgo v0.9.0-libbpf-1.5.1
+	github.com/aquasecurity/libbpfgo v0.9.1-libbpf-1.5.1
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cert-manager/cert-manager v1.18.2
 	github.com/containers/common v0.64.0
