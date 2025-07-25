@@ -24,7 +24,7 @@ RUN apt-get update && \
 
 ENV USER=root
 
-ARG NIX_VERSION=2.25.0
+ARG NIX_VERSION=2.30.1
 
 RUN \
   export ARCH=x86_64 && \
