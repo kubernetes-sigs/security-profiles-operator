@@ -7,7 +7,13 @@ sortOptions:
   order: fifo
 
 resources:
-- ../../base
+- ../webhook
+- ../../base/profiles
+
+labels:
+- pairs: { app: "{{.Release.Name}}" }
+  includeSelectors: true
+
 patches:
   # Target all namespaced resources present in the project.
 - patch: |
@@ -25,36 +31,73 @@ patches:
   target:
     kind: (ClusterRoleBinding|RoleBinding)
 
-# TODO: get webhook deployment replicas from values file
 - patch: |
     - op: replace
       path: /spec/replicas
       value: "{{ .Values.replicaCount }}"
-  target:
-    kind: Deployment
-    name: security-profiles-operator-webhook
+  target: { kind: Deployment }
 
-# Labels and Annotations
-# Kustomize doesn't support adding items as first child to a list, like:
-# - op: add
-#    path: /metadata/labels
-#    value: "{{- include \"security-profiles-operator.labels\" . | nindent 4 }}"
-# So values will be hardcoded.
-- patch: |-
-    - op: add
-      path:  "/metadata/labels/helm.sh~1chart"
-      value: "security-profiles-operator"
-    - op: add
-      path:  "/metadata/labels/app.kubernetes.io~1managed-by"
-      value: "Helm"
-    - op: add
-      path:  "/metadata/annotations/meta.helm.sh~1release-name"
-      value: "security-profiles-operator"
-    - op: add
-      path:  "/metadata/annotations/meta.helm.sh~1release-namespace"
-      value: "{{ .Release.Namespace }}"
-  target:
-    kind: (ClusterRole|ClusterRoleBinding|ConfigMap|MutatingWebhookConfiguration|Namespace|Role|RoleBinding|Secret|ServiceAccount)
+# Respect fullnameOverride
+- target: { name: security-profiles-operator }
+  patch: |
+    - op: replace
+      path: /metadata/name
+      value: '{{ include "security-profiles-operator.name" . }}'
+- target: { name: security-profiles-operator-webhook }
+  patch: |
+    - op: replace
+      path: /metadata/name
+      value: &name '{{ include "security-profiles-operator.name" . }}-webhook'
+    - op: replace
+      path: /spec/template/metadata/labels/name
+      value: *name
+    - op: replace
+      path: /spec/selector/matchLabels/name
+      value: *name
+- target: { kind: Deployment, name: security-profiles-operator }
+  patch: |
+    - op: replace
+      path: /spec/template/metadata/labels/name
+      value: &name '{{ include "security-profiles-operator.name" . }}'
+    - op: replace
+      path: /spec/selector/matchLabels/name
+      value: *name
+- target: { name: webhook-service }
+  patch: |
+    - op: replace
+      path: /spec/selector/name
+      value: '{{ include "security-profiles-operator.name" . }}-webhook'
+
+# Fix webhook/cert namespaces
+- target: { name: webhook-cert }
+  patch: |
+    - op: replace
+      path: /spec/dnsNames
+      value:
+      - webhook-service.{{.Release.Namespace}}.svc
+      - webhook-service.{{.Release.Namespace}}.svc.cluster.local
+- target: { name: metrics-cert }
+  patch: |
+    - op: replace
+      path: /spec/dnsNames
+      value:
+      - metrics.{{.Release.Namespace}}
+      - metrics.{{.Release.Namespace}}.svc
+      - metrics.{{.Release.Namespace}}.svc.cluster.local
+- target: { name: spo-mutating-webhook-configuration }
+  patch: |
+    - op: replace
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+      value: "{{.Release.Namespace}}/webhook-cert"
+    - op: replace
+      path: /webhooks/0/objectSelector/matchExpressions/0/values
+      value: &val
+      - '{{ include "security-profiles-operator.name" . }}'
+      - '{{ include "security-profiles-operator.name" . }}-webhook'
+    - op: replace
+      path: /webhooks/1/objectSelector/matchExpressions/0/values
+      value: *val
+
 
 # Remove the namespace resource.
 - path: delete-ns.yaml
