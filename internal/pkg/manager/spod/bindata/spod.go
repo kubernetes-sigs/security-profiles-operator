@@ -636,15 +636,29 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								MountPath: filepath.Dir(config.SyslogLogPath),
 								ReadOnly:  true,
 							},
+							{
+								Name:      "sys-kernel-debug-volume",
+								MountPath: sysKernelDebugPath,
+								ReadOnly:  true,
+							},
+							{
+								Name:      "sys-kernel-tracing-volume",
+								MountPath: sysKernelTracingPath,
+								ReadOnly:  true,
+							},
 						},
 						SecurityContext: &corev1.SecurityContext{
 							ReadOnlyRootFilesystem: &truly,
-							Privileged:             &falsely,
+							Privileged:             &truly, // Required for BPF capability
 							RunAsUser:              &userRoot,
 							RunAsGroup:             &userRoot,
 							Capabilities: &corev1.Capabilities{
+								// If container in privileged these capabilities are redundant. Mentioned for clarity.
 								Add: []corev1.Capability{
-									"SYS_PTRACE", // Needed for /proc/PID/environ access on some systems (ex: Ubuntu)
+									"SYS_PTRACE",   // Needed for /proc/PID/environ access on some systems (ex: Ubuntu)
+									"SYS_RESOURCE", // Needed for BPF enablement
+									"BPF",          // Required to use BPF
+									"PERFMON",      // Required to attach tracepoint in BPF
 								},
 							},
 							SELinuxOptions: &corev1.SELinuxOptions{

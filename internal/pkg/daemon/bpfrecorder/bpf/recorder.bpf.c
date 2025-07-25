@@ -22,6 +22,7 @@
 #define EVENT_TYPE_APPARMOR_SOCKET 3
 #define EVENT_TYPE_APPARMOR_CAP 4
 #define EVENT_TYPE_CLEAR_MNTNS 5
+#define EVENT_TYPE_EXECVE_ENTER 6
 
 #define FLAG_READ 0x1
 #define FLAG_WRITE 0x2
@@ -61,7 +62,7 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 // toggle this for additional debug output
 #define trace_hook(...)
-// #define trace_hook(...) if(get_mntns()) { bpf_printk(__VA_ARGS__) }
+// #define trace_hook(...) if(get_mntns()) { bpf_printk(__VA_ARGS__); }
 
 // are we currently recording?
 // If yes, the only map element is set to true.
@@ -115,6 +116,14 @@ struct {
     __uint(max_entries, 1 << 24);
 } events SEC(".maps");
 
+// Max number of arguments/env vars to capture
+#define MAX_ARGS 20
+#define MAX_ENV 50
+// Max length for each argument/env var string
+#define MAX_FILENAME_LEN 128
+#define MAX_ARG_LEN 64
+#define MAX_ENV_LEN 64
+
 typedef struct __attribute__((__packed__)) event_data {
     u32 pid;
     u32 mntns;
@@ -122,6 +131,20 @@ typedef struct __attribute__((__packed__)) event_data {
     u64 flags;
     char data[PATH_MAX];
 } event_data_t;
+
+// Extend the event data so that it can be used for exec event only.
+typedef struct __attribute__((__packed__)) exec_event_data {
+    u32 pid;
+    u32 mntns;
+    u8 type;
+    u64 flags;
+    char data[PATH_MAX];
+    char filename[MAX_FILENAME_LEN];
+    char args[MAX_ARGS][MAX_ARG_LEN];
+    char env[MAX_ENV][MAX_ENV_LEN];
+    u32 args_len;
+    u32 env_len;
+} exec_event_data_t;
 
 const volatile char filter_name[MAX_COMM_LEN] = {};
 
@@ -378,6 +401,20 @@ static __always_inline int register_file_event(struct file * file, u64 flags)
                              false);
 }
 
+static __always_inline u32 bpf_read_user_string_safe(char * dest, u32 max_len,
+                                                     const char * user_ptr)
+{
+    if (!user_ptr || !dest) {
+        return 0;
+    }
+    // bpf_probe_read_user_str already handles max_len as a bounds check
+    u32 len = bpf_probe_read_user_str(dest, max_len, user_ptr);
+    if (len > 0) {
+        return len;  // Returns length including null terminator
+    }
+    return 0;  // Error or empty string
+}
+
 SEC("lsm/file_open")
 int BPF_PROG(file_open, struct file * file)
 {
@@ -569,8 +606,37 @@ int sys_enter_prctl(struct trace_event_raw_sys_enter * ctx)
     return 0;
 }
 
+/**
+From the file:
+/sys/kernel/debug/tracing/events/syscalls/sys_enter_execve/sys_enter_execve
+format:
+    field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+    field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+    field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+    field:int common_pid;	offset:4;	size:4;	signed:1;
+    field:unsigned char common_preempt_lazy_count;	offset:8;	size:1;
+signed:0;
+
+    field:int __syscall_nr;	offset:12;	size:4;	signed:1;
+    field:const char * filename;	offset:16;	size:8;	signed:0;
+    field:const char *const * argv;	offset:24;	size:8;	signed:0;
+    field:const char *const * envp;	offset:32;	size:8;	signed:0;
+*/
+struct exec_info {
+    __u16 common_type;               // Offset=0, size=2
+    __u8 common_flags;               // Offset=2, size=1
+    __u8 common_preempt_count;       // Offset=3, size=1
+    __s32 common_pid;                // Offset=4, size=4
+    __u8 common_preempt_lazy_count;  // Offset=8, size=4
+
+    __s32 syscall_nr;           // Offset=12, size=4
+    const __u8 * filename;      // Offset=16, size=8 (pointer)
+    const __u8 * const * argv;  // Offset=24, size=8 (pointer)
+    const __u8 * const * envp;  // Offset=32, size=8 (pointer)
+};
+
 SEC("tracepoint/syscalls/sys_enter_execve")
-int sys_enter_execve(struct trace_event_raw_sys_enter * ctx)
+int sys_enter_execve(struct exec_info * ctx)
 {
     if (!_is_recording_cached)
         return 0;
@@ -578,6 +644,65 @@ int sys_enter_execve(struct trace_event_raw_sys_enter * ctx)
     if (!mntns)
         return 0;
     trace_hook("sys_enter_execve");
+
+    exec_event_data_t * exec_event =
+        bpf_ringbuf_reserve(&events, sizeof(exec_event_data_t), 0);
+    if (exec_event) {
+        const __u8 * ptr;
+        int ret;
+        u32 count = 0;
+
+        exec_event->pid = bpf_get_current_pid_tgid() >> 32;
+        exec_event->type = EVENT_TYPE_EXECVE_ENTER;
+
+        // Get filename (first argument)
+        bpf_probe_read_user_str(&exec_event->filename,
+                                sizeof(exec_event->filename),
+                                (void *)ctx->filename);
+
+        // Read argv
+#pragma unroll
+        for (int i = 0; i < MAX_ARGS; i++) {
+            // Read pointer to the argument string
+            ret = bpf_probe_read_user(&ptr, sizeof(ptr), &ctx->argv[i]);
+            if (ret < 0 || !ptr) {
+                break;  // End of arguments
+            }
+
+            // Read the argument string into our buffer
+            ret = bpf_probe_read_user_str(exec_event->args[i],
+                                          sizeof(exec_event->args[i]), ptr);
+            if (ret < 0) {
+                break;
+            }
+            count++;
+        }
+
+        exec_event->args_len = count;  // Store actual length of args data
+
+        count = 0;
+
+#pragma unroll
+        for (int i = 0; i < MAX_ENV; i++) {
+            // Read pointer to the environment string
+            ret = bpf_probe_read_user(&ptr, sizeof(ptr), &ctx->envp[i]);
+            if (ret < 0 || !ptr) {
+                break;
+            }
+
+            // Read the env string into our buffer
+            ret = bpf_probe_read_user_str(exec_event->env[i],
+                                          sizeof(exec_event->env[i]), ptr);
+            if (ret < 0) {
+                break;
+            }
+            count++;
+        }
+
+        exec_event->env_len = count;  // Store actual length of env data
+
+        bpf_ringbuf_submit(exec_event, 0);
+    }
 
     // Handle runc init.
     //

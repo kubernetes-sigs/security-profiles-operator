@@ -36,6 +36,7 @@ import (
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
@@ -52,6 +53,7 @@ type JsonEnricher struct {
 	processCache     *ttlcache.Cache[int, *types.ProcessInfo]
 	logWriter        io.Writer
 	enricherFilters  []types.EnricherFilterOptions
+	bpfProcessCache  *bpfrecorder.BpfProcessCache
 }
 
 type JsonEnricherOptions struct {
@@ -151,6 +153,7 @@ func NewJsonEnricherArgs(logger logr.Logger, opts *JsonEnricherOptions) (*JsonEn
 			ttlcache.WithCapacity[int, *types.ProcessInfo](maxCacheItems),
 		),
 		enricherFilters: enricherFilters,
+		bpfProcessCache: nil,
 	}
 
 	w, err := getWriter(actualOpts)
@@ -249,6 +252,15 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 	timePrev := time.Now()
 
+	bpfProcCache := bpfrecorder.NewBpfProcessCache(e.logger)
+
+	errBpf := bpfProcCache.Load()
+	if errBpf != nil {
+		e.logger.Info("Unable to load BPF module. Using auditd", "err", errBpf.Error())
+	} else {
+		e.bpfProcessCache = bpfProcCache
+	}
+
 	for l := range e.Lines(tailFile) {
 		if l.Err != nil {
 			e.logger.Error(l.Err, "failed to tail")
@@ -312,6 +324,8 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 				auditLine.Executable, uid, gid)
 		}
 
+		e.processEbpf(logBucket, auditLine)
+
 		if logBucket.ContainerInfo == nil {
 			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID, nodeName)
 		}
@@ -324,6 +338,33 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	}
 
 	runErr <- fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
+}
+
+func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.AuditLine) {
+	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil && logBucket.ProcessInfo.CmdLine == "" {
+		cmdLine, errCmdLine := e.bpfProcessCache.GetCmdLine(auditLine.ProcessID)
+		if errCmdLine == nil {
+			logBucket.ProcessInfo.CmdLine = cmdLine
+
+			e.logger.V(1).Info("cmd line  found in eBPF")
+		} else {
+			e.logger.V(1).Info("cmd line not found in eBPF also")
+		}
+	}
+
+	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil && logBucket.ProcessInfo.ExecRequestId == nil {
+		procEnv, errCmdLine := e.bpfProcessCache.GetEnv(auditLine.ProcessID)
+		if errCmdLine == nil {
+			reqId, ok := procEnv[requestIdEnv]
+			if ok {
+				logBucket.ProcessInfo.ExecRequestId = &reqId
+
+				e.logger.V(1).Info("Exec request id info found in eBPF")
+			} else {
+				e.logger.V(1).Info("Exec request id info not found in eBPF also")
+			}
+		}
+	}
 }
 
 // Returns nil if the containerInfo couldn't be loaded.

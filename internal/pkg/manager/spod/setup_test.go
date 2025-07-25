@@ -104,7 +104,7 @@ func Test_getEffectiveSPOdJsonEnricher(t *testing.T) {
 			if tt.jsonEnricherOptsSet {
 				require.Equal(t, tt.dt.jsonEnricherImage, got.Spec.Template.Spec.Containers[4].Image)
 				require.Equal(t, tt.dt.jsonEnricherLogVolumeMountPath,
-					got.Spec.Template.Spec.Containers[4].VolumeMounts[2].MountPath)
+					got.Spec.Template.Spec.Containers[4].VolumeMounts[4].MountPath)
 			}
 		})
 	}
