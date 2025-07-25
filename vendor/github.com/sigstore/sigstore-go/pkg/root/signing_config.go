@@ -39,6 +39,7 @@ type Service struct {
 	MajorAPIVersion     uint32
 	ValidityPeriodStart time.Time
 	ValidityPeriodEnd   time.Time
+	Operator            string
 }
 
 type ServiceConfiguration struct {
@@ -64,6 +65,7 @@ func NewService(s *prototrustroot.Service) Service {
 		MajorAPIVersion:     s.GetMajorApiVersion(),
 		ValidityPeriodStart: start,
 		ValidityPeriodEnd:   end,
+		Operator:            s.GetOperator(),
 	}
 }
 
@@ -76,13 +78,22 @@ func SelectService(services []Service, supportedAPIVersions []uint32, currentTim
 		return "", fmt.Errorf("no supported API versions")
 	}
 
+	// Order supported versions from highest to lowest
 	sortedVersions := make([]uint32, len(supportedAPIVersions))
 	copy(sortedVersions, supportedAPIVersions)
 	slices.Sort(sortedVersions)
 	slices.Reverse(sortedVersions)
 
+	// Order services from newest to oldest
+	sortedServices := make([]Service, len(services))
+	copy(sortedServices, services)
+	slices.SortFunc(sortedServices, func(i, j Service) int {
+		return i.ValidityPeriodStart.Compare(j.ValidityPeriodStart)
+	})
+	slices.Reverse(sortedServices)
+
 	for _, version := range sortedVersions {
-		for _, s := range services {
+		for _, s := range sortedServices {
 			if version == s.MajorAPIVersion && s.ValidAtTime(currentTime) {
 				return s.URL, nil
 			}
@@ -97,48 +108,65 @@ func SelectService(services []Service, supportedAPIVersions []uint32, currentTim
 // ALL will return all service endpoints, ANY will return a random endpoint, and
 // EXACT will return a random selection of a specified number of endpoints.
 // It will select services from the highest supported API versions and will not select
-// services from different API versions.
+// services from different API versions. It will select distinct service operators, selecting
+// at most one service per operator.
 func SelectServices(services []Service, config ServiceConfiguration, supportedAPIVersions []uint32, currentTime time.Time) ([]string, error) {
 	if len(supportedAPIVersions) == 0 {
 		return nil, fmt.Errorf("no supported API versions")
 	}
 
-	urlsByVersion := make(map[uint32][]string)
-	for _, s := range services {
-		if slices.Contains(supportedAPIVersions, s.MajorAPIVersion) && s.ValidAtTime(currentTime) {
-			urlsByVersion[s.MajorAPIVersion] = append(urlsByVersion[s.MajorAPIVersion], s.URL)
-		}
-	}
-
+	// Order supported versions from highest to lowest
 	sortedVersions := make([]uint32, len(supportedAPIVersions))
 	copy(sortedVersions, supportedAPIVersions)
 	slices.Sort(sortedVersions)
 	slices.Reverse(sortedVersions)
 
-	// Select services from the highest supported API version
+	// Order services from newest to oldest
+	sortedServices := make([]Service, len(services))
+	copy(sortedServices, services)
+	slices.SortFunc(sortedServices, func(i, j Service) int {
+		return i.ValidityPeriodStart.Compare(j.ValidityPeriodStart)
+	})
+	slices.Reverse(sortedServices)
+
+	operators := make(map[string]bool)
+	var urls []string
 	for _, version := range sortedVersions {
-		urls, ok := urlsByVersion[version]
-		if !ok {
-			continue
-		}
-		switch config.Selector {
-		case prototrustroot.ServiceSelector_ALL:
-			return urls, nil
-		case prototrustroot.ServiceSelector_ANY:
-			i := rand.Intn(len(urls)) // #nosec G404
-			return []string{urls[i]}, nil
-		case prototrustroot.ServiceSelector_EXACT:
-			matchedUrls, err := selectExact(urls, config.Count)
-			if err != nil {
-				return nil, err
+		for _, s := range sortedServices {
+			if version == s.MajorAPIVersion && s.ValidAtTime(currentTime) {
+				// Select the newest service for a given operator
+				if !operators[s.Operator] {
+					operators[s.Operator] = true
+					urls = append(urls, s.URL)
+				}
 			}
-			return matchedUrls, nil
-		default:
-			return nil, fmt.Errorf("invalid service selector")
+		}
+		// Exit once a list of services is found
+		if len(urls) != 0 {
+			break
 		}
 	}
 
-	return nil, fmt.Errorf("no matching services found for API versions %v and current time %v", supportedAPIVersions, currentTime)
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("no matching services found for API versions %v and current time %v", supportedAPIVersions, currentTime)
+	}
+
+	// Select services from the highest supported API version
+	switch config.Selector {
+	case prototrustroot.ServiceSelector_ALL:
+		return urls, nil
+	case prototrustroot.ServiceSelector_ANY:
+		i := rand.Intn(len(urls)) // #nosec G404
+		return []string{urls[i]}, nil
+	case prototrustroot.ServiceSelector_EXACT:
+		matchedUrls, err := selectExact(urls, config.Count)
+		if err != nil {
+			return nil, err
+		}
+		return matchedUrls, nil
+	default:
+		return nil, fmt.Errorf("invalid service selector")
+	}
 }
 
 func selectExact[T any](slice []T, count uint32) ([]T, error) {
@@ -180,13 +208,18 @@ func (s Service) ValidAtTime(t time.Time) bool {
 }
 
 func (s Service) ToServiceProtobuf() *prototrustroot.Service {
+	tr := &v1.TimeRange{
+		Start: timestamppb.New(s.ValidityPeriodStart),
+	}
+	if !s.ValidityPeriodEnd.IsZero() {
+		tr.End = timestamppb.New(s.ValidityPeriodEnd)
+	}
+
 	return &prototrustroot.Service{
 		Url:             s.URL,
 		MajorApiVersion: s.MajorAPIVersion,
-		ValidFor: &v1.TimeRange{
-			Start: timestamppb.New(s.ValidityPeriodStart),
-			End:   timestamppb.New(s.ValidityPeriodEnd),
-		},
+		ValidFor:        tr,
+		Operator:        s.Operator,
 	}
 }
 
@@ -331,6 +364,10 @@ func (sc SigningConfig) String() string {
 		SigningConfigMediaType02)
 }
 
+func (sc SigningConfig) MarshalJSON() ([]byte, error) {
+	return protojson.Marshal(sc.signingConfig)
+}
+
 // NewSigningConfig initializes a SigningConfig object from a mediaType string, Fulcio certificate
 // authority URLs, OIDC provider URLs, Rekor transparency log URLs, timestamp authorities URLs,
 // selection criteria for Rekor logs and TSAs.
@@ -410,8 +447,9 @@ func FetchSigningConfigWithOptions(opts *tuf.Options) (*SigningConfig, error) {
 	return GetSigningConfig(client)
 }
 
-// FetchSigningConfig fetches the public-good Sigstore signing configuration target from TUF.
+// GetSigningConfig fetches the public-good Sigstore signing configuration target from TUF.
 func GetSigningConfig(c *tuf.Client) (*SigningConfig, error) {
+	// TODO(#495): Update to signing_config.v0.2.json once distributed by root-signing and root-signing-staging
 	jsonBytes, err := c.GetTarget("signing_config.json")
 	if err != nil {
 		return nil, err
