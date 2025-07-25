@@ -58,7 +58,7 @@ jobs:
 
   e2e-fedora:
     needs: image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-25.04
     timeout-minutes: 90
     env:
       RUN: ./hack/ci/run-fedora.sh
