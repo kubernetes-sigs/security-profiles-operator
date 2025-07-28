@@ -101,9 +101,22 @@ spec:
 	e.Contains(output, "\"auditID\"")
 	e.Contains(output, "\"requestUID\"")
 	e.Contains(output, "\"cmdLine\"")
-	e.Contains(output, "sleep")
+
+	// Special case in ubuntu: \"cmdLine\":\"\",\"executable\":\"/\".
+	e.True(stringContainsAny(output, "\"sleep\"", "\"/\""))
+
 	e.Contains(output, "\"container\"")
 	e.Contains(output, "\"namespace\"")
+}
+
+func stringContainsAny(fullString string, substrings ...string) bool {
+	for _, sub := range substrings {
+		if strings.Contains(fullString, sub) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (e *e2e) testCaseJsonEnricher([]string) {
