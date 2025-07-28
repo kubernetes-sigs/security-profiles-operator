@@ -254,9 +254,8 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 
 	bpfProcCache := bpfrecorder.NewBpfProcessCache(e.logger)
 
-	errBpf := bpfProcCache.Load()
-	if errBpf != nil {
-		e.logger.Info("Unable to load BPF module. Using auditd", "err", errBpf.Error())
+	if err := bpfProcCache.Load(); err != nil {
+		e.logger.Info("Unable to load BPF module. Using auditd", "err", err.Error())
 	} else {
 		e.bpfProcessCache = bpfProcCache
 	}
@@ -346,23 +345,30 @@ func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.
 		if errCmdLine == nil {
 			logBucket.ProcessInfo.CmdLine = cmdLine
 
-			e.logger.V(1).Info("cmd line  found in eBPF")
+			e.logger.V(1).Info("cmdline found in eBPF",
+				"processId", auditLine.ProcessID, "cmdLine", cmdLine)
 		} else {
-			e.logger.V(1).Info("cmd line not found in eBPF also")
+			e.logger.V(1).Info("cmdline not found in eBPF also",
+				"processId", auditLine.ProcessID)
 		}
 	}
 
 	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil && logBucket.ProcessInfo.ExecRequestId == nil {
-		procEnv, errCmdLine := e.bpfProcessCache.GetEnv(auditLine.ProcessID)
-		if errCmdLine == nil {
+		procEnv, errEnv := e.bpfProcessCache.GetEnv(auditLine.ProcessID)
+		if errEnv == nil {
 			reqId, ok := procEnv[requestIdEnv]
-			if ok {
+			if !ok {
+				e.logger.V(1).Info("exec request id info not found in eBPF also",
+					"processId", auditLine.ProcessID)
+			} else {
 				logBucket.ProcessInfo.ExecRequestId = &reqId
 
-				e.logger.V(1).Info("Exec request id info found in eBPF")
-			} else {
-				e.logger.V(1).Info("Exec request id info not found in eBPF also")
+				e.logger.V(1).Info("exec request id info found in eBPF", "reqId", reqId,
+					"processId", auditLine.ProcessID)
 			}
+		} else {
+			e.logger.V(1).Error(errEnv, "fetching exec request id",
+				"processId", auditLine.ProcessID)
 		}
 	}
 }
