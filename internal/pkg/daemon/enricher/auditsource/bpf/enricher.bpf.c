@@ -1,8 +1,8 @@
-#include <vmlinux.h>
-#include <linux/limits.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
+#include <linux/limits.h>
+#include <vmlinux.h>
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
@@ -13,8 +13,8 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define MAX_NAMESPACES 8096
 
 struct {
-	__uint(type, BPF_MAP_TYPE_RINGBUF);
-	__uint(max_entries, 256 * 1024 /* 256 KB */);
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 256 * 1024 /* 256 KB */);
 } audit_log SEC(".maps");
 
 static __always_inline u32 get_mntns()
@@ -23,12 +23,14 @@ static __always_inline u32 get_mntns()
     return BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
 }
 
-static __always_inline long read_kernel_str(char * stack_ptr, u32 size, const char * kernel_ptr) {
+static __always_inline long read_kernel_str(char * stack_ptr, u32 size,
+                                            const char * kernel_ptr)
+{
     long len = 0;
-    if(kernel_ptr) {
+    if (kernel_ptr) {
         len = bpf_probe_read_kernel_str(stack_ptr, size, kernel_ptr);
     }
-    if(len < 1) {
+    if (len < 1) {
         stack_ptr[0] = 0;
         len = 1;
     }
@@ -36,7 +38,8 @@ static __always_inline long read_kernel_str(char * stack_ptr, u32 size, const ch
 }
 
 SEC("kprobe/aa_audit")
-int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile, struct apparmor_audit_data *ad)
+int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile,
+               struct apparmor_audit_data * ad)
 {
     const int error = BPF_CORE_READ(ad, error);
     if (likely(!error)) {
@@ -52,7 +55,7 @@ int BPF_KPROBE(kprobe__aa_audit, int type, struct aa_profile * profile, struct a
     u8 complain = (BPF_CORE_READ(profile, mode) == APPARMOR_COMPLAIN);
     const char * name_ptr = BPF_CORE_READ(ad, name);
     const char * op_ptr = BPF_CORE_READ(ad, op);
-    struct task_struct *task = (void *)bpf_get_current_task();
+    struct task_struct * task = (void *)bpf_get_current_task();
     const char * comm_ptr = BPF_CORE_READ(task, comm);
 
     char op[16];
