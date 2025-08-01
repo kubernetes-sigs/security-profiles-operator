@@ -56,10 +56,12 @@ const (
 
 type LogEnricherOptions struct {
 	EnricherFiltersJson string
+	AuditSource         string
 }
 
 var LogEnricherDefaultOptions = LogEnricherOptions{
 	EnricherFiltersJson: "[]",
+	AuditSource:         "auditd",
 }
 
 // Enricher is the main structure of this package.
@@ -92,9 +94,23 @@ func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
 
 	logger.Info("Enricher Filters", "filters", enricherFilters)
 
+	var source auditsource.AuditLineSource
+
+	if opts != nil && opts.AuditSource == "bpf" {
+		logger.Info("Using BPF-based audit source")
+
+		source, err = auditsource.NewBpfSource(logger)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		logger.Info("Using auditd-based audit source")
+		source = auditsource.NewAuditdSource(logger)
+	}
+
 	return &Enricher{
 		impl:   newDefaultImpl(),
-		source: auditsource.NewAuditdSource(logger),
+		source: source,
 		logger: logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
