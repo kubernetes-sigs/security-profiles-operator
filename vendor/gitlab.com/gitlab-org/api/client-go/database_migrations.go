@@ -44,7 +44,7 @@ type MarkMigrationAsSuccessfulOptions struct {
 	Database string `url:"database,omitempty" json:"database,omitempty"`
 }
 
-// MarkMigrationAsSuccessful markd pending migrations as successfully executed
+// MarkMigrationAsSuccessful marks pending migrations as successfully executed
 // to prevent them from being executed by the db:migrate tasks. Use this API to
 // skip failing migrations after they are determined to be safe to skip.
 //
