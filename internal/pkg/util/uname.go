@@ -20,12 +20,18 @@ package util
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 
 	"github.com/blang/semver/v4"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 )
+
+func normalizeRelease(release string) string {
+	// Work around kernels with empty build metadata, e.g. `6.6.93+`.
+	return strings.TrimSuffix(release, "+")
+}
 
 func Uname() (types.Arch, *semver.Version, error) {
 	uname := syscall.Utsname{}
@@ -35,6 +41,7 @@ func Uname() (types.Arch, *semver.Version, error) {
 
 	arch := types.Arch(unameMachineToString(&uname))
 	release := unameReleaseToString(&uname)
+	release = normalizeRelease(release)
 
 	version, err := semver.Parse(release)
 	if err != nil {

@@ -33,3 +33,11 @@ func TestUname(t *testing.T) {
 	require.True(t, version.GT(semver.Version{Major: 0, Minor: 0, Patch: 0}))
 	require.NotEmpty(t, arch)
 }
+
+func TestNormalize(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "6.6.93", normalizeRelease("6.6.93"))
+	require.Equal(t, "6.6.93", normalizeRelease("6.6.93+"))
+	require.Equal(t, "6.6.93+extra", normalizeRelease("6.6.93+extra"))
+}
