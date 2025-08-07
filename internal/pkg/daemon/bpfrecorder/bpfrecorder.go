@@ -720,7 +720,9 @@ func (b *BpfRecorder) findBtfPath() (string, error) {
 
 	arch, version, err := b.Uname()
 	if err != nil {
-		return "", fmt.Errorf("uname syscall failed: %w", err)
+		b.logger.Error(err, "failed to get kernel version, continuing without BTF...")
+
+		return "", nil
 	}
 
 	btfArch, ok := btfOsVersion[arch]

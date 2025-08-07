@@ -32,10 +32,12 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
-func BpfSupported() error {
+func BpfSupported(logger logr.Logger) error {
 	_, version, err := util.Uname()
 	if err != nil {
-		return fmt.Errorf("uname failed: %w", err)
+		logger.Error(err, "failed to get kernel version to check BPF support, continuing anyway...")
+
+		return nil
 	}
 
 	minVersion := semver.Version{Major: 5, Minor: 19}
@@ -52,7 +54,7 @@ type BpfSource struct {
 }
 
 func NewBpfSource(logger logr.Logger) (*BpfSource, error) {
-	if err := BpfSupported(); err != nil {
+	if err := BpfSupported(logger); err != nil {
 		return nil, err
 	}
 
