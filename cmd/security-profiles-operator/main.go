@@ -101,11 +101,17 @@ const (
 	auditLogMaxAgeParam      string = "audit-log-maxage"
 	enricherFiltersJsonParam string = "enricher-filters-json"
 	enricherLogSourceParam   string = "enricher-log-source"
+	tlsMinVersionParam       string = "tls-min-version"
+	defaultTlsMinVersion     string = "1.2"
 )
 
 var (
-	sync     = time.Second * 30
-	setupLog = ctrl.Log.WithName("setup")
+	sync             = time.Second * 30
+	setupLog         = ctrl.Log.WithName("setup")
+	tlsMinVersionMap = map[string]uint16{
+		"1.2": tls.VersionTLS12,
+		"1.3": tls.VersionTLS13,
+	}
 )
 
 func main() {
@@ -225,6 +231,11 @@ func main() {
 					Aliases: []string{"s"},
 					Value:   false,
 					Usage:   "the webhook k8s resources are statically managed (default false)",
+				},
+				&cli.GenericFlag{
+					Name:  tlsMinVersionParam,
+					Value: util.NewEnumValue([]string{"1.2", "1.3"}, "1.2"),
+					Usage: "minimum TLS version to use for the SPO webhooks. Supported values: 1.2, 1.3. (default: 1.2)",
 				},
 			},
 		},
@@ -797,12 +808,23 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	port := ctx.Int("port")
 
-	disableHTTP2 := func(c *tls.Config) {
-		c.NextProtos = []string{"http/1.1"}
+	var tlsMinVersionStr string
+
+	tlsMinVersion, ok := ctx.Generic(tlsMinVersionParam).(util.EnumValue)
+	if !ok {
+		tlsMinVersionStr = defaultTlsMinVersion
+	} else {
+		tlsMinVersionStr = tlsMinVersion.String()
 	}
+
+	tlsConfig := func(c *tls.Config) {
+		c.NextProtos = []string{"http/1.1"}
+		c.MinVersion = tlsMinVersionMap[tlsMinVersionStr]
+	}
+
 	webhookServerOptions := webhook.Options{
 		Port:    port,
-		TLSOpts: []func(config *tls.Config){disableHTTP2},
+		TLSOpts: []func(config *tls.Config){tlsConfig},
 	}
 
 	webhookServer := webhook.NewServer(webhookServerOptions)
