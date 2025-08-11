@@ -252,10 +252,12 @@ func (p *podSeccompRecorder) updateSecurityContext(
 	}
 
 	switch pr.Spec.Kind {
-	case profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile,
-		profilerecordingv1alpha1.ProfileRecordingKindSelinuxProfile,
-		profilerecordingv1alpha1.ProfileRecordingKindAppArmorProfile:
+	case profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile:
 		p.updateSeccompSecurityContext(ctr, pr)
+	case profilerecordingv1alpha1.ProfileRecordingKindSelinuxProfile:
+		p.updateSelinuxSecurityContext(ctr, pr)
+	case profilerecordingv1alpha1.ProfileRecordingKindAppArmorProfile:
+		p.updateApparmorSecurityContext(ctr, pr)
 	}
 
 	p.log.Info(fmt.Sprintf(
@@ -288,6 +290,40 @@ func (p *podSeccompRecorder) updateSeccompSecurityContext(
 		config.LogEnricherProfile,
 	)
 	ctr.SecurityContext.SeccompProfile.LocalhostProfile = &profile
+}
+
+func (p *podSeccompRecorder) updateSelinuxSecurityContext(
+	ctr *corev1.Container,
+	pr *profilerecordingv1alpha1.ProfileRecording,
+) {
+	if ctr.SecurityContext == nil {
+		ctr.SecurityContext = &corev1.SecurityContext{}
+	}
+
+	if ctr.SecurityContext.SELinuxOptions == nil {
+		ctr.SecurityContext.SELinuxOptions = &corev1.SELinuxOptions{}
+	} else {
+		p.record.Eventf(pr,
+			corev1.EventTypeWarning,
+			"SecurityContextAlreadySet",
+			"Container %s had SecurityContext already set, the profile recorder overwrote it", ctr.Name)
+	}
+
+	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile
+}
+
+func (p *podSeccompRecorder) updateApparmorSecurityContext(
+	ctr *corev1.Container,
+	pr *profilerecordingv1alpha1.ProfileRecording,
+) {
+	if pr.Spec.Recorder != profilerecordingv1alpha1.ProfileRecorderLogs {
+		return
+	}
+
+	p.record.Eventf(pr,
+		corev1.EventTypeWarning,
+		"AppArmorNotSupported",
+		"AppArmor log-based recording is not supported, container: %s", ctr.Name)
 }
 
 func (p *podSeccompRecorder) setRecordingReferences(
