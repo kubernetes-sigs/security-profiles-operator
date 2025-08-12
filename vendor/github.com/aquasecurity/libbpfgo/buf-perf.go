@@ -9,9 +9,7 @@ import "C"
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"syscall"
-	"unsafe"
 )
 
 //
@@ -24,14 +22,15 @@ type PerfBuffer struct {
 	slot       uint
 	eventsChan chan []byte
 	lostChan   chan uint64
+	stop       chan struct{}
 	closed     bool
 	wg         sync.WaitGroup
-	stopFlag   uint32 // use with atomic operations
 }
 
 // Poll will wait until timeout in milliseconds to gather
 // data from the perf buffer.
 func (pb *PerfBuffer) Poll(timeout int) {
+	pb.stop = make(chan struct{})
 	pb.wg.Add(1)
 	go pb.poll(timeout)
 }
@@ -42,12 +41,12 @@ func (pb *PerfBuffer) Start() {
 }
 
 func (pb *PerfBuffer) Stop() {
-	if atomic.LoadUint32(&pb.stopFlag) == 1 {
+	if pb.stop == nil {
 		return
 	}
 
 	// Signal the poll goroutine to exit
-	atomic.StoreUint32(&pb.stopFlag, 1)
+	close(pb.stop)
 
 	// The event and lost channels should be drained here since the consumer
 	// may have stopped at this point. Failure to drain it will
@@ -74,6 +73,9 @@ func (pb *PerfBuffer) Stop() {
 	if pb.lostChan != nil {
 		close(pb.lostChan)
 	}
+
+	// Reset pb.stop to allow multiple safe calls to Stop()
+	pb.stop = nil
 }
 
 func (pb *PerfBuffer) Close() {
@@ -91,11 +93,20 @@ func (pb *PerfBuffer) Close() {
 func (pb *PerfBuffer) poll(timeout int) error {
 	defer pb.wg.Done()
 
-	stopFlag := (*C.uint32_t)(unsafe.Pointer(&pb.stopFlag))
-	ret := C.cgo_perf_buffer__poll(pb.pb, C.int(timeout), stopFlag)
-	if ret < 0 {
-		return fmt.Errorf("error polling perf buffer: %w", syscall.Errno(-ret))
-	}
+	for {
+		select {
+		case <-pb.stop:
+			return nil
+		default:
+			retC := C.perf_buffer__poll(pb.pb, C.int(timeout))
+			if retC < 0 {
+				errno := syscall.Errno(-retC)
+				if errno == syscall.EINTR {
+					continue
+				}
 
-	return nil
+				return fmt.Errorf("error polling perf buffer: %w", errno)
+			}
+		}
+	}
 }
