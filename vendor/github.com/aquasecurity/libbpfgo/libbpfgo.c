@@ -89,26 +89,6 @@ int cgo_add_ring_buf(struct ring_buffer *rb, int map_fd, uintptr_t ctx)
     return ret;
 }
 
-int cgo_ring_buffer__poll(struct ring_buffer *rb, int timeout, volatile uint32_t *stop_flag)
-{
-    while (*stop_flag == 0) {
-        int ret = ring_buffer__poll(rb, timeout);
-
-        if (ret < 0) {
-            // Handle EINTR like the original Go code - continue polling
-            if (errno == EINTR) {
-                continue;
-            }
-            // Return other errors to Go
-            return ret;
-        }
-
-        // Continue polling until stop_flag is set
-        // Events are still processed in real-time via callbacks
-    }
-    return 0;
-}
-
 struct perf_buffer *cgo_init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx)
 {
     struct perf_buffer_opts pb_opts = {};
@@ -126,26 +106,6 @@ struct perf_buffer *cgo_init_perf_buf(int map_fd, int page_cnt, uintptr_t ctx)
     }
 
     return pb;
-}
-
-int cgo_perf_buffer__poll(struct perf_buffer *pb, int timeout_ms, volatile uint32_t *stop_flag)
-{
-    while (*stop_flag == 0) {
-        int ret = perf_buffer__poll(pb, timeout_ms);
-
-        if (ret < 0) {
-            // Handle EINTR like the original Go code - continue polling
-            if (errno == EINTR) {
-                continue;
-            }
-            // Return other errors to Go
-            return ret;
-        }
-
-        // Continue polling until stop_flag is set
-        // Events are still processed in real-time via callbacks
-    }
-    return 0;
 }
 
 void cgo_bpf_map__initial_value(struct bpf_map *map, void *value)
