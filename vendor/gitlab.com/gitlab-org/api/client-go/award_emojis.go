@@ -321,13 +321,13 @@ func (s *AwardEmojiService) ListSnippetAwardEmojiOnNote(pid any, snippetIID, not
 	return s.listAwardEmojiOnNote(pid, awardSnippets, snippetIID, noteID, opt, options...)
 }
 
-func (s *AwardEmojiService) listAwardEmojiOnNote(pid any, resources string, ressourceID, noteID int, opt *ListAwardEmojiOptions, options ...RequestOptionFunc) ([]*AwardEmoji, *Response, error) {
+func (s *AwardEmojiService) listAwardEmojiOnNote(pid any, resources string, resourceID, noteID int, opt *ListAwardEmojiOptions, options ...RequestOptionFunc) ([]*AwardEmoji, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
 	}
 	u := fmt.Sprintf("projects/%s/%s/%d/notes/%d/award_emoji", PathEscape(project), resources,
-		ressourceID, noteID)
+		resourceID, noteID)
 
 	req, err := s.client.NewRequest(http.MethodGet, u, opt, options)
 	if err != nil {
@@ -369,14 +369,14 @@ func (s *AwardEmojiService) GetSnippetAwardEmojiOnNote(pid any, snippetIID, note
 	return s.getSingleNoteAwardEmoji(pid, awardSnippets, snippetIID, noteID, awardID, options...)
 }
 
-func (s *AwardEmojiService) getSingleNoteAwardEmoji(pid any, ressource string, resourceID, noteID, awardID int, options ...RequestOptionFunc) (*AwardEmoji, *Response, error) {
+func (s *AwardEmojiService) getSingleNoteAwardEmoji(pid any, resource string, resourceID, noteID, awardID int, options ...RequestOptionFunc) (*AwardEmoji, *Response, error) {
 	project, err := parseID(pid)
 	if err != nil {
 		return nil, nil, err
 	}
 	u := fmt.Sprintf("projects/%s/%s/%d/notes/%d/award_emoji/%d",
 		PathEscape(project),
-		ressource,
+		resource,
 		resourceID,
 		noteID,
 		awardID,
