@@ -34,7 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/release-utils/util"
+	"sigs.k8s.io/release-utils/helpers"
 	"sigs.k8s.io/yaml"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
@@ -50,7 +50,7 @@ func TestSpoc(t *testing.T) {
 	cmd := exec.Command("go", "build", "demobinary.go")
 	err := cmd.Run()
 	require.NoError(t, err, "failed to build demobinary.go")
-	err = util.CopyFileLocal("demobinary", "demobinary-child", true)
+	err = helpers.CopyFileLocal("demobinary", "demobinary-child", true)
 	require.NoError(t, err)
 	err = os.Chmod("demobinary-child", 0o700)
 	require.NoError(t, err)

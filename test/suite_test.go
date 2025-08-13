@@ -33,7 +33,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"k8s.io/klog/v2/textlogger"
 	"sigs.k8s.io/release-utils/command"
-	"sigs.k8s.io/release-utils/util"
+	"sigs.k8s.io/release-utils/helpers"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -621,7 +621,7 @@ func (e *e2e) runCommand(cmd string, args ...string) (string, error) {
 }
 
 func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
-	if !util.Exists(binaryPath) {
+	if !helpers.Exists(binaryPath) {
 		e.logf("Downloading %s", binaryPath)
 		e.run("curl", "-o", binaryPath, "-fL", url)
 		e.Require().NoError(os.Chmod(binaryPath, 0o700))
