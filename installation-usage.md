@@ -1859,11 +1859,11 @@ followed by any command and arguments:
 
 ```console
 > sudo spoc record echo test
-2023/03/10 10:09:09 Loading bpf module
+2023/03/10.10.09:09 Loading bpf module
 …
-2023/03/10 10:09:13 Adding base syscalls: capget, capset, chdir, …
-2023/03/10 10:09:13 Wrote seccomp profile to: /tmp/profile.yaml
-2023/03/10 10:09:13 Unloading bpf module
+2023/03/10.10.09:13 Adding base syscalls: capget, capset, chdir, …
+2023/03/10.10.09:13 Wrote seccomp profile to: /tmp/profile.yaml
+2023/03/10.10.09:13 Unloading bpf module
 ```
 
 Now the seccomp profile should be written in the CRD format:
