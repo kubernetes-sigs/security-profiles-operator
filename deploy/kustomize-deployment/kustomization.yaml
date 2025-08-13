@@ -6,11 +6,11 @@ sortOptions:
 
 images:
 - name: security-profiles-operator
-  newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
-  newTag: latest
+  # # # newName: gcr.io/k8s-staging-sp-operator/security-profiles-operator
+  # # # newTag: latest
   # For images to be released:
-  # newName: registry.k8s.io/security-profiles-operator/security-profiles-operator
-  # newTag: v0.9.2
+  newName: registry.k8s.io/security-profiles-operator/security-profiles-operator
+  newTag: v0.10.0
 
 
 resources:

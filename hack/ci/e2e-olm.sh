@@ -43,7 +43,7 @@ function build_and_push_packages() {
 
   # Create a manifest with local image
   cp deploy/operator.yaml ${OPERATOR_MANIFEST}
-  sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator.*\$#${IMG}#" ${OPERATOR_MANIFEST}
+  sed -i "s#registry.k8s.io/security-profiles-operator.*\$#${IMG}#" ${OPERATOR_MANIFEST}
   grep ${IMG} ${OPERATOR_MANIFEST} || exit 1
 
   # this is a kludge, we need to make sure kustomize can be overwritten
@@ -71,7 +71,7 @@ function deploy_deps() {
   kubectl_wait -ncert-manager --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
   # All installation methods run off the same catalog
-  sed -i "s#gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
+  sed -i "s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.10.0#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
 
 }
 
