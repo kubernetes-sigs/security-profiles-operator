@@ -26,7 +26,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	rutil "sigs.k8s.io/release-utils/util"
+	"sigs.k8s.io/release-utils/helpers"
 
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -59,7 +59,7 @@ func GetSPOD(ctx context.Context, cli client.Client) (*spodv1alpha1.SecurityProf
 // syslog if the audit log path does not exist.
 func LogFilePath() string {
 	filePath := config.SyslogLogPath
-	if rutil.Exists(config.AuditLogPath) {
+	if helpers.Exists(config.AuditLogPath) {
 		filePath = config.AuditLogPath
 	}
 

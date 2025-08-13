@@ -24,7 +24,7 @@ import (
 	"path"
 
 	"github.com/go-logr/logr"
-	"sigs.k8s.io/release-utils/util"
+	"sigs.k8s.io/release-utils/helpers"
 
 	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
@@ -187,7 +187,7 @@ func (*defaultImpl) Chown(name string, uid, gid int) error {
 }
 
 func (*defaultImpl) CopyDirContentsLocal(src, dst string) error {
-	return util.CopyDirContentsLocal(src, dst)
+	return helpers.CopyDirContentsLocal(src, dst)
 }
 
 func (*defaultImpl) SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error {
