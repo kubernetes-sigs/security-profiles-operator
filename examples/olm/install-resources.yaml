@@ -17,7 +17,7 @@ metadata:
   namespace: olm
 spec:
   sourceType: grpc
-  image: gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest
+  image: registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.10.0
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
