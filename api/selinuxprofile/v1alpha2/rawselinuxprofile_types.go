@@ -104,7 +104,7 @@ func (sp *RawSelinuxProfile) IsReconcilable() bool {
 type RawSelinuxProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SelinuxProfile `json:"items"`
+	Items           []RawSelinuxProfile `json:"items"`
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme
