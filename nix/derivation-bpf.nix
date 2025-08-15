@@ -8,8 +8,8 @@ with pkgs; buildGoModule rec {
   outputs = [ "out" ];
   nativeBuildInputs = with buildPackages; [
     git
-    llvmPackages_18.clang-unwrapped
-    llvm_18
+    llvmPackages_20.clang-unwrapped
+    llvm_20
     pkg-config
     which
   ];

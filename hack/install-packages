@@ -7,6 +7,7 @@ apt-get install -y \
     libapparmor-dev \
     libelf-dev \
     libseccomp-dev \
-    libzstd-dev
+    libzstd-dev \
+    lsb-release
 
 ./hack/install-libbpf.sh
