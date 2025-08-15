@@ -110,7 +110,7 @@ dependencies:
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   - name: libbpf
-    version: 1.5.0
+    version: 1.6.1
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
@@ -168,17 +168,12 @@ dependencies:
       match: "^version: "
 
   - name: clang
-    version: 18
+    version: 20
     refPaths:
     - path: nix/derivation-bpf.nix
       match: llvmPackages_\d+.clang-unwrapped
     - path: nix/derivation-bpf.nix
       match: llvm_\d+
-
-  # TODO: update to the latest clang of debian 12 packages are available.
-  - name: clang-debian-12
-    version: 16
-    refPaths:
     - path: hack/pull-security-profiles-operator-verify
       match: CLANG_VERSION
 

@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-VERSION=1.5.0
+VERSION=1.6.1
 curl -sSfL --retry 5 --retry-delay 3 \
     "https://github.com/libbpf/libbpf/archive/refs/tags/v$VERSION.tar.gz" -o- |
     tar xfz -
