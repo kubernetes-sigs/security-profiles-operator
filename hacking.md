@@ -185,7 +185,7 @@ OpenShift cluster's configuration file, and you need to be successfully logged i
 
 For convenience, the `Makefile` contains a target called `deploy-openshift-dev` which
 deploys SPO in an OpenShift cluster with the appropriate defaults (SELinux is on by default)
-and the appropriate settings (no cert-manager needed). It should be noted that `deploy-openshit-dev`
+and the appropriate settings (no cert-manager needed). It should be noted that `deploy-openshift-dev`
 will not enable eBPF and app-armor capabilities (APPARMOR_ENABLED=0, BPF_ENABLED=0).
 
 If you modify the code and need to push the images to the cluster again, use the
