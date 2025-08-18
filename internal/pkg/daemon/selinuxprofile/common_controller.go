@@ -179,7 +179,6 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 	if instance.GetDeletionTimestamp().IsZero() {
 		// The object is not being deleted
 		exists, existErr := nodeStatus.Exists(ctx)
-
 		if existErr != nil {
 			return reconcile.Result{}, fmt.Errorf("checking if node status exists: %w", existErr)
 		}

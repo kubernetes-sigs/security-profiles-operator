@@ -613,6 +613,7 @@ func (b *BpfRecorder) loadPrograms(programNames []string) error {
 func (b *BpfRecorder) StartRecording() (err error) {
 	b.attachUnattachMutex.Lock()
 	defer b.attachUnattachMutex.Unlock()
+
 	b.logger.Info("Start BPF recording...")
 
 	if b.module == nil {
@@ -650,6 +651,7 @@ func (b *BpfRecorder) StartRecording() (err error) {
 func (b *BpfRecorder) StopRecording() error {
 	b.attachUnattachMutex.Lock()
 	defer b.attachUnattachMutex.Unlock()
+
 	b.logger.Info("Stop BPF recording: Detaching all programs...")
 
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
@@ -868,6 +870,7 @@ func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
 
 		return
 	}
+
 	select {
 	case <-done:
 		// already closed

@@ -81,6 +81,7 @@ spec:
 	e.Nil(err)
 
 	defer os.Remove(helloProfileFile.Name())
+
 	_, err = helloProfileFile.WriteString(helloProfile)
 	e.Nil(err)
 	err = helloProfileFile.Close()

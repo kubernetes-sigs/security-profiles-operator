@@ -197,11 +197,13 @@ func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled() {
 	defer restoreNs()
 
 	e.logf("Creating SELinux recording for static pod test")
+
 	e.kubectl("create", "-f", exampleRecordingSelinuxLogsPath)
 	defer e.kubectl("delete", "-f", exampleRecordingSelinuxLogsPath)
 
 	_, podName := e.createRecordingTestPod()
 	defer e.kubectl("delete", "pod", podName)
+
 	output := e.kubectl("get", "pod", "-oyaml", podName)
 	e.NotContains(output, "selinuxrecording.process")
 }
@@ -253,6 +255,7 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
+
 	e.profileRecordingMultiContainer(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="listen"`),
@@ -265,6 +268,7 @@ func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
+
 	e.profileRecordingSpecificContainer(exampleRecordingSeccompSpecificContainerLogsPath,
 		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="epoll_wait"`),
 	)
@@ -304,10 +308,12 @@ func (e *e2e) profileRecordingSelinuxMultiContainer(
 	e.Contains(redispathresult, "name_bind")
 
 	const profileNameNginx = selinuxRecordingName + "-nginx"
+
 	nginxpathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileNameNginx)
 	e.Contains(nginxpathresult, "name_bind")
 
 	const profileNameInit = recordingName + "-init"
+
 	exists := e.existsSelinuxProfile(profileNameInit)
 	e.False(exists)
 
@@ -330,14 +336,17 @@ func (e *e2e) profileRecordingMultiContainer(
 	e.kubectl("delete", "pod", podName)
 
 	const profileNameRedis = recordingName + "-redis"
+
 	profileRedis := e.retryGetSeccompProfile(profileNameRedis)
 	e.Contains(profileRedis, "epoll_wait")
 
 	const profileNameNginx = recordingName + "-nginx"
+
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "close")
 
 	const profileNameInit = recordingName + "-init"
+
 	profileInit := e.retryGetSeccompProfile(profileNameInit)
 	e.Contains(profileInit, "write")
 
@@ -360,14 +369,17 @@ func (e *e2e) profileRecordingSpecificContainer(
 	e.kubectl("delete", "pod", podName)
 
 	const profileNameNginx = recordingName + "-nginx"
+
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "close")
 
 	const profileNameRedis = recordingName + "-redis"
+
 	exists := e.existsSeccompProfile(profileNameRedis)
 	e.False(exists)
 
 	const profileNameInit = recordingName + "-init"
+
 	exists = e.existsSeccompProfile(profileNameInit)
 	e.False(exists)
 
@@ -380,6 +392,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
+
 	e.profileRecordingDeployment(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(
@@ -393,6 +406,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
+
 	e.profileRecordingScaleDeployment(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(

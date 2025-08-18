@@ -148,6 +148,7 @@ func (e *Enricher) Run() error {
 	}
 
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
+
 	go e.containerIDCache.Start()
 	go e.infoCache.Start()
 	go e.auditLineCache.Start()

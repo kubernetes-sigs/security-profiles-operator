@@ -82,6 +82,7 @@ spec:
 	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
 	defer podCleanup()
 	defer e.kubectl("delete", "pod", podName)
+
 	e.waitForProfile(profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
@@ -177,6 +178,7 @@ spec:
 	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
 	defer podCleanup()
 	defer e.kubectl("delete", "pod", podName)
+
 	e.waitForProfile(profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)

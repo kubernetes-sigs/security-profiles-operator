@@ -92,6 +92,7 @@ func (b *BpfSource) StartTail() (chan *types.AuditLine, error) {
 	buf.Poll(300)
 
 	log := make(chan *types.AuditLine)
+
 	go func() {
 		for val := range events {
 			if len(val) < 14 {

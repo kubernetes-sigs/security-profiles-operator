@@ -76,6 +76,7 @@ func (m *BiMap[K, V]) ExistsBackwards(v V) bool {
 func (m *BiMap[K, V]) Get(k K) (V, bool) {
 	m.l.RLock()
 	defer m.l.RUnlock()
+
 	v, ok := m.forward[k]
 
 	return v, ok
@@ -85,6 +86,7 @@ func (m *BiMap[K, V]) Get(k K) (V, bool) {
 func (m *BiMap[K, V]) GetBackwards(v V) (K, bool) {
 	m.l.RLock()
 	defer m.l.RUnlock()
+
 	k, ok := m.backward[v]
 
 	return k, ok
@@ -99,6 +101,7 @@ func (m *BiMap[K, V]) Delete(k K) {
 
 	m.l.Lock()
 	defer m.l.Unlock()
+
 	delete(m.forward, k)
 	delete(m.backward, v)
 }
@@ -112,6 +115,7 @@ func (m *BiMap[K, V]) DeleteBackwards(v V) {
 
 	m.l.Lock()
 	defer m.l.Unlock()
+
 	delete(m.forward, k)
 	delete(m.backward, v)
 }

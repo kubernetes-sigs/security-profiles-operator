@@ -57,6 +57,7 @@ func Get() (*Info, error) {
 	}
 
 	const unknown = "unknown"
+
 	gitCommit := unknown
 	gitTreeState := "clean"
 	gitCommitDate := unknown
@@ -119,6 +120,7 @@ func (i *Info) String() string {
 	b := strings.Builder{}
 
 	const padding = 2
+
 	w := tabwriter.NewWriter(&b, 0, 0, padding, ' ', 0)
 
 	v := reflect.ValueOf(*i)
@@ -138,6 +140,7 @@ func (i *Info) String() string {
 			// Only expecting []string here; ignore other slices.
 			if s, ok := value.Interface().([]string); ok {
 				const sep = "\n  "
+
 				valueString = sep + strings.Join(s, sep)
 			}
 

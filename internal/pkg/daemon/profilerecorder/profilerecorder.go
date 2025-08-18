@@ -363,6 +363,7 @@ func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
 
 	ctx, cancel = context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
+
 	r.log.Info("Starting BPF recorder on node")
 
 	return r.StartBpfRecorder(ctx, recorderClient)
@@ -377,6 +378,7 @@ func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
 
 	ctx, cancel2 := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel2()
+
 	r.log.Info("Stopping BPF recorder on node")
 
 	return r.StopBpfRecorder(ctx, recorderClient)

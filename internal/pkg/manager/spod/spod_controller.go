@@ -461,7 +461,6 @@ func (r *ReconcileSPOd) handleUpdate(
 		foundProfile := &seccompprofileapi.SeccompProfile{}
 
 		var err error
-
 		if err = r.client.Get(ctx, pKey, foundProfile); err == nil {
 			updatedProfile := foundProfile.DeepCopy()
 			updatedProfile.Spec = *profile.Spec.DeepCopy()

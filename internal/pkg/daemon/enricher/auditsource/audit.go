@@ -61,6 +61,7 @@ func (a *AuditdSource) StartTail() (log chan *types.AuditLine, err error) {
 	}
 
 	log = make(chan *types.AuditLine, 32)
+
 	go func() {
 		for l := range a.file.Lines {
 			line := l.Text

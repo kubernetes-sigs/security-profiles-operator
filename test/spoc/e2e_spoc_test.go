@@ -270,6 +270,7 @@ func recordAppArmorTest(t *testing.T) {
 		require.NoError(t, err)
 
 		var stdout bytes.Buffer
+
 		cmd.Stdout = &stdout
 
 		// Start recorder and wait for it to set itself up.

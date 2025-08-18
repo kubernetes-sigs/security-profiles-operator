@@ -5,8 +5,8 @@ set -euo pipefail
 apt-get update
 apt-get install -y \
     libapparmor-dev \
-    libelf-dev \
     libseccomp-dev \
     libzstd-dev
 
+./hack/install-libelf.sh
 ./hack/install-libbpf.sh

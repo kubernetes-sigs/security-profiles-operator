@@ -1,6 +1,6 @@
 dependencies:
   - name: golangci-lint
-    version: 2.1.6
+    version: 2.4.0
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -115,6 +115,12 @@ dependencies:
     - path: hack/install-libbpf.sh
       match: VERSION
 
+  - name: libelf
+    version: 0.193
+    refPaths:
+    - path: hack/install-libelf.sh
+      match: VERSION
+
   - name: debian-vmlinux
     version: trixie
     refPaths:
@@ -174,11 +180,6 @@ dependencies:
       match: llvmPackages_\d+.clang-unwrapped
     - path: nix/derivation-bpf.nix
       match: llvm_\d+
-
-  # TODO: update to the latest clang of debian 12 packages are available.
-  - name: clang-debian-12
-    version: 16
-    refPaths:
     - path: hack/pull-security-profiles-operator-verify
       match: CLANG_VERSION
 
