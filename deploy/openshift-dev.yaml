@@ -2115,6 +2115,11 @@ spec:
                 description: Verbosity specifies the logging verbosity of the daemon.
                 type: integer
               webhookOptions:
+                default:
+                - name: nodedebuggingpod.spo.io
+                  objectSelector:
+                    matchLabels:
+                      debug.openshift.io/managed-by: oc-debug
                 description: |-
                   WebhookOpts set custom namespace selectors and failure mode for
                   SPO's webhooks

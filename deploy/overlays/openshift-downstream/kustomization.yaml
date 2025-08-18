@@ -10,6 +10,17 @@ sortOptions:
 resources:
 - ../cluster
 patches:
+- patch: |-
+    - op: replace
+      path: "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/webhookOptions/default"
+      value:
+        - name: nodedebuggingpod.spo.io
+          objectSelector:
+            matchLabels:
+              debug.openshift.io/managed-by: "oc-debug"
+  target:
+    kind: CustomResourceDefinition
+    name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
 - path: service_discovery_rules.yaml
   target:
     kind: ClusterRole
