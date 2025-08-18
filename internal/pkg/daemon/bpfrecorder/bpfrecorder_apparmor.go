@@ -142,8 +142,10 @@ func (b *AppArmorRecorder) StartRecording(r *BpfRecorder) error {
 func (b *AppArmorRecorder) StopRecording(r *BpfRecorder) error {
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
+
 	b.lockRecordedCapabilities.Lock()
 	defer b.lockRecordedCapabilities.Unlock()
+
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
 
@@ -239,8 +241,10 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 func (b *AppArmorRecorder) clearMntns(event *bpfEvent) {
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
+
 	b.lockRecordedCapabilities.Lock()
 	defer b.lockRecordedCapabilities.Unlock()
+
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
 
@@ -254,8 +258,10 @@ func (b *AppArmorRecorder) clearMntns(event *bpfEvent) {
 func (b *AppArmorRecorder) GetKnownMntns() []mntnsID {
 	b.lockRecordedFiles.Lock()
 	defer b.lockRecordedFiles.Unlock()
+
 	b.lockRecordedCapabilities.Lock()
 	defer b.lockRecordedCapabilities.Unlock()
+
 	b.lockRecordedSocketsUse.Lock()
 	defer b.lockRecordedSocketsUse.Unlock()
 

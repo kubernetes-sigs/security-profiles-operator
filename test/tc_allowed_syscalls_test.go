@@ -44,6 +44,7 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 
 	defer e.kubectlOperatorNS("patch", "spod", "spod", "--type=json",
 		"-p", `[{"op": "remove", "path": "/spec/allowedSyscalls"}]`)
+
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
@@ -105,6 +106,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 
 	defer e.kubectlOperatorNS("patch", "spod", "spod",
 		"--type=json", "-p", `[{"op": "remove", "path": "/spec/allowedSyscalls"}]`)
+
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)
@@ -204,6 +206,7 @@ spec:
 	// Create the pod which reference the allowed profile
 	podCleanup := e.writeAndCreate(allowPod, "allow-pod*.yaml")
 	defer podCleanup()
+
 	e.waitFor("condition=ready", "pod", allowPodName)
 
 	// Define an allowed syscalls list in the spod configuration, this should disallow the
@@ -214,6 +217,7 @@ spec:
 
 	defer e.kubectlOperatorNS("patch", "spod", "spod", "--type=json", "-p",
 		`[{"op": "remove", "path": "/spec/allowedSyscalls"}]`)
+
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultBpfRecorderOpTimeout)

@@ -872,6 +872,7 @@ func TestProcessEvents(t *testing.T) {
 	sut.impl = mock
 
 	var buf bytes.Buffer
+
 	err := binary.Write(&buf, binary.LittleEndian, bpfEvent{
 		Pid:   42,
 		Mntns: 0x1010,
@@ -881,6 +882,7 @@ func TestProcessEvents(t *testing.T) {
 
 	ch := make(chan []byte, 1)
 	ch <- buf.Bytes()
+
 	close(ch)
 
 	go sut.processEvents(ch)

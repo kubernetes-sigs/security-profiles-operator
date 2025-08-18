@@ -166,12 +166,14 @@ spec:
 
 		profileCleanup := e.writeAndCreate(deleteProfile, "delete-profile*.yaml")
 		defer profileCleanup() //nolint:gocritic // TODO: is this intentional?
+
 		e.waitForProfile(deleteProfileName)
 		e.logf("Create fake node status for profile")
 		e.writeAndCreate(fakeNodeStatus, "fake-node-status*.yaml")
 
 		podCleanup := e.writeAndCreate(testCase.podManifest, "delete-pod*.yaml")
 		defer podCleanup() //nolint:gocritic // TODO: is this intention?
+
 		e.waitFor("condition=ready", "pod", deletePodName)
 		e.logf("Ensuring profile cannot be deleted while pod is active")
 		e.kubectl("delete", "seccompprofile", deleteProfileName, "--wait=0")
@@ -204,8 +206,10 @@ spec:
 		}
 
 		isDeleted := make(chan bool)
+
 		go func() {
 			e.waitFor("delete", "seccompprofile", deleteProfileName)
+
 			isDeleted <- true
 		}()
 

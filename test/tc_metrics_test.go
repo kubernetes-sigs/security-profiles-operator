@@ -52,6 +52,7 @@ spec:
 
 	cleanup := e.writeAndCreate(profile, "metrics-profile*.yaml")
 	defer cleanup()
+
 	e.logf("Waiting for profile to be reconciled")
 	e.waitForProfile(profileName)
 
@@ -90,6 +91,7 @@ func (e *e2e) testCaseSelinuxMetrics(nodes []string) {
 
 	cleanup := e.writeAndCreate(errorloggerPolicy, "errorlogger-policy.yml")
 	defer cleanup()
+
 	e.logf("Waiting for profile to be reconciled")
 	e.kubectl("wait", "--timeout", defaultSelinuxOpTimeout,
 		"--for", "condition=ready", "selinuxprofile", "errorlogger")

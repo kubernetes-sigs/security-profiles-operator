@@ -190,6 +190,7 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 	if nodeName == "" {
 		err := fmt.Errorf("%s environment variable not set", config.NodeNameEnvKey)
 		e.logger.Error(err, "unable to run enricher")
+
 		runErr <- err
 
 		return
@@ -501,6 +502,7 @@ func (e *JsonEnricher) dispatchSeccompLine(
 
 	auditLogOutputMutex.Lock()
 	defer auditLogOutputMutex.Unlock()
+
 	e.PrintJsonOutput(e.logWriter, string(auditJson))
 }
 

@@ -335,6 +335,7 @@ func (e *kinde2e) SetupSuite() {
 		kindVersion, kindOS), e.kindPath, SHA512)
 
 	var err error
+
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 	e.NoError(err)
@@ -450,6 +451,7 @@ func (e *openShifte2e) TearDownTest() {
 
 func (e *openShifte2e) pushImageToRegistry() {
 	e.logf("Exposing registry")
+
 	e.kubectl("patch", "configs.imageregistry.operator.openshift.io/cluster",
 		"--patch", "{\"spec\":{\"defaultRoute\":true}}", "--type=merge")
 	defer e.kubectl("patch", "configs.imageregistry.operator.openshift.io/cluster",
@@ -582,6 +584,7 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 	tmpfile.Close()
 
 	delChannel := make(chan struct{})
+
 	go func() {
 		for {
 			_, err := os.Stat(tmpfile.Name())
@@ -594,6 +597,7 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 
 			break
 		}
+
 		delChannel <- struct{}{}
 	}()
 
