@@ -373,10 +373,6 @@ $(BUILD_DIR)/enricher.bpf.o: $(BUILD_DIR) ## Build the BPF module
 update-vmlinux: ## Generate the vmlinux.h required for building the BPF modules.
 	./hack/update-vmlinux
 
-.PHONY: update-btf
-update-btf: $(BUILD_DIR) ## Build and update all generated BTF code for supported kernels
-	$(GO) run ./internal/pkg/daemon/bpfrecorder/generate
-
 .PHONY: update-bpf
 update-bpf: clean \
     internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.amd64 \
@@ -485,10 +481,6 @@ verify-mocks: update-mocks ## Verify the content of the generated mocks
 .PHONY: verify-bpf
 verify-bpf: update-bpf ## Verify the generated bpf code
 	hack/tree-status
-
-.PHONY: verify-btf
-verify-btf: update-btf ## Verify the generated btf code
-	git diff
 
 .PHONY: verify-format
 verify-format: ## Verify the code format

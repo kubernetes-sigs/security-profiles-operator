@@ -21,5 +21,4 @@ type (
 	OsVersion string
 	Arch      string
 	Kernel    string
-	Btf       map[Os]map[OsVersion]map[Arch]map[Kernel][]byte
 )

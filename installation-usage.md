@@ -653,11 +653,10 @@ to record the syscalls or SELinux events.
 
 The operator also supports an [eBPF](https://ebpf.io) based recorder. This
 recorder only supports seccomp and apparmor profiles for now. Recording via ebpf works for
-kernels which expose the `/sys/kernel/btf/vmlinux` file per default as well as a
-[custom list of selected Linux kernels](bpf-support.md). In addition, this
-feature requires new library versions and thus might not be enabled. You
-can find out if your SPO build has the eBPF feature disabled by looking at
-the build tags:
+kernels which expose the `/sys/kernel/btf/vmlinux` file per default. In
+addition, this feature requires new library versions and thus might not be
+enabled. You can find out if your SPO build has the eBPF feature disabled by
+looking at the build tags:
 
 ```
 > kubectl logs --selector name=security-profiles-operator | grep buildTags
