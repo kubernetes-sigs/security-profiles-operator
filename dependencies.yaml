@@ -110,7 +110,7 @@ dependencies:
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   - name: libbpf
-    version: 1.5.0
+    version: 1.6.1
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
