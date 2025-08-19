@@ -183,12 +183,6 @@ dependencies:
     - path: hack/pull-security-profiles-operator-verify
       match: CLANG_VERSION
 
-  - name: btfhub
-    version: 12d2b6bb4664b6b1d15076f8090dcb0e55696d34
-    refPaths:
-    - path: hack/update-btf
-      match: BTFHUB_COMMIT
-
   - name: flatcar
     version: 3510.2.3
     refPaths:

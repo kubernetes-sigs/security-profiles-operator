@@ -23,15 +23,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/aquasecurity/libbpfgo"
-	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -254,142 +251,6 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.GoArchReturns(validGoArch)
 				mock.InitRingBufReturns(nil, errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath:Unmarshal fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalReturns(errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath:ReadOSRelease fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.ReadOSReleaseReturns(nil, errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath succeeds
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameReturns("x86_64", &semver.Version{
-					Major: 3, Minor: 10, Patch: 0,
-				}, nil)
-				mock.TempFileCalls(os.CreateTemp)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath:Write fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameReturns("x86_64", &semver.Version{
-					Major: 3, Minor: 10, Patch: 0,
-				}, nil)
-				mock.WriteReturns(0, errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath:TempFile fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameReturns("x86_64", &semver.Version{
-					Major: 3, Minor: 10, Patch: 0,
-				}, nil)
-				mock.TempFileReturns(nil, errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath kernel not found
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameReturns("x86_64", &semver.Version{
-					Major: 1, Minor: 2, Patch: 3,
-				}, nil)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath architecture not found
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath:Uname fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameReturns("", nil, errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath OS version ID not found
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{"ID": "centos"}, nil)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath OS ID not found
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{}, nil)
 			},
 			assert: func(err error) {
 				require.Error(t, err)
