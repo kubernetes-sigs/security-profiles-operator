@@ -1,4 +1,4 @@
-// @generated from hack/update-vmlinux using linux-bpf-dev_6.12.27-1_amd64.deb
+// @generated from hack/update-vmlinux using linux-bpf-dev_6.12.41-1_amd64.deb
 #ifndef __VMLINUX_H__
 #define __VMLINUX_H__
 
@@ -806,6 +806,7 @@ enum {
 	BPF_F_PSEUDO_HDR = 16,
 	BPF_F_MARK_MANGLED_0 = 32,
 	BPF_F_MARK_ENFORCE = 64,
+	BPF_F_IPV6 = 128,
 };
 
 enum {
@@ -3410,6 +3411,8 @@ enum {
 	INSN_F_SPI_MASK = 63,
 	INSN_F_SPI_SHIFT = 3,
 	INSN_F_STACK_ACCESS = 512,
+	INSN_F_DST_REG_STACK = 1024,
+	INSN_F_SRC_REG_STACK = 2048,
 };
 
 enum {
@@ -13816,6 +13819,12 @@ enum ec_temp_thresholds {
 	EC_TEMP_THRESH_COUNT = 3,
 };
 
+enum ecdsasignature_actions {
+	ACT_ecdsa_get_signature_r = 0,
+	ACT_ecdsa_get_signature_s = 1,
+	NR__ecdsasignature_actions = 2,
+};
+
 enum ecryptfs_token_types {
 	ECRYPTFS_PASSWORD = 0,
 	ECRYPTFS_PRIVATE_KEY = 1,
@@ -17202,6 +17211,20 @@ enum iter_type {
 	ITER_FOLIOQ = 4,
 	ITER_XARRAY = 5,
 	ITER_DISCARD = 6,
+};
+
+enum its_mitigation {
+	ITS_MITIGATION_OFF = 0,
+	ITS_MITIGATION_VMEXIT_ONLY = 1,
+	ITS_MITIGATION_ALIGNED_THUNKS = 2,
+	ITS_MITIGATION_RETPOLINE_STUFF = 3,
+};
+
+enum its_mitigation_cmd {
+	ITS_CMD_OFF = 0,
+	ITS_CMD_ON = 1,
+	ITS_CMD_VMEXIT = 2,
+	ITS_CMD_RSB_STUFF = 3,
 };
 
 enum jump_label_type {
@@ -21426,6 +21449,13 @@ enum rmp_flags {
 	RMP_USE_SHARED_ZEROPAGE = 2,
 };
 
+enum rmqueue_mode {
+	RMQUEUE_NORMAL = 0,
+	RMQUEUE_CMA = 1,
+	RMQUEUE_CLAIM = 2,
+	RMQUEUE_STEAL = 3,
+};
+
 enum rp_check {
 	RP_CHECK_CALL = 0,
 	RP_CHECK_CHAIN_CALL = 1,
@@ -22489,6 +22519,11 @@ enum split_lock_detect_state {
 	sld_ratelimit = 3,
 };
 
+enum sr_retry_flags {
+	IO_SR_MSG_RETRY = 1,
+	IO_SR_MSG_PARTIAL_MAP = 2,
+};
+
 enum srbds_mitigations {
 	SRBDS_MITIGATION_OFF = 0,
 	SRBDS_MITIGATION_UCODE_NEEDED = 1,
@@ -23128,7 +23163,7 @@ enum tis_access {
 enum tis_defaults {
 	TIS_MEM_LEN = 20480,
 	TIS_SHORT_TIMEOUT = 750,
-	TIS_LONG_TIMEOUT = 2000,
+	TIS_LONG_TIMEOUT = 4000,
 	TIS_TIMEOUT_MIN_ATML = 14700,
 	TIS_TIMEOUT_MAX_ATML = 15000,
 };
@@ -23611,6 +23646,7 @@ enum tpm2_return_codes {
 	TPM2_RC_TESTING = 2314,
 	TPM2_RC_REFERENCE_H0 = 2320,
 	TPM2_RC_RETRY = 2338,
+	TPM2_RC_SESSION_MEMORY = 2307,
 };
 
 enum tpm2_session_attributes {
@@ -23641,7 +23677,7 @@ enum tpm2_structures {
 
 enum tpm2_timeouts {
 	TPM2_TIMEOUT_A = 750,
-	TPM2_TIMEOUT_B = 2000,
+	TPM2_TIMEOUT_B = 4000,
 	TPM2_TIMEOUT_C = 200,
 	TPM2_TIMEOUT_D = 30,
 	TPM2_DURATION_SHORT = 20,
@@ -23883,6 +23919,14 @@ enum transparent_hugepage_flag {
 	TRANSPARENT_HUGEPAGE_DEFRAG_REQ_MADV_FLAG = 6,
 	TRANSPARENT_HUGEPAGE_DEFRAG_KHUGEPAGED_FLAG = 7,
 	TRANSPARENT_HUGEPAGE_USE_ZERO_PAGE_FLAG = 8,
+};
+
+enum tsa_mitigations {
+	TSA_MITIGATION_NONE = 0,
+	TSA_MITIGATION_UCODE_NEEDED = 1,
+	TSA_MITIGATION_USER_KERNEL = 2,
+	TSA_MITIGATION_VM = 3,
+	TSA_MITIGATION_FULL = 4,
 };
 
 enum tsq_enum {
@@ -26450,6 +26494,15 @@ typedef struct {
 	void *lock;
 	long unsigned int flags;
 } class_irqsave_t;
+
+struct perf_cpu_context;
+
+struct perf_event_context;
+
+typedef struct {
+	struct perf_cpu_context *cpuctx;
+	struct perf_event_context *ctx;
+} class_perf_ctx_lock_t;
 
 typedef struct {
 	void *lock;
@@ -33701,6 +33754,7 @@ struct ahash_alg {
 	int (*init_tfm)(struct crypto_ahash *);
 	void (*exit_tfm)(struct crypto_ahash *);
 	int (*clone_tfm)(struct crypto_ahash *, struct crypto_ahash *);
+	unsigned int reqsize;
 	struct hash_alg_common halg;
 };
 
@@ -33708,7 +33762,7 @@ struct ahash_instance {
 	void (*free)(struct ahash_instance *);
 	union {
 		struct {
-			char head[96];
+			char head[104];
 			struct crypto_instance base;
 		} s;
 		struct ahash_alg alg;
@@ -34574,7 +34628,6 @@ struct amd_uncore_ctx {
 	int refcnt;
 	int cpu;
 	struct perf_event **events;
-	struct hlist_node node;
 };
 
 union amd_uncore_info {
@@ -40045,6 +40098,7 @@ struct bpf_lru {
 	del_from_htab_func del_from_htab;
 	void *del_arg;
 	unsigned int hash_offset;
+	unsigned int target_free;
 	unsigned int nr_scans;
 	bool percpu;
 	long: 64;
@@ -40200,6 +40254,13 @@ struct bpf_insn_cbs {
 	bpf_insn_revmap_call_t cb_call;
 	bpf_insn_print_imm_t cb_imm;
 	void *private_data;
+};
+
+struct bpf_insn_hist_entry {
+	u32 idx;
+	u32 prev_idx: 20;
+	u32 flags: 12;
+	u64 linked_regs;
 };
 
 struct bpf_iter_meta;
@@ -40669,13 +40730,6 @@ struct bpf_jit_poke_descriptor {
 	u8 adj_off;
 	u16 reason;
 	u32 insn_idx;
-};
-
-struct bpf_jmp_history_entry {
-	u32 idx;
-	u32 prev_idx: 22;
-	u32 flags: 10;
-	u64 linked_regs;
 };
 
 struct bpf_key {
@@ -41535,6 +41589,7 @@ struct bpf_prog_list {
 	struct bpf_prog *prog;
 	struct bpf_cgroup_link *link;
 	struct bpf_cgroup_storage *storage[2];
+	u32 flags;
 };
 
 struct bpf_prog_offload {
@@ -43886,7 +43941,9 @@ struct bpf_verifier_env {
 		int cur_stack;
 	} cfg;
 	struct backtrack_state bt;
-	struct bpf_jmp_history_entry *cur_hist_ent;
+	struct bpf_insn_hist_entry *insn_hist;
+	struct bpf_insn_hist_entry *cur_hist_ent;
+	u32 insn_hist_cap;
 	u32 pass_cnt;
 	u32 subprog_cnt;
 	u32 prev_insn_processed;
@@ -43934,8 +43991,8 @@ struct bpf_verifier_state {
 	u32 first_insn_idx;
 	u32 last_insn_idx;
 	struct bpf_verifier_state *loop_entry;
-	struct bpf_jmp_history_entry *jmp_history;
-	u32 jmp_history_cnt;
+	u32 insn_hist_start;
+	u32 insn_hist_end;
 	u32 dfs_depth;
 	u32 callback_unroll_depth;
 	u32 may_goto_depth;
@@ -44682,7 +44739,13 @@ struct perf_output_handle {
 	struct perf_buffer *rb;
 	long unsigned int wakeup;
 	long unsigned int size;
-	u64 aux_flags;
+	union {
+		u64 flags;
+		u64 aux_flags;
+		struct {
+			u64 skip_read: 1;
+		};
+	};
 	union {
 		void *addr;
 		long unsigned int head;
@@ -46217,6 +46280,7 @@ struct buf_sel_arg {
 	size_t max_len;
 	short unsigned int nr_iovs;
 	short unsigned int mode;
+	short unsigned int partial_map;
 };
 
 struct buffer_data_page {
@@ -47007,7 +47071,8 @@ struct sched_entity;
 struct cfs_rq {
 	struct load_weight load;
 	unsigned int nr_running;
-	unsigned int h_nr_running;
+	unsigned int h_nr_queued;
+	unsigned int h_nr_runnable;
 	unsigned int idle_nr_running;
 	unsigned int idle_h_nr_running;
 	unsigned int h_nr_delayed;
@@ -49531,6 +49596,22 @@ struct console {
 	struct irq_work irq_work;
 };
 
+struct winsize {
+	short unsigned int ws_row;
+	short unsigned int ws_col;
+	short unsigned int ws_xpixel;
+	short unsigned int ws_ypixel;
+};
+
+struct hvc_struct;
+
+struct console___2 {
+	struct list_head list;
+	struct hvc_struct *hvc;
+	struct winsize ws;
+	u32 vtermno;
+};
+
 struct console_cmdline {
 	char name[16];
 	int index;
@@ -49872,6 +49953,7 @@ struct coredump_params {
 	int vma_count;
 	size_t vma_data_size;
 	struct core_vma_metadata *vma_meta;
+	struct pid *pid;
 };
 
 struct coredump_proc_event {
@@ -54983,6 +55065,7 @@ struct device_domain_info {
 	u8 ats_supported: 1;
 	u8 ats_enabled: 1;
 	u8 dtlb_extra_inval: 1;
+	u8 domain_attached: 1;
 	u8 ats_qdep;
 	struct device *dev;
 	struct intel_iommu *iommu;
@@ -58181,6 +58264,17 @@ struct ecc_point {
 	u8 ndigits;
 };
 
+struct ecc_curve;
+
+struct ecc_ctx {
+	unsigned int curve_id;
+	const struct ecc_curve *curve;
+	bool pub_key_set;
+	u64 x[9];
+	u64 y[9];
+	struct ecc_point pub_key;
+};
+
 struct ecc_curve {
 	char *name;
 	u32 nbits;
@@ -58200,6 +58294,12 @@ struct ecdh_ctx {
 	unsigned int curve_id;
 	unsigned int ndigits;
 	u64 private_key[9];
+};
+
+struct ecdsa_signature_ctx {
+	const struct ecc_curve *curve;
+	u64 r[9];
+	u64 s[9];
 };
 
 struct ecryptfs_session_key {
@@ -60162,10 +60262,6 @@ struct event_filter {
 	char *filter_string;
 };
 
-struct perf_cpu_context;
-
-struct perf_event_context;
-
 typedef void (*event_f)(struct perf_event *, struct perf_cpu_context *, struct perf_event_context *, void *);
 
 struct event_function_struct {
@@ -61269,7 +61365,7 @@ struct fbcon_display {
 
 struct fbcon_ops {
 	void (*bmove)(struct vc_data *, struct fb_info *, int, int, int, int, int, int);
-	void (*clear)(struct vc_data *, struct fb_info *, int, int, int, int);
+	void (*clear)(struct vc_data *, struct fb_info *, int, int, int, int, int, int);
 	void (*putcs)(struct vc_data *, struct fb_info *, const short unsigned int *, int, int, int, int, int);
 	void (*clear_margins)(struct vc_data *, struct fb_info *, int, int);
 	void (*cursor)(struct vc_data *, struct fb_info *, bool, int, int);
@@ -66661,6 +66757,7 @@ struct generic_pm_domain_data {
 	unsigned int default_pstate;
 	unsigned int rpm_pstate;
 	bool hw_mode;
+	bool rpm_always_on;
 	void *data;
 };
 
@@ -68093,6 +68190,12 @@ struct hist_file_data {
 	u64 last_act;
 };
 
+struct hist_pad {
+	long unsigned int entries[16];
+	u64 var_ref_vals[16];
+	char compound_key[384];
+};
+
 struct var_defs {
 	unsigned int n_vars;
 	char *name[16];
@@ -68857,6 +68960,13 @@ struct hv_get_partition_id {
 	u64 partition_id;
 };
 
+struct hv_get_vp_from_apic_id_in {
+	u64 partition_id;
+	union hv_input_vtl target_vtl;
+	u8 res[7];
+	u32 apic_ids[0];
+};
+
 union hv_ghcb {
 	struct ghcb ghcb;
 	struct {
@@ -69078,8 +69188,6 @@ struct hv_nested_enlightenments_control {
 	} hypercallControls;
 };
 
-struct hvc_struct;
-
 struct hv_ops {
 	ssize_t (*get_chars)(uint32_t, u8 *, size_t);
 	ssize_t (*put_chars)(uint32_t, const u8 *, size_t);
@@ -69275,13 +69383,6 @@ struct tty_port {
 	int drain_delay;
 	struct kref kref;
 	void *client_data;
-};
-
-struct winsize {
-	short unsigned int ws_row;
-	short unsigned int ws_col;
-	short unsigned int ws_xpixel;
-	short unsigned int ws_ypixel;
 };
 
 struct hvc_struct {
@@ -72266,6 +72367,7 @@ struct inet6_cork {
 	struct ipv6_txoptions *opt;
 	u8 hop_limit;
 	u8 tclass;
+	u8 dontfrag: 1;
 };
 
 struct ipv6_stable_secret {
@@ -74022,6 +74124,7 @@ struct io_imu_folio_data {
 	unsigned int nr_pages_head;
 	unsigned int nr_pages_mid;
 	unsigned int folio_shift;
+	long unsigned int first_folio_page_idx;
 };
 
 struct io_uring_sqe;
@@ -74564,6 +74667,7 @@ struct io_sr_msg {
 	u16 flags;
 	u16 addr_len;
 	u16 buf_group;
+	short unsigned int retry_flags;
 	void *addr;
 	void *msg_control;
 	struct io_kiocb *notif;
@@ -84400,8 +84504,9 @@ struct module {
 	struct list_head target_list;
 	void (*exit)(void);
 	atomic_t refcnt;
+	int its_num_pages;
+	void **its_page_array;
 	struct _ddebug_info dyndbg_info;
-	long: 64;
 	long: 64;
 	long: 64;
 	long: 64;
@@ -85099,9 +85204,11 @@ struct mptcp_sock {
 		u64 rtt_us;
 	} rcvq_space;
 	u8 scaling_ratio;
+	bool allow_subflows;
 	u32 subflow_id;
 	u32 setsockopt_seq;
 	char ca_name[16];
+	spinlock_t fallback_lock;
 };
 
 struct sockaddr_in {
@@ -85587,7 +85694,8 @@ struct msi_desc {
 	struct device *dev;
 	struct msi_msg msg;
 	struct irq_affinity_desc *affinity;
-	const void *iommu_cookie;
+	u64 iommu_msi_iova: 58;
+	u64 iommu_msi_shift: 6;
 	struct device_attribute *sysfs_attrs;
 	void (*write_msi_msg)(struct msi_desc *, void *);
 	void *write_msi_msg_data;
@@ -87063,6 +87171,7 @@ struct net_bridge {
 		struct rtable fake_rtable;
 		struct rt6_info fake_rt6_info;
 	};
+	u32 metrics[17];
 	u16 group_fwd_mask;
 	u16 group_fwd_mask_required;
 	bridge_id designated_root;
@@ -89826,13 +89935,13 @@ struct nfs_server {
 	struct nfs_auth_info auth_info;
 	struct fscache_volume *fscache;
 	char *fscache_uniq;
+	u32 fh_expire_type;
 	u32 pnfs_blksize;
 	u32 attr_bitmask[3];
 	u32 attr_bitmask_nl[3];
 	u32 exclcreat_bitmask[3];
 	u32 cache_consistency_bitmask[3];
 	u32 acl_bitmask;
-	u32 fh_expire_type;
 	struct pnfs_layoutdriver_type *pnfs_curr_ld;
 	struct rpc_wait_queue roc_rpcwaitq;
 	void *pnfs_ld_data;
@@ -90164,8 +90273,11 @@ struct nls_table {
 	struct nls_table *next;
 };
 
+typedef int (*nmi_handler_t)(unsigned int, struct pt_regs *);
+
 struct nmi_desc {
 	raw_spinlock_t lock;
+	nmi_handler_t emerg_handler;
 	struct list_head head;
 };
 
@@ -90184,8 +90296,6 @@ struct nmi_stats {
 	long unsigned int idt_ignored_snap;
 	long int idt_calls_snap;
 };
-
-typedef int (*nmi_handler_t)(unsigned int, struct pt_regs *);
 
 struct nmiaction {
 	struct list_head list;
@@ -91512,6 +91622,7 @@ struct page_pool {
 	long: 64;
 	struct ptr_ring ring;
 	void *mp_priv;
+	struct xarray dma_mapped;
 	atomic_t pages_state_release_cnt;
 	refcount_t user_cnt;
 	u64 destroy_cnt;
@@ -91522,8 +91633,6 @@ struct page_pool {
 		u32 napi_id;
 		u32 id;
 	} user;
-	long: 64;
-	long: 64;
 	long: 64;
 	long: 64;
 	long: 64;
@@ -95047,7 +95156,7 @@ struct pnp_dma {
 };
 
 struct pnp_fixup {
-	char id[7];
+	char id[8];
 	void (*quirk_function)(struct pnp_dev *);
 };
 
@@ -95280,6 +95389,53 @@ struct pool_workqueue {
 	long: 64;
 };
 
+struct port_stats {
+	long unsigned int bytes_sent;
+	long unsigned int bytes_received;
+	long unsigned int bytes_discarded;
+};
+
+struct ports_device;
+
+struct port_buffer;
+
+struct virtqueue;
+
+struct port {
+	struct list_head list;
+	struct ports_device *portdev;
+	struct port_buffer *inbuf;
+	spinlock_t inbuf_lock;
+	spinlock_t outvq_lock;
+	struct virtqueue *in_vq;
+	struct virtqueue *out_vq;
+	struct dentry *debugfs_file;
+	struct port_stats stats;
+	struct console___2 cons;
+	struct cdev *cdev;
+	struct device *dev;
+	struct kref kref;
+	wait_queue_head_t waitqueue;
+	char *name;
+	struct fasync_struct *async_queue;
+	u32 id;
+	bool outvq_full;
+	bool host_connected;
+	bool guest_connected;
+};
+
+struct port_buffer {
+	char *buf;
+	size_t size;
+	size_t len;
+	size_t offset;
+	dma_addr_t dma;
+	struct device *dev;
+	struct list_head list;
+	unsigned int sgpages;
+	struct scatterlist sg[0];
+};
+
 struct port_identity {
 	struct clock_identity clock_identity;
 	__be16 port_number;
@@ -95289,6 +95445,38 @@ struct portdrv_service_data {
 	struct pcie_port_service_driver *drv;
 	struct device *dev;
 	u32 service;
+};
+
+struct virtio_console_control {
+	__virtio32 id;
+	__virtio16 event;
+	__virtio16 value;
+};
+
+struct virtio_device;
+
+struct ports_device {
+	struct list_head list;
+	struct work_struct control_work;
+	struct work_struct config_work;
+	struct list_head ports;
+	spinlock_t ports_lock;
+	spinlock_t c_ivq_lock;
+	spinlock_t c_ovq_lock;
+	u32 max_nr_ports;
+	struct virtio_device *vdev;
+	struct virtqueue *c_ivq;
+	struct virtqueue *c_ovq;
+	struct virtio_console_control cpkt;
+	struct virtqueue **in_vqs;
+	struct virtqueue **out_vqs;
+	int chr_major;
+};
+
+struct ports_driver_data {
+	struct dentry *debugfs_dir;
+	struct list_head portdevs;
+	struct list_head consoles;
 };
 
 struct posix_acl_entry {
@@ -97688,7 +97876,7 @@ struct rcu_snap_record {
 	u64 cputime_irq;
 	u64 cputime_softirq;
 	u64 cputime_system;
-	long unsigned int nr_hardirqs;
+	u64 nr_hardirqs;
 	unsigned int nr_softirqs;
 	long long unsigned int nr_csw;
 	long unsigned int jiffies;
@@ -100256,7 +100444,7 @@ struct rq {
 	struct sched_dl_entity fair_server;
 	struct list_head leaf_cfs_rq_list;
 	struct list_head *tmp_alone_branch;
-	unsigned int nr_uninterruptible;
+	long unsigned int nr_uninterruptible;
 	struct task_struct *curr;
 	struct sched_dl_entity *dl_server;
 	struct task_struct *idle;
@@ -103935,6 +104123,13 @@ struct sg_io_v4 {
 	__u64 generated_tag;
 	__u32 spare_out;
 	__u32 padding;
+};
+
+struct sg_list {
+	unsigned int n;
+	unsigned int size;
+	size_t len;
+	struct scatterlist *sg;
 };
 
 struct sg_mapping_iter {
@@ -109216,7 +109411,7 @@ struct tcp_sock {
 		u64 time;
 	} rcv_rtt_est;
 	struct {
-		u32 space;
+		int space;
 		u32 seq;
 		u64 time;
 	} rcvq_space;
@@ -110018,7 +110213,6 @@ struct threshold_block;
 
 struct thresh_restart {
 	struct threshold_block *b;
-	int reset;
 	int set_lvt_off;
 	int lvt_off;
 	u16 old_limit;
@@ -119514,6 +119708,7 @@ struct usb_device {
 	unsigned int reset_resume: 1;
 	unsigned int port_is_suspended: 1;
 	enum usb_link_tunnel_mode tunnel_mode;
+	struct device_link *usb4_link;
 	int slot_id;
 	struct usb2_lpm_parameters l1_params;
 	struct usb3_lpm_parameters u1_params;
@@ -120532,10 +120727,6 @@ struct virtio_admin_cmd_status {
 	__u8 reserved2[4];
 };
 
-struct virtio_device;
-
-struct virtqueue;
-
 struct virtqueue_info;
 
 struct virtio_shm_region;
@@ -120558,6 +120749,13 @@ struct virtio_config_ops {
 	bool (*get_shm_region)(struct virtio_device *, struct virtio_shm_region *, u8);
 	int (*disable_vq_and_reset)(struct virtqueue *);
 	int (*enable_vq_after_reset)(struct virtqueue *);
+};
+
+struct virtio_console_config {
+	__virtio16 cols;
+	__virtio16 rows;
+	__virtio32 max_nr_ports;
+	__virtio32 emerg_wr;
 };
 
 struct virtio_device_id {
@@ -120849,6 +121047,7 @@ struct vlan_info {
 	struct vlan_group grp;
 	struct list_head vid_list;
 	unsigned int nr_vids;
+	bool auto_vid0;
 	struct callback_head rcu;
 };
 
@@ -120985,6 +121184,7 @@ struct vm_struct {
 	unsigned int nr_pages;
 	phys_addr_t phys_addr;
 	const void *caller;
+	long unsigned int requested_size;
 };
 
 struct vm_unmapped_area_info {
@@ -122641,6 +122841,7 @@ struct xsd_sockmsg {
 struct xb_req_data {
 	struct list_head list;
 	wait_queue_head_t wq;
+	struct kref kref;
 	struct xsd_sockmsg msg;
 	uint32_t caller_req_id;
 	enum xsd_sockmsg_type type;
@@ -122856,7 +123057,6 @@ struct xdp_sock {
 	struct xsk_queue *tx;
 	struct list_head tx_list;
 	u32 tx_budget_spent;
-	spinlock_t rx_lock;
 	u64 rx_dropped;
 	u64 rx_queue_full;
 	struct sk_buff *skb;
@@ -124297,7 +124497,6 @@ struct xfrm_state {
 	u32 new_mapping;
 	u32 mapping_maxage;
 	struct xfrm_encap_tmpl *encap;
-	struct sock *encap_sk;
 	u32 nat_keepalive_interval;
 	time64_t nat_keepalive_expiration;
 	xfrm_address_t *coaddr;
@@ -124512,11 +124711,11 @@ struct xsk_buff_pool {
 	refcount_t users;
 	struct xdp_umem *umem;
 	struct work_struct work;
+	spinlock_t rx_lock;
 	struct list_head free_list;
 	struct list_head xskb_list;
 	u32 heads_cnt;
 	u16 queue_id;
-	long: 64;
 	struct xsk_queue *fq;
 	struct xsk_queue *cq;
 	dma_addr_t *dma_pages;
