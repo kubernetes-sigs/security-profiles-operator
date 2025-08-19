@@ -174,7 +174,7 @@ dependencies:
       match: "^version: "
 
   - name: clang
-    version: 18
+    version: 19
     refPaths:
     - path: nix/derivation-bpf.nix
       match: llvmPackages_\d+.clang-unwrapped
