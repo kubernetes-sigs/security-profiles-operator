@@ -661,6 +661,10 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 
+	disableHTTP2 := func(c *tls.Config) {
+		c.NextProtos = []string{"http/1.1"}
+	}
+
 	ctrlOpts := ctrl.Options{
 		Cache:                  cache.Options{SyncPeriod: &sync},
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
@@ -673,6 +677,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 			ExtraHandlers: map[string]http.Handler{
 				metrics.HandlerPath: met.Handler(),
 			},
+			TLSOpts: []func(*tls.Config){disableHTTP2},
 		},
 	}
 
