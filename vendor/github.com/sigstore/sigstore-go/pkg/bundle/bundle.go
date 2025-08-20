@@ -304,7 +304,7 @@ func (b *Bundle) TlogEntries() ([]*tlog.Entry, error) {
 	tlogEntries := make([]*tlog.Entry, len(b.VerificationMaterial.TlogEntries))
 	var err error
 	for i, entry := range b.VerificationMaterial.TlogEntries {
-		tlogEntries[i], err = tlog.ParseEntry(entry)
+		tlogEntries[i], err = tlog.ParseTransparencyLogEntry(entry)
 		if err != nil {
 			return nil, ErrValidationError(err)
 		}

@@ -51,6 +51,9 @@ const (
 
 	headerRateLimit = "RateLimit-Limit"
 	headerRateReset = "RateLimit-Reset"
+
+	AccessTokenHeaderName = "PRIVATE-TOKEN"
+	JobTokenHeaderName    = "JOB-TOKEN"
 )
 
 // AuthType represents an authentication type within GitLab.
@@ -279,11 +282,7 @@ type RateLimiter interface {
 // NewClient returns a new GitLab API client. To use API methods which require
 // authentication, provide a valid private or personal token.
 func NewClient(token string, options ...ClientOptionFunc) (*Client, error) {
-	as := staticAuthSource{
-		token:    token,
-		authType: PrivateToken,
-	}
-
+	as := AccessTokenAuthSource{Token: token}
 	return NewAuthSourceClient(as, options...)
 }
 
@@ -311,11 +310,7 @@ func NewBasicAuthClient(username, password string, options ...ClientOptionFunc) 
 // NewJobClient returns a new GitLab API client. To use API methods which require
 // authentication, provide a valid job token.
 func NewJobClient(token string, options ...ClientOptionFunc) (*Client, error) {
-	as := staticAuthSource{
-		token:    token,
-		authType: JobToken,
-	}
-
+	as := JobTokenAuthSource{Token: token}
 	return NewAuthSourceClient(as, options...)
 }
 
@@ -335,7 +330,7 @@ func NewOAuthClient(token string, options ...ClientOptionFunc) (*Client, error) 
 	return NewAuthSourceClient(as, options...)
 }
 
-// NewAuthSourceClient returns a new GitLab API client that uses the AuthSouce for authentication.
+// NewAuthSourceClient returns a new GitLab API client that uses the AuthSource for authentication.
 func NewAuthSourceClient(as AuthSource, options ...ClientOptionFunc) (*Client, error) {
 	c := &Client{
 		UserAgent:  userAgent,
@@ -1125,27 +1120,31 @@ func (as OAuthTokenSource) Header(_ context.Context) (string, string, error) {
 	return "Authorization", "Bearer " + t.AccessToken, nil
 }
 
-// staticAuthSource implements the AuthSource interface for static tokens.
-type staticAuthSource struct {
-	token    string
-	authType AuthType
+// JobTokenAuthSource used as an AuthSource for CI Job Tokens
+type JobTokenAuthSource struct {
+	Token string
 }
 
-func (staticAuthSource) Init(context.Context, *Client) error {
+func (JobTokenAuthSource) Init(context.Context, *Client) error {
 	return nil
 }
 
-func (as staticAuthSource) Header(_ context.Context) (string, string, error) {
-	switch as.authType {
-	case PrivateToken:
-		return "PRIVATE-TOKEN", as.token, nil
+func (s JobTokenAuthSource) Header(_ context.Context) (string, string, error) {
+	return JobTokenHeaderName, s.Token, nil
+}
 
-	case JobToken:
-		return "JOB-TOKEN", as.token, nil
+// AccessTokenAuthSource used as an AuthSource for various access tokens, like Personal-, Project- and Group- Access Tokens.
+// Can be used for all tokens that authorize with the Private-Token header.
+type AccessTokenAuthSource struct {
+	Token string
+}
 
-	default:
-		return "", "", fmt.Errorf("invalid auth type: %v", as.authType)
-	}
+func (AccessTokenAuthSource) Init(context.Context, *Client) error {
+	return nil
+}
+
+func (s AccessTokenAuthSource) Header(_ context.Context) (string, string, error) {
+	return AccessTokenHeaderName, s.Token, nil
 }
 
 // passwordTokenSource implements the AuthSource interface for the OAuth 2.0

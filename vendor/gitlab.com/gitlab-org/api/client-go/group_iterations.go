@@ -38,7 +38,7 @@ type (
 
 var _ GroupIterationsServiceInterface = (*GroupIterationsService)(nil)
 
-// GroupInteration represents a GitLab iteration.
+// GroupIteration represents a GitLab iteration.
 //
 // GitLab API docs: https://docs.gitlab.com/api/group_iterations/
 type GroupIteration struct {

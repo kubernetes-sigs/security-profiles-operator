@@ -19,6 +19,7 @@ linters:
   enable:
     - asciicheck
     - dogsled
+    - dupword
     - errorlint
     - goconst
     - misspell
@@ -38,7 +39,8 @@ linters:
       enable-all-rules: false
       rules:
         - name: deep-exit
-  
+        - name: get-return
+
   # List of regexps of issue texts to exclude.
   exclusions:
     generated: lax
@@ -57,7 +59,7 @@ linters:
 issues:
   # Maximum issues count per one linter (set to 0 to disable)
   max-issues-per-linter: 0
-  # Maximum count of issues with the same text (set to 0 to disable)  
+  # Maximum count of issues with the same text (set to 0 to disable)
   max-same-issues: 0
 formatters:
   enable:

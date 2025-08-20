@@ -1501,7 +1501,7 @@ type UserActivity struct {
 
 // GetUserActivitiesOptions represents the options for GetUserActivities
 //
-// GitLap API docs:
+// GitLab API docs:
 // https://docs.gitlab.com/api/users/#list-a-users-activity
 type GetUserActivitiesOptions struct {
 	ListOptions
