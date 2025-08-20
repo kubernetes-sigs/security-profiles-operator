@@ -39,10 +39,10 @@ func WithContext(ctx context.Context) RequestOptionFunc {
 
 // copyContextValues copy some context key and values in old context
 func copyContextValues(oldCtx context.Context, newCtx context.Context) context.Context {
-	cheryRetry := checkRetryFromContext(oldCtx)
+	checkRetry := checkRetryFromContext(oldCtx)
 
-	if cheryRetry != nil {
-		newCtx = contextWithCheckRetry(newCtx, cheryRetry)
+	if checkRetry != nil {
+		newCtx = contextWithCheckRetry(newCtx, checkRetry)
 	}
 
 	return newCtx
