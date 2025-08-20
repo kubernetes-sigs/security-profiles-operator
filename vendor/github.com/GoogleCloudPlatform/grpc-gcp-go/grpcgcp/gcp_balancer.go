@@ -574,3 +574,8 @@ func (gb *gcpBalancer) refresh(ref *subConnRef) {
 
 func (gb *gcpBalancer) Close() {
 }
+
+// ExitIdle is a no-op because the gcpBalancer will always try to reconnect and
+// never enter "Idle" state after it's built. When a SubConn enters Idle, the
+// balancer will immediately call sc.Connect() begin re-connecting it.
+func (gb *gcpBalancer) ExitIdle() {}
