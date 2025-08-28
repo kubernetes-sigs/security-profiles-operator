@@ -52,8 +52,7 @@ spec:
 
 const SeccompMerged = `apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
-metadata:
-  creationTimestamp: null
+metadata: {}
 spec:
   defaultAction: SCMP_ACT_ERRNO
   syscalls:
