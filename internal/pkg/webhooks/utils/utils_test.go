@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/utils"
@@ -146,6 +147,14 @@ func (*fakeClient) Patch(
 	client.Object,
 	client.Patch,
 	...client.PatchOption,
+) error {
+	return nil
+}
+
+func (*fakeClient) Apply(
+	context.Context,
+	runtime.ApplyConfiguration,
+	...client.ApplyOption,
 ) error {
 	return nil
 }
