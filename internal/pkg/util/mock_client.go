@@ -46,6 +46,9 @@ type MockUpdateFn func(ctx context.Context, obj client.Object, opts ...client.Up
 // A MockPatchFn is used to mock client.Client's Patch implementation.
 type MockPatchFn func(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
 
+// A MockApplyFn is used to mock client.Client's Apply implementation.
+type MockApplyFn func(ctx context.Context, config runtime.ApplyConfiguration, opts ...client.ApplyOption) error
+
 // A MockSubResourceWriterCreateFn is used to mock client.Client's SubResourceWriterCreate implementation.
 type MockSubResourceWriterCreateFn func(
 	ctx context.Context, obj, subResource client.Object, opts ...client.SubResourceCreateOption,
@@ -59,6 +62,11 @@ type MockSubResourceWriterUpdateFn func(
 // A MockSubResourceWriterPatchFn is used to mock client.Client's SubResourceWriterUpdate implementation.
 type MockSubResourceWriterPatchFn func(
 	ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption,
+) error
+
+// A MockSubResourceWriterApplyFn is used to mock client.Client's SubResourceWriterUpdate implementation.
+type MockSubResourceWriterApplyFn func(
+	ctx context.Context, config runtime.ApplyConfiguration, opts ...client.ApplyOption,
 ) error
 
 // A MockSubResourceReaderGetFn is used to mock client.Client's SubResourceReaderGet implementation.
@@ -178,6 +186,13 @@ func NewMockPatchFn(err error, ofn ...ObjectFn) MockPatchFn {
 	}
 }
 
+// NewMockApplyFn returns a MockApplyFn that returns the supplied error.
+func NewMockApplyFn(err error) MockApplyFn {
+	return func(_ context.Context, _ runtime.ApplyConfiguration, _ ...client.ApplyOption) error {
+		return nil
+	}
+}
+
 // NewMockSubResourceWriterCreateFn returns a MockSubResourceWriterCreateFn that returns the supplied error.
 func NewMockSubResourceWriterCreateFn(err error, ofn ...ObjectFn) MockSubResourceWriterCreateFn {
 	return func(_ context.Context, obj, subResource client.Object, _ ...client.SubResourceCreateOption) error {
@@ -262,6 +277,7 @@ type MockClient struct {
 	MockDeleteAllOf MockDeleteAllOfFn
 	MockUpdate      MockUpdateFn
 	MockPatch       MockPatchFn
+	MockApply       MockApplyFn
 
 	MockSubResourceWriterCreate MockSubResourceWriterCreateFn
 	MockSubResourceWriterUpdate MockSubResourceWriterUpdateFn
@@ -285,6 +301,7 @@ func NewMockClient() *MockClient {
 		MockDeleteAllOf: NewMockDeleteAllOfFn(nil),
 		MockUpdate:      NewMockUpdateFn(nil),
 		MockPatch:       NewMockPatchFn(nil),
+		MockApply:       NewMockApplyFn(nil),
 
 		MockSubResourceWriterCreate: NewMockSubResourceWriterCreateFn(nil),
 		MockSubResourceWriterUpdate: NewMockSubResourceWriterUpdateFn(nil),
@@ -346,6 +363,13 @@ func (c *MockClient) Patch(
 	return c.MockPatch(ctx, obj, patch, opts...)
 }
 
+// Apply calls MockClient's MockApply function.
+func (c *MockClient) Apply(
+	ctx context.Context, config runtime.ApplyConfiguration, opts ...client.ApplyOption,
+) error {
+	return c.MockApply(ctx, config, opts...)
+}
+
 // Status returns status writer for sub-resource writer.
 func (c *MockClient) Status() client.SubResourceWriter {
 	return &MockSubResourceWriter{
@@ -385,6 +409,7 @@ type MockSubResourceWriter struct {
 	MockCreate MockSubResourceWriterCreateFn
 	MockUpdate MockSubResourceWriterUpdateFn
 	MockPatch  MockSubResourceWriterPatchFn
+	MockApply  MockSubResourceWriterApplyFn
 }
 
 func (m *MockSubResourceWriter) Create(
@@ -405,6 +430,13 @@ func (m *MockSubResourceWriter) Patch(
 	ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption,
 ) error {
 	return m.MockPatch(ctx, obj, patch, opts...)
+}
+
+// Apply mocks the apply method.
+func (m *MockSubResourceWriter) Apply(
+	ctx context.Context, config runtime.ApplyConfiguration, opts ...client.ApplyOption,
+) error {
+	return m.MockApply(ctx, config, opts...)
 }
 
 // MockSubResourceReader provides mock functionality for sub-resource reader.
