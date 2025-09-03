@@ -193,12 +193,10 @@ spec:
 
 	nodeName := e.kubectl("get", "nodes",
 		"-o", "jsonpath='{.items[0].metadata.name}'")
-	e.kubectl("debug", "--profile", "general", "node/"+strings.Trim(nodeName, "'"), "--image", "busybox",
-		"-it", "--", "env")
-	// Uncomment after kubectl debug node label.
-	// PR https://github.com/kubernetes/kubernetes/pull/131791.
-	// e.Contains(nodeDebuggingPodEnvOutput, "SPO_EXEC_REQUEST_UID")
-	// e.logf("The env output has SPO_EXEC_REQUEST_UID")
+	nodeDebuggingPodEnvOutput := e.kubectl("debug", "--profile", "general",
+		"node/"+strings.Trim(nodeName, "'"), "--image", "busybox", "-it", "--", "env")
+	e.Contains(nodeDebuggingPodEnvOutput, "SPO_EXEC_REQUEST_UID")
+	e.logf("The env output has SPO_EXEC_REQUEST_UID")
 
 	// Wait for the flush interval.
 	time.Sleep(20 * time.Second)
