@@ -874,6 +874,8 @@ This log format and the configuration is similar to how Kubernetes itself record
 - Tracking when someone uses commands like kubectl exec to get into a running container and run commands or scripts.
 - Monitoring activities in debug containers where users might run various tools.
 
+> **📖 Step-by-step guide**: For a complete walkthrough of configuring audit logging, see the [Audit Logging Guide](doc/audit-logging-guide.md).
+
 To start using this feature, you need to have the Security Profiles Operator installed in your Kubernetes cluster. 
 Once it's installed, you can enable the JSON log enricher with this command:
 ```sh
