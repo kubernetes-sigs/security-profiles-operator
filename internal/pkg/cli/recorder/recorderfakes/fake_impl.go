@@ -27,8 +27,8 @@ import (
 	"sync"
 
 	"github.com/aquasecurity/libbpfgo"
-	seccompa "github.com/containers/common/pkg/seccomp"
 	seccomp "github.com/seccomp/libseccomp-golang"
+	seccompa "go.podman.io/common/pkg/seccomp"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"

@@ -28,8 +28,8 @@ import (
 	"unsafe"
 
 	"github.com/aquasecurity/libbpfgo"
-	"github.com/containers/common/pkg/seccomp"
 	libseccomp "github.com/seccomp/libseccomp-golang"
+	"go.podman.io/common/pkg/seccomp"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/printers"
 

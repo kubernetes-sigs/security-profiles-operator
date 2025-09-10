@@ -28,8 +28,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containers/common/pkg/seccomp"
 	"github.com/go-logr/logr"
+	"go.podman.io/common/pkg/seccomp"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"

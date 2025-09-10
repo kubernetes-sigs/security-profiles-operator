@@ -1532,7 +1532,7 @@ spec:
                 description: AllowedSeccompActions if specified, a list of allowed
                   seccomp actions.
                 items:
-                  description: Action taken upon Seccomp rule match
+                  description: Action taken upon Seccomp rule match.
                   type: string
                 type: array
               allowedSyscalls:

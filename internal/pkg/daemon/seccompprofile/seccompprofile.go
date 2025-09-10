@@ -29,10 +29,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/common/pkg/seccomp"
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"go.podman.io/common/pkg/seccomp"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
