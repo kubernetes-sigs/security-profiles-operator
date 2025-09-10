@@ -24,8 +24,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/containers/common/pkg/seccomp"
 	"github.com/stretchr/testify/require"
+	"go.podman.io/common/pkg/seccomp"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/recorder/recorderfakes"
 )

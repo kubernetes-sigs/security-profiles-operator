@@ -19,7 +19,7 @@ package v1alpha1
 import (
 	"sort"
 
-	"github.com/containers/common/pkg/seccomp"
+	"go.podman.io/common/pkg/seccomp"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

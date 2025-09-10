@@ -19,8 +19,8 @@ package util
 import (
 	"testing"
 
-	"github.com/containers/common/pkg/seccomp"
 	"github.com/stretchr/testify/require"
+	"go.podman.io/common/pkg/seccomp"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 )

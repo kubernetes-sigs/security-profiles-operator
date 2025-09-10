@@ -20,8 +20,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/containers/common/pkg/seccomp"
 	"github.com/stretchr/testify/require"
+	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 

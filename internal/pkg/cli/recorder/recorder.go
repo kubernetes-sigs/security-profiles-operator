@@ -33,9 +33,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containers/common/pkg/seccomp"
 	"github.com/go-logr/logr"
 	libseccomp "github.com/seccomp/libseccomp-golang"
+	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/controller-runtime/pkg/client"

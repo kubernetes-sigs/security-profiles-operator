@@ -17,7 +17,7 @@ limitations under the License.
 package bindata
 
 import (
-	"github.com/containers/common/pkg/seccomp"
+	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
