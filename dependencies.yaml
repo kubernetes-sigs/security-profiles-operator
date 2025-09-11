@@ -128,7 +128,7 @@ dependencies:
       match: VERSION
 
   - name: crun
-    version: 1.23.1
+    version: 1.24
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
@@ -138,7 +138,7 @@ dependencies:
       match: CRUN_VERSION
 
   - name: runc
-    version: v1.3.1
+    version: v1.3.2
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: name

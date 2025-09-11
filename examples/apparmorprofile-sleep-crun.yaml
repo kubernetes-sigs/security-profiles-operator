@@ -31,6 +31,7 @@ spec:
         - /proc/@{pid}/uid_map
         - /proc/sys/kernel/cap_last_cap
         - /run/
+        - /run/crun/.empty-directory/
         - /sys/module/apparmor/parameters/enabled
         - /var/lib/containers/storage/overlay/*/merged/
         - /var/lib/containers/storage/overlay/*/merged/dev/
