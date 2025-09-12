@@ -34,6 +34,8 @@ import (
 	"strings"
 
 	rsafork "github.com/go-piv/piv-go/v2/third_party/rsa"
+
+	_ "embed"
 )
 
 // errMismatchingAlgorithms is returned when a cryptographic operation
@@ -228,15 +230,20 @@ type Verifier struct {
 func (v *Verifier) Verify(attestationCert, slotCert *x509.Certificate) (*Attestation, error) {
 	o := x509.VerifyOptions{KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}
 	o.Roots = v.Roots
+	var intermediates *x509.CertPool
 	if o.Roots == nil {
-		cas, err := yubicoCAs()
+		cas, in, err := yubicoCAs()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load yubico CAs: %v", err)
 		}
 		o.Roots = cas
+		intermediates = in
 	}
 
-	o.Intermediates = x509.NewCertPool()
+	if intermediates == nil {
+		intermediates = x509.NewCertPool()
+	}
+	o.Intermediates = intermediates
 
 	// The attestation cert in some yubikey 4 does not encode X509v3 Basic Constraints.
 	// This isn't valid as per https://datatracker.ietf.org/doc/html/rfc5280#section-4.2.1.9
@@ -344,21 +351,28 @@ sG/5xUb/Btwb2X2g4InpiB/yt/3CpQXpiWX/K4mBvUKiGn05ZsqeY1gx4g0xLBqc
 U9psmyPzK+Vsgw2jeRQ5JlKDyqE0hebfC1tvFu0CCrJFcw==
 -----END CERTIFICATE-----`
 
-func yubicoCAs() (*x509.CertPool, error) {
+//go:embed certs/yubico-ca-1.pem
+var yubicoAttestationCA2024 []byte
+
+//go:embed certs/yubico-intermediate.pem
+var yubicoIntermediates []byte
+
+func yubicoCAs() (roots, intermediates *x509.CertPool, err error) {
 	certPool := x509.NewCertPool()
+	intermediates = x509.NewCertPool()
 
 	if !certPool.AppendCertsFromPEM([]byte(yubicoPIVCAPEMAfter2018)) {
-		return nil, fmt.Errorf("failed to parse yubico cert")
+		return nil, nil, fmt.Errorf("failed to parse yubico cert")
 	}
 
 	bU2F, _ := pem.Decode([]byte(yubicoPIVCAPEMU2F))
 	if bU2F == nil {
-		return nil, fmt.Errorf("failed to decode yubico pem data")
+		return nil, nil, fmt.Errorf("failed to decode yubico pem data")
 	}
 
 	certU2F, err := x509.ParseCertificate(bU2F.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse yubico cert: %v", err)
+		return nil, nil, fmt.Errorf("failed to parse yubico cert: %v", err)
 	}
 
 	// The U2F root cert has pathlen x509 basic constraint set to 0.
@@ -371,7 +385,13 @@ func yubicoCAs() (*x509.CertPool, error) {
 	certU2F.MaxPathLen = 1
 	certPool.AddCert(certU2F)
 
-	return certPool, nil
+	if !certPool.AppendCertsFromPEM(yubicoAttestationCA2024) {
+		return nil, nil, fmt.Errorf("failed to parse yubico attestation certificate")
+	}
+	if !intermediates.AppendCertsFromPEM(yubicoIntermediates) {
+		return nil, nil, fmt.Errorf("failed to parse yubico intermediates certificates")
+	}
+	return certPool, intermediates, nil
 }
 
 // Slot combinations pre-defined by this package.

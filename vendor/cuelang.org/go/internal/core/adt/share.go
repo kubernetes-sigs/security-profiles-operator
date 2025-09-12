@@ -100,9 +100,6 @@ func (n *nodeContext) addShared(id CloseInfo) {
 	// such a count should not hurt performance, as a shared node is completed
 	// anyway.
 	n.sharedIDs = append(n.sharedIDs, id)
-	if id.cc != nil {
-		id.cc.incDependent(n.ctx, SHARED, n.node.cc())
-	}
 }
 
 func (n *nodeContext) decSharedIDs() {
@@ -111,9 +108,7 @@ func (n *nodeContext) decSharedIDs() {
 	}
 	n.shareDecremented = true
 	for _, id := range n.sharedIDs {
-		if cc := id.cc; cc != nil {
-			cc.decDependent(n.ctx, SHARED, n.node.cc())
-		}
+		n.updateConjunctInfo(n.node.Kind(), id, 0)
 	}
 }
 
@@ -144,6 +139,29 @@ func (n *nodeContext) share(c Conjunct, arc *Vertex, id CloseInfo) {
 
 func (n *nodeContext) shareIfPossible(c Conjunct, arc *Vertex, id CloseInfo) bool {
 	if !n.ctx.Sharing {
+		return false
+	}
+
+	// We disallow sharing for any Arcs, even pending ones, to be defensive.
+	// CUE currently does not always unwind sharing properly in the precense of
+	// pending arcs. See, for instance:
+	//
+	// 		a: X
+	// 		if true {
+	// 			a: b: c: e: 1 // ensure 'e' is added
+	// 		}
+	// 		X: b: Y
+	// 		Y: c: d: int
+	//
+	// TODO: allow sharing in the precense of pending or not present arcs.
+	if len(n.node.Arcs) > 0 {
+		return false
+	}
+
+	// See Issue #3801: structure sharing seems to be broken for non-rooted
+	// values. We disable sharing for now.
+	// TODO: make sharing work again for non-rooted structs.
+	if arc.nonRooted || arc.IsDynamic {
 		return false
 	}
 

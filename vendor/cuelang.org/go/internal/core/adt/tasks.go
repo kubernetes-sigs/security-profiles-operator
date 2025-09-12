@@ -57,7 +57,7 @@ func init() {
 	handleComprehension = &runner{
 		name:      "Comprehension",
 		f:         processComprehension,
-		completes: valueKnown | allTasksCompleted | fieldConjunctsKnown,
+		completes: valueKnown | allTasksCompleted | fieldConjunctsKnown | pendingKnown,
 	}
 	handleListLit = &runner{
 		name:      "ListLit",
@@ -84,7 +84,10 @@ func init() {
 func processExpr(ctx *OpContext, t *task, mode runMode) {
 	x := t.x.(Expr)
 
-	state := combineMode(concreteKnown, mode)
+	state := combinedFlags{
+		condition: concreteKnown,
+		mode:      mode,
+	}
 	v, ci := ctx.evalStateCI(x, state)
 	if ci.CycleType == IsCyclic && t.node.node.IsPatternConstraint {
 		// This is an optional cycle that we will ignore.
@@ -101,7 +104,10 @@ func processResolver(ctx *OpContext, t *task, mode runMode) {
 	// be conclusive, we could avoid triggering evaluating disjunctions. This
 	// would be a pretty significant rework, though.
 
-	arc := r.resolve(ctx, oldOnly(0))
+	arc := r.resolve(ctx, combinedFlags{
+		condition: fieldSetKnown,
+		mode:      mode,
+	})
 	// TODO: ensure that resolve always returns one of these two.
 	if arc == nil || arc == emptyNode {
 		// TODO: yield instead?
@@ -109,7 +115,9 @@ func processResolver(ctx *OpContext, t *task, mode runMode) {
 	}
 	arc = arc.DerefNonDisjunct()
 
-	ctx.Logf(t.node.node, "RESOLVED %v to %v %v", r, arc.Label, fmt.Sprintf("%p", arc))
+	if ctx.LogEval > 0 {
+		ctx.Logf(t.node.node, "RESOLVED %v to %v %v", r, arc.Label, fmt.Sprintf("%p", arc))
+	}
 	// TODO: consider moving after markCycle or removing.
 	d := arc.DerefDisjunct()
 
@@ -145,7 +153,10 @@ func processDynamic(ctx *OpContext, t *task, mode runMode) {
 
 	field := t.x.(*DynamicField)
 
-	v := ctx.scalarValue(t, field.Key)
+	v := ctx.value(field.Key, combinedFlags{
+		condition: scalarValue,
+		mode:      mode,
+	})
 	if v == nil {
 		return
 	}
@@ -172,8 +183,6 @@ func processDynamic(ctx *OpContext, t *task, mode runMode) {
 	ci := t.id
 
 	c := MakeConjunct(t.env, field, ci)
-	// TODO(evalv3): this does not seem to be necessary and even treacherous.
-	c.CloseInfo.cc = nil
 	n.insertArc(f, field.ArcType, c, ci, true)
 }
 
@@ -184,7 +193,10 @@ func processPatternConstraint(ctx *OpContext, t *task, mode runMode) {
 
 	// Note that the result may be a disjunction. Be sure to not take the
 	// default value as we want to retain the options of the disjunction.
-	v := ctx.evalState(field.Filter, require(0, scalarKnown))
+	v := ctx.evalState(field.Filter, combinedFlags{
+		condition: scalarValue,
+		mode:      yield,
+	})
 	if v == nil {
 		return
 	}
@@ -209,18 +221,15 @@ func processComprehension(ctx *OpContext, t *task, mode runMode) {
 
 	err := n.processComprehension(y, 0)
 	t.err = CombineErrors(nil, t.err, err)
-	t.comp.vertex.state.addBottom(err)
+	if t.comp.vertex.state != nil {
+		t.comp.vertex.state.addBottom(err)
+	}
 }
 
 func processDisjunctions(c *OpContext, t *task, mode runMode) {
 	n := t.node
 	err := n.processDisjunctions()
 	t.err = CombineErrors(nil, t.err, err)
-}
-
-func processFinalizeDisjunctions(c *OpContext, t *task, mode runMode) {
-	n := t.node
-	n.finalizeDisjunctions()
 }
 
 func processListLit(c *OpContext, t *task, mode runMode) {
@@ -239,7 +248,7 @@ func processListLit(c *OpContext, t *task, mode runMode) {
 
 		switch x := elem.(type) {
 		case *Comprehension:
-			err := c.yield(nil, t.env, x, 0, func(e *Environment) {
+			err := c.yield(nil, t.env, x, combinedFlags{status: partial, mode: mode}, func(e *Environment) {
 				label, err := MakeLabel(x.Source(), index, IntLabel)
 				n.addErr(err)
 				index++
@@ -350,7 +359,6 @@ func processListVertex(c *OpContext, t *task, mode runMode) {
 			continue
 		}
 		for _, c := range a.Conjuncts {
-			c.CloseInfo.cc = t.id.cc
 			n.insertArc(a.Label, ArcMember, c, t.id, true)
 		}
 	}

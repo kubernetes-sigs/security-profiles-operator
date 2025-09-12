@@ -60,8 +60,8 @@ func parseRanges(p *Parser, n Visitee) (list []Range, err error) {
 		case ",":
 		case "to":
 			seenTo = true
-		case ";":
-			p.nextPut(pos, tok, lit) // allow for inline comment parsing
+		case ";", "[":
+			p.nextPut(pos, tok, lit) // allow for inline comment parsing or options
 			goto done
 		case "max":
 			if !seenTo {

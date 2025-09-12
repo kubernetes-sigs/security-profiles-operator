@@ -143,16 +143,7 @@ func (n *nodeContext) insertComprehension(
 		ec = &envComprehension{
 			comp:   c,
 			vertex: n.node,
-
-			err:  nil,   // shut up linter
-			envs: nil,   // shut up linter
-			done: false, // shut up linter
 		}
-	}
-
-	if ec.done && len(ec.envs) == 0 {
-		n.decComprehension(c)
-		return
 	}
 
 	x := c.Value
@@ -160,12 +151,18 @@ func (n *nodeContext) insertComprehension(
 	if !n.ctx.isDevVersion() {
 		ci = ci.SpawnEmbed(c)
 		ci.closeInfo.span |= ComprehensionSpan
-		ci.decl = c
+	} else {
+		ci.setOptionalV3(nil)
 	}
+
+	node := n.node.DerefDisjunct()
 
 	var decls []Decl
 	switch v := ToExpr(x).(type) {
 	case *StructLit:
+		ci = n.splitStruct(v, ci)
+
+		kind := TopKind
 		numFixed := 0
 		var fields []Decl
 		for _, d := range v.Decls {
@@ -173,25 +170,28 @@ func (n *nodeContext) insertComprehension(
 			case *Field:
 				numFixed++
 
+				if f.Label.IsInt() {
+					kind &= ListKind
+				} else if f.Label.IsString() {
+					kind &= StructKind
+				}
+
 				// Create partial comprehension
 				c := &Comprehension{
 					Syntax:  c.Syntax,
 					Clauses: c.Clauses,
 					Value:   f,
 					arcType: f.ArcType, // TODO: can be derived, remove this field.
-					cc:      ci.cc,
 
 					comp:   ec,
 					parent: c,
-					arc:    n.node,
+					arc:    node,
 				}
 
 				conjunct := MakeConjunct(env, c, ci)
 				if n.ctx.isDevVersion() {
 					n.assertInitialized()
-					_, c.arcCC = n.insertArcCC(f.Label, ArcPending, conjunct, conjunct.CloseInfo, false)
-					c.cc = ci.cc
-					ci.cc.incDependent(n.ctx, COMP, c.arcCC)
+					n.insertArc(f.Label, ArcPending, conjunct, conjunct.CloseInfo, false)
 				} else {
 					n.insertFieldUnchecked(f.Label, ArcPending, conjunct)
 				}
@@ -211,7 +211,7 @@ func (n *nodeContext) insertComprehension(
 
 					comp:   ec,
 					parent: c,
-					arc:    n.node,
+					arc:    node,
 				}
 
 				conjunct := MakeConjunct(env, c, ci)
@@ -240,18 +240,24 @@ func (n *nodeContext) insertComprehension(
 			st := v
 			if len(fields) < len(v.Decls) {
 				st = &StructLit{
-					Src:   v.Src,
-					Decls: fields,
+					Src:             v.Src,
+					Decls:           fields,
+					isComprehension: true,
 				}
 			}
-			n.node.AddStruct(st, env, ci)
+			node.AddStruct(st, env, ci)
 			switch {
 			case !ec.done:
 				ec.structs = append(ec.structs, st)
 			case len(ec.envs) > 0:
 				st.Init(n.ctx)
+				if kind == StructKind || kind == ListKind {
+					n.updateNodeType(kind, st, ci)
+				}
 			}
 		}
+
+		c.kind = kind
 
 		switch numFixed {
 		case 0:
@@ -259,12 +265,20 @@ func (n *nodeContext) insertComprehension(
 
 		case len(v.Decls):
 			// No comprehension to add at this level.
+			// The should be considered a struct if it has only non-regular
+			// fields (like definitions), and no embeddings.
+			if kind == TopKind {
+				c.kind = StructKind
+			}
 			return
 
 		default:
 			// Create a new StructLit with only the fields that need to be
 			// added at this level.
-			x = &StructLit{Decls: decls}
+			x = &StructLit{
+				Decls:           decls,
+				isComprehension: true,
+			}
 		}
 	}
 
@@ -304,7 +318,7 @@ func (c *OpContext) yield(
 		ctx:   c,
 		comp:  comp,
 		f:     f,
-		state: state.vertexStatus(),
+		state: state.status,
 	}
 	y := comp.Clauses[0]
 
@@ -409,27 +423,6 @@ func (n *nodeContext) injectSelfComprehensions(state vertexStatus) {
 // It returns an incomplete error if there was one. Fatal errors are
 // processed as a "successfully" completed computation.
 func (n *nodeContext) processComprehension(d *envYield, state vertexStatus) *Bottom {
-	err := n.processComprehensionInner(d, state)
-
-	// NOTE: we cannot move this to defer in processComprehensionInner, as we
-	// use panics to implement "yielding" (and possibly coroutines in the
-	// future).
-	n.decComprehension(d.leaf)
-
-	return err
-}
-
-func (n *nodeContext) decComprehension(p *Comprehension) {
-	for ; p != nil; p = p.parent {
-		cc := p.cc
-		if cc != nil {
-			cc.decDependent(n.ctx, COMP, p.arcCC)
-		}
-		p.cc = nil
-	}
-}
-
-func (n *nodeContext) processComprehensionInner(d *envYield, state vertexStatus) *Bottom {
 	ctx := n.ctx
 
 	// Compute environments, if needed.
@@ -439,7 +432,11 @@ func (n *nodeContext) processComprehensionInner(d *envYield, state vertexStatus)
 			envs = append(envs, env)
 		}
 
-		if err := ctx.yield(d.vertex, d.env, d.comp, oldOnly(state), f); err != nil {
+		if err := ctx.yield(d.vertex, d.env, d.comp, combinedFlags{
+			status:    state,
+			condition: allKnown,
+			mode:      ignore,
+		}, f); err != nil {
 			if err.IsIncomplete() {
 				return err
 			}
@@ -468,21 +465,13 @@ func (n *nodeContext) processComprehensionInner(d *envYield, state vertexStatus)
 	d.inserted = true
 
 	if len(d.envs) == 0 {
-		c := d.leaf.arcCC
-		// because the parent referrer will reach a zero count before this
-		// node will reach a zero count, we need to propagate the arcType.
-		c.updateArcType(ctx, ArcNotPresent)
+		n.node.updateArcType(ArcNotPresent)
 		return nil
 	}
 
 	v := n.node
 	for c := d.leaf; c.parent != nil; c = c.parent {
-		// because the parent referrer will reach a zero count before this
-		// node will reach a zero count, we need to propagate the arcType.
-		if p := c.arcCC; p != nil {
-			p.src.updateArcType(c.arcType)
-			p.updateArcType(ctx, c.arcType)
-		}
+		v = n.ctx.deref(v)
 		v.updateArcType(c.arcType)
 		if v.ArcType == ArcNotPresent {
 			parent := v.Parent
@@ -491,6 +480,12 @@ func (n *nodeContext) processComprehensionInner(d *envYield, state vertexStatus)
 			ctx.current().err = b
 			ctx.current().state = taskFAILED
 			return nil
+		}
+		if k := c.kind; k == StructKind || k == ListKind {
+			v := v.DerefDisjunct()
+			if s := v.getBareState(n.ctx); s != nil {
+				s.updateNodeType(k, ToExpr(c.Value), d.id)
+			}
 		}
 		v = c.arc
 	}

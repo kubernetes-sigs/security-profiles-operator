@@ -1,13 +1,27 @@
-# How to contribute #
+# How to contribute
 
-We'd love to accept your patches and contributions to this project.  There are
+We'd love to accept your patches and contributions to this project. There are
 a just a few small guidelines you need to follow.
 
+## Getting Started
 
-## Contributor License Agreement ##
+If you're new to the project, a good place to start is the [main `README.md`](/README.md) file.
+This will give you a high-level overview of the project and its goals.
+
+Before you start coding, you'll need to set up your development environment.
+This project uses Go, so you'll need to have a recent version of Go installed.
+You can find instructions on how to do that [here](https://golang.org/doc/install).
+
+Once you have Go installed, you can clone the repository:
+
+```bash
+git clone https://github.com/transparency-dev/tessera.git
+```
+
+## Contributor License Agreement
 
 Contributions to any Google project must be accompanied by a Contributor
-License Agreement.  This is not a copyright **assignment**, it simply gives
+License Agreement. This is not a copyright **assignment**, it simply gives
 Google permission to use and redistribute your contributions as part of the
 project.
 
@@ -34,16 +48,16 @@ of your first [pull request][].
 [CONTRIBUTORS]: CONTRIBUTORS
 
 
-## Submitting a patch ##
+## Submitting a patch
 
   1. It's generally best to start by opening a new issue describing the bug or
-     feature you're intending to fix.  Even if you think it's relatively minor,
-     it's helpful to know what people are working on.  Mention in the initial
+     feature you're intending to fix. Even if you think it's relatively minor,
+     it's helpful to know what people are working on. Mention in the initial
      issue that you are planning to work on that bug or feature so that it can
      be assigned to you.
 
   1. Follow the normal process of [forking][] the project, and setup a new
-     branch to work in.  It's important that each group of changes be done in
+     branch to work in. It's important that each group of changes be done in
      separate branches in order to ensure that a pull request only includes the
      commits related to that bug or feature.
 
@@ -52,6 +66,18 @@ of your first [pull request][].
      messages are able to be formatted properly by various git tools.
 
   1. Finally, push the commits to your fork and submit a [pull request][].
+
+## Code Style
+
+This project follows the standard Go code style.
+You can use `gofmt` to format your code before submitting a pull request.
+
+We also use `golangci-lint` to check for common issues.
+You can run it locally with:
+
+```bash
+golangci-lint run
+```
 
 [forking]: https://help.github.com/articles/fork-a-repo
 [well-formed commit messages]: http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html

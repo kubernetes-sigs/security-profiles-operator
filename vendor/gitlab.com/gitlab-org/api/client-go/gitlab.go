@@ -100,6 +100,9 @@ type Client struct {
 	// once.
 	authSourceInit sync.Once
 
+	// jar is the cookie jar to use with the HTTP client
+	jar http.CookieJar
+
 	// Default request options applied to every request.
 	defaultRequestOptions []RequestOptionFunc
 
@@ -160,6 +163,7 @@ type Client struct {
 	GroupCluster                     GroupClustersServiceInterface
 	GroupEpicBoards                  GroupEpicBoardsServiceInterface
 	GroupImportExport                GroupImportExportServiceInterface
+	Integrations                     IntegrationsServiceInterface
 	GroupIssueBoards                 GroupIssueBoardsServiceInterface
 	GroupIterations                  GroupIterationsServiceInterface
 	GroupLabels                      GroupLabelsServiceInterface
@@ -299,9 +303,9 @@ func NewClient(token string, options ...ClientOptionFunc) (*Client, error) {
 //
 // Deprecated: GitLab recommends against using this authentication method.
 func NewBasicAuthClient(username, password string, options ...ClientOptionFunc) (*Client, error) {
-	as := &passwordCredentialsAuthSource{
-		username: username,
-		password: password,
+	as := &PasswordCredentialsAuthSource{
+		Username: username,
+		Password: password,
 	}
 
 	return NewAuthSourceClient(as, options...)
@@ -359,6 +363,18 @@ func NewAuthSourceClient(as AuthSource, options ...ClientOptionFunc) (*Client, e
 		if err := fn(c); err != nil {
 			return nil, err
 		}
+	}
+
+	// Wire up the cookie jar.
+	// The ClientOptionFunc can't do it directly,
+	// because the user may also specify HTTPClient
+	// and we want the order of passing those to matter
+	// as little as possible.
+	if c.jar != nil {
+		if c.client.HTTPClient.Jar != nil {
+			return nil, errors.New("conflicting option functions when creating client. The provided HTTP Client already has a Jar configured, therefore you can't use gitlab.WithCookieJar")
+		}
+		c.client.HTTPClient.Jar = c.jar
 	}
 
 	// If no custom limiter was set using a client option, configure
@@ -426,6 +442,7 @@ func NewAuthSourceClient(as AuthSource, options ...ClientOptionFunc) (*Client, e
 	c.GroupCluster = &GroupClustersService{client: c}
 	c.GroupEpicBoards = &GroupEpicBoardsService{client: c}
 	c.GroupImportExport = &GroupImportExportService{client: c}
+	c.Integrations = &IntegrationsService{client: c}
 	c.GroupIssueBoards = &GroupIssueBoardsService{client: c}
 	c.GroupIterations = &GroupIterationsService{client: c}
 	c.GroupLabels = &GroupLabelsService{client: c}
@@ -523,6 +540,10 @@ func NewAuthSourceClient(as AuthSource, options ...ClientOptionFunc) (*Client, e
 	c.Wikis = &WikisService{client: c}
 
 	return c, nil
+}
+
+func (c *Client) HTTPClient() *http.Client {
+	return c.client.HTTPClient
 }
 
 // retryHTTPCheck provides a callback for Client.CheckRetry which
@@ -663,6 +684,14 @@ func (c *Client) NewRequest(method, path string, opt any, options []RequestOptio
 	u.RawPath = c.baseURL.Path + path
 	u.Path = c.baseURL.Path + unescaped
 
+	return c.NewRequestToURL(method, &u, opt, options)
+}
+
+func (c *Client) NewRequestToURL(method string, u *url.URL, opt any, options []RequestOptionFunc) (*retryablehttp.Request, error) {
+	if u.Scheme != c.baseURL.Scheme || u.Host != c.baseURL.Host {
+		return nil, fmt.Errorf("client only allows requests to URLs matching the clients configured base URL. Got %q, base URL is %q", u.String(), c.baseURL.String())
+	}
+
 	// Create a request specific headers map.
 	reqHeaders := make(http.Header)
 	reqHeaders.Set("Accept", "application/json")
@@ -677,10 +706,11 @@ func (c *Client) NewRequest(method, path string, opt any, options []RequestOptio
 		reqHeaders.Set("Content-Type", "application/json")
 
 		if opt != nil {
-			body, err = json.Marshal(opt)
+			b, err := json.Marshal(opt)
 			if err != nil {
 				return nil, err
 			}
+			body = b
 		}
 	case opt != nil:
 		q, err := query.Values(opt)
@@ -976,7 +1006,7 @@ func parseID(id any) (string, error) {
 	}
 }
 
-// Helper function to escape a project identifier.
+// PathEscape is a helper function to escape a project identifier.
 func PathEscape(s string) string {
 	return strings.ReplaceAll(url.PathEscape(s), ".", "%2E")
 }
@@ -1003,6 +1033,10 @@ func (e *ErrorResponse) Error() string {
 	} else {
 		return fmt.Sprintf("%s %s: %d %s", e.Response.Request.Method, url, e.Response.StatusCode, e.Message)
 	}
+}
+
+func (e *ErrorResponse) HasStatusCode(statusCode int) bool {
+	return e != nil && e.Response != nil && e.Response.StatusCode == statusCode
 }
 
 // CheckResponse checks the API response for errors, and returns them if present.
@@ -1073,6 +1107,15 @@ func parseError(raw any) string {
 	default:
 		return fmt.Sprintf("failed to parse unexpected error type: %T", raw)
 	}
+}
+
+func HasStatusCode(err error, statusCode int) bool {
+	var errResponse *ErrorResponse
+	if !errors.As(err, &errResponse) {
+		return false
+	}
+
+	return errResponse.HasStatusCode(statusCode)
 }
 
 // newRetryableHTTPClientWithRetryCheck returns a `retryablehttp.Client` clone of itself with the given CheckRetry function
@@ -1147,25 +1190,25 @@ func (s AccessTokenAuthSource) Header(_ context.Context) (string, string, error)
 	return AccessTokenHeaderName, s.Token, nil
 }
 
-// passwordTokenSource implements the AuthSource interface for the OAuth 2.0
+// PasswordCredentialsAuthSource implements the AuthSource interface for the OAuth 2.0
 // resource owner password credentials flow.
-type passwordCredentialsAuthSource struct {
-	username string
-	password string
+type PasswordCredentialsAuthSource struct {
+	Username string
+	Password string
 
 	AuthSource
 }
 
-func (as *passwordCredentialsAuthSource) Init(ctx context.Context, client *Client) error {
+func (as *PasswordCredentialsAuthSource) Init(ctx context.Context, client *Client) error {
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, client.client.HTTPClient)
 
 	config := &oauth2.Config{
 		Endpoint: client.endpoint(),
 	}
 
-	pct, err := config.PasswordCredentialsToken(ctx, as.username, as.password)
+	pct, err := config.PasswordCredentialsToken(ctx, as.Username, as.Password)
 	if err != nil {
-		return fmt.Errorf("PasswordCredentialsToken(%q, ******): %w", as.username, err)
+		return fmt.Errorf("PasswordCredentialsToken(%q, ******): %w", as.Username, err)
 	}
 
 	as.AuthSource = OAuthTokenSource{

@@ -364,7 +364,7 @@ type CreatePipelineOptions struct {
 	Variables *[]*PipelineVariableOptions `url:"variables,omitempty" json:"variables,omitempty"`
 }
 
-// PipelineVariable represents a pipeline variable.
+// PipelineVariableOptions represents a pipeline variable option.
 //
 // GitLab API docs: https://docs.gitlab.com/api/pipelines/#create-a-new-pipeline
 type PipelineVariableOptions struct {

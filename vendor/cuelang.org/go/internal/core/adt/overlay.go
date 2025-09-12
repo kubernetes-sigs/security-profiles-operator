@@ -14,7 +14,10 @@
 
 package adt
 
-import "slices"
+import (
+	"maps"
+	"slices"
+)
 
 // This file implements a Vertex overlay. This is used by the disjunction
 // algorithm to fork an existing Vertex value without modifying the original.
@@ -38,11 +41,13 @@ import "slices"
 // TODO(perf): implement copy on write: instead of copying the entire tree, we
 // could get by with only copying arcs to that are modified in the copy.
 
-var nextGeneration int
-
 func newOverlayContext(ctx *OpContext) *overlayContext {
-	nextGeneration++
-	return &overlayContext{ctx: ctx, generation: nextGeneration}
+	return &overlayContext{
+		ctx: ctx,
+
+		// TODO(perf): take a map from a pool of maps and reuse.
+		vertexMap: make(map[*Vertex]*Vertex),
+	}
 }
 
 // An overlayContext keeps track of copied vertices, closeContexts, and tasks.
@@ -51,73 +56,133 @@ func newOverlayContext(ctx *OpContext) *overlayContext {
 type overlayContext struct {
 	ctx *OpContext
 
-	// generation is used to identify the current overlayContext. All
-	// closeContexts created by this overlayContext will have this generation.
-	// Whenever a counter of a closedContext is changed, this may only cause
-	// a cascade of changes if the generation is the same.
-	generation int
-
-	// closeContexts holds the allocated closeContexts created by allocCC.
-	//
-	// In the first pass, closeContexts are copied using allocCC. This also
-	// walks the parent tree, and allocates copies for ConjunctGroups.
-	//
-	// In the second pass, initCloneCC can be finalized by initializing each
-	// closeContext in this slice.
-	//
-	// Note that after the copy is completed, the overlay pointer should be
-	// deleted.
-	closeContexts []*closeContext
-
 	// vertices holds the original, non-overlay vertices. The overlay for a
 	// vertex v can be obtained by looking up v.cc.overlay.src.
 	vertices []*Vertex
+
+	// vertexMap maps Vertex values of an originating node to the ones copied
+	// for this overlayContext. This is used to update the Vertex values in
+	// Environment values.
+	vertexMap vertexMap
+
+	// confMap maps envComprehension values to the ones copied for this
+	// overlayContext.
+	compMap map[*envComprehension]*envComprehension
+}
+
+type vertexMap map[*Vertex]*Vertex
+
+// overlayFrom is used to store overlay information in the OpContext. This
+// is used for dynamic resolution of vertices, which prevents data structures
+// from having to be copied in the overlay.
+//
+// TODO(perf): right now this is only used for resolving vertices in
+// comprehensions. We could also use this for resolving environments, though.
+// Furthermore, we could used the "cleared" vertexMaps on this stack to avoid
+// allocating memory.
+//
+// NOTE: using a stack globally in OpContext is not very principled, as we
+// may be evaluating nested evaluations of different disjunctions. However,
+// in practice this just results in more work: as the vertices should not
+// overlap, there will be no cycles.
+type overlayFrame struct {
+	vertexMap vertexMap
+	root      *Vertex
+}
+
+func (c *OpContext) pushOverlay(v *Vertex, m vertexMap) {
+	c.overlays = append(c.overlays, overlayFrame{m, v})
+}
+
+func (c *OpContext) popOverlay() {
+	c.overlays = c.overlays[:len(c.overlays)-1]
+}
+
+func (c *OpContext) deref(v *Vertex) *Vertex {
+	for i := len(c.overlays) - 1; i >= 0; i-- {
+		f := c.overlays[i]
+		if f.root == v {
+			continue
+		}
+		if x, ok := f.vertexMap[v]; ok {
+			return x
+		}
+	}
+	return v
+}
+
+// deref reports a replacement of v or v itself if such a replacement does not
+// exists. It computes the transitive closure of the replacement graph.
+// TODO(perf): it is probably sufficient to only replace one level. But we need
+// to prove this to be sure. Until then, we keep the code as is.
+//
+// This function does a simple cycle check. As every overlayContext adds only
+// new Vertex nodes and only entries from old to new nodes are created, this
+// should never happen. But just in case we will panic instead of hang in such
+// situations.
+func (m vertexMap) deref(v *Vertex) *Vertex {
+	for i := 0; ; i++ {
+		x, ok := m[v]
+		if !ok {
+			break
+		}
+		v = x
+
+		if i > len(m) {
+			panic("cycle detected in vertexMap")
+		}
+	}
+	return v
 }
 
 // cloneRoot clones the Vertex in which disjunctions are defined to allow
 // inserting selected disjuncts into a new Vertex.
 func (ctx *overlayContext) cloneRoot(root *nodeContext) *nodeContext {
+	maps.Copy(ctx.vertexMap, root.vertexMap)
+
 	// Clone all vertices that need to be cloned to support the overlay.
 	v := ctx.cloneVertex(root.node)
 	v.IsDisjunct = true
+	v.state.vertexMap = ctx.vertexMap
 
-	// At this point we have copied all the mandatory closeContexts. There
-	// may be derivative closeContexts copied as well.
+	for _, v := range ctx.vertices {
+		v = v.overlay
 
-	// TODO: patch notifications to any node that is within the disjunct to
-	// point to the new vertex instead.
+		n := v.state
+		if n == nil {
+			continue
+		}
 
-	// Initialize closeContexts: at this point, all closeContexts that need to
-	// be cloned have been allocated and stored in closeContexts and can now be
-	// initialized.
-	// Use an explicit index as initCloneCC uses allocCC, which MAY allocate a
-	// new closeContext. It probably does not, but we use an index in case.
-	for i := 0; i < len(ctx.closeContexts); i++ {
-		cc := ctx.closeContexts[i]
-		ctx.initCloneCC(cc)
-	}
+		// The group of the root closeContext should point to the Conjuncts field
+		// of the Vertex. As we already allocated the group, we use that allocation,
+		// but "move" it to v.Conjuncts.
+		// TODO: Is this ever necessary? It is certainly necessary to rewrite
+		// environments from inserted disjunction values, but expressions that
+		// were already added will typically need to be recomputed and recreated
+		// anyway. We add this in to be a bit defensive and reinvestigate once we
+		// have more aggressive structure sharing implemented
+		for i, c := range v.Conjuncts {
+			v.Conjuncts[i].Env = ctx.derefDisjunctsEnv(c.Env)
+		}
 
-	for _, cc := range ctx.closeContexts {
-		ctx.finishDependencies(cc)
-	}
+		for _, t := range n.tasks {
+			ctx.rewriteComprehension(t)
 
-	// TODO: walk overlay vertices and decrement counters of non-disjunction
-	// running tasks?
-	// TODO: find a faster way to do this. Walking over vertices would
-	// probably be faster.
-	for _, cc := range ctx.closeContexts {
-		for _, d := range cc.dependencies {
-			if d.task == nil {
-				// The test case that makes this necessary:
-				// #A: ["a" | "b"] | {}
-				// #A: ["a" | "b"] | {}
-				// b:  #A & ["b"]
-				//
-				// TODO: invalidate task instead?
-				continue
-			}
-			if d.kind == TASK && d.task.state == taskRUNNING && !d.task.defunct {
-				cc.overlay.decDependent(ctx.ctx, TASK, nil)
+			t.node = ctx.vertexMap.deref(t.node.node).state
+
+			if t.blockedOn != nil {
+				before := t.blockedOn.node.node
+				after := ctx.vertexMap.deref(before)
+				// Tasks that are blocked on nodes outside the current scope
+				// of the disjunction should should be added to blocking queues.
+				if before == after {
+					continue
+				}
+				s := &after.state.scheduler
+				t.blockedOn = s
+				s.blocking = append(s.blocking, t)
+				s.ctx.blocking = append(s.ctx.blocking, t)
+				s.needs |= t.blockCondition
 			}
 		}
 	}
@@ -133,8 +198,8 @@ func (ctx *overlayContext) cloneRoot(root *nodeContext) *nodeContext {
 //
 // TODO(perf): consider using generation counters.
 func (ctx *overlayContext) unlinkOverlay() {
-	for _, cc := range ctx.closeContexts {
-		cc.overlay = nil
+	for _, v := range ctx.vertices {
+		v.overlay = nil
 	}
 }
 
@@ -148,28 +213,19 @@ func (ctx *overlayContext) unlinkOverlay() {
 // to eliminate disjunctions pre-copy based on discriminator fields and what
 // have you. This is not unlikely to eliminate
 func (ctx *overlayContext) cloneVertex(x *Vertex) *Vertex {
-	xcc := x.rootCloseContext(ctx.ctx) // may be uninitialized for constraints.
-	if o := xcc.overlay; o != nil && o.src != nil {
-		// This path could happen with structure sharing or user-constructed
-		// values.
-		return o.src
+	if x.overlay != nil {
+		return x.overlay
 	}
 
+	// TODO(mem-mgmt): use free list for Vertex allocation.
 	v := &Vertex{}
 	*v = *x
+	ctx.vertexMap[x] = v
+	x.overlay = v
 
-	ctx.vertices = append(ctx.vertices, v)
+	ctx.vertices = append(ctx.vertices, x)
 
-	v._cc = ctx.allocCC(x.cc())
-
-	v._cc.src = v
-	v._cc.parentConjuncts = v
-
-	// The group of the root closeContext should point to the Conjuncts field
-	// of the Vertex. As we already allocated the group, we use that allocation,
-	// but "move" it to v.Conjuncts.
-	v.Conjuncts = *v._cc.group
-	v._cc.group = &v.Conjuncts
+	v.Conjuncts = slices.Clone(v.Conjuncts)
 
 	if a := x.Arcs; len(a) > 0 {
 		// TODO(perf): reuse buffer.
@@ -207,17 +263,39 @@ func (ctx *overlayContext) cloneVertex(x *Vertex) *Vertex {
 	return v
 }
 
-func (ctx *overlayContext) cloneNodeContext(n *nodeContext) *nodeContext {
-	if !n.node.isInitialized() {
-		panic("unexpected uninitialized node")
+// derefDisjunctsEnv creates a new env for each Environment in the Up chain with
+// each Environment where Vertex is "from" to one where Vertex is "to".
+//
+// TODO(perf): we could, instead, just look up the mapped vertex in
+// OpContext.Up. This would avoid us having to copy the Environments for each
+// disjunct. This requires quite a bit of plumbing, though, so we leave it as
+// is until this proves to be a performance issue.
+func (ctx *overlayContext) derefDisjunctsEnv(env *Environment) *Environment {
+	if env == nil {
+		return nil
 	}
+	up := ctx.derefDisjunctsEnv(env.Up)
+	to := ctx.vertexMap.deref(env.Vertex)
+	if up != env.Up || env.Vertex != to {
+		env = &Environment{
+			Up:           up,
+			Vertex:       to,
+			DynamicLabel: env.DynamicLabel,
+		}
+	}
+	return env
+}
+
+func (ctx *overlayContext) cloneNodeContext(n *nodeContext) *nodeContext {
+	n.node.getState(ctx.ctx) // ensure state is initialized.
+
 	d := n.ctx.newNodeContext(n.node)
 	d.underlying = n.underlying
+	d.isDisjunct = true
+
 	if n.underlying == nil {
 		panic("unexpected nil underlying")
 	}
-
-	d.refCount++
 
 	d.ctx = n.ctx
 	d.node = n.node
@@ -226,11 +304,11 @@ func (ctx *overlayContext) cloneNodeContext(n *nodeContext) *nodeContext {
 
 	d.arcMap = append(d.arcMap, n.arcMap...)
 	d.checks = append(d.checks, n.checks...)
+	d.sharedIDs = append(d.sharedIDs, n.sharedIDs...)
 
-	for _, s := range n.sharedIDs {
-		s.cc = ctx.allocCC(s.cc)
-		d.sharedIDs = append(d.sharedIDs, s)
-	}
+	d.reqDefIDs = append(d.reqDefIDs, n.reqDefIDs...)
+	d.replaceIDs = append(d.replaceIDs, n.replaceIDs...)
+	d.conjunctInfo = append(d.conjunctInfo, n.conjunctInfo...)
 
 	// TODO: do we need to add cyclicConjuncts? Typically, cyclicConjuncts
 	// gets cleared at the end of a unify call. There are cases, however, where
@@ -244,260 +322,13 @@ func (ctx *overlayContext) cloneNodeContext(n *nodeContext) *nodeContext {
 	if len(n.disjunctions) > 0 {
 		// Do not clone cc in disjunctions, as it is identified by underlying.
 		// We only need to clone the cc in disjunctCCs.
-		d.disjunctions = append(d.disjunctions, n.disjunctions...)
-		for _, h := range n.disjunctCCs {
-			h.cc = ctx.allocCC(h.cc)
-			d.disjunctCCs = append(d.disjunctCCs, h)
+		for _, x := range n.disjunctions {
+			x.env = ctx.derefDisjunctsEnv(x.env)
+			d.disjunctions = append(d.disjunctions, x)
 		}
 	}
 
 	return d
-}
-
-// cloneConjunct prepares a tree of conjuncts for copying by first allocating
-// a clone for each closeContext.
-func (ctx *overlayContext) copyConjunct(c Conjunct) Conjunct {
-	cc := c.CloseInfo.cc
-	if cc == nil {
-		return c
-	}
-	// TODO: see if we can avoid this allocation. It seems that this should
-	// not be necessary, and evaluation attains correct results without it.
-	// Removing this, though, will cause some of the assertions to fail. These
-	// assertions are overly strict and could be relaxed, but keeping them as
-	// they are makes reasoning about them easier.
-	overlay := ctx.allocCC(cc)
-	c.CloseInfo.cc = overlay
-	return c
-}
-
-// Phase 1: alloc
-func (ctx *overlayContext) allocCC(cc *closeContext) *closeContext {
-	// TODO(perf): if the original is "done", it can no longer be modified and
-	// we can use the original, even if the values will not be correct.
-	if cc.overlay != nil {
-		return cc.overlay
-	}
-
-	o := &closeContext{generation: ctx.generation}
-	cc.overlay = o
-	o.depth = cc.depth
-	o.holeID = cc.holeID
-
-	if cc.parent != nil {
-		o.parent = ctx.allocCC(cc.parent)
-	}
-
-	// Copy the conjunct group if it exists.
-	if cc.group != nil {
-		// Copy the group of conjuncts.
-		g := make([]Conjunct, len(*cc.group))
-		o.group = (*ConjunctGroup)(&g)
-		for i, c := range *cc.group {
-			g[i] = ctx.copyConjunct(c)
-		}
-
-		if o.parent != nil {
-			// validate invariants.
-			// TODO: the group can sometimes be empty. Investigate why and
-			// whether this is valid.
-			if ca := *cc.parent.group; len(ca) > 0 {
-				if ca[cc.parentIndex].x != cc.group {
-					panic("group misaligned")
-				}
-
-				(*o.parent.group)[cc.parentIndex].x = o.group
-			}
-		}
-	}
-
-	// This must come after allocating the parent so that we can always read
-	// the src vertex from the parent during initialization. This assumes that
-	// src is set in the root closeContext when cloning a vertex.
-	ctx.closeContexts = append(ctx.closeContexts, cc)
-
-	// We only explicitly tag dependencies of type ARC. Notifications that
-	// point within the disjunct overlay will be tagged elsewhere.
-	for _, a := range cc.arcs {
-		ctx.allocCC(a.dst)
-	}
-
-	return o
-}
-
-func (ctx *overlayContext) initCloneCC(x *closeContext) {
-	o := x.overlay
-
-	if p := x.parent; p != nil {
-		o.parent = p.overlay
-		o.src = o.parent.src
-	}
-
-	o.depth = x.depth
-	o.conjunctCount = x.conjunctCount
-	o.disjunctCount = x.disjunctCount
-	o.isDef = x.isDef
-	o.isDefOrig = x.isDefOrig
-	o.hasTop = x.hasTop
-	o.hasNonTop = x.hasNonTop
-	o.isClosedOnce = x.isClosedOnce
-	o.isEmbed = x.isEmbed
-	o.isClosed = x.isClosed
-	o.isTotal = x.isTotal
-	o.done = x.done
-	o.isDecremented = x.isDecremented
-	o.parentIndex = x.parentIndex
-	o.Expr = x.Expr
-	o.Patterns = append(o.Patterns, x.Patterns...)
-
-	// needsCloseInSchedule is a separate mechanism to signal nodes that have
-	// completed that corresponds to the EVAL mechanism. Since we have not
-	// processed the conjuncts yet, these are inherently initiated outside of
-	// this conjunct. By now, if a closeContext needs to remain open, other
-	// counters should have been added. As an example, the parent node of this
-	// disjunct is still processing. The disjunction will be fully added before
-	// processing, and thus their will be no direct EVAL dependency. However,
-	// this disjunct may depend on a NOTIFY that is kept open by an ancestor
-	// EVAL.
-	if x.needsCloseInSchedule != nil {
-		o.needsCloseInSchedule = nil
-	}
-
-	// child and next always point to completed closeContexts. Moreover, only
-	// fields that are immutable, such as Expr, are used. It is therefore not
-	// necessary to use overlays.
-	o.child = x.child
-	if x.child != nil && x.child.overlay != nil {
-		// TODO(evalv3): there seem to be situations where this is possible
-		// after all. See if this is really true, and we should remove this
-		// panic, or if this underlies a bug of sorts.
-		// panic("unexpected overlay in child")
-	}
-	o.next = x.next
-	if x.next != nil && x.next.overlay != nil {
-		// TODO(evalv3): there seem to be situations where this is possible
-		// after all. See if this is really true, and we should remove this
-		// panic, or if this underlies a bug of sorts.
-		// See Issue #3434.
-		// panic("unexpected overlay in next")
-	}
-
-	switch p := x.parentConjuncts.(type) {
-	case *closeContext:
-		if p.overlay == nil {
-			panic("expected overlay")
-		}
-		o.parentConjuncts = p.overlay
-
-	case *Vertex:
-		o.parentConjuncts = o.src
-	}
-
-	if o.src == nil {
-		// fall back to original vertex.
-		// FIXME: this is incorrect, as it may lead to evaluating nodes that
-		// are not part of the disjunction with values of the disjunction.
-		// TODO: try eliminating EVAL dependencies of arcs that are the parent
-		// of the disjunction root.
-		o.src = x.src
-	}
-
-	if o.parentConjuncts == nil {
-		panic("expected parentConjuncts")
-	}
-}
-
-func (ctx *overlayContext) finishDependencies(x *closeContext) {
-	o := x.overlay
-
-	for _, a := range x.arcs {
-		// If an arc does not have an overlay, we should not decrement the
-		// dependency counter. We simply remove the dependency in that case.
-		if a.dst.overlay == nil || a.root.overlay == nil {
-			panic("arcs should always point inwards and thus included in the overlay")
-		}
-		if a.decremented {
-			continue
-		}
-		a.root = a.root.overlay // TODO: is this necessary?
-		a.dst = a.dst.overlay
-		o.arcs = append(o.arcs, a)
-
-		root := a.dst.src.cc()
-		root.externalDeps = append(root.externalDeps, ccDepRef{
-			src:   o,
-			kind:  ARC,
-			index: len(o.arcs) - 1,
-		})
-	}
-
-	for _, a := range x.notify {
-		// If a notification does not have an overlay, we should not decrement
-		// the dependency counter. We simply remove the dependency in that case.
-		// TODO: however, the original closeContext that it point to now will
-		// never be "filled". We should insert top in this gat or render it as
-		// "defunct", for instance, so that it will not leave an nondecremented
-		// counter.
-		if a.dst.overlay == nil {
-			for c := a.dst; c != nil; c = c.parent {
-				c.disjunctCount++
-			}
-			continue
-		}
-		if a.decremented {
-			continue
-		}
-		a.dst = a.dst.overlay
-		o.notify = append(o.notify, a)
-
-		root := a.dst.src.cc()
-		root.externalDeps = append(root.externalDeps, ccDepRef{
-			src:   o,
-			kind:  NOTIFY,
-			index: len(o.notify) - 1,
-		})
-	}
-
-	for _, d := range x.dependencies {
-		if d.decremented {
-			continue
-		}
-
-		if d.kind == DEFER {
-			o.decDependentNoMatch(ctx.ctx, DEFER, nil)
-			continue
-		}
-
-		// Since have not started processing the disjunct yet, all EVAL
-		// dependencies will have been initiated outside of this disjunct.
-		if d.kind == EVAL {
-			o.decDependentNoMatch(ctx.ctx, EVAL, nil)
-			continue
-		}
-
-		if d.dependency.overlay == nil {
-			// This dependency is irrelevant for the current overlay. We can
-			// eliminate it as long as we decrement the accompanying counter.
-			if o.conjunctCount < 2 {
-				// This node can only be relevant if it has at least one other
-				// dependency. Check that we are not decrementing the counter
-				// to 0.
-				// TODO: this currently panics for some tests. Disabling does
-				// not seem to harm, though. Reconsider whether this is an issue.
-				// panic("unexpected conjunctCount: must be at least 2")
-			}
-			o.conjunctCount--
-			continue
-		}
-
-		dep := d.dependency
-		dep = dep.overlay
-		o.dependencies = append(o.dependencies, &ccDep{
-			dependency:  dep,
-			kind:        d.kind,
-			decremented: false,
-		})
-	}
 }
 
 func (ctx *overlayContext) cloneScheduler(dst, src *nodeContext) {
@@ -515,20 +346,11 @@ func (ctx *overlayContext) cloneScheduler(dst, src *nodeContext) {
 	for _, t := range ss.tasks {
 		switch t.state {
 		case taskWAITING:
-			// Do not unblock previously blocked tasks, unless they are
-			// associated with this node.
-			// TODO: an edge case is when a task is blocked on another node
-			// within the same disjunction. We could solve this by associating
-			// each nodeContext with a unique ID (like a generation counter) for
-			// the disjunction.
-			if t.node != src || t.blockedOn != ss {
-				break
-			}
 			t.defunct = true
 			t := ctx.cloneTask(t, ds, ss)
 			ds.tasks = append(ds.tasks, t)
-			ds.blocking = append(ds.blocking, t)
-			ctx.ctx.blocking = append(ctx.ctx.blocking, t)
+			// We add this task to ds.blocking and ctx.ctx.blocking in
+			// cloneRoot, after its node references have been rewritten.
 
 		case taskREADY:
 			t.defunct = true
@@ -536,10 +358,8 @@ func (ctx *overlayContext) cloneScheduler(dst, src *nodeContext) {
 			ds.tasks = append(ds.tasks, t)
 
 		case taskRUNNING:
-			if t.run != handleResolver && t.run != handleExpr {
-				// TODO: consider whether this is also necessary for other
-				// types of tasks.
-				break
+			if t.run == handleDisjunctions {
+				continue
 			}
 
 			t.defunct = true
@@ -556,35 +376,70 @@ func (ctx *overlayContext) cloneTask(t *task, dst, src *scheduler) *task {
 	}
 
 	id := t.id
-	if id.cc != nil {
-		id.cc = ctx.allocCC(t.id.cc) // TODO: may be nil for disjunctions.
-	}
 
-	// TODO: alloc from buffer.
+	env := ctx.derefDisjunctsEnv(t.env)
+
+	// TODO(perf): alloc from buffer.
 	d := &task{
 		run:            t.run,
 		state:          t.state,
 		completes:      t.completes,
 		unblocked:      t.unblocked,
 		blockCondition: t.blockCondition,
+		blockedOn:      t.blockedOn, // will be rewritten later
 		err:            t.err,
-		env:            t.env,
+		env:            env,
 		x:              t.x,
 		id:             id,
 
 		node: dst.node,
 
-		// TODO: need to copy closeContexts?
+		// These are rewritten after everything is cloned when all vertices are
+		// known.
 		comp: t.comp,
 		leaf: t.leaf,
 	}
 
-	if t.blockedOn != nil {
-		if t.blockedOn != src {
-			panic("invalid scheduler")
-		}
-		d.blockedOn = dst
+	return d
+}
+
+func (ctx *overlayContext) rewriteComprehension(t *task) {
+	if t.comp != nil {
+		t.comp = ctx.mapComprehensionContext(t.comp)
 	}
 
-	return d
+	t.leaf = ctx.mapComprehension(t.leaf)
+}
+
+func (ctx *overlayContext) mapComprehension(c *Comprehension) *Comprehension {
+	if c == nil {
+		return nil
+	}
+	cc := *c
+	cc.comp = ctx.mapComprehensionContext(cc.comp)
+	cc.arc = ctx.ctx.deref(cc.arc)
+	cc.parent = ctx.mapComprehension(cc.parent)
+	return &cc
+}
+
+func (ctx *overlayContext) mapComprehensionContext(ec *envComprehension) *envComprehension {
+	if ec == nil {
+		return nil
+	}
+
+	if ctx.compMap == nil {
+		ctx.compMap = make(map[*envComprehension]*envComprehension)
+	}
+
+	if ctx.compMap[ec] == nil {
+		x := &envComprehension{
+			comp:    ec.comp,
+			structs: ec.structs,
+			vertex:  ctx.ctx.deref(ec.vertex),
+		}
+		ctx.compMap[ec] = x
+		ec = x
+	}
+
+	return ec
 }

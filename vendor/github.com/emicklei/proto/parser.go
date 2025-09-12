@@ -265,16 +265,17 @@ func (p *Parser) nextIdent(keywordStartAllowed bool) (pos scanner.Position, tok 
 	// see if identifier is namespaced
 	for {
 		r := p.peekNonWhitespace()
-		if '.' != r {
+		if r != '.' {
 			break
 		}
 		p.next() // consume dot
+		fullLit += "."
 		pos, tok, lit := p.next()
 		if tIDENT != tok && !isKeyword(tok) {
 			p.nextPut(pos, tok, lit)
 			break
 		}
-		fullLit = fmt.Sprintf("%s.%s", fullLit, lit)
+		fullLit += lit
 	}
 	return startPos, tIDENT, fullLit
 }
@@ -290,4 +291,31 @@ func (p *Parser) peekNonWhitespace() rune {
 		return p.peekNonWhitespace()
 	}
 	return r
+}
+
+// https://protobuf.dev/reference/protobuf/proto3-spec/
+func (p *Parser) nextFullIdent(keywordStartAllowed bool) (pos scanner.Position, tok token, lit string) {
+	pos, tok, lit = p.next()
+	if tIDENT != tok {
+		// can be keyword
+		if !(isKeyword(tok) && keywordStartAllowed) {
+			return
+		}
+		// proceed with keyword as first literal
+	}
+	fullIdent := lit
+	for {
+		r := p.peekNonWhitespace()
+		if r != '.' {
+			break
+		}
+		p.next() // consume dot
+		pos, tok, lit = p.nextFullIdent(true)
+		if tok != tIDENT {
+			p.nextPut(pos, tok, lit)
+			break
+		}
+		fullIdent = fmt.Sprintf("%s.%s", fullIdent, lit)
+	}
+	return pos, tIDENT, fullIdent
 }

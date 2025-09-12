@@ -40,6 +40,8 @@ func predeclared(n *ast.Ident) adt.Expr {
 	case "number", "__number":
 		return &adt.BasicType{Src: n, K: adt.NumberKind}
 
+	case "error", "__error":
+		return errorBuiltin
 	case "len", "__len":
 		return lenBuiltin
 	case "close", "__close":
@@ -63,6 +65,9 @@ func predeclared(n *ast.Ident) adt.Expr {
 
 	case "__no_sharing":
 		return adt.NoShareSentinel
+
+	case "__test_experiment":
+		return testExperiment
 	}
 
 	if r, ok := predefinedRanges[n.Name]; ok {

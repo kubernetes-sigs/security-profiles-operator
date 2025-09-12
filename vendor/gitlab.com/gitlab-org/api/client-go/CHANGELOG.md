@@ -1,3 +1,106 @@
+## [0.143.3](https://gitlab.com/gitlab-org/api/client-go/compare/v0.143.2...v0.143.3) (2025-09-10)
+
+## [0.143.2](https://gitlab.com/gitlab-org/api/client-go/compare/v0.143.1...v0.143.2) (2025-09-09)
+
+## [0.143.1](https://gitlab.com/gitlab-org/api/client-go/compare/v0.143.0...v0.143.1) (2025-09-08)
+
+# [0.143.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.142.6...v0.143.0) (2025-09-08)
+
+
+### Features
+
+* **users:** Add support for PublicEmail to ListUsers ([74a3b6a](https://gitlab.com/gitlab-org/api/client-go/commit/74a3b6a7dd1340faa70ec1246b5b99394c56f90b))
+
+## [0.142.6](https://gitlab.com/gitlab-org/api/client-go/compare/v0.142.5...v0.142.6) (2025-09-02)
+
+## [0.142.5](https://gitlab.com/gitlab-org/api/client-go/compare/v0.142.4...v0.142.5) (2025-08-30)
+
+## [0.142.4](https://gitlab.com/gitlab-org/api/client-go/compare/v0.142.3...v0.142.4) (2025-08-28)
+
+## [0.142.3](https://gitlab.com/gitlab-org/api/client-go/compare/v0.142.2...v0.142.3) (2025-08-28)
+
+## [0.142.2](https://gitlab.com/gitlab-org/api/client-go/compare/v0.142.1...v0.142.2) (2025-08-26)
+
+## [0.142.1](https://gitlab.com/gitlab-org/api/client-go/compare/v0.142.0...v0.142.1) (2025-08-25)
+
+# [0.142.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.141.2...v0.142.0) (2025-08-21)
+
+
+### Features
+
+* **tokens:** add expiration filters and sorting options to ListPersonalAccessTokens ([0a9f797](https://gitlab.com/gitlab-org/api/client-go/commit/0a9f79790ac87c7f7b8e32e9cdea27fbc613728b))
+
+## [0.141.2](https://gitlab.com/gitlab-org/api/client-go/compare/v0.141.1...v0.141.2) (2025-08-20)
+
+## [0.141.1](https://gitlab.com/gitlab-org/api/client-go/compare/v0.141.0...v0.141.1) (2025-08-18)
+
+# [0.141.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.140.0...v0.141.0) (2025-08-18)
+
+
+### Features
+
+* **config:** support custom headers for instances ([76b0e82](https://gitlab.com/gitlab-org/api/client-go/commit/76b0e82ab57b21b7da915117fb37ac2bf56506e8))
+
+# [0.140.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.139.2...v0.140.0) (2025-08-18)
+
+
+### Features
+
+* **client:** add support for cookie jars ([4b525e3](https://gitlab.com/gitlab-org/api/client-go/commit/4b525e3f14741176ea8cbf4e7ae988b87455f4d0))
+
+## [0.139.2](https://gitlab.com/gitlab-org/api/client-go/compare/v0.139.1...v0.139.2) (2025-08-14)
+
+## [0.139.1](https://gitlab.com/gitlab-org/api/client-go/compare/v0.139.0...v0.139.1) (2025-08-14)
+
+# [0.139.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.138.0...v0.139.0) (2025-08-13)
+
+
+### Features
+
+* **terraform:** improve Terraform States service ([e08128b](https://gitlab.com/gitlab-org/api/client-go/commit/e08128bf87011455db06dc946e77b2a16ee36948))
+
+# [0.138.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.137.0...v0.138.0) (2025-08-12)
+
+
+### Bug Fixes
+
+* deprecate ListProjectInvidedGroupOptions due to a typo ([322496a](https://gitlab.com/gitlab-org/api/client-go/commit/322496a8a4c3fd7393b4b2c2b427c42fff243861))
+* Update config package name to v1beta1 ([f958e6b](https://gitlab.com/gitlab-org/api/client-go/commit/f958e6bd2935fddf4867d9992908e87288e89c20))
+
+
+### Features
+
+* add support for field "Created at" for Tags ([f363d57](https://gitlab.com/gitlab-org/api/client-go/commit/f363d57853f2e05c848e88946269c936f0b6bf76))
+* **app settings:** Add support for CanCreateOrganization ([1db661d](https://gitlab.com/gitlab-org/api/client-go/commit/1db661de26e0d3a78134c6bd1d31fb24d9a60677))
+* **hooks:** Add support for project webhook url variables ([efabed5](https://gitlab.com/gitlab-org/api/client-go/commit/efabed57d83eefe565aa2dbbb943d94212ec6167))
+* update datadog integration with new fields and API endpoints ([660ef31](https://gitlab.com/gitlab-org/api/client-go/commit/660ef31daf884bde545cfaa88432ac5ec7e3bfe7))
+* update external status checks to return the status check object ([2d78e8c](https://gitlab.com/gitlab-org/api/client-go/commit/2d78e8cc43971c4395c980672de7263c10401900))
+
+# [0.137.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.136.0...v0.137.0) (2025-07-21)
+
+
+### Features
+
+* **integrations:** add group harbor integration ([220e4cb](https://gitlab.com/gitlab-org/api/client-go/commit/220e4cb524d9303d36384043f29f96f43e4d9387))
+
+# [0.136.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.135.0...v0.136.0) (2025-07-21)
+
+
+### Features
+
+* **client:** add NewRequestToURL function for calls to absolute URLs ([524b571](https://gitlab.com/gitlab-org/api/client-go/commit/524b571339b7704e0e346a5a64f367265b96125f))
+* **projects:** Add support for RestoreProject ([b33e888](https://gitlab.com/gitlab-org/api/client-go/commit/b33e8882ad6611b1ac19222d0abdbfc477846ea1))
+
+# [0.135.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.134.0...v0.135.0) (2025-07-21)
+
+
+### Features
+
+* **config:** implement extensions API ([257f745](https://gitlab.com/gitlab-org/api/client-go/commit/257f74599727b6a006ba65b1c3efd7ff5fc7b86c))
+* **config:** initial push of the ability to use a config file for auth ([575c0cc](https://gitlab.com/gitlab-org/api/client-go/commit/575c0cc6a1de48582ea9b3b19cef021dc3f1397a))
+* **integrations:** add group integration for microsoft teams ([da0b1dd](https://gitlab.com/gitlab-org/api/client-go/commit/da0b1dd5b86fd6a41d7c043621611d0687fc628f))
+* **merge-requests:** add auto_merge, deprecate old field, for merging a request ([9119eb0](https://gitlab.com/gitlab-org/api/client-go/commit/9119eb0e6662f136e589cdee74aaa410136ca664))
+
 # [0.134.0](https://gitlab.com/gitlab-org/api/client-go/compare/v0.133.1...v0.134.0) (2025-07-07)
 
 

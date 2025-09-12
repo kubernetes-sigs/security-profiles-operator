@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"cuelang.org/go/internal/cueexperiment"
 )
 
 // -----------------------------------------------------------------------------
@@ -73,6 +75,19 @@ func (p Pos) File() *File {
 		return nil
 	}
 	return p.file
+}
+
+// hiddenPos allows defining methods in Pos that are hidden from public
+// documentation.
+type hiddenPos = Pos
+
+func (p hiddenPos) Experiment() (x cueexperiment.File) {
+	if p.file == nil || p.file.experiments == nil {
+		return x
+	}
+
+	x = *p.file.experiments
+	return x
 }
 
 // TODO(mvdan): The methods below don't need to build an entire Position
@@ -237,9 +252,12 @@ type File struct {
 	base index
 	size index // file size as provided to AddFile
 
-	// lines and infos are protected by set.mutex
-	lines []index // lines contains the offset of the first character for each line (the first entry is always 0)
-	infos []lineInfo
+	// lines, infos, and content are protected by set.mutex
+	lines   []index // lines contains the offset of the first character for each line (the first entry is always 0)
+	infos   []lineInfo
+	content []byte
+
+	experiments *cueexperiment.File
 }
 
 // NewFile returns a new file with the given OS file name. The size provides the
@@ -250,7 +268,21 @@ func NewFile(filename string, deprecatedBase, size int) *File {
 	if deprecatedBase < 0 {
 		deprecatedBase = 1
 	}
-	return &File{sync.RWMutex{}, filename, index(deprecatedBase), index(size), []index{0}, nil}
+	return &File{
+		mutex: sync.RWMutex{},
+		name:  filename,
+		base:  index(deprecatedBase),
+		size:  index(size),
+		lines: []index{0},
+	}
+}
+
+// hiddenFile allows defining methods in File that are hidden from public
+// documentation.
+type hiddenFile = File
+
+func (f *hiddenFile) SetExperiments(experiments *cueexperiment.File) {
+	f.experiments = experiments
 }
 
 // Name returns the file name of file f as registered with AddFile.
@@ -373,6 +405,22 @@ func (f *File) SetLinesForContent(content []byte) {
 	f.mutex.Unlock()
 }
 
+// SetContent sets the file's content. The content must not be altered
+// after this call.
+func (f *hiddenFile) SetContent(content []byte) {
+	f.mutex.Lock()
+	f.content = content
+	f.mutex.Unlock()
+}
+
+// Content retrievs the file's content, which may be nil. The returned
+// content must not be altered.
+func (f *hiddenFile) Content() []byte {
+	f.mutex.RLock()
+	defer f.mutex.RUnlock()
+	return f.content
+}
+
 // A lineInfo object describes alternative file and line number
 // information (such as provided via a //line comment in a .go
 // file) for a given file offset.
@@ -414,7 +462,7 @@ func (f *File) Pos(offset int, rel RelPos) Pos {
 // f.Offset(f.Pos(offset)) == offset.
 func (f *File) Offset(p Pos) int {
 	x := p.index()
-	if x < 1 || x > 1+index(f.size) {
+	if x < 1 || x > 1+f.size {
 		panic("illegal Pos value")
 	}
 	return int(x - 1)
@@ -436,7 +484,7 @@ func searchLineInfos(a []lineInfo, x int) int {
 func (f *File) unpack(offset index, adjusted bool) (filename string, line, column int) {
 	filename = f.name
 	if i := searchInts(f.lines, offset); i >= 0 {
-		line, column = int(i+1), int(offset-f.lines[i]+1)
+		line, column = i+1, int(offset-f.lines[i]+1)
 	}
 	if adjusted && len(f.infos) > 0 {
 		// almost no files have extra line infos

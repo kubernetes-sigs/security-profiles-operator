@@ -43,9 +43,6 @@ func (r *Runtime) ResolveFiles(p *build.Instance) (errs errors.Error) {
 		}
 	}
 	for _, f := range p.Files {
-		if f.PackageName() == "" {
-			continue
-		}
 		err := resolveFile(idx, f, p, allFields)
 		errs = errors.Append(errs, err)
 	}
@@ -93,7 +90,7 @@ func resolveFile(
 		if n, ok := fields[name]; ok {
 			errs = errors.Append(errs, nodeErrorf(spec,
 				"%s redeclared as imported package name\n"+
-					"\tprevious declaration at %v", name, lineStr(idx, n)))
+					"\tprevious declaration at %s", name, n.Pos()))
 			continue
 		}
 		fields[name] = spec
@@ -161,8 +158,4 @@ func resolveFile(
 	// 	return ctx.mkErr(newBase(n), "unresolved reference %s", n.Name)
 	// }
 	return errs
-}
-
-func lineStr(idx *index, n ast.Node) string {
-	return n.Pos().String()
 }

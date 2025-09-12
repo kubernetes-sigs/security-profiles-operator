@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/interpreter/embed"
 	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/runtime"
 	"cuelang.org/go/internal/cuedebug"
@@ -40,6 +41,8 @@ type Option struct {
 // [cue help environment]: https://cuelang.org/docs/reference/command/cue-help-environment/
 func New(options ...Option) *cue.Context {
 	r := runtime.New()
+	// Embedding is always available.
+	r.SetInterpreter(embed.New())
 	for _, o := range options {
 		o.apply(r)
 	}
@@ -61,21 +64,26 @@ func Interpreter(i ExternInterpreter) Option {
 type EvalVersion = internal.EvaluatorVersion
 
 const (
-	// EvalDefault is the latest stable version of the evaluator.
+	// EvalDefault is the default version of the evaluator, which is selected based on
+	// the CUE_EXPERIMENT environment variable described in [cue help environment].
+	//
+	// [cue help environment]: https://cuelang.org/docs/reference/command/cue-help-environment/
 	EvalDefault EvalVersion = internal.DefaultVersion
 
-	// EvalExperiment refers to the latest unstable version of the evaluator.
-	// Note that this version may change without notice.
+	// EvalDefault is the latest stable version of the evaluator, currently [EvalV3].
+	EvalStable EvalVersion = internal.StableVersion
+
+	// EvalExperiment refers to the latest in-development version of the evaluator,
+	// currently [EvalV3]. Note that this version may change without notice.
 	EvalExperiment EvalVersion = internal.DevVersion
 
-	// EvalV2 is the currently latest stable version of the evaluator.
-	// It was introduced in CUE version 0.3 and is being maintained until 2024.
+	// EvalV2 is the previous version of the evaluator. It was introduced in CUE
+	// version 0.3 and is being maintained until 2024.
 	EvalV2 EvalVersion = internal.EvalV2
 
-	// EvalV3 is the currently experimental version of the evaluator.
-	// It was introduced in 2024 and brought a new disjunction algorithm,
-	// a new closedness algorithm, a new core scheduler, and adds performance
-	// enhancements like structure sharing.
+	// EvalV3 is the current version of the evaluator. It was introduced in 2024
+	// and brought a new disjunction algorithm, a new closedness algorithm, a
+	// new core scheduler, and adds performance enhancements like structure sharing.
 	EvalV3 EvalVersion = internal.EvalV3
 )
 

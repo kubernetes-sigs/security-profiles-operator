@@ -9,7 +9,7 @@ import (
 // Flags holds the set of global CUE_DEBUG flags. It is initialized by Init.
 var Flags Config
 
-// Flags holds the set of known CUE_DEBUG flags.
+// Config holds the set of known CUE_DEBUG flags.
 //
 // When adding, deleting, or modifying entries below,
 // update cmd/cue/cmd/help.go as well for `cue help environment`.
@@ -42,29 +42,14 @@ type Config struct {
 	// lexicographically.
 	SortFields bool
 
-	// OpenInline permits disallowed fields to be selected into literal structs
-	// that would normally result in a close error. For instance,
-	//
-	//    #D: {a: 1}
-	//    x: (#D & {b: 2}).b // allow this
-	//
-	// This behavior was erroneously permitted in the v2 evaluator and was fixed
-	// in v3. This allows users that rely on this behavior to use v3. This
-	// option also discards closedness of the resulting expression. As was
-	// reported in Issue #3534, this was another erroneous behavior in v2 that
-	// is otherwise fixed in v3.
-	//
-	// To aid the transition to v3, this is enabled by default for now.
-	//
-	// A possible solution for both incompatibilities would be the introduction
-	// of an openAll builtin to recursive open up a cue value. For the first
-	// issue, the example above could be rewritten as:
-	//
-	//     x: (openAll(#D) & {b: 2}).b
-	//
-	// For the second issue, to open up the entire result of an inline struct,
-	// such an expression could be written as `openAll(expr).out`.
-	OpenInline bool `envflag:"default:true"`
+	// OpenDef disables the check for closedness of definitions.
+	OpenDef bool
+
+	// ToolsFlow causes [cuelang.org/go/tools/flow] to print a task dependency mermaid graph.
+	ToolsFlow bool
+
+	// ParserTrace causes [cuelang.org/go/cue/parser] to print a trace of parsed productions.
+	ParserTrace bool
 }
 
 // Init initializes Flags. Note: this isn't named "init" because we

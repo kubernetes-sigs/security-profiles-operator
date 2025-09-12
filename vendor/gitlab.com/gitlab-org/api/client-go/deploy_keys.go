@@ -95,7 +95,7 @@ func (k ProjectDeployKey) String() string {
 	return Stringify(k)
 }
 
-// ListProjectDeployKeysOptions represents the available ListAllDeployKeys()
+// ListInstanceDeployKeysOptions represents the available ListAllDeployKeys()
 // options.
 //
 // GitLab API docs:

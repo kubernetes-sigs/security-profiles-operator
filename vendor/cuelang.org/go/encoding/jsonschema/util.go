@@ -37,7 +37,7 @@ func pathConcat(p1, p2 cue.Path) cue.Path {
 	if len(sels2) == 0 {
 		return p1
 	}
-	return cue.MakePath(append(slices.Clip(sels1), sels2...)...)
+	return cue.MakePath(slices.Concat(sels1, sels2)...)
 }
 
 func labelsToCUEPath(labels []ast.Label) (cue.Path, error) {
@@ -112,9 +112,7 @@ func pathRefSyntax(cuePath cue.Path, root ast.Expr) (ast.Expr, error) {
 // be exposed as a method on [cue.Path], say
 // `SyntaxForDefinition` or something.
 func exprAtPath(path cue.Path, expr ast.Expr) (ast.Expr, error) {
-	sels := path.Selectors()
-	for i := len(sels) - 1; i >= 0; i-- {
-		sel := sels[i]
+	for i, sel := range slices.Backward(path.Selectors()) {
 		label, err := labelForSelector(sel)
 		if err != nil {
 			return nil, err
@@ -196,35 +194,4 @@ func sliceHasPrefix[E comparable](s1, s2 []E) bool {
 		return false
 	}
 	return slices.Equal(s1[:len(s2)], s2)
-}
-
-// TODO remove this when we can use [slices.SortedFunc] and [maps.Keys].
-func sortedKeys[K comparable, V any](m map[K]V, cmp func(K, K) int) []K {
-	ks := make([]K, 0, len(m))
-	for k := range m {
-		ks = append(ks, k)
-	}
-	slices.SortFunc(ks, cmp)
-	return ks
-}
-
-// TODO(go1.23) use slices.Collect
-func collectSlice[E any](seq func(func(E) bool)) []E {
-	var s []E
-	seq(func(v E) bool {
-		s = append(s, v)
-		return true
-	})
-	return s
-}
-
-// TODO(go1.23) use slices.Values
-func sliceValues[Slice ~[]E, E any](s Slice) func(func(E) bool) {
-	return func(yield func(E) bool) {
-		for _, v := range s {
-			if !yield(v) {
-				return
-			}
-		}
-	}
 }

@@ -95,8 +95,7 @@ func (a *apduErr) Error() string {
 		msg = "not enough memory"
 	case 0x6a86:
 		msg = "incorrect parameter in P1 or P2"
-	case 0x6a88:
-		msg = "referenced data or reference data not found"
+	//0x6a88 is "referenced data or reference data not found" aka ErrNotFound
 	}
 
 	if msg != "" {
@@ -110,6 +109,8 @@ func (a *apduErr) Unwrap() error {
 	st := a.Status()
 	switch {
 	case st == 0x6a82:
+		return ErrNotFound
+	case st == 0x6a88:
 		return ErrNotFound
 	case st == 0x6300:
 		return AuthErr{0}

@@ -21,6 +21,7 @@ import (
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
+	"cuelang.org/go/internal"
 )
 
 // TODO: unanswered questions about structural cycles:
@@ -128,7 +129,11 @@ func (e *Environment) evalCached(c *OpContext, x Expr) Value {
 		// Save and restore errors to ensure that only relevant errors are
 		// associated with the cash.
 		err := c.errs
-		v = c.evalState(x, require(partial, allKnown)) // TODO: should this be finalized?
+		v = c.evalState(x, combinedFlags{
+			status:    partial,
+			condition: allKnown,
+			mode:      yield,
+		}) // TODO: should this be finalized?
 		c.e, c.src = env, src
 		c.errs = err
 		if b, ok := v.(*Bottom); !ok || !b.IsIncomplete() {
@@ -158,11 +163,8 @@ type Vertex struct {
 	//   eval: *,   BaseValue: *   -- finalized
 	//
 	state *nodeContext
-
-	// _cc manages the closedness logic for this Vertex. It is created
-	// by rootCloseContext.
-	// TODO: move back to nodeContext, but be sure not to clone it.
-	_cc *closeContext
+	// TODO: move to nodeContext.
+	overlay *Vertex
 
 	// Label is the feature leading to this vertex.
 	Label Feature
@@ -221,9 +223,9 @@ type Vertex struct {
 	// rooted.
 	nonRooted bool // indicates that there is no path from the root of the tree.
 
-	// anonymous indicates that this Vertex is being computed within a
+	// anonymous indicates that this Vertex is being computed without an
 	// addressable context, or in other words, a context for which there is
-	// a path from the root of the file. Typically, the only addressable
+	// np path from the root of the file. Typically, the only addressable
 	// contexts are fields. Examples of fields that are not addressable are
 	// the for source of comprehensions and let fields or let clauses.
 	anonymous bool
@@ -303,32 +305,6 @@ func equalDeref(a, b *Vertex) bool {
 	return deref(a) == deref(b)
 }
 
-func (v *Vertex) cc() *closeContext {
-	return v._cc
-}
-
-// rootCloseContext creates a closeContext for this Vertex or returns the
-// existing one.
-func (v *Vertex) rootCloseContext(ctx *OpContext) *closeContext {
-	if v._cc == nil {
-		v._cc = &closeContext{
-			group:           &v.Conjuncts,
-			parent:          nil,
-			src:             v,
-			parentConjuncts: v,
-			decl:            v,
-		}
-		v._cc.incDependent(ctx, ROOT, nil) // matched in REF(decrement:nodeDone)
-	}
-
-	if p := v.Parent; p != nil {
-		pcc := p.rootCloseContext(ctx)
-		v._cc.depth = pcc.depth + 1
-	}
-
-	return v._cc
-}
-
 // newInlineVertex creates a Vertex that is needed for computation, but for
 // which there is no CUE path defined from the root Vertex.
 func (ctx *OpContext) newInlineVertex(parent *Vertex, v BaseValue, a ...Conjunct) *Vertex {
@@ -337,6 +313,10 @@ func (ctx *OpContext) newInlineVertex(parent *Vertex, v BaseValue, a ...Conjunct
 		IsDynamic: true,
 		ArcType:   ArcMember,
 		Conjuncts: a,
+	}
+	if len(ctx.freeScope) > 0 {
+		state := ctx.freeScope[len(ctx.freeScope)-1]
+		state.toFree = append(state.toFree, n)
 	}
 	if !ctx.isDevVersion() {
 		n.Parent = parent
@@ -396,6 +376,9 @@ func (v *Vertex) IsDefined(c *OpContext) bool {
 	if v.isDefined() {
 		return true
 	}
+	if v.Parent != nil && v.Parent.status == finalized {
+		return false
+	}
 	v.Finalize(c)
 	return v.isDefined()
 }
@@ -405,6 +388,11 @@ func (v *Vertex) IsDefined(c *OpContext) bool {
 // originated from an inline struct, but was later reappropriated.
 func (v *Vertex) Rooted() bool {
 	return !v.nonRooted && !v.Label.IsLet() && !v.IsDynamic
+}
+
+// Internal is like !Rooted, but also counts internal let nodes as internal.
+func (v *Vertex) Internal() bool {
+	return v.nonRooted || v.anonymous || v.IsDynamic
 }
 
 // IsDetached reports whether this Vertex does not have a path from the root.
@@ -451,6 +439,9 @@ const (
 	// its conjuncts need to be processed to find out. This happens when an arc
 	// is provisionally added as part of a comprehension, but when this
 	// comprehension has not yet yielded any results.
+	//
+	// TODO: make this a separate state so that we can track which arcs still
+	// have unresolved comprehensions.
 	ArcPending
 
 	// ArcNotPresent indicates that this arc is not present and, unlike
@@ -548,9 +539,6 @@ type StructInfo struct {
 	Disable bool
 
 	Embedding bool
-
-	// Decl contains this Struct
-	Decl Decl
 }
 
 // TODO(perf): this could be much more aggressive for eliminating structs that
@@ -592,6 +580,11 @@ const (
 	// Value does not have to be nil
 	evaluatingArcs
 
+	// TODO: introduce a "frozen" state. Right now a node may marked and used
+	// as finalized, before all tasks have completed. We should introduce a
+	// frozen state that simply checks that all remaining tasks are idempotent
+	// and errors if they are not.
+
 	// finalized means that this node is fully evaluated and that the results
 	// are save to use without further consideration.
 	finalized
@@ -602,7 +595,7 @@ const (
 func (c *OpContext) Wrap(v *Vertex, id CloseInfo) *Vertex {
 	w := c.newInlineVertex(nil, nil, v.Conjuncts...)
 	n := w.getState(c)
-	n.share(makeAnonymousConjunct(nil, v, nil), v, CloseInfo{})
+	n.share(makeAnonymousConjunct(nil, v, nil), v, id)
 	return w
 }
 
@@ -783,6 +776,7 @@ func (v *Vertex) IsData() bool {
 // of this vertex. Arcs are left untouched.
 // It is used by cue.Eval to convert nodes to data on per-node basis.
 func (v *Vertex) ToDataSingle() *Vertex {
+	v = v.DerefValue()
 	w := *v
 	w.isData = true
 	w.state = nil
@@ -793,7 +787,21 @@ func (v *Vertex) ToDataSingle() *Vertex {
 // ToDataAll returns a new v where v and all its descendents contain only
 // the regular fields.
 func (v *Vertex) ToDataAll(ctx *OpContext) *Vertex {
-	v.Finalize(ctx)
+	// Create a map to track processed vertices to avoid duplicate processing
+	processed := make(map[*Vertex]*Vertex)
+
+	// TODO(evalv3): for EvalV3 we could call finalize only here.
+
+	return v.toDataAllRec(ctx, processed)
+}
+
+func (v *Vertex) toDataAllRec(ctx *OpContext, processed map[*Vertex]*Vertex) *Vertex {
+	// Check if this vertex has already been processed
+	if result, exists := processed[v]; exists {
+		return result
+	}
+
+	v.Finalize(ctx) // Needed recursively for eval v2.
 
 	arcs := make([]*Vertex, 0, len(v.Arcs))
 	for _, a := range v.Arcs {
@@ -801,17 +809,16 @@ func (v *Vertex) ToDataAll(ctx *OpContext) *Vertex {
 			continue
 		}
 		if a.Label.IsRegular() {
-			arcs = append(arcs, a.ToDataAll(ctx))
+			arcs = append(arcs, a.toDataAllRec(ctx, processed))
 		}
 	}
 	w := *v
 	w.state = nil
 	w.status = finalized
 
-	w.BaseValue = toDataAll(ctx, w.BaseValue)
+	w.BaseValue = toDataAllBaseValue(ctx, w.BaseValue, processed)
 	w.Arcs = arcs
 	w.isData = true
-	w.Conjuncts = slices.Clone(v.Conjuncts)
 
 	// Converting to dat drops constraints and non-regular fields. This means
 	// that the domain on which they are defined is reduced, which will change
@@ -825,21 +832,31 @@ func (v *Vertex) ToDataAll(ctx *OpContext) *Vertex {
 	for _, s := range w.Structs {
 		s.Disable = true
 	}
+
+	w.Conjuncts = slices.Clone(v.Conjuncts)
+
 	for i, c := range w.Conjuncts {
 		if v, _ := c.x.(Value); v != nil {
-			w.Conjuncts[i].x = toDataAll(ctx, v).(Value)
+			w.Conjuncts[i].x = toDataAllBaseValue(ctx, v, processed).(Value)
 		}
+		// Always reset all CloseInfo fields to zero. Normally only the top
+		// conjuncts matter and get inserted and conjuncts of recursive arcs
+		// never come in play. ToDataAll is an exception.
+		w.Conjuncts[i].CloseInfo = w.Conjuncts[i].CloseInfo.clearCloseCheck()
 	}
+
+	// Store the processed vertex before returning
+	processed[v] = &w
 	return &w
 }
 
-func toDataAll(ctx *OpContext, v BaseValue) BaseValue {
+func toDataAllBaseValue(ctx *OpContext, v BaseValue, processed map[*Vertex]*Vertex) BaseValue {
 	switch x := v.(type) {
 	default:
 		return x
 
 	case *Vertex:
-		return x.ToDataAll(ctx)
+		return x.toDataAllRec(ctx, processed)
 
 	case *Disjunction:
 		d := *x
@@ -849,7 +866,7 @@ func toDataAll(ctx *OpContext, v BaseValue) BaseValue {
 		switch x.NumDefaults {
 		case 0:
 		case 1:
-			return toDataAll(ctx, values[0])
+			return toDataAllBaseValue(ctx, values[0], processed)
 		default:
 			values = values[:x.NumDefaults]
 		}
@@ -857,7 +874,7 @@ func toDataAll(ctx *OpContext, v BaseValue) BaseValue {
 		for i, v := range values {
 			switch x := v.(type) {
 			case *Vertex:
-				d.Values[i] = x.ToDataAll(ctx)
+				d.Values[i] = x.toDataAllRec(ctx, processed)
 			default:
 				d.Values[i] = x
 			}
@@ -869,7 +886,7 @@ func toDataAll(ctx *OpContext, v BaseValue) BaseValue {
 		c.Values = make([]Value, len(x.Values))
 		for i, v := range x.Values {
 			// This case is okay because the source is of type Value.
-			c.Values[i] = toDataAll(ctx, v).(Value)
+			c.Values[i] = toDataAllBaseValue(ctx, v, processed).(Value)
 		}
 		return &c
 	}
@@ -955,22 +972,119 @@ func (v *Vertex) Bottom() *Bottom {
 
 // func (v *Vertex) Evaluate()
 
+// Unify unifies two values and returns the result.
+//
+// TODO: introduce: Open() wrapper that indicates closedness should be ignored.
+//
+// Change Value to Node to allow any kind of type to be passed.
+func Unify(c *OpContext, a, b Value) *Vertex {
+	v := &Vertex{}
+
+	// We set the parent of the context to be able to detect structural cycles
+	// early enough to error on schemas used for validation.
+	if n := c.vertex; n != nil {
+		v.Parent = n.Parent
+		if c.isDevVersion() {
+			v.Label = n.Label // this doesn't work in V2
+		}
+	}
+
+	addConjuncts(c, v, a)
+	addConjuncts(c, v, b)
+
+	if c.isDevVersion() {
+		s := v.getState(c)
+		// As this is a new node, we should drop all the requirements from
+		// parent nodes, as these will not be aligned with the reinsertion
+		// of the conjuncts.
+		s.dropParentRequirements = true
+		if p := c.vertex; p != nil && p.state != nil && s != nil {
+			s.hasNonCyclic = p.state.hasNonCyclic
+		}
+	}
+
+	v.Finalize(c)
+
+	if c.vertex != nil {
+		v.Label = c.vertex.Label
+	}
+
+	return v
+}
+
+func addConjuncts(ctx *OpContext, dst *Vertex, src Value) {
+	closeInfo := ctx.CloseInfo()
+	closeInfo.FromDef = false
+	c := MakeConjunct(nil, src, closeInfo)
+
+	if v, ok := src.(*Vertex); ok {
+		if ctx.Version == internal.EvalV2 {
+			if v.ClosedRecursive {
+				var root CloseInfo
+				c.CloseInfo = root.SpawnRef(v, v.ClosedRecursive, nil)
+			}
+		} else {
+			// By default, all conjuncts in a node are considered to be not
+			// mutually closed. This means that if one of the arguments to Unify
+			// closes, but is acquired to embedding, the closeness information
+			// is disregarded. For instance, for Unify(a, b) where a and b are
+			//
+			//		a:  {#D, #D: d: f: int}
+			//		b:  {d: e: 1}
+			//
+			// we expect 'e' to be not allowed.
+			//
+			// In order to do so, we wrap the outer conjunct in a separate
+			// scope that will be closed in the presence of closed embeddings
+			// independently from the other conjuncts.
+			n := dst.getBareState(ctx)
+			c.CloseInfo = n.splitScope(c.CloseInfo)
+
+			// Even if a node is marked as ClosedRecursive, it may be that this
+			// is the first node that references a definition.
+			// We approximate this to see if the path leading up to this
+			// value is a defintion. This is not fully accurate. We could
+			// investigate the closedness information contained in the parent.
+			for p := v; p != nil; p = p.Parent {
+				if p.Label.IsDef() {
+					c.CloseInfo.TopDef = true
+					break
+				}
+			}
+		}
+	}
+
+	dst.AddConjunct(c)
+}
+
 func (v *Vertex) Finalize(c *OpContext) {
 	// Saving and restoring the error context prevents v from panicking in
 	// case the caller did not handle existing errors in the context.
 	err := c.errs
 	c.errs = nil
-	c.unify(v, final(finalized, allKnown))
+	c.unify(v, combinedFlags{
+		status:    finalized,
+		condition: allKnown,
+		mode:      finalize,
+	})
 	c.errs = err
 }
 
 // CompleteArcs ensures the set of arcs has been computed.
 func (v *Vertex) CompleteArcs(c *OpContext) {
-	c.unify(v, final(conjuncts, allKnown))
+	c.unify(v, combinedFlags{
+		status:    conjuncts,
+		condition: allKnown,
+		mode:      finalize,
+	})
 }
 
 func (v *Vertex) CompleteArcsOnly(c *OpContext) {
-	c.unify(v, final(conjuncts, fieldSetKnown))
+	c.unify(v, combinedFlags{
+		status:    conjuncts,
+		condition: fieldSetKnown,
+		mode:      finalize,
+	})
 }
 
 func (v *Vertex) AddErr(ctx *OpContext, b *Bottom) {
@@ -1201,12 +1315,14 @@ func (v *Vertex) MatchAndInsert(ctx *OpContext, arc *Vertex) {
 	}
 
 	// Go backwards to simulate old implementation.
-	for i := len(v.Structs) - 1; i >= 0; i-- {
-		s := v.Structs[i]
-		if s.Disable {
-			continue
+	if !ctx.isDevVersion() {
+		for i := len(v.Structs) - 1; i >= 0; i-- {
+			s := v.Structs[i]
+			if s.Disable {
+				continue
+			}
+			s.MatchAndInsert(ctx, arc)
 		}
-		s.MatchAndInsert(ctx, arc)
 	}
 
 	// This is the equivalent for the new implementation.
@@ -1220,14 +1336,19 @@ func (v *Vertex) MatchAndInsert(ctx *OpContext, arc *Vertex) {
 					}
 					c.Env = &env
 
-					root := arc.rootCloseContext(ctx)
-					root.insertConjunct(ctx, root, c, c.CloseInfo, ArcMember, true, false)
+					arc.insertConjunct(ctx, c, c.CloseInfo, ArcMember, true, false)
 				}
 			}
 		}
 	}
-}
 
+	if len(arc.Conjuncts) == 0 && v.HasEllipsis {
+		// TODO: consider adding an Ellipsis fields to the Constraints struct
+		// to record the original position of the elllipsis.
+		c := MakeRootConjunct(nil, &Top{})
+		arc.insertConjunct(ctx, c, c.CloseInfo, ArcOptional, false, false)
+	}
+}
 func (v *Vertex) IsList() bool {
 	_, ok := v.BaseValue.(*ListMarker)
 	return ok
@@ -1370,23 +1491,24 @@ func (v *Vertex) hasConjunct(c Conjunct) (added bool) {
 	default:
 		v.ArcType = ArcMember
 	}
-	return findConjunct(v.Conjuncts, c) >= 0
+	p, _ := findConjunct(v.Conjuncts, c)
+	return p >= 0
 }
 
 // findConjunct reports the position of c within cs or -1 if it is not found.
 //
 // NOTE: we are not comparing closeContexts. The intended use of this function
 // is only to add to list of conjuncts within a closeContext.
-func findConjunct(cs []Conjunct, c Conjunct) int {
+func findConjunct(cs []Conjunct, c Conjunct) (int, Conjunct) {
 	for i, x := range cs {
 		// TODO: disregard certain fields from comparison (e.g. Refs)?
 		if x.CloseInfo.closeInfo == c.CloseInfo.closeInfo && // V2
 			x.x == c.x &&
 			x.Env.Up == c.Env.Up && x.Env.Vertex == c.Env.Vertex {
-			return i
+			return i, x
 		}
 	}
-	return -1
+	return -1, Conjunct{}
 }
 
 func (n *nodeContext) addConjunction(c Conjunct, index int) {
@@ -1457,16 +1579,6 @@ func (v *Vertex) AddStruct(s *StructLit, env *Environment, ci CloseInfo) *Struct
 		StructLit: s,
 		Env:       env,
 		CloseInfo: ci,
-	}
-	if env.Vertex != nil {
-		// be careful to avoid promotion of nil env.Vertex to non-nil
-		// info.Decl
-		info.Decl = env.Vertex
-	}
-	if cc := ci.cc; cc != nil && cc.decl != nil {
-		info.Decl = cc.decl
-	} else if ci := ci.closeInfo; ci != nil && ci.decl != nil {
-		info.Decl = ci.decl
 	}
 	for _, t := range v.Structs {
 		if *t == info { // TODO: check for different identity.

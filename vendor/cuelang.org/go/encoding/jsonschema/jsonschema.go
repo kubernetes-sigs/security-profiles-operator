@@ -65,6 +65,9 @@ func Extract(data cue.InstanceOrValue, cfg *Config) (*ast.File, error) {
 		cfg.StrictKeywords = true
 		cfg.StrictFeatures = true
 	}
+	if cfg.DefaultVersion.is(k8s) {
+		cfg.OpenOnlyWhenExplicit = true
+	}
 	if cfg.ID == "" {
 		// Always choose a fully-qualified ID for the schema, even
 		// if it doesn't declare one.
@@ -113,7 +116,7 @@ type Config struct {
 	// JSON reference of location containing schemas. The empty string indicates
 	// that there is a single schema at the root. If this is non-empty,
 	// the referred-to location should be an object, and each member
-	// is taken to be a schema.
+	// is taken to be a schema (by default: see [Config.SingleRoot])
 	//
 	// Examples:
 	//  "#/" or "#"                    top-level fields are schemas.
@@ -123,6 +126,11 @@ type Config struct {
 	// schema: this behavior is preserved for backwards compatibility
 	// only. Just `#` is preferred.
 	Root string
+
+	// SingleRoot is consulted only when Root is non-empty.
+	// If Root is non-empty and SingleRoot is true, then
+	// Root should specify the location of a single schema to extract.
+	SingleRoot bool
 
 	// AllowNonExistentRoot prevents an error when there is no value at
 	// the above Root path. Such an error can be useful to signal that
@@ -216,7 +224,7 @@ type Config struct {
 	// DefineSchema is called, if not nil, for any schema that is defined
 	// within the json schema being converted but is mapped somewhere
 	// external via [Config.MapRef]. The invoker of [Extract] is
-	// responsible for defining the schema e in the correct place as described
+	// responsible for defining the schema in the correct place as described
 	// by the import path and its relative CUE path.
 	//
 	// The importPath and path are exactly as returned by [Config.MapRef].
@@ -224,7 +232,7 @@ type Config struct {
 	// Note that importPath will never be empty, because if MapRef
 	// returns an empty importPath, it's specifying an internal schema
 	// which will be defined accordingly.
-	DefineSchema func(importPath string, path cue.Path, e ast.Expr)
+	DefineSchema func(importPath string, path cue.Path, e ast.Expr, docComment *ast.CommentGroup)
 
 	// TODO: configurability to make it compatible with OpenAPI, such as
 	// - locations of definitions: #/components/schemas, for instance.
@@ -243,6 +251,24 @@ type Config struct {
 	// StrictKeywords reports an error when unknown keywords
 	// are encountered.
 	StrictKeywords bool
+
+	// OpenOnlyWhenExplicit requires a schema to be explicitly opened before a
+	// `...` will be added to a struct. A schema is considered
+	// explicitly opened when `additionalProperties` is present (unless
+	// its value is false) or, when the version is
+	// [VersionKubernetesCRD], when
+	// `x-kubernetes-preserve-unknown-fields` is set.
+	//
+	// Set to true when you'd like non-explicitly specified fields
+	// to be disallowed by default.
+	//
+	// This is useful for Kubernetes schemas and CRDs which never
+	// use additionalProperties: false but are nonetheless desired
+	// to be treated as closed.
+	//
+	// Implied true when the version is [VersionKubernetesCRD] or
+	// [VersionKubernetesAPI].
+	OpenOnlyWhenExplicit bool
 
 	// DefaultVersion holds the default schema version to use
 	// when no $schema field is present. If it is zero, [DefaultVersion]

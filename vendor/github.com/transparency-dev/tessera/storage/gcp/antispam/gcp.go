@@ -19,10 +19,15 @@
 package gcp
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -32,7 +37,7 @@ import (
 	"cloud.google.com/go/spanner/apiv1/spannerpb"
 
 	"github.com/transparency-dev/tessera"
-	"github.com/transparency-dev/tessera/internal/stream"
+	"github.com/transparency-dev/tessera/client"
 	"google.golang.org/grpc/codes"
 	"k8s.io/klog/v2"
 )
@@ -181,7 +186,7 @@ func (d *AntispamStorage) Decorator() func(f tessera.AddFn) tessera.AddFn {
 // Follower returns a follower which knows how to populate the antispam index.
 //
 // This implements tessera.Antispam.
-func (d *AntispamStorage) Follower(b func([]byte) ([][]byte, error)) stream.Follower {
+func (d *AntispamStorage) Follower(b func([]byte) ([][]byte, error)) tessera.Follower {
 	f := &follower{
 		as:           d,
 		bundleHasher: b,
@@ -190,6 +195,17 @@ func (d *AntispamStorage) Follower(b func([]byte) ([][]byte, error)) stream.Foll
 	// This will be overriden by the test to use an "inline" mechanism since spannertest
 	// does not support BatchWrite :(
 	f.updateIndex = f.batchUpdateIndex
+
+	if r := os.Getenv("SPANNER_EMULATOR_HOST"); r != "" {
+		const warn = `H4sIAAAAAAAAA83VwRGAIAwEwH+qoFwrsEAr8eEDPZO7gxkcGV6G7IAJ2tr8iDp07Fs6J7BnImcK5J3EmHVIT2Dvp2YTVJMu/y1+X+jiFQ84LtK9mLHr0aqh+K15PwkWRDaPrcbU5WdMKILtCDMF5hSgQEdJlw/36D7eRYqPfsVNVBcMsNH2QQKq/p957Yr8RfWIE22t7L7ABwAA`
+		r, _ := base64.StdEncoding.DecodeString(warn)
+		gzr, _ := gzip.NewReader(bytes.NewReader([]byte(r)))
+		w, _ := io.ReadAll(gzr)
+		klog.Warningf("%s\nWarning: you're running under the Spanner emulator - this is not a supported environment!\n\n", string(w))
+
+		// Hack in a workaround for spannertest not supporting BatchWrites
+		f.updateIndex = emulatorWorkaroundUpdateIndexTx
+	}
 
 	return f
 }
@@ -217,12 +233,12 @@ func (f *follower) Name() string {
 }
 
 // Follow uses entry data from the log to populate the antispam storage.
-func (f *follower) Follow(ctx context.Context, lr stream.Streamer) {
+func (f *follower) Follow(ctx context.Context, lr tessera.LogReader) {
 	errOutOfSync := errors.New("out-of-sync")
 
 	t := time.NewTicker(time.Second)
 	var (
-		next func() (stream.Entry[[]byte], error, bool)
+		next func() (client.Entry[[]byte], error, bool)
 		stop func()
 
 		curEntries [][]byte
@@ -234,15 +250,14 @@ func (f *follower) Follow(ctx context.Context, lr stream.Streamer) {
 			return
 		case <-t.C:
 		}
-		size, err := lr.IntegratedSize(ctx)
-		if err != nil {
-			klog.Errorf("Populate: IntegratedSize(): %v", err)
-			continue
-		}
+
+		// logSize is the latest known size of the log we're following.
+		// This will get initialised below, inside the loop.
+		var logSize uint64
 
 		// Busy loop while there are entries to be consumed from the stream
 		for streamDone := false; !streamDone; {
-			_, err = f.as.dbPool.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+			_, err := f.as.dbPool.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 				ctx, span := tracer.Start(ctx, "tessera.antispam.gcp.FollowTxn")
 				defer span.End()
 
@@ -259,13 +274,28 @@ func (f *follower) Follow(ctx context.Context, lr stream.Streamer) {
 				span.SetAttributes(followFromKey.Int64(nextIdx))
 
 				followFrom := uint64(nextIdx)
-				if followFrom >= size {
-					// Our view of the log is out of date, exit the busy loop and refresh it.
-					streamDone = true
-					return nil
+				if followFrom >= logSize {
+					// Our view of the log is out of date, update it
+					logSize, err = lr.IntegratedSize(ctx)
+					if err != nil {
+						streamDone = true
+						return fmt.Errorf("populate: IntegratedSize(): %v", err)
+					}
+					switch {
+					case followFrom > logSize:
+						streamDone = true
+						return fmt.Errorf("followFrom %d > size %d", followFrom, logSize)
+					case followFrom == logSize:
+						// We're caught up, so unblock pushback and go back to sleep
+						streamDone = true
+						f.as.pushBack.Store(false)
+						return nil
+					default:
+						// size > followFrom, so there's more work to be done!
+					}
 				}
 
-				pushback := size-followFrom > uint64(f.as.opts.PushbackThreshold)
+				pushback := logSize-followFrom > uint64(f.as.opts.PushbackThreshold)
 				span.SetAttributes(pushbackKey.Bool(pushback))
 				f.as.pushBack.Store(pushback)
 
@@ -273,7 +303,11 @@ func (f *follower) Follow(ctx context.Context, lr stream.Streamer) {
 				// start reading from:
 				if next == nil {
 					span.AddEvent("Start streaming entries")
-					next, stop = iter.Pull2(stream.Entries(lr.StreamEntries(ctx, followFrom, size-followFrom), f.bundleHasher))
+					sizeFn := func(_ context.Context) (uint64, error) {
+						return logSize, nil
+					}
+					numFetchers := uint(10)
+					next, stop = iter.Pull2(client.Entries(client.EntryBundles(ctx, numFetchers, sizeFn, lr.ReadEntryBundle, followFrom, logSize-followFrom), f.bundleHasher))
 				}
 
 				if curIndex == followFrom && curEntries != nil {
@@ -283,7 +317,7 @@ func (f *follower) Follow(ctx context.Context, lr stream.Streamer) {
 					// than continue reading entries which will take us out of sync.
 				} else {
 					bs := uint64(f.as.opts.MaxBatchSize)
-					if r := size - followFrom; r < bs {
+					if r := logSize - followFrom; r < bs {
 						bs = r
 					}
 					batch := make([][]byte, 0, bs)
@@ -441,4 +475,11 @@ func createAndPrepareTables(ctx context.Context, spannerDB string, ddl []string,
 		}
 	}
 	return nil
+}
+
+// emulatorWorkaroundUpdateIndexTx is a workaround for spannertest not supporting BatchWrites.
+// We use this func as a replacement for follower's updateIndex hook, and simply commit the index
+// updates inline with the larger transaction.
+func emulatorWorkaroundUpdateIndexTx(_ context.Context, txn *spanner.ReadWriteTransaction, ms []*spanner.Mutation) error {
+	return txn.BufferWrite(ms)
 }

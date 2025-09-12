@@ -15,14 +15,16 @@
 package tessera
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
+	"bufio"
+	"bytes"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"maps"
 
+	f_note "github.com/transparency-dev/formats/note"
 	"golang.org/x/mod/sumdb/note"
 )
 
@@ -40,23 +42,154 @@ type policyComponent interface {
 	Endpoints() map[string]note.Verifier
 }
 
+// NewWitnessGroupFromPolicy creates a graph of witness objects that represents the
+// policy provided, and which can be passed directly to the WithWitnesses
+// appender lifecycle option.
+//
+// The policy must be structured as per the description in
+// https://git.glasklar.is/sigsum/core/sigsum-go/-/blob/main/doc/policy.md
+func NewWitnessGroupFromPolicy(p []byte) (WitnessGroup, error) {
+	scanner := bufio.NewScanner(bytes.NewBuffer(p))
+	components := make(map[string]policyComponent)
+
+	var quorumName string
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if i := strings.Index(line, "#"); i >= 0 {
+			line = line[:i]
+		}
+		if line == "" {
+			continue
+		}
+
+		switch fields := strings.Fields(line); fields[0] {
+		case "log":
+			// This keyword is important to clients who might use the policy file, but we don't need to know about it since
+			// we _are_ the log, so just ignore it.
+		case "witness":
+			// Strictly, the URL is optional so policy files can be used client-side, where they don't care about the URL.
+			// Given this function is parsing to create the graph structure which will be used by a Tessera log to witness
+			// new checkpoints we'll ignore that special case here.
+			if len(fields) != 4 {
+				return WitnessGroup{}, fmt.Errorf("invalid witness definition: %q", line)
+			}
+			name, vkey, witnessURLStr := fields[1], fields[2], fields[3]
+			if isBadName(name) {
+				return WitnessGroup{}, fmt.Errorf("invalid witness name %q", name)
+			}
+			if _, ok := components[name]; ok {
+				return WitnessGroup{}, fmt.Errorf("duplicate component name: %q", name)
+			}
+			witnessURL, err := url.Parse(witnessURLStr)
+			if err != nil {
+				return WitnessGroup{}, fmt.Errorf("invalid witness URL %q: %w", witnessURLStr, err)
+			}
+			w, err := NewWitness(vkey, witnessURL)
+			if err != nil {
+				return WitnessGroup{}, fmt.Errorf("invalid witness config %q: %w", line, err)
+			}
+			components[name] = w
+		case "group":
+			if len(fields) < 3 {
+				return WitnessGroup{}, fmt.Errorf("invalid group definition: %q", line)
+			}
+
+			name, N, childrenNames := fields[1], fields[2], fields[3:]
+			if isBadName(name) {
+				return WitnessGroup{}, fmt.Errorf("invalid group name %q", name)
+			}
+			if _, ok := components[name]; ok {
+				return WitnessGroup{}, fmt.Errorf("duplicate component name: %q", name)
+			}
+			var n int
+			switch N {
+			case "any":
+				n = 1
+			case "all":
+				n = len(childrenNames)
+			default:
+				i, err := strconv.ParseUint(N, 10, 8)
+				if err != nil {
+					return WitnessGroup{}, fmt.Errorf("invalid threshold %q for group %q: %w", N, name, err)
+				}
+				n = int(i)
+			}
+			if c := len(childrenNames); n > c {
+				return WitnessGroup{}, fmt.Errorf("group with %d children cannot have threshold %d", c, n)
+			}
+
+			children := make([]policyComponent, len(childrenNames))
+			for i, cName := range childrenNames {
+				if isBadName(cName) {
+					return WitnessGroup{}, fmt.Errorf("invalid component name %q", cName)
+				}
+				child, ok := components[cName]
+				if !ok {
+					return WitnessGroup{}, fmt.Errorf("unknown component %q in group definition", cName)
+				}
+				children[i] = child
+			}
+			wg := NewWitnessGroup(n, children...)
+			components[name] = wg
+		case "quorum":
+			if len(fields) != 2 {
+				return WitnessGroup{}, fmt.Errorf("invalid quorum definition: %q", line)
+			}
+			quorumName = fields[1]
+		default:
+			return WitnessGroup{}, fmt.Errorf("unknown keyword: %q", fields[0])
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return WitnessGroup{}, err
+	}
+
+	switch quorumName {
+	case "":
+		return WitnessGroup{}, fmt.Errorf("policy file must define a quorum")
+	case "none":
+		return NewWitnessGroup(0), nil
+	default:
+		if isBadName(quorumName) {
+			return WitnessGroup{}, fmt.Errorf("invalid quorum name %q", quorumName)
+		}
+		policy, ok := components[quorumName]
+		if !ok {
+			return WitnessGroup{}, fmt.Errorf("quorum component %q not found", quorumName)
+		}
+		wg, ok := policy.(WitnessGroup)
+		if !ok {
+			// A single witness can be a policy. Wrap it in a group.
+			return NewWitnessGroup(1, policy), nil
+		}
+		return wg, nil
+	}
+}
+
+var keywords = map[string]struct{}{
+	"witness": {},
+	"group":   {},
+	"any":     {},
+	"all":     {},
+	"none":    {},
+	"quorum":  {},
+	"log":     {},
+}
+
+func isBadName(n string) bool {
+	_, isKeyword := keywords[n]
+	return isKeyword
+}
+
 // NewWitness returns a Witness given a verifier key and the root URL for where this
 // witness can be reached.
 func NewWitness(vkey string, witnessRoot *url.URL) (Witness, error) {
-	v, err := note.NewVerifier(vkey)
+	v, err := f_note.NewVerifierForCosignatureV1(vkey)
 	if err != nil {
 		return Witness{}, err
 	}
-	// "key hash" MUST be a lowercase hex-encoded SHA-256 hash of a 32-byte Ed25519 public key.
-	// This expression cuts off the identity name and hash.
-	key64 := strings.SplitAfterN(vkey, "+", 3)[2]
-	key, err := base64.StdEncoding.DecodeString(key64)
-	if err != nil {
-		return Witness{}, err
-	}
-	h := sha256.Sum256(key)
 
-	u := witnessRoot.JoinPath(fmt.Sprintf("/%x/add-checkpoint", h))
+	u := witnessRoot.JoinPath("/add-checkpoint")
 
 	return Witness{
 		Key: v,

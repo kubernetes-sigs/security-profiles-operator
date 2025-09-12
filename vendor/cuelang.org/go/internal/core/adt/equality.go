@@ -32,6 +32,10 @@ const (
 )
 
 func Equal(ctx *OpContext, v, w Value, flags Flag) bool {
+	if flags&CheckStructural == 0 {
+		v = Default(v)
+		w = Default(w)
+	}
 	if x, ok := v.(*Vertex); ok {
 		return equalVertex(ctx, x, w, flags)
 	}
@@ -71,7 +75,7 @@ func equalVertex(ctx *OpContext, x *Vertex, v Value, flags Flag) bool {
 		return false
 	}
 
-	maxArcType := ArcMember
+	maxArcType := ArcRequired
 	if flags&CheckStructural != 0 {
 		// Do not ignore optional fields
 		// TODO(required): consider making this unconditional
@@ -79,7 +83,7 @@ func equalVertex(ctx *OpContext, x *Vertex, v Value, flags Flag) bool {
 	}
 
 	// TODO: this really should be subsumption.
-	if flags != 0 {
+	if flags&CheckStructural != 0 {
 		if x.IsClosedStruct() != y.IsClosedStruct() {
 			return false
 		}
@@ -187,7 +191,7 @@ func equalTerminal(ctx *OpContext, v, w Value, flags Flag) bool {
 		return ok
 
 	case *Num, *String, *Bool, *Bytes, *Null:
-		if b, ok := BinOp(ctx, EqualOp, v, w).(*Bool); ok {
+		if b, ok := BinOp(ctx, errOnDiffType, EqualOp, v, w).(*Bool); ok {
 			return b.B
 		}
 		return false

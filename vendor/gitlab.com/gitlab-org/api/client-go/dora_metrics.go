@@ -47,7 +47,7 @@ type DORAMetric struct {
 	Value float64 `json:"value"`
 }
 
-// Gets a string representation of a DORAMetric data point
+// String gets a string representation of a DORAMetric data point
 //
 // GitLab API docs: https://docs.gitlab.com/api/dora/metrics/
 func (m DORAMetric) String() string {

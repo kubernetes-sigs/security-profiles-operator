@@ -43,6 +43,10 @@ type SignBlobOptions struct {
 	TSAServerURL         string
 	RFC3161TimestampPath string
 	IssueCertificate     bool
+
+	UseSigningConfig  bool
+	SigningConfigPath string
+	TrustedRootPath   string
 }
 
 var _ Interface = (*SignBlobOptions)(nil)
@@ -80,6 +84,18 @@ func (o *SignBlobOptions) AddFlags(cmd *cobra.Command) {
 	// TODO: have this default to true as a breaking change
 	cmd.Flags().BoolVar(&o.NewBundleFormat, "new-bundle-format", false,
 		"output bundle in new format that contains all verification material")
+
+	// TODO: have this default to true as a breaking change
+	cmd.Flags().BoolVar(&o.UseSigningConfig, "use-signing-config", false,
+		"whether to use a TUF-provided signing config for the service URLs. Must provide --bundle, which will output verification material in the new format")
+
+	cmd.Flags().StringVar(&o.SigningConfigPath, "signing-config", "",
+		"path to a signing config file. Must provide --bundle, which will output verification material in the new format")
+
+	cmd.MarkFlagsMutuallyExclusive("use-signing-config", "signing-config")
+
+	cmd.Flags().StringVar(&o.TrustedRootPath, "trusted-root", "",
+		"optional path to a TrustedRoot JSON file to verify a signature after signing")
 
 	cmd.Flags().BoolVarP(&o.SkipConfirmation, "yes", "y", false,
 		"skip confirmation prompts for non-destructive operations")

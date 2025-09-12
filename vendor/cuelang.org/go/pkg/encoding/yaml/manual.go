@@ -20,9 +20,10 @@ import (
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/ast"
-	"cuelang.org/go/cue/errors"
+	"cuelang.org/go/internal/core/adt"
 	cueyaml "cuelang.org/go/internal/encoding/yaml"
 	"cuelang.org/go/internal/pkg"
+	"cuelang.org/go/internal/value"
 )
 
 // Marshal returns the YAML encoding of v.
@@ -87,45 +88,16 @@ func UnmarshalStream(data []byte) (ast.Expr, error) {
 // Validate validates YAML and confirms it is an instance of schema.
 // If the YAML source is a stream, every object must match v.
 func Validate(b []byte, v pkg.Schema) (bool, error) {
-	d := cueyaml.NewDecoder("yaml.Validate", b)
-	r := v.Context()
-	for {
-		expr, err := d.Decode()
-		if err != nil {
-			if err == io.EOF {
-				return true, nil
-			}
-			return false, err
-		}
+	// This function is left for Go documentation. The package entry calls
+	// cueyaml.Validate directly, passing it the call context.
 
-		x := r.BuildExpr(expr)
-		if err := x.Err(); err != nil {
-			return false, err
-		}
+	ctx := value.OpContext(v)
+	return cueyaml.Validate(ctx, b, v)
+}
 
-		// TODO: consider using subsumption again here.
-		// Alternatives:
-		// - allow definition of non-concrete list,
-		//   like list.Of(int), or []int.
-		// - Introduce ! in addition to ?, allowing:
-		//   list!: [...]
-		// if err := v.Subsume(inst.Value(), cue.Final()); err != nil {
-		// 	return false, err
-		// }
-		x = v.Unify(x)
-		if err := x.Err(); err != nil {
-			return false, err
-		}
-		if err := x.Validate(cue.Concrete(true)); err != nil {
-			// Strip error codes: incomplete errors are terminal in this case.
-			var b pkg.Bottomer
-			if errors.As(err, &b) {
-				err = b.Bottom().Err
-			}
-			return false, err
-		}
-
-	}
+// validate is the actual implementation of Validate.
+func validate(c *adt.OpContext, b []byte, v pkg.Schema) (bool, error) {
+	return cueyaml.Validate(c, b, v)
 }
 
 // ValidatePartial validates YAML and confirms it matches the constraints
@@ -133,24 +105,14 @@ func Validate(b []byte, v pkg.Schema) (bool, error) {
 // but does not have to be an instance of v. If the YAML source is a stream,
 // every object must match v.
 func ValidatePartial(b []byte, v pkg.Schema) (bool, error) {
-	d := cueyaml.NewDecoder("yaml.ValidatePartial", b)
-	r := v.Context()
-	for {
-		expr, err := d.Decode()
-		if err != nil {
-			if err == io.EOF {
-				return true, nil
-			}
-			return false, err
-		}
+	// This function is left for Go documentation. The package entry calls
+	// cueyaml.ValidatePartial directly, passing it the call context.
 
-		x := r.BuildExpr(expr)
-		if err := x.Err(); err != nil {
-			return false, err
-		}
+	ctx := value.OpContext(v)
+	return cueyaml.ValidatePartial(ctx, b, v)
+}
 
-		if x := v.Unify(x); x.Err() != nil {
-			return false, x.Err()
-		}
-	}
+// validatePartial is the actual implementation of ValidatePartial.
+func validatePartial(c *adt.OpContext, b []byte, v pkg.Schema) (bool, error) {
+	return cueyaml.ValidatePartial(c, b, v)
 }

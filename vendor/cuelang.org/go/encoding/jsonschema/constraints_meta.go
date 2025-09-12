@@ -49,7 +49,7 @@ func constraintID(key string, n cue.Value, s *state) {
 // constraintSchema implements $schema, which
 // identifies this as a JSON schema and specifies its version.
 func constraintSchema(key string, n cue.Value, s *state) {
-	if !s.isRoot && !vfrom(VersionDraft2019_09).contains(s.schemaVersion) {
+	if !s.isRoot && !s.schemaVersion.is(vfrom(VersionDraft2019_09)) {
 		// Before 2019-09, the $schema keyword was not allowed
 		// to appear anywhere but the root.
 		s.errf(n, "$schema can only appear at the root in JSON Schema version %v", s.schemaVersion)
@@ -73,4 +73,11 @@ func constraintTODO(key string, n cue.Value, s *state) {
 	if s.cfg.StrictFeatures {
 		s.errf(n, `keyword %q not yet implemented`, key)
 	}
+}
+
+// constraintIgnore represents a constraint that we're deliberately
+// ignoring, by contrast with [constraintTODO] that represents
+// a constraint that we're definitely intending to implement
+// at some point.
+func constraintIgnore(key string, b cue.Value, s *state) {
 }

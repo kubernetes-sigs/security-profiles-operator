@@ -24,7 +24,7 @@ import (
 	"net/url"
 	"regexp"
 	"regexp/syntax"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -34,7 +34,6 @@ import (
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal"
-	"cuelang.org/go/mod/module"
 )
 
 const (
@@ -102,6 +101,9 @@ type definedSchema struct {
 	// schema holds the actual syntax for the schema. This
 	// is nil if the entry was created by a reference only.
 	schema ast.Expr
+
+	// comment holds any doc comment associated with the above schema.
+	comment *ast.CommentGroup
 }
 
 // addImport registers
@@ -120,18 +122,32 @@ func (d *decoder) addImport(n cue.Value, pkg string) *ast.Ident {
 
 func (d *decoder) decode(v cue.Value) *ast.File {
 	var defsRoot cue.Value
+	// docRoot represents the root of the actual data, by contrast
+	// with the "root" value as specified in [Config.Root] which
+	// represents the root of the schemas to be decoded.
+	docRoot := v
 	if d.cfg.Root != "" {
-		defsPath, err := parseRootRef(d.cfg.Root)
+		rootPath, err := parseRootRef(d.cfg.Root)
 		if err != nil {
 			d.errf(cue.Value{}, "invalid Config.Root value %q: %v", d.cfg.Root, err)
 			return nil
 		}
-		defsRoot = v.LookupPath(defsPath)
-		if !defsRoot.Exists() && d.cfg.AllowNonExistentRoot {
-			defsRoot = v.Context().CompileString("{}")
-		} else if defsRoot.Kind() != cue.StructKind {
-			d.errf(defsRoot, "value at path %v must be struct containing definitions but is actually %v", d.cfg.Root, defsRoot)
+		root := v.LookupPath(rootPath)
+		if !root.Exists() && !d.cfg.AllowNonExistentRoot {
+			d.errf(v, "root value at path %v does not exist", d.cfg.Root)
 			return nil
+		}
+		if d.cfg.SingleRoot {
+			v = root
+		} else {
+			if !root.Exists() {
+				root = v.Context().CompileString("{}")
+			}
+			if root.Kind() != cue.StructKind {
+				d.errf(root, "value at path %v must be struct containing definitions but is actually %v", d.cfg.Root, root)
+				return nil
+			}
+			defsRoot = root
 		}
 	}
 
@@ -158,7 +174,7 @@ func (d *decoder) decode(v cue.Value) *ast.File {
 				id:            d.rootID,
 			},
 			isRoot: true,
-			pos:    v,
+			pos:    docRoot,
 		}
 
 		if defsRoot.Exists() {
@@ -166,7 +182,11 @@ func (d *decoder) decode(v cue.Value) *ast.File {
 			// containing a field for each definition.
 			constraintAddDefinitions("schemas", defsRoot, root)
 		} else {
-			expr, state := root.schemaState(v, allTypes)
+			expr, state := root.schemaState(v, allTypes, func(s *state) {
+				// We want the top level state to be treated as root even
+				// though it's some levels below the actual document top level.
+				s.isRoot = true
+			})
 			if state.allowedTypes == 0 {
 				root.errf(v, "constraints are not possible to satisfy")
 				return nil
@@ -216,7 +236,7 @@ func (d *decoder) decode(v cue.Value) *ast.File {
 		// have been mapped to an external location.
 		for _, def := range d.defs {
 			if def.schema != nil && def.importPath != "" {
-				d.cfg.DefineSchema(def.importPath, def.path, def.schema)
+				d.cfg.DefineSchema(def.importPath, def.path, def.schema, def.comment)
 			}
 		}
 	}
@@ -374,7 +394,7 @@ var coreToCUE = []cue.Kind{
 	objectType: cue.StructKind,
 }
 
-func kindToAST(k cue.Kind) ast.Expr {
+func kindToAST(k cue.Kind, explicitOpen bool) ast.Expr {
 	switch k {
 	case cue.NullKind:
 		// TODO: handle OpenAPI restrictions.
@@ -392,6 +412,9 @@ func kindToAST(k cue.Kind) ast.Expr {
 	case cue.ListKind:
 		return ast.NewList(&ast.Ellipsis{})
 	case cue.StructKind:
+		if explicitOpen {
+			return ast.NewStruct()
+		}
 		return ast.NewStruct(&ast.Ellipsis{})
 	}
 	panic(fmt.Errorf("unexpected kind %v", k))
@@ -413,8 +436,8 @@ type constraintInfo struct {
 	constraints []ast.Expr
 }
 
-func (c *constraintInfo) setTypeUsed(n cue.Value, t coreType) {
-	c.typ = kindToAST(coreToCUE[t])
+func (c *constraintInfo) setTypeUsed(n cue.Value, t coreType, explicitOpen bool) {
+	c.typ = kindToAST(coreToCUE[t], explicitOpen)
 	setPos(c.typ, n)
 	ast.SetRelPos(c.typ, token.NoRelPos)
 }
@@ -435,7 +458,7 @@ func (s *state) setTypeUsed(n cue.Value, t coreType) {
 	if int(t) >= len(s.types) {
 		panic(fmt.Errorf("type out of range %v/%v", int(t), len(s.types)))
 	}
-	s.types[t].setTypeUsed(n, t)
+	s.types[t].setTypeUsed(n, t, s.cfg.OpenOnlyWhenExplicit)
 }
 
 type state struct {
@@ -454,11 +477,6 @@ type state struct {
 	exclusiveMin bool // For OpenAPI and legacy support.
 	exclusiveMax bool // For OpenAPI and legacy support.
 
-	// Keep track of whether a $ref keyword is present,
-	// because pre-2019-09 schemas ignore sibling keywords
-	// to $ref.
-	hasRefKeyword bool
-
 	// isRoot holds whether this state is at the root
 	// of the schema.
 	isRoot bool
@@ -476,8 +494,7 @@ type state struct {
 	obj  *ast.StructLit
 	objN cue.Value // used for adding obj to constraints
 
-	closeStruct bool
-	patterns    []ast.Expr
+	patterns []ast.Expr
 
 	list *ast.ListLit
 
@@ -491,7 +508,47 @@ type state struct {
 	//
 	//	"items": []
 	listItemsIsArray bool
+
+	// The following fields are used when the version is
+	// [VersionKubernetesCRD] to check that "properties" and
+	// "additionalProperties" may not be specified together.
+	hasProperties           bool
+	hasAdditionalProperties bool
+
+	// Keep track of whether "items" and "type": "array" have been specified, because
+	// in OpenAPI it's mandatory when "type" is "array".
+	hasItems bool
+	isArray  bool
+
+	// Keep track of whether a $ref keyword is present,
+	// because pre-2019-09 schemas ignore sibling keywords
+	// to $ref.
+	hasRefKeyword bool
+
+	// Keep track of whether we're preserving existing fields,
+	// which is preserved recursively by default, and is
+	// reset within properties or additionalProperties.
+	preserveUnknownFields bool
+
+	// k8sResourceKind and k8sAPIVersion record values from the
+	// x-kubernetes-group-version-kind keyword
+	// for the kind and apiVersion properties respectively.
+	k8sResourceKind string
+	k8sAPIVersion   string
+
+	// Keep track of whether the object has been explicitly
+	// closed or opened (see [Config.OpenOnlyWhenExplicit]).
+	openness openness
 }
+
+type openness int
+
+const (
+	implicitlyOpen   openness = iota
+	explicitlyOpen            // explicitly opened, e.g. additionalProperties: true
+	explicitlyClosed          // explicitly closed, e.g. additionalProperties: false
+	allFieldsCovered          // complete pattern present, e.g. additionalProperties: type: string
+)
 
 // schemaInfo holds information about a schema
 // after it has been created.
@@ -528,27 +585,35 @@ func (s *state) object(n cue.Value) *ast.StructLit {
 	if s.obj == nil {
 		s.obj = &ast.StructLit{}
 		s.objN = n
-
-		if s.id != nil {
-			s.obj.Elts = append(s.obj.Elts, s.idTag())
-		}
 	}
 	return s.obj
 }
 
 func (s *state) finalizeObject() {
+	if s.obj == nil && s.schemaVersion == VersionKubernetesCRD && (s.allowedTypes&cue.StructKind) != 0 && s.preserveUnknownFields {
+		// When x-kubernetes-preserve-unknown-fields is set, we need
+		// an explicit ellipsis even though kindToAST won't have added
+		// one, so make sure there's an object.
+		_ = s.object(s.pos)
+	}
 	if s.obj == nil {
 		return
 	}
-
-	var e ast.Expr
-	if s.closeStruct {
+	if s.preserveUnknownFields {
+		s.openness = explicitlyOpen
+	}
+	var e ast.Expr = s.obj
+	if s.cfg.OpenOnlyWhenExplicit && s.openness == implicitlyOpen {
+		// Nothing to do: the struct is implicitly open but
+		// we've been directed to leave it like that.
+	} else if s.openness == allFieldsCovered {
+		// Nothing to do: there is a pattern constraint that covers all
+		// possible fields.
+	} else if s.openness == explicitlyClosed {
 		e = ast.NewCall(ast.NewIdent("close"), s.obj)
 	} else {
 		s.obj.Elts = append(s.obj.Elts, &ast.Ellipsis{})
-		e = s.obj
 	}
-
 	s.add(s.objN, objectType, e)
 }
 
@@ -590,13 +655,17 @@ func (s *state) finalize() (e ast.Expr) {
 	disjuncts := []ast.Expr{}
 
 	// Sort literal structs and list last for nicer formatting.
-	sort.SliceStable(s.types[arrayType].constraints, func(i, j int) bool {
-		_, ok := s.types[arrayType].constraints[i].(*ast.ListLit)
-		return !ok
+	// Use a stable sort so that the relative order of constraints
+	// is otherwise kept as-is, for the sake of deterministic output.
+	slices.SortStableFunc(s.types[arrayType].constraints, func(a, b ast.Expr) int {
+		_, aList := a.(*ast.ListLit)
+		_, bList := b.(*ast.ListLit)
+		return cmpBool(aList, bList)
 	})
-	sort.SliceStable(s.types[objectType].constraints, func(i, j int) bool {
-		_, ok := s.types[objectType].constraints[i].(*ast.StructLit)
-		return !ok
+	slices.SortStableFunc(s.types[objectType].constraints, func(a, b ast.Expr) int {
+		_, aStruct := a.(*ast.StructLit)
+		_, bStruct := b.(*ast.StructLit)
+		return cmpBool(aStruct, bStruct)
 	})
 
 	type excludeInfo struct {
@@ -639,7 +708,7 @@ func (s *state) finalize() (e ast.Expr) {
 			case allowed:
 				npossible++
 				if s.knownTypes&k != 0 {
-					disjuncts = append(disjuncts, kindToAST(k))
+					disjuncts = append(disjuncts, kindToAST(k, s.cfg.OpenOnlyWhenExplicit))
 				}
 			}
 		}
@@ -691,8 +760,8 @@ func (s *state) finalize() (e ast.Expr) {
 		}
 	}
 
-	// If an "$id" exists and has not been included in any object constraints
-	if s.id != nil && s.obj == nil {
+	// If an "$id" exists, make sure it's present in the output.
+	if s.id != nil {
 		if st, ok := e.(*ast.StructLit); ok {
 			st.Elts = append([]ast.Decl{s.idTag()}, st.Elts...)
 		} else {
@@ -705,6 +774,24 @@ func (s *state) finalize() (e ast.Expr) {
 	// need to be mentioned again.
 	s.knownTypes = s.allowedTypes
 	return e
+}
+
+// cmpBool returns
+//
+//	-1 if x is less than y,
+//	 0 if x equals y,
+//	+1 if x is greater than y,
+//
+// where false is ordered before true.
+func cmpBool(x, y bool) int {
+	switch {
+	case !x && y:
+		return -1
+	case x && !y:
+		return +1
+	default:
+		return 0
+	}
 }
 
 func (s schemaInfo) comment() *ast.CommentGroup {
@@ -725,14 +812,17 @@ func (s schemaInfo) comment() *ast.CommentGroup {
 }
 
 func (s *state) schema(n cue.Value) ast.Expr {
-	expr, _ := s.schemaState(n, allTypes)
+	expr, _ := s.schemaState(n, allTypes, nil)
 	return expr
 }
 
 // schemaState returns a new state value derived from s.
 // n holds the JSONSchema node to translate to a schema.
 // types holds the set of possible types that the value can hold.
-func (s0 *state) schemaState(n cue.Value, types cue.Kind) (expr ast.Expr, ingo schemaInfo) {
+//
+// If init is not nil, it is called on the newly created state value
+// before doing anything else.
+func (s0 *state) schemaState(n cue.Value, types cue.Kind, init func(*state)) (expr ast.Expr, info schemaInfo) {
 	s := &state{
 		up: s0,
 		schemaInfo: schemaInfo{
@@ -740,16 +830,20 @@ func (s0 *state) schemaState(n cue.Value, types cue.Kind) (expr ast.Expr, ingo s
 			allowedTypes:  types,
 			knownTypes:    allTypes,
 		},
-		decoder: s0.decoder,
-		pos:     n,
-		isRoot:  s0.isRoot && n == s0.pos,
+		decoder:               s0.decoder,
+		pos:                   n,
+		isRoot:                s0.isRoot && n == s0.pos,
+		preserveUnknownFields: s0.preserveUnknownFields,
+	}
+	if init != nil {
+		init(s)
 	}
 	defer func() {
 		// Perhaps replace the schema expression with a reference.
-		expr = s.maybeDefine(expr)
+		expr = s.maybeDefine(expr, info)
 	}()
 	if n.Kind() == cue.BoolKind {
-		if vfrom(VersionDraft6).contains(s.schemaVersion) {
+		if s.schemaVersion.is(vfrom(VersionDraft6)) {
 			// From draft6 onwards, boolean values signify a schema that always passes or fails.
 			// TODO if false, set s.allowedTypes and s.knownTypes to zero?
 			return boolSchema(s.boolValue(n)), s.schemaInfo
@@ -770,32 +864,30 @@ func (s0 *state) schemaState(n cue.Value, types cue.Kind) (expr ast.Expr, ingo s
 				// is >=2019-19 because $schema could be used to change the version.
 				s.hasRefKeyword = true
 			}
-			if strings.HasPrefix(key, "x-") {
-				// A keyword starting with a leading x- is clearly
-				// not intended to be a valid keyword, and is explicitly
-				// allowed by OpenAPI. It seems reasonable that
-				// this is not an error even with StrictKeywords enabled.
-				return
-			}
 			// Convert each constraint into a either a value or a functor.
 			c := constraintMap[key]
 			if c == nil {
+				if strings.HasPrefix(key, "x-") {
+					// A keyword starting with a leading x- is clearly
+					// not intended to be a valid keyword, and is explicitly
+					// allowed by OpenAPI. It seems reasonable that
+					// this is not an error even with StrictKeywords enabled.
+					return
+				}
 				if pass == 0 && s.cfg.StrictKeywords {
 					// TODO: value is not the correct position, albeit close. Fix this.
-					s.warnf(value.Pos(), "unknown keyword %q", key)
+					s.warnUnrecognizedKeyword(key, value, "unknown keyword %q", key)
 				}
 				return
 			}
 			if c.phase != pass {
 				return
 			}
-			if !c.versions.contains(s.schemaVersion) {
-				if s.cfg.StrictKeywords {
-					s.warnf(value.Pos(), "keyword %q is not supported in JSON schema version %v", key, s.schemaVersion)
-				}
+			if !s.schemaVersion.is(c.versions) {
+				s.warnUnrecognizedKeyword(key, value, "keyword %q is not supported in JSON schema version %v", key, s.schemaVersion)
 				return
 			}
-			if pass > 0 && !vfrom(VersionDraft2019_09).contains(s.schemaVersion) && s.hasRefKeyword && key != "$ref" {
+			if pass > 0 && !s.schemaVersion.is(vfrom(VersionDraft2019_09)) && s.hasRefKeyword && key != "$ref" {
 				// We're using a schema version that ignores keywords alongside $ref.
 				//
 				// Note that we specifically exclude pass 0 (the pass in which $schema is checked)
@@ -804,23 +896,60 @@ func (s0 *state) schemaState(n cue.Value, types cue.Kind) (expr ast.Expr, ingo s
 				// ignore keywords alongside $ref, but $ref says we should ignore the $schema
 				// keyword itself). We could make that situation an explicit error, but other
 				// implementations don't, and it would require an entire extra pass just to do so.
-				if s.cfg.StrictKeywords {
-					s.warnf(value.Pos(), "ignoring keyword %q alongside $ref", key)
-				}
+				s.warnUnrecognizedKeyword(key, value, "ignoring keyword %q alongside $ref", key)
 				return
 			}
 			c.fn(key, value, s)
 		})
+		if s.schemaVersion == VersionKubernetesCRD && s.isRoot {
+			// The root of a CRD is always a resource, so treat it as if it contained
+			// the x-kubernetes-embedded-resource keyword
+			// TODO remove this behavior now that we have an explicit
+			// ExtractCRDs function which does a better job at doing this.
+			c := constraintMap["x-kubernetes-embedded-resource"]
+			if c.phase != pass {
+				continue
+			}
+			// Note: there is no field value for the embedded-resource keyword,
+			// but it's not actually used except for its position so passing
+			// the parent object should work fine.
+			c.fn("x-kubernetes-embedded-resource", n, s)
+		}
 	}
 	if s.id != nil {
 		// If there's an ID, it can be referred to.
 		s.ensureDefinition(s.pos)
 	}
 	constraintIfThenElse(s)
+	if s.schemaVersion == VersionKubernetesCRD {
+		if s.hasProperties && s.hasAdditionalProperties {
+			s.errf(n, "additionalProperties may not be combined with properties in %v", s.schemaVersion)
+		}
+	}
+	if s.schemaVersion.is(openAPILike) {
+		if s.isArray && !s.hasItems {
+			// From https://github.com/OAI/OpenAPI-Specification/blob/3.0.0/versions/3.0.0.md#schema-object
+			// "`items` MUST be present if the `type` is `array`."
+			s.errf(n, `"items" must be present when the "type" is "array" in %v`, s.schemaVersion)
+		}
+	}
 
 	schemaExpr := s.finalize()
 	s.schemaInfo.hasConstraints = s.hasConstraints()
 	return schemaExpr, s.schemaInfo
+}
+
+func (s *state) warnUnrecognizedKeyword(key string, n cue.Value, msg string, args ...any) {
+	if !s.cfg.StrictKeywords {
+		return
+	}
+	if s.schemaVersion.is(openAPILike) && strings.HasPrefix(key, "x-") {
+		// Unimplemented x- keywords are allowed even with strict keywords
+		// under OpenAPI-like versions, because those versions enable
+		// strict keywords by default.
+		return
+	}
+	s.errf(n, msg, args...)
 }
 
 // maybeDefine checks whether we might need a definition
@@ -830,12 +959,13 @@ func (s0 *state) schemaState(n cue.Value, types cue.Kind) (expr ast.Expr, ingo s
 // it just returns expr itself.
 // TODO also report whether the schema has been defined at a place
 // where it can be unified with something else?
-func (s *state) maybeDefine(expr ast.Expr) ast.Expr {
+func (s *state) maybeDefine(expr ast.Expr, info schemaInfo) ast.Expr {
 	def := s.definedSchemaForNode(s.pos)
 	if def == nil || len(def.path.Selectors()) == 0 {
 		return expr
 	}
 	def.schema = expr
+	def.comment = info.comment()
 	if def.importPath == "" {
 		// It's a local definition that's not at the root.
 		if !s.builder.put(def.path, expr, s.comment()) {
@@ -916,7 +1046,7 @@ func (s *state) refExpr(n cue.Value, importPath string, path cue.Path) ast.Expr 
 		return expr
 	}
 	// External reference
-	ip := module.ParseImportPath(importPath)
+	ip := ast.ParseImportPath(importPath)
 	if ip.Qualifier == "" {
 		// TODO choose an arbitrary name here.
 		s.errf(n, "cannot determine package name from import path %q", importPath)

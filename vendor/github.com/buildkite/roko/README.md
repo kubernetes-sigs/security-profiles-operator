@@ -197,8 +197,6 @@ The random number generator is only used for jitter, so it only makes sense to p
 
 Roko is named after [Josevata Rokocoko](https://en.wikipedia.org/wiki/Joe_Rokocoko), a Fijian-New Zealand rugby player, and one of the best to ever do it. He scored a lot of tries, thus, he's a re-trier.
 
-Depending on who you ask, it's also [the owner of a basilisk](https://rationalwiki.org/wiki/Roko%27s_basilisk).
-
 ## Contributing
 
 By all means, please contribute! We'd love to have your input. If you run into a bug, feel free to open an issue, and if you find missing functionality, please don't hesitate to open a PR. If you have a weird and wonderful retry strategy you'd like to add, we'd love to see it.

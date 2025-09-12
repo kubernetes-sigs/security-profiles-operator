@@ -23,6 +23,8 @@
 
 package proto
 
+var _ Visitor = NoopVisitor{}
+
 // NoopVisitor is a no-operation visitor that can be used when creating your own visitor that is interested in only one or a few types.
 // It implements the Visitor interface.
 type NoopVisitor struct{}
@@ -35,6 +37,9 @@ func (n NoopVisitor) VisitService(v *Service) {}
 
 // VisitSyntax is part of Visitor interface
 func (n NoopVisitor) VisitSyntax(s *Syntax) {}
+
+// VisitSyntax is part of Visitor interface
+func (n NoopVisitor) VisitEdition(e *Edition) {}
 
 // VisitPackage is part of Visitor interface
 func (n NoopVisitor) VisitPackage(p *Package) {}

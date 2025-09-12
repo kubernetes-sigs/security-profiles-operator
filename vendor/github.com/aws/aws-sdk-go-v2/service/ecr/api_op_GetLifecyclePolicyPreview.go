@@ -51,8 +51,8 @@ type GetLifecyclePolicyPreviewInput struct {
 	// single page along with a nextToken   response element. The remaining results of
 	// the initial request can be seen by sending  another
 	// GetLifecyclePolicyPreviewRequest request with the returned nextToken   value.
-	// This value can be between 1 and 1000. If this  parameter is not used, then
-	// GetLifecyclePolicyPreviewRequest returns up to  100 results and a nextToken
+	// This value can be between 1 and 100. If this  parameter is not used, then
+	// GetLifecyclePolicyPreviewRequest returns up to 100 results and a nextToken
 	// value, if  applicable. This option cannot be used when you specify images with
 	// imageIds .
 	MaxResults *int32
@@ -167,6 +167,9 @@ func (c *Client) addOperationGetLifecyclePolicyPreviewMiddlewares(stack *middlew
 		return err
 	}
 	if err = addUserAgentRetryMode(stack, options); err != nil {
+		return err
+	}
+	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetLifecyclePolicyPreviewValidationMiddleware(stack); err != nil {
@@ -404,8 +407,8 @@ type GetLifecyclePolicyPreviewPaginatorOptions struct {
 	// single page along with a nextToken   response element. The remaining results of
 	// the initial request can be seen by sending  another
 	// GetLifecyclePolicyPreviewRequest request with the returned nextToken   value.
-	// This value can be between 1 and 1000. If this  parameter is not used, then
-	// GetLifecyclePolicyPreviewRequest returns up to  100 results and a nextToken
+	// This value can be between 1 and 100. If this  parameter is not used, then
+	// GetLifecyclePolicyPreviewRequest returns up to 100 results and a nextToken
 	// value, if  applicable. This option cannot be used when you specify images with
 	// imageIds .
 	Limit int32

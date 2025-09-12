@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"iter"
 	"log"
 	"maps"
 	"path"
@@ -156,6 +157,7 @@ func modfileFromRequirements(old *modfile.File, rs *modrequirements.Requirements
 		Language: old.Language,
 		Deps:     make(map[string]*modfile.Dep),
 		Source:   old.Source,
+		Custom:   old.Custom,
 	}
 	defaults := rs.DefaultMajorVersions()
 	for _, v := range rs.RootModules() {
@@ -240,13 +242,10 @@ func (ld *loader) resolveDependencies(ctx context.Context, rootPkgPaths []string
 			logf("dependencies are stable at %q", rs.RootModules())
 			return rs, pkgs, nil
 		}
-		toAdd := make([]module.Version, 0, len(modAddedBy))
-		// TODO use maps.Keys when we can.
 		for m, p := range modAddedBy {
-			logf("added: %v (by %v)", modAddedBy, p.ImportPath())
-			toAdd = append(toAdd, m)
+			logf("added: %v (by %v)", m, p.ImportPath())
 		}
-		module.Sort(toAdd) // to make errors deterministic
+		toAdd := slices.SortedFunc(maps.Keys(modAddedBy), module.Version.Compare) // to make errors deterministic
 		oldRs := rs
 		var err error
 		rs, err = ld.updateRoots(ctx, rs, pkgs, toAdd)
@@ -408,7 +407,7 @@ func (ld *loader) updateRoots(ctx context.Context, rs *modrequirements.Requireme
 		}
 	}
 	if needSort {
-		module.Sort(roots)
+		slices.SortFunc(roots, module.Version.Compare)
 	}
 
 	// "Each root appears only once, at the selected version of its path ….”
@@ -565,10 +564,7 @@ func (ld *loader) resolveMissingImports(ctx context.Context, pkgs *modpkgload.Pa
 	<-work.Idle()
 
 	modAddedBy = map[module.Version]*modpkgload.Package{}
-	defaultMajorVersions = make(map[string]string)
-	for m, v := range rs.DefaultMajorVersions() {
-		defaultMajorVersions[m] = v
-	}
+	defaultMajorVersions = maps.Clone(rs.DefaultMajorVersions())
 	for _, pm := range pkgMods {
 		pkg, mods, needsDefault := pm.pkg, *pm.mods, *pm.needsDefault
 		for _, mod := range mods {
@@ -632,7 +628,7 @@ func (ld *loader) tidyRoots(ctx context.Context, old *modrequirements.Requiremen
 		queue = append(queue, pkg)
 		queued[pkg] = true
 	}
-	module.Sort(roots)
+	slices.SortFunc(roots, module.Version.Compare)
 	tidy := modrequirements.NewRequirements(ld.mainModule.Path(), ld.registry, roots, old.DefaultMajorVersions())
 
 	for len(queue) > 0 {
@@ -664,7 +660,7 @@ func (ld *loader) tidyRoots(ctx context.Context, old *modrequirements.Requiremen
 		}
 
 		if tidyRoots := tidy.RootModules(); len(roots) > len(tidyRoots) {
-			module.Sort(roots)
+			slices.SortFunc(roots, module.Version.Compare)
 			tidy = modrequirements.NewRequirements(ld.mainModule.Path(), ld.registry, roots, tidy.DefaultMajorVersions())
 		}
 	}
@@ -718,15 +714,16 @@ func (ld *loader) spotCheckRoots(ctx context.Context, rs *modrequirements.Requir
 	return true
 }
 
-func withoutIgnoredFiles(iter func(func(modimports.ModuleFile, error) bool)) func(func(modimports.ModuleFile, error) bool) {
+func withoutIgnoredFiles(modFiles iter.Seq2[modimports.ModuleFile, error]) iter.Seq2[modimports.ModuleFile, error] {
 	return func(yield func(modimports.ModuleFile, error) bool) {
-		// TODO for mf, err := range iter {
-		iter(func(mf modimports.ModuleFile, err error) bool {
+		for mf, err := range modFiles {
 			if err == nil && buildattr.ShouldIgnoreFile(mf.Syntax) {
-				return true
+				continue
 			}
-			return yield(mf, err)
-		})
+			if !yield(mf, err) {
+				break
+			}
+		}
 	}
 }
 

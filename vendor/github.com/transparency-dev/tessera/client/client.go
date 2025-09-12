@@ -20,9 +20,7 @@ package client
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/transparency-dev/formats/log"
@@ -71,17 +69,21 @@ type CheckpointFetcherFunc func(ctx context.Context) ([]byte, error)
 // TileFetcherFunc is the signature of a function which can fetch the raw data
 // for a given tile.
 //
-// Note that the implementation of this MUST return (either directly or wrapped)
-// an os.ErrIsNotExist when the file referenced by path does not exist, e.g. a HTTP
-// based implementation MUST return this error when it receives a 404 StatusCode.
+// Note that the implementation of this MUST:
+//   - when asked to fetch a partial tile (i.e. p != 0), fall-back to fetching the corresponding full
+//     tile if the partial one does not exist.
+//   - return (either directly or wrapped) an os.ErrIsNotExist when neither the requested tile nor any
+//     fallback tile exists.
 type TileFetcherFunc func(ctx context.Context, level, index uint64, p uint8) ([]byte, error)
 
 // EntryBundleFetcherFunc is the signature of a function which can fetch the raw data
 // for a given entry bundle.
 //
-// Note that the implementation of this MUST return (either directly or wrapped)
-// an os.ErrIsNotExist when the file referenced by path does not exist, e.g. a HTTP
-// based implementation MUST return this error when it receives a 404 StatusCode.
+// Note that the implementation of this MUST:
+//   - when asked to fetch a partial entry bundle (i.e. p != 0), fall-back to fetching the corresponding full
+//     bundle if the partial one does not exist.
+//   - return (either directly or wrapped) an os.ErrIsNotExist when neither the requested bundle nor any
+//     fallback bundle exists.
 type EntryBundleFetcherFunc func(ctx context.Context, bundleIndex uint64, p uint8) ([]byte, error)
 
 // ConsensusCheckpointFunc is a function which returns the largest checkpoint known which is
@@ -161,25 +163,12 @@ func GetEntryBundle(ctx context.Context, f EntryBundleFetcherFunc, i, logSize ui
 	defer span.End()
 
 	span.SetAttributes(indexKey.Int64(otel.Clamp64(i)), logSizeKey.Int64(otel.Clamp64(logSize)))
-
 	bundle := api.EntryBundle{}
 	p := layout.PartialTileSize(0, i, logSize)
 	sRaw, err := f(ctx, i, p)
-	switch {
-	case errors.Is(err, os.ErrNotExist) && p == 0:
-		return bundle, fmt.Errorf("full leaf bundle at index %d not found: %v", i, err)
-	case errors.Is(err, os.ErrNotExist) && p > 0:
-		// It could be that the partial bundle was removed as the tree has grown and a full bundle is now present, so try
-		// falling back to that.
-		sRaw, err = f(ctx, i, 0)
-		if err != nil {
-			return bundle, fmt.Errorf("partial bundle at %[1]d.p/%[2]d and full bundle at %[1]d both not found: %[3]w", i, p, err)
-		}
-	case err != nil:
-		return bundle, fmt.Errorf("failed to fetch leaf bundle at index %d: %v", i, err)
-	default:
+	if err != nil {
+		return bundle, fmt.Errorf("failed to fetch bundle at index %d: %v", i, err)
 	}
-
 	if err := bundle.UnmarshalText(sRaw); err != nil {
 		return bundle, fmt.Errorf("failed to parse EntryBundle at index %d: %v", i, err)
 	}
@@ -189,6 +178,8 @@ func GetEntryBundle(ctx context.Context, f EntryBundleFetcherFunc, i, logSize ui
 // ProofBuilder knows how to build inclusion and consistency proofs from tiles.
 // Since the tiles commit only to immutable nodes, the job of building proofs is slightly
 // more complex as proofs can touch "ephemeral" nodes, so these need to be synthesized.
+// This object constructs a cache internally to make it efficient for multiple operations
+// at a given tree size.
 type ProofBuilder struct {
 	treeSize  uint64
 	nodeCache nodeCache
@@ -207,8 +198,6 @@ func NewProofBuilder(ctx context.Context, treeSize uint64, f TileFetcherFunc) (*
 
 // InclusionProof constructs an inclusion proof for the leaf at index in a tree of
 // the given size.
-// This function uses the passed-in function to retrieve tiles containing any log tree
-// nodes necessary to build the proof.
 func (pb *ProofBuilder) InclusionProof(ctx context.Context, index uint64) ([][]byte, error) {
 	ctx, span := tracer.Start(ctx, "tessera.client.InclusionProof")
 	defer span.End()
@@ -223,8 +212,6 @@ func (pb *ProofBuilder) InclusionProof(ctx context.Context, index uint64) ([][]b
 }
 
 // ConsistencyProof constructs a consistency proof between the provided tree sizes.
-// This function uses the passed-in function to retrieve tiles containing any log tree
-// nodes necessary to build the proof.
 func (pb *ProofBuilder) ConsistencyProof(ctx context.Context, smaller, larger uint64) ([][]byte, error) {
 	ctx, span := tracer.Start(ctx, "tessera.client.ConsistencyProof")
 	defer span.End()
@@ -414,7 +401,7 @@ func (n *nodeCache) GetNode(ctx context.Context, id compact.NodeID) ([]byte, err
 	if !ok {
 		span.AddEvent("cache miss")
 		p := layout.PartialTileSize(tileLevel, tileIndex, n.logSize)
-		tileRaw, err := fetchPartialOrFullTile(ctx, n.getTile, tileLevel, tileIndex, p)
+		tileRaw, err := n.getTile(ctx, tileLevel, tileIndex, p)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch tile: %v", err)
 		}
@@ -440,27 +427,4 @@ func (n *nodeCache) GetNode(ctx context.Context, id compact.NodeID) ([]byte, err
 		}
 	}
 	return r.GetRootHash(nil)
-}
-
-// fetchPartialOrFullTile attempts to fetch the tile at the provided coordinates.
-// If no tile is found, and the coordinates refer to a partial tile, fallback to trying the corresponding
-// full tile.
-func fetchPartialOrFullTile(ctx context.Context, f TileFetcherFunc, l, i uint64, p uint8) ([]byte, error) {
-	sRaw, err := f(ctx, l, i, p)
-	switch {
-	case errors.Is(err, os.ErrNotExist) && p == 0:
-		return sRaw, fmt.Errorf("full tile at index %d not found: %w", i, err)
-	case errors.Is(err, os.ErrNotExist) && p > 0:
-		// It could be that the partial tile was removed as the tree has grown and a full tile is now present, so try
-		// falling back to that.
-		sRaw, err = f(ctx, l, i, 0)
-		if err != nil {
-			return sRaw, fmt.Errorf("partial tile at %[1]d/%[2]d.p/%[3]d and full bundle at %[1]d/%[2]d both not found: %[4]w", l, i, p, err)
-		}
-		return sRaw, nil
-	case err != nil:
-		return sRaw, fmt.Errorf("failed to fetch tile at %d/%d(.p/%d]): %v", l, i, p, err)
-	default:
-		return sRaw, nil
-	}
 }

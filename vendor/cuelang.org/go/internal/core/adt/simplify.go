@@ -86,7 +86,10 @@ func SimplifyBounds(ctx *OpContext, k Kind, x, y *BoundValue) Value {
 		case -1:
 		case 0:
 			if x.Op == GreaterEqualOp && y.Op == LessEqualOp {
-				return ctx.NewString(a.Str)
+				if ctx.SimplifyValidators {
+					return ctx.NewString(a.Str)
+				}
+				return nil
 			}
 			fallthrough
 
@@ -111,7 +114,10 @@ func SimplifyBounds(ctx *OpContext, k Kind, x, y *BoundValue) Value {
 		case -1:
 		case 0:
 			if x.Op == GreaterEqualOp && y.Op == LessEqualOp {
-				return ctx.newBytes(a.B)
+				if ctx.SimplifyValidators {
+					return ctx.newBytes(a.B)
+				}
+				return nil
 			}
 			fallthrough
 
@@ -161,7 +167,7 @@ func SimplifyBounds(ctx *OpContext, k Kind, x, y *BoundValue) Value {
 		// numbers
 		// >=a & <=b
 		//     a   if a == b
-		//     _|_ if a < b
+		//     _|_ if b < a
 		// >=a & <b
 		//     _|_ if b <= a
 		// >a  & <=b
@@ -172,7 +178,7 @@ func SimplifyBounds(ctx *OpContext, k Kind, x, y *BoundValue) Value {
 		// integers
 		// >=a & <=b
 		//     a   if b-a == 0
-		//     _|_ if a < b
+		//     _|_ if b < a
 		// >=a & <b
 		//     a   if b-a == 1
 		//     _|_ if b <= a
@@ -183,14 +189,29 @@ func SimplifyBounds(ctx *OpContext, k Kind, x, y *BoundValue) Value {
 		//     a+1 if b-a == 2
 		//     _|_ if b <= a
 
+		if d.Negative {
+			return errIncompatibleBounds(ctx, k, x, y)
+		}
+		// [apd.Decimal.Int64] on `d = hi - lo` will error if it overflows an int64.
+		// This is pretty common with CUE bounds like int64, which expands to:
+		//
+		//     >=-9_223_372_036_854_775_808 & <=9_223_372_036_854_775_807
+		//
+		// Constructing that error is unfortunate as it allocates a few times
+		// and stringifies the number too, which also has a cost.
+		// Which is entirely unnecessary, as we don't use the error value at all.
+		// If we know the integer will have more than one digit, give up early.
+		if d.NumDigits() > 1 {
+			break
+		}
 		switch diff, err := d.Int64(); {
 		case diff == 1:
 			if k&FloatKind == 0 {
 				if x.Op == GreaterEqualOp && y.Op == LessThanOp {
-					return ctx.newNum(&lo, k&NumberKind, x, y)
+					return newNum(ctx, &lo, k&NumberKind, x, y)
 				}
 				if x.Op == GreaterThanOp && y.Op == LessEqualOp {
-					return ctx.newNum(&hi, k&NumberKind, x, y)
+					return newNum(ctx, &hi, k&NumberKind, x, y)
 				}
 				if x.Op == GreaterThanOp && y.Op == LessThanOp {
 					return ctx.NewErrf("incompatible integer bounds %v and %v", x, y)
@@ -200,21 +221,14 @@ func SimplifyBounds(ctx *OpContext, k Kind, x, y *BoundValue) Value {
 		case diff == 2:
 			if k&FloatKind == 0 && x.Op == GreaterThanOp && y.Op == LessThanOp {
 				_, _ = internal.BaseContext.Add(&d, d.SetInt64(1), &lo)
-				return ctx.newNum(&d, k&NumberKind, x, y)
+				return newNum(ctx, &d, k&NumberKind, x, y)
 			}
 
 		case diff == 0 && err == nil:
 			if x.Op == GreaterEqualOp && y.Op == LessEqualOp {
-				return ctx.newNum(&lo, k&NumberKind, x, y)
+				return newNum(ctx, &lo, k&NumberKind, x, y)
 			}
-			fallthrough
-
-		case d.Negative:
-			if k == IntKind {
-				return ctx.NewErrf("incompatible integer bounds %v and %v", y, x)
-			} else {
-				return ctx.NewErrf("incompatible number bounds %v and %v", y, x)
-			}
+			return errIncompatibleBounds(ctx, k, x, y)
 		}
 
 	case x.Op == NotEqualOp:
@@ -226,6 +240,20 @@ func SimplifyBounds(ctx *OpContext, k Kind, x, y *BoundValue) Value {
 		if !test(ctx, x.Op, yv, xv) {
 			return x
 		}
+	}
+	return nil
+}
+
+func errIncompatibleBounds(ctx *OpContext, k Kind, x, y *BoundValue) *Bottom {
+	if k == IntKind {
+		return ctx.NewErrf("incompatible integer bounds %v and %v", y, x)
+	} else {
+		return ctx.NewErrf("incompatible number bounds %v and %v", y, x)
+	}
+}
+func newNum(ctx *OpContext, d *apd.Decimal, k Kind, sources ...Node) Value {
+	if ctx.SimplifyValidators {
+		return ctx.newNum(d, k, sources...)
 	}
 	return nil
 }
@@ -251,7 +279,7 @@ func opInfo(op Op) (cmp Op, norm int) {
 }
 
 func test(ctx *OpContext, op Op, a, b Value) bool {
-	if b, ok := BinOp(ctx, op, a, b).(*Bool); ok {
+	if b, ok := BinOp(ctx, nil, op, a, b).(*Bool); ok {
 		return b.B
 	}
 	return false

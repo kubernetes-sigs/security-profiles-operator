@@ -60,6 +60,7 @@ const (
 
 	// Keywords
 	keywordsStart
+	tEDITION
 	tSYNTAX
 	tSERVICE
 	tRPC
@@ -192,6 +193,8 @@ func asToken(literal string) token {
 	// words
 	case "syntax":
 		return tSYNTAX
+	case "edition":
+		return tEDITION
 	case "service":
 		return tSERVICE
 	case "rpc":

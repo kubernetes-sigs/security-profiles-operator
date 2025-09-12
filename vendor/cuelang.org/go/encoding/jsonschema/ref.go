@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -44,22 +45,25 @@ func parseRootRef(str string) (cue.Path, error) {
 	// (technically a trailing slash `/` means there's an empty
 	// final element).
 	u.Fragment = strings.TrimSuffix(u.Fragment, "/")
-	fragmentParts := collectSlice(jsonPointerTokens(u.Fragment))
+	fragmentParts := slices.Collect(jsonPointerTokens(u.Fragment))
 	var selectors []cue.Selector
 	for _, r := range fragmentParts {
-		// Technically this is incorrect because a numeric
-		// element could also index into a list, but the
-		// resulting CUE path will not allow that.
-		selectors = append(selectors, cue.Str(r))
+		if i, err := strconv.ParseUint(r, 10, 64); err == nil && strconv.FormatUint(i, 10) == r {
+			// Technically this is incorrect because a numeric element
+			// could also be a string selector and the resulting path
+			// will not allow that.
+			selectors = append(selectors, cue.Index(int64(i)))
+		} else {
+			selectors = append(selectors, cue.Str(r))
+		}
 	}
 	return cue.MakePath(selectors...), nil
 }
 
 var errRefNotFound = errors.New("JSON Pointer reference not found")
 
-func lookupJSONPointer(v cue.Value, p string) (_ cue.Value, _err error) {
-	// TODO(go1.23) for part := range jsonPointerTokens(p)
-	jsonPointerTokens(p)(func(part string) bool {
+func lookupJSONPointer(v cue.Value, p string) (cue.Value, error) {
+	for part := range jsonPointerTokens(p) {
 		// Note: a JSON Pointer doesn't distinguish between indexing
 		// and struct lookup. We have to use the value itself to decide
 		// which operation is appropriate.
@@ -71,23 +75,19 @@ func lookupJSONPointer(v cue.Value, p string) (_ cue.Value, _err error) {
 			idx := int64(0)
 			if len(part) > 1 && part[0] == '0' {
 				// Leading zeros are not allowed
-				_err = errRefNotFound
-				return false
+				return cue.Value{}, errRefNotFound
 			}
 			idx, err := strconv.ParseInt(part, 10, 64)
 			if err != nil {
-				_err = errRefNotFound
-				return false
+				return cue.Value{}, errRefNotFound
 			}
 			v = v.LookupPath(cue.MakePath(cue.Index(idx)))
 		}
 		if !v.Exists() {
-			_err = errRefNotFound
-			return false
+			return cue.Value{}, errRefNotFound
 		}
-		return true
-	})
-	return v, _err
+	}
+	return v, nil
 }
 
 func sameSchemaRoot(u1, u2 *url.URL) bool {
@@ -122,8 +122,7 @@ func (s *state) resolveURI(n cue.Value) *url.URL {
 		return u
 	}
 
-	// TODO(go1.23) use ResolveReference directly.
-	return resolveReference(s.schemaRoot().id, u)
+	return s.schemaRoot().id.ResolveReference(u)
 }
 
 // schemaRoot returns the state for the nearest enclosing
@@ -176,7 +175,7 @@ func defaultMapRef(
 	if len(fragment) > 0 && fragment[0] != '/' {
 		return "", cue.Path{}, fmt.Errorf("anchors (%s) not supported", fragment)
 	}
-	parts := collectSlice(jsonPointerTokens(fragment))
+	parts := slices.Collect(jsonPointerTokens(fragment))
 	labels, err := mapFn(token.Pos{}, parts)
 	if err != nil {
 		return "", cue.Path{}, err
@@ -203,7 +202,7 @@ func defaultMap(p token.Pos, a []string) ([]ast.Label, error) {
 		// TODO this is needlessly inefficient, as we're putting something
 		// back together that was already joined before defaultMap was
 		// invoked. This does avoid dual implementations though.
-		p := jsonPointerFromTokens(sliceValues(a))
+		p := jsonPointerFromTokens(slices.Values(a))
 		return []ast.Label{ast.NewIdent("_#defs"), ast.NewString(p)}, nil
 	}
 	name := a[1]

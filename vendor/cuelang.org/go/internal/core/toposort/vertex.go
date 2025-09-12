@@ -128,9 +128,16 @@ package toposort
 // (including no position) will be treated as explicity unified, and
 // so no weight will be given to their relative position within the
 // Vertex's slice of StructInfos.
+//
+// TODO: Switch if possible to finding if a struct has been unified
+// with a definition and as much as possible taking order from the
+// definition. In order words, if a cycle is only created by edges
+// that come from non-definitions, then we ignore those edges, and
+// thus don't end up dealing with a cycle.
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 
 	"cuelang.org/go/cue/token"
@@ -144,8 +151,6 @@ type structMeta struct {
 	// Should this struct be considered to be part of an explicit
 	// unification (e.g. x & y)?
 	isExplicit bool
-	// Does this struct have no incoming edges?
-	isRoot bool
 }
 
 func (sMeta *structMeta) String() string {
@@ -153,8 +158,8 @@ func (sMeta *structMeta) String() string {
 	if sMeta.structInfo != nil {
 		sl = sMeta.structInfo.StructLit
 	}
-	return fmt.Sprintf("{%p sl:%p %v (explicit? %v; root? %v)}",
-		sMeta, sl, sMeta.pos, sMeta.isExplicit, sMeta.isRoot)
+	return fmt.Sprintf("{%p sl:%p %v (explicit? %v)}",
+		sMeta, sl, sMeta.pos, sMeta.isExplicit)
 }
 
 func (sm *structMeta) hasDynamic(dynFieldsMap map[*adt.DynamicField][]adt.Feature) bool {
@@ -212,42 +217,39 @@ func (sm *structMeta) hasDynamic(dynFieldsMap map[*adt.DynamicField][]adt.Featur
 // we look at the vertex's conjuncts. If a conjunct is a binary
 // expression &, then we look up the structMeta for the arguments to
 // the binary expression, and mark them as explicit unification.
-func analyseStructs(v *adt.Vertex, builder *GraphBuilder) ([]*structMeta, map[adt.Decl][]*structMeta) {
+func analyseStructs(v *adt.Vertex, builder *GraphBuilder) []*structMeta {
 	structInfos := v.Structs
-	nodeToStructMeta := make(map[adt.Node][]*structMeta)
-	structMetas := make([]structMeta, len(structInfos))
+	// Note that it's important that nodeToStructMetas avoids duplicate entries,
+	// which cause significant slowness for some large configs.
+	nodeToStructMetas := make(map[adt.Node]map[*structMeta]bool)
+	// structMetaMap is heplful as we can't insert into a map unless we make it.
+	structMetaMap := func(node adt.Node) map[*structMeta]bool {
+		if m := nodeToStructMetas[node]; m != nil {
+			return m
+		}
+		m := make(map[*structMeta]bool)
+		nodeToStructMetas[node] = m
+		return m
+	}
+	structMetas := make([]*structMeta, 0, len(structInfos))
 
-	// First pass: make sure we create all the structMetas and map to
-	// them from a StructInfo's StructLit, and all its internal
-	// Decls. Assume everything is a root. Initial attempt at recording
-	// a position, which will be correct only for direct use of literal
-	// structs in the calculation of vertex v.
-	for i, s := range structInfos {
+	// Create all the structMetas and map to them from a StructInfo's
+	// StructLit, and all its internal Decls. Initial attempt at
+	// recording a position, which will be correct only for direct use
+	// of literal structs in the calculation of vertex v.
+	for _, s := range structInfos {
 		sl := s.StructLit
-		sMeta := &structMetas[i]
-		sMeta.structInfo = s
-		sMeta.isRoot = true
+		sMeta := &structMeta{
+			structInfo: s,
+		}
+		structMetas = append(structMetas, sMeta)
+
 		if src := sl.Source(); src != nil {
 			sMeta.pos = src.Pos()
 		}
-		nodeToStructMeta[sl] = append(nodeToStructMeta[sl], sMeta)
+		structMetaMap(sl)[sMeta] = true
 		for _, decl := range sl.Decls {
-			nodeToStructMeta[decl] = append(nodeToStructMeta[decl], sMeta)
-		}
-	}
-
-	roots := make([]*structMeta, 0, len(structMetas))
-	outgoing := make(map[adt.Decl][]*structMeta)
-	// Second pass: build outgoing map based on the StructInfo
-	// parent-child relationship. Children are necessarily not roots.
-	for i := range structMetas {
-		sMeta := &structMetas[i]
-		parentDecl := sMeta.structInfo.Decl
-		if _, found := nodeToStructMeta[parentDecl]; found {
-			outgoing[parentDecl] = append(outgoing[parentDecl], sMeta)
-			sMeta.isRoot = false
-		} else {
-			roots = append(roots, sMeta)
+			structMetaMap(decl)[sMeta] = true
 		}
 	}
 
@@ -260,12 +262,12 @@ func analyseStructs(v *adt.Vertex, builder *GraphBuilder) ([]*structMeta, map[ad
 			field := c.Field()
 			debug("self arc conjunct field %p :: %T, expr %p :: %T (%v)\n",
 				field, field, c.Expr(), c.Expr(), c.Expr().Source())
-			sMetas, found := nodeToStructMeta[field]
+			sMetas, found := nodeToStructMetas[field]
 			if !found {
 				return true
 			}
 			if src := field.Source(); src != nil {
-				for _, sMeta := range sMetas {
+				for sMeta := range sMetas {
 					sMeta.pos = src.Pos()
 				}
 			}
@@ -280,9 +282,9 @@ func analyseStructs(v *adt.Vertex, builder *GraphBuilder) ([]*structMeta, map[ad
 				debug(" ref %p :: %T (%v)\n",
 					refs.Ref, refs.Ref, refs.Ref.Source().Pos())
 			}
-			nodeToStructMeta[refs.Ref] = append(nodeToStructMeta[refs.Ref], sMetas...)
+			maps.Insert(structMetaMap(refs.Ref), maps.All(sMetas))
 			if pos := refs.Ref.Source().Pos(); pos != token.NoPos {
-				for _, sMeta := range nodeToStructMeta[refs.Ref] {
+				for sMeta := range nodeToStructMetas[refs.Ref] {
 					sMeta.pos = pos
 				}
 			}
@@ -317,7 +319,7 @@ func analyseStructs(v *adt.Vertex, builder *GraphBuilder) ([]*structMeta, map[ad
 			continue
 		}
 		for _, expr := range []adt.Expr{binExpr.X, binExpr.Y} {
-			for _, sMeta := range nodeToStructMeta[expr] {
+			for sMeta := range nodeToStructMetas[expr] {
 				sMeta.isExplicit = true
 				debug(" now explicit: %v\n", sMeta)
 			}
@@ -325,7 +327,7 @@ func analyseStructs(v *adt.Vertex, builder *GraphBuilder) ([]*structMeta, map[ad
 		worklist = append(worklist, binExpr.X, binExpr.Y)
 	}
 
-	return roots, outgoing
+	return structMetas
 }
 
 // Find all fields which have been created as a result of successful
@@ -373,7 +375,6 @@ func (batchesPtr *structMetaBatches) appendBatch(batch structMetaBatch) {
 type vertexFeatures struct {
 	builder      *GraphBuilder
 	dynFieldsMap map[*adt.DynamicField][]adt.Feature
-	outgoing     map[adt.Decl][]*structMeta
 }
 
 func (vf *vertexFeatures) compareStructMeta(a, b *structMeta) int {
@@ -397,12 +398,11 @@ func VertexFeatures(ctx *adt.OpContext, v *adt.Vertex) []adt.Feature {
 
 	builder := NewGraphBuilder(!ctx.Config.SortFields)
 	dynFieldsMap := dynamicFieldsFeatures(v)
-	roots, outgoing := analyseStructs(v, builder)
+	roots := analyseStructs(v, builder)
 
 	vf := &vertexFeatures{
 		builder:      builder,
 		dynFieldsMap: dynFieldsMap,
-		outgoing:     outgoing,
 	}
 
 	slices.SortFunc(roots, vf.compareStructMeta)
@@ -445,9 +445,8 @@ func VertexFeatures(ctx *adt.OpContext, v *adt.Vertex) []adt.Feature {
 }
 
 func (vf *vertexFeatures) addEdges(previous []adt.Feature, sMeta *structMeta) []adt.Feature {
-	debug("--- S %p (%p :: %T) (sl: %p) (explicit? %v) ---\n",
-		sMeta, sMeta.structInfo.Decl, sMeta.structInfo.Decl,
-		sMeta.structInfo.StructLit, sMeta.isExplicit)
+	debug("--- S %p (sl: %p) (explicit? %v) ---\n",
+		sMeta, sMeta.structInfo.StructLit, sMeta.isExplicit)
 	debug(" previous: %v\n", previous)
 	var next []adt.Feature
 
@@ -500,26 +499,6 @@ func (vf *vertexFeatures) addEdges(previous []adt.Feature, sMeta *structMeta) []
 				for _, prevLabel := range previous {
 					vf.builder.AddEdge(prevLabel, currentLabel)
 				}
-				previous = next
-				next = nil
-			}
-		}
-
-		if nextStructMetas := vf.outgoing[decl]; len(nextStructMetas) != 0 {
-			debug("  nextStructs: %v\n", nextStructMetas)
-			binExpr, isBinary := decl.(*adt.BinaryExpr)
-			isBinary = isBinary && binExpr.Op == adt.AndOp
-
-			for _, sMeta := range nextStructMetas {
-				sMeta.isExplicit = isBinary
-				edges := vf.addEdges(previous, sMeta)
-				if isBinary {
-					next = append(next, edges...)
-				} else {
-					previous = edges
-				}
-			}
-			if isBinary {
 				previous = next
 				next = nil
 			}

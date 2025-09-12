@@ -63,7 +63,7 @@ type UploadMetricImageOptions struct {
 	URLText *string `url:"url_text,omitempty" json:"url_text,omitempty"`
 }
 
-// UploadMetricImageOptions uploads a metric image to a project alert.
+// UploadMetricImage uploads a metric image to a project alert.
 //
 // GitLab API docs:
 // https://docs.gitlab.com/api/alert_management_alerts/#upload-metric-image

@@ -35,7 +35,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"iter"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -53,15 +52,16 @@ import (
 	"github.com/transparency-dev/tessera"
 	"github.com/transparency-dev/tessera/api"
 	"github.com/transparency-dev/tessera/api/layout"
+	"github.com/transparency-dev/tessera/internal/fetcher"
 	"github.com/transparency-dev/tessera/internal/migrate"
 	"github.com/transparency-dev/tessera/internal/otel"
 	"github.com/transparency-dev/tessera/internal/parse"
-	"github.com/transparency-dev/tessera/internal/stream"
 	storage "github.com/transparency-dev/tessera/storage/internal"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
 )
 
@@ -124,6 +124,13 @@ type consumeFunc func(ctx context.Context, from uint64, entries []storage.Sequen
 
 // Config holds GCP project and resource configuration for a storage instance.
 type Config struct {
+	// GCSClient will be  used to interact with GCS. If unset, Tessera will create one.
+	GCSClient *gcs.Client
+	// SpannerClient will be used to interact with Spanner. If unset, Tessera will create one.
+	SpannerClient *spanner.Client
+	// HTTPClient will be used for other HTTP requests. If unset, Tessera will use the net/http DefaultClient.
+	HTTPClient *http.Client
+
 	// Bucket is the name of the GCS bucket to use for storing log state.
 	Bucket string
 	// BucketPrefix is an optional prefix to prepend to all log resource paths.
@@ -135,6 +142,9 @@ type Config struct {
 
 // New creates a new instance of the GCP based Storage.
 func New(ctx context.Context, cfg Config) (tessera.Driver, error) {
+	if cfg.HTTPClient == nil {
+		cfg.HTTPClient = http.DefaultClient
+	}
 	return &Storage{
 		cfg: cfg,
 	}, nil
@@ -163,14 +173,18 @@ func (lr *LogReader) ReadTile(ctx context.Context, l, i uint64, p uint8) ([]byte
 	ctx, span := tracer.Start(ctx, "tessera.storage.gcp.ReadTile")
 	defer span.End()
 
-	return lr.lrs.getTile(ctx, l, i, p)
+	return fetcher.PartialOrFullResource(ctx, p, func(ctx context.Context, p uint8) ([]byte, error) {
+		return lr.lrs.getTile(ctx, l, i, p)
+	})
 }
 
 func (lr *LogReader) ReadEntryBundle(ctx context.Context, i uint64, p uint8) ([]byte, error) {
 	ctx, span := tracer.Start(ctx, "tessera.storage.gcp.ReadEntryBundle")
 	defer span.End()
 
-	return lr.lrs.getEntryBundle(ctx, i, p)
+	return fetcher.PartialOrFullResource(ctx, p, func(ctx context.Context, p uint8) ([]byte, error) {
+		return lr.lrs.getEntryBundle(ctx, i, p)
+	})
 }
 
 func (lr *LogReader) IntegratedSize(ctx context.Context) (uint64, error) {
@@ -187,31 +201,33 @@ func (lr *LogReader) NextIndex(ctx context.Context) (uint64, error) {
 	return lr.nextIndex(ctx)
 }
 
-func (lr *LogReader) StreamEntries(ctx context.Context, startEntry, N uint64) iter.Seq2[stream.Bundle, error] {
-	ctx, span := tracer.Start(ctx, "tessera.storage.gcp.StreamEntries")
-	defer span.End()
-
-	klog.Infof("StreamEntries from %d", startEntry)
-
-	// TODO(al): Consider making this configurable.
-	// Requests to GCS can go super parallel without too much issue, but even just 10 concurrent requests seems to provide pretty good throughput.
-	numWorkers := uint(10)
-	return stream.EntryBundles(ctx, numWorkers, lr.integratedSize, lr.lrs.getEntryBundle, startEntry, N)
-}
-
 // Appender creates a new tessera.Appender lifecycle object.
 func (s *Storage) Appender(ctx context.Context, opts *tessera.AppendOptions) (*tessera.Appender, tessera.LogReader, error) {
-	c, err := gcs.NewClient(ctx, gcs.WithJSONReads())
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create GCS client: %v", err)
+	if s.cfg.GCSClient == nil {
+		var err error
+		s.cfg.GCSClient, err = gcs.NewClient(ctx, gcs.WithJSONReads())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create GCS client: %v", err)
+		}
 	}
 	gs := &gcsStorage{
-		gcsClient:    c,
+		gcsClient:    s.cfg.GCSClient,
 		bucket:       s.cfg.Bucket,
 		bucketPrefix: s.cfg.BucketPrefix,
 	}
 
-	seq, err := newSpannerCoordinator(ctx, s.cfg.Spanner, uint64(opts.PushbackMaxOutstanding()))
+	var err error
+	if s.cfg.SpannerClient == nil {
+		s.cfg.SpannerClient, err = spanner.NewClient(ctx, s.cfg.Spanner)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to connect to Spanner: %v", err)
+		}
+	}
+	if err := initDB(ctx, s.cfg.Spanner); err != nil {
+		return nil, nil, fmt.Errorf("failed to verify/init Spanner schema: %v", err)
+	}
+
+	seq, err := newSpannerCoordinator(ctx, s.cfg.SpannerClient, uint64(opts.PushbackMaxOutstanding()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create Spanner coordinator: %v", err)
 	}
@@ -251,7 +267,7 @@ func (s *Storage) newAppender(ctx context.Context, o objStore, seq *spannerCoord
 			return a.sequencer.nextIndex(ctx)
 		},
 	}
-	a.newCP = opts.CheckpointPublisher(reader, http.DefaultClient)
+	a.newCP = opts.CheckpointPublisher(reader, s.cfg.HTTPClient)
 
 	if err := a.init(ctx); err != nil {
 		return nil, nil, fmt.Errorf("failed to initialise log storage: %v", err)
@@ -369,14 +385,17 @@ func (a *Appender) garbageCollectorJob(ctx context.Context, i time.Duration) {
 			cp, err := a.logStore.getCheckpoint(ctx)
 			if err != nil {
 				klog.Warningf("Failed to get published checkpoint: %v", err)
+				return
 			}
 			_, pubSize, _, err := parse.CheckpointUnsafe(cp)
 			if err != nil {
 				klog.Warningf("Failed to parse published checkpoint: %v", err)
+				return
 			}
 
 			if err := a.sequencer.garbageCollect(ctx, pubSize, maxBundlesPerRun, a.logStore.objStore.deleteObjectsWithPrefix); err != nil {
 				klog.Warningf("GarbageCollect failed: %v", err)
+				return
 			}
 		}()
 	}
@@ -605,7 +624,7 @@ func integrate(ctx context.Context, fromSeq uint64, lh [][]byte, logStore *logRe
 	if err := errG.Wait(); err != nil {
 		return nil, err
 	}
-	klog.Infof("New tree: %d, %x", newSize, newRoot)
+	klog.V(1).Infof("New tree: %d, %x", newSize, newRoot)
 
 	return newRoot, nil
 }
@@ -687,17 +706,10 @@ type spannerCoordinator struct {
 
 // newSpannerCoordinator returns a new spannerSequencer struct which uses the provided
 // spanner resource name for its spanner connection.
-func newSpannerCoordinator(ctx context.Context, spannerDB string, maxOutstanding uint64) (*spannerCoordinator, error) {
-	dbPool, err := spanner.NewClient(ctx, spannerDB)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Spanner: %v", err)
-	}
+func newSpannerCoordinator(ctx context.Context, dbPool *spanner.Client, maxOutstanding uint64) (*spannerCoordinator, error) {
 	r := &spannerCoordinator{
 		dbPool:         dbPool,
 		maxOutstanding: maxOutstanding,
-	}
-	if err := r.initDB(ctx, spannerDB); err != nil {
-		return nil, fmt.Errorf("failed to initDB: %v", err)
 	}
 	if err := r.checkDataCompatibility(ctx); err != nil {
 		return nil, fmt.Errorf("schema is not compatible with this version of the Tessera library: %v", err)
@@ -718,7 +730,7 @@ func newSpannerCoordinator(ctx context.Context, spannerDB string, maxOutstanding
 //   - IntCoord
 //     This table coordinates integration of the batches of entries stored in
 //     Seq into the committed tree state.
-func (s *spannerCoordinator) initDB(ctx context.Context, spannerDB string) error {
+func initDB(ctx context.Context, spannerDB string) error {
 	return createAndPrepareTables(
 		ctx, spannerDB,
 		[]string{
@@ -1159,6 +1171,8 @@ func (s *gcsStorage) setObject(ctx context.Context, objName string, data []byte,
 	}
 	w.ContentType = contType
 	w.CacheControl = cacheCtl
+	// Limit the amount of memory used for buffers, see https://pkg.go.dev/cloud.google.com/go/storage#Writer
+	w.ChunkSize = len(data) + 1024
 	if _, err := w.Write(data); err != nil {
 		return fmt.Errorf("failed to write object %q to bucket %q: %w", objName, s.bucket, err)
 	}
@@ -1167,7 +1181,16 @@ func (s *gcsStorage) setObject(ctx context.Context, objName string, data []byte,
 		// If we run into a precondition failure error, check that the object
 		// which exists contains the same content that we want to write.
 		// If so, we can consider this write to be idempotently successful.
+		preconditionFailed := false
+
+		// Helpfully, the mechanism for detecting a failed precodition differs depending
+		// on whether you're using the HTTP or gRPC GCS client, so test both.
 		if ee, ok := err.(*googleapi.Error); ok && ee.Code == http.StatusPreconditionFailed {
+			preconditionFailed = true
+		} else if st, ok := status.FromError(err); ok && st.Code() == codes.FailedPrecondition {
+			preconditionFailed = true
+		}
+		if preconditionFailed {
 			existing, existingGen, err := s.getObject(ctx, objName)
 			if err != nil {
 				return fmt.Errorf("failed to fetch existing content for %q (@%d): %v", objName, existingGen, err)
@@ -1221,12 +1244,25 @@ func (s *gcsStorage) deleteObjectsWithPrefix(ctx context.Context, objPrefix stri
 
 // MigrationWriter creates a new GCP storage for the MigrationTarget lifecycle mode.
 func (s *Storage) MigrationWriter(ctx context.Context, opts *tessera.MigrationOptions) (migrate.MigrationWriter, tessera.LogReader, error) {
-	c, err := gcs.NewClient(ctx, gcs.WithJSONReads())
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create GCS client: %v", err)
+	var err error
+	if s.cfg.GCSClient == nil {
+		s.cfg.GCSClient, err = gcs.NewClient(ctx, gcs.WithJSONReads())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create GCS client: %v", err)
+		}
 	}
 
-	seq, err := newSpannerCoordinator(ctx, s.cfg.Spanner, 0)
+	if s.cfg.SpannerClient == nil {
+		s.cfg.SpannerClient, err = spanner.NewClient(ctx, s.cfg.Spanner)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to connect to Spanner: %v", err)
+		}
+	}
+	if err := initDB(ctx, s.cfg.Spanner); err != nil {
+		return nil, nil, fmt.Errorf("failed to verify/init Spanner schema: %v", err)
+	}
+
+	seq, err := newSpannerCoordinator(ctx, s.cfg.SpannerClient, 0)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create Spanner sequencer: %v", err)
 	}
@@ -1237,7 +1273,7 @@ func (s *Storage) MigrationWriter(ctx context.Context, opts *tessera.MigrationOp
 		sequencer:    seq,
 		logStore: &logResourceStore{
 			objStore: &gcsStorage{
-				gcsClient:    c,
+				gcsClient:    s.cfg.GCSClient,
 				bucket:       s.cfg.Bucket,
 				bucketPrefix: s.cfg.BucketPrefix,
 			},

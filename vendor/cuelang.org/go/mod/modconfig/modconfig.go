@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 
@@ -20,6 +21,7 @@ import (
 	"cuelang.org/go/internal/cueconfig"
 	"cuelang.org/go/internal/cueversion"
 	"cuelang.org/go/internal/mod/modload"
+	"cuelang.org/go/internal/mod/modpkgload"
 	"cuelang.org/go/internal/mod/modresolve"
 	"cuelang.org/go/mod/modcache"
 	"cuelang.org/go/mod/modregistry"
@@ -41,12 +43,24 @@ type Registry interface {
 	ModuleVersions(ctx context.Context, mpath string) ([]string, error)
 }
 
+// CachedRegistry is optionally implemented by a registry that
+// contains a cache.
+type CachedRegistry interface {
+	// FetchFromCache looks up the given module in the cache.
+	// It returns an error that satisfies [errors.Is]([modregistry.ErrNotFound]) if the
+	// module is not present in the cache at this version or if there
+	// is no cache.
+	FetchFromCache(mv module.Version) (module.SourceLoc, error)
+}
+
 // We don't want to make modload part of the cue/load API,
 // so we define the above type independently, but we want
 // it to be interchangeable, so check that statically here.
 var (
-	_ Registry         = modload.Registry(nil)
-	_ modload.Registry = Registry(nil)
+	_ Registry                  = modload.Registry(nil)
+	_ modload.Registry          = Registry(nil)
+	_ CachedRegistry            = modpkgload.CachedRegistry(nil)
+	_ modpkgload.CachedRegistry = CachedRegistry(nil)
 )
 
 // DefaultRegistry is the default registry host.
@@ -74,6 +88,12 @@ type Config struct {
 	// the current process's environment will be used.
 	Env []string
 
+	// CUERegistry specifies the registry or registries to use
+	// to resolve modules. If it is empty, $CUE_REGISTRY
+	// is used.
+	// Experimental: this field might go away in a future version.
+	CUERegistry string
+
 	// ClientType is used as part of the User-Agent header
 	// that's added in each outgoing HTTP request.
 	// If it's empty, it defaults to "cuelang.org/go".
@@ -94,7 +114,10 @@ func NewResolver(cfg *Config) (*Resolver, error) {
 	getenv := getenvFunc(cfg.Env)
 	var configData []byte
 	var configPath string
-	cueRegistry := getenv("CUE_REGISTRY")
+	cueRegistry := cfg.CUERegistry
+	if cueRegistry == "" {
+		cueRegistry = getenv("CUE_REGISTRY")
+	}
 	kind, rest, _ := strings.Cut(cueRegistry, ":")
 	switch kind {
 	case "file":
@@ -104,7 +127,7 @@ func NewResolver(cfg *Config) (*Resolver, error) {
 		}
 		configData, configPath = data, rest
 	case "inline":
-		configData, configPath = []byte(rest), "$CUE_REGISTRY"
+		configData, configPath = []byte(rest), "inline"
 	case "simple":
 		cueRegistry = rest
 	}
@@ -116,7 +139,7 @@ func NewResolver(cfg *Config) (*Resolver, error) {
 		resolver, err = modresolve.ParseCUERegistry(cueRegistry, DefaultRegistry)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("bad value for $CUE_REGISTRY: %v", err)
+		return nil, fmt.Errorf("bad value for registry: %v", err)
 	}
 	return &Resolver{
 		resolver: resolver,
@@ -350,8 +373,8 @@ func getenvFunc(env []string) func(string) string {
 		return os.Getenv
 	}
 	return func(key string) string {
-		for i := len(env) - 1; i >= 0; i-- {
-			if e := env[i]; len(e) >= len(key)+1 && e[len(key)] == '=' && e[:len(key)] == key {
+		for _, e := range slices.Backward(env) {
+			if len(e) >= len(key)+1 && e[len(key)] == '=' && e[:len(key)] == key {
 				return e[len(key)+1:]
 			}
 		}

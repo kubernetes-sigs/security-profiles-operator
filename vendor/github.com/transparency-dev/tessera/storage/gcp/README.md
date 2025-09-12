@@ -1,7 +1,6 @@
-# GCP Design
+# Tessera on Google Cloud Platform
 
-This document describes how the storage implementation for running Tessera on Google Cloud
-is intended to work.
+This document describes the storage implementation for running Tessera on Google Cloud Platform (GCP).
 
 ## Overview
 
@@ -35,12 +34,12 @@ This holds batches of entries keyed by the sequence number assigned to the first
 This table is used to coordinate integration of sequenced batches in the `Seq` table.
 
 ### `PubCoord`
-This table is used to coordinate publication of new checkpoints, ensuring that checkpoints are not published
-more frequently than configured.
+This table is used to coordinate publication of new checkpoints, ensuring that checkpoints are
+not published more frequently than configured.
 
 ### `GCCoord`
 This table is used to coordinate garbage collection of partial tiles and entry bundles which have been
-make obsolete by the continued growth of the log.
+made obsolete by the continued growth of the log.
 
 ## Life of a leaf
 
@@ -62,13 +61,13 @@ make obsolete by the continued growth of the log.
    1. Update `IntCoord` with `seq+=num_entries_integrated` and the latest `rootHash`
 1. Checkpoints representing the latest state of the tree are published at the configured interval.
 
-## Dedup
+## Antispam
 
 An experimental implementation has been tested which uses Spanner to store the `<identity_hash>` --> `sequence`
 mapping. This works well using "slack" Spanner CPU available in the smallest possible footprint, and consequently
 is comparably cheap requiring only extra Spanner storage costs.
 
-### Alternatives considered
+### Alternatives Considered
 
 Other transactional storage systems are available on GCP, e.g. CloudSQL or AlloyDB.
 Experiments were run using CloudSQL (MySQL), AlloyDB, and Spanner.

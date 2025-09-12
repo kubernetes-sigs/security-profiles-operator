@@ -19,11 +19,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/build"
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
@@ -257,6 +259,16 @@ func setFileSource(cfg *Config, f *build.File) error {
 		return nil
 	}
 	fullPath := f.Filename
+
+	// If the input file is stdin or a non-regular file,
+	// such as a named pipe or a device file, we can only read it once.
+	// Given that later on we may consume the source multiple times,
+	// such as first to only parse the imports and later to parse the whole file,
+	// read the whole file here upfront and buffer the bytes.
+	//
+	// TODO(perf): this causes an upfront "stat" syscall for every input file,
+	// which is wasteful given that in the majority of cases we deal with regular files.
+	// Consider doing the buffering the first time we open the file later on.
 	if fullPath == "-" {
 		b, err := io.ReadAll(cfg.stdin())
 		if err != nil {
@@ -265,6 +277,7 @@ func setFileSource(cfg *Config, f *build.File) error {
 		f.Source = b
 		return nil
 	}
+
 	if !filepath.IsAbs(fullPath) {
 		fullPath = filepath.Join(cfg.Dir, fullPath)
 		// Ensure that encoding.NewDecoder will work correctly.
@@ -276,7 +289,24 @@ func setFileSource(cfg *Config, f *build.File) error {
 		} else {
 			f.Source = fi.contents
 		}
+		return nil
 	}
+
+	// Note that we do this after ensuring fullPath is absolute, and after checking
+	// whether the overlay provides the source.
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		b, err := os.ReadFile(fullPath)
+		if err != nil {
+			return err
+		}
+		f.Source = b
+		return nil
+	}
+
 	return nil
 }
 
@@ -310,12 +340,13 @@ func (l *loader) newRelInstance(pos token.Pos, path, pkgName string) *build.Inst
 		panic(fmt.Errorf("non-relative import path %q passed to newRelInstance", path))
 	}
 
-	p := l.cfg.Context.NewInstance(path, l.loadFunc())
+	p := l.cfg.Context.NewInstance(path, nil)
 	p.PkgName = pkgName
 	p.DisplayPath = filepath.ToSlash(path)
 	// p.ImportPath = string(dir) // compute unique ID.
 	p.Root = l.cfg.ModuleRoot
 	p.Module = l.cfg.Module
+	p.ModuleFile = l.cfg.modFile
 
 	var err errors.Error
 	if path != cleanImport(path) {
@@ -351,7 +382,6 @@ func (l *loader) newRelInstance(pos token.Pos, path, pkgName string) *build.Inst
 		p.Err = errors.Append(p.Err, err)
 		p.Incomplete = true
 	}
-
 	return p
 }
 
@@ -376,7 +406,7 @@ func importPathFromAbsDir(c *Config, absDir string, origPath string) (importPath
 	case c.Module == "":
 		return "", fmt.Errorf("cannot determine import path for %q (no module)", origPath)
 	default:
-		impPath := module.ParseImportPath(c.Module)
+		impPath := ast.ParseImportPath(c.Module)
 		impPath.Path += pkg
 		impPath.Qualifier = ""
 		pkg = impPath.String()
@@ -385,12 +415,11 @@ func importPathFromAbsDir(c *Config, absDir string, origPath string) (importPath
 }
 
 func (l *loader) newInstance(pos token.Pos, p importPath) *build.Instance {
-	dir, modPath, err := l.absDirFromImportPath(pos, p)
-	i := l.cfg.Context.NewInstance(dir, l.loadFunc())
+	dir, mv, modRoot, err := l.absDirFromImportPath(pos, p)
+	i := l.cfg.Context.NewInstance(dir, nil)
 	i.Err = errors.Append(i.Err, err)
 	i.Dir = dir
-
-	parts := module.ParseImportPath(string(p))
+	parts := ast.ParseImportPath(string(p))
 	i.PkgName = parts.Qualifier
 	if i.PkgName == "" {
 		i.Err = errors.Append(i.Err, l.errPkgf([]token.Pos{pos}, "cannot determine package name for %q; set it explicitly with ':'", p))
@@ -399,8 +428,21 @@ func (l *loader) newInstance(pos token.Pos, p importPath) *build.Instance {
 	}
 	i.DisplayPath = string(p)
 	i.ImportPath = string(p)
-	i.Root = l.cfg.ModuleRoot
-	i.Module = modPath
+	if mv.Path() == "" {
+		return i
+	}
+	mf, err1 := l.modFileCache.modFile(mv, modRoot)
+	if err != nil {
+		i.Err = errors.Append(i.Err, errors.Promote(err1, ""))
+	}
+	root, err1 := absPathForSourceLoc(modRoot)
+	if err != nil {
+		i.Err = errors.Append(i.Err, errors.Promote(err1, ""))
+	} else {
+		i.Root = root
+	}
+	i.Module = mv.Path()
+	i.ModuleFile = mf
 
 	return i
 }
@@ -409,31 +451,34 @@ func (l *loader) newInstance(pos token.Pos, p importPath) *build.Instance {
 // and a package name. The root directory must be set.
 //
 // The returned directory may not exist.
-func (l *loader) absDirFromImportPath(pos token.Pos, p importPath) (dir string, modPath string, _ errors.Error) {
-	dir, modPath, err := l.absDirFromImportPath1(pos, p)
+func (l *loader) absDirFromImportPath(pos token.Pos, p importPath) (dir string, mv module.Version, modRoot module.SourceLoc, _ errors.Error) {
+	dir, mv, modRoot, err := l.absDirFromImportPath1(pos, p)
 	if err != nil {
 		// Any error trying to determine the package location
 		// is a PackageError.
-		return "", "", l.errPkgf([]token.Pos{pos}, "%s", err.Error())
+		return "", module.Version{}, module.SourceLoc{}, l.errPkgf([]token.Pos{pos}, "%s", err.Error())
 	}
-	return dir, modPath, nil
+	return dir, mv, modRoot, nil
 }
 
-func (l *loader) absDirFromImportPath1(pos token.Pos, p importPath) (absDir string, modPath string, err error) {
+func (l *loader) absDirFromImportPath1(pos token.Pos, p importPath) (absDir string, mv module.Version, modRoot module.SourceLoc, err error) {
+	failf := func(f string, a ...any) (string, module.Version, module.SourceLoc, error) {
+		return "", module.Version{}, module.SourceLoc{}, fmt.Errorf(f, a...)
+	}
 	if p == "" {
-		return "", "", fmt.Errorf("empty import path")
+		return failf("empty import path")
 	}
 	if l.cfg.ModuleRoot == "" {
-		return "", "", fmt.Errorf("cannot import %q (root undefined)", p)
+		return failf("cannot import %q (root undefined)", p)
 	}
 	if isStdlibPackage(string(p)) {
-		return "", "", fmt.Errorf("standard library import path %q cannot be imported as a CUE package", p)
+		return failf("standard library import path %q cannot be imported as a CUE package", p)
 	}
 	if l.pkgs == nil {
-		return "", "", fmt.Errorf("imports are unavailable because there is no cue.mod/module.cue file")
+		return failf("imports are unavailable because there is no cue.mod/module.cue file")
 	}
 	// Extract the package name.
-	parts := module.ParseImportPath(string(p))
+	parts := ast.ParseImportPath(string(p))
 	unqualified := parts.Unqualified().String()
 	// TODO predicate registry-aware lookup on module.cue-declared CUE version?
 
@@ -445,10 +490,10 @@ func (l *loader) absDirFromImportPath1(pos token.Pos, p importPath) (absDir stri
 	// should we not be using either the original path or the canonical path?
 	// The unqualified import path should only be used for filepath.FromSlash further below.
 	if pkg == nil {
-		return "", "", fmt.Errorf("no dependency found for package %q", unqualified)
+		return failf("no dependency found for package %q", unqualified)
 	}
 	if err := pkg.Error(); err != nil {
-		return "", "", fmt.Errorf("cannot find package %q: %v", unqualified, err)
+		return failf("cannot find package %q: %v", unqualified, err)
 	}
 	if mv := pkg.Mod(); mv.IsLocal() {
 		// It's a local package that's present inside one or both of the gen, usr or pkg
@@ -459,18 +504,18 @@ func (l *loader) absDirFromImportPath1(pos token.Pos, p importPath) (absDir stri
 	} else {
 		locs := pkg.Locations()
 		if len(locs) > 1 {
-			return "", "", fmt.Errorf("package %q unexpectedly found in multiple locations", unqualified)
+			return failf("package %q unexpectedly found in multiple locations", unqualified)
 		}
 		if len(locs) == 0 {
-			return "", "", fmt.Errorf("no location found for package %q", unqualified)
+			return failf("no location found for package %q", unqualified)
 		}
 		var err error
 		absDir, err = absPathForSourceLoc(locs[0])
 		if err != nil {
-			return "", "", fmt.Errorf("cannot determine source directory for package %q: %v", unqualified, err)
+			return failf("cannot determine source directory for package %q: %v", unqualified, err)
 		}
 	}
-	return absDir, pkg.Mod().Path(), nil
+	return absDir, pkg.Mod(), pkg.ModRoot(), nil
 }
 
 func absPathForSourceLoc(loc module.SourceLoc) (string, error) {

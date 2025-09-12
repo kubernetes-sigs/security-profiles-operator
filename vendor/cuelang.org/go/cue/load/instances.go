@@ -18,16 +18,22 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"maps"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/build"
+	"cuelang.org/go/cue/parser"
 	"cuelang.org/go/internal/filetypes"
 	"cuelang.org/go/internal/mod/modimports"
+	"cuelang.org/go/internal/mod/modload"
 	"cuelang.org/go/internal/mod/modpkgload"
 	"cuelang.org/go/internal/mod/modrequirements"
+	"cuelang.org/go/internal/mod/semver"
+	"cuelang.org/go/mod/modfile"
 	"cuelang.org/go/mod/module"
 )
 
@@ -37,6 +43,27 @@ import (
 // instance, but errors that occur loading dependencies are recorded in these
 // dependencies.
 func Instances(args []string, c *Config) []*build.Instance {
+	if len(args) == 0 {
+		args = []string{"."}
+	}
+	// TODO: This requires packages to be placed before files. At some point this
+	// could be relaxed.
+	i := 0
+	isAbsPkg := false
+	for ; i < len(args) && filetypes.IsPackage(args[i]); i++ {
+		if isAbsVersionPackage(args[i]) {
+			if i > 0 {
+				return []*build.Instance{c.newErrInstance(fmt.Errorf("only a single package with absolute version may be specified"))}
+			}
+			isAbsPkg = true
+		}
+	}
+	pkgArgs := args[:i]
+	otherArgs := args[i:]
+	otherFiles, err := filetypes.ParseArgs(otherArgs)
+	if err != nil {
+		return []*build.Instance{c.newErrInstance(err)}
+	}
 	ctx := context.TODO()
 	if c == nil {
 		c = &Config{}
@@ -46,20 +73,6 @@ func Instances(args []string, c *Config) []*build.Instance {
 		return []*build.Instance{c.newErrInstance(err)}
 	}
 	c = newC
-	if len(args) == 0 {
-		args = []string{"."}
-	}
-	// TODO: This requires packages to be placed before files. At some point this
-	// could be relaxed.
-	i := 0
-	for ; i < len(args) && filetypes.IsPackage(args[i]); i++ {
-	}
-	pkgArgs := args[:i]
-	otherArgs := args[i:]
-	otherFiles, err := filetypes.ParseArgs(otherArgs)
-	if err != nil {
-		return []*build.Instance{c.newErrInstance(err)}
-	}
 	for _, f := range otherFiles {
 		if err := setFileSource(c, f); err != nil {
 			return []*build.Instance{c.newErrInstance(err)}
@@ -75,7 +88,7 @@ func Instances(args []string, c *Config) []*build.Instance {
 		// of those, which don't.
 		pkgArgs1 := make([]string, 0, len(pkgArgs))
 		for _, p := range pkgArgs {
-			if ip := module.ParseImportPath(p); !ip.ExplicitQualifier {
+			if ip := ast.ParseImportPath(p); !ip.ExplicitQualifier {
 				ip.Qualifier = c.Package
 				p = ip.String()
 			}
@@ -85,17 +98,24 @@ func Instances(args []string, c *Config) []*build.Instance {
 	}
 
 	tg := newTagger(c)
-	// Pass all arguments that look like packages to loadPackages
-	// so that they'll be available when looking up the packages
-	// that are specified on the command line.
-	expandedPaths, err := expandPackageArgs(c, pkgArgs, c.Package, tg)
-	if err != nil {
-		return []*build.Instance{c.newErrInstance(err)}
-	}
 
 	var pkgs *modpkgload.Packages
 	if !c.SkipImports {
-		pkgs, err = loadPackages(ctx, c, expandedPaths, otherFiles, tg)
+		if isAbsPkg {
+			// Note: replace the absolute package (which isn't actually a valid
+			// import path and may contain a version query like @latest)
+			// with the actual resolved import path.
+			pkgArgs[0], pkgs, err = loadAbsPackage(ctx, c, pkgArgs[0], tg)
+		} else {
+			// Pass all arguments that look like packages to loadPackages
+			// so that they'll be available when looking up the packages
+			// that are specified on the command line.
+			expandedPaths, err1 := expandPackageArgs(c, pkgArgs, c.Package, tg)
+			if err1 != nil {
+				return []*build.Instance{c.newErrInstance(err1)}
+			}
+			pkgs, err = loadPackagesFromArgs(ctx, c, expandedPaths, otherFiles, tg)
+		}
 		if err != nil {
 			return []*build.Instance{c.newErrInstance(err)}
 		}
@@ -164,9 +184,50 @@ func Instances(args []string, c *Config) []*build.Instance {
 	return a
 }
 
+// loadAbsPackage loads a single $package@$version package
+// as the main module and returns its actual import path
+// and the packages instance representing its module.
+func loadAbsPackage(
+	ctx context.Context,
+	cfg *Config,
+	pkg string,
+	tg *tagger,
+) (string, *modpkgload.Packages, error) {
+	// First find the module that contains the package.
+	mv, _, err := modload.ResolveAbsolutePackage(ctx, cfg.Registry, pkg)
+	if err != nil {
+		return "", nil, err
+	}
+	// ResolveAbsolutePackage should already have fetched the module
+	// so this should be quick.
+	loc, err := cfg.Registry.Fetch(ctx, mv)
+	if err != nil {
+		return "", nil, err
+	}
+	modFilePath := path.Join(loc.Dir, modDir, moduleFile)
+	modFileData, err := fs.ReadFile(loc.FS, modFilePath)
+	if err != nil {
+		return "", nil, err
+	}
+	mf, err := modfile.Parse(modFileData, modFilePath)
+	if err != nil {
+		return "", nil, err
+	}
+	// Make the package path into a regular import path
+	// with only the major version suffix.
+	ip := ast.ParseImportPath(pkg)
+	ip.Version = semver.Major(mv.Version())
+
+	pkgs, err := loadPackages(ctx, cfg, mf, loc, []string{ip.String()}, tg)
+	if err != nil {
+		return "", nil, err
+	}
+	return ip.String(), pkgs, nil
+}
+
 // loadPackages returns packages loaded from the given package list and also
 // including imports from the given build files.
-func loadPackages(
+func loadPackagesFromArgs(
 	ctx context.Context,
 	cfg *Config,
 	pkgs []resolvedPackageArg,
@@ -175,17 +236,6 @@ func loadPackages(
 ) (*modpkgload.Packages, error) {
 	if cfg.modFile == nil || cfg.modFile.Module == "" {
 		return nil, nil
-	}
-	mainModPath := cfg.modFile.QualifiedModule()
-	reqs := modrequirements.NewRequirements(
-		mainModPath,
-		cfg.Registry,
-		cfg.modFile.DepVersions(),
-		cfg.modFile.DefaultMajorVersions(),
-	)
-	mainModLoc := module.SourceLoc{
-		FS:  cfg.fileSystem.ioFS(cfg.ModuleRoot),
-		Dir: ".",
 	}
 	pkgPaths := make(map[string]bool)
 	// Add any packages specified directly on the command line.
@@ -198,7 +248,8 @@ func loadPackages(
 			// not a CUE file; assume it has no imports for now.
 			continue
 		}
-		syntax, err := cfg.fileSystem.getCUESyntax(f)
+		// Note: this gets the current module's language version if there is one.
+		syntax, err := cfg.fileSystem.getCUESyntax(f, cfg.parserConfig.Apply(parser.ImportsOnly))
 		if err != nil {
 			return nil, fmt.Errorf("cannot get syntax for %q: %w", f.Filename, err)
 		}
@@ -209,23 +260,42 @@ func loadPackages(
 				return nil, fmt.Errorf("invalid import path %q in %s", imp.Path.Value, f.Filename)
 			}
 			// Canonicalize the path.
-			pkgPath = module.ParseImportPath(pkgPath).Canonical().String()
+			pkgPath = ast.ParseImportPath(pkgPath).Canonical().String()
 			pkgPaths[pkgPath] = true
 		}
 	}
-	// TODO use maps.Keys when we can.
-	pkgPathSlice := make([]string, 0, len(pkgPaths))
-	for p := range pkgPaths {
-		pkgPathSlice = append(pkgPathSlice, p)
-	}
-	slices.Sort(pkgPathSlice)
+	return loadPackages(ctx, cfg, cfg.modFile,
+		module.SourceLoc{
+			FS:  cfg.fileSystem.ioFS(cfg.ModuleRoot, cfg.modFile.Language.Version),
+			Dir: ".",
+		},
+		slices.Sorted(maps.Keys(pkgPaths)),
+		tg,
+	)
+}
+
+func loadPackages(
+	ctx context.Context,
+	cfg *Config,
+	mainMod *modfile.File,
+	mainModLoc module.SourceLoc,
+	pkgPaths []string,
+	tg *tagger,
+) (*modpkgload.Packages, error) {
+	mainModPath := mainMod.QualifiedModule()
+	reqs := modrequirements.NewRequirements(
+		mainModPath,
+		cfg.Registry,
+		mainMod.DepVersions(),
+		mainMod.DefaultMajorVersions(),
+	)
 	return modpkgload.LoadPackages(
 		ctx,
-		cfg.Module,
+		mainModPath,
 		mainModLoc,
 		reqs,
 		cfg.Registry,
-		pkgPathSlice,
+		pkgPaths,
 		func(pkgPath string, mod module.Version, fsys fs.FS, mf modimports.ModuleFile) bool {
 			if !cfg.Tools && strings.HasSuffix(mf.FilePath, "_tool.cue") {
 				return false
@@ -256,4 +326,17 @@ func loadPackages(
 			return true
 		},
 	), nil
+}
+
+func isAbsVersionPackage(p string) bool {
+	ip := ast.ParseImportPath(p)
+	if ip.Version == "" {
+		return false
+	}
+	if semver.Major(ip.Version) == ip.Version {
+		return false
+	}
+	// Anything other than a simple major version suffix counts
+	// as an absolute version.
+	return true
 }

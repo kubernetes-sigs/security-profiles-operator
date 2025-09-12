@@ -22,9 +22,10 @@ import (
 
 // AttestOptions is the top level wrapper for the attest command.
 type AttestBlobOptions struct {
-	Key       string
-	Cert      string
-	CertChain string
+	Key              string
+	Cert             string
+	CertChain        string
+	IssueCertificate bool
 
 	SkipConfirmation     bool
 	TlogUpload           bool
@@ -50,6 +51,10 @@ type AttestBlobOptions struct {
 	Fulcio      FulcioOptions
 	OIDC        OIDCOptions
 	SecurityKey SecurityKeyOptions
+
+	UseSigningConfig  bool
+	SigningConfigPath string
+	TrustedRootPath   string
 }
 
 var _ Interface = (*AttestOptions)(nil)
@@ -97,6 +102,18 @@ func (o *AttestBlobOptions) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&o.NewBundleFormat, "new-bundle-format", false,
 		"output bundle in new format that contains all verification material")
 
+	// TODO: have this default to true as a breaking change
+	cmd.Flags().BoolVar(&o.UseSigningConfig, "use-signing-config", false,
+		"whether to use a TUF-provided signing config for the service URLs. Must provide --bundle, which will output verification material in the new format")
+
+	cmd.Flags().StringVar(&o.SigningConfigPath, "signing-config", "",
+		"path to a signing config file. Must provide --bundle, which will output verification material in the new format")
+
+	cmd.MarkFlagsMutuallyExclusive("use-signing-config", "signing-config")
+
+	cmd.Flags().StringVar(&o.TrustedRootPath, "trusted-root", "",
+		"optional path to a TrustedRoot JSON file to verify a signature after signing")
+
 	cmd.Flags().StringVar(&o.Hash, "hash", "",
 		"hash of blob in hexadecimal (base16). Used if you want to sign an artifact stored elsewhere and have the hash")
 	_ = cmd.RegisterFlagCompletionFunc("hash", cobra.NoFileCompletions)
@@ -130,4 +147,7 @@ func (o *AttestBlobOptions) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&o.RFC3161TimestampPath, "rfc3161-timestamp-bundle", "",
 		"path to an RFC 3161 timestamp bundle FILE")
 	// _ = cmd.MarkFlagFilename("rfc3161-timestamp-bundle") // no typical extensions
+
+	cmd.Flags().BoolVar(&o.IssueCertificate, "issue-certificate", false,
+		"issue a code signing certificate from Fulcio, even if a key is provided")
 }

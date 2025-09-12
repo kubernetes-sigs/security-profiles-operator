@@ -25,6 +25,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -324,10 +325,8 @@ func (c *client) do(req *http.Request, okStatuses ...int) (*http.Response, error
 	if len(okStatuses) == 0 && resp.StatusCode == http.StatusOK {
 		return resp, nil
 	}
-	for _, status := range okStatuses {
-		if resp.StatusCode == status {
-			return resp, nil
-		}
+	if slices.Contains(okStatuses, resp.StatusCode) {
+		return resp, nil
 	}
 	defer resp.Body.Close()
 	if !isOKStatus(resp.StatusCode) {

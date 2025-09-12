@@ -54,7 +54,7 @@ type ResourceGroup struct {
 	UpdatedAt   *time.Time `json:"updated_at"`
 }
 
-// Gets a string representation of a ResourceGroup
+// String gets a string representation of a ResourceGroup
 //
 // GitLab API docs:
 // https://docs.gitlab.com/api/resource_groups/

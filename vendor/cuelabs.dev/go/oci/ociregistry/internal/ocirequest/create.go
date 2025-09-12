@@ -40,7 +40,7 @@ func (req *Request) MustConstruct() (method string, ustr string) {
 	return method, ustr
 }
 
-func (req *Request) construct() (method string, url string) {
+func (req *Request) construct() (method string, urlStr string) {
 	switch req.Kind {
 	case ReqPing:
 		return "GET", "/v2/"
@@ -77,7 +77,11 @@ func (req *Request) construct() (method string, url string) {
 	case ReqTagsList:
 		return "GET", "/v2/" + req.Repo + "/tags/list" + req.listParams()
 	case ReqReferrersList:
-		return "GET", "/v2/" + req.Repo + "/referrers/" + req.Digest
+		p := "/v2/" + req.Repo + "/referrers/" + req.Digest
+		if req.ArtifactType != "" {
+			p += "?" + url.Values{"artifactType": {req.ArtifactType}}.Encode()
+		}
+		return "GET", p
 	case ReqCatalogList:
 		return "GET", "/v2/_catalog" + req.listParams()
 	default:

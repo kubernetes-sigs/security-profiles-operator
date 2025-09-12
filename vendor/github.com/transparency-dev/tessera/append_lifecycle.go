@@ -30,7 +30,6 @@ import (
 	"github.com/transparency-dev/tessera/api/layout"
 	"github.com/transparency-dev/tessera/internal/otel"
 	"github.com/transparency-dev/tessera/internal/parse"
-	"github.com/transparency-dev/tessera/internal/stream"
 	"github.com/transparency-dev/tessera/internal/witness"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -49,18 +48,23 @@ const (
 	DefaultPushbackMaxOutstanding = 4096
 	// DefaultGarbageCollectionInterval is the default value used if no WithGarbageCollectionInterval option is provided.
 	DefaultGarbageCollectionInterval = time.Minute
+	// DefaultAntispamInMemorySize is the recommended default limit on the number of entries in the in-memory antispam cache.
+	// The amount of data stored for each entry is small (32 bytes of hash + 8 bytes of index), so in the general case it should be fine
+	// to have a very large cache.
+	DefaultAntispamInMemorySize = 256 << 10
 )
 
 var (
-	appenderAddsTotal        metric.Int64Counter
-	appenderAddHistogram     metric.Int64Histogram
-	appenderHighestIndex     metric.Int64Gauge
-	appenderIntegratedSize   metric.Int64Gauge
-	appenderIntegrateLatency metric.Int64Histogram
-	appenderNextIndex        metric.Int64Gauge
-	appenderSignedSize       metric.Int64Gauge
-	appenderWitnessedSize    metric.Int64Gauge
-	appenderWitnessRequests  metric.Int64Counter
+	appenderAddsTotal         metric.Int64Counter
+	appenderAddHistogram      metric.Int64Histogram
+	appenderHighestIndex      metric.Int64Gauge
+	appenderIntegratedSize    metric.Int64Gauge
+	appenderIntegrateLatency  metric.Int64Histogram
+	appenderDeadlineRemaining metric.Int64Histogram
+	appenderNextIndex         metric.Int64Gauge
+	appenderSignedSize        metric.Int64Gauge
+	appenderWitnessedSize     metric.Int64Gauge
+	appenderWitnessRequests   metric.Int64Counter
 
 	followerEntriesProcessed metric.Int64Gauge
 	followerLag              metric.Int64Gauge
@@ -113,6 +117,15 @@ func init() {
 		klog.Exitf("Failed to create appenderIntegrateLatency metric: %v", err)
 	}
 
+	appenderDeadlineRemaining, err = meter.Int64Histogram(
+		"tessera.appender.deadline.remaining",
+		metric.WithDescription("Duration remaining before context cancellation when appender is invoked (only set for contexts with deadline)"),
+		metric.WithUnit("ms"),
+		metric.WithExplicitBucketBoundaries(histogramBuckets...))
+	if err != nil {
+		klog.Exitf("Failed to create appenderDeadlineRemaining metric: %v", err)
+	}
+
 	appenderNextIndex, err = meter.Int64Gauge(
 		"tessera.appender.next_index",
 		metric.WithDescription("The next available index to be assigned to entries"))
@@ -162,17 +175,27 @@ func init() {
 
 }
 
-// AddFn adds a new entry to be sequenced.
-// This method quickly returns an IndexFuture, which will return the index assigned
-// to the new leaf. Until this index is obtained from the future, the leaf is not durably
-// added to the log, and terminating the process may lead to this leaf being lost.
-// Once the future resolves and returns an index, the leaf is durably sequenced and will
-// be preserved even in the process terminates.
+// AddFn adds a new entry to be sequenced by the storage implementation.
 //
-// Once a leaf is sequenced, it will be integrated into the tree soon (generally single digit
-// seconds). Until it is integrated and published, clients of the log will not be able to
-// verifiably access this value. Personalities that require blocking until the leaf is integrated
-// can use the PublicationAwaiter to wrap the call to this method.
+// This method should quickly return an IndexFuture, which can be called to resolve to the
+// index **durably** assigned to the new entry (or an error).
+//
+// Implementations MUST NOT allow the future to resolve to an index value unless/until it has
+// been durably committed by the storage.
+//
+// Callers MUST NOT assume that an entry has been accepted or durably stored until they have
+// successfully resolved the future.
+//
+// Once the future resolves and returns an index, the entry can be considered to have been
+// durably sequenced and will be preserved even in the event that the process terminates.
+//
+// Once an entry is sequenced, the storage implementation MUST integrate it into the tree soon
+// (how long this is expected to take is left unspecified, but as a guideline it should happen
+// within single digit seconds). Until the entry is integrated and published, clients of the log
+// will not be able to verifiably access this value.
+//
+// Personalities which require blocking until the entry is integrated (e.g. because they wish
+// to return an inclusion proof) may use the PublicationAwaiter to wrap the call to this method.
 type AddFn func(ctx context.Context, entry *Entry) IndexFuture
 
 // IndexFuture is the signature of a function which can return an assigned index or error.
@@ -246,15 +269,33 @@ func NewAppender(ctx context.Context, d Driver, opts *AppendOptions) (*Appender,
 	}
 	// TODO(mhutchinson): move this into the decorators
 	a.Add = func(ctx context.Context, entry *Entry) IndexFuture {
+		if deadline, ok := ctx.Deadline(); ok {
+			appenderDeadlineRemaining.Record(ctx, time.Until(deadline).Milliseconds())
+		}
 		ctx, span := tracer.Start(ctx, "tessera.Appender.Add")
 		defer span.End()
 
-		return t.Add(ctx, entry)
+		// NOTE: We memoize the returned value here so that repeated calls to the returned
+		//		 future don't result in unexpected side-effects from inner AddFn functions
+		//		 being called multiple times.
+		//		 Currently this is the outermost wrapping of Add so we do the memoization
+		//		 here, if this changes, ensure that we move the memoization call so that
+		//		 this remains true.
+		return memoizeFuture(t.Add(ctx, entry))
 	}
 	return a, t.Shutdown, r, nil
 }
 
-func followerStats(ctx context.Context, f stream.Follower, size func(context.Context) (uint64, error)) {
+// memoizeFuture wraps an AddFn delegate with logic to ensure that the delegate is called at most
+// once.
+func memoizeFuture(delegate IndexFuture) IndexFuture {
+	f := sync.OnceValues(func() (Index, error) {
+		return delegate()
+	})
+	return f
+}
+
+func followerStats(ctx context.Context, f Follower, size func(context.Context) (uint64, error)) {
 	name := f.Name()
 	t := time.NewTicker(200 * time.Millisecond)
 	for {
@@ -332,7 +373,7 @@ func (i *integrationStats) updateStats(ctx context.Context, r LogReader) {
 		klog.Warning("updateStates: nil logreader provided, not updating stats")
 		return
 	}
-	t := time.NewTicker(time.Second)
+	t := time.NewTicker(100 * time.Millisecond)
 	for {
 		select {
 		case <-ctx.Done():
@@ -477,15 +518,10 @@ func (t *terminator) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (o *AppendOptions) WithAntispam(inMemEntries uint, as Antispam) *AppendOptions {
-	o.addDecorators = append(o.addDecorators, newInMemoryDedupe(inMemEntries))
-	if as != nil {
-		o.addDecorators = append(o.addDecorators, as.Decorator())
-		o.followers = append(o.followers, as.Follower(o.bundleIDHasher))
-	}
-	return o
-}
-
+// NewAppendOptions creates a new options struct for configuring appender lifecycle instances.
+//
+// These options are configured through the use of the various `With.*` function calls on the returned
+// instance.
 func NewAppendOptions() *AppendOptions {
 	return &AppendOptions{
 		batchMaxSize:              DefaultBatchMaxSize,
@@ -519,7 +555,7 @@ type AppendOptions struct {
 	witnessOpts        WitnessOptions
 
 	addDecorators []func(AddFn) AddFn
-	followers     []stream.Follower
+	followers     []Follower
 
 	// garbageCollectionInterval of zero should be interpreted as requesting garbage collection to be disabled.
 	garbageCollectionInterval time.Duration
@@ -531,6 +567,25 @@ func (o AppendOptions) valid() error {
 		return errors.New("invalid AppendOptions: WithCheckpointSigner must be set")
 	}
 	return nil
+}
+
+// WithAntispam configures the appender to use the antispam mechanism to reduce the number of duplicates which
+// can be added to the log.
+//
+// As a starting point, the minimum size of the of in-memory cache should be set to the configured PushbackThreshold
+// of the provided antispam implementation, multiplied by the number of concurrent front-end instances which
+// are accepting write-traffic. Data stored in the in-memory cache is relatively small (32 bytes hash, 8 bytes index),
+// so we recommend erring on the larger side as there is little downside to over-sizing the cache; consider using
+// the DefaultAntispamInMemorySize as the value here.
+//
+// For more details on how the antispam mechanism works, including tuning guidance, see docs/design/antispam.md.
+func (o *AppendOptions) WithAntispam(inMemEntries uint, as Antispam) *AppendOptions {
+	o.addDecorators = append(o.addDecorators, newInMemoryDedupe(inMemEntries))
+	if as != nil {
+		o.addDecorators = append(o.addDecorators, as.Decorator())
+		o.followers = append(o.followers, as.Follower(o.bundleIDHasher))
+	}
+	return o
 }
 
 // CheckpointPublisher returns a function which should be used to create, sign, and potentially witness a new checkpoint.

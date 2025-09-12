@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"strings"
 
@@ -36,7 +37,9 @@ import (
 	digest "github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/errgroup"
 
+	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/mod/modfile"
 	"cuelang.org/go/mod/module"
 	"cuelang.org/go/mod/modzip"
@@ -106,6 +109,61 @@ func NewClientWithResolver(resolver Resolver) *Client {
 	}
 }
 
+// Mirror ensures that the given module and its component parts
+// are present and identical in both src and dst.
+func (src *Client) Mirror(ctx context.Context, dst *Client, mv module.Version) error {
+	m, err := src.GetModule(ctx, mv)
+	if err != nil {
+		return err
+	}
+	dstLoc, err := dst.resolve(mv)
+	if err != nil {
+		return fmt.Errorf("cannot resolve module in destination: %w", err)
+	}
+
+	// TODO ideally this parallelism would respect parallelism limits
+	// on whatever is calling the function too rather than just doing
+	// all uploads in parallel.
+	var g errgroup.Group
+	for desc := range manifestRefs(m.manifest) {
+		g.Go(func() error {
+			return mirrorBlob(ctx, m.loc, dstLoc, desc)
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	// We've uploaded all the blobs referenced by the manifest; now
+	// we can upload the manifest itself.
+	if _, err := dstLoc.Registry.ResolveManifest(ctx, dstLoc.Repository, m.manifestDigest); err == nil {
+		return nil
+	}
+	if _, err := dstLoc.Registry.PushManifest(ctx, dstLoc.Repository, dstLoc.Tag, m.manifestContents, ocispec.MediaTypeImageManifest); err != nil {
+		return nil
+	}
+	return nil
+}
+
+func mirrorBlob(ctx context.Context, srcLoc, dstLoc RegistryLocation, desc ocispec.Descriptor) error {
+	desc1, err := dstLoc.Registry.ResolveBlob(ctx, dstLoc.Repository, desc.Digest)
+	if err == nil {
+		// Blob already exists in destination. Check that its size agrees.
+		if desc1.Size != desc.Size {
+			return fmt.Errorf("destination size (%d) does not agree with source size (%d) in blob %v", desc1.Size, desc.Size, desc.Digest)
+		}
+		return nil
+	}
+	r, err := srcLoc.Registry.GetBlob(ctx, srcLoc.Repository, desc.Digest)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	if _, err := dstLoc.Registry.PushBlob(ctx, dstLoc.Repository, desc, r); err != nil {
+		return err
+	}
+	return nil
+}
+
 // GetModule returns the module instance for the given version.
 // It returns an error that satisfies [errors.Is]([ErrNotFound]) if the
 // module is not present in the store at this version.
@@ -162,11 +220,12 @@ func (c *Client) GetModuleWithManifest(m module.Version, contents []byte, mediaT
 	}
 	// TODO check that the other blobs are of the expected type (application/zip).
 	return &Module{
-		client:         c,
-		loc:            loc,
-		version:        m,
-		manifest:       *manifest,
-		manifestDigest: digest.FromBytes(contents),
+		client:           c,
+		loc:              loc,
+		version:          m,
+		manifest:         *manifest,
+		manifestContents: contents,
+		manifestDigest:   digest.FromBytes(contents),
 	}, nil
 }
 
@@ -175,10 +234,7 @@ func (c *Client) GetModuleWithManifest(m module.Version, contents []byte, mediaT
 // If m has a major version suffix, only versions with that major version will
 // be returned.
 func (c *Client) ModuleVersions(ctx context.Context, m string) (_req []string, _err0 error) {
-	mpath, major, hasMajor := module.SplitPathVersion(m)
-	if !hasMajor {
-		mpath = m
-	}
+	mpath, major, hasMajor := ast.SplitPackageVersion(m)
 	loc, err := c.resolver.ResolveToRegistry(mpath, "")
 	if err != nil {
 		if errors.Is(err, ErrRegistryNotFound) {
@@ -195,25 +251,22 @@ func (c *Client) ModuleVersions(ctx context.Context, m string) (_req []string, _
 	}
 	// Note: do not use c.repoName because that always expects
 	// a module path with a major version.
-	iter := loc.Registry.Tags(ctx, loc.Repository, "")
-	var _err error
-	iter(func(tag string, err error) bool {
+	for tag, err := range loc.Registry.Tags(ctx, loc.Repository, "") {
 		if err != nil {
-			_err = err
-			return false
+			if !isNotExist(err) {
+				return nil, fmt.Errorf("module %v: %w", m, err)
+			}
+			continue
 		}
 		vers, ok := strings.CutPrefix(tag, loc.Tag)
 		if !ok || !semver.IsValid(vers) {
-			return true
+			continue
 		}
 		if !hasMajor || semver.Major(vers) == major {
 			versions = append(versions, vers)
 		}
-		return true
-	})
-	if _err != nil && !isNotExist(_err) {
-		return nil, fmt.Errorf("module %v: %w", m, _err)
 	}
+
 	semver.Sort(versions)
 	return versions, nil
 }
@@ -371,11 +424,12 @@ func checkModFile(m module.Version, f *zip.File) ([]byte, *modfile.File, error) 
 
 // Module represents a CUE module instance.
 type Module struct {
-	client         *Client
-	loc            RegistryLocation
-	version        module.Version
-	manifest       ocispec.Manifest
-	manifestDigest ociregistry.Digest
+	client           *Client
+	loc              RegistryLocation
+	version          module.Version
+	manifest         ocispec.Manifest
+	manifestContents []byte
+	manifestDigest   ociregistry.Digest
 }
 
 func (m *Module) Version() module.Version {
@@ -508,4 +562,24 @@ func (r singleResolver) ResolveToRegistry(mpath, vers string) (RegistryLocation,
 		Repository: mpath,
 		Tag:        vers,
 	}, nil
+}
+
+// manifestRefs returns an iterator that produces all the references
+// contained in m.
+func manifestRefs(m ocispec.Manifest) iter.Seq[ociregistry.Descriptor] {
+	return func(yield func(ociregistry.Descriptor) bool) {
+		if !yield(m.Config) {
+			return
+		}
+		for _, desc := range m.Layers {
+			if !yield(desc) {
+				return
+			}
+		}
+		// For completeness, although we shouldn't actually use this
+		// logic.
+		if m.Subject != nil {
+			yield(*m.Subject)
+		}
+	}
 }

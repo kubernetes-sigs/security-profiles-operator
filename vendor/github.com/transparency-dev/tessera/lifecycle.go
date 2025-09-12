@@ -21,7 +21,6 @@ import (
 
 	"github.com/transparency-dev/merkle/rfc6962"
 	"github.com/transparency-dev/tessera/api"
-	"github.com/transparency-dev/tessera/internal/stream"
 )
 
 // LogReader provides read-only access to the log.
@@ -56,7 +55,35 @@ type LogReader interface {
 	// entries into account.
 	NextIndex(ctx context.Context) (uint64, error)
 
-	stream.Streamer
+	// IntegratedSize returns the current size of the integrated tree.
+	//
+	// This tree will have in place all the static resources the returned size implies, but
+	// there may not yet be a checkpoint for this size signed, witnessed, or published.
+	//
+	// It's ONLY safe to use this value for processes internal to the operation of the log (e.g.
+	// populating antispam data structures); it MUST NOT not be used as a substitute for
+	// reading the checkpoint when only data which has been publicly committed to by the
+	// log should be used. If in doubt, use ReadCheckpoint instead.
+	IntegratedSize(ctx context.Context) (uint64, error)
+}
+
+// Follower describes the contract of an entity which tracks the contents of the local log.
+//
+// Currently, this is only used by anti-spam.
+type Follower interface {
+	// Name returns a human readable name for this follower.
+	Name() string
+
+	// Follow should be implemented so as to visit entries in the log in order, using the provided
+	// LogReader to access the entry bundles which contain them.
+	//
+	// Implementations should keep track of their progress such that they can pick-up where they left off
+	// if e.g. the binary is restarted.
+	Follow(context.Context, LogReader)
+
+	// EntriesProcessed reports the progress of the follower, returning the total number of log entries
+	// successfully seen/processed.
+	EntriesProcessed(context.Context) (uint64, error)
 }
 
 // Antispam describes the contract that an antispam implementation must meet in order to be used via the
@@ -68,7 +95,7 @@ type Antispam interface {
 	Decorator() func(AddFn) AddFn
 	// Follower should return a structure which will populate the anti-spam index by tailing the contents
 	// of the log, using the provided function to turn entry bundles into identity hashes.
-	Follower(func(entryBundle []byte) ([][]byte, error)) stream.Follower
+	Follower(func(entryBundle []byte) ([][]byte, error)) Follower
 }
 
 // identityHash calculates the antispam identity hash for the provided (single) leaf entry data.

@@ -15,12 +15,13 @@
 package openapi
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
 	"math"
 	"path"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -149,13 +150,7 @@ func schemas(g *Generator, inst cue.InstanceOrValue) (schemas *ast.StructLit, er
 		done = len(c.externalRefs)
 
 		// From now on, all references need to be expanded
-		external := []string{}
-		for k := range c.externalRefs {
-			external = append(external, k)
-		}
-		slices.Sort(external)
-
-		for _, k := range external {
+		for _, k := range slices.Sorted(maps.Keys(c.externalRefs)) {
 			ext := c.externalRefs[k]
 			c.instExt = ext.inst
 			sels := ext.path.Selectors()
@@ -166,11 +161,8 @@ func schemas(g *Generator, inst cue.InstanceOrValue) (schemas *ast.StructLit, er
 		}
 	}
 
-	a := c.schemas.Elts
-	sort.Slice(a, func(i, j int) bool {
-		x, _, _ := ast.LabelName(a[i].(*ast.Field).Label)
-		y, _, _ := ast.LabelName(a[j].(*ast.Field).Label)
-		return x < y
+	slices.SortFunc(c.schemas.Elts, func(a, b ast.Decl) int {
+		return cmp.Compare(label(a), label(b))
 	})
 
 	return (*ast.StructLit)(c.schemas), c.errs
@@ -265,7 +257,7 @@ func (b *builder) fillSchema(v cue.Value) *ast.StructLit {
 	}
 
 	schema := b.finish()
-	s := (*ast.StructLit)(schema)
+	s := schema
 
 	simplify(b, s)
 
@@ -286,15 +278,12 @@ func value(d ast.Decl) ast.Expr {
 }
 
 func sortSchema(s *ast.StructLit) {
-	sort.Slice(s.Elts, func(i, j int) bool {
-		iName := label(s.Elts[i])
-		jName := label(s.Elts[j])
-		pi := fieldOrder[iName]
-		pj := fieldOrder[jName]
-		if pi != pj {
-			return pi > pj
-		}
-		return iName < jName
+	slices.SortFunc(s.Elts, func(a, b ast.Decl) int {
+		aName := label(a)
+		bName := label(b)
+		aOrder := fieldOrder[aName]
+		bOrder := fieldOrder[bName]
+		return cmp.Or(-cmp.Compare(aOrder, bOrder), cmp.Compare(aName, bName))
 	})
 }
 
@@ -540,7 +529,7 @@ func (b *builder) disjunction(a []cue.Value, f typeFunc) {
 		c := newOASBuilder(b)
 		c.value(v, f)
 		t := c.finish()
-		schemas[i] = (*ast.StructLit)(t)
+		schemas[i] = t
 		if len(t.Elts) == 0 {
 			if c.typ == "" {
 				return
@@ -1218,7 +1207,7 @@ func (b *builder) add(t *ast.StructLit) {
 func (b *builder) addConjunct(f func(*builder)) {
 	c := newOASBuilder(b)
 	f(c)
-	b.add((*ast.StructLit)(c.finish()))
+	b.add(c.finish())
 }
 
 func (b *builder) addRef(v cue.Value, inst cue.Value, ref cue.Path) {

@@ -48,8 +48,13 @@ const (
 	// An EvalError is a fatal evaluation error.
 	EvalError ErrorCode = iota // eval
 
-	// A UserError is a fatal error originating from the user.
+	// A UserError is a fatal error originating from the user using the error
+	// builtin.
 	UserError // user
+
+	// A LegacyUserError is a fatal error originating from the user using the
+	// _|_ token, which we intend to phase out.
+	LegacyUserError // user
 
 	// StructuralCycleError means a structural cycle was found. Structural
 	// cycles are permanent errors, but they are not passed up recursively,
@@ -83,6 +88,7 @@ type Bottom struct {
 	HasRecursive bool
 	ChildError   bool // Err is the error of the child
 	NotExists    bool // This error originated from a failed lookup.
+	CloseCheck   bool // This error resulted from a close check.
 	ForCycle     bool // this is a for cycle
 	// Value holds the computed value so far in case
 	Value Value
@@ -107,7 +113,7 @@ func (b *Bottom) IsIncomplete() bool {
 // isLiteralBottom reports whether x is an error originating from a user.
 func isLiteralBottom(x Expr) bool {
 	b, ok := x.(*Bottom)
-	return ok && b.Code == UserError
+	return ok && b.Code == LegacyUserError
 }
 
 // isError reports whether v is an error or nil.
@@ -144,12 +150,13 @@ func (n *nodeContext) AddChildError(recursive *Bottom) {
 	}
 	x := v.BaseValue
 	err, _ := x.(*Bottom)
-	if err == nil {
+	if err == nil || err.CloseCheck {
 		n.setBaseValue(&Bottom{
 			Code:         recursive.Code,
 			Value:        v,
 			HasRecursive: true,
 			ChildError:   true,
+			CloseCheck:   recursive.CloseCheck,
 			Err:          recursive.Err,
 			Node:         n.node,
 		})
@@ -198,9 +205,10 @@ func CombineErrors(src ast.Node, x, y Value) *Bottom {
 	}
 
 	return &Bottom{
-		Src:  src,
-		Err:  errors.Append(a.Err, b.Err),
-		Code: a.Code,
+		Src:        src,
+		Err:        errors.Append(a.Err, b.Err),
+		Code:       a.Code,
+		CloseCheck: a.CloseCheck || b.CloseCheck,
 	}
 }
 
@@ -293,10 +301,11 @@ func (v *Vertex) reportFieldError(c *OpContext, pos token.Pos, f Feature, intMsg
 
 // A ValueError is returned as a result of evaluating a value.
 type ValueError struct {
-	r      Runtime
-	v      *Vertex
-	pos    token.Pos
-	auxpos []token.Pos
+	r       Runtime
+	v       *Vertex
+	pos     token.Pos
+	auxpos  []token.Pos
+	altPath []string
 	errors.Message
 }
 
@@ -371,6 +380,21 @@ func (c *OpContext) NewPosf(p token.Pos, format string, args ...interface{}) *Va
 		switch x := arg.(type) {
 		case Node:
 			a = appendNodePositions(a, x)
+			// Wrap nodes in a [fmt.Stringer] which delays the call to
+			// [OpContext.Str] until the error needs to be rendered.
+			// This helps avoid work, as in many cases,
+			// errors are created but never shown to the user.
+			//
+			// A Vertex will set an error as its BaseValue via a Bottom node,
+			// which might be this error we are creating.
+			// Using the Vertex directly could then lead to endless recursion.
+			// Make a shallow copy to avoid that.
+			if v, ok := x.(*Vertex); ok {
+				// TODO(perf): we could join this allocation with the creation
+				// of the stringer below.
+				vcopy := *v
+				x = &vcopy
+			}
 			args[i] = c.Str(x)
 		case ast.Node:
 			// TODO: ideally the core evaluator should not depend on higher
@@ -385,13 +409,31 @@ func (c *OpContext) NewPosf(p token.Pos, format string, args ...interface{}) *Va
 			args[i] = x.SelectorString(c.Runtime)
 		}
 	}
+
 	return &ValueError{
 		r:       c.Runtime,
 		v:       c.errNode(),
 		pos:     p,
 		auxpos:  a,
+		altPath: c.makeAltPath(),
 		Message: errors.NewMessagef(format, args...),
 	}
+}
+
+func (c *OpContext) makeAltPath() (a []string) {
+	if len(c.altPath) == 0 {
+		return nil
+	}
+
+	for _, f := range appendPath(nil, c.altPath[0]) {
+		a = append(a, f.SelectorString(c))
+	}
+	for _, v := range c.altPath[1:] {
+		if f := v.Label; f != 0 {
+			a = append(a, f.SelectorString(c))
+		}
+	}
+	return a
 }
 
 func (e *ValueError) Error() string {
@@ -407,6 +449,9 @@ func (e *ValueError) InputPositions() (a []token.Pos) {
 }
 
 func (e *ValueError) Path() (a []string) {
+	if len(e.altPath) > 0 {
+		return e.altPath
+	}
 	if e.v == nil {
 		return nil
 	}
