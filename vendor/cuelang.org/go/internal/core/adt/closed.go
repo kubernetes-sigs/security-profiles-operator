@@ -103,8 +103,13 @@ const (
 
 // TODO: merge with closeInfo: this is a leftover of the refactoring.
 type CloseInfo struct {
-	*closeInfo               // old implementation (TODO: remove)
-	cc         *closeContext // new implementation (TODO: rename field to closeCtx)
+	*closeInfo // old implementation (TODO: remove)
+	// defID is a unique ID to track anything that gets inserted from this
+	// Conjunct.
+	opID           uint64 // generation of this conjunct, used for sanity check.
+	defID          defID
+	enclosingEmbed defID // Tracks an embedding within a struct.
+	outerID        defID // Tracks the {} that should be closed after unifying.
 
 	// IsClosed is true if this conjunct represents a single level of closing
 	// as indicated by the closed builtin.
@@ -122,10 +127,8 @@ type CloseInfo struct {
 	// NOTE: only used when using closeContext.
 	FromDef bool
 
-	// GroupUnify indicates that this conjunct needs to spawn its own
-	// closeContext. This is necessary when programmatically combining
-	// top-level values, such as with Value.Unify.
-	GroupUnify bool
+	// Like FromDef, but used by APIs to force FromDef to be true.
+	TopDef bool
 
 	// FieldTypes indicates which kinds of fields (optional, dynamic, patterns,
 	// etc.) are contained in this conjunct.
@@ -296,10 +299,6 @@ type closeInfo struct {
 
 	root SpanType
 	span SpanType
-
-	// decl is the parent declaration which contains the conjuct which
-	// gave rise to this closeInfo.
-	decl Decl
 }
 
 // closeStats holds the administrative fields for a closeInfo value. Each
@@ -311,7 +310,7 @@ type closeStats struct {
 	// the other fields of this closeStats value are only valid if generation
 	// is equal to the generation in OpContext. This allows for lazy
 	// initialization of closeStats.
-	generation int
+	generation uint64
 
 	// These counts keep track of how many required child nodes need to be
 	// completed before this node is accepted.
@@ -354,7 +353,7 @@ func Accept(ctx *OpContext, n *Vertex, f Feature) (found, required bool) {
 	if ctx.isDevVersion() {
 		return n.accept(ctx, f), true
 	}
-	ctx.generation++
+	ctx.opID++
 	ctx.todo = nil
 
 	var optionalTypes OptionalType
@@ -490,8 +489,8 @@ func getScratch(ctx *OpContext, s *closeInfo) *closeStats {
 		m[s] = x
 	}
 
-	if x.generation != ctx.generation {
-		*x = closeStats{generation: ctx.generation}
+	if x.generation != ctx.opID {
+		*x = closeStats{generation: ctx.opID}
 	}
 
 	return x

@@ -39,14 +39,44 @@ The main non-goal is to support transparency logs using anything other than the 
 While it is possible to deploy a custom personality in front of Tessera that adapts the tlog-tiles API
 into any other API, this strategy will lose a lot of the read scaling that Tessera is designed for.
 
+## Table of Contents
+
+- [Status](#status)
+- [Roadmap](#roadmap)
+- [Concepts](#concepts)
+- [Usage](#usage)
+  - [Getting Started](#getting-started)
+  - [Writing Personalities](#writing-personalities)
+- [Features](#features)
+- [Lifecycles](#lifecycles)
+- [Contributing](#contributing)
+- [License](#license)
+- [Contact](#contact)
+
 ## Status
 
-Tessera is under active development, with an [alpha 3 release](https://github.com/transparency-dev/tessera/releases/tag/v0.1.2) available now.
+Tessera is under active development, and is considered production ready since the
+[Beta release](https://github.com/transparency-dev/tessera/releases/tag/v0.2.0).
+See the table below for details.
+
+### Storage drivers
+
+| Driver                  | Appender | Migration | Antispam | Garbage Collection | Notes                                         |
+| ----------------------- | :------: | :-------: | :------: | :----------------: | --------------------------------------------- |
+| Amazon Web Services     |    ✅    |     ⚠️    |    ✅    |          ✅        |                                               |
+| Google Cloud Platform   |    ✅    |     ⚠️    |    ✅    |          ✅        |                                               |
+| POSIX filesystem        |    ✅    |     ⚠️    |    ✅    |          ✅        |                                               |
+| MySQL                   |    ⚠️    |     ⚠️    |    ❌    |          N/A       | MySQL will remain in BETA for the time being. |
+
+
+> [!Note]
+> Please get in touch if you are interested in using any of the features or drivers held back in BETA above.
+
 Users of GCP, AWS, MySQL, and POSIX are welcome to try the relevant [Getting Started](#getting-started) guide.
 
 ## Roadmap
 
-Beta in Q2 2025, and production ready around mid 2025.
+Production ready around mid 2025.
 
 |  #  | Step                                                      | Status |
 | :-: | --------------------------------------------------------- | :----: |
@@ -222,7 +252,7 @@ Now the fun part - writing to the log!
 		panic(err)
 	}
 
-	future, err := appender.Add(ctx, tessera.NewEntry(data))()
+	index, err := appender.Add(ctx, tessera.NewEntry(data))()
 ```
 
 The `AppendOptions` allow Tessera behaviour to be tuned.
@@ -262,7 +292,7 @@ In some scenarios, particularly where logs are publicly writable such as Certifi
 whether maliciously or accidentally, to add entries they already contain. Generally, this is undesirable, and so Tessera provides an
 optional mechanism to try to detect and ignore duplicate entries on a best-effort basis.
 
-Logs that do not allow public submissions directly to the log may want to operate without deduplication, instead relying on the
+Logs that do not allow public submissions directly to the log may want to operate without this optional antispam measure, instead relying on the
 personality to never generate duplicates. This can allow for significantly cheaper operation and faster write throughput.
 
 The antispam mechanism consists of two layers which sit in front of the underlying `Add` implementation of the storage:
@@ -284,7 +314,7 @@ These layes are configured by the `WithAntispam` method of the
 
 > [!Note]
 > Tessera's antispam mechanism is _best effort_; there is no guarantee that all duplicate entries will be suppressed.
-> This is a trade-off; fully-atomic "strong" deduplication is _extremely_ expensive in terms of throughput and compute costs, and
+> This is a trade-off; fully-atomic "strong" de-duplication is _extremely_ expensive in terms of throughput and compute costs, and
 > would limit Tessera to only being able to use transactional type storage backends.
 
 ### Witnessing
@@ -400,7 +430,7 @@ This repo is licensed under the Apache 2.0 license, see [LICENSE](/LICENSE) for 
 
 ## Contact
 
-- Slack: https://transparency-dev.slack.com/ ([invitation](https://join.slack.com/t/transparency-dev/shared_invite/zt-27pkqo21d-okUFhur7YZ0rFoJVIOPznQ))
+- Slack: https://transparency-dev.slack.com/ ([invitation](https://transparency.dev/slack/))
 - Mailing list: https://groups.google.com/forum/#!forum/trillian-transparency
 
 ## Acknowledgements

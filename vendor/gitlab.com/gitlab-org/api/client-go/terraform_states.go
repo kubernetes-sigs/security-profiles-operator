@@ -10,11 +10,12 @@ import (
 
 type (
 	TerraformStatesServiceInterface interface {
-		List(projectFullPath string) ([]TerraformState, *Response, error)
-		Get(projectFullPath string, name string) (*TerraformState, *Response, error)
+		List(projectFullPath string, options ...RequestOptionFunc) ([]TerraformState, *Response, error)
+		Get(projectFullPath string, name string, options ...RequestOptionFunc) (*TerraformState, *Response, error)
 		Download(pid any, name string, serial uint64, options ...RequestOptionFunc) (io.Reader, *Response, error)
 		DownloadLatest(pid any, name string, options ...RequestOptionFunc) (io.Reader, *Response, error)
 		Delete(pid any, name string, options ...RequestOptionFunc) (*Response, error)
+		DeleteVersion(pid any, name string, serial uint64, options ...RequestOptionFunc) (*Response, error)
 		Lock(pid any, name string, options ...RequestOptionFunc) (*Response, error)
 		Unlock(pid any, name string, options ...RequestOptionFunc) (*Response, error)
 	}
@@ -48,7 +49,7 @@ type TerraformStateVersion struct {
 }
 
 // List returns all Terraform states
-func (s *TerraformStatesService) List(projectFullPath string) ([]TerraformState, *Response, error) {
+func (s *TerraformStatesService) List(projectFullPath string, options ...RequestOptionFunc) ([]TerraformState, *Response, error) {
 	query := GraphQLQuery{
 		Query: fmt.Sprintf(`
 			query {
@@ -82,7 +83,7 @@ func (s *TerraformStatesService) List(projectFullPath string) ([]TerraformState,
 			} `json:"project"`
 		} `json:"data"`
 	}
-	resp, err := s.client.GraphQL.Do(query, &response)
+	resp, err := s.client.GraphQL.Do(query, &response, options...)
 	if err != nil {
 		return nil, resp, err
 	}
@@ -94,7 +95,7 @@ func (s *TerraformStatesService) List(projectFullPath string) ([]TerraformState,
 }
 
 // Get returns a single Terraform state
-func (s *TerraformStatesService) Get(projectFullPath string, name string) (*TerraformState, *Response, error) {
+func (s *TerraformStatesService) Get(projectFullPath string, name string, options ...RequestOptionFunc) (*TerraformState, *Response, error) {
 	query := GraphQLQuery{
 		Query: fmt.Sprintf(`
 			query {
@@ -124,7 +125,7 @@ func (s *TerraformStatesService) Get(projectFullPath string, name string) (*Terr
 			} `json:"project"`
 		} `json:"data"`
 	}
-	resp, err := s.client.GraphQL.Do(query, &response)
+	resp, err := s.client.GraphQL.Do(query, &response, options...)
 	if err != nil {
 		return nil, resp, err
 	}
@@ -186,6 +187,24 @@ func (s *TerraformStatesService) Delete(pid any, name string, options ...Request
 		return nil, err
 	}
 	uri := fmt.Sprintf("projects/%s/terraform/state/%s", PathEscape(project), PathEscape(name))
+
+	req, err := s.client.NewRequest(http.MethodDelete, uri, nil, options)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.client.Do(req, nil)
+}
+
+// DeleteVersion deletes a single Terraform state version
+//
+// GitLab API docs: https://docs.gitlab.com/user/infrastructure/iac/terraform_state/
+func (s *TerraformStatesService) DeleteVersion(pid any, name string, serial uint64, options ...RequestOptionFunc) (*Response, error) {
+	project, err := parseID(pid)
+	if err != nil {
+		return nil, err
+	}
+	uri := fmt.Sprintf("projects/%s/terraform/state/%s/versions/%d", PathEscape(project), PathEscape(name), serial)
 
 	req, err := s.client.NewRequest(http.MethodDelete, uri, nil, options)
 	if err != nil {

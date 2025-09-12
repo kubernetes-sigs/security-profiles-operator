@@ -27,14 +27,8 @@ package build
 	interpretation?: #Interpretation
 	form?:           #Form
 	// Note: tags includes values for non-boolean tags only.
-	tags?: [string]: string
+	tags?: [string]:     string
 	boolTags?: [string]: bool
-}
-
-// Default is the file used for stdin and stdout. The settings depend
-// on the file mode.
-#Default: #FileInfo & {
-	filename: *"-" | string
 }
 
 // A FileInfo defines how a file is encoded and interpreted.
@@ -68,71 +62,73 @@ package build
 // to change this.
 fileForExtVanilla: modes.input.extensions
 
-// modes sets defaults for different operational modes.
-// The key corresponds to the Go internal/filetypes.Mode type.
-modes: [string]: {
+// #Mode represents an overall mode that CUE is being run in
+// (e.g. eval, export).
+#Mode: {
 	// FileInfo holds the base file information for this mode.
 	// This will be unified with information derived from the
 	// file extension and any filetype tags explicitly provided.
 	FileInfo!: #FileInfo
 
-	// Default holds the base file information for standard input
-	// or output, where we don't have any file extension available.
-	Default!: #Default
+	// extensions holds the set of file extensions that are defined
+	// for this mode.
+	extensions!: [_]: #FileInfo
+
+	// encodings holds the set of encodings defined for this mode.
+	encodings!: [_]: #FileInfo
 }
+
+// modes sets defaults for different operational modes.
+// The key corresponds to the Go internal/filetypes.Mode type.
+modes: [string]: #Mode
 
 // input defines modes for input, such as import, eval, vet or def.
 // In input mode, settings flags are interpreted as what is allowed to occur
 // in the input. The default settings, therefore, tend to be permissive.
 modes: input: {
-	Default: {
-		encoding: *"cue" | _
-	}
+	// FileInfo holds a value that's unified with the file value.
 	FileInfo: {
 		docs:       *true | false
 		attributes: *true | false
 	}
+	// encodings is unified to the file value when interpretation is empty.
 	encodings: cue: {
 		*forms.schema | _
 	}
+	extensions: "-": encoding:           *"cue" | _
 	extensions: ".json": interpretation: *"auto" | _
 	extensions: ".yaml": interpretation: *"auto" | _
 	extensions: ".yml": interpretation:  *"auto" | _
 	extensions: ".toml": interpretation: *"auto" | _
+	extensions: ".xml": interpretation:  *"auto" | _
 }
 
 modes: export: {
-	Default: {
-		encoding: *"json" | _
-	}
 	FileInfo: {
 		docs:       true | *false
 		attributes: true | *false
 	}
 	encodings: cue: forms.data
+	extensions: "-": encoding: *"json" | _
 }
 
 // eval is a legacy mode
 modes: eval: {
-	Default: {
-		encoding: *"cue" | _
-	}
 	FileInfo: {
 		docs:       true | *false
 		attributes: true | *false
 	}
 	encodings: cue: forms.final
+	extensions: "-": encoding: *"cue" | _
 }
 
 modes: def: {
-	Default: {
-		encoding: *"cue" | _
-	}
 	FileInfo: {
 		docs:       *true | false
 		attributes: *true | false
 	}
 	encodings: cue: forms.schema
+	extensions: "-": encoding: *"cue" | _
 }
 
 // A Encoding indicates a file format for representing a program.
@@ -148,10 +144,26 @@ modes: def: {
 // It corresponds to the Go cue/build.Form type.
 #Form: string
 
+all: {
+	for m in modes {
+		for name, _ in m.encodings {
+			encodings: (name): true
+		}
+		for name, _ in m.extensions {
+			extensions: (name): true
+		}
+	}
+	for name, _ in interpretations {
+		interpretations: (name): true
+	}
+	for name, _ in forms {
+		forms: (name): true
+	}
+}
+
 modes: [string]: {
 	// extensions maps a file extension to its associated default file properties.
 	extensions: {
-		// "":           _
 		".cue":       tagInfo.cue
 		".json":      tagInfo.json
 		".jsonl":     tagInfo.jsonl
@@ -160,6 +172,7 @@ modes: [string]: {
 		".yaml":      tagInfo.yaml
 		".yml":       tagInfo.yaml
 		".toml":      tagInfo.toml
+		".xml":       tagInfo.xml
 		".txt":       tagInfo.text
 		".go":        tagInfo.go
 		".wasm":      tagInfo.binary
@@ -205,6 +218,11 @@ modes: [string]: {
 	}
 
 	encodings: toml: {
+		forms.data
+		stream: false
+	}
+
+	encodings: xml: {
 		forms.data
 		stream: false
 	}
@@ -297,7 +315,7 @@ interpretations: jsonschema: {
 	boolTags: {
 		strict:         *false | bool
 		strictKeywords: *strict | bool
-		// TODO(v0.12): enable strictFeatures by default
+		// TODO: enable strictFeatures by default? (see https://cuelang.org/issue/3923).
 		strictFeatures: *strict | bool
 	}
 }
@@ -317,6 +335,8 @@ interpretations: pb: {
 	stream: true
 }
 
+tagInfo: [_]: #FileInfo
+
 // tagInfo maps command line tags to file properties.
 tagInfo: {
 	schema: form: "schema"
@@ -324,11 +344,21 @@ tagInfo: {
 	dag: form:    "dag"
 	data: form:   "data"
 
-	cue: encoding:       "cue"
-	json: encoding:      "json"
-	jsonl: encoding:     "jsonl"
-	yaml: encoding:      "yaml"
-	toml: encoding:      "toml"
+	cue: encoding:   "cue"
+	json: encoding:  "json"
+	jsonl: encoding: "jsonl"
+	yaml: encoding:  "yaml"
+	toml: encoding:  "toml"
+	xml: {
+		encoding: "xml"
+		boolTags: {
+			// We implement XML variants as boolean tags, such that "koala" is not accessible
+			// as a top-level filetype, and can only be used via "xml+koala".
+			// These effectively behave like a "one of", but we enforce this via the Go code
+			// so that we can provide the users with good error messages.
+			koala: *false | bool
+		}
+	}
 	proto: encoding:     "proto"
 	textproto: encoding: "textproto"
 	// "binpb":  encodings.binproto

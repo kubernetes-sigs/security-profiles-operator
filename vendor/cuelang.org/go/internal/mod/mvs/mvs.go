@@ -257,8 +257,7 @@ func Req[V comparable](mainModule V, base []string, reqs Reqs[V]) ([]V, error) {
 		haveBase[path] = true
 	}
 	// Now the reverse postorder to bring in anything else.
-	for i := len(postorder) - 1; i >= 0; i-- {
-		m := postorder[i]
+	for _, m := range slices.Backward(postorder) {
 		if max[reqs.Path(m)] != reqs.Version(m) {
 			// Older version.
 			continue
@@ -298,7 +297,7 @@ func Upgrade[V comparable](target V, reqs UpgradeReqs[V], upgrade ...V) ([]V, er
 	for _, m := range list {
 		pathInList[reqs.Path(m)] = true
 	}
-	list = append([]V(nil), list...)
+	list = slices.Clone(list)
 
 	upgradeTo := make(map[string]string, len(upgrade))
 	for _, u := range upgrade {

@@ -291,6 +291,9 @@ func (s *subsumer) verticesDev(x, y *adt.Vertex) bool {
 			return true
 		}
 
+	case nil:
+		return false
+
 	default:
 		panic(fmt.Sprintf("unexpected type %T", v))
 	}
@@ -454,6 +457,8 @@ outerConstraint:
 	for _, p := range apc.Pairs {
 		for _, q := range bpc.Pairs {
 			if adt.Equal(s.ctx, p.Pattern, q.Pattern, 0) {
+				p.Constraint.Finalize(s.ctx)
+				q.Constraint.Finalize(s.ctx)
 				if !s.values(p.Constraint, q.Constraint) {
 					return false
 				}

@@ -17,9 +17,11 @@ package ociclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -29,11 +31,11 @@ import (
 )
 
 func (c *client) Repositories(ctx context.Context, startAfter string) ociregistry.Seq[string] {
-	return c.pager(ctx, &ocirequest.Request{
+	return pager(ctx, c, &ocirequest.Request{
 		Kind:     ocirequest.ReqCatalogList,
 		ListN:    c.listPageSize,
 		ListLast: startAfter,
-	}, func(resp *http.Response) ([]string, error) {
+	}, true, func(resp *http.Response) ([]string, error) {
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, err
@@ -49,12 +51,12 @@ func (c *client) Repositories(ctx context.Context, startAfter string) ociregistr
 }
 
 func (c *client) Tags(ctx context.Context, repoName, startAfter string) ociregistry.Seq[string] {
-	return c.pager(ctx, &ocirequest.Request{
+	return pager(ctx, c, &ocirequest.Request{
 		Kind:     ocirequest.ReqTagsList,
 		Repo:     repoName,
 		ListN:    c.listPageSize,
 		ListLast: startAfter,
-	}, func(resp *http.Response) ([]string, error) {
+	}, true, func(resp *http.Response) ([]string, error) {
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, err
@@ -71,54 +73,80 @@ func (c *client) Tags(ctx context.Context, repoName, startAfter string) ociregis
 }
 
 func (c *client) Referrers(ctx context.Context, repoName string, digest ociregistry.Digest, artifactType string) ociregistry.Seq[ociregistry.Descriptor] {
-	// TODO paging
-	resp, err := c.doRequest(ctx, &ocirequest.Request{
-		Kind:   ocirequest.ReqReferrersList,
-		Repo:   repoName,
-		Digest: string(digest),
-		ListN:  c.listPageSize,
-	})
-	if err != nil {
-		return ociregistry.ErrorSeq[ociregistry.Descriptor](err)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return ociregistry.ErrorSeq[ociregistry.Descriptor](err)
-	}
-	var referrersResponse ocispec.Index
-	if err := json.Unmarshal(data, &referrersResponse); err != nil {
-		return ociregistry.ErrorSeq[ociregistry.Descriptor](fmt.Errorf("cannot unmarshal referrers response: %v", err))
-	}
-	return ociregistry.SliceSeq(referrersResponse.Manifests)
+	return pager(ctx, c, &ocirequest.Request{
+		Kind:         ocirequest.ReqReferrersList,
+		Repo:         repoName,
+		Digest:       string(digest),
+		ListN:        c.listPageSize,
+		ArtifactType: artifactType,
+	}, false, func(resp *http.Response) ([]ociregistry.Descriptor, error) {
+		body := resp.Body
+		if resp.StatusCode == http.StatusNotFound {
+			body.Close()
+			body = nil
+			// Fall back to the referrers tag API.
+			// From https://github.com/opencontainers/distribution-spec/blob/main/spec.md#unavailable-referrers-api :
+			//	A client querying the referrers API and receiving a
+			//	404 Not Found MUST fallback to using an image index
+			//	pushed to a tag described by the referrers tag
+			//	schema.
+			r, err := c.GetTag(ctx, repoName, referrersTag(digest))
+			if err != nil {
+				if errors.Is(err, ociregistry.ErrManifestUnknown) {
+					return nil, nil
+				}
+				return nil, err
+			}
+			body = r
+		}
+		data, err := io.ReadAll(body)
+		body.Close()
+		if err != nil {
+			return nil, err
+		}
+		var referrersResponse ocispec.Index
+		if err := json.Unmarshal(data, &referrersResponse); err != nil {
+			return nil, fmt.Errorf("cannot unmarshal referrers response: %v", err)
+		}
+		if artifactType == "" || resp.Header.Get("OCI-Filters-Applied") == "artifactType" {
+			return referrersResponse.Manifests, nil
+		}
+		// The server hasn't filtered the responses, so we must.
+		// TODO is it OK to assume that the index contains correctly populated
+		// artifact type and attributes fields when we've fallen back to the referrer tags API?
+		// If not, we might have to retrieve all the individual manifests to check that info.
+		manifests := slices.DeleteFunc(referrersResponse.Manifests, func(desc ociregistry.Descriptor) bool {
+			return desc.ArtifactType != artifactType
+		})
+		return manifests, nil
+	}, http.StatusOK, http.StatusNotFound)
 }
 
 // pager returns an iterator for a list entry point. It starts by sending the given
 // initial request and parses each response into its component items using
 // parseResponse. It tries to use the Link header in each response to continue
-// the iteration, falling back to using the "last" query parameter.
-func (c *client) pager(ctx context.Context, initialReq *ocirequest.Request, parseResponse func(*http.Response) ([]string, error)) ociregistry.Seq[string] {
-	return func(yield func(string, error) bool) {
-		// We assume that the same scope is applicable to all page requests.
+// the iteration, falling back to using the "last" query parameter if
+// canUseLast is true.
+func pager[T any](ctx context.Context, c *client, initialReq *ocirequest.Request, canUseLast bool, parseResponse func(*http.Response) ([]T, error), okStatuses ...int) ociregistry.Seq[T] {
+	return func(yield func(T, error) bool) {
+		// We assume that the same auth scope is applicable to all page requests.
 		req, err := newRequest(ctx, initialReq, nil)
 		if err != nil {
-			yield("", err)
+			yield(*new(T), err)
 			return
 		}
 		for {
-			resp, err := c.do(req)
+			resp, err := c.do(req, okStatuses...)
 			if err != nil {
-				yield("", err)
+				yield(*new(T), err)
 				return
 			}
 			items, err := parseResponse(resp)
 			resp.Body.Close()
 			if err != nil {
-				yield("", err)
+				yield(*new(T), err)
 				return
 			}
-			// TODO sanity check that items are in lexical order?
 			for _, item := range items {
 				if !yield(item, nil) {
 					return
@@ -131,28 +159,35 @@ func (c *client) pager(ctx context.Context, initialReq *ocirequest.Request, pars
 				//     is less than <int>.
 				return
 			}
-			req, err = nextLink(ctx, resp, initialReq, items[len(items)-1])
+			req, err = nextLink(ctx, resp, initialReq, canUseLast, items[len(items)-1])
 			if err != nil {
-				yield("", fmt.Errorf("invalid Link header in response: %v", err))
+				yield(*new(T), fmt.Errorf("invalid Link header in response: %v", err))
+				return
+			}
+			if req == nil {
+				// No link found; assume there are no more items.
 				return
 			}
 		}
 	}
 }
 
-// nextLink tries to form a request that can be sent to obtain the next page
+// nextLink ttries to form a request that can be sent to obtain the next page
 // in a set of list results.
 // The given response holds the response received from the previous
 // list request; initialReq holds the request that initiated the listing,
 // and last holds the final item returned in the previous response.
-func nextLink(ctx context.Context, resp *http.Response, initialReq *ocirequest.Request, last string) (*http.Request, error) {
+func nextLink[T any](ctx context.Context, resp *http.Response, initialReq *ocirequest.Request, canUseLast bool, last T) (*http.Request, error) {
 	link0 := resp.Header.Get("Link")
 	if link0 == "" {
+		if !canUseLast {
+			return nil, nil
+		}
 		// This is beyond the first page and there was no Link
 		// in the previous response (the standard doesn't mandate
 		// one), so add a "last" parameter to the initial request.
 		rreq := *initialReq
-		rreq.ListLast = last
+		rreq.ListLast = fmt.Sprint(last)
 		req, err := newRequest(ctx, &rreq, nil)
 		if err != nil {
 			// Given that we could form the initial request, this should
@@ -177,4 +212,39 @@ func nextLink(ctx context.Context, resp *http.Response, initialReq *ocirequest.R
 		return nil, fmt.Errorf("invalid URL in Link=%q", link0)
 	}
 	return http.NewRequestWithContext(ctx, "GET", linkURL.String(), nil)
+}
+
+// referrersTag returns the referrers tag for the given digest, as described
+// in https://github.com/opencontainers/distribution-spec/blob/main/spec.md#referrers-tag-schema
+func referrersTag(digest ociregistry.Digest) string {
+	// It's hard to know what the spec means by "with any characters not allowed by <reference> tags replaced with -",
+	// because different characters are allowed in different contexts (for example, a dot character
+	// is allowed except when it's at the start.
+	// In practice, however, the set of characters is very limited, and the only
+	// disallowed character in common use is :, so just use a naive algorithm.
+	return truncateAndMap(digest.Algorithm().String(), 32) + "-" + truncateAndMap(digest.Encoded(), 64)
+}
+
+func truncateAndMap(s string, n int) string {
+	// regexp: [a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}
+
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case 'a' <= r && r <= 'z':
+			return r
+		case 'A' <= r && r <= 'Z':
+			return r
+		case '0' <= r && r <= '9':
+			return r
+		case r == '.' || r == '_' || r == '-':
+			return r
+		}
+		return '-'
+	}, s)
+	// Note: it's OK to use n as a byte index because the
+	// above Map has eliminated all non-ASCII characters.
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }

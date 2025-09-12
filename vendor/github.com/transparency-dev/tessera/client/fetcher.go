@@ -1,4 +1,4 @@
-// Copyright 2024 Google LLC. All Rights Reserved.
+// Copyright 2024 The Tessera authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/transparency-dev/tessera/api/layout"
+	"github.com/transparency-dev/tessera/internal/fetcher"
 	"k8s.io/klog/v2"
 )
 
@@ -98,11 +99,15 @@ func (h HTTPFetcher) ReadCheckpoint(ctx context.Context) ([]byte, error) {
 }
 
 func (h HTTPFetcher) ReadTile(ctx context.Context, l, i uint64, p uint8) ([]byte, error) {
-	return h.fetch(ctx, layout.TilePath(l, i, p))
+	return fetcher.PartialOrFullResource(ctx, p, func(ctx context.Context, p uint8) ([]byte, error) {
+		return h.fetch(ctx, layout.TilePath(l, i, p))
+	})
 }
 
 func (h HTTPFetcher) ReadEntryBundle(ctx context.Context, i uint64, p uint8) ([]byte, error) {
-	return h.fetch(ctx, layout.EntriesPath(i, p))
+	return fetcher.PartialOrFullResource(ctx, p, func(ctx context.Context, p uint8) ([]byte, error) {
+		return h.fetch(ctx, layout.EntriesPath(i, p))
+	})
 }
 
 // FileFetcher knows how to fetch log artifacts from a filesystem rooted at Root.
@@ -114,10 +119,14 @@ func (f FileFetcher) ReadCheckpoint(_ context.Context) ([]byte, error) {
 	return os.ReadFile(path.Join(f.Root, layout.CheckpointPath))
 }
 
-func (f FileFetcher) ReadTile(_ context.Context, l, i uint64, p uint8) ([]byte, error) {
-	return os.ReadFile(path.Join(f.Root, layout.TilePath(l, i, p)))
+func (f FileFetcher) ReadTile(ctx context.Context, l, i uint64, p uint8) ([]byte, error) {
+	return fetcher.PartialOrFullResource(ctx, p, func(ctx context.Context, p uint8) ([]byte, error) {
+		return os.ReadFile(path.Join(f.Root, layout.TilePath(l, i, p)))
+	})
 }
 
-func (f FileFetcher) ReadEntryBundle(_ context.Context, i uint64, p uint8) ([]byte, error) {
-	return os.ReadFile(path.Join(f.Root, layout.EntriesPath(i, p)))
+func (f FileFetcher) ReadEntryBundle(ctx context.Context, i uint64, p uint8) ([]byte, error) {
+	return fetcher.PartialOrFullResource(ctx, p, func(ctx context.Context, p uint8) ([]byte, error) {
+		return os.ReadFile(path.Join(f.Root, layout.EntriesPath(i, p)))
+	})
 }

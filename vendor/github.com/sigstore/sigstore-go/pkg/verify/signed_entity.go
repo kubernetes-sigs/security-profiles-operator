@@ -65,12 +65,15 @@ type VerifierConfig struct { // nolint: revive
 	tlogEntriesThreshold int
 	// requireSCTs requires SCTs in Fulcio certificates
 	requireSCTs bool
-	// ctlogEntriesTreshold is the minimum number of verified SCTs in
+	// ctlogEntriesThreshold is the minimum number of verified SCTs in
 	// a Fulcio certificate
 	ctlogEntriesThreshold int
 	// useCurrentTime uses the current time rather than a provided signed
 	// or log timestamp. Most workflows will not use this option
 	useCurrentTime bool
+	// allowNoTimestamp can be used to skip timestamp checks when a key
+	// is used rather than a certificate.
+	allowNoTimestamp bool
 }
 
 type VerifierOption func(*VerifierConfig) error
@@ -199,10 +202,25 @@ func WithCurrentTime() VerifierOption {
 	}
 }
 
+// WithNoObserverTimestamps configures the Verifier to not expect
+// any timestamps from either a Timestamp Authority or a Transparency Log
+// and to not use the current time to verify a certificate. This may only
+// be used when verifying with keys rather than certificates.
+func WithNoObserverTimestamps() VerifierOption {
+	return func(c *VerifierConfig) error {
+		c.allowNoTimestamp = true
+		return nil
+	}
+}
+
 func (c *VerifierConfig) Validate() error {
-	if !c.requireObserverTimestamps && !c.requireSignedTimestamps && !c.requireIntegratedTimestamps && !c.useCurrentTime {
+	if c.allowNoTimestamp && (c.requireObserverTimestamps || c.requireSignedTimestamps || c.requireIntegratedTimestamps || c.useCurrentTime) {
+		return errors.New("specify WithNoObserverTimestamps() without any other verifier options")
+	}
+	if !c.requireObserverTimestamps && !c.requireSignedTimestamps && !c.requireIntegratedTimestamps && !c.useCurrentTime && !c.allowNoTimestamp {
 		return errors.New("when initializing a new Verifier, you must specify at least one of " +
-			"WithObserverTimestamps(), WithSignedTimestamps(), or WithIntegratedTimestamps()")
+			"WithObserverTimestamps(), WithSignedTimestamps(), WithIntegratedTimestamps() or WithCurrentTime(), " +
+			"or exclusively specify WithNoObserverTimestamps()")
 	}
 
 	return nil
@@ -444,7 +462,7 @@ func WithKey() PolicyOption {
 // DSSE envelope. If the the SignedEntity has a MessageSignature, providing
 // this policy option will cause verification to always fail, since
 // MessageSignatures can only be verified in the presence of an Artifact or
-// artifact digest. See WithArtifact/WithArtifactDigest for more informaiton.
+// artifact digest. See WithArtifact/WithArtifactDigest for more information.
 //
 // Do not use this function unless you know what you are doing!
 //
@@ -611,6 +629,9 @@ func (v *Verifier) Verify(entity SignedEntity, pb PolicyBuilder) (*VerificationR
 		if policy.RequireSigningKey() {
 			return nil, errors.New("expected key signature, not certificate")
 		}
+		if v.config.allowNoTimestamp {
+			return nil, errors.New("must provide timestamp to verify certificate")
+		}
 
 		signedWithCertificate = true
 
@@ -726,6 +747,11 @@ func (v *Verifier) Verify(entity SignedEntity, pb PolicyBuilder) (*VerificationR
 	if signedWithCertificate {
 		result.Signature = &SignatureVerificationResult{
 			Certificate: &certSummary,
+		}
+	} else {
+		pubKeyID := []byte(verificationContent.PublicKey().Hint())
+		result.Signature = &SignatureVerificationResult{
+			PublicKeyID: &pubKeyID,
 		}
 	}
 
@@ -848,7 +874,7 @@ func (v *Verifier) VerifyObserverTimestamps(entity SignedEntity, logTimestamps [
 		verifiedTimestamps = append(verifiedTimestamps, TimestampVerificationResult{Type: "CurrentTime", URI: "", Timestamp: time.Now()})
 	}
 
-	if len(verifiedTimestamps) == 0 {
+	if len(verifiedTimestamps) == 0 && !v.config.allowNoTimestamp {
 		return nil, fmt.Errorf("no valid observer timestamps found")
 	}
 
