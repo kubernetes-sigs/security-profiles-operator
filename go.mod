@@ -1,6 +1,6 @@
 module sigs.k8s.io/security-profiles-operator
 
-go 1.24.3
+go 1.25
 
 require (
 	dario.cat/mergo v1.0.2
