@@ -7,7 +7,7 @@
 [![OCI security profiles](https://img.shields.io/badge/oci%3A%2F%2F-security%20profiles-blue?logo=kubernetes&logoColor=white)](https://github.com/orgs/security-profiles/packages)
 
 
-The _Security Profiles Operator_ (SPO) is an out-of-tree Kubernetes enhancement which aims to make
+_Security Profiles Operator_ (SPO) is an out-of-tree Kubernetes enhancement which aims to make
 it easier to create and use SELinux, seccomp and AppArmor security profiles in Kubernetes clusters.
 
 - [Installation and Usage](installation-usage.md)
