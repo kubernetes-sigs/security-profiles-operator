@@ -30,7 +30,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/urfave/cli/v2 v2.27.7
 	go.podman.io/common v0.65.0
-	golang.org/x/mod v0.28.0
+	golang.org/x/mod v0.29.0
 	golang.org/x/net v0.44.0
 	golang.org/x/sync v0.17.0
 	gomodules.xyz/jsonpatch/v2 v2.5.0
@@ -299,7 +299,7 @@ require (
 	golang.org/x/term v0.35.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.36.0 // indirect
+	golang.org/x/tools v0.37.0 // indirect
 	google.golang.org/api v0.241.0 // indirect
 	google.golang.org/genproto v0.0.0-20250505200425-f936aa4a68b2 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
