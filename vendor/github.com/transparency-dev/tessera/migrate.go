@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/avast/retry-go/v4"
+	"github.com/cenkalti/backoff/v5"
 	"github.com/transparency-dev/tessera/api/layout"
 	"github.com/transparency-dev/tessera/client"
 	"golang.org/x/sync/errgroup"
@@ -105,27 +105,27 @@ func (m *copier) populateWork(from, treeSize uint64) {
 // deal with any transient errors which may occur.
 func (m *copier) worker(ctx context.Context) error {
 	for b := range m.todo {
-		err := retry.Do(func() error {
+		n, err := backoff.Retry(ctx, func() (uint64, error) {
 			d, err := m.getEntryBundle(ctx, b.Index, uint8(b.Partial))
 			if err != nil {
 				wErr := fmt.Errorf("failed to fetch entrybundle %d (p=%d): %v", b.Index, b.Partial, err)
 				klog.Infof("%v", wErr)
-				return wErr
+				return 0, wErr
 			}
 			if err := m.setEntryBundle(ctx, b.Index, b.Partial, d); err != nil {
 				wErr := fmt.Errorf("failed to store entrybundle %d (p=%d): %v", b.Index, b.Partial, err)
 				klog.Infof("%v", wErr)
-				return wErr
+				return 0, wErr
 			}
-			m.bundlesCopied.Add(1)
-			return nil
+			return 1, nil
 		},
-			retry.Attempts(10),
-			retry.DelayType(retry.BackOffDelay))
+			backoff.WithMaxTries(10),
+			backoff.WithBackOff(backoff.NewExponentialBackOff()))
 		if err != nil {
 			klog.Infof("retry: %v", err)
 			return err
 		}
+		m.bundlesCopied.Add(n)
 	}
 	return nil
 }

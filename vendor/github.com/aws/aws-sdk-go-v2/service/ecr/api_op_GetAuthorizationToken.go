@@ -56,6 +56,9 @@ type GetAuthorizationTokenOutput struct {
 
 	// A list of authorization token data objects that correspond to the registryIds
 	// values in the request.
+	//
+	// The size of the authorization token returned by Amazon ECR is not fixed. We
+	// recommend that you don't make assumptions about the maximum size.
 	AuthorizationData []types.AuthorizationData
 
 	// Metadata pertaining to the operation's result.
@@ -126,6 +129,9 @@ func (c *Client) addOperationGetAuthorizationTokenMiddlewares(stack *middleware.
 		return err
 	}
 	if err = addUserAgentRetryMode(stack, options); err != nil {
+		return err
+	}
+	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = stack.Initialize.Add(newServiceMetadataMiddleware_opGetAuthorizationToken(options.Region), middleware.Before); err != nil {

@@ -21,6 +21,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"slices"
 	"strings"
 
 	"github.com/cockroachdb/apd/v3"
@@ -36,7 +37,6 @@ import (
 	"cuelang.org/go/internal/core/export"
 	"cuelang.org/go/internal/core/runtime"
 	"cuelang.org/go/internal/core/subsume"
-	"cuelang.org/go/internal/core/validate"
 	internaljson "cuelang.org/go/internal/encoding/json"
 	"cuelang.org/go/internal/types"
 )
@@ -140,7 +140,7 @@ func (o *hiddenStructValue) Lookup(key string) Value {
 	return newChildValue(o, i)
 }
 
-// MarshalJSON returns a valid JSON encoding or reports an error if any of the
+// appendJSON appends a valid JSON encoding or reports an error if any of the
 // fields is invalid.
 func (o *structValue) appendJSON(b []byte) ([]byte, error) {
 	b = append(b, '{')
@@ -279,7 +279,7 @@ func (i *Iterator) FieldType() SelectorType {
 	return featureToSelType(i.f, i.arcType)
 }
 
-// marshalJSON iterates over the list and generates JSON output. HasNext
+// listAppendJSON iterates over the list and generates JSON output. HasNext
 // will return false after this operation.
 func listAppendJSON(b []byte, l *Iterator) ([]byte, error) {
 	b = append(b, '[')
@@ -490,6 +490,24 @@ func init() {
 	}
 }
 
+// Float returns a big.Float nearest to x. It reports an error if v is
+// not a number. If a non-nil *Float argument f is provided, Float stores the result in f
+// instead of allocating a new Float.
+func (v Value) Float(f *big.Float) (*big.Float, error) {
+	var err error
+
+	n, err := v.getNum(adt.NumberKind)
+	if err != nil {
+		return nil, err
+	}
+	if f == nil {
+		f = &big.Float{}
+	}
+
+	f, _, err = f.Parse(n.X.String(), 0)
+	return f, err
+}
+
 // Float64 returns the float64 value nearest to x. It reports an error if v is
 // not a number. If x is too small to be represented by a float64 (|x| <
 // math.SmallestNonzeroFloat64), the result is (0, ErrBelow) or (-0, ErrAbove),
@@ -604,7 +622,6 @@ func newValueRoot(idx *runtime.Runtime, ctx *adt.OpContext, x adt.Expr) Value {
 
 func newChildValue(o *structValue, i int) Value {
 	arc := o.at(i)
-	// TODO: fix linkage to parent.
 	return makeValue(o.v.idx, arc, linkParent(o.v.parent_, o.v.v, arc))
 }
 
@@ -715,11 +732,13 @@ func (v Value) Default() (Value, bool) {
 		return v, false
 	}
 
-	d := v.v.Default()
+	x := v.v.DerefValue()
+	d := x.Default()
+	isDefault := d != x
 	if d == v.v {
 		return v, false
 	}
-	return makeValue(v.idx, d, v.parent_), true
+	return makeValue(v.idx, d, v.parent_), isDefault
 }
 
 // Label reports he label used to obtain this value from the enclosing struct.
@@ -1094,7 +1113,7 @@ func (v Value) checkKind(ctx *adt.OpContext, want adt.Kind) *adt.Bottom {
 
 func makeInt(v Value, x int64) Value {
 	n := &adt.Num{K: adt.IntKind}
-	n.X.SetInt64(int64(x))
+	n.X.SetInt64(x)
 	return remakeFinal(v, n)
 }
 
@@ -1246,6 +1265,7 @@ func (v Value) structValData(ctx *adt.OpContext) (structValue, *adt.Bottom) {
 
 // structVal returns an structVal or an error if v is not a struct.
 func (v Value) structValOpts(ctx *adt.OpContext, o options) (s structValue, err *adt.Bottom) {
+	orig := v
 	v, _ = v.Default()
 
 	obj := v.v
@@ -1302,7 +1322,7 @@ func (v Value) structValOpts(ctx *adt.OpContext, o options) (s structValue, err 
 		}
 		arcs = append(arcs, arc)
 	}
-	return structValue{ctx, v, obj, arcs}, nil
+	return structValue{ctx, orig, obj, arcs}, nil
 }
 
 // Struct returns the underlying struct of a value or an error if the value
@@ -1579,8 +1599,8 @@ func (v Value) FillPath(p Path, x interface{}) Value {
 	default:
 		expr = convert.GoValueToValue(ctx, x, true)
 	}
-	for i := len(p.path) - 1; i >= 0; i-- {
-		switch sel := p.path[i]; sel.Type() {
+	for _, sel := range slices.Backward(p.path) {
+		switch sel.Type() {
 		case StringLabel | PatternConstraint:
 			expr = &adt.StructLit{Decls: []adt.Decl{
 				&adt.BulkOptionalField{
@@ -1704,21 +1724,6 @@ func allowed(ctx *adt.OpContext, parent, n *adt.Vertex) *adt.Bottom {
 	return nil
 }
 
-func addConjuncts(ctx *adt.OpContext, dst, src *adt.Vertex) {
-	c := adt.MakeRootConjunct(nil, src)
-	c.CloseInfo.GroupUnify = true
-
-	if src.ClosedRecursive {
-		if ctx.Version == internal.EvalV2 {
-			var root adt.CloseInfo
-			c.CloseInfo = root.SpawnRef(src, src.ClosedRecursive, nil)
-		} else {
-			c.CloseInfo.FromDef = true
-		}
-	}
-	dst.AddConjunct(c)
-}
-
 // Unify reports the greatest lower bound of v and w.
 //
 // Value v and w must be obtained from the same build.
@@ -1732,20 +1737,14 @@ func (v Value) Unify(w Value) Value {
 	}
 
 	ctx := v.ctx()
-	n := &adt.Vertex{}
-	addConjuncts(ctx, n, v.v)
-	addConjuncts(ctx, n, w.v)
+	defer ctx.PopArc(ctx.PushArc(v.v))
 
-	n.Finalize(ctx)
+	n := adt.Unify(ctx, v.v, w.v)
 
-	n.Parent = v.v.Parent
-	n.Label = v.v.Label
-	n.ClosedRecursive = v.v.ClosedRecursive || w.v.ClosedRecursive
-
-	if err := n.Err(ctx); err != nil {
-		return makeValue(v.idx, n, v.parent_)
-	}
 	if ctx.Version == internal.EvalV2 {
+		if err := n.Err(ctx); err != nil {
+			return makeValue(v.idx, n, v.parent_)
+		}
 		if err := allowed(ctx, v.v, n); err != nil {
 			return newErrValue(w, err)
 		}
@@ -1776,34 +1775,28 @@ func (v Value) UnifyAccept(w Value, accept Value) Value {
 	n := &adt.Vertex{}
 	ctx := v.ctx()
 
-	cv := adt.MakeRootConjunct(nil, v.v)
-	cw := adt.MakeRootConjunct(nil, w.v)
-
 	switch ctx.Version {
 	case internal.EvalV2:
+		cv := adt.MakeRootConjunct(nil, v.v)
+		cw := adt.MakeRootConjunct(nil, w.v)
+
 		n.AddConjunct(cv)
 		n.AddConjunct(cw)
-
-		n.Finalize(ctx)
-
-		n.Parent = v.v.Parent
-		n.Label = v.v.Label
-
-		if err := n.Err(ctx); err != nil {
-			return makeValue(v.idx, n, v.parent_)
-		}
-		if err := allowed(ctx, accept.v, n); err != nil {
-			return newErrValue(accept, err)
-		}
 
 	case internal.EvalV3:
-		cv.CloseInfo.FromEmbed = true
-		cw.CloseInfo.FromEmbed = true
-		n.AddConjunct(cv)
-		n.AddConjunct(cw)
-		ca := adt.MakeRootConjunct(nil, accept.v)
-		n.AddConjunct(ca)
-		n.Finalize(ctx)
+		n.AddOpenConjunct(ctx, v.v)
+		n.AddOpenConjunct(ctx, w.v)
+	}
+	n.Finalize(ctx)
+
+	n.Parent = v.v.Parent
+	n.Label = v.v.Label
+
+	if err := n.Err(ctx); err != nil {
+		return makeValue(v.idx, n, v.parent_)
+	}
+	if err := allowed(ctx, accept.v, n); err != nil {
+		return newErrValue(accept, err)
 	}
 
 	return makeValue(v.idx, n, v.parent_)
@@ -1917,6 +1910,7 @@ func reference(rt *runtime.Runtime, c *adt.OpContext, env *adt.Environment, r ad
 	if inst == nil {
 		return nil, nil
 	}
+	inst.Finalize(c)
 	return inst, path
 }
 
@@ -1971,7 +1965,7 @@ func Schema() Option {
 
 // Concrete ensures that all values are concrete.
 //
-// For [Validate] this means it returns an error if this is not the case.
+// For [Value.Validate] this means it returns an error if this is not the case.
 // In other cases a non-concrete value will be replaced with an error.
 func Concrete(concrete bool) Option {
 	return func(p *options) {
@@ -2108,14 +2102,14 @@ func (v Value) Validate(opts ...Option) error {
 	o := options{}
 	o.updateOptions(opts)
 
-	cfg := &validate.Config{
+	cfg := &adt.ValidateConfig{
 		Concrete:       o.concrete,
 		Final:          o.final,
 		DisallowCycles: o.disallowCycles,
 		AllErrors:      true,
 	}
 
-	b := validate.Validate(v.ctx(), v.v, cfg)
+	b := adt.Validate(v.ctx(), v.v, cfg)
 	if b != nil {
 		return v.toErr(b)
 	}

@@ -368,13 +368,9 @@ func (s *scheduler) process(needs condition, mode runMode) bool {
 	}
 
 	if s.ctx.LogEval > 0 && len(s.tasks) > 0 {
+
 		if v := s.tasks[0].node.node; v != nil {
-			c.Logf(v, "START Process %v -- mode: %v", v.Label, mode)
-			c.nest++
-			defer func() {
-				c.nest--
-				c.Logf(v, "END Process")
-			}()
+			c.Logf(v, "PROCESS(%v)", mode)
 		}
 	}
 
@@ -417,9 +413,12 @@ processNextTask:
 		if s.meets(needs) {
 			return true
 		}
-		c.current().waitFor(s, needs)
-		s.yield()
-		panic("unreachable")
+		// This can happen in some cases. We "promote" to finalization if this
+		// was not triggered by a task.
+		if t := c.current(); t != nil {
+			t.waitFor(s, needs)
+			s.yield()
+		}
 
 	case finalize:
 		// remainder of function
@@ -630,14 +629,6 @@ func (s *scheduler) insertTask(t *task) {
 	}
 
 	s.incrementCounts(completes)
-	if cc := t.id.cc; cc != nil {
-		// may be nil for "group" tasks, such as processLists.
-		dep := cc.incDependent(t.node.ctx, TASK, nil)
-		if dep != nil {
-			dep.taskID = len(s.tasks)
-			dep.task = t
-		}
-	}
 	s.tasks = append(s.tasks, t)
 
 	// Sort by priority. This code is optimized for the case that there are
@@ -659,14 +650,13 @@ func runTask(t *task, mode runMode) {
 	if t.defunct {
 		if t.state != taskCANCELLED {
 			t.state = taskCANCELLED
-			if t.id.cc != nil {
-				t.id.cc.decDependent(t.node.ctx, TASK, nil)
-			}
 		}
 		return
 	}
-	t.node.Logf("============ RUNTASK %v %v", t.run.name, t.x)
 	ctx := t.node.ctx
+	if ctx.LogEval > 0 {
+		defer ctx.Un(ctx.Indentf(t.node.node, "RUNTASK(%v, %v)", t.run.name, t.x))
+	}
 
 	switch t.state {
 	case taskSUCCESS, taskFAILED:
@@ -675,7 +665,10 @@ func runTask(t *task, mode runMode) {
 		// TODO: should we mark this as a cycle?
 	}
 
+	ctx.freeScope = append(ctx.freeScope, t.node)
 	defer func() {
+		ctx.freeScope = ctx.freeScope[:len(ctx.freeScope)-1]
+
 		if n := t.node; n.toComplete {
 			n.toComplete = false
 			n.completeNodeTasks(attemptOnly)
@@ -706,7 +699,6 @@ func runTask(t *task, mode runMode) {
 		// This is done to avoid struct args from passing fields up.
 		// Use [task.updateCI] to get the current CloseInfo with this field
 		// restored.
-		id.cc = nil
 		s := ctx.PushConjunct(MakeConjunct(t.env, t.x, id))
 		defer ctx.PopState(s)
 	}
@@ -732,9 +724,6 @@ func runTask(t *task, mode runMode) {
 		// TODO: do not add both context and task errors. Do something more
 		// principled.
 		t.node.addBottom(t.err)
-		if t.id.cc != nil {
-			t.id.cc.decDependent(ctx, TASK, nil)
-		}
 		t.node.decrementCounts(t.completes)
 		t.completes = 0 // safety
 	}
@@ -743,7 +732,6 @@ func runTask(t *task, mode runMode) {
 // updateCI stitches back the closeContext that more removed from the CloseInfo
 // before in the given CloseInfo.
 func (t *task) updateCI(ci CloseInfo) CloseInfo {
-	ci.cc = t.id.cc
 	return ci
 }
 

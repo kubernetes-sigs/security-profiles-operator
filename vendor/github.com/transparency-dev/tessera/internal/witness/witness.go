@@ -270,7 +270,7 @@ func (w *witness) update(ctx context.Context, cp []byte, size uint64, fetchProof
 		// followed by a newline (U+000A). The response MUST have a Content-Type of text/x.tlog.size
 		ct := httpResp.Header["Content-Type"]
 		if len(ct) == 1 && ct[0] == "text/x.tlog.size" {
-			bodyStr := string(rb)
+			bodyStr := strings.TrimSpace(string(rb))
 			newWitSize, err := strconv.ParseUint(bodyStr, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("witness at %q replied with x.tlog.size but body %q could not be parsed as decimal", w.url, bodyStr)

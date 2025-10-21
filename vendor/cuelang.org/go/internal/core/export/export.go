@@ -16,7 +16,7 @@ package export
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/ast/astutil"
@@ -644,7 +644,7 @@ type featureSet interface {
 }
 
 func (e *exporter) intn(n int) int {
-	return e.rand.Intn(n)
+	return e.rand.IntN(n)
 }
 
 func (e *exporter) makeFeature(s string) (f adt.Feature, ok bool) {
@@ -665,7 +665,7 @@ func (e *exporter) makeFeature(s string) (f adt.Feature, ok bool) {
 // clearer this concerns a generated number.
 func (e *exporter) uniqueFeature(base string) (f adt.Feature, name string) {
 	if e.rand == nil {
-		e.rand = rand.New(rand.NewSource(808))
+		e.rand = rand.New(rand.NewPCG(123, 456)) // ensure determinism between runs
 	}
 	return findUnique(e, base)
 }
@@ -686,7 +686,7 @@ func findUnique(set featureSet, base string) (f adt.Feature, name string) {
 	const mask = 0xff_ffff_ffff_ffff // max bits; stay clear of int64 overflow
 	const shift = 4                  // rate of growth
 	digits := 1
-	for n := int64(0x10); ; n = int64(mask&((n<<shift)-1)) + 1 {
+	for n := int64(0x10); ; n = mask&((n<<shift)-1) + 1 {
 		num := set.intn(int(n)-1) + 1
 		name := fmt.Sprintf("%[1]s_%0[2]*[3]X", base, digits, num)
 		if f, ok := set.makeFeature(name); ok {

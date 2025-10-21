@@ -301,13 +301,15 @@ func (a *Attribute) Split() (key, body string) {
 
 // A Field represents a field declaration in a struct.
 type Field struct {
-	Label      Label       // must have at least one element.
-	Optional   token.Pos   // Deprecated
+	Label Label // must have at least one element.
+	// Deprecated: use [Field.Constraint]
+	Optional   token.Pos
 	Constraint token.Token // token.ILLEGAL, token.OPTION, or token.NOT
 
 	// No TokenPos: Value must be an StructLit with one field.
 	TokenPos token.Pos
-	Token    token.Token // Deprecated: always token.COLON
+	// Deprecated: the value is always [token.COLON]
+	Token token.Token
 
 	Value Expr // the value associated with this field.
 
@@ -951,6 +953,13 @@ type File struct {
 
 	Imports    []*ImportSpec // imports in this file
 	Unresolved []*Ident      // unresolved identifiers in this file
+
+	// TODO remove this field: it's here as a temporary
+	// entity so that tests can determine which version
+	// the file was parsed with. A better approach is probably to
+	// include the language version in the `token.File` so
+	// it's available in every Position.
+	LanguageVersion string // The language version as configured by [parser.ParseFile].
 
 	comments
 }

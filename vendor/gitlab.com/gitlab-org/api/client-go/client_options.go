@@ -148,3 +148,11 @@ func WithUserAgent(userAgent string) ClientOptionFunc {
 		return nil
 	}
 }
+
+// WithCookieJar can be used to configure a cookie jar.
+func WithCookieJar(jar http.CookieJar) ClientOptionFunc {
+	return func(c *Client) error {
+		c.jar = jar
+		return nil
+	}
+}

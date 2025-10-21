@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,13 +103,28 @@ func (d *decoder) Decode() (ast.Expr, error) {
 			// Any further Decode calls must return EOF to avoid an endless loop.
 			d.decodeErr = io.EOF
 
-			// If the input is empty, we produce a single null literal with EOF.
+			// If the input is empty, we produce `*null | _` followed by EOF.
 			// Note that when the input contains "---", we get an empty document
 			// with a null scalar value inside instead.
 			if !d.yamlNonEmpty {
-				return &ast.BasicLit{
-					Kind:  token.NULL,
-					Value: "null",
+				// Attach positions which at least point to the filename.
+				pos := d.tokFile.Pos(0, token.NoRelPos)
+				return &ast.BinaryExpr{
+					Op:    token.OR,
+					OpPos: pos,
+					X: &ast.UnaryExpr{
+						Op:    token.MUL,
+						OpPos: pos,
+						X: &ast.BasicLit{
+							Kind:     token.NULL,
+							ValuePos: pos,
+							Value:    "null",
+						},
+					},
+					Y: &ast.Ident{
+						Name:    "_",
+						NamePos: pos,
+					},
 				}, nil
 			}
 			// If the input wasn't empty, we already decoded some CUE syntax nodes,
@@ -374,9 +390,6 @@ outer:
 			}
 			continue
 		}
-		if yk.Kind != yaml.ScalarNode {
-			return d.posErrorf(yn, "invalid map key: %v", yk.ShortTag())
-		}
 
 		field := &ast.Field{}
 		label, err := d.label(yk)
@@ -420,8 +433,8 @@ func (d *decoder) merge(yn *yaml.Node, m *ast.StructLit, multiline bool) error {
 		return d.insertMap(yn.Alias, m, multiline, true)
 	case yaml.SequenceNode:
 		// Step backwards as earlier nodes take precedence.
-		for i := len(yn.Content) - 1; i >= 0; i-- {
-			if err := d.merge(yn.Content[i], m, multiline); err != nil {
+		for _, c := range slices.Backward(yn.Content) {
+			if err := d.merge(c, m, multiline); err != nil {
 				return err
 			}
 		}
@@ -434,17 +447,33 @@ func (d *decoder) merge(yn *yaml.Node, m *ast.StructLit, multiline bool) error {
 func (d *decoder) label(yn *yaml.Node) (ast.Label, error) {
 	pos := d.pos(yn)
 
-	expr, err := d.scalar(yn)
+	var expr ast.Expr
+	var err error
+	var value string
+	switch yn.Kind {
+	case yaml.ScalarNode:
+		expr, err = d.scalar(yn)
+		value = yn.Value
+	case yaml.AliasNode:
+		if yn.Alias.Kind != yaml.ScalarNode {
+			return nil, d.posErrorf(yn, "invalid map key: %v", yn.Alias.ShortTag())
+		}
+		expr, err = d.alias(yn)
+		value = yn.Alias.Value
+	default:
+		return nil, d.posErrorf(yn, "invalid map key: %v", yn.ShortTag())
+	}
 	if err != nil {
 		return nil, err
 	}
+
 	switch expr := expr.(type) {
 	case *ast.BasicLit:
 		if expr.Kind == token.STRING {
-			if ast.IsValidIdent(yn.Value) && !internal.IsDefOrHidden(yn.Value) {
+			if ast.IsValidIdent(value) && !internal.IsDefOrHidden(value) {
 				return &ast.Ident{
 					NamePos: pos,
-					Name:    yn.Value,
+					Name:    value,
 				}, nil
 			}
 			ast.SetPos(expr, pos)
@@ -458,7 +487,7 @@ func (d *decoder) label(yn *yaml.Node) (ast.Label, error) {
 		}, nil
 
 	default:
-		return nil, d.posErrorf(yn, "invalid label "+yn.Value)
+		return nil, d.posErrorf(yn, "invalid label "+value)
 	}
 }
 

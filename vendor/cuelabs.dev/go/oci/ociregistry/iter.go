@@ -14,7 +14,7 @@
 
 package ociregistry
 
-// TODO(go1.23) when we can depend on Go 1.23, this should be:
+// TODO(go1.24) when we can depend on Go 1.24, this should be:
 // type Seq[T any] = iter.Seq2[T, error]
 
 // Seq defines the type of an iterator sequence returned from
@@ -22,18 +22,15 @@ package ociregistry
 // error means that the item is the last in the sequence.
 type Seq[T any] func(yield func(T, error) bool)
 
-func All[T any](it Seq[T]) (_ []T, _err error) {
+func All[T any](it Seq[T]) ([]T, error) {
 	xs := []T{}
-	// TODO(go1.23) for x, err := range it
-	it(func(x T, err error) bool {
+	for x, err := range it {
 		if err != nil {
-			_err = err
-			return false
+			return nil, err
 		}
 		xs = append(xs, x)
-		return true
-	})
-	return xs, _err
+	}
+	return xs, nil
 }
 
 func SliceSeq[T any](xs []T) Seq[T] {
