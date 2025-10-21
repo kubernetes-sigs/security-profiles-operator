@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/buildkite/go-pipeline/ordered"
 	"gopkg.in/yaml.v3"
@@ -158,14 +159,7 @@ func (m *Matrix) validatePermutation(p MatrixPermutation) error {
 	// permutation). Whether they are or are not, we still check adjustments.
 	valid := true
 	for dim, val := range p {
-		match := false
-		for _, v := range m.Setup[dim] {
-			if val == v {
-				match = true
-				break
-			}
-		}
-		if !match {
+		if !slices.Contains(m.Setup[dim], val) {
 			// Not a basic permutation. It could still be an adjustment though.
 			valid = false
 			break

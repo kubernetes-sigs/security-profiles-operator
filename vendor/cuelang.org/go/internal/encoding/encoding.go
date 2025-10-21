@@ -37,6 +37,7 @@ import (
 	"cuelang.org/go/encoding/protobuf/jsonpb"
 	"cuelang.org/go/encoding/protobuf/textproto"
 	"cuelang.org/go/encoding/toml"
+	"cuelang.org/go/encoding/xml/koala"
 	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/encoding/yaml"
 	"cuelang.org/go/internal/filetypes"
@@ -148,7 +149,8 @@ type Config struct {
 	InlineImports bool // expand references to non-core imports
 	ProtoPath     []string
 	Format        []format.Option
-	ParseFile     func(name string, src interface{}) (*ast.File, error)
+	ParserConfig  parser.Config
+	ParseFile     func(name string, src interface{}, cfg parser.Config) (*ast.File, error)
 }
 
 // NewDecoder returns a stream of non-rooted data expressions. The encoding
@@ -159,6 +161,10 @@ type Config struct {
 func NewDecoder(ctx *cue.Context, f *build.File, cfg *Config) *Decoder {
 	if cfg == nil {
 		cfg = &Config{}
+	}
+	if !cfg.ParserConfig.IsValid() {
+		// Avoid mutating cfg.
+		cfg.ParserConfig = parser.NewConfig(parser.ParseComments)
 	}
 	i := &Decoder{filename: f.Filename, ctx: ctx, cfg: cfg}
 	i.next = func() (ast.Expr, error) {
@@ -233,9 +239,9 @@ func NewDecoder(ctx *cue.Context, f *build.File, cfg *Config) *Decoder {
 	switch f.Encoding {
 	case build.CUE:
 		if cfg.ParseFile == nil {
-			i.file, i.err = parser.ParseFile(path, r, parser.ParseComments)
+			i.file, i.err = parser.ParseFile(path, r, cfg.ParserConfig)
 		} else {
-			i.file, i.err = cfg.ParseFile(path, r)
+			i.file, i.err = cfg.ParseFile(path, r, cfg.ParserConfig)
 		}
 		i.validate(i.file, f)
 		if i.err == nil {
@@ -262,6 +268,14 @@ func NewDecoder(ctx *cue.Context, f *build.File, cfg *Config) *Decoder {
 	case build.TOML:
 		i.next = toml.NewDecoder(path, r).Decode
 		i.Next()
+	case build.XML:
+		switch {
+		case f.BoolTags["koala"]:
+			i.next = koala.NewDecoder(path, r).Decode
+			i.Next()
+		default:
+			i.err = fmt.Errorf("xml requires a variant, such as: xml+koala")
+		}
 	case build.Text:
 		b, err := io.ReadAll(r)
 		i.err = err

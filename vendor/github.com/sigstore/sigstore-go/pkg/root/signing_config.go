@@ -73,9 +73,9 @@ func NewService(s *prototrustroot.Service) Service {
 // and current time. It will select the first service with the highest API version that matches
 // the criteria. Services should be sorted from newest to oldest validity period start time, to
 // minimize how far clients need to search to find a matching service.
-func SelectService(services []Service, supportedAPIVersions []uint32, currentTime time.Time) (string, error) {
+func SelectService(services []Service, supportedAPIVersions []uint32, currentTime time.Time) (Service, error) {
 	if len(supportedAPIVersions) == 0 {
-		return "", fmt.Errorf("no supported API versions")
+		return Service{}, fmt.Errorf("no supported API versions")
 	}
 
 	// Order supported versions from highest to lowest
@@ -95,12 +95,12 @@ func SelectService(services []Service, supportedAPIVersions []uint32, currentTim
 	for _, version := range sortedVersions {
 		for _, s := range sortedServices {
 			if version == s.MajorAPIVersion && s.ValidAtTime(currentTime) {
-				return s.URL, nil
+				return s, nil
 			}
 		}
 	}
 
-	return "", fmt.Errorf("no matching service found for API versions %v and current time %v", supportedAPIVersions, currentTime)
+	return Service{}, fmt.Errorf("no matching service found for API versions %v and current time %v", supportedAPIVersions, currentTime)
 }
 
 // SelectServices returns which service endpoints should be used based on supported API versions
@@ -110,7 +110,7 @@ func SelectService(services []Service, supportedAPIVersions []uint32, currentTim
 // It will select services from the highest supported API versions and will not select
 // services from different API versions. It will select distinct service operators, selecting
 // at most one service per operator.
-func SelectServices(services []Service, config ServiceConfiguration, supportedAPIVersions []uint32, currentTime time.Time) ([]string, error) {
+func SelectServices(services []Service, config ServiceConfiguration, supportedAPIVersions []uint32, currentTime time.Time) ([]Service, error) {
 	if len(supportedAPIVersions) == 0 {
 		return nil, fmt.Errorf("no supported API versions")
 	}
@@ -130,36 +130,36 @@ func SelectServices(services []Service, config ServiceConfiguration, supportedAP
 	slices.Reverse(sortedServices)
 
 	operators := make(map[string]bool)
-	var urls []string
+	var selectedServices []Service
 	for _, version := range sortedVersions {
 		for _, s := range sortedServices {
 			if version == s.MajorAPIVersion && s.ValidAtTime(currentTime) {
 				// Select the newest service for a given operator
 				if !operators[s.Operator] {
 					operators[s.Operator] = true
-					urls = append(urls, s.URL)
+					selectedServices = append(selectedServices, s)
 				}
 			}
 		}
 		// Exit once a list of services is found
-		if len(urls) != 0 {
+		if len(selectedServices) != 0 {
 			break
 		}
 	}
 
-	if len(urls) == 0 {
+	if len(selectedServices) == 0 {
 		return nil, fmt.Errorf("no matching services found for API versions %v and current time %v", supportedAPIVersions, currentTime)
 	}
 
 	// Select services from the highest supported API version
 	switch config.Selector {
 	case prototrustroot.ServiceSelector_ALL:
-		return urls, nil
+		return selectedServices, nil
 	case prototrustroot.ServiceSelector_ANY:
-		i := rand.Intn(len(urls)) // #nosec G404
-		return []string{urls[i]}, nil
+		i := rand.Intn(len(selectedServices)) // #nosec G404
+		return []Service{selectedServices[i]}, nil
 	case prototrustroot.ServiceSelector_EXACT:
-		matchedUrls, err := selectExact(urls, config.Count)
+		matchedUrls, err := selectExact(selectedServices, config.Count)
 		if err != nil {
 			return nil, err
 		}
@@ -449,8 +449,7 @@ func FetchSigningConfigWithOptions(opts *tuf.Options) (*SigningConfig, error) {
 
 // GetSigningConfig fetches the public-good Sigstore signing configuration target from TUF.
 func GetSigningConfig(c *tuf.Client) (*SigningConfig, error) {
-	// TODO(#495): Update to signing_config.v0.2.json once distributed by root-signing and root-signing-staging
-	jsonBytes, err := c.GetTarget("signing_config.json")
+	jsonBytes, err := c.GetTarget("signing_config.v0.2.json")
 	if err != nil {
 		return nil, err
 	}

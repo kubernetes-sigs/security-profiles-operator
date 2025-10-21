@@ -491,11 +491,11 @@ func (update *Updater) loadRoot() error {
 			// downloading the root metadata failed for some reason
 			var tmpErr *metadata.ErrDownloadHTTP
 			if errors.As(err, &tmpErr) {
-				if tmpErr.StatusCode != http.StatusNotFound && tmpErr.StatusCode != http.StatusForbidden {
+				if tmpErr.StatusCode != http.StatusNotFound {
 					// unexpected HTTP status code
 					return err
 				}
-				// 404/403 means current root is newest available, so we can stop the loop and move forward
+				// 404 means current root is newest available, so we can stop the loop and move forward
 				break
 			}
 			// some other error ocurred

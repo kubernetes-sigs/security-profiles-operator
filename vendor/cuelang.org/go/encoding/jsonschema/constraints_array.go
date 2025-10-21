@@ -106,9 +106,10 @@ func constraintItems(key string, n cue.Value, s *state) {
 		elem := s.schema(n)
 		ast.SetRelPos(elem, token.NoRelPos)
 		s.add(n, arrayType, ast.NewList(&ast.Ellipsis{Type: elem}))
+		s.hasItems = true
 
 	case cue.ListKind:
-		if !vto(VersionDraft2019_09).contains(s.schemaVersion) {
+		if !s.schemaVersion.is(vto(VersionDraft2019_09)) {
 			// The list form is only supported up to 2019-09
 			s.errf(n, `from version %v onwards, the value of "items" must be an object or a boolean`, VersionDraft2020_12)
 			return
@@ -157,6 +158,10 @@ func constraintMinItems(key string, n cue.Value, s *state) {
 
 func constraintUniqueItems(key string, n cue.Value, s *state) {
 	if s.boolValue(n) {
+		if s.schemaVersion.is(k8s) {
+			s.errf(n, "cannot set uniqueItems to true in a Kubernetes schema")
+			return
+		}
 		list := s.addImport(n, "list")
 		s.add(n, arrayType, ast.NewCall(ast.NewSel(list, "UniqueItems")))
 	}

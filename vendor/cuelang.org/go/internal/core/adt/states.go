@@ -170,6 +170,10 @@ const (
 	//
 	subFieldsProcessed
 
+	// pendingKnown means that this task is relevant for resolving whether an
+	// arc is present or not. This implies actTypeKnown.
+	pendingKnown
+
 	// disjunctionTask indicates that this task is a disjunction. This is
 	// used to trigger finalization of disjunctions.
 	disjunctionTask
@@ -183,7 +187,12 @@ const (
 	conditionsUsingCounters = arcTypeKnown |
 		valueKnown |
 		fieldConjunctsKnown |
-		allTasksCompleted
+		allTasksCompleted |
+		// TODO: not adding this improves error message for issue3691 in
+		// eval/comprehensions.txtar. But without this, TestVisit of dep
+		// panics. Investigate.
+		pendingKnown |
+		disjunctionTask
 
 	// The xConjunct condition sets indicate a conjunct MAY contribute the to
 	// final result. For some conjuncts it may not be known what the
@@ -212,7 +221,12 @@ const (
 	// list value.
 	scalarConjunct = allTasksCompleted |
 		scalarKnown |
-		valueKnown
+		valueKnown |
+		disjunctionTask
+
+	// a scalarValue is one that is guaranteed to result in a scalar.
+	// TODO: use more widely instead of scalarKnown.
+	scalarValue = scalarKnown | disjunctionTask
 
 	// needsX condition sets are used to indicate which conditions need to be
 	// met.
@@ -247,7 +261,9 @@ var schedConfig = taskContext{
 func stateCompletions(s *scheduler) condition {
 	x := s.completed
 	v := s.node.node
-	s.node.Logf("=== stateCompletions: %v  %v", v.Label, s.completed)
+	if s.node.ctx.LogEval > 0 {
+		s.node.Logf("=== stateCompletions: %v  %v", v.Label, s.completed)
+	}
 	if x.meets(allAncestorsProcessed) {
 		x |= conditionsUsingCounters &^ s.provided
 		// If we have a pending or constraint arc, a sub arc may still cause the
@@ -302,7 +318,8 @@ func (v *Vertex) allChildConjunctsKnown() bool {
 		return true
 	}
 
-	if v.Status() == finalized {
+	// TODO(refcount): allow partial processed?
+	if v.Status() == finalized || (v.state == nil && v.status != unprocessed) {
 		// This can happen, for instance, if this is called on a parent of a
 		// rooted node that is marked as a parent for a dynamic node.
 		// In practice this should be handled by the caller, but we add this
@@ -325,21 +342,4 @@ func (n *nodeContext) scheduleTask(r *runner, env *Environment, x Node, ci Close
 	}
 	n.insertTask(t)
 	return t
-}
-
-// require ensures that a given condition is met for the given Vertex by
-// evaluating it. It yields execution back to the scheduler if it cannot
-// be completed at this point.
-func (c *OpContext) require(v *Vertex, needs condition) {
-	state := v.getState(c)
-	if state == nil {
-		return
-	}
-	state.process(needs, yield)
-}
-
-// scalarValue evaluates the given expression and either returns a
-// concrete value or schedules the task for later evaluation.
-func (ctx *OpContext) scalarValue(t *task, x Expr) Value {
-	return ctx.value(x, require(0, scalarKnown))
 }

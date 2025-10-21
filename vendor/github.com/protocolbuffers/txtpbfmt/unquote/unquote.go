@@ -104,11 +104,7 @@ func unquoteC(s string, quote rune) (string, error) {
 		}
 		s = s[n:]
 		if r != '\\' {
-			if r < utf8.RuneSelf {
-				buf = append(buf, byte(r))
-			} else {
-				buf = append(buf, string(r)...)
-			}
+			buf = appendRune(buf, r)
 			continue
 		}
 
@@ -120,6 +116,13 @@ func unquoteC(s string, quote rune) (string, error) {
 		s = tail
 	}
 	return string(buf), nil
+}
+
+func appendRune(buf []byte, r rune) []byte {
+	if r < utf8.RuneSelf {
+		return append(buf, byte(r))
+	}
+	return append(buf, string(r)...)
 }
 
 func unescape(s string) (ch string, tail string, err error) {
@@ -150,42 +153,45 @@ func unescape(s string) (ch string, tail string, err error) {
 	case '\'', '"', '\\':
 		return string(r), s, nil
 	case '0', '1', '2', '3', '4', '5', '6', '7':
-		if len(s) < 2 {
-			return "", "", fmt.Errorf(`\%c requires 2 following digits`, r)
-		}
-		ss := string(r) + s[:2]
-		s = s[2:]
-		i, err := strconv.ParseUint(ss, 8, 8)
-		if err != nil {
-			return "", "", fmt.Errorf(`\%s contains non-octal digits`, ss)
-		}
-		return string([]byte{byte(i)}), s, nil
-	case 'x', 'X', 'u', 'U':
-		var n int
-		switch r {
-		case 'x', 'X':
-			n = 2
-		case 'u':
-			n = 4
-		case 'U':
-			n = 8
-		}
-		if len(s) < n {
-			return "", "", fmt.Errorf(`\%c requires %d following digits`, r, n)
-		}
-		ss := s[:n]
-		s = s[n:]
-		i, err := strconv.ParseUint(ss, 16, 64)
-		if err != nil {
-			return "", "", fmt.Errorf(`\%c%s contains non-hexadecimal digits`, r, ss)
-		}
-		if r == 'x' || r == 'X' {
-			return string([]byte{byte(i)}), s, nil
-		}
-		if i > utf8.MaxRune {
-			return "", "", fmt.Errorf(`\%c%s is not a valid Unicode code point`, r, ss)
-		}
-		return strconv.FormatUint(i, 10), s, nil
+		return unescapeOctal(r, s)
+	case 'x', 'X':
+		return unescapeHex(r, s, 2)
+	case 'u':
+		return unescapeHex(r, s, 4)
+	case 'U':
+		return unescapeHex(r, s, 8)
 	}
 	return "", "", fmt.Errorf(`unknown escape \%c`, r)
+}
+
+func unescapeOctal(r rune, s string) (string, string, error) {
+	if len(s) < 2 {
+		return "", "", fmt.Errorf(`\%c requires 2 following digits`, r)
+	}
+	ss := string(r) + s[:2]
+	s = s[2:]
+	i, err := strconv.ParseUint(ss, 8, 8)
+	if err != nil {
+		return "", "", fmt.Errorf(`\%s contains non-octal digits`, ss)
+	}
+	return string([]byte{byte(i)}), s, nil
+}
+
+func unescapeHex(r rune, s string, n int) (string, string, error) {
+	if len(s) < n {
+		return "", "", fmt.Errorf(`\%c requires %d following digits`, r, n)
+	}
+	ss := s[:n]
+	s = s[n:]
+	i, err := strconv.ParseUint(ss, 16, 64)
+	if err != nil {
+		return "", "", fmt.Errorf(`\%c%s contains non-hexadecimal digits`, r, ss)
+	}
+	if r == 'x' || r == 'X' {
+		return string([]byte{byte(i)}), s, nil
+	}
+	if i > utf8.MaxRune {
+		return "", "", fmt.Errorf(`\%c%s is not a valid Unicode code point`, r, ss)
+	}
+	return strconv.FormatUint(i, 10), s, nil
 }

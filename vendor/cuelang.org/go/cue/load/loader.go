@@ -24,15 +24,17 @@ import (
 
 	"cuelang.org/go/cue/build"
 	"cuelang.org/go/cue/errors"
+	"cuelang.org/go/cue/parser"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal/mod/modpkgload"
 )
 
 type loader struct {
-	cfg    *Config
-	tagger *tagger
-	stk    importStack
-	pkgs   *modpkgload.Packages
+	cfg          *Config
+	tagger       *tagger
+	stk          importStack
+	pkgs         *modpkgload.Packages
+	modFileCache *modFileCache
 
 	// dirCachedBuildFiles caches the work involved when reading a
 	// directory. It is keyed by directory name. When we descend into
@@ -52,6 +54,7 @@ func newLoader(c *Config, tg *tagger, pkgs *modpkgload.Packages) *loader {
 		cfg:                 c,
 		tagger:              tg,
 		pkgs:                pkgs,
+		modFileCache:        newModFileCache(),
 		dirCachedBuildFiles: make(map[string]cachedDirFiles),
 	}
 }
@@ -76,24 +79,7 @@ func (l *loader) errPkgf(importPos []token.Pos, format string, args ...interface
 // (typically named on the command line).
 func (l *loader) cueFilesPackage(files []*build.File) *build.Instance {
 	// ModInit() // TODO: support modules
-	pkg := l.cfg.Context.NewInstance(l.cfg.Dir, l.loadFunc())
-
-	for _, bf := range files {
-		f := bf.Filename
-		if f == "-" {
-			continue
-		}
-		if !filepath.IsAbs(f) {
-			f = filepath.Join(l.cfg.Dir, f)
-		}
-		fi, err := l.cfg.fileSystem.stat(f)
-		if err != nil {
-			return l.cfg.newErrInstance(errors.Wrapf(err, token.NoPos, "could not find file %v", f))
-		}
-		if fi.IsDir() {
-			return l.cfg.newErrInstance(errors.Newf(token.NoPos, "file is a directory %v", f))
-		}
-	}
+	pkg := l.cfg.Context.NewInstance(l.cfg.Dir, nil)
 
 	fp := newFileProcessor(l.cfg, pkg, l.tagger)
 	if l.cfg.Package == "*" {
@@ -132,7 +118,11 @@ func (l *loader) cueFilesPackage(files []*build.File) *build.Instance {
 // addFiles populates p.Files by reading CUE syntax from p.BuildFiles.
 func (l *loader) addFiles(p *build.Instance) {
 	for _, bf := range p.BuildFiles {
-		f, err := l.cfg.fileSystem.getCUESyntax(bf)
+		cfg := l.cfg.parserConfig
+		if p.ModuleFile != nil {
+			cfg = cfg.Apply(parser.Version(p.ModuleFile.Language.Version))
+		}
+		f, err := l.cfg.fileSystem.getCUESyntax(bf, cfg)
 		if err != nil {
 			p.ReportError(errors.Promote(err, "load"))
 		}

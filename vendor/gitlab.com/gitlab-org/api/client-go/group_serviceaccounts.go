@@ -43,7 +43,7 @@ type ListServiceAccountsOptions struct {
 	Sort    *string `url:"sort,omitempty" json:"sort,omitempty"`
 }
 
-// ListServiceAccounts gets a list of service acxcounts.
+// ListServiceAccounts gets a list of service accounts.
 //
 // GitLab API docs:
 // https://docs.gitlab.com/api/group_service_accounts/#list-all-service-account-users
@@ -78,7 +78,7 @@ type CreateServiceAccountOptions struct {
 	Email    *string `url:"email,omitempty" json:"email,omitempty"`
 }
 
-// Creates a service account user.
+// CreateServiceAccount creates a service account user.
 //
 // This API endpoint works on top-level groups only. It does not work on subgroups.
 //
@@ -114,7 +114,7 @@ type UpdateServiceAccountOptions struct {
 	Username *string `url:"username,omitempty" json:"username,omitempty"`
 }
 
-// Updates a service account user.
+// UpdateServiceAccount updates a service account user.
 //
 // This API endpoint works on top-level groups only. It does not work on subgroups.
 //

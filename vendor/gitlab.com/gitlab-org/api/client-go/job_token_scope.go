@@ -144,7 +144,7 @@ func (j *JobTokenScopeService) GetProjectJobTokenInboundAllowList(pid any, opt *
 	return ps, resp, nil
 }
 
-// AddProjectToJobScopeAllowListOptions represents the available
+// JobTokenInboundAllowOptions represents the available
 // AddProjectToJobScopeAllowList() options.
 //
 // GitLab API docs:
@@ -216,7 +216,7 @@ type GetJobTokenAllowlistGroupsOptions struct {
 	ListOptions
 }
 
-// GetJobTokenAllowListGroups fetches the CI/CD job token allowlist groups
+// GetJobTokenAllowlistGroups fetches the CI/CD job token allowlist groups
 // (job token scopes) of a project.
 //
 // GitLab API docs:
@@ -251,7 +251,7 @@ type AddGroupToJobTokenAllowlistOptions struct {
 	TargetGroupID *int `url:"target_group_id,omitempty" json:"target_group_id,omitempty"`
 }
 
-// AddProjectToJobScopeGroupsAllowList adds a new group to a project's job token
+// AddGroupToJobTokenAllowlist adds a new group to a project's job token
 // inbound groups allow list.
 //
 // GitLab API docs:
@@ -277,7 +277,7 @@ func (j *JobTokenScopeService) AddGroupToJobTokenAllowlist(pid any, opt *AddGrou
 	return jt, resp, nil
 }
 
-// RemoveGroupFromJopTokenAllowlist removes a group from a project's job
+// RemoveGroupFromJobTokenAllowlist removes a group from a project's job
 // token inbound groups allow list.
 //
 // GitLab API docs:

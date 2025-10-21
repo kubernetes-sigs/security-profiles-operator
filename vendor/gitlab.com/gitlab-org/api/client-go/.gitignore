@@ -36,3 +36,5 @@ vendor
 
 # reports
 gl-code-quality-report.json
+
+.mise/

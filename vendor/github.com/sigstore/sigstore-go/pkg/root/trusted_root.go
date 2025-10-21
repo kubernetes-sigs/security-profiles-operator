@@ -121,14 +121,13 @@ func ParseTransparencyLogs(tlogs []*prototrustroot.TransparencyLogInstance) (tra
 		if tlog.GetHashAlgorithm() != protocommon.HashAlgorithm_SHA2_256 {
 			return nil, fmt.Errorf("unsupported tlog hash algorithm: %s", tlog.GetHashAlgorithm())
 		}
-		//nolint:staticcheck // Continuing to use log ID
 		if tlog.GetLogId() == nil {
 			return nil, fmt.Errorf("tlog missing log ID")
 		}
-		if tlog.GetLogId().GetKeyId() == nil { //nolint:staticcheck
+		if tlog.GetLogId().GetKeyId() == nil {
 			return nil, fmt.Errorf("tlog missing log ID key ID")
 		}
-		encodedKeyID := hex.EncodeToString(tlog.GetLogId().GetKeyId()) //nolint:staticcheck
+		encodedKeyID := hex.EncodeToString(tlog.GetLogId().GetKeyId())
 
 		if tlog.GetPublicKey() == nil {
 			return nil, fmt.Errorf("tlog missing public key")
@@ -147,7 +146,7 @@ func ParseTransparencyLogs(tlogs []*prototrustroot.TransparencyLogInstance) (tra
 
 		tlogEntry := &TransparencyLog{
 			BaseURL:           tlog.GetBaseUrl(),
-			ID:                tlog.GetLogId().GetKeyId(), //nolint:staticcheck
+			ID:                tlog.GetLogId().GetKeyId(),
 			HashFunc:          hashFunc,
 			SignatureHashFunc: crypto.SHA256,
 		}
@@ -186,7 +185,7 @@ func ParseTransparencyLogs(tlogs []*prototrustroot.TransparencyLogInstance) (tra
 				return nil, fmt.Errorf("tlog public key is not RSA: %s", tlog.GetPublicKey().GetKeyDetails())
 			}
 			tlogEntry.PublicKey = rsaKey
-		case protocommon.PublicKeyDetails_PKIX_ED25519: //nolint:staticcheck
+		case protocommon.PublicKeyDetails_PKIX_ED25519:
 			key, err := x509.ParsePKIXPublicKey(tlog.GetPublicKey().GetRawBytes())
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse public key for tlog: %s %w",
@@ -500,7 +499,6 @@ func NewLiveTrustedRootFromTargetWithPeriod(opts *tuf.Options, target string, rf
 	}
 
 	ticker := time.NewTicker(rfPeriod)
-	log.Printf("setting TUF refresh period to %s", rfPeriod)
 	go func() {
 		for range ticker.C {
 			client, err = tuf.New(opts)
