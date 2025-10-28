@@ -33,7 +33,7 @@ import (
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/cli/command"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 )
 
@@ -119,7 +119,7 @@ func (r *Runner) Run() error {
 func (r *Runner) startEnricher() {
 	log.Print("Starting audit log enricher")
 
-	filePath := enricher.LogFilePath()
+	filePath := common.LogFilePath()
 
 	tailFile, err := r.TailFile(
 		filePath,

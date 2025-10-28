@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/v1/ast"
 )
 
 // funcstack implements a simple map structure used to keep track of virtual
@@ -20,18 +20,42 @@ type funcstack struct {
 }
 
 type taggedPairs struct {
-	pairs map[string]string
-	gen   int
+	pairs  map[string]string
+	vars   []ast.Var
+	vcount int
+	gen    int
 }
 
 func newFuncstack() *funcstack {
 	return &funcstack{
-		stack: []taggedPairs{{pairs: map[string]string{}, gen: 0}},
-		next:  1}
+		stack: []taggedPairs{
+			{
+				pairs: map[string]string{},
+				gen:   0,
+				vars: []ast.Var{
+					ast.InputRootDocument.Value.(ast.Var),
+					ast.DefaultRootDocument.Value.(ast.Var),
+				},
+				vcount: 2,
+			},
+		},
+		next: 1}
 }
 
 func (p funcstack) last() taggedPairs {
 	return p.stack[len(p.stack)-1]
+}
+
+func (p funcstack) argVars() int {
+	return p.last().vcount
+}
+
+func (p funcstack) vars() []ast.Var {
+	ret := make([]ast.Var, 0, p.last().vcount)
+	for i := range p.stack {
+		ret = append(ret, p.stack[i].vars...)
+	}
+	return ret
 }
 
 func (p funcstack) Add(key, value string) {
@@ -43,8 +67,13 @@ func (p funcstack) Get(key string) (string, bool) {
 	return value, ok
 }
 
-func (p *funcstack) Push(funcs map[string]string) {
-	p.stack = append(p.stack, taggedPairs{pairs: funcs, gen: p.next})
+func (p *funcstack) Push(funcs map[string]string, vars []ast.Var) {
+	p.stack = append(p.stack, taggedPairs{
+		pairs:  funcs,
+		gen:    p.next,
+		vars:   vars,
+		vcount: p.last().vcount + len(vars),
+	})
 	p.next++
 }
 
@@ -111,7 +140,7 @@ func (t *ruletrie) Rules() []*ast.Rule {
 
 func (t *ruletrie) Push(key ast.Ref) {
 	node := t
-	for i := 0; i < len(key)-1; i++ {
+	for i := range len(key) - 1 {
 		node = node.Get(key[i].Value)
 		if node == nil {
 			return
@@ -123,7 +152,7 @@ func (t *ruletrie) Push(key ast.Ref) {
 
 func (t *ruletrie) Pop(key ast.Ref) {
 	node := t
-	for i := 0; i < len(key)-1; i++ {
+	for i := range len(key) - 1 {
 		node = node.Get(key[i].Value)
 		if node == nil {
 			return

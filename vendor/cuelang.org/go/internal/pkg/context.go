@@ -49,10 +49,22 @@ func (c *CallCtxt) Do() bool {
 	return c.Err == nil
 }
 
+// Schema returns the ith argument as is, without converting it to a cue.Value.
+func (c *CallCtxt) Schema(i int) Schema {
+	return value.Make(c.ctx, c.args[i])
+}
+
+// Value returns a finalized cue.Value for the ith argument.
 func (c *CallCtxt) Value(i int) cue.Value {
 	v := value.Make(c.ctx, c.args[i])
-	// TODO: remove default
-	// v, _ = v.Default()
+	if c.builtin.NonConcrete {
+		// In case NonConcrete is false, the concreteness is already checked
+		// at call time. We may want to use finalize semantics in both cases,
+		// though.
+		_, f := value.ToInternal(v)
+		f = f.ToDataAll(c.ctx)
+		v = value.Make(c.ctx, f)
+	}
 	if !v.IsConcrete() {
 		c.errcf(adt.IncompleteError, "non-concrete argument %d", i)
 	}
@@ -61,6 +73,9 @@ func (c *CallCtxt) Value(i int) cue.Value {
 
 func (c *CallCtxt) Struct(i int) Struct {
 	x := c.args[i]
+	if c.builtin.NonConcrete {
+		x = adt.Default(x)
+	}
 	switch v, ok := x.(*adt.Vertex); {
 	case ok && !v.IsList():
 		v.CompleteArcs(c.ctx)
@@ -254,14 +269,22 @@ func (c *CallCtxt) Iter(i int) (a cue.Iterator) {
 
 func (c *CallCtxt) getList(i int) *adt.Vertex {
 	x := c.args[i]
+	if c.builtin.NonConcrete {
+		x = adt.Default(x)
+	}
 	switch v, ok := x.(*adt.Vertex); {
 	case ok && v.IsList():
 		v.Finalize(c.ctx)
+		if err := v.Bottom(); err != nil {
+			c.Err = &callError{err}
+			return nil
+		}
 		return v
 
 	case v != nil:
 		x = v.Value()
 	}
+
 	if x.Kind()&adt.ListKind == 0 {
 		var err error
 		if b, ok := x.(*adt.Bottom); ok {
@@ -295,7 +318,7 @@ func (c *CallCtxt) DecimalList(i int) (a []*apd.Decimal) {
 			}
 
 		default:
-			if k := w.Kind(); k&adt.NumKind == 0 {
+			if k := w.Kind(); k&adt.NumberKind == 0 {
 				err := c.ctx.NewErrf(
 					"invalid list element %d in argument %d to call: cannot use value %v (%s) as number",
 					j, i, w, k)

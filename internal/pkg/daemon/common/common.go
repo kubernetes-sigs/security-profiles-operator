@@ -18,10 +18,15 @@ package common
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/release-utils/helpers"
 
 	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
@@ -30,13 +35,11 @@ import (
 // GetSPODName returns the name of the SPOD instance we're currently running
 // on.
 func GetSPODName() string {
-	name := os.Getenv(config.SPOdNameEnvKey)
-	if name == "" {
-		// Return the default spod name
-		return config.SPOdName
+	if name := os.Getenv(config.SPOdNameEnvKey); name != "" {
+		return name
 	}
 
-	return name
+	return config.SPOdName
 }
 
 // GetSPOD returns the SPOD instance we're currently running on.
@@ -50,4 +53,38 @@ func GetSPOD(ctx context.Context, cli client.Client) (*spodv1alpha1.SecurityProf
 	}
 
 	return spod, nil
+}
+
+// LogFilePath returns either the path to the audit logs or falls back to
+// syslog if the audit log path does not exist.
+func LogFilePath() string {
+	filePath := config.SyslogLogPath
+	if helpers.Exists(config.AuditLogPath) {
+		filePath = config.AuditLogPath
+	}
+
+	return filePath
+}
+
+func AuditTimeToIso(timestampAuditID string) (string, error) {
+	parts := strings.Split(timestampAuditID, ":")
+	if len(parts) == 0 {
+		return "", fmt.Errorf("invalid timestamp audit ID: %s", timestampAuditID)
+	}
+
+	timestampStr := parts[0]
+
+	fractionalParts := strings.Split(timestampStr, ".")
+	if len(fractionalParts) == 0 {
+		return "", fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
+	}
+
+	seconds, err := strconv.ParseInt(fractionalParts[0], 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid timestamp audit ID: %s", timestampStr)
+	}
+
+	t := time.Unix(seconds, 0).In(time.UTC)
+
+	return t.Format("2006-01-02T15:04:05.000Z"), nil
 }

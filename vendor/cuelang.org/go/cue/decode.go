@@ -19,6 +19,7 @@ import (
 	"cmp"
 	"encoding"
 	"encoding/json"
+	"math"
 	"reflect"
 	"slices"
 	"strconv"
@@ -29,6 +30,7 @@ import (
 
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/internal/core/adt"
+	"cuelang.org/go/internal/cueexperiment"
 )
 
 // Decode initializes the value pointed to by x with Value v.
@@ -76,7 +78,7 @@ func (d *decoder) clear(x reflect.Value) {
 	}
 }
 
-var valueType = reflect.TypeOf(Value{})
+var valueType = reflect.TypeFor[Value]()
 
 func (d *decoder) decode(x reflect.Value, v Value, isPtr bool) {
 	if !x.IsValid() {
@@ -118,7 +120,7 @@ func (d *decoder) decode(x reflect.Value, v Value, isPtr bool) {
 	ij, it, x := indirect(x, v.IsNull())
 
 	if ij != nil {
-		b, err := v.marshalJSON()
+		b, err := v.MarshalJSON()
 		d.addErr(err)
 		d.addErr(ij.UnmarshalJSON(b))
 		return
@@ -268,7 +270,17 @@ func (d *decoder) interfaceValue(v Value) (x interface{}) {
 
 	case IntKind:
 		if i, err := v.Int64(); err == nil {
-			return int(i)
+			cueexperiment.Init()
+			if cueexperiment.Flags.DecodeInt64 {
+				return i
+			}
+			// When the decodeint64 experiment is not enabled, we want to return the value
+			// as `int`, but that's not possible for large values on 32-bit architectures.
+			// To avoid overflows causing entirely wrong values to be returned to the user,
+			// let the logic continue below so that we return a *big.Int instead.
+			if i <= math.MaxInt && i >= math.MinInt {
+				return int(i)
+			}
 		}
 		x, err = v.Int(nil)
 
@@ -298,7 +310,7 @@ func (d *decoder) interfaceValue(v Value) (x interface{}) {
 		iter, err := v.Fields()
 		d.addErr(err)
 		for iter.Next() {
-			m[iter.Label()] = d.interfaceValue(iter.Value())
+			m[iter.Selector().Unquoted()] = d.interfaceValue(iter.Value())
 		}
 		x = m
 
@@ -310,7 +322,7 @@ func (d *decoder) interfaceValue(v Value) (x interface{}) {
 	return x
 }
 
-var textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+var textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 
 // convertMap keeps an existing map and overwrites any entry found in v,
 // keeping other preexisting entries.
@@ -340,7 +352,7 @@ func (d *decoder) convertMap(x reflect.Value, v Value) {
 	iter, err := v.Fields()
 	d.addErr(err)
 	for iter.Next() {
-		key := iter.Label()
+		key := iter.Selector().Unquoted()
 
 		var kv reflect.Value
 		kt := t.Key()
@@ -396,9 +408,8 @@ func (d *decoder) convertStruct(x reflect.Value, v Value) {
 	iter, err := v.Fields()
 	d.addErr(err)
 	for iter.Next() {
-
 		var f *goField
-		key := iter.Label()
+		key := iter.Selector().Unquoted()
 		if i, ok := fields.nameIndex[key]; ok {
 			// Found an exact name match.
 			f = &fields.list[i]
@@ -480,9 +491,6 @@ type goField struct {
 	nameBytes []byte                 // []byte(name)
 	equalFold func(s, t []byte) bool // bytes.EqualFold or equivalent
 
-	nameNonEsc  string // `"` + name + `":`
-	nameEscHTML string // `"` + HTMLEscape(name) + `":`
-
 	tag       bool
 	index     []int
 	typ       reflect.Type
@@ -517,9 +525,6 @@ func typeFields(t reflect.Type) structFields {
 
 	// Fields found.
 	var fields []goField
-
-	// Buffer to run HTMLEscape on field names.
-	var nameEscBuf bytes.Buffer
 
 	for len(next) > 0 {
 		current, next = next, current[:0]
@@ -583,14 +588,6 @@ func typeFields(t reflect.Type) structFields {
 					}
 					field.nameBytes = []byte(field.name)
 					field.equalFold = foldFunc(field.nameBytes)
-
-					// Build nameEscHTML and nameNonEsc ahead of time.
-					nameEscBuf.Reset()
-					nameEscBuf.WriteString(`"`)
-					json.HTMLEscape(&nameEscBuf, field.nameBytes)
-					nameEscBuf.WriteString(`":`)
-					field.nameEscHTML = nameEscBuf.String()
-					field.nameNonEsc = `"` + field.name + `":`
 
 					fields = append(fields, field)
 					if count[f.typ] > 1 {

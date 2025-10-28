@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.18.0
   labels:
     app: security-profiles-operator
   name: profilebindings.security-profiles-operator.x-k8s.io
@@ -85,7 +85,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.18.0
   labels:
     app: security-profiles-operator
   name: profilerecordings.security-profiles-operator.x-k8s.io
@@ -238,7 +238,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.18.0
   labels:
     app: security-profiles-operator
   name: seccompprofiles.security-profiles-operator.x-k8s.io
@@ -501,7 +501,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.18.0
   labels:
     app: security-profiles-operator
   name: securityprofilenodestatuses.security-profiles-operator.x-k8s.io
@@ -571,7 +571,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.18.0
   labels:
     app: security-profiles-operator
   name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
@@ -900,7 +900,6 @@ spec:
                                     pod labels will be ignored. The default value is empty.
                                     The same key is forbidden to exist in both matchLabelKeys and labelSelector.
                                     Also, matchLabelKeys cannot be set when labelSelector isn't set.
-                                    This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                   items:
                                     type: string
                                   type: array
@@ -915,7 +914,6 @@ spec:
                                     pod labels will be ignored. The default value is empty.
                                     The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
                                     Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
-                                    This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                   items:
                                     type: string
                                   type: array
@@ -1081,7 +1079,6 @@ spec:
                                 pod labels will be ignored. The default value is empty.
                                 The same key is forbidden to exist in both matchLabelKeys and labelSelector.
                                 Also, matchLabelKeys cannot be set when labelSelector isn't set.
-                                This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                               items:
                                 type: string
                               type: array
@@ -1096,7 +1093,6 @@ spec:
                                 pod labels will be ignored. The default value is empty.
                                 The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
                                 Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
-                                This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                               items:
                                 type: string
                               type: array
@@ -1259,7 +1255,6 @@ spec:
                                     pod labels will be ignored. The default value is empty.
                                     The same key is forbidden to exist in both matchLabelKeys and labelSelector.
                                     Also, matchLabelKeys cannot be set when labelSelector isn't set.
-                                    This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                   items:
                                     type: string
                                   type: array
@@ -1274,7 +1269,6 @@ spec:
                                     pod labels will be ignored. The default value is empty.
                                     The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
                                     Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
-                                    This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                                   items:
                                     type: string
                                   type: array
@@ -1440,7 +1434,6 @@ spec:
                                 pod labels will be ignored. The default value is empty.
                                 The same key is forbidden to exist in both matchLabelKeys and labelSelector.
                                 Also, matchLabelKeys cannot be set when labelSelector isn't set.
-                                This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                               items:
                                 type: string
                               type: array
@@ -1455,7 +1448,6 @@ spec:
                                 pod labels will be ignored. The default value is empty.
                                 The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
                                 Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
-                                This is a beta field and requires enabling MatchLabelKeysInPodAffinity feature gate (enabled by default).
                               items:
                                 type: string
                               type: array
@@ -1626,6 +1618,11 @@ spec:
                   tells the operator whether or not to enable bpf recorder support for this
                   SPOD instance.
                 type: boolean
+              enableJsonEnricher:
+                description: |-
+                  tells the operator whether or not to enable audit JSON enrichment support for this
+                  SPOD instance.
+                type: boolean
               enableLogEnricher:
                 description: |-
                   tells the operator whether or not to enable log enrichment support for this
@@ -1676,6 +1673,63 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
+              jsonEnricherFilters:
+                default: ""
+                description: |-
+                  JsonEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
+                  for the json-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
+                type: string
+              jsonEnricherOptions:
+                description: |-
+                  Defines options specific to the JsonEnricher
+                  functionality of the SecurityProfilesOperator
+                  Its optional to provide this configuration
+                properties:
+                  auditLogIntervalSeconds:
+                    description: |-
+                      Specifies the interval, in seconds, at which the accumulated audit log
+                      data is output in JSON format. For each process, syscalls occurring
+                      within this interval are grouped together. The default is 60 seconds.
+                      Increasing this interval will reduce the rate at which logs are written.
+                    format: int32
+                    type: integer
+                  auditLogMaxAge:
+                    description: |-
+                      This field specifies the maximum number of days to retain old audit log files
+                      The default is not to remove old log files based on age
+                    format: int32
+                    type: integer
+                  auditLogMaxBackups:
+                    description: |-
+                      This field specifies the maximum size in megabytes of the audit log file before it gets rotated.
+                      The default is to retain all old log files (though MaxAge may still cause them to get deleted.)
+                    format: int32
+                    type: integer
+                  auditLogMaxSize:
+                    description: |-
+                      This field specifies the maximum number of audit log files to retain.
+                      If left unspecified it defaults to 100 MB.
+                    format: int32
+                    type: integer
+                  auditLogPath:
+                    description: |-
+                      This field specifies the path for the accumulated audit log data.
+                      The audit log will be written to this file in JSON format if a file path
+                      is provided. If left unspecified, the output will be directed to
+                      standard output (stdout).
+                    type: string
+                type: object
+              logEnricherFilters:
+                default: ""
+                description: |-
+                  LogEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
+                  for the log-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
+                type: string
+              logEnricherSource:
+                description: |-
+                  logEnricherSource determines which source should be used for audit logs.
+                  This defaults to `auditd`, but can be switched to `bpf` on systems where auditd is unavailable.
+                type: string
               priorityClassName:
                 default: system-node-critical
                 description: PriorityClassName if defined, indicates the spod pod
@@ -1913,7 +1967,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.18.0
   labels:
     app: security-profiles-operator
   name: rawselinuxprofiles.security-profiles-operator.x-k8s.io
@@ -2031,7 +2085,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.18.0
   labels:
     app: security-profiles-operator
   name: selinuxprofiles.security-profiles-operator.x-k8s.io
@@ -2190,7 +2244,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.17.2
+    controller-gen.kubebuilder.io/version: v0.18.0
   labels:
     app: security-profiles-operator
   name: apparmorprofiles.security-profiles-operator.x-k8s.io
@@ -3123,6 +3177,13 @@ data:
             allowTcp: true
             allowUdp: true
       disabled: false
+  json-enricher-log-volume-mount-path: /data/logs/jsonenricher
+  json-enricher-log-volume-source.json: |-
+    {
+      "emptyDir": {
+        "sizeLimit": "500Mi"
+      }
+    }
   security-profiles-operator.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
@@ -3315,6 +3376,7 @@ data:
         executable:
           allowedExecutables:
           - /security-profiles-operator
+          - /usr/sbin/apparmor_parser
           - /sbin/apparmor_parser
         filesystem:
           readOnlyPaths:
@@ -3395,7 +3457,7 @@ spec:
               fieldPath: spec.nodeName
         - name: KUBELET_DIR
           value: /var/lib/kubelet
-        image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.9.0
+        image: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.10.0
         imagePullPolicy: Always
         name: security-profiles-operator
         resources:

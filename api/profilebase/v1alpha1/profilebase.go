@@ -52,7 +52,7 @@ func IsDisabled(prfSpec *SpecBase) bool {
 }
 
 func IsReconcilable(prfBase SecurityProfileBase) bool {
-	return !(prfBase.IsDisabled() || prfBase.IsPartial())
+	return !prfBase.IsDisabled() && !prfBase.IsPartial()
 }
 
 func ListProfilesByRecording(

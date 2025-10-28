@@ -38,7 +38,7 @@ import (
 // SignLiteral generates a Signature for the given Payload and Headers, and serializes
 // it in compact serialization format. In this format you may NOT use
 // multiple signers.
-func SignLiteral(payload []byte, alg jwa.SignatureAlgorithm, key interface{}, hdrBuf []byte, rnd io.Reader) ([]byte, error) {
+func SignLiteral(payload []byte, alg jwa.SignatureAlgorithm, key any, hdrBuf []byte, rnd io.Reader) ([]byte, error) {
 	encodedHdr := base64.RawURLEncoding.EncodeToString(hdrBuf)
 	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
 	signingInput := strings.Join(
@@ -77,7 +77,7 @@ func SignLiteral(payload []byte, alg jwa.SignatureAlgorithm, key interface{}, hd
 // multiple signers.
 //
 // If you would like to pass custom Headers, use the WithHeaders option.
-func SignWithOption(payload []byte, alg jwa.SignatureAlgorithm, key interface{}) ([]byte, error) {
+func SignWithOption(payload []byte, alg jwa.SignatureAlgorithm, key any) ([]byte, error) {
 	var headers Headers = &StandardHeaders{}
 
 	err := headers.Set(AlgorithmKey, alg)
@@ -99,7 +99,7 @@ func SignWithOption(payload []byte, alg jwa.SignatureAlgorithm, key interface{})
 // Payload that was signed is returned. If you need more fine-grained
 // control of the verification process, manually call `Parse`, generate a
 // verifier, and call `Verify` on the parsed JWS message object.
-func Verify(buf []byte, alg jwa.SignatureAlgorithm, key interface{}) (ret []byte, err error) {
+func Verify(buf []byte, alg jwa.SignatureAlgorithm, key any) (ret []byte, err error) {
 
 	verifier, err := verify.New(alg)
 	if err != nil {
@@ -111,7 +111,7 @@ func Verify(buf []byte, alg jwa.SignatureAlgorithm, key interface{}) (ret []byte
 		return nil, errors.New(`attempt to verify empty buffer`)
 	}
 
-	parts, err := SplitCompact(string(buf[:]))
+	parts, err := SplitCompact(string(buf))
 	if err != nil {
 		return nil, fmt.Errorf("failed extract from compact serialization format: %w", err)
 	}
@@ -164,7 +164,7 @@ func VerifyWithJWKSet(buf []byte, keyset *jwk.Set) (payload []byte, err error) {
 
 // ParseByte parses a JWS value serialized via compact serialization and provided as []byte.
 func ParseByte(jwsCompact []byte) (m *Message, err error) {
-	return parseCompact(string(jwsCompact[:]))
+	return parseCompact(string(jwsCompact))
 }
 
 // ParseString parses a JWS value serialized via compact serialization and provided as string.

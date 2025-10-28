@@ -21,7 +21,6 @@ import (
 
 	in_toto "github.com/in-toto/attestation/go/v1"
 	"github.com/secure-systems-lab/go-securesystemslib/dsse"
-	protocommon "github.com/sigstore/protobuf-specs/gen/pb-go/common/v1"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/tlog"
 )
@@ -52,6 +51,10 @@ type VerificationProvider interface {
 	VerificationContent() (VerificationContent, error)
 }
 
+type VersionProvider interface {
+	Version() (string, error)
+}
+
 type SignedEntity interface {
 	HasInclusionPromise
 	HasInclusionProof
@@ -59,13 +62,14 @@ type SignedEntity interface {
 	SignedTimestampProvider
 	TlogEntryProvider
 	VerificationProvider
+	VersionProvider
 }
 
 type VerificationContent interface {
 	CompareKey(any, root.TrustedMaterial) bool
 	ValidAtTime(time.Time, root.TrustedMaterial) bool
-	GetCertificate() *x509.Certificate
-	HasPublicKey() (PublicKeyProvider, bool)
+	Certificate() *x509.Certificate
+	PublicKey() PublicKeyProvider
 }
 
 type SignatureContent interface {
@@ -95,19 +99,21 @@ type EnvelopeContent interface {
 // that only implements a subset of the interfaces.
 type BaseSignedEntity struct{}
 
-func (b *BaseSignedEntity) VerificationProvider() (VerificationContent, error) {
+var _ SignedEntity = &BaseSignedEntity{}
+
+func (b *BaseSignedEntity) HasInclusionPromise() bool {
+	return false
+}
+
+func (b *BaseSignedEntity) HasInclusionProof() bool {
+	return false
+}
+
+func (b *BaseSignedEntity) VerificationContent() (VerificationContent, error) {
 	return nil, errNotImplemented
 }
 
-func (b *BaseSignedEntity) Envelope() (*dsse.Envelope, error) {
-	return nil, errNotImplemented
-}
-
-func (b *BaseSignedEntity) MessageSignature() (*protocommon.MessageSignature, error) {
-	return nil, errNotImplemented
-}
-
-func (b *BaseSignedEntity) Signature() ([]byte, error) {
+func (b *BaseSignedEntity) SignatureContent() (SignatureContent, error) {
 	return nil, errNotImplemented
 }
 
@@ -117,4 +123,8 @@ func (b *BaseSignedEntity) Timestamps() ([][]byte, error) {
 
 func (b *BaseSignedEntity) TlogEntries() ([]*tlog.Entry, error) {
 	return nil, errNotImplemented
+}
+
+func (b *BaseSignedEntity) Version() (string, error) {
+	return "", errNotImplemented
 }

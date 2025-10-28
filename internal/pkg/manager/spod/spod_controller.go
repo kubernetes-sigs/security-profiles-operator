@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -180,9 +181,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	}
 
 	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy, caInjectType)
-
-	webhook := bindata.GetWebhook(r.log, r.namespace, spod.Spec.WebhookOpts, image,
-		pullPolicy, caInjectType, spod.Spec.Tolerations, spod.Spec.ImagePullSecrets)
+	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
 	serviceMonitor := bindata.ServiceMonitor(caInjectType)
 
@@ -462,7 +461,6 @@ func (r *ReconcileSPOd) handleUpdate(
 		foundProfile := &seccompprofileapi.SeccompProfile{}
 
 		var err error
-
 		if err = r.client.Get(ctx, pKey, foundProfile); err == nil {
 			updatedProfile := foundProfile.DeepCopy()
 			updatedProfile.Spec = *profile.Spec.DeepCopy()
@@ -578,7 +576,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	// Disable profile recording controller by default
 	enableRecording := false
 
-	if isLogEnricherEnabled(cfg) || isBpfRecorderEnabled(cfg) {
+	if isLogEnricherEnabled(cfg) || isBpfRecorderEnabled(cfg) || isJsonEnricherEnabled(cfg) {
 		if useCustomHostProc {
 			templateSpec.Volumes = append(templateSpec.Volumes, volume)
 		}
@@ -606,6 +604,8 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
 		// pass the log enricher env var to the daemon as the profile recorder is otherwise disabled
 		addEnvVar(templateSpec, config.EnableLogEnricherEnvKey)
+
+		r.getConfiguredLogEnricher(cfg)
 	}
 
 	// Bpf recorder parameters
@@ -629,6 +629,21 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 				LocalhostProfile: &localApparmorProfile,
 			}
 		}
+	}
+
+	if isJsonEnricherEnabled(cfg) {
+		ctr := r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher]
+		ctr.Image = image
+
+		if useCustomHostProc {
+			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
+		}
+
+		templateSpec.Containers = append(templateSpec.Containers, ctr)
+		// pass the json enricher env var to the daemon as the profile recorder is otherwise disabled
+		addEnvVar(templateSpec, config.EnableJsonEnricherEnvKey)
+
+		r.getConfiguredJsonEnricher(cfg)
 	}
 
 	// AppArmor parameters
@@ -656,11 +671,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			"--with-apparmor=true")
 
 		// Remove AppArmor constraints to be able to manage AppArmor.
-		if newSPOd.ObjectMeta.Annotations == nil {
-			newSPOd.ObjectMeta.Annotations = make(map[string]string)
+		if newSPOd.Annotations == nil {
+			newSPOd.Annotations = make(map[string]string)
 		}
 
-		newSPOd.ObjectMeta.Annotations[appArmorAnnotation] = "unconfined"
+		newSPOd.Annotations[appArmorAnnotation] = "unconfined"
 
 		// A more privileged init container is required when apparmor is enabled, in order
 		// to install the apparmor profile for spo itself.
@@ -732,6 +747,97 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	return newSPOd
 }
 
+func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {
+	if cfg.Spec.LogEnricherFilters != "" {
+		r.log.Info("Setting LogEnricherFilters",
+			"LogEnricherFilters", cfg.Spec.LogEnricherFilters)
+
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
+			"--enricher-filters-json="+cfg.Spec.LogEnricherFilters,
+		)
+	}
+
+	if cfg.Spec.LogEnricherSource != "" {
+		r.log.Info("Setting LogEnricherSource", "LogEnricherSource", cfg.Spec.LogEnricherSource)
+
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
+			"--enricher-log-source="+cfg.Spec.LogEnricherSource,
+		)
+	}
+}
+
+func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {
+	if cfg.Spec.JsonEnricherFilters != "" {
+		r.log.Info("Setting LogEnricherFilters",
+			"JsonEnricherFilters", cfg.Spec.JsonEnricherFilters)
+
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+			"--enricher-filters-json="+cfg.Spec.JsonEnricherFilters,
+		)
+	}
+
+	if cfg.Spec.JsonEnricherOpt != nil {
+		r.log.Info("Setting JsonEnricherOpt",
+			"AuditLogIntervalSeconds", cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds,
+			"AuditLogPath", cfg.Spec.JsonEnricherOpt.AuditLogPath,
+			"AuditLogMaxAge", cfg.Spec.JsonEnricherOpt.AuditLogMaxAge,
+			"AuditLogMaxSize", cfg.Spec.JsonEnricherOpt.AuditLogMaxSize,
+			"AuditLogMaxBackups", cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups,
+		)
+
+		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+			fmt.Sprintf("--audit-log-interval-seconds=%d",
+				cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds),
+		)
+
+		if cfg.Spec.JsonEnricherOpt.AuditLogMaxAge != nil {
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				fmt.Sprintf("--audit-log-maxage=%d",
+					*cfg.Spec.JsonEnricherOpt.AuditLogMaxAge),
+			)
+		}
+
+		if cfg.Spec.JsonEnricherOpt.AuditLogMaxSize != nil {
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				fmt.Sprintf("--audit-log-maxsize=%d",
+					*cfg.Spec.JsonEnricherOpt.AuditLogMaxSize),
+			)
+		}
+
+		if cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups != nil {
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				fmt.Sprintf("--audit-log-maxbackup=%d",
+					*cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups),
+			)
+		}
+
+		if cfg.Spec.JsonEnricherOpt.AuditLogPath != nil {
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				"--audit-log-path="+(*cfg.Spec.JsonEnricherOpt.AuditLogPath),
+			)
+		}
+	}
+}
+
+// getConfiguredWebook gets a fully configured webhook instance from a desired
+// configuration and the reference base SPOd.
+func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
+	image string, pullPolicy corev1.PullPolicy, caInjectType bindata.CAInjectType,
+) *bindata.Webhook {
+	webhook := bindata.GetWebhook(r.log, r.namespace, cfg.Spec.WebhookOpts, image,
+		pullPolicy, caInjectType, cfg.Spec.Tolerations, cfg.Spec.ImagePullSecrets, isJsonEnricherEnabled(cfg))
+
+	return webhook
+}
+
 func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
 	enableLogEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableLogEnricherEnvKey))
 	if err != nil {
@@ -739,6 +845,61 @@ func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool
 	}
 
 	return cfg.Spec.EnableLogEnricher || enableLogEnricherEnv
+}
+
+func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
+	enableJsonEnricherEnv, err := strconv.ParseBool(os.Getenv(config.EnableJsonEnricherEnvKey))
+	if err != nil {
+		enableJsonEnricherEnv = false
+	}
+
+	return cfg.Spec.EnableJsonEnricher || enableJsonEnricherEnv
+}
+
+func addArgsConfig(args []string, argonfig string) []string {
+	if replaced := sliceReplaceArg(args, argonfig); replaced {
+		return args
+	}
+
+	if !sliceContainsString(args, argonfig) {
+		return append(args, argonfig)
+	}
+
+	return args
+}
+
+func sliceReplaceArg(slice []string, s string) bool {
+	const argSeparator = "="
+
+	newParts := strings.SplitN(s, argSeparator, 2)
+	if len(newParts) != 2 {
+		return false
+	}
+
+	newKey := newParts[0]
+
+	for i := range slice {
+		existingItem := slice[i]
+		existingParts := strings.SplitN(existingItem, argSeparator, 2) // Split existing item to get its key
+
+		if len(existingParts) >= 1 && existingParts[0] == newKey {
+			slice[i] = s
+
+			return true
+		}
+	}
+
+	return false
+}
+
+func sliceContainsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isBpfRecorderEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {

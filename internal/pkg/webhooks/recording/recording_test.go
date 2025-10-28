@@ -17,7 +17,6 @@ limitations under the License.
 package recording
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -135,7 +134,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 2) // 2 because security context and the annotation
 			},
 		},
@@ -180,7 +179,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
 		},
@@ -211,7 +210,7 @@ func TestHandle(t *testing.T) {
 				mock.DecodePodReturns(testPod.DeepCopy(), nil)
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 			},
 		},
@@ -251,7 +250,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
 		},
@@ -376,7 +375,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 			},
 		},
@@ -416,7 +415,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 			},
 		},
 		//nolint:dupl // golint flags this as a dup of the below, but here we're testing failure of UpdateResource
@@ -542,7 +541,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 			},
 		},
 	} {
@@ -550,7 +549,7 @@ func TestHandle(t *testing.T) {
 		tc.prepare(mock)
 
 		recorder := podSeccompRecorder{impl: mock, log: logr.Discard(), record: utils.NewSafeRecorder(nil)}
-		resp := recorder.Handle(context.Background(), tc.request)
+		resp := recorder.Handle(t.Context(), tc.request)
 		tc.assert(resp)
 	}
 }

@@ -60,9 +60,12 @@ const (
 	ContainerIDSelinuxd                              = 1
 	ContainerIDLogEnricher                           = 2
 	ContainerIDBpfRecorder                           = 3
+	ContainerIDJsonEnricher                          = 4
 	DefaultHostProcPath                              = "/proc"
 	SelinuxContainerName                             = "selinuxd"
 	LogEnricherContainerName                         = "log-enricher"
+	DefaultLogEnricherSource                         = "auditd"
+	JsonEnricherContainerName                        = "json-enricher"
 	BpfRecorderContainerName                         = "bpf-recorder"
 	NonRootEnablerContainerName                      = "non-root-enabler"
 	SelinuxPoliciesCopierContainerName               = "selinux-shared-policies-copier"
@@ -113,6 +116,9 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 			},
 		},
 		DisableOCIArtifactSignatureVerification: false,
+		JsonEnricherFilters:                     "",
+		LogEnricherFilters:                      "",
+		LogEnricherSource:                       DefaultLogEnricherSource,
 	},
 }
 
@@ -406,8 +412,8 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Port:   intstr.FromString("liveness-port"),
 								Scheme: corev1.URISchemeHTTP,
 							}},
-							FailureThreshold: 10, //nolint:gomnd // test number
-							PeriodSeconds:    3,  //nolint:gomnd // test number
+							FailureThreshold: 10,
+							PeriodSeconds:    3,
 							TimeoutSeconds:   1,
 							SuccessThreshold: 1,
 						},
@@ -418,7 +424,7 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 								Scheme: corev1.URISchemeHTTP,
 							}},
 							FailureThreshold: 1,
-							PeriodSeconds:    10, //nolint:gomnd // test number
+							PeriodSeconds:    10,
 							TimeoutSeconds:   1,
 							SuccessThreshold: 1,
 						},
@@ -598,6 +604,79 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							Limits: corev1.ResourceList{
 								corev1.ResourceMemory:           resource.MustParse("128Mi"),
 								corev1.ResourceEphemeralStorage: resource.MustParse("20Mi"),
+							},
+						},
+						Env: []corev1.EnvVar{
+							{
+								Name: config.NodeNameEnvKey,
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
+										FieldPath: "spec.nodeName",
+									},
+								},
+							},
+							{
+								Name:  config.KubeletDirEnvKey,
+								Value: config.KubeletDir(),
+							},
+						},
+					},
+					{
+						Name: JsonEnricherContainerName,
+						Args: []string{
+							"json-enricher",
+						},
+						ImagePullPolicy: corev1.PullAlways,
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      "host-auditlog-volume",
+								MountPath: filepath.Dir(config.AuditLogPath),
+								ReadOnly:  true,
+							},
+							{
+								Name:      "host-syslog-volume",
+								MountPath: filepath.Dir(config.SyslogLogPath),
+								ReadOnly:  true,
+							},
+							{
+								Name:      "sys-kernel-debug-volume",
+								MountPath: sysKernelDebugPath,
+								ReadOnly:  true,
+							},
+							{
+								Name:      "sys-kernel-tracing-volume",
+								MountPath: sysKernelTracingPath,
+								ReadOnly:  true,
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							ReadOnlyRootFilesystem: &truly,
+							Privileged:             &truly, // Required for BPF capability
+							RunAsUser:              &userRoot,
+							RunAsGroup:             &userRoot,
+							Capabilities: &corev1.Capabilities{
+								// If container in privileged these capabilities are redundant. Mentioned for clarity.
+								Add: []corev1.Capability{
+									"SYS_PTRACE",   // Needed for /proc/PID/environ access on some systems (ex: Ubuntu)
+									"SYS_RESOURCE", // Needed for BPF enablement
+									"BPF",          // Required to use BPF
+									"PERFMON",      // Required to attach tracepoint in BPF
+								},
+							},
+							SELinuxOptions: &corev1.SELinuxOptions{
+								// TODO(pjbgf): Use a more restricted selinux type
+								Type: "spc_t",
+							},
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("64Mi"),
+								corev1.ResourceCPU:              resource.MustParse("50m"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("10Mi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory:           resource.MustParse("256Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("128Mi"),
 							},
 						},
 						Env: []corev1.EnvVar{
@@ -850,6 +929,19 @@ var metricsService = &corev1.Service{
 	},
 }
 
+func CustomLogVolume(mountPath string, logVolumeSource *corev1.VolumeSource) (corev1.Volume, corev1.VolumeMount) {
+	const volumeName = "json-enricher-log-output-volume"
+
+	return corev1.Volume{
+			Name:         volumeName,
+			VolumeSource: *logVolumeSource,
+		}, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: mountPath,
+			ReadOnly:  false,
+		}
+}
+
 // CustomHostProcVolume returns a new host /proc path volume as well as
 // corresponding mount used for the log-enricher or bpf-recorder.
 func CustomHostProcVolume(path string) (corev1.Volume, corev1.VolumeMount) {
@@ -886,6 +978,19 @@ func CustomHostKubeletVolume(path string) (corev1.Volume, corev1.VolumeMount) {
 		}, corev1.VolumeMount{
 			Name:      volumeName,
 			MountPath: path,
+			ReadOnly:  false,
+		}
+}
+
+func CustomConfigMap(mountPath string, configVolSource *corev1.VolumeSource) (corev1.Volume, corev1.VolumeMount) {
+	const volumeName = "json-enricher-filters-volume"
+
+	return corev1.Volume{
+			Name:         volumeName,
+			VolumeSource: *configVolSource,
+		}, corev1.VolumeMount{
+			Name:      volumeName,
+			MountPath: mountPath,
 			ReadOnly:  false,
 		}
 }

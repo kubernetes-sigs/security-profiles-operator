@@ -148,7 +148,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 
 	// pod is being created or updated so ensure it is linked to a selinux profile
 	for _, profileIndex := range getSelinuxProfilesFromPod(ctx, r, pod) {
-		profileSuffix := "_" + pod.GetNamespace() + ".process"
+		profileSuffix := ".process"
 		profileName := strings.TrimSuffix(profileIndex, profileSuffix)
 
 		selinuxProfile := &selinuxprofileapi.SelinuxProfile{}
@@ -183,7 +183,7 @@ func (r *PodReconciler) updatePodReferencesForSeccomp(ctx context.Context, sp *s
 
 	for i := range linkedPods.Items {
 		pod := linkedPods.Items[i]
-		podList[i] = pod.ObjectMeta.Namespace + "/" + pod.ObjectMeta.Name
+		podList[i] = pod.Namespace + "/" + pod.Name
 	}
 
 	if err := util.Retry(func() error {
@@ -235,7 +235,7 @@ func (r *PodReconciler) updatePodReferencesForSelinux(ctx context.Context, se *s
 
 	for i := range linkedPods.Items {
 		pod := linkedPods.Items[i]
-		podList[i] = pod.ObjectMeta.Namespace + "/" + pod.ObjectMeta.Name
+		podList[i] = pod.Namespace + "/" + pod.Name
 	}
 
 	if err := util.Retry(func() error {
@@ -371,7 +371,7 @@ func isOperatorSelinuxType(ctx context.Context, r *PodReconciler, se *corev1.SEL
 		return false
 	}
 
-	suffix := "_" + ns + ".process"
+	suffix := ".process"
 	selinuxProfileName := strings.TrimSuffix(se.Type, suffix)
 
 	if selinuxProfileName != se.Type {

@@ -19,9 +19,12 @@ package e2e_test
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v2"
 
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -33,6 +36,107 @@ const (
 	recordingName                                    = "test-recording"
 	selinuxRecordingName                             = "test-selinux-recording"
 )
+
+func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
+	for range 10 {
+		e.logf("Waiting for JSON enricher to record syscalls")
+		logs := e.kubectlOperatorNS(
+			"logs",
+			"--since-time="+since.Format(time.RFC3339),
+			"ds/spod",
+			"json-enricher",
+		)
+
+		matchAll := true
+
+		for _, condition := range conditions {
+			if !condition.MatchString(logs) {
+				matchAll = false
+			}
+		}
+
+		if matchAll {
+			break
+		}
+
+		e.logf("Waiting for 3 seconds to get lines")
+		time.Sleep(3 * time.Second)
+	}
+}
+
+func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*regexp.Regexp) string {
+	logs := ""
+
+	// This loop will scan for logs for 60 seconds. The logs will be colleted 6 times with an interval of 10 seconds
+	for range 6 {
+		e.logf("Waiting for JSON enricher to record syscalls")
+
+		podNamesStr := e.kubectlOperatorNS("get", "pods",
+			"-l",
+			"name=spod",
+			"-o",
+			"jsonpath={.items[*].metadata.name}",
+		)
+		e.logf("podnames: %s", podNamesStr)
+
+		podNamesSlice := strings.Fields(podNamesStr)
+		matchAll := true
+
+		for _, podName := range podNamesSlice {
+			type Item struct {
+				MountPath string `yaml:"mountPath"`
+				Name      string `yaml:"name"`
+			}
+
+			type Config struct {
+				VolumeMounts []Item `yaml:"volumeMounts"`
+			}
+
+			config := Config{
+				VolumeMounts: []Item{
+					{MountPath: filepath.Dir(logFilePath), Name: "json-enricher-log-output-volume"},
+				},
+			}
+
+			yamlBytes, err := yaml.Marshal(&config)
+			if err != nil {
+				e.logf("Error marshalling json-enricher volume mount: %v", err)
+			}
+
+			customProfileYaml := os.TempDir() + "/" + "custom-profile.yaml"
+
+			_ = os.Remove(customProfileYaml)
+
+			wErr := os.WriteFile(customProfileYaml, yamlBytes, 0o600)
+			if wErr != nil {
+				e.logf("Error writing YAML to file '%s': %v", customProfileYaml, err)
+			}
+
+			e.run("cat", customProfileYaml)
+			podLogs := e.kubectlOperatorNS("debug", "-it", podName,
+				"--image=quay.io/security-profiles-operator/test-nginx:1.19.1",
+				"--target=json-enricher", "--custom="+customProfileYaml, "--", "cat", logFilePath)
+			e.logf("audit logs output: %s is %s", podName, podLogs)
+
+			logs += podLogs
+		}
+
+		for _, condition := range conditions {
+			if !condition.MatchString(logs) {
+				matchAll = false
+			}
+		}
+
+		if matchAll {
+			break
+		}
+
+		e.logf("Waiting for 10 seconds to get lines")
+		time.Sleep(10 * time.Second)
+	}
+
+	return logs
+}
 
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
 	for range 10 {
@@ -93,11 +197,13 @@ func (e *e2e) testCaseProfileRecordingStaticPodSELinuxLogsNsNotEnabled() {
 	defer restoreNs()
 
 	e.logf("Creating SELinux recording for static pod test")
+
 	e.kubectl("create", "-f", exampleRecordingSelinuxLogsPath)
 	defer e.kubectl("delete", "-f", exampleRecordingSelinuxLogsPath)
 
 	_, podName := e.createRecordingTestPod()
 	defer e.kubectl("delete", "pod", podName)
+
 	output := e.kubectl("get", "pod", "-oyaml", podName)
 	e.NotContains(output, "selinuxrecording.process")
 }
@@ -149,6 +255,7 @@ func (e *e2e) testCaseProfileRecordingMultiContainerLogs() {
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
+
 	e.profileRecordingMultiContainer(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="listen"`),
@@ -161,6 +268,7 @@ func (e *e2e) testCaseProfileRecordingSpecificContainerLogs() {
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
+
 	e.profileRecordingSpecificContainer(exampleRecordingSeccompSpecificContainerLogsPath,
 		regexp.MustCompile(`(?m)"container"="nginx".*"syscallName"="epoll_wait"`),
 	)
@@ -200,10 +308,12 @@ func (e *e2e) profileRecordingSelinuxMultiContainer(
 	e.Contains(redispathresult, "name_bind")
 
 	const profileNameNginx = selinuxRecordingName + "-nginx"
+
 	nginxpathresult := e.retryGetSelinuxJsonpath("{.spec.allow.http_cache_port_t.tcp_socket}", profileNameNginx)
 	e.Contains(nginxpathresult, "name_bind")
 
 	const profileNameInit = recordingName + "-init"
+
 	exists := e.existsSelinuxProfile(profileNameInit)
 	e.False(exists)
 
@@ -226,14 +336,17 @@ func (e *e2e) profileRecordingMultiContainer(
 	e.kubectl("delete", "pod", podName)
 
 	const profileNameRedis = recordingName + "-redis"
+
 	profileRedis := e.retryGetSeccompProfile(profileNameRedis)
 	e.Contains(profileRedis, "epoll_wait")
 
 	const profileNameNginx = recordingName + "-nginx"
+
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "close")
 
 	const profileNameInit = recordingName + "-init"
+
 	profileInit := e.retryGetSeccompProfile(profileNameInit)
 	e.Contains(profileInit, "write")
 
@@ -256,14 +369,17 @@ func (e *e2e) profileRecordingSpecificContainer(
 	e.kubectl("delete", "pod", podName)
 
 	const profileNameNginx = recordingName + "-nginx"
+
 	profileNginx := e.retryGetSeccompProfile(profileNameNginx)
 	e.Contains(profileNginx, "close")
 
 	const profileNameRedis = recordingName + "-redis"
+
 	exists := e.existsSeccompProfile(profileNameRedis)
 	e.False(exists)
 
 	const profileNameInit = recordingName + "-init"
+
 	exists = e.existsSeccompProfile(profileNameInit)
 	e.False(exists)
 
@@ -276,6 +392,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentLogs() {
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
+
 	e.profileRecordingDeployment(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(
@@ -289,6 +406,7 @@ func (e *e2e) testCaseProfileRecordingDeploymentScaleUpDownLogs() {
 
 	restoreNs := e.switchToRecordingNs(nsRecordingEnabled)
 	defer restoreNs()
+
 	e.profileRecordingScaleDeployment(
 		exampleRecordingSeccompLogsPath,
 		regexp.MustCompile(

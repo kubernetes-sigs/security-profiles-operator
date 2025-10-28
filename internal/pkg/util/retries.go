@@ -56,7 +56,6 @@ func RetryEx(backoff *wait.Backoff, fn func() error, retryCondition func(error) 
 
 		return false, fmt.Errorf("retry function: %w", err)
 	})
-
 	if waitErr != nil {
 		return fmt.Errorf("wait on retry: %w", waitErr)
 	}

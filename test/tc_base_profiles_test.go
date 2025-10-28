@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	baseProfileNameRunc = "runc-v1.2.3"
-	baseProfileNameCrun = "crun-v1.20"
+	baseProfileNameRunc = "runc-v1.3.0"
+	baseProfileNameCrun = "crun-v1.22"
 )
 
 func (e *e2e) testCaseBaseProfile([]string) {
@@ -81,6 +81,7 @@ spec:
 	e.Nil(err)
 
 	defer os.Remove(helloProfileFile.Name())
+
 	_, err = helloProfileFile.WriteString(helloProfile)
 	e.Nil(err)
 	err = helloProfileFile.Close()

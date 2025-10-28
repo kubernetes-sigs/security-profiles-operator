@@ -4,15 +4,18 @@
 # Vagrant box for testing
 Vagrant.configure("2") do |config|
   config.vm.box = "fedora/39-cloud-base"
+  config.vm.box_url = "override-by-provider"
   memory = 8192
   cpus = 4
 
-  config.vm.provider :virtualbox do |v|
+  config.vm.provider :virtualbox do |v, override|
+    override.vm.box_url = "https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/39/Cloud/x86_64/images/Fedora-Cloud-Base-Vagrant-39-1.5.x86_64.vagrant-virtualbox.box"
     v.memory = memory
     v.cpus = cpus
   end
 
-  config.vm.provider :libvirt do |v|
+  config.vm.provider :libvirt do |v, override|
+    override.vm.box_url = "https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/39/Cloud/x86_64/images/Fedora-Cloud-Base-Vagrant-39-1.5.x86_64.vagrant-libvirt.box"
     v.memory = memory
     v.cpus = cpus
   end
@@ -37,7 +40,7 @@ Vagrant.configure("2") do |config|
       echo 'export GOPATH="$HOME/go"' >> /etc/profile
       echo 'export GOBIN="$GOPATH/bin"' >> /etc/profile
 
-      KUBERNETES_VERSION=v1.32
+      KUBERNETES_VERSION=v1.33
       cat <<EOF | tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
 name=Kubernetes
@@ -50,10 +53,10 @@ EOF
 cat <<EOF | tee /etc/yum.repos.d/cri-o.repo
 [cri-o]
 name=CRI-O
-baseurl=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/
+baseurl=https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/rpm/
 enabled=1
 gpgcheck=1
-gpgkey=https://pkgs.k8s.io/addons:/cri-o:/prerelease:/main/rpm/repodata/repomd.xml.key
+gpgkey=https://download.opensuse.org/repositories/isv:/cri-o:/prerelease:/main/rpm/repodata/repomd.xml.key
 EOF
 
       dnf install -y \

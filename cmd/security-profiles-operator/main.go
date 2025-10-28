@@ -26,7 +26,10 @@ import (
 	_ "net/http/pprof" //nolint:gosec // required for profiling
 	"os"
 	"os/exec"
+	"os/signal"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -72,26 +75,61 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/version"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/execmetadata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording"
 )
 
 const (
-	spocCmd            string = "spoc"
-	jsonFlag           string = "json"
-	recordingFlag      string = "with-recording"
-	selinuxFlag        string = "with-selinux"
-	apparmorFlag       string = "with-apparmor"
-	webhookFlag        string = "webhook"
-	memOptimFlag       string = "with-mem-optim"
-	defaultWebhookPort int    = 9443
+	spocCmd                      string = "spoc"
+	jsonFlag                     string = "json"
+	nodeStatusControllerFlag     string = "with-nodestatus-controller"
+	spodControllerFlag           string = "with-spod-controller"
+	workloadAnnotatorFlag        string = "with-workload-annotator"
+	recordingMergerFlag          string = "with-recording-merger"
+	recordingFlag                string = "with-recording"
+	seccompFlag                  string = "with-seccomp"
+	selinuxFlag                  string = "with-selinux"
+	apparmorFlag                 string = "with-apparmor"
+	webhookFlag                  string = "webhook"
+	memOptimFlag                 string = "with-mem-optim"
+	defaultWebhookPort           int    = 9443
+	auditLogIntervalSecondsParam string = "audit-log-interval-seconds"
+	auditLogPathParam            string = "audit-log-path"
+	auditLogMaxSizeParam         string = "audit-log-maxsize"
+	// The plural form is not used for audit-log-file-maxbackup to match the k8s api server audit log options.
+	auditLogMaxBackupParam   string = "audit-log-maxbackup"
+	auditLogMaxAgeParam      string = "audit-log-maxage"
+	enricherFiltersJsonParam string = "enricher-filters-json"
+	enricherLogSourceParam   string = "enricher-log-source"
+	tlsMinVersionParam       string = "tls-min-version"
+	defaultTlsMinVersion     string = "1.2"
 )
 
 var (
-	sync     = time.Second * 30
-	setupLog = ctrl.Log.WithName("setup")
+	sync             = time.Second * 30
+	setupLog         = ctrl.Log.WithName("setup")
+	tlsMinVersionMap = map[string]uint16{
+		"1.2": tls.VersionTLS12,
+		"1.3": tls.VersionTLS13,
+	}
 )
 
 func main() {
+	// This is required to close any open resource like a file
+	mainctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		// No logger may be available hence using fmt
+		fmt.Printf("\nReceived OS signal: %s. Initiating graceful shutdown...\n", sig)
+		cancel()
+	}()
+
 	app, info := cmd.DefaultApp()
 	app.Name = config.OperatorName
 	app.Usage = "Kubernetes Security Profiles Operator"
@@ -114,6 +152,26 @@ func main() {
 					Value:   true,
 					Usage:   "the webhook k8s resources are managed by the operator(default true)",
 				},
+				&cli.BoolFlag{
+					Name:  nodeStatusControllerFlag,
+					Value: true,
+					Usage: "Enable the node status controller.",
+				},
+				&cli.BoolFlag{
+					Name:  spodControllerFlag,
+					Value: true,
+					Usage: "Enable the SPOD controller.",
+				},
+				&cli.BoolFlag{
+					Name:  workloadAnnotatorFlag,
+					Value: true,
+					Usage: "Enable the workload annotator.",
+				},
+				&cli.BoolFlag{
+					Name:  recordingMergerFlag,
+					Value: true,
+					Usage: "Enable the recording merger.",
+				},
 			},
 		},
 		&cli.Command{
@@ -125,6 +183,11 @@ func main() {
 				return runDaemon(ctx, info)
 			},
 			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:  seccompFlag,
+					Usage: "Listen for seccomp API resources",
+					Value: true,
+				},
 				&cli.BoolFlag{
 					Name:  selinuxFlag,
 					Usage: "Listen for SELinux API resources",
@@ -169,6 +232,11 @@ func main() {
 					Value:   false,
 					Usage:   "the webhook k8s resources are statically managed (default false)",
 				},
+				&cli.GenericFlag{
+					Name:  tlsMinVersionParam,
+					Value: util.NewEnumValue([]string{"1.2", "1.3"}, "1.2"),
+					Usage: "minimum TLS version to use for the SPO webhooks. Supported values: 1.2, 1.3. (default: 1.2)",
+				},
 			},
 		},
 		&cli.Command{
@@ -198,8 +266,84 @@ func main() {
 			Name:    "log-enricher",
 			Aliases: []string{"l"},
 			Usage:   "run the audit's log enricher",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  enricherFiltersJsonParam,
+					Value: "",
+					Usage: "Log Enricher filters JSON.",
+				},
+				&cli.StringFlag{
+					Name:  enricherLogSourceParam,
+					Value: "",
+					Usage: "Log source to ingest (`bpf` or `auditd`)",
+				},
+			},
 			Action: func(ctx *cli.Context) error {
 				return runLogEnricher(ctx, info)
+			},
+		},
+		&cli.Command{
+			Before:  initialize,
+			Name:    "json-enricher",
+			Aliases: []string{"j"},
+			Usage:   "run the audit's json enricher",
+			Action: func(ctx *cli.Context) error {
+				jsonEnricher, err := getJsonEnricher(ctx, info)
+				if err != nil {
+					return fmt.Errorf("could not create json enricher: %w", err)
+				}
+
+				runErr := make(chan error)
+				go jsonEnricher.Run(mainctx, runErr)
+
+				select {
+				case <-runErr:
+					return fmt.Errorf("error while executing JSON Enricher: %w", <-runErr)
+				case <-mainctx.Done():
+					// Cannot use CLI "After" as exit signal won't invoke it
+					fmt.Printf("Exit JSON Enricher")
+					jsonEnricher.ExitJsonEnricher(ctx)
+
+					return nil
+				}
+			},
+			Flags: []cli.Flag{
+				&cli.IntFlag{
+					Name:    auditLogIntervalSecondsParam,
+					Aliases: []string{"a"},
+					Value:   60,
+					Usage:   "Audit log interval in seconds for the JSON Log Enricher.",
+				},
+				&cli.StringFlag{
+					Name:  auditLogPathParam,
+					Value: "",
+					Usage: "Audit log file path for the JSON Log Enricher. Default is stdout.",
+				},
+				&cli.IntFlag{
+					Name:  auditLogMaxBackupParam,
+					Value: 0,
+					Usage: "Audit log max file backup for the JSON Log Enricher. " +
+						"The maximum number of old audit log files to retain. " +
+						"Setting a value of 0 will mean there's no restriction on the number of files.",
+				},
+				&cli.IntFlag{
+					Name:  auditLogMaxSizeParam,
+					Value: 100,
+					Usage: "Audit log max file size for the JSON Log Enricher. " +
+						"The maximum size in megabytes of the audit log file before it gets rotated.",
+				},
+				&cli.IntFlag{
+					Name:  auditLogMaxAgeParam,
+					Value: 0,
+					Usage: "Audit log max age for the JSON Log Enricher. " +
+						"The maximum number of days to retain old audit log files based " +
+						"on the timestamp encoded in their filename.",
+				},
+				&cli.StringFlag{
+					Name:  enricherFiltersJsonParam,
+					Value: "",
+					Usage: "JSON Enricher filters JSON file path.",
+				},
 			},
 		},
 		&cli.Command{
@@ -244,7 +388,12 @@ func main() {
 
 	if err := app.Run(os.Args); err != nil {
 		setupLog.Error(err, "running security-profiles-operator")
+		//nolint:gocritic // this is intentional to return to correct exit code
 		os.Exit(1)
+	}
+
+	if err := app.RunContext(mainctx, os.Args); err != nil {
+		fmt.Printf("application error: %v", err)
 	}
 }
 
@@ -259,7 +408,8 @@ func initialize(ctx *cli.Context) error {
 }
 
 func initLogging(ctx *cli.Context) error {
-	ctrl.SetLogger(textlogger.NewLogger(textlogger.NewConfig()))
+	logConfig := textlogger.NewConfig()
+	ctrl.SetLogger(textlogger.NewLogger(logConfig))
 
 	set := flag.NewFlagSet("logging", flag.ContinueOnError)
 	klog.InitFlags(set)
@@ -270,6 +420,11 @@ func initLogging(ctx *cli.Context) error {
 	}
 
 	ctrl.SetLogger(ctrl.Log.V(int(level)))
+
+	if err := logConfig.Verbosity().Set(strconv.FormatUint(uint64(level), 10)); err != nil {
+		return fmt.Errorf("setting the verbosity flag to level %d: %w", level, err)
+	}
+
 	ctrl.Log.Info(fmt.Sprintf("Set logging verbosity to %d", level))
 
 	return nil
@@ -359,14 +514,29 @@ func runManager(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("add ServiceMonitor API to scheme: %w", err)
 	}
 
+	enabledControllers := []controller.Controller{}
+
+	if ctx.Bool(nodeStatusControllerFlag) {
+		enabledControllers = append(enabledControllers, nodestatus.NewController())
+	}
+
+	if ctx.Bool(spodControllerFlag) {
+		enabledControllers = append(enabledControllers, spod.NewController())
+	}
+
+	if ctx.Bool(workloadAnnotatorFlag) {
+		enabledControllers = append(enabledControllers, workloadannotator.NewController())
+	}
+
+	if ctx.Bool(recordingMergerFlag) {
+		enabledControllers = append(enabledControllers, recordingmerger.NewController())
+	}
+
+	setupLog.Info("enabled controllers", "controllers", enabledControllers)
+
 	if err := setupEnabledControllers(
 		context.WithValue(ctx.Context, spod.ManageWebhookKey, manageWebhook(ctx)),
-		[]controller.Controller{
-			nodestatus.NewController(),
-			spod.NewController(),
-			workloadannotator.NewController(),
-			recordingmerger.NewController(),
-		}, mgr, nil); err != nil {
+		enabledControllers, mgr, nil); err != nil {
 		return fmt.Errorf("enable controllers: %w", err)
 	}
 
@@ -420,8 +590,10 @@ func setControllerOptionsForNamespaces(opts *ctrl.Options) {
 }
 
 func getEnabledControllers(ctx *cli.Context) []controller.Controller {
-	controllers := []controller.Controller{
-		seccompprofile.NewController(),
+	controllers := []controller.Controller{}
+
+	if ctx.Bool(seccompFlag) {
+		controllers = append(controllers, seccompprofile.NewController())
 	}
 
 	if ctx.Bool(recordingFlag) {
@@ -489,6 +661,10 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		return fmt.Errorf("start metrics grpc server: %w", err)
 	}
 
+	disableHTTP2 := func(c *tls.Config) {
+		c.NextProtos = []string{"http/1.1"}
+	}
+
 	ctrlOpts := ctrl.Options{
 		Cache:                  cache.Options{SyncPeriod: &sync},
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
@@ -501,6 +677,7 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 			ExtraHandlers: map[string]http.Handler{
 				metrics.HandlerPath: met.Handler(),
 			},
+			TLSOpts: []func(*tls.Config){disableHTTP2},
 		},
 	}
 
@@ -543,12 +720,61 @@ func runBPFRecorder(_ *cli.Context, info *version.Info) error {
 	return bpfrecorder.New("", ctrl.Log.WithName(component), true, true).Run()
 }
 
-func runLogEnricher(_ *cli.Context, info *version.Info) error {
+func runLogEnricher(ctx *cli.Context, info *version.Info) error {
 	const component = "log-enricher"
 
 	printInfo(component, info)
 
-	return enricher.New(ctrl.Log.WithName(component)).Run()
+	opts := &enricher.LogEnricherOptions{
+		EnricherFiltersJson: ctx.String(enricherFiltersJsonParam),
+		AuditSource:         ctx.String(enricherLogSourceParam),
+	}
+
+	logEnricher, err := enricher.New(ctrl.Log.WithName(component), opts)
+	if err != nil {
+		return fmt.Errorf("create log enricher: %w", err)
+	}
+
+	return logEnricher.Run()
+}
+
+func getJsonEnricher(ctx *cli.Context, info *version.Info) (*enricher.JsonEnricher, error) {
+	const component = "json-enricher"
+
+	printInfo(component, info)
+
+	opts := &enricher.JsonEnricherOptions{}
+
+	if auditLogIntervalSeconds := ctx.Int(auditLogIntervalSecondsParam); auditLogIntervalSeconds > 0 {
+		opts.AuditFreq = time.Duration(auditLogIntervalSeconds) * time.Second
+	}
+
+	if auditLogPath := ctx.String(auditLogPathParam); auditLogPath != "" {
+		opts.AuditLogPath = auditLogPath
+	}
+
+	opts.AuditLogMaxSize = ctx.Int(auditLogMaxSizeParam)
+	opts.AuditLogMaxBackups = ctx.Int(auditLogMaxBackupParam)
+	opts.AuditLogMaxAge = ctx.Int(auditLogMaxAgeParam)
+	opts.EnricherFiltersJson = ctx.String(enricherFiltersJsonParam)
+
+	setupLog.Info(
+		"JSON Enricher Configuration",
+		"AuditFreq", opts.AuditFreq,
+		"AuditLogPath", opts.AuditLogPath,
+		"AuditLogMaxSize", opts.AuditLogMaxSize,
+		"AuditLogMaxBackup", opts.AuditLogMaxBackups,
+		"AuditLogMaxAge", opts.AuditLogMaxAge,
+		"EnricherFiltersJson", opts.EnricherFiltersJson,
+	)
+
+	jsonEnricher, err := enricher.NewJsonEnricherArgs(ctrl.Log.WithName(component),
+		opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonEnricher, nil
 }
 
 func runNonRootEnabler(ctx *cli.Context, info *version.Info) error {
@@ -587,12 +813,23 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 
 	port := ctx.Int("port")
 
-	disableHTTP2 := func(c *tls.Config) {
-		c.NextProtos = []string{"http/1.1"}
+	var tlsMinVersionStr string
+
+	tlsMinVersion, ok := ctx.Generic(tlsMinVersionParam).(util.EnumValue)
+	if !ok {
+		tlsMinVersionStr = defaultTlsMinVersion
+	} else {
+		tlsMinVersionStr = tlsMinVersion.String()
 	}
+
+	tlsConfig := func(c *tls.Config) {
+		c.NextProtos = []string{"http/1.1"}
+		c.MinVersion = tlsMinVersionMap[tlsMinVersionStr]
+	}
+
 	webhookServerOptions := webhook.Options{
 		Port:    port,
-		TLSOpts: []func(config *tls.Config){disableHTTP2},
+		TLSOpts: []func(config *tls.Config){tlsConfig},
 	}
 
 	webhookServer := webhook.NewServer(webhookServerOptions)
@@ -633,6 +870,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	hookserver := mgr.GetWebhookServer()
 	binding.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetClient())
 	recording.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
+	execmetadata.RegisterWebhook(hookserver)
 
 	sigHandler := ctrl.SetupSignalHandler()
 

@@ -11,13 +11,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/buildkite/agent/v3/internal/agenthttp"
 	"github.com/buildkite/agent/v3/logger"
 	"github.com/google/go-querystring/query"
 )
@@ -45,11 +46,17 @@ type Config struct {
 	// If true, requests and responses will be dumped and set to the logger
 	DebugHTTP bool
 
+	// If true timings for each request will be logged
+	TraceHTTP bool
+
 	// The http client used, leave nil for the default
 	HTTPClient *http.Client
 
 	// optional TLS configuration primarily used for testing
 	TLSConfig *tls.Config
+
+	// HTTP client timeout; zero to use default
+	Timeout time.Duration
 }
 
 // A Client manages communication with the Buildkite Agent API.
@@ -62,6 +69,9 @@ type Client struct {
 
 	// The logger used
 	logger logger.Logger
+
+	// server-specified HTTP request headers to include in all requests
+	requestHeaders http.Header
 }
 
 // NewClient returns a new Buildkite Agent API Client.
@@ -74,39 +84,64 @@ func NewClient(l logger.Logger, conf Config) *Client {
 		conf.UserAgent = defaultUserAgent
 	}
 
-	httpClient := conf.HTTPClient
-	if conf.HTTPClient == nil {
-
-		// use the default transport as it is optimized and configured for http2
-		// and will avoid accidents in the future
-		tr := http.DefaultTransport.(*http.Transport).Clone()
-
-		if conf.DisableHTTP2 {
-			tr.ForceAttemptHTTP2 = false
-			tr.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
-			// The default TLSClientConfig has h2 in NextProtos, so the negotiated TLS connection will assume h2 support.
-			// see https://github.com/golang/go/issues/50571
-			tr.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	if conf.HTTPClient != nil {
+		return &Client{
+			logger: l,
+			client: conf.HTTPClient,
+			conf:   conf,
 		}
+	}
 
-		if conf.TLSConfig != nil {
-			tr.TLSClientConfig = conf.TLSConfig
-		}
+	clientOptions := []agenthttp.ClientOption{
+		agenthttp.WithAuthToken(conf.Token),
+		agenthttp.WithAllowHTTP2(!conf.DisableHTTP2),
+		agenthttp.WithTLSConfig(conf.TLSConfig),
+	}
 
-		httpClient = &http.Client{
-			Timeout: 60 * time.Second,
-			Transport: &authenticatedTransport{
-				Token:    conf.Token,
-				Delegate: tr,
-			},
-		}
+	if conf.Timeout != 0 {
+		clientOptions = append(clientOptions, agenthttp.WithTimeout(conf.Timeout))
 	}
 
 	return &Client{
-		logger: l,
-		client: httpClient,
-		conf:   conf,
+		logger:         l,
+		client:         agenthttp.NewClient(clientOptions...),
+		conf:           conf,
+		requestHeaders: requestHeadersFromEnv(os.Environ()),
 	}
+}
+
+func requestHeadersFromEnv(environ []string) http.Header {
+	const prefix = "BUILDKITE_REQUEST_HEADER_"
+	headers := make(http.Header)
+	for _, line := range environ {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			// not a valid environment variable (should be impossible?)
+			continue
+		}
+		suffix, found := strings.CutPrefix(parts[0], prefix)
+		if !found {
+			// not a BUILDKITE_REQUEST_HEADER_... environment variable
+			continue
+		}
+		// We could leave headers.Add(…) to canonicalize the key, but then we'd have to test for a
+		// prefix of "BUILDKITE_" rather than "Buildkite-", which feels a bit dangerously indirect.
+		key := http.CanonicalHeaderKey(strings.ReplaceAll(suffix, "_", "-"))
+		if !strings.HasPrefix(key, "Buildkite-") {
+			// not a permitted Buildkite-* header
+			continue
+		}
+		headers.Add(key, parts[1])
+	}
+	return headers
+}
+
+// New creates a new Client for the given config, while preserving other internal state such as
+// request headers and the logger.
+func (c *Client) New(conf Config) *Client {
+	client := NewClient(c.logger, conf)
+	client.requestHeaders = c.requestHeaders
+	return client
 }
 
 // Config returns the internal configuration for the Client
@@ -114,20 +149,48 @@ func (c *Client) Config() Config {
 	return c.conf
 }
 
+// ServerSpecifiedRequestHeaders returns the HTTP headers that the Buildkite register/ping
+// APIs have advised the client to send in all requests.
+func (c *Client) ServerSpecifiedRequestHeaders() http.Header {
+	return c.requestHeaders
+}
+
 // FromAgentRegisterResponse returns a new instance using the access token and endpoint
 // from the registration response
-func (c *Client) FromAgentRegisterResponse(resp *AgentRegisterResponse) *Client {
+func (c *Client) FromAgentRegisterResponse(reg *AgentRegisterResponse) *Client {
 	conf := c.conf
 
 	// Override the registration token with the access token
-	conf.Token = resp.AccessToken
+	conf.Token = reg.AccessToken
 
 	// If Buildkite told us to use a new Endpoint, respect that
-	if resp.Endpoint != "" {
-		conf.Endpoint = resp.Endpoint
+	if reg.Endpoint != "" {
+		conf.Endpoint = reg.Endpoint
 	}
 
-	return NewClient(c.logger, conf)
+	return c.New(conf)
+}
+
+func (c *Client) setRequestHeaders(headers map[string]string) {
+	if headers == nil {
+		return
+	}
+
+	c.requestHeaders = make(http.Header)
+	for k, v := range headers {
+		if !strings.HasPrefix(k, "Buildkite-") {
+			continue
+		}
+		c.requestHeaders.Set(k, v)
+	}
+
+	if c.logger.Level() <= logger.DEBUG {
+		for k, values := range c.requestHeaders {
+			for _, v := range values {
+				c.logger.Debug("Server-specified request header: %s: %s", k, v)
+			}
+		}
+	}
 }
 
 // FromPing returns a new instance using a new endpoint from a ping response
@@ -139,7 +202,7 @@ func (c *Client) FromPing(resp *Ping) *Client {
 		conf.Endpoint = resp.Endpoint
 	}
 
-	return NewClient(c.logger, conf)
+	return c.New(conf)
 }
 
 type Header struct {
@@ -184,6 +247,13 @@ func (c *Client) newRequest(
 		}
 	}
 
+	// add any request headers specified by the server during register/ping
+	for k, values := range c.requestHeaders {
+		for _, v := range values {
+			req.Header.Add(k, v)
+		}
+	}
+
 	for _, header := range headers {
 		req.Header.Add(header.Name, header.Value)
 	}
@@ -211,6 +281,13 @@ func (c *Client) newFormRequest(ctx context.Context, method, urlStr string, body
 		req.Header.Add("User-Agent", c.conf.UserAgent)
 	}
 
+	// add any request headers specified by the server during register/ping
+	for k, values := range c.requestHeaders {
+		for _, v := range values {
+			req.Header.Add(k, v)
+		}
+	}
+
 	return req, nil
 }
 
@@ -232,58 +309,20 @@ func newResponse(r *http.Response) *Response {
 // interface, the raw response body will be written to v, without attempting to
 // first decode it.
 func (c *Client) doRequest(req *http.Request, v any) (*Response, error) {
-	var err error
 
-	if c.conf.DebugHTTP {
-		// If the request is a multi-part form, then it's probably a
-		// file upload, in which case we don't want to spewing out the
-		// file contents into the debug log (especially if it's been
-		// gzipped)
-		var requestDump []byte
-		if strings.Contains(req.Header.Get("Content-Type"), "multipart/form-data") {
-			requestDump, err = httputil.DumpRequestOut(req, false)
-		} else {
-			requestDump, err = httputil.DumpRequestOut(req, true)
-		}
-
-		if err != nil {
-			c.logger.Debug("ERR: %s\n%s", err, string(requestDump))
-		} else {
-			c.logger.Debug("%s", string(requestDump))
-		}
-	}
-
-	ts := time.Now()
-
-	c.logger.Debug("%s %s", req.Method, req.URL)
-
-	resp, err := c.client.Do(req)
+	resp, err := agenthttp.Do(c.logger, c.client, req,
+		agenthttp.WithDebugHTTP(c.conf.DebugHTTP),
+		agenthttp.WithTraceHTTP(c.conf.TraceHTTP),
+	)
 	if err != nil {
 		return nil, err
 	}
-
-	c.logger.WithFields(
-		logger.StringField("proto", resp.Proto),
-		logger.IntField("status", resp.StatusCode),
-		logger.DurationField("Δ", time.Since(ts)),
-	).Debug("↳ %s %s", req.Method, req.URL)
-
 	defer resp.Body.Close()
 	defer io.Copy(io.Discard, resp.Body)
 
 	response := newResponse(resp)
 
-	if c.conf.DebugHTTP {
-		responseDump, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			c.logger.Debug("\nERR: %s\n%s", err, string(responseDump))
-		} else {
-			c.logger.Debug("\n%s", string(responseDump))
-		}
-	}
-
-	err = checkResponse(resp)
-	if err != nil {
+	if err := checkResponse(resp); err != nil {
 		// even though there was an error, we still return the response
 		// in case the caller wants to inspect it further
 		return response, err
@@ -303,7 +342,7 @@ func (c *Client) doRequest(req *http.Request, v any) (*Response, error) {
 		}
 	}
 
-	return response, err
+	return response, nil
 }
 
 // ErrorResponse provides a message.

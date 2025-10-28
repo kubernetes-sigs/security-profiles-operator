@@ -1,43 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION=37
+CONTAINER_CMD=$(command -v podman || command -v docker)
+VERSION=trixie
 
-BASE_URL=https://dl.fedoraproject.org/pub/fedora/linux/releases/$VERSION
-ROOT_DIR=$(git rev-parse --show-toplevel)
-VMLINUX_DIR="$ROOT_DIR/internal/pkg/daemon/bpfrecorder/vmlinux"
+"$CONTAINER_CMD" run --rm -i -v "$(dirname "$(dirname "$0")"):/spo" debian:$VERSION bash << 'EOM'
 
-rm -rf "$VMLINUX_DIR"
-mkdir -p "$VMLINUX_DIR"
+set -euox pipefail
 
-declare -A ARCHES=(
-    ["x86_64"]="x86"
-    ["aarch64"]="arm64"
-)
+dpkg --add-architecture amd64
+dpkg --add-architecture arm64
+cd tmp
+apt-get update
+apt-get download linux-bpf-dev:amd64
+apt-get download linux-bpf-dev:arm64
 
-for ARCH in "${!ARCHES[@]}"; do
-    URL=$BASE_URL/Everything/$ARCH/debug/tree/Packages/k
-    KERNEL=$(curl -sSfL "$URL" | grep -oE '>kernel-debuginfo-[0-9].*?\.rpm')
-    KERNEL_URL="$URL/${KERNEL:1}"
-    echo "Using kernel $KERNEL_URL"
+{
+  printf "// @generated from hack/update-vmlinux using $(ls linux-bpf-dev_*_amd64.deb)\n"
+  dpkg --fsys-tarfile linux-bpf-dev_*_amd64.deb | tar -xO ./usr/include/x86_64-linux-gnu/linux/bpf/vmlinux.h
+} > /spo/internal/pkg/daemon/bpfrecorder/vmlinux/x86/vmlinux.h
 
-    TEMPDIR=$(mktemp -d)
-    trap 'rm -rf $TEMPDIR' EXIT
-    pushd "$TEMPDIR"
-    RPM=kernel.rpm
-    curl -SfL "$KERNEL_URL" -o $RPM
-    VMLINUX=$(rpmquery -qlp $RPM 2>&1 | grep vmlinux)
-    rpm2cpio $RPM | cpio -idv ."$VMLINUX"
-
-    KERNEL_VERSION=$(echo "$VMLINUX" | cut -d/ -f7)
-    TARGET_DIR=$VMLINUX_DIR/${ARCHES[$ARCH]}
-    mkdir -p "$TARGET_DIR"
-
-    bpftool btf dump file ".$VMLINUX" format c >"$TARGET_DIR/$KERNEL_VERSION.vmlinux.h"
-    pushd "$TARGET_DIR"
-    ln -sf "$KERNEL_VERSION.vmlinux.h" vmlinux.h
-    popd
-
-    popd
-    rm -rf "$TEMPDIR"
-done
+{
+  printf "// @generated from hack/update-vmlinux using $(ls linux-bpf-dev_*_arm64.deb)\n"
+  dpkg --fsys-tarfile linux-bpf-dev_*_arm64.deb | tar -xO ./usr/include/aarch64-linux-gnu/linux/bpf/vmlinux.h
+} > /spo/internal/pkg/daemon/bpfrecorder/vmlinux/arm64/vmlinux.h
+EOM

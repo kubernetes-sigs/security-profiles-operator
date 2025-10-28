@@ -18,6 +18,7 @@ package spod
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -26,7 +27,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -48,15 +48,23 @@ const (
 	selinuxdImageKey string = "RELATED_IMAGE_SELINUXD"
 )
 
+var (
+	ErrJsonEnricherVolSourceNotFound    = errors.New("no json enricher volume source in configmap found")
+	ErrJsonEnricherVolMountPathNotFound = errors.New("no json enricher mount path in configmap found")
+)
+
 // daemonTunables defines the parameters to tune/modify for the
 // Security-Profiles-Operator-Daemon.
 type daemonTunables struct {
-	selinuxdImage             string
-	logEnricherImage          string
-	watchNamespace            string
-	seccompLocalhostProfile   string
-	containerRuntime          string
-	bpfRecorderSeccompProfile string
+	selinuxdImage                  string
+	logEnricherImage               string
+	jsonEnricherImage              string
+	watchNamespace                 string
+	seccompLocalhostProfile        string
+	containerRuntime               string
+	bpfRecorderSeccompProfile      string
+	jsonEnricherLogVolumeSource    *corev1.VolumeSource // Optionally provide a volume for usage in JSON Enricher
+	jsonEnricherLogVolumeMountPath string
 }
 
 // Setup adds a controller that reconciles the SPOd DaemonSet.
@@ -146,18 +154,48 @@ func (r *ReconcileSPOd) getTunables(ctx context.Context) (*daemonTunables, error
 		return dt, fmt.Errorf("could not determine selinuxd image: %w", err)
 	}
 
+	dt.jsonEnricherLogVolumeSource, dt.jsonEnricherLogVolumeMountPath, err = r.getJsonEnricherVolume(ctx)
+	if err != nil &&
+		!errors.Is(err, ErrJsonEnricherVolSourceNotFound) && !errors.Is(err, ErrJsonEnricherVolMountPathNotFound) {
+		return dt, fmt.Errorf("could not determine json enricher volume: %w", err)
+	}
+
 	return dt, nil
 }
 
-func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node) (string, error) {
-	var operatorCm corev1.ConfigMap
-
-	operatorCmName := types.NamespacedName{
-		Namespace: config.GetOperatorNamespace(),
-		Name:      util.OperatorConfigMap,
+func (r *ReconcileSPOd) getJsonEnricherVolume(ctx context.Context) (*corev1.VolumeSource, string, error) {
+	operatorCm, err := util.GetOperatorConfigMap(ctx, r.clientReader)
+	if err != nil {
+		return nil, "", err
 	}
 
-	if err := r.clientReader.Get(ctx, operatorCmName, &operatorCm); err != nil {
+	var volumeSource corev1.VolumeSource
+
+	logVolumeJson, exists := operatorCm.Data[util.JsonEnricherLogVolumeSourceJson]
+	if !exists {
+		return nil, "", ErrJsonEnricherVolSourceNotFound
+	}
+
+	err = json.Unmarshal([]byte(logVolumeJson), &volumeSource)
+	if err != nil {
+		return nil, "", err
+	}
+
+	logVolumeMountPath, exists := operatorCm.Data[util.JsonEnricherLogVolumeMountPath]
+	if !exists {
+		return nil, "", ErrJsonEnricherVolMountPathNotFound
+	}
+
+	r.log.Info("Parsed JSON Enricher Volume details from ConfigMap",
+		"volumeSource", volumeSource,
+		"logVolumeMountPath", logVolumeMountPath)
+
+	return &volumeSource, logVolumeMountPath, nil
+}
+
+func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node) (string, error) {
+	operatorCm, err := util.GetOperatorConfigMap(ctx, r.clientReader)
+	if err != nil {
 		return "", err
 	}
 
@@ -216,10 +254,26 @@ func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {
 		bpfRecorder.SecurityContext.SeccompProfile.LocalhostProfile = &dt.bpfRecorderSeccompProfile
 	}
 
+	updateJsonEnricherSpec(dt, refSPOd)
+
 	sepolImage := &refSPOd.Spec.Template.Spec.InitContainers[bindata.InitContainerIDSelinuxSharedPoliciesCopier]
 	sepolImage.Image = dt.selinuxdImage // selinuxd ships the policies as well
 
 	return refSPOd
+}
+
+func updateJsonEnricherSpec(dt *daemonTunables, refSPOd *appsv1.DaemonSet) {
+	jsonEnricher := &refSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher]
+	jsonEnricher.Image = dt.jsonEnricherImage
+
+	if dt.jsonEnricherLogVolumeSource != nil {
+		volume, mount := bindata.CustomLogVolume(dt.jsonEnricherLogVolumeMountPath,
+			dt.jsonEnricherLogVolumeSource)
+		// Reference the Volume at Pod level
+		refSPOd.Spec.Template.Spec.Volumes = append(refSPOd.Spec.Template.Spec.Volumes, volume)
+		// Mount it only for the Json Enricher container
+		jsonEnricher.VolumeMounts = append(jsonEnricher.VolumeMounts, mount)
+	}
 }
 
 func isInOperatorNamespace(obj runtime.Object) bool {

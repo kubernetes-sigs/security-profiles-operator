@@ -56,7 +56,7 @@ type Instance struct {
 
 	// ImportPath returns the unique path to identify an imported instance.
 	//
-	// Instances created with NewInstance do not have an import path.
+	// Instances created with [Context.NewInstance] do not have an import path.
 	ImportPath string
 
 	// Imports lists the instances of all direct imports of this instance.
@@ -84,25 +84,19 @@ type Instance struct {
 	// instance has no imports.
 	// If Module != "", this corresponds to the module root.
 	// Root/pkg is the directory that holds third-party packages.
-	Root string // root directory of hierarchy ("" if unknown)
+	Root string
 
 	// Dir is the package directory. A package may also include files from
 	// ancestor directories, up to the module file.
 	Dir string
 
-	// NOTICE: the below tags may change in the future.
-
-	// ImportComment is the path in the import comment on the package statement.
-	ImportComment string `api:"alpha"`
-
-	// AllTags are the build tags that can influence file selection in this
-	// directory.
-	AllTags []string `api:"alpha"`
+	// NOTICE: the below struct field tags may change in the future.
 
 	// Incomplete reports whether any dependencies had an error.
 	Incomplete bool `api:"alpha"`
 
 	// Dependencies
+
 	// ImportPaths gives the transitive dependencies of all imports.
 	ImportPaths []string               `api:"alpha"`
 	ImportPos   map[string][]token.Pos `api:"alpha"` // line information for Imports
@@ -218,7 +212,7 @@ func (inst *Instance) addImport(imp *Instance) {
 // It does not process the file's imports. The package name of the file must
 // match the package name of the instance.
 //
-// Deprecated: use AddSyntax or wait for this to be renamed using a new
+// Deprecated: use [Instance.AddSyntax] or wait for this to be renamed using a new
 // signature.
 func (inst *Instance) AddFile(filename string, src interface{}) error {
 	file, err := inst.parse(filename, src)

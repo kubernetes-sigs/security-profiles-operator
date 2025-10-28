@@ -2,6 +2,251 @@
 
 ## HEAD
 
+## v1.3.2
+
+### Misc
+
+* [migrillian] remove etcd support in #1699
+* Bump golangci-lint from 1.55.1 to 1.61.0 (developers should update to this version).
+* Update ctclient tool to support SCT extensions field by @liweitianux in https://github.com/google/certificate-transparency-go/pull/1645
+* Bump go to 1.23
+* [ct_hammer] support HTTPS and Bearer token for Authentication.
+* [preloader] support Bearer token Authentication for non temporal logs.
+* [preloader] support end indexes
+* [CTFE] Short cache max-age when get-entries returns fewer entries than requested by @robstradling in https://github.com/google/certificate-transparency-go/pull/1707
+* [CTFE] Disalllow mismatching signature algorithm identifiers in #702.
+* [jsonclient] surface HTTP Do and Read errors #1695 by @FiloSottile 
+
+### CTFE Storage Saving: Extra Data Issuance Chain Deduplication
+
+* Suppress unnecessary duplicate key errors in the IssuanceChainStorage PostgreSQL implementation by @robstradling in https://github.com/google/certificate-transparency-go/pull/1678
+* Only store IssuanceChain if not cached by @robstradling in https://github.com/google/certificate-transparency-go/pull/1679
+
+### CTFE Rate Limiting Of Non-Fresh Submissions
+
+To protect a log from being flooded with requests for "old" certificates, optional rate limiting for "non-fresh submissions" can be configured by providing the following flags:
+
+- `non_fresh_submission_age`
+- `non_fresh_submission_burst`
+- `non_fresh_submission_limit`
+
+This can help to ensure that the log maintains its ability to (1) accept "fresh" submissions and (2) distribute all log entries to monitors.
+
+* [CTFE] Configurable mechanism to rate-limit non-fresh submissions by @robstradling in https://github.com/google/certificate-transparency-go/pull/1698
+
+### Dependency updates
+
+*  Bump the docker-deps group across 5 directories with 3 updates (#1705)
+*  Bump google.golang.org/grpc from 1.72.1 to 1.72.2 in the all-deps group (#1704)
+*  Bump github.com/go-jose/go-jose/v4 in the go_modules group (#1700)
+*  Bump the all-deps group with 7 updates (#1701)
+*  Bump the all-deps group with 7 updates (#1693)
+*  Bump the docker-deps group across 4 directories with 1 update (#1694)
+*  Bump github/codeql-action from 3.28.13 to 3.28.16 in the all-deps group (#1692)
+*  Bump the all-deps group across 1 directory with 7 updates (#1688)
+*  Bump distroless/base-debian12 (#1686)
+*  Bump golangci/golangci-lint-action from 6.5.1 to 7.0.0 in the all-deps group (#1685)
+*  Bump the all-deps group with 4 updates (#1681)
+*  Bump the all-deps group with 6 updates (#1683)
+*  Bump the docker-deps group across 4 directories with 2 updates (#1682)
+*  Bump github.com/golang-jwt/jwt/v4 in the go_modules group (#1680)
+*  Bump golangci/golangci-lint-action in the all-deps group (#1676)
+*  Bump the all-deps group with 2 updates (#1677)
+*  Bump github/codeql-action from 3.28.10 to 3.28.11 in the all-deps group (#1670)
+*  Bump the all-deps group with 8 updates (#1672)
+*  Bump the docker-deps group across 4 directories with 1 update (#1671)
+*  Bump the docker-deps group across 4 directories with 1 update (#1668)
+*  Bump the all-deps group with 4 updates (#1666)
+*  Bump golangci-lint from 1.55.1 to 1.61.0 (#1667)
+*  Bump the all-deps group with 3 updates (#1665)
+*  Bump github.com/spf13/cobra from 1.8.1 to 1.9.1 in the all-deps group (#1660)
+*  Bump the docker-deps group across 5 directories with 2 updates (#1661)
+*  Bump golangci/golangci-lint-action in the all-deps group (#1662)
+*  Bump the docker-deps group across 4 directories with 1 update (#1656)
+*  Bump the all-deps group with 2 updates (#1654)
+*  Bump the all-deps group with 4 updates (#1657)
+*  Bump github/codeql-action from 3.28.5 to 3.28.8 in the all-deps group (#1652)
+*  Bump github.com/spf13/pflag from 1.0.5 to 1.0.6 in the all-deps group (#1651)
+*  Bump the all-deps group with 2 updates (#1649)
+*  Bump the all-deps group with 5 updates (#1650)
+*  Bump the docker-deps group across 5 directories with 3 updates (#1648)
+*  Bump google.golang.org/protobuf in the all-deps group (#1647)
+*  Bump golangci/golangci-lint-action in the all-deps group (#1646)
+
+## v1.3.1
+
+* Add AllLogListSignatureURL by @AlexLaroche in https://github.com/google/certificate-transparency-go/pull/1634
+* Add TiledLogs to log list JSON by @mcpherrinm in https://github.com/google/certificate-transparency-go/pull/1635
+* chore: relax go directive to permit 1.22.x by @dnwe in https://github.com/google/certificate-transparency-go/pull/1640
+
+### Dependency Update
+
+* Bump github.com/fullstorydev/grpcurl from 1.9.1 to 1.9.2 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1627
+* Bump the all-deps group with 3 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1628
+* Bump the docker-deps group across 5 directories with 3 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1630
+* Bump github/codeql-action from 3.27.5 to 3.27.6 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1629
+* Bump golang.org/x/crypto from 0.30.0 to 0.31.0 in the go_modules group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1631
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1633
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1632
+* Bump the docker-deps group across 4 directories with 1 update by @dependabot in https://github.com/google/certificate-transparency-go/pull/1638
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1637
+* Bump the all-deps group across 1 directory with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1641
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1643
+* Bump google.golang.org/grpc from 1.69.2 to 1.69.4 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1642
+
+## v1.3.0
+
+### CTFE Storage Saving: Extra Data Issuance Chain Deduplication
+
+This feature now supports PostgreSQL, in addition to the support for MySQL/MariaDB that was added in [v1.2.0](#v1.2.0).
+
+Log operators can choose to enable this feature for new PostgreSQL-based CT logs by adding new CTFE configs in the [LogMultiConfig](trillian/ctfe/configpb/config.proto) and importing the [database schema](trillian/ctfe/storage/postgresql/schema.sql). The other available options are documented in the [v1.2.0](#v1.2.0) changelog entry.
+
+This change is tested in Cloud Build tests using the `postgres:17` Docker image as of the time of writing.
+
+* Add IssuanceChainStorage PostgreSQL implementation by @robstradling in https://github.com/google/certificate-transparency-go/pull/1618
+
+### Misc
+
+* [Dependabot] Update all docker images in one PR by @mhutchinson in https://github.com/google/certificate-transparency-go/pull/1614
+* Explicitly include version tag by @mhutchinson in https://github.com/google/certificate-transparency-go/pull/1617
+* Add empty cloudbuild_postgresql.yaml by @roger2hk in https://github.com/google/certificate-transparency-go/pull/1623
+
+### Dependency update
+
+* Bump the all-deps group with 4 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1609
+* Bump golang from 1.23.2-bookworm to 1.23.3-bookworm in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1611
+* Bump github/codeql-action from 3.27.0 to 3.27.1 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1610
+* Bump golang from 1.23.2-bookworm to 1.23.3-bookworm in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1612
+* Bump github.com/golang-jwt/jwt/v4 from 4.5.0 to 4.5.1 in the go_modules group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1613
+* Bump the docker-deps group across 3 directories with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1616
+* Bump github/codeql-action from 3.27.1 to 3.27.2 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1615
+* Bump the docker-deps group across 4 directories with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1622
+* Bump github/codeql-action from 3.27.2 to 3.27.4 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1620
+* Bump the all-deps group with 4 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1621
+* Bump github.com/google/trillian from 1.6.1 to 1.7.0 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1624
+* Bump github/codeql-action from 3.27.4 to 3.27.5 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1625
+
+## v1.2.2
+
+* Recommended Go version for development: 1.22
+  * Using a different version can lead to presubmits failing due to unexpected diffs.
+
+### Add TLS Support
+
+Add TLS support for Trillian: By using `--trillian_tls_ca_cert_file` flag, users can provide a CA certificate, that is used to establish a secure communication with Trillian log server.
+
+Add TLS support for ct_server: By using `--tls_certificate` and `--tls_key` flags, users can provide a service certificate and key, that enables the server to handle HTTPS requests.
+
+* Add TLS support for CTLog server by @fghanmi in https://github.com/google/certificate-transparency-go/pull/1523
+* Add TLS support for migrillian by @fghanmi in https://github.com/google/certificate-transparency-go/pull/1525
+* fix TLS configuration for ct_server by @fghanmi in https://github.com/google/certificate-transparency-go/pull/1542
+* Add Trillian TLS support for ct_server by @fghanmi in https://github.com/google/certificate-transparency-go/pull/1551
+
+### HTTP Idle Connection Timeout Flag
+
+A new flag `http_idle_timeout` is added to set the HTTP server's idle timeout value in the ct_server binary. This controls the maximum amount of time to wait for the next request when keep-alives are enabled.
+
+* add flag for HTTP idle connection timeout value by @bobcallaway in https://github.com/google/certificate-transparency-go/pull/1597
+
+### Misc
+
+* Refactor issuance chain service by @mhutchinson in https://github.com/google/certificate-transparency-go/pull/1512
+* Use the version in the go.mod file for vuln checks by @mhutchinson in https://github.com/google/certificate-transparency-go/pull/1528
+
+### Fixes
+
+* Fix failed tests on 32-bit OS by @roger2hk in https://github.com/google/certificate-transparency-go/pull/1540
+
+### Dependency update
+
+* Bump go.etcd.io/etcd/v3 from 3.5.13 to 3.5.14 by @dependabot in https://github.com/google/certificate-transparency-go/pull/1500
+* Bump github/codeql-action from 3.25.6 to 3.25.7 by @dependabot in https://github.com/google/certificate-transparency-go/pull/1501
+* Bump golang.org/x/net from 0.25.0 to 0.26.0 by @dependabot in https://github.com/google/certificate-transparency-go/pull/1503
+* Group dependabot updates as much as possible by @mhutchinson in https://github.com/google/certificate-transparency-go/pull/1506
+* Bump golang from 1.22.3-bookworm to 1.22.4-bookworm in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1507
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1511
+* Bump golang from 1.22.3-bookworm to 1.22.4-bookworm in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1510
+* Bump golang from 1.22.3-bookworm to 1.22.4-bookworm in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1509
+* Bump golang from 1.22.3-bookworm to 1.22.4-bookworm in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1508
+* Bump the all-deps group with 3 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1516
+* Bump golang from `aec4784` to `9678844` in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1518
+* Bump alpine from 3.19 to 3.20 in /trillian/examples/deployment/docker/envsubst by @dependabot in https://github.com/google/certificate-transparency-go/pull/1492
+* Bump golang from `aec4784` to `9678844` in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1517
+* Bump golang from `aec4784` to `9678844` in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1513
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1515
+* Bump golang from `aec4784` to `9678844` in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1514
+* Bump alpine from `77726ef` to `b89d9c9` in /trillian/examples/deployment/docker/envsubst in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1519
+* Bump k8s.io/klog/v2 from 2.130.0 to 2.130.1 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1521
+* Bump alpine from `77726ef` to `b89d9c9` in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1520
+* Bump github/codeql-action from 3.25.10 to 3.25.11 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1526
+* Bump version of go used by the vuln checker by @mhutchinson in https://github.com/google/certificate-transparency-go/pull/1527
+* Bump the all-deps group with 3 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1530
+* Bump golang from 1.22.4-bookworm to 1.22.5-bookworm in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1531
+* Bump golang from 1.22.4-bookworm to 1.22.5-bookworm in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1532
+* Bump the all-deps group in /trillian/examples/deployment/docker/ctfe with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1533
+* Bump actions/upload-artifact from 4.3.3 to 4.3.4 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1534
+* Bump golang from 1.22.4-bookworm to 1.22.5-bookworm in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1535
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1536
+* Bump github/codeql-action from 3.25.12 to 3.25.13 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1538
+* Bump the all-deps group with 3 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1537
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1543
+* Bump golang from `6c27802` to `af9b40f` in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1544
+* Bump golang from `6c27802` to `af9b40f` in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1548
+* Bump golang from `6c27802` to `af9b40f` in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1547
+* Bump alpine from `b89d9c9` to `0a4eaa0` in /trillian/examples/deployment/docker/envsubst in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1546
+* Bump the all-deps group in /internal/witness/cmd/feeder with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1545
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1549
+* Bump golang.org/x/time from 0.5.0 to 0.6.0 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1550
+* Bump golang from 1.22.5-bookworm to 1.22.6-bookworm in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1552
+* Bump golang from 1.22.5-bookworm to 1.22.6-bookworm in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1553
+* Bump golang from 1.22.5-bookworm to 1.22.6-bookworm in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1554
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1555
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1556
+* Bump golang from 1.22.5-bookworm to 1.22.6-bookworm in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1557
+* Bump github.com/prometheus/client_golang from 1.19.1 to 1.20.0 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1559
+* Bump github/codeql-action from 3.26.0 to 3.26.3 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1561
+* Bump golang from 1.22.6-bookworm to 1.23.0-bookworm in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1558
+* Bump golang from 1.22.6-bookworm to 1.23.0-bookworm in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1563
+* Bump golang from 1.22.6-bookworm to 1.23.0-bookworm in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1560
+* Bump golang from 1.22.6-bookworm to 1.23.0-bookworm in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1562
+* Bump go version to 1.22.6 by @roger2hk in https://github.com/google/certificate-transparency-go/pull/1564
+* Bump github.com/prometheus/client_golang from 1.20.0 to 1.20.2 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1565
+* Bump github/codeql-action from 3.26.3 to 3.26.5 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1566
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1568
+* Bump the all-deps group with 3 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1569
+* Bump go from 1.22.6 to 1.22.7 by @roger2hk in https://github.com/google/certificate-transparency-go/pull/1574
+* Bump alpine from `0a4eaa0` to `beefdbd` in /trillian/examples/deployment/docker/envsubst in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1571
+* Bump the all-deps group across 1 directory with 5 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1577
+* Bump golang from 1.23.0-bookworm to 1.23.1-bookworm in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1575
+* Bump golang from 1.23.0-bookworm to 1.23.1-bookworm in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1576
+* Bump the all-deps group in /trillian/examples/deployment/docker/ctfe with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1572
+* Bump the all-deps group in /internal/witness/cmd/feeder with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1573
+* Bump the all-deps group with 4 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1578
+* Bump github/codeql-action from 3.26.6 to 3.26.7 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1579
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1580
+* Bump github/codeql-action from 3.26.7 to 3.26.8 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1581
+* Bump distroless/base-debian12 from `c925d12` to `88e0a2a` in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1582
+* Bump the all-deps group in /trillian/examples/deployment/docker/ctfe with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1585
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1583
+* Bump golang from `1a5326b` to `dba79eb` in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1584
+* Bump golang from `1a5326b` to `dba79eb` in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1587
+* Bump golang from `1a5326b` to `dba79eb` in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1586
+* Bump the all-deps group with 5 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1588
+* Bump the all-deps group with 6 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1589
+* Bump golang from 1.23.1-bookworm to 1.23.2-bookworm in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1593
+* Bump golang from 1.23.1-bookworm to 1.23.2-bookworm in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1592
+* Bump golang from 1.23.1-bookworm to 1.23.2-bookworm in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1591
+* Bump golang from 1.23.1-bookworm to 1.23.2-bookworm in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1590
+* Bump the all-deps group with 2 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1595
+* Bump github.com/prometheus/client_golang from 1.20.4 to 1.20.5 in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1598
+* Bump golang from `18d2f94` to `2341ddf` in /integration in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1602
+* Bump golang from `18d2f94` to `2341ddf` in /internal/witness/cmd/witness in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1599
+* Bump golang from `18d2f94` to `2341ddf` in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1600
+* Bump golang from `18d2f94` to `2341ddf` in /internal/witness/cmd/feeder in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1601
+* Bump the all-deps group with 3 updates by @dependabot in https://github.com/google/certificate-transparency-go/pull/1603
+* Bump distroless/base-debian12 from `6ae5fe6` to `8fe31fb` in /trillian/examples/deployment/docker/ctfe in the all-deps group by @dependabot in https://github.com/google/certificate-transparency-go/pull/1604
+
 ## v1.2.1
 
 ### Fixes

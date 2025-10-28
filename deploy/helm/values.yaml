@@ -26,6 +26,7 @@ selinuxdImage:
 
 enableSelinux: false
 enableLogEnricher: false
+enableJsonEnricher: false
 enableAppArmor: false
 enableBpfRecorder: false
 enableProfiling: false

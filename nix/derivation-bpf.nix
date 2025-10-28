@@ -8,8 +8,8 @@ with pkgs; buildGoModule rec {
   outputs = [ "out" ];
   nativeBuildInputs = with buildPackages; [
     git
-    llvmPackages_18.clang-unwrapped
-    llvm_18
+    llvmPackages_19.clang-unwrapped
+    llvm_19
     pkg-config
     which
   ];
@@ -24,8 +24,10 @@ with pkgs; buildGoModule rec {
     export CFLAGS=$NIX_CFLAGS_COMPILE
     export ARCH=${arch}
     make build/recorder.bpf.o
+    make build/enricher.bpf.o
   '';
   installPhase = ''
     install -Dm644 -t $out build/recorder.bpf.o
+    install -Dm644 -t $out build/enricher.bpf.o
   '';
 }

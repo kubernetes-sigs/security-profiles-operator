@@ -1,6 +1,6 @@
 # go-which
 
-[![Build Status][circleci-image]][circleci-url]
+[![Build Status][build-image]][build-url]
 [![hairyhenderson/go-which on DockerHub][dockerhub-image]][dockerhub-url]
 [![GoDoc][godoc-image]][godocs]
 
@@ -82,8 +82,8 @@ Copyright (c) 2018-2020 Dave Henderson
 
 [godocs]: https://pkg.go.dev/github.com/hairyhenderson/go-which
 
-[circleci-image]: https://circleci.com/gh/hairyhenderson/go-which/tree/master.svg?style=shield
-[circleci-url]: https://circleci.com/gh/hairyhenderson/go-which/tree/master
+[build-image]: https://github.com/hairyhenderson/go-which/actions/workflows/build.yml/badge.svg
+[build-url]: https://github.com/hairyhenderson/go-which/actions/workflows/build.yml
 [dockerhub-image]: https://img.shields.io/badge/docker-ready-blue.svg
 [dockerhub-url]: https://hub.docker.com/r/hairyhenderson/go-which
 [godoc-image]: https://godoc.org/github.com/hairyhenderson/go-which?status.svg

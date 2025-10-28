@@ -14,13 +14,13 @@
 
 GO ?= go
 
-GOLANGCI_LINT_VERSION = v1.64.5
+GOLANGCI_LINT_VERSION = v2.4.0
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 5.5.0
 OPERATOR_SDK_VERSION ?= v1.37.0
 ZEITGEIST_VERSION = v0.5.4
 MDTOC_VERSION = v1.4.0
-CI_IMAGE ?= golang:1.24
+CI_IMAGE ?= golang:$(shell sed -n 's;^go\s\(.*\);\1;p' go.mod)
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
@@ -33,7 +33,6 @@ BPF_ENABLED ?= 1
 
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
-BPF_PATH := internal/pkg/daemon/bpfrecorder/bpf
 ARCH ?= $(shell uname -m | \
 	sed 's/x86_64/amd64/' | \
 	sed 's/aarch64/arm64/' | \
@@ -89,8 +88,13 @@ export CGO_LDFLAGS
 export CGO_ENABLED=1
 
 BUILD_FILES := $(shell find . -type f -name '*.go' -or -name '*.mod' -or -name '*.sum' -or -name 'recorder.bpf.o.*' -not -name '*_test.go')
-BPF_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name '*.c' -or -name '*.h')
-BPF_OUTPUT_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name 'recorder.bpf.o.*')
+BPF_RECORDER_PATH := internal/pkg/daemon/bpfrecorder/bpf
+BPF_RECORDER_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name '*.c' -or -name '*.h')
+BPF_RECORDER_OUTPUT_FILES := $(shell find internal/pkg/daemon/bpfrecorder/bpf -type f -name 'recorder.bpf.o.*')
+BPF_ENRICHER_PATH := internal/pkg/daemon/enricher/auditsource/bpf
+BPF_ENRICHER_FILES := $(shell find internal/pkg/daemon/enricher/auditsource/bpf -type f -name '*.c' -or -name '*.h')
+BPF_ENRICHER_OUTPUT_FILES := $(shell find internal/pkg/daemon/enricher/auditsource/bpf -type f -name 'enricher.bpf.o.*')
+BPF_OUTPUT_FILES := $(BPF_RECORDER_OUTPUT_FILES) $(BPF_ENRICHER_OUTPUT_FILES)
 export GOFLAGS?=-mod=vendor
 GO_PROJECT := sigs.k8s.io/$(PROJECT)
 LDVARS := \
@@ -206,9 +210,10 @@ define nix-build-to
 	cp -f result/* $(BUILD_DIR)/$(1)
 endef
 
+# TODO: add nix-s390x when the nix toolchain is fixed
 .PHONY: nix
-nix: nix-amd64 nix-arm64 ## Build all binaries via nix and create a build.tar.gz
-	tar cvfz build.tar.gz -C $(BUILD_DIR) amd64 arm64
+nix: nix-amd64 nix-arm64 nix-ppc64le  ## Build all binaries via nix and create a build.tar.gz
+	tar cvfz build.tar.gz -C $(BUILD_DIR) amd64 arm64 ppc64le
 
 .PHONY: nix-amd64
 nix-amd64: ## Build the binaries via nix for amd64
@@ -217,6 +222,14 @@ nix-amd64: ## Build the binaries via nix for amd64
 .PHONY: nix-arm64
 nix-arm64: ## Build the binaries via nix for arm64
 	$(call nix-build-to,arm64)
+
+.PHONY: nix-ppc64le
+nix-ppc64le: ## Build the binaries via nix for ppc64le
+	$(call nix-build-to,ppc64le)
+
+.PHONY: nix-s390x
+nix-s390x: ## Build the binaries via nix for s390x
+	$(call nix-build-to,s390x)
 
 define nix-build-sign-spoc-to
 	nix-build nix/default-spoc-$(1).nix
@@ -229,7 +242,7 @@ define nix-build-sign-spoc-to
 endef
 
 .PHONY: nix-spoc
-nix-spoc: nix-spoc-amd64 nix-spoc-arm64 ## Build all spoc binaries via nix.
+nix-spoc: nix-spoc-amd64 nix-spoc-arm64 nix-spoc-ppc64le nix-spoc-s390x ## Build all spoc binaries via nix.
 	bom version
 	bom generate \
 		-l Apache-2.0 \
@@ -248,6 +261,14 @@ nix-spoc-amd64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for amd64
 .PHONY: nix-spoc-arm64
 nix-spoc-arm64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for arm64
 	$(call nix-build-sign-spoc-to,arm64)
+
+.PHONY: nix-spoc-ppc64le
+nix-spoc-ppc64le: $(BUILD_DIR) ## Build and sign the spoc binary via nix for ppc64le
+	$(call nix-build-sign-spoc-to,ppc64le)
+
+.PHONY: nix-spoc-s390x
+nix-spoc-s390x: $(BUILD_DIR) ## Build and sign the spoc binary via nix for s390x
+	$(call nix-build-sign-spoc-to,s390x)
 
 .PHONY: update-nixpkgs
 update-nixpkgs: ## Update the pinned nixpkgs to the latest master
@@ -334,7 +355,17 @@ $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
 		-D__TARGET_ARCH_$(ARCH) \
 		$(CFLAGS) \
 		-I ./internal/pkg/daemon/bpfrecorder/vmlinux/$(ARCH) \
-		-c $(BPF_PATH)/recorder.bpf.c \
+		-c $(BPF_RECORDER_PATH)/recorder.bpf.c \
+		-o $@
+	$(LLVM_STRIP) -g $@
+
+$(BUILD_DIR)/enricher.bpf.o: $(BUILD_DIR) ## Build the BPF module
+	$(CLANG) -g -O2 \
+		-target bpf \
+		-D__TARGET_ARCH_$(ARCH) \
+		$(CFLAGS) \
+		-I ./internal/pkg/daemon/bpfrecorder/vmlinux/$(ARCH) \
+		-c $(BPF_ENRICHER_PATH)/enricher.bpf.c \
 		-o $@
 	$(LLVM_STRIP) -g $@
 
@@ -342,19 +373,22 @@ $(BUILD_DIR)/recorder.bpf.o: $(BUILD_DIR) ## Build the BPF module
 update-vmlinux: ## Generate the vmlinux.h required for building the BPF modules.
 	./hack/update-vmlinux
 
-.PHONY: update-btf
-update-btf: $(BUILD_DIR) ## Build and update all generated BTF code for supported kernels
-	$(GO) run ./internal/pkg/daemon/bpfrecorder/generate
-
 .PHONY: update-bpf
 update-bpf: clean \
     internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.amd64 \
-    internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.arm64
+    internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.arm64 \
+    internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.amd64 \
+    internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.arm64
 
-internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_FILES) ## Build and update all generated BPF code with nix
+internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_RECORDER_FILES) ## Build and update all generated BPF code with nix
 	nix-build nix/default-bpf-$*.nix
 	cp -f result/recorder.bpf.o ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 	chmod 0644 ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
+
+internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FILES) ## Build and update all generated BPF code with nix
+	nix-build nix/default-bpf-$*.nix
+	cp -f result/enricher.bpf.o ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
+	chmod 0644 ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
 
 # Verification targets
 
@@ -447,10 +481,6 @@ verify-mocks: update-mocks ## Verify the content of the generated mocks
 .PHONY: verify-bpf
 verify-bpf: update-bpf ## Verify the generated bpf code
 	hack/tree-status
-
-.PHONY: verify-btf
-verify-btf: update-btf ## Verify the generated btf code
-	git diff
 
 .PHONY: verify-format
 verify-format: ## Verify the code format
@@ -643,15 +673,30 @@ endif
 set-openshift-image-params:
 	$(eval DOCKERFILE = Dockerfile.ubi)
 
-.PHONY: push-openshift-dev
-push-openshift-dev: set-openshift-image-params openshift-user image
+.PHONY: _push-image-openshift-dev
+_push-image-openshift-dev:
 	@echo "Exposing the default route to the image registry"
 	@oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"defaultRoute":true}}' --type=merge
 	@echo "Pushing image $(IMAGE) to the image registry"
+ifeq ($(CONTAINER_RUNTIME),docker)
+	@IMAGE_REGISTRY_HOST=$$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}'); \
+		$(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) -p $(shell oc whoami -t) $${IMAGE_REGISTRY_HOST}; \
+		$(CONTAINER_RUNTIME) tag $(LOGIN_PUSH_OPTS) $(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE); \
+		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
+else
 	@IMAGE_REGISTRY_HOST=$$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}'); \
 		$(CONTAINER_RUNTIME) login $(LOGIN_PUSH_OPTS) -u $(OPENSHIFT_USER) -p $(shell oc whoami -t) $${IMAGE_REGISTRY_HOST}; \
 		$(CONTAINER_RUNTIME) push $(LOGIN_PUSH_OPTS) localhost/$(IMAGE) $${IMAGE_REGISTRY_HOST}/openshift/$(IMAGE)
 
+endif
+
+.PHONY: push-prebuilt-image-openshift-dev
+push-prebuilt-image-openshift-dev: set-openshift-image-params openshift-user _push-image-openshift-dev
+	@echo "Pushed a pre-built image to image registry"
+
+.PHONY: push-openshift-dev
+push-openshift-dev: set-openshift-image-params openshift-user image _push-image-openshift-dev
+	@echo "Built image and pushed to image registry"
 .PHONY: do-deploy-openshift-dev
 do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 	@echo "Deploying"
@@ -663,6 +708,9 @@ do-deploy-openshift-dev: $(BUILD_DIR)/kustomize
 .PHONY: deploy-openshift-dev
 deploy-openshift-dev: push-openshift-dev do-deploy-openshift-dev
 
+# Deploy pre-built image for development into OpenShift
+.PHONY: deploy-prebuilt-openshift-dev
+deploy-prebuilt-openshift-dev: push-prebuilt-image-openshift-dev do-deploy-openshift-dev
 
 # Deploy the operator into the current kubectl context.
 .PHONY: deploy

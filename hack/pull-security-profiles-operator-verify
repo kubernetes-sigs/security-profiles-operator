@@ -3,8 +3,8 @@ set -euo pipefail
 
 ./hack/install-packages
 
-CLANG_VERSION=16
-apt-get install -y software-properties-common
+CLANG_VERSION=19
+apt-get install -y lsb-release
 curl -sSfL --retry 5 --retry-delay 3 https://apt.llvm.org/llvm.sh | bash -s -- $CLANG_VERSION all
 ln -sf /usr/bin/clang-format-$CLANG_VERSION /usr/bin/clang-format
 

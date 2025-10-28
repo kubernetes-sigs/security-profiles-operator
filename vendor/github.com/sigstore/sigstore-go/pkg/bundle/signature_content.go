@@ -93,11 +93,11 @@ func (m *MessageSignature) Signature() []byte {
 }
 
 func (e *Envelope) Signature() []byte {
-	if len(e.Envelope.Signatures) == 0 {
+	if len(e.Signatures) == 0 {
 		return []byte{}
 	}
 
-	sigBytes, err := base64.StdEncoding.DecodeString(e.Envelope.Signatures[0].Sig)
+	sigBytes, err := base64.StdEncoding.DecodeString(e.Signatures[0].Sig)
 	if err != nil {
 		return []byte{}
 	}

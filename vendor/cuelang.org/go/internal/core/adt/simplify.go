@@ -15,6 +15,9 @@
 package adt
 
 import (
+	"bytes"
+	"strings"
+
 	"github.com/cockroachdb/apd/v3"
 
 	"cuelang.org/go/internal"
@@ -66,9 +69,60 @@ func SimplifyBounds(ctx *OpContext, k Kind, x, y *BoundValue) Value {
 		}
 		return y
 
+	case xCat == -yCat && k == StringKind:
+		if xCat == -1 {
+			x, y = y, x
+			xv, yv = yv, xv
+		}
+
+		a, aOK := xv.(*String)
+		b, bOK := yv.(*String)
+
+		if !aOK || !bOK {
+			break
+		}
+
+		switch diff := strings.Compare(a.Str, b.Str); diff {
+		case -1:
+		case 0:
+			if x.Op == GreaterEqualOp && y.Op == LessEqualOp {
+				return ctx.NewString(a.Str)
+			}
+			fallthrough
+
+		case 1:
+			return ctx.NewErrf("incompatible string bounds %v and %v", y, x)
+		}
+
+	case xCat == -yCat && k == BytesKind:
+		if xCat == -1 {
+			x, y = y, x
+			xv, yv = yv, xv
+		}
+
+		a, aOK := xv.(*Bytes)
+		b, bOK := yv.(*Bytes)
+
+		if !aOK || !bOK {
+			break
+		}
+
+		switch diff := bytes.Compare(a.B, b.B); diff {
+		case -1:
+		case 0:
+			if x.Op == GreaterEqualOp && y.Op == LessEqualOp {
+				return ctx.newBytes(a.B)
+			}
+			fallthrough
+
+		case 1:
+			return ctx.NewErrf("incompatible bytes bounds %v and %v", y, x)
+		}
+
 	case xCat == -yCat:
 		if xCat == -1 {
 			x, y = y, x
+			xv, yv = yv, xv
 		}
 		a, aOK := xv.(*Num)
 		b, bOK := yv.(*Num)
@@ -133,28 +187,34 @@ func SimplifyBounds(ctx *OpContext, k Kind, x, y *BoundValue) Value {
 		case diff == 1:
 			if k&FloatKind == 0 {
 				if x.Op == GreaterEqualOp && y.Op == LessThanOp {
-					return ctx.newNum(&lo, k&NumKind, x, y)
+					return ctx.newNum(&lo, k&NumberKind, x, y)
 				}
 				if x.Op == GreaterThanOp && y.Op == LessEqualOp {
-					return ctx.newNum(&hi, k&NumKind, x, y)
+					return ctx.newNum(&hi, k&NumberKind, x, y)
+				}
+				if x.Op == GreaterThanOp && y.Op == LessThanOp {
+					return ctx.NewErrf("incompatible integer bounds %v and %v", x, y)
 				}
 			}
 
 		case diff == 2:
 			if k&FloatKind == 0 && x.Op == GreaterThanOp && y.Op == LessThanOp {
 				_, _ = internal.BaseContext.Add(&d, d.SetInt64(1), &lo)
-				return ctx.newNum(&d, k&NumKind, x, y)
-
+				return ctx.newNum(&d, k&NumberKind, x, y)
 			}
 
 		case diff == 0 && err == nil:
 			if x.Op == GreaterEqualOp && y.Op == LessEqualOp {
-				return ctx.newNum(&lo, k&NumKind, x, y)
+				return ctx.newNum(&lo, k&NumberKind, x, y)
 			}
 			fallthrough
 
 		case d.Negative:
-			return ctx.NewErrf("incompatible bounds %v and %v", x, y)
+			if k == IntKind {
+				return ctx.NewErrf("incompatible integer bounds %v and %v", y, x)
+			} else {
+				return ctx.NewErrf("incompatible number bounds %v and %v", y, x)
+			}
 		}
 
 	case x.Op == NotEqualOp:
@@ -202,24 +262,31 @@ func test(ctx *OpContext, op Op, a, b Value) bool {
 // Currently this only checks for pure equality. In the future this can be used
 // to simplify certain builtin validators analogously to how we simplify bounds
 // now.
-func SimplifyValidator(ctx *OpContext, v, w Validator) Validator {
-	switch x := v.(type) {
+func SimplifyValidator(ctx *OpContext, v, w Conjunct) (c Conjunct, ok bool) {
+	switch x := v.x.(type) {
 	case *BuiltinValidator:
-		switch y := w.(type) {
+		switch y := w.x.(type) {
 		case *BuiltinValidator:
 			if x == y {
-				return x
+				return v, true
 			}
 			if x.Builtin != y.Builtin || len(x.Args) != len(y.Args) {
-				return nil
+				return c, false
 			}
 			for i, a := range x.Args {
-				if !Equal(ctx, a, y.Args[i], CheckStructural) {
-					return nil
+				b := y.Args[i]
+				if v, ok := a.(*Vertex); ok {
+					v.Finalize(ctx)
+				}
+				if v, ok := b.(*Vertex); ok {
+					v.Finalize(ctx)
+				}
+				if !Equal(ctx, a, b, CheckStructural) {
+					return c, false
 				}
 			}
-			return x
+			return v, true
 		}
 	}
-	return nil
+	return c, false
 }

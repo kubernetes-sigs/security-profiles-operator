@@ -11,10 +11,10 @@ import (
 	"io"
 	"sort"
 
-	"github.com/open-policy-agent/opa/ast"
-	"github.com/open-policy-agent/opa/ast/location"
 	"github.com/open-policy-agent/opa/internal/debug"
-	"github.com/open-policy-agent/opa/ir"
+	"github.com/open-policy-agent/opa/v1/ast"
+	"github.com/open-policy-agent/opa/v1/ast/location"
+	"github.com/open-policy-agent/opa/v1/ir"
 )
 
 // QuerySet represents the input to the planner.
@@ -51,10 +51,10 @@ type Planner struct {
 
 // debugf prepends the planner location. We're passing callstack depth 2 because
 // it should still log the file location of p.debugf.
-func (p *Planner) debugf(format string, args ...interface{}) {
+func (p *Planner) debugf(format string, args ...any) {
 	var msg string
 	if p.loc != nil {
-		msg = fmt.Sprintf("%s: "+format, append([]interface{}{p.loc}, args...)...)
+		msg = fmt.Sprintf("%s: "+format, append([]any{p.loc}, args...)...)
 	} else {
 		msg = fmt.Sprintf(format, args...)
 	}
@@ -211,23 +211,28 @@ func (p *Planner) planRules(rules []*ast.Rule) (string, error) {
 	// Set the location to the rule head.
 	p.loc = rules[0].Head.Loc()
 
+	pcount := p.funcs.argVars()
+	params := make([]ir.Local, 0, pcount+len(rules[0].Head.Args))
+	for range pcount {
+		params = append(params, p.newLocal())
+	}
 	// Create function definition for rules.
 	fn := &ir.Func{
-		Name: fmt.Sprintf("g%d.%s", p.funcs.gen(), path),
-		Params: []ir.Local{
-			p.newLocal(), // input document
-			p.newLocal(), // data document
-		},
+		Name:   fmt.Sprintf("g%d.%s", p.funcs.gen(), path),
+		Params: params,
 		Return: p.newLocal(),
 		Path:   append([]string{fmt.Sprintf("g%d", p.funcs.gen())}, pathPieces...),
 	}
 
 	// Initialize parameters for functions.
-	for i := 0; i < len(rules[0].Head.Args); i++ {
+	for range len(rules[0].Head.Args) {
 		fn.Params = append(fn.Params, p.newLocal())
 	}
 
-	params := fn.Params[2:]
+	// only those added as formal parameters:
+	// f(x, y) is planned as f(data, input, x, y)
+	// pcount > 2 means there are vars passed along through with replacements by variables
+	params = fn.Params[pcount:]
 
 	// Initialize return value for partial set/object rules. Complete document
 	// rules assign directly to `fn.Return`.
@@ -301,10 +306,11 @@ func (p *Planner) planRules(rules []*ast.Rule) (string, error) {
 
 			// Setup planner for block.
 			p.lnext = lnext
-			p.vars = newVarstack(map[ast.Var]ir.Local{
-				ast.InputRootDocument.Value.(ast.Var):   fn.Params[0],
-				ast.DefaultRootDocument.Value.(ast.Var): fn.Params[1],
-			})
+			vs := make(map[ast.Var]ir.Local, p.funcs.argVars())
+			for i, v := range p.funcs.vars() {
+				vs[v] = fn.Params[i]
+			}
+			p.vars = newVarstack(vs)
 
 			curr := &ir.Block{}
 			*blocks = append(*blocks, curr)
@@ -385,7 +391,7 @@ func (p *Planner) planRules(rules []*ast.Rule) (string, error) {
 							return nil
 						})
 					default:
-						return fmt.Errorf("illegal rule kind")
+						return errors.New("illegal rule kind")
 					}
 				})
 			})
@@ -497,7 +503,6 @@ func (p *Planner) planDotOr(obj ir.Local, key ir.Operand, or stmtFactory, iter p
 
 func (p *Planner) planNestedObjects(obj ir.Local, ref ast.Ref, iter planLocalIter) error {
 	if len(ref) == 0 {
-		//return fmt.Errorf("nested object construction didn't create object")
 		return iter(obj)
 	}
 
@@ -673,13 +678,17 @@ func (p *Planner) planWith(e *ast.Expr, iter planiter) error {
 	values := make([]*ast.Term, 0, len(e.With)) // NOTE(sr): we could be overallocating if there are builtin replacements
 	targets := make([]ast.Ref, 0, len(e.With))
 
+	vars := []ast.Var{}
 	mocks := frame{}
 
 	for _, w := range e.With {
 		v := w.Target.Value.(ast.Ref)
 
 		switch {
-		case p.isFunction(v): // nothing to do
+		case p.isFunctionOrBuiltin(v): // track var values
+			if wvar, ok := w.Value.Value.(ast.Var); ok {
+				vars = append(vars, wvar)
+			}
 
 		case ast.DefaultRootDocument.Equal(v[0]) ||
 			ast.InputRootDocument.Equal(v[0]):
@@ -736,7 +745,7 @@ func (p *Planner) planWith(e *ast.Expr, iter planiter) error {
 		// planning of this expression (transitively).
 		shadowing := p.dataRefsShadowRuletrie(dataRefs) || len(mocks) > 0
 		if shadowing {
-			p.funcs.Push(map[string]string{})
+			p.funcs.Push(map[string]string{}, vars)
 			for _, ref := range dataRefs {
 				p.rules.Push(ref)
 			}
@@ -757,7 +766,7 @@ func (p *Planner) planWith(e *ast.Expr, iter planiter) error {
 
 				p.mocks.PushFrame(mocks)
 				if shadowing {
-					p.funcs.Push(map[string]string{})
+					p.funcs.Push(map[string]string{}, vars)
 					for _, ref := range dataRefs {
 						p.rules.Push(ref)
 					}
@@ -991,8 +1000,16 @@ func (p *Planner) planExprCall(e *ast.Expr, iter planiter) error {
 		op := e.Operator()
 
 		if replacement := p.mocks.Lookup(operator); replacement != nil {
-			switch r := replacement.Value.(type) {
-			case ast.Ref:
+			if _, ok := replacement.Value.(ast.Var); ok {
+				var arity int
+				if node := p.rules.Lookup(op); node != nil {
+					arity = node.Arity() // NB(sr): We don't need to plan what isn't called, only lookup arity
+				} else if bi, ok := p.decls[operator]; ok {
+					arity = bi.Decl.Arity()
+				}
+				return p.planExprCallValue(replacement, arity, operands, iter)
+			}
+			if r, ok := replacement.Value.(ast.Ref); ok {
 				if !r.HasPrefix(ast.DefaultRootRef) && !r.HasPrefix(ast.InputRootRef) {
 					// replacement is builtin
 					operator = r.String()
@@ -1020,7 +1037,7 @@ func (p *Planner) planExprCall(e *ast.Expr, iter planiter) error {
 
 			// replacement is a value, or ref
 			if bi, ok := p.decls[operator]; ok {
-				return p.planExprCallValue(replacement, len(bi.Decl.FuncArgs().Args), operands, iter)
+				return p.planExprCallValue(replacement, bi.Decl.Arity(), operands, iter)
 			}
 			if node := p.rules.Lookup(op); node != nil {
 				return p.planExprCallValue(replacement, node.Arity(), operands, iter)
@@ -1037,7 +1054,7 @@ func (p *Planner) planExprCall(e *ast.Expr, iter planiter) error {
 			args = p.defaultOperands()
 		} else if decl, ok := p.decls[operator]; ok {
 			relation = decl.Relation
-			arity = len(decl.Decl.Args())
+			arity = decl.Decl.Arity()
 			void = decl.Decl.Result() == nil
 			name = operator
 			p.externs[operator] = decl
@@ -1147,7 +1164,7 @@ func (p *Planner) planExprCallFunc(name string, arity int, void bool, operands [
 		})
 
 	default:
-		return fmt.Errorf("impossible replacement, arity mismatch")
+		return errors.New("impossible replacement, arity mismatch")
 	}
 }
 
@@ -1173,7 +1190,7 @@ func (p *Planner) planExprCallValue(value *ast.Term, arity int, operands []*ast.
 			})
 		})
 	default:
-		return fmt.Errorf("impossible replacement, arity mismatch")
+		return errors.New("impossible replacement, arity mismatch")
 	}
 }
 
@@ -1519,7 +1536,7 @@ func (p *Planner) planValue(t ast.Value, loc *ast.Location, iter planiter) error
 		p.loc = loc
 		return p.planObjectComprehension(v, iter)
 	default:
-		return fmt.Errorf("%v term not implemented", ast.TypeName(v))
+		return fmt.Errorf("%v term not implemented", ast.ValueName(v))
 	}
 }
 
@@ -1564,9 +1581,7 @@ func (p *Planner) planString(str ast.String, iter planiter) error {
 }
 
 func (p *Planner) planVar(v ast.Var, iter planiter) error {
-	p.ltarget = op(p.vars.GetOrElse(v, func() ir.Local {
-		return p.newLocal()
-	}))
+	p.ltarget = op(p.vars.GetOrElse(v, p.newLocal))
 	return iter()
 }
 
@@ -1750,7 +1765,7 @@ func (p *Planner) planRef(ref ast.Ref, iter planiter) error {
 
 	head, ok := ref[0].Value.(ast.Var)
 	if !ok {
-		return fmt.Errorf("illegal ref: non-var head")
+		return errors.New("illegal ref: non-var head")
 	}
 
 	if head.Compare(ast.DefaultRootDocument.Value) == 0 {
@@ -1767,7 +1782,7 @@ func (p *Planner) planRef(ref ast.Ref, iter planiter) error {
 
 	p.ltarget, ok = p.vars.GetOp(head)
 	if !ok {
-		return fmt.Errorf("illegal ref: unsafe head")
+		return errors.New("illegal ref: unsafe head")
 	}
 
 	return p.planRefRec(ref, 1, iter)
@@ -1924,12 +1939,15 @@ func (p *Planner) planRefData(virtual *ruletrie, base *baseptr, ref ast.Ref, ind
 			if err != nil {
 				return err
 			}
-
-			p.appendStmt(&ir.CallStmt{
+			call := ir.CallStmt{
 				Func:   funcName,
-				Args:   p.defaultOperands(),
+				Args:   make([]ir.Operand, 0, p.funcs.argVars()),
 				Result: p.ltarget.Value.(ir.Local),
-			})
+			}
+			for _, v := range p.funcs.vars() {
+				call.Args = append(call.Args, p.vars.GetOpOrEmpty(v))
+			}
+			p.appendStmt(&call)
 
 			return p.planRefRec(ref, index+1, iter)
 		}
@@ -2365,6 +2383,10 @@ func rewrittenVar(vars map[ast.Var]ast.Var, k ast.Var) ast.Var {
 	return rw
 }
 
+func dont() ([][]*ast.Rule, []ir.Operand, int, bool) {
+	return nil, nil, 0, false
+}
+
 // optimizeLookup returns a set of rulesets and required statements planning
 // the locals (strings) needed with the used local variables, and the index
 // into ref's parth that is still to be planned; if the passed ref's vars
@@ -2381,9 +2403,6 @@ func rewrittenVar(vars map[ast.Var]ast.Var, k ast.Var) ast.Var {
 // var actually matched_ -- so we don't know which subtree to evaluate
 // with the results.
 func (p *Planner) optimizeLookup(t *ruletrie, ref ast.Ref) ([][]*ast.Rule, []ir.Operand, int, bool) {
-	dont := func() ([][]*ast.Rule, []ir.Operand, int, bool) {
-		return nil, nil, 0, false
-	}
 	if t == nil {
 		p.debugf("no optimization of %s: trie is nil", ref)
 		return dont()
@@ -2411,6 +2430,10 @@ outer:
 			opt = true
 			// take all children, they might match
 			for _, node := range nodes {
+				if nr := node.Rules(); len(nr) > 0 {
+					p.debugf("no optimization of %s: node with rules (%v)", ref, refsOfRules(nr))
+					return dont()
+				}
 				for _, child := range node.Children() {
 					if node := node.Get(child); node != nil {
 						nextNodes = append(nextNodes, node)
@@ -2418,8 +2441,12 @@ outer:
 				}
 			}
 		case ast.String:
-			// take all children that either match or have a var key
+			// take all children that either match or have a var key // TODO(sr): Where's the code for the second part, having a var key?
 			for _, node := range nodes {
+				if nr := node.Rules(); len(nr) > 0 {
+					p.debugf("no optimization of %s: node with rules (%v)", ref, refsOfRules(nr))
+					return dont()
+				}
 				if node := node.Get(r); node != nil {
 					nextNodes = append(nextNodes, node)
 				}
@@ -2438,10 +2465,20 @@ outer:
 		// let us break, too.
 		all := 0
 		for _, node := range nodes {
-			all += node.ChildrenCount()
+			if i < len(ref)-1 {
+				// Look ahead one term to only count those children relevant to your planned ref.
+				switch ref[i+1].Value.(type) {
+				case ast.Var:
+					all += node.ChildrenCount()
+				default:
+					if relChildren := node.Get(ref[i+1].Value); relChildren != nil {
+						all++
+					}
+				}
+			}
 		}
 		if all == 0 {
-			p.debugf("ref %s: all nodes have 0 children, break", ref[0:index+1])
+			p.debugf("ref %s: all nodes have 0 relevant children, break", ref[0:index+1])
 			break
 		}
 
@@ -2534,19 +2571,30 @@ func (p *Planner) unseenVars(t *ast.Term) bool {
 }
 
 func (p *Planner) defaultOperands() []ir.Operand {
-	return []ir.Operand{
-		p.vars.GetOpOrEmpty(ast.InputRootDocument.Value.(ast.Var)),
-		p.vars.GetOpOrEmpty(ast.DefaultRootDocument.Value.(ast.Var)),
+	pcount := p.funcs.argVars()
+	operands := make([]ir.Operand, pcount)
+	for i, v := range p.funcs.vars() {
+		operands[i] = p.vars.GetOpOrEmpty(v)
 	}
+	return operands
 }
 
-func (p *Planner) isFunction(r ast.Ref) bool {
+func (p *Planner) isFunctionOrBuiltin(r ast.Ref) bool {
 	if node := p.rules.Lookup(r); node != nil {
 		return node.Arity() > 0
 	}
-	return false
+	_, ok := p.decls[r.String()]
+	return ok
 }
 
 func op(v ir.Val) ir.Operand {
 	return ir.Operand{Value: v}
+}
+
+func refsOfRules(rs []*ast.Rule) []string {
+	refs := make([]string, len(rs))
+	for i := range rs {
+		refs[i] = rs[i].Head.Ref().String()
+	}
+	return refs
 }

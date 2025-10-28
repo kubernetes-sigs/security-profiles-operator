@@ -23,6 +23,7 @@ import (
 	"bufio"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cockroachdb/apd/v3"
@@ -107,14 +108,27 @@ func Version(minor, patch int) int {
 	return -1000 + 100*minor + patch
 }
 
+// EvaluatorVersion is declared here so it can be used everywhere without import cycles,
+// but the canonical documentation lives at [cuelang.org/go/cue/cuecontext.EvalVersion].
+//
+// TODO(mvdan): rename to EvalVersion for consistency with cuecontext.
 type EvaluatorVersion int
 
 const (
-	DefaultVersion EvaluatorVersion = iota
+	// EvalVersionUnset is the zero value, which signals that no evaluator version is provided.
+	EvalVersionUnset EvaluatorVersion = 0
 
-	// The DevVersion is used for new implementations of the evaluator that
-	// do not cover all features of the CUE language yet.
-	DevVersion
+	// The values below are documented under [cuelang.org/go/cue/cuecontext.EvalVersion].
+	// We should never change or delete the values below, as they describe all known past versions
+	// which is useful for understanding old debug output.
+
+	EvalV2 EvaluatorVersion = 2
+	EvalV3 EvaluatorVersion = 3
+
+	// The current default and experimental versions.
+
+	DefaultVersion = EvalV2 // TODO(mvdan): rename to EvalDefault for consistency with cuecontext
+	DevVersion     = EvalV3 // TODO(mvdan): rename to EvalExperiment for consistency with cuecontext
 )
 
 // ListEllipsis reports the list type and remaining elements of a list. If we
@@ -132,41 +146,31 @@ func ListEllipsis(n *ast.ListLit) (elts []ast.Expr, e *ast.Ellipsis) {
 	return elts, e
 }
 
-type PkgInfo struct {
-	Package *ast.Package
-	Index   int // position in File.Decls
-	Name    string
-}
-
-// IsAnonymous reports whether the package is anonymous.
-func (p *PkgInfo) IsAnonymous() bool {
-	return p.Name == "" || p.Name == "_"
-}
-
-func GetPackageInfo(f *ast.File) PkgInfo {
-	for i, d := range f.Decls {
-		switch x := d.(type) {
+// Package finds the package declaration from the preamble of a file.
+func Package(f *ast.File) *ast.Package {
+	for _, d := range f.Decls {
+		switch d := d.(type) {
 		case *ast.CommentGroup:
 		case *ast.Attribute:
 		case *ast.Package:
-			if x.Name == nil {
-				return PkgInfo{}
+			if d.Name == nil { // malformed package declaration
+				return nil
 			}
-			return PkgInfo{x, i, x.Name.Name}
+			return d
 		default:
-			return PkgInfo{}
+			return nil
 		}
 	}
-	return PkgInfo{}
+	return nil
 }
 
 func SetPackage(f *ast.File, name string, overwrite bool) {
-	if pi := GetPackageInfo(f); pi.Package != nil {
-		if !overwrite || pi.Name == name {
+	if pkg := Package(f); pkg != nil {
+		if !overwrite || pkg.Name.Name == name {
 			return
 		}
 		ident := ast.NewIdent(name)
-		astutil.CopyMeta(ident, pi.Package.Name)
+		astutil.CopyMeta(ident, pkg.Name)
 		return
 	}
 
@@ -226,34 +230,61 @@ func NewComment(isDoc bool, s string) *ast.CommentGroup {
 	return cg
 }
 
-func FileComment(f *ast.File) *ast.CommentGroup {
-	var cgs []*ast.CommentGroup
-	if pkg := GetPackageInfo(f).Package; pkg != nil {
-		cgs = pkg.Comments()
-	} else if cgs = f.Comments(); len(cgs) > 0 {
-		// Use file comment.
-	} else {
-		// Use first comment before any declaration.
-		for _, d := range f.Decls {
-			if cg, ok := d.(*ast.CommentGroup); ok {
-				return cg
-			}
-			if cgs = ast.Comments(d); cgs != nil {
-				break
-			}
-			// TODO: what to do here?
-			if _, ok := d.(*ast.Attribute); !ok {
-				break
-			}
+func FileComments(f *ast.File) (docs, rest []*ast.CommentGroup) {
+	hasPkg := false
+	if pkg := Package(f); pkg != nil {
+		hasPkg = true
+		docs = pkg.Comments()
+	}
+
+	for _, c := range f.Comments() {
+		if c.Doc {
+			docs = append(docs, c)
+		} else {
+			rest = append(rest, c)
 		}
 	}
-	var cg *ast.CommentGroup
-	for _, c := range cgs {
-		if c.Position == 0 {
-			cg = c
+
+	if !hasPkg && len(docs) == 0 && len(rest) > 0 {
+		// use the first file comment group as as doc comment.
+		docs, rest = rest[:1], rest[1:]
+		docs[0].Doc = true
+	}
+
+	return
+}
+
+// MergeDocs merges multiple doc comments into one single doc comment.
+func MergeDocs(comments []*ast.CommentGroup) []*ast.CommentGroup {
+	if len(comments) <= 1 || !hasDocComment(comments) {
+		return comments
+	}
+
+	comments1 := make([]*ast.CommentGroup, 0, len(comments))
+	comments1 = append(comments1, nil)
+	var docComment *ast.CommentGroup
+	for _, c := range comments {
+		switch {
+		case !c.Doc:
+			comments1 = append(comments1, c)
+		case docComment == nil:
+			docComment = c
+		default:
+			docComment.List = append(slices.Clip(docComment.List), &ast.Comment{Text: "//"})
+			docComment.List = append(docComment.List, c.List...)
 		}
 	}
-	return cg
+	comments1[0] = docComment
+	return comments1
+}
+
+func hasDocComment(comments []*ast.CommentGroup) bool {
+	for _, c := range comments {
+		if c.Doc {
+			return true
+		}
+	}
+	return false
 }
 
 func NewAttr(name, str string) *ast.Attribute {
@@ -440,28 +471,3 @@ func GenPath(root string) string {
 }
 
 var ErrInexact = errors.New("inexact subsumption")
-
-func DecorateError(info error, err errors.Error) errors.Error {
-	return &decorated{cueError: err, info: info}
-}
-
-type cueError = errors.Error
-
-type decorated struct {
-	cueError
-
-	info error
-}
-
-func (e *decorated) Is(err error) bool {
-	return errors.Is(e.info, err) || errors.Is(e.cueError, err)
-}
-
-// MaxDepth indicates the maximum evaluation depth. This is there to break
-// cycles in the absence of cycle detection.
-//
-// It is registered in a central place to make it easy to find all spots where
-// cycles are broken in this brute-force manner.
-//
-// TODO(eval): have cycle detection.
-const MaxDepth = 20

@@ -37,7 +37,6 @@ import (
 	"time"
 
 	bpf "github.com/aquasecurity/libbpfgo"
-	"github.com/blang/semver/v4"
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	"google.golang.org/grpc"
@@ -49,7 +48,6 @@ import (
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/bimap"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
-	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
@@ -481,8 +479,7 @@ func (b *BpfRecorder) Load() (err error) {
 
 	b.logger.Info("Loading bpf module...")
 
-	b.btfPath, err = b.findBtfPath()
-	if err != nil {
+	if err := b.findBtfPath(); err != nil {
 		return fmt.Errorf("find btf: %w", err)
 	}
 
@@ -613,6 +610,7 @@ func (b *BpfRecorder) loadPrograms(programNames []string) error {
 func (b *BpfRecorder) StartRecording() (err error) {
 	b.attachUnattachMutex.Lock()
 	defer b.attachUnattachMutex.Unlock()
+
 	b.logger.Info("Start BPF recording...")
 
 	if b.module == nil {
@@ -650,6 +648,7 @@ func (b *BpfRecorder) StartRecording() (err error) {
 func (b *BpfRecorder) StopRecording() error {
 	b.attachUnattachMutex.Lock()
 	defer b.attachUnattachMutex.Unlock()
+
 	b.logger.Info("Stop BPF recording: Detaching all programs...")
 
 	if err := b.UpdateValue(b.isRecordingBpfMap, 0, []byte{1}); err != nil {
@@ -676,109 +675,17 @@ func (b *BpfRecorder) StopRecording() error {
 	return nil
 }
 
-func (b *BpfRecorder) findBtfPath() (string, error) {
+func (b *BpfRecorder) findBtfPath() error {
+	const btf = "/sys/kernel/btf/vmlinux"
+
 	// Use the system btf if possible
-	if _, err := b.Stat("/sys/kernel/btf/vmlinux"); err == nil {
+	if _, err := b.Stat(btf); err == nil {
 		b.logger.Info("Using system btf file")
 
-		return "", nil
+		return nil
 	}
 
-	b.logger.Info("Trying to find matching in-memory btf")
-
-	btf := types.Btf{}
-	if err := b.Unmarshal([]byte(btfJSON), &btf); err != nil {
-		return "", fmt.Errorf("unmarshal btf JSON: %w", err)
-	}
-
-	res, err := b.ReadOSRelease()
-	if err != nil {
-		return "", fmt.Errorf("read os-release file: %w", err)
-	}
-
-	osID := types.Os(res["ID"])
-	btfOs, ok := btf[osID]
-
-	if !ok {
-		b.logger.Info(fmt.Sprintf("OS not found in btf map: %s", osID))
-
-		return "", nil
-	}
-
-	b.logger.Info(fmt.Sprintf("OS found in btf map: %s", osID))
-
-	osVersion := types.OsVersion(res["VERSION_ID"])
-	btfOsVersion, ok := btfOs[osVersion]
-
-	if !ok {
-		b.logger.Info(fmt.Sprintf("OS version not found in btf map: %s", osVersion))
-
-		return "", nil
-	}
-
-	b.logger.Info(fmt.Sprintf("OS version found in btf map: %s", osVersion))
-
-	uname := syscall.Utsname{}
-	if err := b.Uname(&uname); err != nil {
-		return "", fmt.Errorf("uname syscall failed: %w", err)
-	}
-
-	arch := types.Arch(toStringInt8(uname.Machine))
-	btfArch, ok := btfOsVersion[arch]
-
-	if !ok {
-		b.logger.Info(fmt.Sprintf("Architecture not found in btf map: %s", arch))
-
-		return "", nil
-	}
-
-	b.logger.Info(fmt.Sprintf("Architecture found in btf map: %s", arch))
-
-	release := toStringInt8(uname.Release)
-
-	version, err := semver.Parse(release)
-	if err != nil {
-		return "", fmt.Errorf("unable to parse semver for release %s: %w", release, err)
-	}
-
-	version.Pre = nil
-
-	const (
-		lowestMajor = 5
-		lowestMinor = 8
-	)
-
-	if version.LT(semver.Version{Major: lowestMajor, Minor: lowestMinor}) {
-		return "", fmt.Errorf("unsupported kernel version %s: at least Linux 5.8 is required", release)
-	}
-
-	kernel := types.Kernel(release)
-	btfBytes, ok := btfArch[kernel]
-
-	if !ok {
-		b.logger.Info(fmt.Sprintf("Kernel not found in btf map: %s", kernel))
-
-		return "", nil
-	}
-
-	b.logger.Info(fmt.Sprintf("Kernel found in btf map: %s", kernel))
-
-	file, err := b.TempFile(
-		"",
-		fmt.Sprintf("spo-btf-%s-%s-%s-%s", osID, osVersion, arch, kernel),
-	)
-	if err != nil {
-		return "", fmt.Errorf("create temp file: %w", err)
-	}
-	defer file.Close()
-
-	if _, err := b.Write(file, btfBytes); err != nil {
-		return "", fmt.Errorf("write BTF: %w", err)
-	}
-
-	b.logger.Info("Wrote BTF to file: " + file.Name())
-
-	return file.Name(), nil
+	return fmt.Errorf("we dropped support for in-memory btf, please use a kernel which supports %s", btf)
 }
 
 func (b *BpfRecorder) processEvents(events chan []byte) {
@@ -877,6 +784,7 @@ func (b *BpfRecorder) handleExitEvent(exitEvent *bpfEvent) {
 
 		return
 	}
+
 	select {
 	case <-done:
 		// already closed

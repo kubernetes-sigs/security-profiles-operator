@@ -33,17 +33,17 @@ import (
 	"github.com/stretchr/testify/suite"
 	"k8s.io/klog/v2/textlogger"
 	"sigs.k8s.io/release-utils/command"
-	"sigs.k8s.io/release-utils/util"
+	"sigs.k8s.io/release-utils/helpers"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	spoutil "sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
 
 const (
-	kindVersion      = "v0.26.0"
-	kindImage        = "kindest/node:v1.32.0@sha256:c48c62eac5da28cdadcf560d1d8616cfa6783b58f0d94cf63ad1bf49600cb027"
-	kindDarwinSHA512 = "e40861aa6c9ac9ac36da5067272f5e9b9548c0f37d00fe0aaa52a3bd92f3608fb1155bd4e598083ff77cb38c8e2633ccb4138667912f34be783af34c055804f2" //nolint:lll // full length SHA
-	kindLinuxSHA512  = "15ba3777f5c4f17b3cc90eee62549cb42c6106a40fe115c8524d72f3a8601362d50890c52fc2561d0fe77e15865a274ca67600903ef2dde00780aad1dccffc1e" //nolint:lll // full length SHA
+	kindVersion      = "v0.27.0"
+	kindImage        = "kindest/node:v1.32.2@sha256:f226345927d7e348497136874b6d207e0b32cc52154ad8323129352923a3142f"
+	kindDarwinSHA512 = "ccd2413c2293a80f4944937a0855fc800e5fe1ad41baea0b528ed390cdce473f076c1c0fd61f0d24adec87589878ab136377cd4a546c19a349bf140ecd7df5a3" //nolint:lll // full length SHA
+	kindLinuxSHA512  = "7b744426a5a8cb9908eda1cc9af3308deb0318cc589a7fc864f4717815839644e31b24b351ee46d14422d990b9eb3ab10a25063c97a76973534d6d112631000c" //nolint:lll // full length SHA
 )
 
 var (
@@ -56,6 +56,7 @@ var (
 	envSkipNamespacedTests       = os.Getenv("E2E_SKIP_NAMESPACED_TESTS")
 	envSelinuxTestsEnabled       = os.Getenv("E2E_TEST_SELINUX")
 	envLogEnricherTestsEnabled   = os.Getenv("E2E_TEST_LOG_ENRICHER")
+	envJsonEnricherTestsEnabled  = os.Getenv("E2E_TEST_JSON_ENRICHER")
 	envSeccompTestsEnabled       = os.Getenv("E2E_TEST_SECCOMP")
 	envBpfRecorderTestsEnabled   = os.Getenv("E2E_TEST_BPF_RECORDER")
 	envWebhookConfigTestsEnabled = os.Getenv("E2E_TEST_WEBHOOK_CONFIG")
@@ -99,6 +100,7 @@ type e2e struct {
 	operatorManifest      string
 	selinuxEnabled        bool
 	logEnricherEnabled    bool
+	jsonEnricherEnabled   bool
 	testSeccomp           bool
 	bpfRecorderEnabled    bool
 	skipNamespacedTests   bool
@@ -153,6 +155,11 @@ func TestSuite(t *testing.T) {
 	logEnricherEnabled, err := strconv.ParseBool(envLogEnricherTestsEnabled)
 	if err != nil {
 		logEnricherEnabled = false
+	}
+
+	jsonEnricherEnabled, err := strconv.ParseBool(envJsonEnricherTestsEnabled)
+	if err != nil {
+		jsonEnricherEnabled = false
 	}
 
 	testSeccomp, err := strconv.ParseBool(envSeccompTestsEnabled)
@@ -215,6 +222,7 @@ func TestSuite(t *testing.T) {
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
+				jsonEnricherEnabled: jsonEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
 				bpfRecorderEnabled:  bpfRecorderEnabled,
@@ -248,6 +256,7 @@ func TestSuite(t *testing.T) {
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
+				jsonEnricherEnabled: jsonEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
 				bpfRecorderEnabled:  bpfRecorderEnabled,
@@ -276,6 +285,7 @@ func TestSuite(t *testing.T) {
 				nodeRootfsPrefix:    nodeRootfsPrefix,
 				selinuxEnabled:      selinuxEnabled,
 				logEnricherEnabled:  logEnricherEnabled,
+				jsonEnricherEnabled: jsonEnricherEnabled,
 				testSeccomp:         testSeccomp,
 				selinuxdImage:       selinuxdImage,
 				bpfRecorderEnabled:  bpfRecorderEnabled,
@@ -300,10 +310,10 @@ func (e *kinde2e) SetupSuite() {
 	e.logf("Setting up suite")
 	command.SetGlobalVerbose(true)
 	// Override execNode and waitForReadyPods functions
-	e.e2e.execNode = e.execNodeKind
-	e.e2e.waitForReadyPods = e.waitForReadyPodsKind
-	e.e2e.deployCertManager = e.deployCertManagerKind
-	e.e2e.setupRecordingSa = e.deployRecordingSa
+	e.execNode = e.execNodeKind
+	e.waitForReadyPods = e.waitForReadyPodsKind
+	e.deployCertManager = e.deployCertManagerKind
+	e.setupRecordingSa = e.deployRecordingSa
 	parentCwd := e.setWorkDir()
 	buildDir := filepath.Join(parentCwd, "build")
 	e.Require().NoError(os.MkdirAll(buildDir, 0o755))
@@ -325,6 +335,7 @@ func (e *kinde2e) SetupSuite() {
 		kindVersion, kindOS), e.kindPath, SHA512)
 
 	var err error
+
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 	e.NoError(err)
@@ -401,10 +412,10 @@ func (e *openShifte2e) SetupSuite() {
 	e.logf("Setting up suite")
 	command.SetGlobalVerbose(true)
 	// Override execNode and waitForReadyPods functions
-	e.e2e.execNode = e.execNodeOCP
-	e.e2e.waitForReadyPods = e.waitForReadyPodsOCP
-	e.e2e.deployCertManager = e.deployCertManagerOCP
-	e.e2e.setupRecordingSa = e.deployRecordingSaOcp
+	e.execNode = e.execNodeOCP
+	e.waitForReadyPods = e.waitForReadyPodsOCP
+	e.deployCertManager = e.deployCertManagerOCP
+	e.setupRecordingSa = e.deployRecordingSaOcp
 	e.setWorkDir()
 
 	e.kubectlPath, err = exec.LookPath("oc")
@@ -440,6 +451,7 @@ func (e *openShifte2e) TearDownTest() {
 
 func (e *openShifte2e) pushImageToRegistry() {
 	e.logf("Exposing registry")
+
 	e.kubectl("patch", "configs.imageregistry.operator.openshift.io/cluster",
 		"--patch", "{\"spec\":{\"defaultRoute\":true}}", "--type=merge")
 	defer e.kubectl("patch", "configs.imageregistry.operator.openshift.io/cluster",
@@ -514,11 +526,11 @@ func (e *vanilla) SetupSuite() {
 	e.setWorkDir()
 
 	// Override execNode and waitForReadyPods functions
-	e.e2e.execNode = e.execNodeVanilla
+	e.execNode = e.execNodeVanilla
 	e.kubectlPath, err = exec.LookPath("kubectl")
-	e.e2e.waitForReadyPods = e.waitForReadyPodsVanilla
-	e.e2e.deployCertManager = e.deployCertManagerVanilla
-	e.e2e.setupRecordingSa = e.deployRecordingSa
+	e.waitForReadyPods = e.waitForReadyPodsVanilla
+	e.deployCertManager = e.deployCertManagerVanilla
+	e.setupRecordingSa = e.deployRecordingSa
 	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
 	e.NoError(err)
 }
@@ -572,6 +584,7 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 	tmpfile.Close()
 
 	delChannel := make(chan struct{})
+
 	go func() {
 		for {
 			_, err := os.Stat(tmpfile.Name())
@@ -584,6 +597,7 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 
 			break
 		}
+
 		delChannel <- struct{}{}
 	}()
 
@@ -591,18 +605,27 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 }
 
 func (e *e2e) run(cmd string, args ...string) string {
-	output, err := command.New(cmd, args...).RunSuccessOutput()
+	output, err := e.runCommand(cmd, args...)
 	e.NoError(err)
 
-	if output != nil {
-		return output.OutputTrimNL()
+	return output
+}
+
+func (e *e2e) runCommand(cmd string, args ...string) (string, error) {
+	output, err := command.New(cmd, args...).RunSuccessOutput()
+	if err != nil {
+		return "", err
 	}
 
-	return ""
+	if output != nil {
+		return output.OutputTrimNL(), nil
+	}
+
+	return "", nil
 }
 
 func (e *e2e) downloadAndVerify(url, binaryPath, sha512 string) {
-	if !util.Exists(binaryPath) {
+	if !helpers.Exists(binaryPath) {
 		e.logf("Downloading %s", binaryPath)
 		e.run("curl", "-o", binaryPath, "-fL", url)
 		e.Require().NoError(os.Chmod(binaryPath, 0o700))
@@ -619,6 +642,10 @@ func (e *e2e) verifySHA512(binaryPath, sha512 string) {
 
 func (e *e2e) kubectl(args ...string) string {
 	return e.run(e.kubectlPath, args...)
+}
+
+func (e *e2e) kubectlCommand(args ...string) (string, error) {
+	return e.runCommand(e.kubectlPath, args...)
 }
 
 func (e *e2e) kubectlOperatorNS(args ...string) string {
@@ -749,11 +776,169 @@ func (e *e2e) logEnricherOnlyTestCase() {
 	e.enableLogEnricherInSpod()
 }
 
+func (e *e2e) logEnricherBpfOnlyTestCase() {
+	if !e.bpfRecorderEnabled {
+		e.T().Skip("Skipping log-enricher related test (BPF source unsupported)")
+	}
+
+	e.enableLogEnricherBpfInSpod()
+}
+
+func (e *e2e) logEnricherOnlyTestCaseWithFilters(enricherFilterJsonStr string) {
+	if !e.logEnricherEnabled {
+		e.T().Skip("Skipping log-enricher related test")
+	}
+
+	e.enableLogEnricherInSpodWithFilters(enricherFilterJsonStr)
+}
+
+func (e *e2e) jsonEnricherOnlyTestCase() {
+	if !e.jsonEnricherEnabled {
+		e.T().Skip("Skipping json-enricher related test")
+	}
+
+	e.enableJsonEnricherInSpod()
+}
+
+func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string,
+	enricherFilterJsonStr string,
+) {
+	if !e.jsonEnricherEnabled {
+		e.T().Skip("Skipping json-enricher FileOptions related test")
+	}
+
+	e.enableJsonEnricherInSpodFileOptions(jsonLogFileName, enricherFilterJsonStr)
+}
+
+func (e *e2e) enableLogEnricherBpfInSpod() {
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+		`{"spec":{"logEnricherSource": "bpf"}}`, "--type=merge")
+}
+
 func (e *e2e) enableLogEnricherInSpod() {
 	e.logf("Enable log-enricher in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableLogEnricher": true}}`, "--type=merge")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+		`{"spec":{"enableJsonEnricher": false,"enableLogEnricher": true}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+
+	e.waitForTerminatingPods(5*time.Second, 5)
+
+	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
+		operatorName := config.OperatorName
+		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
+			e.logf("Pod %s not running", podName)
+			e.Fail("Failed to enable json-enricher in SPOD")
+		}
+	}
+}
+
+func (e *e2e) enableLogEnricherInSpodWithFilters(enricherFilterJsonStr string) {
+	e.logf("Enable log-enricher in SPOD")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+		"{\"spec\":{\"enableJsonEnricher\": false,\"enableLogEnricher\": true"+
+			",\"logEnricherFilters\":"+enricherFilterJsonStr+"}}", "--type=merge")
+
+	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+}
+
+func (e *e2e) enableJsonEnricherInSpod() {
+	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+		`{"spec":{"enableLogEnricher": false, "enableJsonEnricher": true,
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}`, "--type=merge")
+
+	time.Sleep(defaultWaitTime)
+	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
+
+	if !e.checkExecWebhook(5*time.Second, 5) {
+		e.Fail("Webhooks are not ready")
+	}
+
+	for _, podName := range append(e.getSpodPodNames(), e.getSpodWebhookPodNames()...) {
+		operatorName := config.OperatorName
+		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
+			e.logf("Pod %s not running", podName)
+			e.Fail("Failed to enable json-enricher in SPOD")
+		}
+	}
+
+	e.logf("Done waiting for the rollout restart")
+
+	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
+
+	e.waitForTerminatingPods(5*time.Second, 5)
+}
+
+func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr string) {
+	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
+
+	jsonVolumeSource := fmt.Sprintf(`{\"hostPath\": {\"path\": \"%s\",\"type\": \"DirectoryOrCreate\"}}`,
+		filepath.Dir(logPath))
+
+	patchOperatorJson := "patch_operator.json"
+	_ = os.Remove(patchOperatorJson)
+
+	patchFile, fileErr := os.OpenFile(patchOperatorJson, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if fileErr != nil {
+		e.Fail(fmt.Sprintf("Failed to open file '%s': %v", patchOperatorJson, fileErr))
+
+		return
+	}
+
+	_, writeErr := fmt.Fprintf(patchFile,
+		`{"data": {"json-enricher-log-volume-mount-path": "%s","json-enricher-log-volume-source.json":"%s"}}`,
+		filepath.Dir(logPath), jsonVolumeSource)
+	if writeErr != nil {
+		e.Fail(fmt.Sprintf("Failed to write file '%s': %v", patchOperatorJson, writeErr))
+
+		return
+	}
+
+	fileCloseErr := patchFile.Close()
+	if fileCloseErr != nil {
+		// Igrore with log
+		e.logf("Failed to close file '%s': %v", patchOperatorJson, fileCloseErr)
+	}
+
+	e.logf("Printing the patch file '%s'", patchOperatorJson)
+	e.run("cat", patchOperatorJson)
+
+	e.kubectlOperatorNS("patch", "configmap", "security-profiles-operator-profile", "--patch-file", patchOperatorJson)
+
+	e.logf("Rollout restart deployment security-profiles-operator")
+
+	e.kubectlOperatorNS("rollout", "restart", "deployment", "security-profiles-operator")
+
+	e.waitForTerminatingPods(5*time.Second, 5)
+
+	// This is required for all the restarts to complete
+	for _, podName := range e.getOperatorPodNames() {
+		operatorName := config.OperatorName
+		if !e.podRunning(podName, &operatorName, 5*time.Second, 5) {
+			e.logf("Pod %s not running", podName)
+			e.Fail("Failed to restart SPO")
+		}
+	}
+
+	e.logf("Done waiting for the rollout restart")
+
+	_ = os.Remove(patchOperatorJson)
+
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
+		fmt.Sprintf(`{"spec":{"enableLogEnricher": false,"enableJsonEnricher": true,
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath": "%s"},"jsonEnricherFilters": "%s"}}`,
+			logPath, enricherFilterJsonStr), "--type=merge")
+
+	e.logf("Patched the SPOD")
+
+	time.Sleep(defaultWaitTime * 2)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
 
 	e.kubectlOperatorNS("rollout", "status", "ds", "spod", "--timeout", defaultLogEnricherOpTimeout)
@@ -907,4 +1092,99 @@ func (e *e2e) switchToRecordingNs(ns string) func() {
 	e.enableRecordingHookInNs(ns)
 
 	return retFunc
+}
+
+func (e *e2e) checkExecWebhook(interval time.Duration, maxTimes int) bool {
+	for range maxTimes {
+		output := e.kubectlOperatorNS("get", "mutatingwebhookconfigurations", "spo-mutating-webhook-configuration",
+			`-o=jsonpath='{.webhooks[*].name}'`)
+		if !strings.Contains(output, "execmetadata.spo.io") {
+			time.Sleep(interval)
+		} else {
+			return true
+		}
+	}
+
+	e.logf("Unable to find execmetadata.spo.io in SPOD webhooks")
+
+	return false
+}
+
+func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
+	output := e.kubectlOperatorNS("get", "pods", "-l", labelMatcher,
+		"--field-selector", "status.phase=Running,status.phase=Pending",
+		`-o=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'`)
+
+	var filteredPodNames []string
+
+	podNames := strings.Split(output, "\n")
+	for _, name := range podNames {
+		trimmedName := strings.Trim(name, "'")
+		if trimmedName != "" {
+			filteredPodNames = append(filteredPodNames, trimmedName)
+		}
+	}
+
+	return filteredPodNames
+}
+
+func (e *e2e) getOperatorPodNames() []string {
+	return e.getPodNamesByLabel("name=security-profiles-operator")
+}
+
+func (e *e2e) getSpodPodNames() []string {
+	return e.getPodNamesByLabel("name=spod")
+}
+
+func (e *e2e) getSpodWebhookPodNames() []string {
+	return e.getPodNamesByLabel("name=security-profiles-operator-webhook")
+}
+
+// Check if pod is running.
+func (e *e2e) podRunning(name string, namespace *string, interval time.Duration, maxTimes int) bool {
+	for range maxTimes {
+		var output string
+
+		var err error
+
+		if namespace != nil {
+			output, err = e.kubectlCommand("get", "pod", name, "-n", *namespace, `-o=jsonpath='{.status.phase}'`)
+		} else {
+			output, err = e.kubectlCommand("get", "pod", name, `-o=jsonpath='{.status.phase}'`)
+		}
+
+		//nolint:gocritic // If else is better.
+		if err != nil {
+			e.logf("Unable to get pod status for pod %s: %v", name, err)
+			time.Sleep(interval)
+		} else if strings.Trim(output, "'") != "Running" {
+			e.logf("Pod is still not running %s: %s", name, output)
+			time.Sleep(interval)
+		} else {
+			return true
+		}
+	}
+
+	e.logf("Pod %s is not running after checking %d times", name, maxTimes)
+	e.kubectl("describe", "pod", name)
+
+	return false
+}
+
+// Wait for terminating pods to be deleted.
+func (e *e2e) waitForTerminatingPods(interval time.Duration, maxTimes int) {
+	for range maxTimes {
+		output := e.kubectlOperatorNS("get", "pods",
+			`-o=jsonpath='{range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}'`)
+		if strings.Trim(output, "'") != "" {
+			e.logf("Terminating pods found: %s", output)
+			time.Sleep(interval)
+		} else {
+			e.logf("All terminating pods deleted")
+
+			return
+		}
+	}
+
+	e.logf("All terminating Pods are not deleted")
 }

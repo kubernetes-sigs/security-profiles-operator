@@ -12,11 +12,22 @@ images:
   newTag: latest
 resources:
 - ../cluster
-
 patches:
+- patch: |-
+    - op: replace
+      path: "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/webhookOptions/default"
+      value:
+        - name: nodedebuggingpod.spo.io
+          objectSelector:
+            matchLabels:
+              debug.openshift.io/managed-by: "oc-debug"
+  target:
+    kind: CustomResourceDefinition
+    name: securityprofilesoperatordaemons.security-profiles-operator.x-k8s.io
 - patch: |-
     - op: add
       path:  "/metadata/labels/openshift.io~1cluster-monitoring"
       value: "true"
   target:
     kind: Namespace
+

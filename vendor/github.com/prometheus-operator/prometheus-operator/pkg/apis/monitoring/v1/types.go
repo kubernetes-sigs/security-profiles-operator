@@ -17,6 +17,7 @@ package v1
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"strings"
 
@@ -38,11 +39,21 @@ const (
 // +kubebuilder:validation:Pattern:="(^0|([0-9]*[.])?[0-9]+((K|M|G|T|E|P)i?)?B)$"
 type ByteSize string
 
+func (bs *ByteSize) IsEmpty() bool {
+	return bs == nil || *bs == ""
+}
+
 // Duration is a valid time duration that can be parsed by Prometheus model.ParseDuration() function.
 // Supported units: y, w, d, h, m, s, ms
 // Examples: `30s`, `1m`, `1h20m15s`, `15d`
 // +kubebuilder:validation:Pattern:="^(0|(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?)$"
 type Duration string
+
+// DurationPointer is a helper function to parse a Duration string into a *Duration.
+func DurationPointer(s string) *Duration {
+	d := Duration(s)
+	return &d
+}
 
 // NonEmptyDuration is a valid time duration that can be parsed by Prometheus model.ParseDuration() function.
 // Compared to Duration,  NonEmptyDuration enforces a minimum length of 1.
@@ -82,25 +93,25 @@ type PrometheusRuleExcludeConfig struct {
 type ProxyConfig struct {
 	// `proxyURL` defines the HTTP proxy server to use.
 	//
-	// +kubebuilder:validation:Pattern:="^http(s)?://.+$"
+	// +kubebuilder:validation:Pattern:="^(http|https|socks5)://.+$"
 	// +optional
 	ProxyURL *string `json:"proxyUrl,omitempty"`
 	// `noProxy` is a comma-separated string that can contain IPs, CIDR notation, domain names
 	// that should be excluded from proxying. IP and domain names can
 	// contain port numbers.
 	//
-	// It requires Prometheus >= v2.43.0 or Alertmanager >= 0.25.0.
+	// It requires Prometheus >= v2.43.0, Alertmanager >= v0.25.0 or Thanos >= v0.32.0.
 	// +optional
 	NoProxy *string `json:"noProxy,omitempty"`
 	// Whether to use the proxy configuration defined by environment variables (HTTP_PROXY, HTTPS_PROXY, and NO_PROXY).
 	//
-	// It requires Prometheus >= v2.43.0 or Alertmanager >= 0.25.0.
+	// It requires Prometheus >= v2.43.0, Alertmanager >= v0.25.0 or Thanos >= v0.32.0.
 	// +optional
 	ProxyFromEnvironment *bool `json:"proxyFromEnvironment,omitempty"`
 	// ProxyConnectHeader optionally specifies headers to send to
 	// proxies during CONNECT requests.
 	//
-	// It requires Prometheus >= v2.43.0 or Alertmanager >= 0.25.0.
+	// It requires Prometheus >= v2.43.0, Alertmanager >= v0.25.0 or Thanos >= v0.32.0.
 	// +optional
 	// +mapType:=atomic
 	ProxyConnectHeader map[string][]v1.SecretKeySelector `json:"proxyConnectHeader,omitempty"`
@@ -147,6 +158,11 @@ func (pc *ProxyConfig) Validate() error {
 		}
 	}
 
+	if pc.ProxyURL != nil {
+		if _, err := url.Parse(*pc.ProxyURL); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -252,6 +268,13 @@ const (
 	// - False: the reconciliation failed.
 	// - Unknown: the operator couldn't determine the condition status.
 	Reconciled ConditionType = "Reconciled"
+	// Accepted indicates whether the workload controller has successfully accepted
+	// the configuration resource and updated the configuration of the workload accordingly.
+	// The possible status values for this condition type are:
+	// - True: the configuration resource was successfully accepted by the controller and written to the configuration secret.
+	// - False: the controller rejected the configuration due to an error.
+	// - Unknown: the operator couldn't determine the condition status.
+	Accepted ConditionType = "Accepted"
 )
 
 // +kubebuilder:validation:MinLength=1
@@ -290,21 +313,21 @@ type EmbeddedObjectMetadata struct {
 	// automatically. Name is primarily intended for creation idempotence and configuration
 	// definition.
 	// Cannot be updated.
-	// More info: http://kubernetes.io/docs/user-guide/identifiers#names
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/
 	// +optional
 	Name string `json:"name,omitempty" protobuf:"bytes,1,opt,name=name"`
 
 	// Map of string keys and values that can be used to organize and categorize
 	// (scope and select) objects. May match selectors of replication controllers
 	// and services.
-	// More info: http://kubernetes.io/docs/user-guide/labels
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
 	// +optional
 	Labels map[string]string `json:"labels,omitempty" protobuf:"bytes,11,rep,name=labels"`
 
 	// Annotations is an unstructured key value map stored with a resource that may be
 	// set by external tools to store and retrieve arbitrary metadata. They are not
 	// queryable and should be preserved when modifying objects.
-	// More info: http://kubernetes.io/docs/user-guide/annotations
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty" protobuf:"bytes,12,rep,name=annotations"`
 }
@@ -629,11 +652,8 @@ type Endpoint struct {
 	// +optional
 	RelabelConfigs []RelabelConfig `json:"relabelings,omitempty"`
 
-	// `proxyURL` configures the HTTP Proxy URL (e.g.
-	// "http://proxyserver:2195") to go through when scraping the target.
-	//
 	// +optional
-	ProxyURL *string `json:"proxyUrl,omitempty"`
+	ProxyConfig `json:",inline"`
 
 	// `followRedirects` defines whether the scrape requests should follow HTTP
 	// 3xx redirects.
@@ -822,13 +842,13 @@ type SafeTLSConfig struct {
 
 	// Minimum acceptable TLS version.
 	//
-	// It requires Prometheus >= v2.35.0.
+	// It requires Prometheus >= v2.35.0 or Thanos >= v0.28.0.
 	// +optional
 	MinVersion *TLSVersion `json:"minVersion,omitempty"`
 
 	// Maximum acceptable TLS version.
 	//
-	// It requires Prometheus >= v2.41.0.
+	// It requires Prometheus >= v2.41.0 or Thanos >= v0.31.0.
 	// +optional
 	MaxVersion *TLSVersion `json:"maxVersion,omitempty"`
 }
@@ -984,6 +1004,12 @@ type NativeHistogramConfig struct {
 	//
 	// +optional
 	NativeHistogramMinBucketFactor *resource.Quantity `json:"nativeHistogramMinBucketFactor,omitempty"`
+
+	// Whether to convert all scraped classic histograms into a native histogram with custom buckets.
+	// It requires Prometheus >= v3.0.0.
+	//
+	// +optional
+	ConvertClassicHistogramsToNHCB *bool `json:"convertClassicHistogramsToNHCB,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=RelabelConfig;RoleSelector
@@ -993,3 +1019,66 @@ const (
 	SelectorMechanismRelabel SelectorMechanism = "RelabelConfig"
 	SelectorMechanismRole    SelectorMechanism = "RoleSelector"
 )
+
+// ConfigResourceStatus is the most recent observed status of the Configuration Resource (ServiceMonitor, PodMonitor and Probes). Read-only.
+// More info:
+// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
+// +k8s:openapi-gen=true
+type ConfigResourceStatus struct {
+	// The list of workload resources (Prometheus or PrometheusAgent) which select the configuration resource.
+	// +optional
+	Bindings []WorkloadBinding `json:"bindings,omitempty"`
+}
+
+// WorkloadBinding is a link between a configuration resource and a workload resource.
+// +k8s:openapi-gen=true
+type WorkloadBinding struct {
+	// The group of the referenced resource.
+	// +kubebuilder:validation:Enum=monitoring.coreos.com
+	// +required
+	Group string `json:"group"`
+	// The type of resource being referenced (e.g. Prometheus or PrometheusAgent).
+	// +kubebuilder:validation:Enum=prometheuses;prometheusagents
+	// +required
+	Resource string `json:"resource"`
+	// The name of the referenced object.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name"`
+	// The namespace of the referenced object.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Namespace string `json:"namespace"`
+	// The current state of the configuration resource when bound to the referenced Prometheus object.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []ConfigResourceCondition `json:"conditions,omitempty"`
+}
+
+// ConfigResourceCondition describes the status of configuration resources linked to Prometheus, PrometheusAgent, Alertmanager, or ThanosRuler.
+// +k8s:deepcopy-gen=true
+type ConfigResourceCondition struct {
+	// Type of the condition being reported.
+	// Currently, only "Accepted" is supported.
+	// +kubebuilder:validation:Enum=Accepted
+	// +required
+	Type ConditionType `json:"type"`
+	// Status of the condition.
+	// +required
+	Status ConditionStatus `json:"status"`
+	// LastTransitionTime is the time of the last update to the current status property.
+	// +required
+	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+	// Reason for the condition's last transition.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// Human-readable message indicating details for the condition's last transition.
+	// +optional
+	Message string `json:"message,omitempty"`
+	// ObservedGeneration represents the .metadata.generation that the
+	// condition was set based upon. For instance, if `.metadata.generation` is
+	// currently 12, but the `.status.conditions[].observedGeneration` is 9, the
+	// condition is out of date with respect to the current state of the object.
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}

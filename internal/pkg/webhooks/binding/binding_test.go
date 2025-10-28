@@ -17,7 +17,6 @@ limitations under the License.
 package binding
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -129,7 +128,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
 		},
@@ -169,7 +168,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
 		},
@@ -209,7 +208,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
 		},
@@ -249,7 +248,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Len(t, resp.Patches, 1)
 			},
 		},
@@ -288,7 +287,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 				require.Empty(t, resp.Patches)
 			},
 		},
@@ -464,7 +463,7 @@ func TestHandle(t *testing.T) {
 				},
 			},
 			assert: func(resp admission.Response) {
-				require.True(t, resp.AdmissionResponse.Allowed)
+				require.True(t, resp.Allowed)
 			},
 		},
 		{ // failure delete on remove pod from binding at  UpdateResourceStatus
@@ -500,7 +499,7 @@ func TestHandle(t *testing.T) {
 		tc.prepare(mock)
 
 		binder := podBinder{impl: mock, log: logr.Discard()}
-		resp := binder.Handle(context.Background(), tc.request)
+		resp := binder.Handle(t.Context(), tc.request)
 		tc.assert(resp)
 	}
 }

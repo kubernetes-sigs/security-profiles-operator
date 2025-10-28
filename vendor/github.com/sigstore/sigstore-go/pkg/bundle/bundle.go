@@ -35,7 +35,9 @@ import (
 
 var ErrValidation = errors.New("validation error")
 var ErrUnsupportedMediaType = fmt.Errorf("%w: unsupported media type", ErrValidation)
+var ErrEmptyBundle = fmt.Errorf("%w: empty protobuf bundle", ErrValidation)
 var ErrMissingVerificationMaterial = fmt.Errorf("%w: missing verification material", ErrValidation)
+var ErrMissingBundleContent = fmt.Errorf("%w: missing bundle content", ErrValidation)
 var ErrUnimplemented = errors.New("unimplemented")
 var ErrInvalidAttestation = fmt.Errorf("%w: invalid attestation", ErrValidation)
 var ErrMissingEnvelope = fmt.Errorf("%w: missing valid envelope", ErrInvalidAttestation)
@@ -78,7 +80,7 @@ func NewProtobufBundle(b *protobundle.Bundle) (*ProtobufBundle, error) {
 }
 
 func (b *Bundle) validate() error {
-	bundleVersion, err := getBundleVersion(b.Bundle.MediaType)
+	bundleVersion, err := b.Version()
 	if err != nil {
 		return fmt.Errorf("error getting bundle version: %w", err)
 	}
@@ -108,7 +110,7 @@ func (b *Bundle) validate() error {
 
 	// if bundle version >= v0.3, require verification material to not be X.509 certificate chain (only single certificate is allowed)
 	if semver.Compare(bundleVersion, "v0.3") >= 0 {
-		certs := b.Bundle.VerificationMaterial.GetX509CertificateChain()
+		certs := b.VerificationMaterial.GetX509CertificateChain()
 
 		if certs != nil {
 			return errors.New("verification material cannot be X.509 certificate chain (for bundle v0.3)")
@@ -150,6 +152,10 @@ func MediaTypeString(version string) (string, error) {
 	return mtString, nil
 }
 
+func (b *Bundle) Version() (string, error) {
+	return getBundleVersion(b.MediaType)
+}
+
 func getBundleVersion(mediaType string) (string, error) {
 	switch mediaType {
 	case mediaTypeBase + "+json;version=0.1":
@@ -172,11 +178,11 @@ func getBundleVersion(mediaType string) (string, error) {
 
 func validateBundle(b *protobundle.Bundle) error {
 	if b == nil {
-		return fmt.Errorf("empty protobuf bundle")
+		return ErrEmptyBundle
 	}
 
 	if b.Content == nil {
-		return fmt.Errorf("missing bundle content")
+		return ErrMissingBundleContent
 	}
 
 	switch b.Content.(type) {
@@ -185,12 +191,8 @@ func validateBundle(b *protobundle.Bundle) error {
 		return fmt.Errorf("invalid bundle content: bundle content must be either a message signature or dsse envelope")
 	}
 
-	if b.VerificationMaterial == nil {
-		return fmt.Errorf("missing verification material")
-	}
-
-	if b.VerificationMaterial.Content == nil {
-		return fmt.Errorf("missing verification material content")
+	if b.VerificationMaterial == nil || b.VerificationMaterial.Content == nil {
+		return ErrMissingVerificationMaterial
 	}
 
 	switch b.VerificationMaterial.Content.(type) {
@@ -257,7 +259,7 @@ func (b *Bundle) VerificationContent() (verify.VerificationContent, error) {
 			return nil, ErrValidationError(err)
 		}
 		cert := &Certificate{
-			Certificate: parsedCert,
+			certificate: parsedCert,
 		}
 		return cert, nil
 	case *protobundle.VerificationMaterial_Certificate:
@@ -269,7 +271,7 @@ func (b *Bundle) VerificationContent() (verify.VerificationContent, error) {
 			return nil, ErrValidationError(err)
 		}
 		cert := &Certificate{
-			Certificate: parsedCert,
+			certificate: parsedCert,
 		}
 		return cert, nil
 	case *protobundle.VerificationMaterial_PublicKey:
@@ -302,7 +304,7 @@ func (b *Bundle) TlogEntries() ([]*tlog.Entry, error) {
 	tlogEntries := make([]*tlog.Entry, len(b.VerificationMaterial.TlogEntries))
 	var err error
 	for i, entry := range b.VerificationMaterial.TlogEntries {
-		tlogEntries[i], err = tlog.ParseEntry(entry)
+		tlogEntries[i], err = tlog.ParseTransparencyLogEntry(entry)
 		if err != nil {
 			return nil, ErrValidationError(err)
 		}
@@ -319,7 +321,7 @@ func (b *Bundle) TlogEntries() ([]*tlog.Entry, error) {
 }
 
 func (b *Bundle) SignatureContent() (verify.SignatureContent, error) {
-	switch content := b.Bundle.Content.(type) { //nolint:gocritic
+	switch content := b.Content.(type) { //nolint:gocritic
 	case *protobundle.Bundle_DsseEnvelope:
 		envelope, err := parseEnvelope(content.DsseEnvelope)
 		if err != nil {
@@ -340,7 +342,7 @@ func (b *Bundle) SignatureContent() (verify.SignatureContent, error) {
 }
 
 func (b *Bundle) Envelope() (*Envelope, error) {
-	switch content := b.Bundle.Content.(type) { //nolint:gocritic
+	switch content := b.Content.(type) { //nolint:gocritic
 	case *protobundle.Bundle_DsseEnvelope:
 		envelope, err := parseEnvelope(content.DsseEnvelope)
 		if err != nil {
@@ -371,7 +373,7 @@ func (b *Bundle) Timestamps() ([][]byte, error) {
 
 // MinVersion returns true if the bundle version is greater than or equal to the expected version.
 func (b *Bundle) MinVersion(expectVersion string) bool {
-	version, err := getBundleVersion(b.Bundle.MediaType)
+	version, err := b.Version()
 	if err != nil {
 		return false
 	}

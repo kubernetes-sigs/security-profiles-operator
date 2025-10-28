@@ -162,6 +162,16 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		return r.reconcileDeletion(ctx, sp, nodeStatus)
 	}
 
+	// TODO: backoff policy
+	updated, err := r.manager.InstallProfile(sp)
+	if err != nil {
+		l.Error(err, "cannot load profile into node")
+		r.metrics.IncAppArmorProfileError(sp.GetName(), reasonCannotLoadProfile)
+		r.record.Event(sp, util.EventTypeWarning, reasonCannotLoadProfile, err.Error())
+
+		return reconcile.Result{}, fmt.Errorf("cannot load profile into node: %w", err)
+	}
+
 	// The object is not being deleted
 	exists, existErr := nodeStatus.Exists(ctx)
 	if existErr != nil {
@@ -176,16 +186,6 @@ func (r *Reconciler) reconcileAppArmorProfile(
 		l.Info("Created an initial status for this node")
 
 		return reconcile.Result{RequeueAfter: wait}, nil
-	}
-
-	// TODO: backoff policy
-	updated, err := r.manager.InstallProfile(sp)
-	if err != nil {
-		l.Error(err, "cannot load profile into node")
-		r.metrics.IncAppArmorProfileError(sp.GetName(), reasonCannotLoadProfile)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotLoadProfile, err.Error())
-
-		return reconcile.Result{}, fmt.Errorf("cannot load profile into node: %w", err)
 	}
 
 	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, statusv1alpha1.ProfileStateInstalled)

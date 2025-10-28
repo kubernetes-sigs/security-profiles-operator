@@ -705,6 +705,7 @@ const (
 	BPFProgTypeLsm                   BPFProgType = C.BPF_PROG_TYPE_LSM
 	BPFProgTypeSkLookup              BPFProgType = C.BPF_PROG_TYPE_SK_LOOKUP
 	BPFProgTypeSyscall               BPFProgType = C.BPF_PROG_TYPE_SYSCALL
+	BPFProgTypeNetfilter             BPFProgType = C.BPF_PROG_TYPE_NETFILTER
 )
 
 // Deprecated: Convert type directly instead.
@@ -743,6 +744,7 @@ var bpfProgTypeToString = map[BPFProgType]string{
 	BPFProgTypeLsm:                   "BPF_PROG_TYPE_LSM",
 	BPFProgTypeSkLookup:              "BPF_PROG_TYPE_SK_LOOKUP",
 	BPFProgTypeSyscall:               "BPF_PROG_TYPE_SYSCALL",
+	BPFProgTypeNetfilter:             "BPF_PROG_TYPE_NETFILTER",
 }
 
 func (t BPFProgType) String() string {
@@ -809,6 +811,20 @@ const (
 	BPFAttachTypeSKReusePortSelectorMigrate BPFAttachType = C.BPF_SK_REUSEPORT_SELECT_OR_MIGRATE
 	BPFAttachTypePerfEvent                  BPFAttachType = C.BPF_PERF_EVENT
 	BPFAttachTypeTraceKprobeMulti           BPFAttachType = C.BPF_TRACE_KPROBE_MULTI
+	BPFAttachTypeLSMCgroup                  BPFAttachType = C.BPF_LSM_CGROUP
+	BPFAttachTypeStructOps                  BPFAttachType = C.BPF_STRUCT_OPS
+	BPFAttachTypeNetfilter                  BPFAttachType = C.BPF_NETFILTER
+	BPFAttachTypeTCXIngress                 BPFAttachType = C.BPF_TCX_INGRESS
+	BPFAttachTypeTCXEgress                  BPFAttachType = C.BPF_TCX_EGRESS
+	BPFAttachTypeTraceUprobeMulti           BPFAttachType = C.BPF_TRACE_UPROBE_MULTI
+	BPFAttachTypeCgroupUnixConnect          BPFAttachType = C.BPF_CGROUP_UNIX_CONNECT
+	BPFAttachTypeCgroupUnixSendMsg          BPFAttachType = C.BPF_CGROUP_UNIX_SENDMSG
+	BPFAttachTypeCgroupUnixRecvMsg          BPFAttachType = C.BPF_CGROUP_UNIX_RECVMSG
+	BPFAttachTypeCgroupUnixGetPeerName      BPFAttachType = C.BPF_CGROUP_UNIX_GETPEERNAME
+	BPFAttachTypeCgroupUnixGetSockName      BPFAttachType = C.BPF_CGROUP_UNIX_GETSOCKNAME
+	BPFAttachTypeNetkitPrimary              BPFAttachType = C.BPF_NETKIT_PRIMARY
+	BPFAttachTypeNetkitPeer                 BPFAttachType = C.BPF_NETKIT_PEER
+	BPFAttachTypeTraceKprobeSession         BPFAttachType = C.BPF_TRACE_KPROBE_SESSION
 )
 
 var bpfAttachTypeToString = map[BPFAttachType]string{
@@ -855,6 +871,20 @@ var bpfAttachTypeToString = map[BPFAttachType]string{
 	BPFAttachTypeSKReusePortSelectorMigrate: "BPF_SK_REUSEPORT_SELECT_OR_MIGRATE",
 	BPFAttachTypePerfEvent:                  "BPF_PERF_EVENT",
 	BPFAttachTypeTraceKprobeMulti:           "BPF_TRACE_KPROBE_MULTI",
+	BPFAttachTypeLSMCgroup:                  "BPF_LSM_CGROUP",
+	BPFAttachTypeStructOps:                  "BPF_STRUCT_OPS",
+	BPFAttachTypeNetfilter:                  "BPF_NETFILTER",
+	BPFAttachTypeTCXIngress:                 "BPF_TCX_INGRESS",
+	BPFAttachTypeTCXEgress:                  "BPF_TCX_EGRESS",
+	BPFAttachTypeTraceUprobeMulti:           "BPF_TRACE_UPROBE_MULTI",
+	BPFAttachTypeCgroupUnixConnect:          "BPF_CGROUP_UNIX_CONNECT",
+	BPFAttachTypeCgroupUnixSendMsg:          "BPF_CGROUP_UNIX_SENDMSG",
+	BPFAttachTypeCgroupUnixRecvMsg:          "BPF_CGROUP_UNIX_RECVMSG",
+	BPFAttachTypeCgroupUnixGetPeerName:      "BPF_CGROUP_UNIX_GETPEERNAME",
+	BPFAttachTypeCgroupUnixGetSockName:      "BPF_CGROUP_UNIX_GETSOCKNAME",
+	BPFAttachTypeNetkitPrimary:              "BPF_NETKIT_PRIMARY",
+	BPFAttachTypeNetkitPeer:                 "BPF_NETKIT_PEER",
+	BPFAttachTypeTraceKprobeSession:         "BPF_TRACE_KPROBE_SESSION",
 }
 
 func (t BPFAttachType) String() string {
@@ -895,6 +925,10 @@ const (
 	BPFFAllowOverride AttachFlag = C.BPF_F_ALLOW_OVERRIDE
 	BPFFAllowMulti    AttachFlag = C.BPF_F_ALLOW_MULTI
 	BPFFReplace       AttachFlag = C.BPF_F_REPLACE
+	BPFFBefore        AttachFlag = C.BPF_F_BEFORE
+	BPFFAfter         AttachFlag = C.BPF_F_AFTER
+	BPFFID            AttachFlag = C.BPF_F_ID
+	BPFFLink          AttachFlag = C.BPF_F_LINK
 )
 
 //

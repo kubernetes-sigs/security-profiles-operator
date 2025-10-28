@@ -3,7 +3,7 @@ selftest/*/*.o
 selftest/*/*.skel.h
 selftest/*/*-static
 selftest/*/*-dynamic
-selftest/uprobe/ctest
-selftest/uprobe/gotest
+selftest/*/ctest
+selftest/*/gotest
 testing/tracee
 .vagrant*

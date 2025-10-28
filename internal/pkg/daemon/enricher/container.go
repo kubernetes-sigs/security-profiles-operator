@@ -1,5 +1,5 @@
 /*
-Copyright 2020 The Kubernetes Authors.
+Copyright 2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,13 +19,16 @@ package enricher
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
 
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
@@ -47,20 +50,25 @@ var errContainerIDEmpty = errors.New("container ID is empty")
 // Cluster scoped
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
-func (e *Enricher) getContainerInfo(
+func getContainerInfo(
+	ctx context.Context,
 	nodeName, targetContainerID string,
+	clientSet kubernetes.Interface,
+	impl impl,
+	infoCache *ttlcache.Cache[string, *types.ContainerInfo],
+	logger logr.Logger,
 ) (*types.ContainerInfo, error) {
 	// Check the cache first
-	item := e.infoCache.Get(targetContainerID)
+	item := infoCache.Get(targetContainerID)
 	if item != nil {
 		return item.Value(), nil
 	}
 
-	if err := e.populateContainerPodCache(nodeName); err != nil {
+	if err := populateContainerPodCache(ctx, nodeName, clientSet, impl, infoCache, logger); err != nil {
 		return nil, fmt.Errorf("get container info for pods: %w", err)
 	}
 
-	item = e.infoCache.Get(targetContainerID)
+	item = infoCache.Get(targetContainerID)
 	if item != nil {
 		return item.Value(), nil
 	}
@@ -68,8 +76,11 @@ func (e *Enricher) getContainerInfo(
 	return nil, errors.New("no container info for container ID")
 }
 
-func (e *Enricher) populateContainerPodCache(
-	nodeName string,
+func populateContainerPodCache(
+	ctx context.Context,
+	nodeName string, clientset kubernetes.Interface, impl impl,
+	infoCache *ttlcache.Cache[string, *types.ContainerInfo],
+	logger logr.Logger,
 ) error {
 	containerRetryBackoff := wait.Backoff{
 		Duration: backoffDuration,
@@ -77,13 +88,13 @@ func (e *Enricher) populateContainerPodCache(
 		Steps:    backoffSteps,
 	}
 
-	ctxwithTimeout, cancel := context.WithTimeout(context.Background(), operationTimeout)
+	ctxwithTimeout, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
 	return util.RetryEx(
 		&containerRetryBackoff,
 		func() (retryErr error) {
-			pods, err := e.ListPods(ctxwithTimeout, e.clientset, nodeName)
+			pods, err := impl.ListPods(ctxwithTimeout, clientset, nodeName)
 			if err != nil {
 				return fmt.Errorf("list node %s's pods: %w", nodeName, err)
 			}
@@ -92,7 +103,7 @@ func (e *Enricher) populateContainerPodCache(
 
 			for p := range pods.Items {
 				pod := &pods.Items[p]
-				e.populateCacheEntryForContainer(ctx, pod, eg)
+				populateCacheEntryForContainer(ctx, pod, eg, infoCache, logger)
 			}
 
 			return eg.Wait()
@@ -103,12 +114,13 @@ func (e *Enricher) populateContainerPodCache(
 	)
 }
 
-func (e *Enricher) populateCacheEntryForContainer(
+func populateCacheEntryForContainer(
 	_ context.Context, pod *v1.Pod, eg *errgroup.Group,
+	infoCache *ttlcache.Cache[string, *types.ContainerInfo], logger logr.Logger,
 ) {
 	eg.Go(func() (errorToRetry error) {
-		//nolint:gocritic // This is what we expect and want
-		statuses := append(pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses...)
+		statuses := slices.Concat(pod.Status.InitContainerStatuses,
+			pod.Status.ContainerStatuses, pod.Status.EphemeralContainerStatuses)
 
 		for c := range statuses {
 			containerStatus := statuses[c]
@@ -118,7 +130,7 @@ func (e *Enricher) populateCacheEntryForContainer(
 			if containerID == "" {
 				// This just means the container is still being created
 				// We can come back to this later
-				idemptyErr := e.handleContainerIDEmpty(pod.Name, containerName, &containerStatus)
+				idemptyErr := handleContainerIDEmpty(pod.Name, containerName, &containerStatus, logger)
 				if errors.Is(idemptyErr, errContainerIDEmpty) {
 					errorToRetry = idemptyErr
 
@@ -130,7 +142,7 @@ func (e *Enricher) populateCacheEntryForContainer(
 
 			rawContainerID := util.ContainerIDRegex.FindString(containerID)
 			if rawContainerID == "" {
-				e.logger.Info(
+				logger.Info(
 					"unable to get container ID",
 					"podName", pod.Name,
 					"containerName", containerName,
@@ -153,18 +165,20 @@ func (e *Enricher) populateCacheEntryForContainer(
 			}
 
 			// Update the cache
-			e.infoCache.Set(rawContainerID, info, ttlcache.DefaultTTL)
+			infoCache.Set(rawContainerID, info, ttlcache.DefaultTTL)
 		}
 
 		return errorToRetry
 	})
 }
 
-func (e *Enricher) handleContainerIDEmpty(podName, containerName string, containerStatus *v1.ContainerStatus) error {
+func handleContainerIDEmpty(podName, containerName string,
+	containerStatus *v1.ContainerStatus, logger logr.Logger,
+) error {
 	if containerStatus.State.Waiting != nil &&
 		(containerStatus.State.Waiting.Reason == "ContainerCreating" ||
 			containerStatus.State.Waiting.Reason == "PodInitializing") {
-		e.logger.Info(
+		logger.Info(
 			"container ID is still empty, retrying",
 			"podName", podName,
 			"containerName", containerName,

@@ -130,6 +130,7 @@ func DefaultOptions() *Options {
 	}
 	opts.CachePath = filepath.Join(home, ".sigstore", "root")
 	opts.RepositoryBaseURL = DefaultMirror
+	opts.Fetcher = fetcher.NewDefaultFetcher()
 
 	return &opts
 }

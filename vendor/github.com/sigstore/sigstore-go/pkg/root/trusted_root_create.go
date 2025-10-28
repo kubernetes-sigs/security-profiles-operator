@@ -54,8 +54,8 @@ func (tr *TrustedRoot) constructProtoTrustRoot() error {
 	// ensure stable sorting of the slice
 	sortTlogSlice(tr.trustedRoot.Ctlogs)
 
-	for _, ca := range tr.fulcioCertAuthorities {
-		caProto, err := certificateAuthorityToProtobufCA(&ca)
+	for _, ca := range tr.certificateAuthorities {
+		caProto, err := certificateAuthorityToProtobufCA(ca.(*FulcioCertificateAuthority))
 		if err != nil {
 			return fmt.Errorf("failed converting fulcio cert chain to protobuf: %w", err)
 		}
@@ -65,7 +65,7 @@ func (tr *TrustedRoot) constructProtoTrustRoot() error {
 	sortCASlice(tr.trustedRoot.CertificateAuthorities)
 
 	for _, ca := range tr.timestampingAuthorities {
-		caProto, err := certificateAuthorityToProtobufCA(&ca)
+		caProto, err := timestampingAuthorityToProtobufCA(ca.(*SigstoreTimestampingAuthority))
 		if err != nil {
 			return fmt.Errorf("failed converting TSA cert chain to protobuf: %w", err)
 		}
@@ -109,7 +109,42 @@ func sortTlogSlice(slc []*prototrustroot.TransparencyLogInstance) {
 	})
 }
 
-func certificateAuthorityToProtobufCA(ca *CertificateAuthority) (*prototrustroot.CertificateAuthority, error) {
+func certificateAuthorityToProtobufCA(ca *FulcioCertificateAuthority) (*prototrustroot.CertificateAuthority, error) {
+	org := ""
+	if len(ca.Root.Subject.Organization) > 0 {
+		org = ca.Root.Subject.Organization[0]
+	}
+	var allCerts []*protocommon.X509Certificate
+	for _, intermed := range ca.Intermediates {
+		allCerts = append(allCerts, &protocommon.X509Certificate{RawBytes: intermed.Raw})
+	}
+	if ca.Root == nil {
+		return nil, fmt.Errorf("root certificate is nil")
+	}
+	allCerts = append(allCerts, &protocommon.X509Certificate{RawBytes: ca.Root.Raw})
+
+	caProto := prototrustroot.CertificateAuthority{
+		Uri: ca.URI,
+		Subject: &protocommon.DistinguishedName{
+			Organization: org,
+			CommonName:   ca.Root.Subject.CommonName,
+		},
+		ValidFor: &protocommon.TimeRange{
+			Start: timestamppb.New(ca.ValidityPeriodStart),
+		},
+		CertChain: &protocommon.X509CertificateChain{
+			Certificates: allCerts,
+		},
+	}
+
+	if !ca.ValidityPeriodEnd.IsZero() {
+		caProto.ValidFor.End = timestamppb.New(ca.ValidityPeriodEnd)
+	}
+
+	return &caProto, nil
+}
+
+func timestampingAuthorityToProtobufCA(ca *SigstoreTimestampingAuthority) (*prototrustroot.CertificateAuthority, error) {
 	org := ""
 	if len(ca.Root.Subject.Organization) > 0 {
 		org = ca.Root.Subject.Organization[0]
@@ -225,7 +260,7 @@ func publicKeyToProtobufPublicKey(publicKey crypto.PublicKey, start time.Time, e
 		default:
 			return nil, fmt.Errorf("unsupported public modulus for RSA key: %d", p.Size())
 		}
-	case *ed25519.PublicKey:
+	case ed25519.PublicKey:
 		pkd.KeyDetails = protocommon.PublicKeyDetails_PKIX_ED25519
 	default:
 		return nil, fmt.Errorf("unknown public key type: %T", p)

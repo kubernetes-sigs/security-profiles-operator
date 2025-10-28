@@ -1,0 +1,5 @@
+{
+  "emptyDir": {
+    "sizeLimit": "500Mi"
+  }
+}

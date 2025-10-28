@@ -260,32 +260,16 @@ func (r *StatusReconciler) removeStatusForDeletedNode(ctx context.Context,
 }
 
 func (r *StatusReconciler) getDS(ctx context.Context, namespace string, l logr.Logger) (*appsv1.DaemonSet, error) {
-	dsSelect := labels.NewSelector()
+	spodDS := appsv1.DaemonSet{}
+	spodName := util.NamespacedName("spod", namespace)
 
-	spodDSFilter, err := labels.NewRequirement("spod", selection.Exists, []string{})
-	if err != nil {
-		return nil, fmt.Errorf("cannot create DS list label: %w", err)
+	if err := r.client.Get(ctx, spodName, &spodDS); err != nil {
+		l.Error(err, "Unable to retrieve spod daemonset")
+
+		return nil, fmt.Errorf("cannot Get DS: %w", err)
 	}
 
-	dsSelect.Add(*spodDSFilter)
-	dsListOpts := client.ListOptions{
-		LabelSelector: dsSelect,
-		Namespace:     namespace,
-	}
-
-	spodDSList := appsv1.DaemonSetList{}
-	if err := r.client.List(ctx, &spodDSList, &dsListOpts); err != nil {
-		return nil, fmt.Errorf("cannot list DS: %w", err)
-	}
-
-	if len(spodDSList.Items) != 1 {
-		retErr := errors.New("did not find exactly one DS")
-		l.Error(retErr, "Expected to find 1 DS", "len(dsList.Items)", len(spodDSList.Items))
-
-		return nil, fmt.Errorf("listing DS: %w", retErr)
-	}
-
-	return &spodDSList.Items[0], nil
+	return &spodDS, nil
 }
 
 func (r *StatusReconciler) getProfileFromStatus(

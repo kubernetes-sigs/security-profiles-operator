@@ -300,6 +300,7 @@ func TestStartEnricher(t *testing.T) {
 			sut.impl = mock
 
 			go sut.startEnricher()
+
 			assert(mock, lineChan)
 		})
 	}

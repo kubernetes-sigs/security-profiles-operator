@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -29,17 +28,17 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
-	"github.com/nxadm/tail"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
-	rutil "sigs.k8s.io/release-utils/util"
 
 	apienricher "sigs.k8s.io/security-profiles-operator/api/grpc/enricher"
 	apimetrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/auditsource"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/enricher/types"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
 )
@@ -55,10 +54,21 @@ const (
 	maxCacheItems  uint64        = 1000
 )
 
+type LogEnricherOptions struct {
+	EnricherFiltersJson string
+	AuditSource         string
+}
+
+var LogEnricherDefaultOptions = LogEnricherOptions{
+	EnricherFiltersJson: "[]",
+	AuditSource:         "auditd",
+}
+
 // Enricher is the main structure of this package.
 type Enricher struct {
 	apienricher.UnimplementedEnricherServer
 	impl
+	source           auditsource.AuditLineSource
 	logger           logr.Logger
 	containerIDCache *ttlcache.Cache[string, string]
 	infoCache        *ttlcache.Cache[string, *types.ContainerInfo]
@@ -66,12 +76,41 @@ type Enricher struct {
 	avcs             sync.Map
 	auditLineCache   *ttlcache.Cache[string, []*types.AuditLine]
 	clientset        kubernetes.Interface
+	enricherFilters  []types.EnricherFilterOptions
 }
 
 // New returns a new Enricher instance.
-func New(logger logr.Logger) *Enricher {
+func New(logger logr.Logger, opts *LogEnricherOptions) (*Enricher, error) {
+	actualOpts := LogEnricherDefaultOptions
+
+	if opts != nil && opts.EnricherFiltersJson != "" {
+		actualOpts.EnricherFiltersJson = opts.EnricherFiltersJson
+	}
+
+	enricherFilters, err := GetEnricherFilters(actualOpts.EnricherFiltersJson, logger)
+	if err != nil {
+		return nil, fmt.Errorf("get enricher filters: %w", err)
+	}
+
+	logger.Info("Enricher Filters", "filters", enricherFilters)
+
+	var source auditsource.AuditLineSource
+
+	if opts != nil && opts.AuditSource == "bpf" {
+		logger.Info("Using BPF-based audit source")
+
+		source, err = auditsource.NewBpfSource(logger)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		logger.Info("Using auditd-based audit source")
+		source = auditsource.NewAuditdSource(logger)
+	}
+
 	return &Enricher{
-		impl:   &defaultImpl{},
+		impl:   newDefaultImpl(),
+		source: source,
 		logger: logger,
 		containerIDCache: ttlcache.New(
 			ttlcache.WithTTL[string, string](defaultCacheTimeout),
@@ -91,7 +130,8 @@ func New(logger logr.Logger) *Enricher {
 			// if/when the cache is full.
 			ttlcache.WithDisableTouchOnHit[string, []*types.AuditLine](),
 		),
-	}
+		enricherFilters: enricherFilters,
+	}, nil
 }
 
 // Run the log-enricher to scrap audit logs and enrich them with
@@ -108,6 +148,7 @@ func (e *Enricher) Run() error {
 	}
 
 	e.logger.Info(fmt.Sprintf("Setting up caches with expiry of %v", defaultCacheTimeout))
+
 	go e.containerIDCache.Start()
 	go e.infoCache.Start()
 	go e.auditLineCache.Start()
@@ -157,50 +198,12 @@ func (e *Enricher) Run() error {
 		return fmt.Errorf("start GRPC server: %w", err)
 	}
 
-	// Use auditd logs as main source or syslog as fallback.
-	filePath := LogFilePath()
-
-	// If the file does not exist, then tail will wait for it to appear
-	tailFile, err := e.TailFile(
-		filePath,
-		tail.Config{
-			ReOpen: true,
-			Follow: true,
-			Location: &tail.SeekInfo{
-				Offset: 0,
-				Whence: io.SeekEnd,
-			},
-		},
-	)
+	log, err := e.StartTail(e.source)
 	if err != nil {
-		return fmt.Errorf("tailing file: %w", err)
+		return fmt.Errorf("tail audit log: %w", err)
 	}
 
-	e.logger.Info("Reading from file " + filePath)
-
-	for l := range e.Lines(tailFile) {
-		if l.Err != nil {
-			e.logger.Error(l.Err, "failed to tail")
-
-			continue
-		}
-
-		line := l.Text
-		e.logger.V(config.VerboseLevel).Info("Got line: " + line)
-
-		if !IsAuditLine(line) {
-			e.logger.V(config.VerboseLevel).Info("Not an audit line")
-
-			continue
-		}
-
-		auditLine, err := ExtractAuditLine(line)
-		if err != nil {
-			e.logger.Error(err, "extract audit line")
-
-			continue
-		}
-
+	for auditLine := range log {
 		e.logger.V(config.VerboseLevel).Info(fmt.Sprintf("Get container ID for PID: %d", auditLine.ProcessID))
 
 		cID, err := e.ContainerIDForPID(e.containerIDCache, auditLine.ProcessID)
@@ -228,7 +231,8 @@ func (e *Enricher) Run() error {
 
 		e.logger.V(config.VerboseLevel).Info("Get container info for: " + cID)
 
-		info, err := e.getContainerInfo(nodeName, cID)
+		info, err := getContainerInfo(context.Background(),
+			nodeName, cID, e.clientset, e.impl, e.infoCache, e.logger)
 		if err != nil {
 			e.logger.Error(
 				err, "container ID not found in cluster",
@@ -243,6 +247,9 @@ func (e *Enricher) Run() error {
 			continue
 		}
 
+		// check if there's anything in the cache for this processID
+		e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
+
 		err = e.dispatchAuditLine(metricsClient, nodeName, auditLine, info)
 		if err != nil {
 			e.logger.Error(
@@ -250,12 +257,9 @@ func (e *Enricher) Run() error {
 
 			continue
 		}
-
-		// check if there's anything in the cache for this processID
-		e.dispatchBacklog(metricsClient, nodeName, info, auditLine.ProcessID)
 	}
 
-	return fmt.Errorf("enricher failed: %w", e.Reason(tailFile))
+	return fmt.Errorf("enricher failed: %w", e.source.TailErr())
 }
 
 func (e *Enricher) startGrpcServer() error {
@@ -353,13 +357,7 @@ func (e *Enricher) dispatchBacklog(
 	strPid := strconv.Itoa(processID)
 
 	auditBacklog := e.GetFromBacklog(e.auditLineCache, strPid)
-	if auditBacklog == nil {
-		// nothing in the cache
-		return
-	}
-
-	for i := range auditBacklog {
-		auditLine := auditBacklog[i]
+	for _, auditLine := range auditBacklog {
 		if err := e.dispatchAuditLine(metricsClient, nodeName, auditLine, info); err != nil {
 			e.logger.Error(
 				err, "dispatch audit line")
@@ -397,8 +395,8 @@ func (e *Enricher) dispatchSelinuxLine(
 	auditLine *types.AuditLine,
 	info *types.ContainerInfo,
 ) {
-	e.logger.Info("audit",
-		"timestamp", auditLine.TimestampID,
+	logMap := common.NewOrderedMap()
+	logMap.BulkSet("timestamp", auditLine.TimestampID,
 		"type", auditLine.AuditType,
 		"profile", info.RecordProfile,
 		"node", nodeName,
@@ -408,24 +406,30 @@ func (e *Enricher) dispatchSelinuxLine(
 		"perm", auditLine.Perm,
 		"scontext", auditLine.Scontext,
 		"tcontext", auditLine.Tcontext,
-		"tclass", auditLine.Tclass,
-	)
+		"tclass", auditLine.Tclass)
 
-	if err := e.SendMetric(
-		metricsClient,
-		&apimetrics.AuditRequest{
-			Node:       nodeName,
-			Namespace:  info.Namespace,
-			Pod:        info.PodName,
-			Container:  info.ContainerName,
-			Executable: auditLine.Executable,
-			SelinuxReq: &apimetrics.AuditRequest_SelinuxAuditReq{
-				Scontext: auditLine.Scontext,
-				Tcontext: auditLine.Tcontext,
+	logLevel := ApplyEnricherFilters(logMap.Values(), e.enricherFilters)
+	if logLevel == types.EnricherLogLevelNone {
+		e.logger.V(config.VerboseLevel).Info("Skip logging", logMap.BulkGet()...)
+	} else {
+		e.logger.Info("audit", logMap.BulkGet()...)
+
+		if err := e.SendMetric(
+			metricsClient,
+			&apimetrics.AuditRequest{
+				Node:       nodeName,
+				Namespace:  info.Namespace,
+				Pod:        info.PodName,
+				Container:  info.ContainerName,
+				Executable: auditLine.Executable,
+				SelinuxReq: &apimetrics.AuditRequest_SelinuxAuditReq{
+					Scontext: auditLine.Scontext,
+					Tcontext: auditLine.Tcontext,
+				},
 			},
-		},
-	); err != nil {
-		e.logger.Error(err, "unable to update metrics")
+		); err != nil {
+			e.logger.Error(err, "unable to update metrics")
+		}
 	}
 
 	if info.RecordProfile != "" {
@@ -469,7 +473,8 @@ func (e *Enricher) dispatchSeccompLine(
 		return
 	}
 
-	e.logger.Info("audit",
+	logMap := common.NewOrderedMap()
+	logMap.BulkSet(
 		"timestamp", auditLine.TimestampID,
 		"type", auditLine.AuditType,
 		"node", nodeName,
@@ -479,23 +484,29 @@ func (e *Enricher) dispatchSeccompLine(
 		"executable", auditLine.Executable,
 		"pid", auditLine.ProcessID,
 		"syscallID", auditLine.SystemCallID,
-		"syscallName", syscallName,
-	)
+		"syscallName", syscallName)
 
-	if err := e.SendMetric(
-		metricsClient,
-		&apimetrics.AuditRequest{
-			Node:       nodeName,
-			Namespace:  info.Namespace,
-			Pod:        info.PodName,
-			Container:  info.ContainerName,
-			Executable: auditLine.Executable,
-			SeccompReq: &apimetrics.AuditRequest_SeccompAuditReq{
-				Syscall: syscallName,
+	logLevel := ApplyEnricherFilters(logMap.Values(), e.enricherFilters)
+	if logLevel == types.EnricherLogLevelNone {
+		e.logger.V(config.VerboseLevel).Info("Skip logging", logMap.BulkGet()...)
+	} else {
+		e.logger.Info("audit", logMap.BulkGet()...)
+
+		if err := e.SendMetric(
+			metricsClient,
+			&apimetrics.AuditRequest{
+				Node:       nodeName,
+				Namespace:  info.Namespace,
+				Pod:        info.PodName,
+				Container:  info.ContainerName,
+				Executable: auditLine.Executable,
+				SeccompReq: &apimetrics.AuditRequest_SeccompAuditReq{
+					Syscall: syscallName,
+				},
 			},
-		},
-	); err != nil {
-		e.logger.Error(err, "unable to update metrics")
+		); err != nil {
+			e.logger.Error(err, "unable to update metrics")
+		}
 	}
 
 	if info.RecordProfile != "" {
@@ -514,8 +525,8 @@ func (e *Enricher) dispatchApparmorLine(
 	auditLine *types.AuditLine,
 	info *types.ContainerInfo,
 ) {
-	values := []interface{}{
-		"timestamp", auditLine.TimestampID,
+	logMap := common.NewOrderedMap()
+	logMap.BulkSet("timestamp", auditLine.TimestampID,
 		"type", auditLine.AuditType,
 		"node", nodeName,
 		"namespace", info.Namespace,
@@ -526,14 +537,20 @@ func (e *Enricher) dispatchApparmorLine(
 		"apparmor", auditLine.Apparmor,
 		"operation", auditLine.Operation,
 		"profile", auditLine.Profile,
-		"name", auditLine.Name,
-	}
+		"name", auditLine.Name)
 
 	if auditLine.ExtraInfo != "" {
-		values = append(values, "extra", auditLine.ExtraInfo)
+		logMap.Put("extra_info", auditLine.ExtraInfo)
 	}
 
-	e.logger.Info("audit", values...)
+	logLevel := ApplyEnricherFilters(logMap.Values(), e.enricherFilters)
+	if logLevel == types.EnricherLogLevelNone {
+		e.logger.V(1).Info("skip logging", logMap.BulkGet()...)
+
+		return
+	}
+
+	e.logger.Info("audit", logMap.BulkGet()...)
 
 	if err := e.SendMetric(
 		metricsClient,
@@ -553,15 +570,4 @@ func (e *Enricher) dispatchApparmorLine(
 	); err != nil {
 		e.logger.Error(err, "unable to update the metrics")
 	}
-}
-
-// LogFilePath returns either the path to the audit logs or falls back to
-// syslog if the audit log path does not exist.
-func LogFilePath() string {
-	filePath := config.SyslogLogPath
-	if rutil.Exists(config.AuditLogPath) {
-		filePath = config.AuditLogPath
-	}
-
-	return filePath
 }

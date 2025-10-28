@@ -15,6 +15,8 @@
 package adt
 
 import (
+	"slices"
+
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
 )
@@ -85,6 +87,7 @@ import (
 type envDisjunct struct {
 	env     *Environment
 	cloneID CloseInfo
+	holeID  int
 
 	// fields for new evaluator
 
@@ -208,7 +211,7 @@ func (n *nodeContext) expandDisjuncts(
 			n.disjuncts = append(n.disjuncts, n)
 		}
 		if n.node.BaseValue == nil {
-			n.node.BaseValue = n.getValidators(state)
+			n.setBaseValue(n.getValidators(state))
 		}
 
 		n.usedDefault = append(n.usedDefault, defaultInfo{
@@ -467,6 +470,7 @@ func (n *nodeContext) makeError() {
 	b := &Bottom{
 		Code: code,
 		Err:  n.disjunctError(),
+		Node: n.node,
 	}
 	n.node.SetValue(n.ctx, b)
 }
@@ -502,12 +506,10 @@ func clone(v Vertex) Vertex {
 			case finalized:
 				v.Arcs[i] = arc
 
-			case 0:
+			case unprocessed:
 				a := *arc
 				v.Arcs[i] = &a
-
-				a.Conjuncts = make([]Conjunct, len(arc.Conjuncts))
-				copy(a.Conjuncts, arc.Conjuncts)
+				a.Conjuncts = slices.Clone(arc.Conjuncts)
 
 			default:
 				a := *arc
@@ -520,8 +522,7 @@ func clone(v Vertex) Vertex {
 	}
 
 	if a := v.Structs; len(a) > 0 {
-		v.Structs = make([]*StructInfo, len(a))
-		copy(v.Structs, a)
+		v.Structs = slices.Clone(a)
 	}
 
 	return v

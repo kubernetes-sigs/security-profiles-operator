@@ -23,11 +23,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
-	"os"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -57,11 +54,6 @@ const (
 
 var (
 	errTest = errors.New("test")
-	machine = []int8{'x', '8', '6', '_', '6', '4'}
-	release = []int8{
-		'3', '.', '1', '0', '.', '0', '-', '1', '0', '6', '2', '.', '1',
-		'.', '1', '.', 'e', 'l', '7', '.', 'x', '8', '6', '_', '6', '4',
-	}
 
 	mntns uint32 = 1337
 )
@@ -264,153 +256,6 @@ func TestRun(t *testing.T) {
 				require.Error(t, err)
 			},
 		},
-		{ // load:findBtfPath:Unmarshal fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalReturns(errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath:ReadOSRelease fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.ReadOSReleaseReturns(nil, errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath succeeds
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameCalls(func(res *syscall.Utsname) error {
-					copy(res.Machine[:], machine)
-					copy(res.Release[:], release)
-
-					return nil
-				})
-				mock.TempFileCalls(os.CreateTemp)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath:Write fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameCalls(func(res *syscall.Utsname) error {
-					copy(res.Machine[:], machine)
-					copy(res.Release[:], release)
-
-					return nil
-				})
-				mock.WriteReturns(0, errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath:TempFile fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameCalls(func(res *syscall.Utsname) error {
-					copy(res.Machine[:], machine)
-					copy(res.Release[:], release)
-
-					return nil
-				})
-				mock.TempFileReturns(nil, errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath kernel not found
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameCalls(func(res *syscall.Utsname) error {
-					copy(res.Machine[:], machine)
-
-					return nil
-				})
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath architecture not found
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath:Uname fails
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{
-					"ID": "centos", "VERSION_ID": "7",
-				}, nil)
-				mock.UnameReturns(errTest)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath OS version ID not found
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{"ID": "centos"}, nil)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
-		{ // load:findBtfPath OS ID not found
-			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
-				mock.GetenvReturns(node)
-				mock.StatReturns(nil, errTest)
-				mock.UnmarshalCalls(json.Unmarshal)
-				mock.ReadOSReleaseReturns(map[string]string{}, nil)
-			},
-			assert: func(err error) {
-				require.Error(t, err)
-			},
-		},
 	} {
 		mock := &bpfrecorderfakes.FakeImpl{}
 		tc.prepare(mock)
@@ -487,7 +332,7 @@ func TestStart(t *testing.T) {
 			assert: func(sut *BpfRecorder, err error) {
 				require.NoError(t, err)
 				require.EqualValues(t, 1, sut.startRequests)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				require.EqualValues(t, 2, sut.startRequests)
 			},
@@ -513,7 +358,7 @@ func TestStart(t *testing.T) {
 		err := sut.Load()
 		require.NoError(t, err)
 
-		_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+		_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 		tc.assert(sut, err)
 	}
 }
@@ -548,7 +393,7 @@ func TestStop(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, err error) {
@@ -562,9 +407,9 @@ func TestStop(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, err error) {
@@ -580,7 +425,7 @@ func TestStop(t *testing.T) {
 
 		tc.prepare(sut, mock)
 
-		_, err := sut.Stop(context.Background(), &api.EmptyRequest{})
+		_, err := sut.Stop(t.Context(), &api.EmptyRequest{})
 		tc.assert(sut, err)
 	}
 }
@@ -598,7 +443,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -625,7 +470,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -662,7 +507,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, resp *api.SyscallsResponse, err error) {
@@ -675,7 +520,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -691,7 +536,7 @@ func TestSyscallsForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -718,7 +563,7 @@ func TestSyscallsForProfile(t *testing.T) {
 		tc.prepare(sut, mock)
 
 		resp, err := sut.SyscallsForProfile(
-			context.Background(), &api.ProfileRequest{Name: profile},
+			t.Context(), &api.ProfileRequest{Name: profile},
 		)
 		tc.assert(sut, resp, err)
 	}
@@ -741,7 +586,7 @@ func TestApparmorForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -777,7 +622,7 @@ func TestApparmorForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 				sut.containerIDToProfileMap.Insert(containerID, profile)
 				sut.mntnsToContainerIDMap.Insert(mntns, containerID)
@@ -832,7 +677,7 @@ func TestApparmorForProfile(t *testing.T) {
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
 				err := sut.Load()
 				require.NoError(t, err)
-				_, err = sut.Start(context.Background(), &api.EmptyRequest{})
+				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
 				require.NoError(t, err)
 			},
 			assert: func(sut *BpfRecorder, resp *api.ApparmorResponse, err error) {
@@ -851,7 +696,7 @@ func TestApparmorForProfile(t *testing.T) {
 			tc.prepare(sut, mock)
 
 			resp, err := sut.ApparmorForProfile(
-				context.Background(), &api.ProfileRequest{Name: profile},
+				t.Context(), &api.ProfileRequest{Name: profile},
 			)
 			tc.assert(sut, resp, err)
 		})
@@ -888,6 +733,7 @@ func TestProcessEvents(t *testing.T) {
 	sut.impl = mock
 
 	var buf bytes.Buffer
+
 	err := binary.Write(&buf, binary.LittleEndian, bpfEvent{
 		Pid:   42,
 		Mntns: 0x1010,
@@ -897,11 +743,12 @@ func TestProcessEvents(t *testing.T) {
 
 	ch := make(chan []byte, 1)
 	ch <- buf.Bytes()
+
 	close(ch)
 
 	go sut.processEvents(ch)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
 	err = sut.WaitForPidExit(ctx, 42)

@@ -240,6 +240,32 @@ type SelinuxOptions struct {
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
 }
 
+type JsonEnricherOptions struct {
+	// Specifies the interval, in seconds, at which the accumulated audit log
+	// data is output in JSON format. For each process, syscalls occurring
+	// within this interval are grouped together. The default is 60 seconds.
+	// Increasing this interval will reduce the rate at which logs are written.
+	AuditLogIntervalSeconds int32 `json:"auditLogIntervalSeconds,omitempty"`
+
+	// This field specifies the path for the accumulated audit log data.
+	// The audit log will be written to this file in JSON format if a file path
+	// is provided. If left unspecified, the output will be directed to
+	// standard output (stdout).
+	AuditLogPath *string `json:"auditLogPath,omitempty"`
+
+	// This field specifies the maximum number of audit log files to retain.
+	// If left unspecified it defaults to 100 MB.
+	AuditLogMaxSize *int32 `json:"auditLogMaxSize,omitempty"`
+
+	// This field specifies the maximum size in megabytes of the audit log file before it gets rotated.
+	// The default is to retain all old log files (though MaxAge may still cause them to get deleted.)
+	AuditLogMaxBackups *int32 `json:"auditLogMaxBackups,omitempty"`
+
+	// This field specifies the maximum number of days to retain old audit log files
+	// The default is not to remove old log files based on age
+	AuditLogMaxAge *int32 `json:"auditLogMaxAge,omitempty"`
+}
+
 type WebhookOptions struct {
 	// Name specifies which webhook do we configure
 	Name string `json:"name,omitempty"`
@@ -276,6 +302,14 @@ type SPODSpec struct {
 	// tells the operator whether or not to enable log enrichment support for this
 	// SPOD instance.
 	EnableLogEnricher bool `json:"enableLogEnricher,omitempty"`
+	// tells the operator whether or not to enable audit JSON enrichment support for this
+	// SPOD instance.
+	EnableJsonEnricher bool `json:"enableJsonEnricher,omitempty"`
+	// Defines options specific to the JsonEnricher
+	// functionality of the SecurityProfilesOperator
+	// Its optional to provide this configuration
+	// +optional
+	JsonEnricherOpt *JsonEnricherOptions `json:"jsonEnricherOptions,omitempty"`
 	// tells the operator whether or not to enable bpf recorder support for this
 	// SPOD instance.
 	EnableBpfRecorder bool `json:"enableBpfRecorder,omitempty"`
@@ -331,6 +365,22 @@ type SPODSpec struct {
 	// artifact signature verification.
 	// +optional
 	DisableOCIArtifactSignatureVerification bool `json:"disableOciArtifactSignatureVerification"`
+
+	// LogEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
+	// for the log-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
+	// +optional
+	// +kubebuilder:default=""
+	LogEnricherFilters string `json:"logEnricherFilters,omitempty"`
+
+	// logEnricherSource determines which source should be used for audit logs.
+	// This defaults to `auditd`, but can be switched to `bpf` on systems where auditd is unavailable.
+	LogEnricherSource string `json:"logEnricherSource,omitempty"`
+
+	// JsonEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
+	// for the json-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
+	// +optional
+	// +kubebuilder:default=""
+	JsonEnricherFilters string `json:"jsonEnricherFilters,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.
@@ -382,22 +432,22 @@ type SecurityProfilesOperatorDaemonList struct {
 
 func (s *SPODStatus) StatePending() {
 	s.State = SPODStatePending
-	s.ConditionedStatus.SetConditions(Pending())
+	s.SetConditions(Pending())
 }
 
 func (s *SPODStatus) StateCreating() {
 	s.State = SPODStateCreating
-	s.ConditionedStatus.SetConditions(Creating())
+	s.SetConditions(Creating())
 }
 
 func (s *SPODStatus) StateUpdating() {
 	s.State = SPODStateUpdating
-	s.ConditionedStatus.SetConditions(Updating())
+	s.SetConditions(Updating())
 }
 
 func (s *SPODStatus) StateRunning() {
 	s.State = SPODStateRunning
-	s.ConditionedStatus.SetConditions(Available())
+	s.SetConditions(Available())
 }
 
 func init() { //nolint:gochecknoinits // required to init the scheme

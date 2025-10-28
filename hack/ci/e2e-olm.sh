@@ -67,11 +67,11 @@ function deploy_deps() {
 
   # cert-manager first. This should be done using dependencies in the
   # future
-  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml
+  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
   kubectl_wait -ncert-manager --for condition=ready pod -l app.kubernetes.io/instance=cert-manager
 
   # All installation methods run off the same catalog
-  sed -i "s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.9.0#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
+  sed -i "s#registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog:v0.10.0#${CATALOG_IMG}#g" examples/olm/install-resources.yaml
 
 }
 

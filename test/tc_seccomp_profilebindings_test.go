@@ -61,10 +61,12 @@ spec:
 
 	restoreNs := e.switchToNs(nsBindingEnabled)
 	defer restoreNs()
+
 	e.enableBindingHookInNs(nsBindingEnabled)
 
 	e.kubectl("create", "-f", exampleProfilePath)
 	defer e.kubectl("delete", "-f", exampleProfilePath)
+
 	e.waitFor("condition=ready", "seccompprofile", "profile-allow-unsafe")
 
 	e.logf("Creating test profile binding")
@@ -73,6 +75,7 @@ spec:
 	e.Nil(err)
 
 	defer os.Remove(testBindingFile.Name())
+
 	_, err = testBindingFile.WriteString(testBinding)
 	e.Nil(err)
 	err = testBindingFile.Close()

@@ -19,10 +19,14 @@ package kms
 import (
 	"context"
 	"crypto"
+	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/sigstore/sigstore/pkg/signature"
+	"github.com/sigstore/sigstore/pkg/signature/kms/cliplugin"
 )
 
 // ProviderNotFoundError indicates that no matching KMS provider was found
@@ -42,26 +46,47 @@ type ProviderInit func(context.Context, string, crypto.Hash, ...signature.RPCOpt
 
 // AddProvider adds the provider implementation into the local cache
 func AddProvider(keyResourceID string, init ProviderInit) {
+	providersMapMu.Lock()
+	defer providersMapMu.Unlock()
 	providersMap[keyResourceID] = init
 }
 
-var providersMap = map[string]ProviderInit{}
+var (
+	providersMapMu sync.RWMutex
+	providersMap   = map[string]ProviderInit{}
+)
 
 // Get returns a KMS SignerVerifier for the given resource string and hash function.
-// If no matching provider is found, Get returns a ProviderNotFoundError. It
-// also returns an error if initializing the SignerVerifier fails.
+// If no matching built-in provider is found, it will try to use the plugin system as a provider.
+// It returns a ProviderNotFoundError in these situations:
+// - keyResourceID doesn't match any of our hard-coded providers' schemas,
+// - the plugin name and key ref cannot be parsed from the input keyResourceID,
+// - the plugin program, can't be found.
+// It also returns an error if initializing the SignerVerifier fails.
 func Get(ctx context.Context, keyResourceID string, hashFunc crypto.Hash, opts ...signature.RPCOption) (SignerVerifier, error) {
+	providersMapMu.RLock()
+	defer providersMapMu.RUnlock()
 	for ref, pi := range providersMap {
 		if strings.HasPrefix(keyResourceID, ref) {
-			return pi(ctx, keyResourceID, hashFunc, opts...)
+			sv, err := pi(ctx, keyResourceID, hashFunc, opts...)
+			if err != nil {
+				return nil, err
+			}
+			return sv, nil
 		}
 	}
-	return nil, &ProviderNotFoundError{ref: keyResourceID}
+	sv, err := cliplugin.LoadSignerVerifier(ctx, keyResourceID, hashFunc, opts...)
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, cliplugin.ErrorInputKeyResourceID) {
+		return nil, fmt.Errorf("%w: %w", &ProviderNotFoundError{ref: keyResourceID}, err)
+	}
+	return sv, err
 }
 
 // SupportedProviders returns list of initialized providers
 func SupportedProviders() []string {
 	keys := make([]string, 0, len(providersMap))
+	providersMapMu.RLock()
+	defer providersMapMu.RUnlock()
 	for key := range providersMap {
 		keys = append(keys, key)
 	}

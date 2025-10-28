@@ -80,7 +80,7 @@ func (p *podSeccompRecorder) Handle(
 	ctx context.Context,
 	req admission.Request,
 ) admission.Response {
-	profileRecordings, err := p.impl.ListProfileRecordings(
+	profileRecordings, err := p.ListProfileRecordings(
 		ctx, client.InNamespace(req.Namespace),
 	)
 	if err != nil {
@@ -91,7 +91,7 @@ func (p *podSeccompRecorder) Handle(
 
 	pod := &corev1.Pod{}
 	if req.Operation != admissionv1.Delete {
-		pod, err = p.impl.DecodePod(req)
+		pod, err = p.DecodePod(req)
 		if err != nil {
 			p.log.Error(err, "Failed to decode pod")
 
@@ -118,7 +118,7 @@ func (p *podSeccompRecorder) Handle(
 			continue
 		}
 
-		selector, err := p.impl.LabelSelectorAsSelector(
+		selector, err := p.LabelSelectorAsSelector(
 			&item.Spec.PodSelector,
 		)
 		if err != nil {
@@ -252,10 +252,12 @@ func (p *podSeccompRecorder) updateSecurityContext(
 	}
 
 	switch pr.Spec.Kind {
-	case profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile,
-		profilerecordingv1alpha1.ProfileRecordingKindSelinuxProfile,
-		profilerecordingv1alpha1.ProfileRecordingKindAppArmorProfile:
+	case profilerecordingv1alpha1.ProfileRecordingKindSeccompProfile:
 		p.updateSeccompSecurityContext(ctr, pr)
+	case profilerecordingv1alpha1.ProfileRecordingKindSelinuxProfile:
+		p.updateSelinuxSecurityContext(ctr, pr)
+	case profilerecordingv1alpha1.ProfileRecordingKindAppArmorProfile:
+		p.updateApparmorSecurityContext(ctr, pr)
 	}
 
 	p.log.Info(fmt.Sprintf(
@@ -284,10 +286,44 @@ func (p *podSeccompRecorder) updateSeccompSecurityContext(
 	ctr.SecurityContext.SeccompProfile.Type = corev1.SeccompProfileTypeLocalhost
 	profile := fmt.Sprintf(
 		"operator/%s/%s.json",
-		p.impl.GetOperatorNamespace(),
+		p.GetOperatorNamespace(),
 		config.LogEnricherProfile,
 	)
 	ctr.SecurityContext.SeccompProfile.LocalhostProfile = &profile
+}
+
+func (p *podSeccompRecorder) updateSelinuxSecurityContext(
+	ctr *corev1.Container,
+	pr *profilerecordingv1alpha1.ProfileRecording,
+) {
+	if ctr.SecurityContext == nil {
+		ctr.SecurityContext = &corev1.SecurityContext{}
+	}
+
+	if ctr.SecurityContext.SELinuxOptions == nil {
+		ctr.SecurityContext.SELinuxOptions = &corev1.SELinuxOptions{}
+	} else {
+		p.record.Eventf(pr,
+			corev1.EventTypeWarning,
+			"SecurityContextAlreadySet",
+			"Container %s had SecurityContext already set, the profile recorder overwrote it", ctr.Name)
+	}
+
+	ctr.SecurityContext.SELinuxOptions.Type = config.SelinuxPermissiveProfile
+}
+
+func (p *podSeccompRecorder) updateApparmorSecurityContext(
+	ctr *corev1.Container,
+	pr *profilerecordingv1alpha1.ProfileRecording,
+) {
+	if pr.Spec.Recorder != profilerecordingv1alpha1.ProfileRecorderLogs {
+		return
+	}
+
+	p.record.Eventf(pr,
+		corev1.EventTypeWarning,
+		"AppArmorNotSupported",
+		"AppArmor log-based recording is not supported, container: %s", ctr.Name)
 }
 
 func (p *podSeccompRecorder) setRecordingReferences(
@@ -300,7 +336,7 @@ func (p *podSeccompRecorder) setRecordingReferences(
 ) error {
 	// we Get the recording again because remove is used in a retry loop
 	// to handle conflicts, we want to get the most recent one
-	profileRecording, err := p.impl.GetProfileRecording(ctx, profileRecording.Name, profileRecording.Namespace)
+	profileRecording, err := p.GetProfileRecording(ctx, profileRecording.Name, profileRecording.Namespace)
 	if kerrors.IsNotFound(err) {
 		// this can happen if the profile recording is deleted while we're reconciling
 		// just return without doing anything
@@ -333,7 +369,7 @@ func (p *podSeccompRecorder) setActiveWorkloads(
 
 	profileRecording.Status.ActiveWorkloads = newActiveWorkloads
 
-	return p.impl.UpdateResourceStatus(ctx, p.log, profileRecording, "profilerecording status")
+	return p.UpdateResourceStatus(ctx, p.log, profileRecording, "profilerecording status")
 }
 
 func (p *podSeccompRecorder) setFinalizers(
@@ -353,7 +389,7 @@ func (p *podSeccompRecorder) setFinalizers(
 		}
 	}
 
-	return p.impl.UpdateResource(ctx, p.log, profileRecording, "profilerecording")
+	return p.UpdateResource(ctx, p.log, profileRecording, "profilerecording")
 }
 
 func (p *podSeccompRecorder) warnEventIfContainerPrivileged(

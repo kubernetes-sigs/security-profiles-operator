@@ -39,10 +39,9 @@ import (
 var (
 	replicas                int32 = 3
 	defaultMode             int32 = 420
-	failurePolicy                 = admissionregv1.Fail
+	failurePolicyFail             = admissionregv1.Fail
+	failurePolicyIgnore           = admissionregv1.Ignore
 	caBundle                      = []byte("Cg==")
-	bindingPath                   = "/mutate-v1-pod-binding"
-	recordingPath                 = "/mutate-v1-pod-recording"
 	sideEffects                   = admissionregv1.SideEffectClassNone
 	admissionReviewVersions       = []string{"v1beta1"}
 	rules                         = []admissionregv1.RuleWithOperations{
@@ -55,6 +54,35 @@ var (
 				APIVersions: []string{"v1"},
 				Resources:   []string{"pods"},
 			},
+		},
+	}
+	rulesExec = []admissionregv1.RuleWithOperations{
+		{
+			Operations: []admissionregv1.OperationType{
+				"*",
+			},
+			Rule: admissionregv1.Rule{
+				APIGroups:   []string{""},
+				APIVersions: []string{"v1"},
+				Resources:   []string{"pods/exec", "pods/ephemeralcontainers"},
+			},
+		},
+	}
+	rulesNodeDebuggingPod = []admissionregv1.RuleWithOperations{
+		{
+			Operations: []admissionregv1.OperationType{
+				"CREATE",
+			},
+			Rule: admissionregv1.Rule{
+				APIGroups:   []string{""},
+				APIVersions: []string{"v1"},
+				Resources:   []string{"pods"},
+			},
+		},
+	}
+	objectSelectorNodeDebuggingPod = metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"app.kubernetes.io/managed-by": "kubectl-debug",
 		},
 	}
 	objectSelector = metav1.LabelSelector{
@@ -86,6 +114,19 @@ const (
 	webhookServerCert  = "webhook-server-cert"
 )
 
+type webhook struct {
+	index int
+	name  string
+	path  string
+}
+
+var (
+	binding                  = webhook{0, "binding.spo.io", "/mutate-v1-pod-binding"}
+	recording                = webhook{1, "recording.spo.io", "/mutate-v1-pod-recording"}
+	execMetadata             = webhook{2, "execmetadata.spo.io", "/mutate-v1-exec-metadata"}
+	nodeDebuggingPodMetadata = webhook{3, "nodedebuggingpod.spo.io", "/mutate-v1-exec-metadata"}
+)
+
 type Webhook struct {
 	log        logr.Logger
 	deployment *appsv1.Deployment
@@ -102,6 +143,7 @@ func GetWebhook(
 	caInjectType CAInjectType,
 	tolerations []corev1.Toleration,
 	imagePullSecrets []corev1.LocalObjectReference,
+	execMetadataWebhookEnabled bool,
 ) *Webhook {
 	deployment := webhookDeployment.DeepCopy()
 	deployment.Namespace = namespace
@@ -118,10 +160,15 @@ func GetWebhook(
 	ctr.Image = image
 	ctr.ImagePullPolicy = pullPolicy
 
-	cfg := webhookConfig.DeepCopy()
+	cfg := getWebhookConfig(execMetadataWebhookEnabled).DeepCopy()
 	cfg.Namespace = namespace
-	cfg.Webhooks[0].ClientConfig.Service.Namespace = namespace
-	cfg.Webhooks[1].ClientConfig.Service.Namespace = namespace
+	cfg.Webhooks[binding.index].ClientConfig.Service.Namespace = namespace
+	cfg.Webhooks[recording.index].ClientConfig.Service.Namespace = namespace
+
+	if execMetadataWebhookEnabled {
+		cfg.Webhooks[execMetadata.index].ClientConfig.Service.Namespace = namespace
+		cfg.Webhooks[nodeDebuggingPodMetadata.index].ClientConfig.Service.Namespace = namespace
+	}
 
 	service := webhookService.DeepCopy()
 	service.Namespace = namespace
@@ -211,6 +258,10 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 	}
 
 	if len(existingWebHook.Webhooks) != len(w.config.Webhooks) {
+		w.log.V(1).Info("updating webhook configuration",
+			"len(existingWebHook)", len(existingWebHook.Webhooks),
+			"len(config)", len(w.config.Webhooks))
+
 		return true, nil
 	}
 
@@ -224,7 +275,11 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 				continue
 			}
 
-			if webhookNeedsUpdate(&ew, &cw) {
+			if w.webhookNeedsUpdate(&ew, j) {
+				w.log.V(1).Info("updating webhook configuration",
+					"configName", cw.Name,
+					"existingName", ew.Name)
+
 				return true, nil
 			}
 		}
@@ -234,46 +289,95 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 }
 
 // only compare the settings that are tunable in spod now.
-func webhookNeedsUpdate(existing, configured *admissionregv1.MutatingWebhook) bool {
+func (w *Webhook) webhookNeedsUpdate(existing *admissionregv1.MutatingWebhook, index int) bool {
+	configured := w.config.Webhooks[index]
+
+	// comparing pointers, not values
 	if existing.FailurePolicy == nil && configured.FailurePolicy != nil ||
 		existing.FailurePolicy != nil && configured.FailurePolicy == nil {
-		// comparing pointers, not values
+		w.log.V(1).Info("updating webhook configuration",
+			"existing FailurePolicy", existing.FailurePolicy,
+			"configured FailurePolicy", configured.FailurePolicy)
+
 		return true
 	}
 
+	// comparing values this time
 	if existing.FailurePolicy != nil &&
 		configured.FailurePolicy != nil &&
 		*existing.FailurePolicy != *configured.FailurePolicy {
-		// comparing values this time
+		w.log.V(1).Info("updating webhook configuration",
+			"existing FailurePolicy", existing.FailurePolicy,
+			"configured FailurePolicy", configured.FailurePolicy)
+
 		return true
 	}
 
-	if existing.NamespaceSelector == nil && configured.NamespaceSelector != nil ||
-		existing.NamespaceSelector != nil && configured.NamespaceSelector == nil {
-		// comparing pointers, not values
+	// Both nil and empty object selector are equal
+	// Some platform set the Namespace selector as empty when nil is configured
+	if existing.NamespaceSelector != nil && configured.NamespaceSelector == nil {
+		if existing.NamespaceSelector.Size() > 0 {
+			w.log.V(1).Info("updating webhook configuration",
+				"existing NamespaceSelector", existing.NamespaceSelector,
+				"configured NamespaceSelector", configured.NamespaceSelector)
+
+			return true
+		}
+	}
+
+	// comparing pointers, not values
+	if existing.NamespaceSelector == nil && configured.NamespaceSelector != nil {
+		w.log.V(1).Info("updating webhook configuration",
+			"existing NamespaceSelector", existing.NamespaceSelector,
+			"configured NamespaceSelector", configured.NamespaceSelector)
+
 		return true
 	}
 
+	// Only compare managed labels, all others are out of scope
 	if existing.NamespaceSelector != nil && configured.NamespaceSelector != nil {
-		// Only compare managed labels, all others are out of scope
 		for _, label := range []string{EnableBindingLabel, EnableRecordingLabel} {
 			if namespaceSelectorUnequalForLabel(label, existing.NamespaceSelector, configured.NamespaceSelector) {
+				w.log.V(1).Info("updating webhook configuration",
+					"existing NamespaceSelector", existing.NamespaceSelector,
+					"configured NamespaceSelector", configured.NamespaceSelector)
+
 				return true
 			}
 		}
 	}
 
-	if existing.ObjectSelector == nil && configured.ObjectSelector != nil ||
-		existing.ObjectSelector != nil && configured.ObjectSelector == nil {
-		// comparing pointers, not values
+	// Both nil and empty object selector are equal
+	if existing.ObjectSelector != nil && configured.ObjectSelector == nil {
+		if existing.ObjectSelector.Size() > 0 {
+			w.log.V(1).Info("updating webhook configuration",
+				"existing ObjectSelector", existing.ObjectSelector,
+				"configured ObjectSelector", configured.ObjectSelector)
+
+			return true
+		}
+	}
+
+	// comparing pointers, not values
+	if existing.ObjectSelector == nil && configured.ObjectSelector != nil {
+		w.log.V(1).Info("updating webhook configuration",
+			"existing ObjectSelector", existing.ObjectSelector,
+			"configured ObjectSelector", configured.ObjectSelector)
+
 		return true
 	}
 
 	if existing.ObjectSelector != nil &&
 		configured.ObjectSelector != nil &&
 		!reflect.DeepEqual(*existing.ObjectSelector, *configured.ObjectSelector) {
+		w.log.V(1).Info("updating webhook configuration",
+			"existing ObjectSelector", existing.ObjectSelector,
+			"configured ObjectSelector", configured.ObjectSelector)
+
 		return true
 	}
+
+	w.log.V(1).Info("webbhook does not need update")
 
 	return false
 }
@@ -330,6 +434,96 @@ func (w *Webhook) objectMap() map[string]client.Object {
 		"deployment": w.deployment,
 		"config":     w.config,
 		"service":    w.service,
+	}
+}
+
+// getWebhookConfig returns the webhooks in the order binding, recording, execMetadata and nodeDebuggingPodMetadata.
+func getWebhookConfig(execMetadataWebhookEnabled bool) *admissionregv1.MutatingWebhookConfiguration {
+	webhooks := []admissionregv1.MutatingWebhook{
+		{
+			Name:           binding.name,
+			FailurePolicy:  &failurePolicyFail,
+			SideEffects:    &sideEffects,
+			Rules:          rules,
+			ObjectSelector: &objectSelector,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      EnableBindingLabel,
+						Operator: metav1.LabelSelectorOpExists,
+					},
+				},
+			},
+			ClientConfig: admissionregv1.WebhookClientConfig{
+				CABundle: caBundle,
+				Service: &admissionregv1.ServiceReference{
+					Name: serviceName,
+					Path: &binding.path,
+				},
+			},
+			AdmissionReviewVersions: admissionReviewVersions,
+		},
+		{
+			Name:           recording.name,
+			FailurePolicy:  &failurePolicyFail,
+			SideEffects:    &sideEffects,
+			Rules:          rules,
+			ObjectSelector: &objectSelector,
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      EnableRecordingLabel,
+						Operator: metav1.LabelSelectorOpExists,
+					},
+				},
+			},
+			ClientConfig: admissionregv1.WebhookClientConfig{
+				CABundle: caBundle,
+				Service: &admissionregv1.ServiceReference{
+					Name: serviceName,
+					Path: &recording.path,
+				},
+			},
+			AdmissionReviewVersions: admissionReviewVersions,
+		},
+	}
+
+	if execMetadataWebhookEnabled {
+		webhooks = append(webhooks, admissionregv1.MutatingWebhook{
+			Name:          execMetadata.name,
+			FailurePolicy: &failurePolicyIgnore,
+			SideEffects:   &sideEffects,
+			Rules:         rulesExec,
+			ClientConfig: admissionregv1.WebhookClientConfig{
+				CABundle: caBundle,
+				Service: &admissionregv1.ServiceReference{
+					Name: serviceName,
+					Path: &execMetadata.path,
+				},
+			},
+			AdmissionReviewVersions: admissionReviewVersions,
+		}, admissionregv1.MutatingWebhook{
+			Name:          nodeDebuggingPodMetadata.name,
+			FailurePolicy: &failurePolicyIgnore,
+			SideEffects:   &sideEffects,
+			Rules:         rulesNodeDebuggingPod,
+			ClientConfig: admissionregv1.WebhookClientConfig{
+				CABundle: caBundle,
+				Service: &admissionregv1.ServiceReference{
+					Name: serviceName,
+					Path: &execMetadata.path,
+				},
+			},
+			ObjectSelector:          &objectSelectorNodeDebuggingPod,
+			AdmissionReviewVersions: admissionReviewVersions,
+		})
+	}
+
+	return &admissionregv1.MutatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: webhookConfigName,
+		},
+		Webhooks: webhooks,
 	}
 }
 
@@ -429,60 +623,6 @@ var webhookDeployment = &appsv1.Deployment{
 					},
 				},
 			},
-		},
-	},
-}
-
-var webhookConfig = &admissionregv1.MutatingWebhookConfiguration{
-	ObjectMeta: metav1.ObjectMeta{
-		Name: webhookConfigName,
-	},
-	Webhooks: []admissionregv1.MutatingWebhook{
-		{
-			Name:           "binding.spo.io",
-			FailurePolicy:  &failurePolicy,
-			SideEffects:    &sideEffects,
-			Rules:          rules,
-			ObjectSelector: &objectSelector,
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      EnableBindingLabel,
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
-			},
-			ClientConfig: admissionregv1.WebhookClientConfig{
-				CABundle: caBundle,
-				Service: &admissionregv1.ServiceReference{
-					Name: serviceName,
-					Path: &bindingPath,
-				},
-			},
-			AdmissionReviewVersions: admissionReviewVersions,
-		},
-		{
-			Name:           "recording.spo.io",
-			FailurePolicy:  &failurePolicy,
-			SideEffects:    &sideEffects,
-			Rules:          rules,
-			ObjectSelector: &objectSelector,
-			NamespaceSelector: &metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      EnableRecordingLabel,
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
-			},
-			ClientConfig: admissionregv1.WebhookClientConfig{
-				CABundle: caBundle,
-				Service: &admissionregv1.ServiceReference{
-					Name: serviceName,
-					Path: &recordingPath,
-				},
-			},
-			AdmissionReviewVersions: admissionReviewVersions,
 		},
 	},
 }

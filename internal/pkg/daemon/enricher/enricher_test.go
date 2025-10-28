@@ -22,10 +22,8 @@ package enricher
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/nxadm/tail"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,16 +39,6 @@ const (
 	executable  = "/bin/busybox"
 	syscall     = "mprotect"
 	crioPrefix  = "cri-o://"
-	seccompLine = `type=SECCOMP msg=audit(1624537480.360:8477): auid=1000 ` +
-		`uid=0 gid=0 ses=1 subj=kernel pid=2060394 comm="sleep" ` +
-		`exe="` + executable + `" sig=0 arch=c000003e syscall=10 compat=0 ` +
-		`ip=0x7f4ce626349b code=0x7ffc0000 AUID="user" UID="root" ` +
-		`GID="root" ARCH=x86_64 SYSCALL=` + syscall
-	avcLine = `type=AVC msg=audit(1613173578.156:2945): avc:  denied ` +
-		`{ read } for  pid=75593 comm="security-profil" name="token" ` +
-		`dev="tmpfs" ino=612459 ` +
-		`scontext=system_u:system_r:container_t:s0:c4,c808 ` +
-		`tcontext=system_u:object_r:var_lib_t:s0 tclass=lnk_file permissive=0`
 	containerID = "218ce99dd8b33f6f9b6565863d7cd47dc880963ddd2cd987bcb2d330c65144bf"
 )
 
@@ -61,14 +49,14 @@ func TestRun(t *testing.T) {
 
 	for _, tc := range []struct {
 		runAsync bool
-		prepare  func(*enricherfakes.FakeImpl, chan *tail.Line)
-		assert   func(*enricherfakes.FakeImpl, chan *tail.Line, error)
+		prepare  func(*enricherfakes.FakeImpl, chan *types.AuditLine)
+		assert   func(*enricherfakes.FakeImpl, chan *types.AuditLine, error)
 	}{
 		{ // success
 			runAsync: true,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
-				mock.LinesReturns(lineChan)
+				mock.StartTailReturns(lineChan, nil)
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
 					ObjectMeta: metav1.ObjectMeta{
@@ -82,14 +70,15 @@ func TestRun(t *testing.T) {
 					},
 				}}}, nil)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				for mock.LinesCallCount() != 1 {
-					// Wait for Lines() to be called
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
+				for mock.StartTailCallCount() != 1 {
+					// Wait for StartTail() to be called
 				}
 
-				lineChan <- &tail.Line{
-					Text: seccompLine,
-					Time: time.Now(),
+				lineChan <- &types.AuditLine{
+					AuditType:    types.AuditTypeSeccomp,
+					Executable:   executable,
+					SystemCallID: 10,
 				}
 
 				for mock.SendMetricCallCount() != 1 {
@@ -109,87 +98,92 @@ func TestRun(t *testing.T) {
 				require.NoError(t, err)
 			},
 		},
+
 		{ // failure on Getenv
 			runAsync: false,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns("")
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
 				require.Error(t, err)
 			},
 		},
+
 		{ // failure on Dial
 			runAsync: false,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
 				mock.DialReturns(nil, nil, errTest)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
 				require.Error(t, err)
 			},
 		},
+
 		{ // failure on MetricsAuditInc
 			runAsync: false,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
 				mock.DialReturns(nil, func() {}, errTest)
 				mock.AuditIncReturns(nil, errTest)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
 				require.Error(t, err)
 			},
 		},
+
 		{ // failure on Tail
 			runAsync: false,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
 				mock.DialReturns(nil, func() {}, errTest)
-				mock.TailFileReturns(nil, errTest)
+				mock.StartTailReturns(nil, errTest)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
 				require.Error(t, err)
 			},
 		},
 		{ // failure on Listen
 			runAsync: false,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
 				mock.DialReturns(nil, func() {}, errTest)
 				mock.ListenReturns(nil, errTest)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
 				require.Error(t, err)
 			},
 		},
+
 		{ // failure on Chown
 			runAsync: false,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
 				mock.DialReturns(nil, func() {}, errTest)
 				mock.ChownReturns(errTest)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
 				require.Error(t, err)
 			},
 		},
-		{ // failure on Lines
+		{ // failure on log iteration
 			runAsync: false,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
 				mock.DialReturns(nil, func() {}, errTest)
 				close(lineChan)
-				mock.LinesReturns(lineChan)
-				mock.ReasonReturns(errTest)
+				mock.StartTailReturns(lineChan, nil)
+				mock.TailErrReturns(errTest)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
 				require.Error(t, err)
 			},
 		},
 		{ // success, but metrics send failed
 			runAsync: true,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
-				mock.LinesReturns(lineChan)
+				mock.StartTailReturns(lineChan, nil)
 				mock.ContainerIDForPIDReturns(containerID, nil)
 				mock.ListPodsReturns(&v1.PodList{Items: []v1.Pod{{
 					ObjectMeta: metav1.ObjectMeta{
@@ -204,14 +198,13 @@ func TestRun(t *testing.T) {
 				}}}, nil)
 				mock.SendMetricReturns(errTest)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				for mock.LinesCallCount() != 1 {
-					// Wait for Lines() to be called
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
+				for mock.StartTailCallCount() != 1 {
+					// Wait for StartTail() to be called
 				}
 
-				lineChan <- &tail.Line{
-					Text: seccompLine,
-					Time: time.Now(),
+				lineChan <- &types.AuditLine{
+					AuditType: types.AuditTypeSeccomp,
 				}
 
 				for mock.SendMetricCallCount() != 1 {
@@ -223,9 +216,9 @@ func TestRun(t *testing.T) {
 		},
 		{ // success, but using the backlog
 			runAsync: true,
-			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line) {
+			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
-				mock.LinesReturns(lineChan)
+				mock.StartTailReturns(lineChan, nil)
 				mock.ContainerIDForPIDReturns(containerID, nil)
 
 				// container.go says that there are 10 retries to get the container
@@ -262,16 +255,25 @@ func TestRun(t *testing.T) {
 					},
 				}}}, nil)
 			},
-			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *tail.Line, err error) {
-				for mock.LinesCallCount() != 1 {
-					// Wait for Lines() to be called. We should hit continue
+			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
+				for mock.StartTailCallCount() != 1 {
+					// Wait for StartTail() to be called. We should hit continue
 					// in the loop, failing the find the container ID
 				}
 
-				lineChan <- &tail.Line{
-					Text: avcLine,
-					Time: time.Now(),
+				avcLine := &types.AuditLine{
+					AuditType:    types.AuditTypeSelinux,
+					TimestampID:  "1613173578.156:2945",
+					SystemCallID: 0,
+					ProcessID:    75593,
+					Executable:   "",
+					Perm:         "read",
+					Scontext:     "system_u:system_r:container_t:s0:c4,c808",
+					Tcontext:     "system_u:object_r:var_lib_t:s0",
+					Tclass:       "lnk_file",
 				}
+
+				lineChan <- avcLine
 
 				for mock.AddToBacklogCallCount() != 1 {
 					// Make sure the backlog was added to, because the
@@ -280,31 +282,16 @@ func TestRun(t *testing.T) {
 				// nothing should be read from the backlog yet
 				require.Equal(t, 0, mock.GetFromBacklogCallCount())
 
-				lineChan <- &tail.Line{
-					Text: avcLine,
-					Time: time.Now(),
+				lineChan <- &types.AuditLine{
+					AuditType: types.AuditTypeSeccomp,
 				}
+
+				// add something to the mock backlog
+				mock.GetFromBacklogReturns([]*types.AuditLine{avcLine})
 
 				// the other line shouldn't hit the backlog, so there
 				// should be still only one write to backlog
 				require.Equal(t, 1, mock.AddToBacklogCallCount())
-
-				// add something to the mock backlog
-				mock.GetFromBacklogReturns(
-					[]*types.AuditLine{
-						{
-							AuditType:    "selinux",
-							TimestampID:  "1613173578.156:2945",
-							SystemCallID: 0,
-							ProcessID:    75593,
-							Executable:   "",
-							Perm:         "read",
-							Scontext:     "system_u:system_r:container_t:s0:c4,c808",
-							Tcontext:     "system_u:object_r:var_lib_t:s0",
-							Tclass:       "lnk_file",
-						},
-					},
-				)
 
 				for mock.GetFromBacklogCallCount() != 1 {
 					// Make sure the backlog was read from when the avcs
@@ -316,15 +303,25 @@ func TestRun(t *testing.T) {
 					// that it was not empty and the mock entry was
 					// actually processed
 				}
+
+				for mock.SendMetricCallCount() != 2 {
+				}
+				_, firstSysCall := mock.SendMetricArgsForCall(0)
+				require.NotNil(t, firstSysCall.GetSelinuxReq())
+				_, secondSysCall := mock.SendMetricArgsForCall(1)
+				require.NotNil(t, secondSysCall.GetSeccompReq())
+
 				require.NoError(t, err)
 			},
 		},
 	} {
-		lineChan := make(chan *tail.Line)
+		lineChan := make(chan *types.AuditLine)
 		mock := &enricherfakes.FakeImpl{}
 		tc.prepare(mock, lineChan)
 
-		sut := New(logr.Discard())
+		sut, errCreate := New(logr.Discard(), nil)
+		require.NoError(t, errCreate)
+
 		sut.impl = mock
 
 		var err error

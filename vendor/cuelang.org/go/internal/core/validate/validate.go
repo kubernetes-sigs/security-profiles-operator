@@ -57,6 +57,10 @@ func (v *validator) checkConcrete() bool {
 	return v.Concrete && v.inDefinition == 0
 }
 
+func (v *validator) checkFinal() bool {
+	return (v.Concrete || v.Final) && v.inDefinition == 0
+}
+
 func (v *validator) add(b *adt.Bottom) {
 	if !v.AllErrors {
 		v.err = adt.CombineErrors(nil, v.err, b)
@@ -70,19 +74,19 @@ func (v *validator) add(b *adt.Bottom) {
 func (v *validator) validate(x *adt.Vertex) {
 	defer v.ctx.PopArc(v.ctx.PushArc(x))
 
-	// Dereference values, but only those that are non-rooted. This includes let
+	// Dereference values, but only those that are not shared. This includes let
 	// values. This prevents us from processing structure-shared nodes more than
 	// once and prevents potential cycles.
-	x = x.DerefNonRooted()
+	x = x.DerefNonShared()
 	if b := x.Bottom(); b != nil {
 		switch b.Code {
 		case adt.CycleError:
-			if v.checkConcrete() || v.DisallowCycles {
+			if v.checkFinal() || v.DisallowCycles {
 				v.add(b)
 			}
 
 		case adt.IncompleteError:
-			if v.checkConcrete() {
+			if v.checkFinal() {
 				v.add(b)
 			}
 

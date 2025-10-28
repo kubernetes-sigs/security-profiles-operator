@@ -3,11 +3,33 @@ data:
   bpf-recorder.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
-      "architectures": [
-        "SCMP_ARCH_X86_64",
-        "SCMP_ARCH_X86",
-        "SCMP_ARCH_X32",
-        "SCMP_ARCH_AARCH64"
+      "archMap": [
+        {
+          "architecture": "SCMP_ARCH_X86_64",
+          "subArchitectures": [
+            "SCMP_ARCH_X86",
+            "SCMP_ARCH_X32"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_AARCH64",
+          "subArchitectures": [
+            "SCMP_ARCH_ARM"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_PPC64LE",
+          "subArchitectures": [
+            "SCMP_ARCH_PPC64",
+            "SCMP_ARCH_PPC"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_S390X",
+          "subArchitectures": [
+            "SCMP_ARCH_S390"
+          ]
+        }
       ],
       "syscalls": [
         {
@@ -81,6 +103,7 @@ data:
             "setuid",
             "sigaltstack",
             "socket",
+            "stat",
             "statfs",
             "tgkill",
             "uname",
@@ -131,58 +154,44 @@ data:
             allowTcp: true
             allowUdp: true
       disabled: false
+  json-enricher-log-volume-mount-path: /data/logs/jsonenricher
+  json-enricher-log-volume-source.json: |-
+    {
+      "emptyDir": {
+        "sizeLimit": "500Mi"
+      }
+    }
   security-profiles-operator.json: |
     {
       "defaultAction": "SCMP_ACT_ERRNO",
-      "archMap": [
-        {
-          "architecture": "SCMP_ARCH_X86_64",
-          "subArchitectures": [
-            "SCMP_ARCH_X86",
-            "SCMP_ARCH_X32"
-          ]
-        },
-        {
-          "architecture": "SCMP_ARCH_AARCH64",
-          "subArchitectures": [
-            "SCMP_ARCH_ARM"
-          ]
-        },
-        {
-          "architecture": "SCMP_ARCH_MIPS64",
-          "subArchitectures": [
-            "SCMP_ARCH_MIPS",
-            "SCMP_ARCH_MIPS64N32"
-          ]
-        },
-        {
-          "architecture": "SCMP_ARCH_MIPS64N32",
-          "subArchitectures": [
-            "SCMP_ARCH_MIPS",
-            "SCMP_ARCH_MIPS64"
-          ]
-        },
-        {
-          "architecture": "SCMP_ARCH_MIPSEL64",
-          "subArchitectures": [
-            "SCMP_ARCH_MIPSEL",
-            "SCMP_ARCH_MIPSEL64N32"
-          ]
-        },
-        {
-          "architecture": "SCMP_ARCH_MIPSEL64N32",
-          "subArchitectures": [
-            "SCMP_ARCH_MIPSEL",
-            "SCMP_ARCH_MIPSEL64"
-          ]
-        },
-        {
-          "architecture": "SCMP_ARCH_S390X",
-          "subArchitectures": [
-            "SCMP_ARCH_S390"
-          ]
-        }
-      ],
+        "archMap": [
+            {
+                "architecture": "SCMP_ARCH_X86_64",
+                "subArchitectures": [
+                    "SCMP_ARCH_X86",
+                    "SCMP_ARCH_X32"
+                ]
+            },
+            {
+                "architecture": "SCMP_ARCH_AARCH64",
+                "subArchitectures": [
+                    "SCMP_ARCH_ARM"
+                ]
+            },
+            {
+            "architecture": "SCMP_ARCH_PPC64LE",
+                "subArchitectures": [
+                    "SCMP_ARCH_PPC64",
+                    "SCMP_ARCH_PPC"
+                ]
+            },
+            {
+                "architecture": "SCMP_ARCH_S390X",
+                "subArchitectures": [
+                    "SCMP_ARCH_S390"
+                ]
+            }
+        ],
       "syscalls": [
         {
           "names": [
@@ -267,7 +276,7 @@ data:
             "imageFromVar":"RELATED_IMAGE_SELINUXD_EL8"
         },
         {
-            "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)",
+            "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)|(.*)(CoreOS)([\\s+])9\\.(.*)",
             "imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"
         },
         {
@@ -344,6 +353,7 @@ data:
         executable:
           allowedExecutables:
           - /security-profiles-operator
+          - /usr/sbin/apparmor_parser
           - /sbin/apparmor_parser
         filesystem:
           readOnlyPaths:

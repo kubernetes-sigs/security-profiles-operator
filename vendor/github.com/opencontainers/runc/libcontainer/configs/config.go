@@ -3,14 +3,18 @@ package configs
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
-	"github.com/opencontainers/runc/libcontainer/devices"
+	devices "github.com/opencontainers/cgroups/devices/config"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -225,6 +229,9 @@ type Config struct {
 
 	// IOPriority is the container's I/O priority.
 	IOPriority *IOPriority `json:"io_priority,omitempty"`
+
+	// ExecCPUAffinity is CPU affinity for a non-init process to be run in the container.
+	ExecCPUAffinity *CPUAffinity `json:"exec_cpu_affinity,omitempty"`
 }
 
 // Scheduler is based on the Linux sched_setattr(2) syscall.
@@ -286,13 +293,91 @@ func ToSchedAttr(scheduler *Scheduler) (*unix.SchedAttr, error) {
 	}, nil
 }
 
-var IOPrioClassMapping = map[specs.IOPriorityClass]int{
-	specs.IOPRIO_CLASS_RT:   1,
-	specs.IOPRIO_CLASS_BE:   2,
-	specs.IOPRIO_CLASS_IDLE: 3,
+type IOPriority = specs.LinuxIOPriority
+
+type CPUAffinity struct {
+	Initial, Final *unix.CPUSet
 }
 
-type IOPriority = specs.LinuxIOPriority
+func toCPUSet(str string) (*unix.CPUSet, error) {
+	if str == "" {
+		return nil, nil
+	}
+	s := new(unix.CPUSet)
+
+	// Since (*CPUset).Set silently ignores too high CPU values,
+	// find out what the maximum is, and return an error.
+	maxCPU := uint64(unsafe.Sizeof(*s) * 8)
+	toInt := func(v string) (int, error) {
+		ret, err := strconv.ParseUint(v, 10, 32)
+		if err != nil {
+			return 0, err
+		}
+		if ret >= maxCPU {
+			return 0, fmt.Errorf("values larger than %d are not supported", maxCPU-1)
+		}
+		return int(ret), nil
+	}
+
+	for _, r := range strings.Split(str, ",") {
+		// Allow extra spaces around.
+		r = strings.TrimSpace(r)
+		// Allow empty elements (extra commas).
+		if r == "" {
+			continue
+		}
+		if r0, r1, found := strings.Cut(r, "-"); found {
+			start, err := toInt(r0)
+			if err != nil {
+				return nil, err
+			}
+			end, err := toInt(r1)
+			if err != nil {
+				return nil, err
+			}
+			if start > end {
+				return nil, errors.New("invalid range: " + r)
+			}
+			for i := start; i <= end; i++ {
+				s.Set(i)
+			}
+		} else {
+			val, err := toInt(r)
+			if err != nil {
+				return nil, err
+			}
+			s.Set(val)
+		}
+	}
+	if s.Count() == 0 {
+		return nil, fmt.Errorf("no CPUs found in %q", str)
+	}
+
+	return s, nil
+}
+
+// ConvertCPUAffinity converts [specs.CPUAffinity] to [CPUAffinity].
+func ConvertCPUAffinity(sa *specs.CPUAffinity) (*CPUAffinity, error) {
+	if sa == nil {
+		return nil, nil
+	}
+	initial, err := toCPUSet(sa.Initial)
+	if err != nil {
+		return nil, fmt.Errorf("bad CPUAffinity.Initial: %w", err)
+	}
+	final, err := toCPUSet(sa.Final)
+	if err != nil {
+		return nil, fmt.Errorf("bad CPUAffinity.Final: %w", err)
+	}
+	if initial == nil && final == nil {
+		return nil, nil
+	}
+
+	return &CPUAffinity{
+		Initial: initial,
+		Final:   final,
+	}, nil
+}
 
 type (
 	HookName string
@@ -331,6 +416,19 @@ const (
 	// Poststop commands are called in the Runtime Namespace.
 	Poststop HookName = "poststop"
 )
+
+// HasHook checks if config has any hooks with any given names configured.
+func (c *Config) HasHook(names ...HookName) bool {
+	if c.Hooks == nil {
+		return false
+	}
+	for _, h := range names {
+		if len(c.Hooks[h]) > 0 {
+			return true
+		}
+	}
+	return false
+}
 
 // KnownHookNames returns the known hook names.
 // Used by `runc features`.
@@ -427,6 +525,16 @@ func (hooks Hooks) Run(name HookName, state *specs.State) error {
 	return nil
 }
 
+// SetDefaultEnv sets the environment for those CommandHook entries
+// that do not have one set.
+func (hooks HookList) SetDefaultEnv(env []string) {
+	for _, h := range hooks {
+		if ch, ok := h.(CommandHook); ok && len(ch.Env) == 0 {
+			ch.Env = env
+		}
+	}
+}
+
 type Hook interface {
 	// Run executes the hook with the provided state.
 	Run(*specs.State) error
@@ -456,17 +564,17 @@ type Command struct {
 }
 
 // NewCommandHook will execute the provided command when the hook is run.
-func NewCommandHook(cmd Command) CommandHook {
+func NewCommandHook(cmd *Command) CommandHook {
 	return CommandHook{
 		Command: cmd,
 	}
 }
 
 type CommandHook struct {
-	Command
+	*Command
 }
 
-func (c Command) Run(s *specs.State) error {
+func (c *Command) Run(s *specs.State) error {
 	b, err := json.Marshal(s)
 	if err != nil {
 		return err

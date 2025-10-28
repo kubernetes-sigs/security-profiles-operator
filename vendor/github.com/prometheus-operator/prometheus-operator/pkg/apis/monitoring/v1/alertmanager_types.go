@@ -103,7 +103,7 @@ type AlertmanagerSpec struct {
 	BaseImage string `json:"baseImage,omitempty"`
 	// An optional list of references to secrets in the same namespace
 	// to use for pulling prometheus and alertmanager images from registries
-	// see http://kubernetes.io/docs/user-guide/images#specifying-imagepullsecrets-on-a-pod
+	// see https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
 	ImagePullSecrets []v1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 	// Secrets is a list of Secrets in the same namespace as the Alertmanager
 	// object, which shall be mounted into the Alertmanager Pods.
@@ -193,6 +193,17 @@ type AlertmanagerSpec struct {
 	//
 	// +optional
 	DNSConfig *PodDNSConfig `json:"dnsConfig,omitempty"`
+	// Indicates whether information about services should be injected into pod's environment variables
+	// +optional
+	EnableServiceLinks *bool `json:"enableServiceLinks,omitempty"`
+	// The name of the service name used by the underlying StatefulSet(s) as the governing service.
+	// If defined, the Service  must be created before the Alertmanager resource in the same namespace and it must define a selector that matches the pod labels.
+	// If empty, the operator will create and manage a headless service named `alertmanager-operated` for Alermanager resources.
+	// When deploying multiple Alertmanager resources in the same namespace, it is recommended to specify a different value for each.
+	// See https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#stable-network-id for more details.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	ServiceName *string `json:"serviceName,omitempty"`
 	// ServiceAccountName is the name of the ServiceAccount to use to run the
 	// Prometheus Pods.
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
@@ -265,6 +276,13 @@ type AlertmanagerSpec struct {
 	HostAliases []HostAlias `json:"hostAliases,omitempty"`
 	// Defines the web command line flags when starting Alertmanager.
 	Web *AlertmanagerWebSpec `json:"web,omitempty"`
+	// Defines the limits command line flags when starting Alertmanager.
+	Limits *AlertmanagerLimitsSpec `json:"limits,omitempty"`
+	// Configures the mutual TLS configuration for the Alertmanager cluster's gossip protocol.
+	//
+	// It requires Alertmanager >= 0.24.0.
+	//+optional
+	ClusterTLS *ClusterTLSConfig `json:"clusterTLS,omitempty"`
 	// alertmanagerConfiguration specifies the configuration of Alertmanager.
 	//
 	// If defined, it takes precedence over the `configSecret` field.
@@ -286,6 +304,23 @@ type AlertmanagerSpec struct {
 	// It requires Alertmanager >= 0.27.0.
 	// +optional
 	EnableFeatures []string `json:"enableFeatures,omitempty"`
+	// AdditionalArgs allows setting additional arguments for the 'Alertmanager' container.
+	// It is intended for e.g. activating hidden flags which are not supported by
+	// the dedicated configuration options yet. The arguments are passed as-is to the
+	// Alertmanager container which may cause issues if they are invalid or not supported
+	// by the given Alertmanager version.
+	// +optional
+	AdditionalArgs []Argument `json:"additionalArgs,omitempty"`
+
+	// Optional duration in seconds the pod needs to terminate gracefully.
+	// Value must be non-negative integer. The value zero indicates stop immediately via
+	// the kill signal (no opportunity to shut down) which may lead to data corruption.
+	//
+	// Defaults to 120 seconds.
+	//
+	// +kubebuilder:validation:Minimum:=0
+	// +optional
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
 }
 
 type AlertmanagerConfigMatcherStrategy struct {
@@ -295,7 +330,7 @@ type AlertmanagerConfigMatcherStrategy struct {
 	//
 	// The default value is `OnNamespace`.
 	//
-	// +kubebuilder:validation:Enum="OnNamespace";"None"
+	// +kubebuilder:validation:Enum="OnNamespace";"OnNamespaceExceptForAlertmanagerNamespace";"None"
 	// +kubebuilder:default:="OnNamespace"
 	Type AlertmanagerConfigMatcherStrategyType `json:"type,omitempty"`
 }
@@ -307,6 +342,12 @@ const (
 	// AlertmanagerConfig object only process alerts that have a `namespace`
 	// label equal to the namespace of the object.
 	OnNamespaceConfigMatcherStrategyType AlertmanagerConfigMatcherStrategyType = "OnNamespace"
+
+	// With `OnNamespaceExceptForAlertmanagerNamespace`, the route and inhibition rules of an
+	// AlertmanagerConfig object only process alerts that have a `namespace`
+	// label equal to the namespace of the object, unless the AlertmanagerConfig object
+	// is in the same namespace as the Alertmanager object, where it will process all alerts.
+	OnNamespaceExceptForAlertmanagerNamespaceConfigMatcherStrategyType AlertmanagerConfigMatcherStrategyType = "OnNamespaceExceptForAlertmanagerNamespace"
 
 	// With `None`, the route and inhbition rules of an AlertmanagerConfig
 	// object process all incoming alerts.
@@ -355,6 +396,25 @@ type AlertmanagerGlobalConfig struct {
 
 	// The default Pagerduty URL.
 	PagerdutyURL *string `json:"pagerdutyUrl,omitempty"`
+
+	// The default Telegram config
+	TelegramConfig *GlobalTelegramConfig `json:"telegram,omitempty"`
+
+	// The default configuration for Jira.
+	JiraConfig *GlobalJiraConfig `json:"jira,omitempty"`
+
+	// The default configuration for VictorOps.
+	VictorOpsConfig *GlobalVictorOpsConfig `json:"victorops,omitempty"`
+
+	// The default configuration for Rocket Chat.
+	RocketChatConfig *GlobalRocketChatConfig `json:"rocketChat,omitempty"`
+
+	// The default configuration for Jira.
+	WebexConfig *GlobalWebexConfig `json:"webex,omitempty"`
+
+	// The default WeChat Config
+	// +optional
+	WeChatConfig *GlobalWeChatConfig `json:"wechat,omitempty"`
 }
 
 // AlertmanagerStatus is the most recent observed status of the Alertmanager cluster. Read-only.
@@ -411,6 +471,24 @@ type AlertmanagerWebSpec struct {
 	Timeout *uint32 `json:"timeout,omitempty"`
 }
 
+// AlertmanagerLimitsSpec defines the limits command line flags when starting Alertmanager.
+// +k8s:openapi-gen=true
+type AlertmanagerLimitsSpec struct {
+	// The maximum number active and pending silences. This corresponds to the
+	// Alertmanager's `--silences.max-silences` flag.
+	// It requires Alertmanager >= v0.28.0.
+	//
+	// +kubebuilder:validation:Minimum:=0
+	// +optional
+	MaxSilences *int32 `json:"maxSilences,omitempty"`
+	// The maximum size of an individual silence as stored on disk. This corresponds to the Alertmanager's
+	// `--silences.max-per-silence-bytes` flag.
+	// It requires Alertmanager >= v0.28.0.
+	//
+	// +optional
+	MaxPerSilenceBytes *ByteSize `json:"maxPerSilenceBytes,omitempty"`
+}
+
 // GlobalSMTPConfig configures global SMTP parameters.
 // See https://prometheus.io/docs/alerting/latest/configuration/#configuration-file
 type GlobalSMTPConfig struct {
@@ -446,6 +524,92 @@ type GlobalSMTPConfig struct {
 	// Note that Go does not support unencrypted connections to remote SMTP endpoints.
 	// +optional
 	RequireTLS *bool `json:"requireTLS,omitempty"`
+
+	// The default TLS configuration for SMTP receivers
+	// +optional
+	TLSConfig *SafeTLSConfig `json:"tlsConfig,omitempty"`
+}
+
+// GlobalTelegramConfig configures global Telegram parameters.
+type GlobalTelegramConfig struct {
+	// The default Telegram API URL.
+	//
+	// It requires Alertmanager >= v0.24.0.
+	// +optional
+	APIURL *URL `json:"apiURL,omitempty"`
+}
+
+// GlobalJiraConfig configures global Jira parameters.
+type GlobalJiraConfig struct {
+	// The default Jira API URL.
+	//
+	// It requires Alertmanager >= v0.28.0.
+	//
+	// +optional
+	APIURL *URL `json:"apiURL,omitempty"`
+}
+
+// GlobalRocketChatConfig configures global Rocket Chat parameters.
+type GlobalRocketChatConfig struct {
+	// The default Rocket Chat API URL.
+	//
+	// It requires Alertmanager >= v0.28.0.
+	//
+	// +optional
+	APIURL *URL `json:"apiURL,omitempty"`
+
+	// The default Rocket Chat token.
+	//
+	// It requires Alertmanager >= v0.28.0.
+	//
+	// +optional
+	Token *v1.SecretKeySelector `json:"token,omitempty"`
+
+	// The default Rocket Chat Token ID.
+	//
+	// It requires Alertmanager >= v0.28.0.
+	//
+	// +optional
+	TokenID *v1.SecretKeySelector `json:"tokenID,omitempty"`
+}
+
+// GlobalWebexConfig configures global Webex parameters.
+// See https://prometheus.io/docs/alerting/latest/configuration/#configuration-file
+type GlobalWebexConfig struct {
+	// The default Webex API URL.
+	//
+	// It requires Alertmanager >= v0.25.0.
+	//
+	// +optional
+	APIURL *URL `json:"apiURL,omitempty"`
+}
+
+type GlobalWeChatConfig struct {
+	// The default WeChat API URL.
+	// The default value is "https://qyapi.weixin.qq.com/cgi-bin/"
+	// +optional
+	APIURL *URL `json:"apiURL,omitempty"`
+
+	// The default WeChat API Secret.
+	// +optional
+	APISecret *v1.SecretKeySelector `json:"apiSecret,omitempty"`
+
+	// The default WeChat API Corporate ID.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	APICorpID *string `json:"apiCorpID,omitempty"`
+}
+
+// GlobalVictorOpsConfig configures global VictorOps parameters.
+type GlobalVictorOpsConfig struct {
+	// The default VictorOps API URL.
+	//
+	// +optional
+	APIURL *URL `json:"apiURL,omitempty"`
+	// The default VictorOps API Key.
+	//
+	// +optional
+	APIKey *v1.SecretKeySelector `json:"apiKey,omitempty"`
 }
 
 // HostPort represents a "host:port" network address.
@@ -504,3 +668,18 @@ type AlertmanagerList struct {
 func (l *AlertmanagerList) DeepCopyObject() runtime.Object {
 	return l.DeepCopy()
 }
+
+// ClusterTLSConfig defines the mutual TLS configuration for the Alertmanager cluster TLS protocol.
+// +k8s:openapi-gen=true
+type ClusterTLSConfig struct {
+	// Server-side configuration for mutual TLS.
+	// +required
+	ServerTLS WebTLSConfig `json:"server"`
+	// Client-side configuration for mutual TLS.
+	// +required
+	ClientTLS SafeTLSConfig `json:"client"`
+}
+
+// URL represents a valid URL
+// +kubebuilder:validation:Pattern:="^(http|https)://.+$"
+type URL string

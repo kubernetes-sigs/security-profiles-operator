@@ -14,6 +14,7 @@ spec:
     {{- toYaml .Values.daemon.resources | nindent 4 }}
   enableSelinux: {{ .Values.enableSelinux }}
   enableLogEnricher: {{ .Values.enableLogEnricher }}
+  enableJsonEnricher: {{ .Values.enableJsonEnricher }}
   enableAppArmor: {{ .Values.enableAppArmor }}
   enableBpfRecorder: {{ .Values.enableBpfRecorder }}
   enableProfiling: {{ .Values.enableProfiling }}

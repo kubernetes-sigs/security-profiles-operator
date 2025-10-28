@@ -1,10 +1,8 @@
 .DEFAULT_GOAL = build
 extension = $(patsubst windows,.exe,$(filter windows,$(1)))
-GO := go
 PKG_NAME ?= $(subst go-,,$(shell basename `pwd`))
 PREFIX := .
 GO111MODULE := on
-GOFLAGS := -mod=vendor
 DOCKER_BUILDKIT ?= 1
 
 DOCKER_REPO ?= hairyhenderson/$(PKG_NAME)
@@ -58,7 +56,7 @@ $(PREFIX)/%.signed: $(PREFIX)/%
 compress: $(PREFIX)/bin/$(PKG_NAME)_$(GOOS)-$(GOARCH)-slim$(call extension,$(GOOS))
 	cp $< $(PREFIX)/bin/$(PKG_NAME)-slim$(call extension,$(GOOS))
 
-%.iid: Dockerfile
+%.iid: Dockerfile $(shell find $(PREFIX) -type f -name '*.go') go.mod go.sum
 	@docker build \
 		--build-arg VCS_REF=$(COMMIT) \
 		--build-arg CODEOWNERS="$(shell grep `dirname $@` .github/CODEOWNERS | cut -f2)" \
@@ -87,13 +85,13 @@ v%.tag: latest.iid
 	@docker create --cidfile $@ $(shell cat $<)
 
 build-release: artifacts.cid
-	@docker cp $(shell cat $<):/bin/. bin/
+	@docker cp $(shell cat $^):/bin/. bin/
 
 docker-images: $(PKG_NAME).iid $(PKG_NAME)-slim.iid
 
-$(PREFIX)/bin/$(PKG_NAME)_%: $(shell find $(PREFIX) -type f -name '*.go')
+$(PREFIX)/bin/$(PKG_NAME)_%: $(shell find $(PREFIX) -type f -name "*.go")
 	GOOS=$(shell echo $* | cut -f1 -d-) GOARCH=$(shell echo $* | cut -f2 -d- | cut -f1 -d.) CGO_ENABLED=0 \
-		$(GO) build \
+		go build \
 			-ldflags "-w -s $(COMMIT_FLAG) $(VERSION_FLAG)" \
 			-o $@ \
 			./cmd/$(PKG_NAME)
@@ -103,25 +101,23 @@ $(PREFIX)/bin/$(PKG_NAME)$(call extension,$(GOOS)): $(PREFIX)/bin/$(PKG_NAME)_$(
 
 build: $(PREFIX)/bin/$(PKG_NAME)$(call extension,$(GOOS))
 
+ifeq ($(OS),Windows_NT)
 test:
-	$(GO) test -v -race -coverprofile=c.out ./...
-
-integration: $(PREFIX)/bin/$(PKG_NAME)
-	$(GO) test -v -tags=integration \
-		./internal/tests/integration -check.v
-
-integration.iid: Dockerfile.integration $(PREFIX)/bin/$(PKG_NAME)_linux-amd64$(call extension,$(GOOS))
-	docker build -f $< --iidfile $@ .
-
-test-integration-docker: integration.iid
-	docker run -it --rm $(shell cat $<)
+	go test -coverprofile=c.out ./...
+else
+test:
+	go test -race -coverprofile=c.out ./...
+endif
 
 gen-changelog:
 	docker run -it -v $(shell pwd):/app --workdir /app -e CHANGELOG_GITHUB_TOKEN hairyhenderson/github_changelog_generator \
 		github_changelog_generator --no-filter-by-milestone --exclude-labels duplicate,question,invalid,wontfix,admin
 
 lint:
-	golangci-lint run .
+	@golangci-lint run --verbose --max-same-issues=0 --max-issues-per-linter=0
+
+ci-lint:
+	@golangci-lint run --verbose --max-same-issues=0 --max-issues-per-linter=0
 
 .PHONY: gen-changelog clean test build-x compress-all build-release build test-integration-docker gen-docs lint clean-images clean-containers docker-images
 .DELETE_ON_ERROR:

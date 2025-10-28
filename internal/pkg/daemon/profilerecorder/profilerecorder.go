@@ -242,7 +242,7 @@ func (r *RecorderReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	}
 
 	if pod.Status.Phase == corev1.PodPending {
-		if _, ok := r.podsToWatch.Load(req.NamespacedName.String()); ok {
+		if _, ok := r.podsToWatch.Load(req.String()); ok {
 			// We're tracking this pod already
 			return reconcile.Result{}, nil
 		}
@@ -292,7 +292,7 @@ func (r *RecorderReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		}
 
 		for _, prf := range profiles {
-			logger.Info("Recording profile", "kind", prf.kind, "name", prf.name, "pod", req.NamespacedName.String())
+			logger.Info("Recording profile", "kind", prf.kind, "name", prf.name, "pod", req.String())
 		}
 
 		// for pods managed by a replicated controller, let's store the replicated
@@ -303,7 +303,7 @@ func (r *RecorderReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		}
 
 		r.podsToWatch.Store(
-			req.NamespacedName.String(),
+			req.String(),
 			podToWatch{baseName, recorder, profiles},
 		)
 		r.record.Event(pod, util.EventTypeNormal, reasonProfileRecording, "Recording profiles")
@@ -363,6 +363,7 @@ func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
 
 	ctx, cancel = context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
+
 	r.log.Info("Starting BPF recorder on node")
 
 	return r.StartBpfRecorder(ctx, recorderClient)
@@ -377,6 +378,7 @@ func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
 
 	ctx, cancel2 := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel2()
+
 	r.log.Info("Stopping BPF recorder on node")
 
 	return r.StopBpfRecorder(ctx, recorderClient)

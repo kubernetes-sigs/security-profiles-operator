@@ -16,6 +16,8 @@ There are currently two optional features at build time
 - eBPF based recording
   - This feature requires a rather new `libbpf` which requires a new `libelf`
     version which in turn requires a new `libz` version.
+    - Install the necessary libraries based on your build OS.
+      For example, on Fedora, you'll need to install the RPMs `elfutils-libelf-devel` and `libbpf-devel`
   - disable with `BPF_ENABLED=0`
 - AppArmor
   - This feature requires apparmor headers and development libraries as well as the `go-apparmor` bindings
@@ -35,6 +37,8 @@ for actually deploying the operator, `libseccomp` is not optional and whether
 to build against seccomp is determined automatically based on the build
 platform.
 
+Also make sure you have `clang-tools-extra` installed
+
 To build SPO with all the features simply run:
 ```shell
 make
@@ -43,6 +47,31 @@ To disable features, prefix `make` with environment variables that deselect them
 ```shell
 BPF_ENABLED=0 APPARMOR_ENABLED=0 make
 ```
+
+In most cases you will need a container image. You can build by running:
+```shell
+make image
+```
+
+## Submitting a Pull Request (PR)
+
+Here's the process for contributing your changes:
+
+1.  **Fork and Branch:**
+    * First, create your own copy (a "fork") of the [main repository](https://github.com/kubernetes-sigs/security-profiles-operator) on GitHub.
+    * Then, create a new branch within your forked repository to work on your changes.
+
+2.  **Build and Test:**
+    * Build a container image of your changes. This ensures your code runs in a kubernetes environment (Ex: OpenShift).
+
+3.  **Verify:**
+    * Run the command `make verify`. This command executes automated checks (like code style) to ensure your changes meet the project's standards. Make sure this command passes without any errors.
+
+4.  **PR Description:**
+    * When you create your Pull Request to merge your changes back into the main repository, please provide a clear description.
+    * Specifically, make sure to clearly indicate:
+        * **Type of PR:** What kind of change is this?
+        * **User-facing change:** If your changes will be noticeable to users of the project, briefly explain what those changes are. If not, you must state "NONE"
 
 ## Running unit tests and viewing coverage
 SPO uses the Go's `testing` library augmented with [testify](https://github.com/stretchr/testify)
@@ -151,14 +180,23 @@ On a high level, the process is as follows:
     to change the image references to point to your images
 
 ### Distribution specific instructions: OpenShift
+Before you start, you must have the `KUBECONFIG` environment variable set correctly to point to your 
+OpenShift cluster's configuration file, and you need to be successfully logged in using the `oc login` command.
+
 For convenience, the `Makefile` contains a target called `deploy-openshift-dev` which
 deploys SPO in an OpenShift cluster with the appropriate defaults (SELinux is on by default)
-and the appropriate settings (no cert-manager needed).
+and the appropriate settings (no cert-manager needed). It should be noted that `deploy-openshift-dev`
+will not enable eBPF and app-armor capabilities (APPARMOR_ENABLED=0, BPF_ENABLED=0).
 
 If you modify the code and need to push the images to the cluster again, use the
 `push-openshift-dev` Makefile target. Because the targets use the `ImageStream` feature
 of OpenShift, simply pushing the new images will trigger a new rollout of the deployments
 and DaemonSets.
+
+To build the SPO image with eBPF enabled, simply use `BPF_ENABLED=1 make image`, which will compile the image and 
+make it available locally at `localhost/security-profiles-operator:latest`. Once built, you can deploy this pre-built 
+image to OpenShift by running `make deploy-prebuilt-openshift-dev`. Subsequently, if you need to push this locally 
+built image to image registry used by OpenShift, execute `make push-prebuilt-image-openshift-dev`.
 
 ### Tearing down your test environment
 At the moment, there's no teardown target provided. At the same time, some

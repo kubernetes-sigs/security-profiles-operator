@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.16.1/cert-manager.yaml"
+	certmanager       = "https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml"
 	namespaceManifest = "deploy/namespace-operator.yaml"
 	testNamespace     = "test-ns"
 	defaultNamespace  = "default"
@@ -99,6 +99,22 @@ func (e *e2e) TestSecurityProfilesOperator() {
 		{
 			"Log Enricher",
 			e.testCaseLogEnricher,
+		},
+		{
+			"Log Enricher (BPF Source)",
+			e.testCaseLogEnricherBpf,
+		},
+		{
+			"JSON Enricher",
+			e.testCaseJsonEnricher,
+		},
+		{
+			"Log Enricher with filters",
+			e.testCaseLogEnricherWithFilters,
+		},
+		{
+			"JSON Enricher File Options",
+			e.testCaseJsonEnricherFileOptions,
 		},
 		{
 			"SELinux: base case (install policy, run pod and delete)",

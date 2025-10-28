@@ -49,6 +49,9 @@ const (
 	MapTypeInodeStorage        MapType = C.BPF_MAP_TYPE_INODE_STORAGE
 	MapTypeTaskStorage         MapType = C.BPF_MAP_TYPE_TASK_STORAGE
 	MapTypeBloomFilter         MapType = C.BPF_MAP_TYPE_BLOOM_FILTER
+	MapTypeUserRingbuf         MapType = C.BPF_MAP_TYPE_USER_RINGBUF
+	MapTypeCgrpStorage         MapType = C.BPF_MAP_TYPE_CGRP_STORAGE
+	MapTypeArena               MapType = C.BPF_MAP_TYPE_ARENA
 )
 
 var mapTypeToString = map[MapType]string{
@@ -83,6 +86,9 @@ var mapTypeToString = map[MapType]string{
 	MapTypeInodeStorage:        "BPF_MAP_TYPE_INODE_STORAGE",
 	MapTypeTaskStorage:         "BPF_MAP_TYPE_TASK_STORAGE",
 	MapTypeBloomFilter:         "BPF_MAP_TYPE_BLOOM_FILTER",
+	MapTypeUserRingbuf:         "BPF_MAP_TYPE_USER_RINGBUF",
+	MapTypeCgrpStorage:         "BPF_MAP_TYPE_CGRP_STORAGE",
+	MapTypeArena:               "BPF_MAP_TYPE_ARENA",
 }
 
 func (t MapType) String() string {

@@ -178,10 +178,6 @@ func (fake *FakeImpl) RegisterReturnsOnCall(i int, result1 error) {
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.listenAndServeMutex.RLock()
-	defer fake.listenAndServeMutex.RUnlock()
-	fake.registerMutex.RLock()
-	defer fake.registerMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

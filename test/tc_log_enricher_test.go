@@ -23,6 +23,11 @@ import (
 	"time"
 )
 
+func (e *e2e) testCaseLogEnricherBpf(args []string) {
+	e.logEnricherBpfOnlyTestCase()
+	e.testCaseLogEnricher(args)
+}
+
 func (e *e2e) testCaseLogEnricher([]string) {
 	e.logEnricherOnlyTestCase()
 
@@ -78,6 +83,7 @@ spec:
 	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
 	defer podCleanup()
 	defer e.kubectl("delete", "pod", podName)
+
 	e.waitForProfile(profileName)
 
 	e.waitFor("condition=initialized", "pod", podName)
@@ -96,6 +102,10 @@ spec:
 		time.Sleep(5 * time.Second)
 	}
 
+	// Make sure that Exec webhook is not enabled unless JSON Log Enricher is used
+	envOutput := e.kubectl("exec", "-it", podName, "--", "env")
+	e.NotContains(envOutput, "SPO_EXEC_REQUEST_UID")
+
 	// wait for at least one component of the expected logs to appear
 	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen"`))
 
@@ -106,6 +116,12 @@ spec:
 	e.Contains(output, `"audit"`)
 	e.Contains(output, `type="seccomp"`)
 	e.Contains(output, `executable="/usr/sbin/nginx"`)
+
+	indexType := strings.Index(output, `type="seccomp`)
+	indexExecutable := strings.Index(output, `executable="/usr/sbin/nginx"`)
+
+	e.Less(indexType, indexExecutable) // Test if the ordering is intact.
+
 	e.Contains(output, fmt.Sprintf(`pod=%q`, podName))
 	e.Contains(output, fmt.Sprintf(`container=%q`, containerName))
 	e.Contains(output, fmt.Sprintf(`namespace=%q`, namespace))
@@ -129,4 +145,92 @@ spec:
 			containerName, namespace, podName,
 		), metrics)
 	}
+}
+
+func (e *e2e) testCaseLogEnricherWithFilters([]string) {
+	const (
+		profileName   = "enricherprofile"
+		podName       = "enricherpod"
+		containerName = "enrichercontainer"
+	)
+
+	// Filter out all the logs for the pod.
+	//nolint:lll  // long filter.
+	e.logEnricherOnlyTestCaseWithFilters(fmt.Sprintf(`"[{\"priority\":100, \"level\":\"None\",\"matchKeys\":[\"syscallID\"],\"matchValues\":[\"%d\"]}]"`, 50))
+
+	e.logf("Creating test profile")
+
+	profile := fmt.Sprintf(`
+apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: %s
+spec:
+  defaultAction: SCMP_ACT_ALLOW
+  syscalls:
+  - action: SCMP_ACT_LOG
+    names:
+    - listen
+    - execve
+    - clone
+    - getpid
+`, profileName)
+
+	profileCleanup := e.writeAndCreate(profile, "test-profile-*.yaml")
+	defer profileCleanup()
+	defer e.kubectl("delete", "sp", profileName)
+
+	e.logf("Waiting for profile to be reconciled")
+	e.waitForProfile(profileName)
+
+	e.logf("Creating test pod")
+	e.getCurrentContextNamespace(defaultNamespace)
+
+	pod := fmt.Sprintf(`
+apiVersion: v1
+kind: Pod
+metadata:
+  name: %s
+spec:
+  containers:
+  - image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
+    name: %s
+  securityContext:
+    seccompProfile:
+      type: Localhost
+      localhostProfile: operator/%s.json
+  restartPolicy: Never
+`, podName, containerName, profileName)
+
+	since := time.Now()
+
+	podCleanup := e.writeAndCreate(pod, "test-pod-*.yaml")
+	defer podCleanup()
+	defer e.kubectl("delete", "pod", podName)
+
+	e.waitForProfile(profileName)
+
+	e.waitFor("condition=initialized", "pod", podName)
+
+	const maximum = 20
+	for i := 0; i <= maximum; i++ {
+		output := e.kubectl("get", "pod", podName)
+		if strings.Contains(output, "Running") {
+			break
+		}
+
+		if i == maximum {
+			e.Fail("Unable to get pod in running state")
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+	// wait for at least one component of the expected logs to appear
+	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="execve"`))
+
+	e.logf("Checking log enricher output")
+	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "log-enricher")
+
+	e.NotContains(output, fmt.Sprintf(`syscallID=%d`, 50))
 }

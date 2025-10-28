@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 
 	"github.com/open-policy-agent/opa/internal/jwx/jwa"
@@ -28,12 +29,12 @@ func New(alg jwa.SignatureAlgorithm) (Verifier, error) {
 // GetSigningKey returns a *rsa.PublicKey or *ecdsa.PublicKey typically encoded in PEM blocks of type "PUBLIC KEY",
 // for RSA and ECDSA family of algorithms.
 // For HMAC family, it return a []byte value
-func GetSigningKey(key string, alg jwa.SignatureAlgorithm) (interface{}, error) {
+func GetSigningKey(key string, alg jwa.SignatureAlgorithm) (any, error) {
 	switch alg {
 	case jwa.RS256, jwa.RS384, jwa.RS512, jwa.PS256, jwa.PS384, jwa.PS512, jwa.ES256, jwa.ES384, jwa.ES512:
 		block, _ := pem.Decode([]byte(key))
 		if block == nil {
-			return nil, fmt.Errorf("failed to parse PEM block containing the key")
+			return nil, errors.New("failed to parse PEM block containing the key")
 		}
 
 		pub, err := x509.ParsePKIXPublicKey(block.Bytes)

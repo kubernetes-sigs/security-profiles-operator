@@ -22,7 +22,9 @@ REGISTRY=gcr.io/k8s-staging-sp-operator
 IMAGE=$REGISTRY/security-profiles-operator
 TAG=${TAG:-$(git describe --tags --always --dirty)}
 
-ARCHES=(amd64 arm64 ppc64le s390x)
+# TODO: reenable s390x when the nix toolchain is fixed
+ARCHES=(amd64 arm64 ppc64le)
+#ARCHES=(amd64 arm64 ppc64le s390x)
 VERSION=v$(cat VERSION)
 TAGS=("$TAG" "$VERSION" latest)
 
@@ -42,7 +44,8 @@ done
 for T in "${TAGS[@]}"; do
     docker manifest create --amend "$IMAGE:$T" \
         "$IMAGE-amd64:$T" \
-        "$IMAGE-arm64:$T"
+        "$IMAGE-arm64:$T" \
+        "$IMAGE-ppc64le:$T"
 
     for ARCH in "${ARCHES[@]}"; do
         docker manifest annotate --arch "$ARCH" "$IMAGE:$T" "$IMAGE-$ARCH:$T"

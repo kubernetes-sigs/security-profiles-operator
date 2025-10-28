@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/open-policy-agent/opa/logging"
+	"github.com/open-policy-agent/opa/v1/logging"
 )
 
 // DoRequestWithClient is a convenience function to get the body of an HTTP response with
@@ -18,7 +18,7 @@ func DoRequestWithClient(req *http.Request, client *http.Client, desc string, lo
 	}
 	defer resp.Body.Close()
 
-	logger.WithFields(map[string]interface{}{
+	logger.WithFields(map[string]any{
 		"url":     req.URL.String(),
 		"status":  resp.Status,
 		"headers": resp.Header,

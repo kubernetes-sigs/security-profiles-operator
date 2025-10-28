@@ -156,7 +156,7 @@ func (p *podBinder) updatePod(
 	podChanged := false
 
 	if req.Operation != "DELETE" {
-		pod, err = p.impl.DecodePod(*req)
+		pod, err = p.DecodePod(*req)
 		if err != nil {
 			p.log.Error(err, "failed to decode pod")
 
@@ -437,7 +437,7 @@ func (p *podBinder) addPodToBinding(
 	pb *profilebindingv1alpha1.ProfileBinding,
 ) error {
 	pb.Status.ActiveWorkloads = utils.AppendIfNotExists(pb.Status.ActiveWorkloads, podID)
-	if err := p.impl.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
+	if err := p.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
 		return fmt.Errorf("add pod to binding: %w", err)
 	}
 
@@ -445,7 +445,7 @@ func (p *podBinder) addPodToBinding(
 		controllerutil.AddFinalizer(pb, finalizer)
 	}
 
-	return p.impl.UpdateResource(ctx, p.log, pb, "profilebinding")
+	return p.UpdateResource(ctx, p.log, pb, "profilebinding")
 }
 
 func (p *podBinder) removePodFromBinding(
@@ -454,7 +454,7 @@ func (p *podBinder) removePodFromBinding(
 	pb *profilebindingv1alpha1.ProfileBinding,
 ) error {
 	pb.Status.ActiveWorkloads = utils.RemoveIfExists(pb.Status.ActiveWorkloads, podID)
-	if err := p.impl.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
+	if err := p.UpdateResourceStatus(ctx, p.log, pb, "profilebinding status"); err != nil {
 		return fmt.Errorf("remove pod from binding: %w", err)
 	}
 
@@ -463,5 +463,5 @@ func (p *podBinder) removePodFromBinding(
 		controllerutil.RemoveFinalizer(pb, finalizer)
 	}
 
-	return p.impl.UpdateResource(ctx, p.log, pb, "profilebinding")
+	return p.UpdateResource(ctx, p.log, pb, "profilebinding")
 }

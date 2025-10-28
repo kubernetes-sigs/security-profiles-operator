@@ -1,16 +1,11 @@
 ---
+version: "2"
 run:
   concurrency: 6
-  timeout: 10m
-issues:
-  exclude-rules:
-    - path: internal/pkg/daemon/bpfrecorder/generated.go
-      linters:
-        - gofumpt
-        - lll
 linters:
-  disable-all: true
+  default: none
   enable:
+    - arangolint
     - asasalint
     - asciicheck
     - bidichk
@@ -32,7 +27,6 @@ linters:
     - exptostd
     - fatcontext
     - forcetypeassert
-    - gci
     - ginkgolinter
     - gocheckcompilerdirectives
     - gochecknoinits
@@ -43,14 +37,10 @@ linters:
     - gocyclo
     - godot
     - godox
-    - gofmt
-    - gofumpt
     - goheader
-    - goimports
     - gomodguard
     - goprintffuncname
     - gosec
-    - gosimple
     - gosmopolitan
     - govet
     - grouper
@@ -70,7 +60,6 @@ linters:
     - nilnesserr
     - nilnil
     - nlreturn
-    - noctx
     - nolintlint
     - nosprintfhostport
     - paralleltest
@@ -87,14 +76,12 @@ linters:
     - spancheck
     - sqlclosecheck
     - staticcheck
-    - stylecheck
     - tagalign
     - tagliatelle
     - testableexamples
     - testifylint
     - thelper
     - tparallel
-    - typecheck
     - unconvert
     - unparam
     - unused
@@ -102,13 +89,15 @@ linters:
     - usetesting
     - wastedassign
     - whitespace
-    - wsl
+    - wsl_v5
     - zerologlint
     # - cyclop
     # - depguard
+    # - embeddedstructfieldcheck
     # - err113
     # - exhaustruct
     # - forbidigo
+    # - funcorder
     # - funlen
     # - gochecknoglobals
     # - gomoddirectives
@@ -117,39 +106,74 @@ linters:
     # - ireturn
     # - maintidx
     # - mnd
+    # - noctx
+    # - noinlineerr
     # - nonamedreturns
     # - testpackage
     # - varnamelen
     # - wrapcheck
-linters-settings:
-  revive:
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gocognit:
+      min-complexity: 40
+    goconst:
+      min-occurrences: 6
+    gocritic:
+      enable-all: true
+    godox:
+      keywords:
+        - BUG
+        - FIXME
+        - HACK
+    gomoddirectives:
+      replace-allow-list:
+        - golang.org/x/sys
+    gosec:
+      excludes:
+        - G115
+    nestif:
+      min-complexity: 15
+    revive:
+      rules:
+        - name: unused-parameter
+          disabled: true
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
-      - name: unused-parameter
-        disabled: true
-  goconst:
-    min-occurrences: 6
-  gomoddirectives:
-    replace-allow-list:
-      - golang.org/x/sys
-  gocognit:
-    min-complexity: 40
-  gosec:
-    excludes:
-      - G115  # Potential integer overflow when converting between types
-  nestif:
-    min-complexity: 15
-  gci:
-    sections:
-      - standard
-      - default
-      - localmodule
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-  godox:
-    keywords:
-      - BUG
-      - FIXME
-      - HACK
-  gocritic:
-    enable-all: true
+      - linters:
+          - lll
+        path: internal/pkg/daemon/bpfrecorder/generated.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - localmodule
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+      - internal/pkg/daemon/bpfrecorder/generated.go

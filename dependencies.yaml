@@ -1,18 +1,6 @@
 dependencies:
-  - name: go
-    version: 1.24
-    refPaths:
-    - path: .github/workflows/build.yml
-      match: GO_VERSION
-    - path: .github/workflows/test.yml
-      match: GO_VERSION
-    - path: .github/workflows/olm_tests.yaml
-      match: GO_VERSION
-    - path: Makefile
-      match: CI_IMAGE
-
   - name: golangci-lint
-    version: 1.64.5
+    version: 2.4.0
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION
@@ -42,7 +30,7 @@ dependencies:
       match: OLM_VERSION
 
   - name: cert-manager
-    version: 1.16.1
+    version: 1.17.2
     refPaths:
     - path: test/e2e_test.go
       match: cert-manager/cert-manager
@@ -54,13 +42,13 @@ dependencies:
       match: cert-manager/cert-manager
 
   - name: kind
-    version: 0.26.0
+    version: 0.27.0
     refPaths:
     - path: test/suite_test.go
       match: kindVersion
 
   - name: kind-image
-    version: 1.32.0
+    version: 1.32.2
     refPaths:
     - path: test/suite_test.go
       match: kindImage
@@ -68,7 +56,7 @@ dependencies:
       match: KIND_IMG_TAG
 
   - name: e2e-kubernetes
-    version: 1.32
+    version: 1.33
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: KUBERNETES_VERSION
@@ -82,6 +70,12 @@ dependencies:
     refPaths:
     - path: hack/ci/Vagrantfile-fedora
       match: fedora
+
+  - name: e2e-fedora-image-url
+    version: 39-1.5
+    refPaths:
+      - path: hack/ci/Vagrantfile-fedora
+        match: vm.box_url
 
   - name: e2e-ubuntu
     version: ubuntu2204
@@ -102,7 +96,7 @@ dependencies:
       match: tag
 
   - name: nix
-    version: 2.25.0
+    version: 2.30.1
     refPaths:
     - path: Dockerfile.build-image
       match: NIX_VERSION
@@ -110,25 +104,31 @@ dependencies:
       match: NIX_VERSION
 
   - name: gcb-docker-gcloud
-    version: v20241111-71c32dbdcc
+    version: v20250116-2a05ea7e3d
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
 
   - name: libbpf
-    version: 1.5.0
+    version: 1.6.1
     refPaths:
     - path: hack/install-libbpf.sh
       match: VERSION
 
-  - name: fedora-vmlinux
-    version: 37
+  - name: libelf
+    version: 0.193
+    refPaths:
+    - path: hack/install-libelf.sh
+      match: VERSION
+
+  - name: debian-vmlinux
+    version: trixie
     refPaths:
     - path: hack/update-vmlinux
       match: VERSION
 
   - name: crun
-    version: 1.20
+    version: 1.22
     refPaths:
     - path: examples/baseprofile-crun.yaml
       match: name
@@ -138,7 +138,7 @@ dependencies:
       match: CRUN_VERSION
 
   - name: runc
-    version: v1.2.3
+    version: v1.3.0
     refPaths:
     - path: examples/baseprofile-runc.yaml
       match: name
@@ -162,7 +162,7 @@ dependencies:
       match: BOM_VERSION
 
   - name: spo-current
-    version: 0.9.0
+    version: 0.10.0
     refPaths:
     - path: VERSION
       match: ^.*
@@ -174,25 +174,14 @@ dependencies:
       match: "^version: "
 
   - name: clang
-    version: 18
+    version: 19
     refPaths:
     - path: nix/derivation-bpf.nix
       match: llvmPackages_\d+.clang-unwrapped
     - path: nix/derivation-bpf.nix
       match: llvm_\d+
-
-  # TODO: update to the latest clang of debian 12 packages are available.
-  - name: clang-debian-12
-    version: 16
-    refPaths:
     - path: hack/pull-security-profiles-operator-verify
       match: CLANG_VERSION
-
-  - name: btfhub
-    version: 12d2b6bb4664b6b1d15076f8090dcb0e55696d34
-    refPaths:
-    - path: hack/update-btf
-      match: BTFHUB_COMMIT
 
   - name: flatcar
     version: 3510.2.3

@@ -315,10 +315,12 @@ func (e *e2e) testCaseBpfRecorderSelectContainer() {
 	e.Contains(profileNginx, "epoll_wait")
 
 	const profileNameRedis = recordingName + "-redis"
+
 	exists := e.existsSeccompProfile(profileNameRedis)
 	e.False(exists)
 
 	const profileNameInit = recordingName + "-init"
+
 	exists = e.existsSeccompProfile(profileNameInit)
 	e.False(exists)
 

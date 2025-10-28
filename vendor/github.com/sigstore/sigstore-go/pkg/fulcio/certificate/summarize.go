@@ -58,7 +58,7 @@ func SummarizeCertificate(cert *x509.Certificate) (Summary, error) {
 		san, _ = cryptoutils.UnmarshalOtherNameSAN(cert.Extensions)
 	}
 	if san == "" {
-		return Summary{}, errors.New("No Subject Alternative Name found")
+		return Summary{}, errors.New("no Subject Alternative Name found")
 	}
 
 	return Summary{CertificateIssuer: cert.Issuer.String(), SubjectAlternativeName: san, Extensions: extensions}, nil

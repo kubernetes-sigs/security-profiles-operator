@@ -24,7 +24,7 @@ import (
 	"path"
 
 	"github.com/go-logr/logr"
-	"sigs.k8s.io/release-utils/util"
+	"sigs.k8s.io/release-utils/helpers"
 
 	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
@@ -59,7 +59,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 	kubeleteSeccompDir := path.Join(config.HostRoot, kubeletDir, config.SeccompProfilesFolder)
 	logger.Info("Ensuring seccomp root path: " + kubeleteSeccompDir)
 
-	if err := n.impl.MkdirAll(
+	if err := n.MkdirAll(
 		kubeleteSeccompDir, dirPermissions,
 	); err != nil {
 		return fmt.Errorf(
@@ -70,7 +70,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 
 	logger.Info("Ensuring operator root path: " + config.OperatorRoot)
 
-	if err := n.impl.MkdirAll(
+	if err := n.MkdirAll(
 		config.OperatorRoot, dirPermissions,
 	); err != nil {
 		return fmt.Errorf(
@@ -81,7 +81,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 
 	logger.Info("Setting operator root permissions")
 
-	if err := n.impl.Chmod(config.OperatorRoot, dirPermissions); err != nil {
+	if err := n.Chmod(config.OperatorRoot, dirPermissions); err != nil {
 		return fmt.Errorf("change operator root path permissions: %w", err)
 	}
 
@@ -91,10 +91,10 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 		config.SeccompProfilesFolder,
 		config.OperatorProfilesFolder,
 	)
-	if _, err := n.impl.Stat(kubeletOperatorDir); os.IsNotExist(err) {
+	if _, err := n.Stat(kubeletOperatorDir); os.IsNotExist(err) {
 		logger.Info("Linking profiles root path")
 
-		if err := n.impl.Symlink(
+		if err := n.Symlink(
 			config.OperatorRoot, kubeletOperatorDir,
 		); err != nil {
 			return fmt.Errorf("link profiles root path: %w", err)
@@ -112,7 +112,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 		return fmt.Errorf("marshaling kubelet config: %w", err)
 	}
 
-	if err := n.impl.SaveKubeletConfig(
+	if err := n.SaveKubeletConfig(
 		config.KubeletConfigFilePath(),
 		cfg,
 		filePermissions,
@@ -122,7 +122,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 
 	logger.Info("Setting operator root user and group")
 
-	if err := n.impl.Chown(
+	if err := n.Chown(
 		config.OperatorRoot, config.UserRootless, config.UserRootless,
 	); err != nil {
 		return fmt.Errorf("change operator root permissions: %w", err)
@@ -130,7 +130,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 
 	logger.Info("Copying profiles into root path: " + kubeleteSeccompDir)
 
-	if err := n.impl.CopyDirContentsLocal(
+	if err := n.CopyDirContentsLocal(
 		config.DefaultSpoProfilePath, kubeleteSeccompDir,
 	); err != nil {
 		return fmt.Errorf("copy local security profiles: %w", err)
@@ -142,7 +142,7 @@ func (n *NonRootEnabler) Run(logger logr.Logger, runtime, kubeletDir string, app
 			profile := path.Join(config.DefaultSpoProfilePath, p)
 			logger.Info("Installing apparmor profile: " + profile)
 
-			if err := n.impl.InstallApparmor(aaManager, profile); err != nil {
+			if err := n.InstallApparmor(aaManager, profile); err != nil {
 				return fmt.Errorf("installing apparmor profile: %w", err)
 			}
 		}
@@ -187,7 +187,7 @@ func (*defaultImpl) Chown(name string, uid, gid int) error {
 }
 
 func (*defaultImpl) CopyDirContentsLocal(src, dst string) error {
-	return util.CopyDirContentsLocal(src, dst)
+	return helpers.CopyDirContentsLocal(src, dst)
 }
 
 func (*defaultImpl) SaveKubeletConfig(filename string, kubeletConfig []byte, perm os.FileMode) error {

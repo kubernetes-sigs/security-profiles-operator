@@ -25,9 +25,9 @@ import (
 	"net"
 	"os"
 	"sync"
-	"syscall"
 
 	"github.com/aquasecurity/libbpfgo"
+	semver "github.com/blang/semver/v4"
 	ttlcache "github.com/jellydator/ttlcache/v3"
 	seccomp "github.com/seccomp/libseccomp-golang"
 	"google.golang.org/grpc"
@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	api_metrics "sigs.k8s.io/security-profiles-operator/api/grpc/metrics"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/bpfrecorder/types"
 )
 
 type FakeImpl struct {
@@ -480,16 +481,19 @@ type FakeImpl struct {
 		result1 *os.File
 		result2 error
 	}
-	UnameStub        func(*syscall.Utsname) error
+	UnameStub        func() (types.Arch, *semver.Version, error)
 	unameMutex       sync.RWMutex
 	unameArgsForCall []struct {
-		arg1 *syscall.Utsname
 	}
 	unameReturns struct {
-		result1 error
+		result1 types.Arch
+		result2 *semver.Version
+		result3 error
 	}
 	unameReturnsOnCall map[int]struct {
-		result1 error
+		result1 types.Arch
+		result2 *semver.Version
+		result3 error
 	}
 	UnmarshalStub        func([]byte, interface{}) error
 	unmarshalMutex       sync.RWMutex
@@ -2736,23 +2740,22 @@ func (fake *FakeImpl) TempFileReturnsOnCall(i int, result1 *os.File, result2 err
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) Uname(arg1 *syscall.Utsname) error {
+func (fake *FakeImpl) Uname() (types.Arch, *semver.Version, error) {
 	fake.unameMutex.Lock()
 	ret, specificReturn := fake.unameReturnsOnCall[len(fake.unameArgsForCall)]
 	fake.unameArgsForCall = append(fake.unameArgsForCall, struct {
-		arg1 *syscall.Utsname
-	}{arg1})
+	}{})
 	stub := fake.UnameStub
 	fakeReturns := fake.unameReturns
-	fake.recordInvocation("Uname", []interface{}{arg1})
+	fake.recordInvocation("Uname", []interface{}{})
 	fake.unameMutex.Unlock()
 	if stub != nil {
-		return stub(arg1)
+		return stub()
 	}
 	if specificReturn {
-		return ret.result1
+		return ret.result1, ret.result2, ret.result3
 	}
-	return fakeReturns.result1
+	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
 func (fake *FakeImpl) UnameCallCount() int {
@@ -2761,40 +2764,39 @@ func (fake *FakeImpl) UnameCallCount() int {
 	return len(fake.unameArgsForCall)
 }
 
-func (fake *FakeImpl) UnameCalls(stub func(*syscall.Utsname) error) {
+func (fake *FakeImpl) UnameCalls(stub func() (types.Arch, *semver.Version, error)) {
 	fake.unameMutex.Lock()
 	defer fake.unameMutex.Unlock()
 	fake.UnameStub = stub
 }
 
-func (fake *FakeImpl) UnameArgsForCall(i int) *syscall.Utsname {
-	fake.unameMutex.RLock()
-	defer fake.unameMutex.RUnlock()
-	argsForCall := fake.unameArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) UnameReturns(result1 error) {
+func (fake *FakeImpl) UnameReturns(result1 types.Arch, result2 *semver.Version, result3 error) {
 	fake.unameMutex.Lock()
 	defer fake.unameMutex.Unlock()
 	fake.UnameStub = nil
 	fake.unameReturns = struct {
-		result1 error
-	}{result1}
+		result1 types.Arch
+		result2 *semver.Version
+		result3 error
+	}{result1, result2, result3}
 }
 
-func (fake *FakeImpl) UnameReturnsOnCall(i int, result1 error) {
+func (fake *FakeImpl) UnameReturnsOnCall(i int, result1 types.Arch, result2 *semver.Version, result3 error) {
 	fake.unameMutex.Lock()
 	defer fake.unameMutex.Unlock()
 	fake.UnameStub = nil
 	if fake.unameReturnsOnCall == nil {
 		fake.unameReturnsOnCall = make(map[int]struct {
-			result1 error
+			result1 types.Arch
+			result2 *semver.Version
+			result3 error
 		})
 	}
 	fake.unameReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
+		result1 types.Arch
+		result2 *semver.Version
+		result3 error
+	}{result1, result2, result3}
 }
 
 func (fake *FakeImpl) Unmarshal(arg1 []byte, arg2 interface{}) error {
@@ -3073,88 +3075,6 @@ func (fake *FakeImpl) WriteReturnsOnCall(i int, result1 int, result2 error) {
 func (fake *FakeImpl) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.attachGenericMutex.RLock()
-	defer fake.attachGenericMutex.RUnlock()
-	fake.bPFLoadObjectMutex.RLock()
-	defer fake.bPFLoadObjectMutex.RUnlock()
-	fake.bPFMapIteratorMutex.RLock()
-	defer fake.bPFMapIteratorMutex.RUnlock()
-	fake.bPFMapIteratorNextMutex.RLock()
-	defer fake.bPFMapIteratorNextMutex.RUnlock()
-	fake.bpfIncClientMutex.RLock()
-	defer fake.bpfIncClientMutex.RUnlock()
-	fake.chownMutex.RLock()
-	defer fake.chownMutex.RUnlock()
-	fake.closeGRPCMutex.RLock()
-	defer fake.closeGRPCMutex.RUnlock()
-	fake.closeModuleMutex.RLock()
-	defer fake.closeModuleMutex.RUnlock()
-	fake.containerIDForPIDMutex.RLock()
-	defer fake.containerIDForPIDMutex.RUnlock()
-	fake.deleteKeyMutex.RLock()
-	defer fake.deleteKeyMutex.RUnlock()
-	fake.deleteKey64Mutex.RLock()
-	defer fake.deleteKey64Mutex.RUnlock()
-	fake.destroyLinkMutex.RLock()
-	defer fake.destroyLinkMutex.RUnlock()
-	fake.dialMetricsMutex.RLock()
-	defer fake.dialMetricsMutex.RUnlock()
-	fake.getMapMutex.RLock()
-	defer fake.getMapMutex.RUnlock()
-	fake.getNameMutex.RLock()
-	defer fake.getNameMutex.RUnlock()
-	fake.getProgramMutex.RLock()
-	defer fake.getProgramMutex.RUnlock()
-	fake.getValueMutex.RLock()
-	defer fake.getValueMutex.RUnlock()
-	fake.getValue64Mutex.RLock()
-	defer fake.getValue64Mutex.RUnlock()
-	fake.getenvMutex.RLock()
-	defer fake.getenvMutex.RUnlock()
-	fake.goArchMutex.RLock()
-	defer fake.goArchMutex.RUnlock()
-	fake.inClusterConfigMutex.RLock()
-	defer fake.inClusterConfigMutex.RUnlock()
-	fake.initGlobalVariableMutex.RLock()
-	defer fake.initGlobalVariableMutex.RUnlock()
-	fake.initRingBufMutex.RLock()
-	defer fake.initRingBufMutex.RUnlock()
-	fake.listPodsMutex.RLock()
-	defer fake.listPodsMutex.RUnlock()
-	fake.listenMutex.RLock()
-	defer fake.listenMutex.RUnlock()
-	fake.newForConfigMutex.RLock()
-	defer fake.newForConfigMutex.RUnlock()
-	fake.newModuleFromBufferArgsMutex.RLock()
-	defer fake.newModuleFromBufferArgsMutex.RUnlock()
-	fake.parseUintMutex.RLock()
-	defer fake.parseUintMutex.RUnlock()
-	fake.pollRingBufferMutex.RLock()
-	defer fake.pollRingBufferMutex.RUnlock()
-	fake.readOSReleaseMutex.RLock()
-	defer fake.readOSReleaseMutex.RUnlock()
-	fake.readlinkMutex.RLock()
-	defer fake.readlinkMutex.RUnlock()
-	fake.removeAllMutex.RLock()
-	defer fake.removeAllMutex.RUnlock()
-	fake.sendMetricMutex.RLock()
-	defer fake.sendMetricMutex.RUnlock()
-	fake.serveMutex.RLock()
-	defer fake.serveMutex.RUnlock()
-	fake.statMutex.RLock()
-	defer fake.statMutex.RUnlock()
-	fake.tempFileMutex.RLock()
-	defer fake.tempFileMutex.RUnlock()
-	fake.unameMutex.RLock()
-	defer fake.unameMutex.RUnlock()
-	fake.unmarshalMutex.RLock()
-	defer fake.unmarshalMutex.RUnlock()
-	fake.updateValueMutex.RLock()
-	defer fake.updateValueMutex.RUnlock()
-	fake.updateValue64Mutex.RLock()
-	defer fake.updateValue64Mutex.RUnlock()
-	fake.writeMutex.RLock()
-	defer fake.writeMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value

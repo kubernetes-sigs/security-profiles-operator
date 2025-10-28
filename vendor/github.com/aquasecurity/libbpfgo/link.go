@@ -33,6 +33,8 @@ const (
 	CgroupLegacy
 	Netns
 	Iter
+	StructOps
+	USDT
 )
 
 //
@@ -47,6 +49,7 @@ type bpfLinkLegacy struct {
 type BPFLink struct {
 	link      *C.struct_bpf_link
 	prog      *BPFProg
+	m         *BPFMap
 	linkType  LinkType
 	eventName string
 	legacy    *bpfLinkLegacy // if set, this is a fake BPFLink
