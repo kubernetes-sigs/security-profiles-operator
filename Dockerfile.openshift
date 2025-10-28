@@ -1,4 +1,4 @@
-FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_golang_1.23 as builder
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_golang_1.24 as builder
 
 RUN yum -y install git libseccomp-devel && yum clean all && \
     yum -y clean all && rm -rf /var/cache/yum
@@ -22,20 +22,20 @@ FROM registry.redhat.io/rhel9-4-els/rhel-minimal:latest
 
 RUN INSTALL_PKGS="tar libseccomp" && \
     if [ ! -e /usr/bin/dnf ]; then ln -s /usr/bin/microdnf /usr/bin/dnf; fi && \
-        dnf install -y --setopt=tsflags=nodocs $INSTALL_PKGS && \
-        dnf clean all && rm -rf /var/cache/*
+    dnf install -y --setopt=tsflags=nodocs $INSTALL_PKGS && \
+    dnf clean all && rm -rf /var/cache/*
 LABEL \
-        io.k8s.display-name="Security Profiles Operator" \
-        io.k8s.description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, or SELinux profiles and apply them to Kubernetes' workloads." \
-        io.openshift.tags="security,seccomp,selinux" \
-        com.redhat.delivery.appregistry="false" \
-        maintainer="Red Hat ISC <isc-team@redhat.com>" \
-        License="APL 2.0" \
-        name="openshift-security-profiles-operator" \
-        com.redhat.component="openshift-security-profiles-operator-container" \
-        io.openshift.maintainer.product="OpenShift Container Platform" \
-        io.openshift.maintainer.component="Security Profiles Operator" \
-        version=0.8.4
+    io.k8s.display-name="Security Profiles Operator" \
+    io.k8s.description="The Security Profiles Operator makes it easier for cluster admins to manage their seccomp, or SELinux profiles and apply them to Kubernetes' workloads." \
+    io.openshift.tags="security,seccomp,selinux" \
+    com.redhat.delivery.appregistry="false" \
+    maintainer="Red Hat ISC <isc-team@redhat.com>" \
+    License="APL 2.0" \
+    name="openshift-security-profiles-operator" \
+    com.redhat.component="openshift-security-profiles-operator-container" \
+    io.openshift.maintainer.product="OpenShift Container Platform" \
+    io.openshift.maintainer.component="Security Profiles Operator" \
+    version=0.8.4
 #        io.openshift.build.commit.id=98271bc2812881010146f47e4587dcd449b846bd \
 #        io.openshift.build.source-location=https://github.com/openshift/file-integrity-operator.git \
 #        io.openshift.build.commit.url=https://github.com/openshift/file-integrity-operator.git/commit/98271bc2812881010146f47e4587dcd449b846bd \
