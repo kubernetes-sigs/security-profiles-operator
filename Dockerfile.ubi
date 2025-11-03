@@ -18,7 +18,7 @@
 # for more details
 
 # hash below referred to latest
-FROM registry.access.redhat.com/ubi8/go-toolset@sha256:1aca2594af2eedac4a6a28a79fad24f018e6d71f3dbfec5d1167435e9bef85c4 AS build
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.24-openshift-4.20 AS build
 USER root
 WORKDIR /work
 
