@@ -18,7 +18,7 @@ require (
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
 	github.com/nxadm/tail v1.4.11
 	github.com/opencontainers/image-spec v1.1.1
-	github.com/opencontainers/runc v1.3.2
+	github.com/opencontainers/runc v1.3.3
 	github.com/opencontainers/runtime-spec v1.2.1
 	github.com/openshift/api v0.0.0-20241204141306-c1fdeb0788c1
 	github.com/pjbgf/go-apparmor v0.1.3-0.20241107184909-1375e5e7aa89
@@ -129,7 +129,7 @@ require (
 	github.com/coreos/go-systemd/v22 v22.6.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 // indirect
-	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
+	github.com/cyphar/filepath-securejoin v0.5.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/digitorus/pkcs7 v0.0.0-20230818184609-3a137a874352 // indirect
