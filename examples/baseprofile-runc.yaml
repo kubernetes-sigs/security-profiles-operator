@@ -2,7 +2,7 @@
 apiVersion: security-profiles-operator.x-k8s.io/v1beta1
 kind: SeccompProfile
 metadata:
-  name: runc-v1.3.2
+  name: runc-v1.3.3
 spec:
   defaultAction: SCMP_ACT_ERRNO
   architectures:
@@ -36,6 +36,7 @@ spec:
         - nanosleep
         - newfstatat
         - openat
+        - openat2
         - prctl
         - read
         - recvfrom
@@ -45,5 +46,7 @@ spec:
         - setgid
         - setgroups
         - setuid
+        - sigaltstack
+        - statx
         - tgkill
         - write
