@@ -17,6 +17,7 @@ limitations under the License.
 package enricher
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -24,7 +25,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/jellydator/ttlcache/v3"
-	"golang.org/x/net/context"
 	"golang.org/x/sync/errgroup"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"

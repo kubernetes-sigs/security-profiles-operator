@@ -1790,7 +1790,6 @@ golang.org/x/mod/sumdb/note
 # golang.org/x/net v0.47.0
 ## explicit; go 1.24.0
 golang.org/x/net/bpf
-golang.org/x/net/context
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack
