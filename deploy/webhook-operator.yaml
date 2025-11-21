@@ -85,6 +85,8 @@ spec:
                           type: string
                         type: array
                     type: object
+                  extra:
+                    type: string
                   filesystem:
                     description: Filesystem rules for filesystem access.
                     properties:
