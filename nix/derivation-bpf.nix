@@ -16,7 +16,7 @@ with pkgs; buildGoModule rec {
   buildInputs = [
     glibc
     glibc.static
-    libbpf_1
+    libbpf
     libseccomp
     zlib.static
   ];
