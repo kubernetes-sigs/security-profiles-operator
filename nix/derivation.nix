@@ -16,7 +16,7 @@ with pkgs; buildGoModule rec {
     glibc
     glibc.static
     libapparmor
-    libbpf_1
+    libbpf
     libseccomp
     zlib.static
     (zstd.override { static = true; })

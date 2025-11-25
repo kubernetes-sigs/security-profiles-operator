@@ -82,6 +82,16 @@ EOF
       # Load the prebuilt container image
       podman load -i /vagrant/image.tar
 
+      # Fix SELinux policy for eBPF device filters
+      # https://github.com/containers/crun/issues/1879
+      # Install policy tools if not present
+      dnf install -y selinux-policy-devel checkpolicy
+
+      # Compile and install the SELinux module
+      checkmodule -M -m -o /vagrant/hack/ci/ebpf-fix.mod /vagrant/hack/ci/ebpf-fix.te
+      semodule_package -o /vagrant/hack/ci/ebpf-fix.pp -m /vagrant/hack/ci/ebpf-fix.mod
+      semodule -i /vagrant/hack/ci/ebpf-fix.pp
+
       # Setup CRI-O
       printf '[crio.runtime]\nselinux = true' >/etc/crio/crio.conf.d/30-selinux.conf
       # Setup CNI to disable IPv6

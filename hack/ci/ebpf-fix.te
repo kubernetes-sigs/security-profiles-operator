@@ -1,0 +1,9 @@
+module ebpf-fix 1.0;
+
+require {
+    type init_t;
+    type container_runtime_t;
+    class bpf prog_run;
+}
+
+allow init_t container_runtime_t:bpf prog_run;
