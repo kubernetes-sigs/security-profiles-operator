@@ -3,6 +3,7 @@ package configs
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 )
 
@@ -86,7 +87,7 @@ func NamespaceTypes() []NamespaceType {
 // alternate path that is able to be joined via setns.
 type Namespace struct {
 	Type NamespaceType `json:"type"`
-	Path string        `json:"path"`
+	Path string        `json:"path,omitempty"`
 }
 
 func (n *Namespace) GetPath(pid int) string {
@@ -98,7 +99,7 @@ func (n *Namespaces) Remove(t NamespaceType) bool {
 	if i == -1 {
 		return false
 	}
-	*n = append((*n)[:i], (*n)[i+1:]...)
+	*n = slices.Delete((*n), i, i+1)
 	return true
 }
 
