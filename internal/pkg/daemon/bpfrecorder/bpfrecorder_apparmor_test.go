@@ -49,6 +49,16 @@ func TestReplaceVarianceInFilePath(t *testing.T) {
 			want: "/proc/@{pid}/task/@{tid}/attr/apparmor",
 		},
 		{
+			name: "replace direct procfs PID access",
+			path: "/10676/mounts",
+			want: "/@{pid}/mounts",
+		},
+		{
+			name: "replace direct procfs PID and TID access",
+			path: "/10676/task/10676/attr/apparmor/exec",
+			want: "/@{pid}/task/@{tid}/attr/apparmor/exec",
+		},
+		{
 			name: "replace container ID",
 			path: "/var/lib/containers/storage/overlay/8a0a50ee00/merged/dev",
 			want: "/var/lib/containers/storage/overlay/*/merged/dev",
