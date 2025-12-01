@@ -23,15 +23,15 @@ spec:
         - /lib/ld-musl-x86_64.so.1
     filesystem:
       readOnlyPaths:
+        - /@{pid}/mounts
+        - /@{pid}/setgroups
+        - /@{pid}/task/@{tid}/attr/apparmor/current
         - /etc/passwd
         - /proc/@{pid}/cgroup
-        - /proc/@{pid}/mounts
-        - /proc/@{pid}/setgroups
-        - /proc/@{pid}/task/@{tid}/attr/apparmor/current
         - /proc/@{pid}/uid_map
-        - /proc/sys/kernel/cap_last_cap
         - /run/
         - /run/crun/.empty-directory/
+        - /sys/kernel/cap_last_cap
         - /sys/module/apparmor/parameters/enabled
         - /var/lib/containers/storage/overlay/*/merged/
         - /var/lib/containers/storage/overlay/*/merged/dev/
@@ -41,8 +41,8 @@ spec:
         - /var/lib/containers/storage/overlay/*/merged/sys/
         - /var/lib/containers/storage/overlay/*/merged/var/
       readWritePaths:
+        - /@{pid}/oom_score_adj
         - /dev/null
-        - /proc/@{pid}/oom_score_adj
         - /var/lib/containers/storage/overlay/*/merged/dev/*
         - /var/lib/containers/storage/overlay/*/merged/dev/mqueue/
         - /var/lib/containers/storage/overlay/*/merged/dev/pts/
@@ -51,7 +51,7 @@ spec:
         - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/
         - /var/lib/containers/storage/overlay/*/merged/run/secrets/kubernetes.io/serviceaccount/
       writeOnlyPaths:
-        - /proc/@{pid}/task/@{tid}/attr/apparmor/exec
+        - /@{pid}/task/@{tid}/attr/apparmor/exec
         - /var/lib/containers/storage/overlay/*/merged/dev/termination-log
         - /var/lib/containers/storage/overlay/*/merged/etc/resolv.conf
         - /var/lib/containers/storage/overlay/*/merged/run/.containerenv

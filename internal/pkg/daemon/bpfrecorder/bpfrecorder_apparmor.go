@@ -311,6 +311,14 @@ func (b *AppArmorRecorder) GetAppArmorProcessed(mntns uint32) BpfAppArmorProcess
 }
 
 func ReplaceVarianceInFilePath(filePath string) string {
+	// Replace PID value with a apparmor variable (direct procfs access without /proc prefix).
+	directPathWithPid := regexp.MustCompile(`^/\d+/`)
+	filePath = directPathWithPid.ReplaceAllString(filePath, "/@{pid}/")
+
+	// Replace TID value with a apparmor variable (direct procfs access without /proc prefix).
+	directPathWithTid := regexp.MustCompile(`^/@{pid}/task/\d+/`)
+	filePath = directPathWithTid.ReplaceAllString(filePath, "/@{pid}/task/@{tid}/")
+
 	// Replace PID value with a apparmor variable.
 	pathWithPid := regexp.MustCompile(`^/proc/\d+/`)
 	filePath = pathWithPid.ReplaceAllString(filePath, "/proc/@{pid}/")
