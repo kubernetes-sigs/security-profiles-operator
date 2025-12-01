@@ -173,13 +173,17 @@ dependencies:
     - path: deploy/helm/Chart.yaml
       match: "^version: "
 
-  - name: clang
+  - name: clang-bpf
     version: 19
     refPaths:
     - path: nix/derivation-bpf.nix
       match: llvmPackages_\d+.clang-unwrapped
     - path: nix/derivation-bpf.nix
       match: llvm_\d+
+
+  - name: clang-ci
+    version: 21
+    refPaths:
     - path: hack/pull-security-profiles-operator-verify
       match: CLANG_VERSION
 
