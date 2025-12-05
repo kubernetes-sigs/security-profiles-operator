@@ -37,6 +37,11 @@ func (e *e2e) testCaseBaseProfile([]string) {
 	if clusterType == clusterTypeVanilla && e.containerRuntime != containerRuntimeDocker {
 		baseProfilePath = "examples/baseprofile-crun.yaml"
 		baseProfileName = baseProfileNameCrun
+	} else if clusterType == clusterTypeOpenShift {
+		if e.isOCP418OrHigher() {
+			baseProfilePath = "examples/baseprofile-crun.yaml"
+			baseProfileName = baseProfileNameCrun
+		}
 	}
 
 	helloProfile := fmt.Sprintf(`

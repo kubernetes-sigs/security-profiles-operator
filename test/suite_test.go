@@ -673,6 +673,41 @@ func (e *e2e) kubectlRunOperatorNS(args ...string) string {
 	)
 }
 
+// isOCP418OrHigher checks if the cluster is running on OCP 4.18 or higher.
+// Returns false if not on OCP or if version cannot be determined.
+func (e *e2e) isOCP418OrHigher() bool {
+	if clusterType != clusterTypeOpenShift {
+		return false
+	}
+
+	// Get the ClusterVersion resource - use the latest version from history
+	output, err := e.kubectlCommand("get", "clusterversion", "version", "-o", "jsonpath={.status.history[0].version}")
+	if err != nil {
+		e.logf("Unable to get OCP version: %v", err)
+		return false
+	}
+
+	version := strings.TrimSpace(output)
+	if version == "" {
+		return false
+	}
+
+	// Parse version string (format: "4.18.0" or "4.20.0")
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return false
+	}
+
+	major, err1 := strconv.Atoi(parts[0])
+	minor, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return false
+	}
+
+	// Check if version is 4.18 or higher
+	return major > 4 || (major == 4 && minor >= 18)
+}
+
 const (
 	curlBaseCMD    = "curl -ksL --retry 5 --retry-delay 3 --show-error "
 	headerAuth     = "-H \"Authorization: Bearer `cat /var/run/secrets/kubernetes.io/serviceaccount/token`\" "
