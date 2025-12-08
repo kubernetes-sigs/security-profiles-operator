@@ -35,7 +35,7 @@ require (
 	github.com/urfave/cli/v2 v2.27.7
 	go.podman.io/common v0.66.1
 	golang.org/x/mod v0.30.0
-	golang.org/x/sync v0.18.0
+	golang.org/x/sync v0.19.0
 	gomodules.xyz/jsonpatch/v2 v2.5.0
 	google.golang.org/grpc v1.77.0
 	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.0
