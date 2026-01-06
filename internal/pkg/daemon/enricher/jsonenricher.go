@@ -320,14 +320,20 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 					"unable to get uid and gid", "line", line)
 			}
 
-			logBucket.ProcessInfo = e.fetchProcessInfo(auditLine.ProcessID,
+			pi := e.fetchProcessInfo(auditLine.ProcessID,
 				auditLine.Executable, uid, gid)
+			logBucket.Mu.Lock()
+			logBucket.ProcessInfo = pi
+			logBucket.Mu.Unlock()
 		}
 
 		e.processEbpf(logBucket, auditLine)
 
 		if logBucket.ContainerInfo == nil {
-			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID, nodeName)
+			ci := e.fetchContainerInfo(ctx, auditLine.ProcessID, nodeName)
+			logBucket.Mu.Lock()
+			logBucket.ContainerInfo = ci
+			logBucket.Mu.Unlock()
 		}
 
 		logBucket.SyscallIds.LoadOrStore(auditLine.SystemCallID, struct{}{})
@@ -341,6 +347,9 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 }
 
 func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.AuditLine) {
+	logBucket.Mu.Lock()
+	defer logBucket.Mu.Unlock()
+
 	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil && logBucket.ProcessInfo.CmdLine == "" {
 		cmdLine, errCmdLine := e.bpfProcessCache.GetCmdLine(auditLine.ProcessID)
 		if errCmdLine == nil {
@@ -434,6 +443,9 @@ func (e *JsonEnricher) dispatchSeccompLine(
 
 		return true
 	})
+
+	logBucket.Mu.RLock()
+	defer logBucket.Mu.RUnlock()
 
 	var resource map[string]string
 
