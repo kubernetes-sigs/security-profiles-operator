@@ -180,7 +180,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 		return reconcile.Result{}, fmt.Errorf("get ca inject type: %w", err)
 	}
 
-	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy, caInjectType)
+	configuredSPOd := r.getConfiguredSPOd(ctx, spod, image, pullPolicy, caInjectType)
 	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
 	serviceMonitor := bindata.ServiceMonitor(caInjectType)
@@ -512,6 +512,7 @@ func (r *ReconcileSPOd) handleUpdate(
 // getConfiguredSPOd gets a fully configured SPOd instance from a desired
 // configuration and the reference base SPOd.
 func (r *ReconcileSPOd) getConfiguredSPOd(
+	ctx context.Context,
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	image string,
 	pullPolicy corev1.PullPolicy,
@@ -637,6 +638,35 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 		if useCustomHostProc {
 			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
+		}
+
+		// Dynamically read the json-enricher log volume configuration from the ConfigMap
+		// during each reconciliation to handle ConfigMap updates without requiring operator restart
+		jsonEnricherLogVolumeSource, jsonEnricherLogVolumeMountPath, err := r.getJsonEnricherVolume(ctx)
+		if err == nil && jsonEnricherLogVolumeSource != nil {
+			logVolume, logMount := bindata.CustomLogVolume(jsonEnricherLogVolumeMountPath, jsonEnricherLogVolumeSource)
+			// Check if the volume already exists to avoid duplicates
+			volumeExists := false
+			for _, v := range templateSpec.Volumes {
+				if v.Name == logVolume.Name {
+					volumeExists = true
+					break
+				}
+			}
+			if !volumeExists {
+				templateSpec.Volumes = append(templateSpec.Volumes, logVolume)
+			}
+			// Check if the mount already exists to avoid duplicates
+			mountExists := false
+			for _, m := range ctr.VolumeMounts {
+				if m.Name == logMount.Name {
+					mountExists = true
+					break
+				}
+			}
+			if !mountExists {
+				ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
+			}
 		}
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
