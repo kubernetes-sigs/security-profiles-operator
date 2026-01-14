@@ -448,15 +448,20 @@ func (e *JsonEnricher) dispatchSeccompLine(
 	}
 
 	if logBucket.ContainerInfo != nil {
+		podName := logBucket.ContainerInfo.PodName
+		namespace := logBucket.ContainerInfo.Namespace
+		containerName := logBucket.ContainerInfo.ContainerName
+
 		resource = map[string]string{
-			"pod":       logBucket.ContainerInfo.PodName,
-			"namespace": logBucket.ContainerInfo.Namespace,
-			"container": logBucket.ContainerInfo.ContainerName,
+			"pod":       podName,
+			"namespace": namespace,
+			"container": containerName,
 		}
 	}
 
+	nodeNameCopy := nodeName
 	node := map[string]string{
-		"name": nodeName,
+		"name": nodeNameCopy,
 	}
 
 	isoTimestamp, err := common.AuditTimeToIso(logBucket.TimestampID)
