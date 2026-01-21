@@ -3116,6 +3116,7 @@ data:
             "socket",
             "stat",
             "statfs",
+            "statx",
             "tgkill",
             "uname",
             "write"
@@ -3272,6 +3273,7 @@ data:
             "stat",
             "statx",
             "statfs",
+            "statx",
             "tgkill",
             "uname",
             "unshare",

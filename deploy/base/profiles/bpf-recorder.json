@@ -102,6 +102,7 @@
         "socket",
         "stat",
         "statfs",
+        "statx",
         "tgkill",
         "uname",
         "write"
