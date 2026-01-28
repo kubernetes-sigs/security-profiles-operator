@@ -117,6 +117,36 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			e.testCaseJsonEnricherFileOptions,
 		},
 		{
+			"JSON Enricher: Privileged Pods (TC3)",
+			e.testCasePrivilegedPods,
+		},
+		{
+			"JSON Enricher: File Output, Filtering and Rotation (TC4)",
+			e.testCaseFileOutputFilteringAndRotation,
+		},
+		{
+			"JSON Enricher: Multi-Namespace and Concurrency (TC5)",
+			e.testCaseMultiNamespaceAndConcurrency,
+		},
+		{
+			"JSON Enricher: Negative Scenarios (TC6)",
+			e.testCaseNegativeScenarios,
+		},
+		{
+			"JSON Enricher: API Correlation and Webhooks (TC7)",
+			e.testCaseAPICorrelationAndWebhooks,
+		},
+		{
+			"JSON Enricher: Uninstall and Cleanup (TC8)",
+			e.testCaseUninstallAndCleanup,
+		},
+		{
+			"JSON Enricher: CRI-O Configuration (TC9)",
+			e.testCaseCRIOConfiguration,
+		},
+		// TC10: OCP Upgrade (Manual - see auditLoggingTestcases.md)
+		// TC11: SPO Upgrade (Manual - see auditLoggingTestcases.md)
+		{
 			"SELinux: base case (install policy, run pod and delete)",
 			e.testCaseSelinuxBaseUsage,
 		},
