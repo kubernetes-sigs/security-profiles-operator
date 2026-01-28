@@ -313,6 +313,8 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 		}
 
 		// Capture proc/pid/(cmdLine/environ) early; these files are ephemeral on some OS (e.g., Ubuntu).
+		logBucket.Mu.Lock()
+
 		if logBucket.ProcessInfo == nil {
 			uid, gid, err := auditsource.GetUidGid(line)
 			if err != nil {
@@ -324,11 +326,17 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 				auditLine.Executable, uid, gid)
 		}
 
+		logBucket.Mu.Unlock()
+
 		e.processEbpf(logBucket, auditLine)
+
+		logBucket.Mu.Lock()
 
 		if logBucket.ContainerInfo == nil {
 			logBucket.ContainerInfo = e.fetchContainerInfo(ctx, auditLine.ProcessID, nodeName)
 		}
+
+		logBucket.Mu.Unlock()
 
 		logBucket.SyscallIds.LoadOrStore(auditLine.SystemCallID, struct{}{})
 
@@ -341,6 +349,9 @@ func (e *JsonEnricher) Run(ctx context.Context, runErr chan<- error) {
 }
 
 func (e *JsonEnricher) processEbpf(logBucket *types.LogBucket, auditLine *types.AuditLine) {
+	logBucket.Mu.Lock()
+	defer logBucket.Mu.Unlock()
+
 	if e.bpfProcessCache != nil && logBucket.ProcessInfo != nil && logBucket.ProcessInfo.CmdLine == "" {
 		cmdLine, errCmdLine := e.bpfProcessCache.GetCmdLine(auditLine.ProcessID)
 		if errCmdLine == nil {
@@ -435,6 +446,10 @@ func (e *JsonEnricher) dispatchSeccompLine(
 		return true
 	})
 
+	// Acquire read lock to safely access ProcessInfo and ContainerInfo
+	logBucket.Mu.RLock()
+	defer logBucket.Mu.RUnlock()
+
 	var resource map[string]string
 
 	if logBucket.ProcessInfo == nil {
@@ -448,15 +463,20 @@ func (e *JsonEnricher) dispatchSeccompLine(
 	}
 
 	if logBucket.ContainerInfo != nil {
+		podName := logBucket.ContainerInfo.PodName
+		namespace := logBucket.ContainerInfo.Namespace
+		containerName := logBucket.ContainerInfo.ContainerName
+
 		resource = map[string]string{
-			"pod":       logBucket.ContainerInfo.PodName,
-			"namespace": logBucket.ContainerInfo.Namespace,
-			"container": logBucket.ContainerInfo.ContainerName,
+			"pod":       podName,
+			"namespace": namespace,
+			"container": containerName,
 		}
 	}
 
+	nodeNameCopy := nodeName
 	node := map[string]string{
-		"name": nodeName,
+		"name": nodeNameCopy,
 	}
 
 	isoTimestamp, err := common.AuditTimeToIso(logBucket.TimestampID)

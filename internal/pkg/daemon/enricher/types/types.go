@@ -72,6 +72,7 @@ type ProcessInfo struct {
 	ExecRequestId *string
 }
 type LogBucket struct {
+	Mu            sync.RWMutex
 	SyscallIds    sync.Map
 	ContainerInfo *ContainerInfo
 	ProcessInfo   *ProcessInfo
