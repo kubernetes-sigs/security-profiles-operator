@@ -1,7 +1,4 @@
 (block selinuxrecording
   (blockinherit container)
   (typepermissive process)
-  (typeattributeset file_type (process))
-  (allow container_runtime_t process (file (relabelfrom relabelto)))
-  (allow container_runtime_t process (dir (relabelfrom relabelto)))
 )
