@@ -186,12 +186,12 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL8"
 		},
 		{
-			"regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux release)\\s+9\\.[0-9]+",
-			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL9"
+			"regex": "(.*)(CoreOS).*10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux CoreOS)\\s+10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux release)\\s+10\\.[0-9]+",
+			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL10"
 		},
 		{
-			"regex": "(.*)(CoreOS)\\s+10\\.[0-9]+\\..*",
-			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL10"
+			"regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux release)\\s+9\\.[0-9]+",
+			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL9"
 		}
 	]`
 
@@ -231,7 +231,7 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 					},
 				},
 			},
-			want: "RELATED_IMAGE_RHEL9_SELINUXD",
+			want: "RELATED_IMAGE_SELINUXD_EL9",
 		},
 		{
 			name: "Should return el10 for RHEL 10",
@@ -242,7 +242,7 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 					},
 				},
 			},
-			want: "RELATED_IMAGE_RHEL10_SELINUXD",
+			want: "RELATED_IMAGE_SELINUXD_EL10",
 		},
 		{
 			name: "Should return el10 for RHEL 10 with patch version",
@@ -253,7 +253,29 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 					},
 				},
 			},
-			want: "RELATED_IMAGE_RHEL10_SELINUXD",
+			want: "RELATED_IMAGE_SELINUXD_EL10",
+		},
+		{
+			name: "Should return el10 for RHEL 10.1 (Coughlan)",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Red Hat Enterprise Linux CoreOS 10.1.20251202-0 (Coughlan)",
+					},
+				},
+			},
+			want: "RELATED_IMAGE_SELINUXD_EL10",
+		},
+		{
+			name: "Should return el10 for RHEL 10 release format",
+			node: &corev1.Node{
+				Status: corev1.NodeStatus{
+					NodeInfo: corev1.NodeSystemInfo{
+						OSImage: "Red Hat Enterprise Linux release 10.1",
+					},
+				},
+			},
+			want: "RELATED_IMAGE_SELINUXD_EL10",
 		},
 		{
 			name: "Does not match anything",
