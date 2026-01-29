@@ -3382,9 +3382,6 @@ data:
     (block selinuxrecording
       (blockinherit container)
       (typepermissive process)
-      (typeattributeset file_type (process))
-      (allow container_runtime_t process (file (relabelfrom relabelto)))
-      (allow container_runtime_t process (dir (relabelfrom relabelto)))
     )
   spo-apparmor.yaml: |
     apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
