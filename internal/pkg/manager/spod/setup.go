@@ -194,34 +194,12 @@ func (r *ReconcileSPOd) getJsonEnricherVolume(ctx context.Context) (*corev1.Volu
 }
 
 func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node) (string, error) {
-	operatorCm, err := util.GetOperatorConfigMap(ctx, r.clientReader)
+	selinuxdImage, err := util.GetSelinuxdImage(ctx, r.clientReader, node)
 	if err != nil {
 		return "", err
 	}
-
-	selinuxdImageMapping := operatorCm.Data[util.SelinuxdImageMappingKey]
-
-	selinuxdImageEnvVar, err := util.MatchSelinuxdImageJSONMapping(node, []byte(selinuxdImageMapping))
-	if err != nil {
-		return "", fmt.Errorf("matching selinuxd image: %w", err)
-	}
-
-	// not checking selinuxdImageEnvVar is fine here as os.Getenv returns an empty string in that case
-	selinuxdImage := os.Getenv(selinuxdImageEnvVar)
-	if selinuxdImage != "" {
-		r.log.Info("matched selinuxd image against nodeInfo", "image", selinuxdImage)
-
-		return selinuxdImage, nil
-	}
-
-	selinuxdImage = os.Getenv(selinuxdImageKey)
-	if selinuxdImage != "" {
-		r.log.Info("using selinuxd image from envVar", "image", selinuxdImage)
-
-		return selinuxdImage, nil
-	}
-
-	return "", errors.New("invalid selinuxd image")
+	r.log.Info("using selinuxd image", "image", selinuxdImage)
+	return selinuxdImage, nil
 }
 
 func getEffectiveSPOd(dt *daemonTunables) *appsv1.DaemonSet {

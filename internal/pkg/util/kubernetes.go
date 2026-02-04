@@ -19,6 +19,7 @@ package util
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -154,4 +155,35 @@ func GetOperatorConfigMap(ctx context.Context, c client.Reader) (*corev1.ConfigM
 	}
 
 	return &operatorCm, nil
+}
+
+const selinuxdImageKey = "RELATED_IMAGE_SELINUXD"
+
+// GetSelinuxdImage returns the appropriate selinuxd image for the given node
+// by matching the node's OS against the image mapping in the operator ConfigMap.
+func GetSelinuxdImage(ctx context.Context, c client.Reader, node *corev1.Node) (string, error) {
+	operatorCm, err := GetOperatorConfigMap(ctx, c)
+	if err != nil {
+		return "", err
+	}
+
+	selinuxdImageMapping := operatorCm.Data[SelinuxdImageMappingKey]
+
+	selinuxdImageEnvVar, err := MatchSelinuxdImageJSONMapping(node, []byte(selinuxdImageMapping))
+	if err != nil {
+		return "", fmt.Errorf("matching selinuxd image: %w", err)
+	}
+
+	// not checking selinuxdImageEnvVar is fine here as os.Getenv returns an empty string in that case
+	selinuxdImage := os.Getenv(selinuxdImageEnvVar)
+	if selinuxdImage != "" {
+		return selinuxdImage, nil
+	}
+
+	selinuxdImage = os.Getenv(selinuxdImageKey)
+	if selinuxdImage != "" {
+		return selinuxdImage, nil
+	}
+
+	return "", errors.New("invalid selinuxd image")
 }
