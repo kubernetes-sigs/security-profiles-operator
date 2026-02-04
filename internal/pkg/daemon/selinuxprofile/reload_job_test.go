@@ -178,18 +178,19 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 				WithRuntimeObjects(objs...).
 				Build()
 
-			r := &ReconcileSelinux{
-				client: fakeClient,
-			}
+		r := &ReconcileSelinux{
+			client: fakeClient,
+		}
 
-			logger := logf.Log.WithName("test")
-			err := r.createPolicyReloadJob(context.Background(), tt.policyName, testAction, logger)
+		logger := logf.Log.WithName("test")
+		jobCreated, err := r.createPolicyReloadJob(context.Background(), tt.policyName, testAction, logger)
 
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
+		if tt.wantErr {
+			require.Error(t, err)
+			return
+		}
+		require.NoError(t, err)
+		require.Equal(t, tt.wantJobCreated, jobCreated)
 
 			// Check if job was created
 			jobs := &batchv1.JobList{}

@@ -228,7 +228,7 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 		r.record.Event(instance, util.EventTypeWarning, reasonCannotRemovePolicy, err.Error())
 
 		return res, err
-	} else if res.RequeueAfter > 0 {
+	} else if res.RequeueAfter > 0 || res.Requeue {
 		reqLogger.Info("Re-queueing delete request to make sure the policy is gone")
 
 		return res, err
@@ -289,12 +289,28 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		return reconcile.Result{}, nil
 	}
 
-	err = r.reconcilePolicyFile(sp, oh, l)
+	policyUpdated, err := r.reconcilePolicyFile(sp, oh, l)
 	if err != nil {
 		r.metrics.IncSelinuxProfileError(reasonCannotWritePolicyFile)
 		r.record.Event(sp, util.EventTypeWarning, reasonCannotWritePolicyFile, err.Error())
 
 		return reconcile.Result{}, fmt.Errorf("creating policy file: %w", err)
+	}
+
+	// If the policy file was just updated, requeue to give selinuxd time to detect
+	// the change and reinstall the policy before we check status and trigger reload.
+	// Without this, we might trigger the reload job before selinuxd has processed the update.
+	if policyUpdated {
+		l.Info("Policy file updated, requeuing to allow selinuxd to process the change")
+
+		if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInProgress); err != nil {
+			r.metrics.IncSelinuxProfileError(reasonCannotUpdatePolicyStatus)
+			r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdatePolicyStatus, err.Error())
+
+			return reconcile.Result{}, fmt.Errorf("setting node status to in progress: %w", err)
+		}
+
+		return reconcile.Result{Requeue: true}, nil
 	}
 
 	l.Info("Checking if policy deployed", "policyName", sp.GetName())
@@ -341,14 +357,19 @@ func (r *ReconcileSelinux) reconcilePolicy(
 			// On RHEL 9/OpenShift 4.20+, semodule -i no longer automatically reloads
 			// the kernel's in-memory policy. Create a short-lived privileged Job to
 			// run semodule -R and reload the policy.
-			if err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "install", l); err != nil {
+			jobCreated, err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "install", l)
+			if err != nil {
 				l.Error(err, "Failed to create policy reload job, policy may not be active until manual reload")
 				r.record.Event(sp, util.EventTypeWarning, reasonCannotReloadPolicy,
 					fmt.Sprintf("Failed to create policy reload job on %s: %s", os.Getenv(config.NodeNameEnvKey), err.Error()))
 				// Don't fail the reconcile - the policy is installed, just not reloaded yet
-			} else if err := nodeStatus.SetAnnotation(ctx, reloadInstallGenerationAnnotation, reloadGeneration); err != nil {
-				l.Error(err, "Failed to set reload generation annotation")
+			} else if jobCreated {
+				// Only update the annotation if a job was actually created
+				if err := nodeStatus.SetAnnotation(ctx, reloadInstallGenerationAnnotation, reloadGeneration); err != nil {
+					l.Error(err, "Failed to set reload generation annotation")
+				}
 			}
+			// If jobCreated is false (skipped due to TTL), don't update annotation - will retry on next reconcile
 		}
 	case failedStatus:
 		polState = statusv1alpha1.ProfileStateError
@@ -370,25 +391,28 @@ func (r *ReconcileSelinux) reconcilePolicy(
 	return reconcile.Result{}, nil
 }
 
+// reconcilePolicyFile writes the policy file to the drop directory if the content differs.
+// Returns (policyUpdated, error) where policyUpdated is true if the file was actually written.
 func (r *ReconcileSelinux) reconcilePolicyFile(
 	sp selxv1alpha2.SelinuxProfileObject,
 	oh SelinuxObjectHandler,
 	l logr.Logger,
-) error {
+) (bool, error) {
 	policyPath := path.Join(bindata.SelinuxDropDirectory, sp.GetPolicyName()+".cil")
 
 	cil, parseErr := oh.GetCILPolicy()
 	if parseErr != nil {
-		return fmt.Errorf("generating CIL: %w", parseErr)
+		return false, fmt.Errorf("generating CIL: %w", parseErr)
 	}
 
 	policyContent := []byte(cil)
 
-	if err := writeFileIfDiffers(policyPath, policyContent, l); err != nil {
-		return fmt.Errorf("writing policy file: %w", err)
+	written, err := writeFileIfDiffers(policyPath, policyContent, l)
+	if err != nil {
+		return false, fmt.Errorf("writing policy file: %w", err)
 	}
 
-	return nil
+	return written, nil
 }
 
 func (r *ReconcileSelinux) reconcileDeletePolicy(
@@ -409,7 +433,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	}
 
 	res, err := r.reconcileDeletePolicyFile(sp, l)
-	if res.RequeueAfter > 0 || err != nil {
+	if res.RequeueAfter > 0 || res.Requeue || err != nil {
 		return res, err
 	}
 
@@ -427,12 +451,17 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 		if lastReloadGeneration == reloadGeneration {
 			l.Info("Reload already performed for policy removal, skipping",
 				"generation", reloadGeneration, "policyName", sp.GetPolicyName())
-		} else if err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "remove", l); err != nil {
-			l.Error(err, "Failed to create policy reload job after removal")
-			r.record.Event(sp, util.EventTypeWarning, reasonCannotReloadPolicy,
-				fmt.Sprintf("Failed to create policy reload job after removal on %s: %s", os.Getenv(config.NodeNameEnvKey), err.Error()))
-		} else if err := nodeStatus.SetAnnotation(ctx, reloadRemoveGenerationAnnotation, reloadGeneration); err != nil {
-			l.Error(err, "Failed to set reload generation annotation after removal")
+		} else {
+			jobCreated, err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "remove", l)
+			if err != nil {
+				l.Error(err, "Failed to create policy reload job after removal")
+				r.record.Event(sp, util.EventTypeWarning, reasonCannotReloadPolicy,
+					fmt.Sprintf("Failed to create policy reload job after removal on %s: %s", os.Getenv(config.NodeNameEnvKey), err.Error()))
+			} else if jobCreated {
+				if err := nodeStatus.SetAnnotation(ctx, reloadRemoveGenerationAnnotation, reloadGeneration); err != nil {
+					l.Error(err, "Failed to set reload generation annotation after removal")
+				}
+			}
 		}
 		return reconcile.Result{}, nil
 	}
@@ -555,34 +584,37 @@ func selinuxdGetRequest(ctx context.Context, httpc *http.Client, url string) (*h
 
 // writeFileIfDiffers checks if the content of file at filePath are the same as the byte array
 // contents, if not, overwrites the file at filePath.
+// Returns (written, error) where written is true if the file was actually written (content differed or file didn't exist).
 //
 // Reopening the same file may seem wasteful and even look like a TOCTOU issue, but the policy
 // drop dir is private to this pod, but mostly just calling a single write is much easier codepath
 // than mucking around with seeks and truncates to account for all the corner cases.
-func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) error {
+func writeFileIfDiffers(filePath string, contents []byte, l logr.Logger) (bool, error) {
 	const filePermissions = 0o600
 
 	file, err := os.OpenFile(filePath, os.O_RDONLY, filePermissions)
 	if os.IsNotExist(err) {
 		file.Close()
 
-		return os.WriteFile(filePath, contents, filePermissions)
+		l.Info("Writing new policy file", "policyPath", filePath)
+
+		return true, os.WriteFile(filePath, contents, filePermissions)
 	} else if err != nil {
-		return fmt.Errorf("could not open for reading: %w"+filePath, err)
+		return false, fmt.Errorf("could not open for reading: %w"+filePath, err)
 	}
 
 	defer file.Close()
 
 	existing, err := io.ReadAll(file)
 	if err != nil {
-		return fmt.Errorf("reading file : %w"+filePath, err)
+		return false, fmt.Errorf("reading file : %w"+filePath, err)
 	}
 
 	if bytes.Equal(existing, contents) {
-		return nil
+		return false, nil
 	}
 
-	l.Info("Writing to policy file", "policyPath", filePath)
+	l.Info("Updating policy file", "policyPath", filePath)
 
-	return os.WriteFile(filePath, contents, filePermissions)
+	return true, os.WriteFile(filePath, contents, filePermissions)
 }
