@@ -42,15 +42,16 @@ const (
 // createPolicyReloadJob creates a short-lived privileged Job to run semodule -R
 // on the current node. This is needed because on RHEL 9/OpenShift 4.20+,
 // semodule -i no longer automatically reloads the kernel's in-memory policy.
+// Returns (jobCreated, error) where jobCreated is true if a new job was actually created.
 func (r *ReconcileSelinux) createPolicyReloadJob(
 	ctx context.Context,
 	policyName string,
 	action string,
 	l logr.Logger,
-) error {
+) (bool, error) {
 	nodeName := os.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
-		return fmt.Errorf("NODE_NAME environment variable not set")
+		return false, fmt.Errorf("NODE_NAME environment variable not set")
 	}
 
 	namespace := config.GetOperatorNamespace()
@@ -59,7 +60,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 	// The operator sets the correct per-node image when creating the spod DaemonSet.
 	selinuxdImage, err := r.getSelinuxdImageFromPod(ctx, namespace)
 	if err != nil {
-		return fmt.Errorf("getting selinuxd image: %w", err)
+		return false, fmt.Errorf("getting selinuxd image: %w", err)
 	}
 
 	// Check if a reload job for this node is already running or was recently created
@@ -80,13 +81,13 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 			// Skip if a job is currently running
 			if job.Status.Succeeded == 0 && job.Status.Failed == 0 {
 				l.Info("Reload job already running for this node, skipping", "existingJob", job.Name)
-				return nil
+				return false, nil
 			}
 			// Skip if a job was created recently (within TTL window) to avoid duplicate reloads
 			if job.CreationTimestamp.Add(time.Duration(reloadJobTTL) * time.Second).After(now) {
 				l.Info("Reload job was recently created for this node, skipping",
 					"existingJob", job.Name, "age", now.Sub(job.CreationTimestamp.Time))
-				return nil
+				return false, nil
 			}
 		}
 	}
@@ -203,13 +204,13 @@ exit $exit_code`,
 	if err := r.client.Create(ctx, job); err != nil {
 		if kerrors.IsAlreadyExists(err) {
 			l.Info("Reload job already exists, skipping", "jobName", jobName)
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("creating reload job: %w", err)
+		return false, fmt.Errorf("creating reload job: %w", err)
 	}
 
 	l.Info("Successfully created SELinux policy reload job", "jobName", jobName)
-	return nil
+	return true, nil
 }
 
 // getSelinuxdImageFromPod retrieves the selinuxd container image from the current pod.
