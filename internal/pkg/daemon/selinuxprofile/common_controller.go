@@ -78,6 +78,12 @@ const (
 	reasonCannotGetPolicyStatus    string = "CannotGetPolicyStatus"
 	reasonCannotUpdatePolicyStatus string = "CannotUpdatePolicyStatus"
 	reasonInstalledPolicy          string = "SavedSelinuxPolicy"
+	reasonCannotReloadPolicy       string = "CannotReloadSelinuxPolicy"
+)
+
+const (
+	reloadInstallGenerationAnnotation = "spo.x-k8s.io/selinux-policy-reload-generation"
+	reloadRemoveGenerationAnnotation  = "spo.x-k8s.io/selinux-policy-reload-remove-generation"
 )
 
 // blank assignment to verify that ReconcileSelinux implements `reconcile.Reconciler`.
@@ -157,6 +163,8 @@ func (r *ReconcileSelinux) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=rawselinuxprofiles/finalizers,verbs=delete;get;update;patch
+
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;delete;get;list;watch
 
 // Reconcile reads that state of the cluster for a SelinuxProfile object and makes changes based on the state read
 // and what is in the `SelinuxProfile.Spec`.
@@ -319,6 +327,29 @@ func (r *ReconcileSelinux) reconcilePolicy(
 
 		r.metrics.IncSelinuxProfileUpdate()
 		r.record.Event(sp, util.EventTypeNormal, reasonInstalledPolicy, evstr)
+
+		reloadGeneration := strconv.FormatInt(sp.GetGeneration(), 10)
+		lastReloadGeneration, err := nodeStatus.GetAnnotation(ctx, reloadInstallGenerationAnnotation)
+		if err != nil {
+			l.Error(err, "Failed to read reload generation annotation")
+		}
+
+		if lastReloadGeneration == reloadGeneration {
+			l.Info("Reload already performed for policy generation, skipping",
+				"generation", reloadGeneration, "policyName", sp.GetPolicyName())
+		} else {
+			// On RHEL 9/OpenShift 4.20+, semodule -i no longer automatically reloads
+			// the kernel's in-memory policy. Create a short-lived privileged Job to
+			// run semodule -R and reload the policy.
+			if err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "install", l); err != nil {
+				l.Error(err, "Failed to create policy reload job, policy may not be active until manual reload")
+				r.record.Event(sp, util.EventTypeWarning, reasonCannotReloadPolicy,
+					fmt.Sprintf("Failed to create policy reload job on %s: %s", os.Getenv(config.NodeNameEnvKey), err.Error()))
+				// Don't fail the reconcile - the policy is installed, just not reloaded yet
+			} else if err := nodeStatus.SetAnnotation(ctx, reloadInstallGenerationAnnotation, reloadGeneration); err != nil {
+				l.Error(err, "Failed to set reload generation annotation")
+			}
+		}
 	case failedStatus:
 		polState = statusv1alpha1.ProfileStateError
 		evstr := fmt.Sprintf("Failed to save profile to disk on %s: %s", os.Getenv(config.NodeNameEnvKey), polStatus.Msg)
@@ -386,6 +417,23 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	polStatus, err := getPolicyStatus(ctx, sp, r.httpc)
 
 	if errors.Is(err, errPolicyNotFound) {
+		// Policy was successfully removed, trigger a reload to update kernel policy
+		reloadGeneration := strconv.FormatInt(sp.GetGeneration(), 10)
+		lastReloadGeneration, err := nodeStatus.GetAnnotation(ctx, reloadRemoveGenerationAnnotation)
+		if err != nil {
+			l.Error(err, "Failed to read reload generation annotation after removal")
+		}
+
+		if lastReloadGeneration == reloadGeneration {
+			l.Info("Reload already performed for policy removal, skipping",
+				"generation", reloadGeneration, "policyName", sp.GetPolicyName())
+		} else if err := r.createPolicyReloadJob(ctx, sp.GetPolicyName(), "remove", l); err != nil {
+			l.Error(err, "Failed to create policy reload job after removal")
+			r.record.Event(sp, util.EventTypeWarning, reasonCannotReloadPolicy,
+				fmt.Sprintf("Failed to create policy reload job after removal on %s: %s", os.Getenv(config.NodeNameEnvKey), err.Error()))
+		} else if err := nodeStatus.SetAnnotation(ctx, reloadRemoveGenerationAnnotation, reloadGeneration); err != nil {
+			l.Error(err, "Failed to set reload generation annotation after removal")
+		}
 		return reconcile.Result{}, nil
 	}
 

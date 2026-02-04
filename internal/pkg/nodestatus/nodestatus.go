@@ -240,6 +240,42 @@ func (nsf *StatusClient) SetNodeStatus(
 	return nil
 }
 
+func (nsf *StatusClient) GetAnnotation(ctx context.Context, key string) (string, error) {
+	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+		return "", fmt.Errorf("getting node status for annotation: %w", err)
+	}
+
+	if status.Annotations == nil {
+		return "", nil
+	}
+
+	return status.Annotations[key], nil
+}
+
+func (nsf *StatusClient) SetAnnotation(ctx context.Context, key, value string) error {
+	status := secprofnodestatusv1alpha1.SecurityProfileNodeStatus{}
+	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+		return fmt.Errorf("getting node status for annotation update: %w", err)
+	}
+
+	if status.Annotations == nil {
+		status.Annotations = make(map[string]string)
+	}
+
+	if status.Annotations[key] == value {
+		return nil
+	}
+
+	status.Annotations[key] = value
+
+	if err := nsf.client.Update(ctx, &status); err != nil {
+		return fmt.Errorf("updating node status annotation: %w", err)
+	}
+
+	return nil
+}
+
 func (nsf *StatusClient) Matches(
 	ctx context.Context, polState secprofnodestatusv1alpha1.ProfileState,
 ) (bool, error) {

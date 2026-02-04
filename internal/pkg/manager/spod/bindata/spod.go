@@ -400,6 +400,14 @@ semodule -R
 								Name:  "HOME",
 								Value: HomeDirectory,
 							},
+							{
+								Name: "POD_NAME",
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
+										FieldPath: "metadata.name",
+									},
+								},
+							},
 						},
 						Ports: []corev1.ContainerPort{
 							{
