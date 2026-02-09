@@ -696,7 +696,7 @@ type: kubernetes.io/service-account-token
 ---
 apiVersion: v1
 data:
-  bpf-recorder.json: |
+  bpf-recorder.json: |-
     {
       "defaultAction": "SCMP_ACT_ERRNO",
       "archMap": [
@@ -738,6 +738,7 @@ data:
             "capget",
             "capset",
             "chdir",
+            "clone",
             "clone3",
             "close",
             "connect",
@@ -858,37 +859,37 @@ data:
         "sizeLimit": "500Mi"
       }
     }
-  security-profiles-operator.json: |
+  security-profiles-operator.json: |-
     {
       "defaultAction": "SCMP_ACT_ERRNO",
-        "archMap": [
-            {
-                "architecture": "SCMP_ARCH_X86_64",
-                "subArchitectures": [
-                    "SCMP_ARCH_X86",
-                    "SCMP_ARCH_X32"
-                ]
-            },
-            {
-                "architecture": "SCMP_ARCH_AARCH64",
-                "subArchitectures": [
-                    "SCMP_ARCH_ARM"
-                ]
-            },
-            {
-            "architecture": "SCMP_ARCH_PPC64LE",
-                "subArchitectures": [
-                    "SCMP_ARCH_PPC64",
-                    "SCMP_ARCH_PPC"
-                ]
-            },
-            {
-                "architecture": "SCMP_ARCH_S390X",
-                "subArchitectures": [
-                    "SCMP_ARCH_S390"
-                ]
-            }
-        ],
+      "archMap": [
+        {
+          "architecture": "SCMP_ARCH_X86_64",
+          "subArchitectures": [
+            "SCMP_ARCH_X86",
+            "SCMP_ARCH_X32"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_AARCH64",
+          "subArchitectures": [
+            "SCMP_ARCH_ARM"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_PPC64LE",
+          "subArchitectures": [
+            "SCMP_ARCH_PPC64",
+            "SCMP_ARCH_PPC"
+          ]
+        },
+        {
+          "architecture": "SCMP_ARCH_S390X",
+          "subArchitectures": [
+            "SCMP_ARCH_S390"
+          ]
+        }
+      ],
       "syscalls": [
         {
           "names": [
@@ -899,6 +900,7 @@ data:
             "capget",
             "capset",
             "chdir",
+            "clone",
             "clone3",
             "close",
             "connect",
@@ -967,7 +969,7 @@ data:
         }
       ]
     }
-  selinuxd-image-mapping.json: |
+  selinuxd-image-mapping.json: |-
     [
         {
             "regex": "(.*)(CoreOS).*(41[0-2]\\.[0-9]+)\\..*|(.*)(Red Hat Enterprise Linux release)\\s+8\\.[0-9]+",
