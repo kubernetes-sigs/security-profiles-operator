@@ -3283,7 +3283,6 @@ data:
             "sigaltstack",
             "socket",
             "stat",
-            "statx",
             "statfs",
             "statx",
             "tgkill",
