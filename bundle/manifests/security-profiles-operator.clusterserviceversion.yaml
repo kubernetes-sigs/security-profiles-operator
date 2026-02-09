@@ -248,14 +248,14 @@ metadata:
     capabilities: Basic Install
     categories: Security
     containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.10.0
-    createdAt: "2025-08-13T11:56:07Z"
+    createdAt: "2026-02-09T07:45:11Z"
     olm.skipRange: '>=0.4.1 <0.10.1-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
     operatorframework.io/suggested-namespace: security-profiles-operator
     operators.openshift.io/valid-subscription: '["OpenShift Kubernetes Engine", "OpenShift
       Container Platform", "OpenShift Platform Plus"]'
-    operators.operatorframework.io/builder: operator-sdk-v1.37.0
+    operators.operatorframework.io/builder: operator-sdk-v1.39.2
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
   name: security-profiles-operator.v0.10.1-dev
   namespace: placeholder
@@ -587,6 +587,16 @@ spec:
           - subjectaccessreviews
           verbs:
           - create
+        - apiGroups:
+          - batch
+          resources:
+          - jobs
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - watch
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
