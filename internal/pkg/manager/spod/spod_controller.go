@@ -646,26 +646,30 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		jsonEnricherLogVolumeSource, jsonEnricherLogVolumeMountPath, err := r.getJsonEnricherVolume(ctx)
 		if err == nil && jsonEnricherLogVolumeSource != nil {
 			logVolume, logMount := bindata.CustomLogVolume(jsonEnricherLogVolumeMountPath, jsonEnricherLogVolumeSource)
-			// Check if the volume already exists to avoid duplicates
-			volumeExists := false
-			for _, v := range templateSpec.Volumes {
+			// Replace existing volume or append if not found.
+			// Using replace (not skip) so that ConfigMap changes to the volume source
+			// or mount path are applied even when baseSPOd already has an older version.
+			volumeReplaced := false
+			for i, v := range templateSpec.Volumes {
 				if v.Name == logVolume.Name {
-					volumeExists = true
+					templateSpec.Volumes[i] = logVolume
+					volumeReplaced = true
 					break
 				}
 			}
-			if !volumeExists {
+			if !volumeReplaced {
 				templateSpec.Volumes = append(templateSpec.Volumes, logVolume)
 			}
-			// Check if the mount already exists to avoid duplicates
-			mountExists := false
-			for _, m := range ctr.VolumeMounts {
+			// Replace existing mount or append if not found.
+			mountReplaced := false
+			for i, m := range ctr.VolumeMounts {
 				if m.Name == logMount.Name {
-					mountExists = true
+					ctr.VolumeMounts[i] = logMount
+					mountReplaced = true
 					break
 				}
 			}
-			if !mountExists {
+			if !mountReplaced {
 				ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
 			}
 		}
