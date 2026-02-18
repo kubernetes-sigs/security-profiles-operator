@@ -47,20 +47,20 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
 {{ if ne .Abstract.Filesystem nil }}{{ if ne .Abstract.Filesystem.ReadOnlyPaths nil }}
 {{range $readonly := .Abstract.Filesystem.ReadOnlyPaths}}  {{$readonly}} r,
 {{end}}
-{{range $readonly := .Abstract.Filesystem.ReadOnlyPaths}}  deny {{$readonly}} wlk,
-{{end}}{{end}}
+{{ if not .ComplainMode }}{{range $readonly := .Abstract.Filesystem.ReadOnlyPaths}}  deny {{$readonly}} wlk,
+{{end}}{{end}}{{end}}
 {{ if ne .Abstract.Filesystem.WriteOnlyPaths nil }}
 {{range $writeonly := .Abstract.Filesystem.WriteOnlyPaths}}  {{$writeonly}} wlk,
 {{end}}
-{{range $writeonly := .Abstract.Filesystem.WriteOnlyPaths}}  deny {{$writeonly}} r,
-{{end}}{{end}}
+{{ if not .ComplainMode }}{{range $writeonly := .Abstract.Filesystem.WriteOnlyPaths}}  deny {{$writeonly}} r,
+{{end}}{{end}}{{end}}
 {{ if ne .Abstract.Filesystem.ReadWritePaths nil }}
 {{range $readwrite := .Abstract.Filesystem.ReadWritePaths}}  {{$readwrite}} rwlk,
 {{end}}{{end}}{{end}}
 
   # Network rules
 {{ if ne .Abstract.Network nil }}{{ if ne .Abstract.Network.AllowRaw nil }}
-{{ if .Abstract.Network.AllowRaw}}  network raw,{{else}}  deny network raw,
+{{ if .Abstract.Network.AllowRaw}}  network raw,{{else}}{{ if not .ComplainMode }}  deny network raw,{{end}}
 {{end}}{{end}}
 {{ if ne .Abstract.Network.Protocols nil }}
 {{if ne .Abstract.Network.Protocols.AllowTCP nil }}
@@ -82,6 +82,7 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
   # Raw rules placeholder
 
   # Add default deny for known information leak/priv esc paths
+{{ if not .ComplainMode }}
   deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
   deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9]*}/** w,
   deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
@@ -91,14 +92,16 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
   deny @{PROC}/kmem rwklx,
   deny @{PROC}/kcore rwklx,
   deny /sys/firmware/efi/efivars/** rwklx,
+{{end}}
 }
 `
 
 type apparmorTemplateArgs struct {
-	Name        string
-	ProfileMode string
-	Abstract    *apparmorprofileapi.AppArmorAbstract
-	AllowMount  bool
+	Name         string
+	ProfileMode  string
+	ComplainMode bool
+	Abstract     *apparmorprofileapi.AppArmorAbstract
+	AllowMount   bool
 }
 
 // GenerateProfile uses the CRD representation of an abstracted profile to generate a
@@ -114,10 +117,11 @@ func GenerateProfile(name string, complainMode bool, abstract *apparmorprofileap
 		slices.Contains(abstract.Capability.AllowedCapabilities, "sys_rawio"))
 
 	templateArgs := apparmorTemplateArgs{
-		Name:        name,
-		ProfileMode: profileMode(complainMode),
-		Abstract:    abstract,
-		AllowMount:  allowMount,
+		Name:         name,
+		ProfileMode:  profileMode(complainMode),
+		ComplainMode: complainMode,
+		Abstract:     abstract,
+		AllowMount:   allowMount,
 	}
 
 	if abstract == nil {
