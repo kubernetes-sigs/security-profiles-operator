@@ -111,6 +111,7 @@ func listPartialProfiles(
 			// todo: log
 			return nil
 		}
+
 		partialProfiles[containerID] = append(partialProfiles[containerID], partialPrf)
 
 		return nil

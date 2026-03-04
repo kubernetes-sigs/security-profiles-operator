@@ -66,7 +66,7 @@ type MockSubResourceWriterPatchFn func(
 
 // A MockSubResourceWriterApplyFn is used to mock client.Client's SubResourceWriterUpdate implementation.
 type MockSubResourceWriterApplyFn func(
-	ctx context.Context, config runtime.ApplyConfiguration, opts ...client.ApplyOption,
+	ctx context.Context, config runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption,
 ) error
 
 // A MockSubResourceReaderGetFn is used to mock client.Client's SubResourceReaderGet implementation.
@@ -434,7 +434,7 @@ func (m *MockSubResourceWriter) Patch(
 
 // Apply mocks the apply method.
 func (m *MockSubResourceWriter) Apply(
-	ctx context.Context, config runtime.ApplyConfiguration, opts ...client.ApplyOption,
+	ctx context.Context, config runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption,
 ) error {
 	return m.MockApply(ctx, config, opts...)
 }

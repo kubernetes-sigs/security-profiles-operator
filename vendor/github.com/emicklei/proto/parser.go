@@ -129,6 +129,12 @@ func (p *Parser) next() (pos scanner.Position, tok token, lit string) {
 
 // pre: first single quote has been read
 func (p *Parser) nextSingleQuotedString() (pos scanner.Position, tok token, lit string) {
+	// Save current scanner mode and temporarily disable comment scanning
+	// to prevent // inside single quotes from being treated as comments
+	savedMode := p.scanner.Mode
+	p.scanner.Mode = scanner.ScanIdents | scanner.ScanFloats | scanner.ScanStrings | scanner.ScanRawStrings
+	defer func() { p.scanner.Mode = savedMode }()
+
 	var ch rune
 	p.ignoreErrorsWhile(func() { ch = p.scanner.Scan() })
 	if ch == scanner.EOF {

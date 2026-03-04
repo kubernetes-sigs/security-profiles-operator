@@ -1,5 +1,4 @@
 //go:build linux && !no_bpf
-// +build linux,!no_bpf
 
 /*
 Copyright 2021 The Kubernetes Authors.
@@ -252,11 +251,13 @@ func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.Ca
 		if err != nil {
 			return fmt.Errorf("connecting to local metrics GRPC server: %w", err)
 		}
+
 		client := apimetrics.NewMetricsClient(conn)
 
 		b.metricsClient, err = b.BpfIncClient(client)
 		if err != nil {
 			cancel()
+
 			if err := b.CloseGRPC(conn); err != nil {
 				b.logger.Error(err, "Unable to close GRPC connection")
 			}
@@ -276,8 +277,8 @@ func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.Ca
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	//nolint:staticcheck // we'll use this API once we have an appropriate alternative
-	conn, err := grpc.DialContext(
+
+	conn, err := grpc.DialContext( //nolint:staticcheck // TODO: migrate to grpc.NewClient
 		ctx,
 		"unix://"+config.GRPCServerSocketBpfRecorder,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -429,12 +430,14 @@ func (b *BpfRecorder) getMntnsForProfileWithRetry(profile string) (uint32, error
 		func() error {
 			try++
 			b.logger.Info("Looking up mount namespace for profile", "profile", profile, "try", try)
+
 			if foundMntns, ok := b.getMntnsForProfile(profile); ok {
 				mntns = foundMntns
 				b.logger.Info("Found mount namespace for profile", "profile", profile, "mntns", mntns)
 
 				return nil
 			}
+
 			b.logger.Info("No mount namespace found for profile", "profile", profile)
 
 			return ErrNotFound
@@ -852,10 +855,12 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 		func() error {
 			try++
 			b.logger.Info("Looking up container ID in cluster", "id", id, "try", try)
+
 			pods, err := b.ListPods(ctx, b.clientset, b.nodeName)
 			if err != nil {
 				return fmt.Errorf("list node pods: %w", err)
 			}
+
 			if pods == nil {
 				return errors.New("no pods found in cluster")
 			}
@@ -906,6 +911,7 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 						config.ApparmorProfileRecordBpfAnnotationKey,
 					} {
 						key := annotation + containerName
+
 						profile, ok := pod.Annotations[key]
 						if ok && profile != "" {
 							b.logger.Info(
@@ -946,7 +952,9 @@ func (b *BpfRecorder) findProfileForContainerID(id string) (string, error) {
 	return "", fmt.Errorf("container ID not found: %s", id)
 }
 
-// When running outside of Kubernetes as spoc, we have the use case of waiting for a specific PID to exit.
+// WaitForPidExit waits for a specific PID to exit.
+// When running outside of Kubernetes as spoc, we have the use case of
+// waiting for a specific PID to exit.
 func (b *BpfRecorder) WaitForPidExit(ctx context.Context, pid uint32) error {
 	d, _ := b.recordedExits.LoadOrStore(pid, make(chan bool))
 	done, ok := d.(chan bool)

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -185,13 +186,7 @@ func (r *RecorderReconciler) isPodOnLocalNode(obj runtime.Object) bool {
 		return false
 	}
 
-	for _, addr := range r.nodeAddresses {
-		if p.Status.HostIP == addr {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(r.nodeAddresses, p.Status.HostIP)
 }
 
 func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
@@ -213,6 +208,8 @@ func (r *RecorderReconciler) isPodWithTraceAnnotation(obj runtime.Object) bool {
 	return false
 }
 
+// Reconcile reconciles a pod event for profile recording.
+//
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 func (r *RecorderReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	logger := r.log.WithValues("pod", req.Name, "namespace", req.Namespace)

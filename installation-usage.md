@@ -1873,7 +1873,7 @@ including the `mknod` syscall:
 
 ## Command Line Interface (CLI)
 
-The Seucrity Profiles Operator CLI `spoc` aims to support use cases where
+The Security Profiles Operator CLI `spoc` aims to support use cases where
 Kubernetes is not available at all (for example in edge scenarios). It targets
 to provide re-used functionality from the operator itself, especially for
 development and testing environments. In the future, we plan to extend the CLI

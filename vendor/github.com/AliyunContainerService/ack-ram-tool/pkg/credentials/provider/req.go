@@ -158,9 +158,27 @@ func genDebugReqMessages(req *http.Request) []string {
 	ret = append(ret, fmt.Sprintf("%s %s", req.Method, req.URL.String()))
 	ret = append(ret, "Request Headers:")
 	for k, vs := range req.Header {
+		if isTokenHeader(k) {
+			vs = []string{"******"}
+		}
 		ret = append(ret, fmt.Sprintf("    %s: %s", k, strings.Join(vs, ", ")))
 	}
 	return ret
+}
+
+var tokenHeaders = []string{
+	"authorization",
+	"token",
+}
+
+func isTokenHeader(k string) bool {
+	k = strings.ToLower(k)
+	for _, target := range tokenHeaders {
+		if k == target {
+			return true
+		}
+	}
+	return false
 }
 
 func genDebugRespMessages(resp *http.Response) []string {

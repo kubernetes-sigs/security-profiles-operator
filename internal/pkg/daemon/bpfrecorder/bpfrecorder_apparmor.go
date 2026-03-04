@@ -1,5 +1,4 @@
 //go:build linux && !no_bpf
-// +build linux,!no_bpf
 
 /*
 Copyright 2021 The Kubernetes Authors.
@@ -218,10 +217,8 @@ func (b *AppArmorRecorder) handleCapabilityEvent(capEvent *bpfEvent) {
 	}
 
 	requestedCap := int(capEvent.Flags)
-	for _, recordedCap := range b.recordedCapabilities[mid] {
-		if recordedCap == requestedCap {
-			return
-		}
+	if slices.Contains(b.recordedCapabilities[mid], requestedCap) {
+		return
 	}
 
 	log.Printf(

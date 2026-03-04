@@ -32,8 +32,7 @@ type Runtime struct {
 	// the kind in a file-level @extern(kind) attribute.
 	interpreters map[string]Interpreter
 
-	version            internal.EvaluatorVersion
-	simplifyValidators bool
+	version internal.EvaluatorVersion
 
 	flags cuedebug.Config
 }
@@ -44,15 +43,18 @@ func (r *Runtime) Settings() (internal.EvaluatorVersion, cuedebug.Config) {
 
 func (r *Runtime) ConfigureOpCtx(ctx *adt.OpContext) {
 	ctx.Version = r.version
-	ctx.SimplifyValidators = r.simplifyValidators
 	ctx.Config = r.flags
 }
 
 func (r *Runtime) SetBuildData(b *build.Instance, x interface{}) {
+	r.index.lock.Lock()
+	defer r.index.lock.Unlock()
 	r.loaded[b] = x
 }
 
 func (r *Runtime) BuildData(b *build.Instance) (x interface{}, ok bool) {
+	r.index.lock.RLock()
+	defer r.index.lock.RUnlock()
 	x, ok = r.loaded[b]
 	return x, ok
 }
@@ -81,15 +83,13 @@ func NewWithSettings(v internal.EvaluatorVersion, flags cuedebug.Config) *Runtim
 // before first use.
 func (r *Runtime) SetVersion(v internal.EvaluatorVersion) {
 	switch v {
-	case internal.EvalV2, internal.EvalV3:
+	case internal.EvalV3:
 		r.version = v
 	case internal.EvalVersionUnset, internal.DefaultVersion:
-		cueexperiment.Init()
-		if cueexperiment.Flags.EvalV3 {
-			r.version = internal.EvalV3
-		} else {
-			r.version = internal.EvalV2
-		}
+		// TODO(evalv4): read from cueexperiment.
+		// cueexperiment.Init()
+		// if cueexperiment.Flags.EvalV3 {
+		r.version = internal.EvalV3
 	}
 }
 
@@ -102,7 +102,6 @@ func (r *Runtime) SetDebugOptions(flags *cuedebug.Config) {
 // SetGlobalExperiments that apply to language evaluation.
 // It does not set the version.
 func (r *Runtime) SetGlobalExperiments(flags *cueexperiment.Config) {
-	r.simplifyValidators = !flags.KeepValidators
 	// Do not set version as this is already set by NewWithSettings or
 	// SetVersion.
 }
@@ -117,11 +116,7 @@ func (r *Runtime) Init() {
 		return
 	}
 	r.index = newIndex()
-
-	// TODO: the builtin-specific instances will ultimately also not be
-	// shared by indexes.
-	r.index.builtinPaths = sharedIndex.builtinPaths
-	r.index.builtinShort = sharedIndex.builtinShort
+	r.index.builtins = stdBuiltins
 
 	r.loaded = map[*build.Instance]interface{}{}
 

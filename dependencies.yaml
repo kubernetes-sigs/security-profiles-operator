@@ -1,6 +1,6 @@
 dependencies:
   - name: golangci-lint
-    version: 2.4.0
+    version: 2.10.1
     refPaths:
     - path: Makefile
       match: GOLANGCI_LINT_VERSION

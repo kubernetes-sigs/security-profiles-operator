@@ -145,7 +145,7 @@ func (p *podBinder) updatePod(
 ) (*corev1.Pod, admission.Response) {
 	var err error
 
-	var podBindProfile *interface{}
+	var podBindProfile *any
 
 	var containers sync.Map
 
@@ -188,7 +188,7 @@ func (p *podBinder) updatePod(
 
 		namespacedName := types.NamespacedName{Namespace: req.Namespace, Name: profileName}
 
-		var bindProfile interface{}
+		var bindProfile any
 
 		var err error
 
@@ -300,7 +300,7 @@ func (p *podBinder) getSelinuxProfile(
 }
 
 func (p *podBinder) addSecurityContext(
-	c *corev1.Container, bindProfile interface{},
+	c *corev1.Container, bindProfile any,
 ) bool {
 	var podChanged bool
 
@@ -366,7 +366,7 @@ func (p *podBinder) addSelinuxContext(
 }
 
 func (p *podBinder) addPodSecurityContext(
-	pod *corev1.Pod, bindProfile interface{},
+	pod *corev1.Pod, bindProfile any,
 ) bool {
 	var podChanged bool
 

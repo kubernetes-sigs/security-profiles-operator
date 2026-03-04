@@ -65,9 +65,9 @@ func (e *e2e) waitForJsonEnricherLogs(since time.Time, conditions ...*regexp.Reg
 }
 
 func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*regexp.Regexp) string {
-	logs := ""
+	var logsBuilder strings.Builder
 
-	// This loop will scan for logs for 60 seconds. The logs will be colleted 6 times with an interval of 10 seconds
+	// This loop will scan for logs for 60 seconds. The logs will be collected 6 times with an interval of 10 seconds
 	for range 6 {
 		e.logf("Waiting for JSON enricher to record syscalls")
 
@@ -118,8 +118,10 @@ func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*reg
 				"--target=json-enricher", "--custom="+customProfileYaml, "--", "cat", logFilePath)
 			e.logf("audit logs output: %s is %s", podName, podLogs)
 
-			logs += podLogs
+			logsBuilder.WriteString(podLogs)
 		}
+
+		logs := logsBuilder.String()
 
 		for _, condition := range conditions {
 			if !condition.MatchString(logs) {
@@ -135,7 +137,7 @@ func (e *e2e) waitForJsonEnricherFileLogs(logFilePath string, conditions ...*reg
 		time.Sleep(10 * time.Second)
 	}
 
-	return logs
+	return logsBuilder.String()
 }
 
 func (e *e2e) waitForEnricherLogs(since time.Time, conditions ...*regexp.Regexp) {
@@ -450,6 +452,7 @@ func (e *e2e) testCaseRecordingFinalizers() {
 	if err := spoutil.Retry(func() error {
 		output := e.kubectl("get", "profilerecording", recordingName, "--output", "jsonpath={.status.activeWorkloads[0]}")
 		fmt.Println(output)
+
 		if output != podName {
 			return fmt.Errorf("pod name %s not found in status", podName)
 		}
@@ -580,11 +583,11 @@ func (e *e2e) createRecordingTestDeploymentFromManifest(manifest string) (since 
 	e.setupRecordingSa(e.getCurrentContextNamespace(defaultNamespace))
 
 	testFile, err := os.CreateTemp("", "recording-deployment*.yaml")
-	e.Nil(err)
+	e.Require().NoError(err)
 	_, err = testFile.WriteString(manifest)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = testFile.Close()
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	since = time.Now()
 
@@ -592,7 +595,7 @@ func (e *e2e) createRecordingTestDeploymentFromManifest(manifest string) (since 
 
 	e.retryGet("deploy", deployName)
 	e.waitFor("condition=available", "deploy", deployName)
-	e.Nil(os.Remove(testFile.Name()))
+	e.NoError(os.Remove(testFile.Name()))
 
 	return since, deployName
 }
@@ -647,11 +650,11 @@ spec:
 `
 
 	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
-	e.Nil(err)
+	e.Require().NoError(err)
 	_, err = testPodFile.WriteString(testPod)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = testPodFile.Close()
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	since = time.Now()
 
@@ -660,7 +663,7 @@ spec:
 	e.logf("Waiting for test pod to be initialized")
 	e.retryGet("pod", podName)
 	e.waitFor("condition=ready", "pod", podName)
-	e.Nil(os.Remove(testPodFile.Name()))
+	e.NoError(os.Remove(testPodFile.Name()))
 
 	return since, podName
 }
@@ -700,11 +703,11 @@ spec:
 `
 
 	testPodFile, err := os.CreateTemp("", "recording-pod*.yaml")
-	e.Nil(err)
+	e.Require().NoError(err)
 	_, err = testPodFile.WriteString(testPod)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = testPodFile.Close()
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	since = time.Now()
 
@@ -713,7 +716,7 @@ spec:
 	e.logf("Waiting for test pod to be initialized")
 	e.retryGet("pod", podName)
 	e.waitFor("condition=ready", "pod", podName)
-	e.Nil(os.Remove(testPodFile.Name()))
+	e.NoError(os.Remove(testPodFile.Name()))
 
 	return since, podName
 }
@@ -752,10 +755,10 @@ func (e *e2e) profileRecordingScaleDeployment(
 }
 
 func (e *e2e) getPodSuffixesByLabel(label string) []string { //nolint:unparam // it's better to keep the param around
-	suffixes := make([]string, 0)
 	podNamesString := e.kubectl("get", "pods", "-l", label, "-o", "jsonpath={.items[*].metadata.name}")
-
 	podNames := strings.Fields(podNamesString)
+	suffixes := make([]string, 0, len(podNames))
+
 	for _, podName := range podNames {
 		suffixIdx := strings.LastIndex(podName, "-")
 		suffixes = append(suffixes, podName[suffixIdx+1:])

@@ -32,6 +32,19 @@ func (e *UnsortedFieldsError) Error() string {
 	return fmt.Sprintf("fields parsed that were not specified in the parser.AddFieldSortOrder() call:\n%s", strings.Join(errs, "\n"))
 }
 
+func identityProjection(s string) string {
+	return s
+}
+
+func dnsProjection(s string) string {
+	parts := strings.Split(s, ".")
+	// Reverse `parts`.
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
+	}
+	return strings.Join(parts, ".")
+}
+
 // nodeSortFunction sorts the given nodes, using the parent node as context. parent can be nil.
 type nodeSortFunction func(parent *ast.Node, nodes []*ast.Node) error
 
@@ -43,11 +56,11 @@ type valuesSortFunction func(values []*ast.Value)
 
 // Process sorts and filters the given nodes.
 func Process(parent *ast.Node, nodes []*ast.Node, c config.Config) error {
-	return process(parent, nodes, nodeSortFunctionConfig(c), nodeFilterFunctionConfig(c), valuesSortFunctionConfig(c))
+	return process(parent, nodes, nodeSortFunctionConfig(c), nodeFilterFunctionConfig(c), valuesSortFunctionConfig(c), c)
 }
 
 // process sorts and filters the given nodes.
-func process(parent *ast.Node, nodes []*ast.Node, sortFunction nodeSortFunction, filterFunction nodeFilterFunction, valuesSortFunction valuesSortFunction) error {
+func process(parent *ast.Node, nodes []*ast.Node, sortFunction nodeSortFunction, filterFunction nodeFilterFunction, valuesSortFunction valuesSortFunction, c config.Config) error {
 	if len(nodes) == 0 {
 		return nil
 	}
@@ -55,7 +68,7 @@ func process(parent *ast.Node, nodes []*ast.Node, sortFunction nodeSortFunction,
 		filterFunction(nodes)
 	}
 	for _, nd := range nodes {
-		err := process(nd, nd.Children, sortFunction, filterFunction, valuesSortFunction)
+		err := process(nd, nd.Children, sortFunction, filterFunction, valuesSortFunction, c)
 		if err != nil {
 			return err
 		}
@@ -64,9 +77,44 @@ func process(parent *ast.Node, nodes []*ast.Node, sortFunction nodeSortFunction,
 		}
 	}
 	if sortFunction != nil {
-		return sortFunction(parent, nodes)
+		if err := sortFunction(parent, nodes); err != nil {
+			return err
+		}
+	}
+	if c.UseShortRepeatedPrimitiveFields {
+		groupRepeatedPrimitiveFields(nodes)
 	}
 	return nil
+}
+
+func isPrimitive(n *ast.Node) bool {
+	return len(n.Children) == 0 && len(n.Values) == 1
+}
+
+func groupRepeatedPrimitiveFields(nodes []*ast.Node) {
+	for i := 0; i < len(nodes); {
+		node := nodes[i]
+		if node.Deleted || !isPrimitive(node) {
+			i++
+			continue
+		}
+		j := i + 1
+		for ; j < len(nodes); j++ {
+			if nodes[j].Deleted || !isPrimitive(nodes[j]) || nodes[j].Name != node.Name || len(nodes[j].PreComments) > 0 || len(nodes[j].PostValuesComments) > 0 {
+				break
+			}
+		}
+		if j > i+1 {
+			// Found group of repeated primitive fields: nodes[i...j-1]
+			node.ValuesAsList = true
+			node.ChildrenSameLine = true
+			for k := i + 1; k < j; k++ {
+				node.Values = append(node.Values, nodes[k].Values...)
+				nodes[k].Deleted = true
+			}
+		}
+		i = j
+	}
 }
 
 // removeDuplicates marks duplicate key:value pairs from nodes as Deleted.
@@ -130,13 +178,21 @@ func nodeSortFunctionConfig(c config.Config) nodeSortFunction {
 	if c.SortFieldsByFieldName {
 		sorter = ast.ChainNodeLess(sorter, ast.ByFieldName)
 	}
+	if c.SortFieldsByFieldNumber {
+		sorter = ast.ChainNodeLess(sorter, ast.ByFieldNumber)
+	}
+	projection := identityProjection
+	if c.DNSSortOrder {
+		projection = dnsProjection
+	}
 	if c.SortRepeatedFieldsByContent {
-		sorter = ast.ChainNodeLess(sorter, ast.ByFieldValue)
+		sorter = ast.ChainNodeLess(sorter, ast.ByFieldValue(projection))
 	}
 	for _, sf := range c.SortRepeatedFieldsBySubfield {
 		field, subfieldPath := parseSubfieldSpec(sf)
 		if len(subfieldPath) > 0 {
-			sorter = ast.ChainNodeLess(sorter, ast.ByFieldSubfieldPath(field, subfieldPath))
+			sorter = ast.ChainNodeLess(sorter, ast.ByFieldSubfieldPath(field, subfieldPath,
+				projection))
 		}
 	}
 	if sorter != nil {

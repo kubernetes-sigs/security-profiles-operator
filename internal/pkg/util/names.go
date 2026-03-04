@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -37,17 +38,11 @@ func NamespacedName(name, namespace string) types.NamespacedName {
 
 // Contains returns true if the slice a contains string b.
 func Contains(a []string, b string) bool {
-	for _, s := range a {
-		if s == b {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(a, b)
 }
 
 // LengthName creates a string of maximum defined length.
-func lengthName(maxLen int, hashPrefix, format string, a ...interface{}) (string, error) {
+func lengthName(maxLen int, hashPrefix, format string, a ...any) (string, error) {
 	friendlyName := fmt.Sprintf(format, a...)
 	if len(friendlyName) < maxLen {
 		return friendlyName, nil
@@ -75,7 +70,7 @@ func lengthName(maxLen int, hashPrefix, format string, a ...interface{}) (string
 	return hashedName, nil
 }
 
-func dnsLengthName(hashPrefix, format string, a ...interface{}) string {
+func dnsLengthName(hashPrefix, format string, a ...any) string {
 	//nolint:errcheck // (jhrozek): I think it makes sense to make the utility
 	// 					  function return error, but here I think it's OK to
 	// 					  just ignore

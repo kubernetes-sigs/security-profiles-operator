@@ -11,17 +11,17 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package gitlab
 
-import (
-	"fmt"
-	"net/http"
-)
+package gitlab
 
 type (
 	// DeploymentMergeRequestsServiceInterface defines all the API methods for the DeploymentMergeRequestsService
 	DeploymentMergeRequestsServiceInterface interface {
-		ListDeploymentMergeRequests(pid any, deployment int, opts *ListMergeRequestsOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error)
+		// ListDeploymentMergeRequests get the merge requests associated with deployment.
+		//
+		// GitLab API docs:
+		// https://docs.gitlab.com/api/deployments/#list-of-merge-requests-associated-with-a-deployment
+		ListDeploymentMergeRequests(pid any, deployment int64, opts *ListMergeRequestsOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error)
 	}
 
 	// DeploymentMergeRequestsService handles communication with the deployment's
@@ -36,27 +36,10 @@ type (
 
 var _ DeploymentMergeRequestsServiceInterface = (*DeploymentMergeRequestsService)(nil)
 
-// ListDeploymentMergeRequests get the merge requests associated with deployment.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/api/deployments/#list-of-merge-requests-associated-with-a-deployment
-func (s *DeploymentMergeRequestsService) ListDeploymentMergeRequests(pid any, deployment int, opts *ListMergeRequestsOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error) {
-	project, err := parseID(pid)
-	if err != nil {
-		return nil, nil, err
-	}
-	u := fmt.Sprintf("projects/%s/deployments/%d/merge_requests", PathEscape(project), deployment)
-
-	req, err := s.client.NewRequest(http.MethodGet, u, opts, options)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var mrs []*MergeRequest
-	resp, err := s.client.Do(req, &mrs)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return mrs, resp, nil
+func (s *DeploymentMergeRequestsService) ListDeploymentMergeRequests(pid any, deployment int64, opts *ListMergeRequestsOptions, options ...RequestOptionFunc) ([]*MergeRequest, *Response, error) {
+	return do[[]*MergeRequest](s.client,
+		withPath("projects/%s/deployments/%d/merge_requests", ProjectID{pid}, deployment),
+		withAPIOpts(opts),
+		withRequestOpts(options...),
+	)
 }

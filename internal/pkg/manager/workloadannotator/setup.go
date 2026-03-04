@@ -42,6 +42,7 @@ func (r *PodReconciler) Setup(
 
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
+	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
 	r.record = mgr.GetEventRecorderFor(name)
 
 	// Index Pods using seccomp profiles

@@ -123,6 +123,9 @@ func (w *Visitor) node(n adt.Node) {
 		w.node(x.X)
 		w.node(x.Y)
 
+	case *adt.OpenExpr:
+		w.node(x.X)
+
 	case *adt.CallExpr:
 		w.node(x.Fun)
 		for _, arg := range x.Args {
@@ -164,6 +167,9 @@ func (w *Visitor) node(n adt.Node) {
 			w.node(c)
 		}
 		w.node(adt.ToExpr(x.Value))
+		if x.Fallback != nil {
+			w.node(x.Fallback)
+		}
 
 	case *adt.ForClause:
 		w.feature(x.Key, x)
@@ -175,6 +181,14 @@ func (w *Visitor) node(n adt.Node) {
 	case *adt.LetClause:
 		w.feature(x.Label, x)
 		w.node(x.Expr)
+
+	case *adt.TryClause:
+		if x.Expr != nil {
+			// Assignment form
+			w.feature(x.Label, x)
+			w.node(x.Expr)
+		}
+		// Struct form: body is in Comprehension.Value, walked separately
 
 	case *adt.ValueClause:
 

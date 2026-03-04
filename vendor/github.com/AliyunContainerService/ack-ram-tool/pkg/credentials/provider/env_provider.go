@@ -26,9 +26,14 @@ type EnvProviderOptions struct {
 	EnvOIDCProviderArn string
 	EnvOIDCTokenFile   string
 
-	EnvCredentialsURI string
+	EnvCredentialsURI    string
+	EnvConfigFile        string
+	EnvConfigSectionName string
 
-	stsEndpoint string
+	EnvIMDSRoleName string
+
+	STSEndpoint string
+	Logger      Logger
 }
 
 func NewEnvProvider(opts EnvProviderOptions) *EnvProvider {
@@ -67,37 +72,75 @@ func (e *EnvProvider) getProvider(opts EnvProviderOptions) CredentialsProvider {
 	oidcProviderArn := os.Getenv(opts.EnvOIDCProviderArn)
 	oidcTokenFile := os.Getenv(opts.EnvOIDCTokenFile)
 	credentialsURI := os.Getenv(opts.EnvCredentialsURI)
+	iniConfigPath := os.Getenv(opts.EnvConfigFile)
+	iniConfigSectionName := os.Getenv(opts.EnvConfigSectionName)
+	imdsRoleName := os.Getenv(opts.EnvIMDSRoleName)
 
 	switch {
 	case accessKeyId != "" && accessKeySecret != "" && securityToken != "":
-		return NewSTSTokenProvider(
+		cp := NewSTSTokenProvider(
 			os.Getenv(opts.EnvAccessKeyId),
 			os.Getenv(opts.EnvAccessKeySecret),
 			os.Getenv(opts.EnvSecurityToken),
 		)
-
-	case roleArn != "" && oidcProviderArn != "" && oidcTokenFile != "":
-		return NewOIDCProvider(OIDCProviderOptions{
-			RoleArn:         os.Getenv(opts.EnvRoleArn),
-			OIDCProviderArn: os.Getenv(opts.EnvOIDCProviderArn),
-			OIDCTokenFile:   os.Getenv(opts.EnvOIDCTokenFile),
-			STSEndpoint:     opts.stsEndpoint,
+		if roleArn == "" {
+			return cp
+		}
+		return NewRoleArnProvider(cp, roleArn, RoleArnProviderOptions{
+			STSEndpoint: opts.STSEndpoint,
+			Logger:      opts.Logger,
 		})
 
-	case credentialsURI != "":
-		return NewURIProvider(credentialsURI, URIProviderOptions{})
-
 	case accessKeyId != "" && accessKeySecret != "":
-		return NewAccessKeyProvider(
+		cp := NewAccessKeyProvider(
 			os.Getenv(opts.EnvAccessKeyId),
 			os.Getenv(opts.EnvAccessKeySecret),
 		)
-
-	default:
-		return &errorProvider{
-			err: NewNoAvailableProviderError(
-				errors.New("no validated credentials were found in environment variables")),
+		if roleArn == "" {
+			return cp
 		}
+		return NewRoleArnProvider(cp, roleArn, RoleArnProviderOptions{
+			STSEndpoint: opts.STSEndpoint,
+			Logger:      opts.Logger,
+		})
+
+	case roleArn != "" && oidcProviderArn != "" && oidcTokenFile != "":
+		return NewOIDCProvider(OIDCProviderOptions{
+			RoleArn:         roleArn,
+			OIDCProviderArn: oidcProviderArn,
+			OIDCTokenFile:   oidcTokenFile,
+			STSEndpoint:     opts.STSEndpoint,
+			Logger:          opts.Logger,
+		})
+
+	case credentialsURI != "":
+		return NewURIProvider(credentialsURI, URIProviderOptions{
+			Logger: opts.Logger,
+		})
+
+	case imdsRoleName != "":
+		return NewECSMetadataProvider(ECSMetadataProviderOptions{
+			RoleName: imdsRoleName,
+			Logger:   opts.Logger,
+		})
+
+	case iniConfigPath != "":
+		cp, err := NewIniConfigProvider(INIConfigProviderOptions{
+			ConfigPath:  iniConfigPath,
+			SectionName: iniConfigSectionName,
+			STSEndpoint: opts.STSEndpoint,
+			Logger:      opts.Logger,
+		})
+		if err != nil {
+			opts.Logger.Debug(err.Error())
+		} else {
+			return cp
+		}
+	}
+
+	return &errorProvider{
+		err: NewNoAvailableProviderError(
+			errors.New("no validated credentials were found in environment variables")),
 	}
 }
 
@@ -124,5 +167,19 @@ func (o *EnvProviderOptions) applyDefaults() {
 
 	if o.EnvCredentialsURI == "" {
 		o.EnvCredentialsURI = envCredentialsURI
+	}
+	if o.EnvConfigFile == "" {
+		o.EnvConfigFile = envINIConfigFile
+	}
+	if o.EnvConfigSectionName == "" {
+		o.EnvConfigSectionName = envProfileName
+	}
+
+	if o.EnvIMDSRoleName == "" {
+		o.EnvIMDSRoleName = envIMDSRoleName
+	}
+
+	if o.Logger == nil {
+		o.Logger = DefaultLogger
 	}
 }

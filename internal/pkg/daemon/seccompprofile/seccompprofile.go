@@ -26,6 +26,7 @@ import (
 	"os"
 	"path"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -176,7 +177,7 @@ func (r *Reconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	r.record = mgr.GetEventRecorderFor("profile")
+	r.record = mgr.GetEventRecorderFor("profile") //nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
 	r.save = saveProfileOnDisk
 	r.metrics = met
 
@@ -376,9 +377,9 @@ func (r *Reconciler) resolveSyscallsForProfile(
 
 	var baseProfile *seccompprofileapi.SeccompProfile
 
-	if strings.HasPrefix(baseProfileName, config.OCIProfilePrefix) {
+	if after, ok := strings.CutPrefix(baseProfileName, config.OCIProfilePrefix); ok {
 		// Pull remote base profile from an OCI artifact registry
-		from := strings.TrimPrefix(baseProfileName, config.OCIProfilePrefix)
+		from := after
 
 		item := r.baseProfiles.Get(from)
 		if item != nil {
@@ -727,11 +728,5 @@ func allowProfile(
 }
 
 func containsAction(actions []seccomp.Action, action seccomp.Action) bool {
-	for _, act := range actions {
-		if act == action {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(actions, action)
 }

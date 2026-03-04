@@ -1,5 +1,4 @@
 //go:build s390x && linux
-// +build s390x,linux
 
 /*
 Copyright 2025 The Kubernetes Authors.

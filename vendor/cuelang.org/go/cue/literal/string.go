@@ -22,10 +22,12 @@ import (
 )
 
 var (
-	errSyntax            = errors.New("invalid syntax")
-	errInvalidWhitespace = errors.New("invalid string: invalid whitespace")
-	errMissingNewline    = errors.New(
+	errSyntax                = errors.New("invalid syntax")
+	errInvalidWhitespace     = errors.New("invalid string: invalid whitespace")
+	errMissingOpeningNewline = errors.New(
 		"invalid string: opening quote of multiline string must be followed by newline")
+	errMissingClosingNewline = errors.New(
+		"invalid string: closing quote of multiline string must follow a newline")
 	errUnmatchedQuote = errors.New("invalid string: unmatched quote")
 	// TODO: making this an error is optional according to RFC 4627. But we
 	// could make it not an error if this ever results in an issue.
@@ -84,7 +86,7 @@ func ParseQuotes(start, end string) (q QuoteInfo, nStart, nEnd int, err error) {
 	switch s[0] {
 	case '"', '\'':
 		q.char = s[0]
-		if len(s) > 3 && s[1] == s[0] && s[2] == s[0] {
+		if len(s) > 3 && s[1] == q.char && s[2] == q.char && s[3] != '#' {
 			switch s[3] {
 			case '\n':
 				q.quote = start[:3+q.numHash]
@@ -95,7 +97,7 @@ func ParseQuotes(start, end string) (q QuoteInfo, nStart, nEnd int, err error) {
 				}
 				fallthrough
 			default:
-				return q, 0, 0, errMissingNewline
+				return q, 0, 0, errMissingOpeningNewline
 			}
 			q.multiline = true
 			q.numChar = 3
@@ -116,12 +118,17 @@ func ParseQuotes(start, end string) (q QuoteInfo, nStart, nEnd int, err error) {
 	}
 	if q.multiline {
 		i := len(end) - len(quote)
+		hasNewline := false
 		for i > 0 {
 			r, size := utf8.DecodeLastRuneInString(end[:i])
 			if r == '\n' || !unicode.IsSpace(r) {
+				hasNewline = r == '\n'
 				break
 			}
 			i -= size
+		}
+		if !hasNewline {
+			return q, 0, 0, errMissingClosingNewline
 		}
 		q.whitespace = end[i : len(end)-len(quote)]
 
@@ -398,7 +405,7 @@ func unquoteChar(s string, info QuoteInfo) (value rune, multibyte bool, tail str
 			err = errSyntax
 			return
 		}
-		for j := 0; j < 2; j++ { // one digit already; two more
+		for j := range 2 { // one digit already; two more
 			x := rune(s[j]) - '0'
 			if x < 0 || x > 7 {
 				err = errSyntax

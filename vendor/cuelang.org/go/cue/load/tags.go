@@ -83,14 +83,12 @@ type TagVar struct {
 	Description string
 }
 
-const rfc3339 = "2006-01-02T15:04:05.999999999Z"
-
 // DefaultTagVars creates a new map with a set of supported injection variables.
 func DefaultTagVars() map[string]TagVar {
 	return map[string]TagVar{
 		"now": {
 			Func: func() (ast.Expr, error) {
-				return ast.NewString(time.Now().UTC().Format(rfc3339)), nil
+				return ast.NewString(time.Now().UTC().Format(time.RFC3339Nano)), nil
 			},
 		},
 		"os": {
@@ -125,10 +123,7 @@ func DefaultTagVars() map[string]TagVar {
 		"rand": {
 			Func: func() (ast.Expr, error) {
 				var b [16]byte
-				_, err := rand.Read(b[:])
-				if err != nil {
-					return nil, err
-				}
+				rand.Read(b[:])
 				var hx [34]byte
 				hx[0] = '0'
 				hx[1] = 'x'
@@ -143,8 +138,7 @@ func varToString(s string, err error) (ast.Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	x := ast.NewString(s)
-	return x, nil
+	return ast.NewString(s), nil
 }
 
 // A tag binds an identifier to a field to allow passing command-line values.
@@ -201,7 +195,7 @@ func parseTag(pos token.Pos, body string) (t *tag, err errors.Error) {
 	}
 
 	if s, ok, _ := a.Lookup(1, "short"); ok {
-		for _, s := range strings.Split(s, "|") {
+		for s := range strings.SplitSeq(s, "|") {
 			if !ast.IsValidIdent(t.key) {
 				return t, errors.Newf(pos, "invalid identifier %q", s)
 			}
@@ -218,8 +212,11 @@ func parseTag(pos token.Pos, body string) (t *tag, err errors.Error) {
 
 func (t *tag) inject(value string, tg *tagger) errors.Error {
 	e, err := cli.ParseValue(token.NoPos, t.key, value, t.kind)
+	if err != nil {
+		return err
+	}
 	t.injectValue(e, tg)
-	return err
+	return nil
 }
 
 func (t *tag) injectValue(x ast.Expr, tg *tagger) {
@@ -262,8 +259,7 @@ func findTags(b *build.Instance) (tags []*tag, errs errors.Error) {
 			case *ast.Field:
 				// TODO: allow optional fields?
 				_, _, err := ast.LabelName(x.Label)
-				_, ok := internal.ConstraintToken(x)
-				if err != nil || ok {
+				if err != nil || x.Constraint != token.ILLEGAL {
 					findInvalidTags(n, "@tag not allowed within field constraint")
 					return false
 				}

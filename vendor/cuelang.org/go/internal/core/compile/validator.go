@@ -29,7 +29,7 @@ var matchNBuiltin = &adt.Builtin{
 	Params:      []adt.Param{topParam, intParam, listParam}, // varargs
 	Result:      adt.BoolKind,
 	NonConcrete: true,
-	Func: func(call *adt.CallContext) adt.Expr {
+	Func: func(call adt.CallContext) adt.Expr {
 		c := call.OpContext()
 		args := call.Args()
 
@@ -39,15 +39,12 @@ var matchNBuiltin = &adt.Builtin{
 
 		self := finalizeSelf(c, args[0])
 		if err := bottom(c, self); err != nil {
-			return &adt.Bool{B: false}
+			return adt.StaticBoolFalse
 		}
 
 		var errs []*adt.Bottom
-
-		constraints := c.Elems(args[2])
-
 		var count, possibleCount int64
-		for _, check := range constraints {
+		for check := range c.Elems(args[2]) {
 			v := adt.Unify(c, self, check)
 			if err := adt.Validate(c, v, finalCfg); err == nil {
 				// TODO: is it always true that the lack of an error signifies
@@ -77,7 +74,7 @@ var matchNBuiltin = &adt.Builtin{
 			}
 			return b
 		}
-		return &adt.Bool{B: true}
+		return adt.StaticBoolTrue
 	},
 }
 
@@ -91,7 +88,7 @@ var matchIfBuiltin = &adt.Builtin{
 	Params:      []adt.Param{topParam, topParam, topParam, topParam},
 	Result:      adt.BoolKind,
 	NonConcrete: true,
-	Func: func(call *adt.CallContext) adt.Expr {
+	Func: func(call adt.CallContext) adt.Expr {
 		c := call.OpContext()
 		args := call.Args()
 
@@ -101,7 +98,7 @@ var matchIfBuiltin = &adt.Builtin{
 
 		self := finalizeSelf(c, args[0])
 		if err := bottom(c, self); err != nil {
-			return &adt.Bool{B: false}
+			return adt.StaticBoolFalse
 		}
 		ifSchema, thenSchema, elseSchema := args[1], args[2], args[3]
 		v := adt.Unify(c, self, ifSchema)
@@ -114,7 +111,7 @@ var matchIfBuiltin = &adt.Builtin{
 		v = adt.Unify(c, self, chosenSchema)
 		err := adt.Validate(c, v, finalCfg)
 		if err == nil {
-			return &adt.Bool{B: true}
+			return adt.StaticBoolTrue
 		}
 		// TODO should we also include in the error something about the fact that
 		// the if condition passed or failed?
@@ -122,7 +119,8 @@ var matchIfBuiltin = &adt.Builtin{
 	},
 }
 
-var finalCfg = &adt.ValidateConfig{Final: true}
+// Explicitly disallow incomplete errors.
+var finalCfg = &adt.ValidateConfig{ReportIncomplete: true, Final: true}
 
 // finalizeSelf ensures a value is fully evaluated and then strips it of any
 // of its validators or default values.

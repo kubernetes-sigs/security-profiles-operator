@@ -39,7 +39,7 @@ func TestNewFromMap(t *testing.T) {
 
 	for k, v := range input {
 		assert.True(t, actual.Exists(k), "should find map item in forward direction")
-		assert.True(t, actual.ExistsBackwards(v), "should find map item in backward diretion")
+		assert.True(t, actual.ExistsBackwards(v), "should find map item in backward direction")
 	}
 }
 

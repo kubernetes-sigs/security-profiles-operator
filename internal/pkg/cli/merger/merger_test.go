@@ -1,5 +1,4 @@
 //go:build linux && !no_bpf
-// +build linux,!no_bpf
 
 /*
 Copyright 2024 The Kubernetes Authors.
@@ -102,6 +101,7 @@ func TestRun(t *testing.T) {
 			},
 			assert: func(mock *mergerfakes.FakeImpl, err error) {
 				require.NoError(t, err)
+
 				_, merged, _ := mock.WriteFileArgsForCall(0)
 				require.Equal(t, SeccompMerged, string(merged))
 			},

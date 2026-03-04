@@ -198,11 +198,11 @@ type FakeImpl struct {
 		result1 *tail.Tail
 		result2 error
 	}
-	YamlUnmarshalStub        func([]byte, interface{}) error
+	YamlUnmarshalStub        func([]byte, any) error
 	yamlUnmarshalMutex       sync.RWMutex
 	yamlUnmarshalArgsForCall []struct {
 		arg1 []byte
-		arg2 interface{}
+		arg2 any
 	}
 	yamlUnmarshalReturns struct {
 		result1 error
@@ -1063,7 +1063,7 @@ func (fake *FakeImpl) TailFileReturnsOnCall(i int, result1 *tail.Tail, result2 e
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) YamlUnmarshal(arg1 []byte, arg2 interface{}) error {
+func (fake *FakeImpl) YamlUnmarshal(arg1 []byte, arg2 any) error {
 	var arg1Copy []byte
 	if arg1 != nil {
 		arg1Copy = make([]byte, len(arg1))
@@ -1073,7 +1073,7 @@ func (fake *FakeImpl) YamlUnmarshal(arg1 []byte, arg2 interface{}) error {
 	ret, specificReturn := fake.yamlUnmarshalReturnsOnCall[len(fake.yamlUnmarshalArgsForCall)]
 	fake.yamlUnmarshalArgsForCall = append(fake.yamlUnmarshalArgsForCall, struct {
 		arg1 []byte
-		arg2 interface{}
+		arg2 any
 	}{arg1Copy, arg2})
 	stub := fake.YamlUnmarshalStub
 	fakeReturns := fake.yamlUnmarshalReturns
@@ -1094,13 +1094,13 @@ func (fake *FakeImpl) YamlUnmarshalCallCount() int {
 	return len(fake.yamlUnmarshalArgsForCall)
 }
 
-func (fake *FakeImpl) YamlUnmarshalCalls(stub func([]byte, interface{}) error) {
+func (fake *FakeImpl) YamlUnmarshalCalls(stub func([]byte, any) error) {
 	fake.yamlUnmarshalMutex.Lock()
 	defer fake.yamlUnmarshalMutex.Unlock()
 	fake.YamlUnmarshalStub = stub
 }
 
-func (fake *FakeImpl) YamlUnmarshalArgsForCall(i int) ([]byte, interface{}) {
+func (fake *FakeImpl) YamlUnmarshalArgsForCall(i int) ([]byte, any) {
 	fake.yamlUnmarshalMutex.RLock()
 	defer fake.yamlUnmarshalMutex.RUnlock()
 	argsForCall := fake.yamlUnmarshalArgsForCall[i]

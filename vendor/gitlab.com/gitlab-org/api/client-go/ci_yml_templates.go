@@ -17,13 +17,21 @@
 package gitlab
 
 import (
-	"fmt"
 	"net/http"
 )
 
 type (
 	CIYMLTemplatesServiceInterface interface {
+		// ListAllTemplates get all GitLab CI YML templates.
+		//
+		// GitLab API docs:
+		// https://docs.gitlab.com/api/templates/gitlab_ci_ymls/#list-gitlab-ci-yaml-templates
 		ListAllTemplates(opt *ListCIYMLTemplatesOptions, options ...RequestOptionFunc) ([]*CIYMLTemplateListItem, *Response, error)
+
+		// GetTemplate get a single GitLab CI YML template.
+		//
+		// GitLab API docs:
+		// https://docs.gitlab.com/api/templates/gitlab_ci_ymls/#single-gitlab-ci-yaml-template
 		GetTemplate(key string, options ...RequestOptionFunc) (*CIYMLTemplate, *Response, error)
 	}
 
@@ -61,44 +69,23 @@ type CIYMLTemplateListItem struct {
 //
 // GitLab API docs:
 // https://docs.gitlab.com/api/templates/gitlab_ci_ymls/#list-gitlab-ci-yaml-templates
-type ListCIYMLTemplatesOptions ListOptions
-
-// ListAllTemplates get all GitLab CI YML templates.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/api/templates/gitlab_ci_ymls/#list-gitlab-ci-yaml-templates
-func (s *CIYMLTemplatesService) ListAllTemplates(opt *ListCIYMLTemplatesOptions, options ...RequestOptionFunc) ([]*CIYMLTemplateListItem, *Response, error) {
-	req, err := s.client.NewRequest(http.MethodGet, "templates/gitlab_ci_ymls", opt, options)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var cts []*CIYMLTemplateListItem
-	resp, err := s.client.Do(req, &cts)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return cts, resp, nil
+type ListCIYMLTemplatesOptions struct {
+	ListOptions
 }
 
-// GetTemplate get a single GitLab CI YML template.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/api/templates/gitlab_ci_ymls/#single-gitlab-ci-yaml-template
+func (s *CIYMLTemplatesService) ListAllTemplates(opt *ListCIYMLTemplatesOptions, options ...RequestOptionFunc) ([]*CIYMLTemplateListItem, *Response, error) {
+	return do[[]*CIYMLTemplateListItem](s.client,
+		withMethod(http.MethodGet),
+		withPath("templates/gitlab_ci_ymls"),
+		withAPIOpts(opt),
+		withRequestOpts(options...),
+	)
+}
+
 func (s *CIYMLTemplatesService) GetTemplate(key string, options ...RequestOptionFunc) (*CIYMLTemplate, *Response, error) {
-	u := fmt.Sprintf("templates/gitlab_ci_ymls/%s", PathEscape(key))
-
-	req, err := s.client.NewRequest(http.MethodGet, u, nil, options)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	ct := new(CIYMLTemplate)
-	resp, err := s.client.Do(req, ct)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return ct, resp, nil
+	return do[*CIYMLTemplate](s.client,
+		withMethod(http.MethodGet),
+		withPath("templates/gitlab_ci_ymls/%s", key),
+		withRequestOpts(options...),
+	)
 }

@@ -33,6 +33,7 @@ type CommandStep struct {
 	// Fields that are meaningful specifically for command steps
 	Command   string            `yaml:"command"`
 	Plugins   Plugins           `yaml:"plugins,omitempty"`
+	Secrets   Secrets           `yaml:"secrets,omitempty"`
 	Env       map[string]string `yaml:"env,omitempty"`
 	Signature *Signature        `yaml:"signature,omitempty"`
 	Matrix    *Matrix           `yaml:"matrix,omitempty"`
@@ -99,7 +100,7 @@ func (c *CommandStep) InterpolateMatrixPermutation(mp MatrixPermutation) error {
 
 func (c *CommandStep) interpolate(tf stringTransformer) error {
 	// Fields that are interpolated with env vars and matrix tokens:
-	// command, plugins
+	// command, plugins, secrets
 	if err := interpolateString(tf, &c.Command); err != nil {
 		return fmt.Errorf("interpolating command: %w", err)
 	}
@@ -108,6 +109,9 @@ func (c *CommandStep) interpolate(tf stringTransformer) error {
 	}
 	if err := interpolateSlice(tf, c.Plugins); err != nil {
 		return fmt.Errorf("interpolating plugins: %w", err)
+	}
+	if err := interpolateSlice(tf, c.Secrets); err != nil {
+		return fmt.Errorf("interpolating secrets: %w", err)
 	}
 
 	switch tf.(type) {
@@ -139,6 +143,12 @@ func (c *CommandStep) interpolate(tf stringTransformer) error {
 	}
 
 	return nil
+}
+
+// MergeSecretsFromPipeline merges pipeline-level secrets with this step's secrets.
+// Step-level secrets take precedence over pipeline-level secrets for deduplication.
+func (c *CommandStep) MergeSecretsFromPipeline(pipelineSecrets Secrets) {
+	c.Secrets = pipelineSecrets.MergeWith(c.Secrets)
 }
 
 func (CommandStep) stepTag() {}

@@ -29,6 +29,7 @@ import (
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/format"
 	"cuelang.org/go/cue/token"
+	"cuelang.org/go/encoding/jsonschema"
 	"cuelang.org/go/encoding/openapi"
 	"cuelang.org/go/encoding/protobuf/jsonpb"
 	"cuelang.org/go/encoding/protobuf/textproto"
@@ -84,18 +85,21 @@ func NewEncoder(ctx *cue.Context, f *build.File, cfg *Config) (*Encoder, error) 
 		e.interpret = func(v cue.Value) (*ast.File, error) {
 			return openapi.Generate(v, cfg)
 		}
+	case build.JSONSchema:
+		// TODO: get encoding options
+		cfg := &jsonschema.GenerateConfig{}
+		e.interpret = func(v cue.Value) (*ast.File, error) {
+			expr, err := jsonschema.Generate(v, cfg)
+			if err != nil {
+				return nil, err
+			}
+			return internal.ToFile(expr, false), nil
+		}
 	case build.ProtobufJSON:
 		e.interpret = func(v cue.Value) (*ast.File, error) {
-			f := internal.ToFile(v.Syntax())
+			f := internal.ToFile(v.Syntax(), false)
 			return f, jsonpb.NewEncoder(v).RewriteFile(f)
 		}
-
-	// case build.JSONSchema:
-	// 	// TODO: get encoding options
-	// 	cfg := openapi.Config{}
-	// 	i.interpret = func(inst *cue.Instance) (*ast.File, error) {
-	// 		return jsonschmea.Generate(inst, cfg)
-	// 	}
 	default:
 		return nil, fmt.Errorf("unsupported interpretation %q", f.Interpretation)
 	}
@@ -143,7 +147,7 @@ func NewEncoder(ctx *cue.Context, f *build.File, cfg *Config) (*Encoder, error) 
 
 			// Casting an ast.Expr to an ast.File ensures that it always ends
 			// with a newline.
-			f := internal.ToFile(n)
+			f := internal.ToFile(n, false)
 			if e.cfg.PkgName != "" && f.PackageName() == "" {
 				pkg := &ast.Package{
 					PackagePos: token.NoPos.WithRel(token.NewSection),
@@ -250,40 +254,37 @@ func NewEncoder(ctx *cue.Context, f *build.File, cfg *Config) (*Encoder, error) 
 }
 
 func (e *Encoder) EncodeFile(f *ast.File) error {
-	e.autoSimplify = false
-	return e.encodeFile(f, e.interpret)
+	if e.interpret == nil && e.encFile != nil {
+		// TODO it's not clear that it's actually desirable to turn
+		// off simplification in this case. This case generally arises
+		// when we're producing CUE code with `cue eval` and
+		// simplified results seem generally preferable.
+		e.autoSimplify = false
+		return e.encFile(f)
+	}
+	e.autoSimplify = true
+	return e.Encode(e.ctx.BuildFile(f))
 }
 
 func (e *Encoder) Encode(v cue.Value) error {
 	e.autoSimplify = true
-	if err := v.Validate(cue.Concrete(e.concrete)); err != nil {
-		return err
-	}
-	if e.interpret != nil {
-		f, err := e.interpret(v)
-		if err != nil {
+	if e.interpret == nil {
+		if err := v.Validate(cue.Concrete(e.concrete)); err != nil {
 			return err
 		}
-		return e.encodeFile(f, nil)
-	}
-	if e.encValue != nil {
 		return e.encValue(v)
 	}
-	return e.encFile(internal.ToFile(v.Syntax()))
-}
-
-func (e *Encoder) encodeFile(f *ast.File, interpret func(cue.Value) (*ast.File, error)) error {
-	if interpret == nil && e.encFile != nil {
-		return e.encFile(f)
-	}
-	e.autoSimplify = true
-	v := e.ctx.BuildFile(f)
-	if err := v.Err(); err != nil {
+	if err := v.Validate(); err != nil {
 		return err
 	}
-	if interpret != nil {
-		return e.Encode(v)
+	f, err := e.interpret(v)
+	if err != nil {
+		return err
 	}
+	if e.encFile != nil {
+		return e.encFile(f)
+	}
+	v = e.ctx.BuildFile(f)
 	if err := v.Validate(cue.Concrete(e.concrete)); err != nil {
 		return err
 	}
@@ -311,10 +312,18 @@ func writer(f *build.File, cfg *Config) (_ io.Writer, close func() error) {
 			mode = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 		}
 		f, err := os.OpenFile(path, mode, 0o666)
-		if err != nil {
-			if errors.Is(err, fs.ErrExist) {
+		if errors.Is(err, fs.ErrExist) {
+			// If we failed because the file already existed,
+			// but the file in question is not regular, allow writing to it.
+			// This is done as a retry to avoid a Stat call before every OpenFile.
+			stat, err2 := os.Stat(path)
+			if err2 == nil && !stat.Mode().IsRegular() {
+				f, err = os.OpenFile(path, os.O_WRONLY, 0o666)
+			} else {
 				return errors.Wrapf(fs.ErrExist, token.NoPos, "error writing %q", path)
 			}
+		}
+		if err != nil {
 			return err
 		}
 		_, err = f.Write(b.Bytes())

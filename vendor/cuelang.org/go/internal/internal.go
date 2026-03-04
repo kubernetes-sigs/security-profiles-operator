@@ -23,14 +23,12 @@ import (
 	"bufio"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cockroachdb/apd/v3"
 
 	"cuelang.org/go/cue/ast"
-	"cuelang.org/go/cue/ast/astutil"
-	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
 )
 
@@ -87,26 +85,8 @@ func (c Context) Sqrt(d, x *apd.Decimal) (apd.Condition, error) {
 	return res, err
 }
 
-// ErrIncomplete can be used by builtins to signal the evaluation was
-// incomplete.
-var ErrIncomplete = errors.New("incomplete value")
-
 // BaseContext is used as CUE's default context for arbitrary-precision decimals.
 var BaseContext = Context{*apd.BaseContext.WithPrecision(34)}
-
-// APIVersionSupported is the back version until which deprecated features
-// are still supported.
-var APIVersionSupported = Version(MinorSupported, PatchSupported)
-
-const (
-	MinorCurrent   = 5
-	MinorSupported = 4
-	PatchSupported = 0
-)
-
-func Version(minor, patch int) int {
-	return -1000 + 100*minor + patch
-}
 
 // EvaluatorVersion is declared here so it can be used everywhere without import cycles,
 // but the canonical documentation lives at [cuelang.org/go/cue/cuecontext.EvalVersion].
@@ -137,62 +117,23 @@ const (
 	DevVersion    = EvalV3 // TODO(mvdan): rename to EvalExperiment for consistency with cuecontext
 )
 
-// ListEllipsis reports the list type and remaining elements of a list. If we
-// ever relax the usage of ellipsis, this function will likely change. Using
-// this function will ensure keeping correct behavior or causing a compiler
-// failure.
-func ListEllipsis(n *ast.ListLit) (elts []ast.Expr, e *ast.Ellipsis) {
-	elts = n.Elts
-	if n := len(elts); n > 0 {
-		var ok bool
-		if e, ok = elts[n-1].(*ast.Ellipsis); ok {
-			elts = elts[:n-1]
-		}
-	}
-	return elts, e
-}
-
-// Package finds the package declaration from the preamble of a file.
-func Package(f *ast.File) *ast.Package {
-	for _, d := range f.Decls {
+// Package finds the package declaration from the preamble of a file,
+// returning it, and its index within the file's Decls.
+func Package(f *ast.File) (*ast.Package, int) {
+	for i, d := range f.Decls {
 		switch d := d.(type) {
 		case *ast.CommentGroup:
 		case *ast.Attribute:
 		case *ast.Package:
 			if d.Name == nil { // malformed package declaration
-				return nil
+				return nil, -1
 			}
-			return d
+			return d, i
 		default:
-			return nil
+			return nil, -1
 		}
 	}
-	return nil
-}
-
-func SetPackage(f *ast.File, name string, overwrite bool) {
-	if pkg := Package(f); pkg != nil {
-		if !overwrite || pkg.Name.Name == name {
-			return
-		}
-		ident := ast.NewIdent(name)
-		astutil.CopyMeta(ident, pkg.Name)
-		return
-	}
-
-	decls := make([]ast.Decl, len(f.Decls)+1)
-	k := 0
-	for _, d := range f.Decls {
-		if _, ok := d.(*ast.CommentGroup); ok {
-			decls[k] = d
-			k++
-			continue
-		}
-		break
-	}
-	decls[k] = &ast.Package{Name: ast.NewIdent(name)}
-	copy(decls[k+1:], f.Decls[k:])
-	f.Decls = decls
+	return nil, -1
 }
 
 // NewComment creates a new CommentGroup from the given text.
@@ -217,7 +158,7 @@ func NewComment(isDoc bool, s string) *ast.CommentGroup {
 		buf.WriteString("//")
 		for scanner.Scan() {
 			s := scanner.Text()
-			n := len([]rune(s)) + 1
+			n := utf8.RuneCountInString(s) + 1
 			if count+n > maxRunesPerLine && count > 3 {
 				cg.List = append(cg.List, &ast.Comment{Text: buf.String()})
 				count = 3
@@ -238,12 +179,12 @@ func NewComment(isDoc bool, s string) *ast.CommentGroup {
 
 func FileComments(f *ast.File) (docs, rest []*ast.CommentGroup) {
 	hasPkg := false
-	if pkg := Package(f); pkg != nil {
+	if pkg, _ := Package(f); pkg != nil {
 		hasPkg = true
-		docs = pkg.Comments()
+		docs = ast.Comments(pkg)
 	}
 
-	for _, c := range f.Comments() {
+	for _, c := range ast.Comments(f) {
 		if c.Doc {
 			docs = append(docs, c)
 		} else {
@@ -258,49 +199,6 @@ func FileComments(f *ast.File) (docs, rest []*ast.CommentGroup) {
 	}
 
 	return
-}
-
-// MergeDocs merges multiple doc comments into one single doc comment.
-func MergeDocs(comments []*ast.CommentGroup) []*ast.CommentGroup {
-	if len(comments) <= 1 || !hasDocComment(comments) {
-		return comments
-	}
-
-	comments1 := make([]*ast.CommentGroup, 0, len(comments))
-	comments1 = append(comments1, nil)
-	var docComment *ast.CommentGroup
-	for _, c := range comments {
-		switch {
-		case !c.Doc:
-			comments1 = append(comments1, c)
-		case docComment == nil:
-			docComment = c
-		default:
-			docComment.List = append(slices.Clip(docComment.List), &ast.Comment{Text: "//"})
-			docComment.List = append(docComment.List, c.List...)
-		}
-	}
-	comments1[0] = docComment
-	return comments1
-}
-
-func hasDocComment(comments []*ast.CommentGroup) bool {
-	for _, c := range comments {
-		if c.Doc {
-			return true
-		}
-	}
-	return false
-}
-
-func NewAttr(name, str string) *ast.Attribute {
-	buf := &strings.Builder{}
-	buf.WriteByte('@')
-	buf.WriteString(name)
-	buf.WriteByte('(')
-	buf.WriteString(str)
-	buf.WriteByte(')')
-	return &ast.Attribute{Text: buf.String()}
 }
 
 // ToExpr converts a node to an expression. If it is a file, it will return
@@ -342,16 +240,27 @@ func ToExpr(n ast.Node) ast.Expr {
 // ToFile converts an expression to a file.
 //
 // Adjusts the spacing of x when needed.
-func ToFile(n ast.Node) *ast.File {
+//
+// If preserveStructLit is true and n is a [*ast.StructLit], then n
+// will be embedded within the returned [*ast.File] rather than only
+// its elements being included in the returned File. This ensures that
+// position information of the StructLit's braces is not lost.
+func ToFile(n ast.Node, preserveStructLit bool) *ast.File {
 	if n == nil {
 		return nil
 	}
 	switch n := n.(type) {
 	case *ast.StructLit:
-		f := &ast.File{Decls: n.Elts}
-		// Ensure that the comments attached to the struct literal are not lost.
-		ast.SetComments(f, ast.Comments(n))
-		return f
+		if preserveStructLit {
+			ast.SetRelPos(n, token.NoSpace)
+			return &ast.File{Decls: []ast.Decl{&ast.EmbedDecl{Expr: n}}}
+
+		} else {
+			f := &ast.File{Decls: n.Elts}
+			// Ensure that the comments attached to the struct literal are not lost.
+			ast.SetComments(f, ast.Comments(n))
+			return f
+		}
 	case ast.Expr:
 		ast.SetRelPos(n, token.NoSpace)
 		return &ast.File{Decls: []ast.Decl{&ast.EmbedDecl{Expr: n}}}
@@ -403,77 +312,7 @@ func IsRegularField(f *ast.Field) bool {
 	return true
 }
 
-// ConstraintToken reports which constraint token (? or !) is associated
-// with a field (if any), taking into account compatibility of deprecated
-// fields.
-func ConstraintToken(f *ast.Field) (t token.Token, ok bool) {
-	if f.Constraint != token.ILLEGAL {
-		return f.Constraint, true
-	}
-	if f.Optional != token.NoPos {
-		return token.OPTION, true
-	}
-	return f.Constraint, false
-}
-
-// SetConstraints sets both the main and deprecated fields of f according to the
-// given constraint token.
-func SetConstraint(f *ast.Field, t token.Token) {
-	f.Constraint = t
-	if t == token.ILLEGAL {
-		f.Optional = token.NoPos
-	} else {
-		f.Optional = token.Blank.Pos()
-	}
-}
-
-func EmbedStruct(s *ast.StructLit) *ast.EmbedDecl {
-	e := &ast.EmbedDecl{Expr: s}
-	if len(s.Elts) == 1 {
-		d := s.Elts[0]
-		astutil.CopyPosition(e, d)
-		ast.SetRelPos(d, token.NoSpace)
-		astutil.CopyComments(e, d)
-		ast.SetComments(d, nil)
-		if f, ok := d.(*ast.Field); ok {
-			ast.SetRelPos(f.Label, token.NoSpace)
-		}
-	}
-	s.Lbrace = token.Newline.Pos()
-	s.Rbrace = token.NoSpace.Pos()
-	return e
-}
-
-// IsEllipsis reports whether the declaration can be represented as an ellipsis.
-func IsEllipsis(x ast.Decl) bool {
-	// ...
-	if _, ok := x.(*ast.Ellipsis); ok {
-		return true
-	}
-
-	// [string]: _ or [_]: _
-	f, ok := x.(*ast.Field)
-	if !ok {
-		return false
-	}
-	v, ok := f.Value.(*ast.Ident)
-	if !ok || v.Name != "_" {
-		return false
-	}
-	l, ok := f.Label.(*ast.ListLit)
-	if !ok || len(l.Elts) != 1 {
-		return false
-	}
-	i, ok := l.Elts[0].(*ast.Ident)
-	if !ok {
-		return false
-	}
-	return i.Name == "string" || i.Name == "_"
-}
-
 // GenPath reports the directory in which to store generated files.
 func GenPath(root string) string {
 	return filepath.Join(root, "cue.mod", "gen")
 }
-
-var ErrInexact = errors.New("inexact subsumption")

@@ -17,6 +17,7 @@ limitations under the License.
 package spod
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -92,11 +93,5 @@ func Test_getConfiguredJsonEnricher(t *testing.T) {
 }
 
 func containsString(slice []string, element string) bool {
-	for _, item := range slice {
-		if item == element {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(slice, element)
 }

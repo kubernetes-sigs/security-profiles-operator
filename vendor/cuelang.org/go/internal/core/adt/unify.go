@@ -16,6 +16,7 @@ package adt
 
 import (
 	"fmt"
+	"slices"
 
 	"cuelang.org/go/cue/token"
 )
@@ -26,7 +27,11 @@ func (v *Vertex) isInitialized() bool {
 }
 
 func (n *nodeContext) assertInitialized() {
-	if n != nil && n.ctx.isDevVersion() {
+	if n != nil {
+		if n.node == nil {
+			// Can happen for unit tests.
+			return
+		}
 		if v := n.node; !v.isInitialized() {
 			panic(fmt.Sprintf("vertex %p not initialized", v))
 		}
@@ -116,7 +121,11 @@ func (n *nodeContext) scheduleConjuncts() {
 //	func (v *Vertex) unify@(c *OpContext, needs condition, mode runMode) bool {
 //		return v.unifyC(c, needs, mode, true)
 //	}
-func (v *Vertex) unify(c *OpContext, needs condition, mode runMode, checkTypos bool) bool {
+func (v *Vertex) unify(c *OpContext, flags Flags) bool {
+	needs := flags.condition
+	mode := flags.mode
+	checkTypos := flags.checkTypos
+
 	if c.LogEval > 0 {
 		defer c.Un(c.Indentf(v, "UNIFY(%x, %v)", needs, mode))
 	}
@@ -189,7 +198,7 @@ func (v *Vertex) unify(c *OpContext, needs condition, mode runMode, checkTypos b
 	// Note that if mode is final, we will guarantee that the conditions for
 	// this if clause are met down the line. So we assume this is already the
 	// case and set the signal accordingly if so.
-	if !v.Rooted() || v.Parent.allChildConjunctsKnown() || mode == finalize {
+	if !v.Rooted() || v.Parent.allChildConjunctsKnown(c) || mode == finalize {
 		n.signal(allAncestorsProcessed)
 	}
 
@@ -232,7 +241,7 @@ func (v *Vertex) unify(c *OpContext, needs condition, mode runMode, checkTypos b
 		n.process(pendingKnown, attemptOnly)
 		if n.node.ArcType == ArcPending {
 			for _, a := range n.node.Arcs {
-				a.unify(c, needs, attemptOnly, checkTypos)
+				a.unify(c, Flags{condition: needs, mode: attemptOnly, checkTypos: checkTypos})
 			}
 		}
 		// TODO(evalv3): do we need this? Error messages are slightly better,
@@ -263,10 +272,6 @@ func (v *Vertex) unify(c *OpContext, needs condition, mode runMode, checkTypos b
 		return w.state.meets(needs)
 	}
 	n.updateScalar()
-
-	if n.aStruct != nil {
-		n.updateNodeType(StructKind, n.aStruct, n.aStructID)
-	}
 
 	// First process all but the subfields.
 	switch {
@@ -301,7 +306,7 @@ func (v *Vertex) unify(c *OpContext, needs condition, mode runMode, checkTypos b
 		}
 		// We unify here to proactively detect cycles. We do not need to,
 		// nor should we, if have have already found one.
-		v.unify(n.ctx, needs, mode, checkTypos)
+		v.unify(n.ctx, Flags{condition: needs, mode: mode, checkTypos: checkTypos})
 	}
 
 	// At this point, no more conjuncts will be added, so we could decrement
@@ -313,7 +318,7 @@ func (v *Vertex) unify(c *OpContext, needs condition, mode runMode, checkTypos b
 
 	case needs&subFieldsProcessed != 0:
 		switch {
-		case assertStructuralCycleV3(n):
+		case assertStructuralCycle(n):
 
 		case n.node.status == finalized:
 			// There is no need to recursively process if the node is already
@@ -333,11 +338,6 @@ func (v *Vertex) unify(c *OpContext, needs condition, mode runMode, checkTypos b
 			n.signal(subFieldsProcessed)
 		}
 
-		if v.BaseValue == nil {
-			// TODO: this seems to not be possible. Possibly remove.
-			state := finalized
-			v.BaseValue = n.getValidators(state)
-		}
 		if v := n.node.Value(); v != nil && IsConcrete(v) {
 			// Ensure that checks are not run again when this value is used
 			// in a validator.
@@ -387,7 +387,7 @@ func (v *Vertex) unify(c *OpContext, needs condition, mode runMode, checkTypos b
 			// Ensure the shared node is processed to the requested level. This is
 			// typically needed for scalar values.
 			if w.status == unprocessed {
-				w.unify(c, needs, mode, false)
+				w.unify(c, Flags{condition: needs, mode: mode, checkTypos: false})
 			}
 
 			return n.meets(needs)
@@ -409,14 +409,14 @@ func (v *Vertex) unify(c *OpContext, needs condition, mode runMode, checkTypos b
 
 		// TODO: find a more principled way to catch this cycle and avoid this
 		// check.
-		if n.hasAncestorV3(w) {
+		if n.hasAncestor(w) {
 			n.reportCycleError()
 			return true
 		}
 
 		// Ensure that shared nodes comply to the same requirements as we
 		// need for the current node.
-		w.unify(c, needs, mode, checkTypos)
+		w.unify(c, Flags{condition: needs, mode: mode, checkTypos: checkTypos})
 
 		return true
 	}
@@ -515,7 +515,14 @@ func (n *nodeContext) completeNodeTasks(mode runMode) {
 		defer n.ctx.Un(n.ctx.Indentf(n.node, "(%v)", mode))
 	}
 
-	n.assertInitialized()
+	// In attemptOnly mode, don't assert initialization to allow processing
+	// of partially initialized vertices
+	if mode != attemptOnly {
+		n.assertInitialized()
+	} else if n.node != nil && !n.node.isInitialized() {
+		// In attemptOnly mode, skip processing if vertex is not initialized
+		return
+	}
 
 	if n.isCompleting > 0 {
 		return
@@ -535,7 +542,7 @@ func (n *nodeContext) completeNodeTasks(mode runMode) {
 		}
 	}
 
-	if v.IsDynamic || v.Label.IsLet() || v.Parent.allChildConjunctsKnown() {
+	if v.IsDynamic || v.Label.IsLet() || v.Parent.allChildConjunctsKnown(n.ctx) {
 		n.signal(allAncestorsProcessed)
 	}
 
@@ -604,7 +611,7 @@ func (n *nodeContext) completeAllArcs(needs condition, mode runMode, checkTypos 
 		a := n.node.Arcs[arcPos]
 		// TODO: Consider skipping lets.
 
-		if !a.unify(n.ctx, needs, mode, checkTypos) {
+		if !a.unify(n.ctx, Flags{condition: needs, mode: mode, checkTypos: checkTypos}) {
 			success = false
 		}
 
@@ -624,7 +631,7 @@ func (n *nodeContext) completeAllArcs(needs condition, mode runMode, checkTypos 
 		case a.ArcType > ArcRequired, !a.Label.IsString():
 		case n.kind&StructKind == 0:
 			if !n.node.IsErr() && !a.IsErr() {
-				n.reportFieldMismatch(pos(a.Value()), nil, a.Label, n.node.Value())
+				n.reportFieldMismatch(Pos(a.Value()), nil, a.Label, n.node.Value())
 			}
 			// case !wasVoid:
 			// case n.kind == TopKind:
@@ -645,14 +652,9 @@ func (n *nodeContext) completeAllArcs(needs condition, mode runMode, checkTypos 
 		}
 	}
 
-	k := 0
-	for _, a := range n.node.Arcs {
-		if a.ArcType != ArcNotPresent {
-			n.node.Arcs[k] = a
-			k++
-		}
-	}
-	n.node.Arcs = n.node.Arcs[:k]
+	n.node.Arcs = slices.DeleteFunc(n.node.Arcs, func(a *Vertex) bool {
+		return a.ArcType == ArcNotPresent
+	})
 
 	for _, a := range n.node.Arcs {
 		// Errors are allowed in let fields. Handle errors and failure to
@@ -672,7 +674,7 @@ func (n *nodeContext) completeAllArcs(needs condition, mode runMode, checkTypos 
 		ctx := n.ctx
 		f := ctx.PushState(c.env, c.expr.Source())
 
-		v := ctx.evalState(c.expr, combinedFlags{
+		v := ctx.evalState(c.expr, Flags{
 			status:    finalized,
 			condition: allKnown,
 			mode:      ignore,
@@ -687,7 +689,7 @@ func (n *nodeContext) completeAllArcs(needs condition, mode runMode, checkTypos 
 				Src:  c.expr.Source(),
 				Code: CycleError,
 				Node: n.node,
-				Err: ctx.NewPosf(pos(c.expr),
+				Err: ctx.NewPosf(Pos(c.expr),
 					"circular dependency in evaluation of conditionals: %v changed after evaluation",
 					ctx.Str(c.expr)),
 			})
@@ -706,14 +708,9 @@ func (n *nodeContext) completeAllArcs(needs condition, mode runMode, checkTypos 
 	//
 	// TODO(perf): we could keep track if any such structs exist and only
 	// do this removal if there is a change of shrinking the list.
-	k = 0
-	for _, s := range n.node.Structs {
-		if s.initialized {
-			n.node.Structs[k] = s
-			k++
-		}
-	}
-	n.node.Structs = n.node.Structs[:k]
+	n.node.Structs = slices.DeleteFunc(n.node.Structs, func(s StructInfo) bool {
+		return !s.initialized
+	})
 
 	// TODO: This seems to be necessary, but enables structural cycles.
 	// Evaluator whether we still need this.
@@ -767,7 +764,7 @@ func (n *nodeContext) evalArcTypes(mode runMode) {
 		if a.ArcType != ArcPending {
 			continue
 		}
-		a.unify(n.ctx, arcTypeKnown, mode, false)
+		a.unify(n.ctx, Flags{condition: arcTypeKnown, mode: mode, checkTypos: false})
 		// Ensure the arc is processed up to the desired level
 		if a.ArcType == ArcPending {
 			// TODO: cancel tasks?
@@ -783,8 +780,7 @@ func root(v *Vertex) *Vertex {
 	return v
 }
 
-func (v *Vertex) lookup(c *OpContext, pos token.Pos, f Feature, flags combinedFlags) *Vertex {
-	task := c.current()
+func (v *Vertex) lookup(c *OpContext, pos token.Pos, f Feature, flags Flags) *Vertex {
 	needs := flags.condition
 	runMode := flags.mode
 
@@ -820,11 +816,6 @@ func (v *Vertex) lookup(c *OpContext, pos token.Pos, f Feature, flags combinedFl
 		// which circumstances this is still necessary, and at least ensure
 		// this will not be run if node v currently has a running task.
 		state.completeNodeTasks(attemptOnly)
-	}
-
-	// TODO: remove because unnecessary?
-	if task != nil && task.state != taskRUNNING {
-		return nil // abort, task is blocked or terminated in a cycle.
 	}
 
 	// TODO: verify lookup types.
@@ -876,10 +867,6 @@ func (v *Vertex) lookup(c *OpContext, pos token.Pos, f Feature, flags combinedFl
 			// arcType be known at this point, but that does not seem to work.
 			// Revisit once we have the structural cycle detection in place.
 
-			// TODO: should we avoid notifying ArcPending vertices here?
-			if task != nil {
-				arcState.addNotify2(task.node.node, task.id)
-			}
 			if arc.ArcType == ArcPending {
 				return arcReturn
 			}
@@ -897,11 +884,11 @@ func (v *Vertex) lookup(c *OpContext, pos token.Pos, f Feature, flags combinedFl
 			// some values to be remain unevaluated.
 			switch {
 			case needs == arcTypeKnown|fieldSetKnown:
-				arc.unify(c, needs, finalize, false)
+				arc.unify(c, Flags{condition: needs, mode: finalize, checkTypos: false})
 			default:
 				// Now we can't finalize, at least try to get as far as we
 				// can and only yield if we really have to.
-				if !arc.unify(c, needs, attemptOnly, false) {
+				if !arc.unify(c, Flags{condition: needs, mode: attemptOnly, checkTypos: false}) {
 					arcState.process(needs, yield)
 				}
 			}
@@ -912,7 +899,17 @@ func (v *Vertex) lookup(c *OpContext, pos token.Pos, f Feature, flags combinedFl
 	}
 
 	switch arc.ArcType {
-	case ArcMember, ArcRequired:
+	case ArcRequired:
+		label := f.SelectorString(c.Runtime)
+		b := &Bottom{
+			Code: IncompleteError,
+			Err:  c.NewPosf(pos, "required field missing: %s", label),
+			Node: v,
+		}
+		// TODO: yield failure
+		c.AddBottom(b) // TODO: unify error mechanism.
+		return arcReturn
+	case ArcMember:
 		return arcReturn
 
 	case ArcOptional:

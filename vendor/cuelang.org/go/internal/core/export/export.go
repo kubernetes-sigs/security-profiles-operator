@@ -17,6 +17,7 @@ package export
 import (
 	"fmt"
 	"math/rand/v2"
+	"slices"
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/ast/astutil"
@@ -71,6 +72,10 @@ type Profile struct {
 
 	// InlineImports expands references to non-builtin packages.
 	InlineImports bool
+
+	// ExpandReferences causes all references to be expanded inline. This
+	// disables the ability to prevent billion laughs attacks, so use with care.
+	ExpandReferences bool
 }
 
 var Simplified = &Profile{
@@ -192,10 +197,10 @@ func (e *exporter) toFile(v *adt.Vertex, x ast.Expr) *ast.File {
 			// prevent the file comment from attaching to pkg when there is no pkg comment
 			PackagePos: token.NoPos.WithRel(token.NewSection),
 		}
-		v.VisitLeafConjuncts(func(c adt.Conjunct) bool {
+		for c := range v.LeafConjuncts() {
 			f, _ := c.Source().(*ast.File)
 			if f == nil {
-				return true
+				continue
 			}
 
 			if name := f.PackageName(); name != "" {
@@ -214,18 +219,17 @@ func (e *exporter) toFile(v *adt.Vertex, x ast.Expr) *ast.File {
 					ast.AddComment(fout, c)
 				}
 			}
-			return true
-		})
+		}
 
 		if pkgName != "" {
 			pkg.Name = ast.NewIdent(pkgName)
 			fout.Decls = append(fout.Decls, pkg)
-			ast.SetComments(pkg, internal.MergeDocs(pkg.Comments()))
+			ast.SetComments(pkg, mergeDocs(ast.Comments(pkg)))
 		} else {
-			for _, c := range fout.Comments() {
+			for _, c := range ast.Comments(fout) {
 				ast.AddComment(pkg, c)
 			}
-			ast.SetComments(fout, internal.MergeDocs(pkg.Comments()))
+			ast.SetComments(fout, mergeDocs(ast.Comments(pkg)))
 		}
 	}
 
@@ -241,6 +245,39 @@ func (e *exporter) toFile(v *adt.Vertex, x ast.Expr) *ast.File {
 	}
 
 	return fout
+}
+
+// mergeDocs merges multiple doc comments into one single doc comment.
+func mergeDocs(comments []*ast.CommentGroup) []*ast.CommentGroup {
+	if len(comments) <= 1 || !hasDocComment(comments) {
+		return comments
+	}
+
+	comments1 := make([]*ast.CommentGroup, 0, len(comments))
+	comments1 = append(comments1, nil)
+	var docComment *ast.CommentGroup
+	for _, c := range comments {
+		switch {
+		case !c.Doc:
+			comments1 = append(comments1, c)
+		case docComment == nil:
+			docComment = c
+		default:
+			docComment.List = append(slices.Clip(docComment.List), &ast.Comment{Text: "//"})
+			docComment.List = append(docComment.List, c.List...)
+		}
+	}
+	comments1[0] = docComment
+	return comments1
+}
+
+func hasDocComment(comments []*ast.CommentGroup) bool {
+	for _, c := range comments {
+		if c.Doc {
+			return true
+		}
+	}
+	return false
 }
 
 // Vertex exports evaluated values (data mode).
@@ -383,7 +420,7 @@ func (e *exporter) initPivot(n *adt.Vertex) {
 	switch {
 	case e.cfg.SelfContained, e.cfg.InlineImports:
 		// Explicitly enabled.
-	case n.Parent == nil, e.cfg.Fragment:
+	case n.Parent == nil, e.cfg.Fragment, e.cfg.ExpandReferences:
 		return
 	}
 	e.initPivotter(n)
@@ -404,18 +441,21 @@ func (e *exporter) finalize(n *adt.Vertex, v ast.Expr) (f *ast.File, err errors.
 	return f, nil
 }
 
+// markUsedFeatures walks x to record features in usedFeature,
+// so that uniqueFeature can avoid generating colliding names.
+// It may be called multiple times to accumulate features from different expressions.
 func (e *exporter) markUsedFeatures(x adt.Expr) {
-	e.usedFeature = make(map[adt.Feature]adt.Expr)
-
+	if e.usedFeature == nil {
+		e.usedFeature = make(map[adt.Feature]adt.Expr)
+	}
 	w := &walk.Visitor{}
 	w.Before = func(n adt.Node) bool {
 		switch x := n.(type) {
 		case *adt.Vertex:
 			if !x.IsData() {
-				x.VisitLeafConjuncts(func(c adt.Conjunct) bool {
+				for c := range x.LeafConjuncts() {
 					w.Elem(c.Elem())
-					return true
-				})
+				}
 			}
 
 		case *adt.DynamicReference:
@@ -564,15 +604,10 @@ func (e *exporter) markLetAlias(x *ast.LetClause) {
 
 // In value mode, lets are only used if there wasn't an error.
 func filterUnusedLets(s *ast.StructLit) {
-	k := 0
-	for i, d := range s.Elts {
-		if let, ok := d.(*ast.LetClause); ok && let.Expr == nil {
-			continue
-		}
-		s.Elts[k] = s.Elts[i]
-		k++
-	}
-	s.Elts = s.Elts[:k]
+	s.Elts = slices.DeleteFunc(s.Elts, func(d ast.Decl) bool {
+		let, ok := d.(*ast.LetClause)
+		return ok && let.Expr == nil
+	})
 }
 
 // resolveLet actually parses the let expression.

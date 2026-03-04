@@ -16,6 +16,7 @@ package toposort
 
 import (
 	"cmp"
+	"maps"
 	"slices"
 
 	"cuelang.org/go/internal/core/adt"
@@ -32,11 +33,10 @@ type Graph struct {
 type Node struct {
 	Feature    adt.Feature
 	Outgoing   Nodes
-	Incoming   Nodes
 	structMeta *structMeta
 	// temporary state for calculating the Strongly Connected
 	// Components of a graph.
-	sccNodeState *sccNodeState
+	sccNodeState sccNodeState
 	position     int
 }
 
@@ -108,7 +108,6 @@ func (builder *GraphBuilder) AddEdge(from, to adt.Feature) {
 	fromNode := builder.EnsureNode(from)
 	toNode := builder.EnsureNode(to)
 	fromNode.Outgoing = append(fromNode.Outgoing, toNode)
-	toNode.Incoming = append(toNode.Incoming, fromNode)
 }
 
 // Ensure that a node for this feature exists. This is necessary for
@@ -123,11 +122,8 @@ func (builder *GraphBuilder) EnsureNode(feature adt.Feature) *Node {
 }
 
 func (builder *GraphBuilder) Build() *Graph {
-	nodesByFeature := builder.nodesByFeature
-	nodes := make(Nodes, 0, len(nodesByFeature))
-	for _, node := range nodesByFeature {
-		nodes = append(nodes, node)
-	}
+	nodes := make(Nodes, 0, len(builder.nodesByFeature))
+	nodes = slices.AppendSeq(nodes, maps.Values(builder.nodesByFeature))
 	return &Graph{nodes: nodes}
 }
 

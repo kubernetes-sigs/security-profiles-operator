@@ -84,7 +84,7 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 
 			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
-				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+				e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status)
 			}
 		}
 
@@ -126,7 +126,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 
 		spns := e.getSeccompProfileNodeStatus(name, node)
 		if e.NotNil(spns) {
-			e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+			e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status)
 		}
 	}
 
@@ -201,7 +201,7 @@ spec:
 	)
 
 	sp := e.getSeccompProfile(allowProfileName)
-	e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+	e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, sp.Status.Status)
 
 	// Create the pod which reference the allowed profile
 	podCleanup := e.writeAndCreate(allowPod, "allow-pod*.yaml")
@@ -238,7 +238,7 @@ spec:
 	}
 
 	sp = e.getSeccompProfile(allowProfileName)
-	e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
+	e.Equal(secprofnodestatusv1alpha1.ProfileStateTerminating, sp.Status.Status)
 
 	// Remove the pod, after this point the profile should be complete cleaned-up
 	e.kubectl("delete", "pod", allowPodName)
@@ -270,7 +270,7 @@ func (e *e2e) existsSeccompProfileNodeStatus(id, node string) bool {
 		"get", "securityprofilenodestatus", "-l", selector, "-o", "json",
 	)
 	secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
-	e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
+	e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
 	return len(secpolNodeStatusList.Items) > 0
 }

@@ -56,11 +56,21 @@ func (e *exporter) completePivot(f *ast.File) {
 	if s == nil || f == nil {
 		return
 	}
-	for _, d := range s.deps {
-		if !d.isExternalRoot() {
-			continue
+	// Use a fixpoint loop because exporting one external's body (in
+	// addExternal) may set needTopLevel on deps earlier in the list.
+	for {
+		progress := false
+		for _, d := range s.deps {
+			if d.exported || !d.isExternalRoot() || !d.needTopLevel {
+				continue
+			}
+			d.exported = true
+			progress = true
+			s.addExternal(d)
 		}
-		s.addExternal(d)
+		if !progress {
+			break
+		}
 	}
 	f.Decls = append(f.Decls, s.decls...)
 }
@@ -81,6 +91,15 @@ type pivotter struct {
 	refs   []*refData
 	refMap map[adt.Resolver]*refData
 
+	// inlining tracks vertices currently being inlined by refExpr to prevent
+	// infinite recursion on recursive definitions like [string]: #c.
+	inlining map[*adt.Vertex]bool
+
+	// exporting is the dep currently being exported by addExternal, used to
+	// detect self-referential lets and generate inner definition references
+	// instead.
+	exporting *depData
+
 	decls []ast.Decl
 }
 
@@ -95,6 +114,7 @@ type depData struct {
 	useCount     int // Other reference using this vertex
 	included     bool
 	needTopLevel bool
+	exported     bool // already processed by addExternal in the fixpoint loop
 }
 
 // isExternalRoot reports whether d is an external node (a node referenced
@@ -132,6 +152,15 @@ func (p *pivotter) linkDependencies(v *adt.Vertex) {
 		if d.parent != nil {
 			d.parent = getParent(d)
 			d.parent.useCount++
+		}
+	}
+
+	// Mark features used in dependency vertices so that generated let
+	// variable names (from makeParentPath/uniqueFeature) don't collide
+	// with field names in the exported external values.
+	for _, d := range p.deps {
+		if d.dstNode != nil {
+			p.x.markUsedFeatures(d.dstNode)
 		}
 	}
 
@@ -282,6 +311,15 @@ func (p *pivotter) makeParentPath(d *depData) {
 func (p *pivotter) makeAlternativeReference(ref *refData, r adt.Resolver) ast.Expr {
 	d := ref.dst
 
+	// If this reference points back to the dep we're currently exporting
+	// as a let binding, and the dep has a definition wrapper (len > 1),
+	// generate a reference to the inner definition label instead of the
+	// let identifier. This avoids self-referential lets, which CUE does
+	// not support, while definitions can be self-referential.
+	if d == p.exporting && d.parent == nil && len(d.path) > 1 {
+		return p.x.ident(d.path[len(d.path)-1])
+	}
+
 	// Determine if the reference can be inline.
 
 	var path []adt.Feature
@@ -376,7 +414,9 @@ func relPathLength(r adt.Resolver) (length int, newRoot bool) {
 		case adt.Resolver:
 			r = x
 		default:
-			panic("unreachable")
+			// A non-Resolver expression (e.g. BinaryExpr) is a valid
+			// end-of-chain; we simply cannot walk any further.
+			return length, false
 		}
 	}
 }
@@ -410,11 +450,18 @@ func (p *pivotter) refExpr(r adt.Resolver) ast.Expr {
 		// Don't simplify for errors to make the position of the error clearer.
 	case !n.IsConcrete() && p.x.inExpression > 0:
 		// Don't simplify an expression that is known will fail.
+	case p.inlining[n]:
+		// Prevent infinite recursion on recursive definitions.
 	case dst.usageCount() == 1 && p.x.inExpression == 0:
 		// Used only once.
 		fallthrough
 	case n.IsConcrete() && len(n.Arcs) == 0:
 		// Simple scalar value.
+		if p.inlining == nil {
+			p.inlining = map[*adt.Vertex]bool{}
+		}
+		p.inlining[n] = true
+		defer delete(p.inlining, n)
 		return p.x.expr(nil, n)
 	}
 
@@ -432,7 +479,10 @@ func (p *pivotter) addExternal(d *depData) {
 		return
 	}
 
+	saved := p.exporting
+	p.exporting = d
 	expr := p.x.expr(nil, d.node())
+	p.exporting = saved
 
 	if len(d.path) > 1 {
 		expr = ast.NewStruct(&ast.Field{

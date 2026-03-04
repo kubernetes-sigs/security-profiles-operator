@@ -348,6 +348,7 @@ func TestHandle(t *testing.T) {
 				mock.ListRecordedPodsReturns(&corev1.PodList{
 					Items: []corev1.Pod{},
 				}, nil)
+
 				pod := testPod.DeepCopy()
 				pod.Annotations = map[string]string{
 					"io.containers.trace-logs/container": "my-little-profile-recording-container-0-1661693966",

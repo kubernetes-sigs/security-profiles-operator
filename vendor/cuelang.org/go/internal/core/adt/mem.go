@@ -153,13 +153,17 @@ func (r reclaimer) reclaim(v *Vertex) bool {
 			// of a disjunct it is reclaimed later as part of [freeDisjunct].
 			return false
 		} else {
+			if n.refCount > 0 {
+				goto skipRoot
+			}
+
 			r.reclaimBaseValueBuffers(v)
 
-			if n.refCount > 0 || (v.Parent != nil && !v.Label.IsLet()) {
+			if v.Parent != nil && !v.Label.IsLet() {
 				goto skipRoot
 			}
 		}
-		if n.ctx == r.ctx {
+		if n.node != nil && n.ctx == r.ctx {
 			// TODO(mem): it should be fine to just release the nodeContext into
 			// c unconditionally. But the result is that it can result in
 			// negative values for 'Leaks'. This is because loading imports
@@ -169,9 +173,21 @@ func (r reclaimer) reclaim(v *Vertex) bool {
 		}
 	}
 
-	if w := v.DerefDisjunct(); v != w {
-		r.ctx.reclaimRecursive(w)
-	}
+	// TODO: this is not generally true. A dereferenced disjunct may already be
+	// in use to the point it cannot be freed. Mark such disjuncts to prevent
+	// reclamation or figure out something else. For now we disable to
+	// optimization as its effect is limited.
+	//
+	// See Issue #4055:
+	// 		a: "x"
+	// 		a: _ | error("a")
+	// 		if len(a) > 0 {
+	// 			a: _ | error("b")
+	// 		}
+	//
+	// if w := v.DerefDisjunct(); v != w {
+	// 	r.ctx.reclaimRecursive(w)
+	// }
 
 skipRoot:
 	if v.PatternConstraints != nil {

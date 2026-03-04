@@ -14,6 +14,13 @@
 
 package adt
 
+import (
+	"iter"
+
+	"cuelang.org/go/cue/token"
+	"cuelang.org/go/internal/core/layer"
+)
+
 // This file implements the closedness algorithm.
 
 // Outline of algorithm
@@ -70,50 +77,67 @@ package adt
 // TODO(errors): return a dedicated ConflictError that can track original
 // positions on demand.
 
-// IsInOneOf reports whether any of the Structs associated with v is contained
-// within any of the span types in the given mask.
-func (v *Vertex) IsInOneOf(mask SpanType) bool {
-	for _, s := range v.Structs {
-		if s.CloseInfo.IsInOneOf(mask) {
-			return true
-		}
-	}
-	return false
-}
-
 // IsRecursivelyClosed returns true if this value is either a definition or unified
 // with a definition.
 func (v *Vertex) IsRecursivelyClosed() bool {
-	return v.ClosedRecursive || v.IsInOneOf(DefinitionSpan)
+	return v.ClosedRecursive
 }
 
-type closeNodeType uint8
+// ShouldRecursivelyClose reports whether this vertex should be closed
+// recursively using __reclose. This is to simulate compatibility mode
+// with the semantics from before explicitOpen was introduced.
+//
+// This is the case if any of the embeddings marked with ... were recursively
+// closed before opening them up with ....
+func (v *Vertex) ShouldRecursivelyClose() bool {
+	if v.state == nil {
+		return false
+	}
+	return v.state.embedsRecursivelyClosed
+}
 
-const (
-	// a closeRef node is created when there is a non-definition reference.
-	closeRef closeNodeType = iota
+// posInfo is a compact representation of position information for error reporting.
+// It stores only the essential fields needed for tracking positions and priority,
+// saving significant memory compared to the full CloseInfo struct.
+// This is used for scalarID and kindID fields in nodeContext.
+type posInfo struct {
+	// opID is the generation of this conjunct, used for sanity check.
+	opID uint64
 
-	// closeDef indicates this node was introduced as a result of referencing
-	// a definition.
-	closeDef
-
-	// closeEmbed indicates this node was added as a result of an embedding.
-	closeEmbed
-)
-
-// TODO: merge with closeInfo: this is a leftover of the refactoring.
-type CloseInfo struct {
-	*closeInfo // old implementation (TODO: remove)
 	// defID is a unique ID to track anything that gets inserted from this
 	// Conjunct.
-	opID           uint64 // generation of this conjunct, used for sanity check.
-	defID          defID
+	defID defID
+
+	// Priority is used for default resolution. Higher values win. 0 means no
+	// priority is assigned. Default handling may be more restrictive than
+	// specified in the spec when a priority is assigned.
+	Priority layer.Priority
+}
+
+// AncestorPositions returns an iterator over each parent of p,
+// starting with the most immediate parent. This is used
+// to add positions to errors that are associated with position info.
+func (p posInfo) AncestorPositions(ctx *OpContext) iter.Seq[token.Pos] {
+	return func(yield func(token.Pos) bool) {
+		if p.opID != ctx.opID {
+			return
+		}
+		for id := p.defID; id != 0; id = ctx.containments[id].id {
+			pos := ctx.positionTable[ctx.containments[id].posIndex]
+			if !yield(pos) {
+				return
+			}
+		}
+	}
+}
+
+type CloseInfo struct {
+	// Embedded posInfo provides opID, defID, and priority fields.
+	// These are the core fields needed for position tracking and priority comparison.
+	posInfo
+
 	enclosingEmbed defID // Tracks an embedding within a struct.
 	outerID        defID // Tracks the {} that should be closed after unifying.
-
-	// IsClosed is true if this conjunct represents a single level of closing
-	// as indicated by the closed builtin.
-	IsClosed bool
 
 	// FromEmbed indicates whether this conjunct was inserted because of an
 	// embedding.  This flag is sticky: it will be set for conjuncts created
@@ -130,115 +154,17 @@ type CloseInfo struct {
 	// Like FromDef, but used by APIs to force FromDef to be true.
 	TopDef bool
 
-	// FieldTypes indicates which kinds of fields (optional, dynamic, patterns,
-	// etc.) are contained in this conjunct.
-	FieldTypes OptionalType
+	// This conjunct was opened by the ... postfix operator.
+	Opened bool
 
 	CycleInfo
 }
 
-func (c CloseInfo) Location() Node {
-	if c.closeInfo == nil {
-		return nil
+func (c CloseInfo) Location(ctx *OpContext) token.Pos {
+	if c.opID != ctx.opID || c.defID == 0 {
+		return token.NoPos
 	}
-	return c.closeInfo.location
-}
-
-func (c CloseInfo) span() SpanType {
-	if c.closeInfo == nil {
-		return 0
-	}
-	return c.closeInfo.span
-}
-
-func (c CloseInfo) RootSpanType() SpanType {
-	if c.closeInfo == nil {
-		return 0
-	}
-	return c.root
-}
-
-// IsInOneOf reports whether c is contained within any of the span types in the
-// given mask.
-func (c CloseInfo) IsInOneOf(t SpanType) bool {
-	return c.span()&t != 0
-}
-
-// TODO(perf): remove: error positions should always be computed on demand
-// in dedicated error types.
-func (c *CloseInfo) AddPositions(ctx *OpContext) {
-	for s := c.closeInfo; s != nil; s = s.parent {
-		if loc := s.location; loc != nil {
-			ctx.AddPosition(loc)
-		}
-	}
-}
-
-// TODO(perf): use on StructInfo. Then if parent and expression are the same
-// it is possible to use cached value.
-func (c CloseInfo) SpawnEmbed(x Node) CloseInfo {
-	c.closeInfo = &closeInfo{
-		parent:   c.closeInfo,
-		location: x,
-		mode:     closeEmbed,
-		root:     EmbeddingSpan,
-		span:     c.span() | EmbeddingSpan,
-	}
-	return c
-}
-
-// SpawnGroup is used for structs that contain embeddings that may end up
-// closing the struct. This is to force that `b` is not allowed in
-//
-//	a: {#foo} & {b: int}
-func (c CloseInfo) SpawnGroup(x Expr) CloseInfo {
-	c.closeInfo = &closeInfo{
-		parent:   c.closeInfo,
-		location: x,
-		span:     c.span(),
-	}
-	return c
-}
-
-// SpawnSpan is used to track that a value is introduced by a comprehension
-// or constraint. Definition and embedding spans are introduced with SpawnRef
-// and SpawnEmbed, respectively.
-func (c CloseInfo) SpawnSpan(x Node, t SpanType) CloseInfo {
-	c.closeInfo = &closeInfo{
-		parent:   c.closeInfo,
-		location: x,
-		root:     t,
-		span:     c.span() | t,
-	}
-	return c
-}
-
-func (c CloseInfo) SpawnRef(arc *Vertex, isDef bool, x Expr) CloseInfo {
-	span := c.span()
-	found := false
-	if !isDef {
-		xnode := Node(x) // Optimization so we're comparing identical interface types.
-		// TODO: make this work for non-definitions too.
-		for p := c.closeInfo; p != nil; p = p.parent {
-			if p.span == span && p.location == xnode {
-				found = true
-				break
-			}
-		}
-	}
-	if !found {
-		c.closeInfo = &closeInfo{
-			parent:   c.closeInfo,
-			location: x,
-			span:     span,
-		}
-	}
-	if isDef {
-		c.mode = closeDef
-		c.closeInfo.root = DefinitionSpan
-		c.closeInfo.span |= DefinitionSpan
-	}
-	return c
+	return ctx.positionTable[ctx.containments[c.defID].posIndex]
 }
 
 // IsDef reports whether an expressions is a reference that references a
@@ -265,71 +191,6 @@ func IsDef(x Expr) (isDef bool, depth int) {
 	return isDef, depth
 }
 
-// A SpanType is used to indicate whether a CUE value is within the scope of
-// a certain CUE language construct, the span type.
-type SpanType uint8
-
-const (
-	// EmbeddingSpan means that this value was embedded at some point and should
-	// not be included as a possible root node in the todo field of OpContext.
-	EmbeddingSpan SpanType = 1 << iota
-	ConstraintSpan
-	ComprehensionSpan
-	DefinitionSpan
-)
-
-type closeInfo struct {
-	// location records the expression that led to this node's introduction.
-	location Node
-
-	// The parent node in the tree.
-	parent *closeInfo
-
-	// TODO(performance): if references are chained, we could have a separate
-	// parent pointer to skip the chain.
-
-	// mode indicates whether this node was added as part of an embedding,
-	// definition or non-definition reference.
-	mode closeNodeType
-
-	// noCheck means this struct is irrelevant for closedness checking. This can
-	// happen when:
-	//  - it is a sibling of a new definition.
-	noCheck bool // don't process for inclusion info
-
-	root SpanType
-	span SpanType
-}
-
-// closeStats holds the administrative fields for a closeInfo value. Each
-// closeInfo is associated with a single closeStats value per unification
-// operator. This association is done through an OpContext. This allows the
-// same value to be used in multiple concurrent unification operations.
-// NOTE: there are other parts of the algorithm that are not thread-safe yet.
-type closeStats struct {
-	// the other fields of this closeStats value are only valid if generation
-	// is equal to the generation in OpContext. This allows for lazy
-	// initialization of closeStats.
-	generation uint64
-
-	// These counts keep track of how many required child nodes need to be
-	// completed before this node is accepted.
-	requiredCount int
-	acceptedCount int
-
-	// accepted is set if this node is accepted.
-	accepted bool
-
-	required bool
-
-	inTodoList bool // true if added to todo list.
-	next       *closeStats
-}
-
-func (c *closeInfo) isClosed() bool {
-	return c.mode == closeDef
-}
-
 // isClosed reports whether v is closed at this level (so not recursively).
 func isClosed(v *Vertex) bool {
 	// We could have used IsRecursivelyClosed here, but (effectively)
@@ -338,213 +199,11 @@ func isClosed(v *Vertex) bool {
 	if v.ClosedRecursive || v.ClosedNonRecursive {
 		return true
 	}
-	// TODO(evalv3): this can be removed once we delete the evalv2 code.
-	for _, s := range v.Structs {
-		if s.IsClosed || s.IsInOneOf(DefinitionSpan) {
-			return true
-		}
-	}
 	return false
 }
 
 // Accept determines whether f is allowed in n. It uses the OpContext for
 // caching administrative fields.
 func Accept(ctx *OpContext, n *Vertex, f Feature) (found, required bool) {
-	if ctx.isDevVersion() {
-		return n.accept(ctx, f), true
-	}
-	ctx.opID++
-	ctx.todo = nil
-
-	var optionalTypes OptionalType
-
-	// TODO(perf): more aggressively determine whether a struct is open or
-	// closed: open structs do not have to be checked, yet they can particularly
-	// be the ones with performance issues, for instanced as a result of
-	// embedded for comprehensions.
-	for _, s := range n.Structs {
-		if !s.useForAccept() {
-			continue
-		}
-		markCounts(ctx, s.CloseInfo)
-		optionalTypes |= s.types
-	}
-
-	var str Value
-	if f.Index() == MaxIndex {
-		f &= fTypeMask
-	} else if optionalTypes&(HasComplexPattern|HasDynamic) != 0 && f.IsString() {
-		str = f.ToValue(ctx)
-	}
-
-	for _, s := range n.Structs {
-		if !s.useForAccept() {
-			continue
-		}
-		if verifyArc(ctx, s, f, str) {
-			// Beware: don't add to below expression: this relies on the
-			// side effects of markUp.
-			ok := markUp(ctx, s.closeInfo, 0)
-			found = found || ok
-		}
-	}
-
-	// Reject if any of the roots is not accepted.
-	for x := ctx.todo; x != nil; x = x.next {
-		if !x.accepted {
-			return false, true
-		}
-	}
-
-	return found, ctx.todo != nil
-}
-
-func markCounts(ctx *OpContext, info CloseInfo) {
-	if info.IsClosed {
-		markRequired(ctx, info.closeInfo)
-		return
-	}
-	for s := info.closeInfo; s != nil; s = s.parent {
-		if s.isClosed() {
-			markRequired(ctx, s)
-			return
-		}
-	}
-}
-
-func markRequired(ctx *OpContext, info *closeInfo) {
-	count := 0
-	for ; ; info = info.parent {
-		var s closeInfo
-		if info != nil {
-			s = *info
-		}
-
-		x := getScratch(ctx, info)
-
-		x.requiredCount += count
-
-		if x.required {
-			return
-		}
-
-		if s.span&EmbeddingSpan == 0 && !x.inTodoList {
-			x.next = ctx.todo
-			ctx.todo = x
-			x.inTodoList = true
-		}
-
-		x.required = true
-
-		if info == nil {
-			return
-		}
-
-		count = 0
-		if s.mode != closeEmbed {
-			count = 1
-		}
-	}
-}
-
-func markUp(ctx *OpContext, info *closeInfo, count int) bool {
-	for ; ; info = info.parent {
-		var s closeInfo
-		if info != nil {
-			s = *info
-		}
-
-		x := getScratch(ctx, info)
-
-		x.acceptedCount += count
-
-		if x.acceptedCount < x.requiredCount {
-			return false
-		}
-
-		x.accepted = true
-
-		if info == nil {
-			return true
-		}
-
-		count = 0
-		if x.required && s.mode != closeEmbed {
-			count = 1
-		}
-	}
-}
-
-// getScratch: explain generation.
-func getScratch(ctx *OpContext, s *closeInfo) *closeStats {
-	m := ctx.closed
-	if m == nil {
-		m = map[*closeInfo]*closeStats{}
-		ctx.closed = m
-	}
-
-	x := m[s]
-	if x == nil {
-		x = &closeStats{}
-		m[s] = x
-	}
-
-	if x.generation != ctx.opID {
-		*x = closeStats{generation: ctx.opID}
-	}
-
-	return x
-}
-
-func verifyArc(ctx *OpContext, s *StructInfo, f Feature, label Value) bool {
-	isRegular := f.IsString()
-
-	o := s.StructLit
-	env := s.Env
-
-	if len(o.Additional) > 0 || o.IsOpen {
-		return true
-	}
-
-	for _, g := range o.Fields {
-		if f == g.Label {
-			return true
-		}
-	}
-
-	if !isRegular {
-		return false
-	}
-
-	// Do not record errors during this validation.
-	errs := ctx.errs
-	defer func() { ctx.errs = errs }()
-
-	if len(o.Dynamic) > 0 && f.IsString() && label != nil {
-		for _, b := range o.Dynamic {
-			v := env.evalCached(ctx, b.Key)
-			v, _ = ctx.getDefault(v)
-			s, ok := Unwrap(v).(*String)
-			if !ok {
-				continue
-			}
-			if label.(*String).Str == s.Str {
-				return true
-			}
-		}
-	}
-
-	for _, b := range o.Bulk {
-		if matchBulk(ctx, env, b, f, label) {
-			return true
-		}
-	}
-
-	// TODO(perf): delay adding this position: create a special error type that
-	// computes all necessary positions on demand.
-	if ctx != nil {
-		ctx.AddPosition(s.StructLit)
-	}
-
-	return false
+	return n.accept(ctx, f), true
 }

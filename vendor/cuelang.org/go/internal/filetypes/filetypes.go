@@ -23,6 +23,7 @@ import (
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal/filetypes/internal"
+	cuepath "cuelang.org/go/pkg/path"
 )
 
 // Mode indicate the base mode of operation and indicates a different set of
@@ -75,39 +76,37 @@ func ParseArgs(args []string) (files []*build.File, err error) {
 
 	sc := &scope{}
 	for i, s := range args {
-		a := strings.Split(s, ":")
+		scope, file, found := cutScope(s)
 		switch {
-		case len(a) == 1 || len(a[0]) == 1: // filename
-			if s == "" {
+		case !found: // just a filename, like "foo.yaml"
+			if file == "" {
 				return nil, errors.Newf(token.NoPos, "empty file name")
 			}
-			f, err := toFile(Input, sc, s)
+			f, err := toFile(Input, sc, file)
 			if err != nil {
 				return nil, err
 			}
 			files = append(files, f)
 			hasFiles = true
 
-		case len(a) > 2 || a[0] == "":
-			return nil, errors.Newf(token.NoPos,
-				"unsupported file name %q: may not have ':'", s)
-
-		case a[1] != "":
+		case scope == "":
+			return nil, errors.Newf(token.NoPos, "empty filetype prefix in %q", s)
+		case file != "":
 			return nil, errors.Newf(token.NoPos, "cannot combine scope with file")
 
-		default: // scope
+		default: // just a scope, like "json:"
 			switch {
 			case i == len(args)-1:
-				qualifier = a[0]
+				qualifier = scope
 				fallthrough
 			case qualifier != "" && !hasFiles:
 				return nil, errors.Newf(token.NoPos, "scoped qualifier %q without file", qualifier+":")
 			}
-			sc, err = parseScope(a[0])
+			sc, err = parseScope(scope)
 			if err != nil {
 				return nil, err
 			}
-			qualifier = a[0]
+			qualifier = scope
 			hasFiles = false
 		}
 	}
@@ -134,6 +133,20 @@ func DefaultTagsForInterpretation(interp build.Interpretation, mode Mode) map[st
 	return f.BoolTags
 }
 
+func cutScope(s string) (scope, file string, found bool) {
+	if cuepath.IsAbs(s, cuepath.Windows) || cuepath.IsAbs(s, cuepath.Unix) {
+		// Absolute paths on Windows can begin with a volume name, like `C:\foo\bar`;
+		// do not confuse that for a scope prefix.
+		// Note that we use [cuepath.IsAbs] for consistent behavior across platforms.
+		//
+		// We also check for Unix, so that `/foo:colons.json` is treated
+		// as an absolute filename rather than a `/foo` scope prefix on `colons.json`.
+	} else if before, after, ok := strings.Cut(s, ":"); ok {
+		return before, after, true
+	}
+	return "", s, false // Just a filename
+}
+
 // ParseFile parses a single-argument file specifier, such as when a file is
 // passed to a command line argument.
 //
@@ -141,15 +154,9 @@ func DefaultTagsForInterpretation(interp build.Interpretation, mode Mode) map[st
 //
 //	cue eval -o yaml:foo.data
 func ParseFile(s string, mode Mode) (*build.File, error) {
-	scope := ""
-	file := s
-
-	if p := strings.LastIndexByte(s, ':'); p >= 0 {
-		scope = s[:p]
-		file = s[p+1:]
-		if scope == "" {
-			return nil, errors.Newf(token.NoPos, "unsupported file name %q: may not have ':", s)
-		}
+	scope, file, found := cutScope(s)
+	if found && scope == "" {
+		return nil, errors.Newf(token.NoPos, "empty filetype prefix in %q", s)
 	}
 
 	if file == "" {
@@ -189,7 +196,7 @@ func parseScope(scopeStr string) (*scope, error) {
 		subsidiaryBool:   make(map[string]bool),
 		subsidiaryString: make(map[string]string),
 	}
-	for _, tag := range strings.Split(scopeStr, "+") {
+	for tag := range strings.SplitSeq(scopeStr, "+") {
 		tagName, tagVal, hasValue := strings.Cut(tag, "=")
 		switch tagTypes[tagName] {
 		case TagTopLevel:

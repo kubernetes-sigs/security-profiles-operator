@@ -16,6 +16,7 @@ package parser
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -44,8 +45,9 @@ type parser struct {
 	indent    int  // indentation used for tracing output
 
 	// Comments
-	leadComment *ast.CommentGroup
-	comments    *commentState
+	leadComment  *ast.CommentGroup
+	comments     *commentState
+	commentStack []*commentState // to reuse [commentState] allocations
 
 	// Next token, filled by [parser.next0].
 	pos token.Pos   // token position
@@ -72,8 +74,6 @@ type parser struct {
 	exprLev int // < 0: in control clause, >= 0: in expression
 
 	imports []*ast.ImportSpec // list of imports
-
-	version int
 }
 
 func (p *parser) init(filename string, src []byte, opts []Option) {
@@ -109,11 +109,26 @@ type commentState struct {
 	lastPos   int8
 }
 
+func (p *parser) allocCommentState() *commentState {
+	if n := len(p.commentStack); n > 0 {
+		c := p.commentStack[n-1]
+		p.commentStack = p.commentStack[:n-1]
+		return c
+	}
+	return &commentState{}
+}
+
+func (p *parser) freeCommentState(c *commentState) {
+	// Ensure no pointers remain, which can hold onto memory.
+	// We only reuse the groups slice capacity.
+	*c = commentState{groups: c.groups[:0]}
+	p.commentStack = append(p.commentStack, c)
+}
+
 // openComments reserves the next doc comment for the caller and flushes
 func (p *parser) openComments() *commentState {
-	child := &commentState{
-		parent: p.comments,
-	}
+	child := p.allocCommentState()
+	child.parent = p.comments
 	if c := p.comments; c != nil && c.isList > 0 {
 		if c.lastChild != nil {
 			var groups []*ast.CommentGroup
@@ -130,16 +145,14 @@ func (p *parser) openComments() *commentState {
 				}
 			}
 			ast.SetComments(c.lastChild, groups)
-			c.groups = nil
 		} else {
-			c.lastChild = nil
 			// attach before next
 			for _, cg := range c.groups {
 				cg.Position = 0
 			}
-			child.groups = c.groups
-			c.groups = nil
+			child.groups = append(child.groups, c.groups...)
 		}
+		c.groups = c.groups[:0]
 	}
 	if p.leadComment != nil {
 		child.groups = append(child.groups, p.leadComment)
@@ -156,10 +169,9 @@ func (p *parser) openList() {
 		p.comments.isList++
 		return
 	}
-	c := &commentState{
-		parent: p.comments,
-		isList: 1,
-	}
+	c := p.allocCommentState()
+	c.parent = p.comments
+	c.isList = 1
 	p.comments = c
 }
 
@@ -175,7 +187,7 @@ func (p *parser) closeList() {
 			cg.Position = c.lastPos
 			ast.AddComment(c.lastChild, cg)
 		}
-		c.groups = nil
+		c.groups = c.groups[:0]
 	}
 	switch c.isList--; {
 	case c.isList < 0:
@@ -192,6 +204,7 @@ func (p *parser) closeList() {
 		}
 		parent.pos++
 		p.comments = parent
+		p.freeCommentState(c)
 	}
 }
 
@@ -218,7 +231,7 @@ func (c *commentState) closeNode(p *parser, n ast.Node) ast.Node {
 			}
 		}
 	}
-	c.groups = nil
+	p.freeCommentState(c)
 	return n
 }
 
@@ -402,21 +415,6 @@ func (p *parser) next() {
 	}
 }
 
-// assertV0 indicates the last version at which a certain feature was
-// supported.
-func (p *parser) assertV0(pos token.Pos, minor, patch int, name string) {
-	v := internal.Version(minor, patch)
-	base := p.version
-	if base == 0 {
-		base = internal.APIVersionSupported
-	}
-	if base > v {
-		p.errors = errors.Append(p.errors,
-			errors.Wrapf(&DeprecationError{v}, pos,
-				"use of deprecated %s (deprecated as of v0.%d.%d)", name, minor, patch+1))
-	}
-}
-
 func (p *parser) errf(pos token.Pos, msg string, args ...interface{}) {
 	// ePos := p.file.Position(pos)
 	ePos := pos
@@ -462,6 +460,7 @@ func (p *parser) expect(tok token.Token) token.Pos {
 	pos := p.pos
 	if p.tok != tok {
 		p.errorExpected(pos, "'"+tok.String()+"'")
+		pos = token.NoPos
 	}
 	p.next() // make progress
 	return pos
@@ -478,15 +477,14 @@ func (p *parser) expectClosing(tok token.Token, context string) token.Pos {
 }
 
 func (p *parser) expectComma() {
-	// semicolon is optional before a closing ')', ']', '}', or newline
-	if p.tok != token.RPAREN && p.tok != token.RBRACE && p.tok != token.EOF {
-		switch p.tok {
-		case token.COMMA:
-			p.next()
-		default:
-			p.errorExpected(p.pos, "','")
-			syncExpr(p)
-		}
+	switch p.tok {
+	case token.COMMA:
+		p.next()
+	// the comma is optional before a closing ')', ']', '}', or newline
+	case token.RPAREN, token.RBRACE, token.EOF:
+	default:
+		p.errorExpected(p.pos, "','")
+		syncExpr(p)
 	}
 }
 
@@ -494,10 +492,8 @@ func (p *parser) atComma(context string, follow ...token.Token) bool {
 	if p.tok == token.COMMA {
 		return true
 	}
-	for _, t := range follow {
-		if p.tok == t {
-			return false
-		}
+	if slices.Contains(follow, p.tok) {
+		return false
 	}
 	// TODO: find a way to detect crossing lines now we don't have a semi.
 	if p.lit == "\n" {
@@ -525,7 +521,7 @@ func syncExpr(p *parser) {
 				p.syncCnt++
 				return
 			}
-			if p.syncPos.Before(p.pos) {
+			if p.syncPos.Compare(p.pos) < 0 {
 				p.syncPos = p.pos
 				p.syncCnt = 0
 				return
@@ -566,16 +562,29 @@ func (p *parser) safePos(pos token.Pos) (res token.Pos) {
 
 func (p *parser) parseIdent() *ast.Ident {
 	c := p.openComments()
-	pos := p.pos
-	name := "_"
-	if p.tok == token.IDENT {
-		name = p.lit
-		p.next()
-	} else {
-		p.expect(token.IDENT) // use expect() error handling
+	name := p.lit
+	pos := p.expect(token.IDENT)
+	if !pos.IsValid() {
+		name = "_"
 	}
 	ident := &ast.Ident{NamePos: pos, Name: name}
 	c.closeNode(p, ident)
+	return ident
+}
+
+// checkDeclIdent validates that an identifier is not a reserved
+// double-underscore identifier. Use this when an identifier is being declared.
+func (p *parser) checkDeclIdent(ident *ast.Ident) {
+	if strings.HasPrefix(ident.Name, "__") {
+		p.errf(ident.NamePos, "identifiers starting with '__' are reserved")
+	}
+}
+
+// parseIdentDecl parses an identifier and validates that it's not a reserved
+// double-underscore identifier. Use this for identifier declarations.
+func (p *parser) parseIdentDecl() *ast.Ident {
+	ident := p.parseIdent()
+	p.checkDeclIdent(ident)
 	return ident
 }
 
@@ -601,7 +610,17 @@ func (p *parser) parseOperand() (expr ast.Expr) {
 
 	switch p.tok {
 	case token.IDENT:
-		return p.parseIdent()
+		ident := p.parseIdent()
+		// Check for optional reference marker (?)
+		// Don't consume ? if it's followed by : (that's a field constraint, not optional reference)
+		if p.tok == token.OPTION {
+			// Peek ahead to see if this is a field constraint (foo?: value)
+			p.peek()
+			if p.peekToken.tok != token.COLON {
+				return p.wrapOptional(ident, p.tok)
+			}
+		}
+		return ident
 
 	case token.LBRACE:
 		return p.parseStruct()
@@ -645,7 +664,8 @@ func (p *parser) parseOperand() (expr ast.Expr) {
 		return &ast.ParenExpr{
 			Lparen: lparen,
 			X:      x,
-			Rparen: rparen}
+			Rparen: rparen,
+		}
 
 	default:
 		if p.tok.IsKeyword() {
@@ -697,14 +717,26 @@ func (p *parser) parseIndexOrSlice(x ast.Expr) (expr ast.Expr) {
 			Lbrack: lbrack,
 			Low:    index[0],
 			High:   index[1],
-			Rbrack: rbrack}
+			Rbrack: rbrack,
+		}
 	}
 
-	return &ast.IndexExpr{
+	result := &ast.IndexExpr{
 		X:      x,
 		Lbrack: lbrack,
 		Index:  index[0],
-		Rbrack: rbrack}
+		Rbrack: rbrack,
+	}
+	return p.wrapOptional(result, p.tok)
+}
+
+func (p *parser) wrapOptional(x ast.Expr, tok token.Token) ast.Expr {
+	if tok == token.OPTION {
+		pos := p.pos
+		p.next()
+		return &ast.PostfixExpr{X: x, Op: token.OPTION, OpPos: pos}
+	}
+	return x
 }
 
 func (p *parser) parseCallOrConversion(fun ast.Expr) (expr *ast.CallExpr) {
@@ -735,7 +767,8 @@ func (p *parser) parseCallOrConversion(fun ast.Expr) (expr *ast.CallExpr) {
 		Fun:    fun,
 		Lparen: lparen,
 		Args:   list,
-		Rparen: rparen}
+		Rparen: rparen,
+	}
 }
 
 // TODO: inline this function in parseFieldList once we no longer user comment
@@ -795,7 +828,7 @@ func (p *parser) parseLetDecl() (decl ast.Decl, ident *ast.Ident) {
 	}
 	defer func() { c.closeNode(p, decl) }()
 
-	ident = p.parseIdent()
+	ident = p.parseIdentDecl()
 	assign := p.expect(token.BIND)
 	expr := p.parseRHS()
 
@@ -819,7 +852,7 @@ func (p *parser) parseComprehension() (decl ast.Decl, ident *ast.Ident) {
 
 	tok := p.tok
 	pos := p.pos
-	clauses, fc := p.parseComprehensionClauses(true)
+	clauses, fc := p.parseComprehensionClauses()
 	if fc != nil {
 		ident = &ast.Ident{
 			NamePos: pos,
@@ -833,13 +866,19 @@ func (p *parser) parseComprehension() (decl ast.Decl, ident *ast.Ident) {
 	expr := p.parseStruct()
 	sc.closeExpr(p, expr)
 
+	var fallbackClause *ast.FallbackClause
+	if p.tok == token.ELSE || p.tok == token.FALLBACK {
+		fallbackClause = p.parseFallbackClause(clauses)
+	}
+
 	if p.atComma("struct literal", token.RBRACE) { // TODO: may be EOF
 		p.next()
 	}
 
 	return &ast.Comprehension{
-		Clauses: clauses,
-		Value:   expr,
+		Clauses:  clauses,
+		Value:    expr,
+		Fallback: fallbackClause,
 	}, nil
 }
 
@@ -852,24 +891,19 @@ func (p *parser) parseField() (decl ast.Decl) {
 	defer func() { c.closeNode(p, decl) }()
 
 	pos := p.pos
-
-	this := &ast.Field{Label: nil}
-	m := this
-
 	tok := p.tok
 
 	label, expr, decl, ok := p.parseLabel(false)
 	if decl != nil {
 		return decl
 	}
-	m.Label = label
 
 	if !ok {
 		if expr == nil {
 			expr = p.parseRHS()
 		}
 		if a, ok := expr.(*ast.Alias); ok {
-			p.assertV0(a.Pos(), 1, 3, `old-style alias; use "let X = expr" instead`)
+			p.errf(a.Pos(), `pre-v0.2 alias; use "let X = expr" instead`)
 			p.consumeDeclComma()
 			return a
 		}
@@ -878,9 +912,15 @@ func (p *parser) parseField() (decl ast.Decl) {
 		return e
 	}
 
+	this := &ast.Field{}
+	m := this
+	m.Label = label
+
+	// Parse postfix alias if present
+	m.Alias = p.parsePostfixAlias()
+
 	switch p.tok {
 	case token.OPTION, token.NOT:
-		m.Optional = p.pos
 		m.Constraint = p.tok
 		p.next()
 	}
@@ -893,20 +933,25 @@ func (p *parser) parseField() (decl ast.Decl) {
 
 	switch p.tok {
 	case token.COLON:
+		// Now we know it's being used as a label, validate double-underscore
+		if ident, ok := label.(*ast.Ident); ok {
+			p.checkDeclIdent(ident)
+		}
 	case token.COMMA:
 		p.expectComma() // sync parser.
 		fallthrough
 
 	case token.RBRACE, token.EOF:
 		if a, ok := expr.(*ast.Alias); ok {
-			p.assertV0(a.Pos(), 1, 3, `old-style alias; use "let X = expr" instead`)
+			p.errf(a.Pos(), `pre-v0.2 alias; use "let X = expr" instead`)
 			return a
 		}
 		switch tok {
 		case token.IDENT, token.LBRACK, token.LPAREN,
 			token.STRING, token.INTERPOLATION,
 			token.NULL, token.TRUE, token.FALSE,
-			token.FOR, token.IF, token.LET, token.IN:
+			token.FOR, token.IF, token.LET, token.IN,
+			token.TRY, token.ELSE, token.FALLBACK:
 			return &ast.EmbedDecl{Expr: expr}
 		}
 		fallthrough
@@ -917,11 +962,7 @@ func (p *parser) parseField() (decl ast.Decl) {
 	}
 
 	m.TokenPos = p.pos
-	m.Token = p.tok
-	if p.tok != token.COLON {
-		p.errorExpected(pos, "':'")
-	}
-	p.next() // :
+	p.expect(token.COLON)
 
 	for {
 		if l, ok := m.Label.(*ast.ListLit); ok && len(l.Elts) != 1 {
@@ -929,7 +970,7 @@ func (p *parser) parseField() (decl ast.Decl) {
 		}
 
 		label, expr, _, ok := p.parseLabel(true)
-		if !ok || (p.tok != token.COLON && p.tok != token.OPTION && p.tok != token.NOT) {
+		if !ok || (p.tok != token.COLON && p.tok != token.OPTION && p.tok != token.NOT && p.tok != token.TILDE) {
 			if expr == nil {
 				expr = p.parseRHS()
 			}
@@ -940,24 +981,17 @@ func (p *parser) parseField() (decl ast.Decl) {
 		m.Value = &ast.StructLit{Elts: []ast.Decl{field}}
 		m = field
 
+		// Parse postfix alias if present
+		m.Alias = p.parsePostfixAlias()
+
 		switch p.tok {
 		case token.OPTION, token.NOT:
-			m.Optional = p.pos
 			m.Constraint = p.tok
 			p.next()
 		}
 
 		m.TokenPos = p.pos
-		m.Token = p.tok
-		if p.tok != token.COLON {
-			if p.tok.IsLiteral() {
-				p.errf(p.pos, "expected ':'; found %s", p.lit)
-			} else {
-				p.errf(p.pos, "expected ':'; found %s", p.tok)
-			}
-			break
-		}
-		p.next()
+		p.expect(token.COLON)
 	}
 
 	if attrs := p.parseAttributes(); attrs != nil {
@@ -997,7 +1031,7 @@ func (p *parser) parseLabel(rhs bool) (label ast.Label, expr ast.Expr, decl ast.
 	tok := p.tok
 	switch tok {
 
-	case token.FOR, token.IF:
+	case token.FOR, token.IF, token.TRY:
 		if rhs {
 			expr = p.parseExpr()
 			break
@@ -1007,6 +1041,10 @@ func (p *parser) parseLabel(rhs bool) (label ast.Label, expr ast.Expr, decl ast.
 			return nil, nil, comp, false
 		}
 		expr = ident
+
+	case token.ELSE, token.FALLBACK:
+		// These keywords can be used as field labels
+		expr = p.parseExpr()
 
 	case token.LET:
 		let, ident := p.parseLetDecl()
@@ -1042,10 +1080,6 @@ func (p *parser) parseLabel(rhs bool) (label ast.Label, expr ast.Expr, decl ast.
 		}
 
 	case *ast.Ident:
-		if strings.HasPrefix(x.Name, "__") && !rhs {
-			p.errf(x.NamePos, "identifiers starting with '__' are reserved")
-		}
-
 		expr = p.parseAlias(x)
 		if a, ok := expr.(*ast.Alias); ok {
 			if _, ok = a.Expr.(ast.Label); !ok {
@@ -1103,14 +1137,13 @@ func (p *parser) parseStructBody() []ast.Decl {
 	return elts
 }
 
-// parseComprehensionClauses parses either new-style (first==true)
-// or old-style (first==false).
+// parseComprehensionClauses parses comprehension clauses.
 // Should we now disallow keywords as identifiers? If not, we need to
 // return a list of discovered labels as the alternative.
-func (p *parser) parseComprehensionClauses(first bool) (clauses []ast.Clause, c *commentState) {
+func (p *parser) parseComprehensionClauses() (clauses []ast.Clause, c *commentState) {
 	// TODO: reuse Template spec, which is possible if it doesn't check the
 	// first is an identifier.
-
+	first := true
 	for {
 		switch p.tok {
 		case token.FOR:
@@ -1126,11 +1159,11 @@ func (p *parser) parseComprehensionClauses(first bool) (clauses []ast.Clause, c 
 
 			var key, value *ast.Ident
 			var colon token.Pos
-			value = p.parseIdent()
+			value = p.parseIdentDecl()
 			if p.tok == token.COMMA {
 				colon = p.expect(token.COMMA)
 				key = value
-				value = p.parseIdent()
+				value = p.parseIdentDecl()
 			}
 			c.pos = 4
 			// params := p.parseParams(nil, ARROW)
@@ -1168,7 +1201,7 @@ func (p *parser) parseComprehensionClauses(first bool) (clauses []ast.Clause, c 
 			c := p.openComments()
 			letPos := p.expect(token.LET)
 
-			ident := p.parseIdent()
+			ident := p.parseIdentDecl()
 			assign := p.expect(token.BIND)
 			expr := p.parseRHS()
 
@@ -1179,15 +1212,80 @@ func (p *parser) parseComprehensionClauses(first bool) (clauses []ast.Clause, c 
 				Expr:  expr,
 			}))
 
+		case token.TRY:
+			c := p.openComments()
+
+			tc := &ast.TryClause{Try: p.expect(token.TRY)}
+
+			// Check for assignment form: try x = expr
+			if p.tok == token.IDENT {
+				tc.Ident = p.parseIdent()
+				tc.Equal = p.expect(token.BIND)
+				tc.Expr = p.parseRHS()
+			}
+
+			clauses = append(clauses, c.closeClause(p, tc))
+
 		default:
 			return clauses, nil
 		}
 		if p.tok == token.COMMA {
 			p.next()
 		}
-
 		first = false
 	}
+}
+
+// parseFallbackClause parses an else or fallback clause in a comprehension.
+// It determines the appropriate keyword based on the clause composition:
+// - Single if or try clause: expects ELSE, errors on FALLBACK
+// - Everything else: expects FALLBACK, errors on ELSE
+func (p *parser) parseFallbackClause(clauses []ast.Clause) *ast.FallbackClause {
+	if p.trace {
+		defer un(trace(p, "FallbackClause"))
+	}
+	c := p.openComments()
+
+	if p.experiments == nil || !p.experiments.Try {
+		p.errf(p.pos, "%s requires @experiment(try)", p.tok)
+	}
+
+	// Determine if this is a single if or try clause
+	isSingleGuard := len(clauses) == 1
+	if isSingleGuard {
+		switch clauses[0].(type) {
+		case *ast.IfClause, *ast.TryClause:
+			// Single if or try: use else
+		default:
+			isSingleGuard = false
+		}
+	}
+
+	var pos token.Pos
+	if isSingleGuard {
+		// Single if/try clause: must use else
+		if p.tok == token.FALLBACK {
+			p.errf(p.pos, "use 'else' with single 'if' or 'try' clause")
+			pos = p.pos
+			p.next()
+		} else {
+			pos = p.expect(token.ELSE)
+		}
+	} else {
+		// Everything else: must use fallback
+		if p.tok == token.ELSE {
+			p.errf(p.pos, "use 'fallback' for comprehensions with multiple clauses or 'for' clauses")
+			pos = p.pos
+			p.next()
+		} else {
+			pos = p.expect(token.FALLBACK)
+		}
+	}
+	body := p.parseStruct()
+	return c.closeClause(p, &ast.FallbackClause{
+		Fallback: pos,
+		Body:     body.(*ast.StructLit),
+	}).(*ast.FallbackClause)
 }
 
 func (p *parser) parseFunc() (expr ast.Expr) {
@@ -1232,9 +1330,7 @@ func (p *parser) parseFuncArgs() (list []ast.Expr) {
 
 	for p.tok != token.RPAREN && p.tok != token.EOF {
 		list = append(list, p.parseFuncArg())
-		if p.tok != token.RPAREN {
-			p.expectComma()
-		}
+		p.expectComma() // skip over a trailing comma or newline
 	}
 
 	return list
@@ -1274,7 +1370,8 @@ func (p *parser) parseList() (expr ast.Expr) {
 	return &ast.ListLit{
 		Lbrack: lbrack,
 		Elts:   elts,
-		Rbrack: rbrack}
+		Rbrack: rbrack,
+	}
 }
 
 func (p *parser) parseListElements() (list []ast.Expr) {
@@ -1306,19 +1403,25 @@ func (p *parser) parseListElement() (expr ast.Expr, ok bool) {
 	case token.FOR, token.IF:
 		tok := p.tok
 		pos := p.pos
-		clauses, fc := p.parseComprehensionClauses(true)
+		clauses, fc := p.parseComprehensionClauses()
 		if clauses != nil {
 			sc := p.openComments()
 			expr := p.parseStruct()
 			sc.closeExpr(p, expr)
+
+			var fallbackClause *ast.FallbackClause
+			if p.tok == token.ELSE || p.tok == token.FALLBACK {
+				fallbackClause = p.parseFallbackClause(clauses)
+			}
 
 			if p.atComma("list literal", token.RBRACK) { // TODO: may be EOF
 				p.next()
 			}
 
 			return &ast.Comprehension{
-				Clauses: clauses,
-				Value:   expr,
+				Clauses:  clauses,
+				Value:    expr,
+				Fallback: fallbackClause,
 			}, true
 		}
 
@@ -1360,6 +1463,15 @@ func (p *parser) parseAlias(lhs ast.Expr) (expr ast.Expr) {
 		return lhs
 	}
 	pos := p.pos
+
+	// Check if old-style aliases are disallowed
+	if p.experiments != nil && p.experiments.AliasV2 {
+		p.errf(pos, "old-style alias syntax (=) is not allowed with @experiment(aliasv2); use postfix syntax (~X or ~(K,V))")
+		p.next()
+		expr = p.parseRHS()
+		return expr
+	}
+
 	p.next()
 	expr = p.parseRHS()
 	if expr == nil {
@@ -1367,10 +1479,86 @@ func (p *parser) parseAlias(lhs ast.Expr) (expr ast.Expr) {
 	}
 	switch x := lhs.(type) {
 	case *ast.Ident:
+		p.checkDeclIdent(x)
 		return &ast.Alias{Ident: x, Equal: pos, Expr: expr}
 	}
-	p.errf(p.pos, "expected identifier for alias")
+	p.errorExpected(p.pos, "identifier for alias")
 	return expr
+}
+
+// parsePostfixAlias parses the postfix alias syntax: ~X or ~(K,V)
+// Returns nil if no alias is present.
+func (p *parser) parsePostfixAlias() *ast.PostfixAlias {
+	if p.tok != token.TILDE {
+		return nil
+	}
+
+	pos := p.pos
+
+	// Check if postfix alias syntax requires experiment
+	if p.experiments == nil || !p.experiments.AliasV2 {
+		p.errf(pos, "postfix alias syntax requires @experiment(aliasv2)")
+	}
+
+	p.next()
+
+	switch p.tok {
+	case token.LPAREN:
+		// Dual form: ~(K,V)
+		lparen := p.pos
+		p.next()
+
+		if p.tok != token.IDENT {
+			p.errorExpected(p.pos, "identifier for label alias")
+			return nil
+		}
+		k := p.parseIdent()
+
+		comma := p.expect(token.COMMA)
+		if !comma.IsValid() {
+			// Recovery: treat as simple form with just K
+			return &ast.PostfixAlias{
+				Tilde: pos,
+				Field: k,
+			}
+		}
+
+		if p.tok != token.IDENT {
+			p.errorExpected(p.pos, "identifier for field alias")
+			// Recovery: return what we have
+			return &ast.PostfixAlias{
+				Tilde:  pos,
+				Lparen: lparen,
+				Label:  k,
+				Comma:  comma,
+				Field:  k, // Use K as field too for recovery
+			}
+		}
+		v := p.parseIdent()
+
+		rparen := p.expect(token.RPAREN)
+
+		return &ast.PostfixAlias{
+			Tilde:  pos,
+			Lparen: lparen,
+			Label:  k,
+			Comma:  comma,
+			Field:  v,
+			Rparen: rparen,
+		}
+
+	case token.IDENT:
+		// Simple form: ~X
+		ident := p.parseIdent()
+		return &ast.PostfixAlias{
+			Tilde: pos,
+			Field: ident,
+		}
+
+	default:
+		p.errorExpected(p.pos, "identifier or '('")
+		return nil
+	}
 }
 
 // checkExpr checks that x is an expression (and not a type).
@@ -1392,6 +1580,7 @@ func (p *parser) checkExpr(x ast.Expr) ast.Expr {
 	case *ast.CallExpr:
 	case *ast.UnaryExpr:
 	case *ast.BinaryExpr:
+	case *ast.PostfixExpr:
 	default:
 		// all other nodes are not proper expressions
 		p.errorExpected(x.Pos(), "expression")
@@ -1425,15 +1614,18 @@ L:
 	for {
 		switch p.tok {
 		case token.PERIOD:
+			period := p.pos
 			c := p.openComments()
 			c.pos = 1
 			p.next()
 			switch p.tok {
 			case token.IDENT:
 				x = &ast.SelectorExpr{
-					X:   p.checkExpr(x),
-					Sel: p.parseIdent(),
+					X:      p.checkExpr(x),
+					Period: period,
+					Sel:    p.parseIdent(),
 				}
+				x = p.wrapOptional(x, p.tok)
 			case token.STRING:
 				if strings.HasPrefix(p.lit, `"`) && !strings.HasPrefix(p.lit, `""`) {
 					str := &ast.BasicLit{
@@ -1443,31 +1635,58 @@ L:
 					}
 					p.next()
 					x = &ast.SelectorExpr{
-						X:   p.checkExpr(x),
-						Sel: str,
+						X:      p.checkExpr(x),
+						Period: period,
+						Sel:    str,
 					}
+					x = p.wrapOptional(x, p.tok)
 					break
 				}
 				fallthrough
 			default:
 				if p.tok.IsKeyword() {
 					x = &ast.SelectorExpr{
-						X:   p.checkExpr(x),
-						Sel: p.parseKeyIdent(),
+						X:      p.checkExpr(x),
+						Period: period,
+						Sel:    p.parseKeyIdent(),
 					}
+					x = p.wrapOptional(x, p.tok)
 					break
 				}
 
 				pos := p.pos
 				p.errorExpected(pos, "selector")
 				p.next() // make progress
-				x = &ast.SelectorExpr{X: x, Sel: &ast.Ident{NamePos: pos, Name: "_"}}
+				x = &ast.SelectorExpr{
+					X:      x,
+					Period: period,
+					Sel:    &ast.Ident{NamePos: pos, Name: "_"},
+				}
 			}
 			c.closeNode(p, x)
 		case token.LBRACK:
 			x = p.parseIndexOrSlice(p.checkExpr(x))
 		case token.LPAREN:
 			x = p.parseCallOrConversion(p.checkExpr(x))
+		case token.ELLIPSIS:
+			if p.experiments.ExplicitOpen {
+				pos := p.pos
+				c := p.openComments()
+				p.next()
+				x = c.closeExpr(p, &ast.PostfixExpr{
+					X:     p.checkExpr(x),
+					Op:    token.ELLIPSIS,
+					OpPos: pos,
+				})
+			} else {
+				// Consume the token and give a clear error
+				pos := p.pos
+				p.next()
+				err := errors.Newf(pos, "postfix ... operator requires @experiment(explicitopen)")
+				p.errors = errors.Append(p.errors, err)
+				// Return a BadExpr to continue parsing
+				x = &ast.BadExpr{From: pos, To: p.pos}
+			}
 		default:
 			break L
 		}
@@ -1548,7 +1767,8 @@ func (p *parser) parseBinaryExprTail(prec1 int, x ast.Expr) ast.Expr {
 			OpPos: pos,
 			Op:    op,
 			// Treat nested expressions as RHS.
-			Y: p.checkExpr(p.parseBinaryExpr(prec + 1))})
+			Y: p.checkExpr(p.parseBinaryExpr(prec + 1)),
+		})
 	}
 }
 
@@ -1567,7 +1787,9 @@ func (p *parser) parseInterpolation() (expr ast.Expr) {
 	last := &ast.BasicLit{ValuePos: pos, Kind: token.STRING, Value: lit}
 	exprs := []ast.Expr{last}
 
-	for p.tok == token.LPAREN {
+	// Note: we can only tell if the string returned by ResumeInterpolation
+	// starts a new interpolated expression by whether it ends in a parenthesis.
+	for strings.HasSuffix(last.Value, "(") {
 		c.pos = 1
 		p.expect(token.LPAREN)
 		cc.closeExpr(p, last)
@@ -1576,7 +1798,7 @@ func (p *parser) parseInterpolation() (expr ast.Expr) {
 
 		cc = p.openComments()
 		if p.tok != token.RPAREN {
-			p.errf(p.pos, "expected ')' for string interpolation")
+			p.errorExpected(p.pos, "')' for string interpolation")
 		}
 		lit = p.scanner.ResumeInterpolation()
 		pos = p.pos
@@ -1635,27 +1857,18 @@ func (p *parser) parseImportSpec(_ int) *ast.ImportSpec {
 
 	var ident *ast.Ident
 	if p.tok == token.IDENT {
-		ident = p.parseIdent()
-		if isDefinition(ident) {
+		ident = p.parseIdentDecl()
+		if internal.IsDef(ident.Name) {
 			p.errf(p.pos, "cannot import package as definition identifier")
 		}
 	}
 
-	pos := p.pos
-	var path string
-	if p.tok == token.STRING {
-		path = p.lit
-		if !isValidImport(path) {
-			p.errf(pos, "invalid import path: %s", path)
-		}
-		p.next()
-		p.expectComma() // call before accessing p.linecomment
-	} else {
-		p.expect(token.STRING) // use expect() error handling
-		if p.tok == token.COMMA {
-			p.expectComma() // call before accessing p.linecomment
-		}
+	path := p.lit
+	pos := p.expect(token.STRING)
+	if pos.IsValid() && !isValidImport(path) {
+		p.errf(pos, "invalid import path: %s", path)
 	}
+	p.expectComma() // skip over a comma or newline
 	// collect imports
 	spec := &ast.ImportSpec{
 		Name: ident,
@@ -1685,7 +1898,7 @@ func (p *parser) parseImports() *ast.ImportDecl {
 		}
 		p.closeList()
 		rparen = p.expect(token.RPAREN)
-		p.expectComma()
+		p.expectComma() // skip over a comma or newline
 	} else {
 		list = append(list, p.parseImportSpec(0))
 	}
@@ -1729,10 +1942,11 @@ func (p *parser) parseFile() *ast.File {
 	if err != nil {
 		e := errors.Wrapf(err, p.pos, "parsing experiments for version %q", v)
 		p.errors = errors.Append(p.errors, e)
-	} else {
-		p.experiments = exp
-		p.file.SetExperiments(exp)
+		// Do not proceed without setting p.experiments.
+		return nil
 	}
+	p.experiments = exp
+	p.file.SetExperiments(exp)
 
 	// The package clause is not a declaration: it does not appear in any
 	// scope.
@@ -1746,7 +1960,7 @@ func (p *parser) parseFile() *ast.File {
 		if name.Name == "_" && p.cfg.Mode&DeclarationErrors != 0 {
 			p.errf(p.pos, "invalid package name _")
 		}
-		if isDefinition(name) {
+		if internal.IsDef(name.Name) {
 			p.errf(p.pos, "invalid package name %s", name.Name)
 		}
 		pkg := &ast.Package{
@@ -1754,7 +1968,7 @@ func (p *parser) parseFile() *ast.File {
 			Name:       name,
 		}
 		decls = append(decls, pkg)
-		p.expectComma()
+		p.expectComma() // skip over a comma or newline
 		c.closeNode(p, pkg)
 	}
 
@@ -1785,9 +1999,4 @@ func (p *parser) parseFile() *ast.File {
 	}
 	c.closeNode(p, f)
 	return f
-}
-
-func isDefinition(ident *ast.Ident) bool {
-	return strings.HasPrefix(ident.Name, "#") ||
-		strings.HasPrefix(ident.Name, "_#")
 }

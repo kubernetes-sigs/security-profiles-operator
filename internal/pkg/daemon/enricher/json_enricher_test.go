@@ -68,9 +68,9 @@ const (
 
 func getEnvMap(content []byte) map[string]string {
 	envMap := make(map[string]string)
-	envVars := bytes.Split(content, []byte{'\n'})
+	envVars := bytes.SplitSeq(content, []byte{'\n'})
 
-	for _, envVarBytes := range envVars {
+	for envVarBytes := range envVars {
 		envVar := string(envVarBytes)
 		if envVar == "" {
 			continue
@@ -239,10 +239,11 @@ func TestJsonRun(t *testing.T) {
 					// Ensure that it's not very long after the flush time
 					require.Less(t, executionTime.Seconds(), float64(auditLogFlushTimeSeconds*2))
 
-					auditMap := make(map[string]interface{})
+					auditMap := make(map[string]any)
 					_, output := mock.PrintJsonOutputArgsForCall(0)
 					errUnmarshal := json.Unmarshal([]byte(output), &auditMap)
 					require.NoError(t, errUnmarshal)
+
 					executable := auditMap["executable"]
 					require.Equal(t, executableBusybox, executable)
 				},
@@ -290,16 +291,18 @@ func TestJsonRun(t *testing.T) {
 						// Wait for PrintJsonOutputCallCount() to be called
 					}
 
-					auditMap := make(map[string]interface{})
+					auditMap := make(map[string]any)
 					_, output := mock.PrintJsonOutputArgsForCall(0)
 					errUnmarshal := json.Unmarshal([]byte(output), &auditMap)
 					require.NoError(t, errUnmarshal)
+
 					executable := auditMap["executable"]
 					require.Equal(t, executableBusybox, executable)
 
 					_, output = mock.PrintJsonOutputArgsForCall(1)
 					errUnmarshal = json.Unmarshal([]byte(output), &auditMap)
 					require.NoError(t, errUnmarshal)
+
 					executable = auditMap["executable"]
 					require.Equal(t, executableNginx, executable)
 					//nolint:all

@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 /*
 Copyright 2021 The Kubernetes Authors.
@@ -243,6 +242,7 @@ func TestRun(t *testing.T) {
 						},
 					}}}, nil)
 				}
+
 				mock.ListPodsReturnsOnCall(i, &v1.PodList{Items: []v1.Pod{{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      pod,
@@ -306,8 +306,10 @@ func TestRun(t *testing.T) {
 
 				for mock.SendMetricCallCount() != 2 {
 				}
+
 				_, firstSysCall := mock.SendMetricArgsForCall(0)
 				require.NotNil(t, firstSysCall.GetSelinuxReq())
+
 				_, secondSysCall := mock.SendMetricArgsForCall(1)
 				require.NotNil(t, secondSysCall.GetSeccompReq())
 

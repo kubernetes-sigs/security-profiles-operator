@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -893,13 +894,7 @@ func sliceReplaceArg(slice []string, s string) bool {
 }
 
 func sliceContainsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(slice, s)
 }
 
 func isBpfRecorderEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {

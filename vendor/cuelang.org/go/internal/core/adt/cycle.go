@@ -374,201 +374,6 @@ package adt
 //  - treatment of let fields
 //  - tighter termination for some mutual cycles in optional conjuncts.
 
-// DEPRECATED: V2 cycle detection.
-//
-// TODO(evalv3): remove these comments once we have fully moved to V3.
-//
-
-// Cycle detection:
-//
-// - Current algorithm does not allow for early non-cyclic conjunct detection.
-// - Record possibly cyclic references.
-// - Mark as cyclic if no evidence is found.
-// - Note that this also activates the same reference in other (parent) conjuncts.
-
-// CYCLE DETECTION ALGORITHM
-//
-// BACKGROUND
-//
-// The cycle detection is inspired by the cycle detection used by Tomabechi's
-// [Tomabechi COLING 1992] and Van Lohuizen's [Van Lohuizen ACL 2000] graph
-// unification algorithms.
-//
-// Unlike with traditional graph unification, however, CUE uses references,
-// which, unlike node equivalence, are unidirectional. This means that the
-// technique to track equivalence through dereference, as common in graph
-// unification algorithms like Tomabechi's, does not work unaltered.
-//
-// The unidirectional nature of references imply that each reference equates a
-// facsimile of the value it points to. This renders the original approach of
-// node-pointer equivalence useless.
-//
-//
-// PRINCIPLE OF ALGORITHM
-//
-// The solution for CUE is based on two observations:
-//
-// - the CUE algorithm tracks all conjuncts that define a node separately, -
-// accumulating used references on a per-conjunct basis causes duplicate
-//   references to uniquely identify cycles.
-//
-// A structural cycle, as defined by the spec, can then be detected if all
-// conjuncts are marked as a cycle.
-//
-// References are accumulated as follows:
-//
-// 1. If a conjunct is a reference the reference is associated with that
-//    conjunct as well as the conjunct corresponding to the value it refers to.
-// 2. If a conjunct is a struct (including lists), its references are associated
-//    with all embedded values and fields.
-//
-// To narrow down the specifics of the reference-based cycle detection, let us
-// explore structural cycles in a bit more detail.
-//
-//
-// STRUCTURAL CYCLES
-//
-// See the language specification for a higher-level and more complete overview.
-//
-// We have to define when a cycle is detected. CUE implementations MUST report
-// an error upon a structural cycle, and SHOULD report cycles at the shortest
-// possible paths at which they occur, but MAY report these at deeper paths. For
-// instance, the following CUE has a structural cycle
-//
-//     f: g: f
-//
-// The shortest path at which the cycle can be reported is f.g, but as all
-// failed configurations are logically equal, it is fine for implementations to
-// report them at f.g.g, for instance.
-//
-// It is not, however, correct to assume that a reference to a parent is always
-// a cycle. Consider this case:
-//
-//     a: [string]: b: a
-//
-// Even though reference `a` refers to a parent node, the cycle needs to be fed
-// by a concrete field in struct `a` to persist, meaning it cannot result in a
-// cycle as defined in the spec as it is defined here. Note however, that a
-// specialization of this configuration _can_ result in a cycle. Consider
-//
-//     a: [string]: b: a
-//     a: c: _
-//
-// Here reference `a` is guaranteed to result in a structural cycle, as field
-// `c` will match the pattern constraint unconditionally.
-//
-// In other words, it is not possible to exclude tracking references across
-// pattern constraints from cycle checking.
-//
-// It is tempting to try to find a complete set of these edge cases with the aim
-// to statically determine cases in which this occurs. But as [Carpenter 1992]
-// demonstrates, it is possible for cycles to be created as a result of unifying
-// two graphs that are themselves acyclic. The following example is a
-// translation of Carpenters example to CUE:
-//
-//     y: {
-//         f: h: g
-//         g: _
-//     }
-//     x: {
-//         f: _
-//         g: f
-//     }
-//
-// Even though the above contains no cycles, the result of `x & y` is cyclic:
-//
-//     f: h: g
-//     g: f
-//
-// This means that, in practice, cycle detection has at least partially a
-// dynamic component to it.
-//
-//
-// ABSTRACT ALGORITHM
-//
-// The algorithm is described declaratively by defining what it means for a
-// field to have a structural cycle. In the below, a _reference_ is uniquely
-// identified by the pointer identity of a Go Resolver instance.
-//
-// Cycles are tracked on a per-conjunct basis and are not aggregated per Vertex:
-// administrative information is only passed on from parent to child conjunct.
-//
-// A conjunct is a _parent_ of another conjunct if is a conjunct of one of the
-// non-optional fields of the conjunct. For instance, conjunct `x` with value
-// `{b: y & z}`, is a parent of conjunct `y` as well as `z`. Within field `b`,
-// the conjuncts `y` and `z` would be tracked individually, though.
-//
-// A conjunct is _associated with a reference_ if its value was obtained by
-// evaluating a reference. Note that a conjunct may be associated with many
-// references if its evaluation requires evaluating a chain of references. For
-// instance, consider
-//
-//    a: {x: d}
-//    b: a
-//    c: b & e
-//    d: y: 1
-//
-// the first conjunct of field `c` (reference `b`) has the value `{x: y: 1}` and
-// is associated with references `b` and `a`.
-//
-// The _tracked references_ of a conjunct are all references that are associated
-// with it or any of its ancestors (parents of parents). For instance, the
-// tracked references of conjunct `b.x` of field `c.x` are `a`, `b`, and `d`.
-//
-// A conjunct is a violating cycle if it is a reference that:
-//  - occurs in the tracked references of the conjunct, or
-//  - directly refers to a parent node of the conjunct.
-//
-// A conjunct is cyclic if it is a violating cycle or if any of its ancestors
-// are a violating cycle.
-//
-// A field has a structural cycle if it is composed of at least one conjunct
-// that is a violating cycle and no conjunct that is not cyclic.
-//
-// Note that a field can be composed of only cyclic conjuncts while still not be
-// structural cycle: as long as there are no conjuncts that are a violating
-// cycle, it is not a structural cycle. This is important for the following
-//     case:
-//
-//         a: [string]: b: a
-//         x: a
-//         x: c: b: c: {}
-//
-// Here, reference `a` is never a cycle as the recursive references crosses a
-// pattern constraint that only instantiates if it is unified with something
-// else.
-//
-//
-// DISCUSSION
-//
-// The goal of conjunct cycle marking algorithm is twofold: - mark conjuncts
-// that are proven to propagate indefinitely - mark them as early as possible
-// (shortest CUE path).
-//
-// TODO: Prove all cyclic conjuncts will eventually be marked as cyclic.
-//
-// TODO:
-//   - reference marks whether it crosses a pattern, improving the case
-//     a: [string]: b: c: b
-//     This requires a compile-time detection mechanism.
-//
-//
-// REFERENCES
-// [Tomabechi COLING 1992]: https://aclanthology.org/C92-2068
-//     Hideto Tomabechi. 1992. Quasi-Destructive Graph Unification with
-//     Structure-Sharing. In COLING 1992 Volume 2: The 14th International
-//     Conference on Computational Linguistics.
-//
-// [Van Lohuizen ACL 2000]: https://aclanthology.org/P00-1045/
-//     Marcel P. van Lohuizen. 2000. "Memory-Efficient and Thread-Safe
-//     Quasi-Destructive Graph Unification". In Proceedings of the 38th Annual
-//     Meeting of the Association for Computational Linguistics, pages 352–359,
-//     Hong Kong. Association for Computational Linguistics.
-//
-// [Carpenter 1992]:
-//     Bob Carpenter, "The logic of typed feature structures."
-//     Cambridge University Press, ISBN:0-521-41932-8
-
 // TODO: mark references as crossing optional boundaries, rather than
 // approximating it during evaluation.
 
@@ -577,18 +382,15 @@ type CycleInfo struct {
 	// a cycle is detected and of which type.
 	CycleType CyclicType
 
-	// IsCyclic indicates whether this conjunct, or any of its ancestors,
-	// had a violating cycle.
-	// TODO: make this a method and use CycleType == IsCyclic after V2 is removed.
-	IsCyclic bool
-
-	// Inline is used to detect expressions referencing themselves, for instance:
-	//     {x: out, out: x}.out
-	Inline bool
-
 	// TODO(perf): pack this in with CloseInfo. Make an uint32 pointing into
 	// a buffer maintained in OpContext, using a mark-release mechanism.
 	Refs *RefNode
+}
+
+// IsCyclic indicates whether this conjunct, or any of its ancestors,
+// had a violating cycle.
+func (ci CycleInfo) IsCyclic() bool {
+	return ci.CycleType == IsCyclic
 }
 
 // A RefNode is a linked list of associated references.
@@ -627,7 +429,7 @@ type cyclicConjunct struct {
 	arc *Vertex // cached Vertex
 }
 
-// CycleType indicates the type of cycle detected. The CyclicType is associated
+// CyclicType indicates the type of cycle detected. The CyclicType is associated
 // with a conjunct and may only increase in value for child conjuncts.
 type CyclicType uint8
 
@@ -646,7 +448,7 @@ const (
 	IsCyclic
 )
 
-func (n *nodeContext) detectCycleV3(arc *Vertex, env *Environment, x Resolver, ci CloseInfo) (_ CloseInfo, skip bool) {
+func (n *nodeContext) detectCycle(arc *Vertex, env *Environment, x Resolver, ci CloseInfo) (_ CloseInfo, skip bool) {
 	n.assertInitialized()
 
 	// If we are pointing to a direct ancestor, and we are in an optional arc,
@@ -654,8 +456,8 @@ func (n *nodeContext) detectCycleV3(arc *Vertex, env *Environment, x Resolver, c
 	// is okay. If we are pointing to a direct ancestor in a non-optional arc,
 	// we also can terminate, as this is a structural cycle.
 	// TODO: use depth or check direct ancestry.
-	if n.hasAncestorV3(arc) {
-		return n.markCyclicV3(arc, env, x, ci)
+	if n.hasAncestor(arc) {
+		return n.markCyclic(arc, env, x, ci)
 	}
 
 	// As long as a node-wide cycle has not yet been detected, we allow cycles
@@ -695,10 +497,22 @@ func (n *nodeContext) detectCycleV3(arc *Vertex, env *Environment, x Resolver, c
 				return ci, false
 			}
 
-			return n.markCyclicPathV3(arc, env, x, ci)
+			return n.markCyclicPath(arc, env, x, ci)
 		}
-		if equalDeref(r.Node, n.node) && r.Ref == x && arc.nonRooted {
-			return n.markCyclicPathV3(arc, env, x, ci)
+		if r.Ref == x && arc.nonRooted {
+			if equalDeref(r.Node, n.node) {
+				return n.markCyclicPath(arc, env, x, ci)
+			}
+			// Also detect cycles through StructLit inline vertices
+			// (e.g. {a}.b), where each evaluation creates a fresh
+			// vertex that prevents matching by identity above.
+			// We identify these as IsDynamic with no Parent (unlike
+			// let vertices which have Parent set).
+			if p := arc.Parent; r.Arc.nonRooted &&
+				p != nil && p.IsDynamic && p.Parent == nil &&
+				p.state != nil && p.state.hasAncestorCycle {
+				return n.markCyclic(arc, env, x, ci)
+			}
 		}
 	}
 
@@ -721,11 +535,10 @@ func (n *nodeContext) markNonCyclic(id CloseInfo) {
 	}
 }
 
-// markCyclicV3 marks a conjunct as being cyclic. Also, it postpones processing
+// markCyclic marks a conjunct as being cyclic. Also, it postpones processing
 // the conjunct in the absence of evidence of a non-cyclic conjunct.
-func (n *nodeContext) markCyclicV3(arc *Vertex, env *Environment, x Resolver, ci CloseInfo) (CloseInfo, bool) {
+func (n *nodeContext) markCyclic(arc *Vertex, env *Environment, x Resolver, ci CloseInfo) (CloseInfo, bool) {
 	ci.CycleType = IsCyclic
-	ci.IsCyclic = true
 
 	n.hasAnyCyclicConjunct = true
 	n.hasAncestorCycle = true
@@ -740,9 +553,8 @@ func (n *nodeContext) markCyclicV3(arc *Vertex, env *Environment, x Resolver, ci
 	return ci, false
 }
 
-func (n *nodeContext) markCyclicPathV3(arc *Vertex, env *Environment, x Resolver, ci CloseInfo) (CloseInfo, bool) {
+func (n *nodeContext) markCyclicPath(arc *Vertex, env *Environment, x Resolver, ci CloseInfo) (CloseInfo, bool) {
 	ci.CycleType = IsCyclic
-	ci.IsCyclic = true
 
 	n.hasAnyCyclicConjunct = true
 
@@ -761,7 +573,7 @@ func (n *nodeContext) markCyclicPathV3(arc *Vertex, env *Environment, x Resolver
 // entirety, if present, to avoid getting unrelated data.
 func (c *OpContext) combineCycleInfo(ci CloseInfo) CloseInfo {
 	cc := c.ci.CycleInfo
-	if cc.IsCyclic {
+	if cc.IsCyclic() {
 		ci.CycleInfo = cc
 	}
 	return ci
@@ -781,9 +593,9 @@ func (c *OpContext) hasDepthCycle(v *Vertex) bool {
 	return false
 }
 
-// hasAncestorV3 checks whether a node is currently being processed. The code
+// hasAncestor checks whether a node is currently being processed. The code
 // still assumes that is includes any node that is currently being processed.
-func (n *nodeContext) hasAncestorV3(arc *Vertex) bool {
+func (n *nodeContext) hasAncestor(arc *Vertex) bool {
 	if n.ctx.hasDepthCycle(arc) {
 		return true
 	}
@@ -809,338 +621,21 @@ func (n *nodeContext) hasOnlyCyclicConjuncts() bool {
 		(n.hasAnyCyclicConjunct && !n.hasNonCyclic)
 }
 
-// setOptionalV3 marks a conjunct as being optional. The nodeContext is
+// setOptional marks a conjunct as being optional. The nodeContext is
 // currently unused, but allows for checks to be added and to add logging during
 // debugging.
-func (c *CloseInfo) setOptionalV3(n *nodeContext) {
+func (c *CloseInfo) setOptional(n *nodeContext) {
 	_ = n // See comment.
 	if c.CycleType == NoCycle {
 		c.CycleType = IsOptional
 	}
 }
 
-// markCycle checks whether the reference x is cyclic. There are two cases:
-//  1. it was previously used in this conjunct, and
-//  2. it directly references a parent node.
-//
-// Other inputs:
-//
-//	arc      the reference to which x points
-//	env, ci  the components of the Conjunct from which x originates
-//
-// A cyclic node is added to a queue for later processing if no evidence of a
-// non-cyclic node has so far been found. updateCyclicStatus processes delayed
-// nodes down the line once such evidence is found.
-//
-// If a cycle is the result of "inline" processing (an expression referencing
-// itself), an error is reported immediately.
-//
-// It returns the CloseInfo with tracked cyclic conjuncts updated, and
-// whether or not its processing should be skipped, which is the case either if
-// the conjunct seems to be fully cyclic so far or if there is a valid reference
-// cycle.
-func (n *nodeContext) markCycle(arc *Vertex, env *Environment, x Resolver, ci CloseInfo) (_ CloseInfo, skip bool) {
-	unreachableForDev(n.ctx)
-
-	n.assertInitialized()
-
-	// TODO(perf): this optimization can work if we also check for any
-	// references pointing to arc within arc. This can be done with compiler
-	// support. With this optimization, almost all references could avoid cycle
-	// checking altogether!
-	// if arc.status == Finalized && arc.cyclicReferences == nil {
-	//  return v, false
-	// }
-
-	// Check whether the reference already occurred in the list, signaling
-	// a potential cycle.
-	found := false
-	depth := int32(0)
-	for r := ci.Refs; r != nil; r = r.Next {
-		if r.Ref != x {
-			// TODO(share): this is a bit of a hack. We really should implement
-			// (*Vertex).cyclicReferences for the new evaluator. However,
-			// implementing cyclicReferences is somewhat tricky, as it requires
-			// referenced nodes to be evaluated, which is a guarantee we may not
-			// want to give. Moreover, it seems we can find a simpler solution
-			// based on structure sharing. So punt on this solution for now.
-			if r.Arc != arc || !n.ctx.isDevVersion() {
-				continue
-			}
-			found = true
-		}
-
-		// A reference that is within a graph that is being evaluated
-		// may repeat with a different arc and will point to a
-		// non-finalized arc. A repeating reference that points outside the
-		// graph will always be the same address. Hence, if this is a
-		// finalized arc with a different address, it resembles a reference that
-		// is included through a different path and is not a cycle.
-		if !equalDeref(r.Arc, arc) && arc.status == finalized {
-			continue
-		}
-
-		// For dynamically created structs we mark this as an error. Otherwise
-		// there is only an error if we have visited the arc before.
-		if ci.Inline && (arc.IsDynamic || equalDeref(r.Arc, arc)) {
-			n.reportCycleError()
-			return ci, true
-		}
-
-		// We have a reference cycle, as distinguished from a structural
-		// cycle. Reference cycles represent equality, and thus are equal
-		// to top. We can stop processing here.
-		// var nn1, nn2 *Vertex
-		// if u := r.Node.state.underlay; u != nil {
-		// 	nn1 = u.node
-		// }
-		// if u := n.node.state.underlay; u != nil {
-		// 	nn2 = u.node
-		// }
-		if equalDeref(r.Node, n.node) {
-			return ci, true
-		}
-
-		depth = r.Depth
-		found = true
-
-		// Mark all conjuncts of this Vertex that refer to the same node as
-		// cyclic. This is an extra safety measure to ensure that two conjuncts
-		// cannot work in tandom to circumvent a cycle. It also tightens
-		// structural cycle detection in some cases. Late detection of cycles
-		// can result in a lot of redundant work.
-		//
-		// TODO: this loop is not on a critical path, but it may be evaluated
-		// if it is worthy keeping at some point.
-		for i, c := range n.node.Conjuncts {
-			if c.CloseInfo.IsCyclic {
-				continue
-			}
-			for rr := c.CloseInfo.Refs; rr != nil; rr = rr.Next {
-				// TODO: Is it necessary to find another way to find
-				// "parent" conjuncts? This mechanism seems not entirely
-				// accurate. Maybe a pointer up to find the root and then
-				// "spread" downwards?
-				if r.Ref == x && equalDeref(r.Arc, rr.Arc) {
-					n.node.Conjuncts[i].CloseInfo.IsCyclic = true
-					break
-				}
-			}
-		}
-
-		break
-	}
-
-	if arc.state != nil {
-		if d := arc.state.evalDepth; d > 0 && d >= n.ctx.optionalMark {
-			arc.IsCyclic = true
-		}
-	}
-
-	// The code in this switch statement registers structural cycles caught
-	// through EvaluatingArcs to the root of the cycle. This way, any node
-	// referencing this value can track these nodes early. This is mostly an
-	// optimization to shorten the path for which structural cycles are
-	// detected, which may be critical for performance.
-outer:
-	switch arc.status {
-	case evaluatingArcs: // also  Evaluating?
-		if arc.state.evalDepth < n.ctx.optionalMark {
-			break
-		}
-
-		// The reference may already be there if we had no-cyclic structure
-		// invalidating the cycle.
-		for r := arc.cyclicReferences; r != nil; r = r.Next {
-			if r.Ref == x {
-				break outer
-			}
-		}
-
-		arc.cyclicReferences = &RefNode{
-			Arc:  deref(arc),
-			Ref:  x,
-			Next: arc.cyclicReferences,
-		}
-
-	case finalized:
-		// Insert cyclic references from found arc, if any.
-		for r := arc.cyclicReferences; r != nil; r = r.Next {
-			if r.Ref == x {
-				// We have detected a cycle, with the only exception if arc is
-				// a disjunction, as evaluation always stops at unresolved
-				// disjunctions.
-				if _, ok := arc.BaseValue.(*Disjunction); !ok {
-					found = true
-				}
-			}
-			ci.Refs = &RefNode{
-				Arc:  deref(r.Arc),
-				Node: deref(n.node),
-
-				Ref:   x,
-				Next:  ci.Refs,
-				Depth: n.depth,
-			}
-		}
-	}
-
-	// NOTE: we need to add a tracked reference even if arc is not cyclic: it
-	// may still cause a cycle that does not refer to a parent node. For
-	// instance:
-	//
-	//      y: [string]: b: y
-	//      x: y
-	//      x: c: x
-	//
-	// ->
-	//          - in conjuncts
-	//             - out conjuncts: these count for cycle detection.
-	//      x: {
-	//          [string]: <1: y> b: y
-	//          c: x
-	//      }
-	//      x.c: {
-	//          <1: y> b: y
-	//          <2: x> y
-	//             [string]: <3: x, y> b: y
-	//          <2: x> c: x
-	//      }
-	//      x.c.b: {
-	//          <1: y> y
-	//             [string]: <4: y; Cyclic> b: y
-	//          <3: x, y> b: y
-	//      }
-	//      x.c.b.b: {
-	//          <3: x, y> y
-	//               [string]: <5: x, y, Cyclic> b: y
-	//          <4: y, Cyclic> y
-	//               [string]: <5: x, y, Cyclic> b: y
-	//      }
-	//      x.c.c: { // structural cycle
-	//          <3: x, y> b: y
-	//          <2: x> x
-	//               <6: x, Cyclic>: y
-	//                    [string]: <8: x, y; Cyclic> b: y
-	//               <7: x, Cyclic>: c: x
-	//      }
-	//      x.c.c.b: { // structural cycle
-	//          <3: x, y> y
-	//               [string]: <3: x, y; Cyclic> b: y
-	//          <8: x, y; Cyclic> y
-	//      }
-	// ->
-	//      x: [string]: b: y
-	//      x: c: b: y
-	//      x: c: [string]: b: y
-	//      x: c: b: b: y
-	//      x: c: b: [string]: b: y
-	//      x: c: b: b: b: y
-	//      ....       // structural cycle 1
-	//      x: c: c: x // structural cycle 2
-	//
-	// Note that in this example there is a structural cycle at x.c.c, but we
-	// would need go guarantee that cycle is detected before the algorithm
-	// descends into x.c.b.
-	if !found || depth != n.depth {
-		// Adding this in case there is a definite cycle is unnecessary, but
-		// gives somewhat better error messages.
-		// We also need to add the reference again if the depth differs, as
-		// the depth is used for tracking "new structure".
-		// var nn *Vertex
-		// if u := n.node.state.underlay; u != nil {
-		// 	nn = u.node
-		// }
-		ci.Refs = &RefNode{
-			Arc:   deref(arc),
-			Ref:   x,
-			Node:  deref(n.node),
-			Next:  ci.Refs,
-			Depth: n.depth,
-		}
-	}
-
-	if !found && arc.status != evaluatingArcs {
-		// No cycle.
-		return ci, false
-	}
-
-	// TODO: consider if we should bail if a cycle is detected using this
-	// mechanism. Ultimately, especially when the old evaluator is removed
-	// and the status field purged, this should be used instead of the above.
-	// if !found && arc.state.evalDepth < n.ctx.optionalMark {
-	// 	// No cycle.
-	// 	return ci, false
-	// }
-
-	alreadyCycle := ci.IsCyclic
-	ci.IsCyclic = true
-
-	// TODO: depth might legitimately be 0 if it is a root vertex.
-	// In the worst case, this may lead to a spurious cycle.
-	// Fix this by ensuring the root vertex starts with a depth of 1, for
-	// instance.
-	if depth > 0 {
-		// Look for evidence of "new structure" to invalidate the cycle.
-		// This is done by checking for non-cyclic conjuncts between the
-		// current vertex up to the ancestor to which the reference points.
-		// Note that the cyclic conjunct may not be marked as such, so we
-		// look for at least one other non-cyclic conjunct if this is the case.
-		upCount := n.depth - depth
-		for p := n.node.Parent; p != nil; p = p.Parent {
-			if upCount--; upCount <= 0 {
-				break
-			}
-			a := p.Conjuncts
-			count := 0
-			for _, c := range a {
-				count += getNonCyclicCount(c)
-			}
-			if !alreadyCycle {
-				count--
-			}
-			if count > 0 {
-				return ci, false
-			}
-		}
-	}
-
-	n.hasAnyCyclicConjunct = true
-	if !n.hasNonCycle && env != nil {
-		// TODO: investigate if we can get rid of cyclicConjuncts in the new
-		// evaluator.
-		v := Conjunct{env, x, ci}
-		n.cyclicConjuncts = append(n.cyclicConjuncts, cyclicConjunct{v, arc})
-		return ci, true
-	}
-
-	return ci, false
-}
-
-func getNonCyclicCount(c Conjunct) int {
-	switch a, ok := c.x.(*ConjunctGroup); {
-	case ok:
-		count := 0
-		for _, c := range *a {
-			count += getNonCyclicCount(c)
-		}
-		return count
-
-	case !c.CloseInfo.IsCyclic:
-		return 1
-
-	default:
-		return 0
-	}
-}
-
-// updateCyclicStatusV3 looks for proof of non-cyclic conjuncts to override
+// updateCyclicStatus looks for proof of non-cyclic conjuncts to override
 // a structural cycle.
-func (n *nodeContext) updateCyclicStatusV3(c CloseInfo) {
-	if n.ctx.inDisjunct == 0 {
-		n.hasFieldValue = true
-	}
-	if !c.IsCyclic {
+func (n *nodeContext) updateCyclicStatus(c CloseInfo) {
+	n.hasFieldValue = true
+	if !c.IsCyclic() {
 		n.hasNonCycle = true
 		for _, c := range n.cyclicConjuncts {
 			ci := c.c.CloseInfo
@@ -1154,32 +649,10 @@ func (n *nodeContext) updateCyclicStatusV3(c CloseInfo) {
 	}
 }
 
-// updateCyclicStatus looks for proof of non-cyclic conjuncts to override
-// a structural cycle.
-func (n *nodeContext) updateCyclicStatus(c CloseInfo) {
-	unreachableForDev(n.ctx)
-
-	if !c.IsCyclic {
-		n.hasNonCycle = true
-		for _, c := range n.cyclicConjuncts {
-			n.addVertexConjuncts(c.c, c.arc, false)
-		}
-		n.cyclicConjuncts = n.cyclicConjuncts[:0]
-	}
-}
-
-func assertStructuralCycleV3(n *nodeContext) bool {
+func assertStructuralCycle(n *nodeContext) bool {
 	n.cyclicConjuncts = n.cyclicConjuncts[:0]
 
 	if n.hasOnlyCyclicConjuncts() {
-		n.reportCycleError()
-		return true
-	}
-	return false
-}
-
-func assertStructuralCycle(n *nodeContext) bool {
-	if n.hasAnyCyclicConjunct && !n.hasNonCycle {
 		n.reportCycleError()
 		return true
 	}
@@ -1209,8 +682,7 @@ func (n *nodeContext) reportCycleError() {
 func makeAnonymousConjunct(env *Environment, x Expr, refs *RefNode) Conjunct {
 	return Conjunct{
 		env, x, CloseInfo{CycleInfo: CycleInfo{
-			Inline: true,
-			Refs:   refs,
+			Refs: refs,
 		}},
 	}
 }
@@ -1225,35 +697,6 @@ func (n *nodeContext) incDepth() {
 // incDepth and be called after the processing of child nodes is done.
 func (n *nodeContext) decDepth() {
 	n.ctx.evalDepth--
-}
-
-// markOptional marks that we are about to process an "optional element" that
-// allows errors. In these cases, structural cycles are not "terminal".
-//
-// Examples of such constructs are:
-//
-// Optional fields:
-//
-//	a: b?: a
-//
-// Pattern constraints:
-//
-//	a: [string]: a
-//
-// Disjunctions:
-//
-//	a: b: null | a
-//
-// A call to markOptional should be paired with a call to unmarkOptional.
-func (n *nodeContext) markOptional() (saved int) {
-	saved = n.ctx.evalDepth
-	n.ctx.optionalMark = n.ctx.evalDepth
-	return saved
-}
-
-// See markOptional.
-func (n *nodeContext) unmarkOptional(saved int) {
-	n.ctx.optionalMark = saved
 }
 
 // markDepth assigns the current evaluation depth to the receiving node.

@@ -46,6 +46,11 @@ func Instances(args []string, c *Config) []*build.Instance {
 	if len(args) == 0 {
 		args = []string{"."}
 	}
+	// Note that Config is used early on to return error instances; ensure it's not nil.
+	if c == nil {
+		c = &Config{}
+	}
+
 	// TODO: This requires packages to be placed before files. At some point this
 	// could be relaxed.
 	i := 0
@@ -65,9 +70,6 @@ func Instances(args []string, c *Config) []*build.Instance {
 		return []*build.Instance{c.newErrInstance(err)}
 	}
 	ctx := context.TODO()
-	if c == nil {
-		c = &Config{}
-	}
 	newC, err := c.complete()
 	if err != nil {
 		return []*build.Instance{c.newErrInstance(err)}
@@ -95,6 +97,20 @@ func Instances(args []string, c *Config) []*build.Instance {
 			pkgArgs1 = append(pkgArgs1, p)
 		}
 		pkgArgs = pkgArgs1
+	}
+
+	// When outside a module, a major-only version like foo.com/bar@v2
+	// cannot be resolved. Provide a helpful error suggesting alternatives.
+	if c.modFile == nil || c.modFile.Module == "" {
+		for _, p := range pkgArgs {
+			ip := ast.ParseImportPath(p)
+			if ip.Version != "" && semver.Major(ip.Version) == ip.Version {
+				return []*build.Instance{c.newErrInstance(fmt.Errorf(
+					"package %s: %[2]s is not a valid version to use as an argument; use a fully qualified version like %[2]s.0.0, %[2]s.latest, or @latest",
+					p, ip.Version,
+				))}
+			}
+		}
 	}
 
 	tg := newTagger(c)
@@ -218,10 +234,7 @@ func loadAbsPackage(
 	ip := ast.ParseImportPath(pkg)
 	ip.Version = semver.Major(mv.Version())
 
-	pkgs, err := loadPackages(ctx, cfg, mf, loc, []string{ip.String()}, tg)
-	if err != nil {
-		return "", nil, err
-	}
+	pkgs := loadPackages(ctx, cfg, mf, loc, []string{ip.String()}, tg)
 	return ip.String(), pkgs, nil
 }
 
@@ -253,7 +266,7 @@ func loadPackagesFromArgs(
 		if err != nil {
 			return nil, fmt.Errorf("cannot get syntax for %q: %w", f.Filename, err)
 		}
-		for _, imp := range syntax.Imports {
+		for imp := range syntax.ImportSpecs() {
 			pkgPath, err := strconv.Unquote(imp.Path.Value)
 			if err != nil {
 				// Should never happen.
@@ -271,7 +284,7 @@ func loadPackagesFromArgs(
 		},
 		slices.Sorted(maps.Keys(pkgPaths)),
 		tg,
-	)
+	), nil
 }
 
 func loadPackages(
@@ -281,7 +294,7 @@ func loadPackages(
 	mainModLoc module.SourceLoc,
 	pkgPaths []string,
 	tg *tagger,
-) (*modpkgload.Packages, error) {
+) *modpkgload.Packages {
 	mainModPath := mainMod.QualifiedModule()
 	reqs := modrequirements.NewRequirements(
 		mainModPath,
@@ -325,7 +338,7 @@ func loadPackages(
 			}
 			return true
 		},
-	), nil
+	)
 }
 
 func isAbsVersionPackage(p string) bool {

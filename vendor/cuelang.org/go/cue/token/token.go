@@ -19,7 +19,7 @@ package token
 // Token is the set of lexical tokens of the CUE configuration language.
 type Token int
 
-//go:generate go run golang.org/x/tools/cmd/stringer -type=Token -linecomment
+//go:generate go tool stringer -type=Token -linecomment
 
 // The list of tokens.
 const (
@@ -95,14 +95,18 @@ const (
 	SEMICOLON // ;
 	COLON     // :
 	OPTION    // ?
+	TILDE     // ~
 	operatorEnd
 
 	keywordBeg
 
-	IF  // if
-	FOR // for
-	IN  // in
-	LET // let
+	IF       // if
+	ELSE     // else
+	FOR      // for
+	IN       // in
+	LET      // let
+	TRY      // try
+	FALLBACK // fallback
 	// experimental
 	FUNC // func
 

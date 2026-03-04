@@ -57,12 +57,19 @@ type ErrFunc func(pos token.Pos, msg string, args ...interface{})
 // Value
 //   X in a: X=y          Field          Alias
 // Fields
-//   X in X: y            File/Struct    Expr (y)
+//   y in X: y            File/Struct    Expr (y)
 //   X in X=x: y          File/Struct    Field
 //   X in X=(x): y        File/Struct    Field
 //   X in X="\(x)": y     File/Struct    Field
 //   X in [X=x]: y        Field          Expr (x)
 //   X in X=[x]: y        Field          Field
+//
+//   V in foo~(K,V): v    File/Struct    Field
+//   K in foo~(K,V): v    Field          Expr "foo"
+//   V in [x]~(K,V): y    Field          Field
+//   K in [x]~(K,V): y    Field          Expr (x)
+//   V in (x)~(K,V): y    File/Struct    Field
+//   K in (x)~(K,V): y    Field          Expr (x)
 //
 // for k, v in            ForClause      Ident
 // let x = y              LetClause      Ident
@@ -72,22 +79,34 @@ type ErrFunc func(pos token.Pos, msg string, args ...interface{})
 //    Value               Field          Field
 // Pkg                    nil            ImportSpec
 
-// Resolve resolves all identifiers in a file. Unresolved identifiers are
-// recorded in Unresolved. It will not overwrite already resolved values.
+// Resolve resolves all identifiers in a file, populating [ast.Ident.Node] fields.
+// Unresolved identifiers are recorded in [ast.File.Unresolved].
+// It will not overwrite already resolved identifiers.
 func Resolve(f *ast.File, errFn ErrFunc) {
-	visitor := &scope{errFn: errFn, identFn: resolveIdent}
+	stack := make([]*scope, 0, 8)
+	visitor := &scope{
+		errFn:      errFn,
+		identFn:    resolveIdent,
+		scopeStack: &stack,
+	}
 	ast.Walk(f, visitor.Before, nil)
 }
 
-// Resolve resolves all identifiers in an expression.
+// ResolveExpr resolves all identifiers in an expression.
 // It will not overwrite already resolved values.
 func ResolveExpr(e ast.Expr, errFn ErrFunc) {
 	f := &ast.File{}
-	visitor := &scope{file: f, errFn: errFn, identFn: resolveIdent}
+	stack := make([]*scope, 0, 8)
+	visitor := &scope{
+		file:       f,
+		errFn:      errFn,
+		identFn:    resolveIdent,
+		scopeStack: &stack,
+	}
 	ast.Walk(e, visitor.Before, nil)
 }
 
-// A Scope maintains the set of named language entities declared
+// A scope maintains the set of named language entities declared
 // in the scope and a link to the immediately surrounding (outer)
 // scope.
 type scope struct {
@@ -100,24 +119,60 @@ type scope struct {
 	identFn func(s *scope, n *ast.Ident) bool
 	nameFn  func(name string)
 	errFn   func(p token.Pos, msg string, args ...interface{})
+
+	// scopeStack is used to reuse scope allocations.
+	// The pointer is shared between the root scope and all its children.
+	scopeStack *[]*scope
 }
 
 type entry struct {
-	node ast.Node
-	link ast.Node // Alias, LetClause, or Field
+	node  ast.Node
+	link  ast.Node   // Alias, LetClause, or Field
+	field *ast.Field // Used for LabelAliases
+}
+
+func (s *scope) allocScope() *scope {
+	if n := len(*s.scopeStack); n > 0 {
+		scope := (*s.scopeStack)[n-1]
+		*s.scopeStack = (*s.scopeStack)[:n-1]
+		return scope
+	}
+	return &scope{
+		index:      make(map[string]entry, 4),
+		scopeStack: s.scopeStack,
+	}
+}
+
+func (s *scope) freeScope() {
+	// Ensure no pointers remain, which can hold onto memory.
+	// We only reuse the index map capacity, and keep the scopeStack pointer.
+	*s = scope{index: s.index, scopeStack: s.scopeStack}
+	clear(s.index)
+	*s.scopeStack = append(*s.scopeStack, s)
+}
+
+// freeScopesUntil frees all scopes from s up to (but not including) 'ancestor'.
+func (s *scope) freeScopesUntil(ancestor *scope) {
+	for s != ancestor {
+		if s == nil {
+			panic("ancestor scope not found")
+		}
+		next := s.outer
+		s.freeScope()
+		s = next
+	}
 }
 
 func newScope(f *ast.File, outer *scope, node ast.Node, decls []ast.Decl) *scope {
-	const n = 4 // initial scope capacity
-	s := &scope{
-		file:    f,
-		outer:   outer,
-		node:    node,
-		index:   make(map[string]entry, n),
-		identFn: outer.identFn,
-		nameFn:  outer.nameFn,
-		errFn:   outer.errFn,
-	}
+	s := outer.allocScope()
+	s.file = f
+	s.outer = outer
+	s.node = node
+	s.inField = false
+	s.identFn = outer.identFn
+	s.nameFn = outer.nameFn
+	s.errFn = outer.errFn
+
 	for _, d := range decls {
 		switch x := d.(type) {
 		case *ast.Field:
@@ -126,11 +181,23 @@ func newScope(f *ast.File, outer *scope, node ast.Node, decls []ast.Decl) *scope
 			if a, ok := x.Label.(*ast.Alias); ok {
 				name := a.Ident.Name
 				if _, ok := a.Expr.(*ast.ListLit); !ok {
-					s.insert(name, x, a)
+					s.insert(name, x, a, nil)
+				}
+				if x.Alias != nil {
+					// Error: cannot have both old-style label alias and postfix
+					// alias
+					s.errFn(x.Pos(),
+						"field has both label alias and postfix alias")
+				}
+			}
+			if _, isPattern := label.(*ast.ListLit); !isPattern {
+				if a := x.Alias; a != nil {
+					insertPostfixAliases(s, x, a.Label)
 				}
 			}
 
-			// default:
+			// TODO(perf): replace labelName with quick tests: this generates an
+			// error in many cases.
 			name, isIdent, _ := ast.LabelName(label)
 			if isIdent {
 				v := x.Value
@@ -138,22 +205,22 @@ func newScope(f *ast.File, outer *scope, node ast.Node, decls []ast.Decl) *scope
 				if a, ok := v.(*ast.Alias); ok {
 					v = a.Expr
 				}
-				s.insert(name, v, x)
+				s.insert(name, v, x, nil)
 			}
 		case *ast.LetClause:
 			name, isIdent, _ := ast.LabelName(x.Ident)
 			if isIdent {
-				s.insert(name, x, x)
+				s.insert(name, x, x, nil)
 			}
 		case *ast.Alias:
 			name, isIdent, _ := ast.LabelName(x.Ident)
 			if isIdent {
-				s.insert(name, x, x)
+				s.insert(name, x, x, nil)
 			}
 		case *ast.ImportDecl:
 			for _, spec := range x.Specs {
 				info, _ := ParseImportSpec(spec)
-				s.insert(info.Ident, spec, spec)
+				s.insert(info.Ident, spec, spec, nil)
 			}
 		}
 	}
@@ -165,7 +232,7 @@ func (s *scope) isLet(n ast.Node) bool {
 		return true
 	}
 	switch n.(type) {
-	case *ast.LetClause, *ast.Alias, *ast.Field:
+	case *ast.LetClause, *ast.TryClause, *ast.Alias, *ast.Field:
 		return true
 	}
 	return false
@@ -178,13 +245,13 @@ func (s *scope) mustBeUnique(n ast.Node) bool {
 	switch n.(type) {
 	// TODO: add *ast.ImportSpec when some implementations are moved over to
 	// Sanitize.
-	case *ast.ImportSpec, *ast.LetClause, *ast.Alias, *ast.Field:
+	case *ast.ImportSpec, *ast.LetClause, *ast.TryClause, *ast.Alias, *ast.Field:
 		return true
 	}
 	return false
 }
 
-func (s *scope) insert(name string, n, link ast.Node) {
+func (s *scope) insert(name string, n, link ast.Node, f *ast.Field) {
 	if name == "" {
 		return
 	}
@@ -215,7 +282,7 @@ func (s *scope) insert(name string, n, link ast.Node) {
 			// s.errFn(n.Pos(), "alias %q already declared in enclosing scope", name)
 		}
 	}
-	s.index[name] = entry{node: n, link: link}
+	s.index[name] = entry{node: n, link: link, field: f}
 }
 
 func (s *scope) resolveScope(name string, node ast.Node) (scope ast.Node, e entry, ok bool) {
@@ -243,7 +310,12 @@ func (s *scope) lookup(name string) (p *scope, obj ast.Node, node entry) {
 			if _, ok := n.node.(*ast.ImportSpec); ok {
 				return s, nil, n
 			}
-			return s, s.node, n
+			obj := s.node
+			if n.field != nil {
+				// Label alias case.
+				obj = n.field
+			}
+			return s, obj, n
 		}
 		// s, last = s.outer, s
 		s = s.outer
@@ -251,10 +323,44 @@ func (s *scope) lookup(name string) (p *scope, obj ast.Node, node entry) {
 	return nil, nil, entry{}
 }
 
+func insertPostfixAliases(s *scope, x *ast.Field, expr ast.Node) {
+	a := x.Alias
+	if a == nil {
+		return
+	}
+	hasField := a.Field != nil && a.Field.Name != "_"
+
+	if a.Label == nil {
+		// Single form: ~X
+		if !hasField {
+			s.errFn(a.Pos(),
+				"single postfix alias %q field cannot be the blank identifier", a.Field.Name)
+		} else {
+			s.insert(a.Field.Name, x, a, nil)
+		}
+		return
+	}
+
+	// Double form: ~(X,Y)
+	hasLabel := a.Label != nil && a.Label.Name != "_"
+	if !hasField && !hasLabel {
+		s.errFn(a.Pos(),
+			"both label and field in postfix alias cannot be the blank identifier")
+		return
+	}
+	if hasLabel {
+		s.insert(a.Label.Name, expr, a, x)
+	}
+	if hasField {
+		s.insert(a.Field.Name, x, a, nil)
+	}
+}
+
 func (s *scope) Before(n ast.Node) bool {
 	switch x := n.(type) {
 	case *ast.File:
-		s := newScope(x, s, x, x.Decls)
+		s = newScope(x, s, x, x.Decls)
+		defer s.freeScope()
 		// Support imports.
 		for _, d := range x.Decls {
 			ast.Walk(d, s.Before, nil)
@@ -263,14 +369,22 @@ func (s *scope) Before(n ast.Node) bool {
 
 	case *ast.StructLit:
 		s = newScope(s.file, s, x, x.Elts)
+		defer s.freeScope()
 		for _, elt := range x.Elts {
 			ast.Walk(elt, s.Before, nil)
 		}
 		return false
 
 	case *ast.Comprehension:
+		outer := s
 		s = scopeClauses(s, x.Clauses)
+		defer s.freeScopesUntil(outer)
 		ast.Walk(x.Value, s.Before, nil)
+		// Walk the fallback clause in the OUTER scope, since fallback should not
+		// have access to for/let variables from the comprehension clauses.
+		if x.Fallback != nil {
+			ast.Walk(x.Fallback.Body, outer.Before, nil)
+		}
 		return false
 
 	case *ast.Field:
@@ -292,15 +406,22 @@ func (s *scope) Before(n ast.Node) bool {
 				break
 			}
 			s = newScope(s.file, s, x, nil)
+			defer s.freeScope()
 			if alias != nil {
 				if name, _, _ := ast.LabelName(alias.Ident); name != "" {
-					s.insert(name, x, alias)
+					s.insert(name, x, alias, nil)
 				}
 			}
 
 			expr := label.Elts[0]
 
 			if a, ok := expr.(*ast.Alias); ok {
+				if x.Alias != nil {
+					// Error: cannot have both old-style pattern alias and
+					// postfix alias
+					s.errFn(x.Pos(),
+						"pattern constraint has both label alias and postfix alias")
+				}
 				expr = a.Expr
 
 				// Add to current scope, instead of the value's, and allow
@@ -309,7 +430,9 @@ func (s *scope) Before(n ast.Node) bool {
 				// illegal name clashes, and it allows giving better error
 				// messages. This puts the burden on clients of this library
 				// to detect illegal usage, though.
-				s.insert(a.Ident.Name, a.Expr, a)
+				s.insert(a.Ident.Name, a.Expr, a, x)
+			} else {
+				insertPostfixAliases(s, x, expr)
 			}
 
 			ast.Walk(expr, nil, func(n ast.Node) {
@@ -326,11 +449,13 @@ func (s *scope) Before(n ast.Node) bool {
 		}
 
 		if n := x.Value; n != nil {
+			// Handle value aliases.
 			if alias, ok := x.Value.(*ast.Alias); ok {
 				// TODO: this should move into Before once decl attributes
 				// have been fully deprecated and embed attributes are introduced.
 				s = newScope(s.file, s, x, nil)
-				s.insert(alias.Ident.Name, alias, x)
+				defer s.freeScope()
+				s.insert(alias.Ident.Name, alias, x, nil)
 				n = alias.Expr
 			}
 			s.inField = true
@@ -346,9 +471,12 @@ func (s *scope) Before(n ast.Node) bool {
 		saved := s.index[name]
 		delete(s.index, name) // The same name may still appear in another scope
 
-		if x.Expr != nil {
-			ast.Walk(x.Expr, s.Before, nil)
-		}
+		// Set inField so that the label expression check in pattern constraints
+		// does not walk beyond the let clause's value. A let clause's value is
+		// a separate context, just like a field value.
+		s.inField = true
+		ast.Walk(x.Expr, s.Before, nil)
+		s.inField = false
 		s.index[name] = saved
 		return false
 
@@ -358,9 +486,7 @@ func (s *scope) Before(n ast.Node) bool {
 		saved := s.index[name]
 		delete(s.index, name) // The same name may still appear in another scope
 
-		if x.Expr != nil {
-			ast.Walk(x.Expr, s.Before, nil)
-		}
+		ast.Walk(x.Expr, s.Before, nil)
 		s.index[name] = saved
 		return false
 
@@ -418,14 +544,25 @@ func scopeClauses(s *scope, clauses []ast.Clause) *scope {
 			ast.Walk(x.Source, s.Before, nil)
 			s = newScope(s.file, s, x, nil)
 			if x.Key != nil {
-				s.insert(x.Key.Name, x.Key, x)
+				s.insert(x.Key.Name, x.Key, x, nil)
 			}
-			s.insert(x.Value.Name, x.Value, x)
+			s.insert(x.Value.Name, x.Value, x, nil)
 
 		case *ast.LetClause:
 			ast.Walk(x.Expr, s.Before, nil)
 			s = newScope(s.file, s, x, nil)
-			s.insert(x.Ident.Name, x.Ident, x)
+			s.insert(x.Ident.Name, x.Ident, x, nil)
+
+		case *ast.TryClause:
+			// For the assignment form (try x = expr), handle scope like LetClause.
+			if x.Ident != nil {
+				ast.Walk(x.Expr, s.Before, nil)
+				s = newScope(s.file, s, x, nil)
+				s.insert(x.Ident.Name, x.Ident, x, nil)
+			} else {
+				// For the struct form (try { ... }), just walk normally.
+				ast.Walk(c, s.Before, nil)
+			}
 
 		default:
 			ast.Walk(c, s.Before, nil)

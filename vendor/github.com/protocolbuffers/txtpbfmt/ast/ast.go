@@ -77,6 +77,8 @@ type Node struct {
 	// Used when we want to break between the field name and values when a
 	// single-line node exceeds the requested wrap column.
 	PutSingleValueOnNextLine bool
+	// Field number from proto definition (0 if unknown/not applicable).
+	FieldNumber int32
 }
 
 // NodeLess is a sorting function that compares two *Nodes, possibly using the parent Node
@@ -183,21 +185,24 @@ func getFieldValueForByFieldValue(n *Node) *Value {
 	return n.Values[0]
 }
 
-// ByFieldValue is a NodeLess function that orders adjacent scalar nodes with the same name by
-// their scalar value.
-func ByFieldValue(_, ni, nj *Node, isWholeSlice bool) bool {
-	if isWholeSlice {
-		return false
+// ByFieldValue returns a NodeLess function that orders adjacent scalar nodes
+// with the same name by their scalar value. The values are passed through
+// `projection` before sorting.
+func ByFieldValue(projection func(string) string) NodeLess {
+	return func(_, ni, nj *Node, isWholeSlice bool) bool {
+		if isWholeSlice {
+			return false
+		}
+		vi := getFieldValueForByFieldValue(ni)
+		vj := getFieldValueForByFieldValue(nj)
+		if vi == nil {
+			return vj != nil
+		}
+		if vj == nil {
+			return false
+		}
+		return projection(vi.Value) < projection(vj.Value)
 	}
-	vi := getFieldValueForByFieldValue(ni)
-	vj := getFieldValueForByFieldValue(nj)
-	if vi == nil {
-		return vj != nil
-	}
-	if vj == nil {
-		return false
-	}
-	return vi.Value < vj.Value
 }
 
 func getChildValueByFieldSubfield(field, subfield string, n *Node) *Value {
@@ -245,8 +250,9 @@ func ByFieldSubfield(field, subfield string) NodeLess {
 
 // ByFieldSubfieldPath returns a NodeLess function that orders adjacent message nodes with the given
 // field name by the given subfield path value. If no field name is provided, it compares the
-// subfields of any adjacent nodes with matching names.
-func ByFieldSubfieldPath(field string, subfieldPath []string) NodeLess {
+// subfields of any adjacent nodes with matching names. Values are passed
+// through `projection` before sorting.
+func ByFieldSubfieldPath(field string, subfieldPath []string, projection func(string) string) NodeLess {
 	return func(_, ni, nj *Node, isWholeSlice bool) bool {
 		if isWholeSlice {
 			return false
@@ -259,8 +265,49 @@ func ByFieldSubfieldPath(field string, subfieldPath []string) NodeLess {
 		if vj == nil {
 			return false
 		}
-		return vi.Value < vj.Value
+		return projection(vi.Value) < projection(vj.Value)
 	}
+}
+
+// ByFieldNumber is a NodeLess function that orders fields by their field numbers.
+// Field numbers are populated during parsing from descriptor information.
+func ByFieldNumber(_, ni, nj *Node, isWholeSlice bool) bool {
+	if !isWholeSlice {
+		return false
+	}
+
+	numI, numJ := ni.FieldNumber, nj.FieldNumber
+
+	// If both have field numbers, sort by field number
+	if numI > 0 && numJ > 0 {
+		return numI < numJ
+	}
+
+	// If only one has field number, prioritize it
+	if numI > 0 && numJ == 0 {
+		return true // ni has priority
+	}
+	if numI == 0 && numJ > 0 {
+		return false // nj has priority
+	}
+
+	// If neither has field number, fall back to alphabetical order
+	return ni.Name < nj.Name
+}
+
+// Formatter is a function that can format nodes in the AST.
+type Formatter func([]*Node) error
+
+var extraFormatters []Formatter
+
+// RegisterFormatter registers an extra formatter that will be called after parsing.
+func RegisterFormatter(f Formatter) {
+	extraFormatters = append(extraFormatters, f)
+}
+
+// GetFormatters returns all registered formatters.
+func GetFormatters() []Formatter {
+	return extraFormatters
 }
 
 // getChildValue returns the Value of the child with the given field name,

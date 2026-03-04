@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package cuecontext creates [cue.Context] values,
+// which are needed for creating [cue.Value] values
+// and using the core API in the [cue] package.
 package cuecontext
 
 import (
@@ -76,10 +79,6 @@ const (
 	// EvalExperiment refers to the latest in-development version of the evaluator,
 	// currently [EvalV3]. Note that this version may change without notice.
 	EvalExperiment EvalVersion = internal.DevVersion
-
-	// EvalV2 is the previous version of the evaluator. It was introduced in CUE
-	// version 0.3 and is being maintained until 2024.
-	EvalV2 EvalVersion = internal.EvalV2
 
 	// EvalV3 is the current version of the evaluator. It was introduced in 2024
 	// and brought a new disjunction algorithm, a new closedness algorithm, a

@@ -41,6 +41,7 @@ type OIDCProvider struct {
 	roleArn         string
 	oidcProviderArn string
 	oidcTokenFile   string
+	oidcToken       string
 
 	Logger Logger
 }
@@ -59,6 +60,7 @@ type OIDCProviderOptions struct {
 	EnvOIDCProviderArn string
 	OIDCTokenFile      string
 	EnvOIDCTokenFile   string
+	OIDCToken          string
 
 	Timeout   time.Duration
 	Transport http.RoundTripper
@@ -97,6 +99,7 @@ func NewOIDCProvider(opts OIDCProviderOptions) *OIDCProvider {
 		roleArn:         opts.getRoleArn(),
 		oidcProviderArn: opts.getOIDCProviderArn(),
 		oidcTokenFile:   opts.getOIDCTokenFile(),
+		oidcToken:       opts.OIDCToken,
 		Logger:          opts.Logger,
 	}
 	if opts.TokenDuration >= time.Second*900 {
@@ -127,16 +130,21 @@ func (o *OIDCProvider) getCredentials(ctx context.Context) (*Credentials, error)
 	roleArn := o.roleArn
 	oidcProviderArn := o.oidcProviderArn
 	tokenFile := o.oidcTokenFile
-	if roleArn == "" || oidcProviderArn == "" || tokenFile == "" {
+	tokenData := o.oidcToken
+
+	if roleArn == "" || oidcProviderArn == "" || (tokenFile == "" && tokenData == "") {
 		return nil, NewNotEnableError(errors.New("roleArn, oidcProviderArn or oidcTokenFile is empty"))
 	}
 
-	tokenData, err := os.ReadFile(tokenFile)
-	if err != nil {
-		return nil, err
+	if tokenFile != "" {
+		if data, err := os.ReadFile(tokenFile); err != nil {
+			return nil, fmt.Errorf("read file %s: %w", tokenFile, err)
+		} else {
+			tokenData = string(data)
+		}
 	}
-	token := string(tokenData)
-	return o.assumeRoleWithOIDC(ctx, roleArn, oidcProviderArn, token)
+
+	return o.assumeRoleWithOIDC(ctx, roleArn, oidcProviderArn, tokenData)
 }
 
 type oidcResponse struct {
@@ -204,21 +212,24 @@ func (o *OIDCProvider) assumeRoleWithOIDC(ctx context.Context, roleArn, oidcProv
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read body failed: %w", err)
 	}
 
 	var obj oidcResponse
 	if err := json.Unmarshal(data, &obj); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse AssumeRoleWithOIDC body failed (%s), got unexpected body (%s): %s",
+			err, resp.Status, strings.ReplaceAll(string(data), "\n", " "))
 	}
-	if obj.Credentials == nil || obj.Credentials.AccessKeySecret == "" {
-		return nil, fmt.Errorf("call AssumeRoleWithOIDC failed, got unexpected body: %s",
-			strings.ReplaceAll(string(data), "\n", " "))
+	if obj.Credentials == nil || obj.Credentials.AccessKeySecret == "" ||
+		obj.Credentials.AccessKeyId == "" || obj.Credentials.SecurityToken == "" ||
+		obj.Credentials.Expiration == "" {
+		return nil, fmt.Errorf("call AssumeRoleWithOIDC failed (%s), got unexpected body: %s",
+			resp.Status, strings.ReplaceAll(string(data), "\n", " "))
 	}
 
 	exp, err := time.Parse("2006-01-02T15:04:05Z", obj.Credentials.Expiration)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse Expiration %q failed: %w", obj.Credentials.Expiration, err)
 	}
 	return &Credentials{
 		AccessKeyId:     obj.Credentials.AccessKeyId,

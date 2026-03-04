@@ -38,7 +38,7 @@ const profileWrapper = `(block {{.Name}}_{{.Namespace}}
     {{.Policy}}
 )`
 
-// NewController returns a new empty controller instance.
+// NewRawController returns a new empty controller instance.
 func NewRawController() controller.Controller {
 	return &ReconcileSelinux{
 		controllerName:    "rawselinuxprofile",
@@ -112,8 +112,8 @@ func newRawSelinuxProfileHandler(
 	cli client.Client,
 	key types.NamespacedName,
 ) (SelinuxObjectHandler, error) {
-	// Create template to wrap policies
-	//nolint:error // We ignore the error as the wrapper is static
+	// Create template to wrap policies.
+	// We ignore the error as the wrapper is static.
 	tmpl, tmplerr := template.New("profileWrapper").Parse(profileWrapper)
 	if tmplerr != nil {
 		return nil, tmplerr

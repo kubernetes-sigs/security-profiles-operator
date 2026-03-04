@@ -1,5 +1,4 @@
 //go:build apparmor
-// +build apparmor
 
 /*
 Copyright 2021 The Kubernetes Authors.

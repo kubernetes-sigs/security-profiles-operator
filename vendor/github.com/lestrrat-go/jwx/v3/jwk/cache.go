@@ -223,6 +223,10 @@ func (c *Cache) Unregister(ctx context.Context, u string) error {
 	return c.ctrl.Remove(ctx, u)
 }
 
+func (c *Cache) Shutdown(ctx context.Context) error {
+	return c.ctrl.ShutdownContext(ctx)
+}
+
 // CachedSet is a thin shim over jwk.Cache that allows the user to cloak
 // jwk.Cache as if it's a `jwk.Set`. Behind the scenes, the `jwk.Set` is
 // retrieved from the `jwk.Cache` for every operation.
@@ -266,7 +270,7 @@ func (cs *cachedSet) cached() (Set, error) {
 	return cs.r.Resource(), nil
 }
 
-// Add is a no-op for `jwk.CachedSet`, as the `jwk.Set` should be treated read-only
+// AddKey is a no-op for `jwk.CachedSet`, as the `jwk.Set` should be treated read-only
 func (*cachedSet) AddKey(_ Key) error {
 	return fmt.Errorf(`(jwk.Cachedset).AddKey: jwk.CachedSet is immutable`)
 }

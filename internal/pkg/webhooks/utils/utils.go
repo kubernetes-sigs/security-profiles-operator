@@ -19,6 +19,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,10 +27,8 @@ import (
 
 // AppendIfNotExists adds an item to the provided list if it not exists.
 func AppendIfNotExists(list []string, item string) []string {
-	for _, s := range list {
-		if s == item {
-			return list
-		}
+	if slices.Contains(list, item) {
+		return list
 	}
 
 	return append(list, item)

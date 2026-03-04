@@ -1,5 +1,4 @@
 //go:build linux && !ppc64le && !s390x
-// +build linux,!ppc64le,!s390x
 
 /*
 Copyright 2025 The Kubernetes Authors.

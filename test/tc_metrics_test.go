@@ -124,7 +124,7 @@ func (e *e2e) parseMetric(content, metric string) int {
 			fields := strings.Fields(line)
 			e.Len(fields, 2)
 			i, err := strconv.Atoi(fields[1])
-			e.Nil(err)
+			e.NoError(err)
 
 			return i
 		}

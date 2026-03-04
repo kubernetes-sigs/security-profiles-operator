@@ -80,6 +80,7 @@ func TestSetup(t *testing.T) {
 				) error {
 					node, ok := obj.(*corev1.Node)
 					assert.True(t, ok)
+
 					node.Status = corev1.NodeStatus{
 						Addresses: []corev1.NodeAddress{
 							{Type: corev1.NodeInternalIP, Address: "127.0.0.1"},
@@ -184,6 +185,7 @@ func TestReconcile(t *testing.T) {
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
+
 				v, ok := sut.podsToWatch.Load(testRequest.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
@@ -402,6 +404,7 @@ func TestReconcile(t *testing.T) {
 		{ // seccomp BPF invalid profile name
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				const profileName = "invalid"
+
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -594,6 +597,7 @@ func TestReconcile(t *testing.T) {
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
+
 				v, ok := sut.podsToWatch.Load(testRequest.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
@@ -787,6 +791,7 @@ func TestReconcile(t *testing.T) {
 		{ // apparmor BPF invalid profile name
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				const profileName = "invalid"
+
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderBpf,
 					profiles: []profileToCollect{
@@ -1018,6 +1023,7 @@ func TestReconcile(t *testing.T) {
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
+
 				v, ok := sut.podsToWatch.Load(testRequest.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
@@ -1045,6 +1051,7 @@ func TestReconcile(t *testing.T) {
 			},
 			assert: func(sut *RecorderReconciler, err error) {
 				require.NoError(t, err)
+
 				v, ok := sut.podsToWatch.Load(testRequest.String())
 				assert.True(t, ok)
 				pod, ok := v.(podToWatch)
@@ -1283,6 +1290,7 @@ func TestReconcile(t *testing.T) {
 		{ // logs seccomp wrong profile name
 			prepare: func(sut *RecorderReconciler, mock *profilerecorderfakes.FakeImpl) {
 				const profileName = "profile"
+
 				value := podToWatch{
 					recorder: recordingapi.ProfileRecorderLogs,
 					profiles: []profileToCollect{

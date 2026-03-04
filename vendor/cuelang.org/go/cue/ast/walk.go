@@ -18,6 +18,18 @@ import (
 	"fmt"
 )
 
+type nilableNode interface {
+	Node
+	comparable // pointer nodes, which can be compared to nil
+}
+
+func walkIfNotNil[N nilableNode](node N, before func(Node) bool, after func(Node)) {
+	var zero N // nil
+	if node != zero {
+		Walk(node, before, after)
+	}
+}
+
 func walkList[N Node](list []N, before func(Node) bool, after func(Node)) {
 	for _, node := range list {
 		Walk(node, before, after)
@@ -53,9 +65,8 @@ func Walk(node Node, before func(Node) bool, after func(Node)) {
 
 	case *Field:
 		Walk(n.Label, before, after)
-		if n.Value != nil {
-			Walk(n.Value, before, after)
-		}
+		walkIfNotNil(n.Alias, before, after)
+		walkIfNotNil(n.Value, before, after)
 		walkList(n.Attrs, before, after)
 
 	case *Func:
@@ -76,9 +87,7 @@ func Walk(node Node, before func(Node) bool, after func(Node)) {
 		walkList(n.Elts, before, after)
 
 	case *Ellipsis:
-		if n.Type != nil {
-			Walk(n.Type, before, after)
-		}
+		walkIfNotNil(n.Type, before, after)
 
 	case *ParenExpr:
 		Walk(n.X, before, after)
@@ -93,12 +102,8 @@ func Walk(node Node, before func(Node) bool, after func(Node)) {
 
 	case *SliceExpr:
 		Walk(n.X, before, after)
-		if n.Low != nil {
-			Walk(n.Low, before, after)
-		}
-		if n.High != nil {
-			Walk(n.High, before, after)
-		}
+		walkIfNotNil(n.Low, before, after)
+		walkIfNotNil(n.High, before, after)
 
 	case *CallExpr:
 		Walk(n.Fun, before, after)
@@ -111,11 +116,12 @@ func Walk(node Node, before func(Node) bool, after func(Node)) {
 		Walk(n.X, before, after)
 		Walk(n.Y, before, after)
 
+	case *PostfixExpr:
+		Walk(n.X, before, after)
+
 	// Declarations
 	case *ImportSpec:
-		if n.Name != nil {
-			Walk(n.Name, before, after)
-		}
+		walkIfNotNil(n.Name, before, after)
 		Walk(n.Path, before, after)
 
 	case *BadDecl:
@@ -131,13 +137,26 @@ func Walk(node Node, before func(Node) bool, after func(Node)) {
 		Walk(n.Ident, before, after)
 		Walk(n.Expr, before, after)
 
+	case *TryClause:
+		if n.Ident != nil {
+			// Assignment form: try x = expr
+			Walk(n.Ident, before, after)
+			Walk(n.Expr, before, after)
+		}
+		// Struct form: body is in Comprehension.Value, walked separately
+
 	case *Alias:
 		Walk(n.Ident, before, after)
 		Walk(n.Expr, before, after)
 
+	case *PostfixAlias:
+		walkIfNotNil(n.Label, before, after)
+		walkIfNotNil(n.Field, before, after)
+
 	case *Comprehension:
 		walkList(n.Clauses, before, after)
 		Walk(n.Value, before, after)
+		walkIfNotNil(n.Fallback, before, after)
 
 	// Files and packages
 	case *File:
@@ -147,14 +166,15 @@ func Walk(node Node, before func(Node) bool, after func(Node)) {
 		Walk(n.Name, before, after)
 
 	case *ForClause:
-		if n.Key != nil {
-			Walk(n.Key, before, after)
-		}
+		walkIfNotNil(n.Key, before, after)
 		Walk(n.Value, before, after)
 		Walk(n.Source, before, after)
 
 	case *IfClause:
 		Walk(n.Condition, before, after)
+
+	case *FallbackClause:
+		Walk(n.Body, before, after)
 
 	default:
 		panic(fmt.Sprintf("Walk: unexpected node type %T", n))

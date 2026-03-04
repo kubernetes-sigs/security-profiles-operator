@@ -1,5 +1,4 @@
 //go:build linux && !no_bpf
-// +build linux,!no_bpf
 
 /*
 Copyright 2024 The Kubernetes Authors.
@@ -81,7 +80,7 @@ func main() {
 
 	if *dirCreate != "" {
 		const fileMode = 0o777
-		for _, dir := range strings.Split(*dirCreate, ",") {
+		for dir := range strings.SplitSeq(*dirCreate, ",") {
 			err := os.Mkdir(dir, fileMode)
 			if err != nil {
 				log.Fatal("❌ Error creating directory:", err)
@@ -138,7 +137,7 @@ func main() {
 	}
 
 	if *fileRead != "" {
-		for _, file := range strings.Split(*fileRead, ",") {
+		for file := range strings.SplitSeq(*fileRead, ",") {
 			_, err := os.ReadFile(file)
 			if err != nil {
 				log.Fatal("❌ Error reading file:", err)
@@ -149,7 +148,7 @@ func main() {
 	}
 
 	if *dirRead != "" {
-		for _, dir := range strings.Split(*dirRead, ",") {
+		for dir := range strings.SplitSeq(*dirRead, ",") {
 			_, err := os.ReadDir(dir)
 			if err != nil {
 				log.Fatal("❌ Error reading directory:", err)
@@ -169,7 +168,7 @@ func main() {
 	}
 
 	if *dirRemove != "" {
-		for _, dir := range strings.Split(*dirRemove, ",") {
+		for dir := range strings.SplitSeq(*dirRemove, ",") {
 			err := os.Remove(dir)
 			if err != nil {
 				log.Fatal("❌ Error removing directory:", err)

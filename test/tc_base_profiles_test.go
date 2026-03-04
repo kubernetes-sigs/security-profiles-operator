@@ -78,14 +78,14 @@ spec:
 	e.logf("Creating hello profile")
 
 	helloProfileFile, err := os.CreateTemp("", "hello-profile*.yaml")
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	defer os.Remove(helloProfileFile.Name())
 
 	_, err = helloProfileFile.WriteString(helloProfile)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = helloProfileFile.Close()
-	e.Nil(err)
+	e.Require().NoError(err)
 	e.kubectl("create", "-f", helloProfileFile.Name())
 
 	defer e.kubectl("delete", "-f", helloProfileFile.Name())
@@ -96,14 +96,14 @@ spec:
 	e.logf("Creating hello-world pod")
 
 	helloPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	defer os.Remove(helloPodFile.Name())
 
 	_, err = helloPodFile.WriteString(helloPod)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = helloPodFile.Close()
-	e.Nil(err)
+	e.Require().NoError(err)
 	e.kubectl("create", "-f", helloPodFile.Name())
 
 	defer e.kubectl("delete", "pod", "hello")

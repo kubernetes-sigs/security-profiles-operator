@@ -23,7 +23,6 @@ import (
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/token"
-	"cuelang.org/go/internal"
 )
 
 // AppendDebug writes a multi-line Go-like representation of a syntax tree node,
@@ -61,6 +60,10 @@ type DebugConfig struct {
 	// values; setting this also implies [DebugConfig.IncludeNodeRefs]
 	// and references will be printed as pointers.
 	IncludePointers bool
+
+	// AllPositions causes all [ast.Node] implementions to emit their start
+	// and end positions.
+	AllPositions bool
 }
 
 type debugPrinter struct {
@@ -87,6 +90,7 @@ func (d *debugPrinter) value0(v reflect.Value, impliedType reflect.Type) {
 	// Skip over interfaces and pointers, stopping early if nil.
 	concreteType := v.Type()
 	refName := ""
+	var startPos, endPos token.Pos
 	ptrVal := uintptr(0)
 	for {
 		k := v.Kind()
@@ -100,11 +104,12 @@ func (d *debugPrinter) value0(v reflect.Value, impliedType reflect.Type) {
 			return
 		}
 		if k == reflect.Pointer {
-			if n, ok := v.Interface().(ast.Node); ok {
+			if n, ok := reflect.TypeAssert[ast.Node](v); ok {
 				ptrVal = v.Pointer()
 				if id, ok := d.nodeRefs[n]; ok {
 					refName = refIDToName(id)
 				}
+				startPos, endPos = n.Pos(), n.End()
 			}
 		}
 		v = v.Elem()
@@ -130,6 +135,10 @@ func (d *debugPrinter) value0(v reflect.Value, impliedType reflect.Type) {
 		d.printf(")")
 		return
 	case token.Token:
+		if d.cfg.OmitEmpty && v == token.ILLEGAL {
+			// ILLEGAL is the zero value, meaning "no token".
+			return
+		}
 		d.printf("%s(%q)", t, v)
 		return
 	}
@@ -157,6 +166,9 @@ func (d *debugPrinter) value0(v reflect.Value, impliedType reflect.Type) {
 		} else if refName != "" {
 			d.printf("@%s", refName)
 		}
+		if d.cfg.AllPositions && startPos.IsValid() {
+			d.printf("[%v]", positionRange(startPos, endPos))
+		}
 		d.printf("{")
 		d.level++
 		var anyElems bool
@@ -175,6 +187,26 @@ func (d *debugPrinter) value0(v reflect.Value, impliedType reflect.Type) {
 			d.printf("}")
 		}
 	}
+}
+
+// positionRange returns a string representing the range
+// of positions between p0 and p1, as returned
+// by [ast.Node.Pos] and [ast.Node.End] respectively.
+func positionRange(p0, p1 token.Pos) string {
+	if !p1.IsValid() {
+		return p0.String()
+	}
+	pos0, pos1 := p0.Position(), p1.Position()
+	if pos1.Filename != pos0.Filename {
+		return fmt.Sprintf("%v,%v", pos0, pos1)
+	}
+	var buf strings.Builder
+	if len(pos0.Filename) != 0 {
+		buf.WriteString(pos0.Filename)
+		buf.WriteString(":")
+	}
+	fmt.Fprintf(&buf, "%d:%d,%d:%d", pos0.Line, pos0.Column, pos1.Line, pos1.Column)
+	return buf.String()
 }
 
 func (d *debugPrinter) sliceElems(v reflect.Value, elemType reflect.Type) (anyElems bool) {
@@ -196,7 +228,7 @@ func (d *debugPrinter) sliceElems(v reflect.Value, elemType reflect.Type) (anyEl
 
 func (d *debugPrinter) structFields(v reflect.Value) (anyElems bool) {
 	t := v.Type()
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		f := t.Field(i)
 		if !gotoken.IsExported(f.Name) {
 			continue
@@ -231,8 +263,7 @@ func (d *debugPrinter) structFields(v reflect.Value) (anyElems bool) {
 			d.truncate(elemStart)
 		}
 	}
-	val := v.Addr().Interface()
-	if val, ok := val.(ast.Node); ok {
+	if val, ok := reflect.TypeAssert[ast.Node](v.Addr()); ok {
 		// Comments attached to a node aren't a regular field, but are still useful.
 		// The majority of nodes won't have comments, so skip them when empty.
 		if comments := ast.Comments(val); len(comments) > 0 {
@@ -295,7 +326,7 @@ func (d *debugPrinter) addNodeRefs(v reflect.Value) {
 		}
 	case reflect.Struct:
 		t := v.Type()
-		for i := 0; i < v.NumField(); i++ {
+		for i := range v.NumField() {
 			f := t.Field(i)
 			if !gotoken.IsExported(f.Name) {
 				continue
@@ -345,6 +376,15 @@ func DebugStr(x interface{}) (out string) {
 		out += DebugStr(v.Expr)
 		return out
 
+	case *ast.TryClause:
+		out := "try"
+		if v.Ident != nil {
+			// Assignment form: try x = expr
+			out += " " + DebugStr(v.Ident) + " = " + DebugStr(v.Expr)
+		}
+		// Struct form: body is in Comprehension.Value
+		return out
+
 	case *ast.Alias:
 		out := DebugStr(v.Ident)
 		out += "="
@@ -369,7 +409,7 @@ func DebugStr(x interface{}) (out string) {
 
 	case *ast.ImportDecl:
 		out := "import "
-		if v.Lparen != token.NoPos {
+		if v.Lparen.IsValid() {
 			out += "( "
 			out += DebugStr(v.Specs)
 			out += " )"
@@ -381,6 +421,16 @@ func DebugStr(x interface{}) (out string) {
 	case *ast.Comprehension:
 		out := DebugStr(v.Clauses)
 		out += DebugStr(v.Value)
+		if v.Fallback != nil {
+			// Use "fallback" for 'for' comprehensions, "else" for 'if'/'try'
+			kw := "else"
+			if len(v.Clauses) > 1 {
+				kw = "fallback"
+			} else if _, ok := v.Clauses[0].(*ast.ForClause); ok {
+				kw = "fallback"
+			}
+			out += " " + kw + " " + DebugStr(v.Fallback.Body)
+		}
 		return out
 
 	case *ast.StructLit:
@@ -419,24 +469,34 @@ func DebugStr(x interface{}) (out string) {
 		return out
 
 	case *ast.Field:
-		out := DebugStr(v.Label)
-		if t, ok := internal.ConstraintToken(v); ok {
-			out += t.String()
+		var out strings.Builder
+		out.WriteString(DebugStr(v.Label))
+		if v.Alias != nil {
+			out.WriteString("~")
+			if v.Alias.Label != nil {
+				// Dual form
+				out.WriteString("(")
+				out.WriteString(DebugStr(v.Alias.Label))
+				out.WriteString(",")
+				out.WriteString(DebugStr(v.Alias.Field))
+				out.WriteString(")")
+			} else {
+				// Simple form
+				out.WriteString(DebugStr(v.Alias.Field))
+			}
+		}
+		if t := v.Constraint; t != token.ILLEGAL {
+			out.WriteString(t.String())
 		}
 		if v.Value != nil {
-			switch v.Token {
-			case token.ILLEGAL, token.COLON:
-				out += ": "
-			default:
-				out += fmt.Sprintf(" %s ", v.Token)
-			}
-			out += DebugStr(v.Value)
+			out.WriteString(": ")
+			out.WriteString(DebugStr(v.Value))
 			for _, a := range v.Attrs {
-				out += " "
-				out += DebugStr(a)
+				out.WriteString(" ")
+				out.WriteString(DebugStr(a))
 			}
 		}
-		return out
+		return out.String()
 
 	case *ast.Attribute:
 		return v.Text
@@ -472,6 +532,9 @@ func DebugStr(x interface{}) (out string) {
 		out += op
 		out += DebugStr(v.Y)
 		return out
+
+	case *ast.PostfixExpr:
+		return DebugStr(v.X) + v.Op.String()
 
 	case []*ast.CommentGroup:
 		var a []string
@@ -538,12 +601,12 @@ func DebugStr(x interface{}) (out string) {
 		if len(v) == 0 {
 			return ""
 		}
-		out := ""
+		var out strings.Builder
 		for _, c := range v {
-			out += DebugStr(c)
-			out += " "
+			out.WriteString(DebugStr(c))
+			out.WriteString(" ")
 		}
-		return out
+		return out.String()
 
 	case []ast.Expr:
 		if len(v) == 0 {

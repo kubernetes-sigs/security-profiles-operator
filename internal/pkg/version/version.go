@@ -173,8 +173,8 @@ func (i *Info) JSONString() (string, error) {
 }
 
 // AsKeyValues returns a key value slice of the info.
-func (i *Info) AsKeyValues() []interface{} {
-	return []interface{}{
+func (i *Info) AsKeyValues() []any {
+	return []any{
 		"version", i.Version,
 		"gitCommit", i.GitCommit,
 		"gitCommitDate", i.GitCommitDate,

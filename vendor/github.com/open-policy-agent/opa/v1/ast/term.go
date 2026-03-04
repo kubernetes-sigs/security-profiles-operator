@@ -2,7 +2,6 @@
 // Use of this source code is governed by an Apache2
 // license that can be found in the LICENSE file.
 
-// nolint: deadcode // Public API.
 package ast
 
 import (
@@ -12,9 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/big"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,7 +24,22 @@ import (
 	"github.com/open-policy-agent/opa/v1/util"
 )
 
-var errFindNotFound = errors.New("find: not found")
+// maxBindingsEstimate is the cap for binding count estimates in comprehensions.
+// This value aligns with maxLinearScan in topdown/bindings.go.
+const maxBindingsEstimate = 16
+
+// EstimateBodyBindingCount returns an estimate of the number of bindings needed
+// for evaluating a comprehension body. It uses the body length as a heuristic,
+// capped at maxBindingsEstimate.
+func EstimateBodyBindingCount(body Body) (estimate int) {
+	return min(len(body), maxBindingsEstimate)
+}
+
+var (
+	NullValue Value = Null{}
+
+	errFindNotFound = errors.New("find: not found")
+)
 
 // Location records a position in source code.
 type Location = location.Location
@@ -45,12 +57,15 @@ func NewLocation(text []byte, file string, row int, col int) *Location {
 // - Variables, References
 // - Array, Set, and Object Comprehensions
 // - Calls
+// - Template Strings
 type Value interface {
 	Compare(other Value) int      // Compare returns <0, 0, or >0 if this Value is less than, equal to, or greater than other, respectively.
 	Find(path Ref) (Value, error) // Find returns value referred to by path or an error if path is not found.
 	Hash() int                    // Returns hash code of the value.
 	IsGround() bool               // IsGround returns true if this value is not a variable or contains no variables.
 	String() string               // String returns a human readable string representation of the value.
+
+	StringLengther // All Values must be able to report their string length during optimization.
 }
 
 // InterfaceToValue converts a native Go value x to a Value.
@@ -61,20 +76,20 @@ func InterfaceToValue(x any) (Value, error) {
 	case nil:
 		return NullValue, nil
 	case bool:
-		return InternedTerm(x).Value, nil
+		return InternedValue(x), nil
 	case json.Number:
 		if interned := InternedIntNumberTermFromString(string(x)); interned != nil {
 			return interned.Value, nil
 		}
 		return Number(x), nil
+	case int:
+		return InternedValueOr(x, newIntNumberValue), nil
 	case int64:
-		return int64Number(x), nil
+		return InternedValueOr(x, newInt64NumberValue), nil
 	case uint64:
-		return uint64Number(x), nil
+		return InternedValueOr(x, newUint64NumberValue), nil
 	case float64:
 		return floatNumber(x), nil
-	case int:
-		return intNumber(x), nil
 	case string:
 		return String(x), nil
 	case []any:
@@ -353,6 +368,8 @@ func (term *Term) Copy() *Term {
 		cpy.Value = v.Copy()
 	case *SetComprehension:
 		cpy.Value = v.Copy()
+	case *TemplateString:
+		cpy.Value = v.Copy()
 	case Call:
 		cpy.Value = v.Copy()
 	}
@@ -406,19 +423,24 @@ func (term *Term) IsGround() bool {
 	return term.Value.IsGround()
 }
 
+// termJSON is used to serialize Term to JSON without map allocation.
+type termJSON struct {
+	Location *Location `json:"location,omitempty"`
+	Type     string    `json:"type"`
+	Value    Value     `json:"value"`
+}
+
 // MarshalJSON returns the JSON encoding of the term.
 //
 // Specialized marshalling logic is required to include a type hint for Value.
 func (term *Term) MarshalJSON() ([]byte, error) {
-	d := map[string]any{
-		"type":  ValueName(term.Value),
-		"value": term.Value,
+	d := termJSON{
+		Type:  ValueName(term.Value),
+		Value: term.Value,
 	}
 	jsonOptions := astJSON.GetOptions().MarshalOptions
 	if jsonOptions.IncludeLocation.Term {
-		if term.Location != nil {
-			d["location"] = term.Location
-		}
+		d.Location = term.Location
 	}
 	return json.Marshal(d)
 }
@@ -458,7 +480,17 @@ func (term *Term) Vars() VarSet {
 }
 
 // IsConstant returns true if the AST value is constant.
+// Note that this is only a shallow check as we currently don't have a real
+// notion of constant "vars" in the AST implementation. Meaning that while we could
+// derive that a reference to a constant value is also constant, we currently don't.
 func IsConstant(v Value) bool {
+	switch v.(type) {
+	case Null, Boolean, Number, String:
+		return true
+	case Var, Ref, *ArrayComprehension, *ObjectComprehension, *SetComprehension, Call:
+		return false
+	}
+
 	found := false
 	vis := GenericVisitor{
 		func(x any) bool {
@@ -533,8 +565,6 @@ func IsScalar(v Value) bool {
 // Null represents the null value defined by JSON.
 type Null struct{}
 
-var NullValue Value = Null{}
-
 // NullTerm creates a new Term with a Null value.
 func NullTerm() *Term {
 	return &Term{Value: NullValue}
@@ -586,10 +616,7 @@ type Boolean bool
 
 // BooleanTerm creates a new Term with a Boolean value.
 func BooleanTerm(b bool) *Term {
-	if b {
-		return &Term{Value: InternedTerm(true).Value}
-	}
-	return &Term{Value: InternedTerm(false).Value}
+	return &Term{Value: internedBooleanValue(b)}
 }
 
 // Equal returns true if the other Value is a Boolean and is equal.
@@ -655,13 +682,14 @@ func NumberTerm(n json.Number) *Term {
 }
 
 // IntNumberTerm creates a new Term with an integer Number value.
+// For values between -1 and 512, returns a cached Term to reduce allocations.
 func IntNumberTerm(i int) *Term {
-	return &Term{Value: Number(strconv.Itoa(i))}
+	return internedIntNumberTerm(i)
 }
 
 // UIntNumberTerm creates a new Term with an unsigned integer Number value.
 func UIntNumberTerm(u uint64) *Term {
-	return &Term{Value: uint64Number(u)}
+	return &Term{Value: newUint64NumberValue(u)}
 }
 
 // FloatNumberTerm creates a new Term with a floating point Number value.
@@ -672,22 +700,10 @@ func FloatNumberTerm(f float64) *Term {
 
 // Equal returns true if the other Value is a Number and is equal.
 func (num Number) Equal(other Value) bool {
-	switch other := other.(type) {
-	case Number:
-		if num == other {
-			return true
-		}
-		if n1, ok1 := num.Int64(); ok1 {
-			n2, ok2 := other.Int64()
-			if ok1 && ok2 {
-				return n1 == n2
-			}
-		}
-
-		return num.Compare(other) == 0
-	default:
-		return false
+	if other, ok := other.(Number); ok {
+		return NumberCompare(num, other) == 0
 	}
+	return false
 }
 
 // Compare compares num to other, return <0, 0, or >0 if it is less than, equal to,
@@ -695,17 +711,7 @@ func (num Number) Equal(other Value) bool {
 func (num Number) Compare(other Value) int {
 	// Optimize for the common case, as calling Compare allocates on heap.
 	if otherNum, yes := other.(Number); yes {
-		if ai, ok := num.Int64(); ok {
-			if bi, ok := otherNum.Int64(); ok {
-				if ai == bi {
-					return 0
-				}
-				if ai < bi {
-					return -1
-				}
-				return 1
-			}
-		}
+		return NumberCompare(num, otherNum)
 	}
 
 	return Compare(num, other)
@@ -726,13 +732,10 @@ func (num Number) Hash() int {
 			return i
 		}
 	}
-	f, err := json.Number(num).Float64()
-	if err != nil {
-		bs := []byte(num)
-		h := xxhash.Sum64(bs)
-		return int(h)
+	if f, ok := num.Float64(); ok {
+		return int(f)
 	}
-	return int(f)
+	return int(xxhash.Sum64String(string(num)))
 }
 
 // Int returns the int representation of num if possible.
@@ -773,15 +776,15 @@ func (num Number) String() string {
 	return string(num)
 }
 
-func intNumber(i int) Number {
+func newIntNumberValue(i int) Value {
 	return Number(strconv.Itoa(i))
 }
 
-func int64Number(i int64) Number {
+func newInt64NumberValue(i int64) Value {
 	return Number(strconv.FormatInt(i, 10))
 }
 
-func uint64Number(u uint64) Number {
+func newUint64NumberValue(u uint64) Value {
 	return Number(strconv.FormatUint(u, 10))
 }
 
@@ -848,12 +851,159 @@ func (str String) Hash() int {
 	return int(xxhash.Sum64String(string(str)))
 }
 
+type TemplateString struct {
+	Parts     []Node `json:"parts"`
+	MultiLine bool   `json:"multi_line"`
+}
+
+func (ts *TemplateString) Copy() *TemplateString {
+	cpy := &TemplateString{MultiLine: ts.MultiLine, Parts: make([]Node, len(ts.Parts))}
+	for i, p := range ts.Parts {
+		switch v := p.(type) {
+		case *Expr:
+			cpy.Parts[i] = v.Copy()
+		case *Term:
+			cpy.Parts[i] = v.Copy()
+		}
+	}
+	return cpy
+}
+
+func (ts *TemplateString) Equal(other Value) bool {
+	if o, ok := other.(*TemplateString); ok && ts.MultiLine == o.MultiLine && len(ts.Parts) == len(o.Parts) {
+		for i, p := range ts.Parts {
+			switch v := p.(type) {
+			case *Expr:
+				if ope, ok := o.Parts[i].(*Expr); !ok || !v.Equal(ope) {
+					return false
+				}
+			case *Term:
+				if opt, ok := o.Parts[i].(*Term); !ok || !v.Equal(opt) {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func (ts *TemplateString) Compare(other Value) int {
+	if ots, ok := other.(*TemplateString); ok {
+		if ts.MultiLine != ots.MultiLine {
+			if !ts.MultiLine {
+				return -1
+			}
+			return 1
+		}
+
+		if len(ts.Parts) != len(ots.Parts) {
+			return len(ts.Parts) - len(ots.Parts)
+		}
+
+		for i := range ts.Parts {
+			if cmp := Compare(ts.Parts[i], ots.Parts[i]); cmp != 0 {
+				return cmp
+			}
+		}
+
+		return 0
+	}
+	return Compare(ts, other)
+}
+
+func (ts *TemplateString) Find(path Ref) (Value, error) {
+	if len(path) == 0 {
+		return ts, nil
+	}
+	return nil, errFindNotFound
+}
+
+func (ts *TemplateString) Hash() int {
+	hash := 0
+	for _, p := range ts.Parts {
+		switch x := p.(type) {
+		case *Expr:
+			hash += x.Hash()
+		case *Term:
+			hash += x.Value.Hash()
+		default:
+			panic(fmt.Sprintf("invalid template part type %T", p))
+		}
+	}
+	return hash
+}
+
+func (*TemplateString) IsGround() bool {
+	return false
+}
+
+func (ts *TemplateString) String() string {
+	buf, _ := ts.AppendText(make([]byte, 0, ts.StringLength()))
+	return util.ByteSliceToString(buf)
+}
+
+func TemplateStringTerm(multiLine bool, parts ...Node) *Term {
+	return &Term{Value: &TemplateString{MultiLine: multiLine, Parts: parts}}
+}
+
+// EscapeTemplateStringStringPart escapes unescaped left curly braces in s - i.e "{" becomes "\{".
+// The internal representation of string terms within a template string does **NOT**
+// treat '{' as special, but expects code dealing with template strings to escape them when
+// required, such as when serializing the complete template string. Code that programmatically
+// constructs template strings should not pre-escape left curly braces in string term parts.
+//
+// // TODO(anders): a future optimization would be to combine this with the other escaping done
+// // for strings (e.g. escaping quotes, backslashes, and JSON control characters) in a single operation
+// // to avoid multiple passes and allocations over the same string. That's currently done by
+// // strconv.Quote, so we would need to re-implement that logic in code of our own.
+// // NOTE(anders): I would love to come up with a better name for this component than
+// // "TemplateStringStringPart"..
+func EscapeTemplateStringStringPart(s string) string {
+	numUnescaped := countUnescapedLeftCurly(s)
+	if numUnescaped == 0 {
+		return s
+	}
+
+	return util.ByteSliceToString(AppendEscapedTemplateStringStringPart(make([]byte, 0, len(s)+numUnescaped), s))
+}
+
+func AppendEscapedTemplateStringStringPart(buf []byte, s string) []byte {
+	if s[0] == '{' {
+		buf = append(buf, '\\', s[0])
+	} else {
+		buf = append(buf, s[0])
+	}
+
+	for i := 1; i < len(s); i++ {
+		if s[i] == '{' && s[i-1] != '\\' {
+			buf = append(buf, '\\', s[i])
+		} else {
+			buf = append(buf, s[i])
+		}
+	}
+
+	return buf
+}
+
+func countUnescapedLeftCurly(s string) (n int) {
+	// Note(anders): while not the functions I'd intuitively reach for to solve this,
+	// they are hands down the fastest option here, as they're done in assembly, which
+	// performs about an order of magnitude better than a manual loop in Go.
+	if n = strings.Count(s, "{"); n > 0 {
+		n -= strings.Count(s, `\{`)
+	}
+	return n
+}
+
 // Var represents a variable as defined by the language.
 type Var string
 
 // VarTerm creates a new Term with a Variable value.
 func VarTerm(v string) *Term {
-	return &Term{Value: Var(v)}
+	return &Term{Value: InternedVarValue(v)}
 }
 
 // Equal returns true if the other Value is a Variable and has the same value
@@ -910,7 +1060,7 @@ func (v Var) String() string {
 	// illegal variable name character (WildcardPrefix) to avoid conflicts. When
 	// we serialize the variable here, we need to make sure it's parseable.
 	if v.IsWildcard() {
-		return Wildcard.String()
+		return WildcardString
 	}
 	return string(v)
 }
@@ -981,14 +1131,14 @@ func (ref Ref) Insert(x *Term, pos int) Ref {
 // Extend returns a copy of ref with the terms from other appended. The head of
 // other will be converted to a string.
 func (ref Ref) Extend(other Ref) Ref {
-	dst := make(Ref, len(ref)+len(other))
+	offset := len(ref)
+	dst := make(Ref, offset+len(other))
 	copy(dst, ref)
 
 	head := other[0].Copy()
 	head.Value = String(head.Value.(Var))
-	offset := len(ref)
-	dst[offset] = head
 
+	dst[offset] = head
 	copy(dst[offset+1:], other[1:])
 	return dst
 }
@@ -1100,42 +1250,38 @@ func (ref Ref) HasPrefix(other Ref) bool {
 func (ref Ref) ConstantPrefix() Ref {
 	i := ref.Dynamic()
 	if i < 0 {
-		return ref.Copy()
+		return ref
 	}
-	return ref[:i].Copy()
+	return ref[:i]
 }
 
+// StringPrefix returns the string portion of the ref starting from the head.
 func (ref Ref) StringPrefix() Ref {
 	for i := 1; i < len(ref); i++ {
 		switch ref[i].Value.(type) {
 		case String: // pass
 		default: // cut off
-			return ref[:i].Copy()
+			return ref[:i]
 		}
 	}
 
-	return ref.Copy()
+	return ref
 }
 
 // GroundPrefix returns the ground portion of the ref starting from the head. By
 // definition, the head of the reference is always ground.
 func (ref Ref) GroundPrefix() Ref {
-	if ref.IsGround() {
-		return ref
-	}
-
-	prefix := make(Ref, 0, len(ref))
-
-	for i, x := range ref {
-		if i > 0 && !x.IsGround() {
-			break
+	for i := range ref {
+		if i > 0 && !ref[i].IsGround() {
+			return ref[:i]
 		}
-		prefix = append(prefix, x)
 	}
 
-	return prefix
+	return ref
 }
 
+// DynamicSuffix returns the dynamic portion of the ref.
+// If the ref is not dynamic, nil is returned.
 func (ref Ref) DynamicSuffix() Ref {
 	i := ref.Dynamic()
 	if i < 0 {
@@ -1146,7 +1292,7 @@ func (ref Ref) DynamicSuffix() Ref {
 
 // IsGround returns true if all of the parts of the Ref are ground.
 func (ref Ref) IsGround() bool {
-	if len(ref) == 0 {
+	if len(ref) < 2 {
 		return true
 	}
 	return termSliceIsGround(ref[1:])
@@ -1166,69 +1312,84 @@ func (ref Ref) IsNested() bool {
 // contains non-string terms this function returns an error. Path
 // components are escaped.
 func (ref Ref) Ptr() (string, error) {
-	parts := make([]string, 0, len(ref)-1)
-	for _, term := range ref[1:] {
-		if str, ok := term.Value.(String); ok {
-			parts = append(parts, url.PathEscape(string(str)))
-		} else {
+	buf := &strings.Builder{}
+	tail := ref[1:]
+
+	l := max(len(tail)-1, 0) // number of '/' to add
+	for i := range tail {
+		str, ok := tail[i].Value.(String)
+		if !ok {
 			return "", errors.New("invalid path value type")
 		}
+		l += len(str)
 	}
-	return strings.Join(parts, "/"), nil
+	buf.Grow(l)
+
+	for i := range tail {
+		if i > 0 {
+			buf.WriteByte('/')
+		}
+		str := string(tail[i].Value.(String))
+		// Sadly, the url package does not expose an appender for this.
+		buf.WriteString(url.PathEscape(str))
+	}
+	return buf.String(), nil
 }
 
-var varRegexp = regexp.MustCompile("^[[:alpha:]_][[:alpha:][:digit:]_]*$")
-
+// IsVarCompatibleString returns true if s is a valid variable name. String s is a valid variable
+// name if it starts with a letter (a-z or A-Z) or underscore (_) and is followed by
+// letters (a-z or A-Z), digits (0-9), and underscores.
 func IsVarCompatibleString(s string) bool {
-	return varRegexp.MatchString(s)
+	l := len(s)
+	if l == 0 {
+		return false
+	}
+	// not exactly easy on the eyes, but often orders of magnitude faster
+	// than using a compiled regex (see benchmarks in term_bench_test.go)
+	is_letter := func(c byte) bool {
+		return (c > 96 && c < 123) || (c > 64 && c < 91)
+	}
+	is_digit := func(c byte) bool {
+		return c > 47 && c < 58
+	}
+
+	// first character must be a letter or underscore
+	c := s[0]
+	if !(is_letter(c) || c == 95) {
+		return false
+	}
+
+	// remaining characters must be letters, digits, or underscores
+	for i := 1; i < l; i++ {
+		if c = s[i]; !(is_letter(c) || is_digit(c) || c == 95) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (ref Ref) String() string {
-	if len(ref) == 0 {
+	l := len(ref)
+	// First check for zero-alloc options, as making the buffer for AppendText
+	// always costs an allocation.
+	if l == 0 {
 		return ""
 	}
-
-	if len(ref) == 1 {
-		switch p := ref[0].Value.(type) {
-		case Var:
-			return p.String()
+	if l == 1 {
+		if s, ok := ref[0].Value.(String); ok {
+			// Ref head should normally be a Var, but if for some reason
+			// it's a string, don't quote it.
+			return string(s)
 		}
+		return ref[0].Value.String()
+	}
+	if name, ok := BuiltinNameFromRef(ref); ok {
+		return name
 	}
 
-	sb := sbPool.Get()
-	defer sbPool.Put(sb)
-
-	sb.Grow(10 * len(ref))
-	sb.WriteString(ref[0].Value.String())
-
-	for _, p := range ref[1:] {
-		switch p := p.Value.(type) {
-		case String:
-			str := string(p)
-			if varRegexp.MatchString(str) && !IsKeyword(str) {
-				sb.WriteByte('.')
-				sb.WriteString(str)
-			} else {
-				sb.WriteByte('[')
-				// Determine whether we need the full JSON-escaped form
-				if strings.ContainsFunc(str, isControlOrBackslash) {
-					// only now pay the cost of expensive JSON-escaped form
-					sb.WriteString(p.String())
-				} else {
-					sb.WriteByte('"')
-					sb.WriteString(str)
-					sb.WriteByte('"')
-				}
-				sb.WriteByte(']')
-			}
-		default:
-			sb.WriteByte('[')
-			sb.WriteString(p.String())
-			sb.WriteByte(']')
-		}
-	}
-
-	return sb.String()
+	buf, _ := ref.AppendText(make([]byte, 0, ref.StringLength()))
+	return util.ByteSliceToString(buf)
 }
 
 // OutputVars returns a VarSet containing variables that would be bound by evaluating
@@ -1271,6 +1432,15 @@ func NewArray(a ...*Term) *Array {
 	return arr
 }
 
+// NewArrayWithCapacity returns a new empty Array with the given capacity pre-allocated.
+func NewArrayWithCapacity(capacity int) *Array {
+	return &Array{
+		elems:  make([]*Term, 0, capacity),
+		hashs:  make([]int, 0, capacity),
+		ground: true,
+	}
+}
+
 // Array represents an array as defined by the language. Arrays are similar to the
 // same types as defined by JSON with the exception that they can contain Vars
 // and References.
@@ -1283,13 +1453,12 @@ type Array struct {
 
 // Copy returns a deep copy of arr.
 func (arr *Array) Copy() *Array {
-	cpy := make([]int, len(arr.elems))
-	copy(cpy, arr.hashs)
 	return &Array{
 		elems:  termSliceCopy(arr.elems),
-		hashs:  cpy,
+		hashs:  slices.Clone(arr.hashs),
 		hash:   arr.hash,
-		ground: arr.IsGround()}
+		ground: arr.ground,
+	}
 }
 
 // Equal returns true if arr is equal to other.
@@ -1400,21 +1569,8 @@ func (arr *Array) MarshalJSON() ([]byte, error) {
 }
 
 func (arr *Array) String() string {
-	sb := sbPool.Get()
-	sb.Grow(len(arr.elems) * 16)
-
-	defer sbPool.Put(sb)
-
-	sb.WriteByte('[')
-	for i, e := range arr.elems {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(e.String())
-	}
-	sb.WriteByte(']')
-
-	return sb.String()
+	buf, _ := arr.AppendText(make([]byte, 0, arr.StringLength()))
+	return util.ByteSliceToString(buf)
 }
 
 // Len returns the number of elements in the array.
@@ -1532,6 +1688,11 @@ func NewSet(t ...*Term) Set {
 	return s
 }
 
+// NewSetWithCapacity returns a new empty Set with the given capacity pre-allocated.
+func NewSetWithCapacity(capacity int) Set {
+	return newset(capacity)
+}
+
 func newset(n int) *set {
 	var keys []*Term
 	if n > 0 {
@@ -1568,13 +1729,19 @@ type set struct {
 
 // Copy returns a deep copy of s.
 func (s *set) Copy() Set {
-	terms := make([]*Term, len(s.keys))
-	for i := range s.keys {
-		terms[i] = s.keys[i].Copy()
+	cpy := &set{
+		hash:      s.hash,
+		ground:    s.ground,
+		sortGuard: sync.Once{},
+		elems:     make(map[int]*Term, len(s.elems)),
+		keys:      make([]*Term, 0, len(s.keys)),
 	}
-	cpy := NewSet(terms...).(*set)
-	cpy.hash = s.hash
-	cpy.ground = s.ground
+
+	for hash := range s.elems {
+		cpy.elems[hash] = s.elems[hash].Copy()
+		cpy.keys = append(cpy.keys, cpy.elems[hash])
+	}
+
 	return cpy
 }
 
@@ -1589,25 +1756,8 @@ func (s *set) Hash() int {
 }
 
 func (s *set) String() string {
-	if s.Len() == 0 {
-		return "set()"
-	}
-
-	sb := sbPool.Get()
-	sb.Grow(s.Len() * 16)
-
-	defer sbPool.Put(sb)
-
-	sb.WriteByte('{')
-	for i := range s.sortedKeys() {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(s.keys[i].Value.String())
-	}
-	sb.WriteByte('}')
-
-	return sb.String()
+	buf, _ := s.AppendText(make([]byte, 0, s.StringLength()))
+	return util.ByteSliceToString(buf)
 }
 
 func (s *set) sortedKeys() []*Term {
@@ -1648,14 +1798,14 @@ func (s *set) Diff(other Set) Set {
 		return NewSet()
 	}
 
-	terms := make([]*Term, 0, len(s.keys))
-	for _, term := range s.sortedKeys() {
+	result := newset(len(s.keys))
+	for _, term := range s.keys {
 		if !other.Contains(term) {
-			terms = append(terms, term)
+			result.insert(term, false)
 		}
 	}
 
-	return NewSet(terms...)
+	return result
 }
 
 // Intersect returns the set containing elements in both s and other.
@@ -1670,21 +1820,28 @@ func (s *set) Intersect(other Set) Set {
 		n = m
 	}
 
-	terms := make([]*Term, 0, n)
-	for _, term := range ss.sortedKeys() {
+	result := newset(n)
+	for _, term := range ss.keys {
 		if so.Contains(term) {
-			terms = append(terms, term)
+			result.insert(term, false)
 		}
 	}
 
-	return NewSet(terms...)
+	return result
 }
 
 // Union returns the set containing all elements of s and other.
 func (s *set) Union(other Set) Set {
-	r := NewSet()
-	s.Foreach(r.Add)
-	other.Foreach(r.Add)
+	o := other.(*set)
+	// Pre-allocate with max size - avoids over-allocation for overlapping sets
+	// while only requiring one potential grow for disjoint sets.
+	r := newset(max(len(s.keys), len(o.keys)))
+	for _, term := range s.keys {
+		r.insert(term, false)
+	}
+	for _, term := range o.keys {
+		r.insert(term, false)
+	}
 	return r
 }
 
@@ -1779,85 +1936,9 @@ func (s *set) Slice() []*Term {
 func (s *set) insert(x *Term, resetSortGuard bool) {
 	hash := x.Hash()
 	insertHash := hash
-	// This `equal` utility is duplicated and manually inlined a number of
-	// time in this file.  Inlining it avoids heap allocations, so it makes
-	// a big performance difference: some operations like lookup become twice
-	// as slow without it.
-	var equal func(v Value) bool
-
-	switch x := x.Value.(type) {
-	case Null, Boolean, String, Var:
-		equal = func(y Value) bool { return x == y }
-	case Number:
-		if xi, err := json.Number(x).Int64(); err == nil {
-			equal = func(y Value) bool {
-				if y, ok := y.(Number); ok {
-					if yi, err := json.Number(y).Int64(); err == nil {
-						return xi == yi
-					}
-				}
-
-				return false
-			}
-			break
-		}
-
-		// We use big.Rat for comparing big numbers.
-		// It replaces big.Float due to following reason:
-		// big.Float comes with a default precision of 64, and setting a
-		// larger precision results in more memory being allocated
-		// (regardless of the actual number we are parsing with SetString).
-		//
-		// Note: If we're so close to zero that big.Float says we are zero, do
-		// *not* big.Rat).SetString on the original string it'll potentially
-		// take very long.
-		var a *big.Rat
-		fa, ok := new(big.Float).SetString(string(x))
-		if !ok {
-			panic("illegal value")
-		}
-		if fa.IsInt() {
-			if i, _ := fa.Int64(); i == 0 {
-				a = new(big.Rat).SetInt64(0)
-			}
-		}
-		if a == nil {
-			a, ok = new(big.Rat).SetString(string(x))
-			if !ok {
-				panic("illegal value")
-			}
-		}
-
-		equal = func(b Value) bool {
-			if bNum, ok := b.(Number); ok {
-				var b *big.Rat
-				fb, ok := new(big.Float).SetString(string(bNum))
-				if !ok {
-					panic("illegal value")
-				}
-				if fb.IsInt() {
-					if i, _ := fb.Int64(); i == 0 {
-						b = new(big.Rat).SetInt64(0)
-					}
-				}
-				if b == nil {
-					b, ok = new(big.Rat).SetString(string(bNum))
-					if !ok {
-						panic("illegal value")
-					}
-				}
-
-				return a.Cmp(b) == 0
-			}
-
-			return false
-		}
-	default:
-		equal = func(y Value) bool { return Compare(x, y) == 0 }
-	}
 
 	for curr, ok := s.elems[insertHash]; ok; {
-		if equal(curr.Value) {
+		if KeyHashEqual(curr.Value, x.Value) {
 			return
 		}
 
@@ -1883,87 +1964,18 @@ func (s *set) insert(x *Term, resetSortGuard bool) {
 }
 
 func (s *set) get(x *Term) *Term {
-	hash := x.Hash()
-	// This `equal` utility is duplicated and manually inlined a number of
-	// time in this file.  Inlining it avoids heap allocations, so it makes
-	// a big performance difference: some operations like lookup become twice
-	// as slow without it.
-	var equal func(v Value) bool
-
-	switch x := x.Value.(type) {
-	case Null, Boolean, String, Var:
-		equal = func(y Value) bool { return x == y }
-	case Number:
-		if xi, err := json.Number(x).Int64(); err == nil {
-			equal = func(y Value) bool {
-				if y, ok := y.(Number); ok {
-					if yi, err := json.Number(y).Int64(); err == nil {
-						return xi == yi
-					}
-				}
-
-				return false
-			}
-			break
-		}
-
-		// We use big.Rat for comparing big numbers.
-		// It replaces big.Float due to following reason:
-		// big.Float comes with a default precision of 64, and setting a
-		// larger precision results in more memory being allocated
-		// (regardless of the actual number we are parsing with SetString).
-		//
-		// Note: If we're so close to zero that big.Float says we are zero, do
-		// *not* big.Rat).SetString on the original string it'll potentially
-		// take very long.
-		var a *big.Rat
-		fa, ok := new(big.Float).SetString(string(x))
-		if !ok {
-			panic("illegal value")
-		}
-		if fa.IsInt() {
-			if i, _ := fa.Int64(); i == 0 {
-				a = new(big.Rat).SetInt64(0)
-			}
-		}
-		if a == nil {
-			a, ok = new(big.Rat).SetString(string(x))
-			if !ok {
-				panic("illegal value")
-			}
-		}
-
-		equal = func(b Value) bool {
-			if bNum, ok := b.(Number); ok {
-				var b *big.Rat
-				fb, ok := new(big.Float).SetString(string(bNum))
-				if !ok {
-					panic("illegal value")
-				}
-				if fb.IsInt() {
-					if i, _ := fb.Int64(); i == 0 {
-						b = new(big.Rat).SetInt64(0)
-					}
-				}
-				if b == nil {
-					b, ok = new(big.Rat).SetString(string(bNum))
-					if !ok {
-						panic("illegal value")
-					}
-				}
-
-				return a.Cmp(b) == 0
-			}
-			return false
-
-		}
-
-	default:
-		equal = func(y Value) bool { return Compare(x, y) == 0 }
+	if len(s.elems) == 0 {
+		return nil
 	}
 
+	hash := x.Hash()
+
 	for curr, ok := s.elems[hash]; ok; {
-		if equal(curr.Value) {
+		// Pointer equality check first
+		if curr == x {
+			return curr
+		}
+		if KeyHashEqual(curr.Value, x.Value) {
 			return curr
 		}
 
@@ -2001,6 +2013,11 @@ func NewObject(t ...[2]*Term) Object {
 		obj.insert(t[i][0], t[i][1], false)
 	}
 	return obj
+}
+
+// NewObjectWithCapacity returns a new empty Object with the given capacity pre-allocated.
+func NewObjectWithCapacity(capacity int) Object {
+	return newobject(capacity)
 }
 
 // ObjectTerm creates a new Term with an Object value.
@@ -2304,10 +2321,35 @@ func (obj *object) Insert(k, v *Term) {
 
 // Get returns the value of k in obj if k exists, otherwise nil.
 func (obj *object) Get(k *Term) *Term {
-	if elem := obj.get(k); elem != nil {
-		return elem.value
+	if len(obj.elems) == 0 {
+		return nil
+	}
+
+	hash := k.Hash()
+	for curr := obj.elems[hash]; curr != nil; curr = curr.next {
+		// Pointer equality check always fastest, and not too unlikely with interning.
+		if curr.key == k {
+			return curr.value
+		}
+
+		if KeyHashEqual(curr.key.Value, k.Value) {
+			return curr.value
+		}
 	}
 	return nil
+}
+
+func KeyHashEqual(x, y Value) bool {
+	switch x := x.(type) {
+	case Null, Boolean, String, Var:
+		return x == y
+	case Number:
+		if y, ok := y.(Number); ok {
+			return x.Equal(y)
+		}
+	}
+
+	return Compare(x, y) == 0
 }
 
 // Hash returns the hash code for the Value.
@@ -2449,19 +2491,21 @@ func (obj *object) Merge(other Object) (Object, bool) {
 // is called. The conflictResolver can return a merged value and a boolean
 // indicating if the merge has failed and should stop.
 func (obj *object) MergeWith(other Object, conflictResolver func(v1, v2 *Term) (*Term, bool)) (Object, bool) {
-	result := NewObject()
+	// Might overallocate assuming no conflicts is the common case,
+	// but that's typically faster than iterating over each object twice.
+	result := newobject(obj.Len() + other.Len())
 	stop := obj.Until(func(k, v *Term) bool {
 		v2 := other.Get(k)
 		// The key didn't exist in other, keep the original value
 		if v2 == nil {
-			result.Insert(k, v)
+			result.insert(k, v, false)
 			return false
 		}
 
 		// The key exists in both, resolve the conflict if possible
 		merged, stop := conflictResolver(v, v2)
 		if !stop {
-			result.Insert(k, merged)
+			result.insert(k, merged, false)
 		}
 		return stop
 	})
@@ -2473,7 +2517,7 @@ func (obj *object) MergeWith(other Object, conflictResolver func(v1, v2 *Term) (
 	// Copy in any values from other for keys that don't exist in obj
 	other.Foreach(func(k, v *Term) {
 		if v2 := obj.Get(k); v2 == nil {
-			result.Insert(k, v)
+			result.insert(k, v, false)
 		}
 	})
 	return result, true
@@ -2496,114 +2540,11 @@ func (obj *object) Len() int {
 }
 
 func (obj *object) String() string {
-	sb := sbPool.Get()
-	sb.Grow(obj.Len() * 32)
-
-	defer sbPool.Put(sb)
-
-	sb.WriteByte('{')
-
-	for i, elem := range obj.sortedKeys() {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(elem.key.String())
-		sb.WriteString(": ")
-		sb.WriteString(elem.value.String())
-	}
-	sb.WriteByte('}')
-
-	return sb.String()
+	buf, _ := obj.AppendText(make([]byte, 0, obj.StringLength()))
+	return util.ByteSliceToString(buf)
 }
 
-func (obj *object) get(k *Term) *objectElem {
-	hash := k.Hash()
-
-	// This `equal` utility is duplicated and manually inlined a number of
-	// time in this file.  Inlining it avoids heap allocations, so it makes
-	// a big performance difference: some operations like lookup become twice
-	// as slow without it.
-	var equal func(v Value) bool
-
-	switch x := k.Value.(type) {
-	case Null, Boolean, String, Var:
-		equal = func(y Value) bool { return x == y }
-	case Number:
-		if xi, ok := x.Int64(); ok {
-			equal = func(y Value) bool {
-				if x == y {
-					return true
-				}
-				if y, ok := y.(Number); ok {
-					if yi, ok := y.Int64(); ok {
-						return xi == yi
-					}
-				}
-
-				return false
-			}
-			break
-		}
-
-		// We use big.Rat for comparing big numbers.
-		// It replaces big.Float due to following reason:
-		// big.Float comes with a default precision of 64, and setting a
-		// larger precision results in more memory being allocated
-		// (regardless of the actual number we are parsing with SetString).
-		//
-		// Note: If we're so close to zero that big.Float says we are zero, do
-		// *not* big.Rat).SetString on the original string it'll potentially
-		// take very long.
-		var a *big.Rat
-		fa, ok := new(big.Float).SetString(string(x))
-		if !ok {
-			panic("illegal value")
-		}
-		if fa.IsInt() {
-			if i, _ := fa.Int64(); i == 0 {
-				a = new(big.Rat).SetInt64(0)
-			}
-		}
-		if a == nil {
-			a, ok = new(big.Rat).SetString(string(x))
-			if !ok {
-				panic("illegal value")
-			}
-		}
-
-		equal = func(b Value) bool {
-			if bNum, ok := b.(Number); ok {
-				var b *big.Rat
-				fb, ok := new(big.Float).SetString(string(bNum))
-				if !ok {
-					panic("illegal value")
-				}
-				if fb.IsInt() {
-					if i, _ := fb.Int64(); i == 0 {
-						b = new(big.Rat).SetInt64(0)
-					}
-				}
-				if b == nil {
-					b, ok = new(big.Rat).SetString(string(bNum))
-					if !ok {
-						panic("illegal value")
-					}
-				}
-
-				return a.Cmp(b) == 0
-			}
-
-			return false
-		}
-	default:
-		equal = func(y Value) bool { return Compare(x, y) == 0 }
-	}
-
-	for curr := obj.elems[hash]; curr != nil; curr = curr.next {
-		if equal(curr.key.Value) {
-			return curr
-		}
-	}
+func (*object) get(*Term) *objectElem {
 	return nil
 }
 
@@ -2612,88 +2553,9 @@ func (obj *object) get(k *Term) *objectElem {
 func (obj *object) insert(k, v *Term, resetSortGuard bool) {
 	hash := k.Hash()
 	head := obj.elems[hash]
-	// This `equal` utility is duplicated and manually inlined a number of
-	// time in this file.  Inlining it avoids heap allocations, so it makes
-	// a big performance difference: some operations like lookup become twice
-	// as slow without it.
-	var equal func(v Value) bool
-
-	switch x := k.Value.(type) {
-	case Null, Boolean, String, Var:
-		equal = func(y Value) bool { return x == y }
-	case Number:
-		if xi, err := json.Number(x).Int64(); err == nil {
-			equal = func(y Value) bool {
-				if x == y {
-					return true
-				}
-				if y, ok := y.(Number); ok {
-					if yi, err := json.Number(y).Int64(); err == nil {
-						return xi == yi
-					}
-				}
-
-				return false
-			}
-			break
-		}
-
-		// We use big.Rat for comparing big numbers.
-		// It replaces big.Float due to following reason:
-		// big.Float comes with a default precision of 64, and setting a
-		// larger precision results in more memory being allocated
-		// (regardless of the actual number we are parsing with SetString).
-		//
-		// Note: If we're so close to zero that big.Float says we are zero, do
-		// *not* big.Rat).SetString on the original string it'll potentially
-		// take very long.
-		var a *big.Rat
-		fa, ok := new(big.Float).SetString(string(x))
-		if !ok {
-			panic("illegal value")
-		}
-		if fa.IsInt() {
-			if i, _ := fa.Int64(); i == 0 {
-				a = new(big.Rat).SetInt64(0)
-			}
-		}
-		if a == nil {
-			a, ok = new(big.Rat).SetString(string(x))
-			if !ok {
-				panic("illegal value")
-			}
-		}
-
-		equal = func(b Value) bool {
-			if bNum, ok := b.(Number); ok {
-				var b *big.Rat
-				fb, ok := new(big.Float).SetString(string(bNum))
-				if !ok {
-					panic("illegal value")
-				}
-				if fb.IsInt() {
-					if i, _ := fb.Int64(); i == 0 {
-						b = new(big.Rat).SetInt64(0)
-					}
-				}
-				if b == nil {
-					b, ok = new(big.Rat).SetString(string(bNum))
-					if !ok {
-						panic("illegal value")
-					}
-				}
-
-				return a.Cmp(b) == 0
-			}
-
-			return false
-		}
-	default:
-		equal = func(y Value) bool { return Compare(x, y) == 0 }
-	}
 
 	for curr := head; curr != nil; curr = curr.next {
-		if equal(curr.key.Value) {
+		if KeyHashEqual(curr.key.Value, k.Value) {
 			if curr.value.IsGround() {
 				obj.ground--
 			}
@@ -2750,7 +2612,7 @@ func filterObject(o Value, filter Value) (Value, error) {
 	case String, Number, Boolean, Null:
 		return o, nil
 	case *Array:
-		values := NewArray()
+		values := make([]*Term, 0, v.Len())
 		for i := range v.Len() {
 			subFilter := filteredObj.Get(InternedIntegerString(i))
 			if subFilter != nil {
@@ -2758,10 +2620,10 @@ func filterObject(o Value, filter Value) (Value, error) {
 				if err != nil {
 					return nil, err
 				}
-				values = values.Append(NewTerm(filteredValue))
+				values = append(values, NewTerm(filteredValue))
 			}
 		}
-		return values, nil
+		return NewArray(values...), nil
 	case Set:
 		terms := make([]*Term, 0, v.Len())
 		for _, t := range v.Slice() {
@@ -2884,7 +2746,8 @@ func (ac *ArrayComprehension) IsGround() bool {
 }
 
 func (ac *ArrayComprehension) String() string {
-	return "[" + ac.Term.String() + " | " + ac.Body.String() + "]"
+	buf, _ := ac.AppendText(make([]byte, 0, ac.StringLength()))
+	return util.ByteSliceToString(buf)
 }
 
 // ObjectComprehension represents an object comprehension as defined in the language.
@@ -2944,7 +2807,8 @@ func (oc *ObjectComprehension) IsGround() bool {
 }
 
 func (oc *ObjectComprehension) String() string {
-	return "{" + oc.Key.String() + ": " + oc.Value.String() + " | " + oc.Body.String() + "}"
+	buf, _ := oc.AppendText(make([]byte, 0, oc.StringLength()))
+	return util.ByteSliceToString(buf)
 }
 
 // SetComprehension represents a set comprehension as defined in the language.
@@ -3001,7 +2865,8 @@ func (sc *SetComprehension) IsGround() bool {
 }
 
 func (sc *SetComprehension) String() string {
-	return "{" + sc.Term.String() + " | " + sc.Body.String() + "}"
+	buf, _ := sc.AppendText(make([]byte, 0, sc.StringLength()))
+	return util.ByteSliceToString(buf)
 }
 
 // Call represents as function call in the language.
@@ -3039,18 +2904,31 @@ func (c Call) IsGround() bool {
 	return termSliceIsGround(c)
 }
 
-// MakeExpr returns an ew Expr from this call.
+// MakeExpr returns a new Expr from this call.
 func (c Call) MakeExpr(output *Term) *Expr {
 	terms := []*Term(c)
 	return NewExpr(append(terms, output))
 }
 
-func (c Call) String() string {
-	args := make([]string, len(c)-1)
-	for i := 1; i < len(c); i++ {
-		args[i-1] = c[i].String()
+func (c Call) Operator() Ref {
+	if len(c) == 0 {
+		return nil
 	}
-	return fmt.Sprintf("%v(%v)", c[0], strings.Join(args, ", "))
+
+	return c[0].Value.(Ref)
+}
+
+func (c Call) Operands() []*Term {
+	if len(c) < 1 {
+		return nil
+	}
+
+	return c[1:]
+}
+
+func (c Call) String() string {
+	buf, _ := c.AppendText(make([]byte, 0, c.StringLength()))
+	return util.ByteSliceToString(buf)
 }
 
 func termSliceCopy(a []*Term) []*Term {

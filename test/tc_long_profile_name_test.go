@@ -63,7 +63,7 @@ func (e *e2e) testCaseLongSeccompProfileName(nodes []string) {
 		)
 
 		secpolNodeStatusList := &secprofnodestatusv1alpha1.SecurityProfileNodeStatusList{}
-		e.Nil(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
+		e.Require().NoError(json.Unmarshal([]byte(seccompProfileNodeStatusJSON), secpolNodeStatusList))
 
 		if len(nodes) == len(secpolNodeStatusList.Items) {
 			e.logf("Node status successfully reconciled")

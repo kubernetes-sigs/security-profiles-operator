@@ -16,8 +16,9 @@ func newBearerTokenCredential(token string) *BearerTokenCredential {
 
 func (s *BearerTokenCredential) GetCredential() (*CredentialModel, error) {
 	credential := &CredentialModel{
-		BearerToken: tea.String(s.BearerToken),
-		Type:        tea.String("bearer"),
+		BearerToken:  tea.String(s.BearerToken),
+		Type:         tea.String("bearer"),
+		ProviderName: tea.String("bearer"),
 	}
 	return credential, nil
 }

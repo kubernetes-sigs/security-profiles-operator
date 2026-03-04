@@ -1,5 +1,4 @@
 //go:build linux && !no_bpf
-// +build linux,!no_bpf
 
 /*
 Copyright 2021 The Kubernetes Authors.
@@ -66,7 +65,7 @@ type impl interface {
 	GetMap(*bpf.Module, string) (*bpf.BPFMap, error)
 	InitRingBuf(*bpf.Module, string, chan []byte) (*bpf.RingBuffer, error)
 	Stat(string) (os.FileInfo, error)
-	Unmarshal([]byte, interface{}) error
+	Unmarshal([]byte, any) error
 	ReadOSRelease() (map[string]string, error)
 	Uname() (types.Arch, *semver.Version, error)
 	TempFile(string, string) (*os.File, error)
@@ -91,7 +90,7 @@ type impl interface {
 	BpfIncClient(client apimetrics.MetricsClient) (apimetrics.Metrics_BpfIncClient, error)
 	CloseGRPC(*grpc.ClientConn) error
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
-	InitGlobalVariable(*bpf.Module, string, interface{}) error
+	InitGlobalVariable(*bpf.Module, string, any) error
 }
 
 func (d *defaultImpl) Getenv(key string) string {
@@ -156,7 +155,7 @@ func (d *defaultImpl) Stat(name string) (os.FileInfo, error) {
 	return os.Stat(name)
 }
 
-func (d *defaultImpl) Unmarshal(data []byte, v interface{}) error {
+func (d *defaultImpl) Unmarshal(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
 
@@ -291,6 +290,6 @@ func (d *defaultImpl) SendMetric(
 	return client.Send(in)
 }
 
-func (d *defaultImpl) InitGlobalVariable(module *bpf.Module, name string, value interface{}) error {
+func (d *defaultImpl) InitGlobalVariable(module *bpf.Module, name string, value any) error {
 	return module.InitGlobalVariable(name, value)
 }

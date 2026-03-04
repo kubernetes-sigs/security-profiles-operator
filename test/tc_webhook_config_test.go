@@ -56,8 +56,8 @@ func (e *e2e) testCaseWebhookOptionsChange([]string) {
 	// check the configured hook
 	whPatchedConfig := e.getAllWebhookAttributes()
 	e.Equal("Ignore", whPatchedConfig[bindingIdx].failurePolicy)
-	e.Equal(whNamespaceSelector, whPatchedConfig[bindingIdx].namespaceSelector)
-	e.Equal(whObjectSelector, whPatchedConfig[bindingIdx].objectSelector)
+	e.JSONEq(whNamespaceSelector, whPatchedConfig[bindingIdx].namespaceSelector)
+	e.JSONEq(whObjectSelector, whPatchedConfig[bindingIdx].objectSelector)
 	// check the other hook did not change
 	e.Equal("Fail", whPatchedConfig[recordingIdx].failurePolicy)
 	e.Equal(whDefault[recordingIdx].namespaceSelector, whPatchedConfig[recordingIdx].namespaceSelector)

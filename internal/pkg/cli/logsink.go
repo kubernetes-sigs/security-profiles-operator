@@ -41,22 +41,22 @@ func (*LogSink) Enabled(level int) bool {
 // The level argument is provided for optional logging.  This method will
 // only be called when Enabled(level) is true. See Logger.Info for more
 // details.
-func (l *LogSink) Info(_ int, msg string, keysAndValues ...interface{}) {
+func (l *LogSink) Info(_ int, msg string, keysAndValues ...any) {
 	l.Print(msg, nil, keysAndValues...)
 }
 
 // Error logs an error, with the given message and key/value pairs as
 // context.  See Logger.Error for more details.
-func (l *LogSink) Error(err error, msg string, keysAndValues ...interface{}) {
+func (l *LogSink) Error(err error, msg string, keysAndValues ...any) {
 	l.Print(msg, err, keysAndValues...)
 }
 
-func (*LogSink) Print(msg string, err error, keysAndValues ...interface{}) {
+func (*LogSink) Print(msg string, err error, keysAndValues ...any) {
 	builder := strings.Builder{}
 	builder.WriteString(msg)
 
 	if err != nil {
-		builder.WriteString(fmt.Sprintf(", err: %v", err))
+		fmt.Fprintf(&builder, ", err: %v", err)
 	}
 
 	for i, kv := range keysAndValues {
@@ -64,7 +64,7 @@ func (*LogSink) Print(msg string, err error, keysAndValues ...interface{}) {
 			builder.WriteString(" (")
 		}
 
-		builder.WriteString(fmt.Sprintf("%v", kv))
+		fmt.Fprintf(&builder, "%v", kv)
 		//nolint:gocritic // this is intentionally an else-if-chain
 		if i%2 == 0 {
 			builder.WriteRune('=')
@@ -80,7 +80,7 @@ func (*LogSink) Print(msg string, err error, keysAndValues ...interface{}) {
 
 // WithValues returns a new LogSink with additional key/value pairs.  See
 // Logger.WithValues for more details.
-func (*LogSink) WithValues(...interface{}) logr.LogSink {
+func (*LogSink) WithValues(...any) logr.LogSink {
 	return &LogSink{}
 }
 

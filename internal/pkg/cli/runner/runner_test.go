@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 /*
 Copyright 2023 The Kubernetes Authors.
@@ -181,7 +180,9 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
+
 				waitForFunctionCall(t, mock.PrintfCallCount)
+
 				arg, _ := mock.PrintfArgsForCall(0)
 				require.Contains(t, arg, "Seccomp")
 			},
@@ -201,6 +202,7 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
+
 				waitForFunctionCall(t, mock.GetNameCallCount)
 				require.Zero(t, mock.PrintfCallCount())
 			},
@@ -219,6 +221,7 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
+
 				waitForFunctionCall(t, mock.PrintfCallCount)
 				arg, _ := mock.PrintfArgsForCall(0)
 				require.Contains(t, arg, "AppArmor")
@@ -238,6 +241,7 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
+
 				waitForFunctionCall(t, mock.PrintfCallCount)
 				arg, _ := mock.PrintfArgsForCall(0)
 				require.Contains(t, arg, "SELinux")
@@ -252,6 +256,7 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
+
 				require.Zero(t, mock.PidLoadCallCount())
 			},
 		},
@@ -263,6 +268,7 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{}
+
 				require.Zero(t, mock.PidLoadCallCount())
 			},
 		},
@@ -273,6 +279,7 @@ func TestStartEnricher(t *testing.T) {
 			},
 			assert: func(mock *runnerfakes.FakeImpl, lineChan chan *tail.Line) {
 				lineChan <- &tail.Line{Err: errTest}
+
 				require.Zero(t, mock.PidLoadCallCount())
 			},
 		},

@@ -56,8 +56,10 @@ func DefaultApp() (*cli.App, *version.Info) {
 					if err != nil {
 						return fmt.Errorf("unable to generate JSON from version info: %w", err)
 					}
+
 					res = j
 				}
+
 				print(res)
 
 				return nil

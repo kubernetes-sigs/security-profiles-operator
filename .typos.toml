@@ -28,3 +28,6 @@ extend-ignore-re = [
     "Mmaped",
     "ro",
 ]
+
+[default.extend-words]
+bimap = "bimap"

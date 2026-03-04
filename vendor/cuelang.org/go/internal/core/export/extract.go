@@ -15,8 +15,9 @@
 package export
 
 import (
+	"slices"
+
 	"cuelang.org/go/cue/ast"
-	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/adt"
 )
@@ -36,20 +37,19 @@ func extractDocs(v *adt.Vertex) (docs []*ast.CommentGroup) {
 	fields := []*ast.Field{}
 
 	// Collect docs directly related to this Vertex.
-	v.VisitLeafConjuncts(func(x adt.Conjunct) bool {
+	for x := range v.LeafConjuncts() {
 		// TODO: Is this still being used?
 		if v, ok := x.Elem().(*adt.Vertex); ok {
 			docs = append(docs, extractDocs(v)...)
-			return true
 		}
 
 		switch f := x.Field().Source().(type) {
 		case *ast.Field:
 			if hasShorthandValue(f) {
-				return true
+				continue
 			}
 			fields = append(fields, f)
-			for _, cg := range f.Comments() {
+			for _, cg := range ast.Comments(f) {
 				if !containsDoc(docs, cg) && cg.Doc {
 					docs = append(docs, cg)
 				}
@@ -59,34 +59,31 @@ func extractDocs(v *adt.Vertex) (docs []*ast.CommentGroup) {
 			fdocs, _ := internal.FileComments(f)
 			docs = append(docs, fdocs...)
 		}
-
-		return true
-	})
+	}
 
 	// Collect docs from parent scopes in collapsed fields.
 	for p := v.Parent; p != nil; p = p.Parent {
 
 		newFields := []*ast.Field{}
 
-		p.VisitLeafConjuncts(func(x adt.Conjunct) bool {
+		for x := range p.LeafConjuncts() {
 			f, ok := x.Source().(*ast.Field)
 			if !ok || !hasShorthandValue(f) {
-				return true
+				continue
 			}
 
 			nested := nestedField(f)
 			for _, child := range fields {
 				if nested == child {
 					newFields = append(newFields, f)
-					for _, cg := range f.Comments() {
+					for _, cg := range ast.Comments(f) {
 						if !containsDoc(docs, cg) && cg.Doc {
 							docs = append(docs, cg)
 						}
 					}
 				}
 			}
-			return true
-		})
+		}
 
 		fields = newFields
 	}
@@ -114,10 +111,9 @@ func hasShorthandValue(f *ast.Field) bool {
 // nestedField returns the child field of a field shorthand.
 func nestedField(f *ast.Field) *ast.Field {
 	s, _ := f.Value.(*ast.StructLit)
-	if s == nil ||
-		len(s.Elts) != 1 ||
-		s.Lbrace != token.NoPos ||
-		s.Rbrace != token.NoPos {
+	if s == nil || len(s.Elts) != 1 ||
+		s.Lbrace.IsValid() ||
+		s.Rbrace.IsValid() {
 		return nil
 	}
 
@@ -126,10 +122,8 @@ func nestedField(f *ast.Field) *ast.Field {
 }
 
 func containsDoc(a []*ast.CommentGroup, cg *ast.CommentGroup) bool {
-	for _, c := range a {
-		if c == cg {
-			return true
-		}
+	if slices.Contains(a, cg) {
+		return true
 	}
 
 	for _, c := range a {
@@ -142,10 +136,9 @@ func containsDoc(a []*ast.CommentGroup, cg *ast.CommentGroup) bool {
 }
 
 func ExtractFieldAttrs(v *adt.Vertex) (attrs []*ast.Attribute) {
-	v.VisitLeafConjuncts(func(x adt.Conjunct) bool {
+	for x := range v.LeafConjuncts() {
 		attrs = extractFieldAttrs(attrs, x.Field())
-		return true
-	})
+	}
 	return attrs
 }
 

@@ -24,6 +24,15 @@ type Config struct {
 	// Sort fields by field name.
 	SortFieldsByFieldName bool
 
+	// Sort fields by field number from proto definition.
+	SortFieldsByFieldNumber bool
+
+	// Path to protobuf descriptor file (.desc).
+	ProtoDescriptor string
+
+	// Full message type name for field number lookup (required, e.g. google.protobuf.Any).
+	MessageFullName string
+
 	// Sort adjacent scalar fields of the same field name by their contents.
 	SortRepeatedFieldsByContent bool
 
@@ -34,6 +43,11 @@ type Config struct {
 
 	// Sort the Sort* fields by descending order instead of ascending order.
 	ReverseSort bool
+
+	// Sort content fields in a way that's suitable for DNS names. It splits the
+	// value around '.' characters, reverses the substrings, and concatenates to
+	// generate the sort key.
+	DNSSortOrder bool
 
 	// Map from Node.Name to the order of all fields within that node. See AddFieldSortOrder().
 	FieldSortOrder map[string][]string
@@ -72,6 +86,11 @@ type Config struct {
 
 	// Use single quotes around strings that contain double but not single quotes.
 	SmartQuotes bool
+
+	// Use a short representation for repeated primitive fields (`x: 1 x: 2` vs `x: [1, 2]`). If this
+	// field is true, all repeated primitive fields will use the short representation; otherwise, the
+	// latter will be used only if it's being used in the input textproto.
+	UseShortRepeatedPrimitiveFields bool
 
 	// Logger enables logging when it is non-nil.
 	// If the log messages aren't going to be useful, it's best to leave Logger

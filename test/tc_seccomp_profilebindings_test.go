@@ -72,14 +72,14 @@ spec:
 	e.logf("Creating test profile binding")
 
 	testBindingFile, err := os.CreateTemp("", "hello-binding*.yaml")
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	defer os.Remove(testBindingFile.Name())
 
 	_, err = testBindingFile.WriteString(testBinding)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = testBindingFile.Close()
-	e.Nil(err)
+	e.Require().NoError(err)
 	e.kubectl("create", "-f", testBindingFile.Name())
 
 	defer e.kubectl("delete", "-f", testBindingFile.Name())
@@ -87,14 +87,14 @@ spec:
 	e.logf("Creating test pod")
 
 	testPodFile, err := os.CreateTemp("", "hello-pod*.yaml")
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	defer os.Remove(testPodFile.Name())
 
 	_, err = testPodFile.WriteString(testPod)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = testPodFile.Close()
-	e.Nil(err)
+	e.Require().NoError(err)
 	e.kubectl("create", "-f", testPodFile.Name())
 
 	defer e.kubectl("delete", "pod", "hello")

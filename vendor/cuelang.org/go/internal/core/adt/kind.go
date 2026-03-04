@@ -16,6 +16,7 @@ package adt
 
 import (
 	"fmt"
+	"iter"
 	"math/bits"
 	"strings"
 )
@@ -51,6 +52,26 @@ func IsConcrete(v Value) bool {
 		return false
 	}
 	return v.Concreteness() <= Concrete
+}
+
+// IsRecursivelyConcrete checks that v is a scalar or that all regular fields
+// have concrete values, recursively.
+func IsRecursivelyConcrete(v *Vertex) bool {
+	for _, a := range v.Arcs {
+		if !a.Label.IsRegular() {
+			continue
+		}
+		switch a.ArcType {
+		case ArcMember:
+		case ArcRequired:
+			return false
+		}
+
+		if !IsRecursivelyConcrete(a) {
+			return false
+		}
+	}
+	return v.IsConcrete()
 }
 
 // Kind reports the Value kind.
@@ -113,10 +134,35 @@ func (k Kind) String() string {
 	return toString(k, kindStrs)
 }
 
-// TypeString is like String, but returns a string representation of a valid
-// CUE type.
+// TypeString is like [Kind.String],
+// but returns a string representation of a valid CUE type.
 func (k Kind) TypeString() string {
 	return toString(k, typeStrs)
+}
+
+// Kinds returns an iterator over all the individual
+// Kinds in k. There will be k.Count() items in the sequence.
+func (k Kind) Kinds() iter.Seq[Kind] {
+	return func(yield func(Kind) bool) {
+		k := k
+		for count := 0; ; count++ {
+			n := bits.TrailingZeros(uint(k))
+			if n == bits.UintSize {
+				break
+			}
+			bit := Kind(1 << uint(n))
+			k &^= bit
+			if !yield(bit) {
+				return
+			}
+		}
+	}
+}
+
+// Count returns the number of individual Kinds
+// making up k.
+func (k Kind) Count() int {
+	return bits.OnesCount(uint(k))
 }
 
 func toString(k Kind, m map[Kind]string) string {
@@ -130,25 +176,21 @@ func toString(k Kind, m map[Kind]string) string {
 		k = (k &^ NumberKind) | _numberKind
 	}
 	var buf strings.Builder
-	multiple := bits.OnesCount(uint(k)) > 1
+	multiple := k.Count() > 1
 	if multiple {
 		buf.WriteByte('(')
 	}
-	for count := 0; ; count++ {
-		n := bits.TrailingZeros(uint(k))
-		if n == bits.UintSize {
-			break
-		}
-		bit := Kind(1 << uint(n))
-		k &^= bit
+	count := 0
+	for bit := range k.Kinds() {
 		s, ok := m[bit]
 		if !ok {
-			s = fmt.Sprintf("bad(%d)", n)
+			s = fmt.Sprintf("bad(%d)", bits.TrailingZeros(uint(bit)))
 		}
 		if count > 0 {
 			buf.WriteByte('|')
 		}
 		buf.WriteString(s)
+		count++
 	}
 	if multiple {
 		buf.WriteByte(')')

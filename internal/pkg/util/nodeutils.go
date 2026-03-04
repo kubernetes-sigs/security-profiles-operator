@@ -64,7 +64,7 @@ func GetNodeList(ctx context.Context) ([]string, error) {
 	nodeNames := make([]string, 0, len(nodeList.Items))
 
 	for _, item := range nodeList.Items {
-		var node map[string]interface{}
+		var node map[string]any
 
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(item.Object, &node)
 		if err != nil {

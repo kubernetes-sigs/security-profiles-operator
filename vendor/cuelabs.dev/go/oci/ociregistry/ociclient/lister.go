@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"slices"
 	"strings"
@@ -30,7 +31,7 @@ import (
 	"cuelabs.dev/go/oci/ociregistry/internal/ocirequest"
 )
 
-func (c *client) Repositories(ctx context.Context, startAfter string) ociregistry.Seq[string] {
+func (c *client) Repositories(ctx context.Context, startAfter string) iter.Seq2[string, error] {
 	return pager(ctx, c, &ocirequest.Request{
 		Kind:     ocirequest.ReqCatalogList,
 		ListN:    c.listPageSize,
@@ -50,7 +51,7 @@ func (c *client) Repositories(ctx context.Context, startAfter string) ociregistr
 	})
 }
 
-func (c *client) Tags(ctx context.Context, repoName, startAfter string) ociregistry.Seq[string] {
+func (c *client) Tags(ctx context.Context, repoName, startAfter string) iter.Seq2[string, error] {
 	return pager(ctx, c, &ocirequest.Request{
 		Kind:     ocirequest.ReqTagsList,
 		Repo:     repoName,
@@ -72,7 +73,7 @@ func (c *client) Tags(ctx context.Context, repoName, startAfter string) ociregis
 	})
 }
 
-func (c *client) Referrers(ctx context.Context, repoName string, digest ociregistry.Digest, artifactType string) ociregistry.Seq[ociregistry.Descriptor] {
+func (c *client) Referrers(ctx context.Context, repoName string, digest ociregistry.Digest, artifactType string) iter.Seq2[ociregistry.Descriptor, error] {
 	return pager(ctx, c, &ocirequest.Request{
 		Kind:         ocirequest.ReqReferrersList,
 		Repo:         repoName,
@@ -127,7 +128,7 @@ func (c *client) Referrers(ctx context.Context, repoName string, digest ociregis
 // parseResponse. It tries to use the Link header in each response to continue
 // the iteration, falling back to using the "last" query parameter if
 // canUseLast is true.
-func pager[T any](ctx context.Context, c *client, initialReq *ocirequest.Request, canUseLast bool, parseResponse func(*http.Response) ([]T, error), okStatuses ...int) ociregistry.Seq[T] {
+func pager[T any](ctx context.Context, c *client, initialReq *ocirequest.Request, canUseLast bool, parseResponse func(*http.Response) ([]T, error), okStatuses ...int) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		// We assume that the same auth scope is applicable to all page requests.
 		req, err := newRequest(ctx, initialReq, nil)

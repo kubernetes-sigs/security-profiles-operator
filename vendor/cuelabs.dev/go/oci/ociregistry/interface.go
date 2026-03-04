@@ -59,6 +59,7 @@ package ociregistry
 import (
 	"context"
 	"io"
+	"iter"
 
 	"cuelabs.dev/go/oci/ociregistry/ociref"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -214,20 +215,20 @@ type Lister interface {
 	// over all the repositories in the registry in lexical order.
 	// If startAfter is non-empty, the iteration starts lexically
 	// after, but not including, that repository.
-	Repositories(ctx context.Context, startAfter string) Seq[string]
+	Repositories(ctx context.Context, startAfter string) iter.Seq2[string, error]
 
 	// Tags returns an iterator that can be used to iterate over all
 	// the tags in the given repository in lexical order. If
 	// startAfter is non-empty, the tags start lexically after, but
 	// not including that tag.
-	Tags(ctx context.Context, repo string, startAfter string) Seq[string]
+	Tags(ctx context.Context, repo string, startAfter string) iter.Seq2[string, error]
 
 	// Referrers returns an iterator that can be used to iterate over all
 	// the manifests that have the given digest as their Subject.
 	// If artifactType is non-zero, the results will be restricted to
 	// only manifests with that type.
 	// TODO is it possible to ask for multiple artifact types?
-	Referrers(ctx context.Context, repo string, digest Digest, artifactType string) Seq[Descriptor]
+	Referrers(ctx context.Context, repo string, digest Digest, artifactType string) iter.Seq2[Descriptor, error]
 }
 
 // BlobWriter provides a handle for uploading a blob to a registry.

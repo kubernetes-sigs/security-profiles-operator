@@ -20,6 +20,10 @@ type SignerForV1SDKOptions struct {
 func NewSignerForV1SDK(p CredentialsProvider, opts SignerForV1SDKOptions) *SignerForV1SDK {
 	opts.applyDefaults()
 
+	if _, ok := p.(*SemaphoreProvider); !ok {
+		p = NewSemaphoreProvider(p, SemaphoreProviderOptions{MaxWeight: 1})
+	}
+
 	return &SignerForV1SDK{
 		p:                          p,
 		Logger:                     opts.Logger,

@@ -34,6 +34,7 @@ func (r *Reconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
+	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
 	r.record = mgr.GetEventRecorderFor("apparmorprofile")
 	r.metrics = met
 	r.manager = NewAppArmorProfileManager(r.log)

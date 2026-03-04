@@ -29,7 +29,6 @@ type Image struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec holds user settable values for configuration
-	// +kubebuilder:validation:Required
 	// +required
 	Spec ImageSpec `json:"spec"`
 	// status holds observed values from the cluster. They may not be overridden.
@@ -162,6 +161,8 @@ type RegistryLocation struct {
 }
 
 // RegistrySources holds cluster-wide information about how to handle the registries config.
+//
+// +kubebuilder:validation:XValidation:rule="has(self.blockedRegistries) ? !has(self.allowedRegistries) : true",message="Only one of blockedRegistries or allowedRegistries may be set"
 type RegistrySources struct {
 	// insecureRegistries are registries which do not have a valid TLS certificates or only support HTTP connections.
 	// +optional

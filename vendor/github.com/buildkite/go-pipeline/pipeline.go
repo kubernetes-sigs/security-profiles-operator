@@ -13,8 +13,9 @@ import (
 //
 // Standard caveats apply - see the package comment.
 type Pipeline struct {
-	Steps Steps          `yaml:"steps"`
-	Env   *ordered.MapSS `yaml:"env,omitempty"`
+	Steps   Steps          `yaml:"steps"`
+	Env     *ordered.MapSS `yaml:"env,omitempty"`
+	Secrets Secrets        `yaml:"secrets,omitempty"`
 
 	// RemainingFields stores any other top-level mapping items so they at least
 	// survive an unmarshal-marshal round-trip.

@@ -16,6 +16,7 @@ package format
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"cuelang.org/go/cue/ast"
@@ -64,10 +65,6 @@ unsupported:
 	return fmt.Errorf("cue/format: unsupported node type %T", node)
 }
 
-func isRegularField(tok token.Token) bool {
-	return tok == token.ILLEGAL || tok == token.COLON
-}
-
 // Helper functions for common node lists. They may be empty.
 
 func nestDepth(f *ast.Field) int {
@@ -101,6 +98,18 @@ func hasDocComments(d ast.Decl) bool {
 	return false
 }
 
+// hasNoSignificantComments checks if an import spec has no comments that
+// would require formatting with parentheses. Trailing comments (Position > 1)
+// that appear after the import statement don't require parentheses.
+func hasNoSignificantComments(spec *ast.ImportSpec) bool {
+	for _, cg := range ast.Comments(spec) {
+		if cg.Position <= 1 {
+			return false
+		}
+	}
+	return true
+}
+
 func (f *formatter) walkDeclList(list []ast.Decl) {
 	f.before(nil)
 	d := 0
@@ -127,7 +136,7 @@ func (f *formatter) walkDeclList(list []ast.Decl) {
 				}
 			}
 		}
-		if f.printer.cfg.simplify && internal.IsEllipsis(x) {
+		if f.printer.cfg.simplify && isEllipsis(x) {
 			ellipsis = x
 			continue
 		}
@@ -166,6 +175,33 @@ func (f *formatter) walkDeclList(list []ast.Decl) {
 	f.after(nil)
 }
 
+// isEllipsis reports whether the declaration can be represented as an ellipsis.
+func isEllipsis(x ast.Decl) bool {
+	// ...
+	if _, ok := x.(*ast.Ellipsis); ok {
+		return true
+	}
+
+	// [string]: _ or [_]: _
+	f, ok := x.(*ast.Field)
+	if !ok {
+		return false
+	}
+	v, ok := f.Value.(*ast.Ident)
+	if !ok || v.Name != "_" {
+		return false
+	}
+	l, ok := f.Label.(*ast.ListLit)
+	if !ok || len(l.Elts) != 1 {
+		return false
+	}
+	i, ok := l.Elts[0].(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return i.Name == "string" || i.Name == "_"
+}
+
 func (f *formatter) walkSpecList(list []*ast.ImportSpec) {
 	f.before(nil)
 	for _, x := range list {
@@ -190,22 +226,27 @@ func (f *formatter) walkClauseList(list []ast.Clause, ws whiteSpace) {
 	f.after(nil)
 }
 
+func fallbackKeyword(n *ast.Comprehension) token.Token {
+	if len(n.Clauses) > 1 {
+		return token.FALLBACK
+	} else if _, ok := n.Clauses[0].(*ast.ForClause); ok {
+		return token.FALLBACK
+	}
+	return token.ELSE
+}
+
 func (f *formatter) walkListElems(list []ast.Expr) {
 	f.before(nil)
 	for _, x := range list {
 		f.before(x)
 
-		// This is a hack to ensure that comments are printed correctly in lists.
-		// A comment must be printed after each element in a list, but we can't
-		// print a comma at the end of a comment because it will be considered
-		// part of the comment and ignored.
-		// To fix this we collect all comments that appear after the element,
-		// and only handle them after it's formatted.
+		// Collect comments that appear after the element's start position.
+		// These need to be printed after the comma, not before it.
 		var commentsAfter []*ast.CommentGroup
 		splitComments := x.Pos().IsValid()
 		if splitComments {
 			for _, cg := range ast.Comments(x) {
-				if x.Pos().Before(cg.Pos()) {
+				if x.Pos().Compare(cg.Pos()) < 0 {
 					commentsAfter = append(commentsAfter, cg)
 				}
 			}
@@ -219,9 +260,25 @@ func (f *formatter) walkListElems(list []ast.Expr) {
 			f.walkClauseList(n.Clauses, blank)
 			f.print(blank, nooverride)
 			f.expr(n.Value)
+			if n.Fallback != nil {
+				// Use FALLBACK keyword for 'for' comprehensions, ELSE for 'if'/'try'
+				kw := fallbackKeyword(n)
+				f.print(blank, n.Fallback.Fallback, kw, blank)
+				f.expr(n.Fallback.Body)
+			}
 
 		case *ast.Ellipsis:
-			f.ellipsis(n)
+			// For ellipsis, also collect trailing comments from the type
+			// since they're attached to the nested node, not the ellipsis itself.
+			f.print(n.Ellipsis, token.ELLIPSIS)
+			if n.Type != nil && !isTop(n.Type) {
+				for _, cg := range ast.Comments(n.Type) {
+					if n.Type.Pos().Compare(cg.Pos()) < 0 {
+						commentsAfter = append(commentsAfter, cg)
+					}
+				}
+				f.exprRaw(n.Type, token.LowestPrec, 1)
+			}
 
 		case *ast.Alias:
 			f.expr(n.Ident)
@@ -305,15 +362,32 @@ func (f *formatter) decl(decl ast.Decl) {
 
 	switch n := decl.(type) {
 	case *ast.Field:
-		constraint, _ := internal.ConstraintToken(n)
-		f.label(n.Label, constraint)
+		// Format label without constraint (we'll add constraint after alias)
+		f.label(n.Label, token.ILLEGAL)
 
-		regular := isRegularField(n.Token)
-		if regular {
-			f.print(noblank, nooverride, n.TokenPos, token.COLON)
-		} else {
-			f.print(blank, nooverride, n.Token)
+		// Format postfix alias if present
+		if a := n.Alias; a != nil {
+			f.print(a.Tilde, token.TILDE, noblank)
+			if a.Label != nil {
+				// Dual form: ~(K,V)
+				// Assumes that ILLEGAL tokens are no-ops.
+				f.print(a.Lparen, token.LPAREN, noblank)
+				f.expr(a.Label)
+				f.print(a.Comma, token.COMMA, noblank)
+				f.expr(a.Field)
+				f.print(a.Rparen, token.RPAREN, noblank)
+			} else {
+				// Simple form: ~X
+				f.expr(a.Field)
+			}
 		}
+
+		// Format constraint marker (?, !) if present
+		if n.Constraint != token.ILLEGAL {
+			f.print(n.Constraint)
+		}
+
+		f.print(noblank, nooverride, n.TokenPos, token.COLON)
 		f.visitComments(f.current.pos)
 
 		if mem := f.inlineField(n); mem != nil {
@@ -321,7 +395,7 @@ func (f *formatter) decl(decl ast.Decl) {
 			default:
 				fallthrough
 
-			case regular && f.cfg.simplify:
+			case f.cfg.simplify:
 				f.print(blank, nooverride)
 				f.decl(mem)
 
@@ -382,7 +456,7 @@ func (f *formatter) decl(decl ast.Decl) {
 			break
 		}
 		switch {
-		case len(n.Specs) == 1 && len(n.Specs[0].Comments()) == 0:
+		case len(n.Specs) == 1 && hasNoSignificantComments(n.Specs[0]):
 			if !n.Lparen.IsValid() {
 				f.print(blank)
 				f.walkSpecList(n.Specs)
@@ -434,6 +508,12 @@ func (f *formatter) embedding(decl ast.Expr) {
 		f.walkClauseList(n.Clauses, blank)
 		f.print(blank, nooverride)
 		f.expr(n.Value)
+		if n.Fallback != nil {
+			// Use FALLBACK keyword for 'for' comprehensions, ELSE for 'if'/'try'
+			kw := fallbackKeyword(n)
+			f.print(blank, n.Fallback.Fallback, kw, blank)
+			f.expr(n.Fallback.Body)
+		}
 
 	case *ast.Ellipsis:
 		f.ellipsis(n)
@@ -466,6 +546,8 @@ func (f *formatter) nextNeedsFormfeed(n ast.Expr) bool {
 		return f.nextNeedsFormfeed(x.X)
 	case *ast.UnaryExpr:
 		return f.nextNeedsFormfeed(x.X)
+	case *ast.PostfixExpr:
+		return f.nextNeedsFormfeed(x.X)
 	case *ast.BinaryExpr:
 		return f.nextNeedsFormfeed(x.X) || f.nextNeedsFormfeed(x.Y)
 	case *ast.IndexExpr:
@@ -473,10 +555,8 @@ func (f *formatter) nextNeedsFormfeed(n ast.Expr) bool {
 	case *ast.SelectorExpr:
 		return f.nextNeedsFormfeed(x.X)
 	case *ast.CallExpr:
-		for _, arg := range x.Args {
-			if f.nextNeedsFormfeed(arg) {
-				return true
-			}
+		if slices.ContainsFunc(x.Args, f.nextNeedsFormfeed) {
+			return true
 		}
 	}
 	return false
@@ -506,7 +586,7 @@ func (f *formatter) label(l ast.Label, constraint token.Token) {
 		// if the AST is not generated by the parser.
 		name := n.Name
 		if !ast.IsValidIdent(name) {
-			name = literal.Label.Quote(n.Name)
+			name = literal.Label.Quote(name)
 		}
 		f.print(n.NamePos, name)
 
@@ -562,7 +642,6 @@ func (f *formatter) expr1(expr ast.Expr, prec1, depth int) {
 }
 
 func (f *formatter) exprRaw(expr ast.Expr, prec1, depth int) {
-
 	switch x := expr.(type) {
 	case *ast.BadExpr:
 		f.print(x.From, "_|_")
@@ -598,6 +677,10 @@ func (f *formatter) exprRaw(expr ast.Expr, prec1, depth int) {
 			f.print(x.OpPos, x.Op, nooverride)
 			f.expr1(x.X, prec, depth)
 		}
+
+	case *ast.PostfixExpr:
+		f.expr1(x.X, token.HighestPrec, depth)
+		f.print(x.Op)
 
 	case *ast.BasicLit:
 		f.print(x.ValuePos, x)
@@ -670,7 +753,7 @@ func (f *formatter) exprRaw(expr ast.Expr, prec1, depth int) {
 		case len(x.Elts) == 0:
 			// collapse curly braces if the body is empty.
 			ffAlt := blank | nooverride
-			for _, c := range x.Comments() {
+			for _, c := range ast.Comments(x) {
 				if c.Position == 1 {
 					ffAlt = ff
 					break
@@ -700,7 +783,7 @@ func (f *formatter) exprRaw(expr ast.Expr, prec1, depth int) {
 		if len(x.Elts) == 0 {
 			// collapse square brackets if the body is empty.
 			collapseWs := blank | nooverride
-			for _, c := range x.Comments() {
+			for _, c := range ast.Comments(x) {
 				if c.Position == 1 {
 					collapseWs = ws
 					break
@@ -756,6 +839,18 @@ func (f *formatter) clause(clause ast.Clause) {
 		f.print(blank, nooverride, n.Equal, token.BIND, blank)
 		f.expr(n.Expr)
 		f.markUnindentLine()
+
+	case *ast.TryClause:
+		f.print(n.Try, token.TRY)
+		if n.Ident != nil {
+			// Assignment form: try x = expr
+			f.print(blank, nooverride, indent)
+			f.expr(n.Ident)
+			f.print(blank, nooverride, n.Equal, token.BIND, blank)
+			f.expr(n.Expr)
+			f.markUnindentLine()
+		}
+		// Struct form: just "try" - body comes from Comprehension.Value
 
 	default:
 		panic("unknown clause type")

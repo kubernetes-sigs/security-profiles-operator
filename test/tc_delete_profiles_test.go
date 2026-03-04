@@ -193,12 +193,12 @@ spec:
 
 		// At this point it must be terminating or else we haven't matched the condition above
 		sp := e.getSeccompProfile(deleteProfileName)
-		e.Equal(sp.Status.Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
+		e.Equal(secprofnodestatusv1alpha1.ProfileStateTerminating, sp.Status.Status)
 
 		// The node statuses should still be there, just terminating
 		nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName)
 		for i := range nodeStatuses.Items {
-			e.Equal(nodeStatuses.Items[i].Status, secprofnodestatusv1alpha1.ProfileStateTerminating)
+			e.Equal(secprofnodestatusv1alpha1.ProfileStateTerminating, nodeStatuses.Items[i].Status)
 			// On each node, there should still be the profile on the disk
 			nodeWithPodName := nodeStatuses.Items[i].NodeName
 			profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
@@ -208,7 +208,7 @@ spec:
 		isDeleted := make(chan bool)
 
 		go func() {
-			e.waitFor("delete", "seccompprofile", deleteProfileName)
+			e.waitFor("delete", "seccompprofile", deleteProfileName) //nolint:testifylint // intentional goroutine usage
 
 			isDeleted <- true
 		}()

@@ -168,21 +168,24 @@ func (r *RoleArnProvider) assumeRole(ctx context.Context, roleArn string) (*Cred
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read body failed: %w", err)
 	}
 
 	var obj roleArnResponse
 	if err := json.Unmarshal(data, &obj); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse AssumeRole body failed (%s), got unexpected body (%s): %s",
+			err, resp.Status, strings.ReplaceAll(string(data), "\n", " "))
 	}
-	if obj.Credentials == nil || obj.Credentials.AccessKeySecret == "" {
-		return nil, fmt.Errorf("call AssumeRole failed, got unexpected body: %s",
-			strings.ReplaceAll(string(data), "\n", " "))
+	if obj.Credentials == nil || obj.Credentials.AccessKeySecret == "" ||
+		obj.Credentials.AccessKeyId == "" || obj.Credentials.SecurityToken == "" ||
+		obj.Credentials.Expiration == "" {
+		return nil, fmt.Errorf("call AssumeRole failed (%s), got unexpected body: %s",
+			resp.Status, strings.ReplaceAll(string(data), "\n", " "))
 	}
 
 	exp, err := time.Parse("2006-01-02T15:04:05Z", obj.Credentials.Expiration)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse Expiration %q failed: %w", obj.Credentials.Expiration, err)
 	}
 	return &Credentials{
 		AccessKeyId:     obj.Credentials.AccessKeyId,

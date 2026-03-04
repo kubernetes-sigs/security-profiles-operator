@@ -145,7 +145,7 @@ import (
 )
 
 type structMeta struct {
-	structInfo *adt.StructInfo
+	structInfo adt.StructInfo
 	pos        token.Pos
 
 	// Should this struct be considered to be part of an explicit
@@ -154,10 +154,7 @@ type structMeta struct {
 }
 
 func (sMeta *structMeta) String() string {
-	var sl *adt.StructLit
-	if sMeta.structInfo != nil {
-		sl = sMeta.structInfo.StructLit
-	}
+	sl := sMeta.structInfo.StructLit
 	return fmt.Sprintf("{%p sl:%p %v (explicit? %v)}",
 		sMeta, sl, sMeta.pos, sMeta.isExplicit)
 }
@@ -217,7 +214,7 @@ func (sm *structMeta) hasDynamic(dynFieldsMap map[*adt.DynamicField][]adt.Featur
 // we look at the vertex's conjuncts. If a conjunct is a binary
 // expression &, then we look up the structMeta for the arguments to
 // the binary expression, and mark them as explicit unification.
-func analyseStructs(v *adt.Vertex, builder *GraphBuilder) []*structMeta {
+func analyseStructs(v *adt.Vertex, builder *GraphBuilder) []structMeta {
 	structInfos := v.Structs
 	// Note that it's important that nodeToStructMetas avoids duplicate entries,
 	// which cause significant slowness for some large configs.
@@ -231,22 +228,21 @@ func analyseStructs(v *adt.Vertex, builder *GraphBuilder) []*structMeta {
 		nodeToStructMetas[node] = m
 		return m
 	}
-	structMetas := make([]*structMeta, 0, len(structInfos))
+
+	structMetas := make([]structMeta, len(structInfos))
 
 	// Create all the structMetas and map to them from a StructInfo's
 	// StructLit, and all its internal Decls. Initial attempt at
 	// recording a position, which will be correct only for direct use
 	// of literal structs in the calculation of vertex v.
+	metaIdx := 0
 	for _, s := range structInfos {
 		sl := s.StructLit
-		sMeta := &structMeta{
-			structInfo: s,
-		}
-		structMetas = append(structMetas, sMeta)
+		sMeta := &structMetas[metaIdx]
+		metaIdx++
+		sMeta.structInfo = s
+		sMeta.pos = adt.Pos(sl)
 
-		if src := sl.Source(); src != nil {
-			sMeta.pos = src.Pos()
-		}
 		structMetaMap(sl)[sMeta] = true
 		for _, decl := range sl.Decls {
 			structMetaMap(decl)[sMeta] = true
@@ -258,22 +254,23 @@ func analyseStructs(v *adt.Vertex, builder *GraphBuilder) []*structMeta {
 	// uncover the position of the earliest reference.
 	for _, arc := range v.Arcs {
 		builder.EnsureNode(arc.Label)
-		arc.VisitLeafConjuncts(func(c adt.Conjunct) bool {
+		for c := range arc.LeafConjuncts() {
 			field := c.Field()
 			debug("self arc conjunct field %p :: %T, expr %p :: %T (%v)\n",
 				field, field, c.Expr(), c.Expr(), c.Expr().Source())
 			sMetas, found := nodeToStructMetas[field]
 			if !found {
-				return true
+				continue
 			}
 			if src := field.Source(); src != nil {
+				pos := src.Pos()
 				for sMeta := range sMetas {
-					sMeta.pos = src.Pos()
+					sMeta.pos = pos
 				}
 			}
 			refs := c.CloseInfo.CycleInfo.Refs
 			if refs == nil {
-				return true
+				continue
 			}
 			debug(" ref %p :: %T (%v)\n",
 				refs.Ref, refs.Ref, refs.Ref.Source().Pos())
@@ -283,25 +280,22 @@ func analyseStructs(v *adt.Vertex, builder *GraphBuilder) []*structMeta {
 					refs.Ref, refs.Ref, refs.Ref.Source().Pos())
 			}
 			maps.Insert(structMetaMap(refs.Ref), maps.All(sMetas))
-			if pos := refs.Ref.Source().Pos(); pos != token.NoPos {
+			if pos := refs.Ref.Source().Pos(); pos.IsValid() {
 				for sMeta := range nodeToStructMetas[refs.Ref] {
 					sMeta.pos = pos
 				}
 			}
-
-			return true
-		})
+		}
 	}
 
 	// Explore our own conjuncts, and the decls from our StructList, to
 	// find explicit unifications, and mark structMetas accordingly.
 	var worklist []adt.Expr
-	v.VisitLeafConjuncts(func(c adt.Conjunct) bool {
+	for c := range v.LeafConjuncts() {
 		debug("self conjunct field %p :: %T, expr %p :: %T\n",
 			c.Field(), c.Field(), c.Expr(), c.Expr())
 		worklist = append(worklist, c.Expr())
-		return true
-	})
+	}
 	for _, si := range structInfos {
 		for _, decl := range si.StructLit.Decls {
 			if expr, ok := decl.(adt.Expr); ok {
@@ -335,15 +329,14 @@ func analyseStructs(v *adt.Vertex, builder *GraphBuilder) []*structMeta {
 func dynamicFieldsFeatures(v *adt.Vertex) map[*adt.DynamicField][]adt.Feature {
 	var m map[*adt.DynamicField][]adt.Feature
 	for _, arc := range v.Arcs {
-		arc.VisitLeafConjuncts(func(c adt.Conjunct) bool {
+		for c := range arc.LeafConjuncts() {
 			if dynField, ok := c.Field().(*adt.DynamicField); ok {
 				if m == nil {
 					m = make(map[*adt.DynamicField][]adt.Feature)
 				}
 				m[dynField] = append(m[dynField], arc.Label)
 			}
-			return true
-		})
+		}
 	}
 	return m
 }
@@ -377,7 +370,7 @@ type vertexFeatures struct {
 	dynFieldsMap map[*adt.DynamicField][]adt.Feature
 }
 
-func (vf *vertexFeatures) compareStructMeta(a, b *structMeta) int {
+func (vf *vertexFeatures) compareStructMeta(a, b structMeta) int {
 	if c := a.pos.Compare(b.pos); c != 0 {
 		return c
 	}
@@ -410,13 +403,16 @@ func VertexFeatures(ctx *adt.OpContext, v *adt.Vertex) []adt.Feature {
 
 	var batches structMetaBatches
 	var batch structMetaBatch
-	for _, root := range roots {
-		if len(batch) == 0 ||
-			(batch[0].pos == root.pos && !root.hasDynamic(dynFieldsMap)) {
-			batch = append(batch, root)
-		} else {
-			batches.appendBatch(batch)
-			batch = structMetaBatch{root}
+	for i := range roots {
+		root := &roots[i]
+		for range 1 + root.structInfo.Repeats {
+			if len(batch) == 0 ||
+				(batch[0].pos == root.pos && !root.hasDynamic(dynFieldsMap)) {
+				batch = append(batch, root)
+			} else {
+				batches.appendBatch(batch)
+				batch = structMetaBatch{root}
+			}
 		}
 	}
 	batches.appendBatch(batch)
@@ -485,7 +481,7 @@ func (vf *vertexFeatures) addEdges(previous []adt.Feature, sMeta *structMeta) []
 				// same field within the same structLit
 				debug("    skipping 1\n")
 
-			} else if exists && !sMeta.isExplicit && sMeta.pos != token.NoPos &&
+			} else if exists && !sMeta.isExplicit && sMeta.pos.IsValid() &&
 				node.structMeta != nil &&
 				node.structMeta.pos.Filename() == filename {
 				// same field within the same file during implicit unification

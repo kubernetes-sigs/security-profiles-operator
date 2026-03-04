@@ -636,7 +636,7 @@ func TestNewContainerMap(t *testing.T) {
 			var result sync.Map
 
 			initContainerMap(&result, tc.podSpec)
-			result.Range(func(k, v interface{}) bool {
+			result.Range(func(k, v any) bool {
 				ks, ok := k.(string)
 				require.True(t, ok)
 

@@ -338,7 +338,7 @@ func (e *kinde2e) SetupSuite() {
 
 	e.kubectlPath, err = exec.LookPath("kubectl")
 	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
-	e.NoError(err)
+	e.Require().NoError(err)
 }
 
 // SetupTest starts a fresh kind cluster for each test.
@@ -532,7 +532,7 @@ func (e *vanilla) SetupSuite() {
 	e.deployCertManager = e.deployCertManagerVanilla
 	e.setupRecordingSa = e.deployRecordingSa
 	e.updateManifest(e.operatorManifest, "value: .*quay.io/.*/selinuxd.*", "value: "+e.selinuxdImage)
-	e.NoError(err)
+	e.Require().NoError(err)
 }
 
 func (e *vanilla) SetupTest() {
@@ -606,7 +606,7 @@ func (e *e2e) breakPoint() { //nolint:unused // used on demand
 
 func (e *e2e) run(cmd string, args ...string) string {
 	output, err := e.runCommand(cmd, args...)
-	e.NoError(err)
+	e.Require().NoError(err)
 
 	return output
 }
@@ -703,11 +703,13 @@ func (e *e2e) runAndRetryPodCMD(podCMD string) string {
 		if len(strings.Split(output, "\n")) > 1 {
 			return nil
 		}
+
 		output = ""
 
 		return errors.New("no output from pod command")
 	}, func(err error) bool {
 		e.logf("retry on error: %s", err)
+
 		if maxTries < 3 {
 			maxTries++
 
@@ -740,7 +742,7 @@ func (e *e2e) waitInOperatorNSFor(args ...string) {
 	)
 }
 
-func (e *e2e) logf(format string, a ...interface{}) {
+func (e *e2e) logf(format string, a ...any) {
 	e.logger.Info(fmt.Sprintf(format, a...))
 }
 
@@ -1117,8 +1119,8 @@ func (e *e2e) getPodNamesByLabel(labelMatcher string) []string {
 
 	var filteredPodNames []string
 
-	podNames := strings.Split(output, "\n")
-	for _, name := range podNames {
+	podNames := strings.SplitSeq(output, "\n")
+	for name := range podNames {
 		trimmedName := strings.Trim(name, "'")
 		if trimmedName != "" {
 			filteredPodNames = append(filteredPodNames, trimmedName)

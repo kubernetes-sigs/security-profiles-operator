@@ -53,7 +53,7 @@ func (p Handler) getPodPatch(req *admission.Request) ([]jsonpatch.JsonPatchOpera
 }
 
 func (p Handler) getNodeDebuggingPodPatch(req *admission.Request) ([]jsonpatch.JsonPatchOperation, error) {
-	patches := make([]jsonpatch.JsonPatchOperation, 0)
+	patches := make([]jsonpatch.JsonPatchOperation, 0, 1)
 
 	podObject := corev1.Pod{}
 

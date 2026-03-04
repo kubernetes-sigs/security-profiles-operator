@@ -14,13 +14,15 @@
 
 package gitlab
 
-import (
-	"fmt"
-	"net/http"
-)
+import "net/http"
 
 type (
 	DependencyProxyServiceInterface interface {
+		// PurgeGroupDependencyProxy schedules for deletion the cached manifests and blobs
+		// for a group. This endpoint requires the Owner role for the group.
+		//
+		// GitLab API docs:
+		// https://docs.gitlab.com/api/dependency_proxy/#purge-the-dependency-proxy-for-a-group
 		PurgeGroupDependencyProxy(gid any, options ...RequestOptionFunc) (*Response, error)
 	}
 
@@ -35,22 +37,11 @@ type (
 
 var _ DependencyProxyServiceInterface = (*DependencyProxyService)(nil)
 
-// PurgeGroupDependencyProxy schedules for deletion the cached manifests and blobs
-// for a group. This endpoint requires the Owner role for the group.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/api/dependency_proxy/#purge-the-dependency-proxy-for-a-group
 func (s *DependencyProxyService) PurgeGroupDependencyProxy(gid any, options ...RequestOptionFunc) (*Response, error) {
-	group, err := parseID(gid)
-	if err != nil {
-		return nil, err
-	}
-	u := fmt.Sprintf("groups/%s/dependency_proxy/cache", PathEscape(group))
-
-	req, err := s.client.NewRequest(http.MethodDelete, u, nil, options)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(req, nil)
+	_, resp, err := do[none](s.client,
+		withMethod(http.MethodDelete),
+		withPath("groups/%s/dependency_proxy/cache", GroupID{gid}),
+		withRequestOpts(options...),
+	)
+	return resp, err
 }

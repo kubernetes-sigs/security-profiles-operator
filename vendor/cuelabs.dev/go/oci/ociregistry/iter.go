@@ -14,15 +14,16 @@
 
 package ociregistry
 
-// TODO(go1.24) when we can depend on Go 1.24, this should be:
-// type Seq[T any] = iter.Seq2[T, error]
+import "iter"
 
-// Seq defines the type of an iterator sequence returned from
-// the iterator functions. In general, a non-nil
-// error means that the item is the last in the sequence.
-type Seq[T any] func(yield func(T, error) bool)
+// Seq is kept for backwards compatibility with existing implementations
+//
+// Deprecated: use iter.Seq2.
+//
+//go:fix inline
+type Seq[T any] = iter.Seq2[T, error]
 
-func All[T any](it Seq[T]) ([]T, error) {
+func All[T any](it iter.Seq2[T, error]) ([]T, error) {
 	xs := []T{}
 	for x, err := range it {
 		if err != nil {
@@ -33,7 +34,7 @@ func All[T any](it Seq[T]) ([]T, error) {
 	return xs, nil
 }
 
-func SliceSeq[T any](xs []T) Seq[T] {
+func SliceSeq[T any](xs []T) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		for _, x := range xs {
 			if !yield(x, nil) {
@@ -45,7 +46,7 @@ func SliceSeq[T any](xs []T) Seq[T] {
 
 // ErrorSeq returns an iterator that has no
 // items and always returns the given error.
-func ErrorSeq[T any](err error) Seq[T] {
+func ErrorSeq[T any](err error) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		yield(*new(T), err)
 	}

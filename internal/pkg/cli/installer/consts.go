@@ -18,5 +18,5 @@ package installer
 
 import "sigs.k8s.io/security-profiles-operator/internal/pkg/cli"
 
-// DefaultOutputFile defines the default output location for the installer.
+// DefaultProfileFile defines the default output location for the installer.
 var DefaultProfileFile = cli.DefaultFile

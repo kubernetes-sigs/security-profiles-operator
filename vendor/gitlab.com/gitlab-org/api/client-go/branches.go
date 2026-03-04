@@ -17,17 +17,39 @@
 package gitlab
 
 import (
-	"fmt"
 	"net/http"
-	"net/url"
 )
 
 type (
 	BranchesServiceInterface interface {
+		// ListBranches gets a list of repository branches from a project, sorted by name alphabetically.
+		//
+		// GitLab API docs:
+		// https://docs.gitlab.com/api/branches/#list-repository-branches
 		ListBranches(pid any, opts *ListBranchesOptions, options ...RequestOptionFunc) ([]*Branch, *Response, error)
+
+		// GetBranch gets a single project repository branch.
+		//
+		// GitLab API docs:
+		// https://docs.gitlab.com/api/branches/#get-single-repository-branch
 		GetBranch(pid any, branch string, options ...RequestOptionFunc) (*Branch, *Response, error)
+
+		// CreateBranch creates branch from commit SHA or existing branch.
+		//
+		// GitLab API docs:
+		// https://docs.gitlab.com/api/branches/#create-repository-branch
 		CreateBranch(pid any, opt *CreateBranchOptions, options ...RequestOptionFunc) (*Branch, *Response, error)
+
+		// DeleteBranch deletes an existing branch.
+		//
+		// GitLab API docs:
+		// https://docs.gitlab.com/api/branches/#delete-repository-branch
 		DeleteBranch(pid any, branch string, options ...RequestOptionFunc) (*Response, error)
+
+		// DeleteMergedBranches deletes all branches that are merged into the project's default branch.
+		//
+		// GitLab API docs:
+		// https://docs.gitlab.com/api/branches/#delete-merged-branches
 		DeleteMergedBranches(pid any, options ...RequestOptionFunc) (*Response, error)
 	}
 
@@ -71,55 +93,21 @@ type ListBranchesOptions struct {
 	Regex  *string `url:"regex,omitempty" json:"regex,omitempty"`
 }
 
-// ListBranches gets a list of repository branches from a project, sorted by
-// name alphabetically.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/api/branches/#list-repository-branches
 func (s *BranchesService) ListBranches(pid any, opts *ListBranchesOptions, options ...RequestOptionFunc) ([]*Branch, *Response, error) {
-	project, err := parseID(pid)
-	if err != nil {
-		return nil, nil, err
-	}
-	u := fmt.Sprintf("projects/%s/repository/branches", PathEscape(project))
-
-	req, err := s.client.NewRequest(http.MethodGet, u, opts, options)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var b []*Branch
-	resp, err := s.client.Do(req, &b)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return b, resp, nil
+	return do[[]*Branch](s.client,
+		withMethod(http.MethodGet),
+		withPath("projects/%s/repository/branches", ProjectID{pid}),
+		withAPIOpts(opts),
+		withRequestOpts(options...),
+	)
 }
 
-// GetBranch gets a single project repository branch.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/api/branches/#get-single-repository-branch
 func (s *BranchesService) GetBranch(pid any, branch string, options ...RequestOptionFunc) (*Branch, *Response, error) {
-	project, err := parseID(pid)
-	if err != nil {
-		return nil, nil, err
-	}
-	u := fmt.Sprintf("projects/%s/repository/branches/%s", PathEscape(project), url.PathEscape(branch))
-
-	req, err := s.client.NewRequest(http.MethodGet, u, nil, options)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	b := new(Branch)
-	resp, err := s.client.Do(req, b)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return b, resp, nil
+	return do[*Branch](s.client,
+		withMethod(http.MethodGet),
+		withPath("projects/%s/repository/branches/%s", ProjectID{pid}, branch),
+		withRequestOpts(options...),
+	)
 }
 
 // CreateBranchOptions represents the available CreateBranch() options.
@@ -131,65 +119,29 @@ type CreateBranchOptions struct {
 	Ref    *string `url:"ref,omitempty" json:"ref,omitempty"`
 }
 
-// CreateBranch creates branch from commit SHA or existing branch.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/api/branches/#create-repository-branch
 func (s *BranchesService) CreateBranch(pid any, opt *CreateBranchOptions, options ...RequestOptionFunc) (*Branch, *Response, error) {
-	project, err := parseID(pid)
-	if err != nil {
-		return nil, nil, err
-	}
-	u := fmt.Sprintf("projects/%s/repository/branches", PathEscape(project))
-
-	req, err := s.client.NewRequest(http.MethodPost, u, opt, options)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	b := new(Branch)
-	resp, err := s.client.Do(req, b)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return b, resp, nil
+	return do[*Branch](s.client,
+		withMethod(http.MethodPost),
+		withPath("projects/%s/repository/branches", ProjectID{pid}),
+		withAPIOpts(opt),
+		withRequestOpts(options...),
+	)
 }
 
-// DeleteBranch deletes an existing branch.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/api/branches/#delete-repository-branch
 func (s *BranchesService) DeleteBranch(pid any, branch string, options ...RequestOptionFunc) (*Response, error) {
-	project, err := parseID(pid)
-	if err != nil {
-		return nil, err
-	}
-	u := fmt.Sprintf("projects/%s/repository/branches/%s", PathEscape(project), url.PathEscape(branch))
-
-	req, err := s.client.NewRequest(http.MethodDelete, u, nil, options)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(req, nil)
+	_, resp, err := do[none](s.client,
+		withMethod(http.MethodDelete),
+		withPath("projects/%s/repository/branches/%s", ProjectID{pid}, branch),
+		withRequestOpts(options...),
+	)
+	return resp, err
 }
 
-// DeleteMergedBranches deletes all branches that are merged into the project's default branch.
-//
-// GitLab API docs:
-// https://docs.gitlab.com/api/branches/#delete-merged-branches
 func (s *BranchesService) DeleteMergedBranches(pid any, options ...RequestOptionFunc) (*Response, error) {
-	project, err := parseID(pid)
-	if err != nil {
-		return nil, err
-	}
-	u := fmt.Sprintf("projects/%s/repository/merged_branches", PathEscape(project))
-
-	req, err := s.client.NewRequest(http.MethodDelete, u, nil, options)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(req, nil)
+	_, resp, err := do[none](s.client,
+		withMethod(http.MethodDelete),
+		withPath("projects/%s/repository/merged_branches", ProjectID{pid}),
+		withRequestOpts(options...),
+	)
+	return resp, err
 }

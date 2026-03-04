@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -98,8 +99,8 @@ loop:
 }
 
 func (u *Updater) Credentials(ctx context.Context) (*Credentials, error) {
-	if u.Expired() {
-		if err := u.refreshCred(ctx); err != nil {
+	if u.shouldRefresh() {
+		if err := u.refreshCred(ctx); err != nil && u.Expired() {
 			return nil, err
 		}
 	}
@@ -111,7 +112,8 @@ func (u *Updater) Credentials(ctx context.Context) (*Credentials, error) {
 func (u *Updater) refreshCredForLoop(ctx context.Context) {
 	exp := u.expiration()
 
-	if !u.expired(u.expiryWindowForRefreshLoop) {
+	if !(u.expired(u.expiryWindow+u.expiryWindowForRefreshLoop) ||
+		u.shouldRefresh()) {
 		return
 	}
 
@@ -154,10 +156,21 @@ func (u *Updater) setCred(cred *Credentials) {
 	defer u.lockForCred.Unlock()
 
 	newCred := cred.DeepCopy()
-	newCred.Expiration = newCred.Expiration.Round(0)
-	if u.expiryWindow > 0 {
-		newCred.Expiration = newCred.Expiration.Add(-u.expiryWindow)
+
+	if !newCred.Expiration.IsZero() {
+		newCred.Expiration = newCred.Expiration.Round(0)
+		if u.expiryWindow > 0 {
+			window := u.expiryWindow
+			window += time.Second * time.Duration(rand.Int63n(60))
+			newCred.nextRefresh = newCred.Expiration.Add(-window)
+		} else {
+			window := newCred.Expiration.Sub(u.now())
+			window = time.Duration(float64(window) * 0.2)
+			window += time.Second * time.Duration(rand.Int63n(60))
+			newCred.nextRefresh = newCred.Expiration.Add(-window)
+		}
 	}
+
 	u.cred = newCred
 }
 
@@ -172,13 +185,20 @@ func (u *Updater) Expired() bool {
 	return u.expired(0)
 }
 
+func (u *Updater) shouldRefresh() bool {
+	if u.expired(0) {
+		return true
+	}
+	return u.getCred().shouldRefresh(u.now())
+}
+
 func (u *Updater) expired(expiryDelta time.Duration) bool {
 	exp := u.expiration()
 	if expiryDelta > 0 {
 		exp = exp.Add(-expiryDelta)
 	}
 
-	return exp.Before(u.now())
+	return exp.Before(u.now()) || exp.Equal(u.now())
 }
 
 func (u *Updater) expiration() time.Time {

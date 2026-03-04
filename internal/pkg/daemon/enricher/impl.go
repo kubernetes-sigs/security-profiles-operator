@@ -245,9 +245,9 @@ func (d *defaultImpl) EnvForPid(pid int) (map[string]string, error) {
 		return envMap, retErr
 	}
 
-	envVars := bytes.Split(content, []byte{0})
+	envVars := bytes.SplitSeq(content, []byte{0})
 
-	for _, envVarBytes := range envVars {
+	for envVarBytes := range envVars {
 		envVar := string(envVarBytes)
 		if envVar == "" {
 			continue
