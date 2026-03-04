@@ -163,12 +163,21 @@ func (n *nodeContext) getArc(f Feature, mode ArcType) (arc *Vertex, isNew bool) 
 		}
 	}
 
-	arc = &Vertex{
+	// getArc is immediately followed by inserting one conjunct,
+	// and vertices with one conjunct are rather common.
+	// When allocating the vertex, also allocate a bootstrap conjuncts array.
+	alloc := struct {
+		arc       Vertex
+		conjuncts [1]Conjunct
+	}{}
+	arc = &alloc.arc
+	*arc = Vertex{
 		Parent:    v,
 		Label:     f,
 		ArcType:   mode,
 		nonRooted: v.IsDynamic || v.nonRooted,
 		anonymous: v.anonymous || v.Label.IsLet(),
+		Conjuncts: alloc.conjuncts[:0],
 	}
 	if n.scheduler.frozen&fieldSetKnown != 0 {
 		b := n.ctx.NewErrf("adding field %v not allowed as field set was already referenced", f)
@@ -203,7 +212,7 @@ func (v *Vertex) insertConjunct(ctx *OpContext, c Conjunct, id CloseInfo, mode A
 	var c2 Conjunct
 	pos = -1
 	if check {
-		pos, c2 = findConjunct(v.Conjuncts, c)
+		pos, c2 = findConjunct(ctx, v.Conjuncts, c)
 
 	}
 	if pos == -1 {
@@ -317,9 +326,6 @@ func (n *nodeContext) addConstraint(arc *Vertex, mode ArcType, c Conjunct, check
 	bulkEnv.DynamicLabel = f
 	c.Env = &bulkEnv
 
-	// TODO: can go, but do in separate CL.
-	arc, _ = n.getArc(f, mode)
-
 	arc.insertConjunct(n.ctx, c, c.CloseInfo, mode, check, false)
 }
 
@@ -413,11 +419,6 @@ func (ctx *OpContext) notAllowedError(arc *Vertex) *Bottom {
 	if arc.state != nil {
 		arc.state.kind = 0
 	}
-
-	// TODO: remove? We are now setting it on both fields, which seems to be
-	// necessary for now. But we should remove this as it often results in
-	// a duplicate error.
-	// v.SetValue(ctx, ctx.NewErrf("field not allowed"))
 
 	// TODO: create a special kind of error that gets the positions
 	// of the relevant locations upon request from the arc.

@@ -74,7 +74,7 @@ const (
 	MaxLICENSE = 16 << 20
 )
 
-// File provides an abstraction for a file in a directory, zip, or anything
+// FileIO provides an abstraction for a file in a directory, zip, or anything
 // else that looks like a file - it knows how to open files represented
 // as a particular type without being a file itself.
 //
@@ -785,8 +785,8 @@ func listFilesInDir(dir string) (files []dirFile, omitted []FileError, err error
 				return filepath.SkipDir
 			}
 
-			// Skip submodules (directories containing go.mod files).
-			if goModInfo, err := os.Lstat(filepath.Join(filePath, "go.mod")); err == nil && !goModInfo.IsDir() {
+			// Skip submodules (directories containing cue.mod).
+			if _, err := os.Lstat(filepath.Join(filePath, "cue.mod")); err == nil {
 				omitted = append(omitted, FileError{Path: slashPath, Err: errSubmoduleDir})
 				return filepath.SkipDir
 			}

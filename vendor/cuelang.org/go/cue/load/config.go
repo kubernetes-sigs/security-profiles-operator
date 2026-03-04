@@ -29,6 +29,7 @@ import (
 	"cuelang.org/go/cue/parser"
 	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal"
+	"cuelang.org/go/internal/mod/modpkgload"
 	"cuelang.org/go/mod/modconfig"
 	"cuelang.org/go/mod/modfile"
 	"cuelang.org/go/mod/module"
@@ -168,6 +169,11 @@ type Config struct {
 	// For example, it is used to determine the main module,
 	// and rooted import paths starting with "./" are relative to it.
 	// If Dir is empty, the current directory is used.
+	//
+	// When using an Overlay with file entries such as "/foo/bar/baz.cue",
+	// you can use an absolute path that is a parent of one of the overlaid files,
+	// such as in this case "/foo" or "/foo/bar", even if these directories
+	// do not exist in the host filesystem.
 	Dir string
 
 	// Tags defines boolean tags or key-value pairs to select files to build
@@ -276,9 +282,14 @@ type Config struct {
 	// the syntax tree.
 	ParseFile func(name string, src interface{}, cfg parser.Config) (*ast.File, error)
 
-	// Overlay provides a mapping of absolute file paths to file contents.  If
-	// the file with the given path already exists, the parser will use the
-	// alternative file contents provided by the map.
+	// Overlay provides a mapping of absolute file paths to file contents,
+	// which are overlaid on top of the host operating system when loading files.
+	//
+	// If an overlaid file already exists in the host filesystem,
+	// the overlaid file contents will be used in its place.
+	// If an overlaid file does not exist in the host filesystem,
+	// the loader behaves as if the overlaid file exists with its contents,
+	// and that that all of its parent directories exist too.
 	Overlay map[string]Source
 
 	// Stdin defines an alternative for os.Stdin for the file "-". When used,
@@ -341,6 +352,8 @@ func addImportQualifier(pkg importPath, name string) (importPath, error) {
 // It does not initialize c.Context, because that requires the
 // loader in order to use for build.Loader.
 func (c Config) complete() (cfg *Config, err error) {
+	// Ensure [Config.Dir] is a clean and absolute path,
+	// necessary for matching directory prefixes later.
 	if c.Dir == "" {
 		c.Dir, err = os.Getwd()
 		if err != nil {
@@ -348,6 +361,9 @@ func (c Config) complete() (cfg *Config, err error) {
 		}
 	} else if c.Dir, err = filepath.Abs(c.Dir); err != nil {
 		return nil, err
+	}
+	if modpkgload.InsideCueMod(c.Dir) {
+		return nil, fmt.Errorf("cannot load packages inside the %s directory", modDir)
 	}
 
 	// TODO: we could populate this already with absolute file paths,
@@ -358,6 +374,9 @@ func (c Config) complete() (cfg *Config, err error) {
 	}
 	c.fileSystem = fsys
 
+	// Ensure [Config.ModuleRoot] is a clean and absolute path,
+	// necessary for matching directory prefixes later.
+	//
 	// TODO: determine root on a package basis. Maybe we even need a
 	// pkgname.cue.mod
 	// Look to see if there is a cue.mod.
@@ -373,6 +392,8 @@ func (c Config) complete() (cfg *Config, err error) {
 		}
 	} else if !filepath.IsAbs(c.ModuleRoot) {
 		c.ModuleRoot = filepath.Join(c.Dir, c.ModuleRoot)
+	} else {
+		c.ModuleRoot = filepath.Clean(c.ModuleRoot)
 	}
 	if c.SkipImports {
 		// We should never use the registry in SkipImports mode

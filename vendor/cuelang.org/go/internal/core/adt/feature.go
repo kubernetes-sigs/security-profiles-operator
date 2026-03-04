@@ -23,7 +23,6 @@ import (
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/token"
-	"cuelang.org/go/internal"
 )
 
 // A Feature is an encoded form of a label which comprises a compact
@@ -76,14 +75,14 @@ func (f Feature) SelectorString(index StringIndexer) string {
 		}
 		return strconv.Itoa(int(x))
 	case StringLabel:
-		s := index.IndexToString(x)
-		if ast.IsValidIdent(s) && !internal.IsDefOrHidden(s) {
-			return s
-		}
 		if f == AnyString {
 			return "_"
 		}
-		return literal.Label.Quote(s)
+		s := index.IndexToString(x)
+		if ast.StringLabelNeedsQuoting(s) {
+			return literal.Label.Quote(s)
+		}
+		return s
 	default:
 		return f.IdentString(index)
 	}
@@ -240,7 +239,7 @@ func LabelFromValue(c *OpContext, src Expr, v Value) Feature {
 	case IntKind, NumberKind:
 		x, _ := Unwrap(v).(*Num)
 		if x == nil {
-			c.addErrf(IncompleteError, pos(v), msgGround, v, "int")
+			c.addErrf(IncompleteError, Pos(v), msgGround, v, "int")
 			return InvalidLabel
 		}
 		t = IntLabel
@@ -269,7 +268,7 @@ func LabelFromValue(c *OpContext, src Expr, v Value) Feature {
 	case StringKind:
 		x, _ := Unwrap(v).(*String)
 		if x == nil {
-			c.addErrf(IncompleteError, pos(v), msgGround, v, "string")
+			c.addErrf(IncompleteError, Pos(v), msgGround, v, "string")
 			return InvalidLabel
 		}
 		t = StringLabel
@@ -389,6 +388,3 @@ func (f Feature) safeIndex() int64 {
 	}
 	return int64(x)
 }
-
-// TODO: should let declarations be implemented as fields?
-// func (f Feature) isLet() bool  { return f.typ() == letLabel }

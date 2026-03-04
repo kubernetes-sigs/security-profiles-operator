@@ -18,8 +18,6 @@ import (
 	"strconv"
 
 	"cuelang.org/go/cue/ast"
-	"cuelang.org/go/cue/ast/astutil"
-	"cuelang.org/go/internal"
 )
 
 // labelSimplifier rewrites string labels to identifiers if
@@ -52,8 +50,11 @@ func (s *labelSimplifier) processDecls(decls []ast.Decl) {
 	for _, d := range decls {
 		switch x := d.(type) {
 		case *ast.Field:
-			if _, ok := x.Label.(*ast.BasicLit); ok {
-				x.Label = astutil.Apply(x.Label, nil, sc.replace).(ast.Label)
+			if bl, ok := x.Label.(*ast.BasicLit); ok {
+				str, err := strconv.Unquote(bl.Value)
+				if err == nil && sc.scope[str] {
+					x.Label = ast.NewIdent(str)
+				}
 			}
 		}
 	}
@@ -89,7 +90,7 @@ func (s *labelSimplifier) markStrings(n ast.Node) bool {
 	switch x := n.(type) {
 	case *ast.BasicLit:
 		str, err := strconv.Unquote(x.Value)
-		if err != nil || !ast.IsValidIdent(str) || internal.IsDefOrHidden(str) {
+		if err != nil || ast.StringLabelNeedsQuoting(str) {
 			return false
 		}
 		s.scope[str] = true
@@ -101,15 +102,4 @@ func (s *labelSimplifier) markStrings(n ast.Node) bool {
 		return false
 	}
 	return true
-}
-
-func (s *labelSimplifier) replace(c astutil.Cursor) bool {
-	switch x := c.Node().(type) {
-	case *ast.BasicLit:
-		str, err := strconv.Unquote(x.Value)
-		if err == nil && s.scope[str] && !internal.IsDefOrHidden(str) {
-			c.Replace(ast.NewIdent(str))
-		}
-	}
-	return false
 }

@@ -53,7 +53,7 @@ func (f Form) WithTabIndent(n int) Form {
 	return f
 }
 
-// WithOptionalIndent is like WithTabIndent, but only returns a multiline
+// WithOptionalTabIndent is like [Form.WithTabIndent], but only returns a multiline
 // strings if it doesn't contain any newline characters.
 func (f Form) WithOptionalTabIndent(tabs int) Form {
 	f.indent = strings.Repeat("\t", tabs)
@@ -82,7 +82,7 @@ var (
 	// TODO: ExactString: quotes to bytes type if the string cannot be
 	// represented without loss of accuracy.
 
-	// Label is like String, but optimized for labels.
+	// Label is like [String], but optimized for labels.
 	Label Form = stringForm
 
 	// Bytes defines the format of bytes literal.
@@ -133,10 +133,11 @@ func (f Form) Append(buf []byte, s string) []byte {
 		buf = append(buf, '#')
 	}
 	if f.multiline {
-		buf = append(buf, f.quote, f.quote, f.quote, '\n')
+		buf = append(buf, f.tripleQuote...)
+		buf = append(buf, '\n')
 		if s == "" {
 			buf = append(buf, f.indent...)
-			buf = append(buf, f.quote, f.quote, f.quote)
+			buf = append(buf, f.tripleQuote...)
 			return buf
 		}
 		if len(s) > 0 && s[0] != '\n' {
@@ -151,7 +152,7 @@ func (f Form) Append(buf []byte, s string) []byte {
 	if f.multiline {
 		buf = append(buf, '\n')
 		buf = append(buf, f.indent...)
-		buf = append(buf, f.quote, f.quote, f.quote)
+		buf = append(buf, f.tripleQuote...)
 	} else {
 		buf = append(buf, f.quote)
 	}
@@ -192,7 +193,8 @@ func (f Form) appendEscaped(buf []byte, s string) []byte {
 			r, width = utf8.DecodeRuneInString(s)
 		}
 		if f.exact && width == 1 && r == utf8.RuneError {
-			buf = append(buf, `\x`...)
+			buf = f.appendEscape(buf)
+			buf = append(buf, 'x')
 			buf = append(buf, lowerhex[s[0]>>4])
 			buf = append(buf, lowerhex[s[0]&0xF])
 			continue

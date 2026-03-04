@@ -30,6 +30,7 @@ var hookRSA = func(fn func(rand io.Reader, priv *rsa.PrivateKey, hash crypto.Has
 }
 
 // GetUUID returns a uuid
+// Deprecated: it was used for internal
 func GetUUID() (uuidHex string) {
 	uuid := newUUID()
 	uuidHex = hex.EncodeToString(uuid[:])
@@ -46,6 +47,7 @@ func RandStringBytes(n int) string {
 }
 
 // ShaHmac1 return a string which has been hashed
+// Deprecated: it was used for internal
 func ShaHmac1(source, secret string) string {
 	key := []byte(secret)
 	hmac := hmac.New(sha1.New, key)
@@ -56,6 +58,7 @@ func ShaHmac1(source, secret string) string {
 }
 
 // Sha256WithRsa return a string which has been hashed with Rsa
+// Deprecated: it was used for internal
 func Sha256WithRsa(source, secret string) string {
 	decodeString, err := base64.StdEncoding.DecodeString(secret)
 	if err != nil {
@@ -79,6 +82,7 @@ func Sha256WithRsa(source, secret string) string {
 }
 
 // GetMD5Base64 returns a string which has been base64
+// Deprecated: it was used for internal
 func GetMD5Base64(bytes []byte) (base64Value string) {
 	md5Ctx := md5.New()
 	md5Ctx.Write(bytes)
@@ -88,6 +92,7 @@ func GetMD5Base64(bytes []byte) (base64Value string) {
 }
 
 // GetTimeInFormatISO8601 returns a time string
+// Deprecated: it was used for internal
 func GetTimeInFormatISO8601() (timeStr string) {
 	gmt := time.FixedZone("GMT", 0)
 
@@ -95,6 +100,7 @@ func GetTimeInFormatISO8601() (timeStr string) {
 }
 
 // GetURLFormedMap returns a url encoded string
+// Deprecated: it was used for internal
 func GetURLFormedMap(source map[string]string) (urlEncoded string) {
 	urlEncoder := url.Values{}
 	for key, value := range source {

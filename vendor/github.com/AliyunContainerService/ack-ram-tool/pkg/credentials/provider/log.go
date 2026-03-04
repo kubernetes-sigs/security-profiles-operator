@@ -14,7 +14,8 @@ type Logger interface {
 	Error(err error, msg string)
 }
 
-var defaultLog Logger = defaultLogger{}
+var defaultLog Logger = &defaultLogger{}
+var DefaultLogger = defaultLog.(*defaultLogger)
 
 func init() {
 	debugEnv := strings.Split(strings.ToLower(os.Getenv("DEBUG")), ",")
@@ -27,9 +28,21 @@ func init() {
 }
 
 type defaultLogger struct {
+	silentInfo bool
+}
+
+func (d *defaultLogger) SetSilentInfo(v bool) {
+	d.silentInfo = v
+}
+
+func (d defaultLogger) DebugMode() bool {
+	return debugMode
 }
 
 func (d defaultLogger) Info(msg string) {
+	if d.silentInfo && !debugMode {
+		return
+	}
 	log.Print(msg)
 }
 

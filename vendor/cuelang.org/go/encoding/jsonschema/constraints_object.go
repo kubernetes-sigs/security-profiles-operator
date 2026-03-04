@@ -20,8 +20,8 @@ import (
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/ast"
+	"cuelang.org/go/cue/ast/astutil"
 	"cuelang.org/go/cue/token"
-	"cuelang.org/go/internal"
 )
 
 // Object constraints
@@ -114,7 +114,7 @@ func constraintAdditionalProperties(key string, n cue.Value, s *state) {
 		expr, _ := s.schemaState(n, allTypes, func(s *state) {
 			s.preserveUnknownFields = false
 		})
-		f := internal.EmbedStruct(ast.NewStruct(&ast.Field{
+		f := embedStruct(ast.NewStruct(&ast.Field{
 			Label: ast.NewList(ast.NewBinExpr(token.AND, existing...)),
 			Value: expr,
 		}))
@@ -126,6 +126,23 @@ func constraintAdditionalProperties(key string, n cue.Value, s *state) {
 		return
 	}
 	s.hasAdditionalProperties = true
+}
+
+func embedStruct(s *ast.StructLit) *ast.EmbedDecl {
+	e := &ast.EmbedDecl{Expr: s}
+	if len(s.Elts) == 1 {
+		d := s.Elts[0]
+		astutil.CopyPosition(e, d)
+		ast.SetRelPos(d, token.NoSpace)
+		astutil.CopyComments(e, d)
+		ast.SetComments(d, nil)
+		if f, ok := d.(*ast.Field); ok {
+			ast.SetRelPos(f.Label, token.NoSpace)
+		}
+	}
+	s.Lbrace = token.Newline.Pos()
+	s.Rbrace = token.NoSpace.Pos()
+	return e
 }
 
 // constraintDependencies is used to implement all of the dependencies,
@@ -291,7 +308,6 @@ func constraintPatternProperties(key string, n cue.Value, s *state) {
 		s.errf(n, `value of "patternProperties" must be an object, found %v`, n.Kind())
 	}
 	obj := s.object(n)
-	existing := excludeFields(s.obj.Elts)
 	s.processMap(n, func(key string, n cue.Value) {
 		if !s.checkRegexp(n, key) {
 			return
@@ -304,12 +320,9 @@ func constraintPatternProperties(key string, n cue.Value, s *state) {
 			&ast.UnaryExpr{Op: token.NMAT, X: ast.NewString(key)})
 
 		// We'll make a pattern constraint of the form:
-		// 	[pattern & !~(properties)]: schema
-		f := internal.EmbedStruct(ast.NewStruct(&ast.Field{
-			Label: ast.NewList(ast.NewBinExpr(
-				token.AND,
-				append([]ast.Expr{&ast.UnaryExpr{Op: token.MAT, X: ast.NewString(key)}}, existing...)...,
-			)),
+		// 	[pattern]: schema
+		f := embedStruct(ast.NewStruct(&ast.Field{
+			Label: ast.NewList(&ast.UnaryExpr{Op: token.MAT, X: ast.NewString(key)}),
 			Value: s.schema(n),
 		}))
 		ast.SetRelPos(f, token.NewSection)
@@ -379,17 +392,17 @@ func constraintProperties(key string, n cue.Value, s *state) {
 			f.Value = ast.NewString(s.k8sAPIVersion)
 			hasAPIVersion = true
 		}
-		if len(obj.Elts) > 0 && len(f.Comments()) > 0 {
+		if len(obj.Elts) > 0 && len(ast.Comments(f)) > 0 {
 			// TODO: change formatter such that either a NewSection on the
 			// field or doc comment will cause a new section.
-			ast.SetRelPos(f.Comments()[0], token.NewSection)
+			ast.SetRelPos(ast.Comments(f)[0], token.NewSection)
 		}
 		if state.deprecated {
 			switch expr.(type) {
 			case *ast.StructLit:
 				obj.Elts = append(obj.Elts, addTag(name, "deprecated", ""))
 			default:
-				f.Attrs = append(f.Attrs, internal.NewAttr("deprecated", ""))
+				f.Attrs = append(f.Attrs, &ast.Attribute{Text: "@deprecated()"})
 			}
 		}
 		obj.Elts = append(obj.Elts, f)

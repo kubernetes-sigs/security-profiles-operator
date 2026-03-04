@@ -80,14 +80,14 @@ spec:
 	e.logf("Creating profile")
 
 	profileFile, err := os.CreateTemp("", "profile-*.yaml")
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	defer os.Remove(profileFile.Name())
 
 	_, err = profileFile.WriteString(profileYAML)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = profileFile.Close()
-	e.Nil(err)
+	e.Require().NoError(err)
 	e.kubectl("create", "-f", profileFile.Name())
 
 	defer e.kubectl("delete", "-f", profileFile.Name())
@@ -98,14 +98,14 @@ spec:
 	e.logf("Creating pod")
 
 	podFile, err := os.CreateTemp("", "pod-*.yaml")
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	defer os.Remove(podFile.Name())
 
 	_, err = podFile.WriteString(podYAML)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = podFile.Close()
-	e.Nil(err)
+	e.Require().NoError(err)
 	e.kubectl("create", "-f", podFile.Name())
 
 	defer e.kubectl("delete", "pod", podName)

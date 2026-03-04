@@ -186,7 +186,7 @@ spec:
 		e.waitForEnricherLogs(since, conditions...)
 
 	case "bpf":
-		profileNames := make([]string, 0)
+		profileNames := make([]string, 0, len(suffixes))
 		for _, sfx := range suffixes {
 			profileNames = append(profileNames, mergeProfileRecordingName+"-"+containerNameNginx+"-"+sfx)
 		}

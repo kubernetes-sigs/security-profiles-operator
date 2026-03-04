@@ -70,7 +70,7 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 
 			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
-				e.Equal(spns.Status, secprofnodestatusv1alpha1.ProfileStateInstalled)
+				e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status)
 			}
 		}
 	}
@@ -81,7 +81,7 @@ func (e *e2e) getConfigMap(name, namespace string) *v1.ConfigMap {
 		"-n", namespace, "get", "configmap", name, "-o", "json",
 	)
 	configMap := &v1.ConfigMap{}
-	e.Nil(json.Unmarshal([]byte(configMapJSON), configMap))
+	e.NoError(json.Unmarshal([]byte(configMapJSON), configMap))
 
 	return configMap
 }
@@ -102,12 +102,12 @@ func (e *e2e) verifyCRDProfileContent(node string, sp *seccompprofileapi.Seccomp
 	catOutput := e.execNode(node, "cat", profilePath)
 	output := seccompprofileapi.SeccompProfileSpec{}
 	err := json.Unmarshal([]byte(catOutput), &output)
-	e.Nil(err)
+	e.Require().NoError(err)
 
 	expected := seccompprofileapi.SeccompProfileSpec{}
 	spec, err := json.Marshal(sp.Spec)
-	e.Nil(err)
+	e.Require().NoError(err)
 	err = json.Unmarshal(spec, &expected)
-	e.Nil(err)
-	e.Equal(output, expected)
+	e.Require().NoError(err)
+	e.Equal(expected, output)
 }

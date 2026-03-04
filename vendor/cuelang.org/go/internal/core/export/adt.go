@@ -25,12 +25,11 @@ import (
 	"cuelang.org/go/cue/ast/astutil"
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/token"
-	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/adt"
 )
 
 func (e *exporter) ident(x adt.Feature) *ast.Ident {
-	s := x.IdentString(e.ctx)
+	s := e.identString(x)
 	if !ast.IsValidIdent(s) {
 		panic(s + " is not a valid identifier")
 	}
@@ -55,7 +54,6 @@ func (e *exporter) adt(env *adt.Environment, expr adt.Elem) ast.Expr {
 		// _, saved := e.pushFrame([]adt.Conjunct{adt.MakeConjunct(nil, x)})
 		// defer e.popFrame(saved)
 		// s := e.frame(0).scope
-
 		s := &ast.StructLit{}
 		// TODO: ensure e.node() is set in more cases. Right now it is not
 		// always set in mergeValues, even in cases where it could be. Better
@@ -231,6 +229,12 @@ func (e *exporter) adt(env *adt.Environment, expr adt.Elem) ast.Expr {
 			X:  e.innerExpr(env, x.X),
 		}
 
+	case *adt.OpenExpr:
+		return &ast.PostfixExpr{
+			X:  e.innerExpr(env, x.X),
+			Op: token.ELLIPSIS,
+		}
+
 	case *adt.BinaryExpr:
 		if x.Op == adt.AndOp || x.Op == adt.OrOp {
 			return e.sortBinaryTree(env, x)
@@ -278,12 +282,18 @@ func (e *exporter) adt(env *adt.Environment, expr adt.Elem) ast.Expr {
 			return dummyTop
 		}
 		for _, c := range x.Clauses {
-			switch c.(type) {
+			switch c := c.(type) {
 			case *adt.ForClause:
 				env = &adt.Environment{Up: env, Vertex: empty}
 			case *adt.IfClause:
 			case *adt.LetClause:
 				env = &adt.Environment{Up: env, Vertex: empty}
+			case *adt.TryClause:
+				if c.Expr != nil {
+					// Assignment form: needs new environment for binding
+					env = &adt.Environment{Up: env, Vertex: empty}
+				}
+				// Struct form: no new environment needed (like IfClause)
 			case *adt.ValueClause:
 				// Can occur in nested comprehenions.
 				env = &adt.Environment{Up: env, Vertex: empty}
@@ -391,6 +401,13 @@ func typeOrder(x adt.Node) int {
 
 var dummyTop = &ast.Ident{Name: "_"}
 
+func wrapIfOptional(expr ast.Expr, isOptional bool) ast.Expr {
+	if isOptional {
+		return &ast.PostfixExpr{X: expr, Op: token.OPTION}
+	}
+	return expr
+}
+
 func (e *exporter) resolve(env *adt.Environment, r adt.Resolver) ast.Expr {
 	if c := e.pivotter; c != nil {
 		if alt := c.refExpr(r); alt != nil {
@@ -407,7 +424,7 @@ func (e *exporter) resolve(env *adt.Environment, r adt.Resolver) ast.Expr {
 					ident := ast.NewIdent(aliasFromLabel(f))
 					ident.Node = entry.field
 					ident.Scope = entry.scope
-					return ident
+					return wrapIfOptional(ident, x.Optional)
 				}
 			}
 		}
@@ -434,7 +451,7 @@ func (e *exporter) resolve(env *adt.Environment, r adt.Resolver) ast.Expr {
 			}
 		}
 
-		return ident
+		return wrapIfOptional(ident, x.Optional)
 
 	case *adt.ValueReference:
 		name := x.Label.IdentString(e.ctx)
@@ -502,16 +519,18 @@ func (e *exporter) resolve(env *adt.Environment, r adt.Resolver) ast.Expr {
 		return e.resolveLet(env, x)
 
 	case *adt.SelectorExpr:
-		return &ast.SelectorExpr{
+		sel := &ast.SelectorExpr{
 			X:   e.innerExpr(env, x.X),
 			Sel: e.stringLabel(x.Sel),
 		}
+		return wrapIfOptional(sel, x.Optional)
 
 	case *adt.IndexExpr:
-		return &ast.IndexExpr{
+		idx := &ast.IndexExpr{
 			X:     e.innerExpr(env, x.X),
 			Index: e.innerExpr(env, x.Index),
 		}
+		return wrapIfOptional(idx, x.Optional)
 	}
 	panic("unreachable")
 }
@@ -556,8 +575,7 @@ func (e *exporter) decl(env *adt.Environment, d adt.Decl) ast.Decl {
 	case *adt.Field:
 		e.setDocs(x)
 		f := e.getFixedField(x)
-
-		internal.SetConstraint(f, x.ArcType.Token())
+		f.Constraint = x.ArcType.Token()
 		e.setField(x.Label, f)
 
 		f.Attrs = extractFieldAttrs(nil, x)
@@ -625,8 +643,7 @@ func (e *exporter) decl(env *adt.Environment, d adt.Decl) ast.Decl {
 		e.setDocs(x)
 		srcKey := x.Key
 
-		f := &ast.Field{}
-		internal.SetConstraint(f, x.ArcType.Token())
+		f := &ast.Field{Constraint: x.ArcType.Token()}
 
 		v, _ := e.ctx.Evaluate(env, x.Key)
 
@@ -679,16 +696,9 @@ func (e *exporter) copyMeta(dst, src ast.Node) {
 
 func filterDocs(a []*ast.CommentGroup) (out []*ast.CommentGroup) {
 	out = append(out, a...)
-	k := 0
-	for _, c := range a {
-		if !c.Doc {
-			continue
-		}
-		out[k] = c
-		k++
-	}
-	out = out[:k]
-	return out
+	return slices.DeleteFunc(out, func(c *ast.CommentGroup) bool {
+		return !c.Doc
+	})
 }
 
 func (e *exporter) setField(label adt.Feature, f *ast.Field) {
@@ -735,6 +745,10 @@ func (e *exporter) elem(env *adt.Environment, d adt.Elem) ast.Expr {
 func (e *exporter) comprehension(env *adt.Environment, comp *adt.Comprehension) *ast.Comprehension {
 	c := &ast.Comprehension{}
 
+	// Save outer environment for else clause (which doesn't have access to
+	// comprehension-internal bindings).
+	outerEnv := env
+
 	for _, y := range comp.Clauses {
 		switch x := y.(type) {
 		case *adt.ForClause:
@@ -777,6 +791,23 @@ func (e *exporter) comprehension(env *adt.Environment, comp *adt.Comprehension) 
 
 			e.addField(x.Label, nil, clause)
 
+		case *adt.TryClause:
+			clause := &ast.TryClause{}
+			if x.Label != adt.InvalidLabel {
+				// Assignment form: try x = expr
+				env = &adt.Environment{Up: env, Vertex: empty}
+				clause.Ident = e.ident(x.Label)
+				clause.Expr = e.innerExpr(env, x.Expr)
+
+				_, saved := e.pushFrame(empty, nil)
+				defer e.popFrame(saved)
+
+				e.addField(x.Label, nil, clause)
+			}
+			// Struct form has no Ident/Expr - body is in Comprehension.Value
+			e.copyMeta(clause, x.Src)
+			c.Clauses = append(c.Clauses, clause)
+
 		case *adt.ValueClause:
 			// Can occur in nested comprehenions.
 			env = &adt.Environment{Up: env, Vertex: empty}
@@ -799,5 +830,14 @@ func (e *exporter) comprehension(env *adt.Environment, comp *adt.Comprehension) 
 		v = ast.NewStruct(ast.Embed(v))
 	}
 	c.Value = v
+
+	// Export fallback clause using outer environment.
+	if comp.Fallback != nil {
+		fallbackBody := e.expr(outerEnv, comp.Fallback)
+		if body, ok := fallbackBody.(*ast.StructLit); ok {
+			c.Fallback = &ast.FallbackClause{Body: body}
+		}
+	}
+
 	return c
 }

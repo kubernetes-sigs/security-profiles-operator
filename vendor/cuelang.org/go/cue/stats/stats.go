@@ -102,6 +102,11 @@ type Counts struct {
 	// dependency analysis, in which case it is benign.
 	SkippedNotification int64
 
+	// Dependency resolution counters
+
+	// ResolveDep counts the number calls to markResolver in dep.go.
+	ResolveDep int64
+
 	// Buffer counters
 	//
 	// Each unification and disjunct operation is associated with an object
@@ -156,6 +161,7 @@ func (c *Counts) Add(other Counts) {
 	if other.MaxRedirect > c.MaxRedirect {
 		c.MaxRedirect = other.MaxRedirect
 	}
+	c.ResolveDep += other.ResolveDep
 
 	c.Freed += other.Freed
 	c.Retained += other.Retained
@@ -174,6 +180,7 @@ func (c Counts) Since(start Counts) Counts {
 	c.SkippedNotification -= start.SkippedNotification
 	c.NumCloseIDs -= start.NumCloseIDs
 	c.ConjunctInfos -= start.ConjunctInfos
+	c.ResolveDep -= start.ResolveDep
 
 	// For max values, we don't subtract since they represent peaks
 	// c.MaxConjunctInfos and c.MaxReqSets and c.MaxRedirect remain as-is
@@ -207,7 +214,8 @@ Retain: {{.Retained}}
 Unifications: {{.Unifications}}
 Conjuncts:    {{.Conjuncts}}
 Disjuncts:    {{.Disjuncts}}{{if .Notifications}}
-Notifications: {{.Notifications}}{{end}}{{if or .GenerationMismatch .MisalignedConjunct .MisalignedConstraint .SkippedNotification}}
+Notifications: {{.Notifications}}{{end}}{{if .ResolveDep}}
+ResolveDep:   {{.ResolveDep}}{{end}}{{if or .GenerationMismatch .MisalignedConjunct .MisalignedConstraint .SkippedNotification}}
 {{if .GenerationMismatch}}
 GenerationMismatch: {{.GenerationMismatch}}{{end}}{{if .MisalignedConjunct}}
 MisalignedConjunct: {{.MisalignedConjunct}}{{end}}{{if .MisalignedConstraint}}

@@ -103,7 +103,16 @@ func (l *Literal) parse(p *Parser) error {
 		} else {
 			l.Comment.Merge(nc)
 		}
-		// continue with remaining entries
+		// peek at next token to see if it's structural (indicating end of current context)
+		// if so, don't recurse, just return with comment set
+		nextPos, nextTok, nextLit := p.next()
+		if nextTok == tRIGHTSQUARE || nextTok == tRIGHTCURLY || nextTok == tSEMICOLON || nextTok == tCOMMA {
+			// put it back and return - let the caller handle these structural tokens
+			p.nextPut(nextPos, nextTok, nextLit)
+			return nil
+		}
+		// put it back and continue with remaining entries (could be another comment or a literal)
+		p.nextPut(nextPos, nextTok, nextLit)
 		return l.parse(p)
 	}
 	if tok == tLEFTSQUARE {
@@ -125,6 +134,25 @@ func (l *Literal) parse(p *Parser) error {
 			if err := e.parse(p); err != nil {
 				return err
 			}
+			// if this is a comment-only literal, don't add it to array
+			// but keep reading to attach comment to next literal
+			if e.Comment != nil && e.Source == "" && e.Array == nil && e.OrderedMap == nil {
+				// check what comes next
+				_, tok, lit := p.next()
+				if tok == tRIGHTSQUARE {
+					// array ends with comment, just break
+					break
+				}
+				if tok == tCOMMA {
+					// comma after comment, continue to next element
+					continue
+				}
+				// put back the token
+				p.nextPut(pos, tok, lit)
+				// continue loop - next iteration will parse the real literal
+				// and the comment will already be in 'e' from the recursive parse() call
+				continue
+			}
 			array = append(array, e)
 			_, tok, lit := p.next()
 			if tok == tCOMMA {
@@ -132,6 +160,11 @@ func (l *Literal) parse(p *Parser) error {
 			}
 			if tok == tRIGHTSQUARE {
 				break
+			}
+			// handle comments inside arrays
+			if tok == tCOMMENT {
+				p.nextPut(pos, tok, lit)
+				continue
 			}
 			return p.unexpected(lit, ", or ]", l)
 		}

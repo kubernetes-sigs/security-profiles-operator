@@ -1,5 +1,4 @@
 //go:build ppc64le && linux
-// +build ppc64le,linux
 
 /*
 Copyright 2025 The Kubernetes Authors.

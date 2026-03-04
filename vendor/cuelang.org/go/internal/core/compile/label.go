@@ -119,7 +119,7 @@ func (l *fieldLabel) labelString() string {
 	case *ast.BasicLit:
 		if x.Kind == token.STRING {
 			s, err := literal.Unquote(x.Value)
-			if err == nil && ast.IsValidIdent(s) {
+			if err == nil && !ast.StringLabelNeedsQuoting(s) {
 				return s
 			}
 		}
@@ -147,4 +147,11 @@ type letScope ast.LetClause
 func (l *letScope) labelString() string {
 	// TODO: include more info in square brackets.
 	return "let[]"
+}
+
+type tryScope ast.TryClause
+
+func (t *tryScope) labelString() string {
+	// TODO: include more info in square brackets.
+	return "try[]"
 }

@@ -21,6 +21,8 @@ package toml
 import (
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -202,6 +204,7 @@ func (d *Decoder) nextRootNode(tnode *toml.Node) error {
 	case toml.Table:
 		// Tables always begin a new line.
 		key, keyElems := d.decodeKey("", tnode.Key())
+
 		// All table keys must be unique, including for the top-level table.
 		if d.seenTableKeys[key] {
 			return d.nodeErrf(tnode.Child(), "duplicate key: %s", key)
@@ -323,6 +326,19 @@ func (d *Decoder) findArrayPrefix(rkey rootedKey) *openTableArray {
 
 	// Prefer an exact match over a relative prefix match.
 	if arr := d.findArray(rkey); arr != nil {
+		// TODO: the fact that we need to delete from both structures below
+		// strongly hints towards merging the two structures in some way.
+		// We already have a TODO about making openTableArrays a more efficient structure.
+
+		// When we find an exact match, we must forget about its subkeys
+		// because we're starting an entirely new array element.
+		d.openTableArrays = slices.DeleteFunc(d.openTableArrays, func(arr openTableArray) bool {
+			return strings.HasPrefix(arr.rkey, rkey+".")
+		})
+		// We also need to forget about seen table keys.
+		maps.DeleteFunc(d.seenTableKeys, func(seenRkey rootedKey, _ bool) bool {
+			return strings.HasPrefix(seenRkey, rkey+".")
+		})
 		return arr
 	}
 	// The longest relative key match wins.
@@ -392,13 +408,11 @@ func (d *Decoder) inlineFields(tkeys []tomlKey, relPos token.RelPos) (top, leaf 
 }
 
 // quoteLabelIfNeeded quotes a label name only if it needs quoting.
-//
-// TODO(mvdan): this exists in multiple packages; move to cue/literal or cue/ast?
 func quoteLabelIfNeeded(name string) string {
-	if ast.IsValidIdent(name) {
-		return name
+	if ast.StringLabelNeedsQuoting(name) {
+		return literal.Label.Quote(name)
 	}
-	return literal.Label.Quote(name)
+	return name
 }
 
 // label creates an ast.Label that represents a key with exactly the literal string name.
@@ -407,17 +421,9 @@ func quoteLabelIfNeeded(name string) string {
 // cue/format knows how to quote any other identifiers correctly.
 func (d *Decoder) label(tkey tomlKey, relPos token.RelPos) ast.Label {
 	pos := d.tokenFile.Pos(tkey.shape.Start.Offset, relPos)
-	if strings.HasPrefix(tkey.name, "_") {
-		return &ast.BasicLit{
-			ValuePos: pos,
-			Kind:     token.STRING,
-			Value:    literal.String.Quote(tkey.name),
-		}
-	}
-	return &ast.Ident{
-		NamePos: pos,
-		Name:    tkey.name,
-	}
+	label := ast.NewStringLabel(tkey.name)
+	ast.SetPos(label, pos)
+	return label
 }
 
 // decodeExpr decodes a single TOML value expression, found on the right side

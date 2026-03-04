@@ -35,8 +35,8 @@ func (c *Client) CreateRepositoryCreationTemplate(ctx context.Context, params *C
 type CreateRepositoryCreationTemplateInput struct {
 
 	// A list of enumerable strings representing the Amazon ECR repository creation
-	// scenarios that this template will apply towards. The two supported scenarios are
-	// PULL_THROUGH_CACHE and REPLICATION
+	// scenarios that this template will apply towards. The supported scenarios are
+	// PULL_THROUGH_CACHE , REPLICATION , and CREATE_ON_PUSH
 	//
 	// This member is required.
 	AppliedFor []types.RCTAppliedFor
@@ -76,6 +76,10 @@ type CreateRepositoryCreationTemplateInput struct {
 	// overwritten. If IMMUTABLE is specified, all image tags within the repository
 	// will be immutable which will prevent them from being overwritten.
 	ImageTagMutability types.ImageTagMutability
+
+	// A list of filters that specify which image tags should be excluded from the
+	// repository creation template's image tag mutability setting.
+	ImageTagMutabilityExclusionFilters []types.ImageTagMutabilityExclusionFilter
 
 	// The lifecycle policy to use for repositories created using the template.
 	LifecyclePolicy *string
@@ -196,16 +200,13 @@ func (c *Client) addOperationCreateRepositoryCreationTemplateMiddlewares(stack *
 	if err = addDisableHTTPSMiddleware(stack, options); err != nil {
 		return err
 	}
-	if err = addSpanInitializeStart(stack); err != nil {
+	if err = addInterceptBeforeRetryLoop(stack, options); err != nil {
 		return err
 	}
-	if err = addSpanInitializeEnd(stack); err != nil {
+	if err = addInterceptAttempt(stack, options); err != nil {
 		return err
 	}
-	if err = addSpanBuildRequestStart(stack); err != nil {
-		return err
-	}
-	if err = addSpanBuildRequestEnd(stack); err != nil {
+	if err = addInterceptors(stack, options); err != nil {
 		return err
 	}
 	return nil

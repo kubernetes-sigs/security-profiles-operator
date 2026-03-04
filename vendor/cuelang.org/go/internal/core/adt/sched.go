@@ -76,6 +76,9 @@ type taskContext struct {
 	// can be frozen and the tasks unblocked.
 	blocking []*task
 
+	// taskPool is a pool of tasks that can be reused to avoid allocations.
+	taskPool []*task
+
 	// counterMask marks which conditions use counters. Other conditions are
 	// handled by signals only.
 	counterMask condition
@@ -110,8 +113,21 @@ func (p *taskContext) popTask() {
 }
 
 func (p *taskContext) newTask() *task {
-	// TODO: allocate from pool.
+	if n := len(p.taskPool); n > 0 {
+		t := p.taskPool[n-1]
+		p.taskPool = p.taskPool[:n-1]
+		// Clear task fields to avoid retaining references from previous use.
+		// We clear here (not in freeTask) because tasks can be in multiple queues
+		// simultaneously and may still be accessed after being "freed" from one queue.
+		*t = task{}
+		return t
+	}
 	return &task{}
+}
+
+func (p *taskContext) freeTask(t *task) {
+	// Add task to pool without clearing. Task will be cleared when reused.
+	p.taskPool = append(p.taskPool, t)
 }
 
 type taskState uint8
@@ -176,7 +192,7 @@ func (s schedState) String() string {
 // runMode indicates how to proceed after a condition could not be met.
 type runMode uint8
 
-//go:generate go run golang.org/x/tools/cmd/stringer -type=runMode
+//go:generate go tool stringer -type=runMode
 
 const (
 	// ignore indicates that the new evaluator should not do any processing.
@@ -252,7 +268,7 @@ type scheduler struct {
 	// counters keeps track of the number of uncompleted tasks that are
 	// outstanding for each of the possible conditions. A state is
 	// considered completed if the corresponding counter reaches zero.
-	counters [numCompletionStates]int
+	counters [numCompletionStates]int32
 
 	// tasks lists all tasks that were scheduled for this scheduler.
 	// The list only contains tasks that are associated with this node.
@@ -267,17 +283,11 @@ type scheduler struct {
 }
 
 func (s *scheduler) clear() {
-	// TODO(perf): free tasks into task pool
-
-	// Any tasks blocked on this scheduler are unblocked once the scheduler is cleared.
-	// Otherwise they might signal a cleared scheduler, which can panic.
-	//
-	// TODO(mvdan,mpvl): In principle, all blocks should have been removed when a scheduler
-	// is cleared. Perhaps this can happen when the scheduler is stopped prematurely.
-	// For now, this solution seems to work OK.
-	for _, t := range s.blocking {
-		t.blockedOn = nil
-		t.blockCondition = neverKnown
+	// Free tasks back to the pool for reuse. Tasks are not cleared here because
+	// they may still be referenced in other schedulers' blocking queues.
+	// They will be cleared when obtained from the pool for reuse.
+	for _, t := range s.tasks {
+		s.ctx.freeTask(t)
 	}
 
 	*s = scheduler{
@@ -603,8 +613,8 @@ type task struct {
 
 	// The Conjunct processed by this task.
 	env *Environment
-	id  CloseInfo // TODO: rename to closeInfo?
-	x   Node      // The conjunct Expression or Value.
+	id  CloseInfo
+	x   Node // The conjunct Expression or Value.
 
 	// For Comprehensions:
 	comp *envComprehension

@@ -1,3 +1,8 @@
+## v1.14.3 (2026-02-04)
+
+- handle double slash in single quotes (#152) (thanks AriehSchneier)
+- Handle comments at the end of an array (#151) (thanks AriehSchneier)
+
 ## v1.14.2 (2025-06-18)
 
 - fix parsing options for extensions (ISSUE #150)

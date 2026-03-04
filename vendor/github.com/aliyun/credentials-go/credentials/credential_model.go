@@ -13,7 +13,17 @@ type CredentialModel struct {
 	// bearer token
 	BearerToken *string `json:"bearerToken,omitempty" xml:"bearerToken,omitempty"`
 	// type
+	//
+	// example:
+	//
+	// access_key
 	Type *string `json:"type,omitempty" xml:"type,omitempty"`
+	// provider name
+	//
+	// example:
+	//
+	// cli_profile/static_ak
+	ProviderName *string `json:"providerName,omitempty" xml:"providerName,omitempty"`
 }
 
 func (s CredentialModel) String() string {
@@ -46,5 +56,10 @@ func (s *CredentialModel) SetBearerToken(v string) *CredentialModel {
 
 func (s *CredentialModel) SetType(v string) *CredentialModel {
 	s.Type = &v
+	return s
+}
+
+func (s *CredentialModel) SetProviderName(v string) *CredentialModel {
+	s.ProviderName = &v
 	return s
 }

@@ -20,7 +20,6 @@ import (
 
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/parser"
-	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/adt"
 	"cuelang.org/go/internal/core/compile"
 	"cuelang.org/go/internal/core/convert"
@@ -131,15 +130,13 @@ func ToBuiltin(b *Builtin) *adt.Builtin {
 		Package:     b.Pkg,
 		Name:        b.Name,
 	}
-	x.Func = func(call *adt.CallContext) (ret adt.Expr) {
+	x.Func = func(call adt.CallContext) (ret adt.Expr) {
 		ctx := call.OpContext()
-		args := call.Args()
 
 		// call, _ := ctx.Source().(*ast.CallExpr)
 		c := &CallCtxt{
 			CallContext: call,
 			ctx:         ctx,
-			args:        args,
 			builtin:     b,
 		}
 		defer func() {
@@ -174,7 +171,7 @@ func ToBuiltin(b *Builtin) *adt.Builtin {
 				return nil
 			}
 		}
-		return convert.GoValueToValue(ctx, c.Ret, true)
+		return convert.FromGoValue(ctx, c.Ret, true)
 	}
 	return x
 }
@@ -202,7 +199,6 @@ func (x *Builtin) name(ctx *adt.OpContext) string {
 }
 
 func processErr(call *CallCtxt, errVal interface{}, ret adt.Expr) adt.Expr {
-	ctx := call.ctx
 	switch err := errVal.(type) {
 	case nil:
 	case ValidationError:
@@ -238,23 +234,17 @@ func processErr(call *CallCtxt, errVal interface{}, ret adt.Expr) adt.Expr {
 
 		ret = wrapCallErr(call, &adt.Bottom{Err: err})
 	case error:
-		if call.Err == internal.ErrIncomplete {
-			err := ctx.NewErrf("incomplete value")
-			err.Code = adt.IncompleteError
-			ret = err
-		} else {
-			// TODO: store the underlying error explicitly
-			ret = wrapCallErr(call, &adt.Bottom{Err: errors.Promote(err, "")})
-		}
+		// TODO: store the underlying error explicitly
+		ret = wrapCallErr(call, &adt.Bottom{Err: errors.Promote(err, "")})
 	case string, fmt.Stringer:
 		// A string or a stringer likely used as a panic value.
 		ret = wrapCallErr(call, &adt.Bottom{
-			Err: errors.Newf(call.Pos(), "%s", err),
+			Err: errors.Newf(call.ctx.Pos(), "%s", err),
 		})
 	default:
 		// Some other value used when panicking; likely a bug.
 		ret = wrapCallErr(call, &adt.Bottom{
-			Err: errors.Newf(call.Pos(), "BUG: non-stringifiable %T", err),
+			Err: errors.Newf(call.ctx.Pos(), "BUG: non-stringifiable %T", err),
 		})
 	}
 	return ret

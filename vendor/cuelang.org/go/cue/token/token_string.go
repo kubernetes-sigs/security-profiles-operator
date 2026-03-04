@@ -57,26 +57,31 @@ func _() {
 	_ = x[SEMICOLON-46]
 	_ = x[COLON-47]
 	_ = x[OPTION-48]
-	_ = x[operatorEnd-49]
-	_ = x[keywordBeg-50]
-	_ = x[IF-51]
-	_ = x[FOR-52]
-	_ = x[IN-53]
-	_ = x[LET-54]
-	_ = x[FUNC-55]
-	_ = x[TRUE-56]
-	_ = x[FALSE-57]
-	_ = x[NULL-58]
-	_ = x[keywordEnd-59]
+	_ = x[TILDE-49]
+	_ = x[operatorEnd-50]
+	_ = x[keywordBeg-51]
+	_ = x[IF-52]
+	_ = x[ELSE-53]
+	_ = x[FOR-54]
+	_ = x[IN-55]
+	_ = x[LET-56]
+	_ = x[TRY-57]
+	_ = x[FALLBACK-58]
+	_ = x[FUNC-59]
+	_ = x[TRUE-60]
+	_ = x[FALSE-61]
+	_ = x[NULL-62]
+	_ = x[keywordEnd-63]
 }
 
-const _Token_name = "ILLEGALEOFCOMMENTATTRIBUTEliteralBegIDENTINTFLOATSTRINGINTERPOLATION_|_literalEndoperatorBeg+-*^/quoremdivmod&|&&||===<>!<-!=<=>==~!~([{,....)]};:?operatorEndkeywordBegifforinletfunctruefalsenullkeywordEnd"
+const _Token_name = "ILLEGALEOFCOMMENTATTRIBUTEliteralBegIDENTINTFLOATSTRINGINTERPOLATION_|_literalEndoperatorBeg+-*^/quoremdivmod&|&&||===<>!<-!=<=>==~!~([{,....)]};:?~operatorEndkeywordBegifelseforinlettryfallbackfunctruefalsenullkeywordEnd"
 
-var _Token_index = [...]uint8{0, 7, 10, 17, 26, 36, 41, 44, 49, 55, 68, 71, 81, 92, 93, 94, 95, 96, 97, 100, 103, 106, 109, 110, 111, 113, 115, 116, 118, 119, 120, 121, 123, 125, 127, 129, 131, 133, 134, 135, 136, 137, 138, 141, 142, 143, 144, 145, 146, 147, 158, 168, 170, 173, 175, 178, 182, 186, 191, 195, 205}
+var _Token_index = [...]uint8{0, 7, 10, 17, 26, 36, 41, 44, 49, 55, 68, 71, 81, 92, 93, 94, 95, 96, 97, 100, 103, 106, 109, 110, 111, 113, 115, 116, 118, 119, 120, 121, 123, 125, 127, 129, 131, 133, 134, 135, 136, 137, 138, 141, 142, 143, 144, 145, 146, 147, 148, 159, 169, 171, 175, 178, 180, 183, 186, 194, 198, 202, 207, 211, 221}
 
 func (i Token) String() string {
-	if i < 0 || i >= Token(len(_Token_index)-1) {
+	idx := int(i) - 0
+	if i < 0 || idx >= len(_Token_index)-1 {
 		return "Token(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _Token_name[_Token_index[i]:_Token_index[i+1]]
+	return _Token_name[_Token_index[idx]:_Token_index[idx+1]]
 }

@@ -240,6 +240,7 @@ func (r *PodReconciler) updatePodReferencesForSelinux(ctx context.Context, se *s
 
 	if err := util.Retry(func() error {
 		se.Status.ActiveWorkloads = podList
+
 		updateErr := r.client.Status().Update(ctx, se)
 		if updateErr != nil {
 			if err := r.client.Get(ctx, util.NamespacedName(se.GetName(), se.GetNamespace()), se); err != nil {

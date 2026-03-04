@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 /*
 Copyright 2023 The Kubernetes Authors.
@@ -44,7 +43,7 @@ type defaultImpl struct{}
 //counterfeiter:generate . impl
 type impl interface {
 	ReadFile(string) ([]byte, error)
-	YamlUnmarshal([]byte, interface{}) error
+	YamlUnmarshal([]byte, any) error
 	JSONMarshal(any) ([]byte, error)
 	JSONUnmarshal([]byte, any) error
 	SetupSeccomp(*specs.LinuxSeccomp) (*configs.Seccomp, error)
@@ -64,7 +63,7 @@ func (*defaultImpl) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
-func (*defaultImpl) YamlUnmarshal(y []byte, o interface{}) error {
+func (*defaultImpl) YamlUnmarshal(y []byte, o any) error {
 	return yaml.Unmarshal(y, o)
 }
 

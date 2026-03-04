@@ -73,7 +73,7 @@ func Extract(data cue.InstanceOrValue, c *Config) (*ast.File, error) {
 
 	if c.PkgName != "" {
 		p := &ast.Package{Name: ast.NewIdent(c.PkgName)}
-		p.AddComment(cg)
+		ast.AddComment(p, cg)
 		add(p)
 	} else if cg != nil {
 		add(cg)
@@ -106,7 +106,7 @@ func Extract(data cue.InstanceOrValue, c *Config) (*ast.File, error) {
 
 	// TODO: do we want to store the OpenAPI version?
 	// if version, _ := v.Lookup("openapi").String(); version != "" {
-	// 	add(internal.NewAttr("openapi", "version="+ version))
+	//  add(&ast.Attribute{Text: fmt.Sprintf("@openapi(version=%s)", version)})
 	// }
 
 	if info := v.LookupPath(cue.MakePath(cue.Str("info"))); info.Exists() {
@@ -157,9 +157,7 @@ func openAPIMapping(pos token.Pos, a []string) ([]ast.Label, error) {
 			oapiSchemas, strings.Join(a, "/"))
 	}
 	name := a[2]
-	if ast.IsValidIdent(name) &&
-		name != rootDefs[1:] &&
-		!internal.IsDefOrHidden(name) {
+	if name != rootDefs[1:] && !ast.StringLabelNeedsQuoting(name) {
 		return []ast.Label{ast.NewIdent("#" + name)}, nil
 	}
 	return []ast.Label{ast.NewIdent(rootDefs), ast.NewString(name)}, nil

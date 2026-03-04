@@ -35,6 +35,7 @@ linters:
     - goconst
     - gocritic
     - gocyclo
+    - godoclint
     - godot
     - godox
     - goheader
@@ -48,11 +49,13 @@ linters:
     - importas
     - ineffassign
     - intrange
+    - iotamixing
     - lll
     - loggercheck
     - makezero
     - mirror
     - misspell
+    - modernize
     - musttag
     - nakedret
     - nestif
@@ -84,6 +87,7 @@ linters:
     - tparallel
     - unconvert
     - unparam
+    - unqueryvet
     - unused
     - usestdlibvars
     - usetesting
@@ -133,6 +137,10 @@ linters:
     gosec:
       excludes:
         - G115
+        - G602
+        - G702
+        - G703
+        - G704
     nestif:
       min-complexity: 15
     revive:
@@ -154,6 +162,9 @@ linters:
       - linters:
           - lll
         path: internal/pkg/daemon/bpfrecorder/generated.go
+      - linters:
+          - godoclint
+        path: api/
     paths:
       - third_party$
       - builtin$

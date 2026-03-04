@@ -176,6 +176,7 @@ func (e *Enricher) Run() error {
 		if err != nil {
 			return fmt.Errorf("connecting to local GRPC server: %w", err)
 		}
+
 		client := apimetrics.NewMetricsClient(conn)
 
 		metricsClient, err = e.AuditInc(client)
@@ -303,8 +304,8 @@ func (e *Enricher) startGrpcServer() error {
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	//nolint:staticcheck // we'll use this API once we have an appropriate alternative
-	conn, err := grpc.DialContext(
+
+	conn, err := grpc.DialContext( //nolint:staticcheck // TODO: migrate to grpc.NewClient
 		ctx,
 		"unix://"+config.GRPCServerSocketEnricher,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -433,7 +434,7 @@ func (e *Enricher) dispatchSelinuxLine(
 	}
 
 	if info.RecordProfile != "" {
-		for _, perm := range strings.Split(auditLine.Perm, " ") {
+		for perm := range strings.SplitSeq(auditLine.Perm, " ") {
 			avc := &apienricher.AvcResponse_SelinuxAvc{
 				Perm:     perm,
 				Scontext: auditLine.Scontext,

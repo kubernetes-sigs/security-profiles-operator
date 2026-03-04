@@ -71,8 +71,8 @@ func (m *Metrics) ServeGRPC() error {
 // client.
 func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	//nolint:staticcheck // we'll use this API once we have an appropriate alternative
-	conn, err := grpc.DialContext(
+
+	conn, err := grpc.DialContext( //nolint:staticcheck // TODO: migrate to grpc.NewClient
 		ctx,
 		"unix://"+config.GRPCServerSocketMetrics,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),

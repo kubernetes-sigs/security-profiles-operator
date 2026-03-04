@@ -238,6 +238,70 @@ var p = &pkg.Package{
 			}
 		},
 	}, {
+		Name: "AddIP",
+		Params: []pkg.Param{
+			{Kind: adt.TopKind},
+			{Kind: adt.IntKind},
+		},
+		Result: adt.StringKind,
+		Func: func(c *pkg.CallCtxt) {
+			ip, offset := c.Value(0), c.BigInt(1)
+			if c.Do() {
+				c.Ret, c.Err = AddIP(ip, offset)
+			}
+		},
+	}, {
+		Name: "AddIPCIDR",
+		Params: []pkg.Param{
+			{Kind: adt.TopKind},
+			{Kind: adt.IntKind},
+		},
+		Result: adt.StringKind,
+		Func: func(c *pkg.CallCtxt) {
+			ip, offset := c.Value(0), c.BigInt(1)
+			if c.Do() {
+				c.Ret, c.Err = AddIPCIDR(ip, offset)
+			}
+		},
+	}, {
+		Name: "ParseCIDR",
+		Params: []pkg.Param{
+			{Kind: adt.StringKind},
+		},
+		Result: adt.StructKind,
+		Func: func(c *pkg.CallCtxt) {
+			s := c.String(0)
+			if c.Do() {
+				c.Ret, c.Err = ParseCIDR(s)
+			}
+		},
+	}, {
+		Name: "InCIDR",
+		Params: []pkg.Param{
+			{Kind: adt.TopKind},
+			{Kind: adt.TopKind},
+		},
+		Result: adt.BoolKind,
+		Func: func(c *pkg.CallCtxt) {
+			ip, cidr := c.Value(0), c.Value(1)
+			if c.Do() {
+				c.Ret, c.Err = InCIDR(ip, cidr)
+			}
+		},
+	}, {
+		Name: "CompareIP",
+		Params: []pkg.Param{
+			{Kind: adt.TopKind},
+			{Kind: adt.TopKind},
+		},
+		Result: adt.IntKind,
+		Func: func(c *pkg.CallCtxt) {
+			ip1, ip2 := c.Value(0), c.Value(1)
+			if c.Do() {
+				c.Ret, c.Err = CompareIP(ip1, ip2)
+			}
+		},
+	}, {
 		Name: "PathEscape",
 		Params: []pkg.Param{
 			{Kind: adt.StringKind},

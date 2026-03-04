@@ -98,15 +98,18 @@ func (e *e2e) getProfilingHTTPVersion() string {
 	if err := spoutil.Retry(func() error {
 		profilingEndpoint := e.getProfilingEndpoint(index)
 		profilingCurlCMD := curlHTTPVerCMD + profilingEndpoint
+
 		output = e.kubectlRunOperatorNS("pod-"+string(b), "--", "bash", "-c", profilingCurlCMD)
 		if len(strings.Split(output, "\n")) > 1 {
 			return nil
 		}
+
 		output = ""
 
 		return errors.New("no output from profiling curl command")
 	}, func(err error) bool {
 		e.logf("retry on error: %s", err)
+
 		if index < nPods {
 			index++
 

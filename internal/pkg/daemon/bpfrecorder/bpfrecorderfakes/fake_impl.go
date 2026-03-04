@@ -292,12 +292,12 @@ type FakeImpl struct {
 		result1 *rest.Config
 		result2 error
 	}
-	InitGlobalVariableStub        func(*libbpfgo.Module, string, interface{}) error
+	InitGlobalVariableStub        func(*libbpfgo.Module, string, any) error
 	initGlobalVariableMutex       sync.RWMutex
 	initGlobalVariableArgsForCall []struct {
 		arg1 *libbpfgo.Module
 		arg2 string
-		arg3 interface{}
+		arg3 any
 	}
 	initGlobalVariableReturns struct {
 		result1 error
@@ -495,11 +495,11 @@ type FakeImpl struct {
 		result2 *semver.Version
 		result3 error
 	}
-	UnmarshalStub        func([]byte, interface{}) error
+	UnmarshalStub        func([]byte, any) error
 	unmarshalMutex       sync.RWMutex
 	unmarshalArgsForCall []struct {
 		arg1 []byte
-		arg2 interface{}
+		arg2 any
 	}
 	unmarshalReturns struct {
 		result1 error
@@ -1821,13 +1821,13 @@ func (fake *FakeImpl) InClusterConfigReturnsOnCall(i int, result1 *rest.Config, 
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) InitGlobalVariable(arg1 *libbpfgo.Module, arg2 string, arg3 interface{}) error {
+func (fake *FakeImpl) InitGlobalVariable(arg1 *libbpfgo.Module, arg2 string, arg3 any) error {
 	fake.initGlobalVariableMutex.Lock()
 	ret, specificReturn := fake.initGlobalVariableReturnsOnCall[len(fake.initGlobalVariableArgsForCall)]
 	fake.initGlobalVariableArgsForCall = append(fake.initGlobalVariableArgsForCall, struct {
 		arg1 *libbpfgo.Module
 		arg2 string
-		arg3 interface{}
+		arg3 any
 	}{arg1, arg2, arg3})
 	stub := fake.InitGlobalVariableStub
 	fakeReturns := fake.initGlobalVariableReturns
@@ -1848,13 +1848,13 @@ func (fake *FakeImpl) InitGlobalVariableCallCount() int {
 	return len(fake.initGlobalVariableArgsForCall)
 }
 
-func (fake *FakeImpl) InitGlobalVariableCalls(stub func(*libbpfgo.Module, string, interface{}) error) {
+func (fake *FakeImpl) InitGlobalVariableCalls(stub func(*libbpfgo.Module, string, any) error) {
 	fake.initGlobalVariableMutex.Lock()
 	defer fake.initGlobalVariableMutex.Unlock()
 	fake.InitGlobalVariableStub = stub
 }
 
-func (fake *FakeImpl) InitGlobalVariableArgsForCall(i int) (*libbpfgo.Module, string, interface{}) {
+func (fake *FakeImpl) InitGlobalVariableArgsForCall(i int) (*libbpfgo.Module, string, any) {
 	fake.initGlobalVariableMutex.RLock()
 	defer fake.initGlobalVariableMutex.RUnlock()
 	argsForCall := fake.initGlobalVariableArgsForCall[i]
@@ -2799,7 +2799,7 @@ func (fake *FakeImpl) UnameReturnsOnCall(i int, result1 types.Arch, result2 *sem
 	}{result1, result2, result3}
 }
 
-func (fake *FakeImpl) Unmarshal(arg1 []byte, arg2 interface{}) error {
+func (fake *FakeImpl) Unmarshal(arg1 []byte, arg2 any) error {
 	var arg1Copy []byte
 	if arg1 != nil {
 		arg1Copy = make([]byte, len(arg1))
@@ -2809,7 +2809,7 @@ func (fake *FakeImpl) Unmarshal(arg1 []byte, arg2 interface{}) error {
 	ret, specificReturn := fake.unmarshalReturnsOnCall[len(fake.unmarshalArgsForCall)]
 	fake.unmarshalArgsForCall = append(fake.unmarshalArgsForCall, struct {
 		arg1 []byte
-		arg2 interface{}
+		arg2 any
 	}{arg1Copy, arg2})
 	stub := fake.UnmarshalStub
 	fakeReturns := fake.unmarshalReturns
@@ -2830,13 +2830,13 @@ func (fake *FakeImpl) UnmarshalCallCount() int {
 	return len(fake.unmarshalArgsForCall)
 }
 
-func (fake *FakeImpl) UnmarshalCalls(stub func([]byte, interface{}) error) {
+func (fake *FakeImpl) UnmarshalCalls(stub func([]byte, any) error) {
 	fake.unmarshalMutex.Lock()
 	defer fake.unmarshalMutex.Unlock()
 	fake.UnmarshalStub = stub
 }
 
-func (fake *FakeImpl) UnmarshalArgsForCall(i int) ([]byte, interface{}) {
+func (fake *FakeImpl) UnmarshalArgsForCall(i int) ([]byte, any) {
 	fake.unmarshalMutex.RLock()
 	defer fake.unmarshalMutex.RUnlock()
 	argsForCall := fake.unmarshalArgsForCall[i]

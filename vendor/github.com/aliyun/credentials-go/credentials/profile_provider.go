@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/alibabacloud-go/tea/tea"
+	"github.com/aliyun/credentials-go/credentials/internal/utils"
 	ini "gopkg.in/ini.v1"
 )
 
@@ -16,10 +16,6 @@ type profileProvider struct {
 }
 
 var providerProfile = newProfileProvider()
-
-var hookOS = func(goos string) string {
-	return goos
-}
 
 var hookState = func(info os.FileInfo, err error) (os.FileInfo, error) {
 	return info, err
@@ -100,21 +96,21 @@ func (p *profileProvider) resolve() (*Config, error) {
 		}
 		return config, nil
 	default:
-		return nil, errors.New("Invalid type option, support: access_key, sts, ecs_ram_role, ram_role_arn, rsa_key_pair")
+		return nil, errors.New("invalid type option, support: access_key, sts, ecs_ram_role, ram_role_arn, rsa_key_pair")
 	}
 }
 
 func getRSAKeyPair(section *ini.Section) (*Config, error) {
 	publicKeyId, err := section.GetKey("public_key_id")
 	if err != nil {
-		return nil, errors.New("Missing required public_key_id option in profile for rsa_key_pair")
+		return nil, errors.New("missing required public_key_id option in profile for rsa_key_pair")
 	}
 	if publicKeyId.String() == "" {
 		return nil, errors.New("public_key_id cannot be empty")
 	}
 	privateKeyFile, err := section.GetKey("private_key_file")
 	if err != nil {
-		return nil, errors.New("Missing required private_key_file option in profile for rsa_key_pair")
+		return nil, errors.New("missing required private_key_file option in profile for rsa_key_pair")
 	}
 	if privateKeyFile.String() == "" {
 		return nil, errors.New("private_key_file cannot be empty")
@@ -143,28 +139,28 @@ func getRSAKeyPair(section *ini.Section) (*Config, error) {
 func getRAMRoleArn(section *ini.Section) (*Config, error) {
 	accessKeyId, err := section.GetKey("access_key_id")
 	if err != nil {
-		return nil, errors.New("Missing required access_key_id option in profile for ram_role_arn")
+		return nil, errors.New("missing required access_key_id option in profile for ram_role_arn")
 	}
 	if accessKeyId.String() == "" {
 		return nil, errors.New("access_key_id cannot be empty")
 	}
 	accessKeySecret, err := section.GetKey("access_key_secret")
 	if err != nil {
-		return nil, errors.New("Missing required access_key_secret option in profile for ram_role_arn")
+		return nil, errors.New("missing required access_key_secret option in profile for ram_role_arn")
 	}
 	if accessKeySecret.String() == "" {
 		return nil, errors.New("access_key_secret cannot be empty")
 	}
 	roleArn, err := section.GetKey("role_arn")
 	if err != nil {
-		return nil, errors.New("Missing required role_arn option in profile for ram_role_arn")
+		return nil, errors.New("missing required role_arn option in profile for ram_role_arn")
 	}
 	if roleArn.String() == "" {
 		return nil, errors.New("role_arn cannot be empty")
 	}
 	roleSessionName, err := section.GetKey("role_session_name")
 	if err != nil {
-		return nil, errors.New("Missing required role_session_name option in profile for ram_role_arn")
+		return nil, errors.New("missing required role_session_name option in profile for ram_role_arn")
 	}
 	if roleSessionName.String() == "" {
 		return nil, errors.New("role_session_name cannot be empty")
@@ -210,7 +206,7 @@ func getEcsRAMRole(section *ini.Section) (*Config, error) {
 func getBearerToken(section *ini.Section) (*Config, error) {
 	bearerToken, err := section.GetKey("bearer_token")
 	if err != nil {
-		return nil, errors.New("Missing required bearer_token option in profile for bearer")
+		return nil, errors.New("missing required bearer_token option in profile for bearer")
 	}
 	if bearerToken.String() == "" {
 		return nil, errors.New("bearer_token cannot be empty")
@@ -225,21 +221,21 @@ func getBearerToken(section *ini.Section) (*Config, error) {
 func getSTS(section *ini.Section) (*Config, error) {
 	accesskeyid, err := section.GetKey("access_key_id")
 	if err != nil {
-		return nil, errors.New("Missing required access_key_id option in profile for sts")
+		return nil, errors.New("missing required access_key_id option in profile for sts")
 	}
 	if accesskeyid.String() == "" {
 		return nil, errors.New("access_key_id cannot be empty")
 	}
 	accessKeySecret, err := section.GetKey("access_key_secret")
 	if err != nil {
-		return nil, errors.New("Missing required access_key_secret option in profile for sts")
+		return nil, errors.New("missing required access_key_secret option in profile for sts")
 	}
 	if accessKeySecret.String() == "" {
 		return nil, errors.New("access_key_secret cannot be empty")
 	}
 	securityToken, err := section.GetKey("security_token")
 	if err != nil {
-		return nil, errors.New("Missing required security_token option in profile for sts")
+		return nil, errors.New("missing required security_token option in profile for sts")
 	}
 	if securityToken.String() == "" {
 		return nil, errors.New("security_token cannot be empty")
@@ -256,14 +252,14 @@ func getSTS(section *ini.Section) (*Config, error) {
 func getAccessKey(section *ini.Section) (*Config, error) {
 	accesskeyid, err := section.GetKey("access_key_id")
 	if err != nil {
-		return nil, errors.New("Missing required access_key_id option in profile for access_key")
+		return nil, errors.New("missing required access_key_id option in profile for access_key")
 	}
 	if accesskeyid.String() == "" {
 		return nil, errors.New("access_key_id cannot be empty")
 	}
 	accessKeySecret, err := section.GetKey("access_key_secret")
 	if err != nil {
-		return nil, errors.New("Missing required access_key_secret option in profile for access_key")
+		return nil, errors.New("missing required access_key_secret option in profile for access_key")
 	}
 	if accessKeySecret.String() == "" {
 		return nil, errors.New("access_key_secret cannot be empty")
@@ -289,30 +285,15 @@ func getType(path, profile string) (*ini.Key, *ini.Section, error) {
 
 	value, err := section.GetKey("type")
 	if err != nil {
-		return nil, nil, errors.New("Missing required type option " + err.Error())
+		return nil, nil, errors.New("missing required type option " + err.Error())
 	}
 	return value, section, nil
 }
 
-func getHomePath() string {
-	if hookOS(runtime.GOOS) == "windows" {
-		path, ok := os.LookupEnv("USERPROFILE")
-		if !ok {
-			return ""
-		}
-		return path
-	}
-	path, ok := os.LookupEnv("HOME")
-	if !ok {
-		return ""
-	}
-	return path
-}
-
 func checkDefaultPath() (path string, err error) {
-	path = getHomePath()
+	path = utils.GetHomePath()
 	if path == "" {
-		return "", errors.New("The default credential file path is invalid")
+		return "", errors.New("the default credential file path is invalid")
 	}
 	path = strings.Replace("~/.alibabacloud/credentials", "~", path, 1)
 	_, err = hookState(os.Stat(path))
@@ -333,14 +314,14 @@ func setRuntimeToConfig(config *Config, section *ini.Section) error {
 	if rawConnectTimeout != nil {
 		connectTimeout, err := rawConnectTimeout.Int()
 		if err != nil {
-			return fmt.Errorf("Please set connect_timeout with an int value")
+			return fmt.Errorf("please set connect_timeout with an int value")
 		}
 		config.ConnectTimeout = tea.Int(connectTimeout)
 	}
 	if rawTimeout != nil {
 		timeout, err := rawTimeout.Int()
 		if err != nil {
-			return fmt.Errorf("Please set timeout with an int value")
+			return fmt.Errorf("please set timeout with an int value")
 		}
 		config.Timeout = tea.Int(timeout)
 	}

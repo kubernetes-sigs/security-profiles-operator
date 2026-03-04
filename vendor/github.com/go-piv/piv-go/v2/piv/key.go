@@ -182,6 +182,10 @@ func (a *Attestation) addExt(e pkix.Extension) error {
 			a.PINPolicy = PINPolicyOnce
 		case 0x03:
 			a.PINPolicy = PINPolicyAlways
+		case 0x04:
+			a.PINPolicy = PINPolicyMatchOnce
+		case 0x05:
+			a.PINPolicy = PINPolicyMatchAlways
 		default:
 			return fmt.Errorf("unrecognized pin policy: 0x%x", e.Value[0])
 		}
@@ -485,6 +489,18 @@ const (
 	PINPolicyNever PINPolicy = iota + 1
 	PINPolicyOnce
 	PINPolicyAlways
+	// PINPolicyMatchOnce and PINPolicyMatchAlways require biometric user
+	// verification (YubiKey Bio). The naming convention of these policies aligns
+	// with yubico-piv-tool.
+	//
+	// The library handles biometric verification transparently:
+	//   - MatchOnce: VerifyBiometrics is performed on demand, then the operation
+	//     is retried once.
+	//   - MatchAlways: VerifyBiometrics is performed before every operation.
+	//
+	// See https://docs.yubico.com/yesdk/users-manual/application-piv/pin-touch-policies.html
+	PINPolicyMatchOnce
+	PINPolicyMatchAlways
 )
 
 // TouchPolicy represents proof-of-presence requirements when signing or
@@ -514,15 +530,19 @@ const (
 )
 
 var pinPolicyMap = map[PINPolicy]byte{
-	PINPolicyNever:  0x01,
-	PINPolicyOnce:   0x02,
-	PINPolicyAlways: 0x03,
+	PINPolicyNever:       0x01,
+	PINPolicyOnce:        0x02,
+	PINPolicyAlways:      0x03,
+	PINPolicyMatchOnce:   0x04,
+	PINPolicyMatchAlways: 0x05,
 }
 
 var pinPolicyMapInv = map[byte]PINPolicy{
 	0x01: PINPolicyNever,
 	0x02: PINPolicyOnce,
 	0x03: PINPolicyAlways,
+	0x04: PINPolicyMatchOnce,
+	0x05: PINPolicyMatchAlways,
 }
 
 var touchPolicyMap = map[TouchPolicy]byte{
@@ -931,6 +951,11 @@ func (k KeyAuth) authTx(yk *YubiKey, pp PINPolicy) error {
 		return nil
 	}
 
+	// Match policies use biometric verification (not PIN) and are handled in do().
+	if pp == PINPolicyMatchOnce || pp == PINPolicyMatchAlways {
+		return nil
+	}
+
 	// PINPolicyAlways should always prompt a PIN even if the key says that
 	// login isn't needed.
 	// https://github.com/go-piv/piv-go/issues/49
@@ -953,6 +978,33 @@ func (k KeyAuth) authTx(yk *YubiKey, pp PINPolicy) error {
 }
 
 func (k KeyAuth) do(yk *YubiKey, pp PINPolicy, f func(tx *scTx) ([]byte, error)) ([]byte, error) {
+	const swSecurityStatusNotSatisfied = 0x6982
+
+	if pp == PINPolicyMatchAlways {
+		if err := yk.VerifyBiometrics(); err != nil {
+			return nil, err
+		}
+		return f(yk.tx)
+	}
+
+	if pp == PINPolicyMatchOnce {
+		if err := k.authTx(yk, pp); err != nil {
+			return nil, err
+		}
+		resp, err := f(yk.tx)
+		if err == nil {
+			return resp, nil
+		}
+		var apdu *apduErr
+		if errors.As(err, &apdu) && apdu.Status() == swSecurityStatusNotSatisfied {
+			if err := yk.VerifyBiometrics(); err != nil {
+				return nil, err
+			}
+			return f(yk.tx)
+		}
+		return nil, err
+	}
+
 	if err := k.authTx(yk, pp); err != nil {
 		return nil, err
 	}

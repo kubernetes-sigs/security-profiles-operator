@@ -416,7 +416,7 @@ func (e *JsonEnricher) dispatchSeccompLine(
 ) {
 	var syscallNames []string
 
-	logBucket.SyscallIds.Range(func(k, _ interface{}) bool {
+	logBucket.SyscallIds.Range(func(k, _ any) bool {
 		syscallId, errKey := k.(int32)
 		if !errKey {
 			return false

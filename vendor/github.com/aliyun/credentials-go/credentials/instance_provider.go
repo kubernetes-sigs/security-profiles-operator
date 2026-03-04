@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"os"
+	"strings"
 
 	"github.com/alibabacloud-go/tea/tea"
 )
@@ -19,10 +20,12 @@ func (p *instanceCredentialsProvider) resolve() (*Config, error) {
 	if !ok {
 		return nil, nil
 	}
+	enableIMDSv2, _ := os.LookupEnv(ENVEcsMetadataIMDSv2Enable)
 
 	config := &Config{
-		Type:     tea.String("ecs_ram_role"),
-		RoleName: tea.String(roleName),
+		Type:         tea.String("ecs_ram_role"),
+		RoleName:     tea.String(roleName),
+		EnableIMDSv2: tea.Bool(strings.ToLower(enableIMDSv2) == "true"),
 	}
 	return config, nil
 }

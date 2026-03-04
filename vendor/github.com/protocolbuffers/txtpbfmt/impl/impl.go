@@ -9,8 +9,10 @@ import (
 	"strconv"
 	"strings"
 
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"github.com/protocolbuffers/txtpbfmt/ast"
 	"github.com/protocolbuffers/txtpbfmt/config"
+	"github.com/protocolbuffers/txtpbfmt/descriptor"
 	"github.com/protocolbuffers/txtpbfmt/quote"
 	"github.com/protocolbuffers/txtpbfmt/sort"
 	"github.com/protocolbuffers/txtpbfmt/wrap"
@@ -52,25 +54,30 @@ func (s *bracketState) processChar(c byte, i int, in []byte, allowTripleQuotedSt
 		if s.insideComment {
 			return
 		}
-		delim := string(c)
-		tripleQuoted := false
-		if allowTripleQuotedStrings && i+3 <= len(in) {
-			triple := string(in[i : i+3])
-			if triple == `"""` || triple == `'''` {
-				delim = triple
-				tripleQuoted = true
-			}
+		s.handleQuotes(c, i, in, allowTripleQuotedStrings)
+	}
+}
+
+func (s *bracketState) handleQuotes(c byte, i int, in []byte, allowTripleQuotedStrings bool) {
+	delim := string(c)
+	tripleQuoted := false
+	if allowTripleQuotedStrings && i+3 <= len(in) {
+		triple := string(in[i : i+3])
+		if triple == `"""` || triple == `'''` {
+			delim = triple
+			tripleQuoted = true
 		}
-		if s.insideString {
-			if s.stringDelimiter == delim && (s.insideTripleQuotedString || !s.isEscapedChar) {
-				s.insideString = false
-				s.insideTripleQuotedString = false
-			}
-		} else {
-			s.insideString = true
-			s.insideTripleQuotedString = tripleQuoted
-			s.stringDelimiter = delim
+	}
+
+	if s.insideString {
+		if s.stringDelimiter == delim && (s.insideTripleQuotedString || !s.isEscapedChar) {
+			s.insideString = false
+			s.insideTripleQuotedString = false
 		}
+	} else {
+		s.insideString = true
+		s.insideTripleQuotedString = tripleQuoted
+		s.stringDelimiter = delim
 	}
 }
 
@@ -148,18 +155,43 @@ func ParseWithMetaCommentConfig(in []byte, c config.Config) ([]*ast.Node, error)
 	if err != nil {
 		return nil, err
 	}
+
+	// Load descriptor if field number sorting is enabled
+	var rootDesc protoreflect.MessageDescriptor
+	if c.SortFieldsByFieldNumber {
+		if c.ProtoDescriptor == "" {
+			return nil, fmt.Errorf("proto_descriptor is required when using sort_fields_by_field_number")
+		}
+
+		loader, err := descriptor.NewLoader(c.ProtoDescriptor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create descriptor loader: %v", err)
+		}
+
+		// Get root message descriptor
+		rootDesc, err = loader.GetRootMessageDescriptor(c.MessageFullName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get root message descriptor: %v", err)
+		}
+	}
+
 	if p.config.InfoLevel() {
 		p.config.Infof("p.in: %q", string(p.in))
 		p.config.Infof("p.length: %v", p.length)
 	}
 	// Although unnamed nodes aren't strictly allowed, some formats represent a
 	// list of protos as a list of unnamed top-level nodes.
-	nodes, _, err := p.parse( /*isRoot=*/ true)
+	nodes, _, err := p.parse( /*isRoot=*/ true, rootDesc)
 	if err != nil {
 		return nil, err
 	}
 	if p.index < p.length {
 		return nil, fmt.Errorf("parser didn't consume all input. Stopped at %s", p.errorContext())
+	}
+	for _, f := range ast.GetFormatters() {
+		if err := f(nodes); err != nil {
+			return nil, err
+		}
 	}
 	if err := wrap.Strings(nodes, 0, c); err != nil {
 		return nil, err
@@ -174,7 +206,7 @@ func ParseWithMetaCommentConfig(in []byte, c config.Config) ([]*ast.Node, error)
 // have the equal sign. Currently there are only two MetaComments that are in the former format:
 //
 //	"sort_repeated_fields_by_subfield": If this appears multiple times, then they will all be added
-//	to the config and the order is perserved.
+//	to the config and the order is preserved.
 //	"wrap_strings_at_column": The <val> is expected to be an integer. If it is not, then it will be
 //	ignored. If this appears multiple times, only the last one saved.
 func addToConfig(metaComment string, c *config.Config) error {
@@ -209,6 +241,8 @@ func addToConfig(metaComment string, c *config.Config) error {
 		c.SortRepeatedFieldsBySubfield = append(c.SortRepeatedFieldsBySubfield, val)
 	case "reverse_sort":
 		c.ReverseSort = true
+	case "dns_sort_order":
+		c.DNSSortOrder = true
 	case "wrap_strings_at_column":
 		// If multiple of this MetaComment exists in the file, take the last one.
 		if !hasEqualSign {
@@ -225,6 +259,8 @@ func addToConfig(metaComment string, c *config.Config) error {
 		c.WrapStringsAfterNewlines = true
 	case "wrap_strings_without_wordwrap":
 		c.WrapStringsWithoutWordwrap = true
+	case "use_short_repeated_primitive_fields":
+		c.UseShortRepeatedPrimitiveFields = true
 	case "on": // This doesn't change the overall config.
 	case "off": // This doesn't change the overall config.
 	default:
@@ -284,6 +320,35 @@ func newParser(in []byte, c config.Config) (*parser, error) {
 		column:          1,
 	}
 	return parser, nil
+}
+
+// getFieldNumber returns the field number for a given field name in the descriptor.
+func getFieldNumber(desc protoreflect.MessageDescriptor, fieldName string) int32 {
+	if desc == nil {
+		return 0
+	}
+
+	field := desc.Fields().ByTextName(fieldName)
+	if field == nil {
+		return 0
+	}
+	return int32(field.Number())
+}
+
+// findChildDescriptor finds the descriptor for a nested message field.
+func (p *parser) findChildDescriptor(desc protoreflect.MessageDescriptor, fieldName string) protoreflect.MessageDescriptor {
+	if desc == nil {
+		return nil
+	}
+
+	field := desc.Fields().ByTextName(fieldName)
+	if field == nil {
+		return nil
+	}
+	if field.Kind() == protoreflect.MessageKind {
+		return field.Message()
+	}
+	return nil
 }
 
 func (p *parser) nextInputIs(b byte) bool {
@@ -396,7 +461,7 @@ func (p *parser) consumeOptionalSeparator() error {
 // format (sequence of messages, each of which passes proto.UnmarshalText()).
 // endPos is the position of the first character on the first line
 // after parsed nodes: that's the position to append more children.
-func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, err error) {
+func (p *parser) parse(isRoot bool, desc protoreflect.MessageDescriptor) (result []*ast.Node, endPos ast.Position, err error) {
 	var res []*ast.Node
 	res = []*ast.Node{} // empty children is different from nil children
 	for ld := p.getLoopDetector(); p.index < p.length; {
@@ -441,26 +506,8 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 			comments = append(comments, c...)
 		}
 
-		if endPos := p.position(); p.consume('}') || p.consume('>') || p.consume(']') {
-			// Handle comments after last child.
-
-			if len(comments) > 0 {
-				res = append(res, &ast.Node{Start: startPos, PreComments: comments})
-			}
-
-			// endPos points at the closing brace, but we should rather return the position
-			// of the first character after the previous item. Therefore let's rewind a bit:
-			for endPos.Byte > 0 && p.in[endPos.Byte-1] == ' ' {
-				endPos.Byte--
-				endPos.Column--
-			}
-
-			if err = p.consumeOptionalSeparator(); err != nil {
-				return nil, ast.Position{}, err
-			}
-
-			// Done parsing children.
-			return res, endPos, nil
+		if end, endPos, err := p.handleEndOfMessage(startPos, comments, &res); end {
+			return res, endPos, err
 		}
 
 		nd := &ast.Node{
@@ -491,10 +538,9 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 		}
 
 		// Handle end of file.
-		if p.index >= p.length {
-			nd.End = p.position()
-			if len(nd.PreComments) > 0 {
-				res = append(res, nd)
+		if end, err := p.handleEndOfFile(nd, &res); end {
+			if err != nil {
+				return nil, ast.Position{}, err
 			}
 			break
 		}
@@ -503,43 +549,89 @@ func (p *parser) parse(isRoot bool) (result []*ast.Node, endPos ast.Position, er
 			return nil, ast.Position{}, err
 		}
 
+		// Set field number from descriptor if available
+		nd.FieldNumber = getFieldNumber(desc, nd.Name)
+
 		// Skip separator.
 		preCommentsBeforeColon, _ := p.skipWhiteSpaceAndReadComments(true /* multiLine */)
 		nd.SkipColon = !p.consume(':')
 		previousPos := p.position()
 		preCommentsAfterColon, _ := p.skipWhiteSpaceAndReadComments(true /* multiLine */)
 
-		if p.consume('{') || p.consume('<') {
-			if err := p.parseMessage(nd); err != nil {
-				return nil, ast.Position{}, err
-			}
-		} else if p.consume('[') {
-			if err := p.parseList(nd, preCommentsBeforeColon, preCommentsAfterColon); err != nil {
-				return nil, ast.Position{}, err
-			}
-			if nd.ValuesAsList {
-				res = append(res, nd)
-				continue
-			}
-		} else {
-			// Rewind comments.
-			p.rollbackPosition(previousPos)
-			// Handle Values.
-			var err error
-			nd.Values, err = p.readValues()
-			if err != nil {
-				return nil, ast.Position{}, err
-			}
-			if err := p.consumeOptionalSeparator(); err != nil {
-				return nil, ast.Position{}, err
-			}
+		if err := p.parseFieldValue(nd, desc, preCommentsBeforeColon, preCommentsAfterColon, previousPos); err != nil {
+			return nil, ast.Position{}, err
 		}
+
 		if p.config.InfoLevel() && p.index < p.length {
 			p.config.Infof("p.in[p.index]: %q", string(p.in[p.index]))
 		}
 		res = append(res, nd)
 	}
 	return res, p.position(), nil
+}
+
+func (p *parser) parseFieldValue(nd *ast.Node, desc protoreflect.MessageDescriptor, preCommentsBeforeColon, preCommentsAfterColon []string, previousPos ast.Position) error {
+	if p.consume('{') || p.consume('<') {
+		if err := p.parseMessage(nd, desc); err != nil {
+			return err
+		}
+	} else if p.consume('[') {
+		if err := p.parseList(nd, preCommentsBeforeColon, preCommentsAfterColon); err != nil {
+			return err
+		}
+		if nd.ValuesAsList {
+			return nil
+		}
+	} else {
+		// Rewind comments.
+		p.rollbackPosition(previousPos)
+		// Handle Values.
+		var err error
+		nd.Values, err = p.readValues()
+		if err != nil {
+			return err
+		}
+		if err := p.consumeOptionalSeparator(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *parser) handleEndOfFile(nd *ast.Node, res *[]*ast.Node) (bool, error) {
+	if p.index >= p.length {
+		nd.End = p.position()
+		if len(nd.PreComments) > 0 {
+			*res = append(*res, nd)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (p *parser) handleEndOfMessage(startPos ast.Position, comments []string, res *[]*ast.Node) (bool, ast.Position, error) {
+	if endPos := p.position(); p.consume('}') || p.consume('>') || p.consume(']') {
+		// Handle comments after last child.
+
+		if len(comments) > 0 {
+			*res = append(*res, &ast.Node{Start: startPos, PreComments: comments})
+		}
+
+		// endPos points at the closing brace, but we should rather return the position
+		// of the first character after the previous item. Therefore let's rewind a bit:
+		for endPos.Byte > 0 && p.in[endPos.Byte-1] == ' ' {
+			endPos.Byte--
+			endPos.Column--
+		}
+
+		if err := p.consumeOptionalSeparator(); err != nil {
+			return true, ast.Position{}, err
+		}
+
+		// Done parsing children.
+		return true, endPos, nil
+	}
+	return false, ast.Position{}, nil
 }
 
 func (p *parser) parseFieldName(nd *ast.Node, isRoot bool) error {
@@ -560,14 +652,15 @@ func (p *parser) parseFieldName(nd *ast.Node, isRoot bool) error {
 	return nil
 }
 
-func (p *parser) parseMessage(nd *ast.Node) error {
+func (p *parser) parseMessage(nd *ast.Node, desc protoreflect.MessageDescriptor) error {
 	if p.config.SkipAllColons {
 		nd.SkipColon = true
 	}
 	nd.ChildrenSameLine = p.bracketSameLine[p.index-1]
 	nd.IsAngleBracket = p.config.PreserveAngleBrackets && p.in[p.index-1] == '<'
 	// Recursive call to parse child nodes.
-	nodes, lastPos, err := p.parse( /*isRoot=*/ false)
+	childDesc := p.findChildDescriptor(desc, nd.Name)
+	nodes, lastPos, err := p.parse( /*isRoot=*/ false, childDesc)
 	if err != nil {
 		return err
 	}
@@ -591,62 +684,71 @@ func (p *parser) parseList(nd *ast.Node, preCommentsBeforeColon, preCommentsAfte
 
 	if p.nextInputIs('{') {
 		// Handle list of nodes.
-		nd.ChildrenAsList = true
+		return p.parseListOfNodes(nd, preComments, openBracketLine)
+	} else {
+		// Handle list of values.
+		return p.parseListOfValues(nd, preComments, openBracketLine)
+	}
+}
 
-		nodes, lastPos, err := p.parse( /*isRoot=*/ true)
+func (p *parser) parseListOfNodes(nd *ast.Node, preComments []string, openBracketLine int) error {
+	nd.ChildrenAsList = true
+
+	nodes, lastPos, err := p.parse( /*isRoot=*/ true, nil)
+	if err != nil {
+		return err
+	}
+	if len(nodes) > 0 {
+		nodes[0].PreComments = preComments
+	}
+
+	nd.Children = nodes
+	nd.End = lastPos
+	nd.ClosingBraceComment = p.readInlineComment()
+	nd.ChildrenSameLine = openBracketLine == p.line
+	return nil
+}
+
+func (p *parser) parseListOfValues(nd *ast.Node, preComments []string, openBracketLine int) error {
+	nd.ValuesAsList = true // We found values in list - keep it as list.
+
+	for ld := p.getLoopDetector(); !p.consume(']') && p.index < p.length; {
+		if err := ld.iter(); err != nil {
+			return err
+		}
+
+		// Read each value in the list.
+		vals, err := p.readValues()
 		if err != nil {
 			return err
 		}
-		if len(nodes) > 0 {
-			nodes[0].PreComments = preComments
+		if len(vals) != 1 {
+			return fmt.Errorf("multiple-string value not supported (%v). Please add comma explicitly, see http://b/162070952", vals)
+		}
+		if len(preComments) > 0 {
+			// If we read preComments before readValues(), they should go first,
+			// but avoid copy overhead if there are none.
+			vals[0].PreComments = append(preComments, vals[0].PreComments...)
 		}
 
-		nd.Children = nodes
-		nd.End = lastPos
-		nd.ClosingBraceComment = p.readInlineComment()
-		nd.ChildrenSameLine = openBracketLine == p.line
-	} else {
-		// Handle list of values.
-		nd.ValuesAsList = true // We found values in list - keep it as list.
-
-		for ld := p.getLoopDetector(); !p.consume(']') && p.index < p.length; {
-			if err := ld.iter(); err != nil {
-				return err
-			}
-
-			// Read each value in the list.
-			vals, err := p.readValues()
-			if err != nil {
-				return err
-			}
-			if len(vals) != 1 {
-				return fmt.Errorf("multiple-string value not supported (%v). Please add comma explicitly, see http://b/162070952", vals)
-			}
-			if len(preComments) > 0 {
-				// If we read preComments before readValues(), they should go first,
-				// but avoid copy overhead if there are none.
-				vals[0].PreComments = append(preComments, vals[0].PreComments...)
-			}
-
-			// Skip separator.
-			_, _ = p.skipWhiteSpaceAndReadComments(false /* multiLine */)
-			if p.consume(',') {
-				vals[0].InlineComment = p.readInlineComment()
-			}
-
-			nd.Values = append(nd.Values, vals...)
-
-			preComments, _ = p.skipWhiteSpaceAndReadComments(true /* multiLine */)
+		// Skip separator.
+		_, _ = p.skipWhiteSpaceAndReadComments(false /* multiLine */)
+		if p.consume(',') {
+			vals[0].InlineComment = p.readInlineComment()
 		}
-		nd.ChildrenSameLine = openBracketLine == p.line
 
-		// Handle comments after last line (or for empty list)
-		nd.PostValuesComments = preComments
-		nd.ClosingBraceComment = p.readInlineComment()
+		nd.Values = append(nd.Values, vals...)
 
-		if err := p.consumeOptionalSeparator(); err != nil {
-			return err
-		}
+		preComments, _ = p.skipWhiteSpaceAndReadComments(true /* multiLine */)
+	}
+	nd.ChildrenSameLine = openBracketLine == p.line
+
+	// Handle comments after last line (or for empty list)
+	nd.PostValuesComments = preComments
+	nd.ClosingBraceComment = p.readInlineComment()
+
+	if err := p.consumeOptionalSeparator(); err != nil {
+		return err
 	}
 	return nil
 }

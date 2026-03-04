@@ -23,7 +23,6 @@ import (
 	"cuelang.org/go/cue/ast/astutil"
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/token"
-	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/adt"
 )
 
@@ -56,10 +55,9 @@ func (e *exporter) vertex(n *adt.Vertex) (result ast.Expr) {
 		e.popFrame(saved)
 	}()
 
-	n.VisitLeafConjuncts(func(c adt.Conjunct) bool {
+	for c := range n.LeafConjuncts() {
 		e.markLets(c.Expr().Source(), s)
-		return true
-	})
+	}
 
 	switch x := n.BaseValue.(type) {
 	case nil:
@@ -103,14 +101,9 @@ func (e *exporter) vertex(n *adt.Vertex) (result ast.Expr) {
 	}
 	if result == nil {
 		// fall back to expression mode
-		a := []adt.Conjunct{}
-		n.VisitLeafConjuncts(func(c adt.Conjunct) bool {
-			a = append(a, c)
-			return true
-		})
 		// Use stable sort to ensure that tie breaks (for instance if elements
 		// are not associated with a position) are deterministic.
-		slices.SortStableFunc(a, cmpConjuncts)
+		a := slices.SortedStableFunc(n.LeafConjuncts(), cmpConjuncts)
 
 		exprs := make([]ast.Expr, 0, len(a))
 		for _, c := range a {
@@ -122,9 +115,7 @@ func (e *exporter) vertex(n *adt.Vertex) (result ast.Expr) {
 		result = ast.NewBinExpr(token.AND, exprs...)
 	}
 
-	if len(s.Elts) > 0 {
-		filterUnusedLets(s)
-	}
+	filterUnusedLets(s)
 	if result != s && len(s.Elts) > 0 {
 		// There are used let expressions within a non-struct.
 		// For now we just fall back to the original expressions.
@@ -228,6 +219,9 @@ func (e *exporter) value(n adt.Value, a ...adt.Conjunct) (result ast.Expr) {
 		}
 		result = ast.NewBinExpr(token.OR, a...)
 
+	case *adt.NodeLink:
+		return e.value(x.Node, a...)
+
 	default:
 		panic(fmt.Sprintf("unsupported type %T", x))
 	}
@@ -242,7 +236,7 @@ func (e *exporter) bottom(n *adt.Bottom) *ast.BottomLit {
 	if x := n.Err; x != nil {
 		msg := x.Error()
 		comment := &ast.Comment{Text: "// " + msg}
-		err.AddComment(&ast.CommentGroup{
+		ast.AddComment(err, &ast.CommentGroup{
 			Line:     true,
 			Position: 2,
 			List:     []*ast.Comment{comment},
@@ -259,15 +253,13 @@ func (e *exporter) bool(n *adt.Bool) (b *ast.BasicLit) {
 	return ast.NewBool(n.B)
 }
 
-func extractBasic(a []adt.Conjunct) (lit *ast.BasicLit) {
-	adt.VisitConjuncts(a, func(c adt.Conjunct) bool {
+func extractBasic(a []adt.Conjunct) *ast.BasicLit {
+	for c := range adt.ConjunctsSeq(a) {
 		if b, ok := c.Source().(*ast.BasicLit); ok {
-			lit = &ast.BasicLit{Kind: b.Kind, Value: b.Value}
-			return false
+			return &ast.BasicLit{Kind: b.Kind, Value: b.Value}
 		}
-		return true
-	})
-	return lit
+	}
+	return nil
 }
 
 func (e *exporter) num(n *adt.Num, orig []adt.Conjunct) *ast.BasicLit {
@@ -460,7 +452,7 @@ func (e *exporter) structComposite(v *adt.Vertex, attrs []*ast.Attribute) ast.Ex
 		// This package typically does not create errors that did not result
 		// from evaluation already.
 
-		internal.SetConstraint(f, arc.ArcType.Token())
+		f.Constraint = arc.ArcType.Token()
 
 		f.Value = e.vertex(arc.DerefValue())
 

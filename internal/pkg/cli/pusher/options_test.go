@@ -81,6 +81,7 @@ func TestFromContext(t *testing.T) {
 			assert: func(res *Options, err error) {
 				require.NoError(t, err)
 				assert.Len(t, res.inputFiles, 1)
+
 				for k, v := range res.inputFiles {
 					assert.Equal(t, "foo", k.OS)
 					assert.Equal(t, DefaultInputFile, v)
@@ -99,6 +100,7 @@ func TestFromContext(t *testing.T) {
 			assert: func(res *Options, err error) {
 				require.NoError(t, err)
 				assert.Len(t, res.inputFiles, 2)
+
 				for k, v := range res.inputFiles {
 					assert.Equal(t, v, k.OS)
 				}

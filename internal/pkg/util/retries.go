@@ -34,7 +34,7 @@ func IsNotFoundOrConflict(err error) bool {
 	return errors.IsNotFound(err) || errors.IsConflict(err)
 }
 
-// retry attempts to execute fn up to 5 times if its failure meets retryCondition.
+// Retry attempts to execute fn up to 5 times if its failure meets retryCondition.
 func Retry(fn func() error, retryCondition func(error) bool) error {
 	backoff := wait.Backoff{
 		Duration: backoffDuration,

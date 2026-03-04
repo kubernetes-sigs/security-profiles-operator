@@ -19,10 +19,9 @@ import (
 	"compress/gzip"
 	"encoding/gob"
 	"path/filepath"
-	"strings"
+	"strconv"
 
 	"cuelang.org/go/cue/ast"
-	"cuelang.org/go/cue/ast/astutil"
 	"cuelang.org/go/cue/build"
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/format"
@@ -30,6 +29,13 @@ import (
 	"cuelang.org/go/internal"
 	"cuelang.org/go/internal/core/export"
 )
+
+// Unmarshaler is the interface implemented by types that can unmarshal themselves from a CUE value.
+// While input can be assumed to be a valid Value,
+// there is no guarantee there are no errors or that the value is complete.
+type Unmarshaler interface {
+	UnmarshalCUE(v Value) error
+}
 
 // root.
 type instanceData struct {
@@ -91,7 +97,6 @@ func compileInstances(r *Runtime, data []*instanceData) (instances []*Instance, 
 		}
 		builds = append(builds, b.build(i))
 	}
-
 	return r.BuildInstances(builds)
 }
 
@@ -135,6 +140,7 @@ func (r *Runtime) Marshal(values ...InstanceOrValue) (b []byte, err error) {
 	var errs errors.Error
 
 	var stageInstance func(i Value) (pos int)
+	allStaged := make(map[*build.Instance]bool)
 	stageInstance = func(i Value) (pos int) {
 		inst := i.BuildInstance()
 		if p, ok := done[inst.ImportPath]; ok {
@@ -142,16 +148,16 @@ func (r *Runtime) Marshal(values ...InstanceOrValue) (b []byte, err error) {
 		}
 		// TODO: support exporting instance
 		file, _ := export.Def(r.runtime(), inst.ID(), i.instance().root)
-		imports := []string{}
-		file.VisitImports(func(i *ast.ImportDecl) {
-			for _, spec := range i.Specs {
-				info, _ := astutil.ParseImportSpec(spec)
-				imports = append(imports, info.ID)
+		imports := make(map[*build.Instance]bool)
+		for spec := range file.ImportSpecs() {
+			path, _ := strconv.Unquote(spec.Path.Value)
+			if impInst := inst.LookupImport(path); impInst != nil {
+				imports[impInst] = true
 			}
-		})
+		}
 
 		if inst.PkgName != "" {
-			if pkg := internal.Package(file); pkg == nil {
+			if pkg, _ := internal.Package(file); pkg == nil {
 				pkg := &ast.Package{Name: ast.NewIdent(inst.PkgName)}
 				file.Decls = append([]ast.Decl{pkg}, file.Decls...)
 			} else if pkg.Name.Name != inst.PkgName {
@@ -188,21 +194,22 @@ func (r *Runtime) Marshal(values ...InstanceOrValue) (b []byte, err error) {
 
 		p := len(staged) - 1
 
-		for _, imp := range imports {
-			i := getImportFromPath(r.runtime(), imp)
-			if i == nil || !strings.Contains(imp, ".") {
-				continue // a builtin package.
+		for impInst := range imports {
+			if allStaged[impInst] {
+				continue
 			}
-			stageInstance(i.Value())
+			if v := r.runtime().LoadInstance(impInst); v != nil {
+				allStaged[impInst] = true
+				imp := getImportFromBuild(r.runtime(), impInst, v)
+				stageInstance(imp.Value())
+			}
 		}
 
 		return p
 	}
-
 	for _, val := range values {
 		staged[stageInstance(val.Value())].Root = true
 	}
-
 	buf := &bytes.Buffer{}
 	buf.WriteByte(version)
 

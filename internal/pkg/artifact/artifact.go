@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -145,9 +146,7 @@ func (a *Artifact) Push(
 			return fmt.Errorf("add profile to store: %w", err)
 		}
 
-		for k, v := range annotations {
-			fileDescriptor.Annotations[k] = v
-		}
+		maps.Copy(fileDescriptor.Annotations, annotations)
 
 		fileDescriptor.Platform = platform
 		fileDescriptors = append(fileDescriptors, fileDescriptor)

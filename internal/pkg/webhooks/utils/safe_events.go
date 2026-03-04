@@ -38,7 +38,7 @@ func (sr *SafeRecorder) Event(object runtime.Object, eventtype, reason, message 
 }
 
 // Eventf is just like Event, but with Sprintf for the message field.
-func (sr *SafeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
+func (sr *SafeRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...any) {
 	if sr.recorder == nil {
 		return
 	}
@@ -51,7 +51,7 @@ func (sr *SafeRecorder) AnnotatedEventf(
 	object runtime.Object,
 	annotations map[string]string,
 	eventtype, reason, messageFmt string,
-	args ...interface{},
+	args ...any,
 ) {
 	if sr.recorder == nil {
 		return

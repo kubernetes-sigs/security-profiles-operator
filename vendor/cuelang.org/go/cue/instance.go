@@ -15,7 +15,6 @@
 package cue
 
 import (
-	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/build"
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/internal/core/adt"
@@ -71,7 +70,7 @@ func addInst(x *runtime.Runtime, p *Instance) *Instance {
 			PkgName:    p.PkgName,
 		}
 	}
-	x.AddInst(p.ImportPath, p.root, p.inst)
+	x.AddInst(p.root, p.inst)
 	x.SetBuildData(p.inst, p)
 	p.index = x
 	return p
@@ -119,7 +118,7 @@ func getImportFromNode(x *runtime.Runtime, v *adt.Vertex) *Instance {
 }
 
 func getImportFromPath(x *runtime.Runtime, id string) *Instance {
-	node := x.LoadImport(id)
+	node := x.LoadBuiltin(id)
 	if node == nil {
 		return nil
 	}
@@ -154,7 +153,7 @@ func newInstance(x *runtime.Runtime, p *build.Instance, v *adt.Vertex) *Instance
 		}
 	}
 
-	x.AddInst(p.ImportPath, v, p)
+	x.AddInst(v, p)
 	x.SetBuildData(p, inst)
 	inst.index = x
 	return inst
@@ -188,20 +187,7 @@ func (inst *Instance) Value() Value {
 	return newVertexRoot(inst.index, ctx, inst.root)
 }
 
-// Eval evaluates an expression within an existing instance.
-//
-// Expressions may refer to builtin packages if they can be uniquely identified.
-//
-// Deprecated: use
-// inst.Value().Context().BuildExpr(expr, Scope(inst.Value), InferBuiltins(true))
-func (inst *hiddenInstance) Eval(expr ast.Expr) Value {
-	v := inst.Value()
-	return v.Context().BuildExpr(expr, Scope(v), InferBuiltins(true))
-}
-
-// DO NOT USE.
-//
-// Deprecated: do not use.
+// Deprecated: do not use; use unification instead.
 func Merge(inst ...*Instance) *Instance {
 	v := &adt.Vertex{}
 
@@ -233,10 +219,8 @@ func (inst *hiddenInstance) Build(p *build.Instance) *Instance {
 	idx := inst.index
 	r := inst.index
 
-	rErr := r.ResolveFiles(p)
-
 	cfg := &compile.Config{Scope: valueScope(Value{idx: r, v: inst.root})}
-	v, err := compile.Files(cfg, r, p.ID(), p.Files...)
+	v, err := compile.Instance(cfg, r, p)
 
 	// Just like [runtime.Runtime.Build], ensure that the @embed compiler is run as needed.
 	err = errors.Append(err, r.InjectImplementations(p, v))
@@ -244,8 +228,8 @@ func (inst *hiddenInstance) Build(p *build.Instance) *Instance {
 	v.AddConjunct(adt.MakeRootConjunct(nil, inst.root))
 
 	i := newInstance(idx, p, v)
-	if rErr != nil {
-		i.setListOrError(rErr)
+	if p.ResolutionErr != nil {
+		i.setListOrError(p.ResolutionErr)
 	}
 	if i.Err != nil {
 		i.setListOrError(i.Err)

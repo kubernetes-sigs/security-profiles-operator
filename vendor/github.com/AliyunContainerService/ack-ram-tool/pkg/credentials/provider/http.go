@@ -22,6 +22,9 @@ type httpError struct {
 type commonHttpClient struct {
 	client httpClient
 	logger Logger
+
+	delegatedRoundTripper http.RoundTripper
+	replaceTransport      http.RoundTripper
 }
 
 func newCommonHttpClient(transport http.RoundTripper, timeout time.Duration) *commonHttpClient {
@@ -30,6 +33,32 @@ func newCommonHttpClient(transport http.RoundTripper, timeout time.Duration) *co
 		Timeout:   timeout,
 	}
 	return &commonHttpClient{client: client}
+}
+
+func (c *commonHttpClient) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("User-Agent", UserAgent)
+	if debugMode {
+		for _, item := range genDebugReqMessages(req) {
+			c.getLogger().Debug(item)
+		}
+	}
+	ts := c.delegatedRoundTripper
+	if c.replaceTransport != nil {
+		ts = c.replaceTransport
+	}
+
+	resp, err := ts.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if debugMode {
+		for _, item := range genDebugRespMessages(resp) {
+			c.getLogger().Debug(item)
+		}
+	}
+
+	return resp, nil
 }
 
 func (c *commonHttpClient) send(ctx context.Context, method, url string, header http.Header, body io.Reader) (string, error) {

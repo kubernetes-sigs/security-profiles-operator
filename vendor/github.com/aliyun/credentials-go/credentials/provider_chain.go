@@ -27,6 +27,6 @@ func (p *providerChain) resolve() (*Config, error) {
 		}
 		return config, err
 	}
-	return nil, errors.New("No credential found")
+	return nil, errors.New("no credential found")
 
 }

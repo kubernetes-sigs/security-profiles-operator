@@ -64,10 +64,8 @@ func (l *loader) importPkg(pos token.Pos, p *build.Instance) []*build.Instance {
 		return []*build.Instance{p}
 	}
 
-	for _, item := range l.stk {
-		if item == p.ImportPath {
-			return retErr(&PackageError{Message: errors.NewMessagef("package import cycle not allowed")})
-		}
+	if slices.Contains(l.stk, p.ImportPath) {
+		return retErr(&PackageError{Message: errors.NewMessagef("package import cycle not allowed")})
 	}
 	l.stk.Push(p.ImportPath)
 	defer l.stk.Pop()
@@ -144,6 +142,11 @@ func (l *loader) importPkg(pos token.Pos, p *build.Instance) []*build.Instance {
 	// See https://cuelang.org/docs/concept/modules-packages-instances/#instances.
 	for _, d := range dirs {
 		dir := filepath.Clean(d[1])
+		// firstDir keeps track of whether we're still looking at the initial
+		// directory rather than one of its parents. If there are no CUE files
+		// in the initial directory, we shouldn't walk to its parents because
+		// the initial directory isn't itself a CUE package.
+		firstDir := true
 		for {
 			sd, ok := l.dirCachedBuildFiles[dir]
 			if !ok {
@@ -156,6 +159,7 @@ func (l *loader) importPkg(pos token.Pos, p *build.Instance) []*build.Instance {
 				}
 				return retErr(errors.Wrapf(err, token.NoPos, "import failed reading dir %v", dir))
 			}
+			added := false
 			for _, name := range sd.filenames {
 				file, err := filetypes.ParseFileAndType(name, "", filetypes.Input)
 				if err != nil {
@@ -163,11 +167,11 @@ func (l *loader) importPkg(pos token.Pos, p *build.Instance) []*build.Instance {
 						Filename:      name,
 						ExcludeReason: errors.Newf(token.NoPos, "unknown filetype"),
 					})
-				} else {
-					fp.add(dir, file, 0)
+				} else if fp.add(dir, file, 0) {
+					added = true
 				}
 			}
-			if p.PkgName == "" || !inModule || l.cfg.isModRoot(dir) || dir == d[0] {
+			if p.PkgName == "" || !inModule || l.cfg.isModRoot(dir) || dir == d[0] || (firstDir && !added) {
 				break
 			}
 
@@ -182,6 +186,7 @@ func (l *loader) importPkg(pos token.Pos, p *build.Instance) []*build.Instance {
 				break
 			}
 			dir = parent
+			firstDir = false
 		}
 	}
 
@@ -390,12 +395,17 @@ func importPathFromAbsDir(c *Config, absDir string, origPath string) (importPath
 		return "", fmt.Errorf("cannot determine import path for %q (root undefined)", origPath)
 	}
 
-	dir := filepath.Clean(absDir)
-	if !strings.HasPrefix(dir, c.ModuleRoot) {
+	subdir, ok := strings.CutPrefix(filepath.Clean(absDir), c.ModuleRoot)
+	if !ok {
 		return "", fmt.Errorf("cannot determine import path for %q (dir outside of root)", origPath)
 	}
 
-	pkg := filepath.ToSlash(dir[len(c.ModuleRoot):])
+	pkg := filepath.ToSlash(subdir)
+	if pkg != "" && !strings.HasPrefix(pkg, "/") {
+		// [Config.ModuleRoot] was the root of the filesystem,
+		// and it had a trailing slash which got removed as a prefix; add it back.
+		pkg = "/" + pkg
+	}
 	switch {
 	case strings.HasPrefix(pkg, "/cue.mod/"):
 		pkg = pkg[len("/cue.mod/"):]
@@ -432,11 +442,11 @@ func (l *loader) newInstance(pos token.Pos, p importPath) *build.Instance {
 		return i
 	}
 	mf, err1 := l.modFileCache.modFile(mv, modRoot)
-	if err != nil {
+	if err1 != nil {
 		i.Err = errors.Append(i.Err, errors.Promote(err1, ""))
 	}
 	root, err1 := absPathForSourceLoc(modRoot)
-	if err != nil {
+	if err1 != nil {
 		i.Err = errors.Append(i.Err, errors.Promote(err1, ""))
 	} else {
 		i.Root = root

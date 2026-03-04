@@ -46,6 +46,10 @@ func predeclared(n *ast.Ident) adt.Expr {
 		return lenBuiltin
 	case "close", "__close":
 		return closeBuiltin
+	case "__closeAll":
+		return closeAllBuiltin
+	case "__reclose":
+		return recloseBuiltin
 	case "matchIf", "__matchIf":
 		return matchIfBuiltin
 	case "matchN", "__matchN":
@@ -62,6 +66,10 @@ func predeclared(n *ast.Ident) adt.Expr {
 		return quoBuiltin
 	case "rem", "__rem":
 		return remBuiltin
+
+	case "self", "__self":
+		// UpCount of 1 gets resolved to relNode(1)
+		return &adt.ValueReference{Src: n, UpCount: 1}
 
 	case "__no_sharing":
 		return adt.NoShareSentinel

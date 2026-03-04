@@ -24,7 +24,6 @@ import (
 	"cuelang.org/go/internal/core/convert"
 	"cuelang.org/go/internal/core/eval"
 	"cuelang.org/go/internal/core/runtime"
-	"cuelang.org/go/internal/types"
 )
 
 // Context returns the cue.Context of the given argument.
@@ -64,14 +63,12 @@ func OpContext[Ctx *cue.Runtime | *cue.Context | cue.Value](c Ctx) *adt.OpContex
 }
 
 func ToInternal(v cue.Value) (*runtime.Runtime, *adt.Vertex) {
-	var t types.Value
-	v.Core(&t)
+	t := v.Core()
 	return t.R, t.V
 }
 
 func Vertex(v cue.Value) *adt.Vertex {
-	var t types.Value
-	v.Core(&t)
+	t := v.Core()
 	return t.V
 }
 
@@ -83,13 +80,14 @@ func Make(ctx *adt.OpContext, v adt.Value) cue.Value {
 // UnifyBuiltin returns the given Value unified with the given builtin template.
 func UnifyBuiltin(v cue.Value, kind string) cue.Value {
 	pkg, name, _ := strings.Cut(kind, ".")
-	s := runtime.SharedRuntime().LoadImport(pkg)
+	ctx := v.Context()
+	rt := (*runtime.Runtime)(ctx)
+	s := rt.LoadBuiltin(pkg)
 	if s == nil {
 		return v
 	}
 
-	ctx := v.Context()
-	a := s.Lookup((*runtime.Runtime)(ctx).Label(name, false))
+	a := s.Lookup(rt.Label(name, false))
 	if a == nil {
 		return v
 	}
@@ -101,7 +99,7 @@ func FromGoValue(r *cue.Context, x interface{}, nilIsTop bool) cue.Value {
 	rt := (*runtime.Runtime)(r)
 	rt.Init()
 	ctx := eval.NewContext(rt, nil)
-	v := convert.GoValueToValue(ctx, x, nilIsTop)
+	v := convert.FromGoValue(ctx, x, nilIsTop)
 	n := adt.ToVertex(v)
 	return r.Encode(n)
 }
@@ -110,7 +108,7 @@ func FromGoType(r *cue.Context, x interface{}) cue.Value {
 	rt := (*runtime.Runtime)(r)
 	rt.Init()
 	ctx := eval.NewContext(rt, nil)
-	expr, err := convert.GoTypeToExpr(ctx, x)
+	expr, err := convert.FromGoType(ctx, x)
 	if err != nil {
 		expr = &adt.Bottom{Err: err}
 	}

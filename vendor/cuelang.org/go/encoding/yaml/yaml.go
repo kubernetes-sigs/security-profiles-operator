@@ -70,7 +70,9 @@ func Extract(filename string, src interface{}) (*ast.File, error) {
 
 // Encode returns the YAML encoding of v.
 func Encode(v cue.Value) ([]byte, error) {
-	n := v.Syntax(cue.Final())
+	// Note that we use [cue.Concrete] in this package, which expands all references.
+	// If we want YAML to encode with anchors in the future, we can change this.
+	n := v.Syntax(cue.Concrete(true))
 	b, err := cueyaml.Encode(n)
 	return b, err
 }
@@ -84,7 +86,7 @@ func EncodeStream(iter cue.Iterator) ([]byte, error) {
 		if i > 0 {
 			buf.WriteString("---\n")
 		}
-		n := iter.Value().Syntax(cue.Final())
+		n := iter.Value().Syntax(cue.Concrete(true))
 		b, err := cueyaml.Encode(n)
 		if err != nil {
 			return nil, err
@@ -92,6 +94,40 @@ func EncodeStream(iter cue.Iterator) ([]byte, error) {
 		buf.Write(b)
 	}
 	return buf.Bytes(), nil
+}
+
+// NewDecoder configures a YAML decoder. The path is used to associate position
+// information with each node.
+//
+// Use the Decoder's Extract method to extract YAML values one at a time.
+// For YAML streams with multiple documents separated by `---`, each call to
+// Extract will return the next document.
+func NewDecoder(path string, src io.Reader) *Decoder {
+	b, err := source.ReadAll(path, src)
+	return &Decoder{
+		path:       path,
+		dec:        cueyaml.NewDecoder(path, b),
+		readAllErr: err,
+	}
+}
+
+// A Decoder converts YAML values to CUE.
+type Decoder struct {
+	path       string
+	dec        cueyaml.Decoder
+	readAllErr error
+}
+
+// Extract converts the current YAML value to a CUE ast. It returns io.EOF
+// if the input has been exhausted.
+//
+// For YAML streams with multiple documents separated by `---`, each call to
+// Extract will return the next document as a separate CUE expression.
+func (d *Decoder) Extract() (ast.Expr, error) {
+	if d.readAllErr != nil {
+		return nil, d.readAllErr
+	}
+	return d.dec.Decode()
 }
 
 // Validate validates the YAML and confirms it matches the constraints

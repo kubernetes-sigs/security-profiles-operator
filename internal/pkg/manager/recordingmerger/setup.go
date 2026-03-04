@@ -33,7 +33,7 @@ func (r *PolicyMergeReconciler) Setup(
 ) error {
 	r.client = mgr.GetClient()
 	r.log = ctrl.Log.WithName(r.Name())
-	r.record = mgr.GetEventRecorderFor(r.Name())
+	r.record = mgr.GetEventRecorderFor(r.Name()) //nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
 
 	// Register a special reconciler for status events
 	return ctrl.NewControllerManagedBy(mgr).

@@ -17,28 +17,22 @@ package pkg
 import (
 	"io"
 	"math/big"
+	"math/bits"
 
 	"github.com/cockroachdb/apd/v3"
 
 	"cuelang.org/go/cue"
-	"cuelang.org/go/cue/token"
 	"cuelang.org/go/internal/core/adt"
 	"cuelang.org/go/internal/value"
 )
 
 // CallCtxt is passed to builtin implementations that need to use a cue.Value. This is an internal type. Its interface may change.
 type CallCtxt struct {
-	*adt.CallContext
+	adt.CallContext
 	ctx     *adt.OpContext
 	builtin *Builtin
-	Err     interface{}
-	Ret     interface{}
-
-	args []adt.Value
-}
-
-func (c *CallCtxt) Pos() token.Pos {
-	return c.ctx.Pos()
+	Err     any
+	Ret     any
 }
 
 func (c *CallCtxt) Name() string {
@@ -62,7 +56,7 @@ func (c *CallCtxt) Schema(i int) Schema {
 
 // Value returns a finalized cue.Value for the ith argument.
 func (c *CallCtxt) Value(i int) cue.Value {
-	v := value.Make(c.ctx, c.args[i])
+	v := value.Make(c.ctx, c.CallContext.Value(i))
 	if c.builtin.NonConcrete {
 		// In case NonConcrete is false, the concreteness is already checked
 		// at call time. We may want to use finalize semantics in both cases,
@@ -78,7 +72,7 @@ func (c *CallCtxt) Value(i int) cue.Value {
 }
 
 func (c *CallCtxt) Struct(i int) Struct {
-	x := c.args[i]
+	x := c.CallContext.Value(i)
 	if c.builtin.NonConcrete {
 		x = adt.Default(x)
 	}
@@ -95,7 +89,7 @@ func (c *CallCtxt) Struct(i int) Struct {
 		if b, ok := x.(*adt.Bottom); ok {
 			err = &callError{b}
 		}
-		c.invalidArgType(c.args[i], i, "struct", err)
+		c.invalidArgType(x, i, "struct", err)
 	} else {
 		err := c.ctx.NewErrf("non-concrete struct for argument %d", i)
 		err.Code = adt.IncompleteError
@@ -111,15 +105,21 @@ func (c *CallCtxt) Int32(i int) int32 { return int32(c.intValue(i, 32, "int32"))
 func (c *CallCtxt) Rune(i int) rune   { return rune(c.intValue(i, 32, "rune")) }
 func (c *CallCtxt) Int64(i int) int64 { return c.intValue(i, 64, "int64") }
 
-func (c *CallCtxt) intValue(i, bits int, typ string) int64 {
-	arg := c.args[i]
+func (c *CallCtxt) intValue(i, bitLen int, typ string) int64 {
+	arg := c.CallContext.Value(i)
+	if num, _ := c.ctx.EvaluateKeepState(arg).(*adt.Num); num != nil {
+		// In the happy path, avoid converting to the public [cue.Value] API, which is wasteful.
+		if n, err := num.X.Int64(); err == nil && bits.Len64(uint64(n)) <= bitLen {
+			return n
+		}
+	}
 	x := value.Make(c.ctx, arg)
 	n, err := x.Int(nil)
 	if err != nil {
 		c.invalidArgType(arg, i, typ, err)
 		return 0
 	}
-	if n.BitLen() > bits {
+	if n.BitLen() > bitLen {
 		c.errf(err, "int %s overflows %s in argument %d in call to %s",
 			n, typ, i, c.Name())
 	}
@@ -134,14 +134,23 @@ func (c *CallCtxt) Uint16(i int) uint16 { return uint16(c.uintValue(i, 16, "uint
 func (c *CallCtxt) Uint32(i int) uint32 { return uint32(c.uintValue(i, 32, "uint32")) }
 func (c *CallCtxt) Uint64(i int) uint64 { return c.uintValue(i, 64, "uint64") }
 
-func (c *CallCtxt) uintValue(i, bits int, typ string) uint64 {
-	x := value.Make(c.ctx, c.args[i])
+func (c *CallCtxt) uintValue(i, bitLen int, typ string) uint64 {
+	arg := c.CallContext.Value(i)
+	if num, _ := c.ctx.EvaluateKeepState(arg).(*adt.Num); num != nil {
+		// In the happy path, avoid converting to the public [cue.Value] API, which is wasteful.
+		// Note that [apd.Decimal] has an Int64 method, but no Uint64 method,
+		// so any uint64 value that doesn't fit in an int64 skips the shortcut.
+		if n, err := num.X.Int64(); err == nil && n >= 0 && bits.Len64(uint64(n)) <= bitLen {
+			return uint64(n)
+		}
+	}
+	x := value.Make(c.ctx, arg)
 	n, err := x.Int(nil)
 	if err != nil || n.Sign() < 0 {
-		c.invalidArgType(c.args[i], i, typ, err)
+		c.invalidArgType(arg, i, typ, err)
 		return 0
 	}
-	if n.BitLen() > bits {
+	if n.BitLen() > bitLen {
 		c.errf(err, "int %s overflows %s in argument %d in call to %s",
 			n, typ, i, c.Name())
 	}
@@ -150,30 +159,47 @@ func (c *CallCtxt) uintValue(i, bits int, typ string) uint64 {
 }
 
 func (c *CallCtxt) Decimal(i int) *apd.Decimal {
-	x := value.Make(c.ctx, c.args[i])
+	arg := c.CallContext.Value(i)
+	if num, _ := c.ctx.EvaluateKeepState(arg).(*adt.Num); num != nil {
+		// In the happy path, avoid converting to the public [cue.Value] API, which is wasteful.
+		return &num.X
+	}
+	x := value.Make(c.ctx, arg)
 	res, err := x.Decimal()
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "Decimal", err)
+		c.invalidArgType(arg, i, "Decimal", err)
 		return nil
 	}
 	return res
 }
 
 func (c *CallCtxt) Float64(i int) float64 {
-	x := value.Make(c.ctx, c.args[i])
+	arg := c.CallContext.Value(i)
+	if num, _ := c.ctx.EvaluateKeepState(arg).(*adt.Num); num != nil {
+		// In the happy path, avoid converting to the public [cue.Value] API, which is wasteful.
+		if f, err := num.X.Float64(); err == nil {
+			return f
+		}
+	}
+	x := value.Make(c.ctx, arg)
 	res, err := x.Float64()
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "float64", err)
+		c.invalidArgType(arg, i, "float64", err)
 		return 0
 	}
 	return res
 }
 
 func (c *CallCtxt) BigInt(i int) *big.Int {
-	x := value.Make(c.ctx, c.args[i])
+	arg := c.CallContext.Value(i)
+	if num, _ := c.ctx.EvaluateKeepState(arg).(*adt.Num); num != nil {
+		// In the happy path, avoid converting to the public [cue.Value] API, which is wasteful.
+		return num.BigInt(nil)
+	}
+	x := value.Make(c.ctx, arg)
 	n, err := x.Int(nil)
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "int", err)
+		c.invalidArgType(arg, i, "int", err)
 		return nil
 	}
 	return n
@@ -182,11 +208,12 @@ func (c *CallCtxt) BigInt(i int) *big.Int {
 var ten = big.NewInt(10)
 
 func (c *CallCtxt) BigFloat(i int) *big.Float {
-	x := value.Make(c.ctx, c.args[i])
+	arg := c.CallContext.Value(i)
+	x := value.Make(c.ctx, arg)
 	var mant big.Int
 	exp, err := x.MantExp(&mant)
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "float", err)
+		c.invalidArgType(arg, i, "float", err)
 		return nil
 	}
 	f := &big.Float{}
@@ -200,53 +227,68 @@ func (c *CallCtxt) BigFloat(i int) *big.Float {
 }
 
 func (c *CallCtxt) String(i int) string {
-	// TODO: use Evaluate instead.
-	x := value.Make(c.ctx, c.args[i])
+	arg := c.CallContext.Value(i)
+	if str, _ := c.ctx.EvaluateKeepState(arg).(*adt.String); str != nil {
+		// In the happy path, avoid converting to the public [cue.Value] API, which is wasteful.
+		return str.Str
+	}
+	x := value.Make(c.ctx, arg)
 	v, err := x.String()
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "string", err)
+		c.invalidArgType(arg, i, "string", err)
 		return ""
 	}
 	return v
 }
 
 func (c *CallCtxt) Bytes(i int) []byte {
-	x := value.Make(c.ctx, c.args[i])
+	arg := c.CallContext.Value(i)
+	if bs, _ := c.ctx.EvaluateKeepState(arg).(*adt.Bytes); bs != nil {
+		// In the happy path, avoid converting to the public [cue.Value] API, which is wasteful.
+		return bs.B
+	}
+	x := value.Make(c.ctx, arg)
 	v, err := x.Bytes()
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "bytes", err)
+		c.invalidArgType(arg, i, "bytes", err)
 		return nil
 	}
 	return v
 }
 
 func (c *CallCtxt) Reader(i int) io.Reader {
-	x := value.Make(c.ctx, c.args[i])
+	arg := c.CallContext.Value(i)
+	x := value.Make(c.ctx, arg)
 	// TODO: optimize for string and bytes cases
 	r, err := x.Reader()
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "bytes|string", err)
+		c.invalidArgType(arg, i, "bytes|string", err)
 		return nil
 	}
 	return r
 }
 
 func (c *CallCtxt) Bool(i int) bool {
-	x := value.Make(c.ctx, c.args[i])
+	arg := c.CallContext.Value(i)
+	if b, _ := c.ctx.EvaluateKeepState(arg).(*adt.Bool); b != nil {
+		// In the happy path, avoid converting to the public [cue.Value] API, which is wasteful.
+		return b.B
+	}
+	x := value.Make(c.ctx, arg)
 	b, err := x.Bool()
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "bool", err)
+		c.invalidArgType(arg, i, "bool", err)
 		return false
 	}
 	return b
 }
 
 func (c *CallCtxt) List(i int) (a []cue.Value) {
-	arg := c.args[i]
+	arg := c.CallContext.Value(i)
 	x := value.Make(c.ctx, arg)
 	v, err := x.List()
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "list", err)
+		c.invalidArgType(arg, i, "list", err)
 		return a
 	}
 	for v.Next() {
@@ -264,17 +306,17 @@ func (c *CallCtxt) CueList(i int) List {
 }
 
 func (c *CallCtxt) Iter(i int) (a cue.Iterator) {
-	arg := c.args[i]
+	arg := c.CallContext.Value(i)
 	x := value.Make(c.ctx, arg)
 	v, err := x.List()
 	if err != nil {
-		c.invalidArgType(c.args[i], i, "list", err)
+		c.invalidArgType(arg, i, "list", err)
 	}
 	return v
 }
 
 func (c *CallCtxt) getList(i int) *adt.Vertex {
-	x := c.args[i]
+	x := c.CallContext.Value(i)
 	if c.builtin.NonConcrete {
 		x = adt.Default(x)
 	}
@@ -296,7 +338,7 @@ func (c *CallCtxt) getList(i int) *adt.Vertex {
 		if b, ok := x.(*adt.Bottom); ok {
 			err = &callError{b}
 		}
-		c.invalidArgType(c.args[i], i, "list", err)
+		c.invalidArgType(x, i, "list", err)
 	} else {
 		err := c.ctx.NewErrf("non-concrete list for argument %d", i)
 		err.Code = adt.IncompleteError
@@ -311,7 +353,8 @@ func (c *CallCtxt) DecimalList(i int) (a []*apd.Decimal) {
 		return nil
 	}
 
-	for j, w := range v.Elems() {
+	j := 0
+	for w := range v.Elems() {
 		w.Finalize(c.ctx) // defensive
 		switch x := adt.Unwrap(adt.Default(w.Value())).(type) {
 		case *adt.Num:
@@ -339,6 +382,7 @@ func (c *CallCtxt) DecimalList(i int) (a []*apd.Decimal) {
 			c.Err = &callError{err}
 			return nil
 		}
+		j++
 	}
 	return a
 }
@@ -349,7 +393,8 @@ func (c *CallCtxt) StringList(i int) (a []string) {
 		return nil
 	}
 
-	for j, w := range v.Elems() {
+	j := 0
+	for w := range v.Elems() {
 		w.Finalize(c.ctx) // defensive
 		switch x := adt.Unwrap(adt.Default(w.Value())).(type) {
 		case *adt.String:
@@ -377,6 +422,7 @@ func (c *CallCtxt) StringList(i int) (a []string) {
 			c.Err = &callError{err}
 			return nil
 		}
+		j++
 	}
 	return a
 }

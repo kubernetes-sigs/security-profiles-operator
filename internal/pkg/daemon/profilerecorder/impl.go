@@ -124,7 +124,7 @@ func (*defaultImpl) ManagerGetClient(m manager.Manager) client.Client {
 func (*defaultImpl) ManagerGetEventRecorderFor(
 	m manager.Manager, name string,
 ) record.EventRecorder {
-	return m.GetEventRecorderFor(name)
+	return m.GetEventRecorderFor(name) //nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
 }
 
 func (*defaultImpl) GetPod(

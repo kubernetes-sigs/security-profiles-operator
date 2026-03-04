@@ -162,26 +162,41 @@ type DefaultChainProviderOptions struct {
 func NewDefaultChainProvider(opts DefaultChainProviderOptions) *ChainProvider {
 	opts.applyDefaults()
 
-	p := NewChainProviderWithOptions(
-		[]CredentialsProvider{
-			NewEnvProvider(EnvProviderOptions{}),
-			NewOIDCProvider(OIDCProviderOptions{
-				STSEndpoint:   opts.STSEndpoint,
-				ExpiryWindow:  opts.ExpiryWindow,
-				RefreshPeriod: opts.RefreshPeriod,
-				Logger:        opts.Logger,
-			}),
-			NewEncryptedFileProvider(EncryptedFileProviderOptions{
-				ExpiryWindow:  opts.ExpiryWindow,
-				RefreshPeriod: opts.RefreshPeriod,
-				Logger:        opts.Logger,
-			}),
-			NewECSMetadataProvider(ECSMetadataProviderOptions{
-				ExpiryWindow:  opts.ExpiryWindow,
-				RefreshPeriod: opts.RefreshPeriod,
-				Logger:        opts.Logger,
-			}),
-		},
+	providers := []CredentialsProvider{
+		NewEnvProvider(EnvProviderOptions{}),
+		NewOIDCProvider(OIDCProviderOptions{
+			STSEndpoint:   opts.STSEndpoint,
+			ExpiryWindow:  opts.ExpiryWindow,
+			RefreshPeriod: opts.RefreshPeriod,
+			Logger:        opts.Logger,
+		}),
+		NewEncryptedFileProvider(EncryptedFileProviderOptions{
+			ExpiryWindow:  opts.ExpiryWindow,
+			RefreshPeriod: opts.RefreshPeriod,
+			Logger:        opts.Logger,
+		}),
+	}
+
+	if p, err := NewCLIConfigProvider(CLIConfigProviderOptions{
+		STSEndpoint: opts.STSEndpoint,
+		Logger:      opts.Logger,
+	}); err == nil {
+		providers = append(providers, p)
+	}
+	if p, err := NewIniConfigProvider(INIConfigProviderOptions{
+		STSEndpoint: opts.STSEndpoint,
+		Logger:      opts.Logger,
+	}); err == nil {
+		providers = append(providers, p)
+	}
+
+	providers = append(providers, NewECSMetadataProvider(ECSMetadataProviderOptions{
+		ExpiryWindow:  opts.ExpiryWindow,
+		RefreshPeriod: opts.RefreshPeriod,
+		Logger:        opts.Logger,
+	}))
+
+	p := NewChainProviderWithOptions(providers,
 		ChainProviderOptions{
 			EnableRuntimeSwitch:        opts.EnableRuntimeSwitch,
 			RuntimeSwitchCacheDuration: opts.RuntimeSwitchCacheDuration,

@@ -110,6 +110,7 @@ func (r *ReconcileSelinux) Setup(
 	r.log = logf.Log.WithName(r.controllerName)
 	r.client = mgr.GetClient()
 	r.scheme = mgr.GetScheme()
+	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
 	r.record = mgr.GetEventRecorderFor(r.controllerName)
 	r.metrics = met
 	r.httpc = &http.Client{

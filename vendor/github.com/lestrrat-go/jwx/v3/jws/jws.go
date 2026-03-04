@@ -19,6 +19,10 @@
 // To verify, use `jws.Verify`. It will parse the `encodedjws` buffer
 // and verify the result using `algorithm` and `key`. Upon successful
 // verification, the original payload is returned, so you can work on it.
+//
+// As a sidenote, consider using github.com/lestrrat-go/htmsig if you
+// looking for HTTP Message Signatures (RFC9421) -- it uses the same
+// underlying signing/verification mechanisms as this module.
 package jws
 
 import (
@@ -531,12 +535,12 @@ var rawKeyToKeyType = make(map[reflect.Type]jwa.KeyType)
 var keyTypeToAlgorithms = make(map[jwa.KeyType][]jwa.SignatureAlgorithm)
 
 func init() {
-	rawKeyToKeyType[reflect.TypeOf([]byte(nil))] = jwa.OctetSeq()
-	rawKeyToKeyType[reflect.TypeOf(ed25519.PublicKey(nil))] = jwa.OKP()
-	rawKeyToKeyType[reflect.TypeOf(rsa.PublicKey{})] = jwa.RSA()
-	rawKeyToKeyType[reflect.TypeOf((*rsa.PublicKey)(nil))] = jwa.RSA()
-	rawKeyToKeyType[reflect.TypeOf(ecdsa.PublicKey{})] = jwa.EC()
-	rawKeyToKeyType[reflect.TypeOf((*ecdsa.PublicKey)(nil))] = jwa.EC()
+	rawKeyToKeyType[reflect.TypeFor[[]byte]()] = jwa.OctetSeq()
+	rawKeyToKeyType[reflect.TypeFor[ed25519.PublicKey]()] = jwa.OKP()
+	rawKeyToKeyType[reflect.TypeFor[rsa.PublicKey]()] = jwa.RSA()
+	rawKeyToKeyType[reflect.TypeFor[*rsa.PublicKey]()] = jwa.RSA()
+	rawKeyToKeyType[reflect.TypeFor[ecdsa.PublicKey]()] = jwa.EC()
+	rawKeyToKeyType[reflect.TypeFor[*ecdsa.PublicKey]()] = jwa.EC()
 
 	addAlgorithmForKeyType(jwa.OKP(), jwa.EdDSA())
 	for _, alg := range []jwa.SignatureAlgorithm{jwa.HS256(), jwa.HS384(), jwa.HS512()} {
@@ -582,11 +586,14 @@ func AlgorithmsForKey(key any) ([]jwa.SignatureAlgorithm, error) {
 	return algs, nil
 }
 
+// Settings allows you to set global settings for this JWS operations.
+//
+// Currently, the only setting available is `jws.WithLegacySigners()`,
+// which for various reason is now a no-op.
 func Settings(options ...GlobalOption) {
 	for _, option := range options {
 		switch option.Ident() {
 		case identLegacySigners{}:
-			enableLegacySigners()
 		}
 	}
 }

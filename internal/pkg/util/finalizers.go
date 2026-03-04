@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-// addFinalizer attempts to add a finalizer to an object if not present and update the object.
+// AddFinalizer attempts to add a finalizer to an object if not present and update the object.
 func AddFinalizer(ctx context.Context, c client.Client, pol client.Object, finalizer string) error {
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
 		return fmt.Errorf("%s: %w", ErrGetProfile, err)
@@ -40,7 +40,7 @@ func AddFinalizer(ctx context.Context, c client.Client, pol client.Object, final
 	return c.Update(ctx, pol)
 }
 
-// removeFinalizer attempts to remove a finalizer from an object if present and update the object.
+// RemoveFinalizer attempts to remove a finalizer from an object if present and update the object.
 func RemoveFinalizer(ctx context.Context, c client.Client, pol client.Object, finalizer string) error {
 	if err := c.Get(ctx, NamespacedName(pol.GetName(), pol.GetNamespace()), pol); err != nil {
 		return fmt.Errorf("%s: %w", ErrGetProfile, err)

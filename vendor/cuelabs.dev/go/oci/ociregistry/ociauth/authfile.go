@@ -96,6 +96,18 @@ func LoadWithEnv(runner HelperRunner, env []string) (*ConfigFile, error) {
 	if env != nil {
 		getenv = getenvFunc(env)
 	}
+	// DOCKER_AUTH_CONFIG has precedence, therefore check if
+	// it has the inlined JSON.
+	if data := getenv("DOCKER_AUTH_CONFIG"); data != "" {
+		f, err := decodeConfigFile([]byte(data))
+		if err != nil {
+			return nil, fmt.Errorf("invalid config: %v", err)
+		}
+		return &ConfigFile{
+			data:   f,
+			runner: runner,
+		}, nil
+	}
 	for _, f := range configFileLocations {
 		filename := f(getenv)
 		if filename == "" {
@@ -126,7 +138,8 @@ func LoadWithEnv(runner HelperRunner, env []string) (*ConfigFile, error) {
 // It uses runner to run any external helper commands; if runner
 // is nil, [ExecHelper] will be used.
 //
-// In order it tries:
+// In order, it tries:
+// - $DOCKER_AUTH_CONFIG (inlined JSON)
 // - $DOCKER_CONFIG/config.json
 // - ~/.docker/config.json
 // - $XDG_RUNTIME_DIR/containers/auth.json

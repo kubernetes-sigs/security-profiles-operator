@@ -121,6 +121,7 @@ type YubiKey struct {
 	// YubiKey's version or PIV version? A NEO reports v1.0.4. Figure this out
 	// before exposing an API.
 	version *version
+
 }
 
 // Close releases the connection to the smart card.
@@ -243,6 +244,14 @@ func (yk *YubiKey) VerifyPIN(pin string) error {
 	return ykLogin(yk.tx, pin)
 }
 
+// VerifyBiometrics performs biometric user verification (YubiKey Bio) for PIV.
+// When using PINPolicyMatchOnce, call this once per session before signing or
+// decrypting. When using PINPolicyMatchAlways, call this before every signing
+// or decrypting operation.
+func (yk *YubiKey) VerifyBiometrics() error {
+	return ykVerifyUV(yk.tx)
+}
+
 func ykLogin(tx *scTx, pin string) error {
 	data, err := encodePIN(pin)
 	if err != nil {
@@ -256,6 +265,16 @@ func ykLogin(tx *scTx, pin string) error {
 	cmd := apdu{instruction: insVerify, param2: 0x80, data: data}
 	if _, err := tx.Transmit(cmd); err != nil {
 		return fmt.Errorf("verify pin: %w", err)
+	}
+	return nil
+}
+
+func ykVerifyUV(tx *scTx) error {
+	// 6.4.4 VERIFY UV Command
+	// https://docs.yubico.com/yesdk/users-manual/application-piv/apdu/verify-uv.html
+	cmd := apdu{instruction: insVerify, param2: 0x96, data: []byte{0x03, 0x00}}
+	if _, err := tx.Transmit(cmd); err != nil {
+		return fmt.Errorf("verify uv: %w", err)
 	}
 	return nil
 }

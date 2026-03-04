@@ -1,5 +1,4 @@
 //go:build linux && !no_bpf
-// +build linux,!no_bpf
 
 /*
 Copyright 2021 The Kubernetes Authors.
@@ -391,6 +390,7 @@ func TestStop(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -405,6 +405,7 @@ func TestStop(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -441,6 +442,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -468,6 +470,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -505,6 +508,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -518,6 +522,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -534,6 +539,7 @@ func TestSyscallsForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -584,6 +590,7 @@ func TestApparmorForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -620,6 +627,7 @@ func TestApparmorForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -675,6 +683,7 @@ func TestApparmorForProfile(t *testing.T) {
 			prepare: func(sut *BpfRecorder, mock *bpfrecorderfakes.FakeImpl) {
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
+
 				err := sut.Load()
 				require.NoError(t, err)
 				_, err = sut.Start(t.Context(), &api.EmptyRequest{})
@@ -708,18 +717,18 @@ type Logger struct {
 	mutex    sync.RWMutex
 }
 
-func (l *Logger) Init(logr.RuntimeInfo)                  {}
-func (l *Logger) Enabled(int) bool                       { return true }
-func (l *Logger) WithValues(...interface{}) logr.LogSink { return l }
-func (l *Logger) WithName(string) logr.LogSink           { return l }
+func (l *Logger) Init(logr.RuntimeInfo)          {}
+func (l *Logger) Enabled(int) bool               { return true }
+func (l *Logger) WithValues(...any) logr.LogSink { return l }
+func (l *Logger) WithName(string) logr.LogSink   { return l }
 
-func (l *Logger) Info(_ int, msg string, _ ...interface{}) {
+func (l *Logger) Info(_ int, msg string, _ ...any) {
 	l.mutex.Lock()
 	l.messages = append(l.messages, msg)
 	l.mutex.Unlock()
 }
 
-func (l *Logger) Error(_ error, msg string, _ ...interface{}) {
+func (l *Logger) Error(_ error, msg string, _ ...any) {
 	l.mutex.Lock()
 	l.messages = append(l.messages, msg)
 	l.mutex.Unlock()
@@ -806,6 +815,7 @@ func TestNewPidEvent(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
 				var foundMntns uint32
+
 				for range 100 {
 					if containerID, ok := sut.containerIDToProfileMap.GetBackwards("profile.json"); ok {
 						if actualMntns, ok := sut.mntnsToContainerIDMap.GetBackwards(containerID); ok {
@@ -814,8 +824,10 @@ func TestNewPidEvent(t *testing.T) {
 							break
 						}
 					}
+
 					time.Sleep(100 * time.Millisecond)
 				}
+
 				require.Equal(t, uint32(0x1010), foundMntns)
 			},
 		},
@@ -831,15 +843,19 @@ func TestNewPidEvent(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
 				success := false
+
 				for range 100 {
 					logger.mutex.RLock()
 					success = util.Contains(logger.messages, "No container ID found for PID")
 					logger.mutex.RUnlock()
+
 					if success {
 						break
 					}
+
 					time.Sleep(100 * time.Millisecond)
 				}
+
 				require.True(t, success)
 			},
 		},
@@ -856,15 +872,19 @@ func TestNewPidEvent(t *testing.T) {
 			},
 			assert: func(sut *BpfRecorder, logger *Logger) {
 				success := false
+
 				for range 100 {
 					logger.mutex.RLock()
 					success = util.Contains(logger.messages, "Unable to find profile in cluster for container ID")
 					logger.mutex.RUnlock()
+
 					if success {
 						break
 					}
+
 					time.Sleep(200 * time.Millisecond)
 				}
+
 				require.True(t, success)
 			},
 		},

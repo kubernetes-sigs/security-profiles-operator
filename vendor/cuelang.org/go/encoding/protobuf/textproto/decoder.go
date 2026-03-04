@@ -165,8 +165,13 @@ func (d *decoder) parseSchema(schema cue.Value) *mapping {
 				msg = d.parseSchema(i.Value())
 			}
 
-		case pbinternal.List, pbinternal.Map:
-			e, _ := i.Value().Elem()
+		case pbinternal.List:
+			e := i.Value().LookupPath(cue.MakePath(cue.AnyIndex))
+			if e.IncompleteKind() == cue.StructKind {
+				msg = d.parseSchema(e)
+			}
+		case pbinternal.Map:
+			e := i.Value().LookupPath(cue.MakePath(cue.AnyString))
 			if e.IncompleteKind() == cue.StructKind {
 				msg = d.parseSchema(e)
 			}
@@ -320,17 +325,10 @@ func (d *decoder) decodeMsg(m *mapping, n []*pbast.Node) ast.Expr {
 		}
 
 		if value != nil {
-			var label ast.Label
-			if s := f.CUEName; ast.IsValidIdent(s) {
-				label = ast.NewIdent(s)
-			} else {
-				label = ast.NewString(s)
-
-			}
 			// TODO: convert line number information. However, position
 			// information in textpbfmt packages is too wonky to be useful
 			f := &ast.Field{
-				Label: label,
+				Label: ast.NewStringLabel(f.CUEName),
 				Value: value,
 				// Attrs: []*ast.Attribute{{Text: f.attr.}},
 			}

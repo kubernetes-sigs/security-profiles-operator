@@ -19,6 +19,7 @@ package util
 import (
 	"flag"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -32,10 +33,8 @@ var _ flag.Value = (*EnumValue)(nil)
 
 // NewEnumValue returns a new EnumValue. Returns nil if defaultValue is not found in enum.
 func NewEnumValue(enum []string, defaultValue string) *EnumValue {
-	for _, v := range enum {
-		if v == defaultValue {
-			return &EnumValue{Enum: enum, Default: defaultValue}
-		}
+	if slices.Contains(enum, defaultValue) {
+		return &EnumValue{Enum: enum, Default: defaultValue}
 	}
 
 	return nil

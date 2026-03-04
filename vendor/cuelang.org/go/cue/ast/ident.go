@@ -40,16 +40,12 @@ func IsValidIdent(ident string) bool {
 		return false
 	}
 
-	consumed := false
-	if strings.HasPrefix(ident, "_") {
-		ident = ident[1:]
-		consumed = true
-		if len(ident) == 0 {
-			return true
-		}
+	ident, consumed := strings.CutPrefix(ident, "_")
+	if ident == "" {
+		return true // "_" is a valid identifier
 	}
-	if strings.HasPrefix(ident, "#") {
-		ident = ident[1:]
+	ident, consumedHash := strings.CutPrefix(ident, "#")
+	if consumedHash {
 		// Note: _#0 is not allowed by the spec, although _0 is.
 		// TODO: set consumed to true here to allow #0.
 		consumed = false
@@ -68,6 +64,21 @@ func IsValidIdent(ident string) bool {
 		return false
 	}
 	return true
+}
+
+// StringLabelNeedsQuoting reports whether the given string
+// must be quoted via [literal.Label].Quote to represent itself
+// as a string label, such as a regular field.
+//
+// Note that a negative result does not mean you can simply use
+// [NewIdent](name) to create a valid label without affecting any references.
+// In the general case, you should use [Ident.Node] to ensure each identifier references
+// exactly what they mean to, or quote any string label which doesn't need to be referenced.
+//
+// The main use case of this API is for simple scenarios, such as a JSON decoder
+// where the input is all data without any references.
+func StringLabelNeedsQuoting(name string) bool {
+	return strings.HasPrefix(name, "#") || strings.HasPrefix(name, "_") || !IsValidIdent(name)
 }
 
 // LabelName reports the name of a label, whether it is an identifier

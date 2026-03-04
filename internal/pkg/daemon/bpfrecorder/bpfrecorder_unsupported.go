@@ -1,5 +1,4 @@
 //go:build !linux || no_bpf
-// +build !linux no_bpf
 
 /*
 Copyright 2021 The Kubernetes Authors.
@@ -62,7 +61,7 @@ func (b *BpfRecorder) Stop(
 	return nil, errUnsupported
 }
 
-// SyscallsForNamespace returns the syscall names for the provided PID.
+// SyscallsForProfile returns the syscall names for the provided PID.
 func (b *BpfRecorder) SyscallsForProfile(
 	context.Context, *api.ProfileRequest,
 ) (*api.SyscallsResponse, error) {

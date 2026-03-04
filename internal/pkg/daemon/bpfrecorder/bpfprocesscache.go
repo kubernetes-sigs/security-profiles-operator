@@ -1,5 +1,4 @@
 //go:build linux && !no_bpf
-// +build linux,!no_bpf
 
 /*
 Copyright 2025 The Kubernetes Authors.
@@ -193,10 +192,13 @@ func (b *BpfProcessCache) handleEvent(eventBytes []byte) {
 
 	b.logger.V(2).Info("eventTypeExecevEnter received", "execEvent", &execEvent)
 
-	var cmdLine string
+	var cmdLineBuilder strings.Builder
 	for i := range int(execEvent.ArgsLen) {
-		cmdLine += strings.ReplaceAll(string(execEvent.Args[i][:]), "\u0000", "") + " "
+		cmdLineBuilder.WriteString(strings.ReplaceAll(string(execEvent.Args[i][:]), "\u0000", ""))
+		cmdLineBuilder.WriteByte(' ')
 	}
+
+	cmdLine := cmdLineBuilder.String()
 
 	envMap := make(map[string]string)
 

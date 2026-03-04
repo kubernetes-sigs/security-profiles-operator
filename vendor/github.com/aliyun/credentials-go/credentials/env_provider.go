@@ -23,7 +23,7 @@ func newEnvProvider() Provider {
 	return &envProvider{}
 }
 
-func (p *envProvider) resolve() (*Config, error) {
+func (p *envProvider) resolve() (config *Config, err error) {
 	accessKeyId, ok1 := os.LookupEnv(EnvVarAccessKeyIdNew)
 	if !ok1 || accessKeyId == "" {
 		accessKeyId, ok1 = os.LookupEnv(EnvVarAccessKeyId)
@@ -38,10 +38,24 @@ func (p *envProvider) resolve() (*Config, error) {
 	if accessKeySecret == "" {
 		return nil, errors.New(EnvVarAccessKeySecret + " cannot be empty")
 	}
-	config := &Config{
+
+	securityToken := os.Getenv("ALIBABA_CLOUD_SECURITY_TOKEN")
+
+	if securityToken != "" {
+		config = &Config{
+			Type:            tea.String("sts"),
+			AccessKeyId:     tea.String(accessKeyId),
+			AccessKeySecret: tea.String(accessKeySecret),
+			SecurityToken:   tea.String(securityToken),
+		}
+		return
+	}
+
+	config = &Config{
 		Type:            tea.String("access_key"),
 		AccessKeyId:     tea.String(accessKeyId),
 		AccessKeySecret: tea.String(accessKeySecret),
 	}
-	return config, nil
+
+	return
 }
