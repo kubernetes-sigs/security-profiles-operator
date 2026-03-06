@@ -81,7 +81,7 @@ spec:
       readOnlyPaths:
       - /dev/null
 `,
-			outputContains: []string{`deny /dev/null wl`, `flags=(complain,attach_disconnected,mediate_deleted)`},
+			outputContains: []string{`/dev/null r,`, `flags=(complain,attach_disconnected,mediate_deleted)`},
 		},
 		{
 			name: "seccomp",
