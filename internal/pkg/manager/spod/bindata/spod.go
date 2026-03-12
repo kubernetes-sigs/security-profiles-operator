@@ -242,6 +242,7 @@ chmod 750 /etc/selinux.d
 semodule -i /usr/share/selinuxd/templates/*.cil
 semodule -i /opt/spo-profiles/selinuxd.cil
 semodule -i /opt/spo-profiles/selinuxrecording.cil
+semodule -R
 `,
 						},
 						VolumeMounts: []corev1.VolumeMount{
@@ -268,8 +269,9 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							},
 						},
 						SecurityContext: &corev1.SecurityContext{
-							AllowPrivilegeEscalation: &falsely,
+							AllowPrivilegeEscalation: &truly,
 							ReadOnlyRootFilesystem:   &truly,
+							Privileged:               &truly, // Required for semodule -R to reload the kernel policy
 							Capabilities: &corev1.Capabilities{
 								Drop: []corev1.Capability{"ALL"},
 								Add:  []corev1.Capability{"CHOWN", "FOWNER", "FSETID", "DAC_OVERRIDE"},
@@ -397,6 +399,14 @@ semodule -i /opt/spo-profiles/selinuxrecording.cil
 							{
 								Name:  "HOME",
 								Value: HomeDirectory,
+							},
+							{
+								Name: "POD_NAME",
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
+										FieldPath: "metadata.name",
+									},
+								},
 							},
 						},
 						Ports: []corev1.ContainerPort{

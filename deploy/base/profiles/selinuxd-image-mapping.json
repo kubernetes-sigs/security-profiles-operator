@@ -1,14 +1,18 @@
 [
     {
-        "regex":"(.*)(CoreOS).*([\\d+])\\.8[\\d+]\\.(.*)",
-        "imageFromVar":"RELATED_IMAGE_SELINUXD_EL8"
+        "regex": "(.*)(CoreOS).*(41[0-2]\\.[0-9]+)\\..*|(.*)(Red Hat Enterprise Linux release)\\s+8\\.[0-9]+",
+        "imageFromVar": "RELATED_IMAGE_SELINUXD_EL8"
     },
     {
-        "regex":"(.*)(CoreOS).*([\\d+])\\.9[\\d+]\\.(.*)|(.*)(CoreOS)([\\s+])9\\.(.*)",
-        "imageFromVar":"RELATED_IMAGE_SELINUXD_EL9"
+        "regex": "(.*)(CoreOS).*10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux CoreOS)\\s+10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux release)\\s+10\\.[0-9]+",
+        "imageFromVar": "RELATED_IMAGE_SELINUXD_EL10"
     },
     {
-        "regex":"Fedora \\d+",
-        "imageFromVar":"RELATED_IMAGE_SELINUXD_FEDORA"
+        "regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux release)\\s+9\\.[0-9]+",
+        "imageFromVar": "RELATED_IMAGE_SELINUXD_EL9"
+    },
+    {
+        "regex": "Fedora \\d+",
+        "imageFromVar": "RELATED_IMAGE_SELINUXD_FEDORA"
     }
 ]

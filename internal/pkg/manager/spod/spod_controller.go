@@ -181,7 +181,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 		return reconcile.Result{}, fmt.Errorf("get ca inject type: %w", err)
 	}
 
-	configuredSPOd := r.getConfiguredSPOd(spod, image, pullPolicy, caInjectType)
+	configuredSPOd := r.getConfiguredSPOd(ctx, spod, image, pullPolicy, caInjectType)
 	webhook := r.getConfiguredWebook(spod, image, pullPolicy, caInjectType)
 	metricsService := bindata.GetMetricsService(r.namespace, caInjectType)
 	serviceMonitor := bindata.ServiceMonitor(caInjectType)
@@ -513,6 +513,7 @@ func (r *ReconcileSPOd) handleUpdate(
 // getConfiguredSPOd gets a fully configured SPOd instance from a desired
 // configuration and the reference base SPOd.
 func (r *ReconcileSPOd) getConfiguredSPOd(
+	ctx context.Context,
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	image string,
 	pullPolicy corev1.PullPolicy,
@@ -638,6 +639,39 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 
 		if useCustomHostProc {
 			ctr.VolumeMounts = append(ctr.VolumeMounts, mount)
+		}
+
+		// Dynamically read the json-enricher log volume configuration from the ConfigMap
+		// during each reconciliation to handle ConfigMap updates without requiring operator restart
+		jsonEnricherLogVolumeSource, jsonEnricherLogVolumeMountPath, err := r.getJsonEnricherVolume(ctx)
+		if err == nil && jsonEnricherLogVolumeSource != nil {
+			logVolume, logMount := bindata.CustomLogVolume(jsonEnricherLogVolumeMountPath, jsonEnricherLogVolumeSource)
+			// Replace existing volume or append if not found.
+			// Using replace (not skip) so that ConfigMap changes to the volume source
+			// or mount path are applied even when baseSPOd already has an older version.
+			volumeReplaced := false
+			for i, v := range templateSpec.Volumes {
+				if v.Name == logVolume.Name {
+					templateSpec.Volumes[i] = logVolume
+					volumeReplaced = true
+					break
+				}
+			}
+			if !volumeReplaced {
+				templateSpec.Volumes = append(templateSpec.Volumes, logVolume)
+			}
+			// Replace existing mount or append if not found.
+			mountReplaced := false
+			for i, m := range ctr.VolumeMounts {
+				if m.Name == logMount.Name {
+					ctr.VolumeMounts[i] = logMount
+					mountReplaced = true
+					break
+				}
+			}
+			if !mountReplaced {
+				ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
+			}
 		}
 
 		templateSpec.Containers = append(templateSpec.Containers, ctr)
