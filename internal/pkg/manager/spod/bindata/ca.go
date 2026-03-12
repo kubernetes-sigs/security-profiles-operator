@@ -193,7 +193,7 @@ var metricsCert = certmanagerv1.Certificate{
 		},
 	},
 	Spec: certmanagerv1.CertificateSpec{
-		IssuerRef: certmanagermetav1.ObjectReference{
+		IssuerRef: certmanagermetav1.IssuerReference{
 			Name: issuerName,
 			Kind: "Issuer",
 		},
@@ -217,7 +217,7 @@ var webhookCert = certmanagerv1.Certificate{
 		},
 	},
 	Spec: certmanagerv1.CertificateSpec{
-		IssuerRef: certmanagermetav1.ObjectReference{
+		IssuerRef: certmanagermetav1.IssuerReference{
 			Name: issuerName,
 			Kind: "Issuer",
 		},
