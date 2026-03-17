@@ -91,6 +91,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 			if job.CreationTimestamp.Add(time.Duration(reloadJobTTL) * time.Second).After(now) {
 				l.Info("Reload job was recently created for this node, skipping",
 					"existingJob", job.Name, "age", now.Sub(job.CreationTimestamp.Time))
+
 				return false, nil
 			}
 		}
@@ -208,8 +209,10 @@ exit $exit_code`,
 	if err := r.client.Create(ctx, job); err != nil {
 		if kerrors.IsAlreadyExists(err) {
 			l.Info("Reload job already exists, skipping", "jobName", jobName)
+
 			return false, nil
 		}
+
 		return false, fmt.Errorf("creating reload job: %w", err)
 	}
 

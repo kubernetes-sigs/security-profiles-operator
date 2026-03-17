@@ -513,7 +513,7 @@ func (r *ReconcileSPOd) handleUpdate(
 // getConfiguredSPOd gets a fully configured SPOd instance from a desired
 // configuration and the reference base SPOd.
 //
-//nolint:gocognit // large function with many config branches
+//nolint:gocognit,gocyclo // large function with many config branches
 func (r *ReconcileSPOd) getConfiguredSPOd(
 	ctx context.Context,
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,

@@ -18,6 +18,7 @@ package selinuxprofile
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
-//nolint:paralleltest,tparallel // subtests modify environment variables and cannot run in parallel
+//nolint:tparallel // subtests modify environment variables and cannot run in parallel
 func TestCreatePolicyReloadJob(t *testing.T) {
 	t.Parallel()
 
@@ -141,20 +142,16 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(config.NodeNameEnvKey, tt.nodeName)
-			t.Setenv(config.OperatorNamespaceEnvKey, tt.namespace)
+			setenvCleanup(t, config.NodeNameEnvKey, tt.nodeName)
+			setenvCleanup(t, config.OperatorNamespaceEnvKey, tt.namespace)
 
 			if tt.nodeName != "" {
-				t.Setenv("POD_NAME", testPodName)
+				setenvCleanup(t, "POD_NAME", testPodName)
 			} else {
-				t.Setenv("POD_NAME", "")
+				setenvCleanup(t, "POD_NAME", "")
 			}
 
-			objs := []runtime.Object{testPod}
-
-			for _, obj := range tt.existingObjs {
-				objs = append(objs, obj)
-			}
+			objs := append([]runtime.Object{testPod}, tt.existingObjs...)
 
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(schemeInstance).
@@ -233,6 +230,24 @@ func createTestJob(
 			Failed:    failed,
 		},
 	}
+}
+
+// setenvCleanup sets an environment variable and registers a cleanup to restore it.
+// This is used instead of t.Setenv because t.Setenv panics when the parent test
+// has called t.Parallel().
+func setenvCleanup(t *testing.T, key, value string) {
+	t.Helper()
+
+	old, existed := os.LookupEnv(key)
+
+	os.Setenv(key, value) //nolint:usetesting // t.Setenv panics when parent uses t.Parallel
+	t.Cleanup(func() {
+		if existed {
+			os.Setenv(key, old) //nolint:usetesting // restoring in cleanup
+		} else {
+			os.Unsetenv(key)
+		}
+	})
 }
 
 func createTestJobWithCreationTime(
