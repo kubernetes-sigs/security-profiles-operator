@@ -186,11 +186,13 @@ func TestMatchSelinuxdImageVersion(t *testing.T) {
 			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL8"
 		},
 		{
-			"regex": "(.*)(CoreOS).*10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux CoreOS)\\s+10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux release)\\s+10\\.[0-9]+",
+			"regex": "(.*)(CoreOS).*10\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux CoreOS)\\s+10\\.[0-9]+\\..*` +
+		`|(.*)(Red Hat Enterprise Linux release)\\s+10\\.[0-9]+",
 			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL10"
 		},
 		{
-			"regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*|(.*)(Red Hat Enterprise Linux release)\\s+9\\.[0-9]+",
+			"regex": "(.*)(CoreOS).*(41[3-9]\\.[0-9]+)\\..*|(.*)(CoreOS)\\s+9\\.[0-9]+\\..*` +
+		`|(.*)(Red Hat Enterprise Linux release)\\s+9\\.[0-9]+",
 			"imageFromVar": "RELATED_IMAGE_SELINUXD_EL9"
 		}
 	]`

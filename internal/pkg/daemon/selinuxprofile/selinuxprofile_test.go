@@ -22,8 +22,8 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -39,13 +39,13 @@ func Test_selinuxProfileHandler(t *testing.T) {
 	//nolint:usetesting // we want to set the env here
 	os.Setenv("OPERATOR_NAMESPACE", ns)
 
-	schemeInstance := scheme.Scheme
+	schemeInstance := runtime.NewScheme()
 	if err := spodv1alpha1.AddToScheme(schemeInstance); err != nil {
 		t.Fatalf("couldn't add SPOD API to scheme")
 	}
 
 	if err := selxv1alpha2.AddToScheme(schemeInstance); err != nil {
-		t.Fatalf("couldn't add SPOD API to scheme")
+		t.Fatalf("couldn't add selinux API to scheme")
 	}
 
 	spodinstance := bindata.DefaultSPOD.DeepCopy()

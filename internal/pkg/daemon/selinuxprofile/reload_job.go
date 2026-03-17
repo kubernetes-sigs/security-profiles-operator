@@ -18,8 +18,10 @@ package selinuxprofile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -51,7 +53,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 ) (bool, error) {
 	nodeName := os.Getenv(config.NodeNameEnvKey)
 	if nodeName == "" {
-		return false, fmt.Errorf("NODE_NAME environment variable not set")
+		return false, errors.New("NODE_NAME environment variable not set")
 	}
 
 	namespace := config.GetOperatorNamespace()
@@ -76,11 +78,13 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 		l.Error(err, "Failed to list existing reload jobs")
 	} else {
 		now := time.Now()
+
 		for i := range existingJobs.Items {
 			job := &existingJobs.Items[i]
 			// Skip if a job is currently running
 			if job.Status.Succeeded == 0 && job.Status.Failed == 0 {
 				l.Info("Reload job already running for this node, skipping", "existingJob", job.Name)
+
 				return false, nil
 			}
 			// Skip if a job was created recently (within TTL window) to avoid duplicate reloads
@@ -109,7 +113,7 @@ func (r *ReconcileSelinux) createPolicyReloadJob(
 				"node":    nodeName,
 				"policy":  policyName,
 				"action":  action,
-				"created": fmt.Sprintf("%d", time.Now().Unix()),
+				"created": strconv.FormatInt(time.Now().Unix(), 10),
 			},
 		},
 		Spec: batchv1.JobSpec{
@@ -210,6 +214,7 @@ exit $exit_code`,
 	}
 
 	l.Info("Successfully created SELinux policy reload job", "jobName", jobName)
+
 	return true, nil
 }
 
@@ -219,7 +224,7 @@ exit $exit_code`,
 func (r *ReconcileSelinux) getSelinuxdImageFromPod(ctx context.Context, namespace string) (string, error) {
 	podName := os.Getenv("POD_NAME")
 	if podName == "" {
-		return "", fmt.Errorf("POD_NAME environment variable not set")
+		return "", errors.New("POD_NAME environment variable not set")
 	}
 
 	pod := &corev1.Pod{}
@@ -228,9 +233,9 @@ func (r *ReconcileSelinux) getSelinuxdImageFromPod(ctx context.Context, namespac
 	}
 
 	// Find the selinuxd container and get its image
-	for _, container := range pod.Spec.Containers {
-		if container.Name == bindata.SelinuxContainerName {
-			return container.Image, nil
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == bindata.SelinuxContainerName {
+			return pod.Spec.Containers[i].Image, nil
 		}
 	}
 
