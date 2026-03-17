@@ -433,7 +433,8 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	}
 
 	res, err := r.reconcileDeletePolicyFile(sp, l)
-	if res.RequeueAfter > 0 || res.Requeue || err != nil { //nolint:staticcheck // Requeue expresses immediate requeue intent
+	//nolint:staticcheck // Requeue expresses immediate requeue intent
+	if res.RequeueAfter > 0 || res.Requeue || err != nil {
 		return res, err
 	}
 
