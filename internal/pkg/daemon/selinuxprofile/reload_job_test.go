@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/manager/spod/bindata"
 )
 
-//nolint:tparallel // subtests modify environment variables and cannot run in parallel
+//nolint:paralleltest,tparallel // subtests modify environment variables and cannot run in parallel
 func TestCreatePolicyReloadJob(t *testing.T) {
 	t.Parallel()
 

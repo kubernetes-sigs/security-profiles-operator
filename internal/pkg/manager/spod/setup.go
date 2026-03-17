@@ -200,6 +200,7 @@ func (r *ReconcileSPOd) getSelinuxdImage(ctx context.Context, node *corev1.Node)
 	}
 
 	r.log.Info("using selinuxd image", "image", selinuxdImage)
+
 	return selinuxdImage, nil
 }
 
