@@ -227,7 +227,7 @@ func (r *ReconcileSelinux) Reconcile(ctx context.Context, request reconcile.Requ
 		r.record.Event(instance, util.EventTypeWarning, reasonCannotRemovePolicy, err.Error())
 
 		return res, err
-	} else if res.RequeueAfter > 0 || res.Requeue {
+	} else if res.RequeueAfter > 0 || res.Requeue { //nolint:staticcheck // Requeue expresses immediate requeue intent
 		reqLogger.Info("Re-queueing delete request to make sure the policy is gone")
 
 		return res, err
@@ -344,6 +344,7 @@ func (r *ReconcileSelinux) reconcilePolicy(
 		r.record.Event(sp, util.EventTypeNormal, reasonInstalledPolicy, evstr)
 
 		reloadGeneration := strconv.FormatInt(sp.GetGeneration(), 10)
+
 		lastReloadGeneration, err := nodeStatus.GetAnnotation(ctx, reloadInstallGenerationAnnotation)
 		if err != nil {
 			l.Error(err, "Failed to read reload generation annotation")
@@ -432,7 +433,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	}
 
 	res, err := r.reconcileDeletePolicyFile(sp, l)
-	if res.RequeueAfter > 0 || res.Requeue || err != nil {
+	if res.RequeueAfter > 0 || res.Requeue || err != nil { //nolint:staticcheck // Requeue expresses immediate requeue intent
 		return res, err
 	}
 
@@ -442,6 +443,7 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 	if errors.Is(err, errPolicyNotFound) {
 		// Policy was successfully removed, trigger a reload to update kernel policy
 		reloadGeneration := strconv.FormatInt(sp.GetGeneration(), 10)
+
 		lastReloadGeneration, err := nodeStatus.GetAnnotation(ctx, reloadRemoveGenerationAnnotation)
 		if err != nil {
 			l.Error(err, "Failed to read reload generation annotation after removal")
@@ -455,13 +457,15 @@ func (r *ReconcileSelinux) reconcileDeletePolicy(
 			if err != nil {
 				l.Error(err, "Failed to create policy reload job after removal")
 				r.record.Event(sp, util.EventTypeWarning, reasonCannotReloadPolicy,
-					fmt.Sprintf("Failed to create policy reload job after removal on %s: %s", os.Getenv(config.NodeNameEnvKey), err.Error()))
+					fmt.Sprintf("Failed to create policy reload job after removal on %s: %s",
+						os.Getenv(config.NodeNameEnvKey), err.Error()))
 			} else if jobCreated {
 				if err := nodeStatus.SetAnnotation(ctx, reloadRemoveGenerationAnnotation, reloadGeneration); err != nil {
 					l.Error(err, "Failed to set reload generation annotation after removal")
 				}
 			}
 		}
+
 		return reconcile.Result{}, nil
 	}
 
@@ -583,7 +587,8 @@ func selinuxdGetRequest(ctx context.Context, httpc *http.Client, url string) (*h
 
 // writeFileIfDiffers checks if the content of file at filePath are the same as the byte array
 // contents, if not, overwrites the file at filePath.
-// Returns (written, error) where written is true if the file was actually written (content differed or file didn't exist).
+// Returns (written, error) where written is true if the file was actually written
+// (content differed or file didn't exist).
 //
 // Reopening the same file may seem wasteful and even look like a TOCTOU issue, but the policy
 // drop dir is private to this pod, but mostly just calling a single write is much easier codepath

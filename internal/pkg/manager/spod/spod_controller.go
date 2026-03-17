@@ -511,6 +511,8 @@ func (r *ReconcileSPOd) handleUpdate(
 
 // getConfiguredSPOd gets a fully configured SPOd instance from a desired
 // configuration and the reference base SPOd.
+//
+//nolint:gocognit // large function with many config branches
 func (r *ReconcileSPOd) getConfiguredSPOd(
 	ctx context.Context,
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
@@ -649,25 +651,32 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 			// Using replace (not skip) so that ConfigMap changes to the volume source
 			// or mount path are applied even when baseSPOd already has an older version.
 			volumeReplaced := false
-			for i, v := range templateSpec.Volumes {
-				if v.Name == logVolume.Name {
+
+			for i := range templateSpec.Volumes {
+				if templateSpec.Volumes[i].Name == logVolume.Name {
 					templateSpec.Volumes[i] = logVolume
 					volumeReplaced = true
+
 					break
 				}
 			}
+
 			if !volumeReplaced {
 				templateSpec.Volumes = append(templateSpec.Volumes, logVolume)
 			}
+
 			// Replace existing mount or append if not found.
 			mountReplaced := false
+
 			for i, m := range ctr.VolumeMounts {
 				if m.Name == logMount.Name {
 					ctr.VolumeMounts[i] = logMount
 					mountReplaced = true
+
 					break
 				}
 			}
+
 			if !mountReplaced {
 				ctr.VolumeMounts = append(ctr.VolumeMounts, logMount)
 			}
