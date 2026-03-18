@@ -936,6 +936,7 @@ data:
             "nanosleep",
             "newfstatat",
             "openat",
+            "openat2",
             "prctl",
             "pread64",
             "prlimit64",
