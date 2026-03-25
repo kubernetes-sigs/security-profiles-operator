@@ -19,8 +19,8 @@ COPY . /work
 
 FROM build AS make
 
-ARG target=nix
-RUN nix-build $target
+ARG target=default
+RUN nix build path:.#$target --extra-experimental-features 'nix-command flakes'
 
 FROM scratch
 ARG version

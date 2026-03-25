@@ -7,7 +7,7 @@ on:
     types: [published]
   pull_request:
 env:
-  NIX_VERSION: '2.30.1'
+  NIX_VERSION: '2.34.3'
   BOM_VERSION: v0.6.0
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -72,7 +72,7 @@ jobs:
           name: security-profiles-operator
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
           pushFilter: security-profiles-operator
-      - run: nix-build nix/default-${{ matrix.arch }}.nix
+      - run: nix build .#spo-${{ matrix.arch }}
 
   nix-spoc-push:
     strategy:

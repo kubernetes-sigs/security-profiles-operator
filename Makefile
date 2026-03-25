@@ -24,6 +24,8 @@ CI_IMAGE ?= golang:$(shell sed -n 's;^go\s\(.*\);\1;p' go.mod)
 
 CONTROLLER_GEN_CMD := CGO_LDFLAGS= $(GO) run $(BUILD_FLAGS) -tags generate sigs.k8s.io/controller-tools/cmd/controller-gen
 
+NIX := nix --extra-experimental-features 'nix-command flakes'
+
 PROJECT := security-profiles-operator
 CLI_BINARY := spoc
 BUILD_DIR := build
@@ -197,7 +199,7 @@ image: ## Build the container image
 image-arm64: ## Build the container image for arm64
 	$(CONTAINER_RUNTIME) build -f $(DOCKERFILE) \
 		--build-arg version=$(VERSION) \
-		--build-arg target=nix/default-arm64.nix \
+		--build-arg target=spo-arm64 \
 		-t $(IMAGE) .
 
 .PHONY: image-cross
@@ -205,7 +207,7 @@ image-cross: ## Build and push the container image manifest
 	hack/image-cross.sh
 
 define nix-build-to
-	nix-build nix/default-$(1).nix
+	$(NIX) build .#spo-$(1)
 	mkdir -p $(BUILD_DIR)/$(1)
 	cp -f result/* $(BUILD_DIR)/$(1)
 endef
@@ -232,7 +234,7 @@ nix-s390x: ## Build the binaries via nix for s390x
 	$(call nix-build-to,s390x)
 
 define nix-build-sign-spoc-to
-	nix-build nix/default-spoc-$(1).nix
+	$(NIX) build .#spoc-$(1)
 	cp -f result/spoc $(BUILD_DIR)/spoc.$(1)
 	cosign sign-blob -y \
 		$(BUILD_DIR)/spoc.$(1) \
@@ -272,8 +274,7 @@ nix-spoc-s390x: $(BUILD_DIR) ## Build and sign the spoc binary via nix for s390x
 
 .PHONY: update-nixpkgs
 update-nixpkgs: ## Update the pinned nixpkgs to the latest master
-	@nix run -f channel:nixpkgs-unstable nix-prefetch-git -- \
-		--no-deepClone https://github.com/nixos/nixpkgs > nix/nixpkgs.json
+	$(NIX) flake update
 
 .PHONY: update-go-mod
 update-go-mod: ## Cleanup, vendor and verify go modules
@@ -381,12 +382,12 @@ update-bpf: clean \
     internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.arm64
 
 internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.%: $(BPF_RECORDER_FILES) ## Build and update all generated BPF code with nix
-	nix-build nix/default-bpf-$*.nix
+	$(NIX) build .#bpf-$*
 	cp -f result/recorder.bpf.o ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 	chmod 0644 ./internal/pkg/daemon/bpfrecorder/bpf/recorder.bpf.o.$*
 
 internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.%: $(BPF_ENRICHER_FILES) ## Build and update all generated BPF code with nix
-	nix-build nix/default-bpf-$*.nix
+	$(NIX) build .#bpf-$*
 	cp -f result/enricher.bpf.o ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
 	chmod 0644 ./internal/pkg/daemon/enricher/auditsource/bpf/enricher.bpf.o.$*
 
