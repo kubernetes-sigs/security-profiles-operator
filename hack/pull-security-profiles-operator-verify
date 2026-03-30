@@ -2,5 +2,6 @@
 set -euo pipefail
 
 ./hack/install-packages
+apt-get update
 apt-get install -y lsb-release clang-format
 make verify
