@@ -34,7 +34,7 @@ for ARCH in "${ARCHES[@]}"; do
         -t "$IMAGE-$ARCH:$VERSION" \
         -t "$IMAGE-$ARCH:latest" \
         --build-arg version="$VERSION" \
-        --build-arg target="nix/default-$ARCH.nix" \
+        --build-arg target="spo-$ARCH" \
         .
     for T in "${TAGS[@]}"; do
         docker push "$IMAGE-$ARCH:$T"
