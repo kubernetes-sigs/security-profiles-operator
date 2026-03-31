@@ -238,8 +238,7 @@ define nix-build-sign-spoc-to
 	cp -f result/spoc $(BUILD_DIR)/spoc.$(1)
 	cosign sign-blob -y \
 		$(BUILD_DIR)/spoc.$(1) \
-		--output-signature $(BUILD_DIR)/spoc.$(1).sig \
-		--output-certificate $(BUILD_DIR)/spoc.$(1).cert
+		--bundle $(BUILD_DIR)/spoc.$(1).bundle
 	cd $(BUILD_DIR) && sha512sum spoc.$(1) > spoc.$(1).sha512
 endef
 
@@ -253,8 +252,7 @@ nix-spoc: nix-spoc-amd64 nix-spoc-arm64 nix-spoc-ppc64le nix-spoc-s390x ## Build
 		-o $(BUILD_DIR)/spoc.spdx
 	cosign sign-blob -y \
 		$(BUILD_DIR)/spoc.spdx \
-		--output-signature $(BUILD_DIR)/spoc.spdx.sig \
-		--output-certificate $(BUILD_DIR)/spoc.spdx.cert
+		--bundle $(BUILD_DIR)/spoc.spdx.bundle
 
 .PHONY: nix-spoc-amd64
 nix-spoc-amd64: $(BUILD_DIR) ## Build and sign the spoc binary via nix for amd64
