@@ -17,7 +17,8 @@ GO ?= go
 GOLANGCI_LINT_VERSION = v2.10.1
 REPO_INFRA_VERSION = v0.2.5
 KUSTOMIZE_VERSION = 5.5.0
-OPERATOR_SDK_VERSION ?= v1.37.0
+OPERATOR_SDK_VERSION ?= v1.42.2
+OPM_VERSION ?= v1.65.0
 ZEITGEIST_VERSION = v0.5.4
 MDTOC_VERSION = v1.4.0
 CI_IMAGE ?= golang:$(shell sed -n 's;^go\s\(.*\);\1;p' go.mod)
@@ -625,7 +626,7 @@ ifeq (,$(shell which opm 2>/dev/null))
 	set -e ;\
 	mkdir -p $(dir $(OPM)) ;\
 	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPERATOR_SDK_VERSION)/$${OS}-$${ARCH}-opm ;\
+	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
 	}
 else
@@ -647,8 +648,8 @@ catalog-build: opm ## Build a catalog image.
 	$(eval TMP_DIR := $(shell mktemp -d))
 	$(eval CATALOG_DOCKERFILE := $(TMP_DIR).Dockerfile)
 	cp deploy/catalog-preamble.json $(TMP_DIR)/security-profiles-operator-catalog.json
-	$(OPM) $(OPM_EXTRA_ARGS) render $(BUNDLE_IMGS) >> $(TMP_DIR)/security-profiles-operator-catalog.json
-	$(OPM) generate dockerfile $(TMP_DIR)
+	XDG_RUNTIME_DIR=$(TMP_DIR) $(OPM) $(OPM_EXTRA_ARGS) render $(BUNDLE_IMGS) >> $(TMP_DIR)/security-profiles-operator-catalog.json
+	XDG_RUNTIME_DIR=$(TMP_DIR) $(OPM) generate dockerfile $(TMP_DIR)
 	$(CONTAINER_RUNTIME) build -f $(CATALOG_DOCKERFILE) -t $(CATALOG_IMG) $(shell dirname $(TMP_DIR))
 	rm -rf $(TMP_DIR) $(CATALOG_DOCKERFILE)
 
