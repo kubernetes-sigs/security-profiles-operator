@@ -18,10 +18,16 @@ dependencies:
       match: KUSTOMIZE_VERSION
 
   - name: operator-sdk
-    version: v1.37.0
+    version: v1.42.2
     refPaths:
     - path: Makefile
       match: OPERATOR_SDK_VERSION
+
+  - name: opm
+    version: v1.65.0
+    refPaths:
+    - path: Makefile
+      match: OPM_VERSION
 
   - name: olm
     version: v0.30.0
@@ -162,7 +168,7 @@ dependencies:
       match: BOM_VERSION
 
   - name: spo-current
-    version: 0.10.1-dev
+    version: 0.10.1
     refPaths:
     - path: VERSION
       match: ^.*
