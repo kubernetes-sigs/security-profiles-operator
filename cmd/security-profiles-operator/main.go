@@ -80,23 +80,23 @@ import (
 )
 
 const (
-	spocCmd                          string = "spoc"
-	jsonFlag                         string = "json"
-	nodeStatusControllerFlag         string = "with-nodestatus-controller"
-	spodControllerFlag               string = "with-spod-controller"
-	workloadAnnotatorFlag            string = "with-workload-annotator"
-	recordingMergerFlag              string = "with-recording-merger"
-	recordingFlag                    string = "with-recording"
-	seccompFlag                      string = "with-seccomp"
-	selinuxFlag                      string = "with-selinux"
-	apparmorFlag                     string = "with-apparmor"
-	webhookFlag                      string = "webhook"
-	memOptimFlag                     string = "with-mem-optim"
-	enableAnonymousMetricsAccessFlag string = "enable-anonymous-metrics-access"
-	defaultWebhookPort               int    = 9443
-	auditLogIntervalSecondsParam     string = "audit-log-interval-seconds"
-	auditLogPathParam                string = "audit-log-path"
-	auditLogMaxSizeParam             string = "audit-log-maxsize"
+	spocCmd                         string = "spoc"
+	jsonFlag                        string = "json"
+	nodeStatusControllerFlag        string = "with-nodestatus-controller"
+	spodControllerFlag              string = "with-spod-controller"
+	workloadAnnotatorFlag           string = "with-workload-annotator"
+	recordingMergerFlag             string = "with-recording-merger"
+	recordingFlag                   string = "with-recording"
+	seccompFlag                     string = "with-seccomp"
+	selinuxFlag                     string = "with-selinux"
+	apparmorFlag                    string = "with-apparmor"
+	webhookFlag                     string = "webhook"
+	memOptimFlag                    string = "with-mem-optim"
+	enableInsecureMetricsAccessFlag string = "enable-insecure-metrics-access"
+	defaultWebhookPort              int    = 9443
+	auditLogIntervalSecondsParam    string = "audit-log-interval-seconds"
+	auditLogPathParam               string = "audit-log-path"
+	auditLogMaxSizeParam            string = "audit-log-maxsize"
 	// The plural form is not used for audit-log-file-maxbackup to match the k8s api server audit log options.
 	auditLogMaxBackupParam   string = "audit-log-maxbackup"
 	auditLogMaxAgeParam      string = "audit-log-maxage"
@@ -386,9 +386,9 @@ func main() {
 			EnvVars: []string{config.ProfilingPortEnvKey},
 		},
 		&cli.BoolFlag{
-			Name:    enableAnonymousMetricsAccessFlag,
-			Usage:   "enable anonymous metrics access",
-			EnvVars: []string{config.EnableAnonymousMetricsAccessEnvKey},
+			Name:    enableInsecureMetricsAccessFlag,
+			Usage:   "enable insecure metrics access (disables TLS and authentication)",
+			EnvVars: []string{config.EnableInsecureMetricsAccessEnvKey},
 		},
 	}
 
@@ -678,8 +678,8 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		},
 	}
 
-	if ctx.Bool(enableAnonymousMetricsAccessFlag) {
-		setupLog.Info("Anonymous metrics access allowed")
+	if ctx.Bool(enableInsecureMetricsAccessFlag) {
+		setupLog.Info("Insecure metrics access allowed (TLS and authentication disabled)")
 
 		metricsOptions.SecureServing = false
 	} else {
