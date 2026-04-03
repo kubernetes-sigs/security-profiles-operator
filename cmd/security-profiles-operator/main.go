@@ -80,22 +80,23 @@ import (
 )
 
 const (
-	spocCmd                      string = "spoc"
-	jsonFlag                     string = "json"
-	nodeStatusControllerFlag     string = "with-nodestatus-controller"
-	spodControllerFlag           string = "with-spod-controller"
-	workloadAnnotatorFlag        string = "with-workload-annotator"
-	recordingMergerFlag          string = "with-recording-merger"
-	recordingFlag                string = "with-recording"
-	seccompFlag                  string = "with-seccomp"
-	selinuxFlag                  string = "with-selinux"
-	apparmorFlag                 string = "with-apparmor"
-	webhookFlag                  string = "webhook"
-	memOptimFlag                 string = "with-mem-optim"
-	defaultWebhookPort           int    = 9443
-	auditLogIntervalSecondsParam string = "audit-log-interval-seconds"
-	auditLogPathParam            string = "audit-log-path"
-	auditLogMaxSizeParam         string = "audit-log-maxsize"
+	spocCmd                         string = "spoc"
+	jsonFlag                        string = "json"
+	nodeStatusControllerFlag        string = "with-nodestatus-controller"
+	spodControllerFlag              string = "with-spod-controller"
+	workloadAnnotatorFlag           string = "with-workload-annotator"
+	recordingMergerFlag             string = "with-recording-merger"
+	recordingFlag                   string = "with-recording"
+	seccompFlag                     string = "with-seccomp"
+	selinuxFlag                     string = "with-selinux"
+	apparmorFlag                    string = "with-apparmor"
+	webhookFlag                     string = "webhook"
+	memOptimFlag                    string = "with-mem-optim"
+	enableInsecureMetricsAccessFlag string = "enable-insecure-metrics-access"
+	defaultWebhookPort              int    = 9443
+	auditLogIntervalSecondsParam    string = "audit-log-interval-seconds"
+	auditLogPathParam               string = "audit-log-path"
+	auditLogMaxSizeParam            string = "audit-log-maxsize"
 	// The plural form is not used for audit-log-file-maxbackup to match the k8s api server audit log options.
 	auditLogMaxBackupParam   string = "audit-log-maxbackup"
 	auditLogMaxAgeParam      string = "audit-log-maxage"
@@ -384,6 +385,11 @@ func main() {
 			Value:   config.DefaultProfilingPort,
 			EnvVars: []string{config.ProfilingPortEnvKey},
 		},
+		&cli.BoolFlag{
+			Name:    enableInsecureMetricsAccessFlag,
+			Usage:   "enable insecure metrics access (disables TLS and authentication)",
+			EnvVars: []string{config.EnableInsecureMetricsAccessEnvKey},
+		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -665,20 +671,29 @@ func runDaemon(ctx *cli.Context, info *version.Info) error {
 		c.NextProtos = []string{"http/1.1"}
 	}
 
+	metricsOptions := metricsserver.Options{
+		BindAddress: fmt.Sprintf(":%d", bindata.ContainerPort),
+		ExtraHandlers: map[string]http.Handler{
+			metrics.HandlerPath: met.Handler(),
+		},
+	}
+
+	if ctx.Bool(enableInsecureMetricsAccessFlag) {
+		setupLog.Info("Insecure metrics access allowed (TLS and authentication disabled)")
+
+		metricsOptions.SecureServing = false
+	} else {
+		metricsOptions.SecureServing = true
+		metricsOptions.CertDir = bindata.MetricsCertPath
+		metricsOptions.FilterProvider = metricsfilters.WithAuthenticationAndAuthorization
+		metricsOptions.TLSOpts = []func(*tls.Config){disableHTTP2}
+	}
+
 	ctrlOpts := ctrl.Options{
 		Cache:                  cache.Options{SyncPeriod: &sync},
 		HealthProbeBindAddress: fmt.Sprintf(":%d", config.HealthProbePort),
 		NewCache:               newMemoryOptimizedCache(ctx),
-		Metrics: metricsserver.Options{
-			BindAddress:    fmt.Sprintf(":%d", bindata.ContainerPort),
-			CertDir:        bindata.MetricsCertPath,
-			SecureServing:  true,
-			FilterProvider: metricsfilters.WithAuthenticationAndAuthorization,
-			ExtraHandlers: map[string]http.Handler{
-				metrics.HandlerPath: met.Handler(),
-			},
-			TLSOpts: []func(*tls.Config){disableHTTP2},
-		},
+		Metrics:                metricsOptions,
 	}
 
 	setControllerOptionsForNamespaces(&ctrlOpts)
