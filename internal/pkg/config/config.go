@@ -94,7 +94,8 @@ const (
 	// EnableRecordingEnvKey is the environment variable key to enabling profile recording.
 	EnableRecordingEnvKey = "ENABLE_RECORDING"
 
-	// EnableInsecureMetricsAccessEnvKey is the environment variable key for enabling insecure metrics access(disables TLS and authentication).
+	// EnableInsecureMetricsAccessEnvKey is the environment variable key for enabling insecure
+	// metrics access(disables TLS and authentication).
 	EnableInsecureMetricsAccessEnvKey = "ENABLE_INSECURE_METRICS_ACCESS"
 
 	// VerboseLevel is the increased verbosity log level.
