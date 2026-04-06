@@ -1222,7 +1222,7 @@ github.com/segmentio/asm/internal/unsafebytes
 # github.com/shibumi/go-pathspec v1.3.0
 ## explicit; go 1.17
 github.com/shibumi/go-pathspec
-# github.com/sigstore/cosign/v2 v2.6.2
+# github.com/sigstore/cosign/v2 v2.6.3
 ## explicit; go 1.25.0
 github.com/sigstore/cosign/v2/cmd/cosign/cli/fulcio
 github.com/sigstore/cosign/v2/cmd/cosign/cli/fulcio/fulcioverifier
