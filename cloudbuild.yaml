@@ -13,6 +13,8 @@ steps:
     args:
     - -c
     - |
+      mkdir -p /etc/containers && \
+      echo '{"default": [{"type": "insecureAcceptAnything"}]}' > /etc/containers/policy.json && \
       gcloud auth configure-docker && \
       make image-cross
 substitutions:
