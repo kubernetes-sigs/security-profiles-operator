@@ -42,6 +42,7 @@ sed -i \
     -e 's;\(name: security-profiles-operator.v\)'"$VERSION"';\1'"$DEV_VERSION"';g' \
     -e 's;\(version: \)'"$VERSION"';\1'"$DEV_VERSION"';g' \
     -e 's;image: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;image: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest;g' \
+    -e 's;containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator.*;containerImage: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest;g' \
     bundle/manifests/security-profiles-operator.clusterserviceversion.yaml
 
 sed -i "s;registry.k8s.io/security-profiles-operator/security-profiles-operator-catalog.*;gcr.io/k8s-staging-sp-operator/security-profiles-operator-catalog:latest;g" \
