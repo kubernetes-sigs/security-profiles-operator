@@ -110,7 +110,7 @@ dependencies:
       match: NIX_VERSION
 
   - name: gcb-docker-gcloud
-    version: v20250116-2a05ea7e3d
+    version: v20260205-38cfa9523f
     refPaths:
     - path: cloudbuild.yaml
       match: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud
