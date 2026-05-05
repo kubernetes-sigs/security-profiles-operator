@@ -28,9 +28,7 @@ import (
 	aa "github.com/pjbgf/go-apparmor/pkg/apparmor"
 	"github.com/pjbgf/go-apparmor/pkg/hostop"
 	"k8s.io/client-go/tools/record"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
@@ -38,6 +36,7 @@ import (
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/nodestatus"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -47,13 +46,9 @@ const (
 	// default reconcile timeout.
 	reconcileTimeout = 1 * time.Minute
 
-	wait = 10 * time.Second
-
-	errGetProfile         = "cannot get profile"
 	errAppArmorProfileNil = "apparmor profile cannot be nil"
 
 	reasonAppArmorNotSupported  string = "AppArmorNotSupportedOnNode"
-	reasonCannotUpdateStatus    string = "CannotUpdateNodeStatus"
 	reasonCannotLoadProfile     string = "CannotLoadAppArmorProfile"
 	reasonCannotUnloadProfile   string = "CannotUnloadAppArmorProfile"
 	reasonCannotUpdateProfile   string = "CannotUpdateAppArmorProfile"
@@ -140,7 +135,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			return reconcile.Result{}, nil
 		}
 
-		return reconcile.Result{}, fmt.Errorf("%s: %w", errGetProfile, err)
+		return reconcile.Result{}, fmt.Errorf("%s: %w", common.ErrGetProfile, err)
 	}
 
 	return r.reconcileAppArmorProfile(ctx, appArmorProfile, logger)
@@ -173,19 +168,13 @@ func (r *Reconciler) reconcileAppArmorProfile(
 	}
 
 	// The object is not being deleted
-	exists, existErr := nodeStatus.Exists(ctx)
-	if existErr != nil {
-		return reconcile.Result{}, fmt.Errorf("checking if node status exists: %w", existErr)
+	created, result, ensureErr := common.EnsureNodeStatus(ctx, nodeStatus, l)
+	if ensureErr != nil {
+		return result, ensureErr
 	}
 
-	if !exists {
-		if err := nodeStatus.Create(ctx); err != nil {
-			return reconcile.Result{}, fmt.Errorf("cannot ensure node status: %w", err)
-		}
-
-		l.Info("Created an initial status for this node")
-
-		return reconcile.Result{RequeueAfter: wait}, nil
+	if created {
+		return result, nil
 	}
 
 	isAlreadyInstalled, getErr := nodeStatus.Matches(ctx, statusv1alpha1.ProfileStateInstalled)
@@ -203,8 +192,8 @@ func (r *Reconciler) reconcileAppArmorProfile(
 
 	if err := nodeStatus.SetNodeStatus(ctx, statusv1alpha1.ProfileStateInstalled); err != nil {
 		l.Error(err, "cannot update node status")
-		r.metrics.IncAppArmorProfileError(sp.GetName(), reasonCannotUpdateStatus)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdateStatus, err.Error())
+		r.metrics.IncAppArmorProfileError(sp.GetName(), common.ReasonCannotUpdateStatus)
+		r.record.Event(sp, util.EventTypeWarning, common.ReasonCannotUpdateStatus, err.Error())
 
 		return reconcile.Result{}, fmt.Errorf("updating status in AppArmorProfile reconciler: %w", err)
 	}
@@ -230,58 +219,16 @@ func (r *Reconciler) reconcileDeletion(
 	sp *v1alpha1.AppArmorProfile,
 	nsc *nodestatus.StatusClient,
 ) (reconcile.Result, error) {
-	hasStatus, err := nsc.Exists(ctx)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("checking if node status exists: %w", err)
-	}
-
-	// Set the status if it hasn't been deleted already
-	if hasStatus {
-		isTerminating, getErr := nsc.Matches(ctx, statusv1alpha1.ProfileStateTerminating)
-		if getErr != nil {
-			r.log.Error(getErr, "couldn't get current status")
-
-			return reconcile.Result{}, fmt.Errorf("getting status for deleted AppArmorProfile: %w", getErr)
-		}
-
-		if !isTerminating {
-			r.log.Info("setting status to terminating")
-
-			if err := nsc.SetNodeStatus(ctx, statusv1alpha1.ProfileStateTerminating); err != nil {
-				r.log.Error(err, "cannot update AppArmorProfile status")
-				r.metrics.IncAppArmorProfileError(sp.GetName(), reasonCannotUpdateProfile)
-				r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdateProfile, err.Error())
-
-				return reconcile.Result{}, fmt.Errorf("updating status for deleted AppArmorProfile: %w", err)
-			}
-
-			return reconcile.Result{Requeue: true, RequeueAfter: wait}, nil
-		}
-	}
-
-	if controllerutil.ContainsFinalizer(sp, util.HasActivePodsFinalizerString) {
-		r.log.Info("cannot delete profile in use by pod, requeuing")
-
-		return reconcile.Result{RequeueAfter: wait}, nil
-	}
-
-	if err := r.handleDeletion(sp); err != nil {
-		r.log.Error(err, "cannot delete profile")
-		r.metrics.IncAppArmorProfileError(sp.GetName(), reasonCannotUnloadProfile)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotUnloadProfile, err.Error())
-
-		return ctrl.Result{}, fmt.Errorf("handling file deletion for deleted AppArmorProfile: %w", err)
-	}
-
-	if err := nsc.Remove(ctx, r.client); err != nil {
-		r.log.Error(err, "cannot remove node status/finalizer from apparmor profile")
-		r.metrics.IncAppArmorProfileError(sp.GetName(), reasonCannotUpdateStatus)
-		r.record.Event(sp, util.EventTypeWarning, reasonCannotUpdateStatus, err.Error())
-
-		return ctrl.Result{}, fmt.Errorf("deleting node status/finalizer for deleted AppArmorProfile: %w", err)
-	}
-
-	return ctrl.Result{}, nil
+	return common.ReconcileDeletion(
+		ctx, sp, nsc, r.client, r.log, r.record,
+		common.DeletionReasons{
+			CannotUpdateProfile: reasonCannotUpdateProfile,
+			CannotRemoveProfile: reasonCannotUnloadProfile,
+			CannotUpdateStatus:  common.ReasonCannotUpdateStatus,
+		},
+		func(reason string) { r.metrics.IncAppArmorProfileError(sp.GetName(), reason) },
+		func() error { return r.handleDeletion(sp) },
+	)
 }
 
 func (r *Reconciler) handleDeletion(sp *v1alpha1.AppArmorProfile) error {

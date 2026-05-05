@@ -39,6 +39,7 @@ import (
 	spodapi "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/artifact"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/common"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/metrics"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/daemon/seccompprofile/seccompprofilefakes"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -85,7 +86,7 @@ func TestReconcile(t *testing.T) {
 			wantResult: reconcile.Result{},
 			wantErr: func() error {
 				if seccomp.IsEnabled() {
-					return fmt.Errorf("%s: %w", errGetProfile, errOops)
+					return fmt.Errorf("%s: %w", common.ErrGetProfile, errOops)
 				}
 
 				return nil
