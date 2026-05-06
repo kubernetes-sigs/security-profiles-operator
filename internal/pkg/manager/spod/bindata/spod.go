@@ -157,6 +157,7 @@ var Manifest = &appsv1.DaemonSet{
 					SeccompProfile: &corev1.SeccompProfile{
 						Type: corev1.SeccompProfileTypeRuntimeDefault,
 					},
+					FSGroup: &userRootless,
 				},
 				InitContainers: []corev1.Container{
 					{
