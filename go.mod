@@ -12,7 +12,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-containerregistry v0.21.5
 	github.com/google/uuid v1.6.0
-	github.com/hairyhenderson/go-which v0.2.2
+	github.com/hairyhenderson/go-which v0.2.3
 	github.com/jellydator/ttlcache/v3 v3.4.0
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.12.2
 	github.com/mogensen/kubernetes-split-yaml v0.4.0
