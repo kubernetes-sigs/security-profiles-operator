@@ -45,8 +45,8 @@ func (b *BpfRecorder) Run() error {
 
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
-func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
-	return nil, nil, errUnsupported
+func Dial() (*grpc.ClientConn, error) {
+	return nil, errUnsupported
 }
 
 func (b *BpfRecorder) Start(

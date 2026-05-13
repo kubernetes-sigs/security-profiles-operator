@@ -322,12 +322,12 @@ func (r *RecorderReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 
 func (r *RecorderReconciler) getBpfRecorderClient(
 	ctx context.Context,
-) (bpfrecorderapi.BpfRecorderClient, context.CancelFunc, error) {
+) (bpfrecorderapi.BpfRecorderClient, error) {
 	r.log.Info("Checking if bpf recorder is enabled")
 
 	spod, err := r.getSPOD(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("getting SPOD config: %w", err)
+		return nil, fmt.Errorf("getting SPOD config: %w", err)
 	}
 
 	enableBpfRecorderEnv, err := strconv.ParseBool(os.Getenv(config.EnableBpfRecorderEnvKey))
@@ -336,29 +336,28 @@ func (r *RecorderReconciler) getBpfRecorderClient(
 	}
 
 	if !spod.Spec.EnableBpfRecorder && !enableBpfRecorderEnv {
-		return nil, nil, errors.New("bpf recorder is not enabled")
+		return nil, errors.New("bpf recorder is not enabled")
 	}
 
 	r.log.Info("Connecting to local GRPC bpf recorder server")
 
-	conn, cancel, err := r.DialBpfRecorder()
+	conn, err := r.DialBpfRecorder()
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect to bpf recorder GRPC server: %w", err)
+		return nil, fmt.Errorf("connect to bpf recorder GRPC server: %w", err)
 	}
 
 	bpfRecorderClient := bpfrecorderapi.NewBpfRecorderClient(conn)
 
-	return bpfRecorderClient, cancel, nil
+	return bpfRecorderClient, nil
 }
 
 func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
-	recorderClient, cancel, err := r.getBpfRecorderClient(ctx)
+	recorderClient, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
-	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, reconcileTimeout)
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
 	r.log.Info("Starting BPF recorder on node")
@@ -367,14 +366,13 @@ func (r *RecorderReconciler) startBpfRecorder(ctx context.Context) error {
 }
 
 func (r *RecorderReconciler) stopBpfRecorder(ctx context.Context) error {
-	recorderClient, cancel1, err := r.getBpfRecorderClient(ctx)
+	recorderClient, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
-	defer cancel1()
 
-	ctx, cancel2 := context.WithTimeout(ctx, reconcileTimeout)
-	defer cancel2()
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
 
 	r.log.Info("Stopping BPF recorder on node")
 
@@ -447,12 +445,10 @@ func (r *RecorderReconciler) collectLogProfiles(
 
 	r.log.Info("Connecting to local GRPC enricher server")
 
-	conn, cancel, err := r.DialEnricher()
+	conn, err := r.DialEnricher()
 	if err != nil {
 		return fmt.Errorf("connecting to local GRPC server: %w", err)
 	}
-
-	defer cancel()
 
 	enricherClient := enricherapi.NewEnricherClient(conn)
 
@@ -718,11 +714,10 @@ func (r *RecorderReconciler) collectBpfProfiles(
 	podName types.NamespacedName,
 	profiles []profileToCollect,
 ) error {
-	recorderClient, cancel, err := r.getBpfRecorderClient(ctx)
+	recorderClient, err := r.getBpfRecorderClient(ctx)
 	if err != nil {
 		return fmt.Errorf("get bpf recorder client: %w", err)
 	}
-	defer cancel()
 
 	for _, profileToCollect := range profiles {
 		ptc := profileToCollect

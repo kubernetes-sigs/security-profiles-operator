@@ -192,13 +192,9 @@ func (b *BpfRecorder) Run() error {
 
 	b.logger.Info("Connecting to metrics server")
 
-	conn, cancel, err := b.connectMetrics()
+	conn, err := b.connectMetrics()
 	if err != nil {
 		return fmt.Errorf("connect to metrics server: %w", err)
-	}
-
-	if cancel != nil {
-		defer cancel()
 	}
 
 	if conn != nil {
@@ -245,9 +241,9 @@ func (b *BpfRecorder) Run() error {
 	return b.Serve(grpcServer, listener)
 }
 
-func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.CancelFunc, err error) {
+func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, err error) {
 	if err := util.Retry(func() (err error) {
-		conn, cancel, err = b.DialMetrics()
+		conn, err = b.DialMetrics()
 		if err != nil {
 			return fmt.Errorf("connecting to local metrics GRPC server: %w", err)
 		}
@@ -256,8 +252,6 @@ func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.Ca
 
 		b.metricsClient, err = b.BpfIncClient(client)
 		if err != nil {
-			cancel()
-
 			if err := b.CloseGRPC(conn); err != nil {
 				b.logger.Error(err, "Unable to close GRPC connection")
 			}
@@ -267,29 +261,24 @@ func (b *BpfRecorder) connectMetrics() (conn *grpc.ClientConn, cancel context.Ca
 
 		return nil
 	}, func(err error) bool { return true }); err != nil {
-		return nil, nil, fmt.Errorf("connect to local GRPC server: %w", err)
+		return nil, fmt.Errorf("connect to local GRPC server: %w", err)
 	}
 
-	return conn, cancel, nil
+	return conn, nil
 }
 
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
-func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-
-	conn, err := grpc.DialContext( //nolint:staticcheck // TODO: migrate to grpc.NewClient
-		ctx,
+func Dial() (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(
 		"unix://"+config.GRPCServerSocketBpfRecorder,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		cancel()
-
-		return nil, nil, fmt.Errorf("GRPC dial: %w", err)
+		return nil, fmt.Errorf("GRPC dial: %w", err)
 	}
 
-	return conn, cancel, nil
+	return conn, nil
 }
 
 func (b *BpfRecorder) Start(

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -296,29 +297,7 @@ func mergeDedupSortStrings(a, b *[]string) *[]string {
 
 	merged := append(*a, *b...)
 	sort.Strings(merged)
-	merged = compact(merged)
+	merged = slices.Compact(merged)
 
 	return &merged
-}
-
-// TODO: replace this with slices.Compact once all platform support Go 1.21.
-func compact(s []string) []string {
-	//nolint:all
-	if len(s) < 2 {
-		return s
-	}
-
-	i := 1
-
-	for k := 1; k < len(s); k++ {
-		if s[k] != s[k-1] {
-			if i != k {
-				s[i] = s[k]
-			}
-
-			i++
-		}
-	}
-
-	return s[:i]
 }

@@ -176,19 +176,17 @@ type FakeImpl struct {
 	destroyLinkReturnsOnCall map[int]struct {
 		result1 error
 	}
-	DialMetricsStub        func() (*grpc.ClientConn, context.CancelFunc, error)
+	DialMetricsStub        func() (*grpc.ClientConn, error)
 	dialMetricsMutex       sync.RWMutex
 	dialMetricsArgsForCall []struct {
 	}
 	dialMetricsReturns struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
+		result2 error
 	}
 	dialMetricsReturnsOnCall map[int]struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
+		result2 error
 	}
 	GetMapStub        func(*libbpfgo.Module, string) (*libbpfgo.BPFMap, error)
 	getMapMutex       sync.RWMutex
@@ -1268,7 +1266,7 @@ func (fake *FakeImpl) DestroyLinkReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *FakeImpl) DialMetrics() (*grpc.ClientConn, context.CancelFunc, error) {
+func (fake *FakeImpl) DialMetrics() (*grpc.ClientConn, error) {
 	fake.dialMetricsMutex.Lock()
 	ret, specificReturn := fake.dialMetricsReturnsOnCall[len(fake.dialMetricsArgsForCall)]
 	fake.dialMetricsArgsForCall = append(fake.dialMetricsArgsForCall, struct {
@@ -1281,9 +1279,9 @@ func (fake *FakeImpl) DialMetrics() (*grpc.ClientConn, context.CancelFunc, error
 		return stub()
 	}
 	if specificReturn {
-		return ret.result1, ret.result2, ret.result3
+		return ret.result1, ret.result2
 	}
-	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
+	return fakeReturns.result1, fakeReturns.result2
 }
 
 func (fake *FakeImpl) DialMetricsCallCount() int {
@@ -1292,39 +1290,36 @@ func (fake *FakeImpl) DialMetricsCallCount() int {
 	return len(fake.dialMetricsArgsForCall)
 }
 
-func (fake *FakeImpl) DialMetricsCalls(stub func() (*grpc.ClientConn, context.CancelFunc, error)) {
+func (fake *FakeImpl) DialMetricsCalls(stub func() (*grpc.ClientConn, error)) {
 	fake.dialMetricsMutex.Lock()
 	defer fake.dialMetricsMutex.Unlock()
 	fake.DialMetricsStub = stub
 }
 
-func (fake *FakeImpl) DialMetricsReturns(result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+func (fake *FakeImpl) DialMetricsReturns(result1 *grpc.ClientConn, result2 error) {
 	fake.dialMetricsMutex.Lock()
 	defer fake.dialMetricsMutex.Unlock()
 	fake.DialMetricsStub = nil
 	fake.dialMetricsReturns = struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
-	}{result1, result2, result3}
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *FakeImpl) DialMetricsReturnsOnCall(i int, result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+func (fake *FakeImpl) DialMetricsReturnsOnCall(i int, result1 *grpc.ClientConn, result2 error) {
 	fake.dialMetricsMutex.Lock()
 	defer fake.dialMetricsMutex.Unlock()
 	fake.DialMetricsStub = nil
 	if fake.dialMetricsReturnsOnCall == nil {
 		fake.dialMetricsReturnsOnCall = make(map[int]struct {
 			result1 *grpc.ClientConn
-			result2 context.CancelFunc
-			result3 error
+			result2 error
 		})
 	}
 	fake.dialMetricsReturnsOnCall[i] = struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
-	}{result1, result2, result3}
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) GetMap(arg1 *libbpfgo.Module, arg2 string) (*libbpfgo.BPFMap, error) {

@@ -55,7 +55,7 @@ type impl interface {
 	ManagerGetEventRecorderFor(manager.Manager, string) record.EventRecorder
 	GetPod(context.Context, client.Client, client.ObjectKey) (*corev1.Pod, error)
 	GetSPOD(context.Context, client.Client) (*spodapi.SecurityProfilesOperatorDaemon, error)
-	DialBpfRecorder() (*grpc.ClientConn, context.CancelFunc, error)
+	DialBpfRecorder() (*grpc.ClientConn, error)
 	StartBpfRecorder(context.Context, bpfrecorderapi.BpfRecorderClient) error
 	StopBpfRecorder(context.Context, bpfrecorderapi.BpfRecorderClient) error
 	SyscallsForProfile(
@@ -79,7 +79,7 @@ type impl interface {
 	ResetAvcs(
 		context.Context, enricherapi.EnricherClient, *enricherapi.AvcRequest,
 	) error
-	DialEnricher() (*grpc.ClientConn, context.CancelFunc, error)
+	DialEnricher() (*grpc.ClientConn, error)
 	GetRecording(context.Context, client.Client, client.ObjectKey) (*profilerecording1alpha1.ProfileRecording, error)
 	ApparmorForProfile(
 		context.Context,
@@ -142,7 +142,7 @@ func (*defaultImpl) GetSPOD(
 	return common.GetSPOD(ctx, c)
 }
 
-func (*defaultImpl) DialBpfRecorder() (*grpc.ClientConn, context.CancelFunc, error) {
+func (*defaultImpl) DialBpfRecorder() (*grpc.ClientConn, error) {
 	return bpfrecorder.Dial()
 }
 
@@ -219,7 +219,7 @@ func (*defaultImpl) ResetAvcs(
 	return err
 }
 
-func (*defaultImpl) DialEnricher() (*grpc.ClientConn, context.CancelFunc, error) {
+func (*defaultImpl) DialEnricher() (*grpc.ClientConn, error) {
 	return enricher.Dial()
 }
 
