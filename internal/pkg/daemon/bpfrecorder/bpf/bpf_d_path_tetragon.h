@@ -172,6 +172,8 @@ prepend(char **buffer, int *buflen, const char *str, int namelen)
 	if (*buflen < 0) // will never happen - check function comment
 		return -ENAMETOOLONG;
 	*buffer -= namelen;
+	if (namelen <= 0 || namelen > MAX_BUF_LEN)
+		return -ENAMETOOLONG;
 	memcpy(*buffer, str, namelen);
 	return 0;
 }
