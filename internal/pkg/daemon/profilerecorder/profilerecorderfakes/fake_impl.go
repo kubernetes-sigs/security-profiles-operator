@@ -98,33 +98,29 @@ type FakeImpl struct {
 		result1 controllerutil.OperationResult
 		result2 error
 	}
-	DialBpfRecorderStub        func() (*grpc.ClientConn, context.CancelFunc, error)
+	DialBpfRecorderStub        func() (*grpc.ClientConn, error)
 	dialBpfRecorderMutex       sync.RWMutex
 	dialBpfRecorderArgsForCall []struct {
 	}
 	dialBpfRecorderReturns struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
+		result2 error
 	}
 	dialBpfRecorderReturnsOnCall map[int]struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
+		result2 error
 	}
-	DialEnricherStub        func() (*grpc.ClientConn, context.CancelFunc, error)
+	DialEnricherStub        func() (*grpc.ClientConn, error)
 	dialEnricherMutex       sync.RWMutex
 	dialEnricherArgsForCall []struct {
 	}
 	dialEnricherReturns struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
+		result2 error
 	}
 	dialEnricherReturnsOnCall map[int]struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
+		result2 error
 	}
 	GetPodStub        func(context.Context, client.Client, client.ObjectKey) (*v1.Pod, error)
 	getPodMutex       sync.RWMutex
@@ -581,7 +577,7 @@ func (fake *FakeImpl) CreateOrUpdateReturnsOnCall(i int, result1 controllerutil.
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) DialBpfRecorder() (*grpc.ClientConn, context.CancelFunc, error) {
+func (fake *FakeImpl) DialBpfRecorder() (*grpc.ClientConn, error) {
 	fake.dialBpfRecorderMutex.Lock()
 	ret, specificReturn := fake.dialBpfRecorderReturnsOnCall[len(fake.dialBpfRecorderArgsForCall)]
 	fake.dialBpfRecorderArgsForCall = append(fake.dialBpfRecorderArgsForCall, struct {
@@ -594,9 +590,9 @@ func (fake *FakeImpl) DialBpfRecorder() (*grpc.ClientConn, context.CancelFunc, e
 		return stub()
 	}
 	if specificReturn {
-		return ret.result1, ret.result2, ret.result3
+		return ret.result1, ret.result2
 	}
-	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
+	return fakeReturns.result1, fakeReturns.result2
 }
 
 func (fake *FakeImpl) DialBpfRecorderCallCount() int {
@@ -605,42 +601,39 @@ func (fake *FakeImpl) DialBpfRecorderCallCount() int {
 	return len(fake.dialBpfRecorderArgsForCall)
 }
 
-func (fake *FakeImpl) DialBpfRecorderCalls(stub func() (*grpc.ClientConn, context.CancelFunc, error)) {
+func (fake *FakeImpl) DialBpfRecorderCalls(stub func() (*grpc.ClientConn, error)) {
 	fake.dialBpfRecorderMutex.Lock()
 	defer fake.dialBpfRecorderMutex.Unlock()
 	fake.DialBpfRecorderStub = stub
 }
 
-func (fake *FakeImpl) DialBpfRecorderReturns(result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+func (fake *FakeImpl) DialBpfRecorderReturns(result1 *grpc.ClientConn, result2 error) {
 	fake.dialBpfRecorderMutex.Lock()
 	defer fake.dialBpfRecorderMutex.Unlock()
 	fake.DialBpfRecorderStub = nil
 	fake.dialBpfRecorderReturns = struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
-	}{result1, result2, result3}
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *FakeImpl) DialBpfRecorderReturnsOnCall(i int, result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+func (fake *FakeImpl) DialBpfRecorderReturnsOnCall(i int, result1 *grpc.ClientConn, result2 error) {
 	fake.dialBpfRecorderMutex.Lock()
 	defer fake.dialBpfRecorderMutex.Unlock()
 	fake.DialBpfRecorderStub = nil
 	if fake.dialBpfRecorderReturnsOnCall == nil {
 		fake.dialBpfRecorderReturnsOnCall = make(map[int]struct {
 			result1 *grpc.ClientConn
-			result2 context.CancelFunc
-			result3 error
+			result2 error
 		})
 	}
 	fake.dialBpfRecorderReturnsOnCall[i] = struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
-	}{result1, result2, result3}
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *FakeImpl) DialEnricher() (*grpc.ClientConn, context.CancelFunc, error) {
+func (fake *FakeImpl) DialEnricher() (*grpc.ClientConn, error) {
 	fake.dialEnricherMutex.Lock()
 	ret, specificReturn := fake.dialEnricherReturnsOnCall[len(fake.dialEnricherArgsForCall)]
 	fake.dialEnricherArgsForCall = append(fake.dialEnricherArgsForCall, struct {
@@ -653,9 +646,9 @@ func (fake *FakeImpl) DialEnricher() (*grpc.ClientConn, context.CancelFunc, erro
 		return stub()
 	}
 	if specificReturn {
-		return ret.result1, ret.result2, ret.result3
+		return ret.result1, ret.result2
 	}
-	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
+	return fakeReturns.result1, fakeReturns.result2
 }
 
 func (fake *FakeImpl) DialEnricherCallCount() int {
@@ -664,39 +657,36 @@ func (fake *FakeImpl) DialEnricherCallCount() int {
 	return len(fake.dialEnricherArgsForCall)
 }
 
-func (fake *FakeImpl) DialEnricherCalls(stub func() (*grpc.ClientConn, context.CancelFunc, error)) {
+func (fake *FakeImpl) DialEnricherCalls(stub func() (*grpc.ClientConn, error)) {
 	fake.dialEnricherMutex.Lock()
 	defer fake.dialEnricherMutex.Unlock()
 	fake.DialEnricherStub = stub
 }
 
-func (fake *FakeImpl) DialEnricherReturns(result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+func (fake *FakeImpl) DialEnricherReturns(result1 *grpc.ClientConn, result2 error) {
 	fake.dialEnricherMutex.Lock()
 	defer fake.dialEnricherMutex.Unlock()
 	fake.DialEnricherStub = nil
 	fake.dialEnricherReturns = struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
-	}{result1, result2, result3}
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *FakeImpl) DialEnricherReturnsOnCall(i int, result1 *grpc.ClientConn, result2 context.CancelFunc, result3 error) {
+func (fake *FakeImpl) DialEnricherReturnsOnCall(i int, result1 *grpc.ClientConn, result2 error) {
 	fake.dialEnricherMutex.Lock()
 	defer fake.dialEnricherMutex.Unlock()
 	fake.DialEnricherStub = nil
 	if fake.dialEnricherReturnsOnCall == nil {
 		fake.dialEnricherReturnsOnCall = make(map[int]struct {
 			result1 *grpc.ClientConn
-			result2 context.CancelFunc
-			result3 error
+			result2 error
 		})
 	}
 	fake.dialEnricherReturnsOnCall[i] = struct {
 		result1 *grpc.ClientConn
-		result2 context.CancelFunc
-		result3 error
-	}{result1, result2, result3}
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) GetPod(arg1 context.Context, arg2 client.Client, arg3 client.ObjectKey) (*v1.Pod, error) {

@@ -112,7 +112,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
-				mock.DialReturns(nil, nil, errTest)
+				mock.DialReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
 				require.Error(t, err)
@@ -123,7 +123,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
-				mock.DialReturns(nil, func() {}, errTest)
+				mock.DialReturns(nil, errTest)
 				mock.AuditIncReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
@@ -135,7 +135,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
-				mock.DialReturns(nil, func() {}, errTest)
+				mock.DialReturns(nil, errTest)
 				mock.StartTailReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
@@ -146,7 +146,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
-				mock.DialReturns(nil, func() {}, errTest)
+				mock.DialReturns(nil, errTest)
 				mock.ListenReturns(nil, errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
@@ -158,7 +158,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
-				mock.DialReturns(nil, func() {}, errTest)
+				mock.DialReturns(nil, errTest)
 				mock.ChownReturns(errTest)
 			},
 			assert: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine, err error) {
@@ -169,7 +169,7 @@ func TestRun(t *testing.T) {
 			runAsync: false,
 			prepare: func(mock *enricherfakes.FakeImpl, lineChan chan *types.AuditLine) {
 				mock.GetenvReturns(node)
-				mock.DialReturns(nil, func() {}, errTest)
+				mock.DialReturns(nil, errTest)
 				close(lineChan)
 				mock.StartTailReturns(lineChan, nil)
 				mock.TailErrReturns(errTest)

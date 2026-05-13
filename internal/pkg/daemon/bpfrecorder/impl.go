@@ -86,7 +86,7 @@ type impl interface {
 	GoArch() string
 	Readlink(string) (string, error)
 	ParseUint(string) (uint32, error)
-	DialMetrics() (*grpc.ClientConn, context.CancelFunc, error)
+	DialMetrics() (*grpc.ClientConn, error)
 	BpfIncClient(client apimetrics.MetricsClient) (apimetrics.Metrics_BpfIncClient, error)
 	CloseGRPC(*grpc.ClientConn) error
 	SendMetric(apimetrics.Metrics_BpfIncClient, *apimetrics.BpfRequest) error
@@ -269,7 +269,7 @@ func (d *defaultImpl) ParseUint(s string) (uint32, error) {
 	return uint32(value), err
 }
 
-func (d *defaultImpl) DialMetrics() (*grpc.ClientConn, context.CancelFunc, error) {
+func (d *defaultImpl) DialMetrics() (*grpc.ClientConn, error) {
 	return metrics.Dial()
 }
 

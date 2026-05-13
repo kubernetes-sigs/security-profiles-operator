@@ -17,7 +17,6 @@ limitations under the License.
 package metrics
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -69,21 +68,16 @@ func (m *Metrics) ServeGRPC() error {
 
 // Dial can be used to connect to the default GRPC server by creating a new
 // client.
-func Dial() (*grpc.ClientConn, context.CancelFunc, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-
-	conn, err := grpc.DialContext( //nolint:staticcheck // TODO: migrate to grpc.NewClient
-		ctx,
+func Dial() (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(
 		"unix://"+config.GRPCServerSocketMetrics,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		cancel()
-
-		return nil, nil, fmt.Errorf("GRPC dial: %w", err)
+		return nil, fmt.Errorf("GRPC dial: %w", err)
 	}
 
-	return conn, cancel, nil
+	return conn, nil
 }
 
 // AuditInc updates the metrics for the audit counter.

@@ -69,7 +69,7 @@ func TestRun(t *testing.T) {
 				mock.GetenvReturns(node)
 				mock.GoArchReturns(validGoArch)
 				mock.NewModuleFromBufferArgsReturns(&libbpfgo.Module{}, nil)
-				mock.DialMetricsReturns(&grpc.ClientConn{}, func() {}, nil)
+				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 			},
 			assert: func(err error) {
 				require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestRun(t *testing.T) {
 		{ // connectMetrics:DialMetrics fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
-				mock.DialMetricsReturns(nil, nil, errTest)
+				mock.DialMetricsReturns(nil, errTest)
 			},
 			assert: func(err error) {
 				require.Error(t, err)
@@ -140,7 +140,7 @@ func TestRun(t *testing.T) {
 		{ // connectMetrics:BpfIncClient fails
 			prepare: func(mock *bpfrecorderfakes.FakeImpl) {
 				mock.GetenvReturns(node)
-				mock.DialMetricsReturns(&grpc.ClientConn{}, func() {}, nil)
+				mock.DialMetricsReturns(&grpc.ClientConn{}, nil)
 				mock.CloseGRPCReturns(errTest)
 				mock.BpfIncClientReturns(nil, errTest)
 			},
