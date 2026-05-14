@@ -1110,9 +1110,15 @@ github.com/opencontainers/runtime-spec/specs-go
 ## explicit; go 1.21
 # github.com/opencontainers/selinux v1.13.1
 ## explicit; go 1.19
-# github.com/openshift/api v0.0.0-20260304122331-fa4ca2f2be59
+# github.com/openshift/api v0.0.0-20260507162658-047c8957c266
 ## explicit; go 1.25.0
 github.com/openshift/api/config/v1
+# github.com/openshift/controller-runtime-common v0.0.0-20260428152732-64ee174f5e2e
+## explicit; go 1.25.0
+github.com/openshift/controller-runtime-common/pkg/tls
+# github.com/openshift/library-go v0.0.0-20260511114641-ae196b55736d
+## explicit; go 1.25.0
+github.com/openshift/library-go/pkg/crypto
 # github.com/pborman/uuid v1.2.1
 ## explicit
 github.com/pborman/uuid
