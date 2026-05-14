@@ -173,6 +173,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"API v1 Graduation: Verify conversion webhooks",
 			e.testCaseAPIV1Graduation,
 		},
+		{
+			"TLS: Verify TLS profile on OpenShift",
+			e.testCaseTLSProfileOpenShift,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase
