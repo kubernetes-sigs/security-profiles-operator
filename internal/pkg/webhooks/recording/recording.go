@@ -73,6 +73,10 @@ func RegisterWebhook(server webhook.Server, scheme *runtime.Scheme, rec record.E
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=profilerecordings/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//
+// OpenShift (This is ignored in other distros):
+// +kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators,verbs=get;list;watch
+// +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
 
 //nolint:gocritic
 func (p *podSeccompRecorder) Handle(
