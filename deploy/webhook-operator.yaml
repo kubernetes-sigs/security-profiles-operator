@@ -3121,6 +3121,7 @@ rules:
 - apiGroups:
   - config.openshift.io
   resources:
+  - apiservers
   - clusteroperators
   verbs:
   - get
