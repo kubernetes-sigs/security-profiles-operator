@@ -169,6 +169,10 @@ func (e *e2e) TestSecurityProfilesOperator() {
 			"SPOD: Enable profile recorder",
 			e.testCaseSPODEnableProfileRecorder,
 		},
+		{
+			"TLS: Verify TLS profile on OpenShift",
+			e.testCaseTLSProfileOpenShift,
+		},
 	}
 	for _, testCase := range testCases {
 		tc := testCase
