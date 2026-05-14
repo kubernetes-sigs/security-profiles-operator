@@ -1,4 +1,10 @@
-// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+
+	if (namelen <= 0 || namelen > MAX_BUF_LEN)
+		return -ENAMETOOLONG;
+	*buflen -= namelen;
+	
+	*buffer -= namelen;
+	// SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 /* Copyright Authors of Cilium */
 
 // https://raw.githubusercontent.com/cilium/tetragon/d72f98aefb8e88c06caec7cfbc687bbeabf97a5f/bpf/process/bpf_process_event.h
