@@ -785,7 +785,7 @@ spec:
 
 This seccomp profile will be saved at the path:
 
-`/var/lib/kubelet/seccomp/operator/my-namespace/profile1.json`.
+`/var/lib/kubelet/seccomp/operator/profile1.json`.
 
 An init container will set up the root directory of the operator to be able to
 run it without root G/UID. This will be done by creating a symlink from the
@@ -804,7 +804,7 @@ spec:
   securityContext:
     seccompProfile:
       type: Localhost
-      localhostProfile: operator/my-namespace/profile1.json
+      localhostProfile: operator/profile1.json
   containers:
     - name: test-container
       image: nginx
@@ -818,7 +818,7 @@ kind: Pod
 metadata:
   name: test-pod
   annotations:
-    seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/my-namespace/profile1.json"
+    seccomp.security.alpha.kubernetes.io/pod: "localhost/operator/profile1.json"
 spec:
   containers:
     - name: test-container
@@ -832,7 +832,7 @@ output mode):
 ```sh
 $ kubectl get seccompprofile profile1 --output wide
 NAME       STATUS   AGE   SECCOMPPROFILE.LOCALHOSTPROFILE
-profile1   Active   14s   operator/my-namespace/profile1.json
+profile1   Active   14s   operator/profile1.json
 ```
 
 You can apply the profile to an existing application, such as a Deployment or
@@ -850,7 +850,7 @@ profile was applied correctly:
 $ kubectl --namespace my-namespace get deployment myapp --output=jsonpath='{.spec.template.spec.securityContext}' | jq .
 {
   "seccompProfile": {
-    "localhostProfile": "operator/my-namespace/profile1.json",
+    "localhostProfile": "operator/profile1.json",
     "type": "Localhost"
   }
 }
@@ -1475,7 +1475,7 @@ kubectl get selinuxprofile -o yaml
 
 #### Use SELinux profile
 
-SELinux profiles are referenced based on their `USAGE` type name, which is `<ProfileName>.process`.
+SELinux profiles are referenced based on their `USAGE` type name, which is `<ProfileName>_.process`.
 
 Use this SELinux type in the workload manifest in the `.spec.containers[].securityContext.seLinuxOptions` attribute:
 
@@ -1745,7 +1745,7 @@ name matches the binding:
 
 ```sh
 $ kubectl get pod test-pod -o jsonpath='{.spec.containers[*].securityContext.seccompProfile}'
-{"localhostProfile":"operator/default/generic/profile-complain-unsafe.json","type":"Localhost"}
+{"localhostProfile":"operator/profile-complain-unsafe.json","type":"Localhost"}
 ```
 
 Binding a SELinux profile works in the same way, except you'd use the `SelinuxProfile` kind.
@@ -2370,7 +2370,7 @@ I1019 19:34:15.453618       1 profile.go:148] profile "msg"="Reconciled profile 
 Confirm that the seccomp profiles are saved into the correct path:
 
 ```sh
-$ kubectl exec -t -n security-profiles-operator security-profiles-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/my-namespace/my-workload
+$ kubectl exec -t -n security-profiles-operator security-profiles-operator-v6p2h -- ls /var/lib/kubelet/seccomp/operator/my-workload
 profile-block.json
 profile-complain.json
 ```
