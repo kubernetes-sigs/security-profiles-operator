@@ -80,7 +80,7 @@ func SetStrictMode(mode LibbpfStrictMode) {
 
 func BPFProgramTypeIsSupported(progType BPFProgType) (bool, error) {
 	supportedC := C.libbpf_probe_bpf_prog_type(C.enum_bpf_prog_type(int(progType)), nil)
-	if supportedC < 1 {
+	if supportedC < 0 {
 		return false, syscall.Errno(-supportedC)
 	}
 
@@ -89,7 +89,7 @@ func BPFProgramTypeIsSupported(progType BPFProgType) (bool, error) {
 
 func BPFMapTypeIsSupported(mapType MapType) (bool, error) {
 	supportedC := C.libbpf_probe_bpf_map_type(C.enum_bpf_map_type(int(mapType)), nil)
-	if supportedC < 1 {
+	if supportedC < 0 {
 		return false, syscall.Errno(-supportedC)
 	}
 
