@@ -115,9 +115,12 @@ func NewModuleFromBufferArgs(args NewModuleArgs) (*Module, error) {
 	}
 	C.cgo_libbpf_set_print_fn()
 
-	// TODO: remove this once libbpf memory limit bump issue is solved
-	if err := bumpMemlockRlimit(); err != nil {
-		return nil, err
+	// If skipped, we rely on libbpf to do the bumping if deemed necessary
+	if !args.SkipMemlockBump {
+		// TODO: remove this once libbpf memory limit bump issue is solved
+		if err := bumpMemlockRlimit(); err != nil {
+			return nil, err
+		}
 	}
 
 	var btfFilePathC *C.char

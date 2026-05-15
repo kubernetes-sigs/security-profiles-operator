@@ -7,6 +7,7 @@ package libbpfgo
 import "C"
 
 import (
+	"errors"
 	"fmt"
 	"syscall"
 	"unsafe"
@@ -310,6 +311,8 @@ func (m *BPFMap) Unpin(pinPath string) error {
 	return nil
 }
 
+var ErrNoInnerMap = errors.New("map has no inner map")
+
 //
 // BPFMap Map of Maps
 //
@@ -324,7 +327,12 @@ func (m *BPFMap) Unpin(pinPath string) error {
 // https://lore.kernel.org/bpf/20200429002739.48006-4-andriin@fb.com/
 func (m *BPFMap) InnerMapInfo() (*BPFMapInfo, error) {
 	innerMapC, errno := C.bpf_map__inner_map(m.bpfMap)
+
 	if innerMapC == nil {
+		// EINVAL is returned if the map is not a map of maps
+		if errno == syscall.EINVAL {
+			return nil, ErrNoInnerMap
+		}
 		return nil, fmt.Errorf("failed to get inner map for %s: %w", m.Name(), errno)
 	}
 
