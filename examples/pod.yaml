@@ -9,5 +9,5 @@ spec:
     # securityContext:
       # seccompProfile:
         # type: Localhost
-        # localhostProfile: operator/security-profiles-operator/nginx-1.23.2.json
+        # localhostProfile: operator/nginx-1.23.2.json
     image: nginx:1.23.2
