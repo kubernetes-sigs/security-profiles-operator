@@ -170,7 +170,7 @@ prepend(char **buffer, int *buflen, const char *str, int namelen)
 {
 	if (namelen <= 0 || namelen > MAX_BUF_LEN)
 		return -ENAMETOOLONG;
-		*buflen -= namelen;
+	*buflen -= namelen;
 	if (*buflen < 0) // will never happen - check function comment
 		return -ENAMETOOLONG;
 	*buffer -= namelen;
