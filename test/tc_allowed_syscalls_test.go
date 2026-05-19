@@ -22,8 +22,8 @@ import (
 	"path"
 	"time"
 
+	"sigs.k8s.io/security-profiles-operator/api/common"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -230,7 +230,7 @@ spec:
 		sp := e.getSeccompProfile(allowProfileName)
 
 		conReady := sp.Status.GetReadyCondition()
-		if conReady.Reason == spodv1alpha1.ReasonDeleting {
+		if conReady.Reason == common.ReasonDeleting {
 			break
 		}
 

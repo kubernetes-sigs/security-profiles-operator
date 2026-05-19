@@ -418,6 +418,7 @@ verify-boilerplate: $(BUILD_DIR)/verify_boilerplate.py ## Verify the boilerplate
 		--skip api/grpc/bpfrecorder/api.pb.go \
 		--skip api/grpc/enricher/api.pb.go \
 		--skip api/grpc/metrics/api.pb.go \
+		--skip api/common/zz_generated.deepcopy.go \
 		--skip api/apparmorprofile/v1alpha1/zz_generated.deepcopy.go \
 		--skip api/profilebinding/v1alpha1/zz_generated.deepcopy.go \
 		--skip api/profilerecording/v1alpha1/zz_generated.deepcopy.go \
