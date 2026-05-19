@@ -334,7 +334,7 @@ func (r *RecorderReconciler) getBpfRecorderClient(
 		enableBpfRecorderEnv = false
 	}
 
-	if !spod.Spec.EnableBpfRecorder && !enableBpfRecorderEnv {
+	if !spod.Spec.Enricher.EnableBpfRecorder && !enableBpfRecorderEnv {
 		return nil, errors.New("bpf recorder is not enabled")
 	}
 
@@ -438,7 +438,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 		enableLogEnricherEnv = false
 	}
 
-	if !spod.Spec.EnableLogEnricher && !enableLogEnricherEnv {
+	if !spod.Spec.Enricher.EnableLogEnricher && !enableLogEnricherEnv {
 		return errors.New("log enricher not enabled")
 	}
 

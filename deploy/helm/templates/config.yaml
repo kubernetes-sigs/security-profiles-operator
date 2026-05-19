@@ -6,20 +6,23 @@ metadata:
   name: spod
   namespace: {{ .Release.Namespace }}
 spec:
-  {{- with .Values.daemon.affinity }}
-  affinity:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+  scheduling:
+    {{- with .Values.daemon.affinity }}
+    affinity:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.daemon.tolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
   daemonResourceRequirements:
     {{- toYaml .Values.daemon.resources | nindent 4 }}
-  enableSelinux: {{ .Values.enableSelinux }}
-  enableLogEnricher: {{ .Values.enableLogEnricher }}
-  enableJsonEnricher: {{ .Values.enableJsonEnricher }}
+  selinux:
+    enable: {{ .Values.enableSelinux }}
+  enricher:
+    enableLogEnricher: {{ .Values.enableLogEnricher }}
+    enableJsonEnricher: {{ .Values.enableJsonEnricher }}
+    enableBpfRecorder: {{ .Values.enableBpfRecorder }}
   enableAppArmor: {{ .Values.enableAppArmor }}
-  enableBpfRecorder: {{ .Values.enableBpfRecorder }}
   enableProfiling: {{ .Values.enableProfiling }}
-  {{- with .Values.daemon.tolerations }}
-  tolerations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
   verbosity: {{ .Values.verbosity }}

@@ -15,7 +15,7 @@ resources:
 patches:
 - patch: |-
     - op: replace
-      path: "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/webhookOptions/default"
+      path: "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/webhook/properties/options/default"
       value:
         - name: nodedebuggingpod.spo.io
           objectSelector:

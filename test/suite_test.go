@@ -758,9 +758,9 @@ func (e *e2e) enableSelinuxInSpod() {
 	selinuxEnabledInSPODDS := e.kubectlOperatorNS("get", "ds", "spod", "-o", "yaml")
 	if !strings.Contains(selinuxEnabledInSPODDS, "--with-selinux=true") {
 		e.logf("Enable selinux in SPOD")
-		e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
+		e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"selinux":{"enable": true}}}`, "--type=merge")
 		e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-			`{"spec":{"selinuxOptions":{"allowedSystemProfiles":["container","net_container"]}}}`,
+			`{"spec":{"selinux":{"options":{"allowedSystemProfiles":["container","net_container"]}}}}`,
 			"--type=merge")
 
 		time.Sleep(defaultWaitTime)
@@ -814,13 +814,13 @@ func (e *e2e) jsonEnricherOnlyTestCaseFileOptions(jsonLogFileName string,
 
 func (e *e2e) enableLogEnricherBpfInSpod() {
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"logEnricherSource": "bpf"}}`, "--type=merge")
+		`{"spec":{"enricher":{"logEnricherSource": "bpf"}}}`, "--type=merge")
 }
 
 func (e *e2e) enableLogEnricherInSpod() {
 	e.logf("Enable log-enricher in SPOD")
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"enableJsonEnricher": false,"enableLogEnricher": true}}`, "--type=merge")
+		`{"spec":{"enricher":{"enableJsonEnricher": false,"enableLogEnricher": true}}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -841,8 +841,8 @@ func (e *e2e) enableLogEnricherInSpod() {
 func (e *e2e) enableLogEnricherInSpodWithFilters(enricherFilterJsonStr string) {
 	e.logf("Enable log-enricher in SPOD")
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		"{\"spec\":{\"enableJsonEnricher\": false,\"enableLogEnricher\": true"+
-			",\"logEnricherFilters\":"+enricherFilterJsonStr+"}}", "--type=merge")
+		"{\"spec\":{\"enricher\":{\"enableJsonEnricher\": false,\"enableLogEnricher\": true"+
+			",\"logEnricherFilters\":"+enricherFilterJsonStr+"}}}", "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -853,8 +853,8 @@ func (e *e2e) enableLogEnricherInSpodWithFilters(enricherFilterJsonStr string) {
 func (e *e2e) enableJsonEnricherInSpod() {
 	e.logf("Enable json-enricher in SPOD with 20 second flush interval")
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		`{"spec":{"enableLogEnricher": false, "enableJsonEnricher": true,
-		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}`, "--type=merge")
+		`{"spec":{"enricher":{"enableLogEnricher": false, "enableJsonEnricher": true,
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":20}}}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -934,8 +934,8 @@ func (e *e2e) enableJsonEnricherInSpodFileOptions(logPath, enricherFilterJsonStr
 	_ = os.Remove(patchOperatorJson)
 
 	e.kubectlOperatorNS("patch", "spod", "spod", "-p",
-		fmt.Sprintf(`{"spec":{"enableLogEnricher": false,"enableJsonEnricher": true,
-		"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath": "%s"},"jsonEnricherFilters": "%s"}}`,
+		fmt.Sprintf(`{"spec":{"enricher":{"enableLogEnricher": false,"enableJsonEnricher": true,
+		"jsonEnricherOptions":{"auditLogIntervalSeconds":20,"auditLogPath": "%s"},"jsonEnricherFilters": "%s"}}}`,
 			logPath, enricherFilterJsonStr), "--type=merge")
 
 	e.logf("Patched the SPOD")
@@ -968,7 +968,7 @@ func (e *e2e) singleNodeTestCase() {
 
 func (e *e2e) enableBpfRecorderInSpod() {
 	e.logf("Enable bpf recorder in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableBpfRecorder": true}}`, "--type=merge")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enricher":{"enableBpfRecorder": true}}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")

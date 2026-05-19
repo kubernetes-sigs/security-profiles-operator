@@ -516,12 +516,12 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
-						AllowedSyscalls: []string{"a"},
+						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a"}},
 					},
 				},
 				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
-						AllowedSyscalls: []string{"a", "b"},
+						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
 					},
 				},
 			},
@@ -532,12 +532,12 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
-						AllowedSyscalls: []string{"a", "c"},
+						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "c"}},
 					},
 				},
 				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
-						AllowedSyscalls: []string{"a", "b"},
+						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
 					},
 				},
 			},
@@ -548,12 +548,12 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
-						AllowedSyscalls: []string{"a", "b"},
+						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
 					},
 				},
 				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
-						AllowedSyscalls: []string{"a", "b"},
+						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
 					},
 				},
 			},
@@ -564,12 +564,12 @@ func TestAllowedSyscallsChangedPredicate(t *testing.T) {
 			event: event.UpdateEvent{
 				ObjectOld: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
-						AllowedSyscalls: []string{"b", "a"},
+						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"b", "a"}},
 					},
 				},
 				ObjectNew: &spodapi.SecurityProfilesOperatorDaemon{
 					Spec: spodapi.SPODSpec{
-						AllowedSyscalls: []string{"a", "b"},
+						Security: spodapi.SPODSecurityConfig{AllowedSyscalls: []string{"a", "b"}},
 					},
 				},
 			},

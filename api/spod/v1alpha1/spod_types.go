@@ -28,156 +28,202 @@ import (
 // SelinuxOptions defines options specific to the SELinux
 // functionality of the SecurityProfilesOperator.
 type SelinuxOptions struct {
-	// Lists the profiles coming from the system itself that are
-	// allowed to be inherited by workloads. Use this with care,
-	// as this might provide a lot of permissions depending on the
-	// policy.
+	// allowedSystemProfiles lists the profiles coming from the system itself
+	// that are allowed to be inherited by workloads. Use this with care,
+	// as this might provide a lot of permissions depending on the policy.
+	// +optional
 	// +kubebuilder:default={"container"}
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
 }
 
+// JsonEnricherOptions defines options specific to the JSON enricher.
 type JsonEnricherOptions struct {
-	// Specifies the interval, in seconds, at which the accumulated audit log
-	// data is output in JSON format. For each process, syscalls occurring
-	// within this interval are grouped together. The default is 60 seconds.
-	// Increasing this interval will reduce the rate at which logs are written.
+	// auditLogIntervalSeconds specifies the interval, in seconds, at which
+	// the accumulated audit log data is output in JSON format. For each
+	// process, syscalls occurring within this interval are grouped together.
+	// The default is 60 seconds. Increasing this interval will reduce the
+	// rate at which logs are written.
+	// +optional
 	AuditLogIntervalSeconds int32 `json:"auditLogIntervalSeconds,omitempty"`
-
-	// This field specifies the path for the accumulated audit log data.
-	// The audit log will be written to this file in JSON format if a file path
-	// is provided. If left unspecified, the output will be directed to
-	// standard output (stdout).
+	// auditLogPath specifies the path for the accumulated audit log data.
+	// The audit log will be written to this file in JSON format if a file
+	// path is provided. If left unspecified, the output will be directed
+	// to standard output (stdout).
+	// +optional
 	AuditLogPath *string `json:"auditLogPath,omitempty"`
-
-	// This field specifies the maximum number of audit log files to retain.
-	// If left unspecified it defaults to 100 MB.
+	// auditLogMaxSize specifies the maximum size in megabytes of the audit
+	// log file before it gets rotated. If left unspecified it defaults to
+	// 100 MB.
+	// +optional
 	AuditLogMaxSize *int32 `json:"auditLogMaxSize,omitempty"`
-
-	// This field specifies the maximum size in megabytes of the audit log file before it gets rotated.
-	// The default is to retain all old log files (though MaxAge may still cause them to get deleted.)
+	// auditLogMaxBackups specifies the maximum number of old audit log
+	// files to retain. The default is to retain all old log files (though
+	// MaxAge may still cause them to get deleted).
+	// +optional
 	AuditLogMaxBackups *int32 `json:"auditLogMaxBackups,omitempty"`
-
-	// This field specifies the maximum number of days to retain old audit log files
-	// The default is not to remove old log files based on age
+	// auditLogMaxAge specifies the maximum number of days to retain old
+	// audit log files. The default is not to remove old log files based
+	// on age.
+	// +optional
 	AuditLogMaxAge *int32 `json:"auditLogMaxAge,omitempty"`
 }
 
+// WebhookOptions defines per-webhook configuration options.
 type WebhookOptions struct {
-	// Name specifies which webhook do we configure
+	// name specifies which webhook to configure.
+	// +optional
 	Name string `json:"name,omitempty"`
-	// FailurePolicy sets the webhook failure policy
+	// failurePolicy sets the webhook failure policy.
 	// +optional
 	FailurePolicy *admissionregv1.FailurePolicyType `json:"failurePolicy,omitempty"`
-	// NamespaceSelector sets webhook's namespace selector
+	// namespaceSelector sets the webhook's namespace selector.
 	// +optional
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
-	// ObjectSelector sets webhook's object selector
+	// objectSelector sets the webhook's object selector.
 	// +optional
 	ObjectSelector *metav1.LabelSelector `json:"objectSelector,omitempty"`
 }
 
-// SPODStatus defines the desired state of SPOD.
+// SPODSpec defines the desired state of SPOD.
 type SPODSpec struct {
-	// Verbosity specifies the logging verbosity of the daemon.
+	// verbosity specifies the logging verbosity of the daemon.
+	// +optional
 	// +kubebuilder:validation:Minimum=0
 	Verbosity int32 `json:"verbosity,omitempty"`
-	// EnableProfiling tells the operator whether or not to enable profiling
+	// enableProfiling tells the operator whether or not to enable profiling
 	// support for this SPOD instance.
+	// +optional
 	EnableProfiling bool `json:"enableProfiling,omitempty"`
-	// EnableMemoryOptimization enables memory optimization in the controller
+	// enableMemoryOptimization enables memory optimization in the controller
 	// running inside of SPOD instance and watching for pods in the cluster.
 	// This will make the controller loading in the cache memory only the pods
-	// labelled explicitly for profile recording with 'spo.x-k8s.io/enable-recording=true'.
+	// labelled explicitly for profile recording with
+	// 'spo.x-k8s.io/enable-recording=true'.
+	// +optional
 	EnableMemoryOptimization bool `json:"enableMemoryOptimization,omitempty"`
-	// tells the operator whether or not to enable SELinux support for this
-	// SPOD instance.
-	EnableSelinux *bool `json:"enableSelinux,omitempty"`
-	// If specified, the SELinux type tag applied to the security context of SPOD.
+	// enableAppArmor tells the operator whether or not to enable AppArmor
+	// support for this SPOD instance.
 	// +optional
-	// +kubebuilder:default="spc_t"
-	SelinuxTypeTag string `json:"selinuxTypeTag,omitempty"`
-	// tells the operator whether or not to enable log enrichment support for this
-	// SPOD instance.
-	EnableLogEnricher bool `json:"enableLogEnricher,omitempty"`
-	// tells the operator whether or not to enable audit JSON enrichment support for this
-	// SPOD instance.
-	EnableJsonEnricher bool `json:"enableJsonEnricher,omitempty"`
-	// Defines options specific to the JsonEnricher
-	// functionality of the SecurityProfilesOperator
-	// Its optional to provide this configuration
-	// +optional
-	JsonEnricherOpt *JsonEnricherOptions `json:"jsonEnricherOptions,omitempty"`
-	// tells the operator whether or not to enable bpf recorder support for this
-	// SPOD instance.
-	EnableBpfRecorder bool `json:"enableBpfRecorder,omitempty"`
-	// tells the operator whether or not to enable AppArmor support for this
-	// SPOD instance.
 	EnableAppArmor bool `json:"enableAppArmor,omitempty"`
-	// If specified, the SPOD's tolerations.
-	// +optional
-	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
-	// Defines options specific to the SELinux
-	// functionality of the SecurityProfilesOperator
-	SelinuxOpts SelinuxOptions `json:"selinuxOptions,omitempty"`
-	// HostProcVolumePath is the path for specifying a custom host /proc
+	// hostProcVolumePath is the path for specifying a custom host /proc
 	// volume, which is required for the log-enricher as well as bpf-recorder
 	// to retrieve the container ID for a process ID. This can be helpful for
 	// nested environments, for example when using "kind".
+	// +optional
 	HostProcVolumePath string `json:"hostProcVolumePath,omitempty"`
-	// StaticWebhookConfig indicates whether the webhook configuration and its
-	// related resources are statically deployed. In this case, the operator will
-	// not create or update the webhook configuration and its related resources.
-	// +optional
-	StaticWebhookConfig bool `json:"staticWebhookConfig"`
-	// WebhookOpts set custom namespace selectors and failure mode for
-	// SPO's webhooks
-	// +optional
-	WebhookOpts []WebhookOptions `json:"webhookOptions,omitempty"`
-	// AllowedSyscalls if specified, a list of system calls which are allowed
-	// in seccomp profiles.
-	// +optional
-	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`
-	// AllowedSeccompActions if specified, a list of allowed seccomp actions.
-	// +optional
-	AllowedSeccompActions []seccompapi.Action `json:"allowedSeccompActions"`
-	// Affinity if specified, the SPOD's affinity.
-	// +optional
-	Affinity *corev1.Affinity `json:"affinity,omitempty"`
-	// ImagePullSecrets if defined, list of references to secrets in the security-profiles-operator's
-	// namespace to use for pulling the images from SPOD pod from a private registry.
+	// imagePullSecrets if defined, list of references to secrets in the
+	// security-profiles-operator's namespace to use for pulling the images
+	// from SPOD pod from a private registry.
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
-
-	// DaemonResourceRequirements if defined, overwrites the default resource requirements
-	// of SPOD daemon.
+	// daemonResourceRequirements if defined, overwrites the default resource
+	// requirements of SPOD daemon.
 	// +optional
 	DaemonResourceRequirements *corev1.ResourceRequirements `json:"daemonResourceRequirements,omitempty"`
+	// selinux contains SELinux-specific configuration.
+	// +optional
+	Selinux SPODSelinuxConfig `json:"selinux,omitzero,omitempty"`
+	// enricher contains log and JSON enricher configuration.
+	// +optional
+	Enricher SPODEnricherConfig `json:"enricher,omitzero,omitempty"`
+	// webhook contains webhook configuration.
+	// +optional
+	Webhook SPODWebhookConfig `json:"webhook,omitzero,omitempty"`
+	// scheduling contains scheduling-related configuration.
+	// +optional
+	Scheduling SPODSchedulingConfig `json:"scheduling,omitzero,omitempty"`
+	// security contains security policy configuration.
+	// +optional
+	Security SPODSecurityConfig `json:"security,omitzero,omitempty"`
+}
 
-	// PriorityClassName if defined, indicates the spod pod priority class.
+// SPODSelinuxConfig contains SELinux-specific configuration.
+type SPODSelinuxConfig struct {
+	// enable tells the operator whether or not to enable SELinux support for
+	// this SPOD instance.
+	// +optional
+	Enable *bool `json:"enable,omitempty"`
+	// typeTag is the SELinux type tag applied to the security context of SPOD.
+	// +optional
+	// +kubebuilder:default="spc_t"
+	TypeTag string `json:"typeTag,omitempty"`
+	// options defines options specific to the SELinux functionality.
+	// +optional
+	Options SelinuxOptions `json:"options,omitzero,omitempty"`
+}
+
+// SPODEnricherConfig contains log enricher, JSON enricher, and BPF recorder configuration.
+type SPODEnricherConfig struct {
+	// enableLogEnricher tells the operator whether or not to enable log
+	// enrichment support for this SPOD instance.
+	// +optional
+	EnableLogEnricher bool `json:"enableLogEnricher,omitempty"`
+	// logEnricherFilters if defined, an optional JSON-format filter to
+	// determine if log lines should be emitted for the log-enricher.
+	// +optional
+	LogEnricherFilters string `json:"logEnricherFilters,omitempty"`
+	// logEnricherSource determines which source should be used for audit
+	// logs. This defaults to "auditd", but can be switched to "bpf" on
+	// systems where auditd is unavailable.
+	// +optional
+	LogEnricherSource string `json:"logEnricherSource,omitempty"`
+	// enableJsonEnricher tells the operator whether or not to enable audit
+	// JSON enrichment support for this SPOD instance.
+	// +optional
+	EnableJsonEnricher bool `json:"enableJsonEnricher,omitempty"`
+	// jsonEnricherFilters if defined, an optional JSON-format filter to
+	// determine if log lines should be emitted for the json-enricher.
+	// +optional
+	JsonEnricherFilters string `json:"jsonEnricherFilters,omitempty"`
+	// jsonEnricherOptions defines options specific to the JSON enricher.
+	// +optional
+	JsonEnricherOptions *JsonEnricherOptions `json:"jsonEnricherOptions,omitempty"`
+	// enableBpfRecorder tells the operator whether or not to enable bpf
+	// recorder support for this SPOD instance.
+	// +optional
+	EnableBpfRecorder bool `json:"enableBpfRecorder,omitempty"`
+}
+
+// SPODWebhookConfig contains webhook configuration.
+type SPODWebhookConfig struct {
+	// staticConfig indicates whether the webhook configuration and its
+	// related resources are statically deployed. In this case, the operator
+	// will not create or update the webhook configuration and its related
+	// resources.
+	// +optional
+	StaticConfig bool `json:"staticConfig,omitempty"`
+	// options set custom namespace selectors and failure mode for SPO's webhooks.
+	// +optional
+	Options []WebhookOptions `json:"options,omitempty"`
+}
+
+// SPODSchedulingConfig contains scheduling-related configuration.
+type SPODSchedulingConfig struct {
+	// tolerations if specified, the SPOD's tolerations.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// affinity if specified, the SPOD's affinity.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// priorityClassName if defined, indicates the SPOD pod priority class.
 	// +optional
 	// +kubebuilder:default="system-node-critical"
 	PriorityClassName string `json:"priorityClassName,omitempty"`
+}
 
-	// DisableOCIArtifactSignatureVerification can be used to disable OCI
+// SPODSecurityConfig contains security policy configuration.
+type SPODSecurityConfig struct {
+	// allowedSyscalls if specified, a list of system calls which are
+	// allowed in seccomp profiles.
+	// +optional
+	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`
+	// allowedSeccompActions if specified, a list of allowed seccomp actions.
+	// +optional
+	AllowedSeccompActions []seccompapi.Action `json:"allowedSeccompActions,omitempty"`
+	// disableOciArtifactSignatureVerification can be used to disable OCI
 	// artifact signature verification.
 	// +optional
-	DisableOCIArtifactSignatureVerification bool `json:"disableOciArtifactSignatureVerification"`
-
-	// LogEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
-	// for the log-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
-	// +optional
-	// +kubebuilder:default=""
-	LogEnricherFilters string `json:"logEnricherFilters,omitempty"`
-
-	// logEnricherSource determines which source should be used for audit logs.
-	// This defaults to `auditd`, but can be switched to `bpf` on systems where auditd is unavailable.
-	LogEnricherSource string `json:"logEnricherSource,omitempty"`
-
-	// JsonEnricherFilters if defined, an optional JSON-format filter to determine if log lines should be emitted
-	// for the json-enricher. Defaults to an empty string, meaning no filter is applied and all lines are logged.
-	// +optional
-	// +kubebuilder:default=""
-	JsonEnricherFilters string `json:"jsonEnricherFilters,omitempty"`
+	DisableOCIArtifactSignatureVerification bool `json:"disableOciArtifactSignatureVerification,omitempty"`
 }
 
 // SPODState defines the state that the spod is in.

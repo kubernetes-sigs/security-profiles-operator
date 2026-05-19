@@ -212,7 +212,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	spodUpdate := spodNeedsUpdate(configuredSPOd, foundSPOd)
 
 	var hookUpdate bool
-	if !spod.Spec.StaticWebhookConfig {
+	if !spod.Spec.Webhook.StaticConfig {
 		hookUpdate, err = webhook.NeedsUpdate(ctx, r.client)
 		if err != nil {
 			return reconcile.Result{}, fmt.Errorf("determining if webhook needs update: %w", err)
@@ -305,7 +305,7 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 func (r *ReconcileSPOd) defaultProfiles(
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
 ) (defaultProfiles []*seccompprofileapi.SeccompProfile) {
-	if cfg.Spec.EnableLogEnricher {
+	if cfg.Spec.Enricher.EnableLogEnricher {
 		defaultProfiles = append(defaultProfiles, bindata.DefaultLogEnricherProfile())
 	}
 
@@ -347,7 +347,7 @@ func (r *ReconcileSPOd) handleCreate(
 		}
 	}
 
-	if !cfg.Spec.StaticWebhookConfig {
+	if !cfg.Spec.Webhook.StaticConfig {
 		r.log.Info("Deploying operator webhook")
 
 		if err := webhook.Create(ctx, r.client); err != nil {
@@ -433,7 +433,7 @@ func (r *ReconcileSPOd) handleUpdate(
 		}
 	}
 
-	if !cfg.Spec.StaticWebhookConfig {
+	if !cfg.Spec.Webhook.StaticConfig {
 		r.log.Info("Updating operator webhook")
 
 		if err := webhook.Update(ctx, r.client); err != nil {
@@ -556,9 +556,9 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	}
 
 	// SELinux parameters
-	enableSelinux := (cfg.Spec.EnableSelinux != nil && *cfg.Spec.EnableSelinux) ||
+	enableSelinux := (cfg.Spec.Selinux.Enable != nil && *cfg.Spec.Selinux.Enable) ||
 		// enable SELinux support per default in OpenShift
-		(cfg.Spec.EnableSelinux == nil && caInjectType == bindata.CAInjectTypeOpenShift)
+		(cfg.Spec.Selinux.Enable == nil && caInjectType == bindata.CAInjectTypeOpenShift)
 
 	if enableSelinux {
 		templateSpec.InitContainers = append(
@@ -758,7 +758,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
 		// even though SELinux is disabled in order to get the containers to start.
 		if !cfg.Spec.EnableAppArmor {
-			configureSeLinuxTag(templateSpec.InitContainers[i].SecurityContext, cfg.Spec.SelinuxTypeTag)
+			configureSeLinuxTag(templateSpec.InitContainers[i].SecurityContext, cfg.Spec.Selinux.TypeTag)
 		}
 	}
 
@@ -779,93 +779,93 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
 		// even though SELinux is disabled in order to get the containers to start.
 		if !cfg.Spec.EnableAppArmor {
-			configureSeLinuxTag(templateSpec.Containers[i].SecurityContext, cfg.Spec.SelinuxTypeTag)
+			configureSeLinuxTag(templateSpec.Containers[i].SecurityContext, cfg.Spec.Selinux.TypeTag)
 		}
 	}
 
-	templateSpec.Tolerations = cfg.Spec.Tolerations
-	templateSpec.Affinity = cfg.Spec.Affinity
+	templateSpec.Tolerations = cfg.Spec.Scheduling.Tolerations
+	templateSpec.Affinity = cfg.Spec.Scheduling.Affinity
 	templateSpec.ImagePullSecrets = cfg.Spec.ImagePullSecrets
-	templateSpec.PriorityClassName = cfg.Spec.PriorityClassName
+	templateSpec.PriorityClassName = cfg.Spec.Scheduling.PriorityClassName
 
 	return newSPOd
 }
 
 func (r *ReconcileSPOd) getConfiguredLogEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {
-	if cfg.Spec.LogEnricherFilters != "" {
+	if cfg.Spec.Enricher.LogEnricherFilters != "" {
 		r.log.Info("Setting LogEnricherFilters",
-			"LogEnricherFilters", cfg.Spec.LogEnricherFilters)
+			"LogEnricherFilters", cfg.Spec.Enricher.LogEnricherFilters)
 
 		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
-			"--enricher-filters-json="+cfg.Spec.LogEnricherFilters,
+			"--enricher-filters-json="+cfg.Spec.Enricher.LogEnricherFilters,
 		)
 	}
 
-	if cfg.Spec.LogEnricherSource != "" {
-		r.log.Info("Setting LogEnricherSource", "LogEnricherSource", cfg.Spec.LogEnricherSource)
+	if cfg.Spec.Enricher.LogEnricherSource != "" {
+		r.log.Info("Setting LogEnricherSource", "LogEnricherSource", cfg.Spec.Enricher.LogEnricherSource)
 
 		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args = addArgsConfig(
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDLogEnricher].Args,
-			"--enricher-log-source="+cfg.Spec.LogEnricherSource,
+			"--enricher-log-source="+cfg.Spec.Enricher.LogEnricherSource,
 		)
 	}
 }
 
 func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) {
-	if cfg.Spec.JsonEnricherFilters != "" {
+	if cfg.Spec.Enricher.JsonEnricherFilters != "" {
 		r.log.Info("Setting LogEnricherFilters",
-			"JsonEnricherFilters", cfg.Spec.JsonEnricherFilters)
+			"JsonEnricherFilters", cfg.Spec.Enricher.JsonEnricherFilters)
 
 		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
-			"--enricher-filters-json="+cfg.Spec.JsonEnricherFilters,
+			"--enricher-filters-json="+cfg.Spec.Enricher.JsonEnricherFilters,
 		)
 	}
 
-	if cfg.Spec.JsonEnricherOpt != nil {
+	if cfg.Spec.Enricher.JsonEnricherOptions != nil {
 		r.log.Info("Setting JsonEnricherOpt",
-			"AuditLogIntervalSeconds", cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds,
-			"AuditLogPath", cfg.Spec.JsonEnricherOpt.AuditLogPath,
-			"AuditLogMaxAge", cfg.Spec.JsonEnricherOpt.AuditLogMaxAge,
-			"AuditLogMaxSize", cfg.Spec.JsonEnricherOpt.AuditLogMaxSize,
-			"AuditLogMaxBackups", cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups,
+			"AuditLogIntervalSeconds", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds,
+			"AuditLogPath", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogPath,
+			"AuditLogMaxAge", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxAge,
+			"AuditLogMaxSize", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxSize,
+			"AuditLogMaxBackups", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxBackups,
 		)
 
 		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
 			fmt.Sprintf("--audit-log-interval-seconds=%d",
-				cfg.Spec.JsonEnricherOpt.AuditLogIntervalSeconds),
+				cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds),
 		)
 
-		if cfg.Spec.JsonEnricherOpt.AuditLogMaxAge != nil {
+		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxAge != nil {
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
 				fmt.Sprintf("--audit-log-maxage=%d",
-					*cfg.Spec.JsonEnricherOpt.AuditLogMaxAge),
+					*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxAge),
 			)
 		}
 
-		if cfg.Spec.JsonEnricherOpt.AuditLogMaxSize != nil {
+		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxSize != nil {
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
 				fmt.Sprintf("--audit-log-maxsize=%d",
-					*cfg.Spec.JsonEnricherOpt.AuditLogMaxSize),
+					*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxSize),
 			)
 		}
 
-		if cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups != nil {
+		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxBackups != nil {
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
 				fmt.Sprintf("--audit-log-maxbackup=%d",
-					*cfg.Spec.JsonEnricherOpt.AuditLogMaxBackups),
+					*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxBackups),
 			)
 		}
 
-		if cfg.Spec.JsonEnricherOpt.AuditLogPath != nil {
+		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogPath != nil {
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
 				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
-				"--audit-log-path="+(*cfg.Spec.JsonEnricherOpt.AuditLogPath),
+				"--audit-log-path="+(*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogPath),
 			)
 		}
 	}
@@ -876,8 +876,8 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProf
 func (r *ReconcileSPOd) getConfiguredWebook(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
 	image string, pullPolicy corev1.PullPolicy, caInjectType bindata.CAInjectType,
 ) *bindata.Webhook {
-	webhook := bindata.GetWebhook(r.log, r.namespace, cfg.Spec.WebhookOpts, image,
-		pullPolicy, caInjectType, cfg.Spec.Tolerations, cfg.Spec.ImagePullSecrets, isJsonEnricherEnabled(cfg))
+	webhook := bindata.GetWebhook(r.log, r.namespace, cfg.Spec.Webhook.Options, image,
+		pullPolicy, caInjectType, cfg.Spec.Scheduling.Tolerations, cfg.Spec.ImagePullSecrets, isJsonEnricherEnabled(cfg))
 
 	return webhook
 }
@@ -888,7 +888,7 @@ func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool
 		enableLogEnricherEnv = false
 	}
 
-	return cfg.Spec.EnableLogEnricher || enableLogEnricherEnv
+	return cfg.Spec.Enricher.EnableLogEnricher || enableLogEnricherEnv
 }
 
 func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
@@ -897,7 +897,7 @@ func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) boo
 		enableJsonEnricherEnv = false
 	}
 
-	return cfg.Spec.EnableJsonEnricher || enableJsonEnricherEnv
+	return cfg.Spec.Enricher.EnableJsonEnricher || enableJsonEnricherEnv
 }
 
 func addArgsConfig(args []string, argonfig string) []string {
@@ -946,7 +946,7 @@ func isBpfRecorderEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool
 		enableBpfRecorderEnv = false
 	}
 
-	return cfg.Spec.EnableBpfRecorder || enableBpfRecorderEnv
+	return cfg.Spec.Enricher.EnableBpfRecorder || enableBpfRecorderEnv
 }
 
 func addEnvVar(templateSpec *corev1.PodSpec, envVarKey string) {

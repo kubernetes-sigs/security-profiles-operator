@@ -54,12 +54,14 @@ func Test_getConfiguredJsonEnricher(t *testing.T) {
 
 	cfg := &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		Spec: spodv1alpha1.SPODSpec{
-			JsonEnricherOpt: &spodv1alpha1.JsonEnricherOptions{
-				AuditLogIntervalSeconds: 60,
-				AuditLogPath:            &valEmptyStr,
-				AuditLogMaxSize:         &valTen,
-				AuditLogMaxBackups:      &valTen,
-				AuditLogMaxAge:          &valTen,
+			Enricher: spodv1alpha1.SPODEnricherConfig{
+				JsonEnricherOptions: &spodv1alpha1.JsonEnricherOptions{
+					AuditLogIntervalSeconds: 60,
+					AuditLogPath:            &valEmptyStr,
+					AuditLogMaxSize:         &valTen,
+					AuditLogMaxBackups:      &valTen,
+					AuditLogMaxAge:          &valTen,
+				},
 			},
 		},
 	}

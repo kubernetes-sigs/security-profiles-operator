@@ -107,7 +107,7 @@ install_operator() {
       echo "Error: DaemonSet 'spod' not found or could not get its status."
       exit 1
   fi
-  k patch spod spod --type=merge -p '{"spec":{"enableBpfRecorder":true}}'
+  k patch spod spod --type=merge -p '{"spec":{"enricher":{"enableBpfRecorder":true}}}'
   # Wait for security profiles operator to modify the spod daemonset
   sleep 5
   k rollout status ds spod --timeout 360s

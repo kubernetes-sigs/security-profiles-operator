@@ -142,16 +142,16 @@ func (AllowedSyscallsChangedPredicate) Update(e event.UpdateEvent) bool {
 		return false
 	}
 
-	if len(newSpod.Spec.AllowedSyscalls) != len(oldSpod.Spec.AllowedSyscalls) {
+	if len(newSpod.Spec.Security.AllowedSyscalls) != len(oldSpod.Spec.Security.AllowedSyscalls) {
 		return true
 	}
 
-	diff := make(map[string]int, len(newSpod.Spec.AllowedSyscalls))
-	for _, s := range newSpod.Spec.AllowedSyscalls {
+	diff := make(map[string]int, len(newSpod.Spec.Security.AllowedSyscalls))
+	for _, s := range newSpod.Spec.Security.AllowedSyscalls {
 		diff[s]++
 	}
 
-	for _, s := range oldSpod.Spec.AllowedSyscalls {
+	for _, s := range oldSpod.Spec.Security.AllowedSyscalls {
 		if _, ok := diff[s]; !ok {
 			return true
 		}
@@ -197,7 +197,7 @@ func (r *Reconciler) handleAllowedSyscallsChanged(ctx context.Context, obj clien
 		return []reconcile.Request{}
 	}
 
-	if len(spod.Spec.AllowedSyscalls) == 0 {
+	if len(spod.Spec.Security.AllowedSyscalls) == 0 {
 		return []reconcile.Request{}
 	}
 
@@ -215,7 +215,7 @@ func (r *Reconciler) handleAllowedSyscallsChanged(ctx context.Context, obj clien
 
 	for i := range seccompProfileList.Items {
 		sp := &seccompProfileList.Items[i]
-		if err := allowProfile(sp, spod.Spec.AllowedSyscalls, spod.Spec.AllowedSeccompActions); err != nil {
+		if err := allowProfile(sp, spod.Spec.Security.AllowedSyscalls, spod.Spec.Security.AllowedSeccompActions); err != nil {
 			r.log.Info(fmt.Sprintf("deleting not allowed seccomp profile %s/%s",
 				sp.GetNamespace(), sp.GetName()))
 
@@ -391,13 +391,13 @@ func (r *Reconciler) resolveSyscallsForProfile(
 
 			l.Info(
 				"Pulling base profile: "+from,
-				"disableOCIArtifactSignatureVerification", spod.Spec.DisableOCIArtifactSignatureVerification,
+				"disableOCIArtifactSignatureVerification", spod.Spec.Security.DisableOCIArtifactSignatureVerification,
 			)
 
 			res, err := r.Pull(ctx, l, from, "", "", &v1.Platform{
 				Architecture: runtime.GOARCH,
 				OS:           runtime.GOOS,
-			}, spod.Spec.DisableOCIArtifactSignatureVerification)
+			}, spod.Spec.Security.DisableOCIArtifactSignatureVerification)
 			if err != nil {
 				l.Error(err, "cannot pull base profile "+baseProfileName)
 				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)
@@ -608,8 +608,8 @@ func (r *Reconciler) validateProfile(ctx context.Context, profile *seccompprofil
 		return fmt.Errorf("retrieving the SPOD configuration: %w", err)
 	}
 
-	if len(spod.Spec.AllowedSyscalls) > 0 {
-		return allowProfile(profile, spod.Spec.AllowedSyscalls, spod.Spec.AllowedSeccompActions)
+	if len(spod.Spec.Security.AllowedSyscalls) > 0 {
+		return allowProfile(profile, spod.Spec.Security.AllowedSyscalls, spod.Spec.Security.AllowedSeccompActions)
 	}
 
 	return nil

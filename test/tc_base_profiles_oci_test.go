@@ -29,7 +29,7 @@ func (e *e2e) testCaseBaseProfileOCI([]string) {
 
 	e.kubectlOperatorNS(
 		"patch", "spod", "spod",
-		"-p", `{"spec":{"disableOciArtifactSignatureVerification": true}}`,
+		"-p", `{"spec":{"security":{"disableOciArtifactSignatureVerification": true}}}`,
 		"--type=merge",
 	)
 
