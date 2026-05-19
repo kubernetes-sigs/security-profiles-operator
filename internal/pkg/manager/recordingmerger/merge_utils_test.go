@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -83,11 +82,11 @@ func TestMergeProfiles(t *testing.T) {
 						},
 						Spec: seccompprofile.SeccompProfileSpec{
 							BaseProfileName: "part1",
-							DefaultAction:   seccomp.ActAllow,
+							DefaultAction:   seccompprofile.ActAllow,
 							Syscalls: []*seccompprofile.Syscall{
 								{
 									Names:  []string{"a", "b", "c"},
-									Action: seccomp.Action("foo"),
+									Action: seccompprofile.Action("foo"),
 								},
 							},
 						},
@@ -98,11 +97,11 @@ func TestMergeProfiles(t *testing.T) {
 						},
 						Spec: seccompprofile.SeccompProfileSpec{
 							BaseProfileName: "part1",
-							DefaultAction:   seccomp.ActAllow,
+							DefaultAction:   seccompprofile.ActAllow,
 							Syscalls: []*seccompprofile.Syscall{
 								{
 									Names:  []string{"c", "e", "d"},
-									Action: seccomp.Action("foo"),
+									Action: seccompprofile.Action("foo"),
 								},
 							},
 						},
@@ -113,9 +112,9 @@ func TestMergeProfiles(t *testing.T) {
 				t.Helper()
 
 				mergedProf := ifaceAsSortedSeccompProfile(mergedProfIface)
-				require.Equal(t, mergedProf.Spec.Syscalls[0].Action, seccomp.Action("foo"))
+				require.Equal(t, mergedProf.Spec.Syscalls[0].Action, seccompprofile.Action("foo"))
 				require.Equal(t, []string{"a", "b", "c"}, mergedProf.Spec.Syscalls[0].Names)
-				require.Equal(t, mergedProf.Spec.Syscalls[1].Action, seccomp.Action("foo"))
+				require.Equal(t, mergedProf.Spec.Syscalls[1].Action, seccompprofile.Action("foo"))
 				require.Equal(t, []string{"c", "d", "e"}, mergedProf.Spec.Syscalls[1].Names)
 
 				return nil

@@ -1858,7 +1858,16 @@ spec:
                 description: AllowedSeccompActions if specified, a list of allowed
                   seccomp actions.
                 items:
-                  description: Action taken upon Seccomp rule match.
+                  enum:
+                  - SCMP_ACT_KILL
+                  - SCMP_ACT_KILL_PROCESS
+                  - SCMP_ACT_KILL_THREAD
+                  - SCMP_ACT_TRAP
+                  - SCMP_ACT_ERRNO
+                  - SCMP_ACT_TRACE
+                  - SCMP_ACT_ALLOW
+                  - SCMP_ACT_LOG
+                  - SCMP_ACT_NOTIFY
                   type: string
                 type: array
               allowedSyscalls:

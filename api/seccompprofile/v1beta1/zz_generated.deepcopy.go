@@ -177,7 +177,7 @@ func (in *Syscall) DeepCopyInto(out *Syscall) {
 			if (*in)[i] != nil {
 				in, out := &(*in)[i], &(*out)[i]
 				*out = new(Arg)
-				**out = **in
+				(*in).DeepCopyInto(*out)
 			}
 		}
 	}
