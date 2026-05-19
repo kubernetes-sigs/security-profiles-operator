@@ -20,8 +20,8 @@ import (
 	"path"
 	"time"
 
+	"sigs.k8s.io/security-profiles-operator/api/common"
 	secprofnodestatusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 )
 
 func (e *e2e) testCaseDeleteProfiles(nodes []string) {
@@ -184,7 +184,7 @@ spec:
 			sp := e.getSeccompProfile(deleteProfileName)
 
 			conReady := sp.Status.GetReadyCondition()
-			if conReady.Reason == spodv1alpha1.ReasonDeleting {
+			if conReady.Reason == common.ReasonDeleting {
 				break
 			}
 

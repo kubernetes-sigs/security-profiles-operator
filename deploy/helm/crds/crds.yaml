@@ -477,6 +477,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               localhostProfile:
                 description: |-
                   The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
@@ -1952,6 +1955,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               state:
                 description: |-
                   Represents the state that the policy is in. Can be:
@@ -2064,6 +2070,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               status:
                 description: |-
                   ProfileState defines the state that the profile is in. A profile in this context
@@ -2223,6 +2232,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               status:
                 description: |-
                   ProfileState defines the state that the profile is in. A profile in this context
@@ -2408,6 +2420,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               status:
                 description: |-
                   ProfileState defines the state that the profile is in. A profile in this context
