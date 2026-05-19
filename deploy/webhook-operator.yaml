@@ -703,6 +703,7 @@ spec:
                         properties:
                           index:
                             description: the index for syscall arguments in seccomp
+                            format: int32
                             minimum: 0
                             type: integer
                           op:
@@ -736,6 +737,8 @@ spec:
                       description: |-
                         the errno return code to use. Some actions like SCMP_ACT_ERRNO and
                         SCMP_ACT_TRACE allow to specify the errno code to return
+                      format: int32
+                      minimum: 0
                       type: integer
                     names:
                       description: the names of the syscalls
@@ -2140,6 +2143,8 @@ spec:
                 type: array
               verbosity:
                 description: Verbosity specifies the logging verbosity of the daemon.
+                format: int32
+                minimum: 0
                 type: integer
               webhookOptions:
                 description: |-

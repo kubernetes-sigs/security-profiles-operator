@@ -25,7 +25,7 @@ import (
 	seccompprofile "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 )
 
-func UnionSyscalls(syscalls, appliedSyscalls []*seccompprofile.Syscall) ([]*seccompprofile.Syscall, error) {
+func UnionSyscalls(syscalls, appliedSyscalls []seccompprofile.Syscall) ([]seccompprofile.Syscall, error) {
 	if err := mergo.Merge(
 		&syscalls,
 		appliedSyscalls,

@@ -388,7 +388,7 @@ func (r *Recorder) buildProfile(writer io.Writer, names []string) error {
 	spec := seccompprofileapi.SeccompProfileSpec{
 		DefaultAction: seccompprofileapi.ActErrno,
 		Architectures: []seccompprofileapi.Arch{arch},
-		Syscalls: []*seccompprofileapi.Syscall{{
+		Syscalls: []seccompprofileapi.Syscall{{
 			Action: seccompprofileapi.ActAllow,
 			Names:  names,
 		}},

@@ -977,10 +977,10 @@ func configureSeLinuxTag(secContext *corev1.SecurityContext, seLinuxTag string) 
 	secContext.SELinuxOptions.Type = seLinuxTag
 }
 
-func verbosityEnv(value uint) corev1.EnvVar {
+func verbosityEnv(value int32) corev1.EnvVar {
 	return corev1.EnvVar{
 		Name:  config.VerbosityEnvKey,
-		Value: strconv.FormatUint(uint64(value), 10),
+		Value: strconv.FormatInt(int64(value), 10),
 	}
 }
 

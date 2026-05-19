@@ -365,7 +365,7 @@ func main() {
 	)
 
 	app.Flags = []cli.Flag{
-		&cli.UintFlag{
+		&cli.IntFlag{
 			Name:    "verbosity",
 			Aliases: []string{"V"},
 			Usage:   "the logging verbosity to be used",
@@ -414,14 +414,14 @@ func initLogging(ctx *cli.Context) error {
 	set := flag.NewFlagSet("logging", flag.ContinueOnError)
 	klog.InitFlags(set)
 
-	level := ctx.Uint("verbosity")
+	level := ctx.Int("verbosity")
 	if err := set.Parse([]string{fmt.Sprintf("-v=%d", level)}); err != nil {
 		return fmt.Errorf("parse verbosity flag: %w", err)
 	}
 
-	ctrl.SetLogger(ctrl.Log.V(int(level)))
+	ctrl.SetLogger(ctrl.Log.V(level))
 
-	if err := logConfig.Verbosity().Set(strconv.FormatUint(uint64(level), 10)); err != nil {
+	if err := logConfig.Verbosity().Set(strconv.FormatInt(int64(level), 10)); err != nil {
 		return fmt.Errorf("setting the verbosity flag to level %d: %w", level, err)
 	}
 
