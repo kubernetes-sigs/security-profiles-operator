@@ -5,7 +5,9 @@ metadata:
   name: spod
   namespace: security-profiles-operator
 spec:
-  enableSelinux: false
-  enableLogEnricher: false
+  selinux:
+    enable: false
+  enricher:
+    enableLogEnricher: false
   enableAppArmor: false
 

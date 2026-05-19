@@ -84,41 +84,40 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		Labels: map[string]string{"app": config.OperatorName},
 	},
 	Spec: spodv1alpha1.SPODSpec{
-		Verbosity:           0,
-		EnableProfiling:     false,
-		EnableSelinux:       nil,
-		EnableLogEnricher:   false,
-		EnableBpfRecorder:   false,
-		EnableAppArmor:      false,
-		StaticWebhookConfig: false,
-		HostProcVolumePath:  DefaultHostProcPath,
-		PriorityClassName:   DefaultPriorityClassName,
-		SelinuxOpts: spodv1alpha1.SelinuxOptions{
-			AllowedSystemProfiles: []string{
-				"container",
+		Verbosity:          0,
+		EnableProfiling:    false,
+		EnableAppArmor:     false,
+		HostProcVolumePath: DefaultHostProcPath,
+		Selinux: spodv1alpha1.SPODSelinuxConfig{
+			Options: spodv1alpha1.SelinuxOptions{
+				AllowedSystemProfiles: []string{
+					"container",
+				},
 			},
 		},
-		Tolerations: []corev1.Toleration{
-			{
-				Key:      "node-role.kubernetes.io/master",
-				Operator: corev1.TolerationOpExists,
-				Effect:   corev1.TaintEffectNoSchedule,
-			},
-			{
-				Key:      "node-role.kubernetes.io/control-plane",
-				Operator: corev1.TolerationOpExists,
-				Effect:   corev1.TaintEffectNoSchedule,
-			},
-			{
-				Key:      "node.kubernetes.io/not-ready",
-				Operator: corev1.TolerationOpExists,
-				Effect:   corev1.TaintEffectNoExecute,
+		Enricher: spodv1alpha1.SPODEnricherConfig{
+			LogEnricherSource: DefaultLogEnricherSource,
+		},
+		Scheduling: spodv1alpha1.SPODSchedulingConfig{
+			PriorityClassName: DefaultPriorityClassName,
+			Tolerations: []corev1.Toleration{
+				{
+					Key:      "node-role.kubernetes.io/master",
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+				{
+					Key:      "node-role.kubernetes.io/control-plane",
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+				{
+					Key:      "node.kubernetes.io/not-ready",
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoExecute,
+				},
 			},
 		},
-		DisableOCIArtifactSignatureVerification: false,
-		JsonEnricherFilters:                     "",
-		LogEnricherFilters:                      "",
-		LogEnricherSource:                       DefaultLogEnricherSource,
 	},
 }
 

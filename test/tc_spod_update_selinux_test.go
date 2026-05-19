@@ -23,7 +23,7 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 
 	e.logf("assert selinux is enabled in the spod object")
 
-	selinuxEnabledInSPODObj := e.kubectlOperatorNS("get", "spod", "spod", "-o", "jsonpath={.spec.enableSelinux}")
+	selinuxEnabledInSPODObj := e.kubectlOperatorNS("get", "spod", "spod", "-o", "jsonpath={.spec.selinux.enable}")
 	if clusterType == clusterTypeOpenShift {
 		// OCP enables SELinux by default, so both no value and explicit true are OK
 		if selinuxEnabledInSPODObj != "" && selinuxEnabledInSPODObj != "true" {
@@ -40,7 +40,7 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 	e.Contains(selinuxEnabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Disable selinux from SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": false}}`, "--type=merge")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"selinux":{"enable": false}}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")
@@ -50,7 +50,7 @@ func (e *e2e) testCaseSPODUpdateSelinux([]string) {
 	e.NotContains(selinuxDisabledInSPODDS, "--with-selinux=true")
 
 	e.logf("Re-enable selinux in SPOD")
-	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"enableSelinux": true}}`, "--type=merge")
+	e.kubectlOperatorNS("patch", "spod", "spod", "-p", `{"spec":{"selinux":{"enable": true}}}`, "--type=merge")
 
 	time.Sleep(defaultWaitTime)
 	e.waitInOperatorNSFor("condition=ready", "spod", "spod")

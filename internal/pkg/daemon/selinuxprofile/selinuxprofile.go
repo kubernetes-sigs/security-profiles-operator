@@ -203,8 +203,8 @@ func (sph *selinuxProfileHandler) handleInheritSystemPolicy(
 		return fmt.Errorf("couldn't get spod to verify system inheritance: %w", err)
 	}
 
-	for idx := range spod.Spec.SelinuxOpts.AllowedSystemProfiles {
-		prof := spod.Spec.SelinuxOpts.AllowedSystemProfiles[idx]
+	for idx := range spod.Spec.Selinux.Options.AllowedSystemProfiles {
+		prof := spod.Spec.Selinux.Options.AllowedSystemProfiles[idx]
 		if prof == ancestorRef.Name {
 			sph.systemInherits = append(sph.systemInherits, ancestorRef.Name)
 
