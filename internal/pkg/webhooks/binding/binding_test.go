@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
@@ -92,6 +93,7 @@ func TestHandle(t *testing.T) {
 				require.Equal(t, http.StatusBadRequest, int(resp.Result.Code))
 			},
 		},
+		//nolint:dupl // test duplicates are fine
 		{ // success pod changed
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
@@ -252,6 +254,154 @@ func TestHandle(t *testing.T) {
 				require.Len(t, resp.Patches, 1)
 			},
 		},
+		//nolint:dupl // test duplicates are fine
+		{ // apparmor success pod changed
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
+					Items: []v1alpha1.ProfileBinding{
+						{
+							Spec: v1alpha1.ProfileBindingSpec{
+								ProfileRef: v1alpha1.ProfileRef{
+									Kind: v1alpha1.ProfileBindingKindAppArmorProfile,
+								},
+								Image: "foo",
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
+					Status: apparmorprofileapi.AppArmorProfileStatus{
+						StatusBase: profilebasev1alpha1.StatusBase{
+							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						},
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.NoError(t, err)
+
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Len(t, resp.Patches, 1)
+			},
+		},
+		{ // apparmor success pod changed with * image
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
+					Items: []v1alpha1.ProfileBinding{
+						{
+							Spec: v1alpha1.ProfileBindingSpec{
+								ProfileRef: v1alpha1.ProfileRef{
+									Kind: v1alpha1.ProfileBindingKindAppArmorProfile,
+								},
+								Image: v1alpha1.SelectAllContainersImage,
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
+					Status: apparmorprofileapi.AppArmorProfileStatus{
+						StatusBase: profilebasev1alpha1.StatusBase{
+							Status: secprofnodestatusv1alpha1.ProfileStateInstalled,
+						},
+					},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.NoError(t, err)
+
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.True(t, resp.Allowed)
+				require.Len(t, resp.Patches, 1)
+			},
+		},
+		{ // failure get apparmor profile errored
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
+					Items: []v1alpha1.ProfileBinding{
+						{
+							Spec: v1alpha1.ProfileBindingSpec{
+								ProfileRef: v1alpha1.ProfileRef{
+									Kind: v1alpha1.ProfileBindingKindAppArmorProfile,
+								},
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetAppArmorProfileReturns(nil, errTest)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.NoError(t, err)
+
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
+			},
+		},
+		//nolint:dupl // test duplicates are fine
+		{ // failure get apparmor profile without status
+			prepare: func(mock *bindingfakes.FakeImpl) {
+				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
+					Items: []v1alpha1.ProfileBinding{
+						{
+							Spec: v1alpha1.ProfileBindingSpec{
+								ProfileRef: v1alpha1.ProfileRef{
+									Kind: v1alpha1.ProfileBindingKindAppArmorProfile,
+								},
+							},
+						},
+					},
+				}, nil)
+				mock.DecodePodReturns(testPod.DeepCopy(), nil)
+				mock.GetAppArmorProfileReturns(&apparmorprofileapi.AppArmorProfile{
+					Status: apparmorprofileapi.AppArmorProfileStatus{},
+				}, nil)
+			},
+			request: admission.Request{
+				AdmissionRequest: admissionv1.AdmissionRequest{
+					Object: runtime.RawExtension{
+						Raw: func() []byte {
+							b, err := json.Marshal(testPod.DeepCopy())
+							require.NoError(t, err)
+
+							return b
+						}(),
+					},
+				},
+			},
+			assert: func(resp admission.Response) {
+				require.Equal(t, http.StatusInternalServerError, int(resp.Result.Code))
+			},
+		},
 		{ // success unsupported kind
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{
@@ -291,6 +441,7 @@ func TestHandle(t *testing.T) {
 				require.Empty(t, resp.Patches)
 			},
 		},
+		//nolint:dupl // test duplicates are fine
 		{ // failure get seccomp profile malicious
 			prepare: func(mock *bindingfakes.FakeImpl) {
 				mock.ListProfileBindingsReturns(&v1alpha1.ProfileBindingList{

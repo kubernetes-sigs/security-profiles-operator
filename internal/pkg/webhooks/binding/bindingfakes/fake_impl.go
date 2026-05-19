@@ -26,7 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-	"sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
+	v1alpha1a "sigs.k8s.io/security-profiles-operator/api/profilebinding/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	"sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
 )
@@ -43,6 +44,20 @@ type FakeImpl struct {
 	}
 	decodePodReturnsOnCall map[int]struct {
 		result1 *v1.Pod
+		result2 error
+	}
+	GetAppArmorProfileStub        func(context.Context, types.NamespacedName) (*v1alpha1.AppArmorProfile, error)
+	getAppArmorProfileMutex       sync.RWMutex
+	getAppArmorProfileArgsForCall []struct {
+		arg1 context.Context
+		arg2 types.NamespacedName
+	}
+	getAppArmorProfileReturns struct {
+		result1 *v1alpha1.AppArmorProfile
+		result2 error
+	}
+	getAppArmorProfileReturnsOnCall map[int]struct {
+		result1 *v1alpha1.AppArmorProfile
 		result2 error
 	}
 	GetSeccompProfileStub        func(context.Context, types.NamespacedName) (*v1beta1.SeccompProfile, error)
@@ -73,18 +88,18 @@ type FakeImpl struct {
 		result1 *v1alpha2.SelinuxProfile
 		result2 error
 	}
-	ListProfileBindingsStub        func(context.Context, ...client.ListOption) (*v1alpha1.ProfileBindingList, error)
+	ListProfileBindingsStub        func(context.Context, ...client.ListOption) (*v1alpha1a.ProfileBindingList, error)
 	listProfileBindingsMutex       sync.RWMutex
 	listProfileBindingsArgsForCall []struct {
 		arg1 context.Context
 		arg2 []client.ListOption
 	}
 	listProfileBindingsReturns struct {
-		result1 *v1alpha1.ProfileBindingList
+		result1 *v1alpha1a.ProfileBindingList
 		result2 error
 	}
 	listProfileBindingsReturnsOnCall map[int]struct {
-		result1 *v1alpha1.ProfileBindingList
+		result1 *v1alpha1a.ProfileBindingList
 		result2 error
 	}
 	UpdateResourceStub        func(context.Context, logr.Logger, client.Object, string) error
@@ -179,6 +194,71 @@ func (fake *FakeImpl) DecodePodReturnsOnCall(i int, result1 *v1.Pod, result2 err
 	}
 	fake.decodePodReturnsOnCall[i] = struct {
 		result1 *v1.Pod
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetAppArmorProfile(arg1 context.Context, arg2 types.NamespacedName) (*v1alpha1.AppArmorProfile, error) {
+	fake.getAppArmorProfileMutex.Lock()
+	ret, specificReturn := fake.getAppArmorProfileReturnsOnCall[len(fake.getAppArmorProfileArgsForCall)]
+	fake.getAppArmorProfileArgsForCall = append(fake.getAppArmorProfileArgsForCall, struct {
+		arg1 context.Context
+		arg2 types.NamespacedName
+	}{arg1, arg2})
+	stub := fake.GetAppArmorProfileStub
+	fakeReturns := fake.getAppArmorProfileReturns
+	fake.recordInvocation("GetAppArmorProfile", []interface{}{arg1, arg2})
+	fake.getAppArmorProfileMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) GetAppArmorProfileCallCount() int {
+	fake.getAppArmorProfileMutex.RLock()
+	defer fake.getAppArmorProfileMutex.RUnlock()
+	return len(fake.getAppArmorProfileArgsForCall)
+}
+
+func (fake *FakeImpl) GetAppArmorProfileCalls(stub func(context.Context, types.NamespacedName) (*v1alpha1.AppArmorProfile, error)) {
+	fake.getAppArmorProfileMutex.Lock()
+	defer fake.getAppArmorProfileMutex.Unlock()
+	fake.GetAppArmorProfileStub = stub
+}
+
+func (fake *FakeImpl) GetAppArmorProfileArgsForCall(i int) (context.Context, types.NamespacedName) {
+	fake.getAppArmorProfileMutex.RLock()
+	defer fake.getAppArmorProfileMutex.RUnlock()
+	argsForCall := fake.getAppArmorProfileArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeImpl) GetAppArmorProfileReturns(result1 *v1alpha1.AppArmorProfile, result2 error) {
+	fake.getAppArmorProfileMutex.Lock()
+	defer fake.getAppArmorProfileMutex.Unlock()
+	fake.GetAppArmorProfileStub = nil
+	fake.getAppArmorProfileReturns = struct {
+		result1 *v1alpha1.AppArmorProfile
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) GetAppArmorProfileReturnsOnCall(i int, result1 *v1alpha1.AppArmorProfile, result2 error) {
+	fake.getAppArmorProfileMutex.Lock()
+	defer fake.getAppArmorProfileMutex.Unlock()
+	fake.GetAppArmorProfileStub = nil
+	if fake.getAppArmorProfileReturnsOnCall == nil {
+		fake.getAppArmorProfileReturnsOnCall = make(map[int]struct {
+			result1 *v1alpha1.AppArmorProfile
+			result2 error
+		})
+	}
+	fake.getAppArmorProfileReturnsOnCall[i] = struct {
+		result1 *v1alpha1.AppArmorProfile
 		result2 error
 	}{result1, result2}
 }
@@ -313,7 +393,7 @@ func (fake *FakeImpl) GetSelinuxProfileReturnsOnCall(i int, result1 *v1alpha2.Se
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ListProfileBindings(arg1 context.Context, arg2 ...client.ListOption) (*v1alpha1.ProfileBindingList, error) {
+func (fake *FakeImpl) ListProfileBindings(arg1 context.Context, arg2 ...client.ListOption) (*v1alpha1a.ProfileBindingList, error) {
 	fake.listProfileBindingsMutex.Lock()
 	ret, specificReturn := fake.listProfileBindingsReturnsOnCall[len(fake.listProfileBindingsArgsForCall)]
 	fake.listProfileBindingsArgsForCall = append(fake.listProfileBindingsArgsForCall, struct {
@@ -339,7 +419,7 @@ func (fake *FakeImpl) ListProfileBindingsCallCount() int {
 	return len(fake.listProfileBindingsArgsForCall)
 }
 
-func (fake *FakeImpl) ListProfileBindingsCalls(stub func(context.Context, ...client.ListOption) (*v1alpha1.ProfileBindingList, error)) {
+func (fake *FakeImpl) ListProfileBindingsCalls(stub func(context.Context, ...client.ListOption) (*v1alpha1a.ProfileBindingList, error)) {
 	fake.listProfileBindingsMutex.Lock()
 	defer fake.listProfileBindingsMutex.Unlock()
 	fake.ListProfileBindingsStub = stub
@@ -352,28 +432,28 @@ func (fake *FakeImpl) ListProfileBindingsArgsForCall(i int) (context.Context, []
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeImpl) ListProfileBindingsReturns(result1 *v1alpha1.ProfileBindingList, result2 error) {
+func (fake *FakeImpl) ListProfileBindingsReturns(result1 *v1alpha1a.ProfileBindingList, result2 error) {
 	fake.listProfileBindingsMutex.Lock()
 	defer fake.listProfileBindingsMutex.Unlock()
 	fake.ListProfileBindingsStub = nil
 	fake.listProfileBindingsReturns = struct {
-		result1 *v1alpha1.ProfileBindingList
+		result1 *v1alpha1a.ProfileBindingList
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeImpl) ListProfileBindingsReturnsOnCall(i int, result1 *v1alpha1.ProfileBindingList, result2 error) {
+func (fake *FakeImpl) ListProfileBindingsReturnsOnCall(i int, result1 *v1alpha1a.ProfileBindingList, result2 error) {
 	fake.listProfileBindingsMutex.Lock()
 	defer fake.listProfileBindingsMutex.Unlock()
 	fake.ListProfileBindingsStub = nil
 	if fake.listProfileBindingsReturnsOnCall == nil {
 		fake.listProfileBindingsReturnsOnCall = make(map[int]struct {
-			result1 *v1alpha1.ProfileBindingList
+			result1 *v1alpha1a.ProfileBindingList
 			result2 error
 		})
 	}
 	fake.listProfileBindingsReturnsOnCall[i] = struct {
-		result1 *v1alpha1.ProfileBindingList
+		result1 *v1alpha1a.ProfileBindingList
 		result2 error
 	}{result1, result2}
 }
