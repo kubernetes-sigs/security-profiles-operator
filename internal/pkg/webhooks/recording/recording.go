@@ -118,6 +118,14 @@ func (p *podSeccompRecorder) Handle(
 			continue
 		}
 
+		if err := item.ValidateRecorderKindCombination(); err != nil {
+			p.log.Error(err, "Invalid recorder/kind combination",
+				"recording", item.Name,
+			)
+
+			continue
+		}
+
 		selector, err := p.LabelSelectorAsSelector(
 			&item.Spec.PodSelector,
 		)

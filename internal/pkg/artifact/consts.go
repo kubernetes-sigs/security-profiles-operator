@@ -43,6 +43,6 @@ const (
 	// PullResultTypeSelinuxProfile is referencing a SELinux profile.
 	PullResultTypeSelinuxProfile PullResultType = "SelinuxProfile"
 
-	// PullResultTypeApparmorProfile is referencing a AppArmor profile.
-	PullResultTypeApparmorProfile PullResultType = "ApparmorProfile"
+	// PullResultTypeAppArmorProfile is referencing an AppArmor profile.
+	PullResultTypeAppArmorProfile PullResultType = "AppArmorProfile"
 )

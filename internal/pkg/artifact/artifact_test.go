@@ -293,7 +293,7 @@ func TestPull(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, res)
 				require.NotNil(t, res.Content())
-				require.Equal(t, PullResultTypeApparmorProfile, res.Type())
+				require.Equal(t, PullResultTypeAppArmorProfile, res.Type())
 				require.NotNil(t, res.ApparmorProfile())
 			},
 		},
