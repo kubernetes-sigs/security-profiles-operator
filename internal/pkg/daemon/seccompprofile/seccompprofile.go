@@ -352,10 +352,10 @@ func (r *Reconciler) mergeBaseProfile(
 func (r *Reconciler) resolveSyscallsForProfile(
 	ctx context.Context,
 	sp *seccompprofileapi.SeccompProfile,
-	inputSyscalls []*seccompprofileapi.Syscall,
+	inputSyscalls []seccompprofileapi.Syscall,
 	l logr.Logger,
 	level uint8,
-) ([]*seccompprofileapi.Syscall, error) {
+) ([]seccompprofileapi.Syscall, error) {
 	const maxLevel = 15
 	if level >= maxLevel {
 		return nil, fmt.Errorf(

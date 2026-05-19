@@ -109,25 +109,15 @@ func (in *SeccompProfileSpec) DeepCopyInto(out *SeccompProfileSpec) {
 	}
 	if in.Syscalls != nil {
 		in, out := &in.Syscalls, &out.Syscalls
-		*out = make([]*Syscall, len(*in))
+		*out = make([]Syscall, len(*in))
 		for i := range *in {
-			if (*in)[i] != nil {
-				in, out := &(*in)[i], &(*out)[i]
-				*out = new(Syscall)
-				(*in).DeepCopyInto(*out)
-			}
+			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
 	if in.Flags != nil {
 		in, out := &in.Flags, &out.Flags
-		*out = make([]*Flag, len(*in))
-		for i := range *in {
-			if (*in)[i] != nil {
-				in, out := &(*in)[i], &(*out)[i]
-				*out = new(Flag)
-				**out = **in
-			}
-		}
+		*out = make([]Flag, len(*in))
+		copy(*out, *in)
 	}
 }
 
@@ -172,13 +162,9 @@ func (in *Syscall) DeepCopyInto(out *Syscall) {
 	}
 	if in.Args != nil {
 		in, out := &in.Args, &out.Args
-		*out = make([]*Arg, len(*in))
+		*out = make([]Arg, len(*in))
 		for i := range *in {
-			if (*in)[i] != nil {
-				in, out := &(*in)[i], &(*out)[i]
-				*out = new(Arg)
-				(*in).DeepCopyInto(*out)
-			}
+			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
 }

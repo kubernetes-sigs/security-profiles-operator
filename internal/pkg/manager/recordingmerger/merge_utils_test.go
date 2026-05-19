@@ -83,7 +83,7 @@ func TestMergeProfiles(t *testing.T) {
 						Spec: seccompprofile.SeccompProfileSpec{
 							BaseProfileName: "part1",
 							DefaultAction:   seccompprofile.ActAllow,
-							Syscalls: []*seccompprofile.Syscall{
+							Syscalls: []seccompprofile.Syscall{
 								{
 									Names:  []string{"a", "b", "c"},
 									Action: seccompprofile.Action("foo"),
@@ -98,7 +98,7 @@ func TestMergeProfiles(t *testing.T) {
 						Spec: seccompprofile.SeccompProfileSpec{
 							BaseProfileName: "part1",
 							DefaultAction:   seccompprofile.ActAllow,
-							Syscalls: []*seccompprofile.Syscall{
+							Syscalls: []seccompprofile.Syscall{
 								{
 									Names:  []string{"c", "e", "d"},
 									Action: seccompprofile.Action("foo"),

@@ -79,7 +79,8 @@ type WebhookOptions struct {
 // SPODStatus defines the desired state of SPOD.
 type SPODSpec struct {
 	// Verbosity specifies the logging verbosity of the daemon.
-	Verbosity uint `json:"verbosity,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	Verbosity int32 `json:"verbosity,omitempty"`
 	// EnableProfiling tells the operator whether or not to enable profiling
 	// support for this SPOD instance.
 	EnableProfiling bool `json:"enableProfiling,omitempty"`

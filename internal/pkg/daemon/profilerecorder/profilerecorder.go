@@ -534,7 +534,7 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	profileSpec := seccompprofileapi.SeccompProfileSpec{
 		DefaultAction: seccompprofileapi.ActErrno,
 		Architectures: []seccompprofileapi.Arch{arch},
-		Syscalls: []*seccompprofileapi.Syscall{{
+		Syscalls: []seccompprofileapi.Syscall{{
 			Action: seccompprofileapi.ActAllow,
 			Names:  response.GetSyscalls(),
 		}},
@@ -830,7 +830,7 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	profileSpec := seccompprofileapi.SeccompProfileSpec{
 		DefaultAction: seccompprofileapi.ActErrno,
 		Architectures: []seccompprofileapi.Arch{arch},
-		Syscalls: []*seccompprofileapi.Syscall{{
+		Syscalls: []seccompprofileapi.Syscall{{
 			Action: seccompprofileapi.ActAllow,
 			Names:  response.GetSyscalls(),
 		}},

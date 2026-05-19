@@ -29,26 +29,26 @@ func TestUnionSyscalls(t *testing.T) {
 
 	cases := []struct {
 		name            string
-		baseSyscalls    []*v1beta1.Syscall
-		appliedSyscalls []*v1beta1.Syscall
-		want            []*v1beta1.Syscall
+		baseSyscalls    []v1beta1.Syscall
+		appliedSyscalls []v1beta1.Syscall
+		want            []v1beta1.Syscall
 	}{
 		{
 			name:            "BothEmpty",
-			baseSyscalls:    []*v1beta1.Syscall{},
-			appliedSyscalls: []*v1beta1.Syscall{},
-			want:            []*v1beta1.Syscall{},
+			baseSyscalls:    []v1beta1.Syscall{},
+			appliedSyscalls: []v1beta1.Syscall{},
+			want:            []v1beta1.Syscall{},
 		},
 		{
 			name:         "BaseEmpty",
-			baseSyscalls: []*v1beta1.Syscall{},
-			appliedSyscalls: []*v1beta1.Syscall{
+			baseSyscalls: []v1beta1.Syscall{},
+			appliedSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
 				},
 			},
-			want: []*v1beta1.Syscall{
+			want: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
@@ -57,14 +57,14 @@ func TestUnionSyscalls(t *testing.T) {
 		},
 		{
 			name: "AppliedEmpty",
-			baseSyscalls: []*v1beta1.Syscall{
+			baseSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
 				},
 			},
-			appliedSyscalls: []*v1beta1.Syscall{},
-			want: []*v1beta1.Syscall{
+			appliedSyscalls: []v1beta1.Syscall{},
+			want: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
@@ -73,48 +73,48 @@ func TestUnionSyscalls(t *testing.T) {
 		},
 		{
 			name: "Args",
-			baseSyscalls: []*v1beta1.Syscall{
+			baseSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
-					Args:   []*v1beta1.Arg{{Index: 1, Value: 2}},
+					Args:   []v1beta1.Arg{{Index: 1, Value: 2}},
 				},
 			},
-			appliedSyscalls: []*v1beta1.Syscall{
+			appliedSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
-					Args:   []*v1beta1.Arg{{Index: 2, Value: 3}},
+					Args:   []v1beta1.Arg{{Index: 2, Value: 3}},
 				},
 			},
-			want: []*v1beta1.Syscall{
+			want: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
-					Args:   []*v1beta1.Arg{{Index: 1, Value: 2}},
+					Args:   []v1beta1.Arg{{Index: 1, Value: 2}},
 				},
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
-					Args:   []*v1beta1.Arg{{Index: 2, Value: 3}},
+					Args:   []v1beta1.Arg{{Index: 2, Value: 3}},
 				},
 			},
 		},
 		{
 			name: "UniqueActions",
-			baseSyscalls: []*v1beta1.Syscall{
+			baseSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
 				},
 			},
-			appliedSyscalls: []*v1beta1.Syscall{
+			appliedSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("bar"),
 				},
 			},
-			want: []*v1beta1.Syscall{
+			want: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("bar"),
@@ -127,19 +127,19 @@ func TestUnionSyscalls(t *testing.T) {
 		},
 		{
 			name: "OverlappingActionsWithUniqueNames",
-			baseSyscalls: []*v1beta1.Syscall{
+			baseSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "c", "b"},
 					Action: v1beta1.Action("foo"),
 				},
 			},
-			appliedSyscalls: []*v1beta1.Syscall{
+			appliedSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"d", "f", "e"},
 					Action: v1beta1.Action("foo"),
 				},
 			},
-			want: []*v1beta1.Syscall{
+			want: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
@@ -152,7 +152,7 @@ func TestUnionSyscalls(t *testing.T) {
 		},
 		{
 			name: "OverlappingActionsWithOverlappingNames",
-			baseSyscalls: []*v1beta1.Syscall{
+			baseSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
 					Action: v1beta1.Action("foo"),
@@ -162,7 +162,7 @@ func TestUnionSyscalls(t *testing.T) {
 					Action: v1beta1.Action("bar"),
 				},
 			},
-			appliedSyscalls: []*v1beta1.Syscall{
+			appliedSyscalls: []v1beta1.Syscall{
 				{
 					Names:  []string{"b", "c", "d"},
 					Action: v1beta1.Action("foo"),
@@ -172,7 +172,7 @@ func TestUnionSyscalls(t *testing.T) {
 					Action: v1beta1.Action("bar"),
 				},
 			},
-			want: []*v1beta1.Syscall{
+			want: []v1beta1.Syscall{
 				{
 					Names:  []string{"x", "y", "z"},
 					Action: v1beta1.Action("bar"),
