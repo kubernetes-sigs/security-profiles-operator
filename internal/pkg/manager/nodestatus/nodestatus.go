@@ -36,11 +36,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	apparmorapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
+	"sigs.k8s.io/security-profiles-operator/api/common"
 	pbv1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 	statusv1alpha1 "sigs.k8s.io/security-profiles-operator/api/secprofnodestatus/v1alpha1"
 	selxv1alpha2 "sigs.k8s.io/security-profiles-operator/api/selinuxprofile/v1alpha2"
-	spodv1alpha1 "sigs.k8s.io/security-profiles-operator/api/spod/v1alpha1"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/controller"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/util"
@@ -324,25 +324,25 @@ func (r *StatusReconciler) reconcileStatus(
 	switch state {
 	case statusv1alpha1.ProfileStatePending, "":
 		outStatus.Status = statusv1alpha1.ProfileStatePending
-		outStatus.SetConditions(spodv1alpha1.Creating())
+		outStatus.SetConditions(common.Creating())
 	case statusv1alpha1.ProfileStateInProgress:
-		outStatus.SetConditions(spodv1alpha1.Creating())
+		outStatus.SetConditions(common.Creating())
 		outStatus.Status = statusv1alpha1.ProfileStateInProgress
 	case statusv1alpha1.ProfileStateInstalled:
 		outStatus.Status = statusv1alpha1.ProfileStateInstalled
-		outStatus.SetConditions(spodv1alpha1.Available())
+		outStatus.SetConditions(common.Available())
 	case statusv1alpha1.ProfileStateTerminating:
 		outStatus.Status = statusv1alpha1.ProfileStateTerminating
-		outStatus.SetConditions(spodv1alpha1.Deleting())
+		outStatus.SetConditions(common.Deleting())
 	case statusv1alpha1.ProfileStateError:
 		outStatus.Status = statusv1alpha1.ProfileStateError
-		outStatus.SetConditions(spodv1alpha1.Unavailable())
+		outStatus.SetConditions(common.Unavailable())
 	case statusv1alpha1.ProfileStatePartial:
 		outStatus.Status = statusv1alpha1.ProfileStatePartial
-		outStatus.SetConditions(spodv1alpha1.Unavailable())
+		outStatus.SetConditions(common.Unavailable())
 	case statusv1alpha1.ProfileStateDisabled:
 		outStatus.Status = statusv1alpha1.ProfileStateDisabled
-		outStatus.SetConditions(spodv1alpha1.Unavailable())
+		outStatus.SetConditions(common.Unavailable())
 	}
 
 	l.V(config.VerboseLevel).Info("Updating status")
