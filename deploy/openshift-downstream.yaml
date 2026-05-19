@@ -54,6 +54,7 @@ spec:
                     enum:
                     - SeccompProfile
                     - SelinuxProfile
+                    - AppArmorProfile
                     type: string
                   name:
                     description: Name of the profile within the current namespace
@@ -2854,6 +2855,16 @@ rules:
 - apiGroups:
   - security-profiles-operator.x-k8s.io
   resources:
+  - apparmorprofiles
+  - seccompprofiles
+  - selinuxprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - security-profiles-operator.x-k8s.io
+  resources:
   - profilebindings
   - profilerecordings
   verbs:
@@ -2882,15 +2893,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - security-profiles-operator.x-k8s.io
-  resources:
-  - seccompprofiles
-  - selinuxprofiles
-  verbs:
-  - get
-  - list
-  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

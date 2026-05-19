@@ -54,6 +54,7 @@ spec:
                     enum:
                     - SeccompProfile
                     - SelinuxProfile
+                    - AppArmorProfile
                     type: string
                   name:
                     description: Name of the profile within the current namespace
