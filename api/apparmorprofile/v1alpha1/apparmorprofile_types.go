@@ -34,19 +34,19 @@ var (
 // AppArmorExecutablesRules stores the rules for allowed executable.
 type AppArmorExecutablesRules struct {
 	// AllowedExecutables list of allowed executables.
-	AllowedExecutables *[]string `json:"allowedExecutables,omitempty"`
+	AllowedExecutables []string `json:"allowedExecutables,omitempty"`
 	// AllowedLibraries list of allowed libraries.
-	AllowedLibraries *[]string `json:"allowedLibraries,omitempty"`
+	AllowedLibraries []string `json:"allowedLibraries,omitempty"`
 }
 
 // AppArmorFsRules stores the rules for file system access.
 type AppArmorFsRules struct {
 	// ReadOnlyPaths list of allowed read only file paths.
-	ReadOnlyPaths *[]string `json:"readOnlyPaths,omitempty"`
+	ReadOnlyPaths []string `json:"readOnlyPaths,omitempty"`
 	// WriteOnlyPaths list of allowed write only file paths.
-	WriteOnlyPaths *[]string `json:"writeOnlyPaths,omitempty"`
+	WriteOnlyPaths []string `json:"writeOnlyPaths,omitempty"`
 	// ReadWritePaths list of allowed read write file paths.
-	ReadWritePaths *[]string `json:"readWritePaths,omitempty"`
+	ReadWritePaths []string `json:"readWritePaths,omitempty"`
 }
 
 // AppArmorAllowedProtocols stores the rules for allowed networking protocols.
@@ -67,7 +67,7 @@ type AppArmorNetworkRules struct {
 
 // AllowedCapabilities stores the rules of allowed Linux capabilities.
 type AppArmorCapabilityRules struct {
-	// AllowedCapabilities lost of allowed capabilities.
+	// AllowedCapabilities list of allowed capabilities.
 	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
 }
 

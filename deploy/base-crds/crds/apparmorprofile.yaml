@@ -53,7 +53,7 @@ spec:
                     description: Capability rules for Linux capabilities.
                     properties:
                       allowedCapabilities:
-                        description: AllowedCapabilities lost of allowed capabilities.
+                        description: AllowedCapabilities list of allowed capabilities.
                         items:
                           type: string
                         type: array

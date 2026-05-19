@@ -942,14 +942,14 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 			sort.Strings(response.GetFiles().GetAllowedExecutables())
 			ExecutableAllowedExecCopy := make([]string, len(response.GetFiles().GetAllowedExecutables()))
 			copy(ExecutableAllowedExecCopy, response.GetFiles().GetAllowedExecutables())
-			abstract.Executable.AllowedExecutables = &ExecutableAllowedExecCopy
+			abstract.Executable.AllowedExecutables = ExecutableAllowedExecCopy
 		}
 
 		if len(response.GetFiles().GetAllowedLibraries()) != 0 {
 			sort.Strings(response.GetFiles().GetAllowedLibraries())
 			ExecutableAllowedLibCopy := make([]string, len(response.GetFiles().GetAllowedLibraries()))
 			copy(ExecutableAllowedLibCopy, response.GetFiles().GetAllowedLibraries())
-			abstract.Executable.AllowedLibraries = &ExecutableAllowedLibCopy
+			abstract.Executable.AllowedLibraries = ExecutableAllowedLibCopy
 		}
 	}
 
@@ -962,21 +962,21 @@ func (r *RecorderReconciler) generateAppArmorProfileAbstract(
 			sort.Strings(response.GetFiles().GetReadonlyPaths())
 			FileReadOnlyCopy := make([]string, len(response.GetFiles().GetReadonlyPaths()))
 			copy(FileReadOnlyCopy, response.GetFiles().GetReadonlyPaths())
-			files.ReadOnlyPaths = &FileReadOnlyCopy
+			files.ReadOnlyPaths = FileReadOnlyCopy
 		}
 
 		if len(response.GetFiles().GetWriteonlyPaths()) != 0 {
 			sort.Strings(response.GetFiles().GetWriteonlyPaths())
 			FileWriteOnlyCopy := make([]string, len(response.GetFiles().GetWriteonlyPaths()))
 			copy(FileWriteOnlyCopy, response.GetFiles().GetWriteonlyPaths())
-			files.WriteOnlyPaths = &FileWriteOnlyCopy
+			files.WriteOnlyPaths = FileWriteOnlyCopy
 		}
 
 		if len(response.GetFiles().GetReadwritePaths()) != 0 {
 			sort.Strings(response.GetFiles().GetReadwritePaths())
 			FileReadWriteCopy := make([]string, len(response.GetFiles().GetReadwritePaths()))
 			copy(FileReadWriteCopy, response.GetFiles().GetReadwritePaths())
-			files.ReadWritePaths = &FileReadWriteCopy
+			files.ReadWritePaths = FileReadWriteCopy
 		}
 
 		abstract.Filesystem = &files

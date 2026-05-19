@@ -78,12 +78,12 @@ func recordAppArmorTest(t *testing.T) {
 			readme, err := filepath.Abs("../../README.md")
 			require.NoError(t, err)
 			require.NotNil(t, profile.Filesystem)
-			require.NotNil(t, profile.Filesystem.ReadOnlyPaths)
-			require.Contains(t, *profile.Filesystem.ReadOnlyPaths, readme)
+			require.NotEmpty(t, profile.Filesystem.ReadOnlyPaths)
+			require.Contains(t, profile.Filesystem.ReadOnlyPaths, readme)
 
 			count := 0
 
-			for _, s := range *profile.Filesystem.ReadOnlyPaths {
+			for _, s := range profile.Filesystem.ReadOnlyPaths {
 				if s == "/proc/@{pid}/limits" {
 					count++
 				}
@@ -99,8 +99,8 @@ func recordAppArmorTest(t *testing.T) {
 				"--file-write", "/dev/null",
 			)
 			require.NotNil(t, profile.Filesystem)
-			require.NotNil(t, profile.Filesystem.WriteOnlyPaths)
-			require.Contains(t, *profile.Filesystem.WriteOnlyPaths, "/dev/null")
+			require.NotEmpty(t, profile.Filesystem.WriteOnlyPaths)
+			require.Contains(t, profile.Filesystem.WriteOnlyPaths, "/dev/null")
 
 			runWithProfile(t, profile, "./demobinary", "--file-write", "/dev/null")
 		})
@@ -111,8 +111,8 @@ func recordAppArmorTest(t *testing.T) {
 				"--file-write", "/dev/null",
 			)
 			require.NotNil(t, profile.Filesystem)
-			require.NotNil(t, profile.Filesystem.ReadWritePaths)
-			require.Contains(t, *profile.Filesystem.ReadWritePaths, "/dev/null")
+			require.NotEmpty(t, profile.Filesystem.ReadWritePaths)
+			require.Contains(t, profile.Filesystem.ReadWritePaths, "/dev/null")
 
 			runWithProfile(t, profile, "./demobinary", "--file-read", "/dev/null", "--file-write", "/dev/null")
 		})
@@ -124,8 +124,8 @@ func recordAppArmorTest(t *testing.T) {
 			)
 
 			require.NotNil(t, profile.Filesystem)
-			require.NotNil(t, profile.Filesystem.WriteOnlyPaths)
-			require.Contains(t, *profile.Filesystem.WriteOnlyPaths, bpfrecorder.ReplaceVarianceInFilePath(f))
+			require.NotEmpty(t, profile.Filesystem.WriteOnlyPaths)
+			require.Contains(t, profile.Filesystem.WriteOnlyPaths, bpfrecorder.ReplaceVarianceInFilePath(f))
 
 			err := os.Remove(f)
 			require.NoError(t, err)
@@ -143,8 +143,8 @@ func recordAppArmorTest(t *testing.T) {
 				"--file-remove", fileToRemove.Name(),
 			)
 			require.NotNil(t, profile.Filesystem)
-			require.NotNil(t, profile.Filesystem.ReadWritePaths)
-			require.Contains(t, *profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(fileToRemove.Name()))
+			require.NotEmpty(t, profile.Filesystem.ReadWritePaths)
+			require.Contains(t, profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(fileToRemove.Name()))
 
 			fileToRemove2, err := os.CreateTemp(tempDir, "spoc-test")
 			require.NoError(t, err)
@@ -168,12 +168,12 @@ func recordAppArmorTest(t *testing.T) {
 			"--dir-create", dirs,
 		)
 		require.NotNil(t, profile.Filesystem)
-		require.NotNil(t, profile.Filesystem.ReadOnlyPaths)
-		require.NotNil(t, profile.Filesystem.ReadWritePaths)
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/var/")
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/usr/")
-		require.Contains(t, *profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(testDir1))
-		require.Contains(t, *profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(testDir2))
+		require.NotEmpty(t, profile.Filesystem.ReadOnlyPaths)
+		require.NotEmpty(t, profile.Filesystem.ReadWritePaths)
+		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/var/")
+		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/usr/")
+		require.Contains(t, profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(testDir1))
+		require.Contains(t, profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(testDir2))
 
 		runWithProfile(t, profile,
 			"./demobinary",
@@ -186,8 +186,8 @@ func recordAppArmorTest(t *testing.T) {
 			sockPath := filepath.Join(t.TempDir(), "test.sock")
 			profile := recordAppArmor(t, "./demobinary", "--net-unix", sockPath)
 			require.NotNil(t, profile.Filesystem)
-			require.NotNil(t, profile.Filesystem.ReadWritePaths)
-			require.Contains(t, *profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(sockPath))
+			require.NotEmpty(t, profile.Filesystem.ReadWritePaths)
+			require.Contains(t, profile.Filesystem.ReadWritePaths, bpfrecorder.ReplaceVarianceInFilePath(sockPath))
 
 			err := os.Remove(sockPath)
 			require.NoError(t, err)
@@ -224,16 +224,16 @@ func recordAppArmorTest(t *testing.T) {
 	})
 	t.Run("subprocess", func(t *testing.T) {
 		profile := recordAppArmor(t, "./demobinary", "./demobinary-child", "--file-read", "/dev/null")
-		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary-child")
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
+		require.Contains(t, profile.Executable.AllowedExecutables[0], "/demobinary-child")
+		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/dev/null")
 
 		profile = recordAppArmor(t, "./demobinary", "./demobinary", "--file-read", "/dev/null")
-		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary")
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
+		require.Contains(t, profile.Executable.AllowedExecutables[0], "/demobinary")
+		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/dev/null")
 
 		profile = recordAppArmor(t, "./demobinary", "./demobinary-child", "./demobinary-child", "--file-read", "/dev/null")
-		require.Contains(t, (*profile.Executable.AllowedExecutables)[0], "/demobinary-child")
-		require.Contains(t, *profile.Filesystem.ReadOnlyPaths, "/dev/null")
+		require.Contains(t, profile.Executable.AllowedExecutables[0], "/demobinary-child")
+		require.Contains(t, profile.Filesystem.ReadOnlyPaths, "/dev/null")
 	})
 	t.Run("huge pages", func(t *testing.T) {
 		page, err := syscall.Mmap(-1, 0, 8192,
@@ -247,7 +247,7 @@ func recordAppArmorTest(t *testing.T) {
 		}
 
 		profile := recordAppArmor(t, "./demobinary", "--hugepage")
-		require.Contains(t, *profile.Filesystem.ReadWritePaths, "/")
+		require.Contains(t, profile.Filesystem.ReadWritePaths, "/")
 		runWithProfile(t, profile, "./demobinary", "--hugepage")
 	})
 	t.Run("no-proc-start", func(t *testing.T) {

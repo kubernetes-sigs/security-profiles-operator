@@ -109,21 +109,13 @@ func (in *AppArmorExecutablesRules) DeepCopyInto(out *AppArmorExecutablesRules) 
 	*out = *in
 	if in.AllowedExecutables != nil {
 		in, out := &in.AllowedExecutables, &out.AllowedExecutables
-		*out = new([]string)
-		if **in != nil {
-			in, out := *in, *out
-			*out = make([]string, len(*in))
-			copy(*out, *in)
-		}
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 	if in.AllowedLibraries != nil {
 		in, out := &in.AllowedLibraries, &out.AllowedLibraries
-		*out = new([]string)
-		if **in != nil {
-			in, out := *in, *out
-			*out = make([]string, len(*in))
-			copy(*out, *in)
-		}
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 }
 
@@ -142,30 +134,18 @@ func (in *AppArmorFsRules) DeepCopyInto(out *AppArmorFsRules) {
 	*out = *in
 	if in.ReadOnlyPaths != nil {
 		in, out := &in.ReadOnlyPaths, &out.ReadOnlyPaths
-		*out = new([]string)
-		if **in != nil {
-			in, out := *in, *out
-			*out = make([]string, len(*in))
-			copy(*out, *in)
-		}
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 	if in.WriteOnlyPaths != nil {
 		in, out := &in.WriteOnlyPaths, &out.WriteOnlyPaths
-		*out = new([]string)
-		if **in != nil {
-			in, out := *in, *out
-			*out = make([]string, len(*in))
-			copy(*out, *in)
-		}
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 	if in.ReadWritePaths != nil {
 		in, out := &in.ReadWritePaths, &out.ReadWritePaths
-		*out = new([]string)
-		if **in != nil {
-			in, out := *in, *out
-			*out = make([]string, len(*in))
-			copy(*out, *in)
-		}
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 }
 

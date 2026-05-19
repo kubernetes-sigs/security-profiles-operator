@@ -88,17 +88,17 @@ func (sp *mergeableAppArmorProfile) merge(other mergeableProfile) error {
 	return nil
 }
 
-func mergePaths(a, b *[]string) *[]string {
-	if a == nil {
+func mergePaths(a, b []string) []string {
+	if len(a) == 0 {
 		return b
 	}
 
-	if b == nil {
+	if len(b) == 0 {
 		return a
 	}
 
 	merged := newAppArmorPathSet(a)
-	for _, path := range *b {
+	for _, path := range b {
 		if !merged.Matches(path) {
 			merged.Add(path)
 		}
@@ -108,51 +108,44 @@ func mergePaths(a, b *[]string) *[]string {
 }
 
 func mergeFilesystem(base, additions *apparmorprofileapi.AppArmorAbstract) {
-	//nolint:nestif  // refactoring this makes it worse
 	if base.Filesystem != nil && additions.Filesystem != nil {
 		r := newAppArmorPathSet(base.Filesystem.ReadOnlyPaths)
 		w := newAppArmorPathSet(base.Filesystem.WriteOnlyPaths)
 		rw := newAppArmorPathSet(base.Filesystem.ReadWritePaths)
 
-		if additions.Filesystem.ReadWritePaths != nil {
-			for _, p := range *additions.Filesystem.ReadWritePaths {
-				if rw.Matches(p) {
-					// no changes necessary
-				} else if pat := r.PopMatching(p); pat != nil {
-					rw.Add(*pat)
-				} else if pat := w.PopMatching(p); pat != nil {
-					rw.Add(*pat)
-				} else {
-					rw.Add(p)
-				}
+		for _, p := range additions.Filesystem.ReadWritePaths {
+			if rw.Matches(p) {
+				// no changes necessary
+			} else if pat := r.PopMatching(p); pat != nil {
+				rw.Add(*pat)
+			} else if pat := w.PopMatching(p); pat != nil {
+				rw.Add(*pat)
+			} else {
+				rw.Add(p)
 			}
 		}
 
-		if additions.Filesystem.ReadOnlyPaths != nil {
-			for _, p := range *additions.Filesystem.ReadOnlyPaths {
-				if rw.Matches(p) {
-					// no changes necessary
-				} else if r.Matches(p) {
-					// no changes necessary
-				} else if pat := w.PopMatching(p); pat != nil {
-					rw.Add(*pat)
-				} else {
-					r.Add(p)
-				}
+		for _, p := range additions.Filesystem.ReadOnlyPaths {
+			if rw.Matches(p) {
+				// no changes necessary
+			} else if r.Matches(p) {
+				// no changes necessary
+			} else if pat := w.PopMatching(p); pat != nil {
+				rw.Add(*pat)
+			} else {
+				r.Add(p)
 			}
 		}
 
-		if additions.Filesystem.WriteOnlyPaths != nil {
-			for _, p := range *additions.Filesystem.WriteOnlyPaths {
-				if rw.Matches(p) {
-					// no changes necessary
-				} else if pat := r.PopMatching(p); pat != nil {
-					rw.Add(*pat)
-				} else if w.Matches(p) {
-					// no changes necessary
-				} else {
-					w.Add(p)
-				}
+		for _, p := range additions.Filesystem.WriteOnlyPaths {
+			if rw.Matches(p) {
+				// no changes necessary
+			} else if pat := r.PopMatching(p); pat != nil {
+				rw.Add(*pat)
+			} else if w.Matches(p) {
+				// no changes necessary
+			} else {
+				w.Add(p)
 			}
 		}
 
@@ -166,13 +159,11 @@ func mergeFilesystem(base, additions *apparmorprofileapi.AppArmorAbstract) {
 	}
 }
 
-func newAppArmorPathSet(patterns *[]string) appArmorPathSet {
+func newAppArmorPathSet(patterns []string) appArmorPathSet {
 	m := appArmorPathSet{}
 
-	if patterns != nil {
-		for _, p := range *patterns {
-			m.Add(p)
-		}
+	for _, p := range patterns {
+		m.Add(p)
 	}
 
 	return m
@@ -230,7 +221,7 @@ func (m *appArmorPathSet) Add(pattern string) {
 	})
 }
 
-func (m *appArmorPathSet) Patterns() *[]string {
+func (m *appArmorPathSet) Patterns() []string {
 	if len(m.paths) == 0 {
 		return nil
 	}
@@ -242,7 +233,7 @@ func (m *appArmorPathSet) Patterns() *[]string {
 
 	sort.Strings(ret)
 
-	return &ret
+	return ret
 }
 
 // Convert AppArmor globs (https://gitlab.com/apparmor/apparmor/-/wikis/QuickProfileLanguage#file-globbing)
