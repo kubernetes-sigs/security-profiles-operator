@@ -22,11 +22,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	profilebase "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
+	seccompapi "sigs.k8s.io/security-profiles-operator/api/seccomp"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/config"
 )
 
@@ -38,6 +38,32 @@ var (
 
 const ExtJSON = ".json"
 
+type Action = seccompapi.Action
+
+const (
+	ActKill        = seccompapi.ActKill
+	ActKillProcess = seccompapi.ActKillProcess
+	ActKillThread  = seccompapi.ActKillThread
+	ActTrap        = seccompapi.ActTrap
+	ActErrno       = seccompapi.ActErrno
+	ActTrace       = seccompapi.ActTrace
+	ActAllow       = seccompapi.ActAllow
+	ActLog         = seccompapi.ActLog
+	ActNotify      = seccompapi.ActNotify
+)
+
+type Operator = seccompapi.Operator
+
+const (
+	OpNotEqual     = seccompapi.OpNotEqual
+	OpLessThan     = seccompapi.OpLessThan
+	OpLessEqual    = seccompapi.OpLessEqual
+	OpEqualTo      = seccompapi.OpEqualTo
+	OpGreaterEqual = seccompapi.OpGreaterEqual
+	OpGreaterThan  = seccompapi.OpGreaterThan
+	OpMaskedEqual  = seccompapi.OpMaskedEqual
+)
+
 // SeccompProfileSpec defines the desired state of SeccompProfile.
 type SeccompProfileSpec struct {
 	// Common spec fields for all profiles.
@@ -48,12 +74,8 @@ type SeccompProfileSpec struct {
 	// remote OCI artifacts as well when prefixed with `oci://`.
 	BaseProfileName string `json:"baseProfileName,omitempty"`
 
-	// Properties from containers/common/pkg/seccomp.Seccomp type
-
 	// the default action for seccomp
-	//nolint:lll // required for kubebuilder
-	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
-	DefaultAction seccomp.Action `json:"defaultAction"`
+	DefaultAction Action `json:"defaultAction"`
 	// the architecture used for system calls
 	Architectures []Arch `json:"architectures,omitempty"`
 	// path of UNIX domain socket to contact a seccomp agent for SCMP_ACT_NOTIFY
@@ -87,9 +109,7 @@ type Syscall struct {
 	// the names of the syscalls
 	Names []string `json:"names"`
 	// the action for seccomp rules
-	//nolint:lll // required for kubebuilder
-	// +kubebuilder:validation:Enum=SCMP_ACT_KILL;SCMP_ACT_KILL_PROCESS;SCMP_ACT_KILL_THREAD;SCMP_ACT_TRAP;SCMP_ACT_ERRNO;SCMP_ACT_TRACE;SCMP_ACT_ALLOW;SCMP_ACT_LOG;SCMP_ACT_NOTIFY
-	Action seccomp.Action `json:"action"`
+	Action Action `json:"action"`
 	// the errno return code to use. Some actions like SCMP_ACT_ERRNO and
 	// SCMP_ACT_TRACE allow to specify the errno code to return
 	ErrnoRet uint `json:"errnoRet,omitempty"`
@@ -110,9 +130,7 @@ type Arg struct {
 	// +kubebuilder:validation:Minimum=0
 	ValueTwo uint64 `json:"valueTwo,omitempty"`
 	// the operator for syscall arguments in seccomp
-	//nolint:lll // required for kubebuilder
-	// +kubebuilder:validation:Enum=SCMP_CMP_NE;SCMP_CMP_LT;SCMP_CMP_LE;SCMP_CMP_EQ;SCMP_CMP_GE;SCMP_CMP_GT;SCMP_CMP_MASKED_EQ
-	Op seccomp.Operator `json:"op"`
+	Op Operator `json:"op"`
 }
 
 // SeccompProfileStatus contains status of the deployed SeccompProfile.

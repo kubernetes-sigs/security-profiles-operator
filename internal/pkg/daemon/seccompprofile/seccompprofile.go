@@ -633,9 +633,9 @@ func saveProfileOnDisk(fileName string, content []byte) (updated bool, err error
 }
 
 func allowProfile(
-	profile *seccompprofileapi.SeccompProfile, allowedSyscalls []string, allowedActions []seccomp.Action,
+	profile *seccompprofileapi.SeccompProfile, allowedSyscalls []string, allowedActions []seccompprofileapi.Action,
 ) error {
-	syscalls := map[seccomp.Action]map[string]bool{}
+	syscalls := map[seccompprofileapi.Action]map[string]bool{}
 	for _, call := range profile.Spec.Syscalls {
 		if _, ok := syscalls[call.Action]; !ok {
 			syscalls[call.Action] = map[string]bool{}
@@ -646,7 +646,9 @@ func allowProfile(
 		}
 	}
 
-	allAllowedActions := []seccomp.Action{seccomp.ActAllow, seccomp.ActLog, seccomp.ActTrace, seccomp.ActNotify}
+	allAllowedActions := []seccompprofileapi.Action{
+		seccompprofileapi.ActAllow, seccompprofileapi.ActLog, seccompprofileapi.ActTrace, seccompprofileapi.ActNotify,
+	}
 	if len(allowedActions) == 0 {
 		allowedActions = allAllowedActions
 	}
@@ -674,6 +676,6 @@ func allowProfile(
 	return nil
 }
 
-func containsAction(actions []seccomp.Action, action seccomp.Action) bool {
+func containsAction(actions []seccompprofileapi.Action, action seccompprofileapi.Action) bool {
 	return slices.Contains(actions, action)
 }

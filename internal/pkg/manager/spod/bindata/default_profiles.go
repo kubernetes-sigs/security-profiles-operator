@@ -17,7 +17,6 @@ limitations under the License.
 package bindata
 
 import (
-	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	seccompprofileapi "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
@@ -36,7 +35,7 @@ func DefaultLogEnricherProfile() *seccompprofileapi.SeccompProfile {
 			Labels:    labels,
 		},
 		Spec: seccompprofileapi.SeccompProfileSpec{
-			DefaultAction: seccomp.ActLog,
+			DefaultAction: seccompprofileapi.ActLog,
 		},
 	}
 }

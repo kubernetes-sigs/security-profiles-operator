@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.podman.io/common/pkg/seccomp"
 
 	"sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 )
@@ -46,13 +45,13 @@ func TestUnionSyscalls(t *testing.T) {
 			appliedSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 			want: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 		},
@@ -61,14 +60,14 @@ func TestUnionSyscalls(t *testing.T) {
 			baseSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 			appliedSyscalls: []*v1beta1.Syscall{},
 			want: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 		},
@@ -77,26 +76,26 @@ func TestUnionSyscalls(t *testing.T) {
 			baseSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 					Args:   []*v1beta1.Arg{{Index: 1, Value: 2}},
 				},
 			},
 			appliedSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 					Args:   []*v1beta1.Arg{{Index: 2, Value: 3}},
 				},
 			},
 			want: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 					Args:   []*v1beta1.Arg{{Index: 1, Value: 2}},
 				},
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 					Args:   []*v1beta1.Arg{{Index: 2, Value: 3}},
 				},
 			},
@@ -106,23 +105,23 @@ func TestUnionSyscalls(t *testing.T) {
 			baseSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 			appliedSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("bar"),
+					Action: v1beta1.Action("bar"),
 				},
 			},
 			want: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("bar"),
+					Action: v1beta1.Action("bar"),
 				},
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 		},
@@ -131,23 +130,23 @@ func TestUnionSyscalls(t *testing.T) {
 			baseSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "c", "b"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 			appliedSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"d", "f", "e"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 			want: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 				{
 					Names:  []string{"d", "e", "f"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 		},
@@ -156,39 +155,39 @@ func TestUnionSyscalls(t *testing.T) {
 			baseSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 				{
 					Names:  []string{"x", "y", "z"},
-					Action: seccomp.Action("bar"),
+					Action: v1beta1.Action("bar"),
 				},
 			},
 			appliedSyscalls: []*v1beta1.Syscall{
 				{
 					Names:  []string{"b", "c", "d"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 				{
 					Names:  []string{"x", "y", "z"},
-					Action: seccomp.Action("bar"),
+					Action: v1beta1.Action("bar"),
 				},
 			},
 			want: []*v1beta1.Syscall{
 				{
 					Names:  []string{"x", "y", "z"},
-					Action: seccomp.Action("bar"),
+					Action: v1beta1.Action("bar"),
 				},
 				{
 					Names:  []string{"x", "y", "z"},
-					Action: seccomp.Action("bar"),
+					Action: v1beta1.Action("bar"),
 				},
 				{
 					Names:  []string{"a", "b", "c"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 				{
 					Names:  []string{"b", "c", "d"},
-					Action: seccomp.Action("foo"),
+					Action: v1beta1.Action("foo"),
 				},
 			},
 		},

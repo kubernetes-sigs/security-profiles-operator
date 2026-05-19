@@ -17,12 +17,12 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"go.podman.io/common/pkg/seccomp"
 	admissionregv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/security-profiles-operator/api/common"
+	seccompapi "sigs.k8s.io/security-profiles-operator/api/seccomp"
 )
 
 // SelinuxOptions defines options specific to the SELinux
@@ -138,7 +138,7 @@ type SPODSpec struct {
 	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`
 	// AllowedSeccompActions if specified, a list of allowed seccomp actions.
 	// +optional
-	AllowedSeccompActions []seccomp.Action `json:"allowedSeccompActions"`
+	AllowedSeccompActions []seccompapi.Action `json:"allowedSeccompActions"`
 	// Affinity if specified, the SPOD's affinity.
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`

@@ -34,7 +34,6 @@ import (
 
 	"github.com/go-logr/logr"
 	libseccomp "github.com/seccomp/libseccomp-golang"
-	"go.podman.io/common/pkg/seccomp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/printers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -387,10 +386,10 @@ func (r *Recorder) buildProfile(writer io.Writer, names []string) error {
 	sort.Strings(names)
 
 	spec := seccompprofileapi.SeccompProfileSpec{
-		DefaultAction: seccomp.ActErrno,
+		DefaultAction: seccompprofileapi.ActErrno,
 		Architectures: []seccompprofileapi.Arch{arch},
 		Syscalls: []*seccompprofileapi.Syscall{{
-			Action: seccomp.ActAllow,
+			Action: seccompprofileapi.ActAllow,
 			Names:  names,
 		}},
 	}

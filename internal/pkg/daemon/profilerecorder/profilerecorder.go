@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"go.podman.io/common/pkg/seccomp"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
@@ -533,10 +532,10 @@ func (r *RecorderReconciler) collectLogSeccompProfile(
 	}
 
 	profileSpec := seccompprofileapi.SeccompProfileSpec{
-		DefaultAction: seccomp.ActErrno,
+		DefaultAction: seccompprofileapi.ActErrno,
 		Architectures: []seccompprofileapi.Arch{arch},
 		Syscalls: []*seccompprofileapi.Syscall{{
-			Action: seccomp.ActAllow,
+			Action: seccompprofileapi.ActAllow,
 			Names:  response.GetSyscalls(),
 		}},
 	}
@@ -829,10 +828,10 @@ func (r *RecorderReconciler) collectSeccompBpfProfile(
 	}
 
 	profileSpec := seccompprofileapi.SeccompProfileSpec{
-		DefaultAction: seccomp.ActErrno,
+		DefaultAction: seccompprofileapi.ActErrno,
 		Architectures: []seccompprofileapi.Arch{arch},
 		Syscalls: []*seccompprofileapi.Syscall{{
-			Action: seccomp.ActAllow,
+			Action: seccompprofileapi.ActAllow,
 			Names:  response.GetSyscalls(),
 		}},
 	}
