@@ -31,7 +31,7 @@ type ProfileRecordingKind string
 const (
 	ProfileRecordingKindSeccompProfile  ProfileRecordingKind = "SeccompProfile"
 	ProfileRecordingKindSelinuxProfile  ProfileRecordingKind = "SelinuxProfile"
-	ProfileRecordingKindAppArmorProfile ProfileRecordingKind = "ApparmorProfile"
+	ProfileRecordingKindAppArmorProfile ProfileRecordingKind = "AppArmorProfile"
 )
 
 type ProfileRecorder string
@@ -61,7 +61,7 @@ const (
 // ProfileRecordingSpec defines the desired state of ProfileRecording.
 type ProfileRecordingSpec struct {
 	// Kind of object to be recorded.
-	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile;ApparmorProfile
+	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile;AppArmorProfile
 	Kind ProfileRecordingKind `json:"kind"`
 
 	// Recorder to be used.
@@ -139,6 +139,31 @@ func (pr *ProfileRecording) IsKindSupported() bool {
 	}
 }
 
+func (pr *ProfileRecording) ValidateRecorderKindCombination() error {
+	switch pr.Spec.Kind {
+	case ProfileRecordingKindSelinuxProfile:
+		if pr.Spec.Recorder != ProfileRecorderLogs {
+			return fmt.Errorf(
+				"recorder %q is not supported for %s, only %q is supported",
+				pr.Spec.Recorder, pr.Spec.Kind, ProfileRecorderLogs,
+			)
+		}
+	case ProfileRecordingKindAppArmorProfile:
+		if pr.Spec.Recorder != ProfileRecorderBpf {
+			return fmt.Errorf(
+				"recorder %q is not supported for %s, only %q is supported",
+				pr.Spec.Recorder, pr.Spec.Kind, ProfileRecorderBpf,
+			)
+		}
+	case ProfileRecordingKindSeccompProfile:
+		// All recorders are supported.
+	default:
+		return fmt.Errorf("unsupported kind: %s", pr.Spec.Kind)
+	}
+
+	return nil
+}
+
 func (pr *ProfileRecording) ctrAnnotationValue(ctrName string) string {
 	const nonceSize = 5
 
@@ -178,6 +203,9 @@ func (pr *ProfileRecording) ctrAnnotationSelinux(ctrName string) (key, value str
 	case ProfileRecorderLogs:
 		annotationPrefix = config.SelinuxProfileRecordLogsAnnotationKey
 	case ProfileRecorderBpf:
+		return "", "", fmt.Errorf(
+			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderLogs,
+		)
 	default:
 		return "", "", fmt.Errorf(
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderLogs,
@@ -197,6 +225,9 @@ func (pr *ProfileRecording) ctrAnnotationApparmor(ctrName string) (key, value st
 	case ProfileRecorderBpf:
 		annotationPrefix = config.ApparmorProfileRecordBpfAnnotationKey
 	case ProfileRecorderLogs:
+		return "", "", fmt.Errorf(
+			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderBpf,
+		)
 	default:
 		return "", "", fmt.Errorf(
 			"invalid recorder: %s, only %s is supported", pr.Spec.Recorder, ProfileRecorderBpf,

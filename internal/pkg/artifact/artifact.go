@@ -386,7 +386,7 @@ func (a *Artifact) Pull(
 		}, nil
 	case *apparmorprofileapi.AppArmorProfile:
 		return &PullResult{
-			typ:             PullResultTypeApparmorProfile,
+			typ:             PullResultTypeAppArmorProfile,
 			apparmorProfile: obj,
 			content:         content,
 		}, nil
