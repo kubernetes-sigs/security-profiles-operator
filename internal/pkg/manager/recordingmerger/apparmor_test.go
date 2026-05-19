@@ -73,7 +73,7 @@ func TestAppArmorGlobToRegex(t *testing.T) {
 func Test_appArmorPathSet(t *testing.T) {
 	t.Parallel()
 
-	m := newAppArmorPathSet(&[]string{
+	m := newAppArmorPathSet([]string{
 		"/foo/*",
 		"/bar",
 	})
@@ -92,7 +92,7 @@ func Test_appArmorPathSet(t *testing.T) {
 	m.Add("/baz**")
 	require.True(t, m.Matches("/baz/qux"))
 
-	require.Equal(t, []string{"/bar", "/baz**"}, *m.Patterns())
+	require.Equal(t, []string{"/bar", "/baz**"}, m.Patterns())
 }
 
 func TestMergeFilesystem(t *testing.T) {
@@ -100,9 +100,9 @@ func TestMergeFilesystem(t *testing.T) {
 
 	base := &apparmorprofileapi.AppArmorAbstract{
 		Filesystem: &apparmorprofileapi.AppArmorFsRules{
-			ReadOnlyPaths:  &[]string{"/r/*"},
-			WriteOnlyPaths: &[]string{"/w/*"},
-			ReadWritePaths: &[]string{"/rw/*"},
+			ReadOnlyPaths:  []string{"/r/*"},
+			WriteOnlyPaths: []string{"/w/*"},
+			ReadWritePaths: []string{"/rw/*"},
 		},
 	}
 
@@ -119,50 +119,50 @@ func TestMergeFilesystem(t *testing.T) {
 		{
 			name: "matching",
 			additions: apparmorprofileapi.AppArmorFsRules{
-				ReadOnlyPaths:  &[]string{"/r/foo"},
-				WriteOnlyPaths: &[]string{"/w/bar"},
-				ReadWritePaths: &[]string{"/rw/baz"},
+				ReadOnlyPaths:  []string{"/r/foo"},
+				WriteOnlyPaths: []string{"/w/bar"},
+				ReadWritePaths: []string{"/rw/baz"},
 			},
 			merged: *base.Filesystem,
 		},
 		{
 			name: "subset",
 			additions: apparmorprofileapi.AppArmorFsRules{
-				ReadOnlyPaths:  &[]string{"/rw/foo"},
-				WriteOnlyPaths: &[]string{"/rw/bar"},
+				ReadOnlyPaths:  []string{"/rw/foo"},
+				WriteOnlyPaths: []string{"/rw/bar"},
 			},
 			merged: *base.Filesystem,
 		},
 		{
 			name: "additive",
 			additions: apparmorprofileapi.AppArmorFsRules{
-				ReadOnlyPaths:  &[]string{"/w/foo"},
-				WriteOnlyPaths: &[]string{"/r/bar"},
+				ReadOnlyPaths:  []string{"/w/foo"},
+				WriteOnlyPaths: []string{"/r/bar"},
 			},
 			merged: apparmorprofileapi.AppArmorFsRules{
-				ReadWritePaths: &[]string{"/r/*", "/rw/*", "/w/*"},
+				ReadWritePaths: []string{"/r/*", "/rw/*", "/w/*"},
 			},
 		},
 		{
 			name: "additive2",
 			additions: apparmorprofileapi.AppArmorFsRules{
-				ReadWritePaths: &[]string{"/r/foo", "/w/foo"},
+				ReadWritePaths: []string{"/r/foo", "/w/foo"},
 			},
 			merged: apparmorprofileapi.AppArmorFsRules{
-				ReadWritePaths: &[]string{"/r/*", "/rw/*", "/w/*"},
+				ReadWritePaths: []string{"/r/*", "/rw/*", "/w/*"},
 			},
 		},
 		{
 			name: "new",
 			additions: apparmorprofileapi.AppArmorFsRules{
-				ReadOnlyPaths:  &[]string{"/r2/foo"},
-				WriteOnlyPaths: &[]string{"/w2/bar"},
-				ReadWritePaths: &[]string{"/rw2/baz"},
+				ReadOnlyPaths:  []string{"/r2/foo"},
+				WriteOnlyPaths: []string{"/w2/bar"},
+				ReadWritePaths: []string{"/rw2/baz"},
 			},
 			merged: apparmorprofileapi.AppArmorFsRules{
-				ReadOnlyPaths:  &[]string{"/r/*", "/r2/foo"},
-				WriteOnlyPaths: &[]string{"/w/*", "/w2/bar"},
-				ReadWritePaths: &[]string{"/rw/*", "/rw2/baz"},
+				ReadOnlyPaths:  []string{"/r/*", "/r2/foo"},
+				WriteOnlyPaths: []string{"/w/*", "/w2/bar"},
+				ReadWritePaths: []string{"/rw/*", "/rw2/baz"},
 			},
 		},
 	}

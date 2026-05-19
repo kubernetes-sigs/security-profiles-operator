@@ -39,7 +39,7 @@ func TestGenerateProfile(t *testing.T) {
 			complainMode: false,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
-					ReadOnlyPaths: &[]string{"/etc/passwd"},
+					ReadOnlyPaths: []string{"/etc/passwd"},
 				},
 			},
 			mustContain: []string{
@@ -54,7 +54,7 @@ func TestGenerateProfile(t *testing.T) {
 			complainMode: true,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
-					ReadOnlyPaths: &[]string{"/etc/passwd"},
+					ReadOnlyPaths: []string{"/etc/passwd"},
 				},
 			},
 			mustContain: []string{

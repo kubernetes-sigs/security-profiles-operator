@@ -187,13 +187,13 @@ func TestMergeProfiles(t *testing.T) {
 						Spec: apparmorprofileapi.AppArmorProfileSpec{
 							Abstract: apparmorprofileapi.AppArmorAbstract{
 								Executable: &apparmorprofileapi.AppArmorExecutablesRules{
-									AllowedExecutables: &[]string{"execA", "execB"},
-									AllowedLibraries:   &[]string{"libA"},
+									AllowedExecutables: []string{"execA", "execB"},
+									AllowedLibraries:   []string{"libA"},
 								},
 								Filesystem: &apparmorprofileapi.AppArmorFsRules{
-									ReadOnlyPaths:  &[]string{"read1", "merged-rw1"},
-									WriteOnlyPaths: &[]string{"write1", "merged-rw2"},
-									ReadWritePaths: &[]string{"readwrite1"},
+									ReadOnlyPaths:  []string{"read1", "merged-rw1"},
+									WriteOnlyPaths: []string{"write1", "merged-rw2"},
+									ReadWritePaths: []string{"readwrite1"},
 								},
 								Network: &apparmorprofileapi.AppArmorNetworkRules{
 									AllowRaw: func() *bool {
@@ -215,11 +215,11 @@ func TestMergeProfiles(t *testing.T) {
 						Spec: apparmorprofileapi.AppArmorProfileSpec{
 							Abstract: apparmorprofileapi.AppArmorAbstract{
 								Executable: &apparmorprofileapi.AppArmorExecutablesRules{
-									AllowedExecutables: &[]string{"execA", "execC"},
+									AllowedExecutables: []string{"execA", "execC"},
 								},
 								Filesystem: &apparmorprofileapi.AppArmorFsRules{
-									WriteOnlyPaths: &[]string{"merged-rw1"},
-									ReadWritePaths: &[]string{"merged-rw2"},
+									WriteOnlyPaths: []string{"merged-rw1"},
+									ReadWritePaths: []string{"merged-rw2"},
 								},
 								Network: &apparmorprofileapi.AppArmorNetworkRules{
 									AllowRaw: func() *bool {
@@ -251,13 +251,13 @@ func TestMergeProfiles(t *testing.T) {
 
 				require.Equal(t, apparmorprofileapi.AppArmorAbstract{
 					Executable: &apparmorprofileapi.AppArmorExecutablesRules{
-						AllowedExecutables: &[]string{"execA", "execB", "execC"},
-						AllowedLibraries:   &[]string{"libA"},
+						AllowedExecutables: []string{"execA", "execB", "execC"},
+						AllowedLibraries:   []string{"libA"},
 					},
 					Filesystem: &apparmorprofileapi.AppArmorFsRules{
-						ReadOnlyPaths:  &[]string{"read1"},
-						WriteOnlyPaths: &[]string{"write1"},
-						ReadWritePaths: &[]string{"merged-rw1", "merged-rw2", "readwrite1"},
+						ReadOnlyPaths:  []string{"read1"},
+						WriteOnlyPaths: []string{"write1"},
+						ReadWritePaths: []string{"merged-rw1", "merged-rw2", "readwrite1"},
 					},
 					Network: &apparmorprofileapi.AppArmorNetworkRules{
 						AllowRaw: func() *bool {
