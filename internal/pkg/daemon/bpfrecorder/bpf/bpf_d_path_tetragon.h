@@ -168,6 +168,8 @@ prepend_name(char *buf, char **bufptr, int *buflen, const char *name, u32 namele
 FUNC_INLINE int
 prepend(char **buffer, int *buflen, const char *str, int namelen)
 {
+	if (namelen <= 0 || namelen > MAX_BUF_LEN)
+		return -ENAMETOOLONG;
 	*buflen -= namelen;
 	if (*buflen < 0) // will never happen - check function comment
 		return -ENAMETOOLONG;
