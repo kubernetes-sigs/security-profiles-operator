@@ -56,10 +56,6 @@
 			"names": [
 				"bdflush",
 				"cachestat",
-				"futex_requeue",
-				"futex_wait",
-				"futex_waitv",
-				"futex_wake",
 				"io_pgetevents",
 				"io_pgetevents_time64",
 				"kexec_file_load",
@@ -183,7 +179,11 @@
 				"ftruncate",
 				"ftruncate64",
 				"futex",
+				"futex_requeue",
 				"futex_time64",
+				"futex_wait",
+				"futex_waitv",
+				"futex_wake",
 				"futimesat",
 				"get_mempolicy",
 				"get_robust_list",
@@ -693,6 +693,7 @@
 			"names": [
 				"bpf",
 				"lookup_dcookie",
+				"perf_event_open",
 				"quotactl",
 				"quotactl_fd",
 				"setdomainname",
@@ -712,7 +713,6 @@
 		{
 			"names": [
 				"lookup_dcookie",
-				"perf_event_open",
 				"quotactl",
 				"quotactl_fd",
 				"setdomainname",
@@ -1116,7 +1116,7 @@
 			"excludes": {
 				"caps": [
 					"CAP_SYS_ADMIN",
-					"CAP_BPF"
+					"CAP_PERFMON"
 				]
 			},
 			"errnoRet": 1,
