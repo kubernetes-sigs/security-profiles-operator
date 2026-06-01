@@ -47,6 +47,24 @@ const (
 	errInvalidCustomResourceType string = "invalid CRD kind"
 )
 
+type profileName struct {
+	name string
+}
+
+func newProfileName(name string) *profileName {
+	return &profileName{
+		name: name,
+	}
+}
+
+func (p *profileName) filename() string {
+	return "spo_" + strings.Trim(strings.ReplaceAll(p.name, "/", "."), ".")
+}
+
+func (p *profileName) kernelName() string {
+	return "spo_" + p.name
+}
+
 func (a *aaProfileManager) Enabled() bool {
 	checkHostSupport.Do(func() {
 		mount := hostop.NewMountHostOp(
@@ -73,7 +91,8 @@ func (a *aaProfileManager) RemoveProfile(bp profilebasev1alpha1.StatusBaseUser) 
 		return errors.New(errInvalidCustomResourceType)
 	}
 
-	return a.removeProfile(a.logger, profile.GetProfileName())
+	return a.removeProfile(a.logger,
+		newProfileName(profile.GetProfileName()).kernelName())
 }
 
 func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser) (bool, error) {
@@ -82,20 +101,17 @@ func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser)
 		return false, errors.New(errInvalidCustomResourceType)
 	}
 
-	policy, err := crd2armor.GenerateProfile(profile.GetProfileName(), profile.Spec.ComplainMode, &profile.Spec.Abstract)
+	p := newProfileName(profile.GetProfileName())
+	policy, err := crd2armor.GenerateProfile(p.kernelName(), profile.Spec.ComplainMode, &profile.Spec.Abstract)
 	if err != nil {
 		return false, fmt.Errorf("generating raw apparmor profile: %w", err)
 	}
 
-	return a.loadProfile(a.logger, profile.GetProfileName(), policy)
+	return a.loadProfile(a.logger, p.kernelName(), policy)
 }
 
 func (a *aaProfileManager) CustomResourceTypeName() string {
 	return customResourceTypeName
-}
-
-func profileFilename(profileName string) string {
-	return strings.Trim(strings.ReplaceAll(profileName, "/", "."), ".")
 }
 
 func loadProfile(logger logr.Logger, name, content string) (bool, error) {
@@ -107,9 +123,10 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 
 	err := mount.Do(func() error {
 		// AppArmor convention: A profile for /bin/foo is typically named `bin.foo`.
+		p := newProfileName(name)
 		path := filepath.Join(
 			targetProfileDir,
-			profileFilename(name),
+			p.filename(),
 		)
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint // file permissions are fine
 			return fmt.Errorf("writing policy file: %w", err)
@@ -119,13 +136,14 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 			return fmt.Errorf("load policy: %w", err)
 		}
 
-		loaded, err := a.PolicyLoaded(name)
+		loaded, err := a.PolicyLoaded(p.kernelName())
 		if err != nil {
 			return fmt.Errorf("cannot check policy status: %w", err)
 		}
 
 		if !loaded {
-			return fmt.Errorf("policy %q is not loaded: AppArmorProfile name must match defined policy", name)
+			return fmt.Errorf("policy %q is not loaded: AppArmorProfile name must match defined policy",
+				p.kernelName())
 		}
 
 		return nil
@@ -142,22 +160,23 @@ func removeProfile(logger logr.Logger, profileName string) error {
 	a := aa.NewAppArmor(aa.WithLogger(logger))
 
 	err := mount.Do(func() error {
-		loaded, err := a.PolicyLoaded(profileName)
+		p := newProfileName(profileName)
+		loaded, err := a.PolicyLoaded(p.kernelName())
 		if err != nil {
 			return fmt.Errorf("cannot check policy status: %w", err)
 		}
 
 		if !loaded {
-			logger.Info("profile is not loaded into host: skipping deletion", "profile-name", profileName)
+			logger.Info("profile is not loaded into host: skipping deletion", "profile-name", p.kernelName())
 
 			return nil
 		}
 
-		if err := a.DeletePolicy(profileName); err != nil {
+		if err := a.DeletePolicy(p.kernelName()); err != nil {
 			return err
 		}
 
-		return os.Remove(filepath.Join(targetProfileDir, profileFilename(profileName)))
+		return os.Remove(filepath.Join(targetProfileDir, p.filename()))
 	})
 
 	return err
