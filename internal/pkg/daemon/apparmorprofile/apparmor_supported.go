@@ -106,6 +106,7 @@ func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser)
 	}
 
 	b := newBinary(profile.GetProfileName())
+
 	policy, err := crd2armor.GenerateProfile(
 		b.profileName(), b.binaryName(), profile.Spec.ComplainMode, &profile.Spec.Abstract)
 	if err != nil {
@@ -129,6 +130,7 @@ func loadProfile(logger logr.Logger, name, content string) (bool, error) {
 	err := mount.Do(func() error {
 		// AppArmor convention: A profile for /bin/foo is typically named `bin.foo`.
 		b := newBinary(name)
+
 		path := filepath.Join(
 			targetProfileDir,
 			b.profileFilename(),
@@ -166,6 +168,7 @@ func removeProfile(logger logr.Logger, profileName string) error {
 
 	err := mount.Do(func() error {
 		b := newBinary(profileName)
+
 		loaded, err := a.PolicyLoaded(b.profileName())
 		if err != nil {
 			return fmt.Errorf("cannot check policy status: %w", err)
