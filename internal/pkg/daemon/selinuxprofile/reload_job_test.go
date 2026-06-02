@@ -69,13 +69,14 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		nodeName       string
-		namespace      string
-		policyName     string
-		existingObjs   []runtime.Object
-		wantErr        bool
-		wantJobCreated bool
+		name            string
+		nodeName        string
+		namespace       string
+		policyName      string
+		existingObjs    []runtime.Object
+		podOnlyInReader bool
+		wantErr         bool
+		wantJobCreated  bool
 	}{
 		{
 			name:           "creates job successfully",
@@ -85,6 +86,16 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 			existingObjs:   nil,
 			wantErr:        false,
 			wantJobCreated: true,
+		},
+		{
+			name:            "creates job when current pod is only in client reader",
+			nodeName:        testNodeName,
+			namespace:       testNamespace,
+			policyName:      "test-policy",
+			existingObjs:    nil,
+			podOnlyInReader: true,
+			wantErr:         false,
+			wantJobCreated:  true,
 		},
 		{
 			name:       "skips when job already running",
@@ -151,15 +162,28 @@ func TestCreatePolicyReloadJob(t *testing.T) {
 				setenvCleanup(t, "POD_NAME", "")
 			}
 
-			objs := append([]runtime.Object{testPod}, tt.existingObjs...)
+			objs := append([]runtime.Object{}, tt.existingObjs...)
+			if !tt.podOnlyInReader {
+				objs = append([]runtime.Object{testPod}, objs...)
+			}
+
+			readerObjs := []runtime.Object{testPod}
+			if tt.nodeName == "" {
+				readerObjs = nil
+			}
 
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(schemeInstance).
 				WithRuntimeObjects(objs...).
 				Build()
+			fakeClientReader := fake.NewClientBuilder().
+				WithScheme(schemeInstance).
+				WithRuntimeObjects(readerObjs...).
+				Build()
 
 			r := &ReconcileSelinux{
-				client: fakeClient,
+				client:       fakeClient,
+				clientReader: fakeClientReader,
 			}
 
 			logger := logf.Log.WithName("test")
