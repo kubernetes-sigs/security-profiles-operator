@@ -124,13 +124,18 @@ func (nsf *StatusClient) statusObj(
 				secprofnodestatusv1alpha1.StatusKindLabel:   nsf.pol.GetObjectKind().GroupVersionKind().Kind,
 			},
 		},
-		NodeName: nsf.nodeName,
-		Status:   polState,
+		Spec: secprofnodestatusv1alpha1.SecurityProfileNodeStatusSpec{
+			NodeName: nsf.nodeName,
+		},
+		Status: secprofnodestatusv1alpha1.SecurityProfileNodeStatusStatus{
+			Status: polState,
+		},
 	}
 }
 
 func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
-	s := nsf.statusObj(nsf.initialStatus())
+	initialStatus := nsf.initialStatus()
+	s := nsf.statusObj(initialStatus)
 
 	if setCtrlErr := controllerutil.SetControllerReference(nsf.pol, s, nsf.client.Scheme()); setCtrlErr != nil {
 		return fmt.Errorf("cannot set node status owner reference: %s: %w", nsf.pol.GetName(), setCtrlErr)
@@ -139,6 +144,17 @@ func (nsf *StatusClient) createNodeStatus(ctx context.Context) error {
 	err := nsf.client.Create(ctx, s)
 	if err != nil && !kerrors.IsAlreadyExists(err) {
 		return fmt.Errorf("creating node status: %w", err)
+	}
+
+	if kerrors.IsAlreadyExists(err) {
+		if getErr := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), s); getErr != nil {
+			return fmt.Errorf("fetching existing node status: %w", getErr)
+		}
+	}
+
+	s.Status.Status = initialStatus
+	if updateErr := nsf.client.Status().Update(ctx, s); updateErr != nil {
+		return fmt.Errorf("setting initial node status: %w", updateErr)
 	}
 
 	return nil
@@ -230,10 +246,18 @@ func (nsf *StatusClient) SetNodeStatus(
 		return fmt.Errorf("retrieving the current status: %w", err)
 	}
 
-	status.Status = polState
 	status.Labels[secprofnodestatusv1alpha1.StatusStateLabel] = string(polState)
-
 	if err := nsf.client.Update(ctx, &status); err != nil {
+		return fmt.Errorf("updating node status labels: %w", err)
+	}
+
+	// Re-fetch to get the updated resourceVersion after the label update.
+	if err := nsf.client.Get(ctx, nsf.perNodeStatusNamespacedName(), &status); err != nil {
+		return fmt.Errorf("re-fetching node status: %w", err)
+	}
+
+	status.Status.Status = polState
+	if err := nsf.client.Status().Update(ctx, &status); err != nil {
 		return fmt.Errorf("updating node status: %w", err)
 	}
 
@@ -289,7 +313,7 @@ func (nsf *StatusClient) Matches(
 		return false, fmt.Errorf("getting node status for matching: %w", err)
 	}
 
-	return status.Status == polState, nil
+	return status.Status.Status == polState, nil
 }
 
 func getFinalizerString(pol profilebase.SecurityProfileBase, nodeName string) string {

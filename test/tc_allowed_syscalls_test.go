@@ -84,7 +84,7 @@ func (e *e2e) testCaseAllowedSyscallsValidation(nodes []string) {
 
 			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
-				e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status)
+				e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status.Status)
 			}
 		}
 
@@ -126,7 +126,7 @@ func (e *e2e) testCaseAllowedSyscallsChange(nodes []string) {
 
 		spns := e.getSeccompProfileNodeStatus(name, node)
 		if e.NotNil(spns) {
-			e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status)
+			e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status.Status)
 		}
 	}
 

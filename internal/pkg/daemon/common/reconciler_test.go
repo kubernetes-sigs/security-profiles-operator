@@ -108,7 +108,7 @@ func TestReconcileDeletion(t *testing.T) {
 			mockClient: &util.MockClient{
 				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
 					if ns, ok := obj.(*statusv1alpha1.SecurityProfileNodeStatus); ok {
-						ns.Status = statusv1alpha1.ProfileStatePending
+						ns.Status.Status = statusv1alpha1.ProfileStatePending
 						ns.Labels = map[string]string{
 							statusv1alpha1.StatusStateLabel: string(statusv1alpha1.ProfileStatePending),
 						}
@@ -116,8 +116,9 @@ func TestReconcileDeletion(t *testing.T) {
 
 					return nil
 				},
-				MockUpdate: util.NewMockUpdateFn(nil),
-				MockScheme: util.NewMockSchemeFn(testScheme()),
+				MockUpdate:                  util.NewMockUpdateFn(nil),
+				MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
+				MockScheme:                  util.NewMockSchemeFn(testScheme()),
 			},
 			handleDeletion: func() error { return nil },
 			wantResult:     reconcile.Result{Requeue: true, RequeueAfter: Wait},
@@ -129,7 +130,7 @@ func TestReconcileDeletion(t *testing.T) {
 			mockClient: &util.MockClient{
 				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
 					if ns, ok := obj.(*statusv1alpha1.SecurityProfileNodeStatus); ok {
-						ns.Status = statusv1alpha1.ProfileStateTerminating
+						ns.Status.Status = statusv1alpha1.ProfileStateTerminating
 						ns.Labels = map[string]string{
 							statusv1alpha1.StatusStateLabel: string(statusv1alpha1.ProfileStateTerminating),
 						}
@@ -149,7 +150,7 @@ func TestReconcileDeletion(t *testing.T) {
 			mockClient: &util.MockClient{
 				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
 					if ns, ok := obj.(*statusv1alpha1.SecurityProfileNodeStatus); ok {
-						ns.Status = statusv1alpha1.ProfileStateTerminating
+						ns.Status.Status = statusv1alpha1.ProfileStateTerminating
 						ns.Labels = map[string]string{
 							statusv1alpha1.StatusStateLabel: string(statusv1alpha1.ProfileStateTerminating),
 						}
@@ -170,7 +171,7 @@ func TestReconcileDeletion(t *testing.T) {
 			mockClient: &util.MockClient{
 				MockGet: func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
 					if ns, ok := obj.(*statusv1alpha1.SecurityProfileNodeStatus); ok {
-						ns.Status = statusv1alpha1.ProfileStateTerminating
+						ns.Status.Status = statusv1alpha1.ProfileStateTerminating
 						ns.Labels = map[string]string{
 							statusv1alpha1.StatusStateLabel: string(statusv1alpha1.ProfileStateTerminating),
 						}
@@ -255,10 +256,11 @@ func TestEnsureNodeStatus(t *testing.T) {
 			name:    "CreatedSuccessfully",
 			profile: testProfile(),
 			mockClient: &util.MockClient{
-				MockGet:    util.NewMockGetFn(nil),
-				MockCreate: util.NewMockCreateFn(nil),
-				MockUpdate: util.NewMockUpdateFn(nil),
-				MockScheme: util.NewMockSchemeFn(testScheme()),
+				MockGet:                     util.NewMockGetFn(nil),
+				MockCreate:                  util.NewMockCreateFn(nil),
+				MockUpdate:                  util.NewMockUpdateFn(nil),
+				MockSubResourceWriterUpdate: util.NewMockSubResourceWriterUpdateFn(nil),
+				MockScheme:                  util.NewMockSchemeFn(testScheme()),
 			},
 			wantCreated: true,
 			wantResult:  reconcile.Result{RequeueAfter: Wait},
