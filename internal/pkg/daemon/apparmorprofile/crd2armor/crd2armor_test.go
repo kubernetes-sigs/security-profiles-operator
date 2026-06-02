@@ -29,6 +29,7 @@ func TestGenerateProfile(t *testing.T) {
 
 	cases := []struct {
 		name           string
+		binary         string
 		complainMode   bool
 		abstract       *apparmorprofileapi.AppArmorAbstract
 		mustContain    []string
@@ -36,6 +37,7 @@ func TestGenerateProfile(t *testing.T) {
 	}{
 		{
 			name:         "EnforceModeWithDeny",
+			binary:       "Binary",
 			complainMode: false,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
@@ -43,7 +45,7 @@ func TestGenerateProfile(t *testing.T) {
 				},
 			},
 			mustContain: []string{
-				"profile EnforceModeWithDeny flags=(enforce",
+				"profile EnforceModeWithDeny Binary flags=(enforce",
 				"/etc/passwd r,",
 				"deny /etc/passwd wlk,",
 				"deny @{PROC}/* w,",
@@ -51,6 +53,7 @@ func TestGenerateProfile(t *testing.T) {
 		},
 		{
 			name:         "ComplainModeWithoutDeny",
+			binary:       "Binary",
 			complainMode: true,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
@@ -58,7 +61,7 @@ func TestGenerateProfile(t *testing.T) {
 				},
 			},
 			mustContain: []string{
-				"profile ComplainModeWithoutDeny flags=(complain",
+				"profile ComplainModeWithoutDeny Binary flags=(complain",
 				"/etc/passwd r,",
 			},
 			mustNotContain: []string{
@@ -74,7 +77,7 @@ func TestGenerateProfile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := GenerateProfile(tc.name, tc.complainMode, tc.abstract)
+			got, err := GenerateProfile(tc.name, tc.binary, tc.complainMode, tc.abstract)
 			require.NoError(t, err)
 
 			for _, s := range tc.mustContain {
