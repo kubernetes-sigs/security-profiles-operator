@@ -81,7 +81,7 @@ wait_for_pod_status() {
 
 check_profile_mode() {
   local command="$1"
-  local apparmor_profile="$2"
+  local apparmor_profile="spo_$2"
   local apparmor_profile_mode="$3"
   local pid="$(pidof $command)"
   local mode="$(cat /proc/${pid}/attr/current)"
