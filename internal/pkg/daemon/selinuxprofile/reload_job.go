@@ -231,7 +231,10 @@ func (r *ReconcileSelinux) getSelinuxdImageFromPod(ctx context.Context, namespac
 	}
 
 	pod := &corev1.Pod{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: podName, Namespace: namespace}, pod); err != nil {
+	// The daemon manager can filter the pod cache to recording-enabled pods.
+	// Read the current SPOD pod directly so the reload path does not depend on
+	// recording labels being present on operator-managed pods.
+	if err := r.clientReader.Get(ctx, types.NamespacedName{Name: podName, Namespace: namespace}, pod); err != nil {
 		return "", fmt.Errorf("getting pod %s: %w", podName, err)
 	}
 

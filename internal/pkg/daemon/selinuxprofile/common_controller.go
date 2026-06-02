@@ -96,7 +96,10 @@ var errPolicyNotFound = errors.New("policy not found")
 type ReconcileSelinux struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver.
-	client            client.Client
+	client client.Client
+	// clientReader reads objects directly from api-server, this is useful when
+	// the cache is filtered or otherwise not expected to contain an object.
+	clientReader      client.Reader
 	scheme            *runtime.Scheme
 	record            record.EventRecorder
 	metrics           *metrics.Metrics
@@ -115,6 +118,7 @@ func (r *ReconcileSelinux) Setup(
 ) error {
 	r.log = logf.Log.WithName(r.controllerName)
 	r.client = mgr.GetClient()
+	r.clientReader = mgr.GetAPIReader()
 	r.scheme = mgr.GetScheme()
 	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
 	r.record = mgr.GetEventRecorderFor(r.controllerName)
