@@ -93,7 +93,7 @@ func FinalizersMatchCurrentNodes(ctx context.Context,
 
 	for i := range nodeStatusList.Items {
 		nodeStatus := &nodeStatusList.Items[i]
-		if !ContainsSubstring(currentNodeNames, nodeStatus.NodeName) {
+		if !ContainsSubstring(currentNodeNames, nodeStatus.Spec.NodeName) {
 			// We've found a node that doesn't exist anymore
 			return false, nil
 		}

@@ -84,20 +84,29 @@ func LowerOfTwoStates(currentLowest, candidate ProfileState) ProfileState {
 
 // SecurityProfileNodeStatus is a per-node status of a security profile
 // +kubebuilder:resource:shortName=spns,scope=Cluster
-// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status`
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
-// +kubebuilder:printcolumn:name="Node",type=string,priority=10,JSONPath=`.nodeName`
+// +kubebuilder:printcolumn:name="Node",type=string,priority=10,JSONPath=`.spec.nodeName`
 type SecurityProfileNodeStatus struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec SecurityProfileNodeStatusSpec `json:"spec,omitempty"`
-
-	NodeName string       `json:"nodeName"`
-	Status   ProfileState `json:"status,omitempty"`
+	Spec   SecurityProfileNodeStatusSpec   `json:"spec,omitempty"`
+	Status SecurityProfileNodeStatusStatus `json:"status,omitempty"`
 }
 
-type SecurityProfileNodeStatusSpec struct{}
+// SecurityProfileNodeStatusSpec defines the desired state of SecurityProfileNodeStatus.
+type SecurityProfileNodeStatusSpec struct {
+	// NodeName is the name of the node on which the profile is installed.
+	NodeName string `json:"nodeName,omitempty"`
+}
+
+// SecurityProfileNodeStatusStatus defines the observed state of SecurityProfileNodeStatus.
+type SecurityProfileNodeStatusStatus struct {
+	// Status is the installation status of the profile on this node.
+	Status ProfileState `json:"status,omitempty"`
+}
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 

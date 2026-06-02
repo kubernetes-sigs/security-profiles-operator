@@ -70,7 +70,7 @@ func (e *e2e) testCaseDefaultAndExampleProfiles(nodes []string) {
 
 			spns := e.getSeccompProfileNodeStatus(name, node)
 			if e.NotNil(spns) {
-				e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status)
+				e.Equal(secprofnodestatusv1alpha1.ProfileStateInstalled, spns.Status.Status)
 			}
 		}
 	}

@@ -134,8 +134,8 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		lprof.Info("Initializing Profile status")
 
 		targetStatus := statusv1alpha1.ProfileStatePending
-		if instance.Status != "" {
-			targetStatus = instance.Status
+		if instance.Status.Status != "" {
+			targetStatus = instance.Status.Status
 		}
 
 		return reconcile.Result{}, r.reconcileStatus(ctx, prof, targetStatus, lprof)
@@ -213,9 +213,9 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 		// if nodeName is not in currentNodeNames and there isn't a mismatch in statuses/nodes, remove it from the finalizers
 		for i := range nodeStatusList.Items {
 			nodeStatus := &nodeStatusList.Items[i]
-			if !util.ContainsSubstring(currentNodeNames, nodeStatus.NodeName) { // string not in list
+			if !util.ContainsSubstring(currentNodeNames, nodeStatus.Spec.NodeName) { // string not in list
 				// Found a finalizer for a node that doesn't exist
-				finalizerNodeString := util.GetFinalizerNodeString(nodeStatus.NodeName)
+				finalizerNodeString := util.GetFinalizerNodeString(nodeStatus.Spec.NodeName)
 				if err := util.RemoveFinalizer(ctx, r.client, prof, finalizerNodeString); err != nil {
 					return reconcile.Result{}, fmt.Errorf("cannot remove finalizer: %w", err)
 				}
@@ -225,7 +225,7 @@ func (r *StatusReconciler) Reconcile(ctx context.Context, req reconcile.Request)
 
 	lowestCommonState := statusv1alpha1.LowestState
 	for i := range nodeStatusList.Items {
-		lowestCommonState = statusv1alpha1.LowerOfTwoStates(lowestCommonState, nodeStatusList.Items[i].Status)
+		lowestCommonState = statusv1alpha1.LowerOfTwoStates(lowestCommonState, nodeStatusList.Items[i].Status.Status)
 	}
 
 	logger.V(config.VerboseLevel).Info("Setting the status to", "Status", lowestCommonState)
@@ -238,7 +238,7 @@ func (r *StatusReconciler) removeStatusForDeletedNode(ctx context.Context,
 	nodeStatusList *statusv1alpha1.SecurityProfileNodeStatusList, logger logr.Logger,
 ) (string, error) {
 	for i := range nodeStatusList.Items {
-		nodeName := nodeStatusList.Items[i].NodeName
+		nodeName := nodeStatusList.Items[i].Spec.NodeName
 		node := &v1.Node{}
 
 		if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {

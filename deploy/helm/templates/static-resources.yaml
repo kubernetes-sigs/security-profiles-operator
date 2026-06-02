@@ -346,6 +346,7 @@ rules:
   - apparmorprofiles/status
   - rawselinuxprofiles/status
   - seccompprofiles/status
+  - securityprofilenodestatuses/status
   - selinuxprofiles/status
   verbs:
   - get

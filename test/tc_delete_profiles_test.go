@@ -39,7 +39,8 @@ spec:
 `
 		deleteProfileName  = "delete-me"
 		fakeNodeStatusName = "delete-me-fake-node"
-		fakeNodeStatus     = `
+		//nolint:dupword // status: is both a YAML key and a field name
+		fakeNodeStatus = `
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: SecurityProfileNodeStatus
 metadata:
@@ -49,9 +50,10 @@ metadata:
     spo.x-k8s.io/profile-id: SeccompProfile-delete-me
     spo.x-k8s.io/profile-kind: SeccompProfile
     spo.x-k8s.io/profile-state: Installed
-nodeName: fake-node
-spec: {}
-status: Installed
+spec:
+  nodeName: fake-node
+status:
+  status: Installed
 `
 		deletePod = `
 apiVersion: v1
@@ -198,9 +200,9 @@ spec:
 		// The node statuses should still be there, just terminating
 		nodeStatuses := e.getAllSeccompProfileNodeStatuses(deleteProfileName)
 		for i := range nodeStatuses.Items {
-			e.Equal(secprofnodestatusv1alpha1.ProfileStateTerminating, nodeStatuses.Items[i].Status)
+			e.Equal(secprofnodestatusv1alpha1.ProfileStateTerminating, nodeStatuses.Items[i].Status.Status)
 			// On each node, there should still be the profile on the disk
-			nodeWithPodName := nodeStatuses.Items[i].NodeName
+			nodeWithPodName := nodeStatuses.Items[i].Spec.NodeName
 			profileOperatorPath := path.Join(e.nodeRootfsPrefix, sp.GetProfileOperatorPath())
 			e.execNode(nodeWithPodName, "test", "-f", profileOperatorPath)
 		}

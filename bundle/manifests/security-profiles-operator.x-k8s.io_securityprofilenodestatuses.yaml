@@ -19,13 +19,13 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status
+    - jsonPath: .status.status
       name: Status
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    - jsonPath: .nodeName
+    - jsonPath: .spec.nodeName
       name: Node
       priority: 10
       type: string
@@ -52,22 +52,29 @@ spec:
             type: string
           metadata:
             type: object
-          nodeName:
-            type: string
           spec:
+            description: SecurityProfileNodeStatusSpec defines the desired state of
+              SecurityProfileNodeStatus.
+            properties:
+              nodeName:
+                description: NodeName is the name of the node on which the profile
+                  is installed.
+                type: string
             type: object
           status:
-            description: |-
-              ProfileState defines the state that the profile is in. A profile in this context
-              refers to a SeccompProfile or a SELinux profile, the states are shared between them
-              as well as the management API.
-            type: string
-        required:
-        - nodeName
+            description: SecurityProfileNodeStatusStatus defines the observed state
+              of SecurityProfileNodeStatus.
+            properties:
+              status:
+                description: Status is the installation status of the profile on this
+                  node.
+                type: string
+            type: object
         type: object
     served: true
     storage: true
-    subresources: {}
+    subresources:
+      status: {}
 status:
   acceptedNames:
     kind: ""
