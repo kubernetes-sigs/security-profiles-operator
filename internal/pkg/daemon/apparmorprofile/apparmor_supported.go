@@ -118,6 +118,7 @@ func checkProfileExist(logger logr.Logger, profileName string) bool {
 
 		return false
 	}
+
 	if loaded {
 		return true
 	}
