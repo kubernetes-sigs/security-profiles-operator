@@ -26,12 +26,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
 	profilebasev1alpha1 "sigs.k8s.io/security-profiles-operator/api/profilebase/v1alpha1"
 	sec "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 )
 
-var errInvalidCRD = errors.New("invalid CRD kind")
+var errInvalidCRD = errors.New(errInvalidCustomResourceType)
+var errApparmorProfileExists = errors.New(errProfileExists)
 
 func TestInstallProfile(t *testing.T) {
 	t.Parallel()
@@ -50,8 +52,22 @@ func TestInstallProfile(t *testing.T) {
 			wantErr: errInvalidCRD,
 		},
 		{
-			name:    "valid profile CRD",
-			sut:     aaProfileManager{loadProfile: func(_ logr.Logger, _, _ string) (bool, error) { return false, nil }},
+			name: "overwrite profile CRD",
+			sut: aaProfileManager{
+				loadProfile:       func(_ logr.Logger, _, _ string) (bool, error) { return false, nil },
+				checkProfileExist: func(_ logr.Logger, _ string) bool { return false },
+			},
+			profile: &v1alpha1.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{
+				Generation: 1,
+			}},
+			wantErr: errApparmorProfileExists,
+		},
+		{
+			name: "valid profile CRD",
+			sut: aaProfileManager{
+				loadProfile:       func(_ logr.Logger, _, _ string) (bool, error) { return false, nil },
+				checkProfileExist: func(_ logr.Logger, _ string) bool { return false },
+			},
 			profile: &v1alpha1.AppArmorProfile{},
 		},
 	}
