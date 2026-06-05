@@ -47,3 +47,7 @@ func loadProfile(logr.Logger, string, string) (bool, error) {
 func removeProfile(logr.Logger, string) error {
 	return errAppArmorNotSupported
 }
+
+func checkProfileExist(logr.Logger, string) bool {
+	return false
+}
