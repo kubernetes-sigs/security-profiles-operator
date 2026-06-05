@@ -107,17 +107,21 @@ func profileFilename(profileName string) string {
 	return strings.Trim(strings.ReplaceAll(profileName, "/", "."), ".")
 }
 
-// checkProfileExists checks if an profile is already loaded into the kernel
+// checkProfileExists checks if an profile is already loaded into the kernel.
 func checkProfileExist(logger logr.Logger, profileName string) bool {
 	apparmor := aa.NewAppArmor(aa.WithLogger(logger))
+
 	loaded, err := apparmor.PolicyLoaded(profileName)
 	if err != nil {
-		logger.Info("cannot check policy status to detect if profile exists: %w", err)
+		logger.Info("cannot check policy status: assumes profile doesn't exist",
+			"profile-name", profileName)
+
 		return false
 	}
 	if loaded {
 		return true
 	}
+
 	return false
 }
 
