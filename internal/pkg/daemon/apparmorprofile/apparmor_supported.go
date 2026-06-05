@@ -87,7 +87,7 @@ func (a *aaProfileManager) InstallProfile(bp profilebasev1alpha1.StatusBaseUser)
 	// We check if already a profile with the same name already exists, and if so we bail
 	// out. This is to prevent an attack vector when someone wants to overwrite a well-known
 	// profile existing into a cluster node.
-	if profile.Generation == 1 && checkProfileExist(a.logger, profile.GetProfileName()) {
+	if profile.Generation == 1 && a.checkProfileExist(a.logger, profile.GetProfileName()) {
 		return false, errors.New(errProfileExists)
 	}
 
