@@ -56,7 +56,7 @@ func TestInstallProfile(t *testing.T) {
 			name: "overwrite profile CRD",
 			sut: aaProfileManager{
 				loadProfile:       func(_ logr.Logger, _, _ string) (bool, error) { return false, nil },
-				checkProfileExist: func(_ logr.Logger, _ string) bool { return false },
+				checkProfileExist: func(_ logr.Logger, _ string) bool { return true },
 			},
 			profile: &v1alpha1.AppArmorProfile{ObjectMeta: metav1.ObjectMeta{
 				Generation: 1,
