@@ -32,8 +32,10 @@ import (
 	sec "sigs.k8s.io/security-profiles-operator/api/seccompprofile/v1beta1"
 )
 
-var errInvalidCRD = errors.New(errInvalidCustomResourceType)
-var errApparmorProfileExists = errors.New(errProfileExists)
+var (
+	errInvalidCRD            = errors.New(errInvalidCustomResourceType)
+	errApparmorProfileExists = errors.New(errProfileExists)
+)
 
 func TestInstallProfile(t *testing.T) {
 	t.Parallel()
