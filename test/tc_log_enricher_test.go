@@ -110,7 +110,9 @@ spec:
 	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="listen"`))
 
 	e.logf("Checking log enricher output")
-	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "log-enricher")
+	output := e.kubectlOperatorNS(
+		"logs", "--since-time="+since.Format(time.RFC3339), "-l", "name=spod", "-c", "log-enricher",
+	)
 
 	// then match the rest
 	e.Contains(output, `"audit"`)
@@ -230,7 +232,9 @@ spec:
 	e.waitForEnricherLogs(since, regexp.MustCompile(`(?m)"syscallName"="execve"`))
 
 	e.logf("Checking log enricher output")
-	output := e.kubectlOperatorNS("logs", "-l", "name=spod", "-c", "log-enricher")
+	output := e.kubectlOperatorNS(
+		"logs", "--since-time="+since.Format(time.RFC3339), "-l", "name=spod", "-c", "log-enricher",
+	)
 
 	e.NotContains(output, fmt.Sprintf(`syscallID=%d`, 50))
 }
