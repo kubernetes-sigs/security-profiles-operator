@@ -156,12 +156,14 @@ func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract)
 	if abstract == nil {
 		return data
 	}
+
 	if abstract.Executable != nil {
 		data.Executable = &Executable{
 			AllowedExecutables: abstract.Executable.AllowedExecutables,
 			AllowedLibraries:   abstract.Executable.AllowedLibraries,
 		}
 	}
+
 	if abstract.Filesystem != nil {
 		data.Filesystem = &FileSystem{
 			ReadOnlyPaths:  abstract.Filesystem.ReadOnlyPaths,
@@ -192,6 +194,7 @@ func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract)
 			data.Network.AllowUDP = *abstract.Network.Protocols.AllowUDP
 		}
 	}
+
 	return data
 }
 
@@ -203,7 +206,9 @@ func (d *ApparmorData) Validate() error {
 
 	// 2. Validates all file system paths
 	if d.Filesystem != nil {
-		paths := []string{}
+		paths := make([]string, 0,
+			len(d.Filesystem.ReadOnlyPaths)+
+				len(d.Filesystem.WriteOnlyPaths)+len(d.Filesystem.ReadWritePaths))
 		paths = append(paths, d.Filesystem.ReadOnlyPaths...)
 		paths = append(paths, d.Filesystem.WriteOnlyPaths...)
 		paths = append(paths, d.Filesystem.ReadWritePaths...)
@@ -225,7 +230,8 @@ func (d *ApparmorData) Validate() error {
 
 	// 4. Validates all allowed executables and libraries.
 	if d.Executable != nil {
-		execsAndLibs := []string{}
+		execsAndLibs := make([]string, 0,
+			len(d.Executable.AllowedExecutables)+len(d.Executable.AllowedLibraries))
 		execsAndLibs = append(execsAndLibs, d.Executable.AllowedExecutables...)
 		execsAndLibs = append(execsAndLibs, d.Executable.AllowedLibraries...)
 		for _, exec := range execsAndLibs {
@@ -272,6 +278,7 @@ func validateCapability(capability string) error {
 	if exists, ok := validCapabilities[normalized]; ok && exists {
 		return nil
 	}
+
 	return fmt.Errorf("invalid or forbidden capability: %q", capability)
 }
 
