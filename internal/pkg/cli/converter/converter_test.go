@@ -61,7 +61,7 @@ spec:
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: AppArmorProfile
 spec:
-  complainMode: false
+  mode: Enforce
   abstract:
     filesystem:
       readOnlyPaths:
@@ -75,7 +75,7 @@ spec:
 apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
 kind: AppArmorProfile
 spec:
-  complainMode: true
+  mode: Complain
   abstract:
     filesystem:
       readOnlyPaths:

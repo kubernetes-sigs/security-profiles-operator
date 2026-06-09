@@ -165,6 +165,7 @@ spec:
                           The default is 60 seconds. Increasing this interval will reduce the
                           rate at which logs are written.
                         format: int32
+                        minimum: 1
                         type: integer
                       auditLogMaxAge:
                         description: |-
@@ -172,6 +173,7 @@ spec:
                           audit log files. The default is not to remove old log files based
                           on age.
                         format: int32
+                        minimum: 0
                         type: integer
                       auditLogMaxBackups:
                         description: |-
@@ -179,6 +181,7 @@ spec:
                           files to retain. The default is to retain all old log files (though
                           MaxAge may still cause them to get deleted).
                         format: int32
+                        minimum: 0
                         type: integer
                       auditLogMaxSize:
                         description: |-
@@ -186,6 +189,7 @@ spec:
                           log file before it gets rotated. If left unspecified it defaults to
                           100 MB.
                         format: int32
+                        minimum: 1
                         type: integer
                       auditLogPath:
                         description: |-
@@ -236,6 +240,9 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               scheduling:
                 description: scheduling contains scheduling-related configuration.
                 properties:
@@ -1203,6 +1210,7 @@ spec:
                           type: string
                       type: object
                     type: array
+                    x-kubernetes-list-type: atomic
                 type: object
               security:
                 description: security contains security policy configuration.
@@ -1223,6 +1231,7 @@ spec:
                       - SCMP_ACT_NOTIFY
                       type: string
                     type: array
+                    x-kubernetes-list-type: set
                   allowedSyscalls:
                     description: |-
                       allowedSyscalls if specified, a list of system calls which are
@@ -1230,6 +1239,7 @@ spec:
                     items:
                       type: string
                     type: array
+                    x-kubernetes-list-type: set
                   disableOciArtifactSignatureVerification:
                     default: false
                     description: |-
@@ -1245,6 +1255,12 @@ spec:
                       enable tells the operator whether or not to enable SELinux support for
                       this SPOD instance.
                     type: boolean
+                  enableRawSelinuxProfiles:
+                    description: |-
+                      enableRawSelinuxProfiles tells the operator whether or not to enable
+                      RawSelinuxProfile support. When disabled, the RawSelinuxProfile
+                      controller will not be started. Defaults to true when SELinux is enabled.
+                    type: boolean
                   options:
                     description: options defines options specific to the SELinux functionality.
                     properties:
@@ -1258,6 +1274,7 @@ spec:
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                     type: object
                   typeTag:
                     default: spc_t
@@ -1379,8 +1396,13 @@ spec:
                               type: object
                           type: object
                           x-kubernetes-map-type: atomic
+                      required:
+                      - name
                       type: object
                     type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
                   staticConfig:
                     default: false
                     description: |-
@@ -1437,6 +1459,12 @@ spec:
                 description: |-
                   Represents the state that the policy is in. Can be:
                   PENDING, IN-PROGRESS, RUNNING or ERROR
+                enum:
+                - PENDING
+                - CREATING
+                - UPDATING
+                - RUNNING
+                - ERROR
                 type: string
             type: object
         type: object

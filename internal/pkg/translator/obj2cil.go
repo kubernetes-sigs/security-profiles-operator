@@ -62,7 +62,7 @@ func Object2CIL(
 		cilbuilder.WriteString(getCILInheritline(inherit.GetPolicyName()))
 	}
 
-	if sp.Spec.Permissive {
+	if sp.Spec.Mode == selxv1alpha2.SelinuxModePermissive {
 		cilbuilder.WriteString(typePermissive)
 		cilbuilder.WriteString("\n")
 	}

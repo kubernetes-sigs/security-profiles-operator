@@ -45,12 +45,18 @@ spec:
           spec:
             description: RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
             properties:
-              disabled:
-                default: false
-                description: Whether the profile is disabled and should be skipped
-                  during reconciliation.
-                type: boolean
               policy:
+                maxLength: 500000
+                minLength: 1
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
                 type: string
             type: object
           status:
@@ -60,6 +66,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               conditions:
                 description: Conditions of the resource.
                 items:
@@ -104,6 +111,14 @@ spec:
                   ProfileState defines the state that the profile is in. A profile in this context
                   refers to a SeccompProfile or a SELinux profile, the states are shared between them
                   as well as the management API.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
               usage:
                 description: |-
@@ -173,11 +188,6 @@ spec:
                   type: object
                 description: Defines the allow policy for the profile
                 type: object
-              disabled:
-                default: false
-                description: Whether the profile is disabled and should be skipped
-                  during reconciliation.
-                type: boolean
               inherit:
                 default:
                 - kind: System
@@ -201,17 +211,32 @@ spec:
                       type: string
                     name:
                       description: The name of the policy that this inherits from.
+                      minLength: 1
                       type: string
                   required:
                   - name
                   type: object
                 type: array
-              permissive:
-                default: false
+                x-kubernetes-list-type: atomic
+              mode:
+                default: Enforcing
                 description: |-
-                  Permissive, when true will cause the SELinux profile to only
-                  log violations instead of enforcing them.
-                type: boolean
+                  mode controls the enforcement mode for the SELinux profile.
+                  In "Permissive" mode, violations are logged but allowed.
+                  In "Enforcing" mode (the default), violations are denied.
+                enum:
+                - Enforcing
+                - Permissive
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
+                type: string
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
@@ -220,6 +245,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               conditions:
                 description: Conditions of the resource.
                 items:
@@ -264,6 +290,14 @@ spec:
                   ProfileState defines the state that the profile is in. A profile in this context
                   refers to a SeccompProfile or a SELinux profile, the states are shared between them
                   as well as the management API.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
               usage:
                 description: |-

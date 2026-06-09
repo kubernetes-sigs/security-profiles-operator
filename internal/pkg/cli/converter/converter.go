@@ -71,7 +71,7 @@ func (p *Converter) Run() error {
 			programName = obj.Name
 		}
 
-		outStr, err := crd2armor.GenerateProfile(programName, obj.Spec.ComplainMode, &obj.Spec.Abstract)
+		outStr, err := crd2armor.GenerateProfile(programName, obj.Spec.Mode, &obj.Spec.Abstract)
 		if err != nil {
 			return fmt.Errorf("build raw apparmor profile: %w", err)
 		}

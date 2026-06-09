@@ -33,6 +33,7 @@ type SelinuxOptions struct {
 	// as this might provide a lot of permissions depending on the policy.
 	// +optional
 	// +kubebuilder:default={"container"}
+	// +listType=set
 	AllowedSystemProfiles []string `json:"allowedSystemProfiles,omitempty"`
 }
 
@@ -44,7 +45,8 @@ type JsonEnricherOptions struct {
 	// The default is 60 seconds. Increasing this interval will reduce the
 	// rate at which logs are written.
 	// +optional
-	AuditLogIntervalSeconds int32 `json:"auditLogIntervalSeconds,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	AuditLogIntervalSeconds *int32 `json:"auditLogIntervalSeconds,omitempty"`
 	// auditLogPath specifies the path for the accumulated audit log data.
 	// The audit log will be written to this file in JSON format if a file
 	// path is provided. If left unspecified, the output will be directed
@@ -55,24 +57,27 @@ type JsonEnricherOptions struct {
 	// log file before it gets rotated. If left unspecified it defaults to
 	// 100 MB.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	AuditLogMaxSize *int32 `json:"auditLogMaxSize,omitempty"`
 	// auditLogMaxBackups specifies the maximum number of old audit log
 	// files to retain. The default is to retain all old log files (though
 	// MaxAge may still cause them to get deleted).
 	// +optional
+	// +kubebuilder:validation:Minimum=0
 	AuditLogMaxBackups *int32 `json:"auditLogMaxBackups,omitempty"`
 	// auditLogMaxAge specifies the maximum number of days to retain old
 	// audit log files. The default is not to remove old log files based
 	// on age.
 	// +optional
+	// +kubebuilder:validation:Minimum=0
 	AuditLogMaxAge *int32 `json:"auditLogMaxAge,omitempty"`
 }
 
 // WebhookOptions defines per-webhook configuration options.
 type WebhookOptions struct {
 	// name specifies which webhook to configure.
-	// +optional
-	Name string `json:"name,omitempty"`
+	// +required
+	Name string `json:"name"`
 	// failurePolicy sets the webhook failure policy.
 	// +optional
 	FailurePolicy *admissionregv1.FailurePolicyType `json:"failurePolicy,omitempty"`
@@ -118,6 +123,8 @@ type SPODSpec struct {
 	// security-profiles-operator's namespace to use for pulling the images
 	// from SPOD pod from a private registry.
 	// +optional
+	// +listType=map
+	// +listMapKey=name
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 	// daemonResourceRequirements if defined, overwrites the default resource
 	// requirements of SPOD daemon.
@@ -146,6 +153,11 @@ type SPODSelinuxConfig struct {
 	// this SPOD instance.
 	// +optional
 	Enable *bool `json:"enable,omitempty"`
+	// enableRawSelinuxProfiles tells the operator whether or not to enable
+	// RawSelinuxProfile support. When disabled, the RawSelinuxProfile
+	// controller will not be started. Defaults to true when SELinux is enabled.
+	// +optional
+	EnableRawSelinuxProfiles *bool `json:"enableRawSelinuxProfiles,omitempty"`
 	// typeTag is the SELinux type tag applied to the security context of SPOD.
 	// +optional
 	// +kubebuilder:default="spc_t"
@@ -201,6 +213,8 @@ type SPODWebhookConfig struct {
 	StaticConfig *bool `json:"staticConfig,omitempty"`
 	// options set custom namespace selectors and failure mode for SPO's webhooks.
 	// +optional
+	// +listType=map
+	// +listMapKey=name
 	Options []WebhookOptions `json:"options,omitempty"`
 }
 
@@ -208,6 +222,7 @@ type SPODWebhookConfig struct {
 type SPODSchedulingConfig struct {
 	// tolerations if specified, the SPOD's tolerations.
 	// +optional
+	// +listType=atomic
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	// affinity if specified, the SPOD's affinity.
 	// +optional
@@ -223,9 +238,11 @@ type SPODSecurityConfig struct {
 	// allowedSyscalls if specified, a list of system calls which are
 	// allowed in seccomp profiles.
 	// +optional
+	// +listType=set
 	AllowedSyscalls []string `json:"allowedSyscalls,omitempty"`
 	// allowedSeccompActions if specified, a list of allowed seccomp actions.
 	// +optional
+	// +listType=set
 	AllowedSeccompActions []seccompapi.Action `json:"allowedSeccompActions,omitempty"`
 	// disableOciArtifactSignatureVerification can be used to disable OCI
 	// artifact signature verification.
@@ -235,6 +252,7 @@ type SPODSecurityConfig struct {
 }
 
 // SPODState defines the state that the spod is in.
+// +kubebuilder:validation:Enum=PENDING;CREATING;UPDATING;RUNNING;ERROR
 type SPODState string
 
 const (

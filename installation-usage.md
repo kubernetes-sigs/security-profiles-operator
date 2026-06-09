@@ -262,7 +262,7 @@ In case you installed SPO on an [AKS cluster](https://azure.microsoft.com/en-us/
 
 ```sh
 $ kubectl -nsecurity-profiles-operator patch spod spod  --type=merge \
-    -p='{"spec":{"webhookOptions":[{"name":"binding.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}},{"name":"recording.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}}]}}'
+    -p='{"spec":{"webhook":{"options":[{"name":"binding.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}},{"name":"recording.spo.io","namespaceSelector":{"matchExpressions":[{"key":"control-plane","operator":"DoesNotExist"}]}}]}}}'
 ```
 
 Afterwards, validate spod has been patched successfully by ensuring the `RUNNING` state:
@@ -297,7 +297,7 @@ The default priority class name of the spod daemon pod is set to `system-node-cr
 in the SPOD configuration by setting a value in the `priorityClassName` filed.
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"priorityClassName":"my-priority-class"}}'
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"scheduling":{"priorityClassName":"my-priority-class"}}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
@@ -333,7 +333,7 @@ The operator uses by default the `spc_t` SELinux type in the security context of
 changed to a different SELinux type by patching the spod config as follows:
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"selinuxTypeTag":"unconfined_t"}}'
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"selinux":{"typeTag":"unconfined_t"}}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
@@ -374,7 +374,7 @@ list of allowed syscalls in the spod configuration as follows:
 
 ```
 kubectl -n security-profiles-operator patch spod spod --type merge -p
-'{"spec":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}'
+'{"spec":{"security":{"allowedSyscalls": ["exit", "exit_group", "futex", "nanosleep"]}}}'
 ```
 
 From now on, the operator will only install the seccomp profiles which have only a subset of syscalls defined
@@ -389,12 +389,12 @@ You can constrain the spod scheduling via the spod configuration by setting eith
 
 ```
 kubectl -n security-profiles-operator patch spod spod --type merge -p
-'{"spec":{"tolerations": [{...}]}}'
+'{"spec":{"scheduling":{"tolerations": [{...}]}}}'
 ```
 
 ```
 kubectl -n security-profiles-operator patch spod spod --type merge -p
-'{"spec":{"affinity": {...}}}'
+'{"spec":{"scheduling":{"affinity": {...}}}}'
 ```
 
 These settings are also available in the Helm chart.
@@ -469,8 +469,8 @@ instance of either `ProfileBinding` or `ProfileRecording` exists in a namespace 
 namespace must be labeled with either `spo.x-k8s.io/enable-binding` or `spo.x-k8s.io/enable-recording`
 respectively by default, it might still be useful to configure the webhooks.
 
-In order to change webhook's configuration, the `spod` CR exposes an object
-`webhookOptions` that allows the `failurePolicy`, `namespaceSelector`
+In order to change webhook's configuration, the `spod` CR exposes
+`webhook.options` that allows the `failurePolicy`, `namespaceSelector`
 and `objectSelector` to be set. This way you can set the webhooks to
 "soft-fail" or restrict them to a subset of a namespaces and inside those namespaces
 select only a subset of object matching the `objectSelector` so that even
@@ -482,15 +482,16 @@ to a subset of namespaces labeled with `spo.x-k8s.io/bind-here=true`, create a f
 
 ```yaml
 spec:
-  webhookOptions:
-    - name: binding.spo.io
-      failurePolicy: Ignore
-      namespaceSelector:
-        matchExpressions:
-          - key: spo.x-k8s.io/bind-here
-            operator: In
-            values:
-              - "true"
+  webhook:
+    options:
+      - name: binding.spo.io
+        failurePolicy: Ignore
+        namespaceSelector:
+          matchExpressions:
+            - key: spo.x-k8s.io/bind-here
+              operator: In
+              values:
+                - "true"
 ```
 
 And patch the `spod/spod` instance:
@@ -557,7 +558,7 @@ If all requirements are met, then the feature can be enabled by patching the
 `spod` configuration:
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableLogEnricher":true}}'
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher":true}}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
@@ -668,7 +669,7 @@ If the output contains `no_bpf` then the feature has been disabled.
 To use the recorder, enable it by patching the `spod` configuration:
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableBpfRecorder":true}}'
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableBpfRecorder":true}}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
@@ -884,7 +885,7 @@ To start using this feature, you need to have the Security Profiles Operator ins
 Once it's installed, you can enable the JSON log enricher with this command:
 
 ```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true}}}'
 ```
 
 The audit JSON log enricher uses eBPF as a supplemental data source. While processing auditd logs from
@@ -901,7 +902,7 @@ Here's how to set up and fine-tune your audit logs.
 Set how often audit logs are created using the auditLogIntervalSeconds option. For example to configure audit log interval to 30 seconds use the command:
 
 ```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0,"jsonEnricherOptions":{"auditLogIntervalSeconds":30}}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogIntervalSeconds":30}}}}'
 ```
 
 ##### Audit Log File Destination
@@ -943,7 +944,7 @@ By default, audit logs go to your standard output in JSON lines format. You can 
    Tell the JSON log enricher the full path to your audit log file (including the filename).
 
    ```sh
-   kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0,"jsonEnricherOptions":{"auditLogPath":"/tmp/logs/audit1.log"}}}'
+   kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogPath":"/tmp/logs/audit1.log"}}}}'
    ```
 
 ###### Audit Log File Fine-Tuning (Rotation)
@@ -956,7 +957,7 @@ For audit logging to a file, you can manage their size and how long they're kept
   You configure these by patching the JSON log enricher options:
 
 ```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true,"verbosity":0,"jsonEnricherOptions":{"auditLogPath":"/tmp/logs/audit1.log","auditLogMaxSize":500,"auditLogMaxBackups":2,"auditLogMaxAge":10}}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true,"jsonEnricherOptions":{"auditLogPath":"/tmp/logs/audit1.log","auditLogMaxSize":500,"auditLogMaxBackups":2,"auditLogMaxAge":10}}}}'
 ```
 
 ###### Verbosity (Debugging Logs)
@@ -967,7 +968,7 @@ Increase the logging level for the JSON log enricher container to help with debu
 - 1: More detailed logs.
 
 ```sh
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true, "verbosity": 1}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableJsonEnricher":true}, "verbosity": 1}}'
 ```
 
 #### How to Monitor Audit Logs for a Specific Pod
@@ -1089,18 +1090,19 @@ Edit the spod configuration:
 kubectl edit spod spod -n security-profiles-operator
 ```
 
-Add `webhookOptions` to the spec:
+Add `webhook.options` to the spec:
 
-Locate the `spec:` section and add the following webhookOptions block. This will tell the webhook to apply to a
+Locate the `spec:` section and add the following webhook options block. This will tell the webhook to apply to a
 specific namespaces
 
 ```yaml
 # ... (rest of your spod configuration)
 spec:
-  webhookOptions:
-    - name: execmetadata.spo.io # or nodedebuggingpod.spo.io
-      namespaceSelector:
-      #...add rules
+  webhook:
+    options:
+      - name: execmetadata.spo.io # or nodedebuggingpod.spo.io
+        namespaceSelector:
+        #...add rules
 # ...
 ```
 
@@ -1119,18 +1121,19 @@ which is added by the kubectl client.
 
 Because this label might vary across different Kubernetes client implementations
 (e.g., oc debug in OpenShift uses `debug.openshift.io/managed-by: "oc-debug"`),
-you may need to configure additional `webhookOptions` to ensure the webhook catches all relevant debug pods.
+you may need to configure additional `webhook.options` entries to ensure the webhook catches all relevant debug pods.
 
 For example, to include `oc debug pods`:
 
 ```yaml
 # ... (rest of your spod configuration)
 spec:
-  webhookOptions:
-    - name: nodedebuggingpodmetada.spo.io
-      objectSelector:
-        matchLabels: # Use matchLabels for exact matching
-          debug.openshift.io/managed-by: "oc-debug"
+  webhook:
+    options:
+      - name: nodedebuggingpodmetada.spo.io
+        objectSelector:
+          matchLabels: # Use matchLabels for exact matching
+            debug.openshift.io/managed-by: "oc-debug"
 # ... other webhook rule details like rules, clientConfig, etc.
 ```
 
@@ -1152,7 +1155,7 @@ The operator is able to record AppArmor profiles for a workload only using the b
 To use the eBPF recorder, enable it by patching the `spod` configuration:
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableBpfRecorder":true}}'
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableBpfRecorder":true}}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
@@ -1251,7 +1254,8 @@ _Known limitations:_
   existing profile with the same name exists, it will be replaced. This might cause
   an existing profile to be overwritten (See [issue 2582](https://github.com/kubernetes-sigs/security-profiles-operator/issues/2582) for details).
 - Restrictive profiles may block sub processes to be created, or a container from
-  successfully loading. To work around the issue, set the AppArmor profile to complain mode.
+  successfully loading. To work around the issue, set the AppArmor profile to
+  complain mode by setting `.spec.mode` to `Complain`.
 
 #### Use AppArmor profile
 
@@ -1299,7 +1303,7 @@ Note that in case of apparmor, unlike seccomp, only the name of the profile is r
 Ensure that the running daemon has SELinux enabled:
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableSelinux":true}}'
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"selinux":{"enable":true}}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
@@ -1375,8 +1379,8 @@ that a policy has been installed:
 _Make a SELinux profile permissive:_
 Similarly to how a `SeccompProfile` might have a default action `SCMP_ACT_LOG`
 which would merely log violations of the policy, but not actually block the
-container from executing, a `SelinuxProfile` can be marked as "permissive"
-by setting `.spec.permissive` to `true`. This mode might be useful e.g. when
+container from executing, a `SelinuxProfile` can be marked as permissive
+by setting `.spec.mode` to `Permissive`. This mode might be useful e.g. when
 the policy is known or suspected to be incomplete and you'd prefer to just
 watch for subsequent AVC denials after deploying the policy.
 
@@ -1385,7 +1389,7 @@ watch for subsequent AVC denials after deploying the policy.
 The SELinux profiles can be recorded using the log enricher. You should make sure that it is enabled:
 
 ```
-> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableLogEnricher":true}}'
+> kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher":true}}}'
 securityprofilesoperatordaemon.security-profiles-operator.x-k8s.io/spod patched
 ```
 
@@ -1510,7 +1514,7 @@ available, each controlling a different enricher:
 Example: Enabling Log Enricher and providing an empty filter array (no custom filtering)
 
 ```shell
-kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableLogEnricher":true,"logEnricherFilters":[]}}'
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enricher":{"enableLogEnricher":true,"logEnricherFilters":[]}}}'
 ```
 
 Each object within the `jsonEnricherFilters` or `logEnricherFilters` array conforms to the following structure:
@@ -1564,7 +1568,7 @@ This json
 can be using with the command
 
 ```
-kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"enableJsonEnricher": true, "jsonEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchLabels\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchLabels\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]}}"
+kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"enricher":{"enableJsonEnricher": true, "jsonEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchLabels\":[\"requestUID\"]},{\"priority\":999, \"level\":\"None\",\"matchLabels\":[\"version\"],\"matchValues\":[\"spo/v1_alpha\"]}]"}}}
 ```
 
 2. Filtering Logs for a Specific Kubernetes Namespace:
@@ -1572,7 +1576,7 @@ kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"
 This example logs log-enricher entries only from the default namespace and drops any other log lines for seccomp profile.
 
 ```
-kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"enableLogEnricher": true, "logEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchLabels\":[\"namespace\"],\"matchValues\":[\"default\"},{\"priority\":999, \"level\":\"None\",\"matchLabels\":[\"type\"],\"matchValues\":[\"seccomp\"]}]}}"
+kubectl -n security-profiles-operator patch spod spod --type=merge -p {"spec":{"enricher":{"enableLogEnricher": true, "logEnricherFilters": "[{\"priority\":100,\"level\":\"Metadata\",\"matchLabels\":[\"namespace\"],\"matchValues\":[\"default\"},{\"priority\":999, \"level\":\"None\",\"matchLabels\":[\"type\"],\"matchValues\":[\"seccomp\"]}]"}}}
 ```
 
 ### General Considerations
@@ -1620,11 +1624,11 @@ is the default behavior of the operator to install the profiles. When `disablePr
 is set to `true`, the operator will not reconcile the profiles and will not install them. Partial
 disabled profiles can still be merged and the resulting merged profile will be disabled.
 
-On the profile level, this functionality is controlled by the `disabled` flag - it is also possible
-to create profile CRs disabled, although this functionality is probably less interesting to end users
-and is mostly used for testing purposes. The `disabled` flag is set to `false` by default. Profiles
-that are disabled, either explicitly or by the `disableProfileAfterRecording` flag, can be enabled
-by setting the `disabled` flag to `false` in the profile CR.
+On the profile level, this functionality is controlled by the `.spec.state` field. It is also
+possible to create profile CRs in the `Disabled` state, although this functionality is probably
+less interesting to end users and is mostly used for testing purposes. The `state` field defaults
+to `Enabled`. Profiles that are disabled, either explicitly or by the `disableProfileAfterRecording`
+flag, can be enabled by setting `.spec.state` to `Enabled` in the profile CR.
 
 #### Disable profile recording
 

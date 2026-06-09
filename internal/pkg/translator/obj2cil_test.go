@@ -198,7 +198,7 @@ func TestObject2CIL(t *testing.T) {
 					Name: "foo-permissive-bar",
 				},
 				Spec: selxv1alpha2.SelinuxProfileSpec{
-					Permissive: true,
+					Mode: selxv1alpha2.SelinuxModePermissive,
 					Inherit: []selxv1alpha2.PolicyRef{
 						{
 							Name: "container",
@@ -254,6 +254,40 @@ func TestObject2CIL(t *testing.T) {
 				"\\(allow process var_log_t \\( sock_file \\(.*getattr.*\\)\\)\\)\n",
 				"\\(allow process var_log_t \\( sock_file \\(.*append.*\\)\\)\\)\n",
 				"\\(allow process var_log_t \\( sock_file \\(.*open.*\\)\\)\\)\n",
+			},
+			inheritsys: []string{
+				"container",
+			},
+		},
+		{
+			name: "Test errorlogger translation with explicit enforcing mode",
+			profile: &selxv1alpha2.SelinuxProfile{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-enforcing-bar",
+				},
+				Spec: selxv1alpha2.SelinuxProfileSpec{
+					Mode: selxv1alpha2.SelinuxModeEnforcing,
+					Inherit: []selxv1alpha2.PolicyRef{
+						{
+							Name: "container",
+						},
+					},
+					Allow: selxv1alpha2.Allow{
+						"var_log_t": {
+							"dir": []string{
+								"open",
+							},
+						},
+					},
+				},
+			},
+			wantMatches: []string{
+				"\\(block foo-enforcing-bar",
+				"\\(blockinherit container\\)",
+				"\\(allow process var_log_t \\( dir \\(.*open.*\\)\\)\\)\n",
+			},
+			doNotMatch: []string{
+				"\\(typepermissive process\\)",
 			},
 			inheritsys: []string{
 				"container",

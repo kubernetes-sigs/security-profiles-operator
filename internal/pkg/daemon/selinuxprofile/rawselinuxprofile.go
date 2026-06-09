@@ -20,8 +20,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"html/template"
 	"strings"
+	"text/template"
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -75,7 +75,7 @@ func (sph *rawSelinuxProfileHandler) GetProfileObject() selxv1alpha2.SelinuxProf
 }
 
 func (sph *rawSelinuxProfileHandler) Validate() error {
-	return nil
+	return sph.rsp.ValidatePolicy()
 }
 
 func (sph *rawSelinuxProfileHandler) GetCILPolicy() (string, error) {

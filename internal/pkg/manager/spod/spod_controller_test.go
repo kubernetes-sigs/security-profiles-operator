@@ -50,13 +50,14 @@ func Test_getConfiguredJsonEnricher(t *testing.T) {
 	t.Parallel()
 
 	valTen := int32(10)
+	valSixty := int32(60)
 	valEmptyStr := ""
 
 	cfg := &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		Spec: spodv1alpha1.SPODSpec{
 			Enricher: spodv1alpha1.SPODEnricherConfig{
 				JsonEnricherOptions: &spodv1alpha1.JsonEnricherOptions{
-					AuditLogIntervalSeconds: 60,
+					AuditLogIntervalSeconds: &valSixty,
 					AuditLogPath:            &valEmptyStr,
 					AuditLogMaxSize:         &valTen,
 					AuditLogMaxBackups:      &valTen,
@@ -90,6 +91,54 @@ func Test_getConfiguredJsonEnricher(t *testing.T) {
 	r.getConfiguredJsonEnricher(cfg)
 	require.True(t, containsString(r.baseSPOd.Spec.Template.Spec.Containers[4].Args,
 		"--audit-log-interval-seconds=60"))
+	require.True(t, containsString(r.baseSPOd.Spec.Template.Spec.Containers[4].Args,
+		"--audit-log-maxsize=10"))
+}
+
+func Test_getConfiguredJsonEnricherNilInterval(t *testing.T) {
+	t.Parallel()
+
+	valTen := int32(10)
+
+	cfg := &spodv1alpha1.SecurityProfilesOperatorDaemon{
+		Spec: spodv1alpha1.SPODSpec{
+			Enricher: spodv1alpha1.SPODEnricherConfig{
+				JsonEnricherOptions: &spodv1alpha1.JsonEnricherOptions{
+					AuditLogMaxSize:    &valTen,
+					AuditLogMaxBackups: &valTen,
+					AuditLogMaxAge:     &valTen,
+				},
+			},
+		},
+	}
+
+	r := &ReconcileSPOd{
+		baseSPOd: &appsv1.DaemonSet{
+			Spec: appsv1.DaemonSetSpec{
+				Template: v1.PodTemplateSpec{
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{},
+							{},
+							{},
+							{},
+							{
+								Name: "test",
+								Args: []string{},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	r.getConfiguredJsonEnricher(cfg)
+
+	for _, arg := range r.baseSPOd.Spec.Template.Spec.Containers[4].Args {
+		require.NotContains(t, arg, "--audit-log-interval-seconds")
+	}
+
 	require.True(t, containsString(r.baseSPOd.Spec.Template.Spec.Containers[4].Args,
 		"--audit-log-maxsize=10"))
 }

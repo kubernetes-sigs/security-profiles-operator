@@ -35,6 +35,7 @@ type ProfileBindingSpec struct {
 	ProfileRef ProfileRef `json:"profileRef"`
 	// Image name within pod containers to match to the profile.
 	// Use the "*" string to bind the profile to all pods.
+	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`
 }
 
@@ -44,11 +45,14 @@ type ProfileRef struct {
 	// +kubebuilder:validation:Enum=SeccompProfile;SelinuxProfile;AppArmorProfile
 	Kind ProfileBindingKind `json:"kind"`
 	// Name of the profile within the current namespace to which to bind the selected pods.
+	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 }
 
 // ProfileBindingStatus contains status of the Profilebinding.
 type ProfileBindingStatus struct {
+	// +optional
+	// +listType=set
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
 }
 

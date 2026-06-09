@@ -29,14 +29,14 @@ func TestGenerateProfile(t *testing.T) {
 
 	cases := []struct {
 		name           string
-		complainMode   bool
+		mode           apparmorprofileapi.AppArmorMode
 		abstract       *apparmorprofileapi.AppArmorAbstract
 		mustContain    []string
 		mustNotContain []string
 	}{
 		{
-			name:         "EnforceModeWithDeny",
-			complainMode: false,
+			name: "EnforceModeWithDeny",
+			mode: apparmorprofileapi.AppArmorModeEnforce,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
 					ReadOnlyPaths: []string{"/etc/passwd"},
@@ -50,8 +50,8 @@ func TestGenerateProfile(t *testing.T) {
 			},
 		},
 		{
-			name:         "ComplainModeWithoutDeny",
-			complainMode: true,
+			name: "ComplainModeWithoutDeny",
+			mode: apparmorprofileapi.AppArmorModeComplain,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
 					ReadOnlyPaths: []string{"/etc/passwd"},
@@ -74,7 +74,7 @@ func TestGenerateProfile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := GenerateProfile(tc.name, tc.complainMode, tc.abstract)
+			got, err := GenerateProfile(tc.name, tc.mode, tc.abstract)
 			require.NoError(t, err)
 
 			for _, s := range tc.mustContain {

@@ -23,6 +23,7 @@ import (
 // ProfileState defines the state that the profile is in. A profile in this context
 // refers to a SeccompProfile or a SELinux profile, the states are shared between them
 // as well as the management API.
+// +kubebuilder:validation:Enum=Partial;Disabled;Pending;InProgress;Installed;Terminating;Error
 type ProfileState string
 
 const (
@@ -99,6 +100,7 @@ type SecurityProfileNodeStatus struct {
 // SecurityProfileNodeStatusSpec defines the desired state of SecurityProfileNodeStatus.
 type SecurityProfileNodeStatusSpec struct {
 	// NodeName is the name of the node on which the profile is installed.
+	// +kubebuilder:validation:MinLength=1
 	NodeName string `json:"nodeName,omitempty"`
 }
 

@@ -34,18 +34,23 @@ var (
 // AppArmorExecutablesRules stores the rules for allowed executable.
 type AppArmorExecutablesRules struct {
 	// AllowedExecutables list of allowed executables.
+	// +listType=set
 	AllowedExecutables []string `json:"allowedExecutables,omitempty"`
 	// AllowedLibraries list of allowed libraries.
+	// +listType=set
 	AllowedLibraries []string `json:"allowedLibraries,omitempty"`
 }
 
 // AppArmorFsRules stores the rules for file system access.
 type AppArmorFsRules struct {
 	// ReadOnlyPaths list of allowed read only file paths.
+	// +listType=set
 	ReadOnlyPaths []string `json:"readOnlyPaths,omitempty"`
 	// WriteOnlyPaths list of allowed write only file paths.
+	// +listType=set
 	WriteOnlyPaths []string `json:"writeOnlyPaths,omitempty"`
 	// ReadWritePaths list of allowed read write file paths.
+	// +listType=set
 	ReadWritePaths []string `json:"readWritePaths,omitempty"`
 }
 
@@ -68,6 +73,7 @@ type AppArmorNetworkRules struct {
 // AllowedCapabilities stores the rules of allowed Linux capabilities.
 type AppArmorCapabilityRules struct {
 	// AllowedCapabilities list of allowed capabilities.
+	// +listType=set
 	AllowedCapabilities []string `json:"allowedCapabilities,omitempty"`
 }
 
@@ -84,6 +90,15 @@ type AppArmorAbstract struct {
 	Capability *AppArmorCapabilityRules `json:"capability,omitempty"`
 }
 
+// AppArmorMode describes the enforcement mode for an AppArmor profile.
+// +kubebuilder:validation:Enum=Enforce;Complain
+type AppArmorMode string
+
+const (
+	AppArmorModeEnforce  AppArmorMode = "Enforce"
+	AppArmorModeComplain AppArmorMode = "Complain"
+)
+
 // AppArmorProfileSpec defines the desired state of AppArmorProfile.
 type AppArmorProfileSpec struct {
 	// Common spec fields for all profiles.
@@ -92,10 +107,12 @@ type AppArmorProfileSpec struct {
 	// Abstract stores the apparmor profile allow lists for executable, file, network and capabilities access.
 	Abstract AppArmorAbstract `json:"abstract,omitempty"`
 
-	// ComplainMode places the apparmor profile into "complain" mode, by default is placed in "enforce" mode.
-	// In complain mode, if a given action is not allowed, it will be allowed, but this violation will be
-	// logged with a tag of access being "ALLOWED unconfined".
-	ComplainMode bool `json:"complainMode,omitempty"`
+	// mode controls the enforcement mode for the AppArmor profile.
+	// In "Complain" mode, violations are logged but allowed.
+	// In "Enforce" mode (the default), violations are denied.
+	// +optional
+	// +kubebuilder:default=Enforce
+	Mode AppArmorMode `json:"mode,omitempty"`
 }
 
 // AppArmorProfileStatus defines the observed state of AppArmorProfile.

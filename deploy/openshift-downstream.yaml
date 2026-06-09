@@ -44,6 +44,7 @@ spec:
                 description: |-
                   Image name within pod containers to match to the profile.
                   Use the "*" string to bind the profile to all pods.
+                minLength: 1
                 type: string
               profileRef:
                 description: ProfileRef references a SeccompProfile or other profile
@@ -59,6 +60,7 @@ spec:
                   name:
                     description: Name of the profile within the current namespace
                       to which to bind the selected pods.
+                    minLength: 1
                     type: string
                 required:
                 - kind
@@ -75,6 +77,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
             type: object
         type: object
     served: true
@@ -137,6 +140,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               disableProfileAfterRecording:
                 default: false
                 description: |-
@@ -228,6 +232,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
             type: object
         type: object
     served: true
@@ -318,6 +323,7 @@ spec:
                   - SCMP_ARCH_RISCV64
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               baseProfileName:
                 description: |-
                   BaseProfileName is the name of base profile (in the same namespace) that
@@ -337,11 +343,6 @@ spec:
                 - SCMP_ACT_LOG
                 - SCMP_ACT_NOTIFY
                 type: string
-              disabled:
-                default: false
-                description: Whether the profile is disabled and should be skipped
-                  during reconciliation.
-                type: boolean
               flags:
                 description: list of flags to use with seccomp(2)
                 items:
@@ -352,12 +353,22 @@ spec:
                   - SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               listenerMetadata:
                 description: opaque data to pass to the seccomp agent
                 type: string
               listenerPath:
                 description: path of UNIX domain socket to contact a seccomp agent
                   for SCMP_ACT_NOTIFY
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
                 type: string
               syscalls:
                 description: |-
@@ -418,6 +429,7 @@ spec:
                         type: object
                       maxItems: 6
                       type: array
+                      x-kubernetes-list-type: atomic
                     errnoRet:
                       description: |-
                         the errno return code to use. Some actions like SCMP_ACT_ERRNO and
@@ -429,12 +441,15 @@ spec:
                       description: the names of the syscalls
                       items:
                         type: string
+                      minItems: 1
                       type: array
+                      x-kubernetes-list-type: set
                   required:
                   - action
                   - names
                   type: object
                 type: array
+                x-kubernetes-list-type: atomic
             required:
             - defaultAction
             type: object
@@ -445,6 +460,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               conditions:
                 description: Conditions of the resource.
                 items:
@@ -496,6 +512,14 @@ spec:
                   ProfileState defines the state that the profile is in. A profile in this context
                   refers to a SeccompProfile or a SELinux profile, the states are shared between them
                   as well as the management API.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
             type: object
         type: object
@@ -564,6 +588,7 @@ spec:
               nodeName:
                 description: NodeName is the name of the node on which the profile
                   is installed.
+                minLength: 1
                 type: string
             type: object
           status:
@@ -573,6 +598,14 @@ spec:
               status:
                 description: Status is the installation status of the profile on this
                   node.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
             type: object
         type: object
@@ -750,6 +783,7 @@ spec:
                           The default is 60 seconds. Increasing this interval will reduce the
                           rate at which logs are written.
                         format: int32
+                        minimum: 1
                         type: integer
                       auditLogMaxAge:
                         description: |-
@@ -757,6 +791,7 @@ spec:
                           audit log files. The default is not to remove old log files based
                           on age.
                         format: int32
+                        minimum: 0
                         type: integer
                       auditLogMaxBackups:
                         description: |-
@@ -764,6 +799,7 @@ spec:
                           files to retain. The default is to retain all old log files (though
                           MaxAge may still cause them to get deleted).
                         format: int32
+                        minimum: 0
                         type: integer
                       auditLogMaxSize:
                         description: |-
@@ -771,6 +807,7 @@ spec:
                           log file before it gets rotated. If left unspecified it defaults to
                           100 MB.
                         format: int32
+                        minimum: 1
                         type: integer
                       auditLogPath:
                         description: |-
@@ -821,6 +858,9 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               scheduling:
                 description: scheduling contains scheduling-related configuration.
                 properties:
@@ -1788,6 +1828,7 @@ spec:
                           type: string
                       type: object
                     type: array
+                    x-kubernetes-list-type: atomic
                 type: object
               security:
                 description: security contains security policy configuration.
@@ -1808,6 +1849,7 @@ spec:
                       - SCMP_ACT_NOTIFY
                       type: string
                     type: array
+                    x-kubernetes-list-type: set
                   allowedSyscalls:
                     description: |-
                       allowedSyscalls if specified, a list of system calls which are
@@ -1815,6 +1857,7 @@ spec:
                     items:
                       type: string
                     type: array
+                    x-kubernetes-list-type: set
                   disableOciArtifactSignatureVerification:
                     default: false
                     description: |-
@@ -1830,6 +1873,12 @@ spec:
                       enable tells the operator whether or not to enable SELinux support for
                       this SPOD instance.
                     type: boolean
+                  enableRawSelinuxProfiles:
+                    description: |-
+                      enableRawSelinuxProfiles tells the operator whether or not to enable
+                      RawSelinuxProfile support. When disabled, the RawSelinuxProfile
+                      controller will not be started. Defaults to true when SELinux is enabled.
+                    type: boolean
                   options:
                     description: options defines options specific to the SELinux functionality.
                     properties:
@@ -1843,6 +1892,7 @@ spec:
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                     type: object
                   typeTag:
                     default: spc_t
@@ -1969,8 +2019,13 @@ spec:
                               type: object
                           type: object
                           x-kubernetes-map-type: atomic
+                      required:
+                      - name
                       type: object
                     type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
                   staticConfig:
                     default: false
                     description: |-
@@ -2027,6 +2082,12 @@ spec:
                 description: |-
                   Represents the state that the policy is in. Can be:
                   PENDING, IN-PROGRESS, RUNNING or ERROR
+                enum:
+                - PENDING
+                - CREATING
+                - UPDATING
+                - RUNNING
+                - ERROR
                 type: string
             type: object
         type: object
@@ -2084,12 +2145,18 @@ spec:
           spec:
             description: RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
             properties:
-              disabled:
-                default: false
-                description: Whether the profile is disabled and should be skipped
-                  during reconciliation.
-                type: boolean
               policy:
+                maxLength: 500000
+                minLength: 1
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
                 type: string
             type: object
           status:
@@ -2099,6 +2166,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               conditions:
                 description: Conditions of the resource.
                 items:
@@ -2143,6 +2211,14 @@ spec:
                   ProfileState defines the state that the profile is in. A profile in this context
                   refers to a SeccompProfile or a SELinux profile, the states are shared between them
                   as well as the management API.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
               usage:
                 description: |-
@@ -2214,11 +2290,6 @@ spec:
                   type: object
                 description: Defines the allow policy for the profile
                 type: object
-              disabled:
-                default: false
-                description: Whether the profile is disabled and should be skipped
-                  during reconciliation.
-                type: boolean
               inherit:
                 default:
                 - kind: System
@@ -2242,17 +2313,32 @@ spec:
                       type: string
                     name:
                       description: The name of the policy that this inherits from.
+                      minLength: 1
                       type: string
                   required:
                   - name
                   type: object
                 type: array
-              permissive:
-                default: false
+                x-kubernetes-list-type: atomic
+              mode:
+                default: Enforcing
                 description: |-
-                  Permissive, when true will cause the SELinux profile to only
-                  log violations instead of enforcing them.
-                type: boolean
+                  mode controls the enforcement mode for the SELinux profile.
+                  In "Permissive" mode, violations are logged but allowed.
+                  In "Enforcing" mode (the default), violations are denied.
+                enum:
+                - Enforcing
+                - Permissive
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
+                type: string
             type: object
           status:
             description: SelinuxProfileStatus defines the observed state of SelinuxProfile.
@@ -2261,6 +2347,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               conditions:
                 description: Conditions of the resource.
                 items:
@@ -2305,6 +2392,14 @@ spec:
                   ProfileState defines the state that the profile is in. A profile in this context
                   refers to a SeccompProfile or a SELinux profile, the states are shared between them
                   as well as the management API.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
               usage:
                 description: |-
@@ -2379,6 +2474,7 @@ spec:
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                     type: object
                   executable:
                     description: Executable rules for allowed executables.
@@ -2388,11 +2484,13 @@ spec:
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                       allowedLibraries:
                         description: AllowedLibraries list of allowed libraries.
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                     type: object
                   filesystem:
                     description: Filesystem rules for filesystem access.
@@ -2403,18 +2501,21 @@ spec:
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                       readWritePaths:
                         description: ReadWritePaths list of allowed read write file
                           paths.
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                       writeOnlyPaths:
                         description: WriteOnlyPaths list of allowed write only file
                           paths.
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                     type: object
                   network:
                     description: Network rules for network access.
@@ -2434,17 +2535,25 @@ spec:
                         type: object
                     type: object
                 type: object
-              complainMode:
+              mode:
+                default: Enforce
                 description: |-
-                  ComplainMode places the apparmor profile into "complain" mode, by default is placed in "enforce" mode.
-                  In complain mode, if a given action is not allowed, it will be allowed, but this violation will be
-                  logged with a tag of access being "ALLOWED unconfined".
-                type: boolean
-              disabled:
-                default: false
-                description: Whether the profile is disabled and should be skipped
-                  during reconciliation.
-                type: boolean
+                  mode controls the enforcement mode for the AppArmor profile.
+                  In "Complain" mode, violations are logged but allowed.
+                  In "Enforce" mode (the default), violations are denied.
+                enum:
+                - Enforce
+                - Complain
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
+                type: string
             type: object
           status:
             description: AppArmorProfileStatus defines the observed state of AppArmorProfile.
@@ -2493,6 +2602,14 @@ spec:
                   ProfileState defines the state that the profile is in. A profile in this context
                   refers to a SeccompProfile or a SELinux profile, the states are shared between them
                   as well as the management API.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
             type: object
         type: object
@@ -2581,6 +2698,7 @@ rules:
   - admissionregistration.k8s.io
   resources:
   - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
   verbs:
   - create
   - get
@@ -2908,6 +3026,7 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
+  - rawselinuxprofiles
   - seccompprofiles
   - selinuxprofiles
   verbs:
@@ -3284,7 +3403,7 @@ data:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
-      disabled: false
+      state: Enabled
   json-enricher-log-volume-mount-path: /data/logs/jsonenricher
   json-enricher-log-volume-source.json: |-
     {
@@ -3518,7 +3637,7 @@ data:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
-      disabled: false
+      state: Enabled
 kind: ConfigMap
 metadata:
   labels:

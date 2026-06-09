@@ -57,6 +57,7 @@ spec:
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                     type: object
                   executable:
                     description: Executable rules for allowed executables.
@@ -66,11 +67,13 @@ spec:
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                       allowedLibraries:
                         description: AllowedLibraries list of allowed libraries.
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                     type: object
                   filesystem:
                     description: Filesystem rules for filesystem access.
@@ -81,18 +84,21 @@ spec:
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                       readWritePaths:
                         description: ReadWritePaths list of allowed read write file
                           paths.
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                       writeOnlyPaths:
                         description: WriteOnlyPaths list of allowed write only file
                           paths.
                         items:
                           type: string
                         type: array
+                        x-kubernetes-list-type: set
                     type: object
                   network:
                     description: Network rules for network access.
@@ -112,17 +118,25 @@ spec:
                         type: object
                     type: object
                 type: object
-              complainMode:
+              mode:
+                default: Enforce
                 description: |-
-                  ComplainMode places the apparmor profile into "complain" mode, by default is placed in "enforce" mode.
-                  In complain mode, if a given action is not allowed, it will be allowed, but this violation will be
-                  logged with a tag of access being "ALLOWED unconfined".
-                type: boolean
-              disabled:
-                default: false
-                description: Whether the profile is disabled and should be skipped
-                  during reconciliation.
-                type: boolean
+                  mode controls the enforcement mode for the AppArmor profile.
+                  In "Complain" mode, violations are logged but allowed.
+                  In "Enforce" mode (the default), violations are denied.
+                enum:
+                - Enforce
+                - Complain
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
+                type: string
             type: object
           status:
             description: AppArmorProfileStatus defines the observed state of AppArmorProfile.
@@ -171,6 +185,14 @@ spec:
                   ProfileState defines the state that the profile is in. A profile in this context
                   refers to a SeccompProfile or a SELinux profile, the states are shared between them
                   as well as the management API.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
             type: object
         type: object

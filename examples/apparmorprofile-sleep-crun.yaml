@@ -55,4 +55,5 @@ spec:
         - /var/lib/containers/storage/overlay/*/merged/dev/termination-log
         - /var/lib/containers/storage/overlay/*/merged/etc/resolv.conf
         - /var/lib/containers/storage/overlay/*/merged/run/.containerenv
-  disabled: false
+  mode: Enforce
+  state: Enabled

@@ -7,10 +7,10 @@ metadata:
     spo.x-k8s.io/recording-id: test-recording
   name: test-recording-test-pod
 spec:
-  complainMode: true
+  mode: Complain
   abstract:
     filesystem:
       readOnlyPaths: []
       readWritePaths: []
       writeOnlyPaths: []
-  disabled: false
+  state: Enabled

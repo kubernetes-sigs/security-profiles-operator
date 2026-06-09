@@ -155,7 +155,7 @@ data:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
-      disabled: false
+      state: Enabled
   json-enricher-log-volume-mount-path: /data/logs/jsonenricher
   json-enricher-log-volume-source.json: |-
     {
@@ -389,7 +389,7 @@ data:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
-      disabled: false
+      state: Enabled
 kind: ConfigMap
 metadata:
   labels:
