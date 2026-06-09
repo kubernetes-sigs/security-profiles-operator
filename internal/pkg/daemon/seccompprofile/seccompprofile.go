@@ -36,6 +36,7 @@ import (
 	"go.podman.io/common/pkg/seccomp"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -389,15 +390,16 @@ func (r *Reconciler) resolveSyscallsForProfile(
 				return nil, fmt.Errorf("retrieving the SPOD configuration: %w", err)
 			}
 
+			disableVerification := ptr.Deref(spod.Spec.Security.DisableOCIArtifactSignatureVerification, false)
 			l.Info(
 				"Pulling base profile: "+from,
-				"disableOCIArtifactSignatureVerification", spod.Spec.Security.DisableOCIArtifactSignatureVerification,
+				"disableOCIArtifactSignatureVerification", disableVerification,
 			)
 
 			res, err := r.Pull(ctx, l, from, "", "", &v1.Platform{
 				Architecture: runtime.GOARCH,
 				OS:           runtime.GOOS,
-			}, spod.Spec.Security.DisableOCIArtifactSignatureVerification)
+			}, disableVerification)
 			if err != nil {
 				l.Error(err, "cannot pull base profile "+baseProfileName)
 				r.IncSeccompProfileError(r.metrics, reasonCannotPullProfile)

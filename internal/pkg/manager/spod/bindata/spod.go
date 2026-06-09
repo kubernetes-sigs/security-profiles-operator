@@ -84,10 +84,11 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 		Labels: map[string]string{"app": config.OperatorName},
 	},
 	Spec: spodv1alpha1.SPODSpec{
-		Verbosity:          0,
-		EnableProfiling:    false,
-		EnableAppArmor:     false,
-		HostProcVolumePath: DefaultHostProcPath,
+		Verbosity:                0,
+		EnableProfiling:          new(bool),
+		EnableMemoryOptimization: new(bool),
+		EnableAppArmor:           new(bool),
+		HostProcVolumePath:       DefaultHostProcPath,
 		Selinux: spodv1alpha1.SPODSelinuxConfig{
 			Options: spodv1alpha1.SelinuxOptions{
 				AllowedSystemProfiles: []string{
@@ -96,7 +97,16 @@ var DefaultSPOD = &spodv1alpha1.SecurityProfilesOperatorDaemon{
 			},
 		},
 		Enricher: spodv1alpha1.SPODEnricherConfig{
-			LogEnricherSource: DefaultLogEnricherSource,
+			EnableLogEnricher:  new(bool),
+			EnableJsonEnricher: new(bool),
+			EnableBpfRecorder:  new(bool),
+			LogEnricherSource:  DefaultLogEnricherSource,
+		},
+		Webhook: spodv1alpha1.SPODWebhookConfig{
+			StaticConfig: new(bool),
+		},
+		Security: spodv1alpha1.SPODSecurityConfig{
+			DisableOCIArtifactSignatureVerification: new(bool),
 		},
 		Scheduling: spodv1alpha1.SPODSchedulingConfig{
 			PriorityClassName: DefaultPriorityClassName,

@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -334,7 +335,7 @@ func (r *RecorderReconciler) getBpfRecorderClient(
 		enableBpfRecorderEnv = false
 	}
 
-	if !spod.Spec.Enricher.EnableBpfRecorder && !enableBpfRecorderEnv {
+	if !ptr.Deref(spod.Spec.Enricher.EnableBpfRecorder, false) && !enableBpfRecorderEnv {
 		return nil, errors.New("bpf recorder is not enabled")
 	}
 
@@ -438,7 +439,7 @@ func (r *RecorderReconciler) collectLogProfiles(
 		enableLogEnricherEnv = false
 	}
 
-	if !spod.Spec.Enricher.EnableLogEnricher && !enableLogEnricherEnv {
+	if !ptr.Deref(spod.Spec.Enricher.EnableLogEnricher, false) && !enableLogEnricherEnv {
 		return errors.New("log enricher not enabled")
 	}
 

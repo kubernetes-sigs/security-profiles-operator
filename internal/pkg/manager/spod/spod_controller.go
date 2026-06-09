@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -212,7 +213,7 @@ func (r *ReconcileSPOd) Reconcile(ctx context.Context, req reconcile.Request) (r
 	spodUpdate := spodNeedsUpdate(configuredSPOd, foundSPOd)
 
 	var hookUpdate bool
-	if !spod.Spec.Webhook.StaticConfig {
+	if !ptr.Deref(spod.Spec.Webhook.StaticConfig, false) {
 		hookUpdate, err = webhook.NeedsUpdate(ctx, r.client)
 		if err != nil {
 			return reconcile.Result{}, fmt.Errorf("determining if webhook needs update: %w", err)
@@ -305,7 +306,7 @@ func (r *ReconcileSPOd) handleUpdatingStatus(
 func (r *ReconcileSPOd) defaultProfiles(
 	cfg *spodv1alpha1.SecurityProfilesOperatorDaemon,
 ) (defaultProfiles []*seccompprofileapi.SeccompProfile) {
-	if cfg.Spec.Enricher.EnableLogEnricher {
+	if ptr.Deref(cfg.Spec.Enricher.EnableLogEnricher, false) {
 		defaultProfiles = append(defaultProfiles, bindata.DefaultLogEnricherProfile())
 	}
 
@@ -347,7 +348,7 @@ func (r *ReconcileSPOd) handleCreate(
 		}
 	}
 
-	if !cfg.Spec.Webhook.StaticConfig {
+	if !ptr.Deref(cfg.Spec.Webhook.StaticConfig, false) {
 		r.log.Info("Deploying operator webhook")
 
 		if err := webhook.Create(ctx, r.client); err != nil {
@@ -433,7 +434,7 @@ func (r *ReconcileSPOd) handleUpdate(
 		}
 	}
 
-	if !cfg.Spec.Webhook.StaticConfig {
+	if !ptr.Deref(cfg.Spec.Webhook.StaticConfig, false) {
 		r.log.Info("Updating operator webhook")
 
 		if err := webhook.Update(ctx, r.client); err != nil {
@@ -626,7 +627,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		addEnvVar(templateSpec, config.EnableBpfRecorderEnvKey)
 
 		// Configure the apparmor profile for bpf-recorder when apparmor is enabled.
-		if cfg.Spec.EnableAppArmor {
+		if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
 			localApparmorProfile := config.BpfRecorderApparmorProfileName
 			ctr.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
 				Type:             corev1.AppArmorProfileTypeLocalhost,
@@ -691,7 +692,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	}
 
 	// AppArmor parameters
-	if cfg.Spec.EnableAppArmor {
+	if ptr.Deref(cfg.Spec.EnableAppArmor, false) {
 		falsely, truly := false, true
 
 		var userRoot int64
@@ -739,7 +740,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 	}
 
 	// Enable memory optimization for spod controller
-	if cfg.Spec.EnableMemoryOptimization {
+	if ptr.Deref(cfg.Spec.EnableMemoryOptimization, false) {
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			"--with-mem-optim=true")
@@ -757,7 +758,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
 		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
 		// even though SELinux is disabled in order to get the containers to start.
-		if !cfg.Spec.EnableAppArmor {
+		if !ptr.Deref(cfg.Spec.EnableAppArmor, false) {
 			configureSeLinuxTag(templateSpec.InitContainers[i].SecurityContext, cfg.Spec.Selinux.TypeTag)
 		}
 	}
@@ -770,7 +771,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers[i].Env = append(templateSpec.Containers[i].Env, verbosityEnv(cfg.Spec.Verbosity))
 
 		// Enable profiling if requested
-		if cfg.Spec.EnableProfiling {
+		if ptr.Deref(cfg.Spec.EnableProfiling, false) {
 			enableContainerProfiling(templateSpec, i)
 		}
 		// Update the SELinux type tag only when AppArmor is not enabled this is to prevent a crash.
@@ -778,7 +779,7 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		// SELinux can be active on the node regardless if the SELinux feature is enabled or not in the operator.
 		// For instance, on Flatcar Linux SELinux type tag needs to be set to 'unconfined_t' instead of 'spc_t'
 		// even though SELinux is disabled in order to get the containers to start.
-		if !cfg.Spec.EnableAppArmor {
+		if !ptr.Deref(cfg.Spec.EnableAppArmor, false) {
 			configureSeLinuxTag(templateSpec.Containers[i].SecurityContext, cfg.Spec.Selinux.TypeTag)
 		}
 	}
@@ -888,7 +889,7 @@ func isLogEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool
 		enableLogEnricherEnv = false
 	}
 
-	return cfg.Spec.Enricher.EnableLogEnricher || enableLogEnricherEnv
+	return ptr.Deref(cfg.Spec.Enricher.EnableLogEnricher, false) || enableLogEnricherEnv
 }
 
 func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool {
@@ -897,7 +898,7 @@ func isJsonEnricherEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) boo
 		enableJsonEnricherEnv = false
 	}
 
-	return cfg.Spec.Enricher.EnableJsonEnricher || enableJsonEnricherEnv
+	return ptr.Deref(cfg.Spec.Enricher.EnableJsonEnricher, false) || enableJsonEnricherEnv
 }
 
 func addArgsConfig(args []string, argonfig string) []string {
@@ -946,7 +947,7 @@ func isBpfRecorderEnabled(cfg *spodv1alpha1.SecurityProfilesOperatorDaemon) bool
 		enableBpfRecorderEnv = false
 	}
 
-	return cfg.Spec.Enricher.EnableBpfRecorder || enableBpfRecorderEnv
+	return ptr.Deref(cfg.Spec.Enricher.EnableBpfRecorder, false) || enableBpfRecorderEnv
 }
 
 func addEnvVar(templateSpec *corev1.PodSpec, envVarKey string) {
