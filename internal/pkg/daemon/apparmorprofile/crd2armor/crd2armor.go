@@ -107,7 +107,7 @@ type ApparmorData struct {
 	Network    *Network
 }
 
-// Executables validated allowed executables and libraries.
+// Executable validated allowed executables and libraries.
 type Executable struct {
 	AllowedExecutables []string
 	AllowedLibraries   []string
@@ -127,14 +127,14 @@ type Network struct {
 	AllowUDP bool
 }
 
-// Capabilities validated allowed capabilities.
+// Capability validated allowed capabilities.
 type Capability struct {
 	AllowedCapabilities []string
 }
 
 // Global chars constraints: these are strictly forbidden regardless of field type.
 var (
-	// Allowed characters in the profile name
+	// Allowed characters in the profile name.
 	profileNameChars = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
 	// Prevent newline/carriage return injection.
 	illegalChars = regexp.MustCompile(`[\n\r]`)
@@ -181,10 +181,12 @@ func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract)
 		if abstract.Network.AllowRaw != nil {
 			data.Network.AllowRaw = *abstract.Network.AllowRaw
 		}
+
 		if abstract.Network.Protocols != nil &&
 			abstract.Network.Protocols.AllowTCP != nil {
 			data.Network.AllowTCP = *abstract.Network.Protocols.AllowTCP
 		}
+
 		if abstract.Network.Protocols != nil &&
 			abstract.Network.Protocols.AllowUDP != nil {
 			data.Network.AllowUDP = *abstract.Network.Protocols.AllowUDP
@@ -201,10 +203,7 @@ func (d *ApparmorData) Validate() error {
 
 	// 2. Validates all file system paths
 	if d.Filesystem != nil {
-		paths := make([]string,
-			len(d.Filesystem.ReadOnlyPaths)+
-				len(d.Filesystem.WriteOnlyPaths)+
-				len(d.Filesystem.ReadWritePaths))
+		paths := []string{}
 		paths = append(paths, d.Filesystem.ReadOnlyPaths...)
 		paths = append(paths, d.Filesystem.WriteOnlyPaths...)
 		paths = append(paths, d.Filesystem.ReadWritePaths...)
@@ -226,8 +225,7 @@ func (d *ApparmorData) Validate() error {
 
 	// 4. Validates all allowed executables and libraries.
 	if d.Executable != nil {
-		execsAndLibs := make([]string,
-			len(d.Executable.AllowedExecutables)+len(d.Executable.AllowedLibraries))
+		execsAndLibs := []string{}
 		execsAndLibs = append(execsAndLibs, d.Executable.AllowedExecutables...)
 		execsAndLibs = append(execsAndLibs, d.Executable.AllowedLibraries...)
 		for _, exec := range execsAndLibs {
@@ -236,6 +234,7 @@ func (d *ApparmorData) Validate() error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -246,10 +245,11 @@ func validPath(path string) error {
 	if illegalChars.MatchString(path) || structuralChars.MatchString(path) {
 		return fmt.Errorf("path contains forbidden characters: %s", path)
 	}
+
 	return nil
 }
 
-func validateCapability(cap string) error {
+func validateCapability(capability string) error {
 	// Contains all standard Linux capabilities supported by AppArmor.
 	// They are matched in lowercase, without the "CAP_" prefix.
 	var validCapabilities = map[string]bool{
@@ -267,17 +267,19 @@ func validateCapability(cap string) error {
 		"syslog": true, "wake_alarm": true, "block_suspend": true,
 		"audit_read": true, "perfmon": true, "bpf": true, "checkpoint_restore": true,
 	}
-	normalized := strings.ToLower(strings.TrimSpace(cap))
+
+	normalized := strings.ToLower(strings.TrimSpace(capability))
 	if exists, ok := validCapabilities[normalized]; ok && exists {
 		return nil
 	}
-	return fmt.Errorf("invalid or forbidden capability: %q", cap)
+	return fmt.Errorf("invalid or forbidden capability: %q", capability)
 }
 
 func validateExecutableOrLibrary(path string) error {
 	if path == "" {
 		return nil // skip validation for empty paths
 	}
+
 	if structuralChars.MatchString(path) {
 		return fmt.Errorf("path contains forbidden characters: %q", path)
 	}
@@ -287,6 +289,7 @@ func validateExecutableOrLibrary(path string) error {
 	if strings.Contains(path, "/../") || strings.HasPrefix(path, "/..") {
 		return fmt.Errorf("path cannot contain directory traversal: %q", path)
 	}
+
 	return nil
 }
 
