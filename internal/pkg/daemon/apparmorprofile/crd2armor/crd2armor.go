@@ -212,6 +212,7 @@ func (d *ApparmorData) Validate() error {
 		paths = append(paths, d.Filesystem.ReadOnlyPaths...)
 		paths = append(paths, d.Filesystem.WriteOnlyPaths...)
 		paths = append(paths, d.Filesystem.ReadWritePaths...)
+
 		for _, path := range paths {
 			if err := validPath(path); err != nil {
 				return fmt.Errorf("validating path: %w", err)
@@ -234,6 +235,7 @@ func (d *ApparmorData) Validate() error {
 			len(d.Executable.AllowedExecutables)+len(d.Executable.AllowedLibraries))
 		execsAndLibs = append(execsAndLibs, d.Executable.AllowedExecutables...)
 		execsAndLibs = append(execsAndLibs, d.Executable.AllowedLibraries...)
+
 		for _, exec := range execsAndLibs {
 			if err := validateExecutableOrLibrary(exec); err != nil {
 				return fmt.Errorf("validating execs and libs: %w", err)
@@ -248,6 +250,7 @@ func validPath(path string) error {
 	if path == "" {
 		return nil // skip validation for empty path.
 	}
+
 	if illegalChars.MatchString(path) || structuralChars.MatchString(path) {
 		return fmt.Errorf("path contains forbidden characters: %s", path)
 	}
@@ -290,9 +293,11 @@ func validateExecutableOrLibrary(path string) error {
 	if structuralChars.MatchString(path) {
 		return fmt.Errorf("path contains forbidden characters: %q", path)
 	}
+
 	if !strictPathRegex.MatchString(path) {
 		return fmt.Errorf("path must be absolute and contain only safe characters: %q", path)
 	}
+
 	if strings.Contains(path, "/../") || strings.HasPrefix(path, "/..") {
 		return fmt.Errorf("path cannot contain directory traversal: %q", path)
 	}
