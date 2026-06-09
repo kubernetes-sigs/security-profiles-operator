@@ -252,7 +252,7 @@ func validPath(path string) error {
 func validateCapability(capability string) error {
 	// Contains all standard Linux capabilities supported by AppArmor.
 	// They are matched in lowercase, without the "CAP_" prefix.
-	var validCapabilities = map[string]bool{
+	validCapabilities := map[string]bool{
 		"chown": true, "dac_override": true, "dac_read_search": true,
 		"fowner": true, "fsetid": true, "kill": true, "setgid": true,
 		"setuid": true, "setpcap": true, "linux_immutable": true,
