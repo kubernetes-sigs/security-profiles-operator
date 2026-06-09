@@ -81,6 +81,12 @@ func TestGenerateProfile(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name:        "Name sanitization - good(spoc) -  alphanumerical profile path",
+			profileName: "/path/to/my/profile",
+			abstract:    &apparmorprofileapi.AppArmorAbstract{},
+			wantErr:     false,
+		},
+		{
 			name:        "Name sanitization - bad - contains space",
 			profileName: "my profile",
 			abstract:    &apparmorprofileapi.AppArmorAbstract{},
