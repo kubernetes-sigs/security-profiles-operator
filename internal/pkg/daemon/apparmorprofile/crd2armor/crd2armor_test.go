@@ -135,6 +135,46 @@ func TestGenerateProfile(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "Path sanitization - good - only root",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Path sanitization - good - only root",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Path sanitization - good - ptrace injection hack",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{
+						"ptrace (read),",
+						"ptrace (trace), # ugly template injection hack",
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Path sanitization - bad - malicious ptrace attempt",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					// Fails because there is no comma, or tries to inject file rules after ptrace
+					ReadOnlyPaths: []string{"ptrace (read) /etc/shadow r,"},
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "Path sanitization - bad - missing leading slash (relative path)",
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{

@@ -142,8 +142,10 @@ var (
 	// 2. Contains only safe characters: alphanumeric, slashes, dashes, dots, underscores, plus, and spaces.
 	// 3. Allows AppArmor globbing (*, **, ?) if you intend to support wildcards.
 	// 4. Allows Apparmor reference as: /proc/@{pid}/cgroup
+	// 5. A valid absolute path (including just "/")
+	// 6. An explicitly formatted ptrace rule injection hack
 	// Critically, it EXCLUDES commas, quotes, and newlines.
-	strictPathRegex = regexp.MustCompile(`^/[a-zA-Z0-9_./*?+@{}\-\s]+$`)
+	strictPathRegex = regexp.MustCompile(`^(?:/[a-zA-Z0-9_./*?+@{} -]*|ptrace\s*\([a-zA-Z]+\),(?:\s*#.*)?)$`)
 )
 
 func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract) *ApparmorData {
