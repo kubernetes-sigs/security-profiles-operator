@@ -101,6 +101,87 @@ func TestGenerateProfile(t *testing.T) {
 		{
 			name: "Path sanitization - good - standard absolute path",
 			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/usr/bin/nginx"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Path sanitization - good - path with AppArmor variables",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/proc/@{pid}/cgroup", "/@{HOME}/.bashrc"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Path sanitization - good - path with wildcards",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/var/log/**", "/etc/nginx/conf.d/*.conf", "/lib/tls/i686/cmov/lib*.so?"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Path sanitization - good - path with special allowed characters and spaces",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/opt/my-app/v1.2+3/run_app", "/My Documents/test file"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Path sanitization - bad - missing leading slash (relative path)",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"usr/bin/nginx"}, // Fails the ^/ requirement
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - quote injection attempt",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{`/usr/bin/nginx" - r,`}, // Quotes are not in the allowed regex class
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - shell execution injection",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/usr/bin/$(whoami)"}, // $ and () are not allowed
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - rule breakout with comma",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/usr/bin/nginx, /etc/passwd"}, // Comma is not allowed
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - command chaining",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Filesystem: &apparmorprofileapi.AppArmorFsRules{
+					ReadOnlyPaths: []string{"/usr/bin/nginx ; rm -rf /"}, // Semicolon is not allowed
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - good - standard absolute path",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
 					AllowedExecutables: []string{"/usr/bin/nginx"},
 				},

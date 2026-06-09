@@ -136,17 +136,14 @@ type Capability struct {
 var (
 	// Allowed characters in the profile name.
 	profileNameChars = regexp.MustCompile(`^[a-zA-Z0-9_./-]+$`)
-	// Prevent newline/carriage return injection.
-	illegalChars = regexp.MustCompile(`[\n\r]`)
-	// Prevent breaking the structural context (comma, quote, closing brace).
-	structuralChars = regexp.MustCompile(`[",{}]`)
 	// String regex for path validation in case of allowed executables and libraries.
 	// Enforces that the path:
 	// 1. Starts with a forward slash (must be an absolute path).
 	// 2. Contains only safe characters: alphanumeric, slashes, dashes, dots, underscores, plus, and spaces.
 	// 3. Allows AppArmor globbing (*, **, ?) if you intend to support wildcards.
+	// 4. Allows Apparmor reference as: /proc/@{pid}/cgroup
 	// Critically, it EXCLUDES commas, quotes, and newlines.
-	strictPathRegex = regexp.MustCompile(`^/[a-zA-Z0-9_./*?+\-\s]+$`)
+	strictPathRegex = regexp.MustCompile(`^/[a-zA-Z0-9_./*?+@{}\-\s]+$`)
 )
 
 func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract) *ApparmorData {
@@ -251,8 +248,8 @@ func validPath(path string) error {
 		return nil // skip validation for empty path.
 	}
 
-	if illegalChars.MatchString(path) || structuralChars.MatchString(path) {
-		return fmt.Errorf("path contains forbidden characters: %s", path)
+	if !strictPathRegex.MatchString(path) {
+		return fmt.Errorf("path must contain only safe characters: %q", path)
 	}
 
 	return nil
@@ -288,10 +285,6 @@ func validateCapability(capability string) error {
 func validateExecutableOrLibrary(path string) error {
 	if path == "" {
 		return nil // skip validation for empty paths
-	}
-
-	if structuralChars.MatchString(path) {
-		return fmt.Errorf("path contains forbidden characters: %q", path)
 	}
 
 	if !strictPathRegex.MatchString(path) {
