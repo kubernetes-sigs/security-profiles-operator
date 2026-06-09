@@ -48,12 +48,18 @@ spec:
           spec:
             description: RawSelinuxProfileSpec defines the desired state of RawSelinuxProfile.
             properties:
-              disabled:
-                default: false
-                description: Whether the profile is disabled and should be skipped
-                  during reconciliation.
-                type: boolean
               policy:
+                maxLength: 500000
+                minLength: 1
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
                 type: string
             type: object
           status:
@@ -63,6 +69,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               conditions:
                 description: Conditions of the resource.
                 items:
@@ -99,11 +106,22 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               status:
                 description: |-
                   ProfileState defines the state that the profile is in. A profile in this context
                   refers to a SeccompProfile or a SELinux profile, the states are shared between them
                   as well as the management API.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
               usage:
                 description: |-

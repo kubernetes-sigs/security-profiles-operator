@@ -109,6 +109,7 @@ func (r *ReconcileSPOd) Healthz(*http.Request) error {
 // +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments;daemonsets/finalizers,verbs=delete;get;update;patch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=issuers;certificates,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=security-profiles-operator.x-k8s.io,resources=securityprofilesoperatordaemons/status,verbs=get;update;patch
@@ -572,6 +573,11 @@ func (r *ReconcileSPOd) getConfiguredSPOd(
 		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
 			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
 			"--with-selinux=true")
+
+		enableRawSelinux := ptr.Deref(cfg.Spec.Selinux.EnableRawSelinuxProfiles, true)
+		templateSpec.Containers[bindata.ContainerIDDaemon].Args = append(
+			templateSpec.Containers[bindata.ContainerIDDaemon].Args,
+			fmt.Sprintf("--with-raw-selinux=%t", enableRawSelinux))
 	}
 
 	// Custom host proc volume
@@ -833,11 +839,13 @@ func (r *ReconcileSPOd) getConfiguredJsonEnricher(cfg *spodv1alpha1.SecurityProf
 			"AuditLogMaxBackups", cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxBackups,
 		)
 
-		r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
-			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
-			fmt.Sprintf("--audit-log-interval-seconds=%d",
-				cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds),
-		)
+		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds != nil {
+			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(
+				r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args,
+				fmt.Sprintf("--audit-log-interval-seconds=%d",
+					*cfg.Spec.Enricher.JsonEnricherOptions.AuditLogIntervalSeconds),
+			)
+		}
 
 		if cfg.Spec.Enricher.JsonEnricherOptions.AuditLogMaxAge != nil {
 			r.baseSPOd.Spec.Template.Spec.Containers[bindata.ContainerIDJsonEnricher].Args = addArgsConfig(

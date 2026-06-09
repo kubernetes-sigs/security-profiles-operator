@@ -214,7 +214,7 @@ func (e *e2e) testCaseSelinuxIncompletePolicy() {
 	e.logf("creating incomplete policy")
 
 	removeFn := e.writeAndCreate(
-		fmt.Sprintf(errorloggerIncompletePolFmt, "enforcing", "permissive", "false"),
+		fmt.Sprintf(errorloggerIncompletePolFmt, "enforcing", "mode", "Enforcing"),
 		"errorlogger-policy-incomplete-enforcing.yml")
 	defer removeFn()
 
@@ -283,7 +283,7 @@ func (e *e2e) testCaseSelinuxIncompletePermissivePolicy() {
 	e.logf("creating incomplete policy")
 
 	removeFn := e.writeAndCreate(
-		fmt.Sprintf(errorloggerIncompletePolFmt, "permissive", "permissive", "true"),
+		fmt.Sprintf(errorloggerIncompletePolFmt, "permissive", "mode", "Permissive"),
 		"errorlogger-policy-incomplete-permissive.yml")
 	defer removeFn()
 
@@ -314,7 +314,7 @@ func (e *e2e) testCaseSelinuxIncompleteDisabledPolicy() {
 	e.logf("creating disabled policy")
 
 	removeFn := e.writeAndCreate(
-		fmt.Sprintf(errorloggerIncompletePolFmt, "disabled", "disabled", "true"),
+		fmt.Sprintf(errorloggerIncompletePolFmt, "disabled", "state", "Disabled"),
 		"errorlogger-policy-incomplete-disabled.yml")
 	defer removeFn()
 

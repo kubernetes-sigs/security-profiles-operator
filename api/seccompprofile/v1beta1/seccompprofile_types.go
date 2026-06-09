@@ -80,6 +80,7 @@ type SeccompProfileSpec struct {
 	DefaultAction Action `json:"defaultAction"`
 	// the architecture used for system calls
 	// +optional
+	// +listType=set
 	Architectures []Arch `json:"architectures,omitempty"`
 	// path of UNIX domain socket to contact a seccomp agent for SCMP_ACT_NOTIFY
 	// +optional
@@ -92,12 +93,14 @@ type SeccompProfileSpec struct {
 	// if defaultAction is SCMP_ACT_KILL and syscalls is empty or unset, the
 	// kernel will kill the container process on its first syscall
 	// +optional
+	// +listType=atomic
 	Syscalls []Syscall `json:"syscalls,omitempty"`
 
 	// Additional properties from OCI runtime spec
 
 	// list of flags to use with seccomp(2)
 	// +optional
+	// +listType=set
 	Flags []Flag `json:"flags,omitempty"`
 }
 
@@ -115,6 +118,8 @@ type Flag string
 type Syscall struct {
 	// the names of the syscalls
 	// +required
+	// +kubebuilder:validation:MinItems=1
+	// +listType=set
 	Names []string `json:"names"`
 	// the action for seccomp rules
 	// +required
@@ -127,6 +132,7 @@ type Syscall struct {
 	// the specific syscall in seccomp
 	// +optional
 	// +kubebuilder:validation:MaxItems=6
+	// +listType=atomic
 	Args []Arg `json:"args,omitempty"`
 }
 
@@ -155,6 +161,7 @@ type SeccompProfileStatus struct {
 	// +optional
 	Path string `json:"path,omitempty"`
 	// +optional
+	// +listType=set
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
 	// The path that should be provided to the `securityContext.seccompProfile.localhostProfile`
 	// field of a Pod or container spec

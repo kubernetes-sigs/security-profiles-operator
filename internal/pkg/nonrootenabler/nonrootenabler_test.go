@@ -44,7 +44,7 @@ func TestRun(t *testing.T) {
 		},
 		{ // success symlink exists
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.StatReturns(nil, errTest)
+				mock.LstatReturns(nil, errTest)
 			},
 			shouldError: false,
 		},
@@ -54,22 +54,22 @@ func TestRun(t *testing.T) {
 			},
 			shouldError: true,
 		},
-		{ // failure on Chown
+		{ // failure on Lchown
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.ChownReturns(errTest)
+				mock.LchownReturns(errTest)
 			},
 			shouldError: true,
 		},
 		{ // failure on Symlink
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.StatReturns(nil, os.ErrNotExist)
+				mock.LstatReturns(nil, os.ErrNotExist)
 				mock.SymlinkReturns(errTest)
 			},
 			shouldError: true,
 		},
-		{ // failure on Chown
+		{ // failure on Lchown
 			prepare: func(mock *nonrootenablerfakes.FakeImpl) {
-				mock.ChownReturns(errTest)
+				mock.LchownReturns(errTest)
 			},
 			shouldError: true,
 		},

@@ -79,6 +79,7 @@ spec:
                   - SCMP_ARCH_RISCV64
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               baseProfileName:
                 description: |-
                   BaseProfileName is the name of base profile (in the same namespace) that
@@ -98,11 +99,6 @@ spec:
                 - SCMP_ACT_LOG
                 - SCMP_ACT_NOTIFY
                 type: string
-              disabled:
-                default: false
-                description: Whether the profile is disabled and should be skipped
-                  during reconciliation.
-                type: boolean
               flags:
                 description: list of flags to use with seccomp(2)
                 items:
@@ -113,12 +109,22 @@ spec:
                   - SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               listenerMetadata:
                 description: opaque data to pass to the seccomp agent
                 type: string
               listenerPath:
                 description: path of UNIX domain socket to contact a seccomp agent
                   for SCMP_ACT_NOTIFY
+                type: string
+              state:
+                default: Enabled
+                description: |-
+                  state controls whether the profile is enabled or disabled for
+                  reconciliation. A disabled profile will be skipped.
+                enum:
+                - Enabled
+                - Disabled
                 type: string
               syscalls:
                 description: |-
@@ -179,6 +185,7 @@ spec:
                         type: object
                       maxItems: 6
                       type: array
+                      x-kubernetes-list-type: atomic
                     errnoRet:
                       description: |-
                         the errno return code to use. Some actions like SCMP_ACT_ERRNO and
@@ -190,12 +197,15 @@ spec:
                       description: the names of the syscalls
                       items:
                         type: string
+                      minItems: 1
                       type: array
+                      x-kubernetes-list-type: set
                   required:
                   - action
                   - names
                   type: object
                 type: array
+                x-kubernetes-list-type: atomic
             required:
             - defaultAction
             type: object
@@ -206,6 +216,7 @@ spec:
                 items:
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               conditions:
                 description: Conditions of the resource.
                 items:
@@ -257,6 +268,14 @@ spec:
                   ProfileState defines the state that the profile is in. A profile in this context
                   refers to a SeccompProfile or a SELinux profile, the states are shared between them
                   as well as the management API.
+                enum:
+                - Partial
+                - Disabled
+                - Pending
+                - InProgress
+                - Installed
+                - Terminating
+                - Error
                 type: string
             type: object
         type: object

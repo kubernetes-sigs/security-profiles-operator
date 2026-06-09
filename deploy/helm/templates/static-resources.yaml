@@ -87,6 +87,7 @@ rules:
   - admissionregistration.k8s.io
   resources:
   - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
   verbs:
   - create
   - get
@@ -434,6 +435,7 @@ rules:
   - security-profiles-operator.x-k8s.io
   resources:
   - apparmorprofiles
+  - rawselinuxprofiles
   - seccompprofiles
   - selinuxprofiles
   verbs:
@@ -853,7 +855,7 @@ data:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
-      disabled: false
+      state: Enabled
   json-enricher-log-volume-mount-path: /data/logs/jsonenricher
   json-enricher-log-volume-source.json: |-
     {
@@ -1087,7 +1089,7 @@ data:
           allowedProtocols:
             allowTcp: true
             allowUdp: true
-      disabled: false
+      state: Enabled
 kind: ConfigMap
 metadata:
   annotations:

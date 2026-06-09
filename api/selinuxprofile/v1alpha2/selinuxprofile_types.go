@@ -49,8 +49,18 @@ type PolicyRef struct {
 	// +kubebuilder:validation:Enum=System;SelinuxProfile;
 	Kind string `json:"kind,omitempty"`
 	// The name of the policy that this inherits from.
+	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 }
+
+// SelinuxMode describes the enforcement mode for a SELinux profile.
+// +kubebuilder:validation:Enum=Enforcing;Permissive
+type SelinuxMode string
+
+const (
+	SelinuxModeEnforcing  SelinuxMode = "Enforcing"
+	SelinuxModePermissive SelinuxMode = "Permissive"
+)
 
 // SelinuxProfileSpec defines the desired state of SelinuxProfile.
 type SelinuxProfileSpec struct {
@@ -61,12 +71,14 @@ type SelinuxProfileSpec struct {
 	// Note that they need to be in the same namespace.
 	// +optional
 	// +kubebuilder:default={{kind:"System",name:"container"}}
+	// +listType=atomic
 	Inherit []PolicyRef `json:"inherit,omitempty"`
-	// Permissive, when true will cause the SELinux profile to only
-	// log violations instead of enforcing them.
+	// mode controls the enforcement mode for the SELinux profile.
+	// In "Permissive" mode, violations are logged but allowed.
+	// In "Enforcing" mode (the default), violations are denied.
 	// +optional
-	// +kubebuilder:default=false
-	Permissive bool `json:"permissive,omitempty"`
+	// +kubebuilder:default=Enforcing
+	Mode SelinuxMode `json:"mode,omitempty"`
 	// Defines the allow policy for the profile
 	Allow Allow `json:"allow,omitempty"`
 }
@@ -113,7 +125,9 @@ type SelinuxProfileStatus struct {
 
 	// Represents the string that the SelinuxProfile object can be
 	// referenced as in a pod seLinuxOptions section.
-	Usage           string   `json:"usage,omitempty"`
+	Usage string `json:"usage,omitempty"`
+	// +optional
+	// +listType=set
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
 }
 

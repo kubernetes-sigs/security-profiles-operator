@@ -1330,7 +1330,9 @@ func (r *RecorderReconciler) setDisabled(
 		return fmt.Errorf("get recording: %w", err)
 	}
 
-	profileSpecBase.Disabled = recording.Spec.DisableProfileAfterRecording
+	if recording.Spec.DisableProfileAfterRecording {
+		profileSpecBase.State = profilebase.SpecStateDisabled
+	}
 
 	return nil
 }

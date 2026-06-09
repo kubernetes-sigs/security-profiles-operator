@@ -84,6 +84,7 @@ type ProfileRecordingSpec struct {
 	// only specific containers to record instead of all containers present
 	// in the pod.
 	// +optional
+	// +listType=set
 	Containers []string `json:"containers,omitempty"`
 
 	// DisableProfileAfterRecording indicates whether the profile should be disabled
@@ -97,6 +98,8 @@ type ProfileRecordingSpec struct {
 
 // ProfileRecordingStatus contains status of the ProfileRecording.
 type ProfileRecordingStatus struct {
+	// +optional
+	// +listType=set
 	ActiveWorkloads []string `json:"activeWorkloads,omitempty"`
 }
 

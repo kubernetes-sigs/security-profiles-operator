@@ -32,8 +32,12 @@ metadata:
           },
           "spec": {
             "enableAppArmor": false,
-            "enableLogEnricher": false,
-            "enableSelinux": false
+            "enricher": {
+              "enableLogEnricher": false
+            },
+            "selinux": {
+              "enable": false
+            }
           }
         },
         {
@@ -247,8 +251,8 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Security
-    containerImage: gcr.io/k8s-staging-sp-operator/security-profiles-operator:latest
-    createdAt: "2026-04-01T07:47:04Z"
+    containerImage: registry.k8s.io/security-profiles-operator/security-profiles-operator:v0.10.1
+    createdAt: "2026-06-10T07:52:59Z"
     olm.skipRange: '>=0.4.1 <0.10.2-dev'
     operatorframework.io/cluster-monitoring: "true"
     operatorframework.io/os.linux: supported
@@ -352,6 +356,7 @@ spec:
           - admissionregistration.k8s.io
           resources:
           - mutatingwebhookconfigurations
+          - validatingwebhookconfigurations
           verbs:
           - create
           - get
@@ -517,6 +522,17 @@ spec:
         - apiGroups:
           - security-profiles-operator.x-k8s.io
           resources:
+          - apparmorprofiles
+          - rawselinuxprofiles
+          - seccompprofiles
+          - selinuxprofiles
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - security-profiles-operator.x-k8s.io
+          resources:
           - profilebindings
           - profilerecordings
           verbs:
@@ -545,15 +561,6 @@ spec:
           - get
           - patch
           - update
-        - apiGroups:
-          - security-profiles-operator.x-k8s.io
-          resources:
-          - seccompprofiles
-          - selinuxprofiles
-          verbs:
-          - get
-          - list
-          - watch
         serviceAccountName: spo-webhook
       - rules:
         - apiGroups:
@@ -628,6 +635,7 @@ spec:
           - apparmorprofiles/status
           - rawselinuxprofiles/status
           - seccompprofiles/status
+          - securityprofilenodestatuses/status
           - selinuxprofiles/status
           verbs:
           - get

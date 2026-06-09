@@ -37,19 +37,6 @@ type FakeImpl struct {
 	chmodReturnsOnCall map[int]struct {
 		result1 error
 	}
-	ChownStub        func(string, int, int) error
-	chownMutex       sync.RWMutex
-	chownArgsForCall []struct {
-		arg1 string
-		arg2 int
-		arg3 int
-	}
-	chownReturns struct {
-		result1 error
-	}
-	chownReturnsOnCall map[int]struct {
-		result1 error
-	}
 	CopyDirContentsLocalStub        func(string, string) error
 	copyDirContentsLocalMutex       sync.RWMutex
 	copyDirContentsLocalArgsForCall []struct {
@@ -73,6 +60,32 @@ type FakeImpl struct {
 	}
 	installApparmorReturnsOnCall map[int]struct {
 		result1 error
+	}
+	LchownStub        func(string, int, int) error
+	lchownMutex       sync.RWMutex
+	lchownArgsForCall []struct {
+		arg1 string
+		arg2 int
+		arg3 int
+	}
+	lchownReturns struct {
+		result1 error
+	}
+	lchownReturnsOnCall map[int]struct {
+		result1 error
+	}
+	LstatStub        func(string) (os.FileInfo, error)
+	lstatMutex       sync.RWMutex
+	lstatArgsForCall []struct {
+		arg1 string
+	}
+	lstatReturns struct {
+		result1 os.FileInfo
+		result2 error
+	}
+	lstatReturnsOnCall map[int]struct {
+		result1 os.FileInfo
+		result2 error
 	}
 	MkdirAllStub        func(string, os.FileMode) error
 	mkdirAllMutex       sync.RWMutex
@@ -98,19 +111,6 @@ type FakeImpl struct {
 	}
 	saveKubeletConfigReturnsOnCall map[int]struct {
 		result1 error
-	}
-	StatStub        func(string) (os.FileInfo, error)
-	statMutex       sync.RWMutex
-	statArgsForCall []struct {
-		arg1 string
-	}
-	statReturns struct {
-		result1 os.FileInfo
-		result2 error
-	}
-	statReturnsOnCall map[int]struct {
-		result1 os.FileInfo
-		result2 error
 	}
 	SymlinkStub        func(string, string) error
 	symlinkMutex       sync.RWMutex
@@ -186,69 +186,6 @@ func (fake *FakeImpl) ChmodReturnsOnCall(i int, result1 error) {
 		})
 	}
 	fake.chmodReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) Chown(arg1 string, arg2 int, arg3 int) error {
-	fake.chownMutex.Lock()
-	ret, specificReturn := fake.chownReturnsOnCall[len(fake.chownArgsForCall)]
-	fake.chownArgsForCall = append(fake.chownArgsForCall, struct {
-		arg1 string
-		arg2 int
-		arg3 int
-	}{arg1, arg2, arg3})
-	stub := fake.ChownStub
-	fakeReturns := fake.chownReturns
-	fake.recordInvocation("Chown", []interface{}{arg1, arg2, arg3})
-	fake.chownMutex.Unlock()
-	if stub != nil {
-		return stub(arg1, arg2, arg3)
-	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
-}
-
-func (fake *FakeImpl) ChownCallCount() int {
-	fake.chownMutex.RLock()
-	defer fake.chownMutex.RUnlock()
-	return len(fake.chownArgsForCall)
-}
-
-func (fake *FakeImpl) ChownCalls(stub func(string, int, int) error) {
-	fake.chownMutex.Lock()
-	defer fake.chownMutex.Unlock()
-	fake.ChownStub = stub
-}
-
-func (fake *FakeImpl) ChownArgsForCall(i int) (string, int, int) {
-	fake.chownMutex.RLock()
-	defer fake.chownMutex.RUnlock()
-	argsForCall := fake.chownArgsForCall[i]
-	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
-}
-
-func (fake *FakeImpl) ChownReturns(result1 error) {
-	fake.chownMutex.Lock()
-	defer fake.chownMutex.Unlock()
-	fake.ChownStub = nil
-	fake.chownReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeImpl) ChownReturnsOnCall(i int, result1 error) {
-	fake.chownMutex.Lock()
-	defer fake.chownMutex.Unlock()
-	fake.ChownStub = nil
-	if fake.chownReturnsOnCall == nil {
-		fake.chownReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.chownReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -375,6 +312,133 @@ func (fake *FakeImpl) InstallApparmorReturnsOnCall(i int, result1 error) {
 	fake.installApparmorReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeImpl) Lchown(arg1 string, arg2 int, arg3 int) error {
+	fake.lchownMutex.Lock()
+	ret, specificReturn := fake.lchownReturnsOnCall[len(fake.lchownArgsForCall)]
+	fake.lchownArgsForCall = append(fake.lchownArgsForCall, struct {
+		arg1 string
+		arg2 int
+		arg3 int
+	}{arg1, arg2, arg3})
+	stub := fake.LchownStub
+	fakeReturns := fake.lchownReturns
+	fake.recordInvocation("Lchown", []interface{}{arg1, arg2, arg3})
+	fake.lchownMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeImpl) LchownCallCount() int {
+	fake.lchownMutex.RLock()
+	defer fake.lchownMutex.RUnlock()
+	return len(fake.lchownArgsForCall)
+}
+
+func (fake *FakeImpl) LchownCalls(stub func(string, int, int) error) {
+	fake.lchownMutex.Lock()
+	defer fake.lchownMutex.Unlock()
+	fake.LchownStub = stub
+}
+
+func (fake *FakeImpl) LchownArgsForCall(i int) (string, int, int) {
+	fake.lchownMutex.RLock()
+	defer fake.lchownMutex.RUnlock()
+	argsForCall := fake.lchownArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeImpl) LchownReturns(result1 error) {
+	fake.lchownMutex.Lock()
+	defer fake.lchownMutex.Unlock()
+	fake.LchownStub = nil
+	fake.lchownReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) LchownReturnsOnCall(i int, result1 error) {
+	fake.lchownMutex.Lock()
+	defer fake.lchownMutex.Unlock()
+	fake.LchownStub = nil
+	if fake.lchownReturnsOnCall == nil {
+		fake.lchownReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.lchownReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeImpl) Lstat(arg1 string) (os.FileInfo, error) {
+	fake.lstatMutex.Lock()
+	ret, specificReturn := fake.lstatReturnsOnCall[len(fake.lstatArgsForCall)]
+	fake.lstatArgsForCall = append(fake.lstatArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.LstatStub
+	fakeReturns := fake.lstatReturns
+	fake.recordInvocation("Lstat", []interface{}{arg1})
+	fake.lstatMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeImpl) LstatCallCount() int {
+	fake.lstatMutex.RLock()
+	defer fake.lstatMutex.RUnlock()
+	return len(fake.lstatArgsForCall)
+}
+
+func (fake *FakeImpl) LstatCalls(stub func(string) (os.FileInfo, error)) {
+	fake.lstatMutex.Lock()
+	defer fake.lstatMutex.Unlock()
+	fake.LstatStub = stub
+}
+
+func (fake *FakeImpl) LstatArgsForCall(i int) string {
+	fake.lstatMutex.RLock()
+	defer fake.lstatMutex.RUnlock()
+	argsForCall := fake.lstatArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeImpl) LstatReturns(result1 os.FileInfo, result2 error) {
+	fake.lstatMutex.Lock()
+	defer fake.lstatMutex.Unlock()
+	fake.LstatStub = nil
+	fake.lstatReturns = struct {
+		result1 os.FileInfo
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeImpl) LstatReturnsOnCall(i int, result1 os.FileInfo, result2 error) {
+	fake.lstatMutex.Lock()
+	defer fake.lstatMutex.Unlock()
+	fake.LstatStub = nil
+	if fake.lstatReturnsOnCall == nil {
+		fake.lstatReturnsOnCall = make(map[int]struct {
+			result1 os.FileInfo
+			result2 error
+		})
+	}
+	fake.lstatReturnsOnCall[i] = struct {
+		result1 os.FileInfo
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeImpl) MkdirAll(arg1 string, arg2 os.FileMode) error {
@@ -505,70 +569,6 @@ func (fake *FakeImpl) SaveKubeletConfigReturnsOnCall(i int, result1 error) {
 	fake.saveKubeletConfigReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
-}
-
-func (fake *FakeImpl) Stat(arg1 string) (os.FileInfo, error) {
-	fake.statMutex.Lock()
-	ret, specificReturn := fake.statReturnsOnCall[len(fake.statArgsForCall)]
-	fake.statArgsForCall = append(fake.statArgsForCall, struct {
-		arg1 string
-	}{arg1})
-	stub := fake.StatStub
-	fakeReturns := fake.statReturns
-	fake.recordInvocation("Stat", []interface{}{arg1})
-	fake.statMutex.Unlock()
-	if stub != nil {
-		return stub(arg1)
-	}
-	if specificReturn {
-		return ret.result1, ret.result2
-	}
-	return fakeReturns.result1, fakeReturns.result2
-}
-
-func (fake *FakeImpl) StatCallCount() int {
-	fake.statMutex.RLock()
-	defer fake.statMutex.RUnlock()
-	return len(fake.statArgsForCall)
-}
-
-func (fake *FakeImpl) StatCalls(stub func(string) (os.FileInfo, error)) {
-	fake.statMutex.Lock()
-	defer fake.statMutex.Unlock()
-	fake.StatStub = stub
-}
-
-func (fake *FakeImpl) StatArgsForCall(i int) string {
-	fake.statMutex.RLock()
-	defer fake.statMutex.RUnlock()
-	argsForCall := fake.statArgsForCall[i]
-	return argsForCall.arg1
-}
-
-func (fake *FakeImpl) StatReturns(result1 os.FileInfo, result2 error) {
-	fake.statMutex.Lock()
-	defer fake.statMutex.Unlock()
-	fake.StatStub = nil
-	fake.statReturns = struct {
-		result1 os.FileInfo
-		result2 error
-	}{result1, result2}
-}
-
-func (fake *FakeImpl) StatReturnsOnCall(i int, result1 os.FileInfo, result2 error) {
-	fake.statMutex.Lock()
-	defer fake.statMutex.Unlock()
-	fake.StatStub = nil
-	if fake.statReturnsOnCall == nil {
-		fake.statReturnsOnCall = make(map[int]struct {
-			result1 os.FileInfo
-			result2 error
-		})
-	}
-	fake.statReturnsOnCall[i] = struct {
-		result1 os.FileInfo
-		result2 error
-	}{result1, result2}
 }
 
 func (fake *FakeImpl) Symlink(arg1 string, arg2 string) error {

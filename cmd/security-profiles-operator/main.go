@@ -77,6 +77,7 @@ import (
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/binding"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/execmetadata"
 	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/recording"
+	"sigs.k8s.io/security-profiles-operator/internal/pkg/webhooks/validation"
 )
 
 const (
@@ -90,6 +91,7 @@ const (
 	seccompFlag                  string = "with-seccomp"
 	selinuxFlag                  string = "with-selinux"
 	apparmorFlag                 string = "with-apparmor"
+	rawSelinuxFlag               string = "with-raw-selinux"
 	webhookFlag                  string = "webhook"
 	memOptimFlag                 string = "with-mem-optim"
 	defaultWebhookPort           int    = 9443
@@ -196,6 +198,11 @@ func main() {
 				&cli.BoolFlag{
 					Name:  apparmorFlag,
 					Usage: "Listen for AppArmor API resources",
+					Value: false,
+				},
+				&cli.BoolFlag{
+					Name:  rawSelinuxFlag,
+					Usage: "Listen for RawSelinuxProfile API resources",
 					Value: false,
 				},
 				&cli.BoolFlag{
@@ -601,9 +608,11 @@ func getEnabledControllers(ctx *cli.Context) []controller.Controller {
 	}
 
 	if ctx.Bool(selinuxFlag) {
-		controllers = append(controllers,
-			selinuxprofile.NewController(),
-			selinuxprofile.NewRawController())
+		controllers = append(controllers, selinuxprofile.NewController())
+
+		if ctx.Bool(rawSelinuxFlag) {
+			controllers = append(controllers, selinuxprofile.NewRawController())
+		}
 	}
 
 	if ctx.Bool(apparmorFlag) {
@@ -873,6 +882,7 @@ func runWebhook(ctx *cli.Context, info *version.Info) error {
 	//nolint:staticcheck,nolintlint // TODO: migrate to GetEventRecorder
 	recording.RegisterWebhook(hookserver, mgr.GetScheme(), mgr.GetEventRecorderFor("recording-webhook"), mgr.GetClient())
 	execmetadata.RegisterWebhook(hookserver)
+	validation.RegisterWebhook(hookserver, mgr.GetScheme())
 
 	sigHandler := ctrl.SetupSignalHandler()
 

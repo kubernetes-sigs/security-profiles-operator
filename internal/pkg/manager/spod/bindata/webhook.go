@@ -106,12 +106,15 @@ const (
 )
 
 const (
-	webhookName        = config.OperatorName + "-webhook"
-	webhookConfigName  = "spo-mutating-webhook-configuration"
-	serviceAccountName = "spo-webhook"
-	certsMountPath     = "/tmp/k8s-webhook-server/serving-certs"
-	serviceName        = "webhook-service"
-	webhookServerCert  = "webhook-server-cert"
+	webhookName                  = config.OperatorName + "-webhook"
+	webhookConfigName            = "spo-mutating-webhook-configuration"
+	validatingWebhookConfigName  = "spo-validating-webhook-configuration"
+	serviceAccountName           = "spo-webhook"
+	certsMountPath               = "/tmp/k8s-webhook-server/serving-certs"
+	serviceName                  = "webhook-service"
+	webhookServerCert            = "webhook-server-cert"
+	rawSelinuxProfileValidation  = "rawselinuxprofile-validation.spo.io"
+	rawSelinuxProfileWebhookPath = "/validate-rawselinuxprofile"
 )
 
 type webhook struct {
@@ -128,10 +131,11 @@ var (
 )
 
 type Webhook struct {
-	log        logr.Logger
-	deployment *appsv1.Deployment
-	config     *admissionregv1.MutatingWebhookConfiguration
-	service    *corev1.Service
+	log              logr.Logger
+	deployment       *appsv1.Deployment
+	config           *admissionregv1.MutatingWebhookConfiguration
+	validatingConfig *admissionregv1.ValidatingWebhookConfiguration
+	service          *corev1.Service
 }
 
 func GetWebhook(
@@ -191,11 +195,27 @@ func GetWebhook(
 	// then apply the user-specified opts
 	applyWebhookOptions(cfg, webhookOpts)
 
+	valCfg := getValidatingWebhookConfig().DeepCopy()
+	valCfg.Namespace = namespace
+	valCfg.Webhooks[0].ClientConfig.Service.Namespace = namespace
+
+	switch caInjectType {
+	case CAInjectTypeCertManager:
+		valCfg.Annotations = map[string]string{
+			"cert-manager.io/inject-ca-from": config.OperatorName + "/webhook-cert",
+		}
+	case CAInjectTypeOpenShift:
+		valCfg.Annotations = map[string]string{
+			"service.beta.openshift.io/inject-cabundle": "true",
+		}
+	}
+
 	return &Webhook{
-		log:        log,
-		deployment: deployment,
-		config:     cfg,
-		service:    service,
+		log:              log,
+		deployment:       deployment,
+		config:           cfg,
+		validatingConfig: valCfg,
+		service:          service,
 	}
 }
 
@@ -203,8 +223,7 @@ func (w *Webhook) Create(ctx context.Context, c client.Client) error {
 	for k, o := range w.objectMap() {
 		if err := c.Create(ctx, o); err != nil {
 			if errors.IsAlreadyExists(err) {
-				if k == "config" {
-					// The config already exists because it's a global resource we have to remove later on
+				if k == "config" || k == "validatingConfig" {
 					if err := c.Patch(ctx, o, client.Merge); err != nil {
 						return fmt.Errorf("updating %s: %w", k, err)
 					}
@@ -283,6 +302,24 @@ func (w *Webhook) NeedsUpdate(ctx context.Context, c client.Client) (bool, error
 				return true, nil
 			}
 		}
+	}
+
+	existingValidating := admissionregv1.ValidatingWebhookConfiguration{}
+	if err := c.Get(ctx,
+		types.NamespacedName{
+			Namespace: w.validatingConfig.Namespace,
+			Name:      w.validatingConfig.Name,
+		},
+		&existingValidating); err != nil {
+		if errors.IsNotFound(err) {
+			return true, nil
+		}
+
+		return false, err
+	}
+
+	if len(existingValidating.Webhooks) != len(w.validatingConfig.Webhooks) {
+		return true, nil
 	}
 
 	return false, nil
@@ -431,9 +468,10 @@ func (w *Webhook) Update(ctx context.Context, c client.Client) error {
 
 func (w *Webhook) objectMap() map[string]client.Object {
 	return map[string]client.Object{
-		"deployment": w.deployment,
-		"config":     w.config,
-		"service":    w.service,
+		"deployment":       w.deployment,
+		"config":           w.config,
+		"validatingConfig": w.validatingConfig,
+		"service":          w.service,
 	}
 }
 
@@ -524,6 +562,43 @@ func getWebhookConfig(execMetadataWebhookEnabled bool) *admissionregv1.MutatingW
 			Name: webhookConfigName,
 		},
 		Webhooks: webhooks,
+	}
+}
+
+func getValidatingWebhookConfig() *admissionregv1.ValidatingWebhookConfiguration {
+	path := rawSelinuxProfileWebhookPath
+
+	return &admissionregv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: validatingWebhookConfigName,
+		},
+		Webhooks: []admissionregv1.ValidatingWebhook{
+			{
+				Name:          rawSelinuxProfileValidation,
+				FailurePolicy: &failurePolicyFail,
+				SideEffects:   &sideEffects,
+				Rules: []admissionregv1.RuleWithOperations{
+					{
+						Operations: []admissionregv1.OperationType{
+							"CREATE", "UPDATE",
+						},
+						Rule: admissionregv1.Rule{
+							APIGroups:   []string{"security-profiles-operator.x-k8s.io"},
+							APIVersions: []string{"v1alpha2"},
+							Resources:   []string{"rawselinuxprofiles"},
+						},
+					},
+				},
+				ClientConfig: admissionregv1.WebhookClientConfig{
+					CABundle: caBundle,
+					Service: &admissionregv1.ServiceReference{
+						Name: serviceName,
+						Path: &path,
+					},
+				},
+				AdmissionReviewVersions: admissionReviewVersions,
+			},
+		},
 	}
 }
 

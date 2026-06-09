@@ -37,4 +37,4 @@ spec:
       allowedProtocols:
         allowTcp: true
         allowUdp: true
-  disabled: false
+  state: Enabled

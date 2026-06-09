@@ -18,6 +18,9 @@ package v1alpha2
 
 import (
 	"context"
+	"errors"
+	"strings"
+	"unicode/utf8"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +39,8 @@ type RawSelinuxProfileSpec struct {
 	// Common spec fields for all profiles.
 	profilebasev1alpha1.SpecBase `json:",inline"`
 
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=500000
 	Policy string `json:"policy,omitempty"`
 }
 
@@ -84,6 +89,24 @@ func (sp *RawSelinuxProfile) ListProfilesByRecording(
 	recording string,
 ) ([]metav1.Object, error) {
 	return profilebasev1alpha1.ListProfilesByRecording(ctx, cli, recording, sp.Namespace, &RawSelinuxProfileList{})
+}
+
+func (sp *RawSelinuxProfile) ValidatePolicy() error {
+	policy := sp.Spec.Policy
+
+	if strings.TrimSpace(policy) == "" {
+		return errors.New("policy must not be empty")
+	}
+
+	if !utf8.ValidString(policy) {
+		return errors.New("policy must be valid UTF-8")
+	}
+
+	if strings.ContainsRune(policy, '\x00') {
+		return errors.New("policy must not contain null bytes")
+	}
+
+	return nil
 }
 
 func (sp *RawSelinuxProfile) IsPartial() bool {
