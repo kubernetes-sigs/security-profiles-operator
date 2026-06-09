@@ -29,14 +29,17 @@ func TestGenerateProfile(t *testing.T) {
 
 	cases := []struct {
 		name           string
+		profileName    string
 		mode           apparmorprofileapi.AppArmorMode
 		abstract       *apparmorprofileapi.AppArmorAbstract
 		mustContain    []string
 		mustNotContain []string
+		wantErr        bool
 	}{
 		{
-			name: "EnforceModeWithDeny",
-			mode: apparmorprofileapi.AppArmorModeEnforce,
+			name:        "Generate profile with enforce mode with deny",
+			profileName: "EnforceModeWithDeny",
+			mode:        apparmorprofileapi.AppArmorModeEnforce,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
 					ReadOnlyPaths: []string{"/etc/passwd"},
@@ -48,10 +51,12 @@ func TestGenerateProfile(t *testing.T) {
 				"deny /etc/passwd wlk,",
 				"deny @{PROC}/* w,",
 			},
+			wantErr: false,
 		},
 		{
-			name: "ComplainModeWithoutDeny",
-			mode: apparmorprofileapi.AppArmorModeComplain,
+			name:        "Generate profile with complain mode without deny",
+			profileName: "ComplainModeWithoutDeny",
+			mode:        apparmorprofileapi.AppArmorModeComplain,
 			abstract: &apparmorprofileapi.AppArmorAbstract{
 				Filesystem: &apparmorprofileapi.AppArmorFsRules{
 					ReadOnlyPaths: []string{"/etc/passwd"},
@@ -67,6 +72,127 @@ func TestGenerateProfile(t *testing.T) {
 				"audit /etc/passwd wlk,",
 				"audit @{PROC}/* w,",
 			},
+			wantErr: false,
+		},
+		{
+			name:        "Name sanitization - good - alphanumeric and dashes",
+			profileName: "my-app_profile.v1",
+			abstract:    &apparmorprofileapi.AppArmorAbstract{},
+			wantErr:     false,
+		},
+		{
+			name:        "Name sanitization - bad - contains space",
+			profileName: "my profile",
+			abstract:    &apparmorprofileapi.AppArmorAbstract{},
+			wantErr:     true,
+		},
+		{
+			name:        "Name sanitization - bad - newline injection",
+			profileName: "profile\n  audit network inet,",
+			abstract:    &apparmorprofileapi.AppArmorAbstract{},
+			wantErr:     true,
+		},
+		{
+			name: "Path sanitization - good - standard absolute path",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"/usr/bin/nginx"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Path sanitization - good - library with wildcard",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedLibraries: []string{"/lib/x86_64-linux-gnu/**"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Path sanitization - bad - relative path",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"usr/bin/app"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - newline structural injection",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					// Attempting to break out of the string to start a new rule
+					AllowedExecutables: []string{"/var/log/app.log\n  audit network inet,"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - quote injection",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					// Attempting to close the template's quotes early
+					AllowedLibraries: []string{"/var/log/\"app\".log"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Path sanitization - bad - directory traversal",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Executable: &apparmorprofileapi.AppArmorExecutablesRules{
+					AllowedExecutables: []string{"/usr/bin/../etc/shadow"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Capabilities sanitization - good - standard capability",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+					AllowedCapabilities: []string{"chown"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Capabilities sanitization - good - mixed case",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+					AllowedCapabilities: []string{"DAC_OVERRIDE"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Capabilities sanitization - bad - includes CAP_ prefix",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+					AllowedCapabilities: []string{"CAP_CHOWN"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Capabilities sanitization - bad - comma injection",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+					AllowedCapabilities: []string{"chown, net_admin"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Capabilities sanitization - bad - keyword injection",
+			abstract: &apparmorprofileapi.AppArmorAbstract{
+				Capability: &apparmorprofileapi.AppArmorCapabilityRules{
+					// 'audit' is an AppArmor keyword, not a valid capability string ('audit_write' is valid)
+					AllowedCapabilities: []string{"audit"},
+				},
+			},
+			wantErr: true,
 		},
 	}
 
@@ -74,8 +200,12 @@ func TestGenerateProfile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := GenerateProfile(tc.name, tc.mode, tc.abstract)
-			require.NoError(t, err)
+			got, err := GenerateProfile(tc.profileName, tc.mode, tc.abstract)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 
 			for _, s := range tc.mustContain {
 				require.Contains(t, got, s)

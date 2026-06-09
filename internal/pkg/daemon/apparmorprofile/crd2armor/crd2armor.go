@@ -19,7 +19,10 @@ package crd2armor
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"regexp"
 	"slices"
+	"strings"
 	"text/template"
 
 	apparmorprofileapi "sigs.k8s.io/security-profiles-operator/api/apparmorprofile/v1alpha1"
@@ -32,11 +35,11 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
   #include <abstractions/base>
 
   # Executable rules
-{{ if ne .Abstract.Executable nil }}{{ if ne .Abstract.Executable.AllowedExecutables nil }}
-{{range $allowed := .Abstract.Executable.AllowedExecutables}}  {{$allowed}} ixr,
+{{ if ne .Data.Executable nil }}{{ if ne .Data.Executable.AllowedExecutables nil }}
+{{range $allowed := .Data.Executable.AllowedExecutables}}  {{$allowed}} ixr,
 {{end}}{{end}}
-{{ if ne .Abstract.Executable.AllowedLibraries nil }}
-{{range $allowedlib := .Abstract.Executable.AllowedLibraries}}  {{$allowedlib}} mr,
+{{ if ne .Data.Executable.AllowedLibraries nil }}
+{{range $allowedlib := .Data.Executable.AllowedLibraries}}  {{$allowedlib}} mr,
 {{end}}{{end}}{{end}}
   {{ if .AllowMount }}
   /sbin/fsck ixr,
@@ -44,33 +47,32 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
   {{end}}
 
   # Filesystem rules
-{{ if ne .Abstract.Filesystem nil }}{{ if ne .Abstract.Filesystem.ReadOnlyPaths nil }}
-{{range $readonly := .Abstract.Filesystem.ReadOnlyPaths}}  {{$readonly}} r,
+{{ if ne .Data.Filesystem nil }}{{ if ne .Data.Filesystem.ReadOnlyPaths nil }}
+{{range $readonly := .Data.Filesystem.ReadOnlyPaths}}  {{$readonly}} r,
 {{end}}
-{{ if not .ComplainMode }}{{range $readonly := .Abstract.Filesystem.ReadOnlyPaths}}  deny {{$readonly}} wlk,
+{{ if not .ComplainMode }}{{range $readonly := .Data.Filesystem.ReadOnlyPaths}}  deny {{$readonly}} wlk,
 {{end}}{{end}}{{end}}
-{{ if ne .Abstract.Filesystem.WriteOnlyPaths nil }}
-{{range $writeonly := .Abstract.Filesystem.WriteOnlyPaths}}  {{$writeonly}} wlk,
+{{ if ne .Data.Filesystem.WriteOnlyPaths nil }}
+{{range $writeonly := .Data.Filesystem.WriteOnlyPaths}}  {{$writeonly}} wlk,
 {{end}}
-{{ if not .ComplainMode }}{{range $writeonly := .Abstract.Filesystem.WriteOnlyPaths}}  deny {{$writeonly}} r,
+{{ if not .ComplainMode }}{{range $writeonly := .Data.Filesystem.WriteOnlyPaths}}  deny {{$writeonly}} r,
 {{end}}{{end}}{{end}}
-{{ if ne .Abstract.Filesystem.ReadWritePaths nil }}
-{{range $readwrite := .Abstract.Filesystem.ReadWritePaths}}  {{$readwrite}} rwlk,
+{{ if ne .Data.Filesystem.ReadWritePaths nil }}
+{{range $readwrite := .Data.Filesystem.ReadWritePaths}}  {{$readwrite}} rwlk,
 {{end}}{{end}}{{end}}
 
   # Network rules
-{{ if ne .Abstract.Network nil }}{{ if ne .Abstract.Network.AllowRaw nil }}
-{{ if .Abstract.Network.AllowRaw}}  network raw,{{else}}{{ if not .ComplainMode }}  deny network raw,{{end}}
+{{ if ne .Data.Network nil }}{{ if ne .Data.Network.AllowRaw nil }}
+{{ if .Data.Network.AllowRaw}}  network raw,{{else}}{{ if not .ComplainMode }}  deny network raw,{{end}}
 {{end}}{{end}}
-{{ if ne .Abstract.Network.Protocols nil }}
-{{if ne .Abstract.Network.Protocols.AllowTCP nil }}
-{{if .Abstract.Network.Protocols.AllowTCP}}  network tcp,
-{{end}}{{end}}{{if ne .Abstract.Network.Protocols.AllowUDP nil }}
-{{if .Abstract.Network.Protocols.AllowUDP}}  network udp,
-{{end}}{{end}}{{end}}{{end}}
+{{if ne .Data.Network.AllowTCP nil }}
+{{if .Data.Network.AllowTCP}}  network tcp,
+{{end}}{{end}}{{if ne .Data.Network.AllowUDP nil }}
+{{if .Data.Network.AllowUDP}}  network udp,
+{{end}}{{end}}{{end}}
 
   # Capabilities rules
-{{ if ne .Abstract.Capability nil}}{{range $cap := .Abstract.Capability.AllowedCapabilities}}  capability {{$cap}},
+{{ if ne .Data.Capability nil}}{{range $cap := .Data.Capability.AllowedCapabilities}}  capability {{$cap}},
 {{end}}{{end}}
 
   {{ if .AllowMount }}
@@ -96,12 +98,204 @@ profile {{.Name}} flags=({{.ProfileMode}},attach_disconnected,mediate_deleted) {
 }
 `
 
+// ApparmorData validated apparmor data which gets interpolated into the apparmor template.
+type ApparmorData struct {
+	Name       string
+	Executable *Executable
+	Filesystem *FileSystem
+	Capability *Capability
+	Network    *Network
+}
+
+// Executables validated allowed executables and libraries.
+type Executable struct {
+	AllowedExecutables []string
+	AllowedLibraries   []string
+}
+
+// FileSystem validated allowed file paths.
+type FileSystem struct {
+	ReadOnlyPaths  []string
+	WriteOnlyPaths []string
+	ReadWritePaths []string
+}
+
+// Network network flags.
+type Network struct {
+	AllowRaw bool
+	AllowTCP bool
+	AllowUDP bool
+}
+
+// Capabilities validated allowed capabilities.
+type Capability struct {
+	AllowedCapabilities []string
+}
+
+// Global chars constraints: these are strictly forbidden regardless of field type.
+var (
+	// Allowed characters in the profile name
+	profileNameChars = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+	// Prevent newline/carriage return injection.
+	illegalChars = regexp.MustCompile(`[\n\r]`)
+	// Prevent breaking the structural context (comma, quote, closing brace).
+	structuralChars = regexp.MustCompile(`[",{}]`)
+	// String regex for path validation in case of allowed executables and libraries.
+	// Enforces that the path:
+	// 1. Starts with a forward slash (must be an absolute path).
+	// 2. Contains only safe characters: alphanumeric, slashes, dashes, dots, underscores, plus, and spaces.
+	// 3. Allows AppArmor globbing (*, **, ?) if you intend to support wildcards.
+	// Critically, it EXCLUDES commas, quotes, and newlines.
+	strictPathRegex = regexp.MustCompile(`^/[a-zA-Z0-9_./*?+\-\s]+$`)
+)
+
+func newApparmorData(name string, abstract *apparmorprofileapi.AppArmorAbstract) *ApparmorData {
+	data := &ApparmorData{
+		Name: name,
+	}
+	if abstract == nil {
+		return data
+	}
+	if abstract.Executable != nil {
+		data.Executable = &Executable{
+			AllowedExecutables: abstract.Executable.AllowedExecutables,
+			AllowedLibraries:   abstract.Executable.AllowedLibraries,
+		}
+	}
+	if abstract.Filesystem != nil {
+		data.Filesystem = &FileSystem{
+			ReadOnlyPaths:  abstract.Filesystem.ReadOnlyPaths,
+			WriteOnlyPaths: abstract.Filesystem.WriteOnlyPaths,
+			ReadWritePaths: abstract.Filesystem.ReadWritePaths,
+		}
+	}
+
+	if abstract.Capability != nil {
+		data.Capability = &Capability{
+			AllowedCapabilities: abstract.Capability.AllowedCapabilities,
+		}
+	}
+
+	if abstract.Network != nil {
+		data.Network = &Network{}
+		if abstract.Network.AllowRaw != nil {
+			data.Network.AllowRaw = *abstract.Network.AllowRaw
+		}
+		if abstract.Network.Protocols != nil &&
+			abstract.Network.Protocols.AllowTCP != nil {
+			data.Network.AllowTCP = *abstract.Network.Protocols.AllowTCP
+		}
+		if abstract.Network.Protocols != nil &&
+			abstract.Network.Protocols.AllowUDP != nil {
+			data.Network.AllowUDP = *abstract.Network.Protocols.AllowUDP
+		}
+	}
+	return data
+}
+
+func (d *ApparmorData) Validate() error {
+	// 1. Validate profile name (usually limited to [a-zA-Z0-9_-])
+	if d.Name != "" && !profileNameChars.MatchString(d.Name) {
+		return fmt.Errorf("invalid profile name: %q", d.Name)
+	}
+
+	// 2. Validates all file system paths
+	if d.Filesystem != nil {
+		paths := make([]string,
+			len(d.Filesystem.ReadOnlyPaths)+
+				len(d.Filesystem.WriteOnlyPaths)+
+				len(d.Filesystem.ReadWritePaths))
+		paths = append(paths, d.Filesystem.ReadOnlyPaths...)
+		paths = append(paths, d.Filesystem.WriteOnlyPaths...)
+		paths = append(paths, d.Filesystem.ReadWritePaths...)
+		for _, path := range paths {
+			if err := validPath(path); err != nil {
+				return fmt.Errorf("validating path: %w", err)
+			}
+		}
+	}
+
+	// 3. Validates all capabilities against an allowed list
+	if d.Capability != nil {
+		for _, cap := range d.Capability.AllowedCapabilities {
+			if err := validateCapability(cap); err != nil {
+				return fmt.Errorf("validating capability: %w", err)
+			}
+		}
+	}
+
+	// 4. Validates all allowed executables and libraries.
+	if d.Executable != nil {
+		execsAndLibs := make([]string,
+			len(d.Executable.AllowedExecutables)+len(d.Executable.AllowedLibraries))
+		execsAndLibs = append(execsAndLibs, d.Executable.AllowedExecutables...)
+		execsAndLibs = append(execsAndLibs, d.Executable.AllowedLibraries...)
+		for _, exec := range execsAndLibs {
+			if err := validateExecutableOrLibrary(exec); err != nil {
+				return fmt.Errorf("validating execs and libs: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+func validPath(path string) error {
+	if path == "" {
+		return nil // skip validation for empty path.
+	}
+	if illegalChars.MatchString(path) || structuralChars.MatchString(path) {
+		return fmt.Errorf("path contains forbidden characters: %s", path)
+	}
+	return nil
+}
+
+func validateCapability(cap string) error {
+	// Contains all standard Linux capabilities supported by AppArmor.
+	// They are matched in lowercase, without the "CAP_" prefix.
+	var validCapabilities = map[string]bool{
+		"chown": true, "dac_override": true, "dac_read_search": true,
+		"fowner": true, "fsetid": true, "kill": true, "setgid": true,
+		"setuid": true, "setpcap": true, "linux_immutable": true,
+		"net_bind_service": true, "net_broadcast": true, "net_admin": true,
+		"net_raw": true, "ipc_lock": true, "ipc_owner": true,
+		"sys_module": true, "sys_rawio": true, "sys_chroot": true,
+		"sys_ptrace": true, "sys_pacct": true, "sys_admin": true,
+		"sys_boot": true, "sys_nice": true, "sys_resource": true,
+		"sys_time": true, "sys_tty_config": true, "mknod": true,
+		"lease": true, "audit_write": true, "audit_control": true,
+		"setfcap": true, "mac_override": true, "mac_admin": true,
+		"syslog": true, "wake_alarm": true, "block_suspend": true,
+		"audit_read": true, "perfmon": true, "bpf": true, "checkpoint_restore": true,
+	}
+	normalized := strings.ToLower(strings.TrimSpace(cap))
+	if exists, ok := validCapabilities[normalized]; ok && exists {
+		return nil
+	}
+	return fmt.Errorf("invalid or forbidden capability: %q", cap)
+}
+
+func validateExecutableOrLibrary(path string) error {
+	if path == "" {
+		return nil // skip validation for empty paths
+	}
+	if structuralChars.MatchString(path) {
+		return fmt.Errorf("path contains forbidden characters: %q", path)
+	}
+	if !strictPathRegex.MatchString(path) {
+		return fmt.Errorf("path must be absolute and contain only safe characters: %q", path)
+	}
+	if strings.Contains(path, "/../") || strings.HasPrefix(path, "/..") {
+		return fmt.Errorf("path cannot contain directory traversal: %q", path)
+	}
+	return nil
+}
+
 type apparmorTemplateArgs struct {
 	Name         string
 	ProfileMode  string
 	ComplainMode bool
-	Abstract     *apparmorprofileapi.AppArmorAbstract
 	AllowMount   bool
+	Data         *ApparmorData
 }
 
 // GenerateProfile uses the CRD representation of an abstracted profile to generate a
@@ -120,17 +314,23 @@ func GenerateProfile(
 		abstract.Capability.AllowedCapabilities != nil &&
 		slices.Contains(abstract.Capability.AllowedCapabilities, "sys_rawio"))
 
+	if abstract == nil {
+		return "", errors.New("abstract cannot be nil")
+	}
+
+	// Make sure that the data provided as input is valid and doesn't contain malicious content.
+	data := newApparmorData(name, abstract)
+	if err := data.Validate(); err != nil {
+		return "", fmt.Errorf("validating data injected into apparmor profile: %w", err)
+	}
+
 	complain := mode == apparmorprofileapi.AppArmorModeComplain
 	templateArgs := apparmorTemplateArgs{
 		Name:         name,
+		Data:         data,
 		ProfileMode:  profileMode(mode),
 		ComplainMode: complain,
-		Abstract:     abstract,
 		AllowMount:   allowMount,
-	}
-
-	if abstract == nil {
-		return "", errors.New("abstract cannot be nil")
 	}
 
 	tpl, err := template.New("apparmor").Parse(appArmorTemplate)
